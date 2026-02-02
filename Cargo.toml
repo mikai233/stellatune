@@ -1,0 +1,6 @@
+[workspace]
+resolver = "3"
+members = ["crates/stellatune-core"]
+
+[workspace.package]
+license = "MIT"
