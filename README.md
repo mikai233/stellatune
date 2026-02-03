@@ -43,8 +43,30 @@ A lightweight scripting layer for automation (planned: Lua) may also be added fo
 ### Prerequisites
 - Flutter SDK
 - Rust toolchain (stable)
+- `flutter_rust_bridge_codegen` (`cargo install flutter_rust_bridge_codegen --locked`)
 
-### Run the Flutter app
+### Getting Started (Desktop)
+
+1) Fetch Flutter deps
+
 ```bash
-cd apps/stellatune_app
-flutter run
+cd apps/stellatune
+flutter pub get
+```
+
+2) Generate Flutter <-> Rust bindings (FRB)
+
+```bash
+cd apps/stellatune
+flutter_rust_bridge_codegen generate
+```
+
+3) Run the Flutter app (example: Windows desktop)
+```bash
+cd apps/stellatune
+flutter run -d windows
+```
+
+Notes:
+- Desktop runners (Windows/Linux/macOS) auto-build the Rust library during `flutter run` / `flutter build`.
+- We intentionally do **not** use `flutter_rust_bridge_codegen integrate` (Cargokit build system); we build Rust ourselves and only use FRB for bindings/codegen.

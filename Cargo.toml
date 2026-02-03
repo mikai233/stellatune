@@ -1,6 +1,11 @@
 [workspace]
 resolver = "3"
-members = ["crates/stellatune-core"]
+members = ["crates/stellatune-audio","crates/stellatune-core", "crates/stellatune-decode", "crates/stellatune-dsp", "crates/stellatune-ffi", "crates/stellatune-library", "crates/stellatune-output"]
 
 [workspace.package]
 license = "MIT"
+
+[workspace.lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(frb_expand)'] }
+
+[workspace.dependencies]

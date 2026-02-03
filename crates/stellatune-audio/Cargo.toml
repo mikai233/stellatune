@@ -1,0 +1,14 @@
+[package]
+name = "stellatune-audio"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+
+[dependencies]
+crossbeam-channel = "0.5"
+thiserror = "2"
+
+stellatune-core = { path = "../stellatune-core" }
+stellatune-decode = { path = "../stellatune-decode" }
+stellatune-dsp = { path = "../stellatune-dsp" }
+stellatune-output = { path = "../stellatune-output" }
