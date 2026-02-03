@@ -1,6 +1,6 @@
 # stellatune
 
-A new Flutter project.
+Cross-platform music player built with Flutter (UI) and Rust (core).
 
 ## Getting Started
 

@@ -1,4 +1,4 @@
-# StellaTune(星之调音)
+# StellaTune(星律)
 
 StellaTune is an open-source, cross-platform music player built with **Flutter** (UI) and **Rust** (core).
 
