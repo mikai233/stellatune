@@ -66,65 +66,79 @@ fun cargoCmd(): List<String> {
     return if (isWindows) listOf("cmd", "/c", "cargo") else listOf("cargo")
 }
 
-tasks.register<Exec>("buildRustAndroidSo") {
-    group = "build"
-    description = "Build Rust cdylib (.so) for Android ABIs and copy into isolated jniLibs"
+fun registerRustAndroidBuildTask(taskName: String, isRelease: Boolean) {
+    tasks.register<Exec>(taskName) {
+        group = "build"
+        description = "Build Rust cdylib (.so) for Android ABIs and copy into isolated jniLibs (${if (isRelease) "Release" else "Debug"})"
 
-    workingDir = rustWorkspaceDir
-    outputs.dir(jniLibsOutDir)
+        workingDir = rustWorkspaceDir
+        outputs.dir(jniLibsOutDir)
 
-    // Always run this task; let Cargo handle incremental compilation.
-    outputs.upToDateWhen { false }
+        // Always run this task; let Cargo handle incremental compilation.
+        outputs.upToDateWhen { false }
 
-    doFirst {
-        val requestedAbis = mutableListOf<String>()
-        if (targetPlatform != null) {
-            when (targetPlatform) {
-                "android-arm" -> requestedAbis.add("armeabi-v7a")
-                "android-arm64" -> requestedAbis.add("arm64-v8a")
-                "android-x64" -> requestedAbis.add("x86_64")
-            }
-        }
-
-        if (requestedAbis.isEmpty()) {
-            for (p in flutterPlatforms) {
-                when (p.trim()) {
+        doFirst {
+            val requestedAbis = mutableListOf<String>()
+            if (targetPlatform != null) {
+                when (targetPlatform) {
                     "android-arm" -> requestedAbis.add("armeabi-v7a")
                     "android-arm64" -> requestedAbis.add("arm64-v8a")
                     "android-x64" -> requestedAbis.add("x86_64")
                 }
             }
+
+            if (requestedAbis.isEmpty()) {
+                for (p in flutterPlatforms) {
+                    when (p.trim()) {
+                        "android-arm" -> requestedAbis.add("armeabi-v7a")
+                        "android-arm64" -> requestedAbis.add("arm64-v8a")
+                        "android-x64" -> requestedAbis.add("x86_64")
+                    }
+                }
+            }
+
+            val finalAbis = requestedAbis.ifEmpty {
+                listOf("armeabi-v7a", "arm64-v8a", "x86_64")
+            }
+            val abiArgs = finalAbis.flatMap { listOf("-t", it) }
+
+            logger.lifecycle(
+                "Rust build ($abiSlug) targeting ABIs: $finalAbis -> ${jniLibsOutDir.absolutePath} (${if (isRelease) "release" else "debug"})",
+            )
+
+            if (jniLibsOutDir.exists()) {
+                jniLibsOutDir.deleteRecursively()
+            }
+            jniLibsOutDir.mkdirs()
+
+            val args = mutableListOf<String>()
+            args += cargoCmd()
+            args += listOf("ndk", "--platform", "21")
+            args += abiArgs
+            args += listOf("-o", jniLibsOutDir.absolutePath, "build")
+            if (isRelease) {
+                args += "--release"
+            }
+            args += listOf("-p", rustPackageName)
+
+            commandLine(args)
         }
-
-        val finalAbis = requestedAbis.ifEmpty {
-            listOf("armeabi-v7a", "arm64-v8a", "x86_64")
-        }
-        val abiArgs = finalAbis.flatMap { listOf("-t", it) }
-
-        logger.lifecycle(
-            "Rust build ($abiSlug) targeting ABIs: $finalAbis -> ${jniLibsOutDir.absolutePath}",
-        )
-
-        if (jniLibsOutDir.exists()) {
-            jniLibsOutDir.deleteRecursively()
-        }
-        jniLibsOutDir.mkdirs()
-
-        commandLine(
-            cargoCmd() + listOf(
-                "ndk",
-                "--platform", "21",
-            ) + abiArgs + listOf(
-                "-o", jniLibsOutDir.absolutePath,
-                "build",
-                "--release",
-                "-p", rustPackageName,
-            ),
-        )
     }
 }
 
+registerRustAndroidBuildTask("buildRustAndroidSoDebug", isRelease = false)
+registerRustAndroidBuildTask("buildRustAndroidSoRelease", isRelease = true)
+
 // Ensure Rust is built before Android builds the APK/AAB.
-tasks.named("preBuild") {
-    dependsOn("buildRustAndroidSo")
+// Desired mapping:
+// - Flutter Debug   -> Rust Debug
+// - Flutter Profile -> Rust Release
+// - Flutter Release -> Rust Release
+tasks.matching { it.name == "preDebugBuild" || it.name == "assembleDebug" }.configureEach {
+    dependsOn("buildRustAndroidSoDebug")
+}
+tasks.matching {
+    it.name == "preProfileBuild" || it.name == "assembleProfile" || it.name == "preReleaseBuild" || it.name == "assembleRelease"
+}.configureEach {
+    dependsOn("buildRustAndroidSoRelease")
 }
