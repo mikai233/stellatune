@@ -1,0 +1,13 @@
+{
+  "@@locale": "en",
+  "appTitle": "StellaTune",
+  "openFile": "Open File",
+  "play": "Play",
+  "pause": "Pause",
+  "stop": "Stop",
+  "state": "State",
+  "position": "Position",
+  "track": "Track",
+  "error": "Error",
+  "log": "Log"
+}

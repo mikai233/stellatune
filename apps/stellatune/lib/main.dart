@@ -1,8 +1,12 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:stellatune/bridge/bridge.dart';
+import 'package:stellatune/app/logging.dart';
+import 'package:stellatune/app/providers.dart';
 import 'package:stellatune/platform/rust_runtime.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:stellatune/l10n/app_localizations.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -10,34 +14,37 @@ Future<void> main() async {
   await initRustRuntime();
   final bridge = await PlayerBridge.create();
 
-  runApp(MyApp(bridge: bridge));
+  runApp(
+    ProviderScope(
+      overrides: [playerBridgeProvider.overrideWithValue(bridge)],
+      child: const MyApp(),
+    ),
+  );
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({required this.bridge, super.key});
-
-  final PlayerBridge bridge;
+  const MyApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'StellaTune',
+      onGenerateTitle: (context) => AppLocalizations.of(context)!.appTitle,
       theme: ThemeData(colorSchemeSeed: Colors.indigo, useMaterial3: true),
-      home: PlayerPage(bridge: bridge),
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
+      home: const PlayerPage(),
     );
   }
 }
 
-class PlayerPage extends StatefulWidget {
-  const PlayerPage({required this.bridge, super.key});
-
-  final PlayerBridge bridge;
+class PlayerPage extends ConsumerStatefulWidget {
+  const PlayerPage({super.key});
 
   @override
-  State<PlayerPage> createState() => _PlayerPageState();
+  ConsumerState<PlayerPage> createState() => _PlayerPageState();
 }
 
-class _PlayerPageState extends State<PlayerPage> {
+class _PlayerPageState extends ConsumerState<PlayerPage> {
   StreamSubscription<Event>? _sub;
 
   PlayerState _state = PlayerState.stopped;
@@ -50,13 +57,26 @@ class _PlayerPageState extends State<PlayerPage> {
   void initState() {
     super.initState();
 
-    _sub = widget.bridge.events().listen((event) {
+    final bridge = ref.read(playerBridgeProvider);
+    _sub = bridge.events().listen((event) {
       event.when(
-        stateChanged: (state) => setState(() => _state = state),
+        stateChanged: (state) {
+          ref.read(loggerProvider).d('state = $state');
+          setState(() => _state = state);
+        },
         position: (ms) => setState(() => _positionMs = ms.toString()),
-        trackChanged: (path) => setState(() => _track = path),
-        error: (message) => setState(() => _lastError = message),
-        log: (message) => setState(() => _lastLog = message),
+        trackChanged: (path) {
+          ref.read(loggerProvider).i('track = $path');
+          setState(() => _track = path);
+        },
+        error: (message) {
+          ref.read(loggerProvider).e(message);
+          setState(() => _lastError = message);
+        },
+        log: (message) {
+          ref.read(loggerProvider).d(message);
+          setState(() => _lastLog = message);
+        },
       );
     });
   }
@@ -69,18 +89,21 @@ class _PlayerPageState extends State<PlayerPage> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final bridge = ref.read(playerBridgeProvider);
+
     return Scaffold(
-      appBar: AppBar(title: const Text('StellaTune (Rust audio MVP)')),
+      appBar: AppBar(title: Text(l10n.appTitle)),
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('State: $_state'),
-            Text('Position: ${_positionMs}ms'),
-            Text('Track: $_track'),
-            if (_lastError != null) Text('Error: $_lastError'),
-            if (_lastLog.isNotEmpty) Text('Log: $_lastLog'),
+            Text('${l10n.state}: $_state'),
+            Text('${l10n.position}: ${_positionMs}ms'),
+            Text('${l10n.track}: $_track'),
+            if (_lastError != null) Text('${l10n.error}: $_lastError'),
+            if (_lastLog.isNotEmpty) Text('${l10n.log}: $_lastLog'),
             const SizedBox(height: 16),
             Wrap(
               spacing: 12,
@@ -88,20 +111,14 @@ class _PlayerPageState extends State<PlayerPage> {
               children: [
                 FilledButton.tonal(
                   onPressed: _pickAndLoad,
-                  child: const Text('Open File'),
+                  child: Text(l10n.openFile),
                 ),
-                FilledButton(
-                  onPressed: widget.bridge.play,
-                  child: const Text('Play'),
-                ),
+                FilledButton(onPressed: bridge.play, child: Text(l10n.play)),
                 FilledButton.tonal(
-                  onPressed: widget.bridge.pause,
-                  child: const Text('Pause'),
+                  onPressed: bridge.pause,
+                  child: Text(l10n.pause),
                 ),
-                OutlinedButton(
-                  onPressed: widget.bridge.stop,
-                  child: const Text('Stop'),
-                ),
+                OutlinedButton(onPressed: bridge.stop, child: Text(l10n.stop)),
               ],
             ),
           ],
@@ -124,6 +141,7 @@ class _PlayerPageState extends State<PlayerPage> {
       _lastLog = '';
     });
 
-    await widget.bridge.load(path);
+    final bridge = ref.read(playerBridgeProvider);
+    await bridge.load(path);
   }
 }

@@ -1,10 +1,25 @@
+use std::sync::OnceLock;
 use std::thread;
 
 use crate::frb_generated::{RustOpaque, StreamSink};
 use anyhow::Result;
+use tracing_subscriber::EnvFilter;
 
 use stellatune_audio::start_engine;
 use stellatune_core::{Command, Event};
+
+fn init_tracing() {
+    static INIT: OnceLock<()> = OnceLock::new();
+    INIT.get_or_init(|| {
+        let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+        tracing_subscriber::fmt()
+            .with_env_filter(filter)
+            .with_target(false)
+            .with_thread_names(true)
+            .with_thread_ids(true)
+            .init();
+    });
+}
 
 pub struct Player {
     engine: stellatune_audio::EngineHandle,
@@ -12,6 +27,8 @@ pub struct Player {
 
 impl Player {
     fn new() -> Self {
+        init_tracing();
+        tracing::info!("creating player");
         Self {
             engine: start_engine(),
         }

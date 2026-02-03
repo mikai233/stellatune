@@ -8,6 +8,7 @@ use crossbeam_channel::{Receiver, Sender};
 use stellatune_core::{Command, Event, PlayerState};
 use stellatune_decode::{Decoder, TrackSpec};
 use stellatune_output::{OutputError, OutputHandle, default_output_spec};
+use tracing::{info, warn};
 
 use crate::ring_buffer::{RingBufferProducer, new_ring_buffer};
 
@@ -89,6 +90,7 @@ fn run_control_loop(
     internal_tx: Sender<InternalMsg>,
     events: Arc<EventHub>,
 ) {
+    info!("control thread started");
     let mut state = EngineState::new();
 
     loop {
@@ -110,6 +112,7 @@ fn run_control_loop(
     events.emit(Event::Log {
         message: "control thread exited".to_string(),
     });
+    info!("control thread exited");
 }
 
 fn handle_internal(msg: InternalMsg, state: &mut EngineState, events: &Arc<EventHub>) {
@@ -216,6 +219,7 @@ fn stop_session(state: &mut EngineState, events: &Arc<EventHub>) {
     events.emit(Event::Log {
         message: "session stopped".to_string(),
     });
+    info!("session stopped");
 }
 
 fn start_session(
@@ -223,6 +227,7 @@ fn start_session(
     events: Arc<EventHub>,
     internal_tx: Sender<InternalMsg>,
 ) -> Result<PlaybackSession, String> {
+    info!("starting session");
     let (ctrl_tx, ctrl_rx) = crossbeam_channel::unbounded();
     let (setup_tx, setup_rx) = crossbeam_channel::bounded::<DecodeCtrl>(1);
     let (spec_tx, spec_rx) = crossbeam_channel::bounded::<Result<TrackSpec, String>>(1);
@@ -253,6 +258,7 @@ fn start_session(
 
     let out_spec = default_output_spec().map_err(|e| e.to_string())?;
     if out_spec.channels != 2 {
+        warn!("unsupported output channels: {}", out_spec.channels);
         return Err(format!(
             "output channels = {}, only stereo is supported",
             out_spec.channels

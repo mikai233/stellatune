@@ -1,0 +1,13 @@
+{
+  "@@locale": "zh",
+  "appTitle": "StellaTune",
+  "openFile": "打开文件",
+  "play": "播放",
+  "pause": "暂停",
+  "stop": "停止",
+  "state": "状态",
+  "position": "进度",
+  "track": "曲目",
+  "error": "错误",
+  "log": "日志"
+}

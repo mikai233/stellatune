@@ -35,3 +35,5 @@ cpal = "0.17.1"
 symphonia = { version = "0.5.5", default-features = false, features = ["mp3", "flac", "wav"] }
 rubato = "1.0.1"
 audioadapter-buffers = "2.0.0"
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }

@@ -10,6 +10,7 @@ ringbuf.workspace = true
 thiserror.workspace = true
 rubato.workspace = true
 audioadapter-buffers.workspace = true
+tracing.workspace = true
 
 stellatune-core.workspace = true
 stellatune-decode.workspace = true
