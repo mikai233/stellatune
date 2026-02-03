@@ -52,6 +52,13 @@ pub enum LibraryCommand {
     RemoveRoot {
         path: String,
     },
+    DeleteFolder {
+        path: String,
+    },
+    RestoreFolder {
+        path: String,
+    },
+    ListExcludedFolders,
     ListRoots,
     ListFolders,
     ListTracks {
@@ -79,6 +86,10 @@ pub enum LibraryEvent {
     Folders {
         paths: Vec<String>,
     },
+    ExcludedFolders {
+        paths: Vec<String>,
+    },
+    Changed,
     Tracks {
         folder: String,
         recursive: bool,

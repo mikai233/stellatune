@@ -1,0 +1,4 @@
+CREATE TABLE IF NOT EXISTS excluded_folders (
+  id INTEGER PRIMARY KEY,
+  path TEXT NOT NULL UNIQUE
+);

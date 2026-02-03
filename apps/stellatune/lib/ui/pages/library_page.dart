@@ -17,6 +17,10 @@ class LibraryPage extends ConsumerStatefulWidget {
 
 class _LibraryPageState extends ConsumerState<LibraryPage> {
   final _searchController = TextEditingController();
+  bool _foldersPaneCollapsed = false;
+  double _foldersPaneWidth = 280;
+  bool _isResizingFoldersPane = false;
+  bool _foldersEditMode = false;
 
   @override
   void dispose() {
@@ -28,6 +32,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
+    const minFoldersWidth = 220.0;
 
     // Avoid rebuilding the whole page on unrelated state changes.
     final roots = ref.watch(libraryControllerProvider.select((s) => s.roots));
@@ -36,6 +41,9 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
     );
     final selectedFolder = ref.watch(
       libraryControllerProvider.select((s) => s.selectedFolder),
+    );
+    final excludedFolders = ref.watch(
+      libraryControllerProvider.select((s) => s.excludedFolders),
     );
     final includeSubfolders = ref.watch(
       libraryControllerProvider.select((s) => s.includeSubfolders),
@@ -61,6 +69,19 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
 
     return Scaffold(
       appBar: AppBar(
+        automaticallyImplyLeading: false,
+        leading: IconButton(
+          tooltip: _foldersPaneCollapsed ? l10n.expand : l10n.collapse,
+          icon: Icon(
+            _foldersPaneCollapsed ? Icons.chevron_right : Icons.chevron_left,
+          ),
+          onPressed: () => setState(() {
+            _foldersPaneCollapsed = !_foldersPaneCollapsed;
+            if (!_foldersPaneCollapsed && _foldersPaneWidth <= 0) {
+              _foldersPaneWidth = minFoldersWidth;
+            }
+          }),
+        ),
         title: Text(l10n.libraryTitle),
         actions: [
           IconButton(
@@ -79,123 +100,239 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
       ),
       body: Padding(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-        child: Row(
-          children: [
-            SizedBox(
-              width: 280,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _RootsRow(
-                    roots: roots,
-                    onRemove: (p) => ref
-                        .read(libraryControllerProvider.notifier)
-                        .removeRoot(p),
-                  ),
-                  const SizedBox(height: 12),
-                  Expanded(
-                    child: FolderTree(
-                      roots: roots,
-                      folders: folders,
-                      selectedFolder: selectedFolder,
-                      onSelectAll: () => ref
-                          .read(libraryControllerProvider.notifier)
-                          .selectAllMusic(),
-                      onSelectFolder: (p) => ref
-                          .read(libraryControllerProvider.notifier)
-                          .selectFolder(p),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const VerticalDivider(width: 24),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  TextField(
-                    controller: _searchController,
-                    decoration: InputDecoration(
-                      prefixIcon: const Icon(Icons.search),
-                      hintText: l10n.searchHint,
-                      border: const OutlineInputBorder(),
-                    ),
-                    onChanged: (q) => ref
-                        .read(libraryControllerProvider.notifier)
-                        .setQuery(q),
-                  ),
-                  const SizedBox(height: 12),
-                  if (selectedFolder.isNotEmpty)
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            selectedFolder,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.titleSmall,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            const dividerWidthExpanded = 24.0;
+            const minContentWidth = 360.0;
+            final maxFoldersWidth =
+                (constraints.maxWidth - dividerWidthExpanded - minContentWidth)
+                    .clamp(0.0, 520.0)
+                    .toDouble();
+
+            final showFoldersPane =
+                !_foldersPaneCollapsed && maxFoldersWidth > 0.0;
+            final foldersWidth = showFoldersPane
+                ? _foldersPaneWidth.clamp(0.0, maxFoldersWidth).toDouble()
+                : 0.0;
+            final dividerWidth = showFoldersPane ? dividerWidthExpanded : 0.0;
+
+            return Row(
+              children: [
+                AnimatedContainer(
+                  width: foldersWidth,
+                  duration: _isResizingFoldersPane
+                      ? Duration.zero
+                      : const Duration(milliseconds: 180),
+                  curve: Curves.easeInOut,
+                  child: showFoldersPane
+                      ? ClipRect(
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                SizedBox(
+                                  height: 44,
+                                  child: LayoutBuilder(
+                                    builder: (context, constraints) {
+                                      const buttonExtent = 40.0;
+                                      final showButton =
+                                          constraints.maxWidth >= buttonExtent;
+
+                                      return Row(
+                                        children: [
+                                          const Spacer(),
+                                          if (showButton)
+                                            IconButton(
+                                              constraints:
+                                                  const BoxConstraints.tightFor(
+                                                    width: buttonExtent,
+                                                    height: buttonExtent,
+                                                  ),
+                                              padding: EdgeInsets.zero,
+                                              visualDensity:
+                                                  VisualDensity.compact,
+                                              icon: Icon(
+                                                _foldersEditMode
+                                                    ? Icons.check
+                                                    : Icons.edit_outlined,
+                                              ),
+                                              onPressed: () => setState(() {
+                                                _foldersEditMode =
+                                                    !_foldersEditMode;
+                                              }),
+                                            ),
+                                        ],
+                                      );
+                                    },
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Expanded(
+                                  child: FolderTree(
+                                    roots: roots,
+                                    folders: folders,
+                                    excludedFolders: excludedFolders,
+                                    selectedFolder: selectedFolder,
+                                    isEditing: _foldersEditMode,
+                                    onDeleteFolder: (p) => ref
+                                        .read(
+                                          libraryControllerProvider.notifier,
+                                        )
+                                        .deleteFolder(p),
+                                    onRestoreFolder: (p) => ref
+                                        .read(
+                                          libraryControllerProvider.notifier,
+                                        )
+                                        .restoreFolder(p),
+                                    onSelectAll: () => ref
+                                        .read(
+                                          libraryControllerProvider.notifier,
+                                        )
+                                        .selectAllMusic(),
+                                    onSelectFolder: (p) => ref
+                                        .read(
+                                          libraryControllerProvider.notifier,
+                                        )
+                                        .selectFolder(p),
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
+                        )
+                      : const SizedBox.shrink(),
+                ),
+                AnimatedContainer(
+                  width: dividerWidth,
+                  duration: _isResizingFoldersPane
+                      ? Duration.zero
+                      : const Duration(milliseconds: 180),
+                  curve: Curves.easeInOut,
+                  child: MouseRegion(
+                    cursor: SystemMouseCursors.resizeColumn,
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onHorizontalDragStart: (_) => setState(() {
+                        _isResizingFoldersPane = true;
+                        _foldersPaneCollapsed = false;
+                        if (_foldersPaneWidth <= 0) {
+                          _foldersPaneWidth = minFoldersWidth;
+                        }
+                      }),
+                      onHorizontalDragUpdate: (details) => setState(() {
+                        _foldersPaneCollapsed = false;
+                        _foldersPaneWidth =
+                            (_foldersPaneWidth + details.delta.dx)
+                                .clamp(0.0, maxFoldersWidth)
+                                .toDouble();
+                        if (_foldersPaneWidth < minFoldersWidth) {
+                          _foldersPaneWidth = minFoldersWidth;
+                        }
+                      }),
+                      onHorizontalDragEnd: (_) => setState(() {
+                        _isResizingFoldersPane = false;
+                        _foldersPaneWidth = _foldersPaneWidth.clamp(
+                          0.0,
+                          maxFoldersWidth,
+                        );
+                      }),
+                      child: dividerWidth > 0
+                          ? const VerticalDivider(width: dividerWidthExpanded)
+                          : const SizedBox.shrink(),
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      TextField(
+                        controller: _searchController,
+                        decoration: InputDecoration(
+                          prefixIcon: const Icon(Icons.search),
+                          hintText: l10n.searchHint,
+                          border: const OutlineInputBorder(),
                         ),
-                        if (hasSubfolders) ...[
-                          const SizedBox(width: 12),
-                          Row(
-                            children: [
-                              Text(l10n.includeSubfolders),
-                              const SizedBox(width: 8),
-                              Switch(
-                                value: includeSubfolders,
-                                onChanged: (_) => ref
-                                    .read(libraryControllerProvider.notifier)
-                                    .toggleIncludeSubfolders(),
+                        onChanged: (q) => ref
+                            .read(libraryControllerProvider.notifier)
+                            .setQuery(q),
+                      ),
+                      const SizedBox(height: 12),
+                      if (selectedFolder.isNotEmpty)
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                selectedFolder,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.titleSmall,
+                              ),
+                            ),
+                            if (hasSubfolders) ...[
+                              const SizedBox(width: 12),
+                              Row(
+                                children: [
+                                  Text(l10n.includeSubfolders),
+                                  const SizedBox(width: 8),
+                                  Switch(
+                                    value: includeSubfolders,
+                                    onChanged: (_) => ref
+                                        .read(
+                                          libraryControllerProvider.notifier,
+                                        )
+                                        .toggleIncludeSubfolders(),
+                                  ),
+                                ],
                               ),
                             ],
+                          ],
+                        ),
+                      if (selectedFolder.isNotEmpty) const SizedBox(height: 12),
+                      if (isScanning || lastFinishedMs != null)
+                        _ScanStatusCard(
+                          isScanning: isScanning,
+                          scanned: progress.scanned,
+                          updated: progress.updated,
+                          skipped: progress.skipped,
+                          errors: progress.errors,
+                          durationMs: lastFinishedMs,
+                        ),
+                      if (lastError != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Text(
+                            lastError,
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: theme.colorScheme.error,
+                            ),
                           ),
-                        ],
-                      ],
-                    ),
-                  if (selectedFolder.isNotEmpty) const SizedBox(height: 12),
-                  if (isScanning || lastFinishedMs != null)
-                    _ScanStatusCard(
-                      isScanning: isScanning,
-                      scanned: progress.scanned,
-                      updated: progress.updated,
-                      skipped: progress.skipped,
-                      errors: progress.errors,
-                      durationMs: lastFinishedMs,
-                    ),
-                  if (lastError != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 8),
-                      child: Text(
-                        lastError,
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: theme.colorScheme.error,
+                        ),
+                      const SizedBox(height: 12),
+                      Expanded(
+                        child: TrackList(
+                          coverDir: ref.watch(coverDirProvider),
+                          items: results,
+                          onActivate: (index, items) async {
+                            final paths = items.map((t) => t.path).toList();
+                            await ref
+                                .read(playbackControllerProvider.notifier)
+                                .setQueueAndPlay(paths, startIndex: index);
+                          },
+                          onEnqueue: (track) async {
+                            await ref
+                                .read(playbackControllerProvider.notifier)
+                                .enqueue([track.path]);
+                          },
                         ),
                       ),
-                    ),
-                  const SizedBox(height: 12),
-                  Expanded(
-                    child: TrackList(
-                      coverDir: ref.watch(coverDirProvider),
-                      items: results,
-                      onActivate: (index, items) async {
-                        final paths = items.map((t) => t.path).toList();
-                        await ref
-                            .read(playbackControllerProvider.notifier)
-                            .setQueueAndPlay(paths, startIndex: index);
-                      },
-                      onEnqueue: (track) async {
-                        await ref
-                            .read(playbackControllerProvider.notifier)
-                            .enqueue([track.path]);
-                      },
-                    ),
+                    ],
                   ),
-                ],
-              ),
-            ),
-          ],
+                ),
+              ],
+            );
+          },
         ),
       ),
     );
@@ -210,33 +347,6 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
     await ref
         .read(libraryControllerProvider.notifier)
         .addRoot(dir, scanAfter: true);
-  }
-}
-
-class _RootsRow extends StatelessWidget {
-  const _RootsRow({required this.roots, required this.onRemove});
-
-  final List<String> roots;
-  final void Function(String path) onRemove;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    if (roots.isEmpty) {
-      return Text(l10n.noFoldersHint);
-    }
-
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: [
-        for (final r in roots)
-          InputChip(
-            label: Text(r, overflow: TextOverflow.ellipsis),
-            onDeleted: () => onRemove(r),
-          ),
-      ],
-    );
   }
 }
 

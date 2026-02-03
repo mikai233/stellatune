@@ -46,6 +46,27 @@ Future<void> libraryRemoveRoot({
   path: path,
 );
 
+Future<void> libraryDeleteFolder({
+  required Library library_,
+  required String path,
+}) => StellatuneApi.instance.api.crateApiLibraryDeleteFolder(
+  library_: library_,
+  path: path,
+);
+
+Future<void> libraryRestoreFolder({
+  required Library library_,
+  required String path,
+}) => StellatuneApi.instance.api.crateApiLibraryRestoreFolder(
+  library_: library_,
+  path: path,
+);
+
+Future<void> libraryListExcludedFolders({required Library library_}) =>
+    StellatuneApi.instance.api.crateApiLibraryListExcludedFolders(
+      library_: library_,
+    );
+
 Future<void> libraryScanAll({required Library library_}) =>
     StellatuneApi.instance.api.crateApiLibraryScanAll(library_: library_);
 

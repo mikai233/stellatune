@@ -41,6 +41,7 @@ class LibraryController extends Notifier<LibraryState> {
     Future.microtask(() {
       unawaited(bridge.listRoots());
       unawaited(bridge.listFolders());
+      unawaited(bridge.listExcludedFolders());
       unawaited(_refreshTracks());
     });
 
@@ -108,6 +109,29 @@ class LibraryController extends Notifier<LibraryState> {
     unawaited(_refreshTracks());
   }
 
+  Future<void> deleteFolder(String folder) async {
+    final norm = _normalizePath(folder);
+    if (norm.isEmpty) return;
+
+    // If the current selection is removed, fall back to "All music".
+    if (state.selectedFolder == norm ||
+        state.selectedFolder.startsWith('$norm/')) {
+      state = state.copyWith(
+        selectedFolder: '',
+        includeSubfolders: false,
+        lastError: null,
+      );
+    }
+
+    await ref.read(libraryBridgeProvider).deleteFolder(norm);
+  }
+
+  Future<void> restoreFolder(String folder) async {
+    final norm = _normalizePath(folder);
+    if (norm.isEmpty) return;
+    await ref.read(libraryBridgeProvider).restoreFolder(norm);
+  }
+
   void setQuery(String query) {
     final q = query.trim();
     state = state.copyWith(query: q, lastError: null);
@@ -137,6 +161,17 @@ class LibraryController extends Notifier<LibraryState> {
       },
       folders: (paths) {
         state = state.copyWith(folders: paths.map(_normalizePath).toList());
+      },
+      excludedFolders: (paths) {
+        state = state.copyWith(
+          excludedFolders: paths.map(_normalizePath).toList(),
+        );
+      },
+      changed: () {
+        unawaited(ref.read(libraryBridgeProvider).listRoots());
+        unawaited(ref.read(libraryBridgeProvider).listFolders());
+        unawaited(ref.read(libraryBridgeProvider).listExcludedFolders());
+        unawaited(_refreshTracks());
       },
       tracks: (folder, recursive, query, items) {
         final folderN = _normalizePath(folder);

@@ -27,6 +27,7 @@ class LibraryState {
   const LibraryState({
     required this.roots,
     required this.folders,
+    required this.excludedFolders,
     required this.selectedFolder,
     required this.includeSubfolders,
     required this.query,
@@ -41,6 +42,7 @@ class LibraryState {
   const LibraryState.initial()
     : roots = const [],
       folders = const [],
+      excludedFolders = const [],
       selectedFolder = '',
       includeSubfolders = false,
       query = '',
@@ -53,6 +55,7 @@ class LibraryState {
 
   final List<String> roots;
   final List<String> folders;
+  final List<String> excludedFolders;
 
   /// Normalized folder path. Empty string means "All music".
   final String selectedFolder;
@@ -68,6 +71,7 @@ class LibraryState {
   LibraryState copyWith({
     List<String>? roots,
     List<String>? folders,
+    List<String>? excludedFolders,
     String? selectedFolder,
     bool? includeSubfolders,
     String? query,
@@ -81,6 +85,7 @@ class LibraryState {
     return LibraryState(
       roots: roots ?? this.roots,
       folders: folders ?? this.folders,
+      excludedFolders: excludedFolders ?? this.excludedFolders,
       selectedFolder: selectedFolder ?? this.selectedFolder,
       includeSubfolders: includeSubfolders ?? this.includeSubfolders,
       query: query ?? this.query,

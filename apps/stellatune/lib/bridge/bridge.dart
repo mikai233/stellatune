@@ -45,6 +45,15 @@ class LibraryBridge {
   Future<void> removeRoot(String path) =>
       api.libraryRemoveRoot(library_: library, path: path);
 
+  Future<void> deleteFolder(String path) =>
+      api.libraryDeleteFolder(library_: library, path: path);
+
+  Future<void> restoreFolder(String path) =>
+      api.libraryRestoreFolder(library_: library, path: path);
+
+  Future<void> listExcludedFolders() =>
+      api.libraryListExcludedFolders(library_: library);
+
   Future<void> scanAll() => api.libraryScanAll(library_: library);
 
   Future<void> listRoots() => api.libraryListRoots(library_: library);

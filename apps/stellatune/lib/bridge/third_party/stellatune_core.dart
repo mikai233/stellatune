@@ -33,6 +33,9 @@ sealed class LibraryEvent with _$LibraryEvent {
       LibraryEvent_Roots;
   const factory LibraryEvent.folders({required List<String> paths}) =
       LibraryEvent_Folders;
+  const factory LibraryEvent.excludedFolders({required List<String> paths}) =
+      LibraryEvent_ExcludedFolders;
+  const factory LibraryEvent.changed() = LibraryEvent_Changed;
   const factory LibraryEvent.tracks({
     required String folder,
     required bool recursive,

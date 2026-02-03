@@ -115,6 +115,24 @@ pub fn library_remove_root(library: RustOpaque<Library>, path: String) {
         .send_command(LibraryCommand::RemoveRoot { path });
 }
 
+pub fn library_delete_folder(library: RustOpaque<Library>, path: String) {
+    library
+        .handle
+        .send_command(LibraryCommand::DeleteFolder { path });
+}
+
+pub fn library_restore_folder(library: RustOpaque<Library>, path: String) {
+    library
+        .handle
+        .send_command(LibraryCommand::RestoreFolder { path });
+}
+
+pub fn library_list_excluded_folders(library: RustOpaque<Library>) {
+    library
+        .handle
+        .send_command(LibraryCommand::ListExcludedFolders);
+}
+
 pub fn library_scan_all(library: RustOpaque<Library>) {
     library.handle.send_command(LibraryCommand::ScanAll);
 }
