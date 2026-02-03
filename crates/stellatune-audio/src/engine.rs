@@ -48,6 +48,7 @@ enum DecodeCtrl {
     Setup {
         producer: RingBufferProducer<f32>,
         target_sample_rate: u32,
+        target_channels: u16,
     },
     Play,
     Pause,
@@ -257,10 +258,10 @@ fn start_session(
     };
 
     let out_spec = default_output_spec().map_err(|e| e.to_string())?;
-    if out_spec.channels != 2 {
+    if out_spec.channels != 1 && out_spec.channels != 2 {
         warn!("unsupported output channels: {}", out_spec.channels);
         return Err(format!(
-            "output channels = {}, only stereo is supported",
+            "output channels = {}, only mono/stereo is supported",
             out_spec.channels
         ));
     }
@@ -284,6 +285,7 @@ fn start_session(
         .send(DecodeCtrl::Setup {
             producer,
             target_sample_rate: out_spec.sample_rate,
+            target_channels: out_spec.channels,
         })
         .map_err(|_| "decoder thread exited unexpectedly".to_string())?;
 
@@ -328,12 +330,12 @@ fn decode_thread(
     let spec = decoder.spec();
     let _ = spec_tx.send(Ok(spec));
 
-    let (mut producer, target_sample_rate) = loop {
+    let (mut producer, target_sample_rate, target_channels) = loop {
         crossbeam_channel::select! {
             recv(setup_rx) -> msg => {
                 let Ok(ctrl) = msg else { return };
-                if let DecodeCtrl::Setup { producer, target_sample_rate } = ctrl {
-                    break (producer, target_sample_rate);
+                if let DecodeCtrl::Setup { producer, target_sample_rate, target_channels } = ctrl {
+                    break (producer, target_sample_rate, target_channels);
                 }
             }
             recv(ctrl_rx) -> msg => {
@@ -345,13 +347,17 @@ fn decode_thread(
         }
     };
 
-    let mut resampler = match create_resampler_if_needed(spec.sample_rate, target_sample_rate) {
-        Ok(r) => r,
-        Err(e) => {
-            let _ = internal_tx.send(InternalMsg::Error(e));
-            return;
-        }
-    };
+    let in_channels = spec.channels as usize;
+    let out_channels = target_channels as usize;
+
+    let mut resampler =
+        match create_resampler_if_needed(spec.sample_rate, target_sample_rate, out_channels) {
+            Ok(r) => r,
+            Err(e) => {
+                let _ = internal_tx.send(InternalMsg::Error(e));
+                return;
+            }
+        };
 
     let mut playing = false;
     let mut frames_written: u64 = 0;
@@ -398,10 +404,22 @@ fn decode_thread(
             Ok(Some(samples)) => {
                 decode_pending.extend_from_slice(&samples);
                 if resampler.is_none() {
+                    // Channel adaptation only.
+                    if in_channels == out_channels {
+                        out_pending.extend_from_slice(&decode_pending);
+                    } else {
+                        out_pending.extend_from_slice(&adapt_channels_interleaved(
+                            &decode_pending,
+                            in_channels,
+                            out_channels,
+                        ));
+                    }
+                    decode_pending.clear();
                     if write_pending(
                         &mut producer,
-                        &mut decode_pending,
+                        &mut out_pending,
                         &mut frames_written,
+                        out_channels,
                         &ctrl_rx,
                         &mut playing,
                     ) {
@@ -410,23 +428,34 @@ fn decode_thread(
                     continue;
                 }
 
-                while decode_pending.len() >= RESAMPLE_CHUNK_FRAMES * 2 {
-                    let chunk: Vec<f32> =
-                        decode_pending.drain(..RESAMPLE_CHUNK_FRAMES * 2).collect();
-                    let processed =
-                        match resample_stereo_chunk(resampler.as_mut().expect("checked"), &chunk) {
-                            Ok(v) => v,
-                            Err(e) => {
-                                let _ = internal_tx.send(InternalMsg::Error(e));
-                                return;
-                            }
-                        };
+                while decode_pending.len() >= RESAMPLE_CHUNK_FRAMES * in_channels {
+                    let chunk_in: Vec<f32> = decode_pending
+                        .drain(..RESAMPLE_CHUNK_FRAMES * in_channels)
+                        .collect();
+                    let chunk = if in_channels == out_channels {
+                        chunk_in
+                    } else {
+                        adapt_channels_interleaved(&chunk_in, in_channels, out_channels)
+                    };
+
+                    let processed = match resample_interleaved_chunk(
+                        resampler.as_mut().expect("checked"),
+                        &chunk,
+                        out_channels,
+                    ) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            let _ = internal_tx.send(InternalMsg::Error(e));
+                            return;
+                        }
+                    };
                     out_pending.extend_from_slice(&processed);
 
                     if write_pending(
                         &mut producer,
                         &mut out_pending,
                         &mut frames_written,
+                        out_channels,
                         &ctrl_rx,
                         &mut playing,
                     ) {
@@ -440,8 +469,13 @@ fn decode_thread(
             Ok(None) => {
                 if let Some(resampler) = resampler.as_mut() {
                     if !decode_pending.is_empty() {
-                        decode_pending.resize(RESAMPLE_CHUNK_FRAMES * 2, 0.0);
-                        match resample_stereo_chunk(resampler, &decode_pending) {
+                        decode_pending.resize(RESAMPLE_CHUNK_FRAMES * in_channels, 0.0);
+                        let chunk = if in_channels == out_channels {
+                            decode_pending.clone()
+                        } else {
+                            adapt_channels_interleaved(&decode_pending, in_channels, out_channels)
+                        };
+                        match resample_interleaved_chunk(resampler, &chunk, out_channels) {
                             Ok(processed) => {
                                 out_pending.extend_from_slice(&processed);
                                 decode_pending.clear();
@@ -457,6 +491,7 @@ fn decode_thread(
                             &mut producer,
                             &mut out_pending,
                             &mut frames_written,
+                            out_channels,
                             &ctrl_rx,
                             &mut playing,
                         ) {
@@ -467,11 +502,22 @@ fn decode_thread(
                         }
                     }
                 } else if !decode_pending.is_empty() {
-                    while !decode_pending.is_empty() {
+                    if in_channels == out_channels {
+                        out_pending.extend_from_slice(&decode_pending);
+                    } else {
+                        out_pending.extend_from_slice(&adapt_channels_interleaved(
+                            &decode_pending,
+                            in_channels,
+                            out_channels,
+                        ));
+                    }
+                    decode_pending.clear();
+                    while !out_pending.is_empty() {
                         if write_pending(
                             &mut producer,
-                            &mut decode_pending,
+                            &mut out_pending,
                             &mut frames_written,
+                            out_channels,
                             &ctrl_rx,
                             &mut playing,
                         ) {
@@ -497,6 +543,7 @@ fn write_pending(
     producer: &mut RingBufferProducer<f32>,
     pending: &mut Vec<f32>,
     frames_written: &mut u64,
+    channels_per_frame: usize,
     ctrl_rx: &Receiver<DecodeCtrl>,
     playing: &mut bool,
 ) -> bool {
@@ -519,7 +566,7 @@ fn write_pending(
 
         let written = producer.push_slice(&pending[offset..]);
         offset += written;
-        *frames_written = (*frames_written).saturating_add((written / 2) as u64);
+        *frames_written = (*frames_written).saturating_add((written / channels_per_frame) as u64);
         if written == 0 {
             thread::sleep(Duration::from_millis(2));
         }
@@ -537,6 +584,7 @@ const RESAMPLE_CHUNK_FRAMES: usize = 1024;
 fn create_resampler_if_needed(
     src_rate: u32,
     dst_rate: u32,
+    channels: usize,
 ) -> Result<Option<rubato::Async<f32>>, String> {
     if src_rate == dst_rate {
         return Ok(None);
@@ -560,22 +608,23 @@ fn create_resampler_if_needed(
         2.0,
         &params,
         RESAMPLE_CHUNK_FRAMES,
-        2,
+        channels,
         FixedAsync::Input,
     )
     .map_err(|e| format!("failed to create resampler: {e}"))?;
     Ok(Some(resampler))
 }
 
-fn resample_stereo_chunk(
+fn resample_interleaved_chunk(
     resampler: &mut rubato::Async<f32>,
     chunk_interleaved: &[f32],
+    channels: usize,
 ) -> Result<Vec<f32>, String> {
     use audioadapter_buffers::direct::InterleavedSlice;
     use rubato::Resampler;
 
-    let frames = chunk_interleaved.len() / 2;
-    let input = InterleavedSlice::new(chunk_interleaved, 2, frames)
+    let frames = chunk_interleaved.len() / channels;
+    let input = InterleavedSlice::new(chunk_interleaved, channels, frames)
         .map_err(|e| format!("resample input buffer error: {e}"))?;
 
     let out = resampler
@@ -583,6 +632,35 @@ fn resample_stereo_chunk(
         .map_err(|e| format!("resample error: {e}"))?;
 
     Ok(out.take_data())
+}
+
+fn adapt_channels_interleaved(input: &[f32], in_channels: usize, out_channels: usize) -> Vec<f32> {
+    if in_channels == out_channels {
+        return input.to_vec();
+    }
+
+    let frames = input.len() / in_channels;
+    match (in_channels, out_channels) {
+        (1, 2) => {
+            let mut out = Vec::with_capacity(frames * 2);
+            for i in 0..frames {
+                let s = input[i];
+                out.push(s);
+                out.push(s);
+            }
+            out
+        }
+        (2, 1) => {
+            let mut out = Vec::with_capacity(frames);
+            for i in 0..frames {
+                let l = input[i * 2];
+                let r = input[i * 2 + 1];
+                out.push((l + r) * 0.5);
+            }
+            out
+        }
+        _ => input.to_vec(),
+    }
 }
 
 struct EventHub {

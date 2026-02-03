@@ -22,7 +22,7 @@ pub enum DecodeError {
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
 
-    #[error("unsupported channel count: {channels} (only stereo supported)")]
+    #[error("unsupported channel count: {channels} (only mono/stereo supported)")]
     UnsupportedChannels { channels: u16 },
 
     #[error("missing audio track")]
@@ -74,7 +74,7 @@ impl Decoder {
             .map(|c| c.count() as u16)
             .unwrap_or(0);
 
-        if channels != 2 {
+        if channels != 1 && channels != 2 {
             return Err(DecodeError::UnsupportedChannels { channels });
         }
 
