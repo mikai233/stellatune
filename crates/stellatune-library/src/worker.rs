@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use anyhow::{Context, Result};
@@ -10,22 +10,42 @@ use walkdir::WalkDir;
 use stellatune_core::{LibraryCommand, LibraryEvent, TrackLite};
 
 use crate::service::EventHub;
+use symphonia::core::formats::FormatOptions;
+use symphonia::core::io::MediaSourceStream;
+use symphonia::core::meta::{Limit, MetadataOptions, StandardTagKey, StandardVisualKey, Value};
+use symphonia::core::probe::Hint;
+use symphonia::default::get_probe;
 
 pub(crate) struct WorkerDeps {
     pool: SqlitePool,
     events: std::sync::Arc<EventHub>,
+    cover_dir: PathBuf,
 }
 
 impl WorkerDeps {
     pub(crate) async fn new(db_path: &Path, events: std::sync::Arc<EventHub>) -> Result<Self> {
         let pool = init_db(db_path).await?;
-        Ok(Self { pool, events })
+
+        let cover_dir = db_path
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join("covers");
+        std::fs::create_dir_all(&cover_dir).with_context(|| {
+            format!("failed to create cover cache dir: {}", cover_dir.display())
+        })?;
+
+        Ok(Self {
+            pool,
+            events,
+            cover_dir,
+        })
     }
 }
 
 pub(crate) struct LibraryWorker {
     pool: SqlitePool,
     events: std::sync::Arc<EventHub>,
+    cover_dir: PathBuf,
 }
 
 impl LibraryWorker {
@@ -33,6 +53,7 @@ impl LibraryWorker {
         Self {
             pool: deps.pool,
             events: deps.events,
+            cover_dir: deps.cover_dir,
         }
     }
 
@@ -166,29 +187,73 @@ impl LibraryWorker {
                 scanned += 1;
 
                 // Skip unchanged.
-                if let Some((old_mtime, old_size)) =
-                    select_track_mtime_size(&self.pool, &file.path).await?
-                {
-                    if old_mtime == file.mtime_ms && old_size == file.size_bytes {
+                if let Some(old) = select_track_fingerprint(&self.pool, &file.path).await? {
+                    if old.mtime_ms == file.mtime_ms
+                        && old.size_bytes == file.size_bytes
+                        && old.meta_scanned_ms > 0
+                    {
                         skipped += 1;
                         continue;
                     }
                 }
 
-                if let Err(e) = upsert_track(
+                let meta_scanned_ms = now_ms();
+
+                let (title, artist, album, duration_ms, cover) =
+                    match tokio::task::spawn_blocking({
+                        let path = file.path.clone();
+                        move || extract_metadata(Path::new(&path))
+                    })
+                    .await
+                    {
+                        Ok(Ok(m)) => (m.title, m.artist, m.album, m.duration_ms, m.cover),
+                        Ok(Err(e)) => {
+                            errors += 1;
+                            self.events.emit(LibraryEvent::Log {
+                                message: format!("metadata error: {}: {e:#}", file.path),
+                            });
+                            (None, None, None, None, None)
+                        }
+                        Err(join_err) => {
+                            errors += 1;
+                            self.events.emit(LibraryEvent::Log {
+                                message: format!("metadata task failed: {}: {join_err}", file.path),
+                            });
+                            (None, None, None, None, None)
+                        }
+                    };
+
+                let track_id = match upsert_track(
                     &self.pool,
                     &file.path,
                     &file.ext,
                     file.mtime_ms,
                     file.size_bytes,
+                    title.as_deref(),
+                    artist.as_deref(),
+                    album.as_deref(),
+                    duration_ms,
+                    meta_scanned_ms,
                 )
                 .await
                 {
-                    errors += 1;
-                    self.events.emit(LibraryEvent::Log {
-                        message: format!("upsert error: {}: {e}", file.path),
-                    });
-                    continue;
+                    Ok(v) => v,
+                    Err(e) => {
+                        errors += 1;
+                        self.events.emit(LibraryEvent::Log {
+                            message: format!("upsert error: {}: {e}", file.path),
+                        });
+                        continue;
+                    }
+                };
+
+                if let Some(bytes) = cover {
+                    if let Err(e) = write_cover_bytes(&self.cover_dir, track_id, &bytes) {
+                        errors += 1;
+                        self.events.emit(LibraryEvent::Log {
+                            message: format!("cover write error: {}: {e}", file.path),
+                        });
+                    }
                 }
 
                 upserted += 1;
@@ -391,14 +456,31 @@ async fn ensure_fts5(pool: &SqlitePool) -> Result<()> {
     Ok(())
 }
 
-async fn select_track_mtime_size(pool: &SqlitePool, path: &str) -> Result<Option<(i64, i64)>> {
+#[derive(Debug, Clone, Copy)]
+struct TrackFingerprint {
+    mtime_ms: i64,
+    size_bytes: i64,
+    meta_scanned_ms: i64,
+}
+
+async fn select_track_fingerprint(
+    pool: &SqlitePool,
+    path: &str,
+) -> Result<Option<TrackFingerprint>> {
     let row = sqlx::query!(
-        "SELECT mtime_ms, size_bytes FROM tracks WHERE path=?1",
+        "SELECT id, mtime_ms, size_bytes, meta_scanned_ms FROM tracks WHERE path=?1",
         path
     )
     .fetch_optional(pool)
     .await?;
-    Ok(row.map(|r| (r.mtime_ms, r.size_bytes)))
+
+    let Some(r) = row else { return Ok(None) };
+    let _ = r.id.context("tracks.id is null")?;
+    Ok(Some(TrackFingerprint {
+        mtime_ms: r.mtime_ms,
+        size_bytes: r.size_bytes,
+        meta_scanned_ms: r.meta_scanned_ms,
+    }))
 }
 
 async fn upsert_track(
@@ -407,24 +489,44 @@ async fn upsert_track(
     ext: &str,
     mtime_ms: i64,
     size_bytes: i64,
-) -> Result<()> {
+    title: Option<&str>,
+    artist: Option<&str>,
+    album: Option<&str>,
+    duration_ms: Option<i64>,
+    meta_scanned_ms: i64,
+) -> Result<i64> {
     sqlx::query!(
         r#"
-        INSERT INTO tracks(path, ext, mtime_ms, size_bytes)
-        VALUES(?1, ?2, ?3, ?4)
+        INSERT INTO tracks(path, ext, mtime_ms, size_bytes, title, artist, album, duration_ms, meta_scanned_ms)
+        VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
         ON CONFLICT(path) DO UPDATE SET
             ext=excluded.ext,
             mtime_ms=excluded.mtime_ms,
-            size_bytes=excluded.size_bytes
+            size_bytes=excluded.size_bytes,
+            title=COALESCE(excluded.title, title),
+            artist=COALESCE(excluded.artist, artist),
+            album=COALESCE(excluded.album, album),
+            duration_ms=COALESCE(excluded.duration_ms, duration_ms),
+            meta_scanned_ms=excluded.meta_scanned_ms
         "#,
         path,
         ext,
         mtime_ms,
-        size_bytes
+        size_bytes,
+        title,
+        artist,
+        album,
+        duration_ms,
+        meta_scanned_ms
     )
     .execute(pool)
     .await?;
-    Ok(())
+
+    let id: i64 = sqlx::query_scalar!("SELECT id FROM tracks WHERE path=?1", path)
+        .fetch_one(pool)
+        .await?
+        .context("tracks.id is null")?;
+    Ok(id)
 }
 
 struct FileCandidate {
@@ -440,4 +542,147 @@ fn now_ms() -> i64 {
         .ok()
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0)
+}
+
+#[derive(Default)]
+struct ExtractedMetadata {
+    title: Option<String>,
+    artist: Option<String>,
+    album: Option<String>,
+    duration_ms: Option<i64>,
+    cover: Option<Vec<u8>>,
+}
+
+fn extract_metadata(path: &Path) -> Result<ExtractedMetadata> {
+    let mut hint = Hint::new();
+    if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
+        hint.with_extension(ext);
+    }
+
+    let src = std::fs::File::open(path)
+        .with_context(|| format!("failed to open for metadata: {}", path.display()))?;
+    let mss = MediaSourceStream::new(Box::new(src), Default::default());
+
+    // Allow reasonably-sized embedded artwork without blowing up memory usage.
+    let meta_opts = MetadataOptions {
+        limit_visual_bytes: Limit::Maximum(12 * 1024 * 1024),
+        ..Default::default()
+    };
+
+    let mut probed = get_probe()
+        .format(&hint, mss, &FormatOptions::default(), &meta_opts)
+        .context("symphonia probe failed")?;
+
+    let mut out = ExtractedMetadata::default();
+
+    // Metadata read during probing (e.g. ID3 before container instantiation).
+    if let Some(mut m) = probed.metadata.get() {
+        if let Some(rev) = m.skip_to_latest() {
+            apply_revision(rev, &mut out);
+        }
+    }
+
+    // Metadata read from the container itself.
+    {
+        let mut m = probed.format.metadata();
+        if let Some(rev) = m.skip_to_latest() {
+            apply_revision(rev, &mut out);
+        }
+    }
+
+    // Duration estimate from codec params (fast, no decoding).
+    if let Some(track) = probed.format.default_track() {
+        let cp = &track.codec_params;
+        if let (Some(tb), Some(n_frames)) = (cp.time_base, cp.n_frames) {
+            let t = tb.calc_time(n_frames);
+            let ms = (t.seconds as f64 * 1000.0) + (t.frac * 1000.0);
+            out.duration_ms = Some(ms.round() as i64);
+        }
+    }
+
+    Ok(out)
+}
+
+fn apply_revision(rev: &symphonia::core::meta::MetadataRevision, out: &mut ExtractedMetadata) {
+    for tag in rev.tags() {
+        if out.title.is_none() && matches!(tag.std_key, Some(StandardTagKey::TrackTitle)) {
+            out.title = value_to_string(&tag.value);
+            continue;
+        }
+        if out.artist.is_none() && matches!(tag.std_key, Some(StandardTagKey::Artist)) {
+            out.artist = value_to_string(&tag.value);
+            continue;
+        }
+        if out.album.is_none() && matches!(tag.std_key, Some(StandardTagKey::Album)) {
+            out.album = value_to_string(&tag.value);
+            continue;
+        }
+
+        // Fallback for readers that don't assign std_key.
+        if tag.std_key.is_none() {
+            let key = tag.key.trim().to_ascii_lowercase();
+            match key.as_str() {
+                "title" | "tracktitle" => {
+                    if out.title.is_none() {
+                        out.title = value_to_string(&tag.value);
+                    }
+                }
+                "artist" => {
+                    if out.artist.is_none() {
+                        out.artist = value_to_string(&tag.value);
+                    }
+                }
+                "album" => {
+                    if out.album.is_none() {
+                        out.album = value_to_string(&tag.value);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    if out.cover.is_none() {
+        let front = rev
+            .visuals()
+            .iter()
+            .find(|v| v.usage == Some(StandardVisualKey::FrontCover));
+        let any = rev.visuals().first();
+        let chosen = front.or(any);
+        if let Some(v) = chosen {
+            if !v.data.is_empty() {
+                out.cover = Some(v.data.as_ref().to_vec());
+            }
+        }
+    }
+}
+
+fn value_to_string(v: &Value) -> Option<String> {
+    let s = match v {
+        Value::String(s) => s.clone(),
+        _ => v.to_string(),
+    };
+    let s = s.trim().to_string();
+    if s.is_empty() { None } else { Some(s) }
+}
+
+fn write_cover_bytes(cover_dir: &Path, track_id: i64, bytes: &[u8]) -> Result<()> {
+    if bytes.is_empty() {
+        return Ok(());
+    }
+
+    std::fs::create_dir_all(cover_dir)
+        .with_context(|| format!("failed to create cover dir: {}", cover_dir.display()))?;
+
+    let final_path = cover_dir.join(track_id.to_string());
+    let tmp_path = cover_dir.join(format!("{}.tmp", track_id));
+    std::fs::write(&tmp_path, bytes)
+        .with_context(|| format!("failed to write cover temp: {}", tmp_path.display()))?;
+
+    // Best-effort atomic replace.
+    let _ = std::fs::remove_file(&final_path);
+    std::fs::rename(&tmp_path, &final_path)
+        .with_context(|| format!("failed to rename cover: {}", final_path.display()))?;
+
+    Ok(())
 }

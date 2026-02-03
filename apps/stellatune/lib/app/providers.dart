@@ -10,3 +10,7 @@ final libraryBridgeProvider = Provider<LibraryBridge>((ref) {
     'libraryBridgeProvider must be overridden in main()',
   );
 });
+
+final coverDirProvider = Provider<String>((ref) {
+  throw UnimplementedError('coverDirProvider must be overridden in main()');
+});

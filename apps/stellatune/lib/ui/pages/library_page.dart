@@ -1,6 +1,7 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:stellatune/app/providers.dart';
 import 'package:stellatune/library/library_controller.dart';
 import 'package:stellatune/player/playback_controller.dart';
 import 'package:stellatune/ui/widgets/track_list.dart';
@@ -24,7 +25,24 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final library = ref.watch(libraryControllerProvider);
+
+    // Avoid rebuilding the whole page on unrelated state changes.
+    final roots = ref.watch(libraryControllerProvider.select((s) => s.roots));
+    final results = ref.watch(
+      libraryControllerProvider.select((s) => s.results),
+    );
+    final isScanning = ref.watch(
+      libraryControllerProvider.select((s) => s.isScanning),
+    );
+    final progress = ref.watch(
+      libraryControllerProvider.select((s) => s.progress),
+    );
+    final lastFinishedMs = ref.watch(
+      libraryControllerProvider.select((s) => s.lastFinishedMs),
+    );
+    final lastError = ref.watch(
+      libraryControllerProvider.select((s) => s.lastError),
+    );
 
     return Scaffold(
       appBar: AppBar(
@@ -50,7 +68,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _RootsRow(
-              roots: library.roots,
+              roots: roots,
               onRemove: (p) =>
                   ref.read(libraryControllerProvider.notifier).removeRoot(p),
             ),
@@ -66,20 +84,20 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                   ref.read(libraryControllerProvider.notifier).setQuery(q),
             ),
             const SizedBox(height: 12),
-            if (library.isScanning || library.lastFinishedMs != null)
+            if (isScanning || lastFinishedMs != null)
               _ScanStatusCard(
-                isScanning: library.isScanning,
-                scanned: library.progress.scanned,
-                updated: library.progress.updated,
-                skipped: library.progress.skipped,
-                errors: library.progress.errors,
-                durationMs: library.lastFinishedMs,
+                isScanning: isScanning,
+                scanned: progress.scanned,
+                updated: progress.updated,
+                skipped: progress.skipped,
+                errors: progress.errors,
+                durationMs: lastFinishedMs,
               ),
-            if (library.lastError != null)
+            if (lastError != null)
               Padding(
                 padding: const EdgeInsets.only(top: 8),
                 child: Text(
-                  library.lastError!,
+                  lastError,
                   style: theme.textTheme.bodyMedium?.copyWith(
                     color: theme.colorScheme.error,
                   ),
@@ -88,7 +106,8 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
             const SizedBox(height: 12),
             Expanded(
               child: TrackList(
-                items: library.results,
+                coverDir: ref.watch(coverDirProvider),
+                items: results,
                 onActivate: (index, items) async {
                   final paths = items.map((t) => t.path).toList();
                   await ref

@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id, mtime_ms, size_bytes, meta_scanned_ms FROM tracks WHERE path=?1",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "mtime_ms",
+        "ordinal": 1,
+        "type_info": "Integer"
+      },
+      {
+        "name": "size_bytes",
+        "ordinal": 2,
+        "type_info": "Integer"
+      },
+      {
+        "name": "meta_scanned_ms",
+        "ordinal": 3,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "8d4c39d6d1f14fa89d16eb77cd3c89f32017f7f008e70e50cff176a48b6b3ff6"
+}

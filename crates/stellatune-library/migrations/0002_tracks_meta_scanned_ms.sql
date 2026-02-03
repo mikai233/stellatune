@@ -1,0 +1,3 @@
+ALTER TABLE tracks
+ADD COLUMN meta_scanned_ms INTEGER NOT NULL DEFAULT 0;
+
