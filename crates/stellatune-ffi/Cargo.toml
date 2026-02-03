@@ -9,8 +9,8 @@ name = "stellatune_ffi"
 crate-type = ["cdylib", "staticlib", "rlib"]
 
 [dependencies]
-anyhow = "1"
-flutter_rust_bridge = "=2.11.1"
+anyhow.workspace = true
+flutter_rust_bridge.workspace = true
 
-stellatune-audio = { path = "../stellatune-audio" }
-stellatune-core = { path = "../stellatune-core" }
+stellatune-audio.workspace = true
+stellatune-core.workspace = true

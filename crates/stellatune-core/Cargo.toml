@@ -5,5 +5,5 @@ edition = "2024"
 license.workspace = true
 
 [dependencies]
-flutter_rust_bridge = "2"
-serde = { version = "1", features = ["derive"] }
+flutter_rust_bridge.workspace = true
+serde.workspace = true

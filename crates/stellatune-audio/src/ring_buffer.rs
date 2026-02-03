@@ -1,70 +1,60 @@
-use std::collections::VecDeque;
-use std::sync::{Mutex, MutexGuard};
+use ringbuf::traits::{Consumer as _, Observer as _, Producer as _, Split as _};
+use ringbuf::{HeapCons, HeapProd, HeapRb};
 
 /// Ring buffer abstraction used by the future decode -> output pipeline.
 ///
-/// For real-time audio, this should become a lock-free SPSC ring buffer.
-/// The current implementation is a simple, correctness-first placeholder.
-pub trait RingBuffer<T>: Send {
-    fn push_slice(&self, items: &[T]) -> usize
-    where
-        T: Copy;
-
-    fn pop_slice(&self, out: &mut [T]) -> usize
-    where
-        T: Copy;
-
-    fn len(&self) -> usize;
-    fn capacity(&self) -> usize;
+/// This is a single-producer/single-consumer (SPSC) ring buffer, intended for:
+/// - decode thread: writes samples
+/// - audio output callback/thread: reads samples
+///
+/// The producer and consumer handles must be moved to their respective threads.
+pub struct RingBufferProducer<T> {
+    inner: HeapProd<T>,
 }
 
-pub struct MutexRingBuffer<T> {
-    capacity: usize,
-    inner: Mutex<VecDeque<T>>,
+pub struct RingBufferConsumer<T> {
+    inner: HeapCons<T>,
 }
 
-impl<T> MutexRingBuffer<T> {
-    pub fn new(capacity: usize) -> Self {
-        Self {
-            capacity,
-            inner: Mutex::new(VecDeque::with_capacity(capacity)),
-        }
-    }
-
-    fn guard(&self) -> MutexGuard<'_, VecDeque<T>> {
-        self.inner.lock().expect("ring buffer mutex poisoned")
-    }
+pub fn new_ring_buffer<T>(capacity: usize) -> (RingBufferProducer<T>, RingBufferConsumer<T>) {
+    let rb = HeapRb::<T>::new(capacity);
+    let (producer, consumer) = rb.split();
+    (
+        RingBufferProducer { inner: producer },
+        RingBufferConsumer { inner: consumer },
+    )
 }
 
-impl<T: Send> RingBuffer<T> for MutexRingBuffer<T> {
-    fn push_slice(&self, items: &[T]) -> usize
+impl<T> RingBufferProducer<T> {
+    pub fn push_slice(&mut self, items: &[T]) -> usize
     where
         T: Copy,
     {
-        let mut inner = self.guard();
-        let available = self.capacity.saturating_sub(inner.len());
-        let to_write = available.min(items.len());
-        inner.extend(items.iter().copied().take(to_write));
-        to_write
+        self.inner.push_slice(items)
     }
 
-    fn pop_slice(&self, out: &mut [T]) -> usize
+    pub fn len(&self) -> usize {
+        self.inner.occupied_len()
+    }
+
+    pub fn capacity(&self) -> usize {
+        self.inner.capacity().get()
+    }
+}
+
+impl<T> RingBufferConsumer<T> {
+    pub fn pop_slice(&mut self, out: &mut [T]) -> usize
     where
         T: Copy,
     {
-        let mut inner = self.guard();
-        let to_read = inner.len().min(out.len());
-        for slot in out.iter_mut().take(to_read) {
-            *slot = inner.pop_front().expect("len checked");
-        }
-        to_read
+        self.inner.pop_slice(out)
     }
 
-    fn len(&self) -> usize {
-        self.guard().len()
+    pub fn len(&self) -> usize {
+        self.inner.occupied_len()
     }
 
-    fn capacity(&self) -> usize {
-        self.capacity
+    pub fn capacity(&self) -> usize {
+        self.inner.capacity().get()
     }
 }

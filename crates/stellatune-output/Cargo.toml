@@ -5,5 +5,4 @@ edition = "2024"
 license.workspace = true
 
 [dependencies]
-thiserror = "2"
-
+thiserror.workspace = true

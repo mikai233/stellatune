@@ -5,10 +5,11 @@ edition = "2024"
 license.workspace = true
 
 [dependencies]
-crossbeam-channel = "0.5"
-thiserror = "2"
+crossbeam-channel.workspace = true
+ringbuf.workspace = true
+thiserror.workspace = true
 
-stellatune-core = { path = "../stellatune-core" }
-stellatune-decode = { path = "../stellatune-decode" }
-stellatune-dsp = { path = "../stellatune-dsp" }
-stellatune-output = { path = "../stellatune-output" }
+stellatune-core.workspace = true
+stellatune-decode.workspace = true
+stellatune-dsp.workspace = true
+stellatune-output.workspace = true
