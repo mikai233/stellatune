@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        INSERT INTO tracks(path, ext, mtime_ms, size_bytes)\n        VALUES(?1, ?2, ?3, ?4)\n        ON CONFLICT(path) DO UPDATE SET\n            ext=excluded.ext,\n            mtime_ms=excluded.mtime_ms,\n            size_bytes=excluded.size_bytes\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "2b7ff71d4fac808d9642266af8603bf159826aa16252bdc8df5795b63f86d167"
+}

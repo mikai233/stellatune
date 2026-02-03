@@ -7,7 +7,7 @@ import 'frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'third_party/stellatune_core.dart';
 
-// These functions are ignored because they are not marked as `pub`: `init_tracing`, `new`
+// These functions are ignored because they are not marked as `pub`: `init_tracing`, `new`, `new`
 
 Future<Player> createPlayer() =>
     StellatuneApi.instance.api.crateApiCreatePlayer();
@@ -26,6 +26,46 @@ Future<void> stop({required Player player}) =>
 
 Stream<Event> events({required Player player}) =>
     StellatuneApi.instance.api.crateApiEvents(player: player);
+
+Future<Library> createLibrary({required String dbPath}) =>
+    StellatuneApi.instance.api.crateApiCreateLibrary(dbPath: dbPath);
+
+Future<void> libraryAddRoot({
+  required Library library_,
+  required String path,
+}) => StellatuneApi.instance.api.crateApiLibraryAddRoot(
+  library_: library_,
+  path: path,
+);
+
+Future<void> libraryRemoveRoot({
+  required Library library_,
+  required String path,
+}) => StellatuneApi.instance.api.crateApiLibraryRemoveRoot(
+  library_: library_,
+  path: path,
+);
+
+Future<void> libraryScanAll({required Library library_}) =>
+    StellatuneApi.instance.api.crateApiLibraryScanAll(library_: library_);
+
+Future<void> librarySearch({
+  required Library library_,
+  required String query,
+  required PlatformInt64 limit,
+  required PlatformInt64 offset,
+}) => StellatuneApi.instance.api.crateApiLibrarySearch(
+  library_: library_,
+  query: query,
+  limit: limit,
+  offset: offset,
+);
+
+Stream<LibraryEvent> libraryEvents({required Library library_}) =>
+    StellatuneApi.instance.api.crateApiLibraryEvents(library_: library_);
+
+// Rust type: RustOpaqueMoi<Library>
+abstract class Library implements RustOpaqueInterface {}
 
 // Rust type: RustOpaqueMoi<Player>
 abstract class Player implements RustOpaqueInterface {}

@@ -7,7 +7,8 @@ use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::time::LocalTime;
 
 use stellatune_audio::start_engine;
-use stellatune_core::{Command, Event};
+use stellatune_core::{Command, Event, LibraryCommand, LibraryEvent};
+use stellatune_library::start_library;
 
 fn init_tracing() {
     static INIT: OnceLock<()> = OnceLock::new();
@@ -17,7 +18,7 @@ fn init_tracing() {
             // Users can always override via `RUST_LOG=...`.
             if cfg!(debug_assertions) {
                 EnvFilter::new(
-                    "warn,stellatune_ffi=debug,stellatune_audio=debug,stellatune_decode=debug,stellatune_output=debug",
+                    "warn,stellatune_ffi=debug,stellatune_audio=debug,stellatune_decode=debug,stellatune_output=debug,stellatune_library=debug",
                 )
             } else {
                 EnvFilter::new("info")
@@ -80,6 +81,65 @@ pub fn events(player: RustOpaque<Player>, sink: StreamSink<Event>) -> Result<()>
             }
         })
         .expect("failed to spawn stellatune-events thread");
+
+    Ok(())
+}
+
+pub struct Library {
+    handle: stellatune_library::LibraryHandle,
+}
+
+impl Library {
+    fn new(db_path: String) -> Result<Self> {
+        init_tracing();
+        tracing::info!("creating library: {}", db_path);
+        Ok(Self {
+            handle: start_library(db_path)?,
+        })
+    }
+}
+
+pub fn create_library(db_path: String) -> Result<RustOpaque<Library>> {
+    Ok(RustOpaque::new(Library::new(db_path)?))
+}
+
+pub fn library_add_root(library: RustOpaque<Library>, path: String) {
+    library
+        .handle
+        .send_command(LibraryCommand::AddRoot { path });
+}
+
+pub fn library_remove_root(library: RustOpaque<Library>, path: String) {
+    library
+        .handle
+        .send_command(LibraryCommand::RemoveRoot { path });
+}
+
+pub fn library_scan_all(library: RustOpaque<Library>) {
+    library.handle.send_command(LibraryCommand::ScanAll);
+}
+
+pub fn library_search(library: RustOpaque<Library>, query: String, limit: i64, offset: i64) {
+    library.handle.send_command(LibraryCommand::Search {
+        query,
+        limit,
+        offset,
+    });
+}
+
+pub fn library_events(library: RustOpaque<Library>, sink: StreamSink<LibraryEvent>) -> Result<()> {
+    let rx = library.handle.subscribe_events();
+
+    thread::Builder::new()
+        .name("stellatune-library-events".to_string())
+        .spawn(move || {
+            for event in rx.iter() {
+                if sink.add(event).is_err() {
+                    break;
+                }
+            }
+        })
+        .expect("failed to spawn stellatune-library-events thread");
 
     Ok(())
 }

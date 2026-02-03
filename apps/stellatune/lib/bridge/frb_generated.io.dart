@@ -20,11 +20,17 @@ abstract class StellatuneApiApiImplPlatform
     required super.portManager,
   });
 
+  CrossPlatformFinalizerArg get rust_arc_decrement_strong_count_LibraryPtr =>
+      wire._rust_arc_decrement_strong_count_RustOpaque_LibraryPtr;
+
   CrossPlatformFinalizerArg get rust_arc_decrement_strong_count_PlayerPtr =>
       wire._rust_arc_decrement_strong_count_RustOpaque_PlayerPtr;
 
   @protected
   AnyhowException dco_decode_AnyhowException(dynamic raw);
+
+  @protected
+  Library dco_decode_RustOpaque_Library(dynamic raw);
 
   @protected
   Player dco_decode_RustOpaque_Player(dynamic raw);
@@ -33,7 +39,15 @@ abstract class StellatuneApiApiImplPlatform
   RustStreamSink<Event> dco_decode_StreamSink_event_Sse(dynamic raw);
 
   @protected
+  RustStreamSink<LibraryEvent> dco_decode_StreamSink_library_event_Sse(
+    dynamic raw,
+  );
+
+  @protected
   String dco_decode_String(dynamic raw);
+
+  @protected
+  PlatformInt64 dco_decode_box_autoadd_i_64(dynamic raw);
 
   @protected
   Event dco_decode_event(dynamic raw);
@@ -45,10 +59,25 @@ abstract class StellatuneApiApiImplPlatform
   PlatformInt64 dco_decode_i_64(dynamic raw);
 
   @protected
+  LibraryEvent dco_decode_library_event(dynamic raw);
+
+  @protected
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw);
 
   @protected
+  List<TrackLite> dco_decode_list_track_lite(dynamic raw);
+
+  @protected
+  String? dco_decode_opt_String(dynamic raw);
+
+  @protected
+  PlatformInt64? dco_decode_opt_box_autoadd_i_64(dynamic raw);
+
+  @protected
   PlayerState dco_decode_player_state(dynamic raw);
+
+  @protected
+  TrackLite dco_decode_track_lite(dynamic raw);
 
   @protected
   int dco_decode_u_8(dynamic raw);
@@ -63,6 +92,9 @@ abstract class StellatuneApiApiImplPlatform
   AnyhowException sse_decode_AnyhowException(SseDeserializer deserializer);
 
   @protected
+  Library sse_decode_RustOpaque_Library(SseDeserializer deserializer);
+
+  @protected
   Player sse_decode_RustOpaque_Player(SseDeserializer deserializer);
 
   @protected
@@ -71,7 +103,15 @@ abstract class StellatuneApiApiImplPlatform
   );
 
   @protected
+  RustStreamSink<LibraryEvent> sse_decode_StreamSink_library_event_Sse(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   String sse_decode_String(SseDeserializer deserializer);
+
+  @protected
+  PlatformInt64 sse_decode_box_autoadd_i_64(SseDeserializer deserializer);
 
   @protected
   Event sse_decode_event(SseDeserializer deserializer);
@@ -83,10 +123,25 @@ abstract class StellatuneApiApiImplPlatform
   PlatformInt64 sse_decode_i_64(SseDeserializer deserializer);
 
   @protected
+  LibraryEvent sse_decode_library_event(SseDeserializer deserializer);
+
+  @protected
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer);
 
   @protected
+  List<TrackLite> sse_decode_list_track_lite(SseDeserializer deserializer);
+
+  @protected
+  String? sse_decode_opt_String(SseDeserializer deserializer);
+
+  @protected
+  PlatformInt64? sse_decode_opt_box_autoadd_i_64(SseDeserializer deserializer);
+
+  @protected
   PlayerState sse_decode_player_state(SseDeserializer deserializer);
+
+  @protected
+  TrackLite sse_decode_track_lite(SseDeserializer deserializer);
 
   @protected
   int sse_decode_u_8(SseDeserializer deserializer);
@@ -107,6 +162,9 @@ abstract class StellatuneApiApiImplPlatform
   );
 
   @protected
+  void sse_encode_RustOpaque_Library(Library self, SseSerializer serializer);
+
+  @protected
   void sse_encode_RustOpaque_Player(Player self, SseSerializer serializer);
 
   @protected
@@ -116,7 +174,19 @@ abstract class StellatuneApiApiImplPlatform
   );
 
   @protected
+  void sse_encode_StreamSink_library_event_Sse(
+    RustStreamSink<LibraryEvent> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_String(String self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_box_autoadd_i_64(
+    PlatformInt64 self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_event(Event self, SseSerializer serializer);
@@ -128,13 +198,34 @@ abstract class StellatuneApiApiImplPlatform
   void sse_encode_i_64(PlatformInt64 self, SseSerializer serializer);
 
   @protected
+  void sse_encode_library_event(LibraryEvent self, SseSerializer serializer);
+
+  @protected
   void sse_encode_list_prim_u_8_strict(
     Uint8List self,
     SseSerializer serializer,
   );
 
   @protected
+  void sse_encode_list_track_lite(
+    List<TrackLite> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_opt_String(String? self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_opt_box_autoadd_i_64(
+    PlatformInt64? self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_player_state(PlayerState self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_track_lite(TrackLite self, SseSerializer serializer);
 
   @protected
   void sse_encode_u_8(int self, SseSerializer serializer);
@@ -162,6 +253,34 @@ class StellatuneApiWire implements BaseWire {
   /// The symbols are looked up in [dynamicLibrary].
   StellatuneApiWire(ffi.DynamicLibrary dynamicLibrary)
     : _lookup = dynamicLibrary.lookup;
+
+  void rust_arc_increment_strong_count_RustOpaque_Library(
+    ffi.Pointer<ffi.Void> ptr,
+  ) {
+    return _rust_arc_increment_strong_count_RustOpaque_Library(ptr);
+  }
+
+  late final _rust_arc_increment_strong_count_RustOpaque_LibraryPtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Pointer<ffi.Void>)>>(
+        'frbgen_stellatune_rust_arc_increment_strong_count_RustOpaque_Library',
+      );
+  late final _rust_arc_increment_strong_count_RustOpaque_Library =
+      _rust_arc_increment_strong_count_RustOpaque_LibraryPtr
+          .asFunction<void Function(ffi.Pointer<ffi.Void>)>();
+
+  void rust_arc_decrement_strong_count_RustOpaque_Library(
+    ffi.Pointer<ffi.Void> ptr,
+  ) {
+    return _rust_arc_decrement_strong_count_RustOpaque_Library(ptr);
+  }
+
+  late final _rust_arc_decrement_strong_count_RustOpaque_LibraryPtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Pointer<ffi.Void>)>>(
+        'frbgen_stellatune_rust_arc_decrement_strong_count_RustOpaque_Library',
+      );
+  late final _rust_arc_decrement_strong_count_RustOpaque_Library =
+      _rust_arc_decrement_strong_count_RustOpaque_LibraryPtr
+          .asFunction<void Function(ffi.Pointer<ffi.Void>)>();
 
   void rust_arc_increment_strong_count_RustOpaque_Player(
     ffi.Pointer<ffi.Void> ptr,

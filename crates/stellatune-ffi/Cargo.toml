@@ -16,3 +16,4 @@ tracing-subscriber.workspace = true
 
 stellatune-audio.workspace = true
 stellatune-core.workspace = true
+stellatune-library.workspace = true

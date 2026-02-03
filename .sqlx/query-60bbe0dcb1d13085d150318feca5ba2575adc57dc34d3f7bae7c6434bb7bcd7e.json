@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE scan_roots SET last_scan_ms=?1 WHERE path=?2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "60bbe0dcb1d13085d150318feca5ba2575adc57dc34d3f7bae7c6434bb7bcd7e"
+}

@@ -5,4 +5,11 @@ edition = "2024"
 license.workspace = true
 
 [dependencies]
+anyhow.workspace = true
+crossbeam-channel.workspace = true
+sqlx.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+walkdir.workspace = true
 
+stellatune-core.workspace = true

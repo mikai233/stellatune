@@ -38,7 +38,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.11.1";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 741439296;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 809883955;
 
 // Section: executor
 
@@ -46,6 +46,41 @@ flutter_rust_bridge::frb_generated_default_handler!();
 
 // Section: wire_funcs
 
+fn wire__crate__api__create_library_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "create_library",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_db_path = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || {
+                        let output_ok = crate::api::create_library(api_db_path)?;
+                        Ok(output_ok)
+                    })(),
+                )
+            }
+        },
+    )
+}
 fn wire__crate__api__create_player_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -113,6 +148,190 @@ fn wire__crate__api__events_impl(
                         Ok(output_ok)
                     })(),
                 )
+            }
+        },
+    )
+}
+fn wire__crate__api__library_add_root_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "library_add_root",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_library = <RustOpaqueMoi<Library>>::sse_decode(&mut deserializer);
+            let api_path = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, ()>((move || {
+                    let output_ok = Result::<_, ()>::Ok({
+                        crate::api::library_add_root(api_library, api_path);
+                    })?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__library_events_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "library_events",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_library = <RustOpaqueMoi<Library>>::sse_decode(&mut deserializer);
+            let api_sink = <StreamSink<
+                stellatune_core::LibraryEvent,
+                flutter_rust_bridge::for_generated::SseCodec,
+            >>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || {
+                        let output_ok = crate::api::library_events(api_library, api_sink)?;
+                        Ok(output_ok)
+                    })(),
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__library_remove_root_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "library_remove_root",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_library = <RustOpaqueMoi<Library>>::sse_decode(&mut deserializer);
+            let api_path = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, ()>((move || {
+                    let output_ok = Result::<_, ()>::Ok({
+                        crate::api::library_remove_root(api_library, api_path);
+                    })?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__library_scan_all_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "library_scan_all",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_library = <RustOpaqueMoi<Library>>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, ()>((move || {
+                    let output_ok = Result::<_, ()>::Ok({
+                        crate::api::library_scan_all(api_library);
+                    })?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__library_search_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "library_search",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_library = <RustOpaqueMoi<Library>>::sse_decode(&mut deserializer);
+            let api_query = <String>::sse_decode(&mut deserializer);
+            let api_limit = <i64>::sse_decode(&mut deserializer);
+            let api_offset = <i64>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, ()>((move || {
+                    let output_ok = Result::<_, ()>::Ok({
+                        crate::api::library_search(api_library, api_query, api_limit, api_offset);
+                    })?;
+                    Ok(output_ok)
+                })())
             }
         },
     )
@@ -262,26 +481,74 @@ fn wire__crate__api__stop_impl(
 // Section: static_checks
 
 #[allow(clippy::unnecessary_literal_unwrap)]
-const _: fn() = || match None::<stellatune_core::Event>.unwrap() {
-    stellatune_core::Event::StateChanged { state } => {
-        let _: stellatune_core::PlayerState = state;
+const _: fn() = || {
+    match None::<stellatune_core::Event>.unwrap() {
+        stellatune_core::Event::StateChanged { state } => {
+            let _: stellatune_core::PlayerState = state;
+        }
+        stellatune_core::Event::Position { ms } => {
+            let _: i64 = ms;
+        }
+        stellatune_core::Event::TrackChanged { path } => {
+            let _: String = path;
+        }
+        stellatune_core::Event::Error { message } => {
+            let _: String = message;
+        }
+        stellatune_core::Event::Log { message } => {
+            let _: String = message;
+        }
     }
-    stellatune_core::Event::Position { ms } => {
-        let _: i64 = ms;
+    match None::<stellatune_core::LibraryEvent>.unwrap() {
+        stellatune_core::LibraryEvent::ScanProgress {
+            scanned,
+            updated,
+            skipped,
+            errors,
+        } => {
+            let _: i64 = scanned;
+            let _: i64 = updated;
+            let _: i64 = skipped;
+            let _: i64 = errors;
+        }
+        stellatune_core::LibraryEvent::ScanFinished {
+            duration_ms,
+            scanned,
+            updated,
+            skipped,
+            errors,
+        } => {
+            let _: i64 = duration_ms;
+            let _: i64 = scanned;
+            let _: i64 = updated;
+            let _: i64 = skipped;
+            let _: i64 = errors;
+        }
+        stellatune_core::LibraryEvent::SearchResult { query, items } => {
+            let _: String = query;
+            let _: Vec<stellatune_core::TrackLite> = items;
+        }
+        stellatune_core::LibraryEvent::Error { message } => {
+            let _: String = message;
+        }
+        stellatune_core::LibraryEvent::Log { message } => {
+            let _: String = message;
+        }
     }
-    stellatune_core::Event::TrackChanged { path } => {
-        let _: String = path;
-    }
-    stellatune_core::Event::Error { message } => {
-        let _: String = message;
-    }
-    stellatune_core::Event::Log { message } => {
-        let _: String = message;
+    {
+        let TrackLite = None::<stellatune_core::TrackLite>.unwrap();
+        let _: i64 = TrackLite.id;
+        let _: String = TrackLite.path;
+        let _: Option<String> = TrackLite.title;
+        let _: Option<String> = TrackLite.artist;
+        let _: Option<String> = TrackLite.album;
+        let _: Option<i64> = TrackLite.duration_ms;
     }
 };
 
 // Section: related_funcs
 
+flutter_rust_bridge::frb_generated_moi_arc_impl_value!(Library);
 flutter_rust_bridge::frb_generated_moi_arc_impl_value!(Player);
 
 // Section: dart2rust
@@ -291,6 +558,14 @@ impl SseDecode for flutter_rust_bridge::for_generated::anyhow::Error {
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut inner = <String>::sse_decode(deserializer);
         return flutter_rust_bridge::for_generated::anyhow::anyhow!("{}", inner);
+    }
+}
+
+impl SseDecode for RustOpaqueMoi<Library> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut inner = <usize>::sse_decode(deserializer);
+        return decode_rust_opaque_moi(inner);
     }
 }
 
@@ -304,6 +579,16 @@ impl SseDecode for RustOpaqueMoi<Player> {
 
 impl SseDecode
     for StreamSink<stellatune_core::Event, flutter_rust_bridge::for_generated::SseCodec>
+{
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut inner = <String>::sse_decode(deserializer);
+        return StreamSink::deserialize(inner);
+    }
+}
+
+impl SseDecode
+    for StreamSink<stellatune_core::LibraryEvent, flutter_rust_bridge::for_generated::SseCodec>
 {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -370,6 +655,64 @@ impl SseDecode for i64 {
     }
 }
 
+impl SseDecode for stellatune_core::LibraryEvent {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut tag_ = <i32>::sse_decode(deserializer);
+        match tag_ {
+            0 => {
+                let mut var_scanned = <i64>::sse_decode(deserializer);
+                let mut var_updated = <i64>::sse_decode(deserializer);
+                let mut var_skipped = <i64>::sse_decode(deserializer);
+                let mut var_errors = <i64>::sse_decode(deserializer);
+                return stellatune_core::LibraryEvent::ScanProgress {
+                    scanned: var_scanned,
+                    updated: var_updated,
+                    skipped: var_skipped,
+                    errors: var_errors,
+                };
+            }
+            1 => {
+                let mut var_durationMs = <i64>::sse_decode(deserializer);
+                let mut var_scanned = <i64>::sse_decode(deserializer);
+                let mut var_updated = <i64>::sse_decode(deserializer);
+                let mut var_skipped = <i64>::sse_decode(deserializer);
+                let mut var_errors = <i64>::sse_decode(deserializer);
+                return stellatune_core::LibraryEvent::ScanFinished {
+                    duration_ms: var_durationMs,
+                    scanned: var_scanned,
+                    updated: var_updated,
+                    skipped: var_skipped,
+                    errors: var_errors,
+                };
+            }
+            2 => {
+                let mut var_query = <String>::sse_decode(deserializer);
+                let mut var_items = <Vec<stellatune_core::TrackLite>>::sse_decode(deserializer);
+                return stellatune_core::LibraryEvent::SearchResult {
+                    query: var_query,
+                    items: var_items,
+                };
+            }
+            3 => {
+                let mut var_message = <String>::sse_decode(deserializer);
+                return stellatune_core::LibraryEvent::Error {
+                    message: var_message,
+                };
+            }
+            4 => {
+                let mut var_message = <String>::sse_decode(deserializer);
+                return stellatune_core::LibraryEvent::Log {
+                    message: var_message,
+                };
+            }
+            _ => {
+                unimplemented!("");
+            }
+        }
+    }
+}
+
 impl SseDecode for Vec<u8> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -379,6 +722,40 @@ impl SseDecode for Vec<u8> {
             ans_.push(<u8>::sse_decode(deserializer));
         }
         return ans_;
+    }
+}
+
+impl SseDecode for Vec<stellatune_core::TrackLite> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = vec![];
+        for idx_ in 0..len_ {
+            ans_.push(<stellatune_core::TrackLite>::sse_decode(deserializer));
+        }
+        return ans_;
+    }
+}
+
+impl SseDecode for Option<String> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<String>::sse_decode(deserializer));
+        } else {
+            return None;
+        }
+    }
+}
+
+impl SseDecode for Option<i64> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<i64>::sse_decode(deserializer));
+        } else {
+            return None;
+        }
     }
 }
 
@@ -392,6 +769,26 @@ impl SseDecode for stellatune_core::PlayerState {
             2 => stellatune_core::PlayerState::Paused,
             3 => stellatune_core::PlayerState::Buffering,
             _ => unreachable!("Invalid variant for PlayerState: {}", inner),
+        };
+    }
+}
+
+impl SseDecode for stellatune_core::TrackLite {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_id = <i64>::sse_decode(deserializer);
+        let mut var_path = <String>::sse_decode(deserializer);
+        let mut var_title = <Option<String>>::sse_decode(deserializer);
+        let mut var_artist = <Option<String>>::sse_decode(deserializer);
+        let mut var_album = <Option<String>>::sse_decode(deserializer);
+        let mut var_durationMs = <Option<i64>>::sse_decode(deserializer);
+        return stellatune_core::TrackLite {
+            id: var_id,
+            path: var_path,
+            title: var_title,
+            artist: var_artist,
+            album: var_album,
+            duration_ms: var_durationMs,
         };
     }
 }
@@ -431,12 +828,18 @@ fn pde_ffi_dispatcher_primary_impl(
 ) {
     // Codec=Pde (Serialization + dispatch), see doc to use other codecs
     match func_id {
-        1 => wire__crate__api__create_player_impl(port, ptr, rust_vec_len, data_len),
-        2 => wire__crate__api__events_impl(port, ptr, rust_vec_len, data_len),
-        3 => wire__crate__api__load_impl(port, ptr, rust_vec_len, data_len),
-        4 => wire__crate__api__pause_impl(port, ptr, rust_vec_len, data_len),
-        5 => wire__crate__api__play_impl(port, ptr, rust_vec_len, data_len),
-        6 => wire__crate__api__stop_impl(port, ptr, rust_vec_len, data_len),
+        1 => wire__crate__api__create_library_impl(port, ptr, rust_vec_len, data_len),
+        2 => wire__crate__api__create_player_impl(port, ptr, rust_vec_len, data_len),
+        3 => wire__crate__api__events_impl(port, ptr, rust_vec_len, data_len),
+        4 => wire__crate__api__library_add_root_impl(port, ptr, rust_vec_len, data_len),
+        5 => wire__crate__api__library_events_impl(port, ptr, rust_vec_len, data_len),
+        6 => wire__crate__api__library_remove_root_impl(port, ptr, rust_vec_len, data_len),
+        7 => wire__crate__api__library_scan_all_impl(port, ptr, rust_vec_len, data_len),
+        8 => wire__crate__api__library_search_impl(port, ptr, rust_vec_len, data_len),
+        9 => wire__crate__api__load_impl(port, ptr, rust_vec_len, data_len),
+        10 => wire__crate__api__pause_impl(port, ptr, rust_vec_len, data_len),
+        11 => wire__crate__api__play_impl(port, ptr, rust_vec_len, data_len),
+        12 => wire__crate__api__stop_impl(port, ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
@@ -492,6 +895,67 @@ impl flutter_rust_bridge::IntoIntoDart<FrbWrapper<stellatune_core::Event>>
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for FrbWrapper<stellatune_core::LibraryEvent> {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        match self.0 {
+            stellatune_core::LibraryEvent::ScanProgress {
+                scanned,
+                updated,
+                skipped,
+                errors,
+            } => [
+                0.into_dart(),
+                scanned.into_into_dart().into_dart(),
+                updated.into_into_dart().into_dart(),
+                skipped.into_into_dart().into_dart(),
+                errors.into_into_dart().into_dart(),
+            ]
+            .into_dart(),
+            stellatune_core::LibraryEvent::ScanFinished {
+                duration_ms,
+                scanned,
+                updated,
+                skipped,
+                errors,
+            } => [
+                1.into_dart(),
+                duration_ms.into_into_dart().into_dart(),
+                scanned.into_into_dart().into_dart(),
+                updated.into_into_dart().into_dart(),
+                skipped.into_into_dart().into_dart(),
+                errors.into_into_dart().into_dart(),
+            ]
+            .into_dart(),
+            stellatune_core::LibraryEvent::SearchResult { query, items } => [
+                2.into_dart(),
+                query.into_into_dart().into_dart(),
+                items.into_into_dart().into_dart(),
+            ]
+            .into_dart(),
+            stellatune_core::LibraryEvent::Error { message } => {
+                [3.into_dart(), message.into_into_dart().into_dart()].into_dart()
+            }
+            stellatune_core::LibraryEvent::Log { message } => {
+                [4.into_dart(), message.into_into_dart().into_dart()].into_dart()
+            }
+            _ => {
+                unimplemented!("");
+            }
+        }
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for FrbWrapper<stellatune_core::LibraryEvent>
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<FrbWrapper<stellatune_core::LibraryEvent>>
+    for stellatune_core::LibraryEvent
+{
+    fn into_into_dart(self) -> FrbWrapper<stellatune_core::LibraryEvent> {
+        self.into()
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for FrbWrapper<stellatune_core::PlayerState> {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         match self.0 {
@@ -514,11 +978,45 @@ impl flutter_rust_bridge::IntoIntoDart<FrbWrapper<stellatune_core::PlayerState>>
         self.into()
     }
 }
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for FrbWrapper<stellatune_core::TrackLite> {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.0.id.into_into_dart().into_dart(),
+            self.0.path.into_into_dart().into_dart(),
+            self.0.title.into_into_dart().into_dart(),
+            self.0.artist.into_into_dart().into_dart(),
+            self.0.album.into_into_dart().into_dart(),
+            self.0.duration_ms.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for FrbWrapper<stellatune_core::TrackLite>
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<FrbWrapper<stellatune_core::TrackLite>>
+    for stellatune_core::TrackLite
+{
+    fn into_into_dart(self) -> FrbWrapper<stellatune_core::TrackLite> {
+        self.into()
+    }
+}
 
 impl SseEncode for flutter_rust_bridge::for_generated::anyhow::Error {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <String>::sse_encode(format!("{:?}", self), serializer);
+    }
+}
+
+impl SseEncode for RustOpaqueMoi<Library> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        let (ptr, size) = self.sse_encode_raw();
+        <usize>::sse_encode(ptr, serializer);
+        <i32>::sse_encode(size, serializer);
     }
 }
 
@@ -533,6 +1031,15 @@ impl SseEncode for RustOpaqueMoi<Player> {
 
 impl SseEncode
     for StreamSink<stellatune_core::Event, flutter_rust_bridge::for_generated::SseCodec>
+{
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        unimplemented!("")
+    }
+}
+
+impl SseEncode
+    for StreamSink<stellatune_core::LibraryEvent, flutter_rust_bridge::for_generated::SseCodec>
 {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -592,12 +1099,92 @@ impl SseEncode for i64 {
     }
 }
 
+impl SseEncode for stellatune_core::LibraryEvent {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        match self {
+            stellatune_core::LibraryEvent::ScanProgress {
+                scanned,
+                updated,
+                skipped,
+                errors,
+            } => {
+                <i32>::sse_encode(0, serializer);
+                <i64>::sse_encode(scanned, serializer);
+                <i64>::sse_encode(updated, serializer);
+                <i64>::sse_encode(skipped, serializer);
+                <i64>::sse_encode(errors, serializer);
+            }
+            stellatune_core::LibraryEvent::ScanFinished {
+                duration_ms,
+                scanned,
+                updated,
+                skipped,
+                errors,
+            } => {
+                <i32>::sse_encode(1, serializer);
+                <i64>::sse_encode(duration_ms, serializer);
+                <i64>::sse_encode(scanned, serializer);
+                <i64>::sse_encode(updated, serializer);
+                <i64>::sse_encode(skipped, serializer);
+                <i64>::sse_encode(errors, serializer);
+            }
+            stellatune_core::LibraryEvent::SearchResult { query, items } => {
+                <i32>::sse_encode(2, serializer);
+                <String>::sse_encode(query, serializer);
+                <Vec<stellatune_core::TrackLite>>::sse_encode(items, serializer);
+            }
+            stellatune_core::LibraryEvent::Error { message } => {
+                <i32>::sse_encode(3, serializer);
+                <String>::sse_encode(message, serializer);
+            }
+            stellatune_core::LibraryEvent::Log { message } => {
+                <i32>::sse_encode(4, serializer);
+                <String>::sse_encode(message, serializer);
+            }
+            _ => {
+                unimplemented!("");
+            }
+        }
+    }
+}
+
 impl SseEncode for Vec<u8> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <i32>::sse_encode(self.len() as _, serializer);
         for item in self {
             <u8>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<stellatune_core::TrackLite> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <stellatune_core::TrackLite>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Option<String> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <String>::sse_encode(value, serializer);
+        }
+    }
+}
+
+impl SseEncode for Option<i64> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <i64>::sse_encode(value, serializer);
         }
     }
 }
@@ -617,6 +1204,18 @@ impl SseEncode for stellatune_core::PlayerState {
             },
             serializer,
         );
+    }
+}
+
+impl SseEncode for stellatune_core::TrackLite {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i64>::sse_encode(self.id, serializer);
+        <String>::sse_encode(self.path, serializer);
+        <Option<String>>::sse_encode(self.title, serializer);
+        <Option<String>>::sse_encode(self.artist, serializer);
+        <Option<String>>::sse_encode(self.album, serializer);
+        <Option<i64>>::sse_encode(self.duration_ms, serializer);
     }
 }
 
@@ -669,6 +1268,20 @@ mod io {
     flutter_rust_bridge::frb_generated_boilerplate_io!();
 
     #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_stellatune_rust_arc_increment_strong_count_RustOpaque_Library(
+        ptr: *const std::ffi::c_void,
+    ) {
+        MoiArc::<Library>::increment_strong_count(ptr as _);
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_stellatune_rust_arc_decrement_strong_count_RustOpaque_Library(
+        ptr: *const std::ffi::c_void,
+    ) {
+        MoiArc::<Library>::decrement_strong_count(ptr as _);
+    }
+
+    #[unsafe(no_mangle)]
     pub extern "C" fn frbgen_stellatune_rust_arc_increment_strong_count_RustOpaque_Player(
         ptr: *const std::ffi::c_void,
     ) {
@@ -706,6 +1319,16 @@ mod web {
     // Section: boilerplate
 
     flutter_rust_bridge::frb_generated_boilerplate_web!();
+
+    #[wasm_bindgen]
+    pub fn rust_arc_increment_strong_count_RustOpaque_Library(ptr: *const std::ffi::c_void) {
+        MoiArc::<Library>::increment_strong_count(ptr as _);
+    }
+
+    #[wasm_bindgen]
+    pub fn rust_arc_decrement_strong_count_RustOpaque_Library(ptr: *const std::ffi::c_void) {
+        MoiArc::<Library>::decrement_strong_count(ptr as _);
+    }
 
     #[wasm_bindgen]
     pub fn rust_arc_increment_strong_count_RustOpaque_Player(ptr: *const std::ffi::c_void) {

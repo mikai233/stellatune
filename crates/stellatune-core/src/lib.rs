@@ -30,3 +30,60 @@ pub enum Event {
     Error { message: String },
     Log { message: String },
 }
+
+#[flutter_rust_bridge::frb(non_opaque)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TrackLite {
+    pub id: i64,
+    pub path: String,
+    pub title: Option<String>,
+    pub artist: Option<String>,
+    pub album: Option<String>,
+    pub duration_ms: Option<i64>,
+}
+
+#[flutter_rust_bridge::frb(non_opaque)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum LibraryCommand {
+    AddRoot {
+        path: String,
+    },
+    RemoveRoot {
+        path: String,
+    },
+    ScanAll,
+    Search {
+        query: String,
+        limit: i64,
+        offset: i64,
+    },
+    Shutdown,
+}
+
+#[flutter_rust_bridge::frb(non_opaque)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum LibraryEvent {
+    ScanProgress {
+        scanned: i64,
+        updated: i64,
+        skipped: i64,
+        errors: i64,
+    },
+    ScanFinished {
+        duration_ms: i64,
+        scanned: i64,
+        updated: i64,
+        skipped: i64,
+        errors: i64,
+    },
+    SearchResult {
+        query: String,
+        items: Vec<TrackLite>,
+    },
+    Error {
+        message: String,
+    },
+    Log {
+        message: String,
+    },
+}

@@ -1,1 +1,4 @@
-//! Placeholder crate for future library scanning / database integration.
+pub mod service;
+mod worker;
+
+pub use service::{LibraryHandle, start_library};

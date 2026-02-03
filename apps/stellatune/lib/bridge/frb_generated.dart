@@ -71,7 +71,7 @@ class StellatuneApi
   String get codegenVersion => '2.11.1';
 
   @override
-  int get rustContentHash => 741439296;
+  int get rustContentHash => 809883955;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -82,9 +82,32 @@ class StellatuneApi
 }
 
 abstract class StellatuneApiApi extends BaseApi {
+  Future<Library> crateApiCreateLibrary({required String dbPath});
+
   Future<Player> crateApiCreatePlayer();
 
   Stream<Event> crateApiEvents({required Player player});
+
+  Future<void> crateApiLibraryAddRoot({
+    required Library library_,
+    required String path,
+  });
+
+  Stream<LibraryEvent> crateApiLibraryEvents({required Library library_});
+
+  Future<void> crateApiLibraryRemoveRoot({
+    required Library library_,
+    required String path,
+  });
+
+  Future<void> crateApiLibraryScanAll({required Library library_});
+
+  Future<void> crateApiLibrarySearch({
+    required Library library_,
+    required String query,
+    required PlatformInt64 limit,
+    required PlatformInt64 offset,
+  });
 
   Future<void> crateApiLoad({required Player player, required String path});
 
@@ -93,6 +116,12 @@ abstract class StellatuneApiApi extends BaseApi {
   Future<void> crateApiPlay({required Player player});
 
   Future<void> crateApiStop({required Player player});
+
+  RustArcIncrementStrongCountFnType get rust_arc_increment_strong_count_Library;
+
+  RustArcDecrementStrongCountFnType get rust_arc_decrement_strong_count_Library;
+
+  CrossPlatformFinalizerArg get rust_arc_decrement_strong_count_LibraryPtr;
 
   RustArcIncrementStrongCountFnType get rust_arc_increment_strong_count_Player;
 
@@ -111,6 +140,34 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   });
 
   @override
+  Future<Library> crateApiCreateLibrary({required String dbPath}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(dbPath, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 1,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_RustOpaque_Library,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiCreateLibraryConstMeta,
+        argValues: [dbPath],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiCreateLibraryConstMeta =>
+      const TaskConstMeta(debugName: "create_library", argNames: ["dbPath"]);
+
+  @override
   Future<Player> crateApiCreatePlayer() {
     return handler.executeNormal(
       NormalTask(
@@ -119,7 +176,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 1,
+            funcId: 2,
             port: port_,
           );
         },
@@ -150,7 +207,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
             pdeCallFfi(
               generalizedFrbRustBinding,
               serializer,
-              funcId: 2,
+              funcId: 3,
               port: port_,
             );
           },
@@ -171,6 +228,177 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
       const TaskConstMeta(debugName: "events", argNames: ["player", "sink"]);
 
   @override
+  Future<void> crateApiLibraryAddRoot({
+    required Library library_,
+    required String path,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_RustOpaque_Library(library_, serializer);
+          sse_encode_String(path, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 4,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiLibraryAddRootConstMeta,
+        argValues: [library_, path],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiLibraryAddRootConstMeta => const TaskConstMeta(
+    debugName: "library_add_root",
+    argNames: ["library_", "path"],
+  );
+
+  @override
+  Stream<LibraryEvent> crateApiLibraryEvents({required Library library_}) {
+    final sink = RustStreamSink<LibraryEvent>();
+    unawaited(
+      handler.executeNormal(
+        NormalTask(
+          callFfi: (port_) {
+            final serializer = SseSerializer(generalizedFrbRustBinding);
+            sse_encode_RustOpaque_Library(library_, serializer);
+            sse_encode_StreamSink_library_event_Sse(sink, serializer);
+            pdeCallFfi(
+              generalizedFrbRustBinding,
+              serializer,
+              funcId: 5,
+              port: port_,
+            );
+          },
+          codec: SseCodec(
+            decodeSuccessData: sse_decode_unit,
+            decodeErrorData: sse_decode_AnyhowException,
+          ),
+          constMeta: kCrateApiLibraryEventsConstMeta,
+          argValues: [library_, sink],
+          apiImpl: this,
+        ),
+      ),
+    );
+    return sink.stream;
+  }
+
+  TaskConstMeta get kCrateApiLibraryEventsConstMeta => const TaskConstMeta(
+    debugName: "library_events",
+    argNames: ["library_", "sink"],
+  );
+
+  @override
+  Future<void> crateApiLibraryRemoveRoot({
+    required Library library_,
+    required String path,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_RustOpaque_Library(library_, serializer);
+          sse_encode_String(path, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 6,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiLibraryRemoveRootConstMeta,
+        argValues: [library_, path],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiLibraryRemoveRootConstMeta => const TaskConstMeta(
+    debugName: "library_remove_root",
+    argNames: ["library_", "path"],
+  );
+
+  @override
+  Future<void> crateApiLibraryScanAll({required Library library_}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_RustOpaque_Library(library_, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 7,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiLibraryScanAllConstMeta,
+        argValues: [library_],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiLibraryScanAllConstMeta => const TaskConstMeta(
+    debugName: "library_scan_all",
+    argNames: ["library_"],
+  );
+
+  @override
+  Future<void> crateApiLibrarySearch({
+    required Library library_,
+    required String query,
+    required PlatformInt64 limit,
+    required PlatformInt64 offset,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_RustOpaque_Library(library_, serializer);
+          sse_encode_String(query, serializer);
+          sse_encode_i_64(limit, serializer);
+          sse_encode_i_64(offset, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 8,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiLibrarySearchConstMeta,
+        argValues: [library_, query, limit, offset],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiLibrarySearchConstMeta => const TaskConstMeta(
+    debugName: "library_search",
+    argNames: ["library_", "query", "limit", "offset"],
+  );
+
+  @override
   Future<void> crateApiLoad({required Player player, required String path}) {
     return handler.executeNormal(
       NormalTask(
@@ -181,7 +409,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 3,
+            funcId: 9,
             port: port_,
           );
         },
@@ -209,7 +437,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 4,
+            funcId: 10,
             port: port_,
           );
         },
@@ -237,7 +465,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 5,
+            funcId: 11,
             port: port_,
           );
         },
@@ -265,7 +493,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 6,
+            funcId: 12,
             port: port_,
           );
         },
@@ -284,6 +512,14 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
       const TaskConstMeta(debugName: "stop", argNames: ["player"]);
 
   RustArcIncrementStrongCountFnType
+  get rust_arc_increment_strong_count_Library =>
+      wire.rust_arc_increment_strong_count_RustOpaque_Library;
+
+  RustArcDecrementStrongCountFnType
+  get rust_arc_decrement_strong_count_Library =>
+      wire.rust_arc_decrement_strong_count_RustOpaque_Library;
+
+  RustArcIncrementStrongCountFnType
   get rust_arc_increment_strong_count_Player =>
       wire.rust_arc_increment_strong_count_RustOpaque_Player;
 
@@ -295,6 +531,12 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   AnyhowException dco_decode_AnyhowException(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return AnyhowException(raw as String);
+  }
+
+  @protected
+  Library dco_decode_RustOpaque_Library(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return LibraryImpl.frbInternalDcoDecode(raw as List<dynamic>);
   }
 
   @protected
@@ -310,9 +552,23 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   }
 
   @protected
+  RustStreamSink<LibraryEvent> dco_decode_StreamSink_library_event_Sse(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    throw UnimplementedError();
+  }
+
+  @protected
   String dco_decode_String(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as String;
+  }
+
+  @protected
+  PlatformInt64 dco_decode_box_autoadd_i_64(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_i_64(raw);
   }
 
   @protected
@@ -347,15 +603,82 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   }
 
   @protected
+  LibraryEvent dco_decode_library_event(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    switch (raw[0]) {
+      case 0:
+        return LibraryEvent_ScanProgress(
+          scanned: dco_decode_i_64(raw[1]),
+          updated: dco_decode_i_64(raw[2]),
+          skipped: dco_decode_i_64(raw[3]),
+          errors: dco_decode_i_64(raw[4]),
+        );
+      case 1:
+        return LibraryEvent_ScanFinished(
+          durationMs: dco_decode_i_64(raw[1]),
+          scanned: dco_decode_i_64(raw[2]),
+          updated: dco_decode_i_64(raw[3]),
+          skipped: dco_decode_i_64(raw[4]),
+          errors: dco_decode_i_64(raw[5]),
+        );
+      case 2:
+        return LibraryEvent_SearchResult(
+          query: dco_decode_String(raw[1]),
+          items: dco_decode_list_track_lite(raw[2]),
+        );
+      case 3:
+        return LibraryEvent_Error(message: dco_decode_String(raw[1]));
+      case 4:
+        return LibraryEvent_Log(message: dco_decode_String(raw[1]));
+      default:
+        throw Exception("unreachable");
+    }
+  }
+
+  @protected
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as Uint8List;
   }
 
   @protected
+  List<TrackLite> dco_decode_list_track_lite(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_track_lite).toList();
+  }
+
+  @protected
+  String? dco_decode_opt_String(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_String(raw);
+  }
+
+  @protected
+  PlatformInt64? dco_decode_opt_box_autoadd_i_64(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_box_autoadd_i_64(raw);
+  }
+
+  @protected
   PlayerState dco_decode_player_state(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return PlayerState.values[raw as int];
+  }
+
+  @protected
+  TrackLite dco_decode_track_lite(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 6)
+      throw Exception('unexpected arr length: expect 6 but see ${arr.length}');
+    return TrackLite(
+      id: dco_decode_i_64(arr[0]),
+      path: dco_decode_String(arr[1]),
+      title: dco_decode_opt_String(arr[2]),
+      artist: dco_decode_opt_String(arr[3]),
+      album: dco_decode_opt_String(arr[4]),
+      durationMs: dco_decode_opt_box_autoadd_i_64(arr[5]),
+    );
   }
 
   @protected
@@ -384,6 +707,15 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   }
 
   @protected
+  Library sse_decode_RustOpaque_Library(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return LibraryImpl.frbInternalSseDecode(
+      sse_decode_usize(deserializer),
+      sse_decode_i_32(deserializer),
+    );
+  }
+
+  @protected
   Player sse_decode_RustOpaque_Player(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return PlayerImpl.frbInternalSseDecode(
@@ -401,10 +733,24 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   }
 
   @protected
+  RustStreamSink<LibraryEvent> sse_decode_StreamSink_library_event_Sse(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    throw UnimplementedError('Unreachable ()');
+  }
+
+  @protected
   String sse_decode_String(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var inner = sse_decode_list_prim_u_8_strict(deserializer);
     return utf8.decoder.convert(inner);
+  }
+
+  @protected
+  PlatformInt64 sse_decode_box_autoadd_i_64(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_i_64(deserializer));
   }
 
   @protected
@@ -446,6 +792,51 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   }
 
   @protected
+  LibraryEvent sse_decode_library_event(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var tag_ = sse_decode_i_32(deserializer);
+    switch (tag_) {
+      case 0:
+        var var_scanned = sse_decode_i_64(deserializer);
+        var var_updated = sse_decode_i_64(deserializer);
+        var var_skipped = sse_decode_i_64(deserializer);
+        var var_errors = sse_decode_i_64(deserializer);
+        return LibraryEvent_ScanProgress(
+          scanned: var_scanned,
+          updated: var_updated,
+          skipped: var_skipped,
+          errors: var_errors,
+        );
+      case 1:
+        var var_durationMs = sse_decode_i_64(deserializer);
+        var var_scanned = sse_decode_i_64(deserializer);
+        var var_updated = sse_decode_i_64(deserializer);
+        var var_skipped = sse_decode_i_64(deserializer);
+        var var_errors = sse_decode_i_64(deserializer);
+        return LibraryEvent_ScanFinished(
+          durationMs: var_durationMs,
+          scanned: var_scanned,
+          updated: var_updated,
+          skipped: var_skipped,
+          errors: var_errors,
+        );
+      case 2:
+        var var_query = sse_decode_String(deserializer);
+        var var_items = sse_decode_list_track_lite(deserializer);
+        return LibraryEvent_SearchResult(query: var_query, items: var_items);
+      case 3:
+        var var_message = sse_decode_String(deserializer);
+        return LibraryEvent_Error(message: var_message);
+      case 4:
+        var var_message = sse_decode_String(deserializer);
+        return LibraryEvent_Log(message: var_message);
+      default:
+        throw UnimplementedError('');
+    }
+  }
+
+  @protected
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var len_ = sse_decode_i_32(deserializer);
@@ -453,10 +844,63 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   }
 
   @protected
+  List<TrackLite> sse_decode_list_track_lite(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <TrackLite>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_track_lite(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  String? sse_decode_opt_String(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_String(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
+  PlatformInt64? sse_decode_opt_box_autoadd_i_64(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_i_64(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
   PlayerState sse_decode_player_state(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var inner = sse_decode_i_32(deserializer);
     return PlayerState.values[inner];
+  }
+
+  @protected
+  TrackLite sse_decode_track_lite(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_id = sse_decode_i_64(deserializer);
+    var var_path = sse_decode_String(deserializer);
+    var var_title = sse_decode_opt_String(deserializer);
+    var var_artist = sse_decode_opt_String(deserializer);
+    var var_album = sse_decode_opt_String(deserializer);
+    var var_durationMs = sse_decode_opt_box_autoadd_i_64(deserializer);
+    return TrackLite(
+      id: var_id,
+      path: var_path,
+      title: var_title,
+      artist: var_artist,
+      album: var_album,
+      durationMs: var_durationMs,
+    );
   }
 
   @protected
@@ -492,6 +936,15 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   }
 
   @protected
+  void sse_encode_RustOpaque_Library(Library self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_usize(
+      (self as LibraryImpl).frbInternalSseEncode(move: null),
+      serializer,
+    );
+  }
+
+  @protected
   void sse_encode_RustOpaque_Player(Player self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_usize(
@@ -518,9 +971,35 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   }
 
   @protected
+  void sse_encode_StreamSink_library_event_Sse(
+    RustStreamSink<LibraryEvent> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(
+      self.setupAndSerialize(
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_library_event,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+      ),
+      serializer,
+    );
+  }
+
+  @protected
   void sse_encode_String(String self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_list_prim_u_8_strict(utf8.encoder.convert(self), serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_i_64(
+    PlatformInt64 self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_64(self, serializer);
   }
 
   @protected
@@ -558,6 +1037,47 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   }
 
   @protected
+  void sse_encode_library_event(LibraryEvent self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    switch (self) {
+      case LibraryEvent_ScanProgress(
+        scanned: final scanned,
+        updated: final updated,
+        skipped: final skipped,
+        errors: final errors,
+      ):
+        sse_encode_i_32(0, serializer);
+        sse_encode_i_64(scanned, serializer);
+        sse_encode_i_64(updated, serializer);
+        sse_encode_i_64(skipped, serializer);
+        sse_encode_i_64(errors, serializer);
+      case LibraryEvent_ScanFinished(
+        durationMs: final durationMs,
+        scanned: final scanned,
+        updated: final updated,
+        skipped: final skipped,
+        errors: final errors,
+      ):
+        sse_encode_i_32(1, serializer);
+        sse_encode_i_64(durationMs, serializer);
+        sse_encode_i_64(scanned, serializer);
+        sse_encode_i_64(updated, serializer);
+        sse_encode_i_64(skipped, serializer);
+        sse_encode_i_64(errors, serializer);
+      case LibraryEvent_SearchResult(query: final query, items: final items):
+        sse_encode_i_32(2, serializer);
+        sse_encode_String(query, serializer);
+        sse_encode_list_track_lite(items, serializer);
+      case LibraryEvent_Error(message: final message):
+        sse_encode_i_32(3, serializer);
+        sse_encode_String(message, serializer);
+      case LibraryEvent_Log(message: final message):
+        sse_encode_i_32(4, serializer);
+        sse_encode_String(message, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_list_prim_u_8_strict(
     Uint8List self,
     SseSerializer serializer,
@@ -568,9 +1088,55 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   }
 
   @protected
+  void sse_encode_list_track_lite(
+    List<TrackLite> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_track_lite(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_opt_String(String? self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_String(self, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_opt_box_autoadd_i_64(
+    PlatformInt64? self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_i_64(self, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_player_state(PlayerState self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_i_32(self.index, serializer);
+  }
+
+  @protected
+  void sse_encode_track_lite(TrackLite self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_64(self.id, serializer);
+    sse_encode_String(self.path, serializer);
+    sse_encode_opt_String(self.title, serializer);
+    sse_encode_opt_String(self.artist, serializer);
+    sse_encode_opt_String(self.album, serializer);
+    sse_encode_opt_box_autoadd_i_64(self.durationMs, serializer);
   }
 
   @protected
@@ -595,6 +1161,26 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
     // Codec=Sse (Serialization based), see doc to use other codecs
     serializer.buffer.putUint8(self ? 1 : 0);
   }
+}
+
+@sealed
+class LibraryImpl extends RustOpaque implements Library {
+  // Not to be used by end users
+  LibraryImpl.frbInternalDcoDecode(List<dynamic> wire)
+    : super.frbInternalDcoDecode(wire, _kStaticData);
+
+  // Not to be used by end users
+  LibraryImpl.frbInternalSseDecode(BigInt ptr, int externalSizeOnNative)
+    : super.frbInternalSseDecode(ptr, externalSizeOnNative, _kStaticData);
+
+  static final _kStaticData = RustArcStaticData(
+    rustArcIncrementStrongCount:
+        StellatuneApi.instance.api.rust_arc_increment_strong_count_Library,
+    rustArcDecrementStrongCount:
+        StellatuneApi.instance.api.rust_arc_decrement_strong_count_Library,
+    rustArcDecrementStrongCountPtr:
+        StellatuneApi.instance.api.rust_arc_decrement_strong_count_LibraryPtr,
+  );
 }
 
 @sealed

@@ -905,3 +905,1167 @@ abstract class Event_Log extends Event {
   _$$Event_LogImplCopyWith<_$Event_LogImpl> get copyWith =>
       throw _privateConstructorUsedError;
 }
+
+/// @nodoc
+mixin _$LibraryEvent {
+  @optionalTypeArgs
+  TResult when<TResult extends Object?>({
+    required TResult Function(int scanned, int updated, int skipped, int errors)
+    scanProgress,
+    required TResult Function(
+      int durationMs,
+      int scanned,
+      int updated,
+      int skipped,
+      int errors,
+    )
+    scanFinished,
+    required TResult Function(String query, List<TrackLite> items) searchResult,
+    required TResult Function(String message) error,
+    required TResult Function(String message) log,
+  }) => throw _privateConstructorUsedError;
+  @optionalTypeArgs
+  TResult? whenOrNull<TResult extends Object?>({
+    TResult? Function(int scanned, int updated, int skipped, int errors)?
+    scanProgress,
+    TResult? Function(
+      int durationMs,
+      int scanned,
+      int updated,
+      int skipped,
+      int errors,
+    )?
+    scanFinished,
+    TResult? Function(String query, List<TrackLite> items)? searchResult,
+    TResult? Function(String message)? error,
+    TResult? Function(String message)? log,
+  }) => throw _privateConstructorUsedError;
+  @optionalTypeArgs
+  TResult maybeWhen<TResult extends Object?>({
+    TResult Function(int scanned, int updated, int skipped, int errors)?
+    scanProgress,
+    TResult Function(
+      int durationMs,
+      int scanned,
+      int updated,
+      int skipped,
+      int errors,
+    )?
+    scanFinished,
+    TResult Function(String query, List<TrackLite> items)? searchResult,
+    TResult Function(String message)? error,
+    TResult Function(String message)? log,
+    required TResult orElse(),
+  }) => throw _privateConstructorUsedError;
+  @optionalTypeArgs
+  TResult map<TResult extends Object?>({
+    required TResult Function(LibraryEvent_ScanProgress value) scanProgress,
+    required TResult Function(LibraryEvent_ScanFinished value) scanFinished,
+    required TResult Function(LibraryEvent_SearchResult value) searchResult,
+    required TResult Function(LibraryEvent_Error value) error,
+    required TResult Function(LibraryEvent_Log value) log,
+  }) => throw _privateConstructorUsedError;
+  @optionalTypeArgs
+  TResult? mapOrNull<TResult extends Object?>({
+    TResult? Function(LibraryEvent_ScanProgress value)? scanProgress,
+    TResult? Function(LibraryEvent_ScanFinished value)? scanFinished,
+    TResult? Function(LibraryEvent_SearchResult value)? searchResult,
+    TResult? Function(LibraryEvent_Error value)? error,
+    TResult? Function(LibraryEvent_Log value)? log,
+  }) => throw _privateConstructorUsedError;
+  @optionalTypeArgs
+  TResult maybeMap<TResult extends Object?>({
+    TResult Function(LibraryEvent_ScanProgress value)? scanProgress,
+    TResult Function(LibraryEvent_ScanFinished value)? scanFinished,
+    TResult Function(LibraryEvent_SearchResult value)? searchResult,
+    TResult Function(LibraryEvent_Error value)? error,
+    TResult Function(LibraryEvent_Log value)? log,
+    required TResult orElse(),
+  }) => throw _privateConstructorUsedError;
+}
+
+/// @nodoc
+abstract class $LibraryEventCopyWith<$Res> {
+  factory $LibraryEventCopyWith(
+    LibraryEvent value,
+    $Res Function(LibraryEvent) then,
+  ) = _$LibraryEventCopyWithImpl<$Res, LibraryEvent>;
+}
+
+/// @nodoc
+class _$LibraryEventCopyWithImpl<$Res, $Val extends LibraryEvent>
+    implements $LibraryEventCopyWith<$Res> {
+  _$LibraryEventCopyWithImpl(this._value, this._then);
+
+  // ignore: unused_field
+  final $Val _value;
+  // ignore: unused_field
+  final $Res Function($Val) _then;
+
+  /// Create a copy of LibraryEvent
+  /// with the given fields replaced by the non-null parameter values.
+}
+
+/// @nodoc
+abstract class _$$LibraryEvent_ScanProgressImplCopyWith<$Res> {
+  factory _$$LibraryEvent_ScanProgressImplCopyWith(
+    _$LibraryEvent_ScanProgressImpl value,
+    $Res Function(_$LibraryEvent_ScanProgressImpl) then,
+  ) = __$$LibraryEvent_ScanProgressImplCopyWithImpl<$Res>;
+  @useResult
+  $Res call({int scanned, int updated, int skipped, int errors});
+}
+
+/// @nodoc
+class __$$LibraryEvent_ScanProgressImplCopyWithImpl<$Res>
+    extends _$LibraryEventCopyWithImpl<$Res, _$LibraryEvent_ScanProgressImpl>
+    implements _$$LibraryEvent_ScanProgressImplCopyWith<$Res> {
+  __$$LibraryEvent_ScanProgressImplCopyWithImpl(
+    _$LibraryEvent_ScanProgressImpl _value,
+    $Res Function(_$LibraryEvent_ScanProgressImpl) _then,
+  ) : super(_value, _then);
+
+  /// Create a copy of LibraryEvent
+  /// with the given fields replaced by the non-null parameter values.
+  @pragma('vm:prefer-inline')
+  @override
+  $Res call({
+    Object? scanned = null,
+    Object? updated = null,
+    Object? skipped = null,
+    Object? errors = null,
+  }) {
+    return _then(
+      _$LibraryEvent_ScanProgressImpl(
+        scanned: null == scanned
+            ? _value.scanned
+            : scanned // ignore: cast_nullable_to_non_nullable
+                  as int,
+        updated: null == updated
+            ? _value.updated
+            : updated // ignore: cast_nullable_to_non_nullable
+                  as int,
+        skipped: null == skipped
+            ? _value.skipped
+            : skipped // ignore: cast_nullable_to_non_nullable
+                  as int,
+        errors: null == errors
+            ? _value.errors
+            : errors // ignore: cast_nullable_to_non_nullable
+                  as int,
+      ),
+    );
+  }
+}
+
+/// @nodoc
+
+class _$LibraryEvent_ScanProgressImpl extends LibraryEvent_ScanProgress {
+  const _$LibraryEvent_ScanProgressImpl({
+    required this.scanned,
+    required this.updated,
+    required this.skipped,
+    required this.errors,
+  }) : super._();
+
+  @override
+  final int scanned;
+  @override
+  final int updated;
+  @override
+  final int skipped;
+  @override
+  final int errors;
+
+  @override
+  String toString() {
+    return 'LibraryEvent.scanProgress(scanned: $scanned, updated: $updated, skipped: $skipped, errors: $errors)';
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return identical(this, other) ||
+        (other.runtimeType == runtimeType &&
+            other is _$LibraryEvent_ScanProgressImpl &&
+            (identical(other.scanned, scanned) || other.scanned == scanned) &&
+            (identical(other.updated, updated) || other.updated == updated) &&
+            (identical(other.skipped, skipped) || other.skipped == skipped) &&
+            (identical(other.errors, errors) || other.errors == errors));
+  }
+
+  @override
+  int get hashCode =>
+      Object.hash(runtimeType, scanned, updated, skipped, errors);
+
+  /// Create a copy of LibraryEvent
+  /// with the given fields replaced by the non-null parameter values.
+  @JsonKey(includeFromJson: false, includeToJson: false)
+  @override
+  @pragma('vm:prefer-inline')
+  _$$LibraryEvent_ScanProgressImplCopyWith<_$LibraryEvent_ScanProgressImpl>
+  get copyWith =>
+      __$$LibraryEvent_ScanProgressImplCopyWithImpl<
+        _$LibraryEvent_ScanProgressImpl
+      >(this, _$identity);
+
+  @override
+  @optionalTypeArgs
+  TResult when<TResult extends Object?>({
+    required TResult Function(int scanned, int updated, int skipped, int errors)
+    scanProgress,
+    required TResult Function(
+      int durationMs,
+      int scanned,
+      int updated,
+      int skipped,
+      int errors,
+    )
+    scanFinished,
+    required TResult Function(String query, List<TrackLite> items) searchResult,
+    required TResult Function(String message) error,
+    required TResult Function(String message) log,
+  }) {
+    return scanProgress(scanned, updated, skipped, errors);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult? whenOrNull<TResult extends Object?>({
+    TResult? Function(int scanned, int updated, int skipped, int errors)?
+    scanProgress,
+    TResult? Function(
+      int durationMs,
+      int scanned,
+      int updated,
+      int skipped,
+      int errors,
+    )?
+    scanFinished,
+    TResult? Function(String query, List<TrackLite> items)? searchResult,
+    TResult? Function(String message)? error,
+    TResult? Function(String message)? log,
+  }) {
+    return scanProgress?.call(scanned, updated, skipped, errors);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult maybeWhen<TResult extends Object?>({
+    TResult Function(int scanned, int updated, int skipped, int errors)?
+    scanProgress,
+    TResult Function(
+      int durationMs,
+      int scanned,
+      int updated,
+      int skipped,
+      int errors,
+    )?
+    scanFinished,
+    TResult Function(String query, List<TrackLite> items)? searchResult,
+    TResult Function(String message)? error,
+    TResult Function(String message)? log,
+    required TResult orElse(),
+  }) {
+    if (scanProgress != null) {
+      return scanProgress(scanned, updated, skipped, errors);
+    }
+    return orElse();
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult map<TResult extends Object?>({
+    required TResult Function(LibraryEvent_ScanProgress value) scanProgress,
+    required TResult Function(LibraryEvent_ScanFinished value) scanFinished,
+    required TResult Function(LibraryEvent_SearchResult value) searchResult,
+    required TResult Function(LibraryEvent_Error value) error,
+    required TResult Function(LibraryEvent_Log value) log,
+  }) {
+    return scanProgress(this);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult? mapOrNull<TResult extends Object?>({
+    TResult? Function(LibraryEvent_ScanProgress value)? scanProgress,
+    TResult? Function(LibraryEvent_ScanFinished value)? scanFinished,
+    TResult? Function(LibraryEvent_SearchResult value)? searchResult,
+    TResult? Function(LibraryEvent_Error value)? error,
+    TResult? Function(LibraryEvent_Log value)? log,
+  }) {
+    return scanProgress?.call(this);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult maybeMap<TResult extends Object?>({
+    TResult Function(LibraryEvent_ScanProgress value)? scanProgress,
+    TResult Function(LibraryEvent_ScanFinished value)? scanFinished,
+    TResult Function(LibraryEvent_SearchResult value)? searchResult,
+    TResult Function(LibraryEvent_Error value)? error,
+    TResult Function(LibraryEvent_Log value)? log,
+    required TResult orElse(),
+  }) {
+    if (scanProgress != null) {
+      return scanProgress(this);
+    }
+    return orElse();
+  }
+}
+
+abstract class LibraryEvent_ScanProgress extends LibraryEvent {
+  const factory LibraryEvent_ScanProgress({
+    required final int scanned,
+    required final int updated,
+    required final int skipped,
+    required final int errors,
+  }) = _$LibraryEvent_ScanProgressImpl;
+  const LibraryEvent_ScanProgress._() : super._();
+
+  int get scanned;
+  int get updated;
+  int get skipped;
+  int get errors;
+
+  /// Create a copy of LibraryEvent
+  /// with the given fields replaced by the non-null parameter values.
+  @JsonKey(includeFromJson: false, includeToJson: false)
+  _$$LibraryEvent_ScanProgressImplCopyWith<_$LibraryEvent_ScanProgressImpl>
+  get copyWith => throw _privateConstructorUsedError;
+}
+
+/// @nodoc
+abstract class _$$LibraryEvent_ScanFinishedImplCopyWith<$Res> {
+  factory _$$LibraryEvent_ScanFinishedImplCopyWith(
+    _$LibraryEvent_ScanFinishedImpl value,
+    $Res Function(_$LibraryEvent_ScanFinishedImpl) then,
+  ) = __$$LibraryEvent_ScanFinishedImplCopyWithImpl<$Res>;
+  @useResult
+  $Res call({
+    int durationMs,
+    int scanned,
+    int updated,
+    int skipped,
+    int errors,
+  });
+}
+
+/// @nodoc
+class __$$LibraryEvent_ScanFinishedImplCopyWithImpl<$Res>
+    extends _$LibraryEventCopyWithImpl<$Res, _$LibraryEvent_ScanFinishedImpl>
+    implements _$$LibraryEvent_ScanFinishedImplCopyWith<$Res> {
+  __$$LibraryEvent_ScanFinishedImplCopyWithImpl(
+    _$LibraryEvent_ScanFinishedImpl _value,
+    $Res Function(_$LibraryEvent_ScanFinishedImpl) _then,
+  ) : super(_value, _then);
+
+  /// Create a copy of LibraryEvent
+  /// with the given fields replaced by the non-null parameter values.
+  @pragma('vm:prefer-inline')
+  @override
+  $Res call({
+    Object? durationMs = null,
+    Object? scanned = null,
+    Object? updated = null,
+    Object? skipped = null,
+    Object? errors = null,
+  }) {
+    return _then(
+      _$LibraryEvent_ScanFinishedImpl(
+        durationMs: null == durationMs
+            ? _value.durationMs
+            : durationMs // ignore: cast_nullable_to_non_nullable
+                  as int,
+        scanned: null == scanned
+            ? _value.scanned
+            : scanned // ignore: cast_nullable_to_non_nullable
+                  as int,
+        updated: null == updated
+            ? _value.updated
+            : updated // ignore: cast_nullable_to_non_nullable
+                  as int,
+        skipped: null == skipped
+            ? _value.skipped
+            : skipped // ignore: cast_nullable_to_non_nullable
+                  as int,
+        errors: null == errors
+            ? _value.errors
+            : errors // ignore: cast_nullable_to_non_nullable
+                  as int,
+      ),
+    );
+  }
+}
+
+/// @nodoc
+
+class _$LibraryEvent_ScanFinishedImpl extends LibraryEvent_ScanFinished {
+  const _$LibraryEvent_ScanFinishedImpl({
+    required this.durationMs,
+    required this.scanned,
+    required this.updated,
+    required this.skipped,
+    required this.errors,
+  }) : super._();
+
+  @override
+  final int durationMs;
+  @override
+  final int scanned;
+  @override
+  final int updated;
+  @override
+  final int skipped;
+  @override
+  final int errors;
+
+  @override
+  String toString() {
+    return 'LibraryEvent.scanFinished(durationMs: $durationMs, scanned: $scanned, updated: $updated, skipped: $skipped, errors: $errors)';
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return identical(this, other) ||
+        (other.runtimeType == runtimeType &&
+            other is _$LibraryEvent_ScanFinishedImpl &&
+            (identical(other.durationMs, durationMs) ||
+                other.durationMs == durationMs) &&
+            (identical(other.scanned, scanned) || other.scanned == scanned) &&
+            (identical(other.updated, updated) || other.updated == updated) &&
+            (identical(other.skipped, skipped) || other.skipped == skipped) &&
+            (identical(other.errors, errors) || other.errors == errors));
+  }
+
+  @override
+  int get hashCode =>
+      Object.hash(runtimeType, durationMs, scanned, updated, skipped, errors);
+
+  /// Create a copy of LibraryEvent
+  /// with the given fields replaced by the non-null parameter values.
+  @JsonKey(includeFromJson: false, includeToJson: false)
+  @override
+  @pragma('vm:prefer-inline')
+  _$$LibraryEvent_ScanFinishedImplCopyWith<_$LibraryEvent_ScanFinishedImpl>
+  get copyWith =>
+      __$$LibraryEvent_ScanFinishedImplCopyWithImpl<
+        _$LibraryEvent_ScanFinishedImpl
+      >(this, _$identity);
+
+  @override
+  @optionalTypeArgs
+  TResult when<TResult extends Object?>({
+    required TResult Function(int scanned, int updated, int skipped, int errors)
+    scanProgress,
+    required TResult Function(
+      int durationMs,
+      int scanned,
+      int updated,
+      int skipped,
+      int errors,
+    )
+    scanFinished,
+    required TResult Function(String query, List<TrackLite> items) searchResult,
+    required TResult Function(String message) error,
+    required TResult Function(String message) log,
+  }) {
+    return scanFinished(durationMs, scanned, updated, skipped, errors);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult? whenOrNull<TResult extends Object?>({
+    TResult? Function(int scanned, int updated, int skipped, int errors)?
+    scanProgress,
+    TResult? Function(
+      int durationMs,
+      int scanned,
+      int updated,
+      int skipped,
+      int errors,
+    )?
+    scanFinished,
+    TResult? Function(String query, List<TrackLite> items)? searchResult,
+    TResult? Function(String message)? error,
+    TResult? Function(String message)? log,
+  }) {
+    return scanFinished?.call(durationMs, scanned, updated, skipped, errors);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult maybeWhen<TResult extends Object?>({
+    TResult Function(int scanned, int updated, int skipped, int errors)?
+    scanProgress,
+    TResult Function(
+      int durationMs,
+      int scanned,
+      int updated,
+      int skipped,
+      int errors,
+    )?
+    scanFinished,
+    TResult Function(String query, List<TrackLite> items)? searchResult,
+    TResult Function(String message)? error,
+    TResult Function(String message)? log,
+    required TResult orElse(),
+  }) {
+    if (scanFinished != null) {
+      return scanFinished(durationMs, scanned, updated, skipped, errors);
+    }
+    return orElse();
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult map<TResult extends Object?>({
+    required TResult Function(LibraryEvent_ScanProgress value) scanProgress,
+    required TResult Function(LibraryEvent_ScanFinished value) scanFinished,
+    required TResult Function(LibraryEvent_SearchResult value) searchResult,
+    required TResult Function(LibraryEvent_Error value) error,
+    required TResult Function(LibraryEvent_Log value) log,
+  }) {
+    return scanFinished(this);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult? mapOrNull<TResult extends Object?>({
+    TResult? Function(LibraryEvent_ScanProgress value)? scanProgress,
+    TResult? Function(LibraryEvent_ScanFinished value)? scanFinished,
+    TResult? Function(LibraryEvent_SearchResult value)? searchResult,
+    TResult? Function(LibraryEvent_Error value)? error,
+    TResult? Function(LibraryEvent_Log value)? log,
+  }) {
+    return scanFinished?.call(this);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult maybeMap<TResult extends Object?>({
+    TResult Function(LibraryEvent_ScanProgress value)? scanProgress,
+    TResult Function(LibraryEvent_ScanFinished value)? scanFinished,
+    TResult Function(LibraryEvent_SearchResult value)? searchResult,
+    TResult Function(LibraryEvent_Error value)? error,
+    TResult Function(LibraryEvent_Log value)? log,
+    required TResult orElse(),
+  }) {
+    if (scanFinished != null) {
+      return scanFinished(this);
+    }
+    return orElse();
+  }
+}
+
+abstract class LibraryEvent_ScanFinished extends LibraryEvent {
+  const factory LibraryEvent_ScanFinished({
+    required final int durationMs,
+    required final int scanned,
+    required final int updated,
+    required final int skipped,
+    required final int errors,
+  }) = _$LibraryEvent_ScanFinishedImpl;
+  const LibraryEvent_ScanFinished._() : super._();
+
+  int get durationMs;
+  int get scanned;
+  int get updated;
+  int get skipped;
+  int get errors;
+
+  /// Create a copy of LibraryEvent
+  /// with the given fields replaced by the non-null parameter values.
+  @JsonKey(includeFromJson: false, includeToJson: false)
+  _$$LibraryEvent_ScanFinishedImplCopyWith<_$LibraryEvent_ScanFinishedImpl>
+  get copyWith => throw _privateConstructorUsedError;
+}
+
+/// @nodoc
+abstract class _$$LibraryEvent_SearchResultImplCopyWith<$Res> {
+  factory _$$LibraryEvent_SearchResultImplCopyWith(
+    _$LibraryEvent_SearchResultImpl value,
+    $Res Function(_$LibraryEvent_SearchResultImpl) then,
+  ) = __$$LibraryEvent_SearchResultImplCopyWithImpl<$Res>;
+  @useResult
+  $Res call({String query, List<TrackLite> items});
+}
+
+/// @nodoc
+class __$$LibraryEvent_SearchResultImplCopyWithImpl<$Res>
+    extends _$LibraryEventCopyWithImpl<$Res, _$LibraryEvent_SearchResultImpl>
+    implements _$$LibraryEvent_SearchResultImplCopyWith<$Res> {
+  __$$LibraryEvent_SearchResultImplCopyWithImpl(
+    _$LibraryEvent_SearchResultImpl _value,
+    $Res Function(_$LibraryEvent_SearchResultImpl) _then,
+  ) : super(_value, _then);
+
+  /// Create a copy of LibraryEvent
+  /// with the given fields replaced by the non-null parameter values.
+  @pragma('vm:prefer-inline')
+  @override
+  $Res call({Object? query = null, Object? items = null}) {
+    return _then(
+      _$LibraryEvent_SearchResultImpl(
+        query: null == query
+            ? _value.query
+            : query // ignore: cast_nullable_to_non_nullable
+                  as String,
+        items: null == items
+            ? _value._items
+            : items // ignore: cast_nullable_to_non_nullable
+                  as List<TrackLite>,
+      ),
+    );
+  }
+}
+
+/// @nodoc
+
+class _$LibraryEvent_SearchResultImpl extends LibraryEvent_SearchResult {
+  const _$LibraryEvent_SearchResultImpl({
+    required this.query,
+    required final List<TrackLite> items,
+  }) : _items = items,
+       super._();
+
+  @override
+  final String query;
+  final List<TrackLite> _items;
+  @override
+  List<TrackLite> get items {
+    if (_items is EqualUnmodifiableListView) return _items;
+    // ignore: implicit_dynamic_type
+    return EqualUnmodifiableListView(_items);
+  }
+
+  @override
+  String toString() {
+    return 'LibraryEvent.searchResult(query: $query, items: $items)';
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return identical(this, other) ||
+        (other.runtimeType == runtimeType &&
+            other is _$LibraryEvent_SearchResultImpl &&
+            (identical(other.query, query) || other.query == query) &&
+            const DeepCollectionEquality().equals(other._items, _items));
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    runtimeType,
+    query,
+    const DeepCollectionEquality().hash(_items),
+  );
+
+  /// Create a copy of LibraryEvent
+  /// with the given fields replaced by the non-null parameter values.
+  @JsonKey(includeFromJson: false, includeToJson: false)
+  @override
+  @pragma('vm:prefer-inline')
+  _$$LibraryEvent_SearchResultImplCopyWith<_$LibraryEvent_SearchResultImpl>
+  get copyWith =>
+      __$$LibraryEvent_SearchResultImplCopyWithImpl<
+        _$LibraryEvent_SearchResultImpl
+      >(this, _$identity);
+
+  @override
+  @optionalTypeArgs
+  TResult when<TResult extends Object?>({
+    required TResult Function(int scanned, int updated, int skipped, int errors)
+    scanProgress,
+    required TResult Function(
+      int durationMs,
+      int scanned,
+      int updated,
+      int skipped,
+      int errors,
+    )
+    scanFinished,
+    required TResult Function(String query, List<TrackLite> items) searchResult,
+    required TResult Function(String message) error,
+    required TResult Function(String message) log,
+  }) {
+    return searchResult(query, items);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult? whenOrNull<TResult extends Object?>({
+    TResult? Function(int scanned, int updated, int skipped, int errors)?
+    scanProgress,
+    TResult? Function(
+      int durationMs,
+      int scanned,
+      int updated,
+      int skipped,
+      int errors,
+    )?
+    scanFinished,
+    TResult? Function(String query, List<TrackLite> items)? searchResult,
+    TResult? Function(String message)? error,
+    TResult? Function(String message)? log,
+  }) {
+    return searchResult?.call(query, items);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult maybeWhen<TResult extends Object?>({
+    TResult Function(int scanned, int updated, int skipped, int errors)?
+    scanProgress,
+    TResult Function(
+      int durationMs,
+      int scanned,
+      int updated,
+      int skipped,
+      int errors,
+    )?
+    scanFinished,
+    TResult Function(String query, List<TrackLite> items)? searchResult,
+    TResult Function(String message)? error,
+    TResult Function(String message)? log,
+    required TResult orElse(),
+  }) {
+    if (searchResult != null) {
+      return searchResult(query, items);
+    }
+    return orElse();
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult map<TResult extends Object?>({
+    required TResult Function(LibraryEvent_ScanProgress value) scanProgress,
+    required TResult Function(LibraryEvent_ScanFinished value) scanFinished,
+    required TResult Function(LibraryEvent_SearchResult value) searchResult,
+    required TResult Function(LibraryEvent_Error value) error,
+    required TResult Function(LibraryEvent_Log value) log,
+  }) {
+    return searchResult(this);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult? mapOrNull<TResult extends Object?>({
+    TResult? Function(LibraryEvent_ScanProgress value)? scanProgress,
+    TResult? Function(LibraryEvent_ScanFinished value)? scanFinished,
+    TResult? Function(LibraryEvent_SearchResult value)? searchResult,
+    TResult? Function(LibraryEvent_Error value)? error,
+    TResult? Function(LibraryEvent_Log value)? log,
+  }) {
+    return searchResult?.call(this);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult maybeMap<TResult extends Object?>({
+    TResult Function(LibraryEvent_ScanProgress value)? scanProgress,
+    TResult Function(LibraryEvent_ScanFinished value)? scanFinished,
+    TResult Function(LibraryEvent_SearchResult value)? searchResult,
+    TResult Function(LibraryEvent_Error value)? error,
+    TResult Function(LibraryEvent_Log value)? log,
+    required TResult orElse(),
+  }) {
+    if (searchResult != null) {
+      return searchResult(this);
+    }
+    return orElse();
+  }
+}
+
+abstract class LibraryEvent_SearchResult extends LibraryEvent {
+  const factory LibraryEvent_SearchResult({
+    required final String query,
+    required final List<TrackLite> items,
+  }) = _$LibraryEvent_SearchResultImpl;
+  const LibraryEvent_SearchResult._() : super._();
+
+  String get query;
+  List<TrackLite> get items;
+
+  /// Create a copy of LibraryEvent
+  /// with the given fields replaced by the non-null parameter values.
+  @JsonKey(includeFromJson: false, includeToJson: false)
+  _$$LibraryEvent_SearchResultImplCopyWith<_$LibraryEvent_SearchResultImpl>
+  get copyWith => throw _privateConstructorUsedError;
+}
+
+/// @nodoc
+abstract class _$$LibraryEvent_ErrorImplCopyWith<$Res> {
+  factory _$$LibraryEvent_ErrorImplCopyWith(
+    _$LibraryEvent_ErrorImpl value,
+    $Res Function(_$LibraryEvent_ErrorImpl) then,
+  ) = __$$LibraryEvent_ErrorImplCopyWithImpl<$Res>;
+  @useResult
+  $Res call({String message});
+}
+
+/// @nodoc
+class __$$LibraryEvent_ErrorImplCopyWithImpl<$Res>
+    extends _$LibraryEventCopyWithImpl<$Res, _$LibraryEvent_ErrorImpl>
+    implements _$$LibraryEvent_ErrorImplCopyWith<$Res> {
+  __$$LibraryEvent_ErrorImplCopyWithImpl(
+    _$LibraryEvent_ErrorImpl _value,
+    $Res Function(_$LibraryEvent_ErrorImpl) _then,
+  ) : super(_value, _then);
+
+  /// Create a copy of LibraryEvent
+  /// with the given fields replaced by the non-null parameter values.
+  @pragma('vm:prefer-inline')
+  @override
+  $Res call({Object? message = null}) {
+    return _then(
+      _$LibraryEvent_ErrorImpl(
+        message: null == message
+            ? _value.message
+            : message // ignore: cast_nullable_to_non_nullable
+                  as String,
+      ),
+    );
+  }
+}
+
+/// @nodoc
+
+class _$LibraryEvent_ErrorImpl extends LibraryEvent_Error {
+  const _$LibraryEvent_ErrorImpl({required this.message}) : super._();
+
+  @override
+  final String message;
+
+  @override
+  String toString() {
+    return 'LibraryEvent.error(message: $message)';
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return identical(this, other) ||
+        (other.runtimeType == runtimeType &&
+            other is _$LibraryEvent_ErrorImpl &&
+            (identical(other.message, message) || other.message == message));
+  }
+
+  @override
+  int get hashCode => Object.hash(runtimeType, message);
+
+  /// Create a copy of LibraryEvent
+  /// with the given fields replaced by the non-null parameter values.
+  @JsonKey(includeFromJson: false, includeToJson: false)
+  @override
+  @pragma('vm:prefer-inline')
+  _$$LibraryEvent_ErrorImplCopyWith<_$LibraryEvent_ErrorImpl> get copyWith =>
+      __$$LibraryEvent_ErrorImplCopyWithImpl<_$LibraryEvent_ErrorImpl>(
+        this,
+        _$identity,
+      );
+
+  @override
+  @optionalTypeArgs
+  TResult when<TResult extends Object?>({
+    required TResult Function(int scanned, int updated, int skipped, int errors)
+    scanProgress,
+    required TResult Function(
+      int durationMs,
+      int scanned,
+      int updated,
+      int skipped,
+      int errors,
+    )
+    scanFinished,
+    required TResult Function(String query, List<TrackLite> items) searchResult,
+    required TResult Function(String message) error,
+    required TResult Function(String message) log,
+  }) {
+    return error(message);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult? whenOrNull<TResult extends Object?>({
+    TResult? Function(int scanned, int updated, int skipped, int errors)?
+    scanProgress,
+    TResult? Function(
+      int durationMs,
+      int scanned,
+      int updated,
+      int skipped,
+      int errors,
+    )?
+    scanFinished,
+    TResult? Function(String query, List<TrackLite> items)? searchResult,
+    TResult? Function(String message)? error,
+    TResult? Function(String message)? log,
+  }) {
+    return error?.call(message);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult maybeWhen<TResult extends Object?>({
+    TResult Function(int scanned, int updated, int skipped, int errors)?
+    scanProgress,
+    TResult Function(
+      int durationMs,
+      int scanned,
+      int updated,
+      int skipped,
+      int errors,
+    )?
+    scanFinished,
+    TResult Function(String query, List<TrackLite> items)? searchResult,
+    TResult Function(String message)? error,
+    TResult Function(String message)? log,
+    required TResult orElse(),
+  }) {
+    if (error != null) {
+      return error(message);
+    }
+    return orElse();
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult map<TResult extends Object?>({
+    required TResult Function(LibraryEvent_ScanProgress value) scanProgress,
+    required TResult Function(LibraryEvent_ScanFinished value) scanFinished,
+    required TResult Function(LibraryEvent_SearchResult value) searchResult,
+    required TResult Function(LibraryEvent_Error value) error,
+    required TResult Function(LibraryEvent_Log value) log,
+  }) {
+    return error(this);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult? mapOrNull<TResult extends Object?>({
+    TResult? Function(LibraryEvent_ScanProgress value)? scanProgress,
+    TResult? Function(LibraryEvent_ScanFinished value)? scanFinished,
+    TResult? Function(LibraryEvent_SearchResult value)? searchResult,
+    TResult? Function(LibraryEvent_Error value)? error,
+    TResult? Function(LibraryEvent_Log value)? log,
+  }) {
+    return error?.call(this);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult maybeMap<TResult extends Object?>({
+    TResult Function(LibraryEvent_ScanProgress value)? scanProgress,
+    TResult Function(LibraryEvent_ScanFinished value)? scanFinished,
+    TResult Function(LibraryEvent_SearchResult value)? searchResult,
+    TResult Function(LibraryEvent_Error value)? error,
+    TResult Function(LibraryEvent_Log value)? log,
+    required TResult orElse(),
+  }) {
+    if (error != null) {
+      return error(this);
+    }
+    return orElse();
+  }
+}
+
+abstract class LibraryEvent_Error extends LibraryEvent {
+  const factory LibraryEvent_Error({required final String message}) =
+      _$LibraryEvent_ErrorImpl;
+  const LibraryEvent_Error._() : super._();
+
+  String get message;
+
+  /// Create a copy of LibraryEvent
+  /// with the given fields replaced by the non-null parameter values.
+  @JsonKey(includeFromJson: false, includeToJson: false)
+  _$$LibraryEvent_ErrorImplCopyWith<_$LibraryEvent_ErrorImpl> get copyWith =>
+      throw _privateConstructorUsedError;
+}
+
+/// @nodoc
+abstract class _$$LibraryEvent_LogImplCopyWith<$Res> {
+  factory _$$LibraryEvent_LogImplCopyWith(
+    _$LibraryEvent_LogImpl value,
+    $Res Function(_$LibraryEvent_LogImpl) then,
+  ) = __$$LibraryEvent_LogImplCopyWithImpl<$Res>;
+  @useResult
+  $Res call({String message});
+}
+
+/// @nodoc
+class __$$LibraryEvent_LogImplCopyWithImpl<$Res>
+    extends _$LibraryEventCopyWithImpl<$Res, _$LibraryEvent_LogImpl>
+    implements _$$LibraryEvent_LogImplCopyWith<$Res> {
+  __$$LibraryEvent_LogImplCopyWithImpl(
+    _$LibraryEvent_LogImpl _value,
+    $Res Function(_$LibraryEvent_LogImpl) _then,
+  ) : super(_value, _then);
+
+  /// Create a copy of LibraryEvent
+  /// with the given fields replaced by the non-null parameter values.
+  @pragma('vm:prefer-inline')
+  @override
+  $Res call({Object? message = null}) {
+    return _then(
+      _$LibraryEvent_LogImpl(
+        message: null == message
+            ? _value.message
+            : message // ignore: cast_nullable_to_non_nullable
+                  as String,
+      ),
+    );
+  }
+}
+
+/// @nodoc
+
+class _$LibraryEvent_LogImpl extends LibraryEvent_Log {
+  const _$LibraryEvent_LogImpl({required this.message}) : super._();
+
+  @override
+  final String message;
+
+  @override
+  String toString() {
+    return 'LibraryEvent.log(message: $message)';
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return identical(this, other) ||
+        (other.runtimeType == runtimeType &&
+            other is _$LibraryEvent_LogImpl &&
+            (identical(other.message, message) || other.message == message));
+  }
+
+  @override
+  int get hashCode => Object.hash(runtimeType, message);
+
+  /// Create a copy of LibraryEvent
+  /// with the given fields replaced by the non-null parameter values.
+  @JsonKey(includeFromJson: false, includeToJson: false)
+  @override
+  @pragma('vm:prefer-inline')
+  _$$LibraryEvent_LogImplCopyWith<_$LibraryEvent_LogImpl> get copyWith =>
+      __$$LibraryEvent_LogImplCopyWithImpl<_$LibraryEvent_LogImpl>(
+        this,
+        _$identity,
+      );
+
+  @override
+  @optionalTypeArgs
+  TResult when<TResult extends Object?>({
+    required TResult Function(int scanned, int updated, int skipped, int errors)
+    scanProgress,
+    required TResult Function(
+      int durationMs,
+      int scanned,
+      int updated,
+      int skipped,
+      int errors,
+    )
+    scanFinished,
+    required TResult Function(String query, List<TrackLite> items) searchResult,
+    required TResult Function(String message) error,
+    required TResult Function(String message) log,
+  }) {
+    return log(message);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult? whenOrNull<TResult extends Object?>({
+    TResult? Function(int scanned, int updated, int skipped, int errors)?
+    scanProgress,
+    TResult? Function(
+      int durationMs,
+      int scanned,
+      int updated,
+      int skipped,
+      int errors,
+    )?
+    scanFinished,
+    TResult? Function(String query, List<TrackLite> items)? searchResult,
+    TResult? Function(String message)? error,
+    TResult? Function(String message)? log,
+  }) {
+    return log?.call(message);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult maybeWhen<TResult extends Object?>({
+    TResult Function(int scanned, int updated, int skipped, int errors)?
+    scanProgress,
+    TResult Function(
+      int durationMs,
+      int scanned,
+      int updated,
+      int skipped,
+      int errors,
+    )?
+    scanFinished,
+    TResult Function(String query, List<TrackLite> items)? searchResult,
+    TResult Function(String message)? error,
+    TResult Function(String message)? log,
+    required TResult orElse(),
+  }) {
+    if (log != null) {
+      return log(message);
+    }
+    return orElse();
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult map<TResult extends Object?>({
+    required TResult Function(LibraryEvent_ScanProgress value) scanProgress,
+    required TResult Function(LibraryEvent_ScanFinished value) scanFinished,
+    required TResult Function(LibraryEvent_SearchResult value) searchResult,
+    required TResult Function(LibraryEvent_Error value) error,
+    required TResult Function(LibraryEvent_Log value) log,
+  }) {
+    return log(this);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult? mapOrNull<TResult extends Object?>({
+    TResult? Function(LibraryEvent_ScanProgress value)? scanProgress,
+    TResult? Function(LibraryEvent_ScanFinished value)? scanFinished,
+    TResult? Function(LibraryEvent_SearchResult value)? searchResult,
+    TResult? Function(LibraryEvent_Error value)? error,
+    TResult? Function(LibraryEvent_Log value)? log,
+  }) {
+    return log?.call(this);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult maybeMap<TResult extends Object?>({
+    TResult Function(LibraryEvent_ScanProgress value)? scanProgress,
+    TResult Function(LibraryEvent_ScanFinished value)? scanFinished,
+    TResult Function(LibraryEvent_SearchResult value)? searchResult,
+    TResult Function(LibraryEvent_Error value)? error,
+    TResult Function(LibraryEvent_Log value)? log,
+    required TResult orElse(),
+  }) {
+    if (log != null) {
+      return log(this);
+    }
+    return orElse();
+  }
+}
+
+abstract class LibraryEvent_Log extends LibraryEvent {
+  const factory LibraryEvent_Log({required final String message}) =
+      _$LibraryEvent_LogImpl;
+  const LibraryEvent_Log._() : super._();
+
+  String get message;
+
+  /// Create a copy of LibraryEvent
+  /// with the given fields replaced by the non-null parameter values.
+  @JsonKey(includeFromJson: false, includeToJson: false)
+  _$$LibraryEvent_LogImplCopyWith<_$LibraryEvent_LogImpl> get copyWith =>
+      throw _privateConstructorUsedError;
+}

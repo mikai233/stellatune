@@ -8,8 +8,8 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:freezed_annotation/freezed_annotation.dart' hide protected;
 part 'stellatune_core.freezed.dart';
 
-// These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `Command`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`
+// These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `Command`, `LibraryCommand`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
 
 @freezed
 sealed class Event with _$Event {
@@ -23,4 +23,69 @@ sealed class Event with _$Event {
   const factory Event.log({required String message}) = Event_Log;
 }
 
+@freezed
+sealed class LibraryEvent with _$LibraryEvent {
+  const LibraryEvent._();
+
+  const factory LibraryEvent.scanProgress({
+    required PlatformInt64 scanned,
+    required PlatformInt64 updated,
+    required PlatformInt64 skipped,
+    required PlatformInt64 errors,
+  }) = LibraryEvent_ScanProgress;
+  const factory LibraryEvent.scanFinished({
+    required PlatformInt64 durationMs,
+    required PlatformInt64 scanned,
+    required PlatformInt64 updated,
+    required PlatformInt64 skipped,
+    required PlatformInt64 errors,
+  }) = LibraryEvent_ScanFinished;
+  const factory LibraryEvent.searchResult({
+    required String query,
+    required List<TrackLite> items,
+  }) = LibraryEvent_SearchResult;
+  const factory LibraryEvent.error({required String message}) =
+      LibraryEvent_Error;
+  const factory LibraryEvent.log({required String message}) = LibraryEvent_Log;
+}
+
 enum PlayerState { stopped, playing, paused, buffering }
+
+class TrackLite {
+  final PlatformInt64 id;
+  final String path;
+  final String? title;
+  final String? artist;
+  final String? album;
+  final PlatformInt64? durationMs;
+
+  const TrackLite({
+    required this.id,
+    required this.path,
+    this.title,
+    this.artist,
+    this.album,
+    this.durationMs,
+  });
+
+  @override
+  int get hashCode =>
+      id.hashCode ^
+      path.hashCode ^
+      title.hashCode ^
+      artist.hashCode ^
+      album.hashCode ^
+      durationMs.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is TrackLite &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          path == other.path &&
+          title == other.title &&
+          artist == other.artist &&
+          album == other.album &&
+          durationMs == other.durationMs;
+}
