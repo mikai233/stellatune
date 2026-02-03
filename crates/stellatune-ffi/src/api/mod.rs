@@ -4,6 +4,7 @@ use std::thread;
 use crate::frb_generated::{RustOpaque, StreamSink};
 use anyhow::Result;
 use tracing_subscriber::EnvFilter;
+use tracing_subscriber::fmt::time::LocalTime;
 
 use stellatune_audio::start_engine;
 use stellatune_core::{Command, Event};
@@ -11,9 +12,20 @@ use stellatune_core::{Command, Event};
 fn init_tracing() {
     static INIT: OnceLock<()> = OnceLock::new();
     INIT.get_or_init(|| {
-        let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+        let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+            // Default to debug logs in debug builds to make performance profiling easier.
+            // Users can always override via `RUST_LOG=...`.
+            if cfg!(debug_assertions) {
+                EnvFilter::new(
+                    "warn,stellatune_ffi=debug,stellatune_audio=debug,stellatune_decode=debug,stellatune_output=debug",
+                )
+            } else {
+                EnvFilter::new("info")
+            }
+        });
         tracing_subscriber::fmt()
             .with_env_filter(filter)
+            .with_timer(LocalTime::rfc_3339())
             .with_target(false)
             .with_thread_names(true)
             .with_thread_ids(true)
