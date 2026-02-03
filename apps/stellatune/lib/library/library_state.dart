@@ -26,6 +26,9 @@ class LibraryScanProgress {
 class LibraryState {
   const LibraryState({
     required this.roots,
+    required this.folders,
+    required this.selectedFolder,
+    required this.includeSubfolders,
     required this.query,
     required this.results,
     required this.isScanning,
@@ -37,6 +40,9 @@ class LibraryState {
 
   const LibraryState.initial()
     : roots = const [],
+      folders = const [],
+      selectedFolder = '',
+      includeSubfolders = false,
       query = '',
       results = const [],
       isScanning = false,
@@ -46,6 +52,11 @@ class LibraryState {
       lastLog = '';
 
   final List<String> roots;
+  final List<String> folders;
+
+  /// Normalized folder path. Empty string means "All music".
+  final String selectedFolder;
+  final bool includeSubfolders;
   final String query;
   final List<TrackLite> results;
   final bool isScanning;
@@ -56,6 +67,9 @@ class LibraryState {
 
   LibraryState copyWith({
     List<String>? roots,
+    List<String>? folders,
+    String? selectedFolder,
+    bool? includeSubfolders,
     String? query,
     List<TrackLite>? results,
     bool? isScanning,
@@ -66,6 +80,9 @@ class LibraryState {
   }) {
     return LibraryState(
       roots: roots ?? this.roots,
+      folders: folders ?? this.folders,
+      selectedFolder: selectedFolder ?? this.selectedFolder,
+      includeSubfolders: includeSubfolders ?? this.includeSubfolders,
       query: query ?? this.query,
       results: results ?? this.results,
       isScanning: isScanning ?? this.isScanning,

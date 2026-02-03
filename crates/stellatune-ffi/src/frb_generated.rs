@@ -38,7 +38,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.11.1";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 593956292;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -842039029;
 
 // Section: executor
 
@@ -227,6 +227,41 @@ fn wire__crate__api__library_events_impl(
         },
     )
 }
+fn wire__crate__api__library_list_folders_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "library_list_folders",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_library = <RustOpaqueMoi<Library>>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, ()>((move || {
+                    let output_ok = Result::<_, ()>::Ok({
+                        crate::api::library_list_folders(api_library);
+                    })?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
 fn wire__crate__api__library_list_roots_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -255,6 +290,53 @@ fn wire__crate__api__library_list_roots_impl(
                 transform_result_sse::<_, ()>((move || {
                     let output_ok = Result::<_, ()>::Ok({
                         crate::api::library_list_roots(api_library);
+                    })?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__library_list_tracks_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "library_list_tracks",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_library = <RustOpaqueMoi<Library>>::sse_decode(&mut deserializer);
+            let api_folder = <String>::sse_decode(&mut deserializer);
+            let api_recursive = <bool>::sse_decode(&mut deserializer);
+            let api_query = <String>::sse_decode(&mut deserializer);
+            let api_limit = <i64>::sse_decode(&mut deserializer);
+            let api_offset = <i64>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, ()>((move || {
+                    let output_ok = Result::<_, ()>::Ok({
+                        crate::api::library_list_tracks(
+                            api_library,
+                            api_folder,
+                            api_recursive,
+                            api_query,
+                            api_limit,
+                            api_offset,
+                        );
                     })?;
                     Ok(output_ok)
                 })())
@@ -541,6 +623,20 @@ const _: fn() = || {
         stellatune_core::LibraryEvent::Roots { paths } => {
             let _: Vec<String> = paths;
         }
+        stellatune_core::LibraryEvent::Folders { paths } => {
+            let _: Vec<String> = paths;
+        }
+        stellatune_core::LibraryEvent::Tracks {
+            folder,
+            recursive,
+            query,
+            items,
+        } => {
+            let _: String = folder;
+            let _: bool = recursive;
+            let _: String = query;
+            let _: Vec<stellatune_core::TrackLite> = items;
+        }
         stellatune_core::LibraryEvent::ScanProgress {
             scanned,
             updated,
@@ -646,6 +742,13 @@ impl SseDecode for String {
     }
 }
 
+impl SseDecode for bool {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        deserializer.cursor.read_u8().unwrap() != 0
+    }
+}
+
 impl SseDecode for stellatune_core::Event {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -710,6 +813,22 @@ impl SseDecode for stellatune_core::LibraryEvent {
                 return stellatune_core::LibraryEvent::Roots { paths: var_paths };
             }
             1 => {
+                let mut var_paths = <Vec<String>>::sse_decode(deserializer);
+                return stellatune_core::LibraryEvent::Folders { paths: var_paths };
+            }
+            2 => {
+                let mut var_folder = <String>::sse_decode(deserializer);
+                let mut var_recursive = <bool>::sse_decode(deserializer);
+                let mut var_query = <String>::sse_decode(deserializer);
+                let mut var_items = <Vec<stellatune_core::TrackLite>>::sse_decode(deserializer);
+                return stellatune_core::LibraryEvent::Tracks {
+                    folder: var_folder,
+                    recursive: var_recursive,
+                    query: var_query,
+                    items: var_items,
+                };
+            }
+            3 => {
                 let mut var_scanned = <i64>::sse_decode(deserializer);
                 let mut var_updated = <i64>::sse_decode(deserializer);
                 let mut var_skipped = <i64>::sse_decode(deserializer);
@@ -721,7 +840,7 @@ impl SseDecode for stellatune_core::LibraryEvent {
                     errors: var_errors,
                 };
             }
-            2 => {
+            4 => {
                 let mut var_durationMs = <i64>::sse_decode(deserializer);
                 let mut var_scanned = <i64>::sse_decode(deserializer);
                 let mut var_updated = <i64>::sse_decode(deserializer);
@@ -735,7 +854,7 @@ impl SseDecode for stellatune_core::LibraryEvent {
                     errors: var_errors,
                 };
             }
-            3 => {
+            5 => {
                 let mut var_query = <String>::sse_decode(deserializer);
                 let mut var_items = <Vec<stellatune_core::TrackLite>>::sse_decode(deserializer);
                 return stellatune_core::LibraryEvent::SearchResult {
@@ -743,13 +862,13 @@ impl SseDecode for stellatune_core::LibraryEvent {
                     items: var_items,
                 };
             }
-            4 => {
+            6 => {
                 let mut var_message = <String>::sse_decode(deserializer);
                 return stellatune_core::LibraryEvent::Error {
                     message: var_message,
                 };
             }
-            5 => {
+            7 => {
                 let mut var_message = <String>::sse_decode(deserializer);
                 return stellatune_core::LibraryEvent::Log {
                     message: var_message,
@@ -873,13 +992,6 @@ impl SseDecode for usize {
     }
 }
 
-impl SseDecode for bool {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
-        deserializer.cursor.read_u8().unwrap() != 0
-    }
-}
-
 fn pde_ffi_dispatcher_primary_impl(
     func_id: i32,
     port: flutter_rust_bridge::for_generated::MessagePort,
@@ -894,14 +1006,16 @@ fn pde_ffi_dispatcher_primary_impl(
         3 => wire__crate__api__events_impl(port, ptr, rust_vec_len, data_len),
         4 => wire__crate__api__library_add_root_impl(port, ptr, rust_vec_len, data_len),
         5 => wire__crate__api__library_events_impl(port, ptr, rust_vec_len, data_len),
-        6 => wire__crate__api__library_list_roots_impl(port, ptr, rust_vec_len, data_len),
-        7 => wire__crate__api__library_remove_root_impl(port, ptr, rust_vec_len, data_len),
-        8 => wire__crate__api__library_scan_all_impl(port, ptr, rust_vec_len, data_len),
-        9 => wire__crate__api__library_search_impl(port, ptr, rust_vec_len, data_len),
-        10 => wire__crate__api__load_impl(port, ptr, rust_vec_len, data_len),
-        11 => wire__crate__api__pause_impl(port, ptr, rust_vec_len, data_len),
-        12 => wire__crate__api__play_impl(port, ptr, rust_vec_len, data_len),
-        13 => wire__crate__api__stop_impl(port, ptr, rust_vec_len, data_len),
+        6 => wire__crate__api__library_list_folders_impl(port, ptr, rust_vec_len, data_len),
+        7 => wire__crate__api__library_list_roots_impl(port, ptr, rust_vec_len, data_len),
+        8 => wire__crate__api__library_list_tracks_impl(port, ptr, rust_vec_len, data_len),
+        9 => wire__crate__api__library_remove_root_impl(port, ptr, rust_vec_len, data_len),
+        10 => wire__crate__api__library_scan_all_impl(port, ptr, rust_vec_len, data_len),
+        11 => wire__crate__api__library_search_impl(port, ptr, rust_vec_len, data_len),
+        12 => wire__crate__api__load_impl(port, ptr, rust_vec_len, data_len),
+        13 => wire__crate__api__pause_impl(port, ptr, rust_vec_len, data_len),
+        14 => wire__crate__api__play_impl(port, ptr, rust_vec_len, data_len),
+        15 => wire__crate__api__stop_impl(port, ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
@@ -966,13 +1080,29 @@ impl flutter_rust_bridge::IntoDart for FrbWrapper<stellatune_core::LibraryEvent>
             stellatune_core::LibraryEvent::Roots { paths } => {
                 [0.into_dart(), paths.into_into_dart().into_dart()].into_dart()
             }
+            stellatune_core::LibraryEvent::Folders { paths } => {
+                [1.into_dart(), paths.into_into_dart().into_dart()].into_dart()
+            }
+            stellatune_core::LibraryEvent::Tracks {
+                folder,
+                recursive,
+                query,
+                items,
+            } => [
+                2.into_dart(),
+                folder.into_into_dart().into_dart(),
+                recursive.into_into_dart().into_dart(),
+                query.into_into_dart().into_dart(),
+                items.into_into_dart().into_dart(),
+            ]
+            .into_dart(),
             stellatune_core::LibraryEvent::ScanProgress {
                 scanned,
                 updated,
                 skipped,
                 errors,
             } => [
-                1.into_dart(),
+                3.into_dart(),
                 scanned.into_into_dart().into_dart(),
                 updated.into_into_dart().into_dart(),
                 skipped.into_into_dart().into_dart(),
@@ -986,7 +1116,7 @@ impl flutter_rust_bridge::IntoDart for FrbWrapper<stellatune_core::LibraryEvent>
                 skipped,
                 errors,
             } => [
-                2.into_dart(),
+                4.into_dart(),
                 duration_ms.into_into_dart().into_dart(),
                 scanned.into_into_dart().into_dart(),
                 updated.into_into_dart().into_dart(),
@@ -995,16 +1125,16 @@ impl flutter_rust_bridge::IntoDart for FrbWrapper<stellatune_core::LibraryEvent>
             ]
             .into_dart(),
             stellatune_core::LibraryEvent::SearchResult { query, items } => [
-                3.into_dart(),
+                5.into_dart(),
                 query.into_into_dart().into_dart(),
                 items.into_into_dart().into_dart(),
             ]
             .into_dart(),
             stellatune_core::LibraryEvent::Error { message } => {
-                [4.into_dart(), message.into_into_dart().into_dart()].into_dart()
+                [6.into_dart(), message.into_into_dart().into_dart()].into_dart()
             }
             stellatune_core::LibraryEvent::Log { message } => {
-                [5.into_dart(), message.into_into_dart().into_dart()].into_dart()
+                [7.into_dart(), message.into_into_dart().into_dart()].into_dart()
             }
             _ => {
                 unimplemented!("");
@@ -1122,6 +1252,13 @@ impl SseEncode for String {
     }
 }
 
+impl SseEncode for bool {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        serializer.cursor.write_u8(self as _).unwrap();
+    }
+}
+
 impl SseEncode for stellatune_core::Event {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -1179,13 +1316,29 @@ impl SseEncode for stellatune_core::LibraryEvent {
                 <i32>::sse_encode(0, serializer);
                 <Vec<String>>::sse_encode(paths, serializer);
             }
+            stellatune_core::LibraryEvent::Folders { paths } => {
+                <i32>::sse_encode(1, serializer);
+                <Vec<String>>::sse_encode(paths, serializer);
+            }
+            stellatune_core::LibraryEvent::Tracks {
+                folder,
+                recursive,
+                query,
+                items,
+            } => {
+                <i32>::sse_encode(2, serializer);
+                <String>::sse_encode(folder, serializer);
+                <bool>::sse_encode(recursive, serializer);
+                <String>::sse_encode(query, serializer);
+                <Vec<stellatune_core::TrackLite>>::sse_encode(items, serializer);
+            }
             stellatune_core::LibraryEvent::ScanProgress {
                 scanned,
                 updated,
                 skipped,
                 errors,
             } => {
-                <i32>::sse_encode(1, serializer);
+                <i32>::sse_encode(3, serializer);
                 <i64>::sse_encode(scanned, serializer);
                 <i64>::sse_encode(updated, serializer);
                 <i64>::sse_encode(skipped, serializer);
@@ -1198,7 +1351,7 @@ impl SseEncode for stellatune_core::LibraryEvent {
                 skipped,
                 errors,
             } => {
-                <i32>::sse_encode(2, serializer);
+                <i32>::sse_encode(4, serializer);
                 <i64>::sse_encode(duration_ms, serializer);
                 <i64>::sse_encode(scanned, serializer);
                 <i64>::sse_encode(updated, serializer);
@@ -1206,16 +1359,16 @@ impl SseEncode for stellatune_core::LibraryEvent {
                 <i64>::sse_encode(errors, serializer);
             }
             stellatune_core::LibraryEvent::SearchResult { query, items } => {
-                <i32>::sse_encode(3, serializer);
+                <i32>::sse_encode(5, serializer);
                 <String>::sse_encode(query, serializer);
                 <Vec<stellatune_core::TrackLite>>::sse_encode(items, serializer);
             }
             stellatune_core::LibraryEvent::Error { message } => {
-                <i32>::sse_encode(4, serializer);
+                <i32>::sse_encode(6, serializer);
                 <String>::sse_encode(message, serializer);
             }
             stellatune_core::LibraryEvent::Log { message } => {
-                <i32>::sse_encode(5, serializer);
+                <i32>::sse_encode(7, serializer);
                 <String>::sse_encode(message, serializer);
             }
             _ => {
@@ -1324,13 +1477,6 @@ impl SseEncode for usize {
             .cursor
             .write_u64::<NativeEndian>(self as _)
             .unwrap();
-    }
-}
-
-impl SseEncode for bool {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
-        serializer.cursor.write_u8(self as _).unwrap();
     }
 }
 

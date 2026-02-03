@@ -123,6 +123,27 @@ pub fn library_list_roots(library: RustOpaque<Library>) {
     library.handle.send_command(LibraryCommand::ListRoots);
 }
 
+pub fn library_list_folders(library: RustOpaque<Library>) {
+    library.handle.send_command(LibraryCommand::ListFolders);
+}
+
+pub fn library_list_tracks(
+    library: RustOpaque<Library>,
+    folder: String,
+    recursive: bool,
+    query: String,
+    limit: i64,
+    offset: i64,
+) {
+    library.handle.send_command(LibraryCommand::ListTracks {
+        folder,
+        recursive,
+        query,
+        limit,
+        offset,
+    });
+}
+
 pub fn library_search(library: RustOpaque<Library>, query: String, limit: i64, offset: i64) {
     library.handle.send_command(LibraryCommand::Search {
         query,

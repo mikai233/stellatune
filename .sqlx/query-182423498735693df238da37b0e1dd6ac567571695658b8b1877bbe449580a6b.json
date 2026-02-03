@@ -1,0 +1,50 @@
+{
+  "db_name": "SQLite",
+  "query": "\n                    SELECT id as \"id!\", path, title, artist, album, duration_ms\n                    FROM tracks\n                    WHERE dir_norm = ?1\n                    ORDER BY id DESC\n                    LIMIT ?2 OFFSET ?3\n                    ",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "path",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "title",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "artist",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "album",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "duration_ms",
+        "ordinal": 5,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": [
+      true,
+      false,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "182423498735693df238da37b0e1dd6ac567571695658b8b1877bbe449580a6b"
+}

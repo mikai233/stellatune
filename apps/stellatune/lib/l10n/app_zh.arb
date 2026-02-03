@@ -16,6 +16,10 @@
 
   "libraryTitle": "音乐库",
   "queueTitle": "队列",
+  "libraryAllMusic": "全部音乐",
+  "includeSubfolders": "包含子文件夹",
+  "expand": "展开",
+  "collapse": "折叠",
 
   "tooltipAddFolder": "添加文件夹",
   "tooltipScan": "扫描",

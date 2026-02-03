@@ -5,6 +5,7 @@ import 'package:stellatune/app/providers.dart';
 import 'package:stellatune/library/library_controller.dart';
 import 'package:stellatune/l10n/app_localizations.dart';
 import 'package:stellatune/player/playback_controller.dart';
+import 'package:stellatune/ui/widgets/folder_tree.dart';
 import 'package:stellatune/ui/widgets/track_list.dart';
 
 class LibraryPage extends ConsumerStatefulWidget {
@@ -30,6 +31,18 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
 
     // Avoid rebuilding the whole page on unrelated state changes.
     final roots = ref.watch(libraryControllerProvider.select((s) => s.roots));
+    final folders = ref.watch(
+      libraryControllerProvider.select((s) => s.folders),
+    );
+    final selectedFolder = ref.watch(
+      libraryControllerProvider.select((s) => s.selectedFolder),
+    );
+    final includeSubfolders = ref.watch(
+      libraryControllerProvider.select((s) => s.includeSubfolders),
+    );
+    final hasSubfolders =
+        selectedFolder.isNotEmpty &&
+        folders.any((f) => f.startsWith('$selectedFolder/'));
     final results = ref.watch(
       libraryControllerProvider.select((s) => s.results),
     );
@@ -66,61 +79,120 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
       ),
       body: Padding(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: Row(
           children: [
-            _RootsRow(
-              roots: roots,
-              onRemove: (p) =>
-                  ref.read(libraryControllerProvider.notifier).removeRoot(p),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _searchController,
-              decoration: InputDecoration(
-                prefixIcon: const Icon(Icons.search),
-                hintText: l10n.searchHint,
-                border: const OutlineInputBorder(),
-              ),
-              onChanged: (q) =>
-                  ref.read(libraryControllerProvider.notifier).setQuery(q),
-            ),
-            const SizedBox(height: 12),
-            if (isScanning || lastFinishedMs != null)
-              _ScanStatusCard(
-                isScanning: isScanning,
-                scanned: progress.scanned,
-                updated: progress.updated,
-                skipped: progress.skipped,
-                errors: progress.errors,
-                durationMs: lastFinishedMs,
-              ),
-            if (lastError != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: Text(
-                  lastError,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: theme.colorScheme.error,
+            SizedBox(
+              width: 280,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _RootsRow(
+                    roots: roots,
+                    onRemove: (p) => ref
+                        .read(libraryControllerProvider.notifier)
+                        .removeRoot(p),
                   ),
-                ),
+                  const SizedBox(height: 12),
+                  Expanded(
+                    child: FolderTree(
+                      roots: roots,
+                      folders: folders,
+                      selectedFolder: selectedFolder,
+                      onSelectAll: () => ref
+                          .read(libraryControllerProvider.notifier)
+                          .selectAllMusic(),
+                      onSelectFolder: (p) => ref
+                          .read(libraryControllerProvider.notifier)
+                          .selectFolder(p),
+                    ),
+                  ),
+                ],
               ),
-            const SizedBox(height: 12),
+            ),
+            const VerticalDivider(width: 24),
             Expanded(
-              child: TrackList(
-                coverDir: ref.watch(coverDirProvider),
-                items: results,
-                onActivate: (index, items) async {
-                  final paths = items.map((t) => t.path).toList();
-                  await ref
-                      .read(playbackControllerProvider.notifier)
-                      .setQueueAndPlay(paths, startIndex: index);
-                },
-                onEnqueue: (track) async {
-                  await ref.read(playbackControllerProvider.notifier).enqueue([
-                    track.path,
-                  ]);
-                },
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  TextField(
+                    controller: _searchController,
+                    decoration: InputDecoration(
+                      prefixIcon: const Icon(Icons.search),
+                      hintText: l10n.searchHint,
+                      border: const OutlineInputBorder(),
+                    ),
+                    onChanged: (q) => ref
+                        .read(libraryControllerProvider.notifier)
+                        .setQuery(q),
+                  ),
+                  const SizedBox(height: 12),
+                  if (selectedFolder.isNotEmpty)
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            selectedFolder,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.titleSmall,
+                          ),
+                        ),
+                        if (hasSubfolders) ...[
+                          const SizedBox(width: 12),
+                          Row(
+                            children: [
+                              Text(l10n.includeSubfolders),
+                              const SizedBox(width: 8),
+                              Switch(
+                                value: includeSubfolders,
+                                onChanged: (_) => ref
+                                    .read(libraryControllerProvider.notifier)
+                                    .toggleIncludeSubfolders(),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ],
+                    ),
+                  if (selectedFolder.isNotEmpty) const SizedBox(height: 12),
+                  if (isScanning || lastFinishedMs != null)
+                    _ScanStatusCard(
+                      isScanning: isScanning,
+                      scanned: progress.scanned,
+                      updated: progress.updated,
+                      skipped: progress.skipped,
+                      errors: progress.errors,
+                      durationMs: lastFinishedMs,
+                    ),
+                  if (lastError != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text(
+                        lastError,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: theme.colorScheme.error,
+                        ),
+                      ),
+                    ),
+                  const SizedBox(height: 12),
+                  Expanded(
+                    child: TrackList(
+                      coverDir: ref.watch(coverDirProvider),
+                      items: results,
+                      onActivate: (index, items) async {
+                        final paths = items.map((t) => t.path).toList();
+                        await ref
+                            .read(playbackControllerProvider.notifier)
+                            .setQueueAndPlay(paths, startIndex: index);
+                      },
+                      onEnqueue: (track) async {
+                        await ref
+                            .read(playbackControllerProvider.notifier)
+                            .enqueue([track.path]);
+                      },
+                    ),
+                  ),
+                ],
               ),
             ),
           ],

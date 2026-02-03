@@ -51,6 +51,18 @@ class AppLocalizationsEn extends AppLocalizations {
   String get queueTitle => 'Queue';
 
   @override
+  String get libraryAllMusic => 'All music';
+
+  @override
+  String get includeSubfolders => 'Include subfolders';
+
+  @override
+  String get expand => 'Expand';
+
+  @override
+  String get collapse => 'Collapse';
+
+  @override
   String get tooltipAddFolder => 'Add folder';
 
   @override

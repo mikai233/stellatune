@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        SELECT id, path\n        FROM tracks\n        WHERE path_norm = '' OR dir_norm = ''\n        LIMIT 20000\n        ",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "path",
+        "ordinal": 1,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "9065e215810b3ec1bbcfd34fa11b54186db95eb5c5bebed7e2989598cc6f7aee"
+}

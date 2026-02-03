@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE tracks SET path_norm=?1, dir_norm=?2 WHERE id=?3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "e1c595a419b5667ab8e864c3a5de6922f7937d236d4f725e8c139592b5765f52"
+}

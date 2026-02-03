@@ -53,6 +53,14 @@ pub enum LibraryCommand {
         path: String,
     },
     ListRoots,
+    ListFolders,
+    ListTracks {
+        folder: String,
+        recursive: bool,
+        query: String,
+        limit: i64,
+        offset: i64,
+    },
     ScanAll,
     Search {
         query: String,
@@ -67,6 +75,15 @@ pub enum LibraryCommand {
 pub enum LibraryEvent {
     Roots {
         paths: Vec<String>,
+    },
+    Folders {
+        paths: Vec<String>,
+    },
+    Tracks {
+        folder: String,
+        recursive: bool,
+        query: String,
+        items: Vec<TrackLite>,
     },
     ScanProgress {
         scanned: i64,

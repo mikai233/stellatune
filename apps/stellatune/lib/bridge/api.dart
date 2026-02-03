@@ -52,6 +52,25 @@ Future<void> libraryScanAll({required Library library_}) =>
 Future<void> libraryListRoots({required Library library_}) =>
     StellatuneApi.instance.api.crateApiLibraryListRoots(library_: library_);
 
+Future<void> libraryListFolders({required Library library_}) =>
+    StellatuneApi.instance.api.crateApiLibraryListFolders(library_: library_);
+
+Future<void> libraryListTracks({
+  required Library library_,
+  required String folder,
+  required bool recursive,
+  required String query,
+  required PlatformInt64 limit,
+  required PlatformInt64 offset,
+}) => StellatuneApi.instance.api.crateApiLibraryListTracks(
+  library_: library_,
+  folder: folder,
+  recursive: recursive,
+  query: query,
+  limit: limit,
+  offset: offset,
+);
+
 Future<void> librarySearch({
   required Library library_,
   required String query,

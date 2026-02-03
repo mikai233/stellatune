@@ -1,10 +1,10 @@
 {
   "db_name": "SQLite",
-  "query": "\n                SELECT id, path, title, artist, album, duration_ms\n                FROM tracks\n                ORDER BY id DESC\n                LIMIT ?1 OFFSET ?2\n                ",
+  "query": "\n                    SELECT t.id as \"id!\", t.path, t.title, t.artist, t.album, t.duration_ms\n                    FROM tracks_fts\n                    JOIN tracks t ON t.id = tracks_fts.rowid\n                    WHERE tracks_fts MATCH ?1 AND t.path_norm LIKE ?2\n                    ORDER BY bm25(tracks_fts)\n                    LIMIT ?3 OFFSET ?4\n                    ",
   "describe": {
     "columns": [
       {
-        "name": "id",
+        "name": "id!",
         "ordinal": 0,
         "type_info": "Integer"
       },
@@ -35,7 +35,7 @@
       }
     ],
     "parameters": {
-      "Right": 2
+      "Right": 4
     },
     "nullable": [
       false,
@@ -46,5 +46,5 @@
       true
     ]
   },
-  "hash": "6cc0208dfe3e5b492ae80f21ac31f4684d64db01d24e2594b9abbacbcf548c1f"
+  "hash": "8196088342f80e008658568288f6b7b4df66734889b20e53af68c03f63ff1abf"
 }

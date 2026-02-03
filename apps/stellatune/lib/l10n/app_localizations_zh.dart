@@ -51,6 +51,18 @@ class AppLocalizationsZh extends AppLocalizations {
   String get queueTitle => '队列';
 
   @override
+  String get libraryAllMusic => '全部音乐';
+
+  @override
+  String get includeSubfolders => '包含子文件夹';
+
+  @override
+  String get expand => '展开';
+
+  @override
+  String get collapse => '折叠';
+
+  @override
   String get tooltipAddFolder => '添加文件夹';
 
   @override

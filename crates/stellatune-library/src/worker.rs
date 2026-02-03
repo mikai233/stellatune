@@ -16,6 +16,8 @@ use symphonia::core::meta::{Limit, MetadataOptions, StandardTagKey, StandardVisu
 use symphonia::core::probe::Hint;
 use symphonia::default::get_probe;
 
+use std::collections::BTreeSet;
+
 pub(crate) struct WorkerDeps {
     pool: SqlitePool,
     events: std::sync::Arc<EventHub>,
@@ -62,6 +64,17 @@ impl LibraryWorker {
             LibraryCommand::AddRoot { path } => self.add_root(path).await,
             LibraryCommand::RemoveRoot { path } => self.remove_root(path).await,
             LibraryCommand::ListRoots => self.list_roots().await,
+            LibraryCommand::ListFolders => self.list_folders().await,
+            LibraryCommand::ListTracks {
+                folder,
+                recursive,
+                query,
+                limit,
+                offset,
+            } => {
+                self.list_tracks(folder, recursive, query, limit, offset)
+                    .await
+            }
             LibraryCommand::ScanAll => self.scan_all().await,
             LibraryCommand::Search {
                 query,
@@ -85,6 +98,206 @@ impl LibraryWorker {
         .await?;
 
         self.events.emit(LibraryEvent::Roots { paths: roots });
+        Ok(())
+    }
+
+    async fn list_folders(&self) -> Result<()> {
+        // Distinct directories with at least one track.
+        let mut dirs: Vec<String> = sqlx::query_scalar!(
+            r#"
+            SELECT DISTINCT dir_norm
+            FROM tracks
+            WHERE dir_norm <> ''
+            ORDER BY dir_norm
+            "#
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        // Include scan roots as top-level nodes even if they have no direct tracks.
+        let roots: Vec<String> = sqlx::query_scalar!(
+            r#"
+            SELECT path
+            FROM scan_roots
+            WHERE enabled=1
+            "#
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        for r in roots {
+            let rn = normalize_path_str(&r);
+            if !rn.is_empty() {
+                dirs.push(rn);
+            }
+        }
+
+        // Add ancestor directories so the tree can show parent folders even if only children have tracks.
+        let mut set = BTreeSet::<String>::new();
+        for d in dirs {
+            let mut cur = d.trim_end_matches('/').to_string();
+            while !cur.is_empty() {
+                set.insert(cur.clone());
+                let Some(p) = parent_dir_norm(&cur) else {
+                    break;
+                };
+                if is_drive_root(&p) {
+                    break;
+                }
+                cur = p;
+            }
+        }
+
+        self.events.emit(LibraryEvent::Folders {
+            paths: set.into_iter().collect(),
+        });
+        Ok(())
+    }
+
+    async fn list_tracks(
+        &self,
+        folder: String,
+        recursive: bool,
+        query: String,
+        limit: i64,
+        offset: i64,
+    ) -> Result<()> {
+        let folder = normalize_path_str(&folder);
+        let query = query.trim().to_string();
+        let limit = limit.max(1).min(5000);
+        let offset = offset.max(0);
+
+        let rows = if query.is_empty() {
+            if folder.is_empty() {
+                sqlx::query_as!(
+                    TrackLiteRow,
+                    r#"
+                    SELECT id as "id!", path, title, artist, album, duration_ms
+                    FROM tracks
+                    ORDER BY id DESC
+                    LIMIT ?1 OFFSET ?2
+                    "#,
+                    limit,
+                    offset
+                )
+                .fetch_all(&self.pool)
+                .await
+                .context("list tracks failed")?
+            } else if recursive {
+                let like = format!("{folder}/%");
+                sqlx::query_as!(
+                    TrackLiteRow,
+                    r#"
+                    SELECT id as "id!", path, title, artist, album, duration_ms
+                    FROM tracks
+                    WHERE path_norm LIKE ?1
+                    ORDER BY id DESC
+                    LIMIT ?2 OFFSET ?3
+                    "#,
+                    like,
+                    limit,
+                    offset
+                )
+                .fetch_all(&self.pool)
+                .await
+                .context("list tracks (recursive) failed")?
+            } else {
+                sqlx::query_as!(
+                    TrackLiteRow,
+                    r#"
+                    SELECT id as "id!", path, title, artist, album, duration_ms
+                    FROM tracks
+                    WHERE dir_norm = ?1
+                    ORDER BY id DESC
+                    LIMIT ?2 OFFSET ?3
+                    "#,
+                    folder,
+                    limit,
+                    offset
+                )
+                .fetch_all(&self.pool)
+                .await
+                .context("list tracks (folder) failed")?
+            }
+        } else {
+            let fts = build_fts_query(&query);
+            if folder.is_empty() {
+                sqlx::query_as!(
+                    TrackLiteRow,
+                    r#"
+                    SELECT t.id as "id!", t.path, t.title, t.artist, t.album, t.duration_ms
+                    FROM tracks_fts
+                    JOIN tracks t ON t.id = tracks_fts.rowid
+                    WHERE tracks_fts MATCH ?1
+                    ORDER BY bm25(tracks_fts)
+                    LIMIT ?2 OFFSET ?3
+                    "#,
+                    fts,
+                    limit,
+                    offset
+                )
+                .fetch_all(&self.pool)
+                .await
+                .with_context(|| format!("fts query failed: {fts}"))?
+            } else if recursive {
+                let like = format!("{folder}/%");
+                sqlx::query_as!(
+                    TrackLiteRow,
+                    r#"
+                    SELECT t.id as "id!", t.path, t.title, t.artist, t.album, t.duration_ms
+                    FROM tracks_fts
+                    JOIN tracks t ON t.id = tracks_fts.rowid
+                    WHERE tracks_fts MATCH ?1 AND t.path_norm LIKE ?2
+                    ORDER BY bm25(tracks_fts)
+                    LIMIT ?3 OFFSET ?4
+                    "#,
+                    fts,
+                    like,
+                    limit,
+                    offset
+                )
+                .fetch_all(&self.pool)
+                .await
+                .with_context(|| format!("fts query failed: {fts}"))?
+            } else {
+                sqlx::query_as!(
+                    TrackLiteRow,
+                    r#"
+                    SELECT t.id as "id!", t.path, t.title, t.artist, t.album, t.duration_ms
+                    FROM tracks_fts
+                    JOIN tracks t ON t.id = tracks_fts.rowid
+                    WHERE tracks_fts MATCH ?1 AND t.dir_norm = ?2
+                    ORDER BY bm25(tracks_fts)
+                    LIMIT ?3 OFFSET ?4
+                    "#,
+                    fts,
+                    folder,
+                    limit,
+                    offset
+                )
+                .fetch_all(&self.pool)
+                .await
+                .with_context(|| format!("fts query failed: {fts}"))?
+            }
+        };
+
+        let items = rows
+            .into_iter()
+            .map(|row| TrackLite {
+                id: row.id,
+                path: row.path,
+                title: row.title,
+                artist: row.artist,
+                album: row.album,
+                duration_ms: row.duration_ms,
+            })
+            .collect::<Vec<_>>();
+
+        self.events.emit(LibraryEvent::Tracks {
+            folder,
+            recursive,
+            query,
+            items,
+        });
         Ok(())
     }
 
@@ -169,9 +382,13 @@ impl LibraryWorker {
                         .unwrap_or(0);
                     let size_bytes = meta.len() as i64;
                     let path_str = path.to_string_lossy().to_string();
+                    let path_norm = normalize_path_str(&path_str);
+                    let dir_norm = parent_dir_norm(&path_norm).unwrap_or_default();
                     if tx
                         .blocking_send(FileCandidate {
                             path: path_str,
+                            path_norm,
+                            dir_norm,
                             ext,
                             mtime_ms,
                             size_bytes,
@@ -234,6 +451,8 @@ impl LibraryWorker {
                     album.as_deref(),
                     duration_ms,
                     meta_scanned_ms,
+                    &file.path_norm,
+                    &file.dir_norm,
                 )
                 .await
                 {
@@ -310,11 +529,11 @@ impl LibraryWorker {
             sqlx::query_as!(
                 TrackLiteRow,
                 r#"
-                SELECT id, path, title, artist, album, duration_ms
-                FROM tracks
-                ORDER BY id DESC
-                LIMIT ?1 OFFSET ?2
-                "#,
+            SELECT id as "id!", path, title, artist, album, duration_ms
+            FROM tracks
+            ORDER BY id DESC
+            LIMIT ?1 OFFSET ?2
+            "#,
                 limit,
                 offset
             )
@@ -326,13 +545,13 @@ impl LibraryWorker {
             sqlx::query_as!(
                 TrackLiteRow,
                 r#"
-                SELECT t.id, t.path, t.title, t.artist, t.album, t.duration_ms
-                FROM tracks_fts
-                JOIN tracks t ON t.id = tracks_fts.rowid
-                WHERE tracks_fts MATCH ?1
-                ORDER BY bm25(tracks_fts)
-                LIMIT ?2 OFFSET ?3
-                "#,
+            SELECT t.id as "id!", t.path, t.title, t.artist, t.album, t.duration_ms
+            FROM tracks_fts
+            JOIN tracks t ON t.id = tracks_fts.rowid
+            WHERE tracks_fts MATCH ?1
+            ORDER BY bm25(tracks_fts)
+            LIMIT ?2 OFFSET ?3
+            "#,
                 fts,
                 limit,
                 offset
@@ -437,8 +656,45 @@ async fn init_db(db_path: &Path) -> Result<SqlitePool> {
         .await
         .context("failed to run migrations")?;
 
+    backfill_norm_paths(&pool).await?;
+
     debug!("sqlite ready: {}", db_path.display());
     Ok(pool)
+}
+
+async fn backfill_norm_paths(pool: &SqlitePool) -> Result<()> {
+    // Populate path_norm/dir_norm for tracks created before this feature existed.
+    // Done at startup so folder browsing works without requiring a full re-scan.
+    let rows = sqlx::query!(
+        r#"
+        SELECT id, path
+        FROM tracks
+        WHERE path_norm = '' OR dir_norm = ''
+        LIMIT 20000
+        "#
+    )
+    .fetch_all(pool)
+    .await?;
+
+    if rows.is_empty() {
+        return Ok(());
+    }
+
+    for r in rows {
+        let id = r.id;
+        let path_norm = normalize_path_str(&r.path);
+        let dir_norm = parent_dir_norm(&path_norm).unwrap_or_default();
+        sqlx::query!(
+            "UPDATE tracks SET path_norm=?1, dir_norm=?2 WHERE id=?3",
+            path_norm,
+            dir_norm,
+            id
+        )
+        .execute(pool)
+        .await?;
+    }
+
+    Ok(())
 }
 
 async fn ensure_fts5(pool: &SqlitePool) -> Result<()> {
@@ -494,11 +750,13 @@ async fn upsert_track(
     album: Option<&str>,
     duration_ms: Option<i64>,
     meta_scanned_ms: i64,
+    path_norm: &str,
+    dir_norm: &str,
 ) -> Result<i64> {
     sqlx::query!(
         r#"
-        INSERT INTO tracks(path, ext, mtime_ms, size_bytes, title, artist, album, duration_ms, meta_scanned_ms)
-        VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+        INSERT INTO tracks(path, ext, mtime_ms, size_bytes, title, artist, album, duration_ms, meta_scanned_ms, path_norm, dir_norm)
+        VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
         ON CONFLICT(path) DO UPDATE SET
             ext=excluded.ext,
             mtime_ms=excluded.mtime_ms,
@@ -507,7 +765,9 @@ async fn upsert_track(
             artist=COALESCE(excluded.artist, artist),
             album=COALESCE(excluded.album, album),
             duration_ms=COALESCE(excluded.duration_ms, duration_ms),
-            meta_scanned_ms=excluded.meta_scanned_ms
+            meta_scanned_ms=excluded.meta_scanned_ms,
+            path_norm=excluded.path_norm,
+            dir_norm=excluded.dir_norm
         "#,
         path,
         ext,
@@ -517,7 +777,9 @@ async fn upsert_track(
         artist,
         album,
         duration_ms,
-        meta_scanned_ms
+        meta_scanned_ms,
+        path_norm,
+        dir_norm
     )
     .execute(pool)
     .await?;
@@ -531,6 +793,8 @@ async fn upsert_track(
 
 struct FileCandidate {
     path: String,
+    path_norm: String,
+    dir_norm: String,
     ext: String,
     mtime_ms: i64,
     size_bytes: i64,
@@ -542,6 +806,28 @@ fn now_ms() -> i64 {
         .ok()
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0)
+}
+
+fn normalize_path_str(path: &str) -> String {
+    let mut s = path.replace('\\', "/");
+    while s.ends_with('/') {
+        s.pop();
+    }
+    s
+}
+
+fn parent_dir_norm(path_norm: &str) -> Option<String> {
+    let s = path_norm.trim_end_matches('/');
+    let (parent, _) = s.rsplit_once('/')?;
+    if parent.is_empty() {
+        None
+    } else {
+        Some(parent.to_string())
+    }
+}
+
+fn is_drive_root(s: &str) -> bool {
+    s.len() == 2 && s.ends_with(':')
 }
 
 #[derive(Default)]

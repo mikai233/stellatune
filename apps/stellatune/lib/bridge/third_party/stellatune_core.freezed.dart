@@ -1118,6 +1118,14 @@ mixin _$LibraryEvent {
   @optionalTypeArgs
   TResult when<TResult extends Object?>({
     required TResult Function(List<String> paths) roots,
+    required TResult Function(List<String> paths) folders,
+    required TResult Function(
+      String folder,
+      bool recursive,
+      String query,
+      List<TrackLite> items,
+    )
+    tracks,
     required TResult Function(int scanned, int updated, int skipped, int errors)
     scanProgress,
     required TResult Function(
@@ -1135,6 +1143,14 @@ mixin _$LibraryEvent {
   @optionalTypeArgs
   TResult? whenOrNull<TResult extends Object?>({
     TResult? Function(List<String> paths)? roots,
+    TResult? Function(List<String> paths)? folders,
+    TResult? Function(
+      String folder,
+      bool recursive,
+      String query,
+      List<TrackLite> items,
+    )?
+    tracks,
     TResult? Function(int scanned, int updated, int skipped, int errors)?
     scanProgress,
     TResult? Function(
@@ -1152,6 +1168,14 @@ mixin _$LibraryEvent {
   @optionalTypeArgs
   TResult maybeWhen<TResult extends Object?>({
     TResult Function(List<String> paths)? roots,
+    TResult Function(List<String> paths)? folders,
+    TResult Function(
+      String folder,
+      bool recursive,
+      String query,
+      List<TrackLite> items,
+    )?
+    tracks,
     TResult Function(int scanned, int updated, int skipped, int errors)?
     scanProgress,
     TResult Function(
@@ -1170,6 +1194,8 @@ mixin _$LibraryEvent {
   @optionalTypeArgs
   TResult map<TResult extends Object?>({
     required TResult Function(LibraryEvent_Roots value) roots,
+    required TResult Function(LibraryEvent_Folders value) folders,
+    required TResult Function(LibraryEvent_Tracks value) tracks,
     required TResult Function(LibraryEvent_ScanProgress value) scanProgress,
     required TResult Function(LibraryEvent_ScanFinished value) scanFinished,
     required TResult Function(LibraryEvent_SearchResult value) searchResult,
@@ -1179,6 +1205,8 @@ mixin _$LibraryEvent {
   @optionalTypeArgs
   TResult? mapOrNull<TResult extends Object?>({
     TResult? Function(LibraryEvent_Roots value)? roots,
+    TResult? Function(LibraryEvent_Folders value)? folders,
+    TResult? Function(LibraryEvent_Tracks value)? tracks,
     TResult? Function(LibraryEvent_ScanProgress value)? scanProgress,
     TResult? Function(LibraryEvent_ScanFinished value)? scanFinished,
     TResult? Function(LibraryEvent_SearchResult value)? searchResult,
@@ -1188,6 +1216,8 @@ mixin _$LibraryEvent {
   @optionalTypeArgs
   TResult maybeMap<TResult extends Object?>({
     TResult Function(LibraryEvent_Roots value)? roots,
+    TResult Function(LibraryEvent_Folders value)? folders,
+    TResult Function(LibraryEvent_Tracks value)? tracks,
     TResult Function(LibraryEvent_ScanProgress value)? scanProgress,
     TResult Function(LibraryEvent_ScanFinished value)? scanFinished,
     TResult Function(LibraryEvent_SearchResult value)? searchResult,
@@ -1301,6 +1331,14 @@ class _$LibraryEvent_RootsImpl extends LibraryEvent_Roots {
   @optionalTypeArgs
   TResult when<TResult extends Object?>({
     required TResult Function(List<String> paths) roots,
+    required TResult Function(List<String> paths) folders,
+    required TResult Function(
+      String folder,
+      bool recursive,
+      String query,
+      List<TrackLite> items,
+    )
+    tracks,
     required TResult Function(int scanned, int updated, int skipped, int errors)
     scanProgress,
     required TResult Function(
@@ -1322,6 +1360,14 @@ class _$LibraryEvent_RootsImpl extends LibraryEvent_Roots {
   @optionalTypeArgs
   TResult? whenOrNull<TResult extends Object?>({
     TResult? Function(List<String> paths)? roots,
+    TResult? Function(List<String> paths)? folders,
+    TResult? Function(
+      String folder,
+      bool recursive,
+      String query,
+      List<TrackLite> items,
+    )?
+    tracks,
     TResult? Function(int scanned, int updated, int skipped, int errors)?
     scanProgress,
     TResult? Function(
@@ -1343,6 +1389,14 @@ class _$LibraryEvent_RootsImpl extends LibraryEvent_Roots {
   @optionalTypeArgs
   TResult maybeWhen<TResult extends Object?>({
     TResult Function(List<String> paths)? roots,
+    TResult Function(List<String> paths)? folders,
+    TResult Function(
+      String folder,
+      bool recursive,
+      String query,
+      List<TrackLite> items,
+    )?
+    tracks,
     TResult Function(int scanned, int updated, int skipped, int errors)?
     scanProgress,
     TResult Function(
@@ -1368,6 +1422,8 @@ class _$LibraryEvent_RootsImpl extends LibraryEvent_Roots {
   @optionalTypeArgs
   TResult map<TResult extends Object?>({
     required TResult Function(LibraryEvent_Roots value) roots,
+    required TResult Function(LibraryEvent_Folders value) folders,
+    required TResult Function(LibraryEvent_Tracks value) tracks,
     required TResult Function(LibraryEvent_ScanProgress value) scanProgress,
     required TResult Function(LibraryEvent_ScanFinished value) scanFinished,
     required TResult Function(LibraryEvent_SearchResult value) searchResult,
@@ -1381,6 +1437,8 @@ class _$LibraryEvent_RootsImpl extends LibraryEvent_Roots {
   @optionalTypeArgs
   TResult? mapOrNull<TResult extends Object?>({
     TResult? Function(LibraryEvent_Roots value)? roots,
+    TResult? Function(LibraryEvent_Folders value)? folders,
+    TResult? Function(LibraryEvent_Tracks value)? tracks,
     TResult? Function(LibraryEvent_ScanProgress value)? scanProgress,
     TResult? Function(LibraryEvent_ScanFinished value)? scanFinished,
     TResult? Function(LibraryEvent_SearchResult value)? searchResult,
@@ -1394,6 +1452,8 @@ class _$LibraryEvent_RootsImpl extends LibraryEvent_Roots {
   @optionalTypeArgs
   TResult maybeMap<TResult extends Object?>({
     TResult Function(LibraryEvent_Roots value)? roots,
+    TResult Function(LibraryEvent_Folders value)? folders,
+    TResult Function(LibraryEvent_Tracks value)? tracks,
     TResult Function(LibraryEvent_ScanProgress value)? scanProgress,
     TResult Function(LibraryEvent_ScanFinished value)? scanFinished,
     TResult Function(LibraryEvent_SearchResult value)? searchResult,
@@ -1419,6 +1479,521 @@ abstract class LibraryEvent_Roots extends LibraryEvent {
   /// with the given fields replaced by the non-null parameter values.
   @JsonKey(includeFromJson: false, includeToJson: false)
   _$$LibraryEvent_RootsImplCopyWith<_$LibraryEvent_RootsImpl> get copyWith =>
+      throw _privateConstructorUsedError;
+}
+
+/// @nodoc
+abstract class _$$LibraryEvent_FoldersImplCopyWith<$Res> {
+  factory _$$LibraryEvent_FoldersImplCopyWith(
+    _$LibraryEvent_FoldersImpl value,
+    $Res Function(_$LibraryEvent_FoldersImpl) then,
+  ) = __$$LibraryEvent_FoldersImplCopyWithImpl<$Res>;
+  @useResult
+  $Res call({List<String> paths});
+}
+
+/// @nodoc
+class __$$LibraryEvent_FoldersImplCopyWithImpl<$Res>
+    extends _$LibraryEventCopyWithImpl<$Res, _$LibraryEvent_FoldersImpl>
+    implements _$$LibraryEvent_FoldersImplCopyWith<$Res> {
+  __$$LibraryEvent_FoldersImplCopyWithImpl(
+    _$LibraryEvent_FoldersImpl _value,
+    $Res Function(_$LibraryEvent_FoldersImpl) _then,
+  ) : super(_value, _then);
+
+  /// Create a copy of LibraryEvent
+  /// with the given fields replaced by the non-null parameter values.
+  @pragma('vm:prefer-inline')
+  @override
+  $Res call({Object? paths = null}) {
+    return _then(
+      _$LibraryEvent_FoldersImpl(
+        paths: null == paths
+            ? _value._paths
+            : paths // ignore: cast_nullable_to_non_nullable
+                  as List<String>,
+      ),
+    );
+  }
+}
+
+/// @nodoc
+
+class _$LibraryEvent_FoldersImpl extends LibraryEvent_Folders {
+  const _$LibraryEvent_FoldersImpl({required final List<String> paths})
+    : _paths = paths,
+      super._();
+
+  final List<String> _paths;
+  @override
+  List<String> get paths {
+    if (_paths is EqualUnmodifiableListView) return _paths;
+    // ignore: implicit_dynamic_type
+    return EqualUnmodifiableListView(_paths);
+  }
+
+  @override
+  String toString() {
+    return 'LibraryEvent.folders(paths: $paths)';
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return identical(this, other) ||
+        (other.runtimeType == runtimeType &&
+            other is _$LibraryEvent_FoldersImpl &&
+            const DeepCollectionEquality().equals(other._paths, _paths));
+  }
+
+  @override
+  int get hashCode =>
+      Object.hash(runtimeType, const DeepCollectionEquality().hash(_paths));
+
+  /// Create a copy of LibraryEvent
+  /// with the given fields replaced by the non-null parameter values.
+  @JsonKey(includeFromJson: false, includeToJson: false)
+  @override
+  @pragma('vm:prefer-inline')
+  _$$LibraryEvent_FoldersImplCopyWith<_$LibraryEvent_FoldersImpl>
+  get copyWith =>
+      __$$LibraryEvent_FoldersImplCopyWithImpl<_$LibraryEvent_FoldersImpl>(
+        this,
+        _$identity,
+      );
+
+  @override
+  @optionalTypeArgs
+  TResult when<TResult extends Object?>({
+    required TResult Function(List<String> paths) roots,
+    required TResult Function(List<String> paths) folders,
+    required TResult Function(
+      String folder,
+      bool recursive,
+      String query,
+      List<TrackLite> items,
+    )
+    tracks,
+    required TResult Function(int scanned, int updated, int skipped, int errors)
+    scanProgress,
+    required TResult Function(
+      int durationMs,
+      int scanned,
+      int updated,
+      int skipped,
+      int errors,
+    )
+    scanFinished,
+    required TResult Function(String query, List<TrackLite> items) searchResult,
+    required TResult Function(String message) error,
+    required TResult Function(String message) log,
+  }) {
+    return folders(paths);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult? whenOrNull<TResult extends Object?>({
+    TResult? Function(List<String> paths)? roots,
+    TResult? Function(List<String> paths)? folders,
+    TResult? Function(
+      String folder,
+      bool recursive,
+      String query,
+      List<TrackLite> items,
+    )?
+    tracks,
+    TResult? Function(int scanned, int updated, int skipped, int errors)?
+    scanProgress,
+    TResult? Function(
+      int durationMs,
+      int scanned,
+      int updated,
+      int skipped,
+      int errors,
+    )?
+    scanFinished,
+    TResult? Function(String query, List<TrackLite> items)? searchResult,
+    TResult? Function(String message)? error,
+    TResult? Function(String message)? log,
+  }) {
+    return folders?.call(paths);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult maybeWhen<TResult extends Object?>({
+    TResult Function(List<String> paths)? roots,
+    TResult Function(List<String> paths)? folders,
+    TResult Function(
+      String folder,
+      bool recursive,
+      String query,
+      List<TrackLite> items,
+    )?
+    tracks,
+    TResult Function(int scanned, int updated, int skipped, int errors)?
+    scanProgress,
+    TResult Function(
+      int durationMs,
+      int scanned,
+      int updated,
+      int skipped,
+      int errors,
+    )?
+    scanFinished,
+    TResult Function(String query, List<TrackLite> items)? searchResult,
+    TResult Function(String message)? error,
+    TResult Function(String message)? log,
+    required TResult orElse(),
+  }) {
+    if (folders != null) {
+      return folders(paths);
+    }
+    return orElse();
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult map<TResult extends Object?>({
+    required TResult Function(LibraryEvent_Roots value) roots,
+    required TResult Function(LibraryEvent_Folders value) folders,
+    required TResult Function(LibraryEvent_Tracks value) tracks,
+    required TResult Function(LibraryEvent_ScanProgress value) scanProgress,
+    required TResult Function(LibraryEvent_ScanFinished value) scanFinished,
+    required TResult Function(LibraryEvent_SearchResult value) searchResult,
+    required TResult Function(LibraryEvent_Error value) error,
+    required TResult Function(LibraryEvent_Log value) log,
+  }) {
+    return folders(this);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult? mapOrNull<TResult extends Object?>({
+    TResult? Function(LibraryEvent_Roots value)? roots,
+    TResult? Function(LibraryEvent_Folders value)? folders,
+    TResult? Function(LibraryEvent_Tracks value)? tracks,
+    TResult? Function(LibraryEvent_ScanProgress value)? scanProgress,
+    TResult? Function(LibraryEvent_ScanFinished value)? scanFinished,
+    TResult? Function(LibraryEvent_SearchResult value)? searchResult,
+    TResult? Function(LibraryEvent_Error value)? error,
+    TResult? Function(LibraryEvent_Log value)? log,
+  }) {
+    return folders?.call(this);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult maybeMap<TResult extends Object?>({
+    TResult Function(LibraryEvent_Roots value)? roots,
+    TResult Function(LibraryEvent_Folders value)? folders,
+    TResult Function(LibraryEvent_Tracks value)? tracks,
+    TResult Function(LibraryEvent_ScanProgress value)? scanProgress,
+    TResult Function(LibraryEvent_ScanFinished value)? scanFinished,
+    TResult Function(LibraryEvent_SearchResult value)? searchResult,
+    TResult Function(LibraryEvent_Error value)? error,
+    TResult Function(LibraryEvent_Log value)? log,
+    required TResult orElse(),
+  }) {
+    if (folders != null) {
+      return folders(this);
+    }
+    return orElse();
+  }
+}
+
+abstract class LibraryEvent_Folders extends LibraryEvent {
+  const factory LibraryEvent_Folders({required final List<String> paths}) =
+      _$LibraryEvent_FoldersImpl;
+  const LibraryEvent_Folders._() : super._();
+
+  List<String> get paths;
+
+  /// Create a copy of LibraryEvent
+  /// with the given fields replaced by the non-null parameter values.
+  @JsonKey(includeFromJson: false, includeToJson: false)
+  _$$LibraryEvent_FoldersImplCopyWith<_$LibraryEvent_FoldersImpl>
+  get copyWith => throw _privateConstructorUsedError;
+}
+
+/// @nodoc
+abstract class _$$LibraryEvent_TracksImplCopyWith<$Res> {
+  factory _$$LibraryEvent_TracksImplCopyWith(
+    _$LibraryEvent_TracksImpl value,
+    $Res Function(_$LibraryEvent_TracksImpl) then,
+  ) = __$$LibraryEvent_TracksImplCopyWithImpl<$Res>;
+  @useResult
+  $Res call({
+    String folder,
+    bool recursive,
+    String query,
+    List<TrackLite> items,
+  });
+}
+
+/// @nodoc
+class __$$LibraryEvent_TracksImplCopyWithImpl<$Res>
+    extends _$LibraryEventCopyWithImpl<$Res, _$LibraryEvent_TracksImpl>
+    implements _$$LibraryEvent_TracksImplCopyWith<$Res> {
+  __$$LibraryEvent_TracksImplCopyWithImpl(
+    _$LibraryEvent_TracksImpl _value,
+    $Res Function(_$LibraryEvent_TracksImpl) _then,
+  ) : super(_value, _then);
+
+  /// Create a copy of LibraryEvent
+  /// with the given fields replaced by the non-null parameter values.
+  @pragma('vm:prefer-inline')
+  @override
+  $Res call({
+    Object? folder = null,
+    Object? recursive = null,
+    Object? query = null,
+    Object? items = null,
+  }) {
+    return _then(
+      _$LibraryEvent_TracksImpl(
+        folder: null == folder
+            ? _value.folder
+            : folder // ignore: cast_nullable_to_non_nullable
+                  as String,
+        recursive: null == recursive
+            ? _value.recursive
+            : recursive // ignore: cast_nullable_to_non_nullable
+                  as bool,
+        query: null == query
+            ? _value.query
+            : query // ignore: cast_nullable_to_non_nullable
+                  as String,
+        items: null == items
+            ? _value._items
+            : items // ignore: cast_nullable_to_non_nullable
+                  as List<TrackLite>,
+      ),
+    );
+  }
+}
+
+/// @nodoc
+
+class _$LibraryEvent_TracksImpl extends LibraryEvent_Tracks {
+  const _$LibraryEvent_TracksImpl({
+    required this.folder,
+    required this.recursive,
+    required this.query,
+    required final List<TrackLite> items,
+  }) : _items = items,
+       super._();
+
+  @override
+  final String folder;
+  @override
+  final bool recursive;
+  @override
+  final String query;
+  final List<TrackLite> _items;
+  @override
+  List<TrackLite> get items {
+    if (_items is EqualUnmodifiableListView) return _items;
+    // ignore: implicit_dynamic_type
+    return EqualUnmodifiableListView(_items);
+  }
+
+  @override
+  String toString() {
+    return 'LibraryEvent.tracks(folder: $folder, recursive: $recursive, query: $query, items: $items)';
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return identical(this, other) ||
+        (other.runtimeType == runtimeType &&
+            other is _$LibraryEvent_TracksImpl &&
+            (identical(other.folder, folder) || other.folder == folder) &&
+            (identical(other.recursive, recursive) ||
+                other.recursive == recursive) &&
+            (identical(other.query, query) || other.query == query) &&
+            const DeepCollectionEquality().equals(other._items, _items));
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    runtimeType,
+    folder,
+    recursive,
+    query,
+    const DeepCollectionEquality().hash(_items),
+  );
+
+  /// Create a copy of LibraryEvent
+  /// with the given fields replaced by the non-null parameter values.
+  @JsonKey(includeFromJson: false, includeToJson: false)
+  @override
+  @pragma('vm:prefer-inline')
+  _$$LibraryEvent_TracksImplCopyWith<_$LibraryEvent_TracksImpl> get copyWith =>
+      __$$LibraryEvent_TracksImplCopyWithImpl<_$LibraryEvent_TracksImpl>(
+        this,
+        _$identity,
+      );
+
+  @override
+  @optionalTypeArgs
+  TResult when<TResult extends Object?>({
+    required TResult Function(List<String> paths) roots,
+    required TResult Function(List<String> paths) folders,
+    required TResult Function(
+      String folder,
+      bool recursive,
+      String query,
+      List<TrackLite> items,
+    )
+    tracks,
+    required TResult Function(int scanned, int updated, int skipped, int errors)
+    scanProgress,
+    required TResult Function(
+      int durationMs,
+      int scanned,
+      int updated,
+      int skipped,
+      int errors,
+    )
+    scanFinished,
+    required TResult Function(String query, List<TrackLite> items) searchResult,
+    required TResult Function(String message) error,
+    required TResult Function(String message) log,
+  }) {
+    return tracks(folder, recursive, query, items);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult? whenOrNull<TResult extends Object?>({
+    TResult? Function(List<String> paths)? roots,
+    TResult? Function(List<String> paths)? folders,
+    TResult? Function(
+      String folder,
+      bool recursive,
+      String query,
+      List<TrackLite> items,
+    )?
+    tracks,
+    TResult? Function(int scanned, int updated, int skipped, int errors)?
+    scanProgress,
+    TResult? Function(
+      int durationMs,
+      int scanned,
+      int updated,
+      int skipped,
+      int errors,
+    )?
+    scanFinished,
+    TResult? Function(String query, List<TrackLite> items)? searchResult,
+    TResult? Function(String message)? error,
+    TResult? Function(String message)? log,
+  }) {
+    return tracks?.call(folder, recursive, query, items);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult maybeWhen<TResult extends Object?>({
+    TResult Function(List<String> paths)? roots,
+    TResult Function(List<String> paths)? folders,
+    TResult Function(
+      String folder,
+      bool recursive,
+      String query,
+      List<TrackLite> items,
+    )?
+    tracks,
+    TResult Function(int scanned, int updated, int skipped, int errors)?
+    scanProgress,
+    TResult Function(
+      int durationMs,
+      int scanned,
+      int updated,
+      int skipped,
+      int errors,
+    )?
+    scanFinished,
+    TResult Function(String query, List<TrackLite> items)? searchResult,
+    TResult Function(String message)? error,
+    TResult Function(String message)? log,
+    required TResult orElse(),
+  }) {
+    if (tracks != null) {
+      return tracks(folder, recursive, query, items);
+    }
+    return orElse();
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult map<TResult extends Object?>({
+    required TResult Function(LibraryEvent_Roots value) roots,
+    required TResult Function(LibraryEvent_Folders value) folders,
+    required TResult Function(LibraryEvent_Tracks value) tracks,
+    required TResult Function(LibraryEvent_ScanProgress value) scanProgress,
+    required TResult Function(LibraryEvent_ScanFinished value) scanFinished,
+    required TResult Function(LibraryEvent_SearchResult value) searchResult,
+    required TResult Function(LibraryEvent_Error value) error,
+    required TResult Function(LibraryEvent_Log value) log,
+  }) {
+    return tracks(this);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult? mapOrNull<TResult extends Object?>({
+    TResult? Function(LibraryEvent_Roots value)? roots,
+    TResult? Function(LibraryEvent_Folders value)? folders,
+    TResult? Function(LibraryEvent_Tracks value)? tracks,
+    TResult? Function(LibraryEvent_ScanProgress value)? scanProgress,
+    TResult? Function(LibraryEvent_ScanFinished value)? scanFinished,
+    TResult? Function(LibraryEvent_SearchResult value)? searchResult,
+    TResult? Function(LibraryEvent_Error value)? error,
+    TResult? Function(LibraryEvent_Log value)? log,
+  }) {
+    return tracks?.call(this);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult maybeMap<TResult extends Object?>({
+    TResult Function(LibraryEvent_Roots value)? roots,
+    TResult Function(LibraryEvent_Folders value)? folders,
+    TResult Function(LibraryEvent_Tracks value)? tracks,
+    TResult Function(LibraryEvent_ScanProgress value)? scanProgress,
+    TResult Function(LibraryEvent_ScanFinished value)? scanFinished,
+    TResult Function(LibraryEvent_SearchResult value)? searchResult,
+    TResult Function(LibraryEvent_Error value)? error,
+    TResult Function(LibraryEvent_Log value)? log,
+    required TResult orElse(),
+  }) {
+    if (tracks != null) {
+      return tracks(this);
+    }
+    return orElse();
+  }
+}
+
+abstract class LibraryEvent_Tracks extends LibraryEvent {
+  const factory LibraryEvent_Tracks({
+    required final String folder,
+    required final bool recursive,
+    required final String query,
+    required final List<TrackLite> items,
+  }) = _$LibraryEvent_TracksImpl;
+  const LibraryEvent_Tracks._() : super._();
+
+  String get folder;
+  bool get recursive;
+  String get query;
+  List<TrackLite> get items;
+
+  /// Create a copy of LibraryEvent
+  /// with the given fields replaced by the non-null parameter values.
+  @JsonKey(includeFromJson: false, includeToJson: false)
+  _$$LibraryEvent_TracksImplCopyWith<_$LibraryEvent_TracksImpl> get copyWith =>
       throw _privateConstructorUsedError;
 }
 
@@ -1528,6 +2103,14 @@ class _$LibraryEvent_ScanProgressImpl extends LibraryEvent_ScanProgress {
   @optionalTypeArgs
   TResult when<TResult extends Object?>({
     required TResult Function(List<String> paths) roots,
+    required TResult Function(List<String> paths) folders,
+    required TResult Function(
+      String folder,
+      bool recursive,
+      String query,
+      List<TrackLite> items,
+    )
+    tracks,
     required TResult Function(int scanned, int updated, int skipped, int errors)
     scanProgress,
     required TResult Function(
@@ -1549,6 +2132,14 @@ class _$LibraryEvent_ScanProgressImpl extends LibraryEvent_ScanProgress {
   @optionalTypeArgs
   TResult? whenOrNull<TResult extends Object?>({
     TResult? Function(List<String> paths)? roots,
+    TResult? Function(List<String> paths)? folders,
+    TResult? Function(
+      String folder,
+      bool recursive,
+      String query,
+      List<TrackLite> items,
+    )?
+    tracks,
     TResult? Function(int scanned, int updated, int skipped, int errors)?
     scanProgress,
     TResult? Function(
@@ -1570,6 +2161,14 @@ class _$LibraryEvent_ScanProgressImpl extends LibraryEvent_ScanProgress {
   @optionalTypeArgs
   TResult maybeWhen<TResult extends Object?>({
     TResult Function(List<String> paths)? roots,
+    TResult Function(List<String> paths)? folders,
+    TResult Function(
+      String folder,
+      bool recursive,
+      String query,
+      List<TrackLite> items,
+    )?
+    tracks,
     TResult Function(int scanned, int updated, int skipped, int errors)?
     scanProgress,
     TResult Function(
@@ -1595,6 +2194,8 @@ class _$LibraryEvent_ScanProgressImpl extends LibraryEvent_ScanProgress {
   @optionalTypeArgs
   TResult map<TResult extends Object?>({
     required TResult Function(LibraryEvent_Roots value) roots,
+    required TResult Function(LibraryEvent_Folders value) folders,
+    required TResult Function(LibraryEvent_Tracks value) tracks,
     required TResult Function(LibraryEvent_ScanProgress value) scanProgress,
     required TResult Function(LibraryEvent_ScanFinished value) scanFinished,
     required TResult Function(LibraryEvent_SearchResult value) searchResult,
@@ -1608,6 +2209,8 @@ class _$LibraryEvent_ScanProgressImpl extends LibraryEvent_ScanProgress {
   @optionalTypeArgs
   TResult? mapOrNull<TResult extends Object?>({
     TResult? Function(LibraryEvent_Roots value)? roots,
+    TResult? Function(LibraryEvent_Folders value)? folders,
+    TResult? Function(LibraryEvent_Tracks value)? tracks,
     TResult? Function(LibraryEvent_ScanProgress value)? scanProgress,
     TResult? Function(LibraryEvent_ScanFinished value)? scanFinished,
     TResult? Function(LibraryEvent_SearchResult value)? searchResult,
@@ -1621,6 +2224,8 @@ class _$LibraryEvent_ScanProgressImpl extends LibraryEvent_ScanProgress {
   @optionalTypeArgs
   TResult maybeMap<TResult extends Object?>({
     TResult Function(LibraryEvent_Roots value)? roots,
+    TResult Function(LibraryEvent_Folders value)? folders,
+    TResult Function(LibraryEvent_Tracks value)? tracks,
     TResult Function(LibraryEvent_ScanProgress value)? scanProgress,
     TResult Function(LibraryEvent_ScanFinished value)? scanFinished,
     TResult Function(LibraryEvent_SearchResult value)? searchResult,
@@ -1778,6 +2383,14 @@ class _$LibraryEvent_ScanFinishedImpl extends LibraryEvent_ScanFinished {
   @optionalTypeArgs
   TResult when<TResult extends Object?>({
     required TResult Function(List<String> paths) roots,
+    required TResult Function(List<String> paths) folders,
+    required TResult Function(
+      String folder,
+      bool recursive,
+      String query,
+      List<TrackLite> items,
+    )
+    tracks,
     required TResult Function(int scanned, int updated, int skipped, int errors)
     scanProgress,
     required TResult Function(
@@ -1799,6 +2412,14 @@ class _$LibraryEvent_ScanFinishedImpl extends LibraryEvent_ScanFinished {
   @optionalTypeArgs
   TResult? whenOrNull<TResult extends Object?>({
     TResult? Function(List<String> paths)? roots,
+    TResult? Function(List<String> paths)? folders,
+    TResult? Function(
+      String folder,
+      bool recursive,
+      String query,
+      List<TrackLite> items,
+    )?
+    tracks,
     TResult? Function(int scanned, int updated, int skipped, int errors)?
     scanProgress,
     TResult? Function(
@@ -1820,6 +2441,14 @@ class _$LibraryEvent_ScanFinishedImpl extends LibraryEvent_ScanFinished {
   @optionalTypeArgs
   TResult maybeWhen<TResult extends Object?>({
     TResult Function(List<String> paths)? roots,
+    TResult Function(List<String> paths)? folders,
+    TResult Function(
+      String folder,
+      bool recursive,
+      String query,
+      List<TrackLite> items,
+    )?
+    tracks,
     TResult Function(int scanned, int updated, int skipped, int errors)?
     scanProgress,
     TResult Function(
@@ -1845,6 +2474,8 @@ class _$LibraryEvent_ScanFinishedImpl extends LibraryEvent_ScanFinished {
   @optionalTypeArgs
   TResult map<TResult extends Object?>({
     required TResult Function(LibraryEvent_Roots value) roots,
+    required TResult Function(LibraryEvent_Folders value) folders,
+    required TResult Function(LibraryEvent_Tracks value) tracks,
     required TResult Function(LibraryEvent_ScanProgress value) scanProgress,
     required TResult Function(LibraryEvent_ScanFinished value) scanFinished,
     required TResult Function(LibraryEvent_SearchResult value) searchResult,
@@ -1858,6 +2489,8 @@ class _$LibraryEvent_ScanFinishedImpl extends LibraryEvent_ScanFinished {
   @optionalTypeArgs
   TResult? mapOrNull<TResult extends Object?>({
     TResult? Function(LibraryEvent_Roots value)? roots,
+    TResult? Function(LibraryEvent_Folders value)? folders,
+    TResult? Function(LibraryEvent_Tracks value)? tracks,
     TResult? Function(LibraryEvent_ScanProgress value)? scanProgress,
     TResult? Function(LibraryEvent_ScanFinished value)? scanFinished,
     TResult? Function(LibraryEvent_SearchResult value)? searchResult,
@@ -1871,6 +2504,8 @@ class _$LibraryEvent_ScanFinishedImpl extends LibraryEvent_ScanFinished {
   @optionalTypeArgs
   TResult maybeMap<TResult extends Object?>({
     TResult Function(LibraryEvent_Roots value)? roots,
+    TResult Function(LibraryEvent_Folders value)? folders,
+    TResult Function(LibraryEvent_Tracks value)? tracks,
     TResult Function(LibraryEvent_ScanProgress value)? scanProgress,
     TResult Function(LibraryEvent_ScanFinished value)? scanFinished,
     TResult Function(LibraryEvent_SearchResult value)? searchResult,
@@ -2002,6 +2637,14 @@ class _$LibraryEvent_SearchResultImpl extends LibraryEvent_SearchResult {
   @optionalTypeArgs
   TResult when<TResult extends Object?>({
     required TResult Function(List<String> paths) roots,
+    required TResult Function(List<String> paths) folders,
+    required TResult Function(
+      String folder,
+      bool recursive,
+      String query,
+      List<TrackLite> items,
+    )
+    tracks,
     required TResult Function(int scanned, int updated, int skipped, int errors)
     scanProgress,
     required TResult Function(
@@ -2023,6 +2666,14 @@ class _$LibraryEvent_SearchResultImpl extends LibraryEvent_SearchResult {
   @optionalTypeArgs
   TResult? whenOrNull<TResult extends Object?>({
     TResult? Function(List<String> paths)? roots,
+    TResult? Function(List<String> paths)? folders,
+    TResult? Function(
+      String folder,
+      bool recursive,
+      String query,
+      List<TrackLite> items,
+    )?
+    tracks,
     TResult? Function(int scanned, int updated, int skipped, int errors)?
     scanProgress,
     TResult? Function(
@@ -2044,6 +2695,14 @@ class _$LibraryEvent_SearchResultImpl extends LibraryEvent_SearchResult {
   @optionalTypeArgs
   TResult maybeWhen<TResult extends Object?>({
     TResult Function(List<String> paths)? roots,
+    TResult Function(List<String> paths)? folders,
+    TResult Function(
+      String folder,
+      bool recursive,
+      String query,
+      List<TrackLite> items,
+    )?
+    tracks,
     TResult Function(int scanned, int updated, int skipped, int errors)?
     scanProgress,
     TResult Function(
@@ -2069,6 +2728,8 @@ class _$LibraryEvent_SearchResultImpl extends LibraryEvent_SearchResult {
   @optionalTypeArgs
   TResult map<TResult extends Object?>({
     required TResult Function(LibraryEvent_Roots value) roots,
+    required TResult Function(LibraryEvent_Folders value) folders,
+    required TResult Function(LibraryEvent_Tracks value) tracks,
     required TResult Function(LibraryEvent_ScanProgress value) scanProgress,
     required TResult Function(LibraryEvent_ScanFinished value) scanFinished,
     required TResult Function(LibraryEvent_SearchResult value) searchResult,
@@ -2082,6 +2743,8 @@ class _$LibraryEvent_SearchResultImpl extends LibraryEvent_SearchResult {
   @optionalTypeArgs
   TResult? mapOrNull<TResult extends Object?>({
     TResult? Function(LibraryEvent_Roots value)? roots,
+    TResult? Function(LibraryEvent_Folders value)? folders,
+    TResult? Function(LibraryEvent_Tracks value)? tracks,
     TResult? Function(LibraryEvent_ScanProgress value)? scanProgress,
     TResult? Function(LibraryEvent_ScanFinished value)? scanFinished,
     TResult? Function(LibraryEvent_SearchResult value)? searchResult,
@@ -2095,6 +2758,8 @@ class _$LibraryEvent_SearchResultImpl extends LibraryEvent_SearchResult {
   @optionalTypeArgs
   TResult maybeMap<TResult extends Object?>({
     TResult Function(LibraryEvent_Roots value)? roots,
+    TResult Function(LibraryEvent_Folders value)? folders,
+    TResult Function(LibraryEvent_Tracks value)? tracks,
     TResult Function(LibraryEvent_ScanProgress value)? scanProgress,
     TResult Function(LibraryEvent_ScanFinished value)? scanFinished,
     TResult Function(LibraryEvent_SearchResult value)? searchResult,
@@ -2200,6 +2865,14 @@ class _$LibraryEvent_ErrorImpl extends LibraryEvent_Error {
   @optionalTypeArgs
   TResult when<TResult extends Object?>({
     required TResult Function(List<String> paths) roots,
+    required TResult Function(List<String> paths) folders,
+    required TResult Function(
+      String folder,
+      bool recursive,
+      String query,
+      List<TrackLite> items,
+    )
+    tracks,
     required TResult Function(int scanned, int updated, int skipped, int errors)
     scanProgress,
     required TResult Function(
@@ -2221,6 +2894,14 @@ class _$LibraryEvent_ErrorImpl extends LibraryEvent_Error {
   @optionalTypeArgs
   TResult? whenOrNull<TResult extends Object?>({
     TResult? Function(List<String> paths)? roots,
+    TResult? Function(List<String> paths)? folders,
+    TResult? Function(
+      String folder,
+      bool recursive,
+      String query,
+      List<TrackLite> items,
+    )?
+    tracks,
     TResult? Function(int scanned, int updated, int skipped, int errors)?
     scanProgress,
     TResult? Function(
@@ -2242,6 +2923,14 @@ class _$LibraryEvent_ErrorImpl extends LibraryEvent_Error {
   @optionalTypeArgs
   TResult maybeWhen<TResult extends Object?>({
     TResult Function(List<String> paths)? roots,
+    TResult Function(List<String> paths)? folders,
+    TResult Function(
+      String folder,
+      bool recursive,
+      String query,
+      List<TrackLite> items,
+    )?
+    tracks,
     TResult Function(int scanned, int updated, int skipped, int errors)?
     scanProgress,
     TResult Function(
@@ -2267,6 +2956,8 @@ class _$LibraryEvent_ErrorImpl extends LibraryEvent_Error {
   @optionalTypeArgs
   TResult map<TResult extends Object?>({
     required TResult Function(LibraryEvent_Roots value) roots,
+    required TResult Function(LibraryEvent_Folders value) folders,
+    required TResult Function(LibraryEvent_Tracks value) tracks,
     required TResult Function(LibraryEvent_ScanProgress value) scanProgress,
     required TResult Function(LibraryEvent_ScanFinished value) scanFinished,
     required TResult Function(LibraryEvent_SearchResult value) searchResult,
@@ -2280,6 +2971,8 @@ class _$LibraryEvent_ErrorImpl extends LibraryEvent_Error {
   @optionalTypeArgs
   TResult? mapOrNull<TResult extends Object?>({
     TResult? Function(LibraryEvent_Roots value)? roots,
+    TResult? Function(LibraryEvent_Folders value)? folders,
+    TResult? Function(LibraryEvent_Tracks value)? tracks,
     TResult? Function(LibraryEvent_ScanProgress value)? scanProgress,
     TResult? Function(LibraryEvent_ScanFinished value)? scanFinished,
     TResult? Function(LibraryEvent_SearchResult value)? searchResult,
@@ -2293,6 +2986,8 @@ class _$LibraryEvent_ErrorImpl extends LibraryEvent_Error {
   @optionalTypeArgs
   TResult maybeMap<TResult extends Object?>({
     TResult Function(LibraryEvent_Roots value)? roots,
+    TResult Function(LibraryEvent_Folders value)? folders,
+    TResult Function(LibraryEvent_Tracks value)? tracks,
     TResult Function(LibraryEvent_ScanProgress value)? scanProgress,
     TResult Function(LibraryEvent_ScanFinished value)? scanFinished,
     TResult Function(LibraryEvent_SearchResult value)? searchResult,
@@ -2395,6 +3090,14 @@ class _$LibraryEvent_LogImpl extends LibraryEvent_Log {
   @optionalTypeArgs
   TResult when<TResult extends Object?>({
     required TResult Function(List<String> paths) roots,
+    required TResult Function(List<String> paths) folders,
+    required TResult Function(
+      String folder,
+      bool recursive,
+      String query,
+      List<TrackLite> items,
+    )
+    tracks,
     required TResult Function(int scanned, int updated, int skipped, int errors)
     scanProgress,
     required TResult Function(
@@ -2416,6 +3119,14 @@ class _$LibraryEvent_LogImpl extends LibraryEvent_Log {
   @optionalTypeArgs
   TResult? whenOrNull<TResult extends Object?>({
     TResult? Function(List<String> paths)? roots,
+    TResult? Function(List<String> paths)? folders,
+    TResult? Function(
+      String folder,
+      bool recursive,
+      String query,
+      List<TrackLite> items,
+    )?
+    tracks,
     TResult? Function(int scanned, int updated, int skipped, int errors)?
     scanProgress,
     TResult? Function(
@@ -2437,6 +3148,14 @@ class _$LibraryEvent_LogImpl extends LibraryEvent_Log {
   @optionalTypeArgs
   TResult maybeWhen<TResult extends Object?>({
     TResult Function(List<String> paths)? roots,
+    TResult Function(List<String> paths)? folders,
+    TResult Function(
+      String folder,
+      bool recursive,
+      String query,
+      List<TrackLite> items,
+    )?
+    tracks,
     TResult Function(int scanned, int updated, int skipped, int errors)?
     scanProgress,
     TResult Function(
@@ -2462,6 +3181,8 @@ class _$LibraryEvent_LogImpl extends LibraryEvent_Log {
   @optionalTypeArgs
   TResult map<TResult extends Object?>({
     required TResult Function(LibraryEvent_Roots value) roots,
+    required TResult Function(LibraryEvent_Folders value) folders,
+    required TResult Function(LibraryEvent_Tracks value) tracks,
     required TResult Function(LibraryEvent_ScanProgress value) scanProgress,
     required TResult Function(LibraryEvent_ScanFinished value) scanFinished,
     required TResult Function(LibraryEvent_SearchResult value) searchResult,
@@ -2475,6 +3196,8 @@ class _$LibraryEvent_LogImpl extends LibraryEvent_Log {
   @optionalTypeArgs
   TResult? mapOrNull<TResult extends Object?>({
     TResult? Function(LibraryEvent_Roots value)? roots,
+    TResult? Function(LibraryEvent_Folders value)? folders,
+    TResult? Function(LibraryEvent_Tracks value)? tracks,
     TResult? Function(LibraryEvent_ScanProgress value)? scanProgress,
     TResult? Function(LibraryEvent_ScanFinished value)? scanFinished,
     TResult? Function(LibraryEvent_SearchResult value)? searchResult,
@@ -2488,6 +3211,8 @@ class _$LibraryEvent_LogImpl extends LibraryEvent_Log {
   @optionalTypeArgs
   TResult maybeMap<TResult extends Object?>({
     TResult Function(LibraryEvent_Roots value)? roots,
+    TResult Function(LibraryEvent_Folders value)? folders,
+    TResult Function(LibraryEvent_Tracks value)? tracks,
     TResult Function(LibraryEvent_ScanProgress value)? scanProgress,
     TResult Function(LibraryEvent_ScanFinished value)? scanFinished,
     TResult Function(LibraryEvent_SearchResult value)? searchResult,

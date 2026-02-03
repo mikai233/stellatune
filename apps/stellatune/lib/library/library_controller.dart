@@ -34,18 +34,26 @@ class LibraryController extends Notifier<LibraryState> {
       unawaited(_sub?.cancel());
     });
 
-    // Hydrate persisted roots on startup.
-    unawaited(bridge.listRoots());
+    // Hydrate persisted roots / folders / tracks on startup.
+    //
+    // Important: schedule the initial requests after `build()` returns so we
+    // don't risk receiving events before the initial state is installed.
+    Future.microtask(() {
+      unawaited(bridge.listRoots());
+      unawaited(bridge.listFolders());
+      unawaited(_refreshTracks());
+    });
 
     return const LibraryState.initial();
   }
 
   Future<void> addRoot(String path, {bool scanAfter = true}) async {
     if (path.trim().isEmpty) return;
-    if (state.roots.contains(path)) return;
+    final norm = _normalizePath(path);
+    if (state.roots.contains(norm)) return;
 
     state = state.copyWith(
-      roots: [...state.roots, path],
+      roots: [...state.roots, norm],
       lastError: null,
       lastLog: '',
     );
@@ -55,12 +63,14 @@ class LibraryController extends Notifier<LibraryState> {
   }
 
   Future<void> removeRoot(String path) async {
+    final norm = _normalizePath(path);
     state = state.copyWith(
-      roots: state.roots.where((r) => r != path).toList(),
+      roots: state.roots.where((r) => r != norm).toList(),
       lastError: null,
       lastLog: '',
     );
     await ref.read(libraryBridgeProvider).removeRoot(path);
+    unawaited(ref.read(libraryBridgeProvider).listFolders());
   }
 
   Future<void> scanAll() async {
@@ -74,25 +84,66 @@ class LibraryController extends Notifier<LibraryState> {
     await ref.read(libraryBridgeProvider).scanAll();
   }
 
+  void selectFolder(String folder) {
+    final norm = _normalizePath(folder);
+    if (state.selectedFolder == norm) return;
+    // Selecting a folder defaults to "this folder only". Users can opt into
+    // recursive listing with the UI toggle.
+    state = state.copyWith(
+      selectedFolder: norm,
+      includeSubfolders: false,
+      lastError: null,
+    );
+    unawaited(_refreshTracks());
+  }
+
+  void selectAllMusic() {
+    if (state.selectedFolder.isEmpty) return;
+    state = state.copyWith(selectedFolder: '', lastError: null);
+    unawaited(_refreshTracks());
+  }
+
+  void toggleIncludeSubfolders() {
+    state = state.copyWith(includeSubfolders: !state.includeSubfolders);
+    unawaited(_refreshTracks());
+  }
+
   void setQuery(String query) {
     final q = query.trim();
     state = state.copyWith(query: q, lastError: null);
 
     _debounce?.cancel();
-    if (q.isEmpty) {
-      unawaited(ref.read(libraryBridgeProvider).search(''));
-      return;
-    }
-
     _debounce = Timer(const Duration(milliseconds: 250), () {
-      unawaited(ref.read(libraryBridgeProvider).search(q));
+      unawaited(_refreshTracks());
     });
+  }
+
+  Future<void> _refreshTracks() {
+    return ref
+        .read(libraryBridgeProvider)
+        .listTracks(
+          folder: state.selectedFolder,
+          recursive: state.includeSubfolders,
+          query: state.query,
+        );
   }
 
   void _onEvent(LibraryEvent event) {
     event.when(
       roots: (paths) {
-        state = state.copyWith(roots: paths, lastError: null);
+        final roots = paths.map(_normalizePath).toList();
+        state = state.copyWith(roots: roots, lastError: null);
+        unawaited(ref.read(libraryBridgeProvider).listFolders());
+      },
+      folders: (paths) {
+        state = state.copyWith(folders: paths.map(_normalizePath).toList());
+      },
+      tracks: (folder, recursive, query, items) {
+        final folderN = _normalizePath(folder);
+        if (folderN != state.selectedFolder) return;
+        if (query != state.query) return;
+        if (recursive != state.includeSubfolders) return;
+        state = state.copyWith(results: items);
       },
       scanProgress: (scanned, updated, skipped, errors) {
         state = state.copyWith(
@@ -116,12 +167,11 @@ class LibraryController extends Notifier<LibraryState> {
             errors: errors.toInt(),
           ),
         );
-        // Refresh visible results after scanning (empty query lists recent tracks).
-        unawaited(ref.read(libraryBridgeProvider).search(state.query));
+        unawaited(ref.read(libraryBridgeProvider).listFolders());
+        unawaited(_refreshTracks());
       },
       searchResult: (query, items) {
-        if (state.query != query) return;
-        state = state.copyWith(results: items);
+        // Legacy API. Keep it for backward compatibility but prefer `tracks`.
       },
       error: (message) {
         ref.read(loggerProvider).e(message);
@@ -132,5 +182,13 @@ class LibraryController extends Notifier<LibraryState> {
         state = state.copyWith(lastLog: message);
       },
     );
+  }
+
+  static String _normalizePath(String input) {
+    var s = input.replaceAll('\\', '/');
+    while (s.endsWith('/')) {
+      s = s.substring(0, s.length - 1);
+    }
+    return s;
   }
 }

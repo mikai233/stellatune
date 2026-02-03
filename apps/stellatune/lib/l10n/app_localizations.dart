@@ -182,6 +182,30 @@ abstract class AppLocalizations {
   /// **'Queue'**
   String get queueTitle;
 
+  /// No description provided for @libraryAllMusic.
+  ///
+  /// In en, this message translates to:
+  /// **'All music'**
+  String get libraryAllMusic;
+
+  /// No description provided for @includeSubfolders.
+  ///
+  /// In en, this message translates to:
+  /// **'Include subfolders'**
+  String get includeSubfolders;
+
+  /// No description provided for @expand.
+  ///
+  /// In en, this message translates to:
+  /// **'Expand'**
+  String get expand;
+
+  /// No description provided for @collapse.
+  ///
+  /// In en, this message translates to:
+  /// **'Collapse'**
+  String get collapse;
+
   /// No description provided for @tooltipAddFolder.
   ///
   /// In en, this message translates to:

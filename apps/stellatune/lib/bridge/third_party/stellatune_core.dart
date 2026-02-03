@@ -31,6 +31,14 @@ sealed class LibraryEvent with _$LibraryEvent {
 
   const factory LibraryEvent.roots({required List<String> paths}) =
       LibraryEvent_Roots;
+  const factory LibraryEvent.folders({required List<String> paths}) =
+      LibraryEvent_Folders;
+  const factory LibraryEvent.tracks({
+    required String folder,
+    required bool recursive,
+    required String query,
+    required List<TrackLite> items,
+  }) = LibraryEvent_Tracks;
   const factory LibraryEvent.scanProgress({
     required PlatformInt64 scanned,
     required PlatformInt64 updated,

@@ -16,6 +16,10 @@
 
   "libraryTitle": "Library",
   "queueTitle": "Queue",
+  "libraryAllMusic": "All music",
+  "includeSubfolders": "Include subfolders",
+  "expand": "Expand",
+  "collapse": "Collapse",
 
   "tooltipAddFolder": "Add folder",
   "tooltipScan": "Scan",

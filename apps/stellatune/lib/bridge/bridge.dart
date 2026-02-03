@@ -49,6 +49,23 @@ class LibraryBridge {
 
   Future<void> listRoots() => api.libraryListRoots(library_: library);
 
+  Future<void> listFolders() => api.libraryListFolders(library_: library);
+
+  Future<void> listTracks({
+    required String folder,
+    required bool recursive,
+    required String query,
+    int limit = 5000,
+    int offset = 0,
+  }) => api.libraryListTracks(
+    library_: library,
+    folder: folder,
+    recursive: recursive,
+    query: query,
+    limit: limit,
+    offset: offset,
+  );
+
   Future<void> search(String query, {int limit = 200, int offset = 0}) =>
       api.librarySearch(
         library_: library,
