@@ -38,7 +38,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.11.1";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 2146619676;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 741439296;
 
 // Section: executor
 
@@ -46,7 +46,7 @@ flutter_rust_bridge::frb_generated_default_handler!();
 
 // Section: wire_funcs
 
-fn wire__crate__api__create_core_service_impl(
+fn wire__crate__api__create_player_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
     rust_vec_len_: i32,
@@ -54,7 +54,7 @@ fn wire__crate__api__create_core_service_impl(
 ) {
     FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
         flutter_rust_bridge::for_generated::TaskInfo {
-            debug_name: "create_core_service",
+            debug_name: "create_player",
             port: Some(port_),
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
@@ -71,14 +71,14 @@ fn wire__crate__api__create_core_service_impl(
             deserializer.end();
             move |context| {
                 transform_result_sse::<_, ()>((move || {
-                    let output_ok = Result::<_, ()>::Ok(crate::api::create_core_service())?;
+                    let output_ok = Result::<_, ()>::Ok(crate::api::create_player())?;
                     Ok(output_ok)
                 })())
             }
         },
     )
 }
-fn wire__crate__api__events_stream_impl(
+fn wire__crate__api__events_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
     rust_vec_len_: i32,
@@ -86,7 +86,7 @@ fn wire__crate__api__events_stream_impl(
 ) {
     FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
         flutter_rust_bridge::for_generated::TaskInfo {
-            debug_name: "events_stream",
+            debug_name: "events",
             port: Some(port_),
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
@@ -100,7 +100,7 @@ fn wire__crate__api__events_stream_impl(
             };
             let mut deserializer =
                 flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_service = <RustOpaqueMoi<CoreService>>::sse_decode(&mut deserializer);
+            let api_player = <RustOpaqueMoi<Player>>::sse_decode(&mut deserializer);
             let api_sink = <StreamSink<
                 stellatune_core::Event,
                 flutter_rust_bridge::for_generated::SseCodec,
@@ -109,7 +109,7 @@ fn wire__crate__api__events_stream_impl(
             move |context| {
                 transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
                     (move || {
-                        let output_ok = crate::api::events_stream(api_service, api_sink)?;
+                        let output_ok = crate::api::events(api_player, api_sink)?;
                         Ok(output_ok)
                     })(),
                 )
@@ -117,7 +117,7 @@ fn wire__crate__api__events_stream_impl(
         },
     )
 }
-fn wire__crate__api__send_command_impl(
+fn wire__crate__api__load_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
     rust_vec_len_: i32,
@@ -125,7 +125,7 @@ fn wire__crate__api__send_command_impl(
 ) {
     FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
         flutter_rust_bridge::for_generated::TaskInfo {
-            debug_name: "send_command",
+            debug_name: "load",
             port: Some(port_),
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
@@ -139,13 +139,118 @@ fn wire__crate__api__send_command_impl(
             };
             let mut deserializer =
                 flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_service = <RustOpaqueMoi<CoreService>>::sse_decode(&mut deserializer);
-            let api_cmd = <stellatune_core::Command>::sse_decode(&mut deserializer);
+            let api_player = <RustOpaqueMoi<Player>>::sse_decode(&mut deserializer);
+            let api_path = <String>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
                 transform_result_sse::<_, ()>((move || {
                     let output_ok = Result::<_, ()>::Ok({
-                        crate::api::send_command(api_service, api_cmd);
+                        crate::api::load(api_player, api_path);
+                    })?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__pause_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "pause",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_player = <RustOpaqueMoi<Player>>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, ()>((move || {
+                    let output_ok = Result::<_, ()>::Ok({
+                        crate::api::pause(api_player);
+                    })?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__play_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "play",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_player = <RustOpaqueMoi<Player>>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, ()>((move || {
+                    let output_ok = Result::<_, ()>::Ok({
+                        crate::api::play(api_player);
+                    })?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__stop_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "stop",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_player = <RustOpaqueMoi<Player>>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, ()>((move || {
+                    let output_ok = Result::<_, ()>::Ok({
+                        crate::api::stop(api_player);
                     })?;
                     Ok(output_ok)
                 })())
@@ -157,52 +262,27 @@ fn wire__crate__api__send_command_impl(
 // Section: static_checks
 
 #[allow(clippy::unnecessary_literal_unwrap)]
-const _: fn() = || {
-    match None::<stellatune_core::Command>.unwrap() {
-        stellatune_core::Command::Play => {}
-        stellatune_core::Command::Pause => {}
-        stellatune_core::Command::Stop => {}
-        stellatune_core::Command::Seek { ms } => {
-            let _: i64 = ms;
-        }
-        stellatune_core::Command::LoadTrack { path } => {
-            let _: String = path;
-        }
-        stellatune_core::Command::SetVolume { linear } => {
-            let _: f64 = linear;
-        }
-        stellatune_core::Command::SetMuted { muted } => {
-            let _: bool = muted;
-        }
-        stellatune_core::Command::Enqueue { path } => {
-            let _: String = path;
-        }
-        stellatune_core::Command::Next => {}
-        stellatune_core::Command::Previous => {}
-        stellatune_core::Command::Shutdown => {}
+const _: fn() = || match None::<stellatune_core::Event>.unwrap() {
+    stellatune_core::Event::StateChanged { state } => {
+        let _: stellatune_core::PlayerState = state;
     }
-    match None::<stellatune_core::Event>.unwrap() {
-        stellatune_core::Event::StateChanged { state } => {
-            let _: stellatune_core::PlayerState = state;
-        }
-        stellatune_core::Event::Position { ms } => {
-            let _: i64 = ms;
-        }
-        stellatune_core::Event::TrackChanged { path } => {
-            let _: String = path;
-        }
-        stellatune_core::Event::Error { message } => {
-            let _: String = message;
-        }
-        stellatune_core::Event::Log { message } => {
-            let _: String = message;
-        }
+    stellatune_core::Event::Position { ms } => {
+        let _: i64 = ms;
+    }
+    stellatune_core::Event::TrackChanged { path } => {
+        let _: String = path;
+    }
+    stellatune_core::Event::Error { message } => {
+        let _: String = message;
+    }
+    stellatune_core::Event::Log { message } => {
+        let _: String = message;
     }
 };
 
 // Section: related_funcs
 
-flutter_rust_bridge::frb_generated_moi_arc_impl_value!(CoreService);
+flutter_rust_bridge::frb_generated_moi_arc_impl_value!(Player);
 
 // Section: dart2rust
 
@@ -214,7 +294,7 @@ impl SseDecode for flutter_rust_bridge::for_generated::anyhow::Error {
     }
 }
 
-impl SseDecode for RustOpaqueMoi<CoreService> {
+impl SseDecode for RustOpaqueMoi<Player> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut inner = <usize>::sse_decode(deserializer);
@@ -237,63 +317,6 @@ impl SseDecode for String {
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut inner = <Vec<u8>>::sse_decode(deserializer);
         return String::from_utf8(inner).unwrap();
-    }
-}
-
-impl SseDecode for bool {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
-        deserializer.cursor.read_u8().unwrap() != 0
-    }
-}
-
-impl SseDecode for stellatune_core::Command {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
-        let mut tag_ = <i32>::sse_decode(deserializer);
-        match tag_ {
-            0 => {
-                return stellatune_core::Command::Play;
-            }
-            1 => {
-                return stellatune_core::Command::Pause;
-            }
-            2 => {
-                return stellatune_core::Command::Stop;
-            }
-            3 => {
-                let mut var_ms = <i64>::sse_decode(deserializer);
-                return stellatune_core::Command::Seek { ms: var_ms };
-            }
-            4 => {
-                let mut var_path = <String>::sse_decode(deserializer);
-                return stellatune_core::Command::LoadTrack { path: var_path };
-            }
-            5 => {
-                let mut var_linear = <f64>::sse_decode(deserializer);
-                return stellatune_core::Command::SetVolume { linear: var_linear };
-            }
-            6 => {
-                let mut var_muted = <bool>::sse_decode(deserializer);
-                return stellatune_core::Command::SetMuted { muted: var_muted };
-            }
-            7 => {
-                let mut var_path = <String>::sse_decode(deserializer);
-                return stellatune_core::Command::Enqueue { path: var_path };
-            }
-            8 => {
-                return stellatune_core::Command::Next;
-            }
-            9 => {
-                return stellatune_core::Command::Previous;
-            }
-            10 => {
-                return stellatune_core::Command::Shutdown;
-            }
-            _ => {
-                unimplemented!("");
-            }
-        }
     }
 }
 
@@ -330,13 +353,6 @@ impl SseDecode for stellatune_core::Event {
                 unimplemented!("");
             }
         }
-    }
-}
-
-impl SseDecode for f64 {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
-        deserializer.cursor.read_f64::<NativeEndian>().unwrap()
     }
 }
 
@@ -399,6 +415,13 @@ impl SseDecode for usize {
     }
 }
 
+impl SseDecode for bool {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        deserializer.cursor.read_u8().unwrap() != 0
+    }
+}
+
 fn pde_ffi_dispatcher_primary_impl(
     func_id: i32,
     port: flutter_rust_bridge::for_generated::MessagePort,
@@ -408,9 +431,12 @@ fn pde_ffi_dispatcher_primary_impl(
 ) {
     // Codec=Pde (Serialization + dispatch), see doc to use other codecs
     match func_id {
-        1 => wire__crate__api__create_core_service_impl(port, ptr, rust_vec_len, data_len),
-        2 => wire__crate__api__events_stream_impl(port, ptr, rust_vec_len, data_len),
-        3 => wire__crate__api__send_command_impl(port, ptr, rust_vec_len, data_len),
+        1 => wire__crate__api__create_player_impl(port, ptr, rust_vec_len, data_len),
+        2 => wire__crate__api__events_impl(port, ptr, rust_vec_len, data_len),
+        3 => wire__crate__api__load_impl(port, ptr, rust_vec_len, data_len),
+        4 => wire__crate__api__pause_impl(port, ptr, rust_vec_len, data_len),
+        5 => wire__crate__api__play_impl(port, ptr, rust_vec_len, data_len),
+        6 => wire__crate__api__stop_impl(port, ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
@@ -429,48 +455,6 @@ fn pde_ffi_dispatcher_sync_impl(
 
 // Section: rust2dart
 
-// Codec=Dco (DartCObject based), see doc to use other codecs
-impl flutter_rust_bridge::IntoDart for FrbWrapper<stellatune_core::Command> {
-    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
-        match self.0 {
-            stellatune_core::Command::Play => [0.into_dart()].into_dart(),
-            stellatune_core::Command::Pause => [1.into_dart()].into_dart(),
-            stellatune_core::Command::Stop => [2.into_dart()].into_dart(),
-            stellatune_core::Command::Seek { ms } => {
-                [3.into_dart(), ms.into_into_dart().into_dart()].into_dart()
-            }
-            stellatune_core::Command::LoadTrack { path } => {
-                [4.into_dart(), path.into_into_dart().into_dart()].into_dart()
-            }
-            stellatune_core::Command::SetVolume { linear } => {
-                [5.into_dart(), linear.into_into_dart().into_dart()].into_dart()
-            }
-            stellatune_core::Command::SetMuted { muted } => {
-                [6.into_dart(), muted.into_into_dart().into_dart()].into_dart()
-            }
-            stellatune_core::Command::Enqueue { path } => {
-                [7.into_dart(), path.into_into_dart().into_dart()].into_dart()
-            }
-            stellatune_core::Command::Next => [8.into_dart()].into_dart(),
-            stellatune_core::Command::Previous => [9.into_dart()].into_dart(),
-            stellatune_core::Command::Shutdown => [10.into_dart()].into_dart(),
-            _ => {
-                unimplemented!("");
-            }
-        }
-    }
-}
-impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
-    for FrbWrapper<stellatune_core::Command>
-{
-}
-impl flutter_rust_bridge::IntoIntoDart<FrbWrapper<stellatune_core::Command>>
-    for stellatune_core::Command
-{
-    fn into_into_dart(self) -> FrbWrapper<stellatune_core::Command> {
-        self.into()
-    }
-}
 // Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for FrbWrapper<stellatune_core::Event> {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
@@ -538,7 +522,7 @@ impl SseEncode for flutter_rust_bridge::for_generated::anyhow::Error {
     }
 }
 
-impl SseEncode for RustOpaqueMoi<CoreService> {
+impl SseEncode for RustOpaqueMoi<Player> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         let (ptr, size) = self.sse_encode_raw();
@@ -560,62 +544,6 @@ impl SseEncode for String {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <Vec<u8>>::sse_encode(self.into_bytes(), serializer);
-    }
-}
-
-impl SseEncode for bool {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
-        serializer.cursor.write_u8(self as _).unwrap();
-    }
-}
-
-impl SseEncode for stellatune_core::Command {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
-        match self {
-            stellatune_core::Command::Play => {
-                <i32>::sse_encode(0, serializer);
-            }
-            stellatune_core::Command::Pause => {
-                <i32>::sse_encode(1, serializer);
-            }
-            stellatune_core::Command::Stop => {
-                <i32>::sse_encode(2, serializer);
-            }
-            stellatune_core::Command::Seek { ms } => {
-                <i32>::sse_encode(3, serializer);
-                <i64>::sse_encode(ms, serializer);
-            }
-            stellatune_core::Command::LoadTrack { path } => {
-                <i32>::sse_encode(4, serializer);
-                <String>::sse_encode(path, serializer);
-            }
-            stellatune_core::Command::SetVolume { linear } => {
-                <i32>::sse_encode(5, serializer);
-                <f64>::sse_encode(linear, serializer);
-            }
-            stellatune_core::Command::SetMuted { muted } => {
-                <i32>::sse_encode(6, serializer);
-                <bool>::sse_encode(muted, serializer);
-            }
-            stellatune_core::Command::Enqueue { path } => {
-                <i32>::sse_encode(7, serializer);
-                <String>::sse_encode(path, serializer);
-            }
-            stellatune_core::Command::Next => {
-                <i32>::sse_encode(8, serializer);
-            }
-            stellatune_core::Command::Previous => {
-                <i32>::sse_encode(9, serializer);
-            }
-            stellatune_core::Command::Shutdown => {
-                <i32>::sse_encode(10, serializer);
-            }
-            _ => {
-                unimplemented!("");
-            }
-        }
     }
 }
 
@@ -647,13 +575,6 @@ impl SseEncode for stellatune_core::Event {
                 unimplemented!("");
             }
         }
-    }
-}
-
-impl SseEncode for f64 {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
-        serializer.cursor.write_f64::<NativeEndian>(self).unwrap();
     }
 }
 
@@ -721,6 +642,13 @@ impl SseEncode for usize {
     }
 }
 
+impl SseEncode for bool {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        serializer.cursor.write_u8(self as _).unwrap();
+    }
+}
+
 #[cfg(not(target_family = "wasm"))]
 mod io {
     // This file is automatically generated, so please do not edit it.
@@ -741,17 +669,17 @@ mod io {
     flutter_rust_bridge::frb_generated_boilerplate_io!();
 
     #[unsafe(no_mangle)]
-    pub extern "C" fn frbgen_stellatune_rust_arc_increment_strong_count_RustOpaque_CoreService(
+    pub extern "C" fn frbgen_stellatune_rust_arc_increment_strong_count_RustOpaque_Player(
         ptr: *const std::ffi::c_void,
     ) {
-        MoiArc::<CoreService>::increment_strong_count(ptr as _);
+        MoiArc::<Player>::increment_strong_count(ptr as _);
     }
 
     #[unsafe(no_mangle)]
-    pub extern "C" fn frbgen_stellatune_rust_arc_decrement_strong_count_RustOpaque_CoreService(
+    pub extern "C" fn frbgen_stellatune_rust_arc_decrement_strong_count_RustOpaque_Player(
         ptr: *const std::ffi::c_void,
     ) {
-        MoiArc::<CoreService>::decrement_strong_count(ptr as _);
+        MoiArc::<Player>::decrement_strong_count(ptr as _);
     }
 }
 #[cfg(not(target_family = "wasm"))]
@@ -780,13 +708,13 @@ mod web {
     flutter_rust_bridge::frb_generated_boilerplate_web!();
 
     #[wasm_bindgen]
-    pub fn rust_arc_increment_strong_count_RustOpaque_CoreService(ptr: *const std::ffi::c_void) {
-        MoiArc::<CoreService>::increment_strong_count(ptr as _);
+    pub fn rust_arc_increment_strong_count_RustOpaque_Player(ptr: *const std::ffi::c_void) {
+        MoiArc::<Player>::increment_strong_count(ptr as _);
     }
 
     #[wasm_bindgen]
-    pub fn rust_arc_decrement_strong_count_RustOpaque_CoreService(ptr: *const std::ffi::c_void) {
-        MoiArc::<CoreService>::decrement_strong_count(ptr as _);
+    pub fn rust_arc_decrement_strong_count_RustOpaque_Player(ptr: *const std::ffi::c_void) {
+        MoiArc::<Player>::decrement_strong_count(ptr as _);
     }
 }
 #[cfg(target_family = "wasm")]

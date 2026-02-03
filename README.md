@@ -70,3 +70,8 @@ flutter run -d windows
 Notes:
 - Desktop runners (Windows/Linux/macOS) auto-build the Rust library during `flutter run` / `flutter build`.
 - We intentionally do **not** use `flutter_rust_bridge_codegen integrate` (Cargokit build system); we build Rust ourselves and only use FRB for bindings/codegen.
+
+MVP playback notes:
+- Supports **mp3 / flac / wav** via Symphonia.
+- Only **stereo (2 channels)** is supported for now.
+- If the track sample rate differs from the output device sample rate (WASAPI shared), Rust resamples it to match.

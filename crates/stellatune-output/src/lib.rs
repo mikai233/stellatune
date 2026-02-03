@@ -1,26 +1,153 @@
+use std::time::Duration;
+
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use thiserror::Error;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OutputSpec {
+    pub sample_rate: u32,
+    pub channels: u16,
+}
+
+pub trait SampleConsumer: Send + 'static {
+    fn pop_sample(&mut self) -> Option<f32>;
+}
 
 #[derive(Debug, Error)]
 pub enum OutputError {
-    #[error("not implemented")]
-    NotImplemented,
+    #[error("no default output device")]
+    NoDevice,
+
+    #[error("failed to query default output config: {0}")]
+    DefaultConfig(#[from] cpal::DefaultStreamConfigError),
+
+    #[error("unsupported stream config: {0}")]
+    StreamConfig(#[from] cpal::SupportedStreamConfigsError),
+
+    #[error("failed to build output stream: {0}")]
+    BuildStream(#[from] cpal::BuildStreamError),
+
+    #[error("failed to play output stream: {0}")]
+    PlayStream(#[from] cpal::PlayStreamError),
+
+    #[error("output device config mismatch: {message}")]
+    ConfigMismatch { message: String },
 }
 
-/// Output backend (planned: cpal wrapper).
-///
-/// The real implementation will run an audio callback thread where **no blocking**
-/// and **minimal locking** are allowed. The callback should pull from a ring buffer.
-pub trait OutputBackend: Send {
-    fn start(&mut self) -> Result<(), OutputError> {
-        Err(OutputError::NotImplemented)
+pub struct OutputHandle {
+    _stream: cpal::Stream,
+    spec: OutputSpec,
+}
+
+pub fn default_output_spec() -> Result<OutputSpec, OutputError> {
+    let host = cpal::default_host();
+    let device = host.default_output_device().ok_or(OutputError::NoDevice)?;
+    let config = device.default_output_config()?;
+    Ok(OutputSpec {
+        sample_rate: config.sample_rate(),
+        channels: config.channels(),
+    })
+}
+
+impl OutputHandle {
+    pub fn start<C: SampleConsumer>(
+        mut consumer: C,
+        expected_sample_rate: u32,
+    ) -> Result<Self, OutputError> {
+        let host = cpal::default_host();
+        let device = host.default_output_device().ok_or(OutputError::NoDevice)?;
+        let config = device.default_output_config()?;
+
+        let sample_rate = config.sample_rate();
+        let channels = config.channels();
+
+        if channels != 2 {
+            return Err(OutputError::ConfigMismatch {
+                message: format!("output channels = {channels}, only stereo is supported"),
+            });
+        }
+
+        if sample_rate != expected_sample_rate {
+            return Err(OutputError::ConfigMismatch {
+                message: format!(
+                    "sample rate mismatch: track = {expected_sample_rate}Hz, output = {sample_rate}Hz"
+                ),
+            });
+        }
+
+        let spec = OutputSpec {
+            sample_rate,
+            channels,
+        };
+
+        let stream_config: cpal::StreamConfig = config.clone().into();
+
+        let stream = match config.sample_format() {
+            cpal::SampleFormat::F32 => device.build_output_stream(
+                &stream_config,
+                move |data: &mut [f32], _| fill_f32(data, &mut consumer),
+                move |_err| {},
+                Some(Duration::from_millis(200)),
+            )?,
+            cpal::SampleFormat::I16 => device.build_output_stream(
+                &stream_config,
+                move |data: &mut [i16], _| fill_i16(data, &mut consumer),
+                move |_err| {},
+                Some(Duration::from_millis(200)),
+            )?,
+            cpal::SampleFormat::U16 => device.build_output_stream(
+                &stream_config,
+                move |data: &mut [u16], _| fill_u16(data, &mut consumer),
+                move |_err| {},
+                Some(Duration::from_millis(200)),
+            )?,
+            other => {
+                return Err(OutputError::ConfigMismatch {
+                    message: format!("unsupported output sample format: {other:?}"),
+                });
+            }
+        };
+
+        stream.play()?;
+
+        Ok(Self {
+            _stream: stream,
+            spec,
+        })
     }
 
-    fn stop(&mut self) -> Result<(), OutputError> {
-        Err(OutputError::NotImplemented)
+    pub fn spec(&self) -> OutputSpec {
+        self.spec
     }
 }
 
-/// Stub output backend used while the real cpal integration is pending.
-pub struct StubOutput;
+fn fill_f32<C: SampleConsumer>(out: &mut [f32], consumer: &mut C) {
+    for slot in out.iter_mut() {
+        *slot = consumer.pop_sample().unwrap_or(0.0);
+    }
+}
 
-impl OutputBackend for StubOutput {}
+fn fill_i16<C: SampleConsumer>(out: &mut [i16], consumer: &mut C) {
+    for slot in out.iter_mut() {
+        let v = consumer.pop_sample().unwrap_or(0.0);
+        *slot = f32_to_i16(v);
+    }
+}
+
+fn fill_u16<C: SampleConsumer>(out: &mut [u16], consumer: &mut C) {
+    for slot in out.iter_mut() {
+        let v = consumer.pop_sample().unwrap_or(0.0);
+        *slot = f32_to_u16(v);
+    }
+}
+
+fn f32_to_i16(v: f32) -> i16 {
+    let v = v.clamp(-1.0, 1.0);
+    (v * i16::MAX as f32) as i16
+}
+
+fn f32_to_u16(v: f32) -> u16 {
+    let v = v.clamp(-1.0, 1.0);
+    let normalized = (v + 1.0) * 0.5;
+    (normalized * u16::MAX as f32) as u16
+}

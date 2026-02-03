@@ -25,9 +25,13 @@ stellatune-ffi = { path = "crates/stellatune-ffi" }
 stellatune-library = { path = "crates/stellatune-library" }
 stellatune-output = { path = "crates/stellatune-output" }
 
-anyhow = "1"
-crossbeam-channel = "0.5"
+anyhow = "1.0.100"
+crossbeam-channel = "0.5.15"
 flutter_rust_bridge = "=2.11.1"
 ringbuf = "0.4.8"
 serde = { version = "1", features = ["derive"] }
-thiserror = "2"
+thiserror = "2.0.18"
+cpal = "0.17.1"
+symphonia = { version = "0.5.5", default-features = false, features = ["mp3", "flac", "wav"] }
+rubato = "1.0.1"
+audioadapter-buffers = "2.0.0"

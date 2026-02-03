@@ -58,3 +58,10 @@ impl<T> RingBufferConsumer<T> {
         self.inner.capacity().get()
     }
 }
+
+impl RingBufferConsumer<f32> {
+    pub fn pop_sample(&mut self) -> Option<f32> {
+        let mut tmp = [0.0f32];
+        (self.pop_slice(&mut tmp) == 1).then_some(tmp[0])
+    }
+}

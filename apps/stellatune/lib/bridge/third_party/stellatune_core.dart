@@ -8,24 +8,8 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:freezed_annotation/freezed_annotation.dart' hide protected;
 part 'stellatune_core.freezed.dart';
 
+// These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `Command`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`
-
-@freezed
-sealed class Command with _$Command {
-  const Command._();
-
-  const factory Command.play() = Command_Play;
-  const factory Command.pause() = Command_Pause;
-  const factory Command.stop() = Command_Stop;
-  const factory Command.seek({required PlatformInt64 ms}) = Command_Seek;
-  const factory Command.loadTrack({required String path}) = Command_LoadTrack;
-  const factory Command.setVolume({required double linear}) = Command_SetVolume;
-  const factory Command.setMuted({required bool muted}) = Command_SetMuted;
-  const factory Command.enqueue({required String path}) = Command_Enqueue;
-  const factory Command.next() = Command_Next;
-  const factory Command.previous() = Command_Previous;
-  const factory Command.shutdown() = Command_Shutdown;
-}
 
 @freezed
 sealed class Event with _$Event {

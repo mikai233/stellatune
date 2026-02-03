@@ -6,11 +6,11 @@ use anyhow::Result;
 use stellatune_audio::start_engine;
 use stellatune_core::{Command, Event};
 
-pub struct CoreService {
+pub struct Player {
     engine: stellatune_audio::EngineHandle,
 }
 
-impl CoreService {
+impl Player {
     fn new() -> Self {
         Self {
             engine: start_engine(),
@@ -18,16 +18,28 @@ impl CoreService {
     }
 }
 
-pub fn create_core_service() -> RustOpaque<CoreService> {
-    RustOpaque::new(CoreService::new())
+pub fn create_player() -> RustOpaque<Player> {
+    RustOpaque::new(Player::new())
 }
 
-pub fn send_command(service: RustOpaque<CoreService>, cmd: Command) {
-    service.engine.send_command(cmd);
+pub fn load(player: RustOpaque<Player>, path: String) {
+    player.engine.send_command(Command::LoadTrack { path });
 }
 
-pub fn events_stream(service: RustOpaque<CoreService>, sink: StreamSink<Event>) -> Result<()> {
-    let rx = service.engine.subscribe_events();
+pub fn play(player: RustOpaque<Player>) {
+    player.engine.send_command(Command::Play);
+}
+
+pub fn pause(player: RustOpaque<Player>) {
+    player.engine.send_command(Command::Pause);
+}
+
+pub fn stop(player: RustOpaque<Player>) {
+    player.engine.send_command(Command::Stop);
+}
+
+pub fn events(player: RustOpaque<Player>, sink: StreamSink<Event>) -> Result<()> {
+    let rx = player.engine.subscribe_events();
 
     thread::spawn(move || {
         for event in rx.iter() {

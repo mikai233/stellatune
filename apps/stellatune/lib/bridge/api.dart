@@ -9,17 +9,23 @@ import 'third_party/stellatune_core.dart';
 
 // These functions are ignored because they are not marked as `pub`: `new`
 
-Future<CoreService> createCoreService() =>
-    StellatuneApi.instance.api.crateApiCreateCoreService();
+Future<Player> createPlayer() =>
+    StellatuneApi.instance.api.crateApiCreatePlayer();
 
-Future<void> sendCommand({
-  required CoreService service,
-  required Command cmd,
-}) =>
-    StellatuneApi.instance.api.crateApiSendCommand(service: service, cmd: cmd);
+Future<void> load({required Player player, required String path}) =>
+    StellatuneApi.instance.api.crateApiLoad(player: player, path: path);
 
-Stream<Event> eventsStream({required CoreService service}) =>
-    StellatuneApi.instance.api.crateApiEventsStream(service: service);
+Future<void> play({required Player player}) =>
+    StellatuneApi.instance.api.crateApiPlay(player: player);
 
-// Rust type: RustOpaqueMoi<CoreService>
-abstract class CoreService implements RustOpaqueInterface {}
+Future<void> pause({required Player player}) =>
+    StellatuneApi.instance.api.crateApiPause(player: player);
+
+Future<void> stop({required Player player}) =>
+    StellatuneApi.instance.api.crateApiStop(player: player);
+
+Stream<Event> events({required Player player}) =>
+    StellatuneApi.instance.api.crateApiEvents(player: player);
+
+// Rust type: RustOpaqueMoi<Player>
+abstract class Player implements RustOpaqueInterface {}

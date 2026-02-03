@@ -20,15 +20,14 @@ abstract class StellatuneApiApiImplPlatform
     required super.portManager,
   });
 
-  CrossPlatformFinalizerArg
-  get rust_arc_decrement_strong_count_CoreServicePtr =>
-      wire._rust_arc_decrement_strong_count_RustOpaque_CoreServicePtr;
+  CrossPlatformFinalizerArg get rust_arc_decrement_strong_count_PlayerPtr =>
+      wire._rust_arc_decrement_strong_count_RustOpaque_PlayerPtr;
 
   @protected
   AnyhowException dco_decode_AnyhowException(dynamic raw);
 
   @protected
-  CoreService dco_decode_RustOpaque_CoreService(dynamic raw);
+  Player dco_decode_RustOpaque_Player(dynamic raw);
 
   @protected
   RustStreamSink<Event> dco_decode_StreamSink_event_Sse(dynamic raw);
@@ -37,19 +36,7 @@ abstract class StellatuneApiApiImplPlatform
   String dco_decode_String(dynamic raw);
 
   @protected
-  bool dco_decode_bool(dynamic raw);
-
-  @protected
-  Command dco_decode_box_autoadd_command(dynamic raw);
-
-  @protected
-  Command dco_decode_command(dynamic raw);
-
-  @protected
   Event dco_decode_event(dynamic raw);
-
-  @protected
-  double dco_decode_f_64(dynamic raw);
 
   @protected
   int dco_decode_i_32(dynamic raw);
@@ -76,7 +63,7 @@ abstract class StellatuneApiApiImplPlatform
   AnyhowException sse_decode_AnyhowException(SseDeserializer deserializer);
 
   @protected
-  CoreService sse_decode_RustOpaque_CoreService(SseDeserializer deserializer);
+  Player sse_decode_RustOpaque_Player(SseDeserializer deserializer);
 
   @protected
   RustStreamSink<Event> sse_decode_StreamSink_event_Sse(
@@ -87,19 +74,7 @@ abstract class StellatuneApiApiImplPlatform
   String sse_decode_String(SseDeserializer deserializer);
 
   @protected
-  bool sse_decode_bool(SseDeserializer deserializer);
-
-  @protected
-  Command sse_decode_box_autoadd_command(SseDeserializer deserializer);
-
-  @protected
-  Command sse_decode_command(SseDeserializer deserializer);
-
-  @protected
   Event sse_decode_event(SseDeserializer deserializer);
-
-  @protected
-  double sse_decode_f_64(SseDeserializer deserializer);
 
   @protected
   int sse_decode_i_32(SseDeserializer deserializer);
@@ -123,16 +98,16 @@ abstract class StellatuneApiApiImplPlatform
   BigInt sse_decode_usize(SseDeserializer deserializer);
 
   @protected
+  bool sse_decode_bool(SseDeserializer deserializer);
+
+  @protected
   void sse_encode_AnyhowException(
     AnyhowException self,
     SseSerializer serializer,
   );
 
   @protected
-  void sse_encode_RustOpaque_CoreService(
-    CoreService self,
-    SseSerializer serializer,
-  );
+  void sse_encode_RustOpaque_Player(Player self, SseSerializer serializer);
 
   @protected
   void sse_encode_StreamSink_event_Sse(
@@ -144,19 +119,7 @@ abstract class StellatuneApiApiImplPlatform
   void sse_encode_String(String self, SseSerializer serializer);
 
   @protected
-  void sse_encode_bool(bool self, SseSerializer serializer);
-
-  @protected
-  void sse_encode_box_autoadd_command(Command self, SseSerializer serializer);
-
-  @protected
-  void sse_encode_command(Command self, SseSerializer serializer);
-
-  @protected
   void sse_encode_event(Event self, SseSerializer serializer);
-
-  @protected
-  void sse_encode_f_64(double self, SseSerializer serializer);
 
   @protected
   void sse_encode_i_32(int self, SseSerializer serializer);
@@ -181,6 +144,9 @@ abstract class StellatuneApiApiImplPlatform
 
   @protected
   void sse_encode_usize(BigInt self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_bool(bool self, SseSerializer serializer);
 }
 
 // Section: wire_class
@@ -197,31 +163,31 @@ class StellatuneApiWire implements BaseWire {
   StellatuneApiWire(ffi.DynamicLibrary dynamicLibrary)
     : _lookup = dynamicLibrary.lookup;
 
-  void rust_arc_increment_strong_count_RustOpaque_CoreService(
+  void rust_arc_increment_strong_count_RustOpaque_Player(
     ffi.Pointer<ffi.Void> ptr,
   ) {
-    return _rust_arc_increment_strong_count_RustOpaque_CoreService(ptr);
+    return _rust_arc_increment_strong_count_RustOpaque_Player(ptr);
   }
 
-  late final _rust_arc_increment_strong_count_RustOpaque_CoreServicePtr =
+  late final _rust_arc_increment_strong_count_RustOpaque_PlayerPtr =
       _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Pointer<ffi.Void>)>>(
-        'frbgen_stellatune_rust_arc_increment_strong_count_RustOpaque_CoreService',
+        'frbgen_stellatune_rust_arc_increment_strong_count_RustOpaque_Player',
       );
-  late final _rust_arc_increment_strong_count_RustOpaque_CoreService =
-      _rust_arc_increment_strong_count_RustOpaque_CoreServicePtr
+  late final _rust_arc_increment_strong_count_RustOpaque_Player =
+      _rust_arc_increment_strong_count_RustOpaque_PlayerPtr
           .asFunction<void Function(ffi.Pointer<ffi.Void>)>();
 
-  void rust_arc_decrement_strong_count_RustOpaque_CoreService(
+  void rust_arc_decrement_strong_count_RustOpaque_Player(
     ffi.Pointer<ffi.Void> ptr,
   ) {
-    return _rust_arc_decrement_strong_count_RustOpaque_CoreService(ptr);
+    return _rust_arc_decrement_strong_count_RustOpaque_Player(ptr);
   }
 
-  late final _rust_arc_decrement_strong_count_RustOpaque_CoreServicePtr =
+  late final _rust_arc_decrement_strong_count_RustOpaque_PlayerPtr =
       _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Pointer<ffi.Void>)>>(
-        'frbgen_stellatune_rust_arc_decrement_strong_count_RustOpaque_CoreService',
+        'frbgen_stellatune_rust_arc_decrement_strong_count_RustOpaque_Player',
       );
-  late final _rust_arc_decrement_strong_count_RustOpaque_CoreService =
-      _rust_arc_decrement_strong_count_RustOpaque_CoreServicePtr
+  late final _rust_arc_decrement_strong_count_RustOpaque_Player =
+      _rust_arc_decrement_strong_count_RustOpaque_PlayerPtr
           .asFunction<void Function(ffi.Pointer<ffi.Void>)>();
 }

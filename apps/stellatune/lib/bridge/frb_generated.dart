@@ -71,7 +71,7 @@ class StellatuneApi
   String get codegenVersion => '2.11.1';
 
   @override
-  int get rustContentHash => 2146619676;
+  int get rustContentHash => 741439296;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -82,22 +82,23 @@ class StellatuneApi
 }
 
 abstract class StellatuneApiApi extends BaseApi {
-  Future<CoreService> crateApiCreateCoreService();
+  Future<Player> crateApiCreatePlayer();
 
-  Stream<Event> crateApiEventsStream({required CoreService service});
+  Stream<Event> crateApiEvents({required Player player});
 
-  Future<void> crateApiSendCommand({
-    required CoreService service,
-    required Command cmd,
-  });
+  Future<void> crateApiLoad({required Player player, required String path});
 
-  RustArcIncrementStrongCountFnType
-  get rust_arc_increment_strong_count_CoreService;
+  Future<void> crateApiPause({required Player player});
 
-  RustArcDecrementStrongCountFnType
-  get rust_arc_decrement_strong_count_CoreService;
+  Future<void> crateApiPlay({required Player player});
 
-  CrossPlatformFinalizerArg get rust_arc_decrement_strong_count_CoreServicePtr;
+  Future<void> crateApiStop({required Player player});
+
+  RustArcIncrementStrongCountFnType get rust_arc_increment_strong_count_Player;
+
+  RustArcDecrementStrongCountFnType get rust_arc_decrement_strong_count_Player;
+
+  CrossPlatformFinalizerArg get rust_arc_decrement_strong_count_PlayerPtr;
 }
 
 class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
@@ -110,7 +111,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   });
 
   @override
-  Future<CoreService> crateApiCreateCoreService() {
+  Future<Player> crateApiCreatePlayer() {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
@@ -123,28 +124,28 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           );
         },
         codec: SseCodec(
-          decodeSuccessData: sse_decode_RustOpaque_CoreService,
+          decodeSuccessData: sse_decode_RustOpaque_Player,
           decodeErrorData: null,
         ),
-        constMeta: kCrateApiCreateCoreServiceConstMeta,
+        constMeta: kCrateApiCreatePlayerConstMeta,
         argValues: [],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiCreateCoreServiceConstMeta =>
-      const TaskConstMeta(debugName: "create_core_service", argNames: []);
+  TaskConstMeta get kCrateApiCreatePlayerConstMeta =>
+      const TaskConstMeta(debugName: "create_player", argNames: []);
 
   @override
-  Stream<Event> crateApiEventsStream({required CoreService service}) {
+  Stream<Event> crateApiEvents({required Player player}) {
     final sink = RustStreamSink<Event>();
     unawaited(
       handler.executeNormal(
         NormalTask(
           callFfi: (port_) {
             final serializer = SseSerializer(generalizedFrbRustBinding);
-            sse_encode_RustOpaque_CoreService(service, serializer);
+            sse_encode_RustOpaque_Player(player, serializer);
             sse_encode_StreamSink_event_Sse(sink, serializer);
             pdeCallFfi(
               generalizedFrbRustBinding,
@@ -157,8 +158,8 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
             decodeSuccessData: sse_decode_unit,
             decodeErrorData: sse_decode_AnyhowException,
           ),
-          constMeta: kCrateApiEventsStreamConstMeta,
-          argValues: [service, sink],
+          constMeta: kCrateApiEventsConstMeta,
+          argValues: [player, sink],
           apiImpl: this,
         ),
       ),
@@ -166,22 +167,17 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
     return sink.stream;
   }
 
-  TaskConstMeta get kCrateApiEventsStreamConstMeta => const TaskConstMeta(
-    debugName: "events_stream",
-    argNames: ["service", "sink"],
-  );
+  TaskConstMeta get kCrateApiEventsConstMeta =>
+      const TaskConstMeta(debugName: "events", argNames: ["player", "sink"]);
 
   @override
-  Future<void> crateApiSendCommand({
-    required CoreService service,
-    required Command cmd,
-  }) {
+  Future<void> crateApiLoad({required Player player, required String path}) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_RustOpaque_CoreService(service, serializer);
-          sse_encode_box_autoadd_command(cmd, serializer);
+          sse_encode_RustOpaque_Player(player, serializer);
+          sse_encode_String(path, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -193,25 +189,107 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           decodeSuccessData: sse_decode_unit,
           decodeErrorData: null,
         ),
-        constMeta: kCrateApiSendCommandConstMeta,
-        argValues: [service, cmd],
+        constMeta: kCrateApiLoadConstMeta,
+        argValues: [player, path],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiSendCommandConstMeta => const TaskConstMeta(
-    debugName: "send_command",
-    argNames: ["service", "cmd"],
-  );
+  TaskConstMeta get kCrateApiLoadConstMeta =>
+      const TaskConstMeta(debugName: "load", argNames: ["player", "path"]);
+
+  @override
+  Future<void> crateApiPause({required Player player}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_RustOpaque_Player(player, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 4,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiPauseConstMeta,
+        argValues: [player],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiPauseConstMeta =>
+      const TaskConstMeta(debugName: "pause", argNames: ["player"]);
+
+  @override
+  Future<void> crateApiPlay({required Player player}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_RustOpaque_Player(player, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 5,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiPlayConstMeta,
+        argValues: [player],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiPlayConstMeta =>
+      const TaskConstMeta(debugName: "play", argNames: ["player"]);
+
+  @override
+  Future<void> crateApiStop({required Player player}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_RustOpaque_Player(player, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 6,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiStopConstMeta,
+        argValues: [player],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiStopConstMeta =>
+      const TaskConstMeta(debugName: "stop", argNames: ["player"]);
 
   RustArcIncrementStrongCountFnType
-  get rust_arc_increment_strong_count_CoreService =>
-      wire.rust_arc_increment_strong_count_RustOpaque_CoreService;
+  get rust_arc_increment_strong_count_Player =>
+      wire.rust_arc_increment_strong_count_RustOpaque_Player;
 
   RustArcDecrementStrongCountFnType
-  get rust_arc_decrement_strong_count_CoreService =>
-      wire.rust_arc_decrement_strong_count_RustOpaque_CoreService;
+  get rust_arc_decrement_strong_count_Player =>
+      wire.rust_arc_decrement_strong_count_RustOpaque_Player;
 
   @protected
   AnyhowException dco_decode_AnyhowException(dynamic raw) {
@@ -220,9 +298,9 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   }
 
   @protected
-  CoreService dco_decode_RustOpaque_CoreService(dynamic raw) {
+  Player dco_decode_RustOpaque_Player(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
-    return CoreServiceImpl.frbInternalDcoDecode(raw as List<dynamic>);
+    return PlayerImpl.frbInternalDcoDecode(raw as List<dynamic>);
   }
 
   @protected
@@ -235,49 +313,6 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   String dco_decode_String(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as String;
-  }
-
-  @protected
-  bool dco_decode_bool(dynamic raw) {
-    // Codec=Dco (DartCObject based), see doc to use other codecs
-    return raw as bool;
-  }
-
-  @protected
-  Command dco_decode_box_autoadd_command(dynamic raw) {
-    // Codec=Dco (DartCObject based), see doc to use other codecs
-    return dco_decode_command(raw);
-  }
-
-  @protected
-  Command dco_decode_command(dynamic raw) {
-    // Codec=Dco (DartCObject based), see doc to use other codecs
-    switch (raw[0]) {
-      case 0:
-        return Command_Play();
-      case 1:
-        return Command_Pause();
-      case 2:
-        return Command_Stop();
-      case 3:
-        return Command_Seek(ms: dco_decode_i_64(raw[1]));
-      case 4:
-        return Command_LoadTrack(path: dco_decode_String(raw[1]));
-      case 5:
-        return Command_SetVolume(linear: dco_decode_f_64(raw[1]));
-      case 6:
-        return Command_SetMuted(muted: dco_decode_bool(raw[1]));
-      case 7:
-        return Command_Enqueue(path: dco_decode_String(raw[1]));
-      case 8:
-        return Command_Next();
-      case 9:
-        return Command_Previous();
-      case 10:
-        return Command_Shutdown();
-      default:
-        throw Exception("unreachable");
-    }
   }
 
   @protected
@@ -297,12 +332,6 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
       default:
         throw Exception("unreachable");
     }
-  }
-
-  @protected
-  double dco_decode_f_64(dynamic raw) {
-    // Codec=Dco (DartCObject based), see doc to use other codecs
-    return raw as double;
   }
 
   @protected
@@ -355,9 +384,9 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   }
 
   @protected
-  CoreService sse_decode_RustOpaque_CoreService(SseDeserializer deserializer) {
+  Player sse_decode_RustOpaque_Player(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-    return CoreServiceImpl.frbInternalSseDecode(
+    return PlayerImpl.frbInternalSseDecode(
       sse_decode_usize(deserializer),
       sse_decode_i_32(deserializer),
     );
@@ -376,56 +405,6 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
     // Codec=Sse (Serialization based), see doc to use other codecs
     var inner = sse_decode_list_prim_u_8_strict(deserializer);
     return utf8.decoder.convert(inner);
-  }
-
-  @protected
-  bool sse_decode_bool(SseDeserializer deserializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    return deserializer.buffer.getUint8() != 0;
-  }
-
-  @protected
-  Command sse_decode_box_autoadd_command(SseDeserializer deserializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    return (sse_decode_command(deserializer));
-  }
-
-  @protected
-  Command sse_decode_command(SseDeserializer deserializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-
-    var tag_ = sse_decode_i_32(deserializer);
-    switch (tag_) {
-      case 0:
-        return Command_Play();
-      case 1:
-        return Command_Pause();
-      case 2:
-        return Command_Stop();
-      case 3:
-        var var_ms = sse_decode_i_64(deserializer);
-        return Command_Seek(ms: var_ms);
-      case 4:
-        var var_path = sse_decode_String(deserializer);
-        return Command_LoadTrack(path: var_path);
-      case 5:
-        var var_linear = sse_decode_f_64(deserializer);
-        return Command_SetVolume(linear: var_linear);
-      case 6:
-        var var_muted = sse_decode_bool(deserializer);
-        return Command_SetMuted(muted: var_muted);
-      case 7:
-        var var_path = sse_decode_String(deserializer);
-        return Command_Enqueue(path: var_path);
-      case 8:
-        return Command_Next();
-      case 9:
-        return Command_Previous();
-      case 10:
-        return Command_Shutdown();
-      default:
-        throw UnimplementedError('');
-    }
   }
 
   @protected
@@ -452,12 +431,6 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
       default:
         throw UnimplementedError('');
     }
-  }
-
-  @protected
-  double sse_decode_f_64(SseDeserializer deserializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    return deserializer.buffer.getFloat64();
   }
 
   @protected
@@ -504,6 +477,12 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   }
 
   @protected
+  bool sse_decode_bool(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return deserializer.buffer.getUint8() != 0;
+  }
+
+  @protected
   void sse_encode_AnyhowException(
     AnyhowException self,
     SseSerializer serializer,
@@ -513,13 +492,10 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   }
 
   @protected
-  void sse_encode_RustOpaque_CoreService(
-    CoreService self,
-    SseSerializer serializer,
-  ) {
+  void sse_encode_RustOpaque_Player(Player self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_usize(
-      (self as CoreServiceImpl).frbInternalSseEncode(move: null),
+      (self as PlayerImpl).frbInternalSseEncode(move: null),
       serializer,
     );
   }
@@ -548,52 +524,6 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   }
 
   @protected
-  void sse_encode_bool(bool self, SseSerializer serializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    serializer.buffer.putUint8(self ? 1 : 0);
-  }
-
-  @protected
-  void sse_encode_box_autoadd_command(Command self, SseSerializer serializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    sse_encode_command(self, serializer);
-  }
-
-  @protected
-  void sse_encode_command(Command self, SseSerializer serializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    switch (self) {
-      case Command_Play():
-        sse_encode_i_32(0, serializer);
-      case Command_Pause():
-        sse_encode_i_32(1, serializer);
-      case Command_Stop():
-        sse_encode_i_32(2, serializer);
-      case Command_Seek(ms: final ms):
-        sse_encode_i_32(3, serializer);
-        sse_encode_i_64(ms, serializer);
-      case Command_LoadTrack(path: final path):
-        sse_encode_i_32(4, serializer);
-        sse_encode_String(path, serializer);
-      case Command_SetVolume(linear: final linear):
-        sse_encode_i_32(5, serializer);
-        sse_encode_f_64(linear, serializer);
-      case Command_SetMuted(muted: final muted):
-        sse_encode_i_32(6, serializer);
-        sse_encode_bool(muted, serializer);
-      case Command_Enqueue(path: final path):
-        sse_encode_i_32(7, serializer);
-        sse_encode_String(path, serializer);
-      case Command_Next():
-        sse_encode_i_32(8, serializer);
-      case Command_Previous():
-        sse_encode_i_32(9, serializer);
-      case Command_Shutdown():
-        sse_encode_i_32(10, serializer);
-    }
-  }
-
-  @protected
   void sse_encode_event(Event self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     switch (self) {
@@ -613,12 +543,6 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
         sse_encode_i_32(4, serializer);
         sse_encode_String(message, serializer);
     }
-  }
-
-  @protected
-  void sse_encode_f_64(double self, SseSerializer serializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    serializer.buffer.putFloat64(self);
   }
 
   @protected
@@ -665,26 +589,30 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
     // Codec=Sse (Serialization based), see doc to use other codecs
     serializer.buffer.putBigUint64(self);
   }
+
+  @protected
+  void sse_encode_bool(bool self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    serializer.buffer.putUint8(self ? 1 : 0);
+  }
 }
 
 @sealed
-class CoreServiceImpl extends RustOpaque implements CoreService {
+class PlayerImpl extends RustOpaque implements Player {
   // Not to be used by end users
-  CoreServiceImpl.frbInternalDcoDecode(List<dynamic> wire)
+  PlayerImpl.frbInternalDcoDecode(List<dynamic> wire)
     : super.frbInternalDcoDecode(wire, _kStaticData);
 
   // Not to be used by end users
-  CoreServiceImpl.frbInternalSseDecode(BigInt ptr, int externalSizeOnNative)
+  PlayerImpl.frbInternalSseDecode(BigInt ptr, int externalSizeOnNative)
     : super.frbInternalSseDecode(ptr, externalSizeOnNative, _kStaticData);
 
   static final _kStaticData = RustArcStaticData(
     rustArcIncrementStrongCount:
-        StellatuneApi.instance.api.rust_arc_increment_strong_count_CoreService,
+        StellatuneApi.instance.api.rust_arc_increment_strong_count_Player,
     rustArcDecrementStrongCount:
-        StellatuneApi.instance.api.rust_arc_decrement_strong_count_CoreService,
-    rustArcDecrementStrongCountPtr: StellatuneApi
-        .instance
-        .api
-        .rust_arc_decrement_strong_count_CoreServicePtr,
+        StellatuneApi.instance.api.rust_arc_decrement_strong_count_Player,
+    rustArcDecrementStrongCountPtr:
+        StellatuneApi.instance.api.rust_arc_decrement_strong_count_PlayerPtr,
   );
 }

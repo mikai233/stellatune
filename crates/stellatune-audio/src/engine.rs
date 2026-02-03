@@ -1,13 +1,17 @@
-use std::collections::VecDeque;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crossbeam_channel::{Receiver, Sender};
 
 use stellatune_core::{Command, Event, PlayerState};
+use stellatune_decode::{Decoder, TrackSpec};
+use stellatune_output::{OutputError, OutputHandle, default_output_spec};
 
-/// Handle used by higher layers (e.g. FFI) to drive the engine.
+use crate::ring_buffer::{RingBufferProducer, new_ring_buffer};
+
+/// Handle used by higher layers (e.g. FFI) to drive the player.
 #[derive(Clone)]
 pub struct EngineHandle {
     cmd_tx: Sender<Command>,
@@ -26,21 +30,44 @@ impl EngineHandle {
 
 pub fn start_engine() -> EngineHandle {
     let (cmd_tx, cmd_rx) = crossbeam_channel::unbounded();
-    let events = Arc::new(EventHub::new());
+    let (internal_tx, internal_rx) = crossbeam_channel::unbounded();
 
+    let events = Arc::new(EventHub::new());
     let thread_events = Arc::clone(&events);
-    let _join: JoinHandle<()> = thread::spawn(move || run_engine(cmd_rx, thread_events));
+
+    let _join: JoinHandle<()> =
+        thread::spawn(move || run_control_loop(cmd_rx, internal_rx, internal_tx, thread_events));
 
     EngineHandle { cmd_tx, events }
+}
+
+enum DecodeCtrl {
+    Setup {
+        producer: RingBufferProducer<f32>,
+        target_sample_rate: u32,
+    },
+    Play,
+    Pause,
+    Stop,
+}
+
+enum InternalMsg {
+    Eof,
+    Error(String),
+}
+
+struct PlaybackSession {
+    ctrl_tx: Sender<DecodeCtrl>,
+    decode_join: JoinHandle<()>,
+    _output: OutputHandle,
+    paused: Arc<AtomicBool>,
 }
 
 struct EngineState {
     player_state: PlayerState,
     position_ms: i64,
     current_track: Option<String>,
-    queue: VecDeque<String>,
-    volume: f64,
-    muted: bool,
+    session: Option<PlaybackSession>,
 }
 
 impl EngineState {
@@ -49,140 +76,502 @@ impl EngineState {
             player_state: PlayerState::Stopped,
             position_ms: 0,
             current_track: None,
-            queue: VecDeque::new(),
-            volume: 1.0,
-            muted: false,
+            session: None,
         }
     }
 }
 
-fn run_engine(cmd_rx: Receiver<Command>, events: Arc<EventHub>) {
+fn run_control_loop(
+    cmd_rx: Receiver<Command>,
+    internal_rx: Receiver<InternalMsg>,
+    internal_tx: Sender<InternalMsg>,
+    events: Arc<EventHub>,
+) {
     let mut state = EngineState::new();
 
     loop {
-        let tick_duration = Duration::from_millis(200);
-
-        if state.player_state == PlayerState::Playing {
-            let tick = crossbeam_channel::after(tick_duration);
-            crossbeam_channel::select! {
-                recv(cmd_rx) -> msg => {
-                    let Some(cmd) = msg.ok() else { break };
-                    if handle_command(cmd, &mut state, &events) { break; }
-                }
-                recv(tick) -> _ => {
-                    state.position_ms = state.position_ms.saturating_add(200);
-                    events.emit(Event::Position { ms: state.position_ms });
+        crossbeam_channel::select! {
+            recv(cmd_rx) -> msg => {
+                let Ok(cmd) = msg else { break };
+                if handle_command(cmd, &mut state, &events, &internal_tx) {
+                    break;
                 }
             }
-        } else {
-            match cmd_rx.recv() {
-                Ok(cmd) => {
-                    if handle_command(cmd, &mut state, &events) {
-                        break;
-                    }
-                }
-                Err(_) => break,
+            recv(internal_rx) -> msg => {
+                let Ok(msg) = msg else { break };
+                handle_internal(msg, &mut state, &events);
             }
         }
     }
 
+    stop_session(&mut state, &events);
     events.emit(Event::Log {
-        message: "engine thread exited".to_string(),
+        message: "control thread exited".to_string(),
     });
 }
 
-fn handle_command(cmd: Command, state: &mut EngineState, events: &EventHub) -> bool {
+fn handle_internal(msg: InternalMsg, state: &mut EngineState, events: &Arc<EventHub>) {
+    match msg {
+        InternalMsg::Eof => {
+            events.emit(Event::Log {
+                message: "end of stream".to_string(),
+            });
+            stop_session(state, events);
+            set_state(state, events, PlayerState::Stopped);
+        }
+        InternalMsg::Error(message) => {
+            events.emit(Event::Error { message });
+            stop_session(state, events);
+            set_state(state, events, PlayerState::Stopped);
+        }
+    }
+}
+
+fn handle_command(
+    cmd: Command,
+    state: &mut EngineState,
+    events: &Arc<EventHub>,
+    internal_tx: &Sender<InternalMsg>,
+) -> bool {
     match cmd {
-        Command::Play => {
-            state.player_state = PlayerState::Playing;
-            events.emit(Event::StateChanged {
-                state: state.player_state,
-            });
-        }
-        Command::Pause => {
-            state.player_state = PlayerState::Paused;
-            events.emit(Event::StateChanged {
-                state: state.player_state,
-            });
-        }
-        Command::Stop => {
-            state.player_state = PlayerState::Stopped;
-            state.position_ms = 0;
-            events.emit(Event::StateChanged {
-                state: state.player_state,
-            });
-            events.emit(Event::Position {
-                ms: state.position_ms,
-            });
-        }
-        Command::Seek { ms } => {
-            state.position_ms = ms.max(0);
-            events.emit(Event::Position {
-                ms: state.position_ms,
-            });
-        }
         Command::LoadTrack { path } => {
+            stop_session(state, events);
             state.current_track = Some(path.clone());
             state.position_ms = 0;
-            state.player_state = PlayerState::Stopped;
             events.emit(Event::TrackChanged { path });
-            events.emit(Event::StateChanged {
-                state: state.player_state,
-            });
             events.emit(Event::Position {
                 ms: state.position_ms,
             });
+            set_state(state, events, PlayerState::Stopped);
         }
-        Command::SetVolume { linear } => {
-            state.volume = linear.clamp(0.0, 1.0);
-            events.emit(Event::Log {
-                message: format!("volume set to {:.3}", state.volume),
-            });
-        }
-        Command::SetMuted { muted } => {
-            state.muted = muted;
-            events.emit(Event::Log {
-                message: format!("muted = {}", state.muted),
-            });
-        }
-        Command::Enqueue { path } => {
-            state.queue.push_back(path.clone());
-            events.emit(Event::Log {
-                message: format!("enqueued: {}", path),
-            });
-        }
-        Command::Next => {
-            if let Some(next) = state.queue.pop_front() {
-                state.current_track = Some(next.clone());
-                state.position_ms = 0;
-                state.player_state = PlayerState::Stopped;
-                events.emit(Event::TrackChanged { path: next });
-                events.emit(Event::StateChanged {
-                    state: state.player_state,
+        Command::Play => {
+            let Some(path) = state.current_track.clone() else {
+                events.emit(Event::Error {
+                    message: "no track loaded".to_string(),
                 });
-                events.emit(Event::Position {
-                    ms: state.position_ms,
-                });
-            } else {
-                events.emit(Event::Log {
-                    message: "queue empty".to_string(),
-                });
+                return false;
+            };
+
+            if state.session.is_none() {
+                set_state(state, events, PlayerState::Buffering);
+                match start_session(path, events.clone(), internal_tx.clone()) {
+                    Ok(session) => state.session = Some(session),
+                    Err(message) => {
+                        events.emit(Event::Error { message });
+                        set_state(state, events, PlayerState::Stopped);
+                        return false;
+                    }
+                }
             }
+
+            if let Some(session) = state.session.as_ref() {
+                session.paused.store(false, Ordering::Release);
+                let _ = session.ctrl_tx.send(DecodeCtrl::Play);
+            }
+            set_state(state, events, PlayerState::Playing);
         }
-        Command::Previous => {
-            events.emit(Event::Log {
-                message: "previous: not implemented".to_string(),
+        Command::Pause => {
+            if let Some(session) = state.session.as_ref() {
+                session.paused.store(true, Ordering::Release);
+                let _ = session.ctrl_tx.send(DecodeCtrl::Pause);
+            }
+            set_state(state, events, PlayerState::Paused);
+        }
+        Command::Stop => {
+            stop_session(state, events);
+            state.position_ms = 0;
+            events.emit(Event::Position {
+                ms: state.position_ms,
             });
+            set_state(state, events, PlayerState::Stopped);
         }
         Command::Shutdown => {
-            events.emit(Event::Log {
-                message: "shutdown requested".to_string(),
-            });
+            stop_session(state, events);
             return true;
         }
     }
 
     false
+}
+
+fn set_state(state: &mut EngineState, events: &Arc<EventHub>, new_state: PlayerState) {
+    if state.player_state == new_state {
+        return;
+    }
+    state.player_state = new_state;
+    events.emit(Event::StateChanged { state: new_state });
+}
+
+fn stop_session(state: &mut EngineState, events: &Arc<EventHub>) {
+    let Some(session) = state.session.take() else {
+        return;
+    };
+
+    session.paused.store(true, Ordering::Release);
+    let _ = session.ctrl_tx.send(DecodeCtrl::Stop);
+    let _ = session.decode_join.join();
+
+    events.emit(Event::Log {
+        message: "session stopped".to_string(),
+    });
+}
+
+fn start_session(
+    path: String,
+    events: Arc<EventHub>,
+    internal_tx: Sender<InternalMsg>,
+) -> Result<PlaybackSession, String> {
+    let (ctrl_tx, ctrl_rx) = crossbeam_channel::unbounded();
+    let (setup_tx, setup_rx) = crossbeam_channel::bounded::<DecodeCtrl>(1);
+    let (spec_tx, spec_rx) = crossbeam_channel::bounded::<Result<TrackSpec, String>>(1);
+
+    let thread_path = path.clone();
+    let thread_events = Arc::clone(&events);
+    let thread_internal_tx = internal_tx.clone();
+
+    let decode_join = thread::spawn(move || {
+        decode_thread(
+            thread_path,
+            thread_events,
+            thread_internal_tx,
+            ctrl_rx,
+            setup_rx,
+            spec_tx,
+        )
+    });
+
+    let _track_spec = match spec_rx.recv() {
+        Ok(Ok(spec)) => spec,
+        Ok(Err(message)) => return Err(message),
+        Err(_) => return Err("decoder thread exited unexpectedly".to_string()),
+    };
+
+    let out_spec = default_output_spec().map_err(|e| e.to_string())?;
+    if out_spec.channels != 2 {
+        return Err(format!(
+            "output channels = {}, only stereo is supported",
+            out_spec.channels
+        ));
+    }
+
+    let capacity_samples = out_spec.sample_rate as usize * out_spec.channels as usize * 2;
+    let (producer, consumer) = new_ring_buffer::<f32>(capacity_samples);
+
+    let paused = Arc::new(AtomicBool::new(true));
+    let output_consumer = GatedConsumer {
+        inner: consumer,
+        paused: Arc::clone(&paused),
+    };
+
+    let output =
+        OutputHandle::start(output_consumer, out_spec.sample_rate).map_err(|e| match e {
+            OutputError::ConfigMismatch { message } => message,
+            other => other.to_string(),
+        })?;
+
+    setup_tx
+        .send(DecodeCtrl::Setup {
+            producer,
+            target_sample_rate: out_spec.sample_rate,
+        })
+        .map_err(|_| "decoder thread exited unexpectedly".to_string())?;
+
+    Ok(PlaybackSession {
+        ctrl_tx,
+        decode_join,
+        _output: output,
+        paused,
+    })
+}
+
+struct GatedConsumer {
+    inner: crate::ring_buffer::RingBufferConsumer<f32>,
+    paused: Arc<AtomicBool>,
+}
+
+impl stellatune_output::SampleConsumer for GatedConsumer {
+    fn pop_sample(&mut self) -> Option<f32> {
+        if self.paused.load(Ordering::Acquire) {
+            return None;
+        }
+        self.inner.pop_sample()
+    }
+}
+
+fn decode_thread(
+    path: String,
+    events: Arc<EventHub>,
+    internal_tx: Sender<InternalMsg>,
+    ctrl_rx: Receiver<DecodeCtrl>,
+    setup_rx: Receiver<DecodeCtrl>,
+    spec_tx: Sender<Result<TrackSpec, String>>,
+) {
+    let mut decoder = match Decoder::open(&path) {
+        Ok(d) => d,
+        Err(e) => {
+            let _ = spec_tx.send(Err(format!("failed to open decoder: {e}")));
+            return;
+        }
+    };
+
+    let spec = decoder.spec();
+    let _ = spec_tx.send(Ok(spec));
+
+    let (mut producer, target_sample_rate) = loop {
+        crossbeam_channel::select! {
+            recv(setup_rx) -> msg => {
+                let Ok(ctrl) = msg else { return };
+                if let DecodeCtrl::Setup { producer, target_sample_rate } = ctrl {
+                    break (producer, target_sample_rate);
+                }
+            }
+            recv(ctrl_rx) -> msg => {
+                let Ok(msg) = msg else { return };
+                if matches!(msg, DecodeCtrl::Stop) {
+                    return;
+                }
+            }
+        }
+    };
+
+    let mut resampler = match create_resampler_if_needed(spec.sample_rate, target_sample_rate) {
+        Ok(r) => r,
+        Err(e) => {
+            let _ = internal_tx.send(InternalMsg::Error(e));
+            return;
+        }
+    };
+
+    let mut playing = false;
+    let mut frames_written: u64 = 0;
+    let mut last_emit = Instant::now();
+    let mut decode_pending: Vec<f32> = Vec::new();
+    let mut out_pending: Vec<f32> = Vec::new();
+
+    loop {
+        if !playing {
+            match ctrl_rx.recv() {
+                Ok(DecodeCtrl::Play) => {
+                    playing = true;
+                    last_emit = Instant::now();
+                }
+                Ok(DecodeCtrl::Pause) => {}
+                Ok(DecodeCtrl::Setup { .. }) => {}
+                Ok(DecodeCtrl::Stop) | Err(_) => break,
+            }
+            continue;
+        }
+
+        while let Ok(ctrl) = ctrl_rx.try_recv() {
+            match ctrl {
+                DecodeCtrl::Pause => {
+                    playing = false;
+                    break;
+                }
+                DecodeCtrl::Stop => return,
+                DecodeCtrl::Play => {}
+                DecodeCtrl::Setup { .. } => {}
+            }
+        }
+        if !playing {
+            continue;
+        }
+
+        if last_emit.elapsed() >= Duration::from_millis(200) {
+            let ms = ((frames_written.saturating_mul(1000)) / target_sample_rate as u64) as i64;
+            events.emit(Event::Position { ms });
+            last_emit = Instant::now();
+        }
+
+        match decoder.next_block(4096) {
+            Ok(Some(samples)) => {
+                decode_pending.extend_from_slice(&samples);
+                if resampler.is_none() {
+                    if write_pending(
+                        &mut producer,
+                        &mut decode_pending,
+                        &mut frames_written,
+                        &ctrl_rx,
+                        &mut playing,
+                    ) {
+                        return;
+                    }
+                    continue;
+                }
+
+                while decode_pending.len() >= RESAMPLE_CHUNK_FRAMES * 2 {
+                    let chunk: Vec<f32> =
+                        decode_pending.drain(..RESAMPLE_CHUNK_FRAMES * 2).collect();
+                    let processed =
+                        match resample_stereo_chunk(resampler.as_mut().expect("checked"), &chunk) {
+                            Ok(v) => v,
+                            Err(e) => {
+                                let _ = internal_tx.send(InternalMsg::Error(e));
+                                return;
+                            }
+                        };
+                    out_pending.extend_from_slice(&processed);
+
+                    if write_pending(
+                        &mut producer,
+                        &mut out_pending,
+                        &mut frames_written,
+                        &ctrl_rx,
+                        &mut playing,
+                    ) {
+                        return;
+                    }
+                    if !playing {
+                        break;
+                    }
+                }
+            }
+            Ok(None) => {
+                if let Some(resampler) = resampler.as_mut() {
+                    if !decode_pending.is_empty() {
+                        decode_pending.resize(RESAMPLE_CHUNK_FRAMES * 2, 0.0);
+                        match resample_stereo_chunk(resampler, &decode_pending) {
+                            Ok(processed) => {
+                                out_pending.extend_from_slice(&processed);
+                                decode_pending.clear();
+                            }
+                            Err(e) => {
+                                let _ = internal_tx.send(InternalMsg::Error(e));
+                                return;
+                            }
+                        }
+                    }
+                    while !out_pending.is_empty() {
+                        if write_pending(
+                            &mut producer,
+                            &mut out_pending,
+                            &mut frames_written,
+                            &ctrl_rx,
+                            &mut playing,
+                        ) {
+                            return;
+                        }
+                        if !playing {
+                            break;
+                        }
+                    }
+                } else if !decode_pending.is_empty() {
+                    while !decode_pending.is_empty() {
+                        if write_pending(
+                            &mut producer,
+                            &mut decode_pending,
+                            &mut frames_written,
+                            &ctrl_rx,
+                            &mut playing,
+                        ) {
+                            return;
+                        }
+                        if !playing {
+                            break;
+                        }
+                    }
+                }
+                let _ = internal_tx.send(InternalMsg::Eof);
+                break;
+            }
+            Err(e) => {
+                let _ = internal_tx.send(InternalMsg::Error(format!("{e}")));
+                break;
+            }
+        }
+    }
+}
+
+fn write_pending(
+    producer: &mut RingBufferProducer<f32>,
+    pending: &mut Vec<f32>,
+    frames_written: &mut u64,
+    ctrl_rx: &Receiver<DecodeCtrl>,
+    playing: &mut bool,
+) -> bool {
+    let mut offset = 0usize;
+    while offset < pending.len() {
+        while let Ok(ctrl) = ctrl_rx.try_recv() {
+            match ctrl {
+                DecodeCtrl::Pause => {
+                    *playing = false;
+                    break;
+                }
+                DecodeCtrl::Stop => return true,
+                DecodeCtrl::Play => {}
+                DecodeCtrl::Setup { .. } => {}
+            }
+        }
+        if !*playing {
+            break;
+        }
+
+        let written = producer.push_slice(&pending[offset..]);
+        offset += written;
+        *frames_written = (*frames_written).saturating_add((written / 2) as u64);
+        if written == 0 {
+            thread::sleep(Duration::from_millis(2));
+        }
+    }
+
+    if offset > 0 {
+        pending.drain(..offset);
+    }
+
+    false
+}
+
+const RESAMPLE_CHUNK_FRAMES: usize = 1024;
+
+fn create_resampler_if_needed(
+    src_rate: u32,
+    dst_rate: u32,
+) -> Result<Option<rubato::Async<f32>>, String> {
+    if src_rate == dst_rate {
+        return Ok(None);
+    }
+
+    use rubato::{
+        Async, FixedAsync, SincInterpolationParameters, SincInterpolationType, WindowFunction,
+    };
+
+    let params = SincInterpolationParameters {
+        sinc_len: 256,
+        f_cutoff: 0.95,
+        oversampling_factor: 128,
+        interpolation: SincInterpolationType::Linear,
+        window: WindowFunction::BlackmanHarris2,
+    };
+
+    let ratio = dst_rate as f64 / src_rate as f64;
+    let resampler = Async::<f32>::new_sinc(
+        ratio,
+        2.0,
+        &params,
+        RESAMPLE_CHUNK_FRAMES,
+        2,
+        FixedAsync::Input,
+    )
+    .map_err(|e| format!("failed to create resampler: {e}"))?;
+    Ok(Some(resampler))
+}
+
+fn resample_stereo_chunk(
+    resampler: &mut rubato::Async<f32>,
+    chunk_interleaved: &[f32],
+) -> Result<Vec<f32>, String> {
+    use audioadapter_buffers::direct::InterleavedSlice;
+    use rubato::Resampler;
+
+    let frames = chunk_interleaved.len() / 2;
+    let input = InterleavedSlice::new(chunk_interleaved, 2, frames)
+        .map_err(|e| format!("resample input buffer error: {e}"))?;
+
+    let out = resampler
+        .process(&input, 0, None)
+        .map_err(|e| format!("resample error: {e}"))?;
+
+    Ok(out.take_data())
 }
 
 struct EventHub {

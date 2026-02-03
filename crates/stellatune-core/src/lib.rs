@@ -14,16 +14,10 @@ pub enum PlayerState {
 #[flutter_rust_bridge::frb(non_opaque)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Command {
+    LoadTrack { path: String },
     Play,
     Pause,
     Stop,
-    Seek { ms: i64 },
-    LoadTrack { path: String },
-    SetVolume { linear: f64 },
-    SetMuted { muted: bool },
-    Enqueue { path: String },
-    Next,
-    Previous,
     Shutdown,
 }
 

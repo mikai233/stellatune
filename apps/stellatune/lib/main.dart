@@ -2,12 +2,13 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:stellatune/bridge/bridge.dart';
 import 'package:stellatune/platform/rust_runtime.dart';
+import 'package:file_picker/file_picker.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   await initRustRuntime();
-  final bridge = await CoreBridge.create();
+  final bridge = await PlayerBridge.create();
 
   runApp(MyApp(bridge: bridge));
 }
@@ -15,7 +16,7 @@ Future<void> main() async {
 class MyApp extends StatelessWidget {
   const MyApp({required this.bridge, super.key});
 
-  final CoreBridge bridge;
+  final PlayerBridge bridge;
 
   @override
   Widget build(BuildContext context) {
@@ -30,7 +31,7 @@ class MyApp extends StatelessWidget {
 class PlayerPage extends StatefulWidget {
   const PlayerPage({required this.bridge, super.key});
 
-  final CoreBridge bridge;
+  final PlayerBridge bridge;
 
   @override
   State<PlayerPage> createState() => _PlayerPageState();
@@ -69,7 +70,7 @@ class _PlayerPageState extends State<PlayerPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('StellaTune (Rust mock engine)')),
+      appBar: AppBar(title: const Text('StellaTune (Rust audio MVP)')),
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -85,6 +86,10 @@ class _PlayerPageState extends State<PlayerPage> {
               spacing: 12,
               runSpacing: 12,
               children: [
+                FilledButton.tonal(
+                  onPressed: _pickAndLoad,
+                  child: const Text('Open File'),
+                ),
                 FilledButton(
                   onPressed: widget.bridge.play,
                   child: const Text('Play'),
@@ -99,28 +104,26 @@ class _PlayerPageState extends State<PlayerPage> {
                 ),
               ],
             ),
-            const SizedBox(height: 16),
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              children: [
-                OutlinedButton(
-                  onPressed: () => widget.bridge.seek(0),
-                  child: const Text('Seek 0'),
-                ),
-                OutlinedButton(
-                  onPressed: widget.bridge.next,
-                  child: const Text('Next'),
-                ),
-                OutlinedButton(
-                  onPressed: widget.bridge.previous,
-                  child: const Text('Previous'),
-                ),
-              ],
-            ),
           ],
         ),
       ),
     );
+  }
+
+  Future<void> _pickAndLoad() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: const ['mp3', 'flac', 'wav'],
+    );
+
+    final path = result?.files.single.path;
+    if (path == null) return;
+
+    setState(() {
+      _lastError = null;
+      _lastLog = '';
+    });
+
+    await widget.bridge.load(path);
   }
 }
