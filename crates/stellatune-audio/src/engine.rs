@@ -8,7 +8,7 @@ use crossbeam_channel::{Receiver, Sender};
 use stellatune_core::{Command, Event, PlayerState};
 use stellatune_decode::{Decoder, TrackSpec};
 use stellatune_output::{OutputError, OutputHandle, default_output_spec};
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 use crate::ring_buffer::{RingBufferProducer, new_ring_buffer};
 
@@ -49,6 +49,7 @@ enum DecodeCtrl {
         producer: RingBufferProducer<f32>,
         target_sample_rate: u32,
         target_channels: u16,
+        start_at_ms: i64,
     },
     Play,
     Pause,
@@ -58,6 +59,8 @@ enum DecodeCtrl {
 enum InternalMsg {
     Eof,
     Error(String),
+    OutputError(String),
+    Position(i64),
 }
 
 struct PlaybackSession {
@@ -104,7 +107,7 @@ fn run_control_loop(
             }
             recv(internal_rx) -> msg => {
                 let Ok(msg) = msg else { break };
-                handle_internal(msg, &mut state, &events);
+                handle_internal(msg, &mut state, &events, &internal_tx);
             }
         }
     }
@@ -116,7 +119,12 @@ fn run_control_loop(
     info!("control thread exited");
 }
 
-fn handle_internal(msg: InternalMsg, state: &mut EngineState, events: &Arc<EventHub>) {
+fn handle_internal(
+    msg: InternalMsg,
+    state: &mut EngineState,
+    events: &Arc<EventHub>,
+    internal_tx: &Sender<InternalMsg>,
+) {
     match msg {
         InternalMsg::Eof => {
             events.emit(Event::Log {
@@ -129,6 +137,74 @@ fn handle_internal(msg: InternalMsg, state: &mut EngineState, events: &Arc<Event
             events.emit(Event::Error { message });
             stop_session(state, events);
             set_state(state, events, PlayerState::Stopped);
+        }
+        InternalMsg::OutputError(message) => {
+            if state.session.is_none() {
+                error!("output stream error (no active session): {message}");
+                events.emit(Event::Log {
+                    message: format!("output stream error (no active session): {message}"),
+                });
+                return;
+            }
+
+            error!("output stream error: {message}");
+            events.emit(Event::Error {
+                message: format!("output stream error: {message}"),
+            });
+
+            let Some(path) = state.current_track.clone() else {
+                stop_session(state, events);
+                set_state(state, events, PlayerState::Stopped);
+                return;
+            };
+
+            let prev_state = state.player_state;
+            stop_session(state, events);
+
+            set_state(state, events, PlayerState::Buffering);
+            match start_session(
+                path,
+                Arc::clone(events),
+                internal_tx.clone(),
+                state.position_ms,
+            ) {
+                Ok(session) => {
+                    state.session = Some(session);
+
+                    match prev_state {
+                        PlayerState::Playing | PlayerState::Buffering => {
+                            if let Some(session) = state.session.as_ref() {
+                                session.paused.store(false, Ordering::Release);
+                                let _ = session.ctrl_tx.send(DecodeCtrl::Play);
+                            }
+                            set_state(state, events, PlayerState::Playing);
+                        }
+                        PlayerState::Paused => {
+                            if let Some(session) = state.session.as_ref() {
+                                session.paused.store(true, Ordering::Release);
+                            }
+                            set_state(state, events, PlayerState::Paused);
+                        }
+                        PlayerState::Stopped => {
+                            stop_session(state, events);
+                            set_state(state, events, PlayerState::Stopped);
+                        }
+                    }
+
+                    events.emit(Event::Log {
+                        message: "audio session restarted after output error".to_string(),
+                    });
+                }
+                Err(err) => {
+                    events.emit(Event::Error {
+                        message: format!("failed to restart audio session: {err}"),
+                    });
+                    set_state(state, events, PlayerState::Stopped);
+                }
+            }
+        }
+        InternalMsg::Position(ms) => {
+            state.position_ms = ms;
         }
     }
 }
@@ -160,7 +236,7 @@ fn handle_command(
 
             if state.session.is_none() {
                 set_state(state, events, PlayerState::Buffering);
-                match start_session(path, events.clone(), internal_tx.clone()) {
+                match start_session(path, events.clone(), internal_tx.clone(), state.position_ms) {
                     Ok(session) => state.session = Some(session),
                     Err(message) => {
                         events.emit(Event::Error { message });
@@ -227,6 +303,7 @@ fn start_session(
     path: String,
     events: Arc<EventHub>,
     internal_tx: Sender<InternalMsg>,
+    start_at_ms: i64,
 ) -> Result<PlaybackSession, String> {
     info!("starting session");
     let (ctrl_tx, ctrl_rx) = crossbeam_channel::unbounded();
@@ -275,17 +352,21 @@ fn start_session(
         paused: Arc::clone(&paused),
     };
 
-    let output =
-        OutputHandle::start(output_consumer, out_spec.sample_rate).map_err(|e| match e {
-            OutputError::ConfigMismatch { message } => message,
-            other => other.to_string(),
-        })?;
+    let output_internal_tx = internal_tx.clone();
+    let output = OutputHandle::start(output_consumer, out_spec.sample_rate, move |err| {
+        let _ = output_internal_tx.try_send(InternalMsg::OutputError(err.to_string()));
+    })
+    .map_err(|e| match e {
+        OutputError::ConfigMismatch { message } => message,
+        other => other.to_string(),
+    })?;
 
     setup_tx
         .send(DecodeCtrl::Setup {
             producer,
             target_sample_rate: out_spec.sample_rate,
             target_channels: out_spec.channels,
+            start_at_ms,
         })
         .map_err(|_| "decoder thread exited unexpectedly".to_string())?;
 
@@ -330,12 +411,12 @@ fn decode_thread(
     let spec = decoder.spec();
     let _ = spec_tx.send(Ok(spec));
 
-    let (mut producer, target_sample_rate, target_channels) = loop {
+    let (mut producer, target_sample_rate, target_channels, start_at_ms) = loop {
         crossbeam_channel::select! {
             recv(setup_rx) -> msg => {
                 let Ok(ctrl) = msg else { return };
-                if let DecodeCtrl::Setup { producer, target_sample_rate, target_channels } = ctrl {
-                    break (producer, target_sample_rate, target_channels);
+                if let DecodeCtrl::Setup { producer, target_sample_rate, target_channels, start_at_ms } = ctrl {
+                    break (producer, target_sample_rate, target_channels, start_at_ms);
                 }
             }
             recv(ctrl_rx) -> msg => {
@@ -349,6 +430,15 @@ fn decode_thread(
 
     let in_channels = spec.channels as usize;
     let out_channels = target_channels as usize;
+
+    let base_ms = start_at_ms.max(0);
+    if base_ms > 0 {
+        let frames_to_skip = ((base_ms as i128 * spec.sample_rate as i128) / 1000) as u64;
+        if !skip_frames_by_decoding(&mut decoder, frames_to_skip) {
+            let _ = internal_tx.send(InternalMsg::Eof);
+            return;
+        }
+    }
 
     let mut resampler =
         match create_resampler_if_needed(spec.sample_rate, target_sample_rate, out_channels) {
@@ -395,8 +485,11 @@ fn decode_thread(
         }
 
         if last_emit.elapsed() >= Duration::from_millis(200) {
-            let ms = ((frames_written.saturating_mul(1000)) / target_sample_rate as u64) as i64;
+            let ms = base_ms.saturating_add(
+                ((frames_written.saturating_mul(1000)) / target_sample_rate as u64) as i64,
+            );
             events.emit(Event::Position { ms });
+            let _ = internal_tx.try_send(InternalMsg::Position(ms));
             last_emit = Instant::now();
         }
 
@@ -537,6 +630,26 @@ fn decode_thread(
             }
         }
     }
+}
+
+fn skip_frames_by_decoding(decoder: &mut Decoder, mut frames_to_skip: u64) -> bool {
+    // Best-effort: decode and discard samples until reaching the requested frame offset.
+    // This is only used during output reinitialization (rare), so it can be slower.
+    while frames_to_skip > 0 {
+        let want = (frames_to_skip.min(2048)) as usize;
+        match decoder.next_block(want) {
+            Ok(Some(block)) => {
+                let got_frames = (block.len() / decoder.spec().channels as usize) as u64;
+                if got_frames == 0 {
+                    return false;
+                }
+                frames_to_skip = frames_to_skip.saturating_sub(got_frames);
+            }
+            Ok(None) => return false,
+            Err(_) => return false,
+        }
+    }
+    true
 }
 
 fn write_pending(

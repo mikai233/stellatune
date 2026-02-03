@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::time::Duration;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -50,10 +51,14 @@ pub fn default_output_spec() -> Result<OutputSpec, OutputError> {
 }
 
 impl OutputHandle {
-    pub fn start<C: SampleConsumer>(
+    pub fn start<C: SampleConsumer, F>(
         mut consumer: C,
         expected_sample_rate: u32,
-    ) -> Result<Self, OutputError> {
+        on_error: F,
+    ) -> Result<Self, OutputError>
+    where
+        F: Fn(cpal::StreamError) + Send + Sync + 'static,
+    {
         let host = cpal::default_host();
         let device = host.default_output_device().ok_or(OutputError::NoDevice)?;
         let config = device.default_output_config()?;
@@ -81,26 +86,36 @@ impl OutputHandle {
         };
 
         let stream_config: cpal::StreamConfig = config.clone().into();
+        let on_error = Arc::new(on_error);
 
         let stream = match config.sample_format() {
-            cpal::SampleFormat::F32 => device.build_output_stream(
-                &stream_config,
-                move |data: &mut [f32], _| fill_f32(data, &mut consumer),
-                move |_err| {},
-                Some(Duration::from_millis(200)),
-            )?,
-            cpal::SampleFormat::I16 => device.build_output_stream(
-                &stream_config,
-                move |data: &mut [i16], _| fill_i16(data, &mut consumer),
-                move |_err| {},
-                Some(Duration::from_millis(200)),
-            )?,
-            cpal::SampleFormat::U16 => device.build_output_stream(
-                &stream_config,
-                move |data: &mut [u16], _| fill_u16(data, &mut consumer),
-                move |_err| {},
-                Some(Duration::from_millis(200)),
-            )?,
+            cpal::SampleFormat::F32 => {
+                let on_error = Arc::clone(&on_error);
+                device.build_output_stream(
+                    &stream_config,
+                    move |data: &mut [f32], _| fill_f32(data, &mut consumer),
+                    move |err| (on_error)(err),
+                    Some(Duration::from_millis(200)),
+                )?
+            }
+            cpal::SampleFormat::I16 => {
+                let on_error = Arc::clone(&on_error);
+                device.build_output_stream(
+                    &stream_config,
+                    move |data: &mut [i16], _| fill_i16(data, &mut consumer),
+                    move |err| (on_error)(err),
+                    Some(Duration::from_millis(200)),
+                )?
+            }
+            cpal::SampleFormat::U16 => {
+                let on_error = Arc::clone(&on_error);
+                device.build_output_stream(
+                    &stream_config,
+                    move |data: &mut [u16], _| fill_u16(data, &mut consumer),
+                    move |err| (on_error)(err),
+                    Some(Duration::from_millis(200)),
+                )?
+            }
             other => {
                 return Err(OutputError::ConfigMismatch {
                     message: format!("unsupported output sample format: {other:?}"),
