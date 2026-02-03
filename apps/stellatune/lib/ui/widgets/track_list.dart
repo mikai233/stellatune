@@ -3,6 +3,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:stellatune/bridge/bridge.dart';
+import 'package:stellatune/l10n/app_localizations.dart';
 
 class TrackList extends StatefulWidget {
   const TrackList({
@@ -70,10 +71,9 @@ class _TrackListState extends State<TrackList> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     if (widget.items.isEmpty) {
-      return const Center(
-        child: Text('No results. Add a folder and scan, then search.'),
-      );
+      return Center(child: Text(l10n.noResultsHint));
     }
 
     return NotificationListener<ScrollNotification>(
@@ -140,14 +140,14 @@ class _TrackListState extends State<TrackList> {
                               await widget.onActivate(i, widget.items);
                             }
                           },
-                          itemBuilder: (context) => const [
+                          itemBuilder: (context) => [
                             PopupMenuItem(
                               value: _TrackAction.play,
-                              child: Text('Play'),
+                              child: Text(l10n.menuPlay),
                             ),
                             PopupMenuItem(
                               value: _TrackAction.enqueue,
-                              child: Text('Enqueue'),
+                              child: Text(l10n.menuEnqueue),
                             ),
                           ],
                         ),

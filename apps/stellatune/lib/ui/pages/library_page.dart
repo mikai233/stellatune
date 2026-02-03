@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:stellatune/app/providers.dart';
 import 'package:stellatune/library/library_controller.dart';
+import 'package:stellatune/l10n/app_localizations.dart';
 import 'package:stellatune/player/playback_controller.dart';
 import 'package:stellatune/ui/widgets/track_list.dart';
 
@@ -24,6 +25,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
 
     // Avoid rebuilding the whole page on unrelated state changes.
@@ -46,15 +48,15 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Library'),
+        title: Text(l10n.libraryTitle),
         actions: [
           IconButton(
-            tooltip: 'Add folder',
+            tooltip: l10n.tooltipAddFolder,
             onPressed: () => _pickAndAddFolder(context),
             icon: const Icon(Icons.create_new_folder_outlined),
           ),
           IconButton(
-            tooltip: 'Scan',
+            tooltip: l10n.tooltipScan,
             onPressed: () =>
                 ref.read(libraryControllerProvider.notifier).scanAll(),
             icon: const Icon(Icons.refresh),
@@ -75,10 +77,10 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
             const SizedBox(height: 12),
             TextField(
               controller: _searchController,
-              decoration: const InputDecoration(
-                prefixIcon: Icon(Icons.search),
-                hintText: 'Search title / artist / album / path',
-                border: OutlineInputBorder(),
+              decoration: InputDecoration(
+                prefixIcon: const Icon(Icons.search),
+                hintText: l10n.searchHint,
+                border: const OutlineInputBorder(),
               ),
               onChanged: (q) =>
                   ref.read(libraryControllerProvider.notifier).setQuery(q),
@@ -128,8 +130,9 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
   }
 
   Future<void> _pickAndAddFolder(BuildContext context) async {
+    final l10n = AppLocalizations.of(context)!;
     final dir = await FilePicker.platform.getDirectoryPath(
-      dialogTitle: 'Select music folder',
+      dialogTitle: l10n.dialogSelectMusicFolder,
     );
     if (dir == null || dir.trim().isEmpty) return;
     await ref
@@ -146,10 +149,9 @@ class _RootsRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     if (roots.isEmpty) {
-      return const Text(
-        'No folders yet. Click “Add folder” to start scanning.',
-      );
+      return Text(l10n.noFoldersHint);
     }
 
     return Wrap(
@@ -185,8 +187,13 @@ class _ScanStatusCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final title = isScanning ? 'Scanning…' : 'Scan finished';
-    final subtitle = durationMs == null ? null : '${durationMs}ms';
+    final l10n = AppLocalizations.of(context)!;
+    final title = isScanning
+        ? l10n.scanStatusScanning
+        : l10n.scanStatusFinished;
+    final subtitle = durationMs == null
+        ? null
+        : l10n.scanDurationMs(durationMs!);
 
     return Card(
       child: Padding(
@@ -215,10 +222,10 @@ class _ScanStatusCard extends StatelessWidget {
                 ],
               ),
             ),
-            _Stat(label: 'scanned', value: scanned),
-            _Stat(label: 'updated', value: updated),
-            _Stat(label: 'skipped', value: skipped),
-            _Stat(label: 'errors', value: errors),
+            _Stat(label: l10n.scanLabelScanned, value: scanned),
+            _Stat(label: l10n.scanLabelUpdated, value: updated),
+            _Stat(label: l10n.scanLabelSkipped, value: skipped),
+            _Stat(label: l10n.scanLabelErrors, value: errors),
           ],
         ),
       ),

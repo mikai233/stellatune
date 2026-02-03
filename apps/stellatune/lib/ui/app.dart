@@ -13,6 +13,7 @@ class StellatuneApp extends StatelessWidget {
         colorSchemeSeed: Colors.indigo,
         useMaterial3: true,
         visualDensity: VisualDensity.standard,
+        fontFamily: 'NotoSansSC',
       ),
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,

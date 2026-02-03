@@ -37,4 +37,94 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get log => 'Log';
+
+  @override
+  String get navLibrary => 'Library';
+
+  @override
+  String get navQueue => 'Queue';
+
+  @override
+  String get libraryTitle => 'Library';
+
+  @override
+  String get queueTitle => 'Queue';
+
+  @override
+  String get tooltipAddFolder => 'Add folder';
+
+  @override
+  String get tooltipScan => 'Scan';
+
+  @override
+  String get dialogSelectMusicFolder => 'Select music folder';
+
+  @override
+  String get searchHint => 'Search title / artist / album / path';
+
+  @override
+  String get noFoldersHint =>
+      'No folders yet. Click “Add folder” to start scanning.';
+
+  @override
+  String get noResultsHint => 'No results. Add a folder and scan, then search.';
+
+  @override
+  String get scanStatusScanning => 'Scanning…';
+
+  @override
+  String get scanStatusFinished => 'Scan finished';
+
+  @override
+  String scanDurationMs(int ms) {
+    return '${ms}ms';
+  }
+
+  @override
+  String get scanLabelScanned => 'scanned';
+
+  @override
+  String get scanLabelUpdated => 'updated';
+
+  @override
+  String get scanLabelSkipped => 'skipped';
+
+  @override
+  String get scanLabelErrors => 'errors';
+
+  @override
+  String get menuPlay => 'Play';
+
+  @override
+  String get menuEnqueue => 'Enqueue';
+
+  @override
+  String get queueShuffle => 'Shuffle';
+
+  @override
+  String get repeatOff => 'Repeat: Off';
+
+  @override
+  String get repeatAll => 'Repeat: All';
+
+  @override
+  String get repeatOne => 'Repeat: One';
+
+  @override
+  String get nowPlayingNone => '(none)';
+
+  @override
+  String get queueEmpty => '(queue empty)';
+
+  @override
+  String get tooltipPrevious => 'Previous';
+
+  @override
+  String get tooltipNext => 'Next';
+
+  @override
+  String get tooltipShuffle => 'Shuffle';
+
+  @override
+  String get tooltipRepeat => 'Repeat';
 }

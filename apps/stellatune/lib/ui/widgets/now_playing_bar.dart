@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:stellatune/l10n/app_localizations.dart';
 import 'package:stellatune/player/playback_controller.dart';
 import 'package:stellatune/player/queue_controller.dart';
 import 'package:stellatune/player/queue_models.dart';
@@ -9,11 +10,12 @@ class NowPlayingBar extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
     final playback = ref.watch(playbackControllerProvider);
     final queue = ref.watch(queueControllerProvider);
 
-    final currentTitle = queue.currentItem?.displayTitle ?? '(none)';
+    final currentTitle = queue.currentItem?.displayTitle ?? l10n.nowPlayingNone;
     final currentSubtitle = playback.currentPath ?? '';
 
     return Material(
@@ -52,38 +54,38 @@ class NowPlayingBar extends ConsumerWidget {
             ),
             const SizedBox(width: 16),
             IconButton(
-              tooltip: 'Previous',
+              tooltip: l10n.tooltipPrevious,
               onPressed: () =>
                   ref.read(playbackControllerProvider.notifier).previous(),
               icon: const Icon(Icons.skip_previous),
             ),
             IconButton(
-              tooltip: 'Play',
+              tooltip: l10n.play,
               onPressed: () =>
                   ref.read(playbackControllerProvider.notifier).play(),
               icon: const Icon(Icons.play_arrow),
             ),
             IconButton(
-              tooltip: 'Pause',
+              tooltip: l10n.pause,
               onPressed: () =>
                   ref.read(playbackControllerProvider.notifier).pause(),
               icon: const Icon(Icons.pause),
             ),
             IconButton(
-              tooltip: 'Stop',
+              tooltip: l10n.stop,
               onPressed: () =>
                   ref.read(playbackControllerProvider.notifier).stop(),
               icon: const Icon(Icons.stop),
             ),
             IconButton(
-              tooltip: 'Next',
+              tooltip: l10n.tooltipNext,
               onPressed: () =>
                   ref.read(playbackControllerProvider.notifier).next(),
               icon: const Icon(Icons.skip_next),
             ),
             const SizedBox(width: 8),
             IconButton(
-              tooltip: 'Shuffle',
+              tooltip: l10n.tooltipShuffle,
               onPressed: () =>
                   ref.read(queueControllerProvider.notifier).toggleShuffle(),
               icon: Icon(
@@ -92,7 +94,7 @@ class NowPlayingBar extends ConsumerWidget {
               ),
             ),
             IconButton(
-              tooltip: 'Repeat',
+              tooltip: l10n.tooltipRepeat,
               onPressed: () =>
                   ref.read(queueControllerProvider.notifier).cycleRepeatMode(),
               icon: Icon(

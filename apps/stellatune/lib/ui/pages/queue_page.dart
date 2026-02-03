@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:stellatune/l10n/app_localizations.dart';
 import 'package:stellatune/player/playback_controller.dart';
 import 'package:stellatune/player/queue_controller.dart';
 import 'package:stellatune/player/queue_models.dart';
@@ -9,10 +10,11 @@ class QueuePage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
     final queue = ref.watch(queueControllerProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Queue')),
+      appBar: AppBar(title: Text(l10n.queueTitle)),
       body: Padding(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
         child: Column(
@@ -56,10 +58,11 @@ class _QueueModeRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final repeatLabel = switch (repeatMode) {
-      RepeatMode.off => 'Repeat: Off',
-      RepeatMode.all => 'Repeat: All',
-      RepeatMode.one => 'Repeat: One',
+      RepeatMode.off => l10n.repeatOff,
+      RepeatMode.all => l10n.repeatAll,
+      RepeatMode.one => l10n.repeatOne,
     };
 
     return Row(
@@ -67,7 +70,7 @@ class _QueueModeRow extends StatelessWidget {
         FilterChip(
           selected: shuffle,
           onSelected: (_) => onToggleShuffle(),
-          label: const Text('Shuffle'),
+          label: Text(l10n.queueShuffle),
         ),
         const SizedBox(width: 8),
         ActionChip(onPressed: onCycleRepeat, label: Text(repeatLabel)),
@@ -89,7 +92,8 @@ class _QueueList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (items.isEmpty) return const Center(child: Text('(queue empty)'));
+    final l10n = AppLocalizations.of(context)!;
+    if (items.isEmpty) return Center(child: Text(l10n.queueEmpty));
 
     return ListView.separated(
       itemCount: items.length,

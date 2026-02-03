@@ -9,5 +9,49 @@
   "position": "进度",
   "track": "曲目",
   "error": "错误",
-  "log": "日志"
+  "log": "日志",
+
+  "navLibrary": "音乐库",
+  "navQueue": "队列",
+
+  "libraryTitle": "音乐库",
+  "queueTitle": "队列",
+
+  "tooltipAddFolder": "添加文件夹",
+  "tooltipScan": "扫描",
+  "dialogSelectMusicFolder": "选择音乐文件夹",
+
+  "searchHint": "搜索 标题 / 歌手 / 专辑 / 路径",
+  "noFoldersHint": "还没有添加文件夹，点击“添加文件夹”开始扫描。",
+  "noResultsHint": "没有结果。先添加文件夹并扫描，然后再搜索。",
+
+  "scanStatusScanning": "扫描中…",
+  "scanStatusFinished": "扫描完成",
+  "scanDurationMs": "{ms}毫秒",
+  "@scanDurationMs": {
+    "placeholders": {
+      "ms": {
+        "type": "int"
+      }
+    }
+  },
+  "scanLabelScanned": "已扫描",
+  "scanLabelUpdated": "已更新",
+  "scanLabelSkipped": "已跳过",
+  "scanLabelErrors": "错误",
+
+  "menuPlay": "播放",
+  "menuEnqueue": "加入队列",
+
+  "queueShuffle": "随机",
+  "repeatOff": "循环：关",
+  "repeatAll": "循环：全部",
+  "repeatOne": "循环：单曲",
+
+  "nowPlayingNone": "(无)",
+  "queueEmpty": "(队列为空)",
+  "tooltipPrevious": "上一首",
+  "tooltipNext": "下一首",
+  "tooltipShuffle": "随机播放",
+  "tooltipRepeat": "循环播放"
 }

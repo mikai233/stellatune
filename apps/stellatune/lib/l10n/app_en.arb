@@ -9,5 +9,49 @@
   "position": "Position",
   "track": "Track",
   "error": "Error",
-  "log": "Log"
+  "log": "Log",
+
+  "navLibrary": "Library",
+  "navQueue": "Queue",
+
+  "libraryTitle": "Library",
+  "queueTitle": "Queue",
+
+  "tooltipAddFolder": "Add folder",
+  "tooltipScan": "Scan",
+  "dialogSelectMusicFolder": "Select music folder",
+
+  "searchHint": "Search title / artist / album / path",
+  "noFoldersHint": "No folders yet. Click “Add folder” to start scanning.",
+  "noResultsHint": "No results. Add a folder and scan, then search.",
+
+  "scanStatusScanning": "Scanning…",
+  "scanStatusFinished": "Scan finished",
+  "scanDurationMs": "{ms}ms",
+  "@scanDurationMs": {
+    "placeholders": {
+      "ms": {
+        "type": "int"
+      }
+    }
+  },
+  "scanLabelScanned": "scanned",
+  "scanLabelUpdated": "updated",
+  "scanLabelSkipped": "skipped",
+  "scanLabelErrors": "errors",
+
+  "menuPlay": "Play",
+  "menuEnqueue": "Enqueue",
+
+  "queueShuffle": "Shuffle",
+  "repeatOff": "Repeat: Off",
+  "repeatAll": "Repeat: All",
+  "repeatOne": "Repeat: One",
+
+  "nowPlayingNone": "(none)",
+  "queueEmpty": "(queue empty)",
+  "tooltipPrevious": "Previous",
+  "tooltipNext": "Next",
+  "tooltipShuffle": "Shuffle",
+  "tooltipRepeat": "Repeat"
 }

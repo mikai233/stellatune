@@ -157,6 +157,180 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Log'**
   String get log;
+
+  /// No description provided for @navLibrary.
+  ///
+  /// In en, this message translates to:
+  /// **'Library'**
+  String get navLibrary;
+
+  /// No description provided for @navQueue.
+  ///
+  /// In en, this message translates to:
+  /// **'Queue'**
+  String get navQueue;
+
+  /// No description provided for @libraryTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Library'**
+  String get libraryTitle;
+
+  /// No description provided for @queueTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Queue'**
+  String get queueTitle;
+
+  /// No description provided for @tooltipAddFolder.
+  ///
+  /// In en, this message translates to:
+  /// **'Add folder'**
+  String get tooltipAddFolder;
+
+  /// No description provided for @tooltipScan.
+  ///
+  /// In en, this message translates to:
+  /// **'Scan'**
+  String get tooltipScan;
+
+  /// No description provided for @dialogSelectMusicFolder.
+  ///
+  /// In en, this message translates to:
+  /// **'Select music folder'**
+  String get dialogSelectMusicFolder;
+
+  /// No description provided for @searchHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Search title / artist / album / path'**
+  String get searchHint;
+
+  /// No description provided for @noFoldersHint.
+  ///
+  /// In en, this message translates to:
+  /// **'No folders yet. Click “Add folder” to start scanning.'**
+  String get noFoldersHint;
+
+  /// No description provided for @noResultsHint.
+  ///
+  /// In en, this message translates to:
+  /// **'No results. Add a folder and scan, then search.'**
+  String get noResultsHint;
+
+  /// No description provided for @scanStatusScanning.
+  ///
+  /// In en, this message translates to:
+  /// **'Scanning…'**
+  String get scanStatusScanning;
+
+  /// No description provided for @scanStatusFinished.
+  ///
+  /// In en, this message translates to:
+  /// **'Scan finished'**
+  String get scanStatusFinished;
+
+  /// No description provided for @scanDurationMs.
+  ///
+  /// In en, this message translates to:
+  /// **'{ms}ms'**
+  String scanDurationMs(int ms);
+
+  /// No description provided for @scanLabelScanned.
+  ///
+  /// In en, this message translates to:
+  /// **'scanned'**
+  String get scanLabelScanned;
+
+  /// No description provided for @scanLabelUpdated.
+  ///
+  /// In en, this message translates to:
+  /// **'updated'**
+  String get scanLabelUpdated;
+
+  /// No description provided for @scanLabelSkipped.
+  ///
+  /// In en, this message translates to:
+  /// **'skipped'**
+  String get scanLabelSkipped;
+
+  /// No description provided for @scanLabelErrors.
+  ///
+  /// In en, this message translates to:
+  /// **'errors'**
+  String get scanLabelErrors;
+
+  /// No description provided for @menuPlay.
+  ///
+  /// In en, this message translates to:
+  /// **'Play'**
+  String get menuPlay;
+
+  /// No description provided for @menuEnqueue.
+  ///
+  /// In en, this message translates to:
+  /// **'Enqueue'**
+  String get menuEnqueue;
+
+  /// No description provided for @queueShuffle.
+  ///
+  /// In en, this message translates to:
+  /// **'Shuffle'**
+  String get queueShuffle;
+
+  /// No description provided for @repeatOff.
+  ///
+  /// In en, this message translates to:
+  /// **'Repeat: Off'**
+  String get repeatOff;
+
+  /// No description provided for @repeatAll.
+  ///
+  /// In en, this message translates to:
+  /// **'Repeat: All'**
+  String get repeatAll;
+
+  /// No description provided for @repeatOne.
+  ///
+  /// In en, this message translates to:
+  /// **'Repeat: One'**
+  String get repeatOne;
+
+  /// No description provided for @nowPlayingNone.
+  ///
+  /// In en, this message translates to:
+  /// **'(none)'**
+  String get nowPlayingNone;
+
+  /// No description provided for @queueEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'(queue empty)'**
+  String get queueEmpty;
+
+  /// No description provided for @tooltipPrevious.
+  ///
+  /// In en, this message translates to:
+  /// **'Previous'**
+  String get tooltipPrevious;
+
+  /// No description provided for @tooltipNext.
+  ///
+  /// In en, this message translates to:
+  /// **'Next'**
+  String get tooltipNext;
+
+  /// No description provided for @tooltipShuffle.
+  ///
+  /// In en, this message translates to:
+  /// **'Shuffle'**
+  String get tooltipShuffle;
+
+  /// No description provided for @tooltipRepeat.
+  ///
+  /// In en, this message translates to:
+  /// **'Repeat'**
+  String get tooltipRepeat;
 }
 
 class _AppLocalizationsDelegate

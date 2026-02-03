@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:stellatune/l10n/app_localizations.dart';
 import 'package:stellatune/ui/pages/library_page.dart';
 import 'package:stellatune/ui/pages/queue_page.dart';
 import 'package:stellatune/ui/widgets/now_playing_bar.dart';
@@ -16,16 +17,17 @@ class _ShellPageState extends ConsumerState<ShellPage> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final destinations = <NavigationRailDestination>[
-      const NavigationRailDestination(
-        icon: Icon(Icons.library_music_outlined),
-        selectedIcon: Icon(Icons.library_music),
-        label: Text('Library'),
+      NavigationRailDestination(
+        icon: const Icon(Icons.library_music_outlined),
+        selectedIcon: const Icon(Icons.library_music),
+        label: Text(l10n.navLibrary),
       ),
-      const NavigationRailDestination(
-        icon: Icon(Icons.queue_music_outlined),
-        selectedIcon: Icon(Icons.queue_music),
-        label: Text('Queue'),
+      NavigationRailDestination(
+        icon: const Icon(Icons.queue_music_outlined),
+        selectedIcon: const Icon(Icons.queue_music),
+        label: Text(l10n.navQueue),
       ),
     ];
 
