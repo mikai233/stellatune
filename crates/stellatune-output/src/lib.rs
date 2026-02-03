@@ -12,6 +12,14 @@ pub struct OutputSpec {
 
 pub trait SampleConsumer: Send + 'static {
     fn pop_sample(&mut self) -> Option<f32>;
+
+    /// Called once per audio callback after the output buffer has been filled.
+    ///
+    /// `requested` is the number of samples the callback needed, `provided` is the number of
+    /// samples actually obtained from the ring buffer.
+    ///
+    /// This must be lightweight (no allocations/locks/IO).
+    fn on_output(&mut self, _requested: usize, _provided: usize) {}
 }
 
 #[derive(Debug, Error)]
@@ -137,23 +145,45 @@ impl OutputHandle {
 }
 
 fn fill_f32<C: SampleConsumer>(out: &mut [f32], consumer: &mut C) {
+    let mut provided = 0usize;
     for slot in out.iter_mut() {
-        *slot = consumer.pop_sample().unwrap_or(0.0);
+        match consumer.pop_sample() {
+            Some(v) => {
+                provided += 1;
+                *slot = v;
+            }
+            None => *slot = 0.0,
+        }
     }
+    consumer.on_output(out.len(), provided);
 }
 
 fn fill_i16<C: SampleConsumer>(out: &mut [i16], consumer: &mut C) {
+    let mut provided = 0usize;
     for slot in out.iter_mut() {
-        let v = consumer.pop_sample().unwrap_or(0.0);
-        *slot = f32_to_i16(v);
+        match consumer.pop_sample() {
+            Some(v) => {
+                provided += 1;
+                *slot = f32_to_i16(v);
+            }
+            None => *slot = 0,
+        }
     }
+    consumer.on_output(out.len(), provided);
 }
 
 fn fill_u16<C: SampleConsumer>(out: &mut [u16], consumer: &mut C) {
+    let mut provided = 0usize;
     for slot in out.iter_mut() {
-        let v = consumer.pop_sample().unwrap_or(0.0);
-        *slot = f32_to_u16(v);
+        match consumer.pop_sample() {
+            Some(v) => {
+                provided += 1;
+                *slot = f32_to_u16(v);
+            }
+            None => *slot = 0,
+        }
     }
+    consumer.on_output(out.len(), provided);
 }
 
 fn f32_to_i16(v: f32) -> i16 {

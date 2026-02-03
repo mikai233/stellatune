@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
@@ -11,6 +11,12 @@ use stellatune_output::{OutputError, OutputHandle, default_output_spec};
 use tracing::{error, info, warn};
 
 use crate::ring_buffer::{RingBufferProducer, new_ring_buffer};
+
+const CONTROL_TICK_MS: u64 = 50;
+const RING_BUFFER_CAPACITY_MS: usize = 500;
+const BUFFER_LOW_WATERMARK_MS: i64 = 60;
+const BUFFER_HIGH_WATERMARK_MS: i64 = 200;
+const UNDERRUN_LOG_INTERVAL: Duration = Duration::from_secs(1);
 
 /// Handle used by higher layers (e.g. FFI) to drive the player.
 #[derive(Clone)]
@@ -67,7 +73,11 @@ struct PlaybackSession {
     ctrl_tx: Sender<DecodeCtrl>,
     decode_join: JoinHandle<()>,
     _output: OutputHandle,
-    paused: Arc<AtomicBool>,
+    output_enabled: Arc<AtomicBool>,
+    buffered_samples: Arc<AtomicUsize>,
+    underrun_callbacks: Arc<AtomicU64>,
+    out_sample_rate: u32,
+    out_channels: u16,
 }
 
 struct EngineState {
@@ -75,6 +85,9 @@ struct EngineState {
     position_ms: i64,
     current_track: Option<String>,
     session: Option<PlaybackSession>,
+    wants_playback: bool,
+    last_underrun_total: u64,
+    last_underrun_log_at: Instant,
 }
 
 impl EngineState {
@@ -84,6 +97,9 @@ impl EngineState {
             position_ms: 0,
             current_track: None,
             session: None,
+            wants_playback: false,
+            last_underrun_total: 0,
+            last_underrun_log_at: Instant::now(),
         }
     }
 }
@@ -96,6 +112,7 @@ fn run_control_loop(
 ) {
     info!("control thread started");
     let mut state = EngineState::new();
+    let tick = crossbeam_channel::tick(Duration::from_millis(CONTROL_TICK_MS));
 
     loop {
         crossbeam_channel::select! {
@@ -108,6 +125,9 @@ fn run_control_loop(
             recv(internal_rx) -> msg => {
                 let Ok(msg) = msg else { break };
                 handle_internal(msg, &mut state, &events, &internal_tx);
+            }
+            recv(tick) -> _ => {
+                handle_tick(&mut state, &events);
             }
         }
     }
@@ -131,11 +151,13 @@ fn handle_internal(
                 message: "end of stream".to_string(),
             });
             stop_session(state, events);
+            state.wants_playback = false;
             set_state(state, events, PlayerState::Stopped);
         }
         InternalMsg::Error(message) => {
             events.emit(Event::Error { message });
             stop_session(state, events);
+            state.wants_playback = false;
             set_state(state, events, PlayerState::Stopped);
         }
         InternalMsg::OutputError(message) => {
@@ -154,6 +176,7 @@ fn handle_internal(
 
             let Some(path) = state.current_track.clone() else {
                 stop_session(state, events);
+                state.wants_playback = false;
                 set_state(state, events, PlayerState::Stopped);
                 return;
             };
@@ -174,19 +197,23 @@ fn handle_internal(
                     match prev_state {
                         PlayerState::Playing | PlayerState::Buffering => {
                             if let Some(session) = state.session.as_ref() {
-                                session.paused.store(false, Ordering::Release);
+                                session.output_enabled.store(false, Ordering::Release);
                                 let _ = session.ctrl_tx.send(DecodeCtrl::Play);
                             }
-                            set_state(state, events, PlayerState::Playing);
+                            state.wants_playback = true;
+                            set_state(state, events, PlayerState::Buffering);
+                            handle_tick(state, events);
                         }
                         PlayerState::Paused => {
                             if let Some(session) = state.session.as_ref() {
-                                session.paused.store(true, Ordering::Release);
+                                session.output_enabled.store(false, Ordering::Release);
                             }
+                            state.wants_playback = false;
                             set_state(state, events, PlayerState::Paused);
                         }
                         PlayerState::Stopped => {
                             stop_session(state, events);
+                            state.wants_playback = false;
                             set_state(state, events, PlayerState::Stopped);
                         }
                     }
@@ -220,6 +247,7 @@ fn handle_command(
             stop_session(state, events);
             state.current_track = Some(path.clone());
             state.position_ms = 0;
+            state.wants_playback = false;
             events.emit(Event::TrackChanged { path });
             events.emit(Event::Position {
                 ms: state.position_ms,
@@ -234,6 +262,8 @@ fn handle_command(
                 return false;
             };
 
+            state.wants_playback = true;
+
             if state.session.is_none() {
                 set_state(state, events, PlayerState::Buffering);
                 match start_session(path, events.clone(), internal_tx.clone(), state.position_ms) {
@@ -247,21 +277,26 @@ fn handle_command(
             }
 
             if let Some(session) = state.session.as_ref() {
-                session.paused.store(false, Ordering::Release);
+                session.output_enabled.store(false, Ordering::Release);
                 let _ = session.ctrl_tx.send(DecodeCtrl::Play);
             }
-            set_state(state, events, PlayerState::Playing);
+
+            // Enter Buffering until we have enough samples queued to start cleanly.
+            set_state(state, events, PlayerState::Buffering);
+            handle_tick(state, events);
         }
         Command::Pause => {
             if let Some(session) = state.session.as_ref() {
-                session.paused.store(true, Ordering::Release);
+                session.output_enabled.store(false, Ordering::Release);
                 let _ = session.ctrl_tx.send(DecodeCtrl::Pause);
             }
+            state.wants_playback = false;
             set_state(state, events, PlayerState::Paused);
         }
         Command::Stop => {
             stop_session(state, events);
             state.position_ms = 0;
+            state.wants_playback = false;
             events.emit(Event::Position {
                 ms: state.position_ms,
             });
@@ -269,6 +304,7 @@ fn handle_command(
         }
         Command::Shutdown => {
             stop_session(state, events);
+            state.wants_playback = false;
             return true;
         }
     }
@@ -284,12 +320,67 @@ fn set_state(state: &mut EngineState, events: &Arc<EventHub>, new_state: PlayerS
     events.emit(Event::StateChanged { state: new_state });
 }
 
+fn handle_tick(state: &mut EngineState, events: &Arc<EventHub>) {
+    let Some(session) = state.session.as_ref() else {
+        return;
+    };
+
+    let channels = session.out_channels as usize;
+    if channels == 0 {
+        return;
+    }
+
+    let buffered_samples = session.buffered_samples.load(Ordering::Relaxed);
+    let buffered_frames = buffered_samples / channels;
+    let buffered_ms =
+        ((buffered_frames as u64 * 1000) / session.out_sample_rate.max(1) as u64) as i64;
+
+    let underruns = session.underrun_callbacks.load(Ordering::Relaxed);
+    if underruns > state.last_underrun_total
+        && state.last_underrun_log_at.elapsed() >= UNDERRUN_LOG_INTERVAL
+    {
+        let delta = underruns - state.last_underrun_total;
+        state.last_underrun_total = underruns;
+        state.last_underrun_log_at = Instant::now();
+        events.emit(Event::Log {
+            message: format!("audio underrun callbacks: total={underruns}, +{delta}"),
+        });
+    }
+
+    if !state.wants_playback {
+        session.output_enabled.store(false, Ordering::Release);
+        return;
+    }
+
+    match state.player_state {
+        PlayerState::Playing => {
+            if buffered_ms <= BUFFER_LOW_WATERMARK_MS {
+                session.output_enabled.store(false, Ordering::Release);
+                set_state(state, events, PlayerState::Buffering);
+            } else {
+                session.output_enabled.store(true, Ordering::Release);
+            }
+        }
+        PlayerState::Buffering => {
+            if buffered_ms >= BUFFER_HIGH_WATERMARK_MS {
+                session.output_enabled.store(true, Ordering::Release);
+                set_state(state, events, PlayerState::Playing);
+            } else {
+                session.output_enabled.store(false, Ordering::Release);
+            }
+        }
+        PlayerState::Paused | PlayerState::Stopped => {
+            session.output_enabled.store(false, Ordering::Release);
+        }
+    }
+}
+
 fn stop_session(state: &mut EngineState, events: &Arc<EventHub>) {
     let Some(session) = state.session.take() else {
         return;
     };
 
-    session.paused.store(true, Ordering::Release);
+    session.output_enabled.store(false, Ordering::Release);
     let _ = session.ctrl_tx.send(DecodeCtrl::Stop);
     let _ = session.decode_join.join();
 
@@ -343,13 +434,20 @@ fn start_session(
         ));
     }
 
-    let capacity_samples = out_spec.sample_rate as usize * out_spec.channels as usize * 2;
+    let capacity_samples =
+        ((out_spec.sample_rate as usize * out_spec.channels as usize * RING_BUFFER_CAPACITY_MS)
+            / 1000)
+            .max(1024);
     let (producer, consumer) = new_ring_buffer::<f32>(capacity_samples);
 
-    let paused = Arc::new(AtomicBool::new(true));
+    let output_enabled = Arc::new(AtomicBool::new(false));
+    let buffered_samples = Arc::new(AtomicUsize::new(0));
+    let underrun_callbacks = Arc::new(AtomicU64::new(0));
     let output_consumer = GatedConsumer {
         inner: consumer,
-        paused: Arc::clone(&paused),
+        enabled: Arc::clone(&output_enabled),
+        buffered_samples: Arc::clone(&buffered_samples),
+        underrun_callbacks: Arc::clone(&underrun_callbacks),
     };
 
     let output_internal_tx = internal_tx.clone();
@@ -374,21 +472,35 @@ fn start_session(
         ctrl_tx,
         decode_join,
         _output: output,
-        paused,
+        output_enabled,
+        buffered_samples,
+        underrun_callbacks,
+        out_sample_rate: out_spec.sample_rate,
+        out_channels: out_spec.channels,
     })
 }
 
 struct GatedConsumer {
     inner: crate::ring_buffer::RingBufferConsumer<f32>,
-    paused: Arc<AtomicBool>,
+    enabled: Arc<AtomicBool>,
+    buffered_samples: Arc<AtomicUsize>,
+    underrun_callbacks: Arc<AtomicU64>,
 }
 
 impl stellatune_output::SampleConsumer for GatedConsumer {
     fn pop_sample(&mut self) -> Option<f32> {
-        if self.paused.load(Ordering::Acquire) {
+        if !self.enabled.load(Ordering::Acquire) {
             return None;
         }
         self.inner.pop_sample()
+    }
+
+    fn on_output(&mut self, requested: usize, provided: usize) {
+        self.buffered_samples
+            .store(self.inner.len(), Ordering::Relaxed);
+        if self.enabled.load(Ordering::Relaxed) && provided < requested {
+            self.underrun_callbacks.fetch_add(1, Ordering::Relaxed);
+        }
     }
 }
 
@@ -485,8 +597,10 @@ fn decode_thread(
         }
 
         if last_emit.elapsed() >= Duration::from_millis(200) {
+            let buffered_frames = (producer.len() / out_channels) as u64;
+            let played_frames = frames_written.saturating_sub(buffered_frames);
             let ms = base_ms.saturating_add(
-                ((frames_written.saturating_mul(1000)) / target_sample_rate as u64) as i64,
+                ((played_frames.saturating_mul(1000)) / target_sample_rate as u64) as i64,
             );
             events.emit(Event::Position { ms });
             let _ = internal_tx.try_send(InternalMsg::Position(ms));
