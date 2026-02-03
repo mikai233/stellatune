@@ -35,8 +35,10 @@ pub fn start_engine() -> EngineHandle {
     let events = Arc::new(EventHub::new());
     let thread_events = Arc::clone(&events);
 
-    let _join: JoinHandle<()> =
-        thread::spawn(move || run_control_loop(cmd_rx, internal_rx, internal_tx, thread_events));
+    let _join: JoinHandle<()> = thread::Builder::new()
+        .name("stellatune-control".to_string())
+        .spawn(move || run_control_loop(cmd_rx, internal_rx, internal_tx, thread_events))
+        .expect("failed to spawn stellatune-control thread");
 
     EngineHandle { cmd_tx, events }
 }
@@ -229,16 +231,19 @@ fn start_session(
     let thread_events = Arc::clone(&events);
     let thread_internal_tx = internal_tx.clone();
 
-    let decode_join = thread::spawn(move || {
-        decode_thread(
-            thread_path,
-            thread_events,
-            thread_internal_tx,
-            ctrl_rx,
-            setup_rx,
-            spec_tx,
-        )
-    });
+    let decode_join = thread::Builder::new()
+        .name("stellatune-decode".to_string())
+        .spawn(move || {
+            decode_thread(
+                thread_path,
+                thread_events,
+                thread_internal_tx,
+                ctrl_rx,
+                setup_rx,
+                spec_tx,
+            )
+        })
+        .expect("failed to spawn stellatune-decode thread");
 
     let _track_spec = match spec_rx.recv() {
         Ok(Ok(spec)) => spec,

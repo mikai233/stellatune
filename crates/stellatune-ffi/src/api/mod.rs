@@ -41,13 +41,16 @@ pub fn stop(player: RustOpaque<Player>) {
 pub fn events(player: RustOpaque<Player>, sink: StreamSink<Event>) -> Result<()> {
     let rx = player.engine.subscribe_events();
 
-    thread::spawn(move || {
-        for event in rx.iter() {
-            if sink.add(event).is_err() {
-                break;
+    thread::Builder::new()
+        .name("stellatune-events".to_string())
+        .spawn(move || {
+            for event in rx.iter() {
+                if sink.add(event).is_err() {
+                    break;
+                }
             }
-        }
-    });
+        })
+        .expect("failed to spawn stellatune-events thread");
 
     Ok(())
 }
