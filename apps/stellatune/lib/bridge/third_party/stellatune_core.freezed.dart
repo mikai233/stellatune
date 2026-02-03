@@ -22,6 +22,7 @@ mixin _$Event {
     required TResult Function(PlayerState state) stateChanged,
     required TResult Function(int ms) position,
     required TResult Function(String path) trackChanged,
+    required TResult Function(String path) playbackEnded,
     required TResult Function(String message) error,
     required TResult Function(String message) log,
   }) => throw _privateConstructorUsedError;
@@ -30,6 +31,7 @@ mixin _$Event {
     TResult? Function(PlayerState state)? stateChanged,
     TResult? Function(int ms)? position,
     TResult? Function(String path)? trackChanged,
+    TResult? Function(String path)? playbackEnded,
     TResult? Function(String message)? error,
     TResult? Function(String message)? log,
   }) => throw _privateConstructorUsedError;
@@ -38,6 +40,7 @@ mixin _$Event {
     TResult Function(PlayerState state)? stateChanged,
     TResult Function(int ms)? position,
     TResult Function(String path)? trackChanged,
+    TResult Function(String path)? playbackEnded,
     TResult Function(String message)? error,
     TResult Function(String message)? log,
     required TResult orElse(),
@@ -47,6 +50,7 @@ mixin _$Event {
     required TResult Function(Event_StateChanged value) stateChanged,
     required TResult Function(Event_Position value) position,
     required TResult Function(Event_TrackChanged value) trackChanged,
+    required TResult Function(Event_PlaybackEnded value) playbackEnded,
     required TResult Function(Event_Error value) error,
     required TResult Function(Event_Log value) log,
   }) => throw _privateConstructorUsedError;
@@ -55,6 +59,7 @@ mixin _$Event {
     TResult? Function(Event_StateChanged value)? stateChanged,
     TResult? Function(Event_Position value)? position,
     TResult? Function(Event_TrackChanged value)? trackChanged,
+    TResult? Function(Event_PlaybackEnded value)? playbackEnded,
     TResult? Function(Event_Error value)? error,
     TResult? Function(Event_Log value)? log,
   }) => throw _privateConstructorUsedError;
@@ -63,6 +68,7 @@ mixin _$Event {
     TResult Function(Event_StateChanged value)? stateChanged,
     TResult Function(Event_Position value)? position,
     TResult Function(Event_TrackChanged value)? trackChanged,
+    TResult Function(Event_PlaybackEnded value)? playbackEnded,
     TResult Function(Event_Error value)? error,
     TResult Function(Event_Log value)? log,
     required TResult orElse(),
@@ -165,6 +171,7 @@ class _$Event_StateChangedImpl extends Event_StateChanged {
     required TResult Function(PlayerState state) stateChanged,
     required TResult Function(int ms) position,
     required TResult Function(String path) trackChanged,
+    required TResult Function(String path) playbackEnded,
     required TResult Function(String message) error,
     required TResult Function(String message) log,
   }) {
@@ -177,6 +184,7 @@ class _$Event_StateChangedImpl extends Event_StateChanged {
     TResult? Function(PlayerState state)? stateChanged,
     TResult? Function(int ms)? position,
     TResult? Function(String path)? trackChanged,
+    TResult? Function(String path)? playbackEnded,
     TResult? Function(String message)? error,
     TResult? Function(String message)? log,
   }) {
@@ -189,6 +197,7 @@ class _$Event_StateChangedImpl extends Event_StateChanged {
     TResult Function(PlayerState state)? stateChanged,
     TResult Function(int ms)? position,
     TResult Function(String path)? trackChanged,
+    TResult Function(String path)? playbackEnded,
     TResult Function(String message)? error,
     TResult Function(String message)? log,
     required TResult orElse(),
@@ -205,6 +214,7 @@ class _$Event_StateChangedImpl extends Event_StateChanged {
     required TResult Function(Event_StateChanged value) stateChanged,
     required TResult Function(Event_Position value) position,
     required TResult Function(Event_TrackChanged value) trackChanged,
+    required TResult Function(Event_PlaybackEnded value) playbackEnded,
     required TResult Function(Event_Error value) error,
     required TResult Function(Event_Log value) log,
   }) {
@@ -217,6 +227,7 @@ class _$Event_StateChangedImpl extends Event_StateChanged {
     TResult? Function(Event_StateChanged value)? stateChanged,
     TResult? Function(Event_Position value)? position,
     TResult? Function(Event_TrackChanged value)? trackChanged,
+    TResult? Function(Event_PlaybackEnded value)? playbackEnded,
     TResult? Function(Event_Error value)? error,
     TResult? Function(Event_Log value)? log,
   }) {
@@ -229,6 +240,7 @@ class _$Event_StateChangedImpl extends Event_StateChanged {
     TResult Function(Event_StateChanged value)? stateChanged,
     TResult Function(Event_Position value)? position,
     TResult Function(Event_TrackChanged value)? trackChanged,
+    TResult Function(Event_PlaybackEnded value)? playbackEnded,
     TResult Function(Event_Error value)? error,
     TResult Function(Event_Log value)? log,
     required TResult orElse(),
@@ -330,6 +342,7 @@ class _$Event_PositionImpl extends Event_Position {
     required TResult Function(PlayerState state) stateChanged,
     required TResult Function(int ms) position,
     required TResult Function(String path) trackChanged,
+    required TResult Function(String path) playbackEnded,
     required TResult Function(String message) error,
     required TResult Function(String message) log,
   }) {
@@ -342,6 +355,7 @@ class _$Event_PositionImpl extends Event_Position {
     TResult? Function(PlayerState state)? stateChanged,
     TResult? Function(int ms)? position,
     TResult? Function(String path)? trackChanged,
+    TResult? Function(String path)? playbackEnded,
     TResult? Function(String message)? error,
     TResult? Function(String message)? log,
   }) {
@@ -354,6 +368,7 @@ class _$Event_PositionImpl extends Event_Position {
     TResult Function(PlayerState state)? stateChanged,
     TResult Function(int ms)? position,
     TResult Function(String path)? trackChanged,
+    TResult Function(String path)? playbackEnded,
     TResult Function(String message)? error,
     TResult Function(String message)? log,
     required TResult orElse(),
@@ -370,6 +385,7 @@ class _$Event_PositionImpl extends Event_Position {
     required TResult Function(Event_StateChanged value) stateChanged,
     required TResult Function(Event_Position value) position,
     required TResult Function(Event_TrackChanged value) trackChanged,
+    required TResult Function(Event_PlaybackEnded value) playbackEnded,
     required TResult Function(Event_Error value) error,
     required TResult Function(Event_Log value) log,
   }) {
@@ -382,6 +398,7 @@ class _$Event_PositionImpl extends Event_Position {
     TResult? Function(Event_StateChanged value)? stateChanged,
     TResult? Function(Event_Position value)? position,
     TResult? Function(Event_TrackChanged value)? trackChanged,
+    TResult? Function(Event_PlaybackEnded value)? playbackEnded,
     TResult? Function(Event_Error value)? error,
     TResult? Function(Event_Log value)? log,
   }) {
@@ -394,6 +411,7 @@ class _$Event_PositionImpl extends Event_Position {
     TResult Function(Event_StateChanged value)? stateChanged,
     TResult Function(Event_Position value)? position,
     TResult Function(Event_TrackChanged value)? trackChanged,
+    TResult Function(Event_PlaybackEnded value)? playbackEnded,
     TResult Function(Event_Error value)? error,
     TResult Function(Event_Log value)? log,
     required TResult orElse(),
@@ -494,6 +512,7 @@ class _$Event_TrackChangedImpl extends Event_TrackChanged {
     required TResult Function(PlayerState state) stateChanged,
     required TResult Function(int ms) position,
     required TResult Function(String path) trackChanged,
+    required TResult Function(String path) playbackEnded,
     required TResult Function(String message) error,
     required TResult Function(String message) log,
   }) {
@@ -506,6 +525,7 @@ class _$Event_TrackChangedImpl extends Event_TrackChanged {
     TResult? Function(PlayerState state)? stateChanged,
     TResult? Function(int ms)? position,
     TResult? Function(String path)? trackChanged,
+    TResult? Function(String path)? playbackEnded,
     TResult? Function(String message)? error,
     TResult? Function(String message)? log,
   }) {
@@ -518,6 +538,7 @@ class _$Event_TrackChangedImpl extends Event_TrackChanged {
     TResult Function(PlayerState state)? stateChanged,
     TResult Function(int ms)? position,
     TResult Function(String path)? trackChanged,
+    TResult Function(String path)? playbackEnded,
     TResult Function(String message)? error,
     TResult Function(String message)? log,
     required TResult orElse(),
@@ -534,6 +555,7 @@ class _$Event_TrackChangedImpl extends Event_TrackChanged {
     required TResult Function(Event_StateChanged value) stateChanged,
     required TResult Function(Event_Position value) position,
     required TResult Function(Event_TrackChanged value) trackChanged,
+    required TResult Function(Event_PlaybackEnded value) playbackEnded,
     required TResult Function(Event_Error value) error,
     required TResult Function(Event_Log value) log,
   }) {
@@ -546,6 +568,7 @@ class _$Event_TrackChangedImpl extends Event_TrackChanged {
     TResult? Function(Event_StateChanged value)? stateChanged,
     TResult? Function(Event_Position value)? position,
     TResult? Function(Event_TrackChanged value)? trackChanged,
+    TResult? Function(Event_PlaybackEnded value)? playbackEnded,
     TResult? Function(Event_Error value)? error,
     TResult? Function(Event_Log value)? log,
   }) {
@@ -558,6 +581,7 @@ class _$Event_TrackChangedImpl extends Event_TrackChanged {
     TResult Function(Event_StateChanged value)? stateChanged,
     TResult Function(Event_Position value)? position,
     TResult Function(Event_TrackChanged value)? trackChanged,
+    TResult Function(Event_PlaybackEnded value)? playbackEnded,
     TResult Function(Event_Error value)? error,
     TResult Function(Event_Log value)? log,
     required TResult orElse(),
@@ -580,6 +604,177 @@ abstract class Event_TrackChanged extends Event {
   /// with the given fields replaced by the non-null parameter values.
   @JsonKey(includeFromJson: false, includeToJson: false)
   _$$Event_TrackChangedImplCopyWith<_$Event_TrackChangedImpl> get copyWith =>
+      throw _privateConstructorUsedError;
+}
+
+/// @nodoc
+abstract class _$$Event_PlaybackEndedImplCopyWith<$Res> {
+  factory _$$Event_PlaybackEndedImplCopyWith(
+    _$Event_PlaybackEndedImpl value,
+    $Res Function(_$Event_PlaybackEndedImpl) then,
+  ) = __$$Event_PlaybackEndedImplCopyWithImpl<$Res>;
+  @useResult
+  $Res call({String path});
+}
+
+/// @nodoc
+class __$$Event_PlaybackEndedImplCopyWithImpl<$Res>
+    extends _$EventCopyWithImpl<$Res, _$Event_PlaybackEndedImpl>
+    implements _$$Event_PlaybackEndedImplCopyWith<$Res> {
+  __$$Event_PlaybackEndedImplCopyWithImpl(
+    _$Event_PlaybackEndedImpl _value,
+    $Res Function(_$Event_PlaybackEndedImpl) _then,
+  ) : super(_value, _then);
+
+  /// Create a copy of Event
+  /// with the given fields replaced by the non-null parameter values.
+  @pragma('vm:prefer-inline')
+  @override
+  $Res call({Object? path = null}) {
+    return _then(
+      _$Event_PlaybackEndedImpl(
+        path: null == path
+            ? _value.path
+            : path // ignore: cast_nullable_to_non_nullable
+                  as String,
+      ),
+    );
+  }
+}
+
+/// @nodoc
+
+class _$Event_PlaybackEndedImpl extends Event_PlaybackEnded {
+  const _$Event_PlaybackEndedImpl({required this.path}) : super._();
+
+  @override
+  final String path;
+
+  @override
+  String toString() {
+    return 'Event.playbackEnded(path: $path)';
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return identical(this, other) ||
+        (other.runtimeType == runtimeType &&
+            other is _$Event_PlaybackEndedImpl &&
+            (identical(other.path, path) || other.path == path));
+  }
+
+  @override
+  int get hashCode => Object.hash(runtimeType, path);
+
+  /// Create a copy of Event
+  /// with the given fields replaced by the non-null parameter values.
+  @JsonKey(includeFromJson: false, includeToJson: false)
+  @override
+  @pragma('vm:prefer-inline')
+  _$$Event_PlaybackEndedImplCopyWith<_$Event_PlaybackEndedImpl> get copyWith =>
+      __$$Event_PlaybackEndedImplCopyWithImpl<_$Event_PlaybackEndedImpl>(
+        this,
+        _$identity,
+      );
+
+  @override
+  @optionalTypeArgs
+  TResult when<TResult extends Object?>({
+    required TResult Function(PlayerState state) stateChanged,
+    required TResult Function(int ms) position,
+    required TResult Function(String path) trackChanged,
+    required TResult Function(String path) playbackEnded,
+    required TResult Function(String message) error,
+    required TResult Function(String message) log,
+  }) {
+    return playbackEnded(path);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult? whenOrNull<TResult extends Object?>({
+    TResult? Function(PlayerState state)? stateChanged,
+    TResult? Function(int ms)? position,
+    TResult? Function(String path)? trackChanged,
+    TResult? Function(String path)? playbackEnded,
+    TResult? Function(String message)? error,
+    TResult? Function(String message)? log,
+  }) {
+    return playbackEnded?.call(path);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult maybeWhen<TResult extends Object?>({
+    TResult Function(PlayerState state)? stateChanged,
+    TResult Function(int ms)? position,
+    TResult Function(String path)? trackChanged,
+    TResult Function(String path)? playbackEnded,
+    TResult Function(String message)? error,
+    TResult Function(String message)? log,
+    required TResult orElse(),
+  }) {
+    if (playbackEnded != null) {
+      return playbackEnded(path);
+    }
+    return orElse();
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult map<TResult extends Object?>({
+    required TResult Function(Event_StateChanged value) stateChanged,
+    required TResult Function(Event_Position value) position,
+    required TResult Function(Event_TrackChanged value) trackChanged,
+    required TResult Function(Event_PlaybackEnded value) playbackEnded,
+    required TResult Function(Event_Error value) error,
+    required TResult Function(Event_Log value) log,
+  }) {
+    return playbackEnded(this);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult? mapOrNull<TResult extends Object?>({
+    TResult? Function(Event_StateChanged value)? stateChanged,
+    TResult? Function(Event_Position value)? position,
+    TResult? Function(Event_TrackChanged value)? trackChanged,
+    TResult? Function(Event_PlaybackEnded value)? playbackEnded,
+    TResult? Function(Event_Error value)? error,
+    TResult? Function(Event_Log value)? log,
+  }) {
+    return playbackEnded?.call(this);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult maybeMap<TResult extends Object?>({
+    TResult Function(Event_StateChanged value)? stateChanged,
+    TResult Function(Event_Position value)? position,
+    TResult Function(Event_TrackChanged value)? trackChanged,
+    TResult Function(Event_PlaybackEnded value)? playbackEnded,
+    TResult Function(Event_Error value)? error,
+    TResult Function(Event_Log value)? log,
+    required TResult orElse(),
+  }) {
+    if (playbackEnded != null) {
+      return playbackEnded(this);
+    }
+    return orElse();
+  }
+}
+
+abstract class Event_PlaybackEnded extends Event {
+  const factory Event_PlaybackEnded({required final String path}) =
+      _$Event_PlaybackEndedImpl;
+  const Event_PlaybackEnded._() : super._();
+
+  String get path;
+
+  /// Create a copy of Event
+  /// with the given fields replaced by the non-null parameter values.
+  @JsonKey(includeFromJson: false, includeToJson: false)
+  _$$Event_PlaybackEndedImplCopyWith<_$Event_PlaybackEndedImpl> get copyWith =>
       throw _privateConstructorUsedError;
 }
 
@@ -656,6 +851,7 @@ class _$Event_ErrorImpl extends Event_Error {
     required TResult Function(PlayerState state) stateChanged,
     required TResult Function(int ms) position,
     required TResult Function(String path) trackChanged,
+    required TResult Function(String path) playbackEnded,
     required TResult Function(String message) error,
     required TResult Function(String message) log,
   }) {
@@ -668,6 +864,7 @@ class _$Event_ErrorImpl extends Event_Error {
     TResult? Function(PlayerState state)? stateChanged,
     TResult? Function(int ms)? position,
     TResult? Function(String path)? trackChanged,
+    TResult? Function(String path)? playbackEnded,
     TResult? Function(String message)? error,
     TResult? Function(String message)? log,
   }) {
@@ -680,6 +877,7 @@ class _$Event_ErrorImpl extends Event_Error {
     TResult Function(PlayerState state)? stateChanged,
     TResult Function(int ms)? position,
     TResult Function(String path)? trackChanged,
+    TResult Function(String path)? playbackEnded,
     TResult Function(String message)? error,
     TResult Function(String message)? log,
     required TResult orElse(),
@@ -696,6 +894,7 @@ class _$Event_ErrorImpl extends Event_Error {
     required TResult Function(Event_StateChanged value) stateChanged,
     required TResult Function(Event_Position value) position,
     required TResult Function(Event_TrackChanged value) trackChanged,
+    required TResult Function(Event_PlaybackEnded value) playbackEnded,
     required TResult Function(Event_Error value) error,
     required TResult Function(Event_Log value) log,
   }) {
@@ -708,6 +907,7 @@ class _$Event_ErrorImpl extends Event_Error {
     TResult? Function(Event_StateChanged value)? stateChanged,
     TResult? Function(Event_Position value)? position,
     TResult? Function(Event_TrackChanged value)? trackChanged,
+    TResult? Function(Event_PlaybackEnded value)? playbackEnded,
     TResult? Function(Event_Error value)? error,
     TResult? Function(Event_Log value)? log,
   }) {
@@ -720,6 +920,7 @@ class _$Event_ErrorImpl extends Event_Error {
     TResult Function(Event_StateChanged value)? stateChanged,
     TResult Function(Event_Position value)? position,
     TResult Function(Event_TrackChanged value)? trackChanged,
+    TResult Function(Event_PlaybackEnded value)? playbackEnded,
     TResult Function(Event_Error value)? error,
     TResult Function(Event_Log value)? log,
     required TResult orElse(),
@@ -818,6 +1019,7 @@ class _$Event_LogImpl extends Event_Log {
     required TResult Function(PlayerState state) stateChanged,
     required TResult Function(int ms) position,
     required TResult Function(String path) trackChanged,
+    required TResult Function(String path) playbackEnded,
     required TResult Function(String message) error,
     required TResult Function(String message) log,
   }) {
@@ -830,6 +1032,7 @@ class _$Event_LogImpl extends Event_Log {
     TResult? Function(PlayerState state)? stateChanged,
     TResult? Function(int ms)? position,
     TResult? Function(String path)? trackChanged,
+    TResult? Function(String path)? playbackEnded,
     TResult? Function(String message)? error,
     TResult? Function(String message)? log,
   }) {
@@ -842,6 +1045,7 @@ class _$Event_LogImpl extends Event_Log {
     TResult Function(PlayerState state)? stateChanged,
     TResult Function(int ms)? position,
     TResult Function(String path)? trackChanged,
+    TResult Function(String path)? playbackEnded,
     TResult Function(String message)? error,
     TResult Function(String message)? log,
     required TResult orElse(),
@@ -858,6 +1062,7 @@ class _$Event_LogImpl extends Event_Log {
     required TResult Function(Event_StateChanged value) stateChanged,
     required TResult Function(Event_Position value) position,
     required TResult Function(Event_TrackChanged value) trackChanged,
+    required TResult Function(Event_PlaybackEnded value) playbackEnded,
     required TResult Function(Event_Error value) error,
     required TResult Function(Event_Log value) log,
   }) {
@@ -870,6 +1075,7 @@ class _$Event_LogImpl extends Event_Log {
     TResult? Function(Event_StateChanged value)? stateChanged,
     TResult? Function(Event_Position value)? position,
     TResult? Function(Event_TrackChanged value)? trackChanged,
+    TResult? Function(Event_PlaybackEnded value)? playbackEnded,
     TResult? Function(Event_Error value)? error,
     TResult? Function(Event_Log value)? log,
   }) {
@@ -882,6 +1088,7 @@ class _$Event_LogImpl extends Event_Log {
     TResult Function(Event_StateChanged value)? stateChanged,
     TResult Function(Event_Position value)? position,
     TResult Function(Event_TrackChanged value)? trackChanged,
+    TResult Function(Event_PlaybackEnded value)? playbackEnded,
     TResult Function(Event_Error value)? error,
     TResult Function(Event_Log value)? log,
     required TResult orElse(),
@@ -910,6 +1117,7 @@ abstract class Event_Log extends Event {
 mixin _$LibraryEvent {
   @optionalTypeArgs
   TResult when<TResult extends Object?>({
+    required TResult Function(List<String> paths) roots,
     required TResult Function(int scanned, int updated, int skipped, int errors)
     scanProgress,
     required TResult Function(
@@ -926,6 +1134,7 @@ mixin _$LibraryEvent {
   }) => throw _privateConstructorUsedError;
   @optionalTypeArgs
   TResult? whenOrNull<TResult extends Object?>({
+    TResult? Function(List<String> paths)? roots,
     TResult? Function(int scanned, int updated, int skipped, int errors)?
     scanProgress,
     TResult? Function(
@@ -942,6 +1151,7 @@ mixin _$LibraryEvent {
   }) => throw _privateConstructorUsedError;
   @optionalTypeArgs
   TResult maybeWhen<TResult extends Object?>({
+    TResult Function(List<String> paths)? roots,
     TResult Function(int scanned, int updated, int skipped, int errors)?
     scanProgress,
     TResult Function(
@@ -959,6 +1169,7 @@ mixin _$LibraryEvent {
   }) => throw _privateConstructorUsedError;
   @optionalTypeArgs
   TResult map<TResult extends Object?>({
+    required TResult Function(LibraryEvent_Roots value) roots,
     required TResult Function(LibraryEvent_ScanProgress value) scanProgress,
     required TResult Function(LibraryEvent_ScanFinished value) scanFinished,
     required TResult Function(LibraryEvent_SearchResult value) searchResult,
@@ -967,6 +1178,7 @@ mixin _$LibraryEvent {
   }) => throw _privateConstructorUsedError;
   @optionalTypeArgs
   TResult? mapOrNull<TResult extends Object?>({
+    TResult? Function(LibraryEvent_Roots value)? roots,
     TResult? Function(LibraryEvent_ScanProgress value)? scanProgress,
     TResult? Function(LibraryEvent_ScanFinished value)? scanFinished,
     TResult? Function(LibraryEvent_SearchResult value)? searchResult,
@@ -975,6 +1187,7 @@ mixin _$LibraryEvent {
   }) => throw _privateConstructorUsedError;
   @optionalTypeArgs
   TResult maybeMap<TResult extends Object?>({
+    TResult Function(LibraryEvent_Roots value)? roots,
     TResult Function(LibraryEvent_ScanProgress value)? scanProgress,
     TResult Function(LibraryEvent_ScanFinished value)? scanFinished,
     TResult Function(LibraryEvent_SearchResult value)? searchResult,
@@ -1004,6 +1217,209 @@ class _$LibraryEventCopyWithImpl<$Res, $Val extends LibraryEvent>
 
   /// Create a copy of LibraryEvent
   /// with the given fields replaced by the non-null parameter values.
+}
+
+/// @nodoc
+abstract class _$$LibraryEvent_RootsImplCopyWith<$Res> {
+  factory _$$LibraryEvent_RootsImplCopyWith(
+    _$LibraryEvent_RootsImpl value,
+    $Res Function(_$LibraryEvent_RootsImpl) then,
+  ) = __$$LibraryEvent_RootsImplCopyWithImpl<$Res>;
+  @useResult
+  $Res call({List<String> paths});
+}
+
+/// @nodoc
+class __$$LibraryEvent_RootsImplCopyWithImpl<$Res>
+    extends _$LibraryEventCopyWithImpl<$Res, _$LibraryEvent_RootsImpl>
+    implements _$$LibraryEvent_RootsImplCopyWith<$Res> {
+  __$$LibraryEvent_RootsImplCopyWithImpl(
+    _$LibraryEvent_RootsImpl _value,
+    $Res Function(_$LibraryEvent_RootsImpl) _then,
+  ) : super(_value, _then);
+
+  /// Create a copy of LibraryEvent
+  /// with the given fields replaced by the non-null parameter values.
+  @pragma('vm:prefer-inline')
+  @override
+  $Res call({Object? paths = null}) {
+    return _then(
+      _$LibraryEvent_RootsImpl(
+        paths: null == paths
+            ? _value._paths
+            : paths // ignore: cast_nullable_to_non_nullable
+                  as List<String>,
+      ),
+    );
+  }
+}
+
+/// @nodoc
+
+class _$LibraryEvent_RootsImpl extends LibraryEvent_Roots {
+  const _$LibraryEvent_RootsImpl({required final List<String> paths})
+    : _paths = paths,
+      super._();
+
+  final List<String> _paths;
+  @override
+  List<String> get paths {
+    if (_paths is EqualUnmodifiableListView) return _paths;
+    // ignore: implicit_dynamic_type
+    return EqualUnmodifiableListView(_paths);
+  }
+
+  @override
+  String toString() {
+    return 'LibraryEvent.roots(paths: $paths)';
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return identical(this, other) ||
+        (other.runtimeType == runtimeType &&
+            other is _$LibraryEvent_RootsImpl &&
+            const DeepCollectionEquality().equals(other._paths, _paths));
+  }
+
+  @override
+  int get hashCode =>
+      Object.hash(runtimeType, const DeepCollectionEquality().hash(_paths));
+
+  /// Create a copy of LibraryEvent
+  /// with the given fields replaced by the non-null parameter values.
+  @JsonKey(includeFromJson: false, includeToJson: false)
+  @override
+  @pragma('vm:prefer-inline')
+  _$$LibraryEvent_RootsImplCopyWith<_$LibraryEvent_RootsImpl> get copyWith =>
+      __$$LibraryEvent_RootsImplCopyWithImpl<_$LibraryEvent_RootsImpl>(
+        this,
+        _$identity,
+      );
+
+  @override
+  @optionalTypeArgs
+  TResult when<TResult extends Object?>({
+    required TResult Function(List<String> paths) roots,
+    required TResult Function(int scanned, int updated, int skipped, int errors)
+    scanProgress,
+    required TResult Function(
+      int durationMs,
+      int scanned,
+      int updated,
+      int skipped,
+      int errors,
+    )
+    scanFinished,
+    required TResult Function(String query, List<TrackLite> items) searchResult,
+    required TResult Function(String message) error,
+    required TResult Function(String message) log,
+  }) {
+    return roots(paths);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult? whenOrNull<TResult extends Object?>({
+    TResult? Function(List<String> paths)? roots,
+    TResult? Function(int scanned, int updated, int skipped, int errors)?
+    scanProgress,
+    TResult? Function(
+      int durationMs,
+      int scanned,
+      int updated,
+      int skipped,
+      int errors,
+    )?
+    scanFinished,
+    TResult? Function(String query, List<TrackLite> items)? searchResult,
+    TResult? Function(String message)? error,
+    TResult? Function(String message)? log,
+  }) {
+    return roots?.call(paths);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult maybeWhen<TResult extends Object?>({
+    TResult Function(List<String> paths)? roots,
+    TResult Function(int scanned, int updated, int skipped, int errors)?
+    scanProgress,
+    TResult Function(
+      int durationMs,
+      int scanned,
+      int updated,
+      int skipped,
+      int errors,
+    )?
+    scanFinished,
+    TResult Function(String query, List<TrackLite> items)? searchResult,
+    TResult Function(String message)? error,
+    TResult Function(String message)? log,
+    required TResult orElse(),
+  }) {
+    if (roots != null) {
+      return roots(paths);
+    }
+    return orElse();
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult map<TResult extends Object?>({
+    required TResult Function(LibraryEvent_Roots value) roots,
+    required TResult Function(LibraryEvent_ScanProgress value) scanProgress,
+    required TResult Function(LibraryEvent_ScanFinished value) scanFinished,
+    required TResult Function(LibraryEvent_SearchResult value) searchResult,
+    required TResult Function(LibraryEvent_Error value) error,
+    required TResult Function(LibraryEvent_Log value) log,
+  }) {
+    return roots(this);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult? mapOrNull<TResult extends Object?>({
+    TResult? Function(LibraryEvent_Roots value)? roots,
+    TResult? Function(LibraryEvent_ScanProgress value)? scanProgress,
+    TResult? Function(LibraryEvent_ScanFinished value)? scanFinished,
+    TResult? Function(LibraryEvent_SearchResult value)? searchResult,
+    TResult? Function(LibraryEvent_Error value)? error,
+    TResult? Function(LibraryEvent_Log value)? log,
+  }) {
+    return roots?.call(this);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult maybeMap<TResult extends Object?>({
+    TResult Function(LibraryEvent_Roots value)? roots,
+    TResult Function(LibraryEvent_ScanProgress value)? scanProgress,
+    TResult Function(LibraryEvent_ScanFinished value)? scanFinished,
+    TResult Function(LibraryEvent_SearchResult value)? searchResult,
+    TResult Function(LibraryEvent_Error value)? error,
+    TResult Function(LibraryEvent_Log value)? log,
+    required TResult orElse(),
+  }) {
+    if (roots != null) {
+      return roots(this);
+    }
+    return orElse();
+  }
+}
+
+abstract class LibraryEvent_Roots extends LibraryEvent {
+  const factory LibraryEvent_Roots({required final List<String> paths}) =
+      _$LibraryEvent_RootsImpl;
+  const LibraryEvent_Roots._() : super._();
+
+  List<String> get paths;
+
+  /// Create a copy of LibraryEvent
+  /// with the given fields replaced by the non-null parameter values.
+  @JsonKey(includeFromJson: false, includeToJson: false)
+  _$$LibraryEvent_RootsImplCopyWith<_$LibraryEvent_RootsImpl> get copyWith =>
+      throw _privateConstructorUsedError;
 }
 
 /// @nodoc
@@ -1111,6 +1527,7 @@ class _$LibraryEvent_ScanProgressImpl extends LibraryEvent_ScanProgress {
   @override
   @optionalTypeArgs
   TResult when<TResult extends Object?>({
+    required TResult Function(List<String> paths) roots,
     required TResult Function(int scanned, int updated, int skipped, int errors)
     scanProgress,
     required TResult Function(
@@ -1131,6 +1548,7 @@ class _$LibraryEvent_ScanProgressImpl extends LibraryEvent_ScanProgress {
   @override
   @optionalTypeArgs
   TResult? whenOrNull<TResult extends Object?>({
+    TResult? Function(List<String> paths)? roots,
     TResult? Function(int scanned, int updated, int skipped, int errors)?
     scanProgress,
     TResult? Function(
@@ -1151,6 +1569,7 @@ class _$LibraryEvent_ScanProgressImpl extends LibraryEvent_ScanProgress {
   @override
   @optionalTypeArgs
   TResult maybeWhen<TResult extends Object?>({
+    TResult Function(List<String> paths)? roots,
     TResult Function(int scanned, int updated, int skipped, int errors)?
     scanProgress,
     TResult Function(
@@ -1175,6 +1594,7 @@ class _$LibraryEvent_ScanProgressImpl extends LibraryEvent_ScanProgress {
   @override
   @optionalTypeArgs
   TResult map<TResult extends Object?>({
+    required TResult Function(LibraryEvent_Roots value) roots,
     required TResult Function(LibraryEvent_ScanProgress value) scanProgress,
     required TResult Function(LibraryEvent_ScanFinished value) scanFinished,
     required TResult Function(LibraryEvent_SearchResult value) searchResult,
@@ -1187,6 +1607,7 @@ class _$LibraryEvent_ScanProgressImpl extends LibraryEvent_ScanProgress {
   @override
   @optionalTypeArgs
   TResult? mapOrNull<TResult extends Object?>({
+    TResult? Function(LibraryEvent_Roots value)? roots,
     TResult? Function(LibraryEvent_ScanProgress value)? scanProgress,
     TResult? Function(LibraryEvent_ScanFinished value)? scanFinished,
     TResult? Function(LibraryEvent_SearchResult value)? searchResult,
@@ -1199,6 +1620,7 @@ class _$LibraryEvent_ScanProgressImpl extends LibraryEvent_ScanProgress {
   @override
   @optionalTypeArgs
   TResult maybeMap<TResult extends Object?>({
+    TResult Function(LibraryEvent_Roots value)? roots,
     TResult Function(LibraryEvent_ScanProgress value)? scanProgress,
     TResult Function(LibraryEvent_ScanFinished value)? scanFinished,
     TResult Function(LibraryEvent_SearchResult value)? searchResult,
@@ -1355,6 +1777,7 @@ class _$LibraryEvent_ScanFinishedImpl extends LibraryEvent_ScanFinished {
   @override
   @optionalTypeArgs
   TResult when<TResult extends Object?>({
+    required TResult Function(List<String> paths) roots,
     required TResult Function(int scanned, int updated, int skipped, int errors)
     scanProgress,
     required TResult Function(
@@ -1375,6 +1798,7 @@ class _$LibraryEvent_ScanFinishedImpl extends LibraryEvent_ScanFinished {
   @override
   @optionalTypeArgs
   TResult? whenOrNull<TResult extends Object?>({
+    TResult? Function(List<String> paths)? roots,
     TResult? Function(int scanned, int updated, int skipped, int errors)?
     scanProgress,
     TResult? Function(
@@ -1395,6 +1819,7 @@ class _$LibraryEvent_ScanFinishedImpl extends LibraryEvent_ScanFinished {
   @override
   @optionalTypeArgs
   TResult maybeWhen<TResult extends Object?>({
+    TResult Function(List<String> paths)? roots,
     TResult Function(int scanned, int updated, int skipped, int errors)?
     scanProgress,
     TResult Function(
@@ -1419,6 +1844,7 @@ class _$LibraryEvent_ScanFinishedImpl extends LibraryEvent_ScanFinished {
   @override
   @optionalTypeArgs
   TResult map<TResult extends Object?>({
+    required TResult Function(LibraryEvent_Roots value) roots,
     required TResult Function(LibraryEvent_ScanProgress value) scanProgress,
     required TResult Function(LibraryEvent_ScanFinished value) scanFinished,
     required TResult Function(LibraryEvent_SearchResult value) searchResult,
@@ -1431,6 +1857,7 @@ class _$LibraryEvent_ScanFinishedImpl extends LibraryEvent_ScanFinished {
   @override
   @optionalTypeArgs
   TResult? mapOrNull<TResult extends Object?>({
+    TResult? Function(LibraryEvent_Roots value)? roots,
     TResult? Function(LibraryEvent_ScanProgress value)? scanProgress,
     TResult? Function(LibraryEvent_ScanFinished value)? scanFinished,
     TResult? Function(LibraryEvent_SearchResult value)? searchResult,
@@ -1443,6 +1870,7 @@ class _$LibraryEvent_ScanFinishedImpl extends LibraryEvent_ScanFinished {
   @override
   @optionalTypeArgs
   TResult maybeMap<TResult extends Object?>({
+    TResult Function(LibraryEvent_Roots value)? roots,
     TResult Function(LibraryEvent_ScanProgress value)? scanProgress,
     TResult Function(LibraryEvent_ScanFinished value)? scanFinished,
     TResult Function(LibraryEvent_SearchResult value)? searchResult,
@@ -1573,6 +2001,7 @@ class _$LibraryEvent_SearchResultImpl extends LibraryEvent_SearchResult {
   @override
   @optionalTypeArgs
   TResult when<TResult extends Object?>({
+    required TResult Function(List<String> paths) roots,
     required TResult Function(int scanned, int updated, int skipped, int errors)
     scanProgress,
     required TResult Function(
@@ -1593,6 +2022,7 @@ class _$LibraryEvent_SearchResultImpl extends LibraryEvent_SearchResult {
   @override
   @optionalTypeArgs
   TResult? whenOrNull<TResult extends Object?>({
+    TResult? Function(List<String> paths)? roots,
     TResult? Function(int scanned, int updated, int skipped, int errors)?
     scanProgress,
     TResult? Function(
@@ -1613,6 +2043,7 @@ class _$LibraryEvent_SearchResultImpl extends LibraryEvent_SearchResult {
   @override
   @optionalTypeArgs
   TResult maybeWhen<TResult extends Object?>({
+    TResult Function(List<String> paths)? roots,
     TResult Function(int scanned, int updated, int skipped, int errors)?
     scanProgress,
     TResult Function(
@@ -1637,6 +2068,7 @@ class _$LibraryEvent_SearchResultImpl extends LibraryEvent_SearchResult {
   @override
   @optionalTypeArgs
   TResult map<TResult extends Object?>({
+    required TResult Function(LibraryEvent_Roots value) roots,
     required TResult Function(LibraryEvent_ScanProgress value) scanProgress,
     required TResult Function(LibraryEvent_ScanFinished value) scanFinished,
     required TResult Function(LibraryEvent_SearchResult value) searchResult,
@@ -1649,6 +2081,7 @@ class _$LibraryEvent_SearchResultImpl extends LibraryEvent_SearchResult {
   @override
   @optionalTypeArgs
   TResult? mapOrNull<TResult extends Object?>({
+    TResult? Function(LibraryEvent_Roots value)? roots,
     TResult? Function(LibraryEvent_ScanProgress value)? scanProgress,
     TResult? Function(LibraryEvent_ScanFinished value)? scanFinished,
     TResult? Function(LibraryEvent_SearchResult value)? searchResult,
@@ -1661,6 +2094,7 @@ class _$LibraryEvent_SearchResultImpl extends LibraryEvent_SearchResult {
   @override
   @optionalTypeArgs
   TResult maybeMap<TResult extends Object?>({
+    TResult Function(LibraryEvent_Roots value)? roots,
     TResult Function(LibraryEvent_ScanProgress value)? scanProgress,
     TResult Function(LibraryEvent_ScanFinished value)? scanFinished,
     TResult Function(LibraryEvent_SearchResult value)? searchResult,
@@ -1765,6 +2199,7 @@ class _$LibraryEvent_ErrorImpl extends LibraryEvent_Error {
   @override
   @optionalTypeArgs
   TResult when<TResult extends Object?>({
+    required TResult Function(List<String> paths) roots,
     required TResult Function(int scanned, int updated, int skipped, int errors)
     scanProgress,
     required TResult Function(
@@ -1785,6 +2220,7 @@ class _$LibraryEvent_ErrorImpl extends LibraryEvent_Error {
   @override
   @optionalTypeArgs
   TResult? whenOrNull<TResult extends Object?>({
+    TResult? Function(List<String> paths)? roots,
     TResult? Function(int scanned, int updated, int skipped, int errors)?
     scanProgress,
     TResult? Function(
@@ -1805,6 +2241,7 @@ class _$LibraryEvent_ErrorImpl extends LibraryEvent_Error {
   @override
   @optionalTypeArgs
   TResult maybeWhen<TResult extends Object?>({
+    TResult Function(List<String> paths)? roots,
     TResult Function(int scanned, int updated, int skipped, int errors)?
     scanProgress,
     TResult Function(
@@ -1829,6 +2266,7 @@ class _$LibraryEvent_ErrorImpl extends LibraryEvent_Error {
   @override
   @optionalTypeArgs
   TResult map<TResult extends Object?>({
+    required TResult Function(LibraryEvent_Roots value) roots,
     required TResult Function(LibraryEvent_ScanProgress value) scanProgress,
     required TResult Function(LibraryEvent_ScanFinished value) scanFinished,
     required TResult Function(LibraryEvent_SearchResult value) searchResult,
@@ -1841,6 +2279,7 @@ class _$LibraryEvent_ErrorImpl extends LibraryEvent_Error {
   @override
   @optionalTypeArgs
   TResult? mapOrNull<TResult extends Object?>({
+    TResult? Function(LibraryEvent_Roots value)? roots,
     TResult? Function(LibraryEvent_ScanProgress value)? scanProgress,
     TResult? Function(LibraryEvent_ScanFinished value)? scanFinished,
     TResult? Function(LibraryEvent_SearchResult value)? searchResult,
@@ -1853,6 +2292,7 @@ class _$LibraryEvent_ErrorImpl extends LibraryEvent_Error {
   @override
   @optionalTypeArgs
   TResult maybeMap<TResult extends Object?>({
+    TResult Function(LibraryEvent_Roots value)? roots,
     TResult Function(LibraryEvent_ScanProgress value)? scanProgress,
     TResult Function(LibraryEvent_ScanFinished value)? scanFinished,
     TResult Function(LibraryEvent_SearchResult value)? searchResult,
@@ -1954,6 +2394,7 @@ class _$LibraryEvent_LogImpl extends LibraryEvent_Log {
   @override
   @optionalTypeArgs
   TResult when<TResult extends Object?>({
+    required TResult Function(List<String> paths) roots,
     required TResult Function(int scanned, int updated, int skipped, int errors)
     scanProgress,
     required TResult Function(
@@ -1974,6 +2415,7 @@ class _$LibraryEvent_LogImpl extends LibraryEvent_Log {
   @override
   @optionalTypeArgs
   TResult? whenOrNull<TResult extends Object?>({
+    TResult? Function(List<String> paths)? roots,
     TResult? Function(int scanned, int updated, int skipped, int errors)?
     scanProgress,
     TResult? Function(
@@ -1994,6 +2436,7 @@ class _$LibraryEvent_LogImpl extends LibraryEvent_Log {
   @override
   @optionalTypeArgs
   TResult maybeWhen<TResult extends Object?>({
+    TResult Function(List<String> paths)? roots,
     TResult Function(int scanned, int updated, int skipped, int errors)?
     scanProgress,
     TResult Function(
@@ -2018,6 +2461,7 @@ class _$LibraryEvent_LogImpl extends LibraryEvent_Log {
   @override
   @optionalTypeArgs
   TResult map<TResult extends Object?>({
+    required TResult Function(LibraryEvent_Roots value) roots,
     required TResult Function(LibraryEvent_ScanProgress value) scanProgress,
     required TResult Function(LibraryEvent_ScanFinished value) scanFinished,
     required TResult Function(LibraryEvent_SearchResult value) searchResult,
@@ -2030,6 +2474,7 @@ class _$LibraryEvent_LogImpl extends LibraryEvent_Log {
   @override
   @optionalTypeArgs
   TResult? mapOrNull<TResult extends Object?>({
+    TResult? Function(LibraryEvent_Roots value)? roots,
     TResult? Function(LibraryEvent_ScanProgress value)? scanProgress,
     TResult? Function(LibraryEvent_ScanFinished value)? scanFinished,
     TResult? Function(LibraryEvent_SearchResult value)? searchResult,
@@ -2042,6 +2487,7 @@ class _$LibraryEvent_LogImpl extends LibraryEvent_Log {
   @override
   @optionalTypeArgs
   TResult maybeMap<TResult extends Object?>({
+    TResult Function(LibraryEvent_Roots value)? roots,
     TResult Function(LibraryEvent_ScanProgress value)? scanProgress,
     TResult Function(LibraryEvent_ScanFinished value)? scanFinished,
     TResult Function(LibraryEvent_SearchResult value)? searchResult,

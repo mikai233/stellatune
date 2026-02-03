@@ -119,6 +119,10 @@ pub fn library_scan_all(library: RustOpaque<Library>) {
     library.handle.send_command(LibraryCommand::ScanAll);
 }
 
+pub fn library_list_roots(library: RustOpaque<Library>) {
+    library.handle.send_command(LibraryCommand::ListRoots);
+}
+
 pub fn library_search(library: RustOpaque<Library>, query: String, limit: i64, offset: i64) {
     library.handle.send_command(LibraryCommand::Search {
         query,

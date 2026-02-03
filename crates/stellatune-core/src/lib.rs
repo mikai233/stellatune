@@ -27,6 +27,7 @@ pub enum Event {
     StateChanged { state: PlayerState },
     Position { ms: i64 },
     TrackChanged { path: String },
+    PlaybackEnded { path: String },
     Error { message: String },
     Log { message: String },
 }
@@ -51,6 +52,7 @@ pub enum LibraryCommand {
     RemoveRoot {
         path: String,
     },
+    ListRoots,
     ScanAll,
     Search {
         query: String,
@@ -63,6 +65,9 @@ pub enum LibraryCommand {
 #[flutter_rust_bridge::frb(non_opaque)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum LibraryEvent {
+    Roots {
+        paths: Vec<String>,
+    },
     ScanProgress {
         scanned: i64,
         updated: i64,

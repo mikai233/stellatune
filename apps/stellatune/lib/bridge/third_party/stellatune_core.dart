@@ -19,6 +19,8 @@ sealed class Event with _$Event {
       Event_StateChanged;
   const factory Event.position({required PlatformInt64 ms}) = Event_Position;
   const factory Event.trackChanged({required String path}) = Event_TrackChanged;
+  const factory Event.playbackEnded({required String path}) =
+      Event_PlaybackEnded;
   const factory Event.error({required String message}) = Event_Error;
   const factory Event.log({required String message}) = Event_Log;
 }
@@ -27,6 +29,8 @@ sealed class Event with _$Event {
 sealed class LibraryEvent with _$LibraryEvent {
   const LibraryEvent._();
 
+  const factory LibraryEvent.roots({required List<String> paths}) =
+      LibraryEvent_Roots;
   const factory LibraryEvent.scanProgress({
     required PlatformInt64 scanned,
     required PlatformInt64 updated,

@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            SELECT path\n            FROM scan_roots\n            WHERE enabled=1\n            ORDER BY path\n            ",
+  "describe": {
+    "columns": [
+      {
+        "name": "path",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "ef2446289a5e4444678678917bf8051ebd1abd6297f67c9cbd2a6dc0c89bc534"
+}

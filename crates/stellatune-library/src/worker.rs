@@ -40,6 +40,7 @@ impl LibraryWorker {
         match cmd {
             LibraryCommand::AddRoot { path } => self.add_root(path).await,
             LibraryCommand::RemoveRoot { path } => self.remove_root(path).await,
+            LibraryCommand::ListRoots => self.list_roots().await,
             LibraryCommand::ScanAll => self.scan_all().await,
             LibraryCommand::Search {
                 query,
@@ -48,6 +49,22 @@ impl LibraryWorker {
             } => self.search(query, limit, offset).await,
             LibraryCommand::Shutdown => Ok(()),
         }
+    }
+
+    async fn list_roots(&self) -> Result<()> {
+        let roots: Vec<String> = sqlx::query_scalar!(
+            r#"
+            SELECT path
+            FROM scan_roots
+            WHERE enabled=1
+            ORDER BY path
+            "#
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        self.events.emit(LibraryEvent::Roots { paths: roots });
+        Ok(())
     }
 
     async fn add_root(&self, path: String) -> Result<()> {
@@ -65,6 +82,7 @@ impl LibraryWorker {
         self.events.emit(LibraryEvent::Log {
             message: format!("added scan root: {}", path),
         });
+        self.list_roots().await?;
         Ok(())
     }
 
@@ -75,6 +93,7 @@ impl LibraryWorker {
         self.events.emit(LibraryEvent::Log {
             message: format!("disabled scan root: {}", path),
         });
+        self.list_roots().await?;
         Ok(())
     }
 
@@ -219,34 +238,44 @@ impl LibraryWorker {
 
     async fn search(&self, query: String, limit: i64, offset: i64) -> Result<()> {
         let query = query.trim().to_string();
-        if query.is_empty() {
-            self.events.emit(LibraryEvent::SearchResult {
-                query,
-                items: Vec::new(),
-            });
-            return Ok(());
-        }
-
-        let fts = build_fts_query(&query);
         let limit = limit.max(1).min(200);
         let offset = offset.max(0);
-        let rows = sqlx::query_as!(
-            TrackLiteRow,
-            r#"
-            SELECT t.id, t.path, t.title, t.artist, t.album, t.duration_ms
-            FROM tracks_fts
-            JOIN tracks t ON t.id = tracks_fts.rowid
-            WHERE tracks_fts MATCH ?1
-            ORDER BY bm25(tracks_fts)
-            LIMIT ?2 OFFSET ?3
-            "#,
-            fts,
-            limit,
-            offset
-        )
-        .fetch_all(&self.pool)
-        .await
-        .with_context(|| format!("fts query failed: {fts}"))?;
+
+        let rows = if query.is_empty() {
+            sqlx::query_as!(
+                TrackLiteRow,
+                r#"
+                SELECT id, path, title, artist, album, duration_ms
+                FROM tracks
+                ORDER BY id DESC
+                LIMIT ?1 OFFSET ?2
+                "#,
+                limit,
+                offset
+            )
+            .fetch_all(&self.pool)
+            .await
+            .context("list tracks failed")?
+        } else {
+            let fts = build_fts_query(&query);
+            sqlx::query_as!(
+                TrackLiteRow,
+                r#"
+                SELECT t.id, t.path, t.title, t.artist, t.album, t.duration_ms
+                FROM tracks_fts
+                JOIN tracks t ON t.id = tracks_fts.rowid
+                WHERE tracks_fts MATCH ?1
+                ORDER BY bm25(tracks_fts)
+                LIMIT ?2 OFFSET ?3
+                "#,
+                fts,
+                limit,
+                offset
+            )
+            .fetch_all(&self.pool)
+            .await
+            .with_context(|| format!("fts query failed: {fts}"))?
+        };
 
         let items = rows
             .into_iter()
@@ -285,9 +314,37 @@ fn build_fts_query(q: &str) -> String {
     //   "foo bar" => "foo* AND bar*"
     q.split_whitespace()
         .filter(|s| !s.is_empty())
-        .map(|s| format!("{s}*"))
+        // Always quote tokens so that punctuation (e.g. apostrophes) won't break the FTS5 parser.
+        .filter_map(|raw| {
+            let token = raw
+                .chars()
+                .filter(|c| !c.is_control())
+                .collect::<String>()
+                .trim()
+                .to_string();
+            if token.is_empty() {
+                return None;
+            }
+
+            // Escape double-quotes inside the token per SQLite rules.
+            // See: https://www.sqlite.org/lang_expr.html (string literal escaping) and FTS5 query syntax.
+            let token = token.replace('"', "\"\"");
+            Some(format!("\"{token}\"*"))
+        })
         .collect::<Vec<_>>()
         .join(" AND ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_fts_query;
+
+    #[test]
+    fn build_fts_query_quotes_tokens() {
+        assert_eq!(build_fts_query("chu'meng"), "\"chu'meng\"*");
+        assert_eq!(build_fts_query("hello world"), "\"hello\"* AND \"world\"*");
+        assert_eq!(build_fts_query(r#"D:\CloudMusic"#), r#""D:\CloudMusic"*"#);
+    }
 }
 
 async fn init_db(db_path: &Path) -> Result<SqlitePool> {

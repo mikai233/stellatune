@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "\n            SELECT t.id, t.path, t.title, t.artist, t.album, t.duration_ms\n            FROM tracks_fts\n            JOIN tracks t ON t.id = tracks_fts.rowid\n            WHERE tracks_fts MATCH ?1\n            ORDER BY bm25(tracks_fts)\n            LIMIT ?2 OFFSET ?3\n            ",
+  "query": "\n                SELECT t.id, t.path, t.title, t.artist, t.album, t.duration_ms\n                FROM tracks_fts\n                JOIN tracks t ON t.id = tracks_fts.rowid\n                WHERE tracks_fts MATCH ?1\n                ORDER BY bm25(tracks_fts)\n                LIMIT ?2 OFFSET ?3\n                ",
   "describe": {
     "columns": [
       {
@@ -46,5 +46,5 @@
       true
     ]
   },
-  "hash": "606853c71477c661f807ba5b93b810494b0ede33de739703197263a72cd499d9"
+  "hash": "b18e3fecc2400a8921da95c387125f8bf7b27ce81243b6f30bf81f26ca2aed3f"
 }

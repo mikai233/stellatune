@@ -64,6 +64,9 @@ abstract class StellatuneApiApiImplPlatform
   LibraryEvent dco_decode_library_event(dynamic raw);
 
   @protected
+  List<String> dco_decode_list_String(dynamic raw);
+
+  @protected
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw);
 
   @protected
@@ -126,6 +129,9 @@ abstract class StellatuneApiApiImplPlatform
 
   @protected
   LibraryEvent sse_decode_library_event(SseDeserializer deserializer);
+
+  @protected
+  List<String> sse_decode_list_String(SseDeserializer deserializer);
 
   @protected
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer);
@@ -201,6 +207,9 @@ abstract class StellatuneApiApiImplPlatform
 
   @protected
   void sse_encode_library_event(LibraryEvent self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_String(List<String> self, SseSerializer serializer);
 
   @protected
   void sse_encode_list_prim_u_8_strict(

@@ -129,6 +129,11 @@ fn handle_internal(
             events.emit(Event::Log {
                 message: "end of stream".to_string(),
             });
+            if state.wants_playback {
+                if let Some(path) = state.current_track.clone() {
+                    events.emit(Event::PlaybackEnded { path });
+                }
+            }
             stop_session(state, events);
             state.wants_playback = false;
             state.play_request_started_at = None;

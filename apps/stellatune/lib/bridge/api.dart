@@ -49,6 +49,9 @@ Future<void> libraryRemoveRoot({
 Future<void> libraryScanAll({required Library library_}) =>
     StellatuneApi.instance.api.crateApiLibraryScanAll(library_: library_);
 
+Future<void> libraryListRoots({required Library library_}) =>
+    StellatuneApi.instance.api.crateApiLibraryListRoots(library_: library_);
+
 Future<void> librarySearch({
   required Library library_,
   required String query,
