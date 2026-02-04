@@ -71,8 +71,14 @@ class LibraryBridge {
 
   final api.Library library;
 
-  static Future<LibraryBridge> create({required String dbPath}) async {
-    final library = await api.createLibrary(dbPath: dbPath);
+  static Future<LibraryBridge> create({
+    required String dbPath,
+    List<String> disabledPluginIds = const [],
+  }) async {
+    final library = await api.createLibrary(
+      dbPath: dbPath,
+      disabledPluginIds: disabledPluginIds,
+    );
     return LibraryBridge._(library);
   }
 
@@ -122,6 +128,15 @@ class LibraryBridge {
         limit: limit,
         offset: offset,
       );
+
+  Future<void> pluginsReloadWithDisabled({
+    required String dir,
+    required List<String> disabledIds,
+  }) => api.libraryPluginsReloadWithDisabled(
+    library_: library,
+    dir: dir,
+    disabledIds: disabledIds,
+  );
 }
 
 class DlnaBridge {

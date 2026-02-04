@@ -36,7 +36,7 @@ const ST_RENDERING_CONTROL: &str = "urn:schemas-upnp-org:service:RenderingContro
 const SERVICE_AV_TRANSPORT_1: &str = "urn:schemas-upnp-org:service:AVTransport:1";
 const SERVICE_RENDERING_CONTROL_1: &str = "urn:schemas-upnp-org:service:RenderingControl:1";
 
-pub(crate) struct Dlna;
+pub(crate) struct Dlna {}
 
 impl Dlna {
     pub(crate) async fn discover_media_renderers(timeout_ms: u32) -> Result<Vec<DlnaSsdpDevice>> {

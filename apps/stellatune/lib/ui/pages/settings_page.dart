@@ -177,12 +177,13 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     await _copyDir(srcDir, dest);
 
     final bridge = ref.read(playerBridgeProvider);
+    final library = ref.read(libraryBridgeProvider);
     final disabledIds = ref.read(settingsStoreProvider).disabledPluginIds;
-    await writeDisabledPluginsFile(
-      pluginDir: pluginDir,
-      disabledIds: disabledIds,
-    );
     await bridge.pluginsReloadWithDisabled(
+      dir: pluginDir,
+      disabledIds: disabledIds.toList(),
+    );
+    await library.pluginsReloadWithDisabled(
       dir: pluginDir,
       disabledIds: disabledIds.toList(),
     );
@@ -344,14 +345,16 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                                       final disabledIds = ref
                                           .read(settingsStoreProvider)
                                           .disabledPluginIds;
-                                      await writeDisabledPluginsFile(
-                                        pluginDir: _pluginDir!,
-                                        disabledIds: disabledIds,
-                                      );
                                       await bridge.pluginsReloadWithDisabled(
                                         dir: _pluginDir!,
                                         disabledIds: disabledIds.toList(),
                                       );
+                                      await ref
+                                          .read(libraryBridgeProvider)
+                                          .pluginsReloadWithDisabled(
+                                            dir: _pluginDir!,
+                                            disabledIds: disabledIds.toList(),
+                                          );
                                       if (mounted) setState(_refresh);
                                     },
                               onUninstall: () async {
@@ -396,14 +399,16 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                                   final disabledIds = ref
                                       .read(settingsStoreProvider)
                                       .disabledPluginIds;
-                                  await writeDisabledPluginsFile(
-                                    pluginDir: _pluginDir!,
-                                    disabledIds: disabledIds,
-                                  );
                                   await bridge.pluginsReloadWithDisabled(
                                     dir: _pluginDir!,
                                     disabledIds: disabledIds.toList(),
                                   );
+                                  await ref
+                                      .read(libraryBridgeProvider)
+                                      .pluginsReloadWithDisabled(
+                                        dir: _pluginDir!,
+                                        disabledIds: disabledIds.toList(),
+                                      );
                                   if (!context.mounted) return;
                                   setState(_refresh);
                                   ScaffoldMessenger.of(context).showSnackBar(

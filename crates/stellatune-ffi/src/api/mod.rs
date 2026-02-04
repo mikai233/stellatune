@@ -136,17 +136,20 @@ pub struct Library {
 }
 
 impl Library {
-    fn new(db_path: String) -> Result<Self> {
+    fn new(db_path: String, disabled_plugin_ids: Vec<String>) -> Result<Self> {
         init_tracing();
         tracing::info!("creating library: {}", db_path);
         Ok(Self {
-            handle: start_library(db_path)?,
+            handle: start_library(db_path, disabled_plugin_ids)?,
         })
     }
 }
 
-pub fn create_library(db_path: String) -> Result<RustOpaque<Library>> {
-    Ok(RustOpaque::new(Library::new(db_path)?))
+pub fn create_library(
+    db_path: String,
+    disabled_plugin_ids: Vec<String>,
+) -> Result<RustOpaque<Library>> {
+    Ok(RustOpaque::new(Library::new(db_path, disabled_plugin_ids)?))
 }
 
 pub fn library_add_root(library: RustOpaque<Library>, path: String) {
@@ -235,6 +238,16 @@ pub fn library_events(library: RustOpaque<Library>, sink: StreamSink<LibraryEven
         .expect("failed to spawn stellatune-library-events thread");
 
     Ok(())
+}
+
+pub fn library_plugins_reload_with_disabled(
+    library: RustOpaque<Library>,
+    dir: String,
+    disabled_ids: Vec<String>,
+) {
+    library
+        .handle
+        .plugins_reload_with_disabled(dir, disabled_ids);
 }
 
 pub async fn dlna_discover_media_renderers(timeout_ms: u32) -> Result<Vec<DlnaSsdpDevice>> {

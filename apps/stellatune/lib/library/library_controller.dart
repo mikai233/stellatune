@@ -156,7 +156,7 @@ class LibraryController extends Notifier<LibraryState> {
   }
 
   void _onEvent(LibraryEvent event) {
-    event.when(
+    event.maybeWhen(
       roots: (paths) {
         final roots = paths.map(_normalizePath).toList();
         state = state.copyWith(roots: roots, lastError: null);
@@ -208,9 +208,6 @@ class LibraryController extends Notifier<LibraryState> {
         unawaited(ref.read(libraryBridgeProvider).listFolders());
         unawaited(_refreshTracks());
       },
-      searchResult: (query, items) {
-        // Legacy API. Keep it for backward compatibility but prefer `tracks`.
-      },
       error: (message) {
         ref.read(loggerProvider).e(message);
         state = state.copyWith(lastError: message, isScanning: false);
@@ -219,6 +216,7 @@ class LibraryController extends Notifier<LibraryState> {
         ref.read(loggerProvider).d(message);
         state = state.copyWith(lastLog: message);
       },
+      orElse: () {},
     );
   }
 

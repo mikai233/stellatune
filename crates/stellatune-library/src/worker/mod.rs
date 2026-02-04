@@ -25,13 +25,19 @@ use self::watch::{WatchCtrl, spawn_watch_task};
 use std::collections::HashSet;
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-use stellatune_plugins::{PluginManager, default_host_vtable};
+use stellatune_plugins::PluginManager;
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 pub(crate) type Plugins = std::sync::Arc<std::sync::Mutex<PluginManager>>;
 
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+pub(crate) type DisabledPluginIds = std::sync::Arc<std::sync::Mutex<HashSet<String>>>;
+
 #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
 pub(crate) type Plugins = ();
+
+#[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+pub(crate) type DisabledPluginIds = ();
 
 pub(crate) struct WorkerDeps {
     pool: SqlitePool,
@@ -39,44 +45,17 @@ pub(crate) struct WorkerDeps {
     cover_dir: PathBuf,
     plugins_dir: PathBuf,
     plugins: Plugins,
-}
-
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-const DISABLED_PLUGINS_FILE_NAME: &str = "disabled_plugins.json";
-
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-fn read_disabled_plugin_ids_best_effort(plugins_dir: &Path) -> HashSet<String> {
-    let path = plugins_dir.join(DISABLED_PLUGINS_FILE_NAME);
-    let text = match std::fs::read_to_string(&path) {
-        Ok(s) => s,
-        Err(_) => return HashSet::new(),
-    };
-
-    let ids = match serde_json::from_str::<serde_json::Value>(&text) {
-        Ok(v) => v,
-        Err(e) => {
-            tracing::debug!(
-                target: "stellatune_library::plugins",
-                file = %path.display(),
-                "failed to parse disabled plugin list: {e}"
-            );
-            return HashSet::new();
-        }
-    };
-
-    let Some(arr) = ids.as_array() else {
-        return HashSet::new();
-    };
-
-    arr.iter()
-        .filter_map(|v| v.as_str())
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .collect::<HashSet<_>>()
+    disabled_plugin_ids: DisabledPluginIds,
 }
 
 impl WorkerDeps {
-    pub(crate) async fn new(db_path: &Path, events: std::sync::Arc<EventHub>) -> Result<Self> {
+    pub(crate) async fn new(
+        db_path: &Path,
+        events: std::sync::Arc<EventHub>,
+        plugins_dir: PathBuf,
+        plugins: Plugins,
+        disabled_plugin_ids: DisabledPluginIds,
+    ) -> Result<Self> {
         let pool = db::init_db(db_path).await?;
 
         let cover_dir = db_path
@@ -87,19 +66,14 @@ impl WorkerDeps {
             format!("failed to create cover cache dir: {}", cover_dir.display())
         })?;
 
-        let plugins_dir = db_path
-            .parent()
-            .unwrap_or_else(|| Path::new("."))
-            .join("plugins");
-
         #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-        let plugins: Plugins = {
-            let plugins = std::sync::Arc::new(std::sync::Mutex::new(PluginManager::new(
-                default_host_vtable(),
-            )));
+        {
             // Best-effort initial load; scanning will also attempt additive loads.
             if plugins_dir.exists() {
-                let disabled = read_disabled_plugin_ids_best_effort(&plugins_dir);
+                let disabled = disabled_plugin_ids
+                    .lock()
+                    .expect("disabled_plugin_ids mutex poisoned")
+                    .clone();
                 match unsafe {
                     plugins
                         .lock()
@@ -131,13 +105,14 @@ impl WorkerDeps {
 
             // Ensure the in-memory plugin manager knows what is disabled (even if already loaded).
             if let Ok(mut pm) = plugins.lock() {
-                pm.set_disabled_ids(read_disabled_plugin_ids_best_effort(&plugins_dir));
+                pm.set_disabled_ids(
+                    disabled_plugin_ids
+                        .lock()
+                        .expect("disabled_plugin_ids mutex poisoned")
+                        .clone(),
+                );
             }
-            plugins
-        };
-
-        #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
-        let plugins: Plugins = ();
+        }
 
         Ok(Self {
             pool,
@@ -145,6 +120,7 @@ impl WorkerDeps {
             cover_dir,
             plugins_dir,
             plugins,
+            disabled_plugin_ids,
         })
     }
 }
@@ -156,6 +132,7 @@ pub(crate) struct LibraryWorker {
     watch_ctrl: mpsc::UnboundedSender<WatchCtrl>,
     plugins_dir: PathBuf,
     plugins: Plugins,
+    disabled_plugin_ids: DisabledPluginIds,
 }
 
 impl LibraryWorker {
@@ -173,6 +150,7 @@ impl LibraryWorker {
             watch_ctrl,
             plugins_dir: deps.plugins_dir,
             plugins: deps.plugins,
+            disabled_plugin_ids: deps.disabled_plugin_ids,
         }
     }
 
@@ -182,7 +160,11 @@ impl LibraryWorker {
             if !self.plugins_dir.exists() {
                 return;
             }
-            let disabled = read_disabled_plugin_ids_best_effort(&self.plugins_dir);
+            let disabled = self
+                .disabled_plugin_ids
+                .lock()
+                .expect("disabled_plugin_ids mutex poisoned")
+                .clone();
             let mut pm = self.plugins.lock().expect("plugins mutex poisoned");
             pm.set_disabled_ids(disabled.clone());
             let _ = unsafe { pm.load_dir_additive_filtered(&self.plugins_dir, &disabled) };

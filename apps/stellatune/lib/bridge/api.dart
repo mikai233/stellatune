@@ -69,8 +69,13 @@ Future<void> pluginsReloadWithDisabled({
   disabledIds: disabledIds,
 );
 
-Future<Library> createLibrary({required String dbPath}) =>
-    StellatuneApi.instance.api.crateApiCreateLibrary(dbPath: dbPath);
+Future<Library> createLibrary({
+  required String dbPath,
+  required List<String> disabledPluginIds,
+}) => StellatuneApi.instance.api.crateApiCreateLibrary(
+  dbPath: dbPath,
+  disabledPluginIds: disabledPluginIds,
+);
 
 Future<void> libraryAddRoot({
   required Library library_,
@@ -151,6 +156,16 @@ Future<void> librarySearch({
 
 Stream<LibraryEvent> libraryEvents({required Library library_}) =>
     StellatuneApi.instance.api.crateApiLibraryEvents(library_: library_);
+
+Future<void> libraryPluginsReloadWithDisabled({
+  required Library library_,
+  required String dir,
+  required List<String> disabledIds,
+}) => StellatuneApi.instance.api.crateApiLibraryPluginsReloadWithDisabled(
+  library_: library_,
+  dir: dir,
+  disabledIds: disabledIds,
+);
 
 Future<List<DlnaSsdpDevice>> dlnaDiscoverMediaRenderers({
   required int timeoutMs,

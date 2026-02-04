@@ -18,18 +18,23 @@ Future<void> main() async {
   final bridge = await PlayerBridge.create();
   final settings = await SettingsStore.open();
   final dbPath = await defaultLibraryDbPath();
-  final library = await LibraryBridge.create(dbPath: dbPath);
-  final coverDir = p.join(p.dirname(dbPath), 'covers');
   final pluginDir = await defaultPluginDir();
+  await Directory(pluginDir).create(recursive: true);
+
+  final library = await LibraryBridge.create(
+    dbPath: dbPath,
+    disabledPluginIds: settings.disabledPluginIds.toList(),
+  );
+
+  final coverDir = p.join(p.dirname(dbPath), 'covers');
 
   // Desktop-only today, but safe to call (it just loads from the folder).
   try {
-    await Directory(pluginDir).create(recursive: true);
-    await writeDisabledPluginsFile(
-      pluginDir: pluginDir,
-      disabledIds: settings.disabledPluginIds,
-    );
     await bridge.pluginsReloadWithDisabled(
+      dir: pluginDir,
+      disabledIds: settings.disabledPluginIds.toList(),
+    );
+    await library.pluginsReloadWithDisabled(
       dir: pluginDir,
       disabledIds: settings.disabledPluginIds.toList(),
     );
