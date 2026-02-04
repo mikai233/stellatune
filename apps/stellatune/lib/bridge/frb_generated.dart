@@ -71,7 +71,7 @@ class StellatuneApi
   String get codegenVersion => '2.11.1';
 
   @override
-  int get rustContentHash => -750071107;
+  int get rustContentHash => -2040474260;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -126,6 +126,8 @@ abstract class StellatuneApiApi extends BaseApi {
   });
 
   Future<void> crateApiLibraryScanAll({required Library library_});
+
+  Future<void> crateApiLibraryScanAllForce({required Library library_});
 
   Future<void> crateApiLibrarySearch({
     required Library library_,
@@ -594,6 +596,37 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   );
 
   @override
+  Future<void> crateApiLibraryScanAllForce({required Library library_}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_RustOpaque_Library(library_, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 14,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiLibraryScanAllForceConstMeta,
+        argValues: [library_],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiLibraryScanAllForceConstMeta =>
+      const TaskConstMeta(
+        debugName: "library_scan_all_force",
+        argNames: ["library_"],
+      );
+
+  @override
   Future<void> crateApiLibrarySearch({
     required Library library_,
     required String query,
@@ -611,7 +644,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 14,
+            funcId: 15,
             port: port_,
           );
         },
@@ -642,7 +675,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 15,
+            funcId: 16,
             port: port_,
           );
         },
@@ -670,7 +703,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 16,
+            funcId: 17,
             port: port_,
           );
         },
@@ -698,7 +731,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 17,
+            funcId: 18,
             port: port_,
           );
         },
@@ -730,7 +763,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 18,
+            funcId: 19,
             port: port_,
           );
         },
@@ -760,7 +793,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 19,
+            funcId: 20,
             port: port_,
           );
         },

@@ -97,9 +97,19 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
           ),
           IconButton(
             tooltip: l10n.tooltipScan,
-            onPressed: () =>
-                ref.read(libraryControllerProvider.notifier).scanAll(),
+            onPressed: isScanning
+                ? null
+                : () => ref.read(libraryControllerProvider.notifier).scanAll(),
             icon: const Icon(Icons.refresh),
+          ),
+          IconButton(
+            tooltip: l10n.tooltipForceScan,
+            onPressed: isScanning
+                ? null
+                : () => ref
+                      .read(libraryControllerProvider.notifier)
+                      .scanAll(force: true),
+            icon: const Icon(Icons.restart_alt),
           ),
           const SizedBox(width: 8),
         ],

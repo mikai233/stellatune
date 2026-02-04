@@ -69,6 +69,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get tooltipScan => '扫描';
 
   @override
+  String get tooltipForceScan => '强制扫描';
+
+  @override
   String get dialogSelectMusicFolder => '选择音乐文件夹';
 
   @override

@@ -57,6 +57,7 @@ class LibraryBridge {
       api.libraryListExcludedFolders(library_: library);
 
   Future<void> scanAll() => api.libraryScanAll(library_: library);
+  Future<void> scanAllForce() => api.libraryScanAllForce(library_: library);
 
   Future<void> listRoots() => api.libraryListRoots(library_: library);
 

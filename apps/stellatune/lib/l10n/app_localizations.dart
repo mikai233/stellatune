@@ -218,6 +218,12 @@ abstract class AppLocalizations {
   /// **'Scan'**
   String get tooltipScan;
 
+  /// No description provided for @tooltipForceScan.
+  ///
+  /// In en, this message translates to:
+  /// **'Force rescan'**
+  String get tooltipForceScan;
+
   /// No description provided for @dialogSelectMusicFolder.
   ///
   /// In en, this message translates to:

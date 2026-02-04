@@ -69,6 +69,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get tooltipScan => 'Scan';
 
   @override
+  String get tooltipForceScan => 'Force rescan';
+
+  @override
   String get dialogSelectMusicFolder => 'Select music folder';
 
   @override

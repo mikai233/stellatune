@@ -88,7 +88,8 @@ impl LibraryWorker {
                 self.list_tracks(folder, recursive, query, limit, offset)
                     .await
             }
-            LibraryCommand::ScanAll => self.scan_all().await,
+            LibraryCommand::ScanAll => self.scan_all(false).await,
+            LibraryCommand::ScanAllForce => self.scan_all(true).await,
             LibraryCommand::Search {
                 query,
                 limit,
@@ -468,8 +469,8 @@ impl LibraryWorker {
         Ok(())
     }
 
-    async fn scan_all(&self) -> Result<()> {
-        scan::scan_all(&self.pool, &self.events, &self.cover_dir).await
+    async fn scan_all(&self, force: bool) -> Result<()> {
+        scan::scan_all(&self.pool, &self.events, &self.cover_dir, force).await
     }
 
     async fn search(&self, query: String, limit: i64, offset: i64) -> Result<()> {

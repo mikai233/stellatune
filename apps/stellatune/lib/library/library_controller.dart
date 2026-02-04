@@ -74,7 +74,7 @@ class LibraryController extends Notifier<LibraryState> {
     unawaited(ref.read(libraryBridgeProvider).listFolders());
   }
 
-  Future<void> scanAll() async {
+  Future<void> scanAll({bool force = false}) async {
     state = state.copyWith(
       isScanning: true,
       progress: const LibraryScanProgress.zero(),
@@ -82,17 +82,20 @@ class LibraryController extends Notifier<LibraryState> {
       lastError: null,
       lastLog: '',
     );
-    await ref.read(libraryBridgeProvider).scanAll();
+    if (force) {
+      await ref.read(libraryBridgeProvider).scanAllForce();
+    } else {
+      await ref.read(libraryBridgeProvider).scanAll();
+    }
   }
 
   void selectFolder(String folder) {
     final norm = _normalizePath(folder);
     if (state.selectedFolder == norm) return;
-    // Selecting a folder defaults to "this folder only". Users can opt into
-    // recursive listing with the UI toggle.
+    // Selecting a folder defaults to recursive listing (include subfolders).
     state = state.copyWith(
       selectedFolder: norm,
-      includeSubfolders: false,
+      includeSubfolders: true,
       lastError: null,
     );
     unawaited(_refreshTracks());

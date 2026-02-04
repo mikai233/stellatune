@@ -141,6 +141,10 @@ pub fn library_scan_all(library: RustOpaque<Library>) {
     library.handle.send_command(LibraryCommand::ScanAll);
 }
 
+pub fn library_scan_all_force(library: RustOpaque<Library>) {
+    library.handle.send_command(LibraryCommand::ScanAllForce);
+}
+
 pub fn library_list_roots(library: RustOpaque<Library>) {
     library.handle.send_command(LibraryCommand::ListRoots);
 }

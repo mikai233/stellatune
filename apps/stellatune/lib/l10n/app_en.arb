@@ -23,6 +23,7 @@
 
   "tooltipAddFolder": "Add folder",
   "tooltipScan": "Scan",
+  "tooltipForceScan": "Force rescan",
   "dialogSelectMusicFolder": "Select music folder",
 
   "searchHint": "Search title / artist / album / path",

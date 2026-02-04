@@ -23,6 +23,7 @@
 
   "tooltipAddFolder": "添加文件夹",
   "tooltipScan": "扫描",
+  "tooltipForceScan": "强制扫描",
   "dialogSelectMusicFolder": "选择音乐文件夹",
 
   "searchHint": "搜索 标题 / 歌手 / 专辑 / 路径",

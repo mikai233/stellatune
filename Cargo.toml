@@ -35,7 +35,7 @@ tokio = { version = "1.47.1", features = ["rt-multi-thread", "macros", "sync", "
 sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio", "sqlite", "migrate", "macros"] }
 walkdir = "2.5.0"
 cpal = "0.17.1"
-symphonia = { version = "0.5.5", default-features = false, features = ["mp3", "flac", "wav"] }
+symphonia = { version = "0.5.4", default-features = false, features = ["mp3", "flac", "wav", "pcm", "adpcm"] }
 rubato = "1.0.1"
 audioadapter-buffers = "2.0.0"
 tracing = "0.1.44"

@@ -44,7 +44,7 @@ class LibraryState {
       folders = const [],
       excludedFolders = const [],
       selectedFolder = '',
-      includeSubfolders = false,
+      includeSubfolders = true,
       query = '',
       results = const [],
       isScanning = false,

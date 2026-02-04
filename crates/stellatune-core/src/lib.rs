@@ -71,6 +71,7 @@ pub enum LibraryCommand {
         offset: i64,
     },
     ScanAll,
+    ScanAllForce,
     Search {
         query: String,
         limit: i64,

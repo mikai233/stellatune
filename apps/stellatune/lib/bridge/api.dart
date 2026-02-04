@@ -76,6 +76,9 @@ Future<void> libraryListExcludedFolders({required Library library_}) =>
 Future<void> libraryScanAll({required Library library_}) =>
     StellatuneApi.instance.api.crateApiLibraryScanAll(library_: library_);
 
+Future<void> libraryScanAllForce({required Library library_}) =>
+    StellatuneApi.instance.api.crateApiLibraryScanAllForce(library_: library_);
+
 Future<void> libraryListRoots({required Library library_}) =>
     StellatuneApi.instance.api.crateApiLibraryListRoots(library_: library_);
 

@@ -31,6 +31,7 @@ pub(super) async fn scan_all(
     pool: &SqlitePool,
     events: &Arc<EventHub>,
     cover_dir: &PathBuf,
+    force: bool,
 ) -> Result<()> {
     let roots: Vec<String> = sqlx::query_scalar!("SELECT path FROM scan_roots WHERE enabled=1")
         .fetch_all(pool)
@@ -115,14 +116,16 @@ pub(super) async fn scan_all(
         while let Some(file) = rx.recv().await {
             scanned += 1;
 
-            // Skip unchanged.
-            if let Some(old) = select_track_fingerprint(pool, &file.path).await? {
-                if old.mtime_ms == file.mtime_ms
-                    && old.size_bytes == file.size_bytes
-                    && old.meta_scanned_ms > 0
-                {
-                    skipped += 1;
-                    continue;
+            if !force {
+                // Skip unchanged.
+                if let Some(old) = select_track_fingerprint(pool, &file.path).await? {
+                    if old.mtime_ms == file.mtime_ms
+                        && old.size_bytes == file.size_bytes
+                        && old.meta_scanned_ms > 0
+                    {
+                        skipped += 1;
+                        continue;
+                    }
                 }
             }
 
