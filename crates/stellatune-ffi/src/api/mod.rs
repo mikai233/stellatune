@@ -69,6 +69,10 @@ pub fn pause(player: RustOpaque<Player>) {
     player.engine.send_command(Command::Pause);
 }
 
+pub fn seek_ms(player: RustOpaque<Player>, position_ms: u64) {
+    player.engine.send_command(Command::SeekMs { position_ms });
+}
+
 pub fn set_volume(player: RustOpaque<Player>, volume: f32) {
     player.engine.send_command(Command::SetVolume { volume });
 }

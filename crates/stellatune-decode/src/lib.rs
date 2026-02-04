@@ -6,9 +6,11 @@ use symphonia::core::audio::{AudioBufferRef, SignalSpec};
 use symphonia::core::codecs::{Decoder as SymphoniaDecoder, DecoderOptions};
 use symphonia::core::errors::Error as SymphoniaError;
 use symphonia::core::formats::{FormatOptions, FormatReader};
+use symphonia::core::formats::{SeekMode, SeekTo};
 use symphonia::core::io::{MediaSourceStream, MediaSourceStreamOptions};
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
+use symphonia::core::units::Time;
 use thiserror::Error;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -95,6 +97,23 @@ impl Decoder {
 
     pub fn spec(&self) -> TrackSpec {
         self.spec
+    }
+
+    pub fn seek_ms(&mut self, position_ms: u64) -> Result<(), DecodeError> {
+        let secs = position_ms / 1000;
+        let frac = (position_ms % 1000) as f64 / 1000.0;
+        let time = Time::new(secs, frac);
+        // Some formats/codecs require a reset after seek.
+        let _ = self.format.seek(
+            SeekMode::Accurate,
+            SeekTo::Time {
+                time,
+                track_id: Some(self.track_id),
+            },
+        )?;
+        self.decoder.reset();
+        self.pending.clear();
+        Ok(())
     }
 
     /// Decode up to `frames` frames (interleaved stereo f32).

@@ -57,7 +57,7 @@ pub(crate) fn decode_thread(
     let in_channels = spec.channels as usize;
     let out_channels = target_channels as usize;
 
-    let base_ms = start_at_ms.max(0);
+    let mut base_ms = start_at_ms.max(0);
     if base_ms > 0 {
         let t_skip = Instant::now();
         let frames_to_skip = ((base_ms as i128 * spec.sample_rate as i128) / 1000) as u64;
@@ -97,7 +97,9 @@ pub(crate) fn decode_thread(
     let mut decode_pending: Vec<f32> = Vec::new();
     let mut out_pending: Vec<f32> = Vec::new();
 
-    loop {
+    let mut pending_seek: Option<i64> = None;
+
+    'main: loop {
         // During Buffering we gate the output (fill zeros) until the control thread enables it.
         // While gated, avoid overfilling the ring buffer, otherwise we'd decode+resample a large
         // burst upfront which shows up as a CPU spike "when sound starts".
@@ -117,6 +119,31 @@ pub(crate) fn decode_thread(
                     last_emit = Instant::now();
                 }
                 Ok(DecodeCtrl::Pause) => {}
+                Ok(DecodeCtrl::SeekMs { position_ms }) => {
+                    let target_ms = position_ms.max(0);
+                    output_enabled.store(false, Ordering::Release);
+                    producer.clear();
+                    decode_pending.clear();
+                    out_pending.clear();
+                    frames_written = 0;
+                    base_ms = target_ms;
+
+                    if let Err(e) = decoder.seek_ms(target_ms as u64) {
+                        let _ = internal_tx.send(InternalMsg::Error(format!("{e}")));
+                        continue;
+                    }
+                    match create_resampler_if_needed(
+                        spec.sample_rate,
+                        target_sample_rate,
+                        out_channels,
+                    ) {
+                        Ok(r) => resampler = r,
+                        Err(e) => {
+                            let _ = internal_tx.send(InternalMsg::Error(e));
+                            continue;
+                        }
+                    }
+                }
                 Ok(DecodeCtrl::Setup { .. }) => {}
                 Ok(DecodeCtrl::Stop) | Err(_) => break,
             }
@@ -128,6 +155,34 @@ pub(crate) fn decode_thread(
                 DecodeCtrl::Pause => {
                     playing = false;
                     break;
+                }
+                DecodeCtrl::SeekMs { position_ms } => {
+                    let target_ms = position_ms.max(0);
+                    output_enabled.store(false, Ordering::Release);
+                    producer.clear();
+                    decode_pending.clear();
+                    out_pending.clear();
+                    frames_written = 0;
+                    base_ms = target_ms;
+
+                    if let Err(e) = decoder.seek_ms(target_ms as u64) {
+                        let _ = internal_tx.send(InternalMsg::Error(format!("{e}")));
+                        playing = false;
+                        break;
+                    }
+                    match create_resampler_if_needed(
+                        spec.sample_rate,
+                        target_sample_rate,
+                        out_channels,
+                    ) {
+                        Ok(r) => resampler = r,
+                        Err(e) => {
+                            let _ = internal_tx.send(InternalMsg::Error(e));
+                            playing = false;
+                            break;
+                        }
+                    }
+                    last_emit = Instant::now();
                 }
                 DecodeCtrl::Stop => return,
                 DecodeCtrl::Play => {}
@@ -171,8 +226,38 @@ pub(crate) fn decode_thread(
                         out_channels,
                         &ctrl_rx,
                         &mut playing,
+                        &mut pending_seek,
                     ) {
                         return;
+                    }
+                    if let Some(seek_ms) = pending_seek.take() {
+                        let target_ms = seek_ms.max(0);
+                        output_enabled.store(false, Ordering::Release);
+                        producer.clear();
+                        decode_pending.clear();
+                        out_pending.clear();
+                        frames_written = 0;
+                        base_ms = target_ms;
+
+                        if let Err(e) = decoder.seek_ms(target_ms as u64) {
+                            let _ = internal_tx.send(InternalMsg::Error(format!("{e}")));
+                            playing = false;
+                            continue 'main;
+                        }
+                        match create_resampler_if_needed(
+                            spec.sample_rate,
+                            target_sample_rate,
+                            out_channels,
+                        ) {
+                            Ok(r) => resampler = r,
+                            Err(e) => {
+                                let _ = internal_tx.send(InternalMsg::Error(e));
+                                playing = false;
+                                continue 'main;
+                            }
+                        }
+                        last_emit = Instant::now();
+                        continue 'main;
                     }
                     continue;
                 }
@@ -207,8 +292,38 @@ pub(crate) fn decode_thread(
                         out_channels,
                         &ctrl_rx,
                         &mut playing,
+                        &mut pending_seek,
                     ) {
                         return;
+                    }
+                    if let Some(seek_ms) = pending_seek.take() {
+                        let target_ms = seek_ms.max(0);
+                        output_enabled.store(false, Ordering::Release);
+                        producer.clear();
+                        decode_pending.clear();
+                        out_pending.clear();
+                        frames_written = 0;
+                        base_ms = target_ms;
+
+                        if let Err(e) = decoder.seek_ms(target_ms as u64) {
+                            let _ = internal_tx.send(InternalMsg::Error(format!("{e}")));
+                            playing = false;
+                            continue 'main;
+                        }
+                        match create_resampler_if_needed(
+                            spec.sample_rate,
+                            target_sample_rate,
+                            out_channels,
+                        ) {
+                            Ok(r) => resampler = r,
+                            Err(e) => {
+                                let _ = internal_tx.send(InternalMsg::Error(e));
+                                playing = false;
+                                continue 'main;
+                            }
+                        }
+                        last_emit = Instant::now();
+                        continue 'main;
                     }
                     if !playing {
                         break;
@@ -216,7 +331,7 @@ pub(crate) fn decode_thread(
                 }
             }
             Ok(None) => {
-                if let Some(resampler) = resampler.as_mut() {
+                if let Some(resampler_inner) = resampler.as_mut() {
                     if !decode_pending.is_empty() {
                         decode_pending.resize(RESAMPLE_CHUNK_FRAMES * in_channels, 0.0);
                         let chunk = if in_channels == out_channels {
@@ -224,7 +339,7 @@ pub(crate) fn decode_thread(
                         } else {
                             adapt_channels_interleaved(&decode_pending, in_channels, out_channels)
                         };
-                        match resample_interleaved_chunk(resampler, &chunk, out_channels) {
+                        match resample_interleaved_chunk(resampler_inner, &chunk, out_channels) {
                             Ok(processed) => {
                                 out_pending.extend_from_slice(&processed);
                                 decode_pending.clear();
@@ -243,8 +358,38 @@ pub(crate) fn decode_thread(
                             out_channels,
                             &ctrl_rx,
                             &mut playing,
+                            &mut pending_seek,
                         ) {
                             return;
+                        }
+                        if let Some(seek_ms) = pending_seek.take() {
+                            let target_ms = seek_ms.max(0);
+                            output_enabled.store(false, Ordering::Release);
+                            producer.clear();
+                            decode_pending.clear();
+                            out_pending.clear();
+                            frames_written = 0;
+                            base_ms = target_ms;
+
+                            if let Err(e) = decoder.seek_ms(target_ms as u64) {
+                                let _ = internal_tx.send(InternalMsg::Error(format!("{e}")));
+                                playing = false;
+                                continue 'main;
+                            }
+                            match create_resampler_if_needed(
+                                spec.sample_rate,
+                                target_sample_rate,
+                                out_channels,
+                            ) {
+                                Ok(r) => resampler = r,
+                                Err(e) => {
+                                    let _ = internal_tx.send(InternalMsg::Error(e));
+                                    playing = false;
+                                    continue 'main;
+                                }
+                            }
+                            last_emit = Instant::now();
+                            continue 'main;
                         }
                         if !playing {
                             break;
@@ -269,8 +414,38 @@ pub(crate) fn decode_thread(
                             out_channels,
                             &ctrl_rx,
                             &mut playing,
+                            &mut pending_seek,
                         ) {
                             return;
+                        }
+                        if let Some(seek_ms) = pending_seek.take() {
+                            let target_ms = seek_ms.max(0);
+                            output_enabled.store(false, Ordering::Release);
+                            producer.clear();
+                            decode_pending.clear();
+                            out_pending.clear();
+                            frames_written = 0;
+                            base_ms = target_ms;
+
+                            if let Err(e) = decoder.seek_ms(target_ms as u64) {
+                                let _ = internal_tx.send(InternalMsg::Error(format!("{e}")));
+                                playing = false;
+                                continue 'main;
+                            }
+                            match create_resampler_if_needed(
+                                spec.sample_rate,
+                                target_sample_rate,
+                                out_channels,
+                            ) {
+                                Ok(r) => resampler = r,
+                                Err(e) => {
+                                    let _ = internal_tx.send(InternalMsg::Error(e));
+                                    playing = false;
+                                    continue 'main;
+                                }
+                            }
+                            last_emit = Instant::now();
+                            continue 'main;
                         }
                         if !playing {
                             break;
@@ -315,6 +490,7 @@ fn write_pending(
     channels_per_frame: usize,
     ctrl_rx: &Receiver<DecodeCtrl>,
     playing: &mut bool,
+    pending_seek: &mut Option<i64>,
 ) -> bool {
     let mut offset = 0usize;
     while offset < pending.len() {
@@ -323,6 +499,10 @@ fn write_pending(
                 DecodeCtrl::Pause => {
                     *playing = false;
                     break;
+                }
+                DecodeCtrl::SeekMs { position_ms } => {
+                    *pending_seek = Some(position_ms);
+                    return false;
                 }
                 DecodeCtrl::Stop => return true,
                 DecodeCtrl::Play => {}

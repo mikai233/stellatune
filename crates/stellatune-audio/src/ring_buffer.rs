@@ -40,6 +40,22 @@ impl<T> RingBufferProducer<T> {
     pub fn capacity(&self) -> usize {
         self.inner.capacity().get()
     }
+
+    /// Drop all currently buffered items.
+    ///
+    /// Note: this is only used for the `f32` audio sample buffer where `T: Copy`.
+    pub fn clear(&mut self) -> usize
+    where
+        T: Copy,
+    {
+        let len = self.inner.occupied_len();
+        // Safety: for `T: Copy` (e.g. `f32`), dropping is a no-op. We advance the write index to
+        // the current read index to discard all buffered items.
+        unsafe {
+            self.inner.set_write_index(self.inner.read_index());
+        }
+        len
+    }
 }
 
 impl<T> RingBufferConsumer<T> {

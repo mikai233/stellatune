@@ -15,6 +15,9 @@ pub(crate) enum DecodeCtrl {
     },
     Play,
     Pause,
+    SeekMs {
+        position_ms: i64,
+    },
     Stop,
 }
 

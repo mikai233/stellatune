@@ -17,6 +17,7 @@ pub enum Command {
     LoadTrack { path: String },
     Play,
     Pause,
+    SeekMs { position_ms: u64 },
     SetVolume { volume: f32 },
     Stop,
     Shutdown,

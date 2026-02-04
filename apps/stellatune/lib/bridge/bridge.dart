@@ -31,6 +31,8 @@ class PlayerBridge {
 
   Future<void> play() => api.play(player: player);
   Future<void> pause() => api.pause(player: player);
+  Future<void> seekMs(int positionMs) =>
+      api.seekMs(player: player, positionMs: BigInt.from(positionMs));
   Future<void> setVolume(double volume) =>
       api.setVolume(player: player, volume: volume);
   Future<void> stop() => api.stop(player: player);

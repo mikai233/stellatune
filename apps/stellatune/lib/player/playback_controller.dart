@@ -78,6 +78,29 @@ class PlaybackController extends Notifier<PlaybackState> {
   bool get _dlnaActive =>
       ref.read(dlnaSelectedRendererProvider)?.avTransportControlUrl != null;
 
+  Future<void> seekMs(int positionMs) async {
+    final pos = positionMs.clamp(0, 1 << 31);
+    if (!_dlnaActive) {
+      await ref.read(playerBridgeProvider).seekMs(pos);
+      // Optimistically update the UI; engine events will resync shortly.
+      state = state.copyWith(positionMs: pos, lastError: null);
+      return;
+    }
+
+    final renderer = ref.read(dlnaSelectedRendererProvider);
+    final controlUrl = renderer?.avTransportControlUrl;
+    if (renderer == null || controlUrl == null) return;
+
+    _dlnaSuppressAutoNext(const Duration(seconds: 2));
+    await _dlna.avTransportSeekMs(
+      controlUrl: controlUrl,
+      serviceType: renderer.avTransportServiceType,
+      positionMs: pos,
+    );
+    state = state.copyWith(positionMs: pos, lastError: null);
+    _ensureDlnaPoller();
+  }
+
   void _ensureDlnaPoller() {
     if (!_dlnaActive) {
       _dlnaPollTimer?.cancel();

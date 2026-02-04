@@ -71,7 +71,7 @@ class StellatuneApi
   String get codegenVersion => '2.11.1';
 
   @override
-  int get rustContentHash => -2104059381;
+  int get rustContentHash => 202086111;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -227,6 +227,11 @@ abstract class StellatuneApiApi extends BaseApi {
   Future<void> crateApiPause({required Player player});
 
   Future<void> crateApiPlay({required Player player});
+
+  Future<void> crateApiSeekMs({
+    required Player player,
+    required BigInt positionMs,
+  });
 
   Future<void> crateApiSetVolume({
     required Player player,
@@ -1430,6 +1435,40 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
       const TaskConstMeta(debugName: "play", argNames: ["player"]);
 
   @override
+  Future<void> crateApiSeekMs({
+    required Player player,
+    required BigInt positionMs,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_RustOpaque_Player(player, serializer);
+          sse_encode_u_64(positionMs, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 36,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiSeekMsConstMeta,
+        argValues: [player, positionMs],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiSeekMsConstMeta => const TaskConstMeta(
+    debugName: "seek_ms",
+    argNames: ["player", "positionMs"],
+  );
+
+  @override
   Future<void> crateApiSetVolume({
     required Player player,
     required double volume,
@@ -1443,7 +1482,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 36,
+            funcId: 37,
             port: port_,
           );
         },
@@ -1473,7 +1512,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 37,
+            funcId: 38,
             port: port_,
           );
         },

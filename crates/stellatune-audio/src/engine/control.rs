@@ -313,6 +313,40 @@ fn handle_command(
             state.pending_session_start = false;
             set_state(state, events, PlayerState::Paused);
         }
+        Command::SeekMs { position_ms } => {
+            let Some(_path) = state.current_track.clone() else {
+                events.emit(Event::Error {
+                    message: "no track loaded".to_string(),
+                });
+                return false;
+            };
+
+            state.position_ms = (position_ms as i64).max(0);
+            events.emit(Event::Position {
+                ms: state.position_ms,
+            });
+
+            // If a session exists, ask the decode thread to seek in-place and flush buffered audio.
+            if let Some(session) = state.session.as_ref() {
+                session.output_enabled.store(false, Ordering::Release);
+                let _ = session.ctrl_tx.send(DecodeCtrl::SeekMs {
+                    position_ms: state.position_ms,
+                });
+            }
+
+            // If we are actively playing, re-enter buffering so the output resumes cleanly once
+            // enough samples are queued after seek.
+            if state.wants_playback
+                && matches!(
+                    state.player_state,
+                    PlayerState::Playing | PlayerState::Buffering
+                )
+            {
+                set_state(state, events, PlayerState::Buffering);
+                state.play_request_started_at = Some(Instant::now());
+                handle_tick(state, events, internal_tx);
+            }
+        }
         Command::SetVolume { volume } => {
             // Clamp to [0, 1].
             let v = volume.max(0.0).min(1.0);
