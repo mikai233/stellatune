@@ -38,7 +38,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.11.1";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -2040474260;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -2104059381;
 
 // Section: executor
 
@@ -109,6 +109,689 @@ fn wire__crate__api__create_player_impl(
                     let output_ok = Result::<_, ()>::Ok(crate::api::create_player())?;
                     Ok(output_ok)
                 })())
+            }
+        },
+    )
+}
+fn wire__crate__api__dlna_av_transport_get_position_info_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "dlna_av_transport_get_position_info",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_control_url = <String>::sse_decode(&mut deserializer);
+            let api_service_type = <Option<String>>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || async move {
+                        let output_ok = crate::api::dlna_av_transport_get_position_info(
+                            api_control_url,
+                            api_service_type,
+                        )
+                        .await?;
+                        Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__dlna_av_transport_get_transport_info_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "dlna_av_transport_get_transport_info",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_control_url = <String>::sse_decode(&mut deserializer);
+            let api_service_type = <Option<String>>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || async move {
+                        let output_ok = crate::api::dlna_av_transport_get_transport_info(
+                            api_control_url,
+                            api_service_type,
+                        )
+                        .await?;
+                        Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__dlna_av_transport_pause_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "dlna_av_transport_pause",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_control_url = <String>::sse_decode(&mut deserializer);
+            let api_service_type = <Option<String>>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || async move {
+                        let output_ok =
+                            crate::api::dlna_av_transport_pause(api_control_url, api_service_type)
+                                .await?;
+                        Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__dlna_av_transport_play_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "dlna_av_transport_play",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_control_url = <String>::sse_decode(&mut deserializer);
+            let api_service_type = <Option<String>>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || async move {
+                        let output_ok =
+                            crate::api::dlna_av_transport_play(api_control_url, api_service_type)
+                                .await?;
+                        Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__dlna_av_transport_seek_ms_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "dlna_av_transport_seek_ms",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_control_url = <String>::sse_decode(&mut deserializer);
+            let api_service_type = <Option<String>>::sse_decode(&mut deserializer);
+            let api_position_ms = <u64>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || async move {
+                        let output_ok = crate::api::dlna_av_transport_seek_ms(
+                            api_control_url,
+                            api_service_type,
+                            api_position_ms,
+                        )
+                        .await?;
+                        Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__dlna_av_transport_set_uri_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "dlna_av_transport_set_uri",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_control_url = <String>::sse_decode(&mut deserializer);
+            let api_service_type = <Option<String>>::sse_decode(&mut deserializer);
+            let api_uri = <String>::sse_decode(&mut deserializer);
+            let api_metadata = <Option<String>>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || async move {
+                        let output_ok = crate::api::dlna_av_transport_set_uri(
+                            api_control_url,
+                            api_service_type,
+                            api_uri,
+                            api_metadata,
+                        )
+                        .await?;
+                        Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__dlna_av_transport_stop_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "dlna_av_transport_stop",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_control_url = <String>::sse_decode(&mut deserializer);
+            let api_service_type = <Option<String>>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || async move {
+                        let output_ok =
+                            crate::api::dlna_av_transport_stop(api_control_url, api_service_type)
+                                .await?;
+                        Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__dlna_discover_media_renderers_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "dlna_discover_media_renderers",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_timeout_ms = <u32>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || async move {
+                        let output_ok =
+                            crate::api::dlna_discover_media_renderers(api_timeout_ms).await?;
+                        Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__dlna_discover_renderers_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "dlna_discover_renderers",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_timeout_ms = <u32>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || async move {
+                        let output_ok = crate::api::dlna_discover_renderers(api_timeout_ms).await?;
+                        Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__dlna_http_publish_track_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "dlna_http_publish_track",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_path = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || async move {
+                        let output_ok = crate::api::dlna_http_publish_track(api_path).await?;
+                        Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__dlna_http_start_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "dlna_http_start",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_advertise_ip = <Option<String>>::sse_decode(&mut deserializer);
+            let api_port = <Option<u16>>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || async move {
+                        let output_ok =
+                            crate::api::dlna_http_start(api_advertise_ip, api_port).await?;
+                        Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__dlna_http_unpublish_all_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "dlna_http_unpublish_all",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || async move {
+                        let output_ok = crate::api::dlna_http_unpublish_all().await?;
+                        Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__dlna_play_local_path_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "dlna_play_local_path",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_renderer = <stellatune_core::DlnaRenderer>::sse_decode(&mut deserializer);
+            let api_path = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || async move {
+                        let output_ok =
+                            crate::api::dlna_play_local_path(api_renderer, api_path).await?;
+                        Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__dlna_play_local_track_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "dlna_play_local_track",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_renderer = <stellatune_core::DlnaRenderer>::sse_decode(&mut deserializer);
+            let api_path = <String>::sse_decode(&mut deserializer);
+            let api_title = <Option<String>>::sse_decode(&mut deserializer);
+            let api_artist = <Option<String>>::sse_decode(&mut deserializer);
+            let api_album = <Option<String>>::sse_decode(&mut deserializer);
+            let api_cover_path = <Option<String>>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || async move {
+                        let output_ok = crate::api::dlna_play_local_track(
+                            api_renderer,
+                            api_path,
+                            api_title,
+                            api_artist,
+                            api_album,
+                            api_cover_path,
+                        )
+                        .await?;
+                        Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__dlna_rendering_control_get_volume_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "dlna_rendering_control_get_volume",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_control_url = <String>::sse_decode(&mut deserializer);
+            let api_service_type = <Option<String>>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || async move {
+                        let output_ok = crate::api::dlna_rendering_control_get_volume(
+                            api_control_url,
+                            api_service_type,
+                        )
+                        .await?;
+                        Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__dlna_rendering_control_set_mute_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "dlna_rendering_control_set_mute",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_control_url = <String>::sse_decode(&mut deserializer);
+            let api_service_type = <Option<String>>::sse_decode(&mut deserializer);
+            let api_mute = <bool>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || async move {
+                        let output_ok = crate::api::dlna_rendering_control_set_mute(
+                            api_control_url,
+                            api_service_type,
+                            api_mute,
+                        )
+                        .await?;
+                        Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__dlna_rendering_control_set_volume_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "dlna_rendering_control_set_volume",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_control_url = <String>::sse_decode(&mut deserializer);
+            let api_service_type = <Option<String>>::sse_decode(&mut deserializer);
+            let api_volume_0_100 = <u8>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || async move {
+                        let output_ok = crate::api::dlna_rendering_control_set_volume(
+                            api_control_url,
+                            api_service_type,
+                            api_volume_0_100,
+                        )
+                        .await?;
+                        Ok(output_ok)
+                    })()
+                    .await,
+                )
             }
         },
     )
@@ -777,6 +1460,39 @@ fn wire__crate__api__stop_impl(
 
 #[allow(clippy::unnecessary_literal_unwrap)]
 const _: fn() = || {
+    {
+        let DlnaHttpServerInfo = None::<stellatune_core::DlnaHttpServerInfo>.unwrap();
+        let _: String = DlnaHttpServerInfo.listen_addr;
+        let _: String = DlnaHttpServerInfo.base_url;
+    }
+    {
+        let DlnaPositionInfo = None::<stellatune_core::DlnaPositionInfo>.unwrap();
+        let _: u64 = DlnaPositionInfo.rel_time_ms;
+        let _: Option<u64> = DlnaPositionInfo.track_duration_ms;
+    }
+    {
+        let DlnaRenderer = None::<stellatune_core::DlnaRenderer>.unwrap();
+        let _: String = DlnaRenderer.usn;
+        let _: String = DlnaRenderer.location;
+        let _: String = DlnaRenderer.friendly_name;
+        let _: Option<String> = DlnaRenderer.av_transport_control_url;
+        let _: Option<String> = DlnaRenderer.av_transport_service_type;
+        let _: Option<String> = DlnaRenderer.rendering_control_url;
+        let _: Option<String> = DlnaRenderer.rendering_control_service_type;
+    }
+    {
+        let DlnaSsdpDevice = None::<stellatune_core::DlnaSsdpDevice>.unwrap();
+        let _: String = DlnaSsdpDevice.usn;
+        let _: String = DlnaSsdpDevice.st;
+        let _: String = DlnaSsdpDevice.location;
+        let _: Option<String> = DlnaSsdpDevice.server;
+    }
+    {
+        let DlnaTransportInfo = None::<stellatune_core::DlnaTransportInfo>.unwrap();
+        let _: String = DlnaTransportInfo.current_transport_state;
+        let _: Option<String> = DlnaTransportInfo.current_transport_status;
+        let _: Option<String> = DlnaTransportInfo.current_speed;
+    }
     match None::<stellatune_core::Event>.unwrap() {
         stellatune_core::Event::StateChanged { state } => {
             let _: stellatune_core::PlayerState = state;
@@ -931,6 +1647,82 @@ impl SseDecode for bool {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         deserializer.cursor.read_u8().unwrap() != 0
+    }
+}
+
+impl SseDecode for stellatune_core::DlnaHttpServerInfo {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_listenAddr = <String>::sse_decode(deserializer);
+        let mut var_baseUrl = <String>::sse_decode(deserializer);
+        return stellatune_core::DlnaHttpServerInfo {
+            listen_addr: var_listenAddr,
+            base_url: var_baseUrl,
+        };
+    }
+}
+
+impl SseDecode for stellatune_core::DlnaPositionInfo {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_relTimeMs = <u64>::sse_decode(deserializer);
+        let mut var_trackDurationMs = <Option<u64>>::sse_decode(deserializer);
+        return stellatune_core::DlnaPositionInfo {
+            rel_time_ms: var_relTimeMs,
+            track_duration_ms: var_trackDurationMs,
+        };
+    }
+}
+
+impl SseDecode for stellatune_core::DlnaRenderer {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_usn = <String>::sse_decode(deserializer);
+        let mut var_location = <String>::sse_decode(deserializer);
+        let mut var_friendlyName = <String>::sse_decode(deserializer);
+        let mut var_avTransportControlUrl = <Option<String>>::sse_decode(deserializer);
+        let mut var_avTransportServiceType = <Option<String>>::sse_decode(deserializer);
+        let mut var_renderingControlUrl = <Option<String>>::sse_decode(deserializer);
+        let mut var_renderingControlServiceType = <Option<String>>::sse_decode(deserializer);
+        return stellatune_core::DlnaRenderer {
+            usn: var_usn,
+            location: var_location,
+            friendly_name: var_friendlyName,
+            av_transport_control_url: var_avTransportControlUrl,
+            av_transport_service_type: var_avTransportServiceType,
+            rendering_control_url: var_renderingControlUrl,
+            rendering_control_service_type: var_renderingControlServiceType,
+        };
+    }
+}
+
+impl SseDecode for stellatune_core::DlnaSsdpDevice {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_usn = <String>::sse_decode(deserializer);
+        let mut var_st = <String>::sse_decode(deserializer);
+        let mut var_location = <String>::sse_decode(deserializer);
+        let mut var_server = <Option<String>>::sse_decode(deserializer);
+        return stellatune_core::DlnaSsdpDevice {
+            usn: var_usn,
+            st: var_st,
+            location: var_location,
+            server: var_server,
+        };
+    }
+}
+
+impl SseDecode for stellatune_core::DlnaTransportInfo {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_currentTransportState = <String>::sse_decode(deserializer);
+        let mut var_currentTransportStatus = <Option<String>>::sse_decode(deserializer);
+        let mut var_currentSpeed = <Option<String>>::sse_decode(deserializer);
+        return stellatune_core::DlnaTransportInfo {
+            current_transport_state: var_currentTransportState,
+            current_transport_status: var_currentTransportStatus,
+            current_speed: var_currentSpeed,
+        };
     }
 }
 
@@ -1096,6 +1888,30 @@ impl SseDecode for Vec<String> {
     }
 }
 
+impl SseDecode for Vec<stellatune_core::DlnaRenderer> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = vec![];
+        for idx_ in 0..len_ {
+            ans_.push(<stellatune_core::DlnaRenderer>::sse_decode(deserializer));
+        }
+        return ans_;
+    }
+}
+
+impl SseDecode for Vec<stellatune_core::DlnaSsdpDevice> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = vec![];
+        for idx_ in 0..len_ {
+            ans_.push(<stellatune_core::DlnaSsdpDevice>::sse_decode(deserializer));
+        }
+        return ans_;
+    }
+}
+
 impl SseDecode for Vec<u8> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -1142,6 +1958,28 @@ impl SseDecode for Option<i64> {
     }
 }
 
+impl SseDecode for Option<u16> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<u16>::sse_decode(deserializer));
+        } else {
+            return None;
+        }
+    }
+}
+
+impl SseDecode for Option<u64> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<u64>::sse_decode(deserializer));
+        } else {
+            return None;
+        }
+    }
+}
+
 impl SseDecode for stellatune_core::PlayerState {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -1176,6 +2014,27 @@ impl SseDecode for stellatune_core::TrackLite {
     }
 }
 
+impl SseDecode for u16 {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        deserializer.cursor.read_u16::<NativeEndian>().unwrap()
+    }
+}
+
+impl SseDecode for u32 {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        deserializer.cursor.read_u32::<NativeEndian>().unwrap()
+    }
+}
+
+impl SseDecode for u64 {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        deserializer.cursor.read_u64::<NativeEndian>().unwrap()
+    }
+}
+
 impl SseDecode for u8 {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -1206,26 +2065,70 @@ fn pde_ffi_dispatcher_primary_impl(
     match func_id {
         1 => wire__crate__api__create_library_impl(port, ptr, rust_vec_len, data_len),
         2 => wire__crate__api__create_player_impl(port, ptr, rust_vec_len, data_len),
-        3 => wire__crate__api__events_impl(port, ptr, rust_vec_len, data_len),
-        4 => wire__crate__api__library_add_root_impl(port, ptr, rust_vec_len, data_len),
-        5 => wire__crate__api__library_delete_folder_impl(port, ptr, rust_vec_len, data_len),
-        6 => wire__crate__api__library_events_impl(port, ptr, rust_vec_len, data_len),
-        7 => {
+        3 => wire__crate__api__dlna_av_transport_get_position_info_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        4 => wire__crate__api__dlna_av_transport_get_transport_info_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        5 => wire__crate__api__dlna_av_transport_pause_impl(port, ptr, rust_vec_len, data_len),
+        6 => wire__crate__api__dlna_av_transport_play_impl(port, ptr, rust_vec_len, data_len),
+        7 => wire__crate__api__dlna_av_transport_seek_ms_impl(port, ptr, rust_vec_len, data_len),
+        8 => wire__crate__api__dlna_av_transport_set_uri_impl(port, ptr, rust_vec_len, data_len),
+        9 => wire__crate__api__dlna_av_transport_stop_impl(port, ptr, rust_vec_len, data_len),
+        10 => {
+            wire__crate__api__dlna_discover_media_renderers_impl(port, ptr, rust_vec_len, data_len)
+        }
+        11 => wire__crate__api__dlna_discover_renderers_impl(port, ptr, rust_vec_len, data_len),
+        12 => wire__crate__api__dlna_http_publish_track_impl(port, ptr, rust_vec_len, data_len),
+        13 => wire__crate__api__dlna_http_start_impl(port, ptr, rust_vec_len, data_len),
+        14 => wire__crate__api__dlna_http_unpublish_all_impl(port, ptr, rust_vec_len, data_len),
+        15 => wire__crate__api__dlna_play_local_path_impl(port, ptr, rust_vec_len, data_len),
+        16 => wire__crate__api__dlna_play_local_track_impl(port, ptr, rust_vec_len, data_len),
+        17 => wire__crate__api__dlna_rendering_control_get_volume_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        18 => wire__crate__api__dlna_rendering_control_set_mute_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        19 => wire__crate__api__dlna_rendering_control_set_volume_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        20 => wire__crate__api__events_impl(port, ptr, rust_vec_len, data_len),
+        21 => wire__crate__api__library_add_root_impl(port, ptr, rust_vec_len, data_len),
+        22 => wire__crate__api__library_delete_folder_impl(port, ptr, rust_vec_len, data_len),
+        23 => wire__crate__api__library_events_impl(port, ptr, rust_vec_len, data_len),
+        24 => {
             wire__crate__api__library_list_excluded_folders_impl(port, ptr, rust_vec_len, data_len)
         }
-        8 => wire__crate__api__library_list_folders_impl(port, ptr, rust_vec_len, data_len),
-        9 => wire__crate__api__library_list_roots_impl(port, ptr, rust_vec_len, data_len),
-        10 => wire__crate__api__library_list_tracks_impl(port, ptr, rust_vec_len, data_len),
-        11 => wire__crate__api__library_remove_root_impl(port, ptr, rust_vec_len, data_len),
-        12 => wire__crate__api__library_restore_folder_impl(port, ptr, rust_vec_len, data_len),
-        13 => wire__crate__api__library_scan_all_impl(port, ptr, rust_vec_len, data_len),
-        14 => wire__crate__api__library_scan_all_force_impl(port, ptr, rust_vec_len, data_len),
-        15 => wire__crate__api__library_search_impl(port, ptr, rust_vec_len, data_len),
-        16 => wire__crate__api__load_impl(port, ptr, rust_vec_len, data_len),
-        17 => wire__crate__api__pause_impl(port, ptr, rust_vec_len, data_len),
-        18 => wire__crate__api__play_impl(port, ptr, rust_vec_len, data_len),
-        19 => wire__crate__api__set_volume_impl(port, ptr, rust_vec_len, data_len),
-        20 => wire__crate__api__stop_impl(port, ptr, rust_vec_len, data_len),
+        25 => wire__crate__api__library_list_folders_impl(port, ptr, rust_vec_len, data_len),
+        26 => wire__crate__api__library_list_roots_impl(port, ptr, rust_vec_len, data_len),
+        27 => wire__crate__api__library_list_tracks_impl(port, ptr, rust_vec_len, data_len),
+        28 => wire__crate__api__library_remove_root_impl(port, ptr, rust_vec_len, data_len),
+        29 => wire__crate__api__library_restore_folder_impl(port, ptr, rust_vec_len, data_len),
+        30 => wire__crate__api__library_scan_all_impl(port, ptr, rust_vec_len, data_len),
+        31 => wire__crate__api__library_scan_all_force_impl(port, ptr, rust_vec_len, data_len),
+        32 => wire__crate__api__library_search_impl(port, ptr, rust_vec_len, data_len),
+        33 => wire__crate__api__load_impl(port, ptr, rust_vec_len, data_len),
+        34 => wire__crate__api__pause_impl(port, ptr, rust_vec_len, data_len),
+        35 => wire__crate__api__play_impl(port, ptr, rust_vec_len, data_len),
+        36 => wire__crate__api__set_volume_impl(port, ptr, rust_vec_len, data_len),
+        37 => wire__crate__api__stop_impl(port, ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
@@ -1244,6 +2147,125 @@ fn pde_ffi_dispatcher_sync_impl(
 
 // Section: rust2dart
 
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for FrbWrapper<stellatune_core::DlnaHttpServerInfo> {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.0.listen_addr.into_into_dart().into_dart(),
+            self.0.base_url.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for FrbWrapper<stellatune_core::DlnaHttpServerInfo>
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<FrbWrapper<stellatune_core::DlnaHttpServerInfo>>
+    for stellatune_core::DlnaHttpServerInfo
+{
+    fn into_into_dart(self) -> FrbWrapper<stellatune_core::DlnaHttpServerInfo> {
+        self.into()
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for FrbWrapper<stellatune_core::DlnaPositionInfo> {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.0.rel_time_ms.into_into_dart().into_dart(),
+            self.0.track_duration_ms.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for FrbWrapper<stellatune_core::DlnaPositionInfo>
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<FrbWrapper<stellatune_core::DlnaPositionInfo>>
+    for stellatune_core::DlnaPositionInfo
+{
+    fn into_into_dart(self) -> FrbWrapper<stellatune_core::DlnaPositionInfo> {
+        self.into()
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for FrbWrapper<stellatune_core::DlnaRenderer> {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.0.usn.into_into_dart().into_dart(),
+            self.0.location.into_into_dart().into_dart(),
+            self.0.friendly_name.into_into_dart().into_dart(),
+            self.0.av_transport_control_url.into_into_dart().into_dart(),
+            self.0
+                .av_transport_service_type
+                .into_into_dart()
+                .into_dart(),
+            self.0.rendering_control_url.into_into_dart().into_dart(),
+            self.0
+                .rendering_control_service_type
+                .into_into_dart()
+                .into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for FrbWrapper<stellatune_core::DlnaRenderer>
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<FrbWrapper<stellatune_core::DlnaRenderer>>
+    for stellatune_core::DlnaRenderer
+{
+    fn into_into_dart(self) -> FrbWrapper<stellatune_core::DlnaRenderer> {
+        self.into()
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for FrbWrapper<stellatune_core::DlnaSsdpDevice> {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.0.usn.into_into_dart().into_dart(),
+            self.0.st.into_into_dart().into_dart(),
+            self.0.location.into_into_dart().into_dart(),
+            self.0.server.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for FrbWrapper<stellatune_core::DlnaSsdpDevice>
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<FrbWrapper<stellatune_core::DlnaSsdpDevice>>
+    for stellatune_core::DlnaSsdpDevice
+{
+    fn into_into_dart(self) -> FrbWrapper<stellatune_core::DlnaSsdpDevice> {
+        self.into()
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for FrbWrapper<stellatune_core::DlnaTransportInfo> {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.0.current_transport_state.into_into_dart().into_dart(),
+            self.0.current_transport_status.into_into_dart().into_dart(),
+            self.0.current_speed.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for FrbWrapper<stellatune_core::DlnaTransportInfo>
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<FrbWrapper<stellatune_core::DlnaTransportInfo>>
+    for stellatune_core::DlnaTransportInfo
+{
+    fn into_into_dart(self) -> FrbWrapper<stellatune_core::DlnaTransportInfo> {
+        self.into()
+    }
+}
 // Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for FrbWrapper<stellatune_core::Event> {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
@@ -1476,6 +2498,54 @@ impl SseEncode for bool {
     }
 }
 
+impl SseEncode for stellatune_core::DlnaHttpServerInfo {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.listen_addr, serializer);
+        <String>::sse_encode(self.base_url, serializer);
+    }
+}
+
+impl SseEncode for stellatune_core::DlnaPositionInfo {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <u64>::sse_encode(self.rel_time_ms, serializer);
+        <Option<u64>>::sse_encode(self.track_duration_ms, serializer);
+    }
+}
+
+impl SseEncode for stellatune_core::DlnaRenderer {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.usn, serializer);
+        <String>::sse_encode(self.location, serializer);
+        <String>::sse_encode(self.friendly_name, serializer);
+        <Option<String>>::sse_encode(self.av_transport_control_url, serializer);
+        <Option<String>>::sse_encode(self.av_transport_service_type, serializer);
+        <Option<String>>::sse_encode(self.rendering_control_url, serializer);
+        <Option<String>>::sse_encode(self.rendering_control_service_type, serializer);
+    }
+}
+
+impl SseEncode for stellatune_core::DlnaSsdpDevice {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.usn, serializer);
+        <String>::sse_encode(self.st, serializer);
+        <String>::sse_encode(self.location, serializer);
+        <Option<String>>::sse_encode(self.server, serializer);
+    }
+}
+
+impl SseEncode for stellatune_core::DlnaTransportInfo {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.current_transport_state, serializer);
+        <Option<String>>::sse_encode(self.current_transport_status, serializer);
+        <Option<String>>::sse_encode(self.current_speed, serializer);
+    }
+}
+
 impl SseEncode for stellatune_core::Event {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -1623,6 +2693,26 @@ impl SseEncode for Vec<String> {
     }
 }
 
+impl SseEncode for Vec<stellatune_core::DlnaRenderer> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <stellatune_core::DlnaRenderer>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<stellatune_core::DlnaSsdpDevice> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <stellatune_core::DlnaSsdpDevice>::sse_encode(item, serializer);
+        }
+    }
+}
+
 impl SseEncode for Vec<u8> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -1663,6 +2753,26 @@ impl SseEncode for Option<i64> {
     }
 }
 
+impl SseEncode for Option<u16> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <u16>::sse_encode(value, serializer);
+        }
+    }
+}
+
+impl SseEncode for Option<u64> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <u64>::sse_encode(value, serializer);
+        }
+    }
+}
+
 impl SseEncode for stellatune_core::PlayerState {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -1690,6 +2800,27 @@ impl SseEncode for stellatune_core::TrackLite {
         <Option<String>>::sse_encode(self.artist, serializer);
         <Option<String>>::sse_encode(self.album, serializer);
         <Option<i64>>::sse_encode(self.duration_ms, serializer);
+    }
+}
+
+impl SseEncode for u16 {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        serializer.cursor.write_u16::<NativeEndian>(self).unwrap();
+    }
+}
+
+impl SseEncode for u32 {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        serializer.cursor.write_u32::<NativeEndian>(self).unwrap();
+    }
+}
+
+impl SseEncode for u64 {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        serializer.cursor.write_u64::<NativeEndian>(self).unwrap();
     }
 }
 

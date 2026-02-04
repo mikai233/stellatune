@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:stellatune/bridge/bridge.dart';
+import 'package:stellatune/dlna/dlna_providers.dart';
 import 'package:stellatune/l10n/app_localizations.dart';
 import 'package:stellatune/player/playback_controller.dart';
 import 'package:stellatune/player/queue_controller.dart';
@@ -15,6 +16,7 @@ class NowPlayingBar extends ConsumerWidget {
     final theme = Theme.of(context);
     final playback = ref.watch(playbackControllerProvider);
     final queue = ref.watch(queueControllerProvider);
+    final selectedRenderer = ref.watch(dlnaSelectedRendererProvider);
 
     final currentTitle = queue.currentItem?.displayTitle ?? l10n.nowPlayingNone;
     final currentSubtitle = playback.currentPath ?? '';
@@ -67,6 +69,23 @@ class NowPlayingBar extends ConsumerWidget {
                   _formatMs(playback.positionMs),
                   style: theme.textTheme.titleMedium,
                 ),
+                if (playback.lastError != null) ...[
+                  const SizedBox(width: 8),
+                  IconButton(
+                    tooltip: playback.lastError!,
+                    onPressed: () {
+                      final msg = playback.lastError;
+                      if (msg == null) return;
+                      ScaffoldMessenger.of(
+                        context,
+                      ).showSnackBar(SnackBar(content: Text(msg)));
+                    },
+                    icon: Icon(
+                      Icons.error_outline,
+                      color: theme.colorScheme.error,
+                    ),
+                  ),
+                ],
                 const SizedBox(width: 16),
                 IconButton(
                   tooltip: l10n.tooltipPrevious,
@@ -165,6 +184,37 @@ class NowPlayingBar extends ConsumerWidget {
                         : theme.colorScheme.primary,
                   ),
                 ),
+                IconButton(
+                  tooltip: selectedRenderer == null
+                      ? 'DLNA'
+                      : 'DLNA: ${selectedRenderer.friendlyName}',
+                  onPressed: () async {
+                    final chosen = await showDialog<_DlnaActionResult>(
+                      context: context,
+                      builder: (context) =>
+                          _DlnaDialog(selected: selectedRenderer),
+                    );
+                    if (chosen == null) return;
+
+                    if (chosen.applySelection) {
+                      ref.read(dlnaSelectedRendererProvider.notifier).state =
+                          chosen.selected;
+                    }
+
+                    final message = chosen.message;
+                    if (message != null && context.mounted) {
+                      ScaffoldMessenger.of(
+                        context,
+                      ).showSnackBar(SnackBar(content: Text(message)));
+                    }
+                  },
+                  icon: Icon(
+                    Icons.cast,
+                    color: selectedRenderer == null
+                        ? null
+                        : theme.colorScheme.primary,
+                  ),
+                ),
                 const SizedBox(width: 12),
               ],
             );
@@ -231,6 +281,278 @@ class _VolumeControlInline extends StatelessWidget {
         ),
         const SizedBox(width: 8),
       ],
+    );
+  }
+}
+
+class _DlnaActionResult {
+  const _DlnaActionResult({
+    this.applySelection = false,
+    this.selected,
+    this.message,
+  });
+
+  final bool applySelection;
+  final DlnaRenderer? selected;
+  final String? message;
+}
+
+class _DlnaDialog extends StatefulWidget {
+  const _DlnaDialog({required this.selected});
+
+  final DlnaRenderer? selected;
+
+  @override
+  State<_DlnaDialog> createState() => _DlnaDialogState();
+}
+
+class _DlnaDialogState extends State<_DlnaDialog> {
+  late Future<List<DlnaRenderer>> _future;
+  DlnaRenderer? _selected;
+
+  @override
+  void initState() {
+    super.initState();
+    _selected = widget.selected;
+    _future = const DlnaBridge().discoverRenderers(
+      timeout: const Duration(milliseconds: 1200),
+    );
+  }
+
+  void _refresh() {
+    setState(() {
+      _future = const DlnaBridge().discoverRenderers(
+        timeout: const Duration(milliseconds: 1200),
+      );
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    final okLabel = MaterialLocalizations.of(context).okButtonLabel;
+    final cancelLabel = MaterialLocalizations.of(context).cancelButtonLabel;
+    final screenH = MediaQuery.sizeOf(context).height;
+    final listHeight = (screenH * 0.45).clamp(260.0, 420.0);
+
+    return Dialog(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 560),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 20, 24, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.cast, color: theme.colorScheme.primary),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text('DLNA', style: theme.textTheme.titleLarge),
+                  ),
+                  IconButton(
+                    tooltip: '刷新',
+                    onPressed: _refresh,
+                    icon: const Icon(Icons.refresh),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  '输出设备',
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                height: listHeight,
+                child: FutureBuilder<List<DlnaRenderer>>(
+                  future: _future,
+                  builder: (context, snapshot) {
+                    final data = snapshot.data;
+                    if (snapshot.connectionState != ConnectionState.done) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    if (snapshot.hasError) {
+                      return _DlnaEmptyState(
+                        icon: Icons.error_outline,
+                        title: '发现失败',
+                        subtitle: '${snapshot.error}',
+                        onRetry: _refresh,
+                      );
+                    }
+
+                    final devices = data ?? const [];
+                    if (devices.isEmpty) {
+                      return _DlnaEmptyState(
+                        icon: Icons.wifi_off,
+                        title: '未发现 DLNA 设备',
+                        subtitle: '请确保设备与本机在同一局域网内，并关闭可能拦截组播的代理/VPN。',
+                        onRetry: _refresh,
+                      );
+                    }
+
+                    return Container(
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.surfaceContainerLow,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: theme.colorScheme.outlineVariant,
+                        ),
+                      ),
+                      clipBehavior: Clip.antiAlias,
+                      child: ListView.separated(
+                        shrinkWrap: true,
+                        itemCount: devices.length + 1,
+                        separatorBuilder: (context, index) =>
+                            const Divider(height: 1),
+                        itemBuilder: (context, i) {
+                          if (i == 0) {
+                            final selected = _selected == null;
+                            return ListTile(
+                              dense: true,
+                              leading: const Icon(Icons.computer),
+                              title: const Text('本机'),
+                              subtitle: const Text('本地输出'),
+                              trailing: selected
+                                  ? Icon(
+                                      Icons.check_circle,
+                                      color: theme.colorScheme.primary,
+                                    )
+                                  : null,
+                              selected: selected,
+                              onTap: () => setState(() => _selected = null),
+                            );
+                          }
+
+                          final d = devices[i - 1];
+                          final ok = d.avTransportControlUrl != null;
+                          final selected = _selected?.usn == d.usn;
+                          final volOk = d.renderingControlUrl != null;
+                          final subtitle = ok
+                              ? (volOk ? null : '不支持音量控制')
+                              : '不支持 AVTransport（无法播放）';
+                          return ListTile(
+                            dense: true,
+                            enabled: ok,
+                            leading: const Icon(Icons.speaker),
+                            title: Text(d.friendlyName),
+                            subtitle: subtitle == null ? null : Text(subtitle),
+                            trailing: selected
+                                ? Icon(
+                                    Icons.check_circle,
+                                    color: theme.colorScheme.primary,
+                                  )
+                                : null,
+                            selected: selected,
+                            onTap: ok
+                                ? () => setState(() => _selected = d)
+                                : null,
+                          );
+                        },
+                      ),
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: Text(cancelLabel),
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton(
+                    onPressed: () {
+                      final d = _selected;
+                      if (d == null) {
+                        Navigator.of(context).pop(
+                          _DlnaActionResult(
+                            applySelection: true,
+                            selected: null,
+                            message: '已切换到本地输出',
+                          ),
+                        );
+                        return;
+                      }
+                      if (d.avTransportControlUrl == null) {
+                        Navigator.of(context).pop(
+                          _DlnaActionResult(
+                            applySelection: false,
+                            message: '不支持 AVTransport（无法播放）',
+                          ),
+                        );
+                        return;
+                      }
+                      Navigator.of(context).pop(
+                        _DlnaActionResult(
+                          applySelection: true,
+                          selected: d,
+                          message: '已选择 DLNA：${d.friendlyName}',
+                        ),
+                      );
+                    },
+                    child: Text(okLabel),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DlnaEmptyState extends StatelessWidget {
+  const _DlnaEmptyState({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onRetry,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 36, color: theme.colorScheme.onSurfaceVariant),
+            const SizedBox(height: 12),
+            Text(title, style: theme.textTheme.titleMedium),
+            const SizedBox(height: 4),
+            Text(
+              subtitle,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 12),
+            FilledButton.tonalIcon(
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh),
+              label: const Text('刷新'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

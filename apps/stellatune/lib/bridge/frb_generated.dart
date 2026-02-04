@@ -71,7 +71,7 @@ class StellatuneApi
   String get codegenVersion => '2.11.1';
 
   @override
-  int get rustContentHash => -2040474260;
+  int get rustContentHash => -2104059381;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -85,6 +85,92 @@ abstract class StellatuneApiApi extends BaseApi {
   Future<Library> crateApiCreateLibrary({required String dbPath});
 
   Future<Player> crateApiCreatePlayer();
+
+  Future<DlnaPositionInfo> crateApiDlnaAvTransportGetPositionInfo({
+    required String controlUrl,
+    String? serviceType,
+  });
+
+  Future<DlnaTransportInfo> crateApiDlnaAvTransportGetTransportInfo({
+    required String controlUrl,
+    String? serviceType,
+  });
+
+  Future<void> crateApiDlnaAvTransportPause({
+    required String controlUrl,
+    String? serviceType,
+  });
+
+  Future<void> crateApiDlnaAvTransportPlay({
+    required String controlUrl,
+    String? serviceType,
+  });
+
+  Future<void> crateApiDlnaAvTransportSeekMs({
+    required String controlUrl,
+    String? serviceType,
+    required BigInt positionMs,
+  });
+
+  Future<void> crateApiDlnaAvTransportSetUri({
+    required String controlUrl,
+    String? serviceType,
+    required String uri,
+    String? metadata,
+  });
+
+  Future<void> crateApiDlnaAvTransportStop({
+    required String controlUrl,
+    String? serviceType,
+  });
+
+  Future<List<DlnaSsdpDevice>> crateApiDlnaDiscoverMediaRenderers({
+    required int timeoutMs,
+  });
+
+  Future<List<DlnaRenderer>> crateApiDlnaDiscoverRenderers({
+    required int timeoutMs,
+  });
+
+  Future<String> crateApiDlnaHttpPublishTrack({required String path});
+
+  Future<DlnaHttpServerInfo> crateApiDlnaHttpStart({
+    String? advertiseIp,
+    int? port,
+  });
+
+  Future<void> crateApiDlnaHttpUnpublishAll();
+
+  Future<String> crateApiDlnaPlayLocalPath({
+    required DlnaRenderer renderer,
+    required String path,
+  });
+
+  Future<String> crateApiDlnaPlayLocalTrack({
+    required DlnaRenderer renderer,
+    required String path,
+    String? title,
+    String? artist,
+    String? album,
+    String? coverPath,
+  });
+
+  Future<int> crateApiDlnaRenderingControlGetVolume({
+    required String controlUrl,
+    String? serviceType,
+  });
+
+  Future<void> crateApiDlnaRenderingControlSetMute({
+    required String controlUrl,
+    String? serviceType,
+    required bool mute,
+  });
+
+  Future<void> crateApiDlnaRenderingControlSetVolume({
+    required String controlUrl,
+    String? serviceType,
+    required int volume0100,
+  });
 
   Stream<Event> crateApiEvents({required Player player});
 
@@ -227,6 +313,600 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
       const TaskConstMeta(debugName: "create_player", argNames: []);
 
   @override
+  Future<DlnaPositionInfo> crateApiDlnaAvTransportGetPositionInfo({
+    required String controlUrl,
+    String? serviceType,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(controlUrl, serializer);
+          sse_encode_opt_String(serviceType, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 3,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_dlna_position_info,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiDlnaAvTransportGetPositionInfoConstMeta,
+        argValues: [controlUrl, serviceType],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiDlnaAvTransportGetPositionInfoConstMeta =>
+      const TaskConstMeta(
+        debugName: "dlna_av_transport_get_position_info",
+        argNames: ["controlUrl", "serviceType"],
+      );
+
+  @override
+  Future<DlnaTransportInfo> crateApiDlnaAvTransportGetTransportInfo({
+    required String controlUrl,
+    String? serviceType,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(controlUrl, serializer);
+          sse_encode_opt_String(serviceType, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 4,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_dlna_transport_info,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiDlnaAvTransportGetTransportInfoConstMeta,
+        argValues: [controlUrl, serviceType],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiDlnaAvTransportGetTransportInfoConstMeta =>
+      const TaskConstMeta(
+        debugName: "dlna_av_transport_get_transport_info",
+        argNames: ["controlUrl", "serviceType"],
+      );
+
+  @override
+  Future<void> crateApiDlnaAvTransportPause({
+    required String controlUrl,
+    String? serviceType,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(controlUrl, serializer);
+          sse_encode_opt_String(serviceType, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 5,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiDlnaAvTransportPauseConstMeta,
+        argValues: [controlUrl, serviceType],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiDlnaAvTransportPauseConstMeta =>
+      const TaskConstMeta(
+        debugName: "dlna_av_transport_pause",
+        argNames: ["controlUrl", "serviceType"],
+      );
+
+  @override
+  Future<void> crateApiDlnaAvTransportPlay({
+    required String controlUrl,
+    String? serviceType,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(controlUrl, serializer);
+          sse_encode_opt_String(serviceType, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 6,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiDlnaAvTransportPlayConstMeta,
+        argValues: [controlUrl, serviceType],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiDlnaAvTransportPlayConstMeta =>
+      const TaskConstMeta(
+        debugName: "dlna_av_transport_play",
+        argNames: ["controlUrl", "serviceType"],
+      );
+
+  @override
+  Future<void> crateApiDlnaAvTransportSeekMs({
+    required String controlUrl,
+    String? serviceType,
+    required BigInt positionMs,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(controlUrl, serializer);
+          sse_encode_opt_String(serviceType, serializer);
+          sse_encode_u_64(positionMs, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 7,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiDlnaAvTransportSeekMsConstMeta,
+        argValues: [controlUrl, serviceType, positionMs],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiDlnaAvTransportSeekMsConstMeta =>
+      const TaskConstMeta(
+        debugName: "dlna_av_transport_seek_ms",
+        argNames: ["controlUrl", "serviceType", "positionMs"],
+      );
+
+  @override
+  Future<void> crateApiDlnaAvTransportSetUri({
+    required String controlUrl,
+    String? serviceType,
+    required String uri,
+    String? metadata,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(controlUrl, serializer);
+          sse_encode_opt_String(serviceType, serializer);
+          sse_encode_String(uri, serializer);
+          sse_encode_opt_String(metadata, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 8,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiDlnaAvTransportSetUriConstMeta,
+        argValues: [controlUrl, serviceType, uri, metadata],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiDlnaAvTransportSetUriConstMeta =>
+      const TaskConstMeta(
+        debugName: "dlna_av_transport_set_uri",
+        argNames: ["controlUrl", "serviceType", "uri", "metadata"],
+      );
+
+  @override
+  Future<void> crateApiDlnaAvTransportStop({
+    required String controlUrl,
+    String? serviceType,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(controlUrl, serializer);
+          sse_encode_opt_String(serviceType, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 9,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiDlnaAvTransportStopConstMeta,
+        argValues: [controlUrl, serviceType],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiDlnaAvTransportStopConstMeta =>
+      const TaskConstMeta(
+        debugName: "dlna_av_transport_stop",
+        argNames: ["controlUrl", "serviceType"],
+      );
+
+  @override
+  Future<List<DlnaSsdpDevice>> crateApiDlnaDiscoverMediaRenderers({
+    required int timeoutMs,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_u_32(timeoutMs, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 10,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_dlna_ssdp_device,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiDlnaDiscoverMediaRenderersConstMeta,
+        argValues: [timeoutMs],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiDlnaDiscoverMediaRenderersConstMeta =>
+      const TaskConstMeta(
+        debugName: "dlna_discover_media_renderers",
+        argNames: ["timeoutMs"],
+      );
+
+  @override
+  Future<List<DlnaRenderer>> crateApiDlnaDiscoverRenderers({
+    required int timeoutMs,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_u_32(timeoutMs, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 11,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_dlna_renderer,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiDlnaDiscoverRenderersConstMeta,
+        argValues: [timeoutMs],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiDlnaDiscoverRenderersConstMeta =>
+      const TaskConstMeta(
+        debugName: "dlna_discover_renderers",
+        argNames: ["timeoutMs"],
+      );
+
+  @override
+  Future<String> crateApiDlnaHttpPublishTrack({required String path}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(path, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 12,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_String,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiDlnaHttpPublishTrackConstMeta,
+        argValues: [path],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiDlnaHttpPublishTrackConstMeta =>
+      const TaskConstMeta(
+        debugName: "dlna_http_publish_track",
+        argNames: ["path"],
+      );
+
+  @override
+  Future<DlnaHttpServerInfo> crateApiDlnaHttpStart({
+    String? advertiseIp,
+    int? port,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_opt_String(advertiseIp, serializer);
+          sse_encode_opt_box_autoadd_u_16(port, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 13,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_dlna_http_server_info,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiDlnaHttpStartConstMeta,
+        argValues: [advertiseIp, port],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiDlnaHttpStartConstMeta => const TaskConstMeta(
+    debugName: "dlna_http_start",
+    argNames: ["advertiseIp", "port"],
+  );
+
+  @override
+  Future<void> crateApiDlnaHttpUnpublishAll() {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 14,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiDlnaHttpUnpublishAllConstMeta,
+        argValues: [],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiDlnaHttpUnpublishAllConstMeta =>
+      const TaskConstMeta(debugName: "dlna_http_unpublish_all", argNames: []);
+
+  @override
+  Future<String> crateApiDlnaPlayLocalPath({
+    required DlnaRenderer renderer,
+    required String path,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_box_autoadd_dlna_renderer(renderer, serializer);
+          sse_encode_String(path, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 15,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_String,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiDlnaPlayLocalPathConstMeta,
+        argValues: [renderer, path],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiDlnaPlayLocalPathConstMeta => const TaskConstMeta(
+    debugName: "dlna_play_local_path",
+    argNames: ["renderer", "path"],
+  );
+
+  @override
+  Future<String> crateApiDlnaPlayLocalTrack({
+    required DlnaRenderer renderer,
+    required String path,
+    String? title,
+    String? artist,
+    String? album,
+    String? coverPath,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_box_autoadd_dlna_renderer(renderer, serializer);
+          sse_encode_String(path, serializer);
+          sse_encode_opt_String(title, serializer);
+          sse_encode_opt_String(artist, serializer);
+          sse_encode_opt_String(album, serializer);
+          sse_encode_opt_String(coverPath, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 16,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_String,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiDlnaPlayLocalTrackConstMeta,
+        argValues: [renderer, path, title, artist, album, coverPath],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiDlnaPlayLocalTrackConstMeta => const TaskConstMeta(
+    debugName: "dlna_play_local_track",
+    argNames: ["renderer", "path", "title", "artist", "album", "coverPath"],
+  );
+
+  @override
+  Future<int> crateApiDlnaRenderingControlGetVolume({
+    required String controlUrl,
+    String? serviceType,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(controlUrl, serializer);
+          sse_encode_opt_String(serviceType, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 17,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_u_8,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiDlnaRenderingControlGetVolumeConstMeta,
+        argValues: [controlUrl, serviceType],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiDlnaRenderingControlGetVolumeConstMeta =>
+      const TaskConstMeta(
+        debugName: "dlna_rendering_control_get_volume",
+        argNames: ["controlUrl", "serviceType"],
+      );
+
+  @override
+  Future<void> crateApiDlnaRenderingControlSetMute({
+    required String controlUrl,
+    String? serviceType,
+    required bool mute,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(controlUrl, serializer);
+          sse_encode_opt_String(serviceType, serializer);
+          sse_encode_bool(mute, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 18,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiDlnaRenderingControlSetMuteConstMeta,
+        argValues: [controlUrl, serviceType, mute],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiDlnaRenderingControlSetMuteConstMeta =>
+      const TaskConstMeta(
+        debugName: "dlna_rendering_control_set_mute",
+        argNames: ["controlUrl", "serviceType", "mute"],
+      );
+
+  @override
+  Future<void> crateApiDlnaRenderingControlSetVolume({
+    required String controlUrl,
+    String? serviceType,
+    required int volume0100,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(controlUrl, serializer);
+          sse_encode_opt_String(serviceType, serializer);
+          sse_encode_u_8(volume0100, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 19,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiDlnaRenderingControlSetVolumeConstMeta,
+        argValues: [controlUrl, serviceType, volume0100],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiDlnaRenderingControlSetVolumeConstMeta =>
+      const TaskConstMeta(
+        debugName: "dlna_rendering_control_set_volume",
+        argNames: ["controlUrl", "serviceType", "volume0100"],
+      );
+
+  @override
   Stream<Event> crateApiEvents({required Player player}) {
     final sink = RustStreamSink<Event>();
     unawaited(
@@ -239,7 +919,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
             pdeCallFfi(
               generalizedFrbRustBinding,
               serializer,
-              funcId: 3,
+              funcId: 20,
               port: port_,
             );
           },
@@ -273,7 +953,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 4,
+            funcId: 21,
             port: port_,
           );
         },
@@ -307,7 +987,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 5,
+            funcId: 22,
             port: port_,
           );
         },
@@ -341,7 +1021,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
             pdeCallFfi(
               generalizedFrbRustBinding,
               serializer,
-              funcId: 6,
+              funcId: 23,
               port: port_,
             );
           },
@@ -373,7 +1053,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 7,
+            funcId: 24,
             port: port_,
           );
         },
@@ -404,7 +1084,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 8,
+            funcId: 25,
             port: port_,
           );
         },
@@ -434,7 +1114,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 9,
+            funcId: 26,
             port: port_,
           );
         },
@@ -476,7 +1156,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 10,
+            funcId: 27,
             port: port_,
           );
         },
@@ -510,7 +1190,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 11,
+            funcId: 28,
             port: port_,
           );
         },
@@ -544,7 +1224,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 12,
+            funcId: 29,
             port: port_,
           );
         },
@@ -575,7 +1255,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 13,
+            funcId: 30,
             port: port_,
           );
         },
@@ -605,7 +1285,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 14,
+            funcId: 31,
             port: port_,
           );
         },
@@ -644,7 +1324,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 15,
+            funcId: 32,
             port: port_,
           );
         },
@@ -675,7 +1355,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 16,
+            funcId: 33,
             port: port_,
           );
         },
@@ -703,7 +1383,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 17,
+            funcId: 34,
             port: port_,
           );
         },
@@ -731,7 +1411,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 18,
+            funcId: 35,
             port: port_,
           );
         },
@@ -763,7 +1443,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 19,
+            funcId: 36,
             port: port_,
           );
         },
@@ -793,7 +1473,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 20,
+            funcId: 37,
             port: port_,
           );
         },
@@ -872,9 +1552,95 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   }
 
   @protected
+  DlnaRenderer dco_decode_box_autoadd_dlna_renderer(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_dlna_renderer(raw);
+  }
+
+  @protected
   PlatformInt64 dco_decode_box_autoadd_i_64(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dco_decode_i_64(raw);
+  }
+
+  @protected
+  int dco_decode_box_autoadd_u_16(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw as int;
+  }
+
+  @protected
+  BigInt dco_decode_box_autoadd_u_64(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_u_64(raw);
+  }
+
+  @protected
+  DlnaHttpServerInfo dco_decode_dlna_http_server_info(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return DlnaHttpServerInfo(
+      listenAddr: dco_decode_String(arr[0]),
+      baseUrl: dco_decode_String(arr[1]),
+    );
+  }
+
+  @protected
+  DlnaPositionInfo dco_decode_dlna_position_info(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return DlnaPositionInfo(
+      relTimeMs: dco_decode_u_64(arr[0]),
+      trackDurationMs: dco_decode_opt_box_autoadd_u_64(arr[1]),
+    );
+  }
+
+  @protected
+  DlnaRenderer dco_decode_dlna_renderer(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 7)
+      throw Exception('unexpected arr length: expect 7 but see ${arr.length}');
+    return DlnaRenderer(
+      usn: dco_decode_String(arr[0]),
+      location: dco_decode_String(arr[1]),
+      friendlyName: dco_decode_String(arr[2]),
+      avTransportControlUrl: dco_decode_opt_String(arr[3]),
+      avTransportServiceType: dco_decode_opt_String(arr[4]),
+      renderingControlUrl: dco_decode_opt_String(arr[5]),
+      renderingControlServiceType: dco_decode_opt_String(arr[6]),
+    );
+  }
+
+  @protected
+  DlnaSsdpDevice dco_decode_dlna_ssdp_device(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 4)
+      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    return DlnaSsdpDevice(
+      usn: dco_decode_String(arr[0]),
+      st: dco_decode_String(arr[1]),
+      location: dco_decode_String(arr[2]),
+      server: dco_decode_opt_String(arr[3]),
+    );
+  }
+
+  @protected
+  DlnaTransportInfo dco_decode_dlna_transport_info(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 3)
+      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
+    return DlnaTransportInfo(
+      currentTransportState: dco_decode_String(arr[0]),
+      currentTransportStatus: dco_decode_opt_String(arr[1]),
+      currentSpeed: dco_decode_opt_String(arr[2]),
+    );
   }
 
   @protected
@@ -975,6 +1741,18 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   }
 
   @protected
+  List<DlnaRenderer> dco_decode_list_dlna_renderer(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_dlna_renderer).toList();
+  }
+
+  @protected
+  List<DlnaSsdpDevice> dco_decode_list_dlna_ssdp_device(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_dlna_ssdp_device).toList();
+  }
+
+  @protected
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as Uint8List;
@@ -999,6 +1777,18 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   }
 
   @protected
+  int? dco_decode_opt_box_autoadd_u_16(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_box_autoadd_u_16(raw);
+  }
+
+  @protected
+  BigInt? dco_decode_opt_box_autoadd_u_64(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_box_autoadd_u_64(raw);
+  }
+
+  @protected
   PlayerState dco_decode_player_state(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return PlayerState.values[raw as int];
@@ -1018,6 +1808,24 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
       album: dco_decode_opt_String(arr[4]),
       durationMs: dco_decode_opt_box_autoadd_i_64(arr[5]),
     );
+  }
+
+  @protected
+  int dco_decode_u_16(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw as int;
+  }
+
+  @protected
+  int dco_decode_u_32(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw as int;
+  }
+
+  @protected
+  BigInt dco_decode_u_64(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dcoDecodeU64(raw);
   }
 
   @protected
@@ -1093,9 +1901,101 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   }
 
   @protected
+  DlnaRenderer sse_decode_box_autoadd_dlna_renderer(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_dlna_renderer(deserializer));
+  }
+
+  @protected
   PlatformInt64 sse_decode_box_autoadd_i_64(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return (sse_decode_i_64(deserializer));
+  }
+
+  @protected
+  int sse_decode_box_autoadd_u_16(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_u_16(deserializer));
+  }
+
+  @protected
+  BigInt sse_decode_box_autoadd_u_64(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_u_64(deserializer));
+  }
+
+  @protected
+  DlnaHttpServerInfo sse_decode_dlna_http_server_info(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_listenAddr = sse_decode_String(deserializer);
+    var var_baseUrl = sse_decode_String(deserializer);
+    return DlnaHttpServerInfo(listenAddr: var_listenAddr, baseUrl: var_baseUrl);
+  }
+
+  @protected
+  DlnaPositionInfo sse_decode_dlna_position_info(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_relTimeMs = sse_decode_u_64(deserializer);
+    var var_trackDurationMs = sse_decode_opt_box_autoadd_u_64(deserializer);
+    return DlnaPositionInfo(
+      relTimeMs: var_relTimeMs,
+      trackDurationMs: var_trackDurationMs,
+    );
+  }
+
+  @protected
+  DlnaRenderer sse_decode_dlna_renderer(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_usn = sse_decode_String(deserializer);
+    var var_location = sse_decode_String(deserializer);
+    var var_friendlyName = sse_decode_String(deserializer);
+    var var_avTransportControlUrl = sse_decode_opt_String(deserializer);
+    var var_avTransportServiceType = sse_decode_opt_String(deserializer);
+    var var_renderingControlUrl = sse_decode_opt_String(deserializer);
+    var var_renderingControlServiceType = sse_decode_opt_String(deserializer);
+    return DlnaRenderer(
+      usn: var_usn,
+      location: var_location,
+      friendlyName: var_friendlyName,
+      avTransportControlUrl: var_avTransportControlUrl,
+      avTransportServiceType: var_avTransportServiceType,
+      renderingControlUrl: var_renderingControlUrl,
+      renderingControlServiceType: var_renderingControlServiceType,
+    );
+  }
+
+  @protected
+  DlnaSsdpDevice sse_decode_dlna_ssdp_device(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_usn = sse_decode_String(deserializer);
+    var var_st = sse_decode_String(deserializer);
+    var var_location = sse_decode_String(deserializer);
+    var var_server = sse_decode_opt_String(deserializer);
+    return DlnaSsdpDevice(
+      usn: var_usn,
+      st: var_st,
+      location: var_location,
+      server: var_server,
+    );
+  }
+
+  @protected
+  DlnaTransportInfo sse_decode_dlna_transport_info(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_currentTransportState = sse_decode_String(deserializer);
+    var var_currentTransportStatus = sse_decode_opt_String(deserializer);
+    var var_currentSpeed = sse_decode_opt_String(deserializer);
+    return DlnaTransportInfo(
+      currentTransportState: var_currentTransportState,
+      currentTransportStatus: var_currentTransportStatus,
+      currentSpeed: var_currentSpeed,
+    );
   }
 
   @protected
@@ -1228,6 +2128,34 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   }
 
   @protected
+  List<DlnaRenderer> sse_decode_list_dlna_renderer(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <DlnaRenderer>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_dlna_renderer(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  List<DlnaSsdpDevice> sse_decode_list_dlna_ssdp_device(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <DlnaSsdpDevice>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_dlna_ssdp_device(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var len_ = sse_decode_i_32(deserializer);
@@ -1269,6 +2197,28 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   }
 
   @protected
+  int? sse_decode_opt_box_autoadd_u_16(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_u_16(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
+  BigInt? sse_decode_opt_box_autoadd_u_64(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_u_64(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
   PlayerState sse_decode_player_state(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var inner = sse_decode_i_32(deserializer);
@@ -1292,6 +2242,24 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
       album: var_album,
       durationMs: var_durationMs,
     );
+  }
+
+  @protected
+  int sse_decode_u_16(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return deserializer.buffer.getUint16();
+  }
+
+  @protected
+  int sse_decode_u_32(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return deserializer.buffer.getUint32();
+  }
+
+  @protected
+  BigInt sse_decode_u_64(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return deserializer.buffer.getBigUint64();
   }
 
   @protected
@@ -1385,12 +2353,88 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   }
 
   @protected
+  void sse_encode_box_autoadd_dlna_renderer(
+    DlnaRenderer self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_dlna_renderer(self, serializer);
+  }
+
+  @protected
   void sse_encode_box_autoadd_i_64(
     PlatformInt64 self,
     SseSerializer serializer,
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_i_64(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_u_16(int self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_u_16(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_u_64(BigInt self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_u_64(self, serializer);
+  }
+
+  @protected
+  void sse_encode_dlna_http_server_info(
+    DlnaHttpServerInfo self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.listenAddr, serializer);
+    sse_encode_String(self.baseUrl, serializer);
+  }
+
+  @protected
+  void sse_encode_dlna_position_info(
+    DlnaPositionInfo self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_u_64(self.relTimeMs, serializer);
+    sse_encode_opt_box_autoadd_u_64(self.trackDurationMs, serializer);
+  }
+
+  @protected
+  void sse_encode_dlna_renderer(DlnaRenderer self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.usn, serializer);
+    sse_encode_String(self.location, serializer);
+    sse_encode_String(self.friendlyName, serializer);
+    sse_encode_opt_String(self.avTransportControlUrl, serializer);
+    sse_encode_opt_String(self.avTransportServiceType, serializer);
+    sse_encode_opt_String(self.renderingControlUrl, serializer);
+    sse_encode_opt_String(self.renderingControlServiceType, serializer);
+  }
+
+  @protected
+  void sse_encode_dlna_ssdp_device(
+    DlnaSsdpDevice self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.usn, serializer);
+    sse_encode_String(self.st, serializer);
+    sse_encode_String(self.location, serializer);
+    sse_encode_opt_String(self.server, serializer);
+  }
+
+  @protected
+  void sse_encode_dlna_transport_info(
+    DlnaTransportInfo self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.currentTransportState, serializer);
+    sse_encode_opt_String(self.currentTransportStatus, serializer);
+    sse_encode_opt_String(self.currentSpeed, serializer);
   }
 
   @protected
@@ -1512,6 +2556,30 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   }
 
   @protected
+  void sse_encode_list_dlna_renderer(
+    List<DlnaRenderer> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_dlna_renderer(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_dlna_ssdp_device(
+    List<DlnaSsdpDevice> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_dlna_ssdp_device(item, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_list_prim_u_8_strict(
     Uint8List self,
     SseSerializer serializer,
@@ -1557,6 +2625,26 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   }
 
   @protected
+  void sse_encode_opt_box_autoadd_u_16(int? self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_u_16(self, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_opt_box_autoadd_u_64(BigInt? self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_u_64(self, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_player_state(PlayerState self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_i_32(self.index, serializer);
@@ -1571,6 +2659,24 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
     sse_encode_opt_String(self.artist, serializer);
     sse_encode_opt_String(self.album, serializer);
     sse_encode_opt_box_autoadd_i_64(self.durationMs, serializer);
+  }
+
+  @protected
+  void sse_encode_u_16(int self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    serializer.buffer.putUint16(self);
+  }
+
+  @protected
+  void sse_encode_u_32(int self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    serializer.buffer.putUint32(self);
+  }
+
+  @protected
+  void sse_encode_u_64(BigInt self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    serializer.buffer.putBigUint64(self);
   }
 
   @protected

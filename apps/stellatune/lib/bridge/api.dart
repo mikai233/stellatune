@@ -116,6 +116,143 @@ Future<void> librarySearch({
 Stream<LibraryEvent> libraryEvents({required Library library_}) =>
     StellatuneApi.instance.api.crateApiLibraryEvents(library_: library_);
 
+Future<List<DlnaSsdpDevice>> dlnaDiscoverMediaRenderers({
+  required int timeoutMs,
+}) => StellatuneApi.instance.api.crateApiDlnaDiscoverMediaRenderers(
+  timeoutMs: timeoutMs,
+);
+
+Future<List<DlnaRenderer>> dlnaDiscoverRenderers({required int timeoutMs}) =>
+    StellatuneApi.instance.api.crateApiDlnaDiscoverRenderers(
+      timeoutMs: timeoutMs,
+    );
+
+Future<DlnaHttpServerInfo> dlnaHttpStart({String? advertiseIp, int? port}) =>
+    StellatuneApi.instance.api.crateApiDlnaHttpStart(
+      advertiseIp: advertiseIp,
+      port: port,
+    );
+
+Future<String> dlnaHttpPublishTrack({required String path}) =>
+    StellatuneApi.instance.api.crateApiDlnaHttpPublishTrack(path: path);
+
+Future<void> dlnaHttpUnpublishAll() =>
+    StellatuneApi.instance.api.crateApiDlnaHttpUnpublishAll();
+
+Future<void> dlnaAvTransportSetUri({
+  required String controlUrl,
+  String? serviceType,
+  required String uri,
+  String? metadata,
+}) => StellatuneApi.instance.api.crateApiDlnaAvTransportSetUri(
+  controlUrl: controlUrl,
+  serviceType: serviceType,
+  uri: uri,
+  metadata: metadata,
+);
+
+Future<void> dlnaAvTransportPlay({
+  required String controlUrl,
+  String? serviceType,
+}) => StellatuneApi.instance.api.crateApiDlnaAvTransportPlay(
+  controlUrl: controlUrl,
+  serviceType: serviceType,
+);
+
+Future<void> dlnaAvTransportPause({
+  required String controlUrl,
+  String? serviceType,
+}) => StellatuneApi.instance.api.crateApiDlnaAvTransportPause(
+  controlUrl: controlUrl,
+  serviceType: serviceType,
+);
+
+Future<void> dlnaAvTransportStop({
+  required String controlUrl,
+  String? serviceType,
+}) => StellatuneApi.instance.api.crateApiDlnaAvTransportStop(
+  controlUrl: controlUrl,
+  serviceType: serviceType,
+);
+
+Future<void> dlnaAvTransportSeekMs({
+  required String controlUrl,
+  String? serviceType,
+  required BigInt positionMs,
+}) => StellatuneApi.instance.api.crateApiDlnaAvTransportSeekMs(
+  controlUrl: controlUrl,
+  serviceType: serviceType,
+  positionMs: positionMs,
+);
+
+Future<DlnaTransportInfo> dlnaAvTransportGetTransportInfo({
+  required String controlUrl,
+  String? serviceType,
+}) => StellatuneApi.instance.api.crateApiDlnaAvTransportGetTransportInfo(
+  controlUrl: controlUrl,
+  serviceType: serviceType,
+);
+
+Future<DlnaPositionInfo> dlnaAvTransportGetPositionInfo({
+  required String controlUrl,
+  String? serviceType,
+}) => StellatuneApi.instance.api.crateApiDlnaAvTransportGetPositionInfo(
+  controlUrl: controlUrl,
+  serviceType: serviceType,
+);
+
+Future<void> dlnaRenderingControlSetVolume({
+  required String controlUrl,
+  String? serviceType,
+  required int volume0100,
+}) => StellatuneApi.instance.api.crateApiDlnaRenderingControlSetVolume(
+  controlUrl: controlUrl,
+  serviceType: serviceType,
+  volume0100: volume0100,
+);
+
+Future<void> dlnaRenderingControlSetMute({
+  required String controlUrl,
+  String? serviceType,
+  required bool mute,
+}) => StellatuneApi.instance.api.crateApiDlnaRenderingControlSetMute(
+  controlUrl: controlUrl,
+  serviceType: serviceType,
+  mute: mute,
+);
+
+Future<int> dlnaRenderingControlGetVolume({
+  required String controlUrl,
+  String? serviceType,
+}) => StellatuneApi.instance.api.crateApiDlnaRenderingControlGetVolume(
+  controlUrl: controlUrl,
+  serviceType: serviceType,
+);
+
+Future<String> dlnaPlayLocalPath({
+  required DlnaRenderer renderer,
+  required String path,
+}) => StellatuneApi.instance.api.crateApiDlnaPlayLocalPath(
+  renderer: renderer,
+  path: path,
+);
+
+Future<String> dlnaPlayLocalTrack({
+  required DlnaRenderer renderer,
+  required String path,
+  String? title,
+  String? artist,
+  String? album,
+  String? coverPath,
+}) => StellatuneApi.instance.api.crateApiDlnaPlayLocalTrack(
+  renderer: renderer,
+  path: path,
+  title: title,
+  artist: artist,
+  album: album,
+  coverPath: coverPath,
+);
+
 // Rust type: RustOpaqueMoi<Library>
 abstract class Library implements RustOpaqueInterface {}
 

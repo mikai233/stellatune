@@ -3,7 +3,14 @@ import 'third_party/stellatune_core.dart';
 
 export 'frb_generated.dart' show StellatuneApi;
 export 'third_party/stellatune_core.dart'
-    show Event, PlayerState, LibraryEvent, TrackLite;
+    show
+        Event,
+        PlayerState,
+        LibraryEvent,
+        TrackLite,
+        DlnaSsdpDevice,
+        DlnaRenderer,
+        DlnaHttpServerInfo;
 
 /// Thin Dart-side facade over the generated FRB bindings.
 ///
@@ -85,4 +92,134 @@ class LibraryBridge {
         limit: limit,
         offset: offset,
       );
+}
+
+class DlnaBridge {
+  const DlnaBridge();
+
+  Future<List<DlnaSsdpDevice>> discoverMediaRenderers({
+    Duration timeout = const Duration(milliseconds: 1200),
+  }) => api.dlnaDiscoverMediaRenderers(timeoutMs: timeout.inMilliseconds);
+
+  Future<List<DlnaRenderer>> discoverRenderers({
+    Duration timeout = const Duration(milliseconds: 1200),
+  }) => api.dlnaDiscoverRenderers(timeoutMs: timeout.inMilliseconds);
+
+  Future<DlnaHttpServerInfo> httpStart({String? advertiseIp, int? port}) =>
+      api.dlnaHttpStart(advertiseIp: advertiseIp, port: port);
+
+  Future<String> httpPublishTrack({required String path}) =>
+      api.dlnaHttpPublishTrack(path: path);
+
+  Future<void> httpUnpublishAll() => api.dlnaHttpUnpublishAll();
+
+  Future<void> avTransportSetUri({
+    required String controlUrl,
+    required String uri,
+    String? metadata,
+    String? serviceType,
+  }) => api.dlnaAvTransportSetUri(
+    controlUrl: controlUrl,
+    serviceType: serviceType,
+    uri: uri,
+    metadata: metadata,
+  );
+
+  Future<void> avTransportPlay({
+    required String controlUrl,
+    String? serviceType,
+  }) =>
+      api.dlnaAvTransportPlay(controlUrl: controlUrl, serviceType: serviceType);
+
+  Future<void> avTransportPause({
+    required String controlUrl,
+    String? serviceType,
+  }) => api.dlnaAvTransportPause(
+    controlUrl: controlUrl,
+    serviceType: serviceType,
+  );
+
+  Future<void> avTransportStop({
+    required String controlUrl,
+    String? serviceType,
+  }) =>
+      api.dlnaAvTransportStop(controlUrl: controlUrl, serviceType: serviceType);
+
+  Future<void> avTransportSeekMs({
+    required String controlUrl,
+    required int positionMs,
+    String? serviceType,
+  }) => api.dlnaAvTransportSeekMs(
+    controlUrl: controlUrl,
+    serviceType: serviceType,
+    positionMs: BigInt.from(positionMs),
+  );
+
+  Future<DlnaTransportInfo> avTransportGetTransportInfo({
+    required String controlUrl,
+    String? serviceType,
+  }) => api.dlnaAvTransportGetTransportInfo(
+    controlUrl: controlUrl,
+    serviceType: serviceType,
+  );
+
+  Future<DlnaPositionInfo> avTransportGetPositionInfo({
+    required String controlUrl,
+    String? serviceType,
+  }) => api.dlnaAvTransportGetPositionInfo(
+    controlUrl: controlUrl,
+    serviceType: serviceType,
+  );
+
+  Future<void> renderingControlSetVolume({
+    required String controlUrl,
+    required int volume0To100,
+    String? serviceType,
+  }) => api.dlnaRenderingControlSetVolume(
+    controlUrl: controlUrl,
+    serviceType: serviceType,
+    volume0100: volume0To100,
+  );
+
+  Future<void> renderingControlSetMute({
+    required String controlUrl,
+    required bool mute,
+    String? serviceType,
+  }) => api.dlnaRenderingControlSetMute(
+    controlUrl: controlUrl,
+    serviceType: serviceType,
+    mute: mute,
+  );
+
+  Future<int> renderingControlGetVolume({
+    required String controlUrl,
+    String? serviceType,
+  }) async {
+    final v = await api.dlnaRenderingControlGetVolume(
+      controlUrl: controlUrl,
+      serviceType: serviceType,
+    );
+    return v.toInt();
+  }
+
+  Future<String> playLocalPath({
+    required DlnaRenderer renderer,
+    required String path,
+  }) => api.dlnaPlayLocalPath(renderer: renderer, path: path);
+
+  Future<String> playLocalTrack({
+    required DlnaRenderer renderer,
+    required String path,
+    String? title,
+    String? artist,
+    String? album,
+    String? coverPath,
+  }) => api.dlnaPlayLocalTrack(
+    renderer: renderer,
+    path: path,
+    title: title,
+    artist: artist,
+    album: album,
+    coverPath: coverPath,
+  );
 }

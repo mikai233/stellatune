@@ -414,15 +414,17 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                               coverDir: ref.watch(coverDirProvider),
                               items: results,
                               onActivate: (index, items) async {
-                                final paths = items.map((t) => t.path).toList();
                                 await ref
                                     .read(playbackControllerProvider.notifier)
-                                    .setQueueAndPlay(paths, startIndex: index);
+                                    .setQueueAndPlayTracks(
+                                      items,
+                                      startIndex: index,
+                                    );
                               },
                               onEnqueue: (track) async {
                                 await ref
                                     .read(playbackControllerProvider.notifier)
-                                    .enqueue([track.path]);
+                                    .enqueueTracks([track]);
                               },
                             ),
                           ),

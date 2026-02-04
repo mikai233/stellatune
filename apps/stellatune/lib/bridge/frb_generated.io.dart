@@ -50,7 +50,31 @@ abstract class StellatuneApiApiImplPlatform
   bool dco_decode_bool(dynamic raw);
 
   @protected
+  DlnaRenderer dco_decode_box_autoadd_dlna_renderer(dynamic raw);
+
+  @protected
   PlatformInt64 dco_decode_box_autoadd_i_64(dynamic raw);
+
+  @protected
+  int dco_decode_box_autoadd_u_16(dynamic raw);
+
+  @protected
+  BigInt dco_decode_box_autoadd_u_64(dynamic raw);
+
+  @protected
+  DlnaHttpServerInfo dco_decode_dlna_http_server_info(dynamic raw);
+
+  @protected
+  DlnaPositionInfo dco_decode_dlna_position_info(dynamic raw);
+
+  @protected
+  DlnaRenderer dco_decode_dlna_renderer(dynamic raw);
+
+  @protected
+  DlnaSsdpDevice dco_decode_dlna_ssdp_device(dynamic raw);
+
+  @protected
+  DlnaTransportInfo dco_decode_dlna_transport_info(dynamic raw);
 
   @protected
   Event dco_decode_event(dynamic raw);
@@ -71,6 +95,12 @@ abstract class StellatuneApiApiImplPlatform
   List<String> dco_decode_list_String(dynamic raw);
 
   @protected
+  List<DlnaRenderer> dco_decode_list_dlna_renderer(dynamic raw);
+
+  @protected
+  List<DlnaSsdpDevice> dco_decode_list_dlna_ssdp_device(dynamic raw);
+
+  @protected
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw);
 
   @protected
@@ -83,10 +113,25 @@ abstract class StellatuneApiApiImplPlatform
   PlatformInt64? dco_decode_opt_box_autoadd_i_64(dynamic raw);
 
   @protected
+  int? dco_decode_opt_box_autoadd_u_16(dynamic raw);
+
+  @protected
+  BigInt? dco_decode_opt_box_autoadd_u_64(dynamic raw);
+
+  @protected
   PlayerState dco_decode_player_state(dynamic raw);
 
   @protected
   TrackLite dco_decode_track_lite(dynamic raw);
+
+  @protected
+  int dco_decode_u_16(dynamic raw);
+
+  @protected
+  int dco_decode_u_32(dynamic raw);
+
+  @protected
+  BigInt dco_decode_u_64(dynamic raw);
 
   @protected
   int dco_decode_u_8(dynamic raw);
@@ -123,7 +168,37 @@ abstract class StellatuneApiApiImplPlatform
   bool sse_decode_bool(SseDeserializer deserializer);
 
   @protected
+  DlnaRenderer sse_decode_box_autoadd_dlna_renderer(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   PlatformInt64 sse_decode_box_autoadd_i_64(SseDeserializer deserializer);
+
+  @protected
+  int sse_decode_box_autoadd_u_16(SseDeserializer deserializer);
+
+  @protected
+  BigInt sse_decode_box_autoadd_u_64(SseDeserializer deserializer);
+
+  @protected
+  DlnaHttpServerInfo sse_decode_dlna_http_server_info(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  DlnaPositionInfo sse_decode_dlna_position_info(SseDeserializer deserializer);
+
+  @protected
+  DlnaRenderer sse_decode_dlna_renderer(SseDeserializer deserializer);
+
+  @protected
+  DlnaSsdpDevice sse_decode_dlna_ssdp_device(SseDeserializer deserializer);
+
+  @protected
+  DlnaTransportInfo sse_decode_dlna_transport_info(
+    SseDeserializer deserializer,
+  );
 
   @protected
   Event sse_decode_event(SseDeserializer deserializer);
@@ -144,6 +219,16 @@ abstract class StellatuneApiApiImplPlatform
   List<String> sse_decode_list_String(SseDeserializer deserializer);
 
   @protected
+  List<DlnaRenderer> sse_decode_list_dlna_renderer(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<DlnaSsdpDevice> sse_decode_list_dlna_ssdp_device(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer);
 
   @protected
@@ -156,10 +241,25 @@ abstract class StellatuneApiApiImplPlatform
   PlatformInt64? sse_decode_opt_box_autoadd_i_64(SseDeserializer deserializer);
 
   @protected
+  int? sse_decode_opt_box_autoadd_u_16(SseDeserializer deserializer);
+
+  @protected
+  BigInt? sse_decode_opt_box_autoadd_u_64(SseDeserializer deserializer);
+
+  @protected
   PlayerState sse_decode_player_state(SseDeserializer deserializer);
 
   @protected
   TrackLite sse_decode_track_lite(SseDeserializer deserializer);
+
+  @protected
+  int sse_decode_u_16(SseDeserializer deserializer);
+
+  @protected
+  int sse_decode_u_32(SseDeserializer deserializer);
+
+  @protected
+  BigInt sse_decode_u_64(SseDeserializer deserializer);
 
   @protected
   int sse_decode_u_8(SseDeserializer deserializer);
@@ -201,8 +301,47 @@ abstract class StellatuneApiApiImplPlatform
   void sse_encode_bool(bool self, SseSerializer serializer);
 
   @protected
+  void sse_encode_box_autoadd_dlna_renderer(
+    DlnaRenderer self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_box_autoadd_i_64(
     PlatformInt64 self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_u_16(int self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_box_autoadd_u_64(BigInt self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_dlna_http_server_info(
+    DlnaHttpServerInfo self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_dlna_position_info(
+    DlnaPositionInfo self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_dlna_renderer(DlnaRenderer self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_dlna_ssdp_device(
+    DlnaSsdpDevice self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_dlna_transport_info(
+    DlnaTransportInfo self,
     SseSerializer serializer,
   );
 
@@ -223,6 +362,18 @@ abstract class StellatuneApiApiImplPlatform
 
   @protected
   void sse_encode_list_String(List<String> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_dlna_renderer(
+    List<DlnaRenderer> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_dlna_ssdp_device(
+    List<DlnaSsdpDevice> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_prim_u_8_strict(
@@ -246,10 +397,25 @@ abstract class StellatuneApiApiImplPlatform
   );
 
   @protected
+  void sse_encode_opt_box_autoadd_u_16(int? self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_opt_box_autoadd_u_64(BigInt? self, SseSerializer serializer);
+
+  @protected
   void sse_encode_player_state(PlayerState self, SseSerializer serializer);
 
   @protected
   void sse_encode_track_lite(TrackLite self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_u_16(int self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_u_32(int self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_u_64(BigInt self, SseSerializer serializer);
 
   @protected
   void sse_encode_u_8(int self, SseSerializer serializer);
