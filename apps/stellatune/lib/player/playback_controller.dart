@@ -38,7 +38,10 @@ class PlaybackController extends Notifier<PlaybackState> {
       unawaited(_sub?.cancel());
       _volumeDebounce?.cancel();
     });
-    return const PlaybackState.initial();
+
+    final savedVolume = ref.read(settingsStoreProvider).volume.clamp(0.0, 1.0);
+    unawaited(bridge.setVolume(savedVolume));
+    return const PlaybackState.initial().copyWith(volume: savedVolume);
   }
 
   Future<void> setQueueAndPlay(List<String> paths, {int startIndex = 0}) async {
@@ -83,6 +86,7 @@ class PlaybackController extends Notifier<PlaybackState> {
       final toSend = _pendingVolume;
       if (toSend == null) return;
       unawaited(ref.read(playerBridgeProvider).setVolume(toSend));
+      unawaited(ref.read(settingsStoreProvider).setVolume(toSend));
     });
   }
 

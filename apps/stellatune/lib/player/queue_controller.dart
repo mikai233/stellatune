@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:stellatune/app/providers.dart';
 import 'package:stellatune/player/queue_models.dart';
 
 final queueControllerProvider = NotifierProvider<QueueController, QueueState>(
@@ -11,7 +13,20 @@ class QueueController extends Notifier<QueueState> {
   final Random _random = Random();
 
   @override
-  QueueState build() => const QueueState.empty();
+  QueueState build() {
+    final mode = ref.read(settingsStoreProvider).playMode;
+    final shuffle = mode == PlayMode.shuffle;
+    final repeatMode = switch (mode) {
+      PlayMode.sequential => RepeatMode.off,
+      PlayMode.shuffle => RepeatMode.off,
+      PlayMode.repeatAll => RepeatMode.all,
+      PlayMode.repeatOne => RepeatMode.one,
+    };
+    return const QueueState.empty().copyWith(
+      shuffle: shuffle,
+      repeatMode: repeatMode,
+    );
+  }
 
   void setQueue(List<QueueItem> items, {int startIndex = 0}) {
     if (items.isEmpty) {
@@ -158,6 +173,7 @@ class QueueController extends Notifier<QueueState> {
   }
 
   void setPlayMode(PlayMode mode) {
+    unawaited(ref.read(settingsStoreProvider).setPlayMode(mode));
     final desiredShuffle = mode == PlayMode.shuffle;
     final desiredRepeat = switch (mode) {
       PlayMode.sequential => RepeatMode.off,
