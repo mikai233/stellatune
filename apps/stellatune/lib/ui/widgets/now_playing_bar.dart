@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
@@ -32,6 +34,10 @@ class NowPlayingBar extends ConsumerWidget {
     final isPlaying =
         playback.playerState == PlayerState.playing ||
         playback.playerState == PlayerState.buffering;
+    final totalDurationMs = queue.currentItem?.durationMs;
+    final timeLabel = (totalDurationMs != null && totalDurationMs > 0)
+        ? '${_formatMs(playback.positionMs)} / ${_formatMs(totalDurationMs)}'
+        : _formatMs(playback.positionMs);
 
     return Material(
       elevation: 2,
@@ -40,8 +46,6 @@ class NowPlayingBar extends ConsumerWidget {
         height: 72,
         child: LayoutBuilder(
           builder: (context, constraints) {
-            final showInlineVolume = constraints.maxWidth >= 920;
-
             return Stack(
               children: [
                 Row(
@@ -69,10 +73,7 @@ class NowPlayingBar extends ConsumerWidget {
                         ],
                       ),
                     ),
-                    Text(
-                      _formatMs(playback.positionMs),
-                      style: theme.textTheme.titleMedium,
-                    ),
+                    Text(timeLabel, style: theme.textTheme.titleMedium),
                     if (playback.lastError != null) ...[
                       const SizedBox(width: 8),
                       IconButton(
@@ -122,60 +123,16 @@ class NowPlayingBar extends ConsumerWidget {
                       icon: const Icon(Icons.skip_next),
                     ),
                     const SizedBox(width: 8),
-                    if (showInlineVolume)
-                      _VolumeControlInline(
-                        volume: playback.volume,
-                        onChanged: (v) => ref
-                            .read(playbackControllerProvider.notifier)
-                            .setVolume(v),
-                        tooltip: l10n.tooltipVolume,
-                      )
-                    else
-                      IconButton(
-                        tooltip: l10n.tooltipVolume,
-                        icon: const Icon(Icons.volume_up),
-                        onPressed: () async {
-                          final controller = ref.read(
-                            playbackControllerProvider.notifier,
-                          );
-                          var v = ref.read(playbackControllerProvider).volume;
-                          await showDialog<void>(
-                            context: context,
-                            builder: (context) => AlertDialog(
-                              title: Text(l10n.volume),
-                              content: StatefulBuilder(
-                                builder: (context, setState) {
-                                  return Row(
-                                    children: [
-                                      const Icon(Icons.volume_up),
-                                      const SizedBox(width: 12),
-                                      Expanded(
-                                        child: Slider(
-                                          value: v,
-                                          onChanged: (nv) {
-                                            setState(() => v = nv);
-                                            controller.setVolume(nv);
-                                          },
-                                        ),
-                                      ),
-                                    ],
-                                  );
-                                },
-                              ),
-                              actions: [
-                                TextButton(
-                                  onPressed: () => Navigator.of(context).pop(),
-                                  child: Text(
-                                    MaterialLocalizations.of(
-                                      context,
-                                    ).closeButtonLabel,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          );
-                        },
-                      ),
+                    _VolumePopupButton(
+                      volume: playback.volume,
+                      tooltip: l10n.tooltipVolume,
+                      onChanged: (v) => ref
+                          .read(playbackControllerProvider.notifier)
+                          .setVolume(v),
+                      onToggleMute: () => ref
+                          .read(playbackControllerProvider.notifier)
+                          .toggleMute(),
+                    ),
                     IconButton(
                       tooltip: playModeLabel,
                       onPressed: () => ref
@@ -899,35 +856,189 @@ class _CoverPlaceholder extends StatelessWidget {
   }
 }
 
-class _VolumeControlInline extends StatelessWidget {
-  const _VolumeControlInline({
+class _VolumePopupButton extends StatefulWidget {
+  const _VolumePopupButton({
     required this.volume,
     required this.onChanged,
     required this.tooltip,
+    required this.onToggleMute,
   });
 
   final double volume;
   final ValueChanged<double> onChanged;
   final String tooltip;
+  final VoidCallback onToggleMute;
+
+  @override
+  State<_VolumePopupButton> createState() => _VolumePopupButtonState();
+}
+
+class _VolumePopupButtonState extends State<_VolumePopupButton> {
+  static const _hideDelay = Duration(milliseconds: 120);
+  static const _popupWidth = 56.0;
+  static const _popupHeight = 180.0;
+
+  final LayerLink _link = LayerLink();
+  OverlayEntry? _entry;
+  Timer? _hideTimer;
+
+  bool _hoverAnchor = false;
+  bool _hoverPopup = false;
+
+  double? _overrideVolume;
+
+  @override
+  void didUpdateWidget(covariant _VolumePopupButton oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (_entry != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _entry?.markNeedsBuild();
+      });
+    }
+    if (_overrideVolume != null) {
+      final v = widget.volume.clamp(0.0, 1.0);
+      if ((v - _overrideVolume!).abs() <= 0.0001) {
+        _overrideVolume = null;
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _hideTimer?.cancel();
+    _removeOverlay();
+    super.dispose();
+  }
+
+  double get _volume => (_overrideVolume ?? widget.volume).clamp(0.0, 1.0);
+
+  void _markOverlayNeedsBuild() {
+    _entry?.markNeedsBuild();
+  }
+
+  void _showOverlay() {
+    if (_entry != null) return;
+    final overlay = Overlay.maybeOf(context, rootOverlay: true);
+    if (overlay == null) return;
+
+    _entry = OverlayEntry(
+      builder: (context) {
+        final theme = Theme.of(context);
+        final volume = _volume;
+        final percent = (volume * 100).round();
+
+        // Use a loosely-constrained Positioned so the follower and its child
+        // don't get forced to the full-screen overlay constraints.
+        return Positioned(
+          left: 0,
+          top: 0,
+          child: CompositedTransformFollower(
+            link: _link,
+            targetAnchor: Alignment.topCenter,
+            followerAnchor: Alignment.bottomCenter,
+            offset: const Offset(0, -10),
+            showWhenUnlinked: false,
+            child: MouseRegion(
+              onEnter: (_) {
+                _hideTimer?.cancel();
+                _hoverPopup = true;
+              },
+              onExit: (_) {
+                _hoverPopup = false;
+                _scheduleHideIfNeeded();
+              },
+              child: Material(
+                elevation: 6,
+                borderRadius: BorderRadius.circular(12),
+                color: theme.colorScheme.surface,
+                child: SizedBox(
+                  width: _popupWidth,
+                  height: _popupHeight,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 10,
+                    ),
+                    child: Column(
+                      children: [
+                        Text('$percent', style: theme.textTheme.labelLarge),
+                        const SizedBox(height: 10),
+                        Expanded(
+                          child: RotatedBox(
+                            quarterTurns: -1,
+                            child: SliderTheme(
+                              data: SliderTheme.of(context).copyWith(
+                                trackHeight: 3,
+                                overlayShape: SliderComponentShape.noOverlay,
+                              ),
+                              child: Slider(
+                                value: volume,
+                                onChanged: (v) {
+                                  _overrideVolume = v;
+                                  _markOverlayNeedsBuild();
+                                  widget.onChanged(v);
+                                },
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+
+    overlay.insert(_entry!);
+  }
+
+  void _removeOverlay() {
+    _entry?.remove();
+    _entry = null;
+  }
+
+  void _scheduleHideIfNeeded() {
+    _hideTimer?.cancel();
+    _hideTimer = Timer(_hideDelay, () {
+      if (!mounted) return;
+      if (_hoverAnchor || _hoverPopup) return;
+      _removeOverlay();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Tooltip(message: tooltip, child: const Icon(Icons.volume_up)),
-        SizedBox(
-          width: 120,
-          child: SliderTheme(
-            data: SliderTheme.of(context).copyWith(
-              trackHeight: 2,
-              overlayShape: SliderComponentShape.noOverlay,
-            ),
-            child: Slider(value: volume.clamp(0.0, 1.0), onChanged: onChanged),
-          ),
+    final theme = Theme.of(context);
+    final muted = widget.volume <= 0.0;
+
+    return CompositedTransformTarget(
+      link: _link,
+      child: MouseRegion(
+        onEnter: (_) {
+          _hideTimer?.cancel();
+          _hoverAnchor = true;
+          _showOverlay();
+        },
+        onExit: (_) {
+          _hoverAnchor = false;
+          _scheduleHideIfNeeded();
+        },
+        child: IconButton(
+          tooltip: null,
+          icon: Icon(muted ? Icons.volume_off : Icons.volume_up),
+          color: muted ? null : theme.colorScheme.primary,
+          onPressed: () {
+            widget.onToggleMute();
+            // Keep popup UI responsive immediately.
+            _overrideVolume = muted ? null : 0.0;
+            _markOverlayNeedsBuild();
+          },
         ),
-        const SizedBox(width: 8),
-      ],
+      ),
     );
   }
 }

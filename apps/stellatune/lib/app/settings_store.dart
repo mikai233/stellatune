@@ -7,6 +7,8 @@ class SettingsStore {
   static const _boxName = 'settings';
   static const _keyVolume = 'volume';
   static const _keyPlayMode = 'play_mode';
+  static const _keyResumePath = 'resume_path';
+  static const _keyResumePositionMs = 'resume_position_ms';
 
   final Box _box;
 
@@ -35,4 +37,30 @@ class SettingsStore {
   }
 
   Future<void> setPlayMode(PlayMode mode) => _box.put(_keyPlayMode, mode.name);
+
+  String? get resumePath {
+    final v = _box.get(_keyResumePath);
+    if (v is String && v.trim().isNotEmpty) return v;
+    return null;
+  }
+
+  int get resumePositionMs {
+    final v = _box.get(_keyResumePositionMs, defaultValue: 0);
+    if (v is int) return v;
+    if (v is num) return v.toInt();
+    return 0;
+  }
+
+  Future<void> setResume({
+    required String path,
+    required int positionMs,
+  }) async {
+    await _box.put(_keyResumePath, path);
+    await _box.put(_keyResumePositionMs, positionMs);
+  }
+
+  Future<void> clearResume() async {
+    await _box.delete(_keyResumePath);
+    await _box.delete(_keyResumePositionMs);
+  }
 }

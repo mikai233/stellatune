@@ -348,14 +348,17 @@ fn handle_command(
             }
         }
         Command::SetVolume { volume } => {
-            // Clamp to [0, 1].
-            let v = volume.max(0.0).min(1.0);
-            state.volume = v;
-            state.volume_atomic.store(v.to_bits(), Ordering::Relaxed);
+            // UI volume is linear [0, 1], but perceived loudness is roughly logarithmic. Map to a
+            // gain curve so the slider feels more even across its range.
+            let ui = volume.max(0.0).min(1.0);
+            let gain = ui_volume_to_gain(ui);
+            state.volume = ui;
+            state.volume_atomic.store(gain.to_bits(), Ordering::Relaxed);
             if let Some(session) = state.session.as_ref() {
-                session.volume.store(v.to_bits(), Ordering::Relaxed);
+                session.volume.store(gain.to_bits(), Ordering::Relaxed);
             }
-            events.emit(Event::VolumeChanged { volume: v });
+            // Emit UI volume so Flutter keeps the slider position stable.
+            events.emit(Event::VolumeChanged { volume: ui });
         }
         Command::Stop => {
             stop_session(state, events);
@@ -378,6 +381,18 @@ fn handle_command(
     }
 
     false
+}
+
+fn ui_volume_to_gain(ui: f32) -> f32 {
+    // 0 maps to true mute.
+    if ui <= 0.0 {
+        return 0.0;
+    }
+    // Use a dB curve for perceived loudness. Range chosen to keep low volumes usable without
+    // making the first half of the slider effectively silent.
+    const MIN_DB: f32 = -30.0;
+    let db = MIN_DB * (1.0 - ui);
+    10.0_f32.powf(db / 20.0)
 }
 
 fn set_state(state: &mut EngineState, events: &Arc<EventHub>, new_state: PlayerState) {

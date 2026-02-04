@@ -18,8 +18,11 @@ class PlaybackController extends Notifier<PlaybackState> {
   static const DlnaBridge _dlna = DlnaBridge();
 
   StreamSubscription<Event>? _sub;
-  Timer? _volumeDebounce;
-  double? _pendingVolume;
+  Timer? _volumePersistDebounce;
+  Timer? _resumePersistTimer;
+  String? _resumePendingPath;
+  int _resumePendingPositionMs = 0;
+  double _lastNonZeroVolume = 1.0;
   String? _dlnaLastPath;
   Timer? _dlnaPollTimer;
   bool _dlnaPollInFlight = false;
@@ -34,9 +37,11 @@ class PlaybackController extends Notifier<PlaybackState> {
   @override
   PlaybackState build() {
     unawaited(_sub?.cancel());
-    _volumeDebounce?.cancel();
-    _volumeDebounce = null;
-    _pendingVolume = null;
+    _volumePersistDebounce?.cancel();
+    _volumePersistDebounce = null;
+    _resumePersistTimer?.cancel();
+    _resumePersistTimer = null;
+    _resumePendingPath = null;
     _dlnaPollTimer?.cancel();
     _dlnaPollTimer = null;
     _dlnaPollInFlight = false;
@@ -57,11 +62,15 @@ class PlaybackController extends Notifier<PlaybackState> {
 
     ref.onDispose(() {
       unawaited(_sub?.cancel());
-      _volumeDebounce?.cancel();
+      _volumePersistDebounce?.cancel();
+      _resumePersistTimer?.cancel();
       _dlnaPollTimer?.cancel();
     });
 
     final savedVolume = ref.read(settingsStoreProvider).volume.clamp(0.0, 1.0);
+    if (savedVolume > 0) {
+      _lastNonZeroVolume = savedVolume;
+    }
 
     ref.listen<DlnaRenderer?>(dlnaSelectedRendererProvider, (prev, next) {
       unawaited(_onOutputChanged(prev, next));
@@ -72,11 +81,70 @@ class PlaybackController extends Notifier<PlaybackState> {
     } else {
       _ensureDlnaPoller();
     }
+
+    unawaited(_restoreResume());
     return const PlaybackState.initial().copyWith(volume: savedVolume);
   }
 
   bool get _dlnaActive =>
       ref.read(dlnaSelectedRendererProvider)?.avTransportControlUrl != null;
+
+  Future<void> _restoreResume() async {
+    if (_dlnaActive) return;
+
+    final settings = ref.read(settingsStoreProvider);
+    final path = settings.resumePath;
+    if (path == null) return;
+    final pos = settings.resumePositionMs.clamp(0, 1 << 31);
+
+    // Ensure the UI shows a sensible "current track" even before any user action.
+    final queue = ref.read(queueControllerProvider);
+    if (queue.items.isEmpty) {
+      ref.read(queueControllerProvider.notifier).setQueue([
+        QueueItem(path: path),
+      ], startIndex: 0);
+    }
+
+    final bridge = ref.read(playerBridgeProvider);
+    try {
+      await bridge.load(path);
+      if (pos > 0) {
+        await bridge.seekMs(pos);
+      }
+      state = state.copyWith(
+        currentPath: path,
+        positionMs: pos,
+        lastError: null,
+      );
+    } catch (e) {
+      ref.read(loggerProvider).w('resume failed: $e');
+    }
+  }
+
+  void _scheduleResumePersist(String path, int positionMs) {
+    _resumePendingPath = path;
+    _resumePendingPositionMs = positionMs;
+    if (_resumePersistTimer != null) return;
+    _resumePersistTimer = Timer(const Duration(seconds: 1), () {
+      _resumePersistTimer = null;
+      final p = _resumePendingPath;
+      if (p == null || p.isEmpty) return;
+      final ms = _resumePendingPositionMs.clamp(0, 1 << 31);
+      unawaited(
+        ref.read(settingsStoreProvider).setResume(path: p, positionMs: ms),
+      );
+    });
+  }
+
+  Future<void> _persistResumeNow({
+    required String path,
+    required int positionMs,
+  }) async {
+    final p = path.trim();
+    if (p.isEmpty) return;
+    final ms = positionMs.clamp(0, 1 << 31);
+    await ref.read(settingsStoreProvider).setResume(path: p, positionMs: ms);
+  }
 
   Future<void> seekMs(int positionMs) async {
     final pos = positionMs.clamp(0, 1 << 31);
@@ -84,6 +152,10 @@ class PlaybackController extends Notifier<PlaybackState> {
       await ref.read(playerBridgeProvider).seekMs(pos);
       // Optimistically update the UI; engine events will resync shortly.
       state = state.copyWith(positionMs: pos, lastError: null);
+      final path = state.currentPath;
+      if (path != null && path.isNotEmpty) {
+        unawaited(_persistResumeNow(path: path, positionMs: pos));
+      }
       return;
     }
 
@@ -99,6 +171,11 @@ class PlaybackController extends Notifier<PlaybackState> {
     );
     state = state.copyWith(positionMs: pos, lastError: null);
     _ensureDlnaPoller();
+
+    final path = state.currentPath;
+    if (path != null && path.isNotEmpty) {
+      unawaited(_persistResumeNow(path: path, positionMs: pos));
+    }
   }
 
   void _ensureDlnaPoller() {
@@ -436,28 +513,42 @@ class PlaybackController extends Notifier<PlaybackState> {
     final v = volume.clamp(0.0, 1.0);
     if (state.volume == v) return;
     state = state.copyWith(volume: v);
+    if (v > 0) {
+      _lastNonZeroVolume = v;
+    }
 
-    _pendingVolume = v;
-    _volumeDebounce?.cancel();
-    final delay = _dlnaActive
-        ? const Duration(milliseconds: 180)
-        : const Duration(milliseconds: 30);
-    _volumeDebounce = Timer(delay, () {
-      final toSend = _pendingVolume;
-      if (toSend == null) return;
-      if (_dlnaActive) {
-        unawaited(_applyDlnaVolume(toSend));
-      } else {
-        unawaited(ref.read(playerBridgeProvider).setVolume(toSend));
-      }
-      unawaited(ref.read(settingsStoreProvider).setVolume(toSend));
+    // No throttling for audio: keep loudness in sync with the slider.
+    if (_dlnaActive) {
+      unawaited(_applyDlnaVolume(v));
+    } else {
+      unawaited(ref.read(playerBridgeProvider).setVolume(v));
+    }
+
+    // Debounce persistence only (doesn't affect loudness).
+    _volumePersistDebounce?.cancel();
+    _volumePersistDebounce = Timer(const Duration(milliseconds: 250), () {
+      unawaited(ref.read(settingsStoreProvider).setVolume(v));
     });
+  }
+
+  void toggleMute() {
+    if (state.volume > 0) {
+      _lastNonZeroVolume = state.volume;
+      setVolume(0);
+      return;
+    }
+    final restore = _lastNonZeroVolume.clamp(0.0, 1.0);
+    setVolume(restore > 0 ? restore : 1.0);
   }
 
   Future<void> stop() async {
     if (!_dlnaActive) {
       await ref.read(playerBridgeProvider).stop();
       state = state.copyWith(positionMs: 0);
+      final path = state.currentPath;
+      if (path != null && path.isNotEmpty) {
+        unawaited(_persistResumeNow(path: path, positionMs: 0));
+      }
       return;
     }
 
@@ -480,6 +571,11 @@ class PlaybackController extends Notifier<PlaybackState> {
       positionMs: 0,
       lastError: null,
     );
+
+    final path = state.currentPath;
+    if (path != null && path.isNotEmpty) {
+      unawaited(_persistResumeNow(path: path, positionMs: 0));
+    }
   }
 
   Future<void> next({bool auto = false}) async {
@@ -544,9 +640,14 @@ class PlaybackController extends Notifier<PlaybackState> {
       },
       position: (ms) {
         state = state.copyWith(positionMs: ms);
+        final path = state.currentPath;
+        if (path != null && path.isNotEmpty) {
+          _scheduleResumePersist(path, ms);
+        }
       },
       trackChanged: (path) {
         state = state.copyWith(currentPath: path);
+        unawaited(_persistResumeNow(path: path, positionMs: 0));
       },
       playbackEnded: (path) {
         ref.read(loggerProvider).i('playback ended: $path');
@@ -554,6 +655,9 @@ class PlaybackController extends Notifier<PlaybackState> {
       },
       volumeChanged: (volume) {
         state = state.copyWith(volume: volume);
+        if (volume > 0) {
+          _lastNonZeroVolume = volume.clamp(0.0, 1.0);
+        }
       },
       error: (message) {
         ref.read(loggerProvider).e(message);
