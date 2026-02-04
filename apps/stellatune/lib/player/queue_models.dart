@@ -27,6 +27,8 @@ class QueueItem {
 
 enum RepeatMode { off, all, one }
 
+enum PlayMode { sequential, shuffle, repeatAll, repeatOne }
+
 @immutable
 class QueueState {
   const QueueState({
@@ -52,6 +54,13 @@ class QueueState {
   final RepeatMode repeatMode;
   final List<int> order;
   final int orderPos;
+
+  PlayMode get playMode {
+    if (repeatMode == RepeatMode.one) return PlayMode.repeatOne;
+    if (repeatMode == RepeatMode.all) return PlayMode.repeatAll;
+    if (shuffle) return PlayMode.shuffle;
+    return PlayMode.sequential;
+  }
 
   QueueItem? get currentItem {
     final idx = currentIndex;

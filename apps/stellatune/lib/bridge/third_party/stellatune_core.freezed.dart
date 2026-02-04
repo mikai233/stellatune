@@ -23,6 +23,7 @@ mixin _$Event {
     required TResult Function(int ms) position,
     required TResult Function(String path) trackChanged,
     required TResult Function(String path) playbackEnded,
+    required TResult Function(double volume) volumeChanged,
     required TResult Function(String message) error,
     required TResult Function(String message) log,
   }) => throw _privateConstructorUsedError;
@@ -32,6 +33,7 @@ mixin _$Event {
     TResult? Function(int ms)? position,
     TResult? Function(String path)? trackChanged,
     TResult? Function(String path)? playbackEnded,
+    TResult? Function(double volume)? volumeChanged,
     TResult? Function(String message)? error,
     TResult? Function(String message)? log,
   }) => throw _privateConstructorUsedError;
@@ -41,6 +43,7 @@ mixin _$Event {
     TResult Function(int ms)? position,
     TResult Function(String path)? trackChanged,
     TResult Function(String path)? playbackEnded,
+    TResult Function(double volume)? volumeChanged,
     TResult Function(String message)? error,
     TResult Function(String message)? log,
     required TResult orElse(),
@@ -51,6 +54,7 @@ mixin _$Event {
     required TResult Function(Event_Position value) position,
     required TResult Function(Event_TrackChanged value) trackChanged,
     required TResult Function(Event_PlaybackEnded value) playbackEnded,
+    required TResult Function(Event_VolumeChanged value) volumeChanged,
     required TResult Function(Event_Error value) error,
     required TResult Function(Event_Log value) log,
   }) => throw _privateConstructorUsedError;
@@ -60,6 +64,7 @@ mixin _$Event {
     TResult? Function(Event_Position value)? position,
     TResult? Function(Event_TrackChanged value)? trackChanged,
     TResult? Function(Event_PlaybackEnded value)? playbackEnded,
+    TResult? Function(Event_VolumeChanged value)? volumeChanged,
     TResult? Function(Event_Error value)? error,
     TResult? Function(Event_Log value)? log,
   }) => throw _privateConstructorUsedError;
@@ -69,6 +74,7 @@ mixin _$Event {
     TResult Function(Event_Position value)? position,
     TResult Function(Event_TrackChanged value)? trackChanged,
     TResult Function(Event_PlaybackEnded value)? playbackEnded,
+    TResult Function(Event_VolumeChanged value)? volumeChanged,
     TResult Function(Event_Error value)? error,
     TResult Function(Event_Log value)? log,
     required TResult orElse(),
@@ -172,6 +178,7 @@ class _$Event_StateChangedImpl extends Event_StateChanged {
     required TResult Function(int ms) position,
     required TResult Function(String path) trackChanged,
     required TResult Function(String path) playbackEnded,
+    required TResult Function(double volume) volumeChanged,
     required TResult Function(String message) error,
     required TResult Function(String message) log,
   }) {
@@ -185,6 +192,7 @@ class _$Event_StateChangedImpl extends Event_StateChanged {
     TResult? Function(int ms)? position,
     TResult? Function(String path)? trackChanged,
     TResult? Function(String path)? playbackEnded,
+    TResult? Function(double volume)? volumeChanged,
     TResult? Function(String message)? error,
     TResult? Function(String message)? log,
   }) {
@@ -198,6 +206,7 @@ class _$Event_StateChangedImpl extends Event_StateChanged {
     TResult Function(int ms)? position,
     TResult Function(String path)? trackChanged,
     TResult Function(String path)? playbackEnded,
+    TResult Function(double volume)? volumeChanged,
     TResult Function(String message)? error,
     TResult Function(String message)? log,
     required TResult orElse(),
@@ -215,6 +224,7 @@ class _$Event_StateChangedImpl extends Event_StateChanged {
     required TResult Function(Event_Position value) position,
     required TResult Function(Event_TrackChanged value) trackChanged,
     required TResult Function(Event_PlaybackEnded value) playbackEnded,
+    required TResult Function(Event_VolumeChanged value) volumeChanged,
     required TResult Function(Event_Error value) error,
     required TResult Function(Event_Log value) log,
   }) {
@@ -228,6 +238,7 @@ class _$Event_StateChangedImpl extends Event_StateChanged {
     TResult? Function(Event_Position value)? position,
     TResult? Function(Event_TrackChanged value)? trackChanged,
     TResult? Function(Event_PlaybackEnded value)? playbackEnded,
+    TResult? Function(Event_VolumeChanged value)? volumeChanged,
     TResult? Function(Event_Error value)? error,
     TResult? Function(Event_Log value)? log,
   }) {
@@ -241,6 +252,7 @@ class _$Event_StateChangedImpl extends Event_StateChanged {
     TResult Function(Event_Position value)? position,
     TResult Function(Event_TrackChanged value)? trackChanged,
     TResult Function(Event_PlaybackEnded value)? playbackEnded,
+    TResult Function(Event_VolumeChanged value)? volumeChanged,
     TResult Function(Event_Error value)? error,
     TResult Function(Event_Log value)? log,
     required TResult orElse(),
@@ -343,6 +355,7 @@ class _$Event_PositionImpl extends Event_Position {
     required TResult Function(int ms) position,
     required TResult Function(String path) trackChanged,
     required TResult Function(String path) playbackEnded,
+    required TResult Function(double volume) volumeChanged,
     required TResult Function(String message) error,
     required TResult Function(String message) log,
   }) {
@@ -356,6 +369,7 @@ class _$Event_PositionImpl extends Event_Position {
     TResult? Function(int ms)? position,
     TResult? Function(String path)? trackChanged,
     TResult? Function(String path)? playbackEnded,
+    TResult? Function(double volume)? volumeChanged,
     TResult? Function(String message)? error,
     TResult? Function(String message)? log,
   }) {
@@ -369,6 +383,7 @@ class _$Event_PositionImpl extends Event_Position {
     TResult Function(int ms)? position,
     TResult Function(String path)? trackChanged,
     TResult Function(String path)? playbackEnded,
+    TResult Function(double volume)? volumeChanged,
     TResult Function(String message)? error,
     TResult Function(String message)? log,
     required TResult orElse(),
@@ -386,6 +401,7 @@ class _$Event_PositionImpl extends Event_Position {
     required TResult Function(Event_Position value) position,
     required TResult Function(Event_TrackChanged value) trackChanged,
     required TResult Function(Event_PlaybackEnded value) playbackEnded,
+    required TResult Function(Event_VolumeChanged value) volumeChanged,
     required TResult Function(Event_Error value) error,
     required TResult Function(Event_Log value) log,
   }) {
@@ -399,6 +415,7 @@ class _$Event_PositionImpl extends Event_Position {
     TResult? Function(Event_Position value)? position,
     TResult? Function(Event_TrackChanged value)? trackChanged,
     TResult? Function(Event_PlaybackEnded value)? playbackEnded,
+    TResult? Function(Event_VolumeChanged value)? volumeChanged,
     TResult? Function(Event_Error value)? error,
     TResult? Function(Event_Log value)? log,
   }) {
@@ -412,6 +429,7 @@ class _$Event_PositionImpl extends Event_Position {
     TResult Function(Event_Position value)? position,
     TResult Function(Event_TrackChanged value)? trackChanged,
     TResult Function(Event_PlaybackEnded value)? playbackEnded,
+    TResult Function(Event_VolumeChanged value)? volumeChanged,
     TResult Function(Event_Error value)? error,
     TResult Function(Event_Log value)? log,
     required TResult orElse(),
@@ -513,6 +531,7 @@ class _$Event_TrackChangedImpl extends Event_TrackChanged {
     required TResult Function(int ms) position,
     required TResult Function(String path) trackChanged,
     required TResult Function(String path) playbackEnded,
+    required TResult Function(double volume) volumeChanged,
     required TResult Function(String message) error,
     required TResult Function(String message) log,
   }) {
@@ -526,6 +545,7 @@ class _$Event_TrackChangedImpl extends Event_TrackChanged {
     TResult? Function(int ms)? position,
     TResult? Function(String path)? trackChanged,
     TResult? Function(String path)? playbackEnded,
+    TResult? Function(double volume)? volumeChanged,
     TResult? Function(String message)? error,
     TResult? Function(String message)? log,
   }) {
@@ -539,6 +559,7 @@ class _$Event_TrackChangedImpl extends Event_TrackChanged {
     TResult Function(int ms)? position,
     TResult Function(String path)? trackChanged,
     TResult Function(String path)? playbackEnded,
+    TResult Function(double volume)? volumeChanged,
     TResult Function(String message)? error,
     TResult Function(String message)? log,
     required TResult orElse(),
@@ -556,6 +577,7 @@ class _$Event_TrackChangedImpl extends Event_TrackChanged {
     required TResult Function(Event_Position value) position,
     required TResult Function(Event_TrackChanged value) trackChanged,
     required TResult Function(Event_PlaybackEnded value) playbackEnded,
+    required TResult Function(Event_VolumeChanged value) volumeChanged,
     required TResult Function(Event_Error value) error,
     required TResult Function(Event_Log value) log,
   }) {
@@ -569,6 +591,7 @@ class _$Event_TrackChangedImpl extends Event_TrackChanged {
     TResult? Function(Event_Position value)? position,
     TResult? Function(Event_TrackChanged value)? trackChanged,
     TResult? Function(Event_PlaybackEnded value)? playbackEnded,
+    TResult? Function(Event_VolumeChanged value)? volumeChanged,
     TResult? Function(Event_Error value)? error,
     TResult? Function(Event_Log value)? log,
   }) {
@@ -582,6 +605,7 @@ class _$Event_TrackChangedImpl extends Event_TrackChanged {
     TResult Function(Event_Position value)? position,
     TResult Function(Event_TrackChanged value)? trackChanged,
     TResult Function(Event_PlaybackEnded value)? playbackEnded,
+    TResult Function(Event_VolumeChanged value)? volumeChanged,
     TResult Function(Event_Error value)? error,
     TResult Function(Event_Log value)? log,
     required TResult orElse(),
@@ -684,6 +708,7 @@ class _$Event_PlaybackEndedImpl extends Event_PlaybackEnded {
     required TResult Function(int ms) position,
     required TResult Function(String path) trackChanged,
     required TResult Function(String path) playbackEnded,
+    required TResult Function(double volume) volumeChanged,
     required TResult Function(String message) error,
     required TResult Function(String message) log,
   }) {
@@ -697,6 +722,7 @@ class _$Event_PlaybackEndedImpl extends Event_PlaybackEnded {
     TResult? Function(int ms)? position,
     TResult? Function(String path)? trackChanged,
     TResult? Function(String path)? playbackEnded,
+    TResult? Function(double volume)? volumeChanged,
     TResult? Function(String message)? error,
     TResult? Function(String message)? log,
   }) {
@@ -710,6 +736,7 @@ class _$Event_PlaybackEndedImpl extends Event_PlaybackEnded {
     TResult Function(int ms)? position,
     TResult Function(String path)? trackChanged,
     TResult Function(String path)? playbackEnded,
+    TResult Function(double volume)? volumeChanged,
     TResult Function(String message)? error,
     TResult Function(String message)? log,
     required TResult orElse(),
@@ -727,6 +754,7 @@ class _$Event_PlaybackEndedImpl extends Event_PlaybackEnded {
     required TResult Function(Event_Position value) position,
     required TResult Function(Event_TrackChanged value) trackChanged,
     required TResult Function(Event_PlaybackEnded value) playbackEnded,
+    required TResult Function(Event_VolumeChanged value) volumeChanged,
     required TResult Function(Event_Error value) error,
     required TResult Function(Event_Log value) log,
   }) {
@@ -740,6 +768,7 @@ class _$Event_PlaybackEndedImpl extends Event_PlaybackEnded {
     TResult? Function(Event_Position value)? position,
     TResult? Function(Event_TrackChanged value)? trackChanged,
     TResult? Function(Event_PlaybackEnded value)? playbackEnded,
+    TResult? Function(Event_VolumeChanged value)? volumeChanged,
     TResult? Function(Event_Error value)? error,
     TResult? Function(Event_Log value)? log,
   }) {
@@ -753,6 +782,7 @@ class _$Event_PlaybackEndedImpl extends Event_PlaybackEnded {
     TResult Function(Event_Position value)? position,
     TResult Function(Event_TrackChanged value)? trackChanged,
     TResult Function(Event_PlaybackEnded value)? playbackEnded,
+    TResult Function(Event_VolumeChanged value)? volumeChanged,
     TResult Function(Event_Error value)? error,
     TResult Function(Event_Log value)? log,
     required TResult orElse(),
@@ -775,6 +805,183 @@ abstract class Event_PlaybackEnded extends Event {
   /// with the given fields replaced by the non-null parameter values.
   @JsonKey(includeFromJson: false, includeToJson: false)
   _$$Event_PlaybackEndedImplCopyWith<_$Event_PlaybackEndedImpl> get copyWith =>
+      throw _privateConstructorUsedError;
+}
+
+/// @nodoc
+abstract class _$$Event_VolumeChangedImplCopyWith<$Res> {
+  factory _$$Event_VolumeChangedImplCopyWith(
+    _$Event_VolumeChangedImpl value,
+    $Res Function(_$Event_VolumeChangedImpl) then,
+  ) = __$$Event_VolumeChangedImplCopyWithImpl<$Res>;
+  @useResult
+  $Res call({double volume});
+}
+
+/// @nodoc
+class __$$Event_VolumeChangedImplCopyWithImpl<$Res>
+    extends _$EventCopyWithImpl<$Res, _$Event_VolumeChangedImpl>
+    implements _$$Event_VolumeChangedImplCopyWith<$Res> {
+  __$$Event_VolumeChangedImplCopyWithImpl(
+    _$Event_VolumeChangedImpl _value,
+    $Res Function(_$Event_VolumeChangedImpl) _then,
+  ) : super(_value, _then);
+
+  /// Create a copy of Event
+  /// with the given fields replaced by the non-null parameter values.
+  @pragma('vm:prefer-inline')
+  @override
+  $Res call({Object? volume = null}) {
+    return _then(
+      _$Event_VolumeChangedImpl(
+        volume: null == volume
+            ? _value.volume
+            : volume // ignore: cast_nullable_to_non_nullable
+                  as double,
+      ),
+    );
+  }
+}
+
+/// @nodoc
+
+class _$Event_VolumeChangedImpl extends Event_VolumeChanged {
+  const _$Event_VolumeChangedImpl({required this.volume}) : super._();
+
+  @override
+  final double volume;
+
+  @override
+  String toString() {
+    return 'Event.volumeChanged(volume: $volume)';
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return identical(this, other) ||
+        (other.runtimeType == runtimeType &&
+            other is _$Event_VolumeChangedImpl &&
+            (identical(other.volume, volume) || other.volume == volume));
+  }
+
+  @override
+  int get hashCode => Object.hash(runtimeType, volume);
+
+  /// Create a copy of Event
+  /// with the given fields replaced by the non-null parameter values.
+  @JsonKey(includeFromJson: false, includeToJson: false)
+  @override
+  @pragma('vm:prefer-inline')
+  _$$Event_VolumeChangedImplCopyWith<_$Event_VolumeChangedImpl> get copyWith =>
+      __$$Event_VolumeChangedImplCopyWithImpl<_$Event_VolumeChangedImpl>(
+        this,
+        _$identity,
+      );
+
+  @override
+  @optionalTypeArgs
+  TResult when<TResult extends Object?>({
+    required TResult Function(PlayerState state) stateChanged,
+    required TResult Function(int ms) position,
+    required TResult Function(String path) trackChanged,
+    required TResult Function(String path) playbackEnded,
+    required TResult Function(double volume) volumeChanged,
+    required TResult Function(String message) error,
+    required TResult Function(String message) log,
+  }) {
+    return volumeChanged(volume);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult? whenOrNull<TResult extends Object?>({
+    TResult? Function(PlayerState state)? stateChanged,
+    TResult? Function(int ms)? position,
+    TResult? Function(String path)? trackChanged,
+    TResult? Function(String path)? playbackEnded,
+    TResult? Function(double volume)? volumeChanged,
+    TResult? Function(String message)? error,
+    TResult? Function(String message)? log,
+  }) {
+    return volumeChanged?.call(volume);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult maybeWhen<TResult extends Object?>({
+    TResult Function(PlayerState state)? stateChanged,
+    TResult Function(int ms)? position,
+    TResult Function(String path)? trackChanged,
+    TResult Function(String path)? playbackEnded,
+    TResult Function(double volume)? volumeChanged,
+    TResult Function(String message)? error,
+    TResult Function(String message)? log,
+    required TResult orElse(),
+  }) {
+    if (volumeChanged != null) {
+      return volumeChanged(volume);
+    }
+    return orElse();
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult map<TResult extends Object?>({
+    required TResult Function(Event_StateChanged value) stateChanged,
+    required TResult Function(Event_Position value) position,
+    required TResult Function(Event_TrackChanged value) trackChanged,
+    required TResult Function(Event_PlaybackEnded value) playbackEnded,
+    required TResult Function(Event_VolumeChanged value) volumeChanged,
+    required TResult Function(Event_Error value) error,
+    required TResult Function(Event_Log value) log,
+  }) {
+    return volumeChanged(this);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult? mapOrNull<TResult extends Object?>({
+    TResult? Function(Event_StateChanged value)? stateChanged,
+    TResult? Function(Event_Position value)? position,
+    TResult? Function(Event_TrackChanged value)? trackChanged,
+    TResult? Function(Event_PlaybackEnded value)? playbackEnded,
+    TResult? Function(Event_VolumeChanged value)? volumeChanged,
+    TResult? Function(Event_Error value)? error,
+    TResult? Function(Event_Log value)? log,
+  }) {
+    return volumeChanged?.call(this);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult maybeMap<TResult extends Object?>({
+    TResult Function(Event_StateChanged value)? stateChanged,
+    TResult Function(Event_Position value)? position,
+    TResult Function(Event_TrackChanged value)? trackChanged,
+    TResult Function(Event_PlaybackEnded value)? playbackEnded,
+    TResult Function(Event_VolumeChanged value)? volumeChanged,
+    TResult Function(Event_Error value)? error,
+    TResult Function(Event_Log value)? log,
+    required TResult orElse(),
+  }) {
+    if (volumeChanged != null) {
+      return volumeChanged(this);
+    }
+    return orElse();
+  }
+}
+
+abstract class Event_VolumeChanged extends Event {
+  const factory Event_VolumeChanged({required final double volume}) =
+      _$Event_VolumeChangedImpl;
+  const Event_VolumeChanged._() : super._();
+
+  double get volume;
+
+  /// Create a copy of Event
+  /// with the given fields replaced by the non-null parameter values.
+  @JsonKey(includeFromJson: false, includeToJson: false)
+  _$$Event_VolumeChangedImplCopyWith<_$Event_VolumeChangedImpl> get copyWith =>
       throw _privateConstructorUsedError;
 }
 
@@ -852,6 +1059,7 @@ class _$Event_ErrorImpl extends Event_Error {
     required TResult Function(int ms) position,
     required TResult Function(String path) trackChanged,
     required TResult Function(String path) playbackEnded,
+    required TResult Function(double volume) volumeChanged,
     required TResult Function(String message) error,
     required TResult Function(String message) log,
   }) {
@@ -865,6 +1073,7 @@ class _$Event_ErrorImpl extends Event_Error {
     TResult? Function(int ms)? position,
     TResult? Function(String path)? trackChanged,
     TResult? Function(String path)? playbackEnded,
+    TResult? Function(double volume)? volumeChanged,
     TResult? Function(String message)? error,
     TResult? Function(String message)? log,
   }) {
@@ -878,6 +1087,7 @@ class _$Event_ErrorImpl extends Event_Error {
     TResult Function(int ms)? position,
     TResult Function(String path)? trackChanged,
     TResult Function(String path)? playbackEnded,
+    TResult Function(double volume)? volumeChanged,
     TResult Function(String message)? error,
     TResult Function(String message)? log,
     required TResult orElse(),
@@ -895,6 +1105,7 @@ class _$Event_ErrorImpl extends Event_Error {
     required TResult Function(Event_Position value) position,
     required TResult Function(Event_TrackChanged value) trackChanged,
     required TResult Function(Event_PlaybackEnded value) playbackEnded,
+    required TResult Function(Event_VolumeChanged value) volumeChanged,
     required TResult Function(Event_Error value) error,
     required TResult Function(Event_Log value) log,
   }) {
@@ -908,6 +1119,7 @@ class _$Event_ErrorImpl extends Event_Error {
     TResult? Function(Event_Position value)? position,
     TResult? Function(Event_TrackChanged value)? trackChanged,
     TResult? Function(Event_PlaybackEnded value)? playbackEnded,
+    TResult? Function(Event_VolumeChanged value)? volumeChanged,
     TResult? Function(Event_Error value)? error,
     TResult? Function(Event_Log value)? log,
   }) {
@@ -921,6 +1133,7 @@ class _$Event_ErrorImpl extends Event_Error {
     TResult Function(Event_Position value)? position,
     TResult Function(Event_TrackChanged value)? trackChanged,
     TResult Function(Event_PlaybackEnded value)? playbackEnded,
+    TResult Function(Event_VolumeChanged value)? volumeChanged,
     TResult Function(Event_Error value)? error,
     TResult Function(Event_Log value)? log,
     required TResult orElse(),
@@ -1020,6 +1233,7 @@ class _$Event_LogImpl extends Event_Log {
     required TResult Function(int ms) position,
     required TResult Function(String path) trackChanged,
     required TResult Function(String path) playbackEnded,
+    required TResult Function(double volume) volumeChanged,
     required TResult Function(String message) error,
     required TResult Function(String message) log,
   }) {
@@ -1033,6 +1247,7 @@ class _$Event_LogImpl extends Event_Log {
     TResult? Function(int ms)? position,
     TResult? Function(String path)? trackChanged,
     TResult? Function(String path)? playbackEnded,
+    TResult? Function(double volume)? volumeChanged,
     TResult? Function(String message)? error,
     TResult? Function(String message)? log,
   }) {
@@ -1046,6 +1261,7 @@ class _$Event_LogImpl extends Event_Log {
     TResult Function(int ms)? position,
     TResult Function(String path)? trackChanged,
     TResult Function(String path)? playbackEnded,
+    TResult Function(double volume)? volumeChanged,
     TResult Function(String message)? error,
     TResult Function(String message)? log,
     required TResult orElse(),
@@ -1063,6 +1279,7 @@ class _$Event_LogImpl extends Event_Log {
     required TResult Function(Event_Position value) position,
     required TResult Function(Event_TrackChanged value) trackChanged,
     required TResult Function(Event_PlaybackEnded value) playbackEnded,
+    required TResult Function(Event_VolumeChanged value) volumeChanged,
     required TResult Function(Event_Error value) error,
     required TResult Function(Event_Log value) log,
   }) {
@@ -1076,6 +1293,7 @@ class _$Event_LogImpl extends Event_Log {
     TResult? Function(Event_Position value)? position,
     TResult? Function(Event_TrackChanged value)? trackChanged,
     TResult? Function(Event_PlaybackEnded value)? playbackEnded,
+    TResult? Function(Event_VolumeChanged value)? volumeChanged,
     TResult? Function(Event_Error value)? error,
     TResult? Function(Event_Log value)? log,
   }) {
@@ -1089,6 +1307,7 @@ class _$Event_LogImpl extends Event_Log {
     TResult Function(Event_Position value)? position,
     TResult Function(Event_TrackChanged value)? trackChanged,
     TResult Function(Event_PlaybackEnded value)? playbackEnded,
+    TResult Function(Event_VolumeChanged value)? volumeChanged,
     TResult Function(Event_Error value)? error,
     TResult Function(Event_Log value)? log,
     required TResult orElse(),

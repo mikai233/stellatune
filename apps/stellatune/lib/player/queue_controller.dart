@@ -147,6 +147,49 @@ class QueueController extends Notifier<QueueState> {
     state = state.copyWith(shuffle: shuffle, order: order, orderPos: 0);
   }
 
+  void cyclePlayMode() {
+    final next = switch (state.playMode) {
+      PlayMode.sequential => PlayMode.shuffle,
+      PlayMode.shuffle => PlayMode.repeatAll,
+      PlayMode.repeatAll => PlayMode.repeatOne,
+      PlayMode.repeatOne => PlayMode.sequential,
+    };
+    setPlayMode(next);
+  }
+
+  void setPlayMode(PlayMode mode) {
+    final desiredShuffle = mode == PlayMode.shuffle;
+    final desiredRepeat = switch (mode) {
+      PlayMode.sequential => RepeatMode.off,
+      PlayMode.shuffle => RepeatMode.off,
+      PlayMode.repeatAll => RepeatMode.all,
+      PlayMode.repeatOne => RepeatMode.one,
+    };
+
+    final currentIndex = state.currentIndex;
+    if (currentIndex == null || state.items.isEmpty) {
+      state = state.copyWith(
+        shuffle: desiredShuffle,
+        repeatMode: desiredRepeat,
+      );
+      return;
+    }
+
+    final order = buildOrder(
+      length: state.items.length,
+      startIndex: currentIndex,
+      shuffle: desiredShuffle,
+      random: _random,
+    );
+
+    state = state.copyWith(
+      shuffle: desiredShuffle,
+      repeatMode: desiredRepeat,
+      order: order,
+      orderPos: 0,
+    );
+  }
+
   void cycleRepeatMode() {
     final next = switch (state.repeatMode) {
       RepeatMode.off => RepeatMode.all,

@@ -21,6 +21,8 @@ sealed class Event with _$Event {
   const factory Event.trackChanged({required String path}) = Event_TrackChanged;
   const factory Event.playbackEnded({required String path}) =
       Event_PlaybackEnded;
+  const factory Event.volumeChanged({required double volume}) =
+      Event_VolumeChanged;
   const factory Event.error({required String message}) = Event_Error;
   const factory Event.log({required String message}) = Event_Log;
 }

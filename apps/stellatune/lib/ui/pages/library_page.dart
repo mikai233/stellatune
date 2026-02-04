@@ -18,13 +18,19 @@ class LibraryPage extends ConsumerStatefulWidget {
 class _LibraryPageState extends ConsumerState<LibraryPage> {
   final _searchController = TextEditingController();
   bool _foldersPaneCollapsed = false;
-  double _foldersPaneWidth = 280;
-  bool _isResizingFoldersPane = false;
+  final ValueNotifier<double> _foldersPaneWidth = ValueNotifier(280);
+  final ValueNotifier<bool> _isResizingFoldersPane = ValueNotifier(false);
   bool _foldersEditMode = false;
+
+  bool _dividerHovering = false;
+  bool _dividerRearmPending = false;
+  double _dividerDragLastX = 0.0;
 
   @override
   void dispose() {
     _searchController.dispose();
+    _foldersPaneWidth.dispose();
+    _isResizingFoldersPane.dispose();
     super.dispose();
   }
 
@@ -77,8 +83,8 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
           ),
           onPressed: () => setState(() {
             _foldersPaneCollapsed = !_foldersPaneCollapsed;
-            if (!_foldersPaneCollapsed && _foldersPaneWidth <= 0) {
-              _foldersPaneWidth = minFoldersWidth;
+            if (!_foldersPaneCollapsed && _foldersPaneWidth.value <= 0) {
+              _foldersPaneWidth.value = minFoldersWidth;
             }
           }),
         ),
@@ -98,242 +104,340 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
           const SizedBox(width: 8),
         ],
       ),
-      body: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            const dividerWidthExpanded = 24.0;
-            const minContentWidth = 360.0;
-            final maxFoldersWidth =
-                (constraints.maxWidth - dividerWidthExpanded - minContentWidth)
-                    .clamp(0.0, 520.0)
-                    .toDouble();
+      body: Stack(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                const dividerWidthExpanded = 24.0;
+                const minContentWidth = 360.0;
+                final maxFoldersWidth =
+                    (constraints.maxWidth -
+                            dividerWidthExpanded -
+                            minContentWidth)
+                        .clamp(0.0, 520.0)
+                        .toDouble();
+                final effectiveMinFoldersWidth = maxFoldersWidth <= 0
+                    ? 0.0
+                    : minFoldersWidth.clamp(0.0, maxFoldersWidth).toDouble();
 
-            final showFoldersPane =
-                !_foldersPaneCollapsed && maxFoldersWidth > 0.0;
-            final foldersWidth = showFoldersPane
-                ? _foldersPaneWidth.clamp(0.0, maxFoldersWidth).toDouble()
-                : 0.0;
-            final dividerWidth = showFoldersPane ? dividerWidthExpanded : 0.0;
+                final showFoldersPane =
+                    !_foldersPaneCollapsed && maxFoldersWidth > 0.0;
+                final dividerWidth = showFoldersPane
+                    ? dividerWidthExpanded
+                    : 0.0;
 
-            return Row(
-              children: [
-                AnimatedContainer(
-                  width: foldersWidth,
-                  duration: _isResizingFoldersPane
-                      ? Duration.zero
-                      : const Duration(milliseconds: 180),
-                  curve: Curves.easeInOut,
-                  child: showFoldersPane
-                      ? ClipRect(
-                          child: Align(
-                            alignment: Alignment.centerLeft,
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                SizedBox(
-                                  height: 44,
-                                  child: LayoutBuilder(
-                                    builder: (context, constraints) {
-                                      const buttonExtent = 40.0;
-                                      final showButton =
-                                          constraints.maxWidth >= buttonExtent;
+                return Row(
+                  children: [
+                    AnimatedBuilder(
+                      animation: Listenable.merge(<Listenable>[
+                        _foldersPaneWidth,
+                        _isResizingFoldersPane,
+                      ]),
+                      child: showFoldersPane
+                          ? ClipRect(
+                              child: Align(
+                                alignment: Alignment.centerLeft,
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    SizedBox(
+                                      height: 44,
+                                      child: LayoutBuilder(
+                                        builder: (context, constraints) {
+                                          const buttonExtent = 40.0;
+                                          final showButton =
+                                              constraints.maxWidth >=
+                                              buttonExtent;
 
-                                      return Row(
-                                        children: [
-                                          const Spacer(),
-                                          if (showButton)
-                                            IconButton(
-                                              constraints:
-                                                  const BoxConstraints.tightFor(
-                                                    width: buttonExtent,
-                                                    height: buttonExtent,
+                                          return Row(
+                                            children: [
+                                              const Spacer(),
+                                              if (showButton)
+                                                IconButton(
+                                                  constraints:
+                                                      const BoxConstraints.tightFor(
+                                                        width: buttonExtent,
+                                                        height: buttonExtent,
+                                                      ),
+                                                  padding: EdgeInsets.zero,
+                                                  visualDensity:
+                                                      VisualDensity.compact,
+                                                  icon: Icon(
+                                                    _foldersEditMode
+                                                        ? Icons.check
+                                                        : Icons.edit_outlined,
                                                   ),
-                                              padding: EdgeInsets.zero,
-                                              visualDensity:
-                                                  VisualDensity.compact,
-                                              icon: Icon(
-                                                _foldersEditMode
-                                                    ? Icons.check
-                                                    : Icons.edit_outlined,
-                                              ),
-                                              onPressed: () => setState(() {
-                                                _foldersEditMode =
-                                                    !_foldersEditMode;
-                                              }),
-                                            ),
-                                        ],
-                                      );
-                                    },
-                                  ),
+                                                  onPressed: () => setState(() {
+                                                    _foldersEditMode =
+                                                        !_foldersEditMode;
+                                                  }),
+                                                ),
+                                            ],
+                                          );
+                                        },
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Expanded(
+                                      child: FolderTree(
+                                        roots: roots,
+                                        folders: folders,
+                                        excludedFolders: excludedFolders,
+                                        selectedFolder: selectedFolder,
+                                        isEditing: _foldersEditMode,
+                                        onDeleteFolder: (p) => ref
+                                            .read(
+                                              libraryControllerProvider
+                                                  .notifier,
+                                            )
+                                            .deleteFolder(p),
+                                        onRestoreFolder: (p) => ref
+                                            .read(
+                                              libraryControllerProvider
+                                                  .notifier,
+                                            )
+                                            .restoreFolder(p),
+                                        onSelectAll: () => ref
+                                            .read(
+                                              libraryControllerProvider
+                                                  .notifier,
+                                            )
+                                            .selectAllMusic(),
+                                        onSelectFolder: (p) => ref
+                                            .read(
+                                              libraryControllerProvider
+                                                  .notifier,
+                                            )
+                                            .selectFolder(p),
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                                const SizedBox(height: 8),
-                                Expanded(
-                                  child: FolderTree(
-                                    roots: roots,
-                                    folders: folders,
-                                    excludedFolders: excludedFolders,
-                                    selectedFolder: selectedFolder,
-                                    isEditing: _foldersEditMode,
-                                    onDeleteFolder: (p) => ref
-                                        .read(
-                                          libraryControllerProvider.notifier,
-                                        )
-                                        .deleteFolder(p),
-                                    onRestoreFolder: (p) => ref
-                                        .read(
-                                          libraryControllerProvider.notifier,
-                                        )
-                                        .restoreFolder(p),
-                                    onSelectAll: () => ref
-                                        .read(
-                                          libraryControllerProvider.notifier,
-                                        )
-                                        .selectAllMusic(),
-                                    onSelectFolder: (p) => ref
-                                        .read(
-                                          libraryControllerProvider.notifier,
-                                        )
-                                        .selectFolder(p),
-                                  ),
-                                ),
-                              ],
+                              ),
+                            )
+                          : const SizedBox.shrink(),
+                      builder: (context, foldersPaneChild) {
+                        final foldersWidth = showFoldersPane
+                            ? _foldersPaneWidth.value
+                                  .clamp(0.0, maxFoldersWidth)
+                                  .toDouble()
+                            : 0.0;
+                        final animDuration = _isResizingFoldersPane.value
+                            ? Duration.zero
+                            : const Duration(milliseconds: 180);
+
+                        return AnimatedContainer(
+                          width: foldersWidth,
+                          duration: animDuration,
+                          curve: Curves.easeInOut,
+                          child: foldersPaneChild,
+                        );
+                      },
+                    ),
+                    AnimatedBuilder(
+                      animation: _isResizingFoldersPane,
+                      builder: (context, _) {
+                        final animDuration = _isResizingFoldersPane.value
+                            ? Duration.zero
+                            : const Duration(milliseconds: 180);
+                        return AnimatedContainer(
+                          width: dividerWidth,
+                          duration: animDuration,
+                          curve: Curves.easeInOut,
+                          child: MouseRegion(
+                            cursor: SystemMouseCursors.resizeColumn,
+                            onEnter: (e) {
+                              _dividerHovering = true;
+                              if (_isResizingFoldersPane.value &&
+                                  _dividerRearmPending) {
+                                _dividerDragLastX = e.position.dx;
+                                _dividerRearmPending = false;
+                              }
+                            },
+                            onExit: (_) => _dividerHovering = false,
+                            child: GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onHorizontalDragStart: (details) {
+                                _isResizingFoldersPane.value = true;
+                                _dividerHovering = true;
+                                _dividerRearmPending = false;
+                                _dividerDragLastX = details.globalPosition.dx;
+                                if (_foldersPaneCollapsed) {
+                                  setState(() => _foldersPaneCollapsed = false);
+                                }
+                                if (_foldersPaneWidth.value <= 0) {
+                                  _foldersPaneWidth.value =
+                                      effectiveMinFoldersWidth;
+                                }
+                              },
+                              onHorizontalDragUpdate: (details) {
+                                final x = details.globalPosition.dx;
+                                if (_dividerDragLastX == 0.0 ||
+                                    _dividerRearmPending) {
+                                  _dividerDragLastX = x;
+                                  _dividerRearmPending = false;
+                                  return;
+                                }
+
+                                final dx = x - _dividerDragLastX;
+                                _dividerDragLastX = x;
+
+                                const eps = 0.5;
+                                final w = _foldersPaneWidth.value;
+                                final atMin =
+                                    (w - effectiveMinFoldersWidth).abs() <=
+                                        eps ||
+                                    w <= effectiveMinFoldersWidth + eps;
+                                final atMax =
+                                    (w - maxFoldersWidth).abs() <= eps ||
+                                    w >= maxFoldersWidth - eps;
+                                final atEdge = atMin || atMax;
+
+                                if (!_dividerHovering && atEdge) {
+                                  _dividerRearmPending = true;
+                                  return;
+                                }
+
+                                final next = (_foldersPaneWidth.value + dx)
+                                    .clamp(0.0, maxFoldersWidth)
+                                    .toDouble();
+                                final desired = next < effectiveMinFoldersWidth
+                                    ? effectiveMinFoldersWidth
+                                    : next;
+                                if (_foldersPaneWidth.value != desired) {
+                                  _foldersPaneWidth.value = desired;
+                                }
+                              },
+                              onHorizontalDragEnd: (_) {
+                                _isResizingFoldersPane.value = false;
+                                _dividerHovering = false;
+                                _dividerRearmPending = false;
+                                _dividerDragLastX = 0.0;
+                                _foldersPaneWidth.value = _foldersPaneWidth
+                                    .value
+                                    .clamp(0.0, maxFoldersWidth)
+                                    .toDouble();
+                              },
+                              child: dividerWidth > 0
+                                  ? const VerticalDivider(
+                                      width: dividerWidthExpanded,
+                                    )
+                                  : const SizedBox.shrink(),
                             ),
                           ),
-                        )
-                      : const SizedBox.shrink(),
-                ),
-                AnimatedContainer(
-                  width: dividerWidth,
-                  duration: _isResizingFoldersPane
-                      ? Duration.zero
-                      : const Duration(milliseconds: 180),
-                  curve: Curves.easeInOut,
-                  child: MouseRegion(
-                    cursor: SystemMouseCursors.resizeColumn,
-                    child: GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onHorizontalDragStart: (_) => setState(() {
-                        _isResizingFoldersPane = true;
-                        _foldersPaneCollapsed = false;
-                        if (_foldersPaneWidth <= 0) {
-                          _foldersPaneWidth = minFoldersWidth;
-                        }
-                      }),
-                      onHorizontalDragUpdate: (details) => setState(() {
-                        _foldersPaneCollapsed = false;
-                        _foldersPaneWidth =
-                            (_foldersPaneWidth + details.delta.dx)
-                                .clamp(0.0, maxFoldersWidth)
-                                .toDouble();
-                        if (_foldersPaneWidth < minFoldersWidth) {
-                          _foldersPaneWidth = minFoldersWidth;
-                        }
-                      }),
-                      onHorizontalDragEnd: (_) => setState(() {
-                        _isResizingFoldersPane = false;
-                        _foldersPaneWidth = _foldersPaneWidth.clamp(
-                          0.0,
-                          maxFoldersWidth,
                         );
-                      }),
-                      child: dividerWidth > 0
-                          ? const VerticalDivider(width: dividerWidthExpanded)
-                          : const SizedBox.shrink(),
+                      },
                     ),
-                  ),
-                ),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      TextField(
-                        controller: _searchController,
-                        decoration: InputDecoration(
-                          prefixIcon: const Icon(Icons.search),
-                          hintText: l10n.searchHint,
-                          border: const OutlineInputBorder(),
-                        ),
-                        onChanged: (q) => ref
-                            .read(libraryControllerProvider.notifier)
-                            .setQuery(q),
-                      ),
-                      const SizedBox(height: 12),
-                      if (selectedFolder.isNotEmpty)
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                selectedFolder,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: theme.textTheme.titleSmall,
-                              ),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          TextField(
+                            controller: _searchController,
+                            decoration: InputDecoration(
+                              prefixIcon: const Icon(Icons.search),
+                              hintText: l10n.searchHint,
+                              border: const OutlineInputBorder(),
                             ),
-                            if (hasSubfolders) ...[
-                              const SizedBox(width: 12),
-                              Row(
-                                children: [
-                                  Text(l10n.includeSubfolders),
-                                  const SizedBox(width: 8),
-                                  Switch(
-                                    value: includeSubfolders,
-                                    onChanged: (_) => ref
-                                        .read(
-                                          libraryControllerProvider.notifier,
-                                        )
-                                        .toggleIncludeSubfolders(),
+                            onChanged: (q) => ref
+                                .read(libraryControllerProvider.notifier)
+                                .setQuery(q),
+                          ),
+                          const SizedBox(height: 12),
+                          if (selectedFolder.isNotEmpty)
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    selectedFolder,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: theme.textTheme.titleSmall,
+                                  ),
+                                ),
+                                if (hasSubfolders) ...[
+                                  const SizedBox(width: 12),
+                                  Row(
+                                    children: [
+                                      Text(l10n.includeSubfolders),
+                                      const SizedBox(width: 8),
+                                      Switch(
+                                        value: includeSubfolders,
+                                        onChanged: (_) => ref
+                                            .read(
+                                              libraryControllerProvider
+                                                  .notifier,
+                                            )
+                                            .toggleIncludeSubfolders(),
+                                      ),
+                                    ],
                                   ),
                                 ],
+                              ],
+                            ),
+                          if (selectedFolder.isNotEmpty)
+                            const SizedBox(height: 12),
+                          if (isScanning || lastFinishedMs != null)
+                            _ScanStatusCard(
+                              isScanning: isScanning,
+                              scanned: progress.scanned,
+                              updated: progress.updated,
+                              skipped: progress.skipped,
+                              errors: progress.errors,
+                              durationMs: lastFinishedMs,
+                            ),
+                          if (lastError != null)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 8),
+                              child: Text(
+                                lastError,
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  color: theme.colorScheme.error,
+                                ),
                               ),
-                            ],
-                          ],
-                        ),
-                      if (selectedFolder.isNotEmpty) const SizedBox(height: 12),
-                      if (isScanning || lastFinishedMs != null)
-                        _ScanStatusCard(
-                          isScanning: isScanning,
-                          scanned: progress.scanned,
-                          updated: progress.updated,
-                          skipped: progress.skipped,
-                          errors: progress.errors,
-                          durationMs: lastFinishedMs,
-                        ),
-                      if (lastError != null)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 8),
-                          child: Text(
-                            lastError,
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color: theme.colorScheme.error,
+                            ),
+                          const SizedBox(height: 12),
+                          Expanded(
+                            child: TrackList(
+                              coverDir: ref.watch(coverDirProvider),
+                              items: results,
+                              onActivate: (index, items) async {
+                                final paths = items.map((t) => t.path).toList();
+                                await ref
+                                    .read(playbackControllerProvider.notifier)
+                                    .setQueueAndPlay(paths, startIndex: index);
+                              },
+                              onEnqueue: (track) async {
+                                await ref
+                                    .read(playbackControllerProvider.notifier)
+                                    .enqueue([track.path]);
+                              },
                             ),
                           ),
-                        ),
-                      const SizedBox(height: 12),
-                      Expanded(
-                        child: TrackList(
-                          coverDir: ref.watch(coverDirProvider),
-                          items: results,
-                          onActivate: (index, items) async {
-                            final paths = items.map((t) => t.path).toList();
-                            await ref
-                                .read(playbackControllerProvider.notifier)
-                                .setQueueAndPlay(paths, startIndex: index);
-                          },
-                          onEnqueue: (track) async {
-                            await ref
-                                .read(playbackControllerProvider.notifier)
-                                .enqueue([track.path]);
-                          },
-                        ),
+                        ],
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+          ValueListenableBuilder<bool>(
+            valueListenable: _isResizingFoldersPane,
+            builder: (context, resizing, _) {
+              if (!resizing) return const SizedBox.shrink();
+              return Positioned.fill(
+                child: MouseRegion(
+                  cursor: SystemMouseCursors.resizeColumn,
+                  opaque: false,
+                  child: const SizedBox.expand(),
                 ),
-              ],
-            );
-          },
-        ),
+              );
+            },
+          ),
+        ],
       ),
     );
   }

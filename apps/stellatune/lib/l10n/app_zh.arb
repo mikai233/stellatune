@@ -56,6 +56,14 @@
   "queueEmpty": "(队列为空)",
   "tooltipPrevious": "上一首",
   "tooltipNext": "下一首",
+  "volume": "音量",
+  "tooltipVolume": "音量",
   "tooltipShuffle": "随机播放",
-  "tooltipRepeat": "循环播放"
+  "tooltipRepeat": "循环播放",
+
+  "tooltipPlayMode": "播放模式",
+  "playModeSequential": "顺序播放",
+  "playModeShuffle": "随机播放",
+  "playModeRepeatAll": "列表循环",
+  "playModeRepeatOne": "单曲循环"
 }

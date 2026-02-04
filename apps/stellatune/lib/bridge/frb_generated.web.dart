@@ -58,6 +58,9 @@ abstract class StellatuneApiApiImplPlatform
   Event dco_decode_event(dynamic raw);
 
   @protected
+  double dco_decode_f_32(dynamic raw);
+
+  @protected
   int dco_decode_i_32(dynamic raw);
 
   @protected
@@ -126,6 +129,9 @@ abstract class StellatuneApiApiImplPlatform
 
   @protected
   Event sse_decode_event(SseDeserializer deserializer);
+
+  @protected
+  double sse_decode_f_32(SseDeserializer deserializer);
 
   @protected
   int sse_decode_i_32(SseDeserializer deserializer);
@@ -204,6 +210,9 @@ abstract class StellatuneApiApiImplPlatform
 
   @protected
   void sse_encode_event(Event self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_f_32(double self, SseSerializer serializer);
 
   @protected
   void sse_encode_i_32(int self, SseSerializer serializer);

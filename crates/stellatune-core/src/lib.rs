@@ -17,6 +17,7 @@ pub enum Command {
     LoadTrack { path: String },
     Play,
     Pause,
+    SetVolume { volume: f32 },
     Stop,
     Shutdown,
 }
@@ -28,6 +29,7 @@ pub enum Event {
     Position { ms: i64 },
     TrackChanged { path: String },
     PlaybackEnded { path: String },
+    VolumeChanged { volume: f32 },
     Error { message: String },
     Log { message: String },
 }

@@ -21,6 +21,12 @@ Future<void> play({required Player player}) =>
 Future<void> pause({required Player player}) =>
     StellatuneApi.instance.api.crateApiPause(player: player);
 
+Future<void> setVolume({required Player player, required double volume}) =>
+    StellatuneApi.instance.api.crateApiSetVolume(
+      player: player,
+      volume: volume,
+    );
+
 Future<void> stop({required Player player}) =>
     StellatuneApi.instance.api.crateApiStop(player: player);
 

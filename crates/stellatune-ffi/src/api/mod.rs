@@ -64,6 +64,10 @@ pub fn pause(player: RustOpaque<Player>) {
     player.engine.send_command(Command::Pause);
 }
 
+pub fn set_volume(player: RustOpaque<Player>, volume: f32) {
+    player.engine.send_command(Command::SetVolume { volume });
+}
+
 pub fn stop(player: RustOpaque<Player>) {
     player.engine.send_command(Command::Stop);
 }

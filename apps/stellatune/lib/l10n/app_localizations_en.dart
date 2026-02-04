@@ -135,8 +135,29 @@ class AppLocalizationsEn extends AppLocalizations {
   String get tooltipNext => 'Next';
 
   @override
+  String get volume => 'Volume';
+
+  @override
+  String get tooltipVolume => 'Volume';
+
+  @override
   String get tooltipShuffle => 'Shuffle';
 
   @override
   String get tooltipRepeat => 'Repeat';
+
+  @override
+  String get tooltipPlayMode => 'Play mode';
+
+  @override
+  String get playModeSequential => 'Sequential';
+
+  @override
+  String get playModeShuffle => 'Shuffle';
+
+  @override
+  String get playModeRepeatAll => 'Repeat all';
+
+  @override
+  String get playModeRepeatOne => 'Repeat one';
 }

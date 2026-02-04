@@ -71,7 +71,7 @@ class StellatuneApi
   String get codegenVersion => '2.11.1';
 
   @override
-  int get rustContentHash => 1451320472;
+  int get rustContentHash => -750071107;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -139,6 +139,11 @@ abstract class StellatuneApiApi extends BaseApi {
   Future<void> crateApiPause({required Player player});
 
   Future<void> crateApiPlay({required Player player});
+
+  Future<void> crateApiSetVolume({
+    required Player player,
+    required double volume,
+  });
 
   Future<void> crateApiStop({required Player player});
 
@@ -712,6 +717,40 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
       const TaskConstMeta(debugName: "play", argNames: ["player"]);
 
   @override
+  Future<void> crateApiSetVolume({
+    required Player player,
+    required double volume,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_RustOpaque_Player(player, serializer);
+          sse_encode_f_32(volume, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 18,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiSetVolumeConstMeta,
+        argValues: [player, volume],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiSetVolumeConstMeta => const TaskConstMeta(
+    debugName: "set_volume",
+    argNames: ["player", "volume"],
+  );
+
+  @override
   Future<void> crateApiStop({required Player player}) {
     return handler.executeNormal(
       NormalTask(
@@ -721,7 +760,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 18,
+            funcId: 19,
             port: port_,
           );
         },
@@ -818,12 +857,20 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
       case 3:
         return Event_PlaybackEnded(path: dco_decode_String(raw[1]));
       case 4:
-        return Event_Error(message: dco_decode_String(raw[1]));
+        return Event_VolumeChanged(volume: dco_decode_f_32(raw[1]));
       case 5:
+        return Event_Error(message: dco_decode_String(raw[1]));
+      case 6:
         return Event_Log(message: dco_decode_String(raw[1]));
       default:
         throw Exception("unreachable");
     }
+  }
+
+  @protected
+  double dco_decode_f_32(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw as double;
   }
 
   @protected
@@ -1037,14 +1084,23 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
         var var_path = sse_decode_String(deserializer);
         return Event_PlaybackEnded(path: var_path);
       case 4:
+        var var_volume = sse_decode_f_32(deserializer);
+        return Event_VolumeChanged(volume: var_volume);
+      case 5:
         var var_message = sse_decode_String(deserializer);
         return Event_Error(message: var_message);
-      case 5:
+      case 6:
         var var_message = sse_decode_String(deserializer);
         return Event_Log(message: var_message);
       default:
         throw UnimplementedError('');
     }
+  }
+
+  @protected
+  double sse_decode_f_32(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return deserializer.buffer.getFloat32();
   }
 
   @protected
@@ -1320,13 +1376,22 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
       case Event_PlaybackEnded(path: final path):
         sse_encode_i_32(3, serializer);
         sse_encode_String(path, serializer);
-      case Event_Error(message: final message):
+      case Event_VolumeChanged(volume: final volume):
         sse_encode_i_32(4, serializer);
-        sse_encode_String(message, serializer);
-      case Event_Log(message: final message):
+        sse_encode_f_32(volume, serializer);
+      case Event_Error(message: final message):
         sse_encode_i_32(5, serializer);
         sse_encode_String(message, serializer);
+      case Event_Log(message: final message):
+        sse_encode_i_32(6, serializer);
+        sse_encode_String(message, serializer);
     }
+  }
+
+  @protected
+  void sse_encode_f_32(double self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    serializer.buffer.putFloat32(self);
   }
 
   @protected

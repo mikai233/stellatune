@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::thread::JoinHandle;
 use std::time::Instant;
 
@@ -20,6 +20,7 @@ pub(crate) struct PlaybackSession {
     pub(crate) decode_join: JoinHandle<()>,
     pub(crate) _output: OutputHandle,
     pub(crate) output_enabled: Arc<AtomicBool>,
+    pub(crate) volume: Arc<AtomicU32>,
     pub(crate) buffered_samples: Arc<AtomicUsize>,
     pub(crate) underrun_callbacks: Arc<AtomicU64>,
     pub(crate) out_sample_rate: u32,
@@ -32,6 +33,7 @@ pub(crate) fn start_session(
     internal_tx: Sender<InternalMsg>,
     out_spec: OutputSpec,
     start_at_ms: i64,
+    volume: Arc<AtomicU32>,
 ) -> Result<PlaybackSession, String> {
     let t0 = Instant::now();
     debug!(%path, start_at_ms, "start_session begin");
@@ -93,6 +95,7 @@ pub(crate) fn start_session(
     let output_consumer = GatedConsumer {
         inner: consumer,
         enabled: Arc::clone(&output_enabled),
+        volume: Arc::clone(&volume),
         buffered_samples: Arc::clone(&buffered_samples),
         underrun_callbacks: Arc::clone(&underrun_callbacks),
     };
@@ -127,6 +130,7 @@ pub(crate) fn start_session(
         decode_join,
         _output: output,
         output_enabled,
+        volume,
         buffered_samples,
         underrun_callbacks,
         out_sample_rate: out_spec.sample_rate,
@@ -137,6 +141,7 @@ pub(crate) fn start_session(
 struct GatedConsumer {
     inner: crate::ring_buffer::RingBufferConsumer<f32>,
     enabled: Arc<AtomicBool>,
+    volume: Arc<AtomicU32>,
     buffered_samples: Arc<AtomicUsize>,
     underrun_callbacks: Arc<AtomicU64>,
 }
@@ -146,7 +151,9 @@ impl stellatune_output::SampleConsumer for GatedConsumer {
         if !self.enabled.load(Ordering::Acquire) {
             return None;
         }
-        self.inner.pop_sample()
+        let s = self.inner.pop_sample()?;
+        let v = f32::from_bits(self.volume.load(Ordering::Relaxed));
+        Some(s * v)
     }
 
     fn on_output(&mut self, requested: usize, provided: usize) {

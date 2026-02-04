@@ -19,13 +19,10 @@ class QueuePage extends ConsumerWidget {
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
         child: Column(
           children: [
-            _QueueModeRow(
-              shuffle: queue.shuffle,
-              repeatMode: queue.repeatMode,
-              onToggleShuffle: () =>
-                  ref.read(queueControllerProvider.notifier).toggleShuffle(),
-              onCycleRepeat: () =>
-                  ref.read(queueControllerProvider.notifier).cycleRepeatMode(),
+            _QueueModeButton(
+              mode: queue.playMode,
+              onCycle: () =>
+                  ref.read(queueControllerProvider.notifier).cyclePlayMode(),
             ),
             const SizedBox(height: 12),
             Expanded(
@@ -43,38 +40,36 @@ class QueuePage extends ConsumerWidget {
   }
 }
 
-class _QueueModeRow extends StatelessWidget {
-  const _QueueModeRow({
-    required this.shuffle,
-    required this.repeatMode,
-    required this.onToggleShuffle,
-    required this.onCycleRepeat,
-  });
+class _QueueModeButton extends StatelessWidget {
+  const _QueueModeButton({required this.mode, required this.onCycle});
 
-  final bool shuffle;
-  final RepeatMode repeatMode;
-  final VoidCallback onToggleShuffle;
-  final VoidCallback onCycleRepeat;
+  final PlayMode mode;
+  final VoidCallback onCycle;
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final repeatLabel = switch (repeatMode) {
-      RepeatMode.off => l10n.repeatOff,
-      RepeatMode.all => l10n.repeatAll,
-      RepeatMode.one => l10n.repeatOne,
+
+    final label = switch (mode) {
+      PlayMode.sequential => l10n.playModeSequential,
+      PlayMode.shuffle => l10n.playModeShuffle,
+      PlayMode.repeatAll => l10n.playModeRepeatAll,
+      PlayMode.repeatOne => l10n.playModeRepeatOne,
+    };
+    final icon = switch (mode) {
+      PlayMode.sequential => Icons.playlist_play,
+      PlayMode.shuffle => Icons.shuffle,
+      PlayMode.repeatAll => Icons.repeat,
+      PlayMode.repeatOne => Icons.repeat_one,
     };
 
-    return Row(
-      children: [
-        FilterChip(
-          selected: shuffle,
-          onSelected: (_) => onToggleShuffle(),
-          label: Text(l10n.queueShuffle),
-        ),
-        const SizedBox(width: 8),
-        ActionChip(onPressed: onCycleRepeat, label: Text(repeatLabel)),
-      ],
+    return Tooltip(
+      message: label,
+      child: ActionChip(
+        avatar: Icon(icon, size: 18),
+        onPressed: onCycle,
+        label: Text(label),
+      ),
     );
   }
 }

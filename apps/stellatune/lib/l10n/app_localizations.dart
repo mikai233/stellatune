@@ -344,6 +344,18 @@ abstract class AppLocalizations {
   /// **'Next'**
   String get tooltipNext;
 
+  /// No description provided for @volume.
+  ///
+  /// In en, this message translates to:
+  /// **'Volume'**
+  String get volume;
+
+  /// No description provided for @tooltipVolume.
+  ///
+  /// In en, this message translates to:
+  /// **'Volume'**
+  String get tooltipVolume;
+
   /// No description provided for @tooltipShuffle.
   ///
   /// In en, this message translates to:
@@ -355,6 +367,36 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Repeat'**
   String get tooltipRepeat;
+
+  /// No description provided for @tooltipPlayMode.
+  ///
+  /// In en, this message translates to:
+  /// **'Play mode'**
+  String get tooltipPlayMode;
+
+  /// No description provided for @playModeSequential.
+  ///
+  /// In en, this message translates to:
+  /// **'Sequential'**
+  String get playModeSequential;
+
+  /// No description provided for @playModeShuffle.
+  ///
+  /// In en, this message translates to:
+  /// **'Shuffle'**
+  String get playModeShuffle;
+
+  /// No description provided for @playModeRepeatAll.
+  ///
+  /// In en, this message translates to:
+  /// **'Repeat all'**
+  String get playModeRepeatAll;
+
+  /// No description provided for @playModeRepeatOne.
+  ///
+  /// In en, this message translates to:
+  /// **'Repeat one'**
+  String get playModeRepeatOne;
 }
 
 class _AppLocalizationsDelegate

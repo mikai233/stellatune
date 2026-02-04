@@ -13,10 +13,15 @@ final playbackControllerProvider =
 
 class PlaybackController extends Notifier<PlaybackState> {
   StreamSubscription<Event>? _sub;
+  Timer? _volumeDebounce;
+  double? _pendingVolume;
 
   @override
   PlaybackState build() {
     unawaited(_sub?.cancel());
+    _volumeDebounce?.cancel();
+    _volumeDebounce = null;
+    _pendingVolume = null;
 
     final bridge = ref.read(playerBridgeProvider);
     _sub = bridge.events().listen(
@@ -29,7 +34,10 @@ class PlaybackController extends Notifier<PlaybackState> {
       },
     );
 
-    ref.onDispose(() => unawaited(_sub?.cancel()));
+    ref.onDispose(() {
+      unawaited(_sub?.cancel());
+      _volumeDebounce?.cancel();
+    });
     return const PlaybackState.initial();
   }
 
@@ -63,6 +71,20 @@ class PlaybackController extends Notifier<PlaybackState> {
 
   Future<void> play() => ref.read(playerBridgeProvider).play();
   Future<void> pause() => ref.read(playerBridgeProvider).pause();
+
+  void setVolume(double volume) {
+    final v = volume.clamp(0.0, 1.0);
+    if (state.volume == v) return;
+    state = state.copyWith(volume: v);
+
+    _pendingVolume = v;
+    _volumeDebounce?.cancel();
+    _volumeDebounce = Timer(const Duration(milliseconds: 30), () {
+      final toSend = _pendingVolume;
+      if (toSend == null) return;
+      unawaited(ref.read(playerBridgeProvider).setVolume(toSend));
+    });
+  }
 
   Future<void> stop() async {
     await ref.read(playerBridgeProvider).stop();
@@ -107,6 +129,9 @@ class PlaybackController extends Notifier<PlaybackState> {
       playbackEnded: (path) {
         ref.read(loggerProvider).i('playback ended: $path');
         unawaited(next(auto: true));
+      },
+      volumeChanged: (volume) {
+        state = state.copyWith(volume: volume);
       },
       error: (message) {
         ref.read(loggerProvider).e(message);

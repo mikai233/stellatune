@@ -134,8 +134,29 @@ class AppLocalizationsZh extends AppLocalizations {
   String get tooltipNext => '下一首';
 
   @override
+  String get volume => '音量';
+
+  @override
+  String get tooltipVolume => '音量';
+
+  @override
   String get tooltipShuffle => '随机播放';
 
   @override
   String get tooltipRepeat => '循环播放';
+
+  @override
+  String get tooltipPlayMode => '播放模式';
+
+  @override
+  String get playModeSequential => '顺序播放';
+
+  @override
+  String get playModeShuffle => '随机播放';
+
+  @override
+  String get playModeRepeatAll => '列表循环';
+
+  @override
+  String get playModeRepeatOne => '单曲循环';
 }

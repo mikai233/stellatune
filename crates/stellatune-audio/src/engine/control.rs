@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
@@ -54,6 +54,8 @@ struct EngineState {
     current_track: Option<String>,
     session: Option<PlaybackSession>,
     wants_playback: bool,
+    volume: f32,
+    volume_atomic: Arc<AtomicU32>,
     last_underrun_total: u64,
     last_underrun_log_at: Instant,
     play_request_started_at: Option<Instant>,
@@ -64,12 +66,15 @@ struct EngineState {
 
 impl EngineState {
     fn new() -> Self {
+        let volume = 1.0_f32;
         Self {
             player_state: PlayerState::Stopped,
             position_ms: 0,
             current_track: None,
             session: None,
             wants_playback: false,
+            volume,
+            volume_atomic: Arc::new(AtomicU32::new(volume.to_bits())),
             last_underrun_total: 0,
             last_underrun_log_at: Instant::now(),
             play_request_started_at: None,
@@ -269,6 +274,7 @@ fn handle_command(
                         internal_tx.clone(),
                         out_spec,
                         state.position_ms,
+                        Arc::clone(&state.volume_atomic),
                     ) {
                         Ok(session) => state.session = Some(session),
                         Err(message) => {
@@ -306,6 +312,16 @@ fn handle_command(
             state.play_request_started_at = None;
             state.pending_session_start = false;
             set_state(state, events, PlayerState::Paused);
+        }
+        Command::SetVolume { volume } => {
+            // Clamp to [0, 1].
+            let v = volume.max(0.0).min(1.0);
+            state.volume = v;
+            state.volume_atomic.store(v.to_bits(), Ordering::Relaxed);
+            if let Some(session) = state.session.as_ref() {
+                session.volume.store(v.to_bits(), Ordering::Relaxed);
+            }
+            events.emit(Event::VolumeChanged { volume: v });
         }
         Command::Stop => {
             stop_session(state, events);
@@ -389,6 +405,7 @@ fn handle_tick(state: &mut EngineState, events: &Arc<EventHub>, internal_tx: &Se
             internal_tx.clone(),
             out_spec,
             state.position_ms,
+            Arc::clone(&state.volume_atomic),
         ) {
             Ok(session) => {
                 state.session = Some(session);

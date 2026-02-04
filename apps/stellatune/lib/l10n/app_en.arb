@@ -56,6 +56,14 @@
   "queueEmpty": "(queue empty)",
   "tooltipPrevious": "Previous",
   "tooltipNext": "Next",
+  "volume": "Volume",
+  "tooltipVolume": "Volume",
   "tooltipShuffle": "Shuffle",
-  "tooltipRepeat": "Repeat"
+  "tooltipRepeat": "Repeat",
+
+  "tooltipPlayMode": "Play mode",
+  "playModeSequential": "Sequential",
+  "playModeShuffle": "Shuffle",
+  "playModeRepeatAll": "Repeat all",
+  "playModeRepeatOne": "Repeat one"
 }

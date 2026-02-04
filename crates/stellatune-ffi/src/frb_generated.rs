@@ -38,7 +38,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.11.1";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 1451320472;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -750071107;
 
 // Section: executor
 
@@ -666,6 +666,42 @@ fn wire__crate__api__play_impl(
         },
     )
 }
+fn wire__crate__api__set_volume_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "set_volume",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_player = <RustOpaqueMoi<Player>>::sse_decode(&mut deserializer);
+            let api_volume = <f32>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, ()>((move || {
+                    let output_ok = Result::<_, ()>::Ok({
+                        crate::api::set_volume(api_player, api_volume);
+                    })?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
 fn wire__crate__api__stop_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -718,6 +754,9 @@ const _: fn() = || {
         }
         stellatune_core::Event::PlaybackEnded { path } => {
             let _: String = path;
+        }
+        stellatune_core::Event::VolumeChanged { volume } => {
+            let _: f32 = volume;
         }
         stellatune_core::Event::Error { message } => {
             let _: String = message;
@@ -882,12 +921,16 @@ impl SseDecode for stellatune_core::Event {
                 return stellatune_core::Event::PlaybackEnded { path: var_path };
             }
             4 => {
+                let mut var_volume = <f32>::sse_decode(deserializer);
+                return stellatune_core::Event::VolumeChanged { volume: var_volume };
+            }
+            5 => {
                 let mut var_message = <String>::sse_decode(deserializer);
                 return stellatune_core::Event::Error {
                     message: var_message,
                 };
             }
-            5 => {
+            6 => {
                 let mut var_message = <String>::sse_decode(deserializer);
                 return stellatune_core::Event::Log {
                     message: var_message,
@@ -897,6 +940,13 @@ impl SseDecode for stellatune_core::Event {
                 unimplemented!("");
             }
         }
+    }
+}
+
+impl SseDecode for f32 {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        deserializer.cursor.read_f32::<NativeEndian>().unwrap()
     }
 }
 
@@ -1138,7 +1188,8 @@ fn pde_ffi_dispatcher_primary_impl(
         15 => wire__crate__api__load_impl(port, ptr, rust_vec_len, data_len),
         16 => wire__crate__api__pause_impl(port, ptr, rust_vec_len, data_len),
         17 => wire__crate__api__play_impl(port, ptr, rust_vec_len, data_len),
-        18 => wire__crate__api__stop_impl(port, ptr, rust_vec_len, data_len),
+        18 => wire__crate__api__set_volume_impl(port, ptr, rust_vec_len, data_len),
+        19 => wire__crate__api__stop_impl(port, ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
@@ -1173,11 +1224,14 @@ impl flutter_rust_bridge::IntoDart for FrbWrapper<stellatune_core::Event> {
             stellatune_core::Event::PlaybackEnded { path } => {
                 [3.into_dart(), path.into_into_dart().into_dart()].into_dart()
             }
+            stellatune_core::Event::VolumeChanged { volume } => {
+                [4.into_dart(), volume.into_into_dart().into_dart()].into_dart()
+            }
             stellatune_core::Event::Error { message } => {
-                [4.into_dart(), message.into_into_dart().into_dart()].into_dart()
+                [5.into_dart(), message.into_into_dart().into_dart()].into_dart()
             }
             stellatune_core::Event::Log { message } => {
-                [5.into_dart(), message.into_into_dart().into_dart()].into_dart()
+                [6.into_dart(), message.into_into_dart().into_dart()].into_dart()
             }
             _ => {
                 unimplemented!("");
@@ -1406,18 +1460,29 @@ impl SseEncode for stellatune_core::Event {
                 <i32>::sse_encode(3, serializer);
                 <String>::sse_encode(path, serializer);
             }
-            stellatune_core::Event::Error { message } => {
+            stellatune_core::Event::VolumeChanged { volume } => {
                 <i32>::sse_encode(4, serializer);
+                <f32>::sse_encode(volume, serializer);
+            }
+            stellatune_core::Event::Error { message } => {
+                <i32>::sse_encode(5, serializer);
                 <String>::sse_encode(message, serializer);
             }
             stellatune_core::Event::Log { message } => {
-                <i32>::sse_encode(5, serializer);
+                <i32>::sse_encode(6, serializer);
                 <String>::sse_encode(message, serializer);
             }
             _ => {
                 unimplemented!("");
             }
         }
+    }
+}
+
+impl SseEncode for f32 {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        serializer.cursor.write_f32::<NativeEndian>(self).unwrap();
     }
 }
 
