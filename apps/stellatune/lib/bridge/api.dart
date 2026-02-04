@@ -39,6 +39,36 @@ Future<void> stop({required Player player}) =>
 Stream<Event> events({required Player player}) =>
     StellatuneApi.instance.api.crateApiEvents(player: player);
 
+Future<List<PluginDescriptor>> pluginsList({required Player player}) =>
+    StellatuneApi.instance.api.crateApiPluginsList(player: player);
+
+Future<List<DspTypeDescriptor>> dspListTypes({required Player player}) =>
+    StellatuneApi.instance.api.crateApiDspListTypes(player: player);
+
+Future<void> dspSetChain({
+  required Player player,
+  required List<DspChainItem> chain,
+}) => StellatuneApi.instance.api.crateApiDspSetChain(
+  player: player,
+  chain: chain,
+);
+
+Future<TrackDecodeInfo?> currentTrackInfo({required Player player}) =>
+    StellatuneApi.instance.api.crateApiCurrentTrackInfo(player: player);
+
+Future<void> pluginsReload({required Player player, required String dir}) =>
+    StellatuneApi.instance.api.crateApiPluginsReload(player: player, dir: dir);
+
+Future<void> pluginsReloadWithDisabled({
+  required Player player,
+  required String dir,
+  required List<String> disabledIds,
+}) => StellatuneApi.instance.api.crateApiPluginsReloadWithDisabled(
+  player: player,
+  dir: dir,
+  disabledIds: disabledIds,
+);
+
 Future<Library> createLibrary({required String dbPath}) =>
     StellatuneApi.instance.api.crateApiCreateLibrary(dbPath: dbPath);
 

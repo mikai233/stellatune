@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
@@ -8,19 +8,23 @@ use tracing::{debug, error, info, warn};
 
 use stellatune_core::{Command, Event, PlayerState};
 use stellatune_output::{OutputSpec, default_output_spec};
+use stellatune_plugins::{PluginManager, default_host_vtable};
 
 use crate::engine::config::{
     BUFFER_HIGH_WATERMARK_MS, BUFFER_LOW_WATERMARK_MS, CONTROL_TICK_MS, UNDERRUN_LOG_INTERVAL,
 };
 use crate::engine::event_hub::EventHub;
-use crate::engine::messages::{DecodeCtrl, InternalMsg};
+use crate::engine::messages::{DecodeCtrl, EngineCtrl, InternalMsg};
 use crate::engine::session::{PlaybackSession, start_session};
 
 /// Handle used by higher layers (e.g. FFI) to drive the player.
 #[derive(Clone)]
 pub struct EngineHandle {
     cmd_tx: Sender<Command>,
+    engine_ctrl_tx: Sender<EngineCtrl>,
     events: Arc<EventHub>,
+    plugins: Arc<Mutex<PluginManager>>,
+    track_info: Arc<Mutex<Option<stellatune_core::TrackDecodeInfo>>>,
 }
 
 impl EngineHandle {
@@ -28,24 +32,97 @@ impl EngineHandle {
         let _ = self.cmd_tx.send(cmd);
     }
 
+    pub fn set_dsp_chain(&self, chain: Vec<stellatune_core::DspChainItem>) {
+        let _ = self.engine_ctrl_tx.send(EngineCtrl::SetDspChain { chain });
+    }
+
+    pub fn reload_plugins(&self, dir: String) {
+        let _ = self.engine_ctrl_tx.send(EngineCtrl::ReloadPlugins { dir });
+    }
+
+    pub fn reload_plugins_with_disabled(&self, dir: String, disabled_ids: Vec<String>) {
+        let _ = self
+            .engine_ctrl_tx
+            .send(EngineCtrl::ReloadPluginsWithDisabled { dir, disabled_ids });
+    }
+
     pub fn subscribe_events(&self) -> Receiver<Event> {
         self.events.subscribe()
+    }
+
+    pub fn list_plugins(&self) -> Vec<stellatune_core::PluginDescriptor> {
+        let Ok(pm) = self.plugins.lock() else {
+            return Vec::new();
+        };
+        pm.plugins()
+            .iter()
+            .map(|p| stellatune_core::PluginDescriptor {
+                id: p.library.id(),
+                name: p.library.name(),
+            })
+            .collect()
+    }
+
+    pub fn list_dsp_types(&self) -> Vec<stellatune_core::DspTypeDescriptor> {
+        let Ok(pm) = self.plugins.lock() else {
+            return Vec::new();
+        };
+        pm.list_dsp_types()
+            .into_iter()
+            .map(|t| stellatune_core::DspTypeDescriptor {
+                plugin_id: t.plugin_id,
+                plugin_name: t.plugin_name,
+                type_id: t.type_id,
+                display_name: t.display_name,
+                config_schema_json: t.config_schema_json,
+                default_config_json: t.default_config_json,
+            })
+            .collect()
+    }
+
+    pub fn current_track_info(&self) -> Option<stellatune_core::TrackDecodeInfo> {
+        let Ok(g) = self.track_info.lock() else {
+            return None;
+        };
+        g.clone()
     }
 }
 
 pub fn start_engine() -> EngineHandle {
     let (cmd_tx, cmd_rx) = crossbeam_channel::unbounded();
+    let (engine_ctrl_tx, engine_ctrl_rx) = crossbeam_channel::unbounded();
     let (internal_tx, internal_rx) = crossbeam_channel::unbounded();
 
     let events = Arc::new(EventHub::new());
     let thread_events = Arc::clone(&events);
 
+    let plugins = Arc::new(Mutex::new(PluginManager::new(default_host_vtable())));
+    let track_info = Arc::new(Mutex::new(None));
+
+    let plugins_for_thread = Arc::clone(&plugins);
+    let track_info_for_thread = Arc::clone(&track_info);
     let _join: JoinHandle<()> = thread::Builder::new()
         .name("stellatune-control".to_string())
-        .spawn(move || run_control_loop(cmd_rx, internal_rx, internal_tx, thread_events))
+        .spawn(move || {
+            run_control_loop(
+                cmd_rx,
+                engine_ctrl_rx,
+                internal_rx,
+                internal_tx,
+                thread_events,
+                plugins_for_thread,
+                track_info_for_thread,
+            )
+        })
         .expect("failed to spawn stellatune-control thread");
 
-    EngineHandle { cmd_tx, events }
+    EngineHandle {
+        cmd_tx,
+        engine_ctrl_tx,
+        events,
+        plugins,
+        track_info,
+    }
 }
 
 struct EngineState {
@@ -62,6 +139,7 @@ struct EngineState {
     cached_output_spec: Option<OutputSpec>,
     output_spec_prewarm_inflight: bool,
     pending_session_start: bool,
+    desired_dsp_chain: Vec<stellatune_core::DspChainItem>,
 }
 
 impl EngineState {
@@ -81,15 +159,19 @@ impl EngineState {
             cached_output_spec: None,
             output_spec_prewarm_inflight: false,
             pending_session_start: false,
+            desired_dsp_chain: Vec::new(),
         }
     }
 }
 
 fn run_control_loop(
     cmd_rx: Receiver<Command>,
+    engine_ctrl_rx: Receiver<EngineCtrl>,
     internal_rx: Receiver<InternalMsg>,
     internal_tx: Sender<InternalMsg>,
     events: Arc<EventHub>,
+    plugins: Arc<Mutex<PluginManager>>,
+    track_info: Arc<Mutex<Option<stellatune_core::TrackDecodeInfo>>>,
 ) {
     info!("control thread started");
     let mut state = EngineState::new();
@@ -102,25 +184,99 @@ fn run_control_loop(
         crossbeam_channel::select! {
             recv(cmd_rx) -> msg => {
                 let Ok(cmd) = msg else { break };
-                if handle_command(cmd, &mut state, &events, &internal_tx) {
+                if handle_command(cmd, &mut state, &events, &internal_tx, &plugins, &track_info) {
                     break;
                 }
             }
+            recv(engine_ctrl_rx) -> msg => {
+                let Ok(msg) = msg else { break };
+                handle_engine_ctrl(msg, &mut state, &events, &plugins, &track_info);
+            }
             recv(internal_rx) -> msg => {
                 let Ok(msg) = msg else { break };
-                handle_internal(msg, &mut state, &events, &internal_tx);
+                handle_internal(msg, &mut state, &events, &internal_tx, &track_info);
             }
             recv(tick) -> _ => {
-                handle_tick(&mut state, &events, &internal_tx);
+                handle_tick(&mut state, &events, &internal_tx, &plugins, &track_info);
             }
         }
     }
 
-    stop_session(&mut state, &events);
+    stop_session(&mut state, &events, &track_info);
     events.emit(Event::Log {
         message: "control thread exited".to_string(),
     });
     info!("control thread exited");
+}
+
+fn handle_engine_ctrl(
+    msg: EngineCtrl,
+    state: &mut EngineState,
+    events: &Arc<EventHub>,
+    plugins: &Arc<Mutex<PluginManager>>,
+    track_info: &Arc<Mutex<Option<stellatune_core::TrackDecodeInfo>>>,
+) {
+    match msg {
+        EngineCtrl::SetDspChain { chain } => {
+            state.desired_dsp_chain = chain;
+            if state.session.is_some() {
+                if let Err(message) = apply_dsp_chain(state, plugins) {
+                    events.emit(Event::Error { message });
+                }
+            }
+        }
+        EngineCtrl::ReloadPlugins { dir } => {
+            handle_reload_plugins(state, events, plugins, track_info, dir, Vec::new());
+        }
+        EngineCtrl::ReloadPluginsWithDisabled { dir, disabled_ids } => {
+            handle_reload_plugins(state, events, plugins, track_info, dir, disabled_ids);
+        }
+    }
+}
+
+fn handle_reload_plugins(
+    state: &mut EngineState,
+    events: &Arc<EventHub>,
+    plugins: &Arc<Mutex<PluginManager>>,
+    track_info: &Arc<Mutex<Option<stellatune_core::TrackDecodeInfo>>>,
+    dir: String,
+    disabled_ids: Vec<String>,
+) {
+    // Safe(v1): stop playback so no decode thread holds plugin instances.
+    stop_session(state, events, track_info);
+    state.wants_playback = false;
+    state.play_request_started_at = None;
+    state.pending_session_start = false;
+    set_state(state, events, PlayerState::Stopped);
+
+    let mut pm = plugins.lock().expect("plugins mutex poisoned");
+    *pm = PluginManager::new(default_host_vtable());
+    let disabled = disabled_ids
+        .into_iter()
+        .collect::<std::collections::HashSet<_>>();
+    pm.set_disabled_ids(disabled.clone());
+    match unsafe { pm.load_dir_filtered(&dir, &disabled) } {
+        Ok(report) => {
+            events.emit(Event::Log {
+                message: format!(
+                    "plugins reloaded from {}: loaded={} errors={}",
+                    dir,
+                    report.loaded.len(),
+                    report.errors.len()
+                ),
+            });
+            for err in report.errors {
+                events.emit(Event::Log {
+                    message: format!("plugin load error: {err:#}"),
+                });
+            }
+        }
+        Err(e) => {
+            events.emit(Event::Error {
+                message: format!("failed to reload plugins: {e:#}"),
+            });
+        }
+    }
 }
 
 fn handle_internal(
@@ -128,6 +284,7 @@ fn handle_internal(
     state: &mut EngineState,
     events: &Arc<EventHub>,
     internal_tx: &Sender<InternalMsg>,
+    track_info: &Arc<Mutex<Option<stellatune_core::TrackDecodeInfo>>>,
 ) {
     match msg {
         InternalMsg::Eof => {
@@ -139,14 +296,14 @@ fn handle_internal(
                     events.emit(Event::PlaybackEnded { path });
                 }
             }
-            stop_session(state, events);
+            stop_session(state, events, track_info);
             state.wants_playback = false;
             state.play_request_started_at = None;
             set_state(state, events, PlayerState::Stopped);
         }
         InternalMsg::Error(message) => {
             events.emit(Event::Error { message });
-            stop_session(state, events);
+            stop_session(state, events, track_info);
             state.wants_playback = false;
             state.play_request_started_at = None;
             set_state(state, events, PlayerState::Stopped);
@@ -166,14 +323,14 @@ fn handle_internal(
             });
 
             let Some(_path) = state.current_track.clone() else {
-                stop_session(state, events);
+                stop_session(state, events, track_info);
                 state.wants_playback = false;
                 set_state(state, events, PlayerState::Stopped);
                 return;
             };
 
             let prev_state = state.player_state;
-            stop_session(state, events);
+            stop_session(state, events, track_info);
 
             // Force refresh output spec (device may have changed sample rate).
             state.cached_output_spec = None;
@@ -239,15 +396,20 @@ fn handle_command(
     state: &mut EngineState,
     events: &Arc<EventHub>,
     internal_tx: &Sender<InternalMsg>,
+    plugins: &Arc<Mutex<PluginManager>>,
+    track_info: &Arc<Mutex<Option<stellatune_core::TrackDecodeInfo>>>,
 ) -> bool {
     match cmd {
         Command::LoadTrack { path } => {
-            stop_session(state, events);
+            stop_session(state, events, track_info);
             state.current_track = Some(path.clone());
             state.position_ms = 0;
             state.wants_playback = false;
             state.pending_session_start = false;
             state.play_request_started_at = None;
+            if let Ok(mut g) = track_info.lock() {
+                *g = None;
+            }
             events.emit(Event::TrackChanged { path });
             events.emit(Event::Position {
                 ms: state.position_ms,
@@ -275,8 +437,17 @@ fn handle_command(
                         out_spec,
                         state.position_ms,
                         Arc::clone(&state.volume_atomic),
+                        Arc::clone(plugins),
                     ) {
-                        Ok(session) => state.session = Some(session),
+                        Ok(session) => {
+                            if let Ok(mut g) = track_info.lock() {
+                                *g = Some(session.track_info.clone());
+                            }
+                            state.session = Some(session);
+                            if let Err(message) = apply_dsp_chain(state, plugins) {
+                                events.emit(Event::Error { message });
+                            }
+                        }
                         Err(message) => {
                             events.emit(Event::Error { message });
                             set_state(state, events, PlayerState::Stopped);
@@ -301,7 +472,7 @@ fn handle_command(
 
             // Enter Buffering until we have enough samples queued to start cleanly.
             set_state(state, events, PlayerState::Buffering);
-            handle_tick(state, events, internal_tx);
+            handle_tick(state, events, internal_tx, plugins, track_info);
         }
         Command::Pause => {
             if let Some(session) = state.session.as_ref() {
@@ -344,7 +515,7 @@ fn handle_command(
             {
                 set_state(state, events, PlayerState::Buffering);
                 state.play_request_started_at = Some(Instant::now());
-                handle_tick(state, events, internal_tx);
+                handle_tick(state, events, internal_tx, plugins, track_info);
             }
         }
         Command::SetVolume { volume } => {
@@ -361,7 +532,7 @@ fn handle_command(
             events.emit(Event::VolumeChanged { volume: ui });
         }
         Command::Stop => {
-            stop_session(state, events);
+            stop_session(state, events, track_info);
             state.position_ms = 0;
             state.wants_playback = false;
             state.play_request_started_at = None;
@@ -372,7 +543,7 @@ fn handle_command(
             set_state(state, events, PlayerState::Stopped);
         }
         Command::Shutdown => {
-            stop_session(state, events);
+            stop_session(state, events, track_info);
             state.wants_playback = false;
             state.play_request_started_at = None;
             state.pending_session_start = false;
@@ -432,7 +603,13 @@ fn ensure_output_spec_prewarm(state: &mut EngineState, internal_tx: &Sender<Inte
         .expect("failed to spawn stellatune-output-spec thread");
 }
 
-fn handle_tick(state: &mut EngineState, events: &Arc<EventHub>, internal_tx: &Sender<InternalMsg>) {
+fn handle_tick(
+    state: &mut EngineState,
+    events: &Arc<EventHub>,
+    internal_tx: &Sender<InternalMsg>,
+    plugins: &Arc<Mutex<PluginManager>>,
+    track_info: &Arc<Mutex<Option<stellatune_core::TrackDecodeInfo>>>,
+) {
     // If we are waiting for an output spec (prewarm) and have no active session, start the session
     // as soon as the spec becomes available.
     if state.session.is_none()
@@ -455,10 +632,17 @@ fn handle_tick(state: &mut EngineState, events: &Arc<EventHub>, internal_tx: &Se
             out_spec,
             state.position_ms,
             Arc::clone(&state.volume_atomic),
+            Arc::clone(plugins),
         ) {
             Ok(session) => {
+                if let Ok(mut g) = track_info.lock() {
+                    *g = Some(session.track_info.clone());
+                }
                 state.session = Some(session);
                 state.pending_session_start = false;
+                if let Err(message) = apply_dsp_chain(state, plugins) {
+                    events.emit(Event::Error { message });
+                }
                 if let Some(session) = state.session.as_ref() {
                     let _ = session.ctrl_tx.send(DecodeCtrl::Play);
                 }
@@ -537,7 +721,64 @@ fn handle_tick(state: &mut EngineState, events: &Arc<EventHub>, internal_tx: &Se
     }
 }
 
-fn stop_session(state: &mut EngineState, events: &Arc<EventHub>) {
+fn apply_dsp_chain(
+    state: &mut EngineState,
+    plugins: &Arc<Mutex<PluginManager>>,
+) -> Result<(), String> {
+    let Some(session) = state.session.as_ref() else {
+        return Ok(());
+    };
+
+    let chain_spec = state.desired_dsp_chain.clone();
+    if chain_spec.is_empty() {
+        let _ = session
+            .ctrl_tx
+            .send(DecodeCtrl::SetDspChain { chain: Vec::new() });
+        return Ok(());
+    }
+
+    let pm = plugins
+        .lock()
+        .map_err(|_| "plugins mutex poisoned".to_string())?;
+
+    let mut chain = Vec::with_capacity(chain_spec.len());
+    for item in &chain_spec {
+        let Some(key) = pm.find_dsp_key(&item.plugin_id, &item.type_id) else {
+            return Err(format!(
+                "DSP type not found: plugin_id={} type_id={}",
+                item.plugin_id, item.type_id
+            ));
+        };
+
+        let inst = pm
+            .create_dsp(
+                key,
+                session.out_sample_rate,
+                session.out_channels,
+                &item.config_json,
+            )
+            .map_err(|e| {
+                format!(
+                    "failed to create DSP {}::{}: {e}",
+                    item.plugin_id, item.type_id
+                )
+            })?;
+        chain.push(inst);
+    }
+
+    let _ = session.ctrl_tx.send(DecodeCtrl::SetDspChain { chain });
+    Ok(())
+}
+
+fn stop_session(
+    state: &mut EngineState,
+    events: &Arc<EventHub>,
+    track_info: &Arc<Mutex<Option<stellatune_core::TrackDecodeInfo>>>,
+) {
+    if let Ok(mut g) = track_info.lock() {
+        *g = None;
+    }
+
     let Some(session) = state.session.take() else {
         return;
     };

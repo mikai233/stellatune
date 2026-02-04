@@ -170,6 +170,12 @@ abstract class AppLocalizations {
   /// **'Queue'**
   String get navQueue;
 
+  /// No description provided for @navSettings.
+  ///
+  /// In en, this message translates to:
+  /// **'Settings'**
+  String get navSettings;
+
   /// No description provided for @libraryTitle.
   ///
   /// In en, this message translates to:
@@ -181,6 +187,150 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Queue'**
   String get queueTitle;
+
+  /// No description provided for @settingsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Settings'**
+  String get settingsTitle;
+
+  /// No description provided for @settingsPluginsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Plugins'**
+  String get settingsPluginsTitle;
+
+  /// No description provided for @settingsPluginDir.
+  ///
+  /// In en, this message translates to:
+  /// **'Plugin dir'**
+  String get settingsPluginDir;
+
+  /// No description provided for @settingsNoPlugins.
+  ///
+  /// In en, this message translates to:
+  /// **'No plugins installed.'**
+  String get settingsNoPlugins;
+
+  /// No description provided for @settingsNoLoadedPlugins.
+  ///
+  /// In en, this message translates to:
+  /// **'No plugins loaded.'**
+  String get settingsNoLoadedPlugins;
+
+  /// No description provided for @settingsInstallPlugin.
+  ///
+  /// In en, this message translates to:
+  /// **'Install plugin'**
+  String get settingsInstallPlugin;
+
+  /// No description provided for @settingsInstallPluginPickFolder.
+  ///
+  /// In en, this message translates to:
+  /// **'Pick plugin folder'**
+  String get settingsInstallPluginPickFolder;
+
+  /// No description provided for @settingsInstallPluginMissingManifest.
+  ///
+  /// In en, this message translates to:
+  /// **'Missing plugin.toml in the selected folder.'**
+  String get settingsInstallPluginMissingManifest;
+
+  /// No description provided for @settingsPluginInstalled.
+  ///
+  /// In en, this message translates to:
+  /// **'Plugin installed'**
+  String get settingsPluginInstalled;
+
+  /// No description provided for @settingsUninstallPlugin.
+  ///
+  /// In en, this message translates to:
+  /// **'Uninstall plugin'**
+  String get settingsUninstallPlugin;
+
+  /// No description provided for @settingsUninstallPluginConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'Uninstall \"{name}\"?'**
+  String settingsUninstallPluginConfirm(String name);
+
+  /// No description provided for @settingsPluginUninstalled.
+  ///
+  /// In en, this message translates to:
+  /// **'Plugin uninstalled'**
+  String get settingsPluginUninstalled;
+
+  /// No description provided for @settingsUninstallPluginFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to uninstall plugin'**
+  String get settingsUninstallPluginFailed;
+
+  /// No description provided for @settingsDspTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'DSP'**
+  String get settingsDspTitle;
+
+  /// No description provided for @settingsEnableGain.
+  ///
+  /// In en, this message translates to:
+  /// **'Enable Gain (example plugin)'**
+  String get settingsEnableGain;
+
+  /// No description provided for @settingsGain.
+  ///
+  /// In en, this message translates to:
+  /// **'Gain'**
+  String get settingsGain;
+
+  /// No description provided for @settingsNoGainFound.
+  ///
+  /// In en, this message translates to:
+  /// **'No \"gain\" DSP type found.'**
+  String get settingsNoGainFound;
+
+  /// No description provided for @settingsExamplePluginNote.
+  ///
+  /// In en, this message translates to:
+  /// **'This is the built-in example DSP plugin (gain).'**
+  String get settingsExamplePluginNote;
+
+  /// No description provided for @settingsApplied.
+  ///
+  /// In en, this message translates to:
+  /// **'Applied'**
+  String get settingsApplied;
+
+  /// No description provided for @apply.
+  ///
+  /// In en, this message translates to:
+  /// **'Apply'**
+  String get apply;
+
+  /// No description provided for @reset.
+  ///
+  /// In en, this message translates to:
+  /// **'Reset'**
+  String get reset;
+
+  /// No description provided for @cancel.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get cancel;
+
+  /// No description provided for @uninstall.
+  ///
+  /// In en, this message translates to:
+  /// **'Uninstall'**
+  String get uninstall;
+
+  /// No description provided for @refresh.
+  ///
+  /// In en, this message translates to:
+  /// **'Refresh'**
+  String get refresh;
 
   /// No description provided for @libraryAllMusic.
   ///

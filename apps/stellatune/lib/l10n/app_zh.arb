@@ -13,9 +13,41 @@
 
   "navLibrary": "音乐库",
   "navQueue": "队列",
+  "navSettings": "设置",
 
   "libraryTitle": "音乐库",
   "queueTitle": "队列",
+  "settingsTitle": "设置",
+  "settingsPluginsTitle": "插件",
+  "settingsPluginDir": "插件目录",
+  "settingsNoPlugins": "未安装任何插件。",
+  "settingsNoLoadedPlugins": "没有加载任何插件。",
+  "settingsInstallPlugin": "安装插件",
+  "settingsInstallPluginPickFolder": "选择插件文件夹",
+  "settingsInstallPluginMissingManifest": "所选文件夹缺少 plugin.toml。",
+  "settingsPluginInstalled": "插件已安装",
+  "settingsUninstallPlugin": "卸载插件",
+  "settingsUninstallPluginConfirm": "确定要卸载「{name}」吗？",
+  "@settingsUninstallPluginConfirm": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsPluginUninstalled": "插件已卸载",
+  "settingsUninstallPluginFailed": "卸载插件失败",
+  "settingsDspTitle": "DSP",
+  "settingsEnableGain": "启用增益（示例插件）",
+  "settingsGain": "增益",
+  "settingsNoGainFound": "未找到 \"gain\" DSP 类型。",
+  "settingsExamplePluginNote": "这是内置的示例 DSP 插件（增益）。",
+  "settingsApplied": "已应用",
+  "apply": "应用",
+  "reset": "重置",
+  "cancel": "取消",
+  "uninstall": "卸载",
+  "refresh": "刷新",
   "libraryAllMusic": "全部音乐",
   "includeSubfolders": "包含子文件夹",
   "expand": "展开",

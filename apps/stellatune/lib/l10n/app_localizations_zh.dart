@@ -45,10 +45,87 @@ class AppLocalizationsZh extends AppLocalizations {
   String get navQueue => '队列';
 
   @override
+  String get navSettings => '设置';
+
+  @override
   String get libraryTitle => '音乐库';
 
   @override
   String get queueTitle => '队列';
+
+  @override
+  String get settingsTitle => '设置';
+
+  @override
+  String get settingsPluginsTitle => '插件';
+
+  @override
+  String get settingsPluginDir => '插件目录';
+
+  @override
+  String get settingsNoPlugins => '未安装任何插件。';
+
+  @override
+  String get settingsNoLoadedPlugins => '没有加载任何插件。';
+
+  @override
+  String get settingsInstallPlugin => '安装插件';
+
+  @override
+  String get settingsInstallPluginPickFolder => '选择插件文件夹';
+
+  @override
+  String get settingsInstallPluginMissingManifest => '所选文件夹缺少 plugin.toml。';
+
+  @override
+  String get settingsPluginInstalled => '插件已安装';
+
+  @override
+  String get settingsUninstallPlugin => '卸载插件';
+
+  @override
+  String settingsUninstallPluginConfirm(String name) {
+    return '确定要卸载「$name」吗？';
+  }
+
+  @override
+  String get settingsPluginUninstalled => '插件已卸载';
+
+  @override
+  String get settingsUninstallPluginFailed => '卸载插件失败';
+
+  @override
+  String get settingsDspTitle => 'DSP';
+
+  @override
+  String get settingsEnableGain => '启用增益（示例插件）';
+
+  @override
+  String get settingsGain => '增益';
+
+  @override
+  String get settingsNoGainFound => '未找到 \"gain\" DSP 类型。';
+
+  @override
+  String get settingsExamplePluginNote => '这是内置的示例 DSP 插件（增益）。';
+
+  @override
+  String get settingsApplied => '已应用';
+
+  @override
+  String get apply => '应用';
+
+  @override
+  String get reset => '重置';
+
+  @override
+  String get cancel => '取消';
+
+  @override
+  String get uninstall => '卸载';
+
+  @override
+  String get refresh => '刷新';
 
   @override
   String get libraryAllMusic => '全部音乐';

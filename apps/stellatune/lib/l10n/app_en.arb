@@ -13,9 +13,41 @@
 
   "navLibrary": "Library",
   "navQueue": "Queue",
+  "navSettings": "Settings",
 
   "libraryTitle": "Library",
   "queueTitle": "Queue",
+  "settingsTitle": "Settings",
+  "settingsPluginsTitle": "Plugins",
+  "settingsPluginDir": "Plugin dir",
+  "settingsNoPlugins": "No plugins installed.",
+  "settingsNoLoadedPlugins": "No plugins loaded.",
+  "settingsInstallPlugin": "Install plugin",
+  "settingsInstallPluginPickFolder": "Pick plugin folder",
+  "settingsInstallPluginMissingManifest": "Missing plugin.toml in the selected folder.",
+  "settingsPluginInstalled": "Plugin installed",
+  "settingsUninstallPlugin": "Uninstall plugin",
+  "settingsUninstallPluginConfirm": "Uninstall \"{name}\"?",
+  "@settingsUninstallPluginConfirm": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsPluginUninstalled": "Plugin uninstalled",
+  "settingsUninstallPluginFailed": "Failed to uninstall plugin",
+  "settingsDspTitle": "DSP",
+  "settingsEnableGain": "Enable Gain (example plugin)",
+  "settingsGain": "Gain",
+  "settingsNoGainFound": "No \"gain\" DSP type found.",
+  "settingsExamplePluginNote": "This is the built-in example DSP plugin (gain).",
+  "settingsApplied": "Applied",
+  "apply": "Apply",
+  "reset": "Reset",
+  "cancel": "Cancel",
+  "uninstall": "Uninstall",
+  "refresh": "Refresh",
   "libraryAllMusic": "All music",
   "includeSubfolders": "Include subfolders",
   "expand": "Expand",

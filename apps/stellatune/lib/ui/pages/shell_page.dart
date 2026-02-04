@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:stellatune/l10n/app_localizations.dart';
 import 'package:stellatune/ui/pages/library_page.dart';
 import 'package:stellatune/ui/pages/queue_page.dart';
+import 'package:stellatune/ui/pages/settings_page.dart';
 import 'package:stellatune/ui/widgets/now_playing_bar.dart';
 
 class ShellPage extends ConsumerStatefulWidget {
@@ -29,11 +30,17 @@ class _ShellPageState extends ConsumerState<ShellPage> {
         selectedIcon: const Icon(Icons.queue_music),
         label: Text(l10n.navQueue),
       ),
+      NavigationRailDestination(
+        icon: const Icon(Icons.settings_outlined),
+        selectedIcon: const Icon(Icons.settings),
+        label: Text(l10n.navSettings),
+      ),
     ];
 
     final body = switch (_index) {
       0 => const LibraryPage(),
-      _ => const QueuePage(),
+      1 => const QueuePage(),
+      _ => const SettingsPage(),
     };
 
     return Scaffold(

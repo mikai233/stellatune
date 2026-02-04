@@ -5,8 +5,12 @@ export 'frb_generated.dart' show StellatuneApi;
 export 'third_party/stellatune_core.dart'
     show
         Event,
+        DspChainItem,
+        DspTypeDescriptor,
+        PluginDescriptor,
         PlayerState,
         LibraryEvent,
+        TrackDecodeInfo,
         TrackLite,
         DlnaSsdpDevice,
         DlnaRenderer,
@@ -36,6 +40,30 @@ class PlayerBridge {
   Future<void> setVolume(double volume) =>
       api.setVolume(player: player, volume: volume);
   Future<void> stop() => api.stop(player: player);
+
+  Future<List<PluginDescriptor>> pluginsList() =>
+      api.pluginsList(player: player);
+
+  Future<List<DspTypeDescriptor>> dspListTypes() =>
+      api.dspListTypes(player: player);
+
+  Future<void> dspSetChain(List<DspChainItem> chain) =>
+      api.dspSetChain(player: player, chain: chain);
+
+  Future<TrackDecodeInfo?> currentTrackInfo() =>
+      api.currentTrackInfo(player: player);
+
+  Future<void> pluginsReload(String dir) =>
+      api.pluginsReload(player: player, dir: dir);
+
+  Future<void> pluginsReloadWithDisabled({
+    required String dir,
+    required List<String> disabledIds,
+  }) => api.pluginsReloadWithDisabled(
+    player: player,
+    dir: dir,
+    disabledIds: disabledIds,
+  );
 }
 
 class LibraryBridge {

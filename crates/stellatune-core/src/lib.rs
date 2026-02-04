@@ -25,6 +25,32 @@ pub enum Command {
 
 #[flutter_rust_bridge::frb(non_opaque)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DspChainItem {
+    pub plugin_id: String,
+    pub type_id: String,
+    pub config_json: String,
+}
+
+#[flutter_rust_bridge::frb(non_opaque)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PluginDescriptor {
+    pub id: String,
+    pub name: String,
+}
+
+#[flutter_rust_bridge::frb(non_opaque)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DspTypeDescriptor {
+    pub plugin_id: String,
+    pub plugin_name: String,
+    pub type_id: String,
+    pub display_name: String,
+    pub config_schema_json: String,
+    pub default_config_json: String,
+}
+
+#[flutter_rust_bridge::frb(non_opaque)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Event {
     StateChanged { state: PlayerState },
     Position { ms: i64 },
@@ -44,6 +70,17 @@ pub struct TrackLite {
     pub artist: Option<String>,
     pub album: Option<String>,
     pub duration_ms: Option<i64>,
+}
+
+#[flutter_rust_bridge::frb(non_opaque)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TrackDecodeInfo {
+    pub sample_rate: u32,
+    pub channels: u16,
+    pub duration_ms: Option<u64>,
+    pub metadata_json: Option<String>,
+    pub decoder_plugin_id: Option<String>,
+    pub decoder_type_id: Option<String>,
 }
 
 #[flutter_rust_bridge::frb(non_opaque)]

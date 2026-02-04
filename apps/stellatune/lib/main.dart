@@ -1,7 +1,10 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 import 'package:stellatune/bridge/bridge.dart';
+import 'package:stellatune/app/plugin_paths.dart';
 import 'package:stellatune/app/settings_store.dart';
 import 'package:stellatune/app/providers.dart';
 import 'package:stellatune/library/library_paths.dart';
@@ -17,6 +20,20 @@ Future<void> main() async {
   final dbPath = await defaultLibraryDbPath();
   final library = await LibraryBridge.create(dbPath: dbPath);
   final coverDir = p.join(p.dirname(dbPath), 'covers');
+  final pluginDir = await defaultPluginDir();
+
+  // Desktop-only today, but safe to call (it just loads from the folder).
+  try {
+    await Directory(pluginDir).create(recursive: true);
+    await writeDisabledPluginsFile(
+      pluginDir: pluginDir,
+      disabledIds: settings.disabledPluginIds,
+    );
+    await bridge.pluginsReloadWithDisabled(
+      dir: pluginDir,
+      disabledIds: settings.disabledPluginIds.toList(),
+    );
+  } catch (_) {}
 
   runApp(
     ProviderScope(

@@ -45,10 +45,89 @@ class AppLocalizationsEn extends AppLocalizations {
   String get navQueue => 'Queue';
 
   @override
+  String get navSettings => 'Settings';
+
+  @override
   String get libraryTitle => 'Library';
 
   @override
   String get queueTitle => 'Queue';
+
+  @override
+  String get settingsTitle => 'Settings';
+
+  @override
+  String get settingsPluginsTitle => 'Plugins';
+
+  @override
+  String get settingsPluginDir => 'Plugin dir';
+
+  @override
+  String get settingsNoPlugins => 'No plugins installed.';
+
+  @override
+  String get settingsNoLoadedPlugins => 'No plugins loaded.';
+
+  @override
+  String get settingsInstallPlugin => 'Install plugin';
+
+  @override
+  String get settingsInstallPluginPickFolder => 'Pick plugin folder';
+
+  @override
+  String get settingsInstallPluginMissingManifest =>
+      'Missing plugin.toml in the selected folder.';
+
+  @override
+  String get settingsPluginInstalled => 'Plugin installed';
+
+  @override
+  String get settingsUninstallPlugin => 'Uninstall plugin';
+
+  @override
+  String settingsUninstallPluginConfirm(String name) {
+    return 'Uninstall \"$name\"?';
+  }
+
+  @override
+  String get settingsPluginUninstalled => 'Plugin uninstalled';
+
+  @override
+  String get settingsUninstallPluginFailed => 'Failed to uninstall plugin';
+
+  @override
+  String get settingsDspTitle => 'DSP';
+
+  @override
+  String get settingsEnableGain => 'Enable Gain (example plugin)';
+
+  @override
+  String get settingsGain => 'Gain';
+
+  @override
+  String get settingsNoGainFound => 'No \"gain\" DSP type found.';
+
+  @override
+  String get settingsExamplePluginNote =>
+      'This is the built-in example DSP plugin (gain).';
+
+  @override
+  String get settingsApplied => 'Applied';
+
+  @override
+  String get apply => 'Apply';
+
+  @override
+  String get reset => 'Reset';
+
+  @override
+  String get cancel => 'Cancel';
+
+  @override
+  String get uninstall => 'Uninstall';
+
+  @override
+  String get refresh => 'Refresh';
 
   @override
   String get libraryAllMusic => 'All music';

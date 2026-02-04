@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::atomic::Ordering;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -6,7 +7,9 @@ use std::time::{Duration, Instant};
 use crossbeam_channel::{Receiver, Sender};
 use tracing::debug;
 
+use stellatune_core::TrackDecodeInfo;
 use stellatune_decode::{Decoder, TrackSpec};
+use stellatune_plugins::DspInstance;
 
 use crate::engine::config::{
     BUFFER_PREFILL_CAP_MS, RESAMPLE_CHUNK_FRAMES, RESAMPLE_CUTOFF, RESAMPLE_INTERPOLATION,
@@ -16,26 +19,215 @@ use crate::engine::event_hub::EventHub;
 use crate::engine::messages::{DecodeCtrl, InternalMsg};
 use crate::ring_buffer::RingBufferProducer;
 
+enum EngineDecoder {
+    Builtin(Decoder),
+    Plugin {
+        dec: stellatune_plugins::DecoderInstance,
+        spec: TrackSpec,
+    },
+}
+
+// Built-in decoder "priority" when selecting between a plugin decoder and the built-in Symphonia
+// decoder. Plugins can return a probe score > this value to override the built-in decoder even for
+// formats the built-in decoder can handle.
+const BUILTIN_DECODER_SCORE: u8 = 50;
+
+impl EngineDecoder {
+    fn spec(&self) -> TrackSpec {
+        match self {
+            Self::Builtin(d) => d.spec(),
+            Self::Plugin { spec, .. } => *spec,
+        }
+    }
+
+    fn seek_ms(&mut self, position_ms: u64) -> Result<(), String> {
+        match self {
+            Self::Builtin(d) => d.seek_ms(position_ms).map_err(|e| e.to_string()),
+            Self::Plugin { dec, .. } => dec.seek_ms(position_ms).map_err(|e| e.to_string()),
+        }
+    }
+
+    fn next_block(&mut self, frames: usize) -> Result<Option<Vec<f32>>, String> {
+        match self {
+            Self::Builtin(d) => d.next_block(frames).map_err(|e| e.to_string()),
+            Self::Plugin { dec, .. } => {
+                let (samples, eof) = dec
+                    .read_interleaved_f32(frames as u32)
+                    .map_err(|e| e.to_string())?;
+                if samples.is_empty() {
+                    if eof {
+                        return Ok(None);
+                    }
+                    return Err("plugin decoder returned 0 frames without eof".to_string());
+                }
+                Ok(Some(samples))
+            }
+        }
+    }
+}
+
+fn open_engine_decoder(
+    path: &str,
+    plugins: &Arc<Mutex<stellatune_plugins::PluginManager>>,
+) -> Result<(EngineDecoder, TrackDecodeInfo), String> {
+    let Ok(pm) = plugins.lock() else {
+        let d = Decoder::open(path).map_err(|e| format!("failed to open decoder: {e}"))?;
+        let spec = d.spec();
+        let info = TrackDecodeInfo {
+            sample_rate: spec.sample_rate,
+            channels: spec.channels,
+            duration_ms: None,
+            metadata_json: None,
+            decoder_plugin_id: None,
+            decoder_type_id: None,
+        };
+        return Ok((EngineDecoder::Builtin(d), info));
+    };
+
+    let plugin_probe = pm
+        .probe_best_decoder(path)
+        .map_err(|e| format!("plugin probe failed: {e:#}"))?;
+
+    // Preference logic:
+    // - Built-in decoder has a fixed score.
+    // - Plugin decoders can override built-in by returning a higher probe score.
+    // - If the preferred decoder fails to open, fall back to the other when possible.
+    match plugin_probe {
+        Some((key, score)) if score > BUILTIN_DECODER_SCORE => {
+            match pm.open_decoder(key, path) {
+                Ok(mut dec) => {
+                    let spec = dec.spec();
+                    if spec.sample_rate == 0 {
+                        return Err("plugin decoder returned sample_rate=0".to_string());
+                    }
+                    if spec.channels != 1 && spec.channels != 2 {
+                        return Err(format!(
+                            "unsupported channel count: {} (only mono/stereo supported)",
+                            spec.channels
+                        ));
+                    }
+                    let duration_ms = dec.duration_ms();
+                    let metadata_json = dec.metadata_json().ok().flatten();
+                    let info = TrackDecodeInfo {
+                        sample_rate: spec.sample_rate,
+                        channels: spec.channels,
+                        duration_ms,
+                        metadata_json,
+                        decoder_plugin_id: Some(dec.plugin_id().to_string()),
+                        decoder_type_id: Some(dec.decoder_type_id().to_string()),
+                    };
+                    return Ok((
+                        EngineDecoder::Plugin {
+                            spec: TrackSpec {
+                                sample_rate: spec.sample_rate,
+                                channels: spec.channels,
+                            },
+                            dec,
+                        },
+                        info,
+                    ));
+                }
+                Err(e) => {
+                    debug!("plugin decoder open failed (score={score}), falling back: {e:#}");
+                }
+            }
+
+            // Plugin was preferred but failed; fall back to built-in.
+            let d = Decoder::open(path).map_err(|e| format!("failed to open decoder: {e}"))?;
+            let spec = d.spec();
+            let info = TrackDecodeInfo {
+                sample_rate: spec.sample_rate,
+                channels: spec.channels,
+                duration_ms: None,
+                metadata_json: None,
+                decoder_plugin_id: None,
+                decoder_type_id: None,
+            };
+            Ok((EngineDecoder::Builtin(d), info))
+        }
+        _ => {
+            // Built-in is preferred (or no plugin match).
+            match Decoder::open(path) {
+                Ok(d) => {
+                    let spec = d.spec();
+                    let info = TrackDecodeInfo {
+                        sample_rate: spec.sample_rate,
+                        channels: spec.channels,
+                        duration_ms: None,
+                        metadata_json: None,
+                        decoder_plugin_id: None,
+                        decoder_type_id: None,
+                    };
+                    Ok((EngineDecoder::Builtin(d), info))
+                }
+                Err(e) => {
+                    // Built-in failed; try plugin if any.
+                    if let Some((key, score)) = plugin_probe {
+                        debug!(
+                            "built-in decoder failed, trying plugin fallback (score={score}): {e}"
+                        );
+                        let mut dec = pm
+                            .open_decoder(key, path)
+                            .map_err(|e| format!("failed to open plugin decoder: {e:#}"))?;
+                        let spec = dec.spec();
+                        if spec.sample_rate == 0 {
+                            return Err("plugin decoder returned sample_rate=0".to_string());
+                        }
+                        if spec.channels != 1 && spec.channels != 2 {
+                            return Err(format!(
+                                "unsupported channel count: {} (only mono/stereo supported)",
+                                spec.channels
+                            ));
+                        }
+                        let duration_ms = dec.duration_ms();
+                        let metadata_json = dec.metadata_json().ok().flatten();
+                        let info = TrackDecodeInfo {
+                            sample_rate: spec.sample_rate,
+                            channels: spec.channels,
+                            duration_ms,
+                            metadata_json,
+                            decoder_plugin_id: Some(dec.plugin_id().to_string()),
+                            decoder_type_id: Some(dec.decoder_type_id().to_string()),
+                        };
+                        return Ok((
+                            EngineDecoder::Plugin {
+                                spec: TrackSpec {
+                                    sample_rate: spec.sample_rate,
+                                    channels: spec.channels,
+                                },
+                                dec,
+                            },
+                            info,
+                        ));
+                    }
+                    Err(format!("failed to open decoder: {e}"))
+                }
+            }
+        }
+    }
+}
+
 pub(crate) fn decode_thread(
     path: String,
     events: Arc<EventHub>,
     internal_tx: Sender<InternalMsg>,
+    plugins: Arc<Mutex<stellatune_plugins::PluginManager>>,
     ctrl_rx: Receiver<DecodeCtrl>,
     setup_rx: Receiver<DecodeCtrl>,
-    spec_tx: Sender<Result<TrackSpec, String>>,
+    spec_tx: Sender<Result<TrackDecodeInfo, String>>,
 ) {
     let t_open = Instant::now();
-    let mut decoder = match Decoder::open(&path) {
-        Ok(d) => d,
+    let (mut decoder, info) = match open_engine_decoder(&path, &plugins) {
+        Ok(v) => v,
         Err(e) => {
-            let _ = spec_tx.send(Err(format!("failed to open decoder: {e}")));
+            let _ = spec_tx.send(Err(e));
             return;
         }
     };
-    debug!("Decoder::open took {}ms", t_open.elapsed().as_millis());
+    debug!("decoder open took {}ms", t_open.elapsed().as_millis());
 
     let spec = decoder.spec();
-    let _ = spec_tx.send(Ok(spec));
+    let _ = spec_tx.send(Ok(info));
 
     let (mut producer, target_sample_rate, target_channels, start_at_ms, output_enabled) = loop {
         crossbeam_channel::select! {
@@ -96,6 +288,7 @@ pub(crate) fn decode_thread(
     let mut last_emit = Instant::now();
     let mut decode_pending: Vec<f32> = Vec::new();
     let mut out_pending: Vec<f32> = Vec::new();
+    let mut dsp_chain: Vec<DspInstance> = Vec::new();
 
     let mut pending_seek: Option<i64> = None;
 
@@ -119,6 +312,9 @@ pub(crate) fn decode_thread(
                     last_emit = Instant::now();
                 }
                 Ok(DecodeCtrl::Pause) => {}
+                Ok(DecodeCtrl::SetDspChain { chain }) => {
+                    dsp_chain = chain;
+                }
                 Ok(DecodeCtrl::SeekMs { position_ms }) => {
                     let target_ms = position_ms.max(0);
                     output_enabled.store(false, Ordering::Release);
@@ -129,7 +325,7 @@ pub(crate) fn decode_thread(
                     base_ms = target_ms;
 
                     if let Err(e) = decoder.seek_ms(target_ms as u64) {
-                        let _ = internal_tx.send(InternalMsg::Error(format!("{e}")));
+                        let _ = internal_tx.send(InternalMsg::Error(e));
                         continue;
                     }
                     match create_resampler_if_needed(
@@ -166,7 +362,7 @@ pub(crate) fn decode_thread(
                     base_ms = target_ms;
 
                     if let Err(e) = decoder.seek_ms(target_ms as u64) {
-                        let _ = internal_tx.send(InternalMsg::Error(format!("{e}")));
+                        let _ = internal_tx.send(InternalMsg::Error(e));
                         playing = false;
                         break;
                     }
@@ -187,6 +383,7 @@ pub(crate) fn decode_thread(
                 DecodeCtrl::Stop => return,
                 DecodeCtrl::Play => {}
                 DecodeCtrl::Setup { .. } => {}
+                DecodeCtrl::SetDspChain { chain } => dsp_chain = chain,
             }
         }
         if !playing {
@@ -209,16 +406,16 @@ pub(crate) fn decode_thread(
                 decode_pending.extend_from_slice(&samples);
                 if resampler.is_none() {
                     // Channel adaptation only.
-                    if in_channels == out_channels {
-                        out_pending.extend_from_slice(&decode_pending);
+                    let mut chunk = if in_channels == out_channels {
+                        std::mem::take(&mut decode_pending)
                     } else {
-                        out_pending.extend_from_slice(&adapt_channels_interleaved(
-                            &decode_pending,
-                            in_channels,
-                            out_channels,
-                        ));
-                    }
-                    decode_pending.clear();
+                        let v =
+                            adapt_channels_interleaved(&decode_pending, in_channels, out_channels);
+                        decode_pending.clear();
+                        v
+                    };
+                    apply_dsp_chain(&mut dsp_chain, &mut chunk, out_channels);
+                    out_pending.extend_from_slice(&chunk);
                     if write_pending(
                         &mut producer,
                         &mut out_pending,
@@ -227,6 +424,7 @@ pub(crate) fn decode_thread(
                         &ctrl_rx,
                         &mut playing,
                         &mut pending_seek,
+                        &mut dsp_chain,
                     ) {
                         return;
                     }
@@ -240,7 +438,7 @@ pub(crate) fn decode_thread(
                         base_ms = target_ms;
 
                         if let Err(e) = decoder.seek_ms(target_ms as u64) {
-                            let _ = internal_tx.send(InternalMsg::Error(format!("{e}")));
+                            let _ = internal_tx.send(InternalMsg::Error(e));
                             playing = false;
                             continue 'main;
                         }
@@ -283,6 +481,8 @@ pub(crate) fn decode_thread(
                             return;
                         }
                     };
+                    let mut processed = processed;
+                    apply_dsp_chain(&mut dsp_chain, &mut processed, out_channels);
                     out_pending.extend_from_slice(&processed);
 
                     if write_pending(
@@ -293,6 +493,7 @@ pub(crate) fn decode_thread(
                         &ctrl_rx,
                         &mut playing,
                         &mut pending_seek,
+                        &mut dsp_chain,
                     ) {
                         return;
                     }
@@ -306,7 +507,7 @@ pub(crate) fn decode_thread(
                         base_ms = target_ms;
 
                         if let Err(e) = decoder.seek_ms(target_ms as u64) {
-                            let _ = internal_tx.send(InternalMsg::Error(format!("{e}")));
+                            let _ = internal_tx.send(InternalMsg::Error(e));
                             playing = false;
                             continue 'main;
                         }
@@ -340,7 +541,8 @@ pub(crate) fn decode_thread(
                             adapt_channels_interleaved(&decode_pending, in_channels, out_channels)
                         };
                         match resample_interleaved_chunk(resampler_inner, &chunk, out_channels) {
-                            Ok(processed) => {
+                            Ok(mut processed) => {
+                                apply_dsp_chain(&mut dsp_chain, &mut processed, out_channels);
                                 out_pending.extend_from_slice(&processed);
                                 decode_pending.clear();
                             }
@@ -359,6 +561,7 @@ pub(crate) fn decode_thread(
                             &ctrl_rx,
                             &mut playing,
                             &mut pending_seek,
+                            &mut dsp_chain,
                         ) {
                             return;
                         }
@@ -372,7 +575,7 @@ pub(crate) fn decode_thread(
                             base_ms = target_ms;
 
                             if let Err(e) = decoder.seek_ms(target_ms as u64) {
-                                let _ = internal_tx.send(InternalMsg::Error(format!("{e}")));
+                                let _ = internal_tx.send(InternalMsg::Error(e));
                                 playing = false;
                                 continue 'main;
                             }
@@ -396,16 +599,16 @@ pub(crate) fn decode_thread(
                         }
                     }
                 } else if !decode_pending.is_empty() {
-                    if in_channels == out_channels {
-                        out_pending.extend_from_slice(&decode_pending);
+                    let mut chunk = if in_channels == out_channels {
+                        std::mem::take(&mut decode_pending)
                     } else {
-                        out_pending.extend_from_slice(&adapt_channels_interleaved(
-                            &decode_pending,
-                            in_channels,
-                            out_channels,
-                        ));
-                    }
-                    decode_pending.clear();
+                        let v =
+                            adapt_channels_interleaved(&decode_pending, in_channels, out_channels);
+                        decode_pending.clear();
+                        v
+                    };
+                    apply_dsp_chain(&mut dsp_chain, &mut chunk, out_channels);
+                    out_pending.extend_from_slice(&chunk);
                     while !out_pending.is_empty() {
                         if write_pending(
                             &mut producer,
@@ -415,6 +618,7 @@ pub(crate) fn decode_thread(
                             &ctrl_rx,
                             &mut playing,
                             &mut pending_seek,
+                            &mut dsp_chain,
                         ) {
                             return;
                         }
@@ -428,7 +632,7 @@ pub(crate) fn decode_thread(
                             base_ms = target_ms;
 
                             if let Err(e) = decoder.seek_ms(target_ms as u64) {
-                                let _ = internal_tx.send(InternalMsg::Error(format!("{e}")));
+                                let _ = internal_tx.send(InternalMsg::Error(e));
                                 playing = false;
                                 continue 'main;
                             }
@@ -456,14 +660,14 @@ pub(crate) fn decode_thread(
                 break;
             }
             Err(e) => {
-                let _ = internal_tx.send(InternalMsg::Error(format!("{e}")));
+                let _ = internal_tx.send(InternalMsg::Error(e));
                 break;
             }
         }
     }
 }
 
-fn skip_frames_by_decoding(decoder: &mut Decoder, mut frames_to_skip: u64) -> bool {
+fn skip_frames_by_decoding(decoder: &mut EngineDecoder, mut frames_to_skip: u64) -> bool {
     // Best-effort: decode and discard samples until reaching the requested frame offset.
     // This is only used during output reinitialization (rare), so it can be slower.
     while frames_to_skip > 0 {
@@ -491,6 +695,7 @@ fn write_pending(
     ctrl_rx: &Receiver<DecodeCtrl>,
     playing: &mut bool,
     pending_seek: &mut Option<i64>,
+    dsp_chain: &mut Vec<DspInstance>,
 ) -> bool {
     let mut offset = 0usize;
     while offset < pending.len() {
@@ -507,6 +712,7 @@ fn write_pending(
                 DecodeCtrl::Stop => return true,
                 DecodeCtrl::Play => {}
                 DecodeCtrl::Setup { .. } => {}
+                DecodeCtrl::SetDspChain { chain } => *dsp_chain = chain,
             }
         }
         if !*playing {
@@ -526,6 +732,19 @@ fn write_pending(
     }
 
     false
+}
+
+fn apply_dsp_chain(dsp_chain: &mut [DspInstance], samples: &mut [f32], out_channels: usize) {
+    if dsp_chain.is_empty() || out_channels == 0 {
+        return;
+    }
+    let frames = (samples.len() / out_channels) as u32;
+    if frames == 0 {
+        return;
+    }
+    for dsp in dsp_chain.iter_mut() {
+        dsp.process_in_place(samples, frames);
+    }
 }
 
 fn create_resampler_if_needed(

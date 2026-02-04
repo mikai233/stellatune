@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::thread::JoinHandle;
 use std::time::Instant;
@@ -6,7 +7,7 @@ use std::time::Instant;
 use crossbeam_channel::Sender;
 use tracing::{debug, info, warn};
 
-use stellatune_decode::TrackSpec;
+use stellatune_core::TrackDecodeInfo;
 use stellatune_output::{OutputError, OutputHandle, OutputSpec};
 
 use crate::engine::config::RING_BUFFER_CAPACITY_MS;
@@ -25,6 +26,7 @@ pub(crate) struct PlaybackSession {
     pub(crate) underrun_callbacks: Arc<AtomicU64>,
     pub(crate) out_sample_rate: u32,
     pub(crate) out_channels: u16,
+    pub(crate) track_info: TrackDecodeInfo,
 }
 
 pub(crate) fn start_session(
@@ -34,17 +36,19 @@ pub(crate) fn start_session(
     out_spec: OutputSpec,
     start_at_ms: i64,
     volume: Arc<AtomicU32>,
+    plugins: Arc<Mutex<stellatune_plugins::PluginManager>>,
 ) -> Result<PlaybackSession, String> {
     let t0 = Instant::now();
     debug!(%path, start_at_ms, "start_session begin");
     info!("starting session");
     let (ctrl_tx, ctrl_rx) = crossbeam_channel::unbounded();
     let (setup_tx, setup_rx) = crossbeam_channel::bounded::<DecodeCtrl>(1);
-    let (spec_tx, spec_rx) = crossbeam_channel::bounded::<Result<TrackSpec, String>>(1);
+    let (spec_tx, spec_rx) = crossbeam_channel::bounded::<Result<TrackDecodeInfo, String>>(1);
 
     let thread_path = path.clone();
     let thread_events = Arc::clone(&events);
     let thread_internal_tx = internal_tx.clone();
+    let thread_plugins = Arc::clone(&plugins);
 
     let decode_join = std::thread::Builder::new()
         .name("stellatune-decode".to_string())
@@ -53,6 +57,7 @@ pub(crate) fn start_session(
                 thread_path,
                 thread_events,
                 thread_internal_tx,
+                thread_plugins,
                 ctrl_rx,
                 setup_rx,
                 spec_tx,
@@ -61,8 +66,8 @@ pub(crate) fn start_session(
         .expect("failed to spawn stellatune-decode thread");
 
     let t_after_spawn = Instant::now();
-    let _track_spec = match spec_rx.recv() {
-        Ok(Ok(spec)) => spec,
+    let track_info = match spec_rx.recv() {
+        Ok(Ok(info)) => info,
         Ok(Err(message)) => return Err(message),
         Err(_) => return Err("decoder thread exited unexpectedly".to_string()),
     };
@@ -135,6 +140,7 @@ pub(crate) fn start_session(
         underrun_callbacks,
         out_sample_rate: out_spec.sample_rate,
         out_channels: out_spec.channels,
+        track_info,
     })
 }
 

@@ -1,0 +1,15 @@
+[package]
+name = "stellatune-plugin-ncm"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+stellatune-plugin-sdk.workspace = true
+symphonia.workspace = true
+ncmdump = "0.8.0"
+serde_json.workspace = true
+base64 = "0.22.1"

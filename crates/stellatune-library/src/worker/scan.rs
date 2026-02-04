@@ -10,7 +10,8 @@ use stellatune_core::LibraryEvent;
 
 use crate::service::EventHub;
 
-use super::metadata::{extract_metadata, write_cover_bytes};
+use super::Plugins;
+use super::metadata::{extract_metadata_with_plugins, write_cover_bytes};
 use super::paths::{is_drive_root, is_under_excluded, normalize_path_str, now_ms, parent_dir_norm};
 use super::tracks::{select_track_fingerprint, upsert_track};
 
@@ -31,6 +32,7 @@ pub(super) async fn scan_all(
     pool: &SqlitePool,
     events: &Arc<EventHub>,
     cover_dir: &PathBuf,
+    plugins: &Plugins,
     force: bool,
 ) -> Result<()> {
     let roots: Vec<String> = sqlx::query_scalar!("SELECT path FROM scan_roots WHERE enabled=1")
@@ -60,6 +62,8 @@ pub(super) async fn scan_all(
         let (tx, mut rx) = tokio::sync::mpsc::channel::<FileCandidate>(512);
         let root_clone = root.clone();
         let excluded_clone = excluded.clone();
+        let plugins_for_walk = plugins.clone();
+        let plugins_for_meta = plugins.clone();
 
         // Blocking filesystem enumeration & metadata.
         let walker = tokio::task::spawn_blocking(move || {
@@ -72,12 +76,39 @@ pub(super) async fn scan_all(
                     continue;
                 }
                 let path = entry.path().to_path_buf();
+                let path_str = path.to_string_lossy().to_string();
                 let ext = path
                     .extension()
                     .and_then(|s| s.to_str())
                     .unwrap_or("")
                     .to_ascii_lowercase();
-                if !is_audio_ext(&ext) {
+                let supported = is_audio_ext(&ext) || {
+                    #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+                    {
+                        if ext.is_empty() {
+                            plugins_for_walk
+                                .lock()
+                                .ok()
+                                .and_then(|pm| pm.can_decode_path(&path_str).ok())
+                                .unwrap_or(false)
+                        } else {
+                            plugins_for_walk
+                                .lock()
+                                .ok()
+                                .map(|pm| pm.probe_best_decoder_hint(&ext).is_some())
+                                .unwrap_or(false)
+                        }
+                    }
+                    #[cfg(not(any(
+                        target_os = "windows",
+                        target_os = "linux",
+                        target_os = "macos"
+                    )))]
+                    {
+                        false
+                    }
+                };
+                if !supported {
                     continue;
                 }
                 let meta = match entry.metadata() {
@@ -91,7 +122,6 @@ pub(super) async fn scan_all(
                     .map(|d| d.as_millis() as i64)
                     .unwrap_or(0);
                 let size_bytes = meta.len() as i64;
-                let path_str = path.to_string_lossy().to_string();
                 let path_norm = normalize_path_str(&path_str);
                 let dir_norm = parent_dir_norm(&path_norm).unwrap_or_default();
                 if !dir_norm.is_empty() && is_under_excluded(&dir_norm, &excluded_clone) {
@@ -131,13 +161,17 @@ pub(super) async fn scan_all(
 
             let meta_scanned_ms = now_ms();
 
+            let plugins = plugins_for_meta.clone();
             let (title, artist, album, duration_ms, cover) = match tokio::task::spawn_blocking({
                 let path = file.path.clone();
-                move || extract_metadata(Path::new(&path))
+                move || {
+                    extract_metadata_with_plugins(Path::new(&path), &plugins)
+                        .map(|m| (m.title, m.artist, m.album, m.duration_ms, m.cover))
+                }
             })
             .await
             {
-                Ok(Ok(m)) => (m.title, m.artist, m.album, m.duration_ms, m.cover),
+                Ok(Ok(m)) => m,
                 Ok(Err(e)) => {
                     errors += 1;
                     events.emit(LibraryEvent::Log {
@@ -238,6 +272,7 @@ pub(super) async fn scan_folder_into_db(
     pool: SqlitePool,
     events: &Arc<EventHub>,
     cover_dir: &PathBuf,
+    plugins: &Plugins,
     folder_norm: &str,
 ) -> Result<bool> {
     let folder_norm = normalize_path_str(folder_norm);
@@ -269,12 +304,28 @@ pub(super) async fn scan_folder_into_db(
         }
 
         let path = entry.path().to_path_buf();
+        let path_str = path.to_string_lossy().to_string();
         let ext = path
             .extension()
             .and_then(|s| s.to_str())
             .unwrap_or("")
             .to_ascii_lowercase();
-        if !is_audio_ext(&ext) {
+        let supported = is_audio_ext(&ext) || {
+            #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+            {
+                let pm = plugins.lock().expect("plugins mutex poisoned");
+                if ext.is_empty() {
+                    pm.can_decode_path(&path_str).unwrap_or(false)
+                } else {
+                    pm.probe_best_decoder_hint(&ext).is_some()
+                }
+            }
+            #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+            {
+                false
+            }
+        };
+        if !supported {
             continue;
         }
 
@@ -290,7 +341,6 @@ pub(super) async fn scan_folder_into_db(
             .unwrap_or(0);
         let size_bytes = meta.len() as i64;
 
-        let path_str = path.to_string_lossy().to_string();
         let path_norm = normalize_path_str(&path_str);
         let dir_norm = parent_dir_norm(&path_norm).unwrap_or_default();
         if !dir_norm.is_empty() && is_under_excluded(&dir_norm, &excluded) {
@@ -305,13 +355,17 @@ pub(super) async fn scan_folder_into_db(
 
         let meta_scanned_ms = now_ms();
 
+        let plugins = plugins.clone();
         let (title, artist, album, duration_ms, cover) = match tokio::task::spawn_blocking({
             let p = path.clone();
-            move || extract_metadata(&p)
+            move || {
+                extract_metadata_with_plugins(&p, &plugins)
+                    .map(|m| (m.title, m.artist, m.album, m.duration_ms, m.cover))
+            }
         })
         .await
         {
-            Ok(Ok(m)) => (m.title, m.artist, m.album, m.duration_ms, m.cover),
+            Ok(Ok(m)) => m,
             Ok(Err(e)) => {
                 events.emit(LibraryEvent::Log {
                     message: format!("metadata error: {}: {e:#}", path_str),

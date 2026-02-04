@@ -9,7 +9,7 @@ import 'package:freezed_annotation/freezed_annotation.dart' hide protected;
 part 'stellatune_core.freezed.dart';
 
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `Command`, `LibraryCommand`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
 
 class DlnaHttpServerInfo {
   final String listenAddr;
@@ -145,6 +145,69 @@ class DlnaTransportInfo {
           currentSpeed == other.currentSpeed;
 }
 
+class DspChainItem {
+  final String pluginId;
+  final String typeId;
+  final String configJson;
+
+  const DspChainItem({
+    required this.pluginId,
+    required this.typeId,
+    required this.configJson,
+  });
+
+  @override
+  int get hashCode => pluginId.hashCode ^ typeId.hashCode ^ configJson.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is DspChainItem &&
+          runtimeType == other.runtimeType &&
+          pluginId == other.pluginId &&
+          typeId == other.typeId &&
+          configJson == other.configJson;
+}
+
+class DspTypeDescriptor {
+  final String pluginId;
+  final String pluginName;
+  final String typeId;
+  final String displayName;
+  final String configSchemaJson;
+  final String defaultConfigJson;
+
+  const DspTypeDescriptor({
+    required this.pluginId,
+    required this.pluginName,
+    required this.typeId,
+    required this.displayName,
+    required this.configSchemaJson,
+    required this.defaultConfigJson,
+  });
+
+  @override
+  int get hashCode =>
+      pluginId.hashCode ^
+      pluginName.hashCode ^
+      typeId.hashCode ^
+      displayName.hashCode ^
+      configSchemaJson.hashCode ^
+      defaultConfigJson.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is DspTypeDescriptor &&
+          runtimeType == other.runtimeType &&
+          pluginId == other.pluginId &&
+          pluginName == other.pluginName &&
+          typeId == other.typeId &&
+          displayName == other.displayName &&
+          configSchemaJson == other.configSchemaJson &&
+          defaultConfigJson == other.defaultConfigJson;
+}
+
 @freezed
 sealed class Event with _$Event {
   const Event._();
@@ -201,6 +264,63 @@ sealed class LibraryEvent with _$LibraryEvent {
 }
 
 enum PlayerState { stopped, playing, paused, buffering }
+
+class PluginDescriptor {
+  final String id;
+  final String name;
+
+  const PluginDescriptor({required this.id, required this.name});
+
+  @override
+  int get hashCode => id.hashCode ^ name.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is PluginDescriptor &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          name == other.name;
+}
+
+class TrackDecodeInfo {
+  final int sampleRate;
+  final int channels;
+  final BigInt? durationMs;
+  final String? metadataJson;
+  final String? decoderPluginId;
+  final String? decoderTypeId;
+
+  const TrackDecodeInfo({
+    required this.sampleRate,
+    required this.channels,
+    this.durationMs,
+    this.metadataJson,
+    this.decoderPluginId,
+    this.decoderTypeId,
+  });
+
+  @override
+  int get hashCode =>
+      sampleRate.hashCode ^
+      channels.hashCode ^
+      durationMs.hashCode ^
+      metadataJson.hashCode ^
+      decoderPluginId.hashCode ^
+      decoderTypeId.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is TrackDecodeInfo &&
+          runtimeType == other.runtimeType &&
+          sampleRate == other.sampleRate &&
+          channels == other.channels &&
+          durationMs == other.durationMs &&
+          metadataJson == other.metadataJson &&
+          decoderPluginId == other.decoderPluginId &&
+          decoderTypeId == other.decoderTypeId;
+}
 
 class TrackLite {
   final PlatformInt64 id;

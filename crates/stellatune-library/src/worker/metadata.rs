@@ -2,11 +2,15 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
+use base64::Engine;
 use symphonia::core::formats::FormatOptions;
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::{Limit, MetadataOptions, StandardTagKey, StandardVisualKey, Value};
 use symphonia::core::probe::Hint;
 use symphonia::default::get_probe;
+use tracing::debug;
+
+use super::Plugins;
 
 #[derive(Default)]
 pub(super) struct ExtractedMetadata {
@@ -23,6 +27,14 @@ pub(super) fn extract_metadata(path: &Path) -> Result<ExtractedMetadata> {
         hint.with_extension(ext);
     }
 
+    let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
+    debug!(
+        target: "stellatune_library::metadata",
+        path = %path.display(),
+        ext = %ext,
+        "symphonia metadata probe begin"
+    );
+
     let src = std::fs::File::open(path)
         .with_context(|| format!("failed to open for metadata: {}", path.display()))?;
     let mss = MediaSourceStream::new(Box::new(src), Default::default());
@@ -33,9 +45,32 @@ pub(super) fn extract_metadata(path: &Path) -> Result<ExtractedMetadata> {
         ..Default::default()
     };
 
-    let mut probed = get_probe()
-        .format(&hint, mss, &FormatOptions::default(), &meta_opts)
-        .context("symphonia probe failed")?;
+    let mut probed = match get_probe().format(&hint, mss, &FormatOptions::default(), &meta_opts) {
+        Ok(p) => p,
+        Err(e) => {
+            let (file_size, head16) = (|| {
+                let file_size = std::fs::metadata(path).ok().map(|m| m.len());
+                let mut head16 = [0u8; 16];
+                if let Ok(mut f) = std::fs::File::open(path) {
+                    use std::io::Read as _;
+                    let _ = f.read(&mut head16);
+                }
+                (file_size, head16)
+            })();
+
+            debug!(
+                target: "stellatune_library::metadata",
+                path = %path.display(),
+                ext = %ext,
+                file_size = file_size.unwrap_or(0),
+                head16 = ?head16,
+                err = %e,
+                "symphonia metadata probe failed"
+            );
+
+            return Err(e).context("symphonia probe failed");
+        }
+    };
 
     let mut out = ExtractedMetadata::default();
 
@@ -61,6 +96,163 @@ pub(super) fn extract_metadata(path: &Path) -> Result<ExtractedMetadata> {
             let t = tb.calc_time(n_frames);
             let ms = (t.seconds as f64 * 1000.0) + (t.frac * 1000.0);
             out.duration_ms = Some(ms.round() as i64);
+        }
+    }
+
+    if out.cover.is_none() {
+        out.cover = load_sidecar_cover(path);
+    }
+
+    debug!(
+        target: "stellatune_library::metadata",
+        path = %path.display(),
+        title = out.title.as_deref().unwrap_or(""),
+        artist = out.artist.as_deref().unwrap_or(""),
+        album = out.album.as_deref().unwrap_or(""),
+        duration_ms = out.duration_ms.unwrap_or(-1),
+        cover = out.cover.as_ref().map(|b| b.len()).unwrap_or(0),
+        "symphonia metadata probe ok"
+    );
+
+    Ok(out)
+}
+
+pub(super) fn extract_metadata_with_plugins(
+    path: &Path,
+    plugins: &Plugins,
+) -> Result<ExtractedMetadata> {
+    #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+    {
+        // Selection rule:
+        // - Prefer a plugin decoder if it claims the extension (or path for extless files).
+        // - For built-in "primary" formats, prefer plugins only if they advertise a score higher
+        //   than the built-in default.
+        // - No fallback: once a decoder family is selected, errors bubble up.
+        //
+        // Rationale: Symphonia probing can produce a lot of MP3 demuxer warnings if fed non-MP3
+        // container bytes, so we avoid trying "the other" decoder family after failure.
+        let ext = path
+            .extension()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .trim()
+            .to_ascii_lowercase();
+        let path_str = path.to_string_lossy().to_string();
+
+        const BUILTIN_META_SCORE: u8 = 50;
+        let prefer_plugin = if ext.is_empty() {
+            plugins
+                .lock()
+                .ok()
+                .and_then(|pm| pm.can_decode_path(&path_str).ok())
+                .unwrap_or(false)
+        } else if is_symphonia_primary_ext(&ext) {
+            plugins
+                .lock()
+                .ok()
+                .and_then(|pm| pm.probe_best_decoder_hint(&ext).map(|(_key, score)| score))
+                .is_some_and(|score| score > BUILTIN_META_SCORE)
+        } else {
+            plugins
+                .lock()
+                .ok()
+                .map(|pm| pm.probe_best_decoder_hint(&ext).is_some())
+                .unwrap_or(false)
+        };
+
+        if prefer_plugin {
+            debug!(
+                target: "stellatune_library::metadata",
+                path = %path.display(),
+                ext = %ext,
+                "using plugin metadata extractor"
+            );
+            return extract_plugin_metadata(path, plugins);
+        }
+    }
+
+    extract_metadata(path)
+}
+
+fn is_symphonia_primary_ext(ext_lower: &str) -> bool {
+    matches!(ext_lower, "mp3" | "flac" | "wav")
+}
+
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+fn extract_plugin_metadata(path: &Path, plugins: &Plugins) -> Result<ExtractedMetadata> {
+    let started = std::time::Instant::now();
+    let path_str = path.to_string_lossy().to_string();
+    let pm = plugins
+        .lock()
+        .map_err(|_| anyhow::anyhow!("plugins mutex poisoned"))?;
+
+    let mut dec = pm
+        .open_best_decoder(&path_str)?
+        .ok_or_else(|| anyhow::anyhow!("no plugin decoder for {}", path.display()))?;
+
+    debug!(
+        target: "stellatune_library::metadata",
+        path = %path.display(),
+        plugin_id = %dec.plugin_id(),
+        decoder_type_id = %dec.decoder_type_id(),
+        elapsed_ms = started.elapsed().as_millis(),
+        "plugin decoder opened for metadata"
+    );
+
+    let mut out = ExtractedMetadata::default();
+
+    // Duration from decoder info.
+    out.duration_ms = dec.duration_ms().map(|d| d as i64);
+
+    // Optional structured metadata from plugin.
+    if let Ok(Some(json)) = dec.metadata_json() {
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&json) {
+            out.title = v
+                .get("title")
+                .and_then(|x| x.as_str())
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty());
+            out.artist = v
+                .get("artist")
+                .and_then(|x| x.as_str())
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty());
+            out.album = v
+                .get("album")
+                .and_then(|x| x.as_str())
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty());
+
+            if out.duration_ms.is_none() {
+                out.duration_ms = v
+                    .get("duration_ms")
+                    .and_then(|x| x.as_i64())
+                    .filter(|ms| *ms >= 0);
+            }
+
+            if out.cover.is_none() {
+                // Prefer base64 because JSON byte arrays are huge.
+                if let Some(s) = v.get("cover_base64").and_then(|x| x.as_str()) {
+                    let s = s.trim();
+                    if !s.is_empty() {
+                        if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(s) {
+                            if !bytes.is_empty() && (bytes.len() as u64) <= COVER_BYTES_LIMIT {
+                                out.cover = Some(bytes);
+                            }
+                        }
+                    }
+                } else if let Some(arr) = v.get("cover_bytes").and_then(|x| x.as_array()) {
+                    let mut bytes = Vec::<u8>::with_capacity(arr.len());
+                    for n in arr {
+                        if let Some(u) = n.as_u64().and_then(|u| u.try_into().ok()) {
+                            bytes.push(u);
+                        }
+                    }
+                    if !bytes.is_empty() && (bytes.len() as u64) <= COVER_BYTES_LIMIT {
+                        out.cover = Some(bytes);
+                    }
+                }
+            }
         }
     }
 

@@ -56,6 +56,9 @@ abstract class StellatuneApiApiImplPlatform
   PlatformInt64 dco_decode_box_autoadd_i_64(dynamic raw);
 
   @protected
+  TrackDecodeInfo dco_decode_box_autoadd_track_decode_info(dynamic raw);
+
+  @protected
   int dco_decode_box_autoadd_u_16(dynamic raw);
 
   @protected
@@ -75,6 +78,12 @@ abstract class StellatuneApiApiImplPlatform
 
   @protected
   DlnaTransportInfo dco_decode_dlna_transport_info(dynamic raw);
+
+  @protected
+  DspChainItem dco_decode_dsp_chain_item(dynamic raw);
+
+  @protected
+  DspTypeDescriptor dco_decode_dsp_type_descriptor(dynamic raw);
 
   @protected
   Event dco_decode_event(dynamic raw);
@@ -101,6 +110,15 @@ abstract class StellatuneApiApiImplPlatform
   List<DlnaSsdpDevice> dco_decode_list_dlna_ssdp_device(dynamic raw);
 
   @protected
+  List<DspChainItem> dco_decode_list_dsp_chain_item(dynamic raw);
+
+  @protected
+  List<DspTypeDescriptor> dco_decode_list_dsp_type_descriptor(dynamic raw);
+
+  @protected
+  List<PluginDescriptor> dco_decode_list_plugin_descriptor(dynamic raw);
+
+  @protected
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw);
 
   @protected
@@ -113,6 +131,9 @@ abstract class StellatuneApiApiImplPlatform
   PlatformInt64? dco_decode_opt_box_autoadd_i_64(dynamic raw);
 
   @protected
+  TrackDecodeInfo? dco_decode_opt_box_autoadd_track_decode_info(dynamic raw);
+
+  @protected
   int? dco_decode_opt_box_autoadd_u_16(dynamic raw);
 
   @protected
@@ -120,6 +141,12 @@ abstract class StellatuneApiApiImplPlatform
 
   @protected
   PlayerState dco_decode_player_state(dynamic raw);
+
+  @protected
+  PluginDescriptor dco_decode_plugin_descriptor(dynamic raw);
+
+  @protected
+  TrackDecodeInfo dco_decode_track_decode_info(dynamic raw);
 
   @protected
   TrackLite dco_decode_track_lite(dynamic raw);
@@ -176,6 +203,11 @@ abstract class StellatuneApiApiImplPlatform
   PlatformInt64 sse_decode_box_autoadd_i_64(SseDeserializer deserializer);
 
   @protected
+  TrackDecodeInfo sse_decode_box_autoadd_track_decode_info(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   int sse_decode_box_autoadd_u_16(SseDeserializer deserializer);
 
   @protected
@@ -197,6 +229,14 @@ abstract class StellatuneApiApiImplPlatform
 
   @protected
   DlnaTransportInfo sse_decode_dlna_transport_info(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  DspChainItem sse_decode_dsp_chain_item(SseDeserializer deserializer);
+
+  @protected
+  DspTypeDescriptor sse_decode_dsp_type_descriptor(
     SseDeserializer deserializer,
   );
 
@@ -229,6 +269,21 @@ abstract class StellatuneApiApiImplPlatform
   );
 
   @protected
+  List<DspChainItem> sse_decode_list_dsp_chain_item(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<DspTypeDescriptor> sse_decode_list_dsp_type_descriptor(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<PluginDescriptor> sse_decode_list_plugin_descriptor(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer);
 
   @protected
@@ -241,6 +296,11 @@ abstract class StellatuneApiApiImplPlatform
   PlatformInt64? sse_decode_opt_box_autoadd_i_64(SseDeserializer deserializer);
 
   @protected
+  TrackDecodeInfo? sse_decode_opt_box_autoadd_track_decode_info(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   int? sse_decode_opt_box_autoadd_u_16(SseDeserializer deserializer);
 
   @protected
@@ -248,6 +308,12 @@ abstract class StellatuneApiApiImplPlatform
 
   @protected
   PlayerState sse_decode_player_state(SseDeserializer deserializer);
+
+  @protected
+  PluginDescriptor sse_decode_plugin_descriptor(SseDeserializer deserializer);
+
+  @protected
+  TrackDecodeInfo sse_decode_track_decode_info(SseDeserializer deserializer);
 
   @protected
   TrackLite sse_decode_track_lite(SseDeserializer deserializer);
@@ -313,6 +379,12 @@ abstract class StellatuneApiApiImplPlatform
   );
 
   @protected
+  void sse_encode_box_autoadd_track_decode_info(
+    TrackDecodeInfo self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_box_autoadd_u_16(int self, SseSerializer serializer);
 
   @protected
@@ -342,6 +414,15 @@ abstract class StellatuneApiApiImplPlatform
   @protected
   void sse_encode_dlna_transport_info(
     DlnaTransportInfo self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_dsp_chain_item(DspChainItem self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_dsp_type_descriptor(
+    DspTypeDescriptor self,
     SseSerializer serializer,
   );
 
@@ -376,6 +457,24 @@ abstract class StellatuneApiApiImplPlatform
   );
 
   @protected
+  void sse_encode_list_dsp_chain_item(
+    List<DspChainItem> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_dsp_type_descriptor(
+    List<DspTypeDescriptor> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_plugin_descriptor(
+    List<PluginDescriptor> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_prim_u_8_strict(
     Uint8List self,
     SseSerializer serializer,
@@ -397,6 +496,12 @@ abstract class StellatuneApiApiImplPlatform
   );
 
   @protected
+  void sse_encode_opt_box_autoadd_track_decode_info(
+    TrackDecodeInfo? self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_opt_box_autoadd_u_16(int? self, SseSerializer serializer);
 
   @protected
@@ -404,6 +509,18 @@ abstract class StellatuneApiApiImplPlatform
 
   @protected
   void sse_encode_player_state(PlayerState self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_plugin_descriptor(
+    PluginDescriptor self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_track_decode_info(
+    TrackDecodeInfo self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_track_lite(TrackLite self, SseSerializer serializer);

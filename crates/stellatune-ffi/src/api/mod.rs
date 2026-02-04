@@ -9,7 +9,7 @@ use tracing_subscriber::fmt::time::LocalTime;
 use stellatune_audio::start_engine;
 use stellatune_core::{
     Command, DlnaHttpServerInfo, DlnaPositionInfo, DlnaRenderer, DlnaSsdpDevice, DlnaTransportInfo,
-    Event, LibraryCommand, LibraryEvent,
+    Event, LibraryCommand, LibraryEvent, TrackDecodeInfo,
 };
 use stellatune_library::start_library;
 
@@ -23,7 +23,8 @@ fn init_tracing() {
             // Users can always override via `RUST_LOG=...`.
             if cfg!(debug_assertions) {
                 EnvFilter::new(
-                    "warn,stellatune_ffi=debug,stellatune_audio=debug,stellatune_decode=debug,stellatune_output=debug,stellatune_library=debug",
+                    // Keep StellaTune crates at debug for easier profiling/diagnostics.
+                    "warn,stellatune_ffi=debug,stellatune_audio=debug,stellatune_decode=debug,stellatune_output=debug,stellatune_library=debug,stellatune_plugins=debug",
                 )
             } else {
                 EnvFilter::new("info")
@@ -32,7 +33,9 @@ fn init_tracing() {
         tracing_subscriber::fmt()
             .with_env_filter(filter)
             .with_timer(LocalTime::rfc_3339())
-            .with_target(false)
+            // Include log targets so it's easier to see which crate/module emits a message
+            // (e.g. Symphonia demuxer warnings during probing).
+            .with_target(true)
             .with_thread_names(true)
             .with_thread_ids(true)
             .init();
@@ -96,6 +99,36 @@ pub fn events(player: RustOpaque<Player>, sink: StreamSink<Event>) -> Result<()>
         .expect("failed to spawn stellatune-events thread");
 
     Ok(())
+}
+
+pub fn plugins_list(player: RustOpaque<Player>) -> Vec<stellatune_core::PluginDescriptor> {
+    player.engine.list_plugins()
+}
+
+pub fn dsp_list_types(player: RustOpaque<Player>) -> Vec<stellatune_core::DspTypeDescriptor> {
+    player.engine.list_dsp_types()
+}
+
+pub fn dsp_set_chain(player: RustOpaque<Player>, chain: Vec<stellatune_core::DspChainItem>) {
+    player.engine.set_dsp_chain(chain);
+}
+
+pub fn current_track_info(player: RustOpaque<Player>) -> Option<TrackDecodeInfo> {
+    player.engine.current_track_info()
+}
+
+pub fn plugins_reload(player: RustOpaque<Player>, dir: String) {
+    player.engine.reload_plugins(dir);
+}
+
+pub fn plugins_reload_with_disabled(
+    player: RustOpaque<Player>,
+    dir: String,
+    disabled_ids: Vec<String>,
+) {
+    player
+        .engine
+        .reload_plugins_with_disabled(dir, disabled_ids);
 }
 
 pub struct Library {

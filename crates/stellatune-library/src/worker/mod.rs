@@ -21,10 +21,58 @@ use self::fts::build_fts_query;
 use self::paths::{is_drive_root, normalize_path_str, parent_dir_norm};
 use self::watch::{WatchCtrl, spawn_watch_task};
 
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+use std::collections::HashSet;
+
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+use stellatune_plugins::{PluginManager, default_host_vtable};
+
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+pub(crate) type Plugins = std::sync::Arc<std::sync::Mutex<PluginManager>>;
+
+#[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+pub(crate) type Plugins = ();
+
 pub(crate) struct WorkerDeps {
     pool: SqlitePool,
     events: std::sync::Arc<EventHub>,
     cover_dir: PathBuf,
+    plugins_dir: PathBuf,
+    plugins: Plugins,
+}
+
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+const DISABLED_PLUGINS_FILE_NAME: &str = "disabled_plugins.json";
+
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+fn read_disabled_plugin_ids_best_effort(plugins_dir: &Path) -> HashSet<String> {
+    let path = plugins_dir.join(DISABLED_PLUGINS_FILE_NAME);
+    let text = match std::fs::read_to_string(&path) {
+        Ok(s) => s,
+        Err(_) => return HashSet::new(),
+    };
+
+    let ids = match serde_json::from_str::<serde_json::Value>(&text) {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::debug!(
+                target: "stellatune_library::plugins",
+                file = %path.display(),
+                "failed to parse disabled plugin list: {e}"
+            );
+            return HashSet::new();
+        }
+    };
+
+    let Some(arr) = ids.as_array() else {
+        return HashSet::new();
+    };
+
+    arr.iter()
+        .filter_map(|v| v.as_str())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect::<HashSet<_>>()
 }
 
 impl WorkerDeps {
@@ -39,10 +87,64 @@ impl WorkerDeps {
             format!("failed to create cover cache dir: {}", cover_dir.display())
         })?;
 
+        let plugins_dir = db_path
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join("plugins");
+
+        #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+        let plugins: Plugins = {
+            let plugins = std::sync::Arc::new(std::sync::Mutex::new(PluginManager::new(
+                default_host_vtable(),
+            )));
+            // Best-effort initial load; scanning will also attempt additive loads.
+            if plugins_dir.exists() {
+                let disabled = read_disabled_plugin_ids_best_effort(&plugins_dir);
+                match unsafe {
+                    plugins
+                        .lock()
+                        .expect("plugins mutex poisoned")
+                        .load_dir_additive_filtered(&plugins_dir, &disabled)
+                } {
+                    Ok(report) => {
+                        if !report.loaded.is_empty() || !report.errors.is_empty() {
+                            events.emit(LibraryEvent::Log {
+                                message: format!(
+                                    "library plugins loaded from {}: loaded={} errors={}",
+                                    plugins_dir.display(),
+                                    report.loaded.len(),
+                                    report.errors.len()
+                                ),
+                            });
+                        }
+                        for e in report.errors {
+                            events.emit(LibraryEvent::Log {
+                                message: format!("plugin load error: {e:#}"),
+                            });
+                        }
+                    }
+                    Err(e) => events.emit(LibraryEvent::Log {
+                        message: format!("plugin load failed: {e:#}"),
+                    }),
+                }
+            }
+
+            // Ensure the in-memory plugin manager knows what is disabled (even if already loaded).
+            if let Ok(mut pm) = plugins.lock() {
+                pm.set_disabled_ids(read_disabled_plugin_ids_best_effort(&plugins_dir));
+            }
+            plugins
+        };
+
+        #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+        let plugins: Plugins = ();
+
         Ok(Self {
             pool,
             events,
             cover_dir,
+            plugins_dir,
+            plugins,
         })
     }
 }
@@ -52,6 +154,8 @@ pub(crate) struct LibraryWorker {
     events: std::sync::Arc<EventHub>,
     cover_dir: PathBuf,
     watch_ctrl: mpsc::UnboundedSender<WatchCtrl>,
+    plugins_dir: PathBuf,
+    plugins: Plugins,
 }
 
 impl LibraryWorker {
@@ -60,12 +164,28 @@ impl LibraryWorker {
             deps.pool.clone(),
             std::sync::Arc::clone(&deps.events),
             deps.cover_dir.clone(),
+            deps.plugins.clone(),
         );
         Self {
             pool: deps.pool,
             events: deps.events,
             cover_dir: deps.cover_dir,
             watch_ctrl,
+            plugins_dir: deps.plugins_dir,
+            plugins: deps.plugins,
+        }
+    }
+
+    fn refresh_plugins_best_effort(&self) {
+        #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+        {
+            if !self.plugins_dir.exists() {
+                return;
+            }
+            let disabled = read_disabled_plugin_ids_best_effort(&self.plugins_dir);
+            let mut pm = self.plugins.lock().expect("plugins mutex poisoned");
+            pm.set_disabled_ids(disabled.clone());
+            let _ = unsafe { pm.load_dir_additive_filtered(&self.plugins_dir, &disabled) };
         }
     }
 
@@ -455,8 +575,9 @@ impl LibraryWorker {
         let pool = self.pool.clone();
         let events = std::sync::Arc::clone(&self.events);
         let cover_dir = self.cover_dir.clone();
+        let plugins = self.plugins.clone();
         tokio::spawn(async move {
-            match scan::scan_folder_into_db(pool, &events, &cover_dir, &folder).await {
+            match scan::scan_folder_into_db(pool, &events, &cover_dir, &plugins, &folder).await {
                 Ok(true) => events.emit(LibraryEvent::Changed),
                 Ok(false) => {}
                 Err(e) => events.emit(LibraryEvent::Log {
@@ -470,7 +591,15 @@ impl LibraryWorker {
     }
 
     async fn scan_all(&self, force: bool) -> Result<()> {
-        scan::scan_all(&self.pool, &self.events, &self.cover_dir, force).await
+        self.refresh_plugins_best_effort();
+        scan::scan_all(
+            &self.pool,
+            &self.events,
+            &self.cover_dir,
+            &self.plugins,
+            force,
+        )
+        .await
     }
 
     async fn search(&self, query: String, limit: i64, offset: i64) -> Result<()> {

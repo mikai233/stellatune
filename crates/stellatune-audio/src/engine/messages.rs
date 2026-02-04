@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
 use stellatune_output::OutputSpec;
+use stellatune_plugins::DspInstance;
 
 use crate::ring_buffer::RingBufferProducer;
 
@@ -13,12 +14,28 @@ pub(crate) enum DecodeCtrl {
         start_at_ms: i64,
         output_enabled: Arc<AtomicBool>,
     },
+    SetDspChain {
+        chain: Vec<DspInstance>,
+    },
     Play,
     Pause,
     SeekMs {
         position_ms: i64,
     },
     Stop,
+}
+
+pub(crate) enum EngineCtrl {
+    SetDspChain {
+        chain: Vec<stellatune_core::DspChainItem>,
+    },
+    ReloadPlugins {
+        dir: String,
+    },
+    ReloadPluginsWithDisabled {
+        dir: String,
+        disabled_ids: Vec<String>,
+    },
 }
 
 pub(crate) enum InternalMsg {
