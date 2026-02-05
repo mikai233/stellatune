@@ -10,6 +10,7 @@ class PlaybackState {
     required this.volume,
     required this.lastError,
     required this.lastLog,
+    this.trackInfo,
   });
 
   const PlaybackState.initial()
@@ -18,7 +19,8 @@ class PlaybackState {
       currentPath = null,
       volume = 1.0,
       lastError = null,
-      lastLog = '';
+      lastLog = '',
+      trackInfo = null;
 
   final PlayerState playerState;
   final int positionMs;
@@ -26,6 +28,7 @@ class PlaybackState {
   final double volume;
   final String? lastError;
   final String lastLog;
+  final TrackDecodeInfo? trackInfo;
 
   PlaybackState copyWith({
     PlayerState? playerState,
@@ -34,6 +37,7 @@ class PlaybackState {
     double? volume,
     String? lastError,
     String? lastLog,
+    TrackDecodeInfo? trackInfo,
   }) {
     return PlaybackState(
       playerState: playerState ?? this.playerState,
@@ -42,6 +46,7 @@ class PlaybackState {
       volume: volume ?? this.volume,
       lastError: lastError ?? this.lastError,
       lastLog: lastLog ?? this.lastLog,
+      trackInfo: trackInfo ?? this.trackInfo,
     );
   }
 }

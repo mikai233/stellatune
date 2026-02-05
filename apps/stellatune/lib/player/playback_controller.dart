@@ -113,7 +113,14 @@ class PlaybackController extends Notifier<PlaybackState> {
     final queue = ref.read(queueControllerProvider);
     if (queue.items.isEmpty) {
       ref.read(queueControllerProvider.notifier).setQueue([
-        QueueItem(path: path),
+        QueueItem(
+          path: path,
+          id: settings.resumeTrackId,
+          title: settings.resumeTitle,
+          artist: settings.resumeArtist,
+          album: settings.resumeAlbum,
+          durationMs: settings.resumeDurationMs,
+        ),
       ], startIndex: 0);
     }
 
@@ -142,8 +149,20 @@ class PlaybackController extends Notifier<PlaybackState> {
       final p = _resumePendingPath;
       if (p == null || p.isEmpty) return;
       final ms = _resumePendingPositionMs.clamp(0, 1 << 31);
+
+      final currentItem = ref.read(queueControllerProvider).currentItem;
       unawaited(
-        ref.read(settingsStoreProvider).setResume(path: p, positionMs: ms),
+        ref
+            .read(settingsStoreProvider)
+            .setResume(
+              path: p,
+              positionMs: ms,
+              trackId: currentItem?.id,
+              title: currentItem?.title,
+              artist: currentItem?.artist,
+              album: currentItem?.album,
+              durationMs: currentItem?.durationMs,
+            ),
       );
     });
   }
@@ -155,7 +174,19 @@ class PlaybackController extends Notifier<PlaybackState> {
     final p = path.trim();
     if (p.isEmpty) return;
     final ms = positionMs.clamp(0, 1 << 31);
-    await ref.read(settingsStoreProvider).setResume(path: p, positionMs: ms);
+
+    final currentItem = ref.read(queueControllerProvider).currentItem;
+    await ref
+        .read(settingsStoreProvider)
+        .setResume(
+          path: p,
+          positionMs: ms,
+          trackId: currentItem?.id,
+          title: currentItem?.title,
+          artist: currentItem?.artist,
+          album: currentItem?.album,
+          durationMs: currentItem?.durationMs,
+        );
   }
 
   Future<void> seekMs(int positionMs) async {
@@ -609,6 +640,16 @@ class PlaybackController extends Notifier<PlaybackState> {
     await _loadAndPlay(item.path);
   }
 
+  Future<void> _updateTrackInfo() async {
+    if (_dlnaActive) return;
+    try {
+      final info = await ref.read(playerBridgeProvider).currentTrackInfo();
+      state = state.copyWith(trackInfo: info);
+    } catch (e) {
+      ref.read(loggerProvider).d('fetch track info failed: $e');
+    }
+  }
+
   Future<void> _loadAndPlay(String path) async {
     state = state.copyWith(lastError: null, lastLog: '');
     if (_dlnaActive) {
@@ -641,6 +682,7 @@ class PlaybackController extends Notifier<PlaybackState> {
 
     final bridge = ref.read(playerBridgeProvider);
     await bridge.load(path);
+    unawaited(_updateTrackInfo());
     await bridge.play();
   }
 
@@ -660,6 +702,7 @@ class PlaybackController extends Notifier<PlaybackState> {
       trackChanged: (path) {
         state = state.copyWith(currentPath: path);
         unawaited(_persistResumeNow(path: path, positionMs: 0));
+        unawaited(_updateTrackInfo());
       },
       playbackEnded: (path) {
         ref.read(loggerProvider).i('playback ended: $path');

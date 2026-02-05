@@ -10,9 +10,26 @@ import 'package:stellatune/app/providers.dart';
 import 'package:stellatune/library/library_paths.dart';
 import 'package:stellatune/platform/rust_runtime.dart';
 import 'package:stellatune/ui/app.dart';
+import 'package:window_manager/window_manager.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Set up window manager for desktop platforms
+  if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+    await windowManager.ensureInitialized();
+    const windowOptions = WindowOptions(
+      minimumSize: Size(800, 700),
+      size: Size(1280, 720),
+      center: true,
+      title: 'Stellatune',
+      titleBarStyle: TitleBarStyle.hidden,
+    );
+    await windowManager.waitUntilReadyToShow(windowOptions, () async {
+      await windowManager.show();
+      await windowManager.focus();
+    });
+  }
 
   await initRustRuntime();
   final bridge = await PlayerBridge.create();

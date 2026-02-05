@@ -98,5 +98,9 @@
   "playModeSequential": "Sequential",
   "playModeShuffle": "Shuffle",
   "playModeRepeatAll": "Repeat all",
-  "playModeRepeatOne": "Repeat one"
+  "playModeRepeatOne": "Repeat one",
+
+  "noLyrics": "No lyrics",
+  "tooltipBack": "Back",
+  "menuMore": "More"
 }

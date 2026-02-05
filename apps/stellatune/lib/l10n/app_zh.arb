@@ -98,5 +98,9 @@
   "playModeSequential": "顺序播放",
   "playModeShuffle": "随机播放",
   "playModeRepeatAll": "列表循环",
-  "playModeRepeatOne": "单曲循环"
+  "playModeRepeatOne": "单曲循环",
+
+  "noLyrics": "无歌词",
+  "tooltipBack": "返回",
+  "menuMore": "更多"
 }

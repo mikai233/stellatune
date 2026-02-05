@@ -5,7 +5,7 @@ use std::thread::JoinHandle;
 use std::time::Instant;
 
 use crossbeam_channel::Sender;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 use stellatune_core::TrackDecodeInfo;
 use stellatune_output::{OutputError, OutputHandle, OutputSpec};
@@ -37,6 +37,7 @@ pub(crate) fn start_session(
     start_at_ms: i64,
     volume: Arc<AtomicU32>,
     plugins: Arc<Mutex<stellatune_plugins::PluginManager>>,
+    lfe_mode: stellatune_core::LfeMode,
 ) -> Result<PlaybackSession, String> {
     let t0 = Instant::now();
     debug!(%path, start_at_ms, "start_session begin");
@@ -75,14 +76,6 @@ pub(crate) fn start_session(
         "decoder opened/probed in {}ms",
         t_after_spawn.elapsed().as_millis()
     );
-
-    if out_spec.channels != 1 && out_spec.channels != 2 {
-        warn!("unsupported output channels: {}", out_spec.channels);
-        return Err(format!(
-            "output channels = {}, only mono/stereo is supported",
-            out_spec.channels
-        ));
-    }
 
     let capacity_samples =
         ((out_spec.sample_rate as usize * out_spec.channels as usize * RING_BUFFER_CAPACITY_MS)
@@ -126,6 +119,7 @@ pub(crate) fn start_session(
             target_channels: out_spec.channels,
             start_at_ms,
             output_enabled: Arc::clone(&output_enabled),
+            lfe_mode,
         })
         .map_err(|_| "decoder thread exited unexpectedly".to_string())?;
 

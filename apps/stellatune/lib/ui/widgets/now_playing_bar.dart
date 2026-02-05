@@ -1,15 +1,21 @@
 import 'dart:async';
+import 'dart:io';
 
+import 'package:animations/animations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:stellatune/app/providers.dart';
 import 'package:stellatune/bridge/bridge.dart';
 import 'package:stellatune/dlna/dlna_providers.dart';
 import 'package:stellatune/l10n/app_localizations.dart';
 import 'package:stellatune/player/playback_controller.dart';
 import 'package:stellatune/player/queue_controller.dart';
 import 'package:stellatune/player/queue_models.dart';
+import 'package:stellatune/ui/pages/music_detail_page.dart';
+import 'package:stellatune/ui/widgets/audio_format_badge.dart';
+import 'package:stellatune/ui/widgets/marquee_text.dart';
 
 class NowPlayingBar extends ConsumerWidget {
   const NowPlayingBar({super.key});
@@ -21,9 +27,18 @@ class NowPlayingBar extends ConsumerWidget {
     final playback = ref.watch(playbackControllerProvider);
     final queue = ref.watch(queueControllerProvider);
     final selectedRenderer = ref.watch(dlnaSelectedRendererProvider);
+    final coverDir = ref.watch(coverDirProvider);
+    final trackId = queue.currentItem?.id;
 
     final currentTitle = queue.currentItem?.displayTitle ?? l10n.nowPlayingNone;
-    final currentSubtitle = playback.currentPath ?? '';
+    final String currentSubtitle;
+    if (queue.currentItem != null) {
+      final artist = (queue.currentItem?.artist ?? '').trim();
+      final album = (queue.currentItem?.album ?? '').trim();
+      currentSubtitle = [artist, album].where((s) => s.isNotEmpty).join(' • ');
+    } else {
+      currentSubtitle = playback.currentPath ?? '';
+    }
     final playModeLabel = switch (queue.playMode) {
       PlayMode.sequential => l10n.playModeSequential,
       PlayMode.shuffle => l10n.playModeShuffle,
@@ -51,28 +66,56 @@ class NowPlayingBar extends ConsumerWidget {
                 Row(
                   children: [
                     const SizedBox(width: 12),
-                    _CoverPlaceholder(color: theme.colorScheme.primary),
+                    OpenContainer(
+                      closedElevation: 0,
+                      openElevation: 0,
+                      closedColor: Colors.transparent,
+                      openColor: theme.colorScheme.surfaceContainerLow,
+                      closedShape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      transitionDuration: const Duration(milliseconds: 400),
+                      transitionType: ContainerTransitionType.fadeThrough,
+                      closedBuilder: (context, open) => _NowPlayingCover(
+                        coverDir: coverDir,
+                        trackId: trackId,
+                        primaryColor: theme.colorScheme.primary,
+                        onTap: queue.currentItem != null ? open : null,
+                      ),
+                      openBuilder: (context, close) => const MusicDetailPage(),
+                    ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            currentTitle,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                          MarqueeText(
+                            text: currentTitle,
+                            style: theme.textTheme.bodyMedium,
                           ),
                           if (currentSubtitle.isNotEmpty)
-                            Text(
-                              currentSubtitle,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: theme.textTheme.bodySmall,
+                            Row(
+                              children: [
+                                if (playback.currentPath != null) ...[
+                                  AudioFormatBadge(
+                                    path: playback.currentPath!,
+                                    sampleRate: playback.trackInfo?.sampleRate,
+                                  ),
+                                  const SizedBox(width: 4),
+                                ],
+                                Expanded(
+                                  child: MarqueeText(
+                                    text: currentSubtitle,
+                                    style: theme.textTheme.bodySmall,
+                                  ),
+                                ),
+                              ],
                             ),
                         ],
                       ),
                     ),
+                    const SizedBox(width: 16),
                     Text(timeLabel, style: theme.textTheme.titleMedium),
                     if (playback.lastError != null) ...[
                       const SizedBox(width: 8),
@@ -775,19 +818,13 @@ class _ProgressPainter extends CustomPainter {
     final trackH = trackHeight;
     final maxY = (size.height - trackH).clamp(0.0, size.height);
     final y = (centerY - trackH / 2).clamp(0.0, maxY);
-    final r = RRect.fromRectAndRadius(
-      Rect.fromLTWH(0, y, size.width, trackH),
-      const Radius.circular(999),
-    );
-    canvas.drawRRect(r, Paint()..color = trackColor);
+    final trackRect = Rect.fromLTWH(0, y, size.width, trackH);
+    canvas.drawRect(trackRect, Paint()..color = trackColor);
 
     final w = (size.width * progress).clamp(0.0, size.width);
     if (w <= 0) return;
-    final fr = RRect.fromRectAndRadius(
-      Rect.fromLTWH(0, y, w, trackH),
-      const Radius.circular(999),
-    );
-    canvas.drawRRect(fr, Paint()..color = fillColor);
+    final fillRect = Rect.fromLTWH(0, y, w, trackH);
+    canvas.drawRect(fillRect, Paint()..color = fillColor);
   }
 
   @override
@@ -836,22 +873,57 @@ class _RenderMeasureSize extends RenderProxyBox {
   }
 }
 
-class _CoverPlaceholder extends StatelessWidget {
-  const _CoverPlaceholder({required this.color});
+class _NowPlayingCover extends StatelessWidget {
+  const _NowPlayingCover({
+    required this.coverDir,
+    required this.trackId,
+    required this.primaryColor,
+    required this.onTap,
+  });
 
-  final Color color;
+  final String coverDir;
+  final int? trackId;
+  final Color primaryColor;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    final placeholder = Container(
       width: 48,
       height: 48,
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
+        color: primaryColor.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color.withValues(alpha: 0.18)),
+        border: Border.all(color: primaryColor.withValues(alpha: 0.18)),
       ),
-      child: Icon(Icons.music_note, color: color),
+      child: Icon(Icons.music_note, color: primaryColor),
+    );
+
+    if (trackId == null) {
+      return GestureDetector(onTap: onTap, child: placeholder);
+    }
+
+    final coverPath = '$coverDir${Platform.pathSeparator}$trackId';
+    final provider = ResizeImage(
+      FileImage(File(coverPath)),
+      width: 96,
+      height: 96,
+      allowUpscaling: false,
+    );
+
+    return GestureDetector(
+      onTap: onTap,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: Image(
+          image: provider,
+          width: 48,
+          height: 48,
+          fit: BoxFit.cover,
+          gaplessPlayback: true,
+          errorBuilder: (context, error, stackTrace) => placeholder,
+        ),
+      ),
     );
   }
 }

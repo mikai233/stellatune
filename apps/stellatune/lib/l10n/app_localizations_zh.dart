@@ -239,4 +239,13 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get playModeRepeatOne => '单曲循环';
+
+  @override
+  String get noLyrics => '无歌词';
+
+  @override
+  String get tooltipBack => '返回';
+
+  @override
+  String get menuMore => '更多';
 }

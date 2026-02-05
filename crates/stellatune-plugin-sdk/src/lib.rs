@@ -56,6 +56,14 @@ pub trait DspDescriptor: Dsp {
     const CONFIG_SCHEMA_JSON: &'static str;
     const DEFAULT_CONFIG_JSON: &'static str;
 
+    /// Bitmask of supported channel layouts (ST_LAYOUT_* flags).
+    /// Default: ST_LAYOUT_STEREO (stereo only).
+    const SUPPORTED_LAYOUTS: u32 = ST_LAYOUT_STEREO;
+
+    /// Output channel count if this DSP changes channel count.
+    /// Return 0 to preserve input channel count (passthrough).
+    const OUTPUT_CHANNELS: u16 = 0;
+
     fn create(spec: StAudioSpec, config_json: &str) -> Result<Self, String>
     where
         Self: Sized;
@@ -619,6 +627,14 @@ macro_rules! export_plugin {
                     unsafe { drop(Box::from_raw(handle as *mut $crate::DspBox<$dsp_ty>)) };
                 }
 
+                extern "C" fn supported_layouts() -> u32 {
+                    <$dsp_ty as $crate::DspDescriptor>::SUPPORTED_LAYOUTS
+                }
+
+                extern "C" fn output_channels() -> u16 {
+                    <$dsp_ty as $crate::DspDescriptor>::OUTPUT_CHANNELS
+                }
+
                 pub static VTABLE: $crate::StDspVTableV1 = $crate::StDspVTableV1 {
                     type_id_utf8,
                     display_name_utf8,
@@ -628,6 +644,8 @@ macro_rules! export_plugin {
                     set_config_json_utf8,
                     process_interleaved_f32_in_place,
                     drop: drop_handle,
+                    supported_layouts,
+                    output_channels,
                 };
             }
         )*

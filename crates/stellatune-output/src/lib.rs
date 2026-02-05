@@ -74,12 +74,6 @@ impl OutputHandle {
         let sample_rate = config.sample_rate();
         let channels = config.channels();
 
-        if channels != 1 && channels != 2 {
-            return Err(OutputError::ConfigMismatch {
-                message: format!("output channels = {channels}, only mono/stereo is supported"),
-            });
-        }
-
         if sample_rate != expected_sample_rate {
             return Err(OutputError::ConfigMismatch {
                 message: format!(

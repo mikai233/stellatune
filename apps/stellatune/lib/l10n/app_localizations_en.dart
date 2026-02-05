@@ -242,4 +242,13 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get playModeRepeatOne => 'Repeat one';
+
+  @override
+  String get noLyrics => 'No lyrics';
+
+  @override
+  String get tooltipBack => 'Back';
+
+  @override
+  String get menuMore => 'More';
 }

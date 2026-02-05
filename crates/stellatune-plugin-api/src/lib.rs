@@ -216,4 +216,24 @@ pub struct StDspVTableV1 {
     pub process_interleaved_f32_in_place:
         extern "C" fn(handle: *mut c_void, samples: *mut f32, frames: u32),
     pub drop: extern "C" fn(handle: *mut c_void),
+
+    /// Returns bitmask of supported input channel layouts (ST_LAYOUT_* flags).
+    /// If this returns 0 or ST_LAYOUT_STEREO, the DSP only supports stereo.
+    pub supported_layouts: extern "C" fn() -> u32,
+
+    /// Returns the output channel count if this DSP changes the channel count.
+    /// Returns 0 if the DSP preserves the input channel count (passthrough).
+    pub output_channels: extern "C" fn() -> u16,
 }
+
+// Channel layout bitmask flags for DSP plugins.
+/// Mono (1 channel)
+pub const ST_LAYOUT_MONO: u32 = 1 << 0;
+/// Stereo (2 channels)
+pub const ST_LAYOUT_STEREO: u32 = 1 << 1;
+/// 5.1 Surround (6 channels)
+pub const ST_LAYOUT_5_1: u32 = 1 << 2;
+/// 7.1 Surround (8 channels)
+pub const ST_LAYOUT_7_1: u32 = 1 << 3;
+/// Supports any channel layout
+pub const ST_LAYOUT_ANY: u32 = 0xFFFFFFFF;

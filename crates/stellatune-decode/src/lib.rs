@@ -76,10 +76,6 @@ impl Decoder {
             .map(|c| c.count() as u16)
             .unwrap_or(0);
 
-        if channels != 1 && channels != 2 {
-            return Err(DecodeError::UnsupportedChannels { channels });
-        }
-
         let decoder = symphonia::default::get_codecs().make(&params, &DecoderOptions::default())?;
 
         Ok(Self {

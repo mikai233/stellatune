@@ -12,6 +12,14 @@ pub enum PlayerState {
 }
 
 #[flutter_rust_bridge::frb(non_opaque)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum LfeMode {
+    #[default]
+    Mute,
+    MixToFront,
+}
+
+#[flutter_rust_bridge::frb(non_opaque)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Command {
     LoadTrack { path: String },
@@ -19,6 +27,7 @@ pub enum Command {
     Pause,
     SeekMs { position_ms: u64 },
     SetVolume { volume: f32 },
+    SetLfeMode { mode: LfeMode },
     Stop,
     Shutdown,
 }

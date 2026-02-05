@@ -9,6 +9,7 @@ use tracing::debug;
 
 use stellatune_core::TrackDecodeInfo;
 use stellatune_decode::{Decoder, TrackSpec};
+use stellatune_mixer::{ChannelLayout, ChannelMixer};
 use stellatune_plugins::DspInstance;
 
 use crate::engine::config::{
@@ -100,12 +101,6 @@ fn open_engine_decoder(
                     if spec.sample_rate == 0 {
                         return Err("plugin decoder returned sample_rate=0".to_string());
                     }
-                    if spec.channels != 1 && spec.channels != 2 {
-                        return Err(format!(
-                            "unsupported channel count: {} (only mono/stereo supported)",
-                            spec.channels
-                        ));
-                    }
                     let duration_ms = dec.duration_ms();
                     let metadata_json = dec.metadata_json().ok().flatten();
                     let info = TrackDecodeInfo {
@@ -173,12 +168,6 @@ fn open_engine_decoder(
                         if spec.sample_rate == 0 {
                             return Err("plugin decoder returned sample_rate=0".to_string());
                         }
-                        if spec.channels != 1 && spec.channels != 2 {
-                            return Err(format!(
-                                "unsupported channel count: {} (only mono/stereo supported)",
-                                spec.channels
-                            ));
-                        }
                         let duration_ms = dec.duration_ms();
                         let metadata_json = dec.metadata_json().ok().flatten();
                         let info = TrackDecodeInfo {
@@ -229,12 +218,33 @@ pub(crate) fn decode_thread(
     let spec = decoder.spec();
     let _ = spec_tx.send(Ok(info));
 
-    let (mut producer, target_sample_rate, target_channels, start_at_ms, output_enabled) = loop {
+    let (
+        mut producer,
+        target_sample_rate,
+        target_channels,
+        start_at_ms,
+        output_enabled,
+        initial_lfe_mode,
+    ) = loop {
         crossbeam_channel::select! {
             recv(setup_rx) -> msg => {
                 let Ok(ctrl) = msg else { return };
-                if let DecodeCtrl::Setup { producer, target_sample_rate, target_channels, start_at_ms, output_enabled } = ctrl {
-                    break (producer, target_sample_rate, target_channels, start_at_ms, output_enabled);
+                if let DecodeCtrl::Setup {
+                    producer: ring_buffer_producer,
+                    target_sample_rate,
+                    target_channels,
+                    start_at_ms,
+                    output_enabled,
+                    lfe_mode: initial_lfe_mode,
+                } = ctrl {
+                    break (
+                        ring_buffer_producer,
+                        target_sample_rate,
+                        target_channels,
+                        start_at_ms,
+                        output_enabled,
+                        initial_lfe_mode,
+                    );
                 }
             }
             recv(ctrl_rx) -> msg => {
@@ -288,7 +298,18 @@ pub(crate) fn decode_thread(
     let mut last_emit = Instant::now();
     let mut decode_pending: Vec<f32> = Vec::new();
     let mut out_pending: Vec<f32> = Vec::new();
-    let mut dsp_chain: Vec<DspInstance> = Vec::new();
+
+    // DSP chains: pre-mix runs on original channels, post-mix runs on output channels
+    let mut pre_mix_dsp: Vec<DspInstance> = Vec::new();
+    let mut post_mix_dsp: Vec<DspInstance> = Vec::new();
+
+    let mut lfe_mode = core_lfe_to_mixer(initial_lfe_mode);
+    // Channel mixer for multi-channel to output conversion
+    let mut channel_mixer = ChannelMixer::new(
+        ChannelLayout::from_count(in_channels as u16),
+        ChannelLayout::from_count(out_channels as u16),
+        lfe_mode,
+    );
 
     let mut pending_seek: Option<i64> = None;
 
@@ -313,14 +334,12 @@ pub(crate) fn decode_thread(
                 }
                 Ok(DecodeCtrl::Pause) => {}
                 Ok(DecodeCtrl::SetDspChain { chain }) => {
-                    dsp_chain = chain;
+                    let (pre, post) = split_dsp_chain_by_layout(chain, in_channels);
+                    pre_mix_dsp = pre;
+                    post_mix_dsp = post;
                 }
                 Ok(DecodeCtrl::SeekMs { position_ms }) => {
                     let target_ms = position_ms.max(0);
-                    output_enabled.store(false, Ordering::Release);
-                    producer.clear();
-                    decode_pending.clear();
-                    out_pending.clear();
                     frames_written = 0;
                     base_ms = target_ms;
 
@@ -340,14 +359,30 @@ pub(crate) fn decode_thread(
                         }
                     }
                 }
-                Ok(DecodeCtrl::Setup { .. }) => {}
+                Ok(DecodeCtrl::SetLfeMode { mode }) => {
+                    lfe_mode = core_lfe_to_mixer(mode);
+                    channel_mixer = ChannelMixer::new(
+                        ChannelLayout::from_count(in_channels as u16),
+                        ChannelLayout::from_count(out_channels as u16),
+                        lfe_mode,
+                    );
+                }
                 Ok(DecodeCtrl::Stop) | Err(_) => break,
+                _ => {}
             }
             continue;
         }
 
         while let Ok(ctrl) = ctrl_rx.try_recv() {
             match ctrl {
+                DecodeCtrl::SetLfeMode { mode } => {
+                    lfe_mode = core_lfe_to_mixer(mode);
+                    channel_mixer = ChannelMixer::new(
+                        ChannelLayout::from_count(in_channels as u16),
+                        ChannelLayout::from_count(out_channels as u16),
+                        lfe_mode,
+                    );
+                }
                 DecodeCtrl::Pause => {
                     playing = false;
                     break;
@@ -380,10 +415,13 @@ pub(crate) fn decode_thread(
                     }
                     last_emit = Instant::now();
                 }
+                DecodeCtrl::SetDspChain { chain } => {
+                    let (pre, post) = split_dsp_chain_by_layout(chain, in_channels);
+                    pre_mix_dsp = pre;
+                    post_mix_dsp = post;
+                }
                 DecodeCtrl::Stop => return,
-                DecodeCtrl::Play => {}
-                DecodeCtrl::Setup { .. } => {}
-                DecodeCtrl::SetDspChain { chain } => dsp_chain = chain,
+                _ => {}
             }
         }
         if !playing {
@@ -405,16 +443,26 @@ pub(crate) fn decode_thread(
             Ok(Some(samples)) => {
                 decode_pending.extend_from_slice(&samples);
                 if resampler.is_none() {
-                    // Channel adaptation only.
+                    // 1. Pre-mix DSP (on original channels)
+                    apply_dsp_chain(&mut pre_mix_dsp, &mut decode_pending, in_channels);
+
+                    // 2. Channel adaptation (mixing)
                     let mut chunk = if in_channels == out_channels {
                         std::mem::take(&mut decode_pending)
                     } else {
-                        let v =
-                            adapt_channels_interleaved(&decode_pending, in_channels, out_channels);
+                        let v = adapt_channels_interleaved(
+                            &decode_pending,
+                            in_channels,
+                            out_channels,
+                            &channel_mixer,
+                        );
                         decode_pending.clear();
                         v
                     };
-                    apply_dsp_chain(&mut dsp_chain, &mut chunk, out_channels);
+
+                    // 3. Post-mix DSP (on output channels)
+                    apply_dsp_chain(&mut post_mix_dsp, &mut chunk, out_channels);
+
                     out_pending.extend_from_slice(&chunk);
                     if write_pending(
                         &mut producer,
@@ -424,7 +472,12 @@ pub(crate) fn decode_thread(
                         &ctrl_rx,
                         &mut playing,
                         &mut pending_seek,
-                        &mut dsp_chain,
+                        &mut pre_mix_dsp,
+                        &mut post_mix_dsp,
+                        in_channels,
+                        &mut lfe_mode,
+                        &mut channel_mixer,
+                        out_channels,
                     ) {
                         return;
                     }
@@ -461,13 +514,22 @@ pub(crate) fn decode_thread(
                 }
 
                 while decode_pending.len() >= RESAMPLE_CHUNK_FRAMES * in_channels {
-                    let chunk_in: Vec<f32> = decode_pending
+                    let mut chunk_in: Vec<f32> = decode_pending
                         .drain(..RESAMPLE_CHUNK_FRAMES * in_channels)
                         .collect();
+
+                    // 1. Pre-mix DSP (on original channels)
+                    apply_dsp_chain(&mut pre_mix_dsp, &mut chunk_in, in_channels);
+
                     let chunk = if in_channels == out_channels {
                         chunk_in
                     } else {
-                        adapt_channels_interleaved(&chunk_in, in_channels, out_channels)
+                        adapt_channels_interleaved(
+                            &chunk_in,
+                            in_channels,
+                            out_channels,
+                            &channel_mixer,
+                        )
                     };
 
                     let processed = match resample_interleaved_chunk(
@@ -482,7 +544,10 @@ pub(crate) fn decode_thread(
                         }
                     };
                     let mut processed = processed;
-                    apply_dsp_chain(&mut dsp_chain, &mut processed, out_channels);
+
+                    // 2. Post-mix DSP (on output channels)
+                    apply_dsp_chain(&mut post_mix_dsp, &mut processed, out_channels);
+
                     out_pending.extend_from_slice(&processed);
 
                     if write_pending(
@@ -493,7 +558,12 @@ pub(crate) fn decode_thread(
                         &ctrl_rx,
                         &mut playing,
                         &mut pending_seek,
-                        &mut dsp_chain,
+                        &mut pre_mix_dsp,
+                        &mut post_mix_dsp,
+                        in_channels,
+                        &mut lfe_mode,
+                        &mut channel_mixer,
+                        out_channels,
                     ) {
                         return;
                     }
@@ -535,14 +605,25 @@ pub(crate) fn decode_thread(
                 if let Some(resampler_inner) = resampler.as_mut() {
                     if !decode_pending.is_empty() {
                         decode_pending.resize(RESAMPLE_CHUNK_FRAMES * in_channels, 0.0);
+
+                        // 1. Pre-mix DSP
+                        apply_dsp_chain(&mut pre_mix_dsp, &mut decode_pending, in_channels);
+
                         let chunk = if in_channels == out_channels {
                             decode_pending.clone()
                         } else {
-                            adapt_channels_interleaved(&decode_pending, in_channels, out_channels)
+                            adapt_channels_interleaved(
+                                &decode_pending,
+                                in_channels,
+                                out_channels,
+                                &channel_mixer,
+                            )
                         };
                         match resample_interleaved_chunk(resampler_inner, &chunk, out_channels) {
                             Ok(mut processed) => {
-                                apply_dsp_chain(&mut dsp_chain, &mut processed, out_channels);
+                                // 2. Post-mix DSP
+                                apply_dsp_chain(&mut post_mix_dsp, &mut processed, out_channels);
+
                                 out_pending.extend_from_slice(&processed);
                                 decode_pending.clear();
                             }
@@ -561,7 +642,12 @@ pub(crate) fn decode_thread(
                             &ctrl_rx,
                             &mut playing,
                             &mut pending_seek,
-                            &mut dsp_chain,
+                            &mut pre_mix_dsp,
+                            &mut post_mix_dsp,
+                            in_channels,
+                            &mut lfe_mode,
+                            &mut channel_mixer,
+                            out_channels,
                         ) {
                             return;
                         }
@@ -599,15 +685,25 @@ pub(crate) fn decode_thread(
                         }
                     }
                 } else if !decode_pending.is_empty() {
+                    // 1. Pre-mix DSP
+                    apply_dsp_chain(&mut pre_mix_dsp, &mut decode_pending, in_channels);
+
                     let mut chunk = if in_channels == out_channels {
                         std::mem::take(&mut decode_pending)
                     } else {
-                        let v =
-                            adapt_channels_interleaved(&decode_pending, in_channels, out_channels);
+                        let v = adapt_channels_interleaved(
+                            &decode_pending,
+                            in_channels,
+                            out_channels,
+                            &channel_mixer,
+                        );
                         decode_pending.clear();
                         v
                     };
-                    apply_dsp_chain(&mut dsp_chain, &mut chunk, out_channels);
+
+                    // 2. Post-mix DSP
+                    apply_dsp_chain(&mut post_mix_dsp, &mut chunk, out_channels);
+
                     out_pending.extend_from_slice(&chunk);
                     while !out_pending.is_empty() {
                         if write_pending(
@@ -618,7 +714,12 @@ pub(crate) fn decode_thread(
                             &ctrl_rx,
                             &mut playing,
                             &mut pending_seek,
-                            &mut dsp_chain,
+                            &mut pre_mix_dsp,
+                            &mut post_mix_dsp,
+                            in_channels,
+                            &mut lfe_mode,
+                            &mut channel_mixer,
+                            out_channels,
                         ) {
                             return;
                         }
@@ -695,12 +796,30 @@ fn write_pending(
     ctrl_rx: &Receiver<DecodeCtrl>,
     playing: &mut bool,
     pending_seek: &mut Option<i64>,
-    dsp_chain: &mut Vec<DspInstance>,
+    pre_mix_dsp: &mut Vec<DspInstance>,
+    post_mix_dsp: &mut Vec<DspInstance>,
+    in_channels: usize,
+    lfe_mode: &mut stellatune_mixer::LfeMode,
+    channel_mixer: &mut ChannelMixer,
+    out_channels: usize,
 ) -> bool {
     let mut offset = 0usize;
     while offset < pending.len() {
         while let Ok(ctrl) = ctrl_rx.try_recv() {
             match ctrl {
+                DecodeCtrl::SetDspChain { chain } => {
+                    let (pre, post) = split_dsp_chain_by_layout(chain, in_channels);
+                    *pre_mix_dsp = pre;
+                    *post_mix_dsp = post;
+                }
+                DecodeCtrl::SetLfeMode { mode } => {
+                    *lfe_mode = core_lfe_to_mixer(mode);
+                    *channel_mixer = ChannelMixer::new(
+                        ChannelLayout::from_count(in_channels as u16),
+                        ChannelLayout::from_count(out_channels as u16),
+                        *lfe_mode,
+                    );
+                }
                 DecodeCtrl::Pause => {
                     *playing = false;
                     break;
@@ -710,9 +829,7 @@ fn write_pending(
                     return false;
                 }
                 DecodeCtrl::Stop => return true,
-                DecodeCtrl::Play => {}
-                DecodeCtrl::Setup { .. } => {}
-                DecodeCtrl::SetDspChain { chain } => *dsp_chain = chain,
+                _ => {}
             }
         }
         if !*playing {
@@ -744,6 +861,46 @@ fn apply_dsp_chain(dsp_chain: &mut [DspInstance], samples: &mut [f32], out_chann
     }
     for dsp in dsp_chain.iter_mut() {
         dsp.process_in_place(samples, frames);
+    }
+}
+
+/// Convert channel count to layout bitmask flag for DSP routing.
+fn layout_to_flag(channels: usize) -> u32 {
+    use stellatune_plugin_api::*;
+    match channels {
+        1 => ST_LAYOUT_MONO,
+        2 => ST_LAYOUT_STEREO,
+        6 => ST_LAYOUT_5_1,
+        8 => ST_LAYOUT_7_1,
+        _ => ST_LAYOUT_STEREO, // Default to stereo for unknown layouts
+    }
+}
+
+/// Split DSP chain into pre-mix (multi-channel aware) and post-mix (output only) chains.
+/// Pre-mix DSPs support the input layout; post-mix DSPs only support stereo/output.
+fn split_dsp_chain_by_layout(
+    chain: Vec<DspInstance>,
+    in_channels: usize,
+) -> (Vec<DspInstance>, Vec<DspInstance>) {
+    let in_layout = layout_to_flag(in_channels);
+    let mut pre_mix = Vec::new();
+    let mut post_mix = Vec::new();
+
+    for dsp in chain {
+        if dsp.supports_layout(in_layout) {
+            pre_mix.push(dsp);
+        } else {
+            post_mix.push(dsp);
+        }
+    }
+
+    (pre_mix, post_mix)
+}
+
+fn core_lfe_to_mixer(mode: stellatune_core::LfeMode) -> stellatune_mixer::LfeMode {
+    match mode {
+        stellatune_core::LfeMode::Mute => stellatune_mixer::LfeMode::Mute,
+        stellatune_core::LfeMode::MixToFront => stellatune_mixer::LfeMode::MixToFront,
     }
 }
 
@@ -798,31 +955,14 @@ fn resample_interleaved_chunk(
     Ok(out.take_data())
 }
 
-fn adapt_channels_interleaved(input: &[f32], in_channels: usize, out_channels: usize) -> Vec<f32> {
+fn adapt_channels_interleaved(
+    input: &[f32],
+    in_channels: usize,
+    out_channels: usize,
+    mixer: &ChannelMixer,
+) -> Vec<f32> {
     if in_channels == out_channels {
         return input.to_vec();
     }
-
-    let frames = input.len() / in_channels;
-    match (in_channels, out_channels) {
-        (1, 2) => {
-            let mut out = Vec::with_capacity(frames * 2);
-            for i in 0..frames {
-                let s = input[i];
-                out.push(s);
-                out.push(s);
-            }
-            out
-        }
-        (2, 1) => {
-            let mut out = Vec::with_capacity(frames);
-            for i in 0..frames {
-                let l = input[i * 2];
-                let r = input[i * 2 + 1];
-                out.push((l + r) * 0.5);
-            }
-            out
-        }
-        _ => input.to_vec(),
-    }
+    mixer.mix(input)
 }

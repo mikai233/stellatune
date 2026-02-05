@@ -5,6 +5,8 @@ import 'package:stellatune/ui/pages/library_page.dart';
 import 'package:stellatune/ui/pages/queue_page.dart';
 import 'package:stellatune/ui/pages/settings_page.dart';
 import 'package:stellatune/ui/widgets/now_playing_bar.dart';
+import 'package:stellatune/ui/widgets/custom_title_bar.dart';
+import 'dart:io';
 
 class ShellPage extends ConsumerStatefulWidget {
   const ShellPage({super.key});
@@ -44,21 +46,34 @@ class _ShellPageState extends ConsumerState<ShellPage> {
     };
 
     return Scaffold(
-      body: Row(
+      body: Column(
         children: [
-          NavigationRail(
-            selectedIndex: _index,
-            onDestinationSelected: (v) => setState(() => _index = v),
-            destinations: destinations,
-            labelType: NavigationRailLabelType.all,
-            groupAlignment: -1,
-          ),
-          const VerticalDivider(width: 1),
+          if (Platform.isWindows || Platform.isLinux || Platform.isMacOS)
+            CustomTitleBar(
+              foregroundColor: Theme.of(context).colorScheme.onSurface,
+              backgroundColor: Theme.of(
+                context,
+              ).colorScheme.surfaceContainerLow,
+            ),
           Expanded(
-            child: Column(
+            child: Row(
               children: [
-                Expanded(child: body),
-                const NowPlayingBar(),
+                NavigationRail(
+                  selectedIndex: _index,
+                  onDestinationSelected: (v) => setState(() => _index = v),
+                  destinations: destinations,
+                  labelType: NavigationRailLabelType.all,
+                  groupAlignment: -1,
+                ),
+                const VerticalDivider(width: 1),
+                Expanded(
+                  child: Column(
+                    children: [
+                      Expanded(child: body),
+                      const NowPlayingBar(),
+                    ],
+                  ),
+                ),
               ],
             ),
           ),

@@ -46,6 +46,10 @@ impl EngineHandle {
             .send(EngineCtrl::ReloadPluginsWithDisabled { dir, disabled_ids });
     }
 
+    pub fn set_lfe_mode(&self, mode: stellatune_core::LfeMode) {
+        let _ = self.engine_ctrl_tx.send(EngineCtrl::SetLfeMode { mode });
+    }
+
     pub fn subscribe_events(&self) -> Receiver<Event> {
         self.events.subscribe()
     }
@@ -140,6 +144,7 @@ struct EngineState {
     output_spec_prewarm_inflight: bool,
     pending_session_start: bool,
     desired_dsp_chain: Vec<stellatune_core::DspChainItem>,
+    lfe_mode: stellatune_core::LfeMode,
 }
 
 impl EngineState {
@@ -160,6 +165,7 @@ impl EngineState {
             output_spec_prewarm_inflight: false,
             pending_session_start: false,
             desired_dsp_chain: Vec::new(),
+            lfe_mode: stellatune_core::LfeMode::default(),
         }
     }
 }
@@ -230,6 +236,12 @@ fn handle_engine_ctrl(
         }
         EngineCtrl::ReloadPluginsWithDisabled { dir, disabled_ids } => {
             handle_reload_plugins(state, events, plugins, track_info, dir, disabled_ids);
+        }
+        EngineCtrl::SetLfeMode { mode } => {
+            state.lfe_mode = mode;
+            if let Some(session) = state.session.as_ref() {
+                let _ = session.ctrl_tx.send(DecodeCtrl::SetLfeMode { mode });
+            }
         }
     }
 }
@@ -438,6 +450,7 @@ fn handle_command(
                         state.position_ms,
                         Arc::clone(&state.volume_atomic),
                         Arc::clone(plugins),
+                        state.lfe_mode,
                     ) {
                         Ok(session) => {
                             if let Ok(mut g) = track_info.lock() {
@@ -530,6 +543,12 @@ fn handle_command(
             }
             // Emit UI volume so Flutter keeps the slider position stable.
             events.emit(Event::VolumeChanged { volume: ui });
+        }
+        Command::SetLfeMode { mode } => {
+            state.lfe_mode = mode;
+            if let Some(session) = state.session.as_ref() {
+                let _ = session.ctrl_tx.send(DecodeCtrl::SetLfeMode { mode });
+            }
         }
         Command::Stop => {
             stop_session(state, events, track_info);
@@ -633,6 +652,7 @@ fn handle_tick(
             state.position_ms,
             Arc::clone(&state.volume_atomic),
             Arc::clone(plugins),
+            state.lfe_mode,
         ) {
             Ok(session) => {
                 if let Ok(mut g) = track_info.lock() {

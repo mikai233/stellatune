@@ -13,6 +13,7 @@ pub(crate) enum DecodeCtrl {
         target_channels: u16,
         start_at_ms: i64,
         output_enabled: Arc<AtomicBool>,
+        lfe_mode: stellatune_core::LfeMode,
     },
     SetDspChain {
         chain: Vec<DspInstance>,
@@ -21,6 +22,9 @@ pub(crate) enum DecodeCtrl {
     Pause,
     SeekMs {
         position_ms: i64,
+    },
+    SetLfeMode {
+        mode: stellatune_core::LfeMode,
     },
     Stop,
 }
@@ -35,6 +39,9 @@ pub(crate) enum EngineCtrl {
     ReloadPluginsWithDisabled {
         dir: String,
         disabled_ids: Vec<String>,
+    },
+    SetLfeMode {
+        mode: stellatune_core::LfeMode,
     },
 }
 

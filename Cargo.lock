@@ -2946,7 +2946,9 @@ dependencies = [
  "stellatune-core",
  "stellatune-decode",
  "stellatune-dsp",
+ "stellatune-mixer",
  "stellatune-output",
+ "stellatune-plugin-api",
  "stellatune-plugins",
  "thiserror 2.0.18",
  "tracing",
@@ -3013,6 +3015,10 @@ dependencies = [
  "tracing",
  "walkdir",
 ]
+
+[[package]]
+name = "stellatune-mixer"
+version = "0.1.0"
 
 [[package]]
 name = "stellatune-output"

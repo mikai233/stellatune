@@ -4,6 +4,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:stellatune/bridge/bridge.dart';
 import 'package:stellatune/l10n/app_localizations.dart';
+import 'package:stellatune/ui/widgets/audio_format_badge.dart';
 
 class TrackList extends StatefulWidget {
   const TrackList({
@@ -121,10 +122,17 @@ class _TrackListState extends State<TrackList> {
                   ),
                   subtitle: _deferHeavy
                       ? null
-                      : Text(
-                          line2.isNotEmpty ? line2 : t.path,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                      : Row(
+                          children: [
+                            AudioFormatBadge(path: t.path),
+                            Expanded(
+                              child: Text(
+                                line2.isNotEmpty ? line2 : t.path,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
                         ),
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,

@@ -364,6 +364,29 @@ impl DspInstance {
         }
     }
 
+    /// Returns bitmask of supported input channel layouts (ST_LAYOUT_* flags).
+    pub fn supported_layouts(&self) -> u32 {
+        if self.vtable.is_null() {
+            return stellatune_plugin_api::ST_LAYOUT_STEREO;
+        }
+        unsafe { ((*self.vtable).supported_layouts)() }
+    }
+
+    /// Returns the output channel count if this DSP changes the channel count.
+    /// Returns 0 if the DSP preserves the input channel count (passthrough).
+    pub fn output_channels(&self) -> u16 {
+        if self.vtable.is_null() {
+            return 0;
+        }
+        unsafe { ((*self.vtable).output_channels)() }
+    }
+
+    /// Returns true if this DSP supports the given channel layout.
+    pub fn supports_layout(&self, layout: u32) -> bool {
+        let supported = self.supported_layouts();
+        supported == stellatune_plugin_api::ST_LAYOUT_ANY || (supported & layout) != 0
+    }
+
     pub fn set_config_json(&mut self, json: &str) -> Result<()> {
         if self.handle.is_null() || self.vtable.is_null() {
             return Err(anyhow!("DSP instance is not initialized"));

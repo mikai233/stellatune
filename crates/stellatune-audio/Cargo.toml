@@ -15,5 +15,7 @@ tracing.workspace = true
 stellatune-core.workspace = true
 stellatune-decode.workspace = true
 stellatune-dsp.workspace = true
+stellatune-mixer.workspace = true
 stellatune-output.workspace = true
+stellatune-plugin-api.workspace = true
 stellatune-plugins.workspace = true

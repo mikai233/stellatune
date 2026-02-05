@@ -553,6 +553,24 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Repeat one'**
   String get playModeRepeatOne;
+
+  /// No description provided for @noLyrics.
+  ///
+  /// In en, this message translates to:
+  /// **'No lyrics'**
+  String get noLyrics;
+
+  /// No description provided for @tooltipBack.
+  ///
+  /// In en, this message translates to:
+  /// **'Back'**
+  String get tooltipBack;
+
+  /// No description provided for @menuMore.
+  ///
+  /// In en, this message translates to:
+  /// **'More'**
+  String get menuMore;
 }
 
 class _AppLocalizationsDelegate
