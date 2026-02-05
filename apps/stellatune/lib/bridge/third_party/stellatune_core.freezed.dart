@@ -26,6 +26,7 @@ mixin _$Event {
     required TResult Function(double volume) volumeChanged,
     required TResult Function(String message) error,
     required TResult Function(String message) log,
+    required TResult Function(List<AudioDevice> devices) outputDevicesChanged,
   }) => throw _privateConstructorUsedError;
   @optionalTypeArgs
   TResult? whenOrNull<TResult extends Object?>({
@@ -36,6 +37,7 @@ mixin _$Event {
     TResult? Function(double volume)? volumeChanged,
     TResult? Function(String message)? error,
     TResult? Function(String message)? log,
+    TResult? Function(List<AudioDevice> devices)? outputDevicesChanged,
   }) => throw _privateConstructorUsedError;
   @optionalTypeArgs
   TResult maybeWhen<TResult extends Object?>({
@@ -46,6 +48,7 @@ mixin _$Event {
     TResult Function(double volume)? volumeChanged,
     TResult Function(String message)? error,
     TResult Function(String message)? log,
+    TResult Function(List<AudioDevice> devices)? outputDevicesChanged,
     required TResult orElse(),
   }) => throw _privateConstructorUsedError;
   @optionalTypeArgs
@@ -57,6 +60,8 @@ mixin _$Event {
     required TResult Function(Event_VolumeChanged value) volumeChanged,
     required TResult Function(Event_Error value) error,
     required TResult Function(Event_Log value) log,
+    required TResult Function(Event_OutputDevicesChanged value)
+    outputDevicesChanged,
   }) => throw _privateConstructorUsedError;
   @optionalTypeArgs
   TResult? mapOrNull<TResult extends Object?>({
@@ -67,6 +72,7 @@ mixin _$Event {
     TResult? Function(Event_VolumeChanged value)? volumeChanged,
     TResult? Function(Event_Error value)? error,
     TResult? Function(Event_Log value)? log,
+    TResult? Function(Event_OutputDevicesChanged value)? outputDevicesChanged,
   }) => throw _privateConstructorUsedError;
   @optionalTypeArgs
   TResult maybeMap<TResult extends Object?>({
@@ -77,6 +83,7 @@ mixin _$Event {
     TResult Function(Event_VolumeChanged value)? volumeChanged,
     TResult Function(Event_Error value)? error,
     TResult Function(Event_Log value)? log,
+    TResult Function(Event_OutputDevicesChanged value)? outputDevicesChanged,
     required TResult orElse(),
   }) => throw _privateConstructorUsedError;
 }
@@ -181,6 +188,7 @@ class _$Event_StateChangedImpl extends Event_StateChanged {
     required TResult Function(double volume) volumeChanged,
     required TResult Function(String message) error,
     required TResult Function(String message) log,
+    required TResult Function(List<AudioDevice> devices) outputDevicesChanged,
   }) {
     return stateChanged(state);
   }
@@ -195,6 +203,7 @@ class _$Event_StateChangedImpl extends Event_StateChanged {
     TResult? Function(double volume)? volumeChanged,
     TResult? Function(String message)? error,
     TResult? Function(String message)? log,
+    TResult? Function(List<AudioDevice> devices)? outputDevicesChanged,
   }) {
     return stateChanged?.call(state);
   }
@@ -209,6 +218,7 @@ class _$Event_StateChangedImpl extends Event_StateChanged {
     TResult Function(double volume)? volumeChanged,
     TResult Function(String message)? error,
     TResult Function(String message)? log,
+    TResult Function(List<AudioDevice> devices)? outputDevicesChanged,
     required TResult orElse(),
   }) {
     if (stateChanged != null) {
@@ -227,6 +237,8 @@ class _$Event_StateChangedImpl extends Event_StateChanged {
     required TResult Function(Event_VolumeChanged value) volumeChanged,
     required TResult Function(Event_Error value) error,
     required TResult Function(Event_Log value) log,
+    required TResult Function(Event_OutputDevicesChanged value)
+    outputDevicesChanged,
   }) {
     return stateChanged(this);
   }
@@ -241,6 +253,7 @@ class _$Event_StateChangedImpl extends Event_StateChanged {
     TResult? Function(Event_VolumeChanged value)? volumeChanged,
     TResult? Function(Event_Error value)? error,
     TResult? Function(Event_Log value)? log,
+    TResult? Function(Event_OutputDevicesChanged value)? outputDevicesChanged,
   }) {
     return stateChanged?.call(this);
   }
@@ -255,6 +268,7 @@ class _$Event_StateChangedImpl extends Event_StateChanged {
     TResult Function(Event_VolumeChanged value)? volumeChanged,
     TResult Function(Event_Error value)? error,
     TResult Function(Event_Log value)? log,
+    TResult Function(Event_OutputDevicesChanged value)? outputDevicesChanged,
     required TResult orElse(),
   }) {
     if (stateChanged != null) {
@@ -358,6 +372,7 @@ class _$Event_PositionImpl extends Event_Position {
     required TResult Function(double volume) volumeChanged,
     required TResult Function(String message) error,
     required TResult Function(String message) log,
+    required TResult Function(List<AudioDevice> devices) outputDevicesChanged,
   }) {
     return position(ms);
   }
@@ -372,6 +387,7 @@ class _$Event_PositionImpl extends Event_Position {
     TResult? Function(double volume)? volumeChanged,
     TResult? Function(String message)? error,
     TResult? Function(String message)? log,
+    TResult? Function(List<AudioDevice> devices)? outputDevicesChanged,
   }) {
     return position?.call(ms);
   }
@@ -386,6 +402,7 @@ class _$Event_PositionImpl extends Event_Position {
     TResult Function(double volume)? volumeChanged,
     TResult Function(String message)? error,
     TResult Function(String message)? log,
+    TResult Function(List<AudioDevice> devices)? outputDevicesChanged,
     required TResult orElse(),
   }) {
     if (position != null) {
@@ -404,6 +421,8 @@ class _$Event_PositionImpl extends Event_Position {
     required TResult Function(Event_VolumeChanged value) volumeChanged,
     required TResult Function(Event_Error value) error,
     required TResult Function(Event_Log value) log,
+    required TResult Function(Event_OutputDevicesChanged value)
+    outputDevicesChanged,
   }) {
     return position(this);
   }
@@ -418,6 +437,7 @@ class _$Event_PositionImpl extends Event_Position {
     TResult? Function(Event_VolumeChanged value)? volumeChanged,
     TResult? Function(Event_Error value)? error,
     TResult? Function(Event_Log value)? log,
+    TResult? Function(Event_OutputDevicesChanged value)? outputDevicesChanged,
   }) {
     return position?.call(this);
   }
@@ -432,6 +452,7 @@ class _$Event_PositionImpl extends Event_Position {
     TResult Function(Event_VolumeChanged value)? volumeChanged,
     TResult Function(Event_Error value)? error,
     TResult Function(Event_Log value)? log,
+    TResult Function(Event_OutputDevicesChanged value)? outputDevicesChanged,
     required TResult orElse(),
   }) {
     if (position != null) {
@@ -534,6 +555,7 @@ class _$Event_TrackChangedImpl extends Event_TrackChanged {
     required TResult Function(double volume) volumeChanged,
     required TResult Function(String message) error,
     required TResult Function(String message) log,
+    required TResult Function(List<AudioDevice> devices) outputDevicesChanged,
   }) {
     return trackChanged(path);
   }
@@ -548,6 +570,7 @@ class _$Event_TrackChangedImpl extends Event_TrackChanged {
     TResult? Function(double volume)? volumeChanged,
     TResult? Function(String message)? error,
     TResult? Function(String message)? log,
+    TResult? Function(List<AudioDevice> devices)? outputDevicesChanged,
   }) {
     return trackChanged?.call(path);
   }
@@ -562,6 +585,7 @@ class _$Event_TrackChangedImpl extends Event_TrackChanged {
     TResult Function(double volume)? volumeChanged,
     TResult Function(String message)? error,
     TResult Function(String message)? log,
+    TResult Function(List<AudioDevice> devices)? outputDevicesChanged,
     required TResult orElse(),
   }) {
     if (trackChanged != null) {
@@ -580,6 +604,8 @@ class _$Event_TrackChangedImpl extends Event_TrackChanged {
     required TResult Function(Event_VolumeChanged value) volumeChanged,
     required TResult Function(Event_Error value) error,
     required TResult Function(Event_Log value) log,
+    required TResult Function(Event_OutputDevicesChanged value)
+    outputDevicesChanged,
   }) {
     return trackChanged(this);
   }
@@ -594,6 +620,7 @@ class _$Event_TrackChangedImpl extends Event_TrackChanged {
     TResult? Function(Event_VolumeChanged value)? volumeChanged,
     TResult? Function(Event_Error value)? error,
     TResult? Function(Event_Log value)? log,
+    TResult? Function(Event_OutputDevicesChanged value)? outputDevicesChanged,
   }) {
     return trackChanged?.call(this);
   }
@@ -608,6 +635,7 @@ class _$Event_TrackChangedImpl extends Event_TrackChanged {
     TResult Function(Event_VolumeChanged value)? volumeChanged,
     TResult Function(Event_Error value)? error,
     TResult Function(Event_Log value)? log,
+    TResult Function(Event_OutputDevicesChanged value)? outputDevicesChanged,
     required TResult orElse(),
   }) {
     if (trackChanged != null) {
@@ -711,6 +739,7 @@ class _$Event_PlaybackEndedImpl extends Event_PlaybackEnded {
     required TResult Function(double volume) volumeChanged,
     required TResult Function(String message) error,
     required TResult Function(String message) log,
+    required TResult Function(List<AudioDevice> devices) outputDevicesChanged,
   }) {
     return playbackEnded(path);
   }
@@ -725,6 +754,7 @@ class _$Event_PlaybackEndedImpl extends Event_PlaybackEnded {
     TResult? Function(double volume)? volumeChanged,
     TResult? Function(String message)? error,
     TResult? Function(String message)? log,
+    TResult? Function(List<AudioDevice> devices)? outputDevicesChanged,
   }) {
     return playbackEnded?.call(path);
   }
@@ -739,6 +769,7 @@ class _$Event_PlaybackEndedImpl extends Event_PlaybackEnded {
     TResult Function(double volume)? volumeChanged,
     TResult Function(String message)? error,
     TResult Function(String message)? log,
+    TResult Function(List<AudioDevice> devices)? outputDevicesChanged,
     required TResult orElse(),
   }) {
     if (playbackEnded != null) {
@@ -757,6 +788,8 @@ class _$Event_PlaybackEndedImpl extends Event_PlaybackEnded {
     required TResult Function(Event_VolumeChanged value) volumeChanged,
     required TResult Function(Event_Error value) error,
     required TResult Function(Event_Log value) log,
+    required TResult Function(Event_OutputDevicesChanged value)
+    outputDevicesChanged,
   }) {
     return playbackEnded(this);
   }
@@ -771,6 +804,7 @@ class _$Event_PlaybackEndedImpl extends Event_PlaybackEnded {
     TResult? Function(Event_VolumeChanged value)? volumeChanged,
     TResult? Function(Event_Error value)? error,
     TResult? Function(Event_Log value)? log,
+    TResult? Function(Event_OutputDevicesChanged value)? outputDevicesChanged,
   }) {
     return playbackEnded?.call(this);
   }
@@ -785,6 +819,7 @@ class _$Event_PlaybackEndedImpl extends Event_PlaybackEnded {
     TResult Function(Event_VolumeChanged value)? volumeChanged,
     TResult Function(Event_Error value)? error,
     TResult Function(Event_Log value)? log,
+    TResult Function(Event_OutputDevicesChanged value)? outputDevicesChanged,
     required TResult orElse(),
   }) {
     if (playbackEnded != null) {
@@ -888,6 +923,7 @@ class _$Event_VolumeChangedImpl extends Event_VolumeChanged {
     required TResult Function(double volume) volumeChanged,
     required TResult Function(String message) error,
     required TResult Function(String message) log,
+    required TResult Function(List<AudioDevice> devices) outputDevicesChanged,
   }) {
     return volumeChanged(volume);
   }
@@ -902,6 +938,7 @@ class _$Event_VolumeChangedImpl extends Event_VolumeChanged {
     TResult? Function(double volume)? volumeChanged,
     TResult? Function(String message)? error,
     TResult? Function(String message)? log,
+    TResult? Function(List<AudioDevice> devices)? outputDevicesChanged,
   }) {
     return volumeChanged?.call(volume);
   }
@@ -916,6 +953,7 @@ class _$Event_VolumeChangedImpl extends Event_VolumeChanged {
     TResult Function(double volume)? volumeChanged,
     TResult Function(String message)? error,
     TResult Function(String message)? log,
+    TResult Function(List<AudioDevice> devices)? outputDevicesChanged,
     required TResult orElse(),
   }) {
     if (volumeChanged != null) {
@@ -934,6 +972,8 @@ class _$Event_VolumeChangedImpl extends Event_VolumeChanged {
     required TResult Function(Event_VolumeChanged value) volumeChanged,
     required TResult Function(Event_Error value) error,
     required TResult Function(Event_Log value) log,
+    required TResult Function(Event_OutputDevicesChanged value)
+    outputDevicesChanged,
   }) {
     return volumeChanged(this);
   }
@@ -948,6 +988,7 @@ class _$Event_VolumeChangedImpl extends Event_VolumeChanged {
     TResult? Function(Event_VolumeChanged value)? volumeChanged,
     TResult? Function(Event_Error value)? error,
     TResult? Function(Event_Log value)? log,
+    TResult? Function(Event_OutputDevicesChanged value)? outputDevicesChanged,
   }) {
     return volumeChanged?.call(this);
   }
@@ -962,6 +1003,7 @@ class _$Event_VolumeChangedImpl extends Event_VolumeChanged {
     TResult Function(Event_VolumeChanged value)? volumeChanged,
     TResult Function(Event_Error value)? error,
     TResult Function(Event_Log value)? log,
+    TResult Function(Event_OutputDevicesChanged value)? outputDevicesChanged,
     required TResult orElse(),
   }) {
     if (volumeChanged != null) {
@@ -1062,6 +1104,7 @@ class _$Event_ErrorImpl extends Event_Error {
     required TResult Function(double volume) volumeChanged,
     required TResult Function(String message) error,
     required TResult Function(String message) log,
+    required TResult Function(List<AudioDevice> devices) outputDevicesChanged,
   }) {
     return error(message);
   }
@@ -1076,6 +1119,7 @@ class _$Event_ErrorImpl extends Event_Error {
     TResult? Function(double volume)? volumeChanged,
     TResult? Function(String message)? error,
     TResult? Function(String message)? log,
+    TResult? Function(List<AudioDevice> devices)? outputDevicesChanged,
   }) {
     return error?.call(message);
   }
@@ -1090,6 +1134,7 @@ class _$Event_ErrorImpl extends Event_Error {
     TResult Function(double volume)? volumeChanged,
     TResult Function(String message)? error,
     TResult Function(String message)? log,
+    TResult Function(List<AudioDevice> devices)? outputDevicesChanged,
     required TResult orElse(),
   }) {
     if (error != null) {
@@ -1108,6 +1153,8 @@ class _$Event_ErrorImpl extends Event_Error {
     required TResult Function(Event_VolumeChanged value) volumeChanged,
     required TResult Function(Event_Error value) error,
     required TResult Function(Event_Log value) log,
+    required TResult Function(Event_OutputDevicesChanged value)
+    outputDevicesChanged,
   }) {
     return error(this);
   }
@@ -1122,6 +1169,7 @@ class _$Event_ErrorImpl extends Event_Error {
     TResult? Function(Event_VolumeChanged value)? volumeChanged,
     TResult? Function(Event_Error value)? error,
     TResult? Function(Event_Log value)? log,
+    TResult? Function(Event_OutputDevicesChanged value)? outputDevicesChanged,
   }) {
     return error?.call(this);
   }
@@ -1136,6 +1184,7 @@ class _$Event_ErrorImpl extends Event_Error {
     TResult Function(Event_VolumeChanged value)? volumeChanged,
     TResult Function(Event_Error value)? error,
     TResult Function(Event_Log value)? log,
+    TResult Function(Event_OutputDevicesChanged value)? outputDevicesChanged,
     required TResult orElse(),
   }) {
     if (error != null) {
@@ -1236,6 +1285,7 @@ class _$Event_LogImpl extends Event_Log {
     required TResult Function(double volume) volumeChanged,
     required TResult Function(String message) error,
     required TResult Function(String message) log,
+    required TResult Function(List<AudioDevice> devices) outputDevicesChanged,
   }) {
     return log(message);
   }
@@ -1250,6 +1300,7 @@ class _$Event_LogImpl extends Event_Log {
     TResult? Function(double volume)? volumeChanged,
     TResult? Function(String message)? error,
     TResult? Function(String message)? log,
+    TResult? Function(List<AudioDevice> devices)? outputDevicesChanged,
   }) {
     return log?.call(message);
   }
@@ -1264,6 +1315,7 @@ class _$Event_LogImpl extends Event_Log {
     TResult Function(double volume)? volumeChanged,
     TResult Function(String message)? error,
     TResult Function(String message)? log,
+    TResult Function(List<AudioDevice> devices)? outputDevicesChanged,
     required TResult orElse(),
   }) {
     if (log != null) {
@@ -1282,6 +1334,8 @@ class _$Event_LogImpl extends Event_Log {
     required TResult Function(Event_VolumeChanged value) volumeChanged,
     required TResult Function(Event_Error value) error,
     required TResult Function(Event_Log value) log,
+    required TResult Function(Event_OutputDevicesChanged value)
+    outputDevicesChanged,
   }) {
     return log(this);
   }
@@ -1296,6 +1350,7 @@ class _$Event_LogImpl extends Event_Log {
     TResult? Function(Event_VolumeChanged value)? volumeChanged,
     TResult? Function(Event_Error value)? error,
     TResult? Function(Event_Log value)? log,
+    TResult? Function(Event_OutputDevicesChanged value)? outputDevicesChanged,
   }) {
     return log?.call(this);
   }
@@ -1310,6 +1365,7 @@ class _$Event_LogImpl extends Event_Log {
     TResult Function(Event_VolumeChanged value)? volumeChanged,
     TResult Function(Event_Error value)? error,
     TResult Function(Event_Log value)? log,
+    TResult Function(Event_OutputDevicesChanged value)? outputDevicesChanged,
     required TResult orElse(),
   }) {
     if (log != null) {
@@ -1330,6 +1386,200 @@ abstract class Event_Log extends Event {
   @JsonKey(includeFromJson: false, includeToJson: false)
   _$$Event_LogImplCopyWith<_$Event_LogImpl> get copyWith =>
       throw _privateConstructorUsedError;
+}
+
+/// @nodoc
+abstract class _$$Event_OutputDevicesChangedImplCopyWith<$Res> {
+  factory _$$Event_OutputDevicesChangedImplCopyWith(
+    _$Event_OutputDevicesChangedImpl value,
+    $Res Function(_$Event_OutputDevicesChangedImpl) then,
+  ) = __$$Event_OutputDevicesChangedImplCopyWithImpl<$Res>;
+  @useResult
+  $Res call({List<AudioDevice> devices});
+}
+
+/// @nodoc
+class __$$Event_OutputDevicesChangedImplCopyWithImpl<$Res>
+    extends _$EventCopyWithImpl<$Res, _$Event_OutputDevicesChangedImpl>
+    implements _$$Event_OutputDevicesChangedImplCopyWith<$Res> {
+  __$$Event_OutputDevicesChangedImplCopyWithImpl(
+    _$Event_OutputDevicesChangedImpl _value,
+    $Res Function(_$Event_OutputDevicesChangedImpl) _then,
+  ) : super(_value, _then);
+
+  /// Create a copy of Event
+  /// with the given fields replaced by the non-null parameter values.
+  @pragma('vm:prefer-inline')
+  @override
+  $Res call({Object? devices = null}) {
+    return _then(
+      _$Event_OutputDevicesChangedImpl(
+        devices: null == devices
+            ? _value._devices
+            : devices // ignore: cast_nullable_to_non_nullable
+                  as List<AudioDevice>,
+      ),
+    );
+  }
+}
+
+/// @nodoc
+
+class _$Event_OutputDevicesChangedImpl extends Event_OutputDevicesChanged {
+  const _$Event_OutputDevicesChangedImpl({
+    required final List<AudioDevice> devices,
+  }) : _devices = devices,
+       super._();
+
+  final List<AudioDevice> _devices;
+  @override
+  List<AudioDevice> get devices {
+    if (_devices is EqualUnmodifiableListView) return _devices;
+    // ignore: implicit_dynamic_type
+    return EqualUnmodifiableListView(_devices);
+  }
+
+  @override
+  String toString() {
+    return 'Event.outputDevicesChanged(devices: $devices)';
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return identical(this, other) ||
+        (other.runtimeType == runtimeType &&
+            other is _$Event_OutputDevicesChangedImpl &&
+            const DeepCollectionEquality().equals(other._devices, _devices));
+  }
+
+  @override
+  int get hashCode =>
+      Object.hash(runtimeType, const DeepCollectionEquality().hash(_devices));
+
+  /// Create a copy of Event
+  /// with the given fields replaced by the non-null parameter values.
+  @JsonKey(includeFromJson: false, includeToJson: false)
+  @override
+  @pragma('vm:prefer-inline')
+  _$$Event_OutputDevicesChangedImplCopyWith<_$Event_OutputDevicesChangedImpl>
+  get copyWith =>
+      __$$Event_OutputDevicesChangedImplCopyWithImpl<
+        _$Event_OutputDevicesChangedImpl
+      >(this, _$identity);
+
+  @override
+  @optionalTypeArgs
+  TResult when<TResult extends Object?>({
+    required TResult Function(PlayerState state) stateChanged,
+    required TResult Function(int ms) position,
+    required TResult Function(String path) trackChanged,
+    required TResult Function(String path) playbackEnded,
+    required TResult Function(double volume) volumeChanged,
+    required TResult Function(String message) error,
+    required TResult Function(String message) log,
+    required TResult Function(List<AudioDevice> devices) outputDevicesChanged,
+  }) {
+    return outputDevicesChanged(devices);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult? whenOrNull<TResult extends Object?>({
+    TResult? Function(PlayerState state)? stateChanged,
+    TResult? Function(int ms)? position,
+    TResult? Function(String path)? trackChanged,
+    TResult? Function(String path)? playbackEnded,
+    TResult? Function(double volume)? volumeChanged,
+    TResult? Function(String message)? error,
+    TResult? Function(String message)? log,
+    TResult? Function(List<AudioDevice> devices)? outputDevicesChanged,
+  }) {
+    return outputDevicesChanged?.call(devices);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult maybeWhen<TResult extends Object?>({
+    TResult Function(PlayerState state)? stateChanged,
+    TResult Function(int ms)? position,
+    TResult Function(String path)? trackChanged,
+    TResult Function(String path)? playbackEnded,
+    TResult Function(double volume)? volumeChanged,
+    TResult Function(String message)? error,
+    TResult Function(String message)? log,
+    TResult Function(List<AudioDevice> devices)? outputDevicesChanged,
+    required TResult orElse(),
+  }) {
+    if (outputDevicesChanged != null) {
+      return outputDevicesChanged(devices);
+    }
+    return orElse();
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult map<TResult extends Object?>({
+    required TResult Function(Event_StateChanged value) stateChanged,
+    required TResult Function(Event_Position value) position,
+    required TResult Function(Event_TrackChanged value) trackChanged,
+    required TResult Function(Event_PlaybackEnded value) playbackEnded,
+    required TResult Function(Event_VolumeChanged value) volumeChanged,
+    required TResult Function(Event_Error value) error,
+    required TResult Function(Event_Log value) log,
+    required TResult Function(Event_OutputDevicesChanged value)
+    outputDevicesChanged,
+  }) {
+    return outputDevicesChanged(this);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult? mapOrNull<TResult extends Object?>({
+    TResult? Function(Event_StateChanged value)? stateChanged,
+    TResult? Function(Event_Position value)? position,
+    TResult? Function(Event_TrackChanged value)? trackChanged,
+    TResult? Function(Event_PlaybackEnded value)? playbackEnded,
+    TResult? Function(Event_VolumeChanged value)? volumeChanged,
+    TResult? Function(Event_Error value)? error,
+    TResult? Function(Event_Log value)? log,
+    TResult? Function(Event_OutputDevicesChanged value)? outputDevicesChanged,
+  }) {
+    return outputDevicesChanged?.call(this);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult maybeMap<TResult extends Object?>({
+    TResult Function(Event_StateChanged value)? stateChanged,
+    TResult Function(Event_Position value)? position,
+    TResult Function(Event_TrackChanged value)? trackChanged,
+    TResult Function(Event_PlaybackEnded value)? playbackEnded,
+    TResult Function(Event_VolumeChanged value)? volumeChanged,
+    TResult Function(Event_Error value)? error,
+    TResult Function(Event_Log value)? log,
+    TResult Function(Event_OutputDevicesChanged value)? outputDevicesChanged,
+    required TResult orElse(),
+  }) {
+    if (outputDevicesChanged != null) {
+      return outputDevicesChanged(this);
+    }
+    return orElse();
+  }
+}
+
+abstract class Event_OutputDevicesChanged extends Event {
+  const factory Event_OutputDevicesChanged({
+    required final List<AudioDevice> devices,
+  }) = _$Event_OutputDevicesChangedImpl;
+  const Event_OutputDevicesChanged._() : super._();
+
+  List<AudioDevice> get devices;
+
+  /// Create a copy of Event
+  /// with the given fields replaced by the non-null parameter values.
+  @JsonKey(includeFromJson: false, includeToJson: false)
+  _$$Event_OutputDevicesChangedImplCopyWith<_$Event_OutputDevicesChangedImpl>
+  get copyWith => throw _privateConstructorUsedError;
 }
 
 /// @nodoc

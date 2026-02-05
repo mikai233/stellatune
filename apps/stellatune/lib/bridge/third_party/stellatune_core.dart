@@ -9,7 +9,27 @@ import 'package:freezed_annotation/freezed_annotation.dart' hide protected;
 part 'stellatune_core.freezed.dart';
 
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `Command`, `LibraryCommand`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
+
+enum AudioBackend { shared, wasapiExclusive, asio }
+
+class AudioDevice {
+  final AudioBackend backend;
+  final String name;
+
+  const AudioDevice({required this.backend, required this.name});
+
+  @override
+  int get hashCode => backend.hashCode ^ name.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is AudioDevice &&
+          runtimeType == other.runtimeType &&
+          backend == other.backend &&
+          name == other.name;
+}
 
 class DlnaHttpServerInfo {
   final String listenAddr;
@@ -222,6 +242,17 @@ sealed class Event with _$Event {
       Event_VolumeChanged;
   const factory Event.error({required String message}) = Event_Error;
   const factory Event.log({required String message}) = Event_Log;
+  const factory Event.outputDevicesChanged({
+    required List<AudioDevice> devices,
+  }) = Event_OutputDevicesChanged;
+}
+
+enum LfeMode {
+  mute,
+  mixToFront;
+
+  static Future<LfeMode> default_() =>
+      StellatuneApi.instance.api.stellatuneCoreLfeModeDefault();
 }
 
 @freezed

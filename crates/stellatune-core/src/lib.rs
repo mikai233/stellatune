@@ -20,16 +20,44 @@ pub enum LfeMode {
 }
 
 #[flutter_rust_bridge::frb(non_opaque)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AudioBackend {
+    Shared,
+    WasapiExclusive,
+    Asio,
+}
+
+#[flutter_rust_bridge::frb(non_opaque)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AudioDevice {
+    pub backend: AudioBackend,
+    pub name: String,
+}
+
+#[flutter_rust_bridge::frb(non_opaque)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Command {
-    LoadTrack { path: String },
+    LoadTrack {
+        path: String,
+    },
     Play,
     Pause,
-    SeekMs { position_ms: u64 },
-    SetVolume { volume: f32 },
-    SetLfeMode { mode: LfeMode },
+    SeekMs {
+        position_ms: u64,
+    },
+    SetVolume {
+        volume: f32,
+    },
+    SetLfeMode {
+        mode: LfeMode,
+    },
     Stop,
     Shutdown,
+    SetOutputDevice {
+        backend: AudioBackend,
+        device_name: Option<String>,
+    },
+    RefreshDevices,
 }
 
 #[flutter_rust_bridge::frb(non_opaque)]
@@ -68,6 +96,7 @@ pub enum Event {
     VolumeChanged { volume: f32 },
     Error { message: String },
     Log { message: String },
+    OutputDevicesChanged { devices: Vec<AudioDevice> },
 }
 
 #[flutter_rust_bridge::frb(non_opaque)]

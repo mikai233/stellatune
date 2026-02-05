@@ -49,6 +49,12 @@ abstract class StellatuneApiApiImplPlatform
   String dco_decode_String(dynamic raw);
 
   @protected
+  AudioBackend dco_decode_audio_backend(dynamic raw);
+
+  @protected
+  AudioDevice dco_decode_audio_device(dynamic raw);
+
+  @protected
   bool dco_decode_bool(dynamic raw);
 
   @protected
@@ -100,10 +106,16 @@ abstract class StellatuneApiApiImplPlatform
   PlatformInt64 dco_decode_i_64(dynamic raw);
 
   @protected
+  LfeMode dco_decode_lfe_mode(dynamic raw);
+
+  @protected
   LibraryEvent dco_decode_library_event(dynamic raw);
 
   @protected
   List<String> dco_decode_list_String(dynamic raw);
+
+  @protected
+  List<AudioDevice> dco_decode_list_audio_device(dynamic raw);
 
   @protected
   List<DlnaRenderer> dco_decode_list_dlna_renderer(dynamic raw);
@@ -194,6 +206,12 @@ abstract class StellatuneApiApiImplPlatform
   String sse_decode_String(SseDeserializer deserializer);
 
   @protected
+  AudioBackend sse_decode_audio_backend(SseDeserializer deserializer);
+
+  @protected
+  AudioDevice sse_decode_audio_device(SseDeserializer deserializer);
+
+  @protected
   bool sse_decode_bool(SseDeserializer deserializer);
 
   @protected
@@ -255,10 +273,16 @@ abstract class StellatuneApiApiImplPlatform
   PlatformInt64 sse_decode_i_64(SseDeserializer deserializer);
 
   @protected
+  LfeMode sse_decode_lfe_mode(SseDeserializer deserializer);
+
+  @protected
   LibraryEvent sse_decode_library_event(SseDeserializer deserializer);
 
   @protected
   List<String> sse_decode_list_String(SseDeserializer deserializer);
+
+  @protected
+  List<AudioDevice> sse_decode_list_audio_device(SseDeserializer deserializer);
 
   @protected
   List<DlnaRenderer> sse_decode_list_dlna_renderer(
@@ -366,6 +390,12 @@ abstract class StellatuneApiApiImplPlatform
   void sse_encode_String(String self, SseSerializer serializer);
 
   @protected
+  void sse_encode_audio_backend(AudioBackend self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_audio_device(AudioDevice self, SseSerializer serializer);
+
+  @protected
   void sse_encode_bool(bool self, SseSerializer serializer);
 
   @protected
@@ -441,10 +471,19 @@ abstract class StellatuneApiApiImplPlatform
   void sse_encode_i_64(PlatformInt64 self, SseSerializer serializer);
 
   @protected
+  void sse_encode_lfe_mode(LfeMode self, SseSerializer serializer);
+
+  @protected
   void sse_encode_library_event(LibraryEvent self, SseSerializer serializer);
 
   @protected
   void sse_encode_list_String(List<String> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_audio_device(
+    List<AudioDevice> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_dlna_renderer(

@@ -131,6 +131,21 @@ pub fn plugins_reload_with_disabled(
         .reload_plugins_with_disabled(dir, disabled_ids);
 }
 
+pub fn refresh_devices(player: RustOpaque<Player>) {
+    player.engine.send_command(Command::RefreshDevices);
+}
+
+pub fn set_output_device(
+    player: RustOpaque<Player>,
+    backend: stellatune_core::AudioBackend,
+    device_name: Option<String>,
+) {
+    player.engine.send_command(Command::SetOutputDevice {
+        backend,
+        device_name,
+    });
+}
+
 pub struct Library {
     handle: stellatune_library::LibraryHandle,
 }

@@ -7,11 +7,12 @@ use crossbeam_channel::{Receiver, Sender};
 use tracing::{debug, error, info, warn};
 
 use stellatune_core::{Command, Event, PlayerState};
-use stellatune_output::{OutputSpec, default_output_spec};
+use stellatune_output::{OutputSpec, output_spec_for_device};
 use stellatune_plugins::{PluginManager, default_host_vtable};
 
 use crate::engine::config::{
-    BUFFER_HIGH_WATERMARK_MS, BUFFER_LOW_WATERMARK_MS, CONTROL_TICK_MS, UNDERRUN_LOG_INTERVAL,
+    BUFFER_HIGH_WATERMARK_MS, BUFFER_HIGH_WATERMARK_MS_EXCLUSIVE, BUFFER_LOW_WATERMARK_MS,
+    BUFFER_LOW_WATERMARK_MS_EXCLUSIVE, CONTROL_TICK_MS, UNDERRUN_LOG_INTERVAL,
 };
 use crate::engine::event_hub::EventHub;
 use crate::engine::messages::{DecodeCtrl, EngineCtrl, InternalMsg};
@@ -142,9 +143,12 @@ struct EngineState {
     play_request_started_at: Option<Instant>,
     cached_output_spec: Option<OutputSpec>,
     output_spec_prewarm_inflight: bool,
+    output_spec_token: u64,
     pending_session_start: bool,
     desired_dsp_chain: Vec<stellatune_core::DspChainItem>,
     lfe_mode: stellatune_core::LfeMode,
+    selected_backend: stellatune_core::AudioBackend,
+    selected_device_name: Option<String>,
 }
 
 impl EngineState {
@@ -163,9 +167,12 @@ impl EngineState {
             play_request_started_at: None,
             cached_output_spec: None,
             output_spec_prewarm_inflight: false,
+            output_spec_token: 0,
             pending_session_start: false,
             desired_dsp_chain: Vec::new(),
             lfe_mode: stellatune_core::LfeMode::default(),
+            selected_backend: stellatune_core::AudioBackend::Shared,
+            selected_device_name: None,
         }
     }
 }
@@ -375,21 +382,32 @@ fn handle_internal(
         InternalMsg::Position(ms) => {
             state.position_ms = ms;
         }
-        InternalMsg::OutputSpecReady { spec, took_ms } => {
+        InternalMsg::OutputSpecReady {
+            spec,
+            took_ms,
+            token,
+        } => {
+            if token != state.output_spec_token {
+                return;
+            }
             state.cached_output_spec = Some(spec);
             state.output_spec_prewarm_inflight = false;
             debug!(
-                "default_output_spec prewarm ready in {}ms: {}Hz {}ch",
+                "output_spec prewarm ready in {}ms: {}Hz {}ch",
                 took_ms, spec.sample_rate, spec.channels
             );
         }
-        InternalMsg::OutputSpecFailed { message, took_ms } => {
+        InternalMsg::OutputSpecFailed {
+            message,
+            took_ms,
+            token,
+        } => {
+            if token != state.output_spec_token {
+                return;
+            }
             state.cached_output_spec = None;
             state.output_spec_prewarm_inflight = false;
-            warn!(
-                "default_output_spec prewarm failed in {}ms: {}",
-                took_ms, message
-            );
+            warn!("output_spec prewarm failed in {}ms: {}", took_ms, message);
             if state.wants_playback && state.session.is_none() {
                 state.pending_session_start = false;
                 state.wants_playback = false;
@@ -446,6 +464,18 @@ fn handle_command(
                         path,
                         events.clone(),
                         internal_tx.clone(),
+                        match state.selected_backend {
+                            stellatune_core::AudioBackend::Shared => {
+                                stellatune_output::AudioBackend::Shared
+                            }
+                            stellatune_core::AudioBackend::WasapiExclusive => {
+                                stellatune_output::AudioBackend::WasapiExclusive
+                            }
+                            stellatune_core::AudioBackend::Asio => {
+                                stellatune_output::AudioBackend::Asio
+                            }
+                        },
+                        state.selected_device_name.clone(),
                         out_spec,
                         state.position_ms,
                         Arc::clone(&state.volume_atomic),
@@ -561,6 +591,45 @@ fn handle_command(
             });
             set_state(state, events, PlayerState::Stopped);
         }
+        Command::SetOutputDevice {
+            backend,
+            device_name,
+        } => {
+            state.selected_backend = backend;
+            state.selected_device_name = device_name;
+            // Output spec depends on device/backend (sample rate/channels). Refresh it.
+            state.cached_output_spec = None;
+            state.output_spec_prewarm_inflight = false;
+            state.output_spec_token = state.output_spec_token.wrapping_add(1);
+            ensure_output_spec_prewarm(state, internal_tx);
+            // Force a session restart if we are playing or have a session
+            if state.session.is_some() {
+                stop_session(state, events, track_info);
+                if state.wants_playback {
+                    state.pending_session_start = true;
+                }
+            }
+        }
+        Command::RefreshDevices => {
+            let devices = stellatune_output::list_host_devices()
+                .into_iter()
+                .map(|d| stellatune_core::AudioDevice {
+                    backend: match d.backend {
+                        stellatune_output::AudioBackend::Shared => {
+                            stellatune_core::AudioBackend::Shared
+                        }
+                        stellatune_output::AudioBackend::WasapiExclusive => {
+                            stellatune_core::AudioBackend::WasapiExclusive
+                        }
+                        stellatune_output::AudioBackend::Asio => {
+                            stellatune_core::AudioBackend::Asio
+                        }
+                    },
+                    name: d.name,
+                })
+                .collect();
+            events.emit(Event::OutputDevicesChanged { devices });
+        }
         Command::Shutdown => {
             stop_session(state, events, track_info);
             state.wants_playback = false;
@@ -599,22 +668,33 @@ fn ensure_output_spec_prewarm(state: &mut EngineState, internal_tx: &Sender<Inte
     }
 
     state.output_spec_prewarm_inflight = true;
+    let token = state.output_spec_token;
+    let backend = match state.selected_backend {
+        stellatune_core::AudioBackend::Shared => stellatune_output::AudioBackend::Shared,
+        stellatune_core::AudioBackend::WasapiExclusive => {
+            stellatune_output::AudioBackend::WasapiExclusive
+        }
+        stellatune_core::AudioBackend::Asio => stellatune_output::AudioBackend::Asio,
+    };
+    let device_name = state.selected_device_name.clone();
     let tx = internal_tx.clone();
     thread::Builder::new()
         .name("stellatune-output-spec".to_string())
         .spawn(move || {
             let t0 = Instant::now();
-            match default_output_spec() {
+            match output_spec_for_device(backend, device_name) {
                 Ok(spec) => {
                     let _ = tx.send(InternalMsg::OutputSpecReady {
                         spec,
                         took_ms: t0.elapsed().as_millis() as u64,
+                        token,
                     });
                 }
                 Err(e) => {
                     let _ = tx.send(InternalMsg::OutputSpecFailed {
                         message: e.to_string(),
                         took_ms: t0.elapsed().as_millis() as u64,
+                        token,
                     });
                 }
             }
@@ -648,6 +728,14 @@ fn handle_tick(
             path,
             Arc::clone(events),
             internal_tx.clone(),
+            match state.selected_backend {
+                stellatune_core::AudioBackend::Shared => stellatune_output::AudioBackend::Shared,
+                stellatune_core::AudioBackend::WasapiExclusive => {
+                    stellatune_output::AudioBackend::WasapiExclusive
+                }
+                stellatune_core::AudioBackend::Asio => stellatune_output::AudioBackend::Asio,
+            },
+            state.selected_device_name.clone(),
             out_spec,
             state.position_ms,
             Arc::clone(&state.volume_atomic),
@@ -709,9 +797,17 @@ fn handle_tick(
         return;
     }
 
+    let (low_watermark_ms, high_watermark_ms) = match state.selected_backend {
+        stellatune_core::AudioBackend::WasapiExclusive => (
+            BUFFER_LOW_WATERMARK_MS_EXCLUSIVE,
+            BUFFER_HIGH_WATERMARK_MS_EXCLUSIVE,
+        ),
+        _ => (BUFFER_LOW_WATERMARK_MS, BUFFER_HIGH_WATERMARK_MS),
+    };
+
     match state.player_state {
         PlayerState::Playing => {
-            if buffered_ms <= BUFFER_LOW_WATERMARK_MS {
+            if buffered_ms <= low_watermark_ms {
                 session.output_enabled.store(false, Ordering::Release);
                 set_state(state, events, PlayerState::Buffering);
                 debug!("buffer low watermark reached: buffered_ms={buffered_ms}");
@@ -720,7 +816,7 @@ fn handle_tick(
             }
         }
         PlayerState::Buffering => {
-            if buffered_ms >= BUFFER_HIGH_WATERMARK_MS {
+            if buffered_ms >= high_watermark_ms {
                 session.output_enabled.store(true, Ordering::Release);
                 set_state(state, events, PlayerState::Playing);
                 if let Some(t0) = state.play_request_started_at.take() {

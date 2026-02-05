@@ -10,7 +10,9 @@ use tracing::{debug, info};
 use stellatune_core::TrackDecodeInfo;
 use stellatune_output::{OutputError, OutputHandle, OutputSpec};
 
-use crate::engine::config::RING_BUFFER_CAPACITY_MS;
+use crate::engine::config::{
+    BUFFER_PREFILL_CAP_MS, BUFFER_PREFILL_CAP_MS_EXCLUSIVE, RING_BUFFER_CAPACITY_MS,
+};
 use crate::engine::decode::decode_thread;
 use crate::engine::event_hub::EventHub;
 use crate::engine::messages::{DecodeCtrl, InternalMsg};
@@ -33,6 +35,8 @@ pub(crate) fn start_session(
     path: String,
     events: Arc<EventHub>,
     internal_tx: Sender<InternalMsg>,
+    backend: stellatune_output::AudioBackend,
+    device_name: Option<String>,
     out_spec: OutputSpec,
     start_at_ms: i64,
     volume: Arc<AtomicU32>,
@@ -100,9 +104,15 @@ pub(crate) fn start_session(
 
     let output_internal_tx = internal_tx.clone();
     let t_output = Instant::now();
-    let output = OutputHandle::start(output_consumer, out_spec.sample_rate, move |err| {
-        let _ = output_internal_tx.try_send(InternalMsg::OutputError(err.to_string()));
-    })
+    let output = OutputHandle::start(
+        backend,
+        device_name,
+        output_consumer,
+        out_spec,
+        move |err| {
+            let _ = output_internal_tx.try_send(InternalMsg::OutputError(err.to_string()));
+        },
+    )
     .map_err(|e| match e {
         OutputError::ConfigMismatch { message } => message,
         other => other.to_string(),
@@ -119,6 +129,10 @@ pub(crate) fn start_session(
             target_channels: out_spec.channels,
             start_at_ms,
             output_enabled: Arc::clone(&output_enabled),
+            buffer_prefill_cap_ms: match backend {
+                stellatune_output::AudioBackend::WasapiExclusive => BUFFER_PREFILL_CAP_MS_EXCLUSIVE,
+                _ => BUFFER_PREFILL_CAP_MS,
+            },
             lfe_mode,
         })
         .map_err(|_| "decoder thread exited unexpectedly".to_string())?;

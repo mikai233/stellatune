@@ -722,6 +722,10 @@ class PlaybackController extends Notifier<PlaybackState> {
         ref.read(loggerProvider).d(message);
         state = state.copyWith(lastLog: message);
       },
+      outputDevicesChanged: (devices) {
+        // Handled by SettingsPage, but must be present for exhaustive matching.
+        ref.read(loggerProvider).d('output devices updated: ${devices.length}');
+      },
     );
   }
 }

@@ -5,6 +5,8 @@ export 'frb_generated.dart' show StellatuneApi;
 export 'third_party/stellatune_core.dart'
     show
         Event,
+        AudioBackend,
+        AudioDevice,
         DspChainItem,
         DspTypeDescriptor,
         PluginDescriptor,
@@ -63,6 +65,17 @@ class PlayerBridge {
     player: player,
     dir: dir,
     disabledIds: disabledIds,
+  );
+
+  Future<void> refreshDevices() => api.refreshDevices(player: player);
+
+  Future<void> setOutputDevice({
+    required AudioBackend backend,
+    String? deviceName,
+  }) => api.setOutputDevice(
+    player: player,
+    backend: backend,
+    deviceName: deviceName,
   );
 }
 

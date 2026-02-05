@@ -38,7 +38,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.11.1";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -226125052;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -129326103;
 
 // Section: executor
 
@@ -940,6 +940,38 @@ fn wire__crate__api__events_impl(
         },
     )
 }
+fn wire__stellatune_core__lfe_mode_default_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "lfe_mode_default",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, ()>((move || {
+                    let output_ok = Result::<_, ()>::Ok(stellatune_core::LfeMode::default())?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
 fn wire__crate__api__library_add_root_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -1640,6 +1672,41 @@ fn wire__crate__api__plugins_reload_with_disabled_impl(
         },
     )
 }
+fn wire__crate__api__refresh_devices_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "refresh_devices",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_player = <RustOpaqueMoi<Player>>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, ()>((move || {
+                    let output_ok = Result::<_, ()>::Ok({
+                        crate::api::refresh_devices(api_player);
+                    })?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
 fn wire__crate__api__seek_ms_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -1669,6 +1736,43 @@ fn wire__crate__api__seek_ms_impl(
                 transform_result_sse::<_, ()>((move || {
                     let output_ok = Result::<_, ()>::Ok({
                         crate::api::seek_ms(api_player, api_position_ms);
+                    })?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__set_output_device_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "set_output_device",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_player = <RustOpaqueMoi<Player>>::sse_decode(&mut deserializer);
+            let api_backend = <stellatune_core::AudioBackend>::sse_decode(&mut deserializer);
+            let api_device_name = <Option<String>>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, ()>((move || {
+                    let output_ok = Result::<_, ()>::Ok({
+                        crate::api::set_output_device(api_player, api_backend, api_device_name);
                     })?;
                     Ok(output_ok)
                 })())
@@ -1753,6 +1857,11 @@ fn wire__crate__api__stop_impl(
 #[allow(clippy::unnecessary_literal_unwrap)]
 const _: fn() = || {
     {
+        let AudioDevice = None::<stellatune_core::AudioDevice>.unwrap();
+        let _: stellatune_core::AudioBackend = AudioDevice.backend;
+        let _: String = AudioDevice.name;
+    }
+    {
         let DlnaHttpServerInfo = None::<stellatune_core::DlnaHttpServerInfo>.unwrap();
         let _: String = DlnaHttpServerInfo.listen_addr;
         let _: String = DlnaHttpServerInfo.base_url;
@@ -1821,6 +1930,9 @@ const _: fn() = || {
         }
         stellatune_core::Event::Log { message } => {
             let _: String = message;
+        }
+        stellatune_core::Event::OutputDevicesChanged { devices } => {
+            let _: Vec<stellatune_core::AudioDevice> = devices;
         }
     }
     match None::<stellatune_core::LibraryEvent>.unwrap() {
@@ -1961,6 +2073,31 @@ impl SseDecode for String {
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut inner = <Vec<u8>>::sse_decode(deserializer);
         return String::from_utf8(inner).unwrap();
+    }
+}
+
+impl SseDecode for stellatune_core::AudioBackend {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut inner = <i32>::sse_decode(deserializer);
+        return match inner {
+            0 => stellatune_core::AudioBackend::Shared,
+            1 => stellatune_core::AudioBackend::WasapiExclusive,
+            2 => stellatune_core::AudioBackend::Asio,
+            _ => unreachable!("Invalid variant for AudioBackend: {}", inner),
+        };
+    }
+}
+
+impl SseDecode for stellatune_core::AudioDevice {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_backend = <stellatune_core::AudioBackend>::sse_decode(deserializer);
+        let mut var_name = <String>::sse_decode(deserializer);
+        return stellatune_core::AudioDevice {
+            backend: var_backend,
+            name: var_name,
+        };
     }
 }
 
@@ -2118,6 +2255,12 @@ impl SseDecode for stellatune_core::Event {
                     message: var_message,
                 };
             }
+            7 => {
+                let mut var_devices = <Vec<stellatune_core::AudioDevice>>::sse_decode(deserializer);
+                return stellatune_core::Event::OutputDevicesChanged {
+                    devices: var_devices,
+                };
+            }
             _ => {
                 unimplemented!("");
             }
@@ -2143,6 +2286,18 @@ impl SseDecode for i64 {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         deserializer.cursor.read_i64::<NativeEndian>().unwrap()
+    }
+}
+
+impl SseDecode for stellatune_core::LfeMode {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut inner = <i32>::sse_decode(deserializer);
+        return match inner {
+            0 => stellatune_core::LfeMode::Mute,
+            1 => stellatune_core::LfeMode::MixToFront,
+            _ => unreachable!("Invalid variant for LfeMode: {}", inner),
+        };
     }
 }
 
@@ -2238,6 +2393,18 @@ impl SseDecode for Vec<String> {
         let mut ans_ = vec![];
         for idx_ in 0..len_ {
             ans_.push(<String>::sse_decode(deserializer));
+        }
+        return ans_;
+    }
+}
+
+impl SseDecode for Vec<stellatune_core::AudioDevice> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = vec![];
+        for idx_ in 0..len_ {
+            ans_.push(<stellatune_core::AudioDevice>::sse_decode(deserializer));
         }
         return ans_;
     }
@@ -2551,37 +2718,40 @@ fn pde_ffi_dispatcher_primary_impl(
         21 => wire__crate__api__dsp_list_types_impl(port, ptr, rust_vec_len, data_len),
         22 => wire__crate__api__dsp_set_chain_impl(port, ptr, rust_vec_len, data_len),
         23 => wire__crate__api__events_impl(port, ptr, rust_vec_len, data_len),
-        24 => wire__crate__api__library_add_root_impl(port, ptr, rust_vec_len, data_len),
-        25 => wire__crate__api__library_delete_folder_impl(port, ptr, rust_vec_len, data_len),
-        26 => wire__crate__api__library_events_impl(port, ptr, rust_vec_len, data_len),
-        27 => {
+        24 => wire__stellatune_core__lfe_mode_default_impl(port, ptr, rust_vec_len, data_len),
+        25 => wire__crate__api__library_add_root_impl(port, ptr, rust_vec_len, data_len),
+        26 => wire__crate__api__library_delete_folder_impl(port, ptr, rust_vec_len, data_len),
+        27 => wire__crate__api__library_events_impl(port, ptr, rust_vec_len, data_len),
+        28 => {
             wire__crate__api__library_list_excluded_folders_impl(port, ptr, rust_vec_len, data_len)
         }
-        28 => wire__crate__api__library_list_folders_impl(port, ptr, rust_vec_len, data_len),
-        29 => wire__crate__api__library_list_roots_impl(port, ptr, rust_vec_len, data_len),
-        30 => wire__crate__api__library_list_tracks_impl(port, ptr, rust_vec_len, data_len),
-        31 => wire__crate__api__library_plugins_reload_with_disabled_impl(
+        29 => wire__crate__api__library_list_folders_impl(port, ptr, rust_vec_len, data_len),
+        30 => wire__crate__api__library_list_roots_impl(port, ptr, rust_vec_len, data_len),
+        31 => wire__crate__api__library_list_tracks_impl(port, ptr, rust_vec_len, data_len),
+        32 => wire__crate__api__library_plugins_reload_with_disabled_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        32 => wire__crate__api__library_remove_root_impl(port, ptr, rust_vec_len, data_len),
-        33 => wire__crate__api__library_restore_folder_impl(port, ptr, rust_vec_len, data_len),
-        34 => wire__crate__api__library_scan_all_impl(port, ptr, rust_vec_len, data_len),
-        35 => wire__crate__api__library_scan_all_force_impl(port, ptr, rust_vec_len, data_len),
-        36 => wire__crate__api__library_search_impl(port, ptr, rust_vec_len, data_len),
-        37 => wire__crate__api__load_impl(port, ptr, rust_vec_len, data_len),
-        38 => wire__crate__api__pause_impl(port, ptr, rust_vec_len, data_len),
-        39 => wire__crate__api__play_impl(port, ptr, rust_vec_len, data_len),
-        40 => wire__crate__api__plugins_list_impl(port, ptr, rust_vec_len, data_len),
-        41 => wire__crate__api__plugins_reload_impl(port, ptr, rust_vec_len, data_len),
-        42 => {
+        33 => wire__crate__api__library_remove_root_impl(port, ptr, rust_vec_len, data_len),
+        34 => wire__crate__api__library_restore_folder_impl(port, ptr, rust_vec_len, data_len),
+        35 => wire__crate__api__library_scan_all_impl(port, ptr, rust_vec_len, data_len),
+        36 => wire__crate__api__library_scan_all_force_impl(port, ptr, rust_vec_len, data_len),
+        37 => wire__crate__api__library_search_impl(port, ptr, rust_vec_len, data_len),
+        38 => wire__crate__api__load_impl(port, ptr, rust_vec_len, data_len),
+        39 => wire__crate__api__pause_impl(port, ptr, rust_vec_len, data_len),
+        40 => wire__crate__api__play_impl(port, ptr, rust_vec_len, data_len),
+        41 => wire__crate__api__plugins_list_impl(port, ptr, rust_vec_len, data_len),
+        42 => wire__crate__api__plugins_reload_impl(port, ptr, rust_vec_len, data_len),
+        43 => {
             wire__crate__api__plugins_reload_with_disabled_impl(port, ptr, rust_vec_len, data_len)
         }
-        43 => wire__crate__api__seek_ms_impl(port, ptr, rust_vec_len, data_len),
-        44 => wire__crate__api__set_volume_impl(port, ptr, rust_vec_len, data_len),
-        45 => wire__crate__api__stop_impl(port, ptr, rust_vec_len, data_len),
+        44 => wire__crate__api__refresh_devices_impl(port, ptr, rust_vec_len, data_len),
+        45 => wire__crate__api__seek_ms_impl(port, ptr, rust_vec_len, data_len),
+        46 => wire__crate__api__set_output_device_impl(port, ptr, rust_vec_len, data_len),
+        47 => wire__crate__api__set_volume_impl(port, ptr, rust_vec_len, data_len),
+        48 => wire__crate__api__stop_impl(port, ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
@@ -2600,6 +2770,49 @@ fn pde_ffi_dispatcher_sync_impl(
 
 // Section: rust2dart
 
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for FrbWrapper<stellatune_core::AudioBackend> {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        match self.0 {
+            stellatune_core::AudioBackend::Shared => 0.into_dart(),
+            stellatune_core::AudioBackend::WasapiExclusive => 1.into_dart(),
+            stellatune_core::AudioBackend::Asio => 2.into_dart(),
+            _ => unreachable!(),
+        }
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for FrbWrapper<stellatune_core::AudioBackend>
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<FrbWrapper<stellatune_core::AudioBackend>>
+    for stellatune_core::AudioBackend
+{
+    fn into_into_dart(self) -> FrbWrapper<stellatune_core::AudioBackend> {
+        self.into()
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for FrbWrapper<stellatune_core::AudioDevice> {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.0.backend.into_into_dart().into_dart(),
+            self.0.name.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for FrbWrapper<stellatune_core::AudioDevice>
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<FrbWrapper<stellatune_core::AudioDevice>>
+    for stellatune_core::AudioDevice
+{
+    fn into_into_dart(self) -> FrbWrapper<stellatune_core::AudioDevice> {
+        self.into()
+    }
+}
 // Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for FrbWrapper<stellatune_core::DlnaHttpServerInfo> {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
@@ -2791,6 +3004,9 @@ impl flutter_rust_bridge::IntoDart for FrbWrapper<stellatune_core::Event> {
             stellatune_core::Event::Log { message } => {
                 [6.into_dart(), message.into_into_dart().into_dart()].into_dart()
             }
+            stellatune_core::Event::OutputDevicesChanged { devices } => {
+                [7.into_dart(), devices.into_into_dart().into_dart()].into_dart()
+            }
             _ => {
                 unimplemented!("");
             }
@@ -2805,6 +3021,27 @@ impl flutter_rust_bridge::IntoIntoDart<FrbWrapper<stellatune_core::Event>>
     for stellatune_core::Event
 {
     fn into_into_dart(self) -> FrbWrapper<stellatune_core::Event> {
+        self.into()
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for FrbWrapper<stellatune_core::LfeMode> {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        match self.0 {
+            stellatune_core::LfeMode::Mute => 0.into_dart(),
+            stellatune_core::LfeMode::MixToFront => 1.into_dart(),
+            _ => unreachable!(),
+        }
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for FrbWrapper<stellatune_core::LfeMode>
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<FrbWrapper<stellatune_core::LfeMode>>
+    for stellatune_core::LfeMode
+{
+    fn into_into_dart(self) -> FrbWrapper<stellatune_core::LfeMode> {
         self.into()
     }
 }
@@ -3037,6 +3274,31 @@ impl SseEncode for String {
     }
 }
 
+impl SseEncode for stellatune_core::AudioBackend {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(
+            match self {
+                stellatune_core::AudioBackend::Shared => 0,
+                stellatune_core::AudioBackend::WasapiExclusive => 1,
+                stellatune_core::AudioBackend::Asio => 2,
+                _ => {
+                    unimplemented!("");
+                }
+            },
+            serializer,
+        );
+    }
+}
+
+impl SseEncode for stellatune_core::AudioDevice {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <stellatune_core::AudioBackend>::sse_encode(self.backend, serializer);
+        <String>::sse_encode(self.name, serializer);
+    }
+}
+
 impl SseEncode for bool {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -3145,6 +3407,10 @@ impl SseEncode for stellatune_core::Event {
                 <i32>::sse_encode(6, serializer);
                 <String>::sse_encode(message, serializer);
             }
+            stellatune_core::Event::OutputDevicesChanged { devices } => {
+                <i32>::sse_encode(7, serializer);
+                <Vec<stellatune_core::AudioDevice>>::sse_encode(devices, serializer);
+            }
             _ => {
                 unimplemented!("");
             }
@@ -3170,6 +3436,22 @@ impl SseEncode for i64 {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         serializer.cursor.write_i64::<NativeEndian>(self).unwrap();
+    }
+}
+
+impl SseEncode for stellatune_core::LfeMode {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(
+            match self {
+                stellatune_core::LfeMode::Mute => 0,
+                stellatune_core::LfeMode::MixToFront => 1,
+                _ => {
+                    unimplemented!("");
+                }
+            },
+            serializer,
+        );
     }
 }
 
@@ -3256,6 +3538,16 @@ impl SseEncode for Vec<String> {
         <i32>::sse_encode(self.len() as _, serializer);
         for item in self {
             <String>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<stellatune_core::AudioDevice> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <stellatune_core::AudioDevice>::sse_encode(item, serializer);
         }
     }
 }

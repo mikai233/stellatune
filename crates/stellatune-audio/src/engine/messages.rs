@@ -13,6 +13,7 @@ pub(crate) enum DecodeCtrl {
         target_channels: u16,
         start_at_ms: i64,
         output_enabled: Arc<AtomicBool>,
+        buffer_prefill_cap_ms: i64,
         lfe_mode: stellatune_core::LfeMode,
     },
     SetDspChain {
@@ -50,6 +51,14 @@ pub(crate) enum InternalMsg {
     Error(String),
     OutputError(String),
     Position(i64),
-    OutputSpecReady { spec: OutputSpec, took_ms: u64 },
-    OutputSpecFailed { message: String, took_ms: u64 },
+    OutputSpecReady {
+        spec: OutputSpec,
+        took_ms: u64,
+        token: u64,
+    },
+    OutputSpecFailed {
+        message: String,
+        took_ms: u64,
+        token: u64,
+    },
 }

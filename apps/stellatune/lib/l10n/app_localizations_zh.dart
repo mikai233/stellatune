@@ -57,6 +57,24 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsTitle => '设置';
 
   @override
+  String get settingsOutputTitle => '输出设备';
+
+  @override
+  String get settingsBackend => '音频后端';
+
+  @override
+  String get settingsBackendShared => '共享 (WASAPI Shared)';
+
+  @override
+  String get settingsBackendWasapiExclusive => '独占 (WASAPI Exclusive)';
+
+  @override
+  String get settingsDevice => '输出设备';
+
+  @override
+  String get settingsDeviceDefault => '系统默认';
+
+  @override
   String get settingsPluginsTitle => '插件';
 
   @override

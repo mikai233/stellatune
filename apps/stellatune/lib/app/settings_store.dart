@@ -19,6 +19,8 @@ class SettingsStore {
   static const _keyResumeDurationMs = 'resume_duration_ms';
   static const _keyDspChain = 'dsp_chain';
   static const _keyDisabledPlugins = 'disabled_plugins';
+  static const _keySelectedBackend = 'selected_backend';
+  static const _keySelectedDeviceName = 'selected_device_name';
 
   final Box _box;
 
@@ -163,4 +165,22 @@ class SettingsStore {
     }
     await _box.put(_keyDisabledPlugins, jsonEncode(disabled.toList()));
   }
+
+  AudioBackend get selectedBackend {
+    final raw = _box.get(_keySelectedBackend);
+    if (raw is String) {
+      for (final b in AudioBackend.values) {
+        if (b.name == raw) return b;
+      }
+    }
+    return AudioBackend.shared;
+  }
+
+  Future<void> setSelectedBackend(AudioBackend backend) =>
+      _box.put(_keySelectedBackend, backend.name);
+
+  String? get selectedDeviceName => _box.get(_keySelectedDeviceName);
+
+  Future<void> setSelectedDeviceName(String? name) =>
+      _box.put(_keySelectedDeviceName, name);
 }

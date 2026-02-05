@@ -3024,8 +3024,12 @@ version = "0.1.0"
 name = "stellatune-output"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "cpal",
+ "serde",
  "thiserror 2.0.18",
+ "wasapi",
+ "windows",
 ]
 
 [[package]]
@@ -3711,6 +3715,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bfa7760aed19e106de2c7c0b581b509f2f25d3dacaf737cb82ac61bc6d760b0e"
 dependencies = [
  "try-lock",
+]
+
+[[package]]
+name = "wasapi"
+version = "0.22.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7834ac561bea8a7413661fdda62180f9e054f99815269cd3572cf7e40d9c3191"
+dependencies = [
+ "log",
+ "num-integer",
+ "thiserror 2.0.18",
+ "windows",
+ "windows-core",
 ]
 
 [[package]]

@@ -71,7 +71,7 @@ class StellatuneApi
   String get codegenVersion => '2.11.1';
 
   @override
-  int get rustContentHash => -226125052;
+  int get rustContentHash => -129326103;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -188,6 +188,8 @@ abstract class StellatuneApiApi extends BaseApi {
 
   Stream<Event> crateApiEvents({required Player player});
 
+  Future<LfeMode> stellatuneCoreLfeModeDefault();
+
   Future<void> crateApiLibraryAddRoot({
     required Library library_,
     required String path,
@@ -261,9 +263,17 @@ abstract class StellatuneApiApi extends BaseApi {
     required List<String> disabledIds,
   });
 
+  Future<void> crateApiRefreshDevices({required Player player});
+
   Future<void> crateApiSeekMs({
     required Player player,
     required BigInt positionMs,
+  });
+
+  Future<void> crateApiSetOutputDevice({
+    required Player player,
+    required AudioBackend backend,
+    String? deviceName,
   });
 
   Future<void> crateApiSetVolume({
@@ -1078,6 +1088,33 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
       const TaskConstMeta(debugName: "events", argNames: ["player", "sink"]);
 
   @override
+  Future<LfeMode> stellatuneCoreLfeModeDefault() {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 24,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_lfe_mode,
+          decodeErrorData: null,
+        ),
+        constMeta: kStellatuneCoreLfeModeDefaultConstMeta,
+        argValues: [],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kStellatuneCoreLfeModeDefaultConstMeta =>
+      const TaskConstMeta(debugName: "lfe_mode_default", argNames: []);
+
+  @override
   Future<void> crateApiLibraryAddRoot({
     required Library library_,
     required String path,
@@ -1091,7 +1128,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 24,
+            funcId: 25,
             port: port_,
           );
         },
@@ -1125,7 +1162,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 25,
+            funcId: 26,
             port: port_,
           );
         },
@@ -1159,7 +1196,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
             pdeCallFfi(
               generalizedFrbRustBinding,
               serializer,
-              funcId: 26,
+              funcId: 27,
               port: port_,
             );
           },
@@ -1191,7 +1228,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 27,
+            funcId: 28,
             port: port_,
           );
         },
@@ -1222,7 +1259,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 28,
+            funcId: 29,
             port: port_,
           );
         },
@@ -1252,7 +1289,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 29,
+            funcId: 30,
             port: port_,
           );
         },
@@ -1294,7 +1331,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 30,
+            funcId: 31,
             port: port_,
           );
         },
@@ -1330,7 +1367,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 31,
+            funcId: 32,
             port: port_,
           );
         },
@@ -1365,7 +1402,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 32,
+            funcId: 33,
             port: port_,
           );
         },
@@ -1399,7 +1436,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 33,
+            funcId: 34,
             port: port_,
           );
         },
@@ -1430,7 +1467,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 34,
+            funcId: 35,
             port: port_,
           );
         },
@@ -1460,7 +1497,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 35,
+            funcId: 36,
             port: port_,
           );
         },
@@ -1499,7 +1536,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 36,
+            funcId: 37,
             port: port_,
           );
         },
@@ -1530,7 +1567,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 37,
+            funcId: 38,
             port: port_,
           );
         },
@@ -1558,7 +1595,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 38,
+            funcId: 39,
             port: port_,
           );
         },
@@ -1586,7 +1623,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 39,
+            funcId: 40,
             port: port_,
           );
         },
@@ -1614,7 +1651,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 40,
+            funcId: 41,
             port: port_,
           );
         },
@@ -1646,7 +1683,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 41,
+            funcId: 42,
             port: port_,
           );
         },
@@ -1682,7 +1719,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 42,
+            funcId: 43,
             port: port_,
           );
         },
@@ -1704,6 +1741,34 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
       );
 
   @override
+  Future<void> crateApiRefreshDevices({required Player player}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_RustOpaque_Player(player, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 44,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiRefreshDevicesConstMeta,
+        argValues: [player],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRefreshDevicesConstMeta =>
+      const TaskConstMeta(debugName: "refresh_devices", argNames: ["player"]);
+
+  @override
   Future<void> crateApiSeekMs({
     required Player player,
     required BigInt positionMs,
@@ -1717,7 +1782,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 43,
+            funcId: 45,
             port: port_,
           );
         },
@@ -1738,6 +1803,42 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   );
 
   @override
+  Future<void> crateApiSetOutputDevice({
+    required Player player,
+    required AudioBackend backend,
+    String? deviceName,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_RustOpaque_Player(player, serializer);
+          sse_encode_audio_backend(backend, serializer);
+          sse_encode_opt_String(deviceName, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 46,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiSetOutputDeviceConstMeta,
+        argValues: [player, backend, deviceName],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiSetOutputDeviceConstMeta => const TaskConstMeta(
+    debugName: "set_output_device",
+    argNames: ["player", "backend", "deviceName"],
+  );
+
+  @override
   Future<void> crateApiSetVolume({
     required Player player,
     required double volume,
@@ -1751,7 +1852,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 44,
+            funcId: 47,
             port: port_,
           );
         },
@@ -1781,7 +1882,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 45,
+            funcId: 48,
             port: port_,
           );
         },
@@ -1851,6 +1952,24 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   String dco_decode_String(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as String;
+  }
+
+  @protected
+  AudioBackend dco_decode_audio_backend(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return AudioBackend.values[raw as int];
+  }
+
+  @protected
+  AudioDevice dco_decode_audio_device(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return AudioDevice(
+      backend: dco_decode_audio_backend(arr[0]),
+      name: dco_decode_String(arr[1]),
+    );
   }
 
   @protected
@@ -2004,6 +2123,10 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
         return Event_Error(message: dco_decode_String(raw[1]));
       case 6:
         return Event_Log(message: dco_decode_String(raw[1]));
+      case 7:
+        return Event_OutputDevicesChanged(
+          devices: dco_decode_list_audio_device(raw[1]),
+        );
       default:
         throw Exception("unreachable");
     }
@@ -2025,6 +2148,12 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   PlatformInt64 dco_decode_i_64(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dcoDecodeI64(raw);
+  }
+
+  @protected
+  LfeMode dco_decode_lfe_mode(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return LfeMode.values[raw as int];
   }
 
   @protected
@@ -2081,6 +2210,12 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   List<String> dco_decode_list_String(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return (raw as List<dynamic>).map(dco_decode_String).toList();
+  }
+
+  @protected
+  List<AudioDevice> dco_decode_list_audio_device(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_audio_device).toList();
   }
 
   @protected
@@ -2290,6 +2425,21 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   }
 
   @protected
+  AudioBackend sse_decode_audio_backend(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var inner = sse_decode_i_32(deserializer);
+    return AudioBackend.values[inner];
+  }
+
+  @protected
+  AudioDevice sse_decode_audio_device(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_backend = sse_decode_audio_backend(deserializer);
+    var var_name = sse_decode_String(deserializer);
+    return AudioDevice(backend: var_backend, name: var_name);
+  }
+
+  @protected
   bool sse_decode_bool(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return deserializer.buffer.getUint8() != 0;
@@ -2462,6 +2612,9 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
       case 6:
         var var_message = sse_decode_String(deserializer);
         return Event_Log(message: var_message);
+      case 7:
+        var var_devices = sse_decode_list_audio_device(deserializer);
+        return Event_OutputDevicesChanged(devices: var_devices);
       default:
         throw UnimplementedError('');
     }
@@ -2483,6 +2636,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   PlatformInt64 sse_decode_i_64(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return deserializer.buffer.getPlatformInt64();
+  }
+
+  @protected
+  LfeMode sse_decode_lfe_mode(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var inner = sse_decode_i_32(deserializer);
+    return LfeMode.values[inner];
   }
 
   @protected
@@ -2560,6 +2720,18 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
     var ans_ = <String>[];
     for (var idx_ = 0; idx_ < len_; ++idx_) {
       ans_.add(sse_decode_String(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  List<AudioDevice> sse_decode_list_audio_device(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <AudioDevice>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_audio_device(deserializer));
     }
     return ans_;
   }
@@ -2866,6 +3038,19 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   }
 
   @protected
+  void sse_encode_audio_backend(AudioBackend self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.index, serializer);
+  }
+
+  @protected
+  void sse_encode_audio_device(AudioDevice self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_audio_backend(self.backend, serializer);
+    sse_encode_String(self.name, serializer);
+  }
+
+  @protected
   void sse_encode_bool(bool self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     serializer.buffer.putUint8(self ? 1 : 0);
@@ -3012,6 +3197,9 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
       case Event_Log(message: final message):
         sse_encode_i_32(6, serializer);
         sse_encode_String(message, serializer);
+      case Event_OutputDevicesChanged(devices: final devices):
+        sse_encode_i_32(7, serializer);
+        sse_encode_list_audio_device(devices, serializer);
     }
   }
 
@@ -3031,6 +3219,12 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   void sse_encode_i_64(PlatformInt64 self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     serializer.buffer.putPlatformInt64(self);
+  }
+
+  @protected
+  void sse_encode_lfe_mode(LfeMode self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.index, serializer);
   }
 
   @protected
@@ -3102,6 +3296,18 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
     sse_encode_i_32(self.length, serializer);
     for (final item in self) {
       sse_encode_String(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_audio_device(
+    List<AudioDevice> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_audio_device(item, serializer);
     }
   }
 

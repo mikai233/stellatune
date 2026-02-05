@@ -194,6 +194,42 @@ abstract class AppLocalizations {
   /// **'Settings'**
   String get settingsTitle;
 
+  /// No description provided for @settingsOutputTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Output Device'**
+  String get settingsOutputTitle;
+
+  /// No description provided for @settingsBackend.
+  ///
+  /// In en, this message translates to:
+  /// **'Audio Backend'**
+  String get settingsBackend;
+
+  /// No description provided for @settingsBackendShared.
+  ///
+  /// In en, this message translates to:
+  /// **'Shared (WASAPI Shared)'**
+  String get settingsBackendShared;
+
+  /// No description provided for @settingsBackendWasapiExclusive.
+  ///
+  /// In en, this message translates to:
+  /// **'Exclusive (WASAPI Exclusive)'**
+  String get settingsBackendWasapiExclusive;
+
+  /// No description provided for @settingsDevice.
+  ///
+  /// In en, this message translates to:
+  /// **'Device'**
+  String get settingsDevice;
+
+  /// No description provided for @settingsDeviceDefault.
+  ///
+  /// In en, this message translates to:
+  /// **'System Default'**
+  String get settingsDeviceDefault;
+
   /// No description provided for @settingsPluginsTitle.
   ///
   /// In en, this message translates to:

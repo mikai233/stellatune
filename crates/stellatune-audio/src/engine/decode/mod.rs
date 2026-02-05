@@ -11,7 +11,6 @@ use stellatune_core::TrackDecodeInfo;
 use stellatune_mixer::{ChannelLayout, ChannelMixer};
 use stellatune_plugins::DspInstance;
 
-use crate::engine::config::BUFFER_PREFILL_CAP_MS;
 use crate::engine::config::RESAMPLE_CHUNK_FRAMES;
 use crate::engine::event_hub::EventHub;
 use crate::engine::messages::{DecodeCtrl, InternalMsg};
@@ -58,6 +57,7 @@ pub(crate) fn decode_thread(
         target_channels,
         start_at_ms,
         output_enabled,
+        buffer_prefill_cap_ms,
         initial_lfe_mode,
     ) = loop {
         crossbeam_channel::select! {
@@ -69,6 +69,7 @@ pub(crate) fn decode_thread(
                     target_channels,
                     start_at_ms,
                     output_enabled,
+                    buffer_prefill_cap_ms,
                     lfe_mode: initial_lfe_mode,
                 } = ctrl {
                     break (
@@ -77,6 +78,7 @@ pub(crate) fn decode_thread(
                         target_channels,
                         start_at_ms,
                         output_enabled,
+                        buffer_prefill_cap_ms,
                         initial_lfe_mode,
                     );
                 }
@@ -149,7 +151,7 @@ pub(crate) fn decode_thread(
         if playing && !output_enabled.load(Ordering::Acquire) {
             let buffered_frames = (producer.len() / out_channels) as u64;
             let buffered_ms = ((buffered_frames * 1000) / target_sample_rate.max(1) as u64) as i64;
-            if buffered_ms >= BUFFER_PREFILL_CAP_MS {
+            if buffered_ms >= buffer_prefill_cap_ms {
                 thread::sleep(Duration::from_millis(5));
                 continue;
             }

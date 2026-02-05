@@ -57,6 +57,24 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsTitle => 'Settings';
 
   @override
+  String get settingsOutputTitle => 'Output Device';
+
+  @override
+  String get settingsBackend => 'Audio Backend';
+
+  @override
+  String get settingsBackendShared => 'Shared (WASAPI Shared)';
+
+  @override
+  String get settingsBackendWasapiExclusive => 'Exclusive (WASAPI Exclusive)';
+
+  @override
+  String get settingsDevice => 'Device';
+
+  @override
+  String get settingsDeviceDefault => 'System Default';
+
+  @override
   String get settingsPluginsTitle => 'Plugins';
 
   @override

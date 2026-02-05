@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -75,6 +76,8 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   Future<List<PluginDescriptor>>? _pluginsFuture;
   Future<List<DspTypeDescriptor>>? _dspTypesFuture;
   Future<List<_InstalledPlugin>>? _installedPluginsFuture;
+  List<AudioDevice> _devices = [];
+  StreamSubscription<Event>? _eventSub;
   String? _pluginDir;
 
   bool _gainEnabled = false;
@@ -85,6 +88,28 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     super.initState();
     _loadFromSettings();
     _refresh();
+    _initEvents();
+  }
+
+  @override
+  void dispose() {
+    _eventSub?.cancel();
+    super.dispose();
+  }
+
+  void _initEvents() {
+    final bridge = ref.read(playerBridgeProvider);
+    _eventSub = bridge.events().listen((event) {
+      if (!mounted) return;
+      event.whenOrNull(
+        outputDevicesChanged: (devices) {
+          setState(() {
+            _devices = devices;
+          });
+        },
+      );
+    });
+    bridge.refreshDevices();
   }
 
   void _loadFromSettings() {
@@ -286,6 +311,119 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
         children: [
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    l10n.settingsOutputTitle,
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<AudioBackend>(
+                    decoration: InputDecoration(
+                      labelText: l10n.settingsBackend,
+                      border: const OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                    value: ref.watch(settingsStoreProvider).selectedBackend,
+                    items: [
+                      DropdownMenuItem(
+                        value: AudioBackend.shared,
+                        child: Text(l10n.settingsBackendShared),
+                      ),
+                      DropdownMenuItem(
+                        value: AudioBackend.wasapiExclusive,
+                        child: Text(l10n.settingsBackendWasapiExclusive),
+                      ),
+                    ],
+                    onChanged: (v) async {
+                      if (v == null) return;
+                      final settings = ref.read(settingsStoreProvider);
+                      await settings.setSelectedBackend(v);
+
+                      // If the previously selected device isn't available on the new backend,
+                      // fall back to Default (null) to avoid passing an invalid device name.
+                      var deviceName = settings.selectedDeviceName;
+                      final available = _devices
+                          .where((d) => d.backend == v)
+                          .map((d) => d.name)
+                          .toSet();
+                      if (deviceName != null &&
+                          available.isNotEmpty &&
+                          !available.contains(deviceName)) {
+                        deviceName = null;
+                        await settings.setSelectedDeviceName(null);
+                      }
+
+                      final bridge = ref.read(playerBridgeProvider);
+                      await bridge.setOutputDevice(
+                        backend: v,
+                        deviceName: deviceName,
+                      );
+                      setState(() {});
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String?>(
+                    decoration: InputDecoration(
+                      labelText: l10n.settingsDevice,
+                      border: const OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                    value: () {
+                      final selected = ref
+                          .watch(settingsStoreProvider)
+                          .selectedDeviceName;
+                      final backend = ref
+                          .read(settingsStoreProvider)
+                          .selectedBackend;
+                      final available = _devices
+                          .where((d) => d.backend == backend)
+                          .map((d) => d.name)
+                          .toList();
+
+                      if (selected != null && !available.contains(selected)) {
+                        return null; // Fallback to Default
+                      }
+                      return selected;
+                    }(),
+                    items: [
+                      DropdownMenuItem(
+                        value: null,
+                        child: Text(l10n.settingsDeviceDefault),
+                      ),
+                      ..._devices
+                          .where(
+                            (d) =>
+                                d.backend ==
+                                ref.read(settingsStoreProvider).selectedBackend,
+                          )
+                          .map(
+                            (d) => DropdownMenuItem(
+                              value: d.name,
+                              child: Text(d.name),
+                            ),
+                          ),
+                    ],
+                    onChanged: (v) async {
+                      final settings = ref.read(settingsStoreProvider);
+                      await settings.setSelectedDeviceName(v);
+                      final bridge = ref.read(playerBridgeProvider);
+                      await bridge.setOutputDevice(
+                        backend: settings.selectedBackend,
+                        deviceName: v,
+                      );
+                      setState(() {});
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
           Card(
             child: Padding(
               padding: const EdgeInsets.all(12),

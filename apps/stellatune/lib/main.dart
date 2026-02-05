@@ -34,6 +34,14 @@ Future<void> main() async {
   await initRustRuntime();
   final bridge = await PlayerBridge.create();
   final settings = await SettingsStore.open();
+  // Sync persisted audio backend/device into Rust early so playback uses the right output
+  // even before the Settings page is opened.
+  try {
+    await bridge.setOutputDevice(
+      backend: settings.selectedBackend,
+      deviceName: settings.selectedDeviceName,
+    );
+  } catch (_) {}
   final dbPath = await defaultLibraryDbPath();
   final pluginDir = await defaultPluginDir();
   await Directory(pluginDir).create(recursive: true);

@@ -69,6 +69,19 @@ Future<void> pluginsReloadWithDisabled({
   disabledIds: disabledIds,
 );
 
+Future<void> refreshDevices({required Player player}) =>
+    StellatuneApi.instance.api.crateApiRefreshDevices(player: player);
+
+Future<void> setOutputDevice({
+  required Player player,
+  required AudioBackend backend,
+  String? deviceName,
+}) => StellatuneApi.instance.api.crateApiSetOutputDevice(
+  player: player,
+  backend: backend,
+  deviceName: deviceName,
+);
+
 Future<Library> createLibrary({
   required String dbPath,
   required List<String> disabledPluginIds,
