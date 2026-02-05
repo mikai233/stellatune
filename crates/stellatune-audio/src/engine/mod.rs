@@ -1,6 +1,6 @@
 mod config;
 mod control;
-mod decode;
+pub mod decode;
 mod event_hub;
 mod messages;
 mod session;
