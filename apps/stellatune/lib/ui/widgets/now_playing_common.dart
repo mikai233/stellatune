@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:animations/animations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
@@ -733,7 +734,9 @@ class VolumePopupButton extends StatefulWidget {
   State<VolumePopupButton> createState() => _VolumePopupButtonState();
 }
 
-class _VolumePopupButtonState extends State<VolumePopupButton> {
+class _VolumePopupButtonState extends State<VolumePopupButton>
+    with SingleTickerProviderStateMixin {
+  static const _animationDuration = Duration(milliseconds: 200);
   static const _hideDelay = Duration(milliseconds: 120);
   static const _popupWidth = 56.0;
   static const _popupHeight = 180.0;
@@ -741,12 +744,22 @@ class _VolumePopupButtonState extends State<VolumePopupButton> {
   final LayerLink _link = LayerLink();
   OverlayEntry? _entry;
   Timer? _hideTimer;
+  late final AnimationController _animationController;
 
   bool _hoverAnchor = false;
   bool _hoverPopup = false;
   bool _dragging = false;
 
   double? _overrideVolume;
+
+  @override
+  void initState() {
+    super.initState();
+    _animationController = AnimationController(
+      vsync: this,
+      duration: _animationDuration,
+    );
+  }
 
   @override
   void didUpdateWidget(covariant VolumePopupButton oldWidget) {
@@ -768,6 +781,7 @@ class _VolumePopupButtonState extends State<VolumePopupButton> {
   void dispose() {
     _hideTimer?.cancel();
     _removeOverlay();
+    _animationController.dispose();
     super.dispose();
   }
 
@@ -778,7 +792,13 @@ class _VolumePopupButtonState extends State<VolumePopupButton> {
   }
 
   void _showOverlay() {
-    if (_entry != null) return;
+    if (_entry != null) {
+      if (!_animationController.isCompleted) {
+        _animationController.forward();
+      }
+      return;
+    }
+    _animationController.forward(from: 0.0);
     final overlay = Overlay.maybeOf(context, rootOverlay: true);
     if (overlay == null) return;
 
@@ -820,65 +840,72 @@ class _VolumePopupButtonState extends State<VolumePopupButton> {
                       _scheduleHideIfNeeded();
                     }
                   },
-                  child: Material(
-                    elevation: 6,
-                    borderRadius: BorderRadius.circular(12),
-                    color: theme.colorScheme.surfaceContainerHigh,
-                    child: SizedBox(
-                      width: _popupWidth,
-                      height: _popupHeight,
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 10,
-                        ),
-                        child: Column(
-                          children: [
-                            Text('$percent', style: theme.textTheme.labelLarge),
-                            const SizedBox(height: 10),
-                            Expanded(
-                              child: RotatedBox(
-                                quarterTurns: -1,
-                                child: SliderTheme(
-                                  data: SliderTheme.of(context).copyWith(
-                                    trackHeight: 3,
-                                    overlayShape:
-                                        SliderComponentShape.noOverlay,
-                                    activeTrackColor: theme.colorScheme.primary,
-                                    thumbColor: theme.colorScheme.primary,
-                                  ),
-                                  child: TweenAnimationBuilder<double>(
-                                    tween: Tween<double>(
-                                      begin: volume,
-                                      end: volume,
+                  child: FadeScaleTransition(
+                    animation: _animationController,
+                    child: Material(
+                      elevation: 6,
+                      borderRadius: BorderRadius.circular(12),
+                      color: theme.colorScheme.surfaceContainerHigh,
+                      child: SizedBox(
+                        width: _popupWidth,
+                        height: _popupHeight,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 10,
+                          ),
+                          child: Column(
+                            children: [
+                              Text(
+                                '$percent',
+                                style: theme.textTheme.labelLarge,
+                              ),
+                              const SizedBox(height: 10),
+                              Expanded(
+                                child: RotatedBox(
+                                  quarterTurns: -1,
+                                  child: SliderTheme(
+                                    data: SliderTheme.of(context).copyWith(
+                                      trackHeight: 3,
+                                      overlayShape:
+                                          SliderComponentShape.noOverlay,
+                                      activeTrackColor:
+                                          theme.colorScheme.primary,
+                                      thumbColor: theme.colorScheme.primary,
                                     ),
-                                    duration: _dragging
-                                        ? Duration.zero
-                                        : const Duration(milliseconds: 200),
-                                    curve: Curves.easeOutCubic,
-                                    builder: (context, value, child) {
-                                      return Slider(
-                                        value: value,
-                                        onChangeStart: (_) {
-                                          _dragging = true;
-                                          _hideTimer?.cancel();
-                                        },
-                                        onChangeEnd: (_) {
-                                          _dragging = false;
-                                          _scheduleHideIfNeeded();
-                                        },
-                                        onChanged: (v) {
-                                          _overrideVolume = v;
-                                          _markOverlayNeedsBuild();
-                                          widget.onChanged(v);
-                                        },
-                                      );
-                                    },
+                                    child: TweenAnimationBuilder<double>(
+                                      tween: Tween<double>(
+                                        begin: volume,
+                                        end: volume,
+                                      ),
+                                      duration: _dragging
+                                          ? Duration.zero
+                                          : const Duration(milliseconds: 200),
+                                      curve: Curves.easeOutCubic,
+                                      builder: (context, value, child) {
+                                        return Slider(
+                                          value: value,
+                                          onChangeStart: (_) {
+                                            _dragging = true;
+                                            _hideTimer?.cancel();
+                                          },
+                                          onChangeEnd: (_) {
+                                            _dragging = false;
+                                            _scheduleHideIfNeeded();
+                                          },
+                                          onChanged: (v) {
+                                            _overrideVolume = v;
+                                            _markOverlayNeedsBuild();
+                                            widget.onChanged(v);
+                                          },
+                                        );
+                                      },
+                                    ),
                                   ),
                                 ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
                       ),
                     ),
@@ -897,6 +924,18 @@ class _VolumePopupButtonState extends State<VolumePopupButton> {
   void _removeOverlay() {
     _entry?.remove();
     _entry = null;
+    _animationController.reset();
+  }
+
+  void _hideOverlay() {
+    if (_entry == null) return;
+    _animationController.reverse().then((_) {
+      if (!mounted) return;
+      // Only remove if we didn't start showing it again during dismissal
+      if (_animationController.status == AnimationStatus.dismissed) {
+        _removeOverlay();
+      }
+    });
   }
 
   void _scheduleHideIfNeeded() {
@@ -904,7 +943,7 @@ class _VolumePopupButtonState extends State<VolumePopupButton> {
     _hideTimer = Timer(_hideDelay, () {
       if (!mounted) return;
       if (_hoverAnchor || _hoverPopup || _dragging) return;
-      _removeOverlay();
+      _hideOverlay();
     });
   }
 
@@ -917,7 +956,7 @@ class _VolumePopupButtonState extends State<VolumePopupButton> {
       _markOverlayNeedsBuild();
     } else {
       if (_entry != null) {
-        _removeOverlay();
+        _hideOverlay();
       } else {
         _showOverlay();
       }
