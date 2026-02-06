@@ -37,7 +37,6 @@ class NowPlayingCover extends StatelessWidget {
       height: 48,
       decoration: BoxDecoration(
         color: primaryColor.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(8),
         border: Border.all(color: primaryColor.withValues(alpha: 0.18)),
       ),
       child: Icon(Icons.music_note, color: primaryColor),
@@ -66,16 +65,13 @@ class NowPlayingCover extends StatelessWidget {
           : SystemMouseCursors.basic,
       child: GestureDetector(
         onTap: onTap,
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(8),
-          child: Image(
-            image: provider,
-            width: 48,
-            height: 48,
-            fit: BoxFit.cover,
-            gaplessPlayback: true,
-            errorBuilder: (context, error, stackTrace) => placeholder,
-          ),
+        child: Image(
+          image: provider,
+          width: 48,
+          height: 48,
+          fit: BoxFit.cover,
+          gaplessPlayback: true,
+          errorBuilder: (context, error, stackTrace) => placeholder,
         ),
       ),
     );

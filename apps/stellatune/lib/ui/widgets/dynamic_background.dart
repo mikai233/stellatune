@@ -108,10 +108,7 @@ class _ShaderBackgroundState extends State<ShaderBackground>
   @override
   Widget build(BuildContext context) {
     if (_shader == null) {
-      return Container(
-        color: Theme.of(context).colorScheme.surface,
-        child: widget.child,
-      );
+      return Container(color: Colors.black, child: widget.child);
     }
 
     return RepaintBoundary(

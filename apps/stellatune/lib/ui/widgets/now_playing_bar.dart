@@ -26,8 +26,6 @@ class NowPlayingBar extends ConsumerWidget {
     final playback = ref.watch(playbackControllerProvider);
     final queue = ref.watch(queueControllerProvider);
     final selectedRenderer = ref.watch(dlnaSelectedRendererProvider);
-    final coverDir = ref.watch(coverDirProvider);
-    final trackId = queue.currentItem?.id;
 
     final currentTitle = queue.currentItem?.displayTitle ?? l10n.nowPlayingNone;
     final String currentSubtitle;
@@ -68,19 +66,29 @@ class NowPlayingBar extends ConsumerWidget {
                     OpenContainer(
                       closedElevation: 0,
                       openElevation: 0,
-                      closedColor: Colors.transparent,
-                      openColor: theme.colorScheme.surfaceContainerLow,
+                      closedColor: Colors.black,
+                      openColor: Colors.black,
                       closedShape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(8),
                       ),
+                      openShape: const RoundedRectangleBorder(
+                        borderRadius: BorderRadius.zero,
+                      ),
                       transitionDuration: const Duration(milliseconds: 400),
-                      transitionType: ContainerTransitionType.fadeThrough,
+                      transitionType: ContainerTransitionType.fade,
                       openBuilder: (context, close) => const MusicDetailPage(),
-                      closedBuilder: (context, open) => NowPlayingCover(
-                        coverDir: coverDir,
-                        trackId: trackId,
-                        primaryColor: theme.colorScheme.primary,
-                        onTap: queue.currentItem != null ? open : null,
+                      closedBuilder: (context, open) => Consumer(
+                        builder: (context, ref, child) {
+                          final innerQueue = ref.watch(queueControllerProvider);
+                          final innerCoverDir = ref.watch(coverDirProvider);
+                          final innerTrackId = innerQueue.currentItem?.id;
+                          return NowPlayingCover(
+                            coverDir: innerCoverDir,
+                            trackId: innerTrackId,
+                            primaryColor: theme.colorScheme.primary,
+                            onTap: innerQueue.currentItem != null ? open : null,
+                          );
+                        },
                       ),
                     ),
                     const SizedBox(width: 12),
