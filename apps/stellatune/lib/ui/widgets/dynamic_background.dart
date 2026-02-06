@@ -17,6 +17,14 @@ class ShaderBackground extends StatefulWidget {
   final Widget child;
   final bool animate;
 
+  static Future<FragmentProgram>? _programFuture;
+
+  static Future<FragmentProgram> preloadProgram() {
+    return _programFuture ??= FragmentProgram.fromAsset(
+      'assets/shaders/background.frag',
+    );
+  }
+
   @override
   State<ShaderBackground> createState() => _ShaderBackgroundState();
 }
@@ -83,11 +91,10 @@ class _ShaderBackgroundState extends State<ShaderBackground>
 
   Future<void> _loadShader() async {
     try {
-      final program = await FragmentProgram.fromAsset(
-        'assets/shaders/background.frag',
-      );
+      final program = await ShaderBackground.preloadProgram();
       if (mounted) {
         setState(() {
+          _shader?.dispose();
           _shader = program.fragmentShader();
         });
       }

@@ -7,6 +7,7 @@ import 'package:stellatune/ui/pages/queue_page.dart';
 import 'package:stellatune/ui/pages/settings_page.dart';
 import 'package:stellatune/ui/pages/shell/desktop_shell.dart';
 import 'package:stellatune/ui/pages/shell/mobile_shell.dart';
+import 'package:stellatune/ui/widgets/open_container_shader_warmup.dart';
 
 class ShellPage extends ConsumerStatefulWidget {
   const ShellPage({super.key});
@@ -37,7 +38,7 @@ class _ShellPageState extends ConsumerState<ShellPage> {
     return DesktopShell(
       selectedIndex: _index,
       onDestinationSelected: (v) => setState(() => _index = v),
-      child: body,
+      child: Stack(children: [body, const OpenContainerShaderWarmup()]),
     );
   }
 }
