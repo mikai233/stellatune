@@ -34,7 +34,7 @@ android {
         applicationId = "io.github.mikai233.stellatune"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
+        minSdk = 26
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
@@ -113,7 +113,7 @@ fun registerRustAndroidBuildTask(taskName: String, isRelease: Boolean) {
 
             val args = mutableListOf<String>()
             args += cargoCmd()
-            args += listOf("ndk", "--platform", "21")
+            args += listOf("ndk", "--platform", "26")
             args += abiArgs
             args += listOf("-o", jniLibsOutDir.absolutePath, "build")
             if (isRelease) {
