@@ -1,4 +1,5 @@
 import 'dart:math';
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -36,6 +37,53 @@ class _MusicDetailPageState extends ConsumerState<MusicDetailPage> {
   ];
   Color _foregroundColor = Colors.white;
   String? _lastLoadedCover;
+  bool? _renderedHasLyrics;
+  Timer? _lyricDelayTimer;
+
+  @override
+  void dispose() {
+    _lyricDelayTimer?.cancel();
+    super.dispose();
+  }
+
+  /// Updates the internal state for lyrics transitions, handling conflict animations.
+  void _updateLyricsState(bool targetHasLyrics, bool trackChanged) {
+    if (_renderedHasLyrics == null) {
+      _renderedHasLyrics = targetHasLyrics;
+      return;
+    }
+
+    if (trackChanged) {
+      // Conflict Detection:
+      // Case 1: HasLyrics -> NoLyrics (Expand Right) + Next (Slide Left)
+      // Case 2: NoLyrics -> HasLyrics (Contract Left) + Previous (Slide Right)
+      final isExpansionConflict =
+          _renderedHasLyrics == true &&
+          targetHasLyrics == false &&
+          _slideDirection == 1;
+      final isContractionConflict =
+          _renderedHasLyrics == false &&
+          targetHasLyrics == true &&
+          _slideDirection == -1;
+
+      if (isExpansionConflict || isContractionConflict) {
+        _lyricDelayTimer?.cancel();
+        _lyricDelayTimer = Timer(const Duration(milliseconds: 350), () {
+          if (mounted) {
+            setState(() => _renderedHasLyrics = targetHasLyrics);
+          }
+        });
+      } else {
+        // Harmonized or No Change: Immediate update
+        _lyricDelayTimer?.cancel();
+        _renderedHasLyrics = targetHasLyrics;
+      }
+    } else if (_lyricDelayTimer == null &&
+        _renderedHasLyrics != targetHasLyrics) {
+      // If not changing tracks but lyrics status changed (e.g. loaded), update immediately
+      _renderedHasLyrics = targetHasLyrics;
+    }
+  }
 
   void _updatePalette(String coverDir, int? trackId) async {
     if (coverDir.isEmpty || trackId == null) return;
@@ -107,8 +155,9 @@ class _MusicDetailPageState extends ConsumerState<MusicDetailPage> {
     final subtitle = [artist, album].where((s) => s.isNotEmpty).join(' - ');
     final trackId = currentItem?.id;
 
+    final trackChanged = trackId != _previousTrackId;
     // Determine slide direction when track changes
-    if (trackId != _previousTrackId && _previousTrackId != null) {
+    if (trackChanged && _previousTrackId != null) {
       final len = queue.order.length;
       if (len > 1 && _previousOrderPos != null) {
         // Handle wrap-around cases (looping)
@@ -121,8 +170,6 @@ class _MusicDetailPageState extends ConsumerState<MusicDetailPage> {
         }
       }
     }
-    _previousOrderPos = queue.orderPos;
-    _previousTrackId = trackId;
 
     // Trigger palette update
     if (trackId != null) {
@@ -135,100 +182,125 @@ class _MusicDetailPageState extends ConsumerState<MusicDetailPage> {
     final positionMs = playback.positionMs;
     final durationMs = currentItem?.durationMs ?? 0;
 
+    // TODO: Connect to real lyrics availability when added to data model
+    final hasLyrics = false;
+    _updateLyricsState(hasLyrics, trackChanged);
+
+    // Finally update previous states for next build
+    _previousOrderPos = queue.orderPos;
+    _previousTrackId = trackId;
+
     return ShaderBackground(
       colors: _backgroundColors,
       child: Scaffold(
         backgroundColor: Colors.transparent,
-        body: Column(
-          children: [
-            if (Platform.isWindows || Platform.isLinux || Platform.isMacOS)
-              CustomTitleBar(foregroundColor: _foregroundColor),
-            // Custom App Bar Row
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  IconButton(
-                    icon: Icon(
-                      Icons.keyboard_arrow_down,
-                      color: _foregroundColor,
-                    ),
-                    tooltip: l10n.tooltipBack,
-                    onPressed: () => Navigator.of(context).pop(),
+        body: TweenAnimationBuilder<Color?>(
+          duration: const Duration(milliseconds: 600),
+          curve: Curves.easeInOut,
+          tween: ColorTween(end: _foregroundColor),
+          builder: (context, color, child) {
+            final effectiveColor = color ?? _foregroundColor;
+            return Column(
+              children: [
+                if (Platform.isWindows || Platform.isLinux || Platform.isMacOS)
+                  CustomTitleBar(
+                    foregroundColor: effectiveColor,
+                    showTitle: false,
                   ),
-                  IconButton(
-                    icon: Icon(Icons.more_vert, color: _foregroundColor),
-                    tooltip: l10n.menuMore,
-                    onPressed: () {
-                      // TODO: Show more options menu
+                // Custom App Bar Row
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      IconButton(
+                        icon: Icon(
+                          Icons.keyboard_arrow_down,
+                          color: effectiveColor,
+                        ),
+                        tooltip: l10n.tooltipBack,
+                        onPressed: () => Navigator.of(context).pop(),
+                      ),
+                      IconButton(
+                        icon: Icon(Icons.more_vert, color: effectiveColor),
+                        tooltip: l10n.menuMore,
+                        onPressed: () {
+                          // TODO: Show more options menu
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+                // Main content area
+                Expanded(
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final isWide = constraints.maxWidth > 700;
+                      final effectiveHasLyrics =
+                          _renderedHasLyrics ?? hasLyrics;
+
+                      if (isWide) {
+                        return _WideLayout(
+                          coverDir: coverDir,
+                          trackId: trackId,
+                          title: title,
+                          subtitle: subtitle,
+                          slideDirection: _slideDirection,
+                          foregroundColor: effectiveColor,
+                          currentPath: playback.currentPath,
+                          sampleRate: playback.trackInfo?.sampleRate,
+                          maxWidth: constraints.maxWidth,
+                          maxHeight: constraints.maxHeight,
+                          hasLyrics: effectiveHasLyrics,
+                        );
+                      }
+                      return _NarrowLayout(
+                        coverDir: coverDir,
+                        trackId: trackId,
+                        title: title,
+                        subtitle: subtitle,
+                        slideDirection: _slideDirection,
+                        foregroundColor: effectiveColor,
+                        currentPath: playback.currentPath,
+                        sampleRate: playback.trackInfo?.sampleRate,
+                        maxHeight: constraints.maxHeight,
+                        hasLyrics: effectiveHasLyrics,
+                      );
                     },
                   ),
-                ],
-              ),
-            ),
-            // Main content area
-            Expanded(
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final isWide = constraints.maxWidth > 700;
-                  final hasLyrics = (trackId ?? 0) % 2 == 0;
-
-                  if (isWide) {
-                    return _WideLayout(
-                      coverDir: coverDir,
-                      trackId: trackId,
-                      title: title,
-                      subtitle: subtitle,
-                      slideDirection: _slideDirection,
-                      foregroundColor: _foregroundColor,
-                      currentPath: playback.currentPath,
-                      sampleRate: playback.trackInfo?.sampleRate,
-                      maxWidth: constraints.maxWidth,
-                      maxHeight: constraints.maxHeight,
-                      hasLyrics: hasLyrics,
-                    );
-                  }
-                  return _NarrowLayout(
-                    coverDir: coverDir,
-                    trackId: trackId,
-                    title: title,
-                    subtitle: subtitle,
-                    slideDirection: _slideDirection,
-                    foregroundColor: _foregroundColor,
-                    currentPath: playback.currentPath,
-                    sampleRate: playback.trackInfo?.sampleRate,
-                    maxHeight: constraints.maxHeight,
-                    hasLyrics: hasLyrics,
-                  );
-                },
-              ),
-            ),
-            // Bottom playback bar
-            _BottomPlaybackBar(
-              positionMs: positionMs,
-              durationMs: durationMs,
-              isPlaying: isPlaying,
-              playMode: queue.playMode,
-              volume: playback.volume,
-              foregroundColor: _foregroundColor,
-              currentPath: playback.currentPath,
-              sampleRate: playback.trackInfo?.sampleRate,
-              onPlayPause: () => isPlaying
-                  ? ref.read(playbackControllerProvider.notifier).pause()
-                  : ref.read(playbackControllerProvider.notifier).play(),
-              onPrevious: () =>
-                  ref.read(playbackControllerProvider.notifier).previous(),
-              onNext: () =>
-                  ref.read(playbackControllerProvider.notifier).next(),
-              onSeek: (ms) =>
-                  ref.read(playbackControllerProvider.notifier).seekMs(ms),
-              onVolumeChanged: (v) =>
-                  ref.read(playbackControllerProvider.notifier).setVolume(v),
-              onPlayModeChanged: () =>
-                  ref.read(queueControllerProvider.notifier).cyclePlayMode(),
-            ),
-          ],
+                ),
+                // Bottom playback bar
+                _BottomPlaybackBar(
+                  positionMs: positionMs,
+                  durationMs: durationMs,
+                  isPlaying: isPlaying,
+                  playMode: queue.playMode,
+                  volume: playback.volume,
+                  foregroundColor: effectiveColor,
+                  currentPath: playback.currentPath,
+                  sampleRate: playback.trackInfo?.sampleRate,
+                  onPlayPause: () => isPlaying
+                      ? ref.read(playbackControllerProvider.notifier).pause()
+                      : ref.read(playbackControllerProvider.notifier).play(),
+                  onPrevious: () =>
+                      ref.read(playbackControllerProvider.notifier).previous(),
+                  onNext: () =>
+                      ref.read(playbackControllerProvider.notifier).next(),
+                  onSeek: (ms) =>
+                      ref.read(playbackControllerProvider.notifier).seekMs(ms),
+                  onVolumeChanged: (v) => ref
+                      .read(playbackControllerProvider.notifier)
+                      .setVolume(v),
+                  onPlayModeChanged: () => ref
+                      .read(queueControllerProvider.notifier)
+                      .cyclePlayMode(),
+                ),
+              ],
+            );
+          },
         ),
       ),
     );
@@ -305,45 +377,52 @@ class _WideLayout extends StatelessWidget {
                   Colors.black,
                   Colors.transparent,
                 ],
-                stops: [0.0, 0.08, 0.92, 1.0],
+                stops: [0.0, 0.06, 0.94, 1.0],
               ).createShader(bounds);
             },
             blendMode: BlendMode.dstIn,
             child: ClipRect(
+              clipBehavior: Clip.antiAlias,
               child: OverflowBox(
                 minWidth: 400,
                 maxWidth: double.infinity,
                 alignment: Alignment.center,
                 child: AnimatedPadding(
-                  duration: const Duration(milliseconds: 600),
-                  curve: Curves.easeInOutCubic,
+                  duration: const Duration(milliseconds: 800),
+                  curve: Curves.easeOutQuart,
                   padding: EdgeInsets.symmetric(
                     horizontal: hasLyrics ? 32 : (maxWidth * 0.05),
                   ),
-                  child: SyncedTransformSwitcher(
-                    slideOffset: slideOffset,
-                    moveScale: coverSize,
-                    duration: const Duration(milliseconds: 550),
-                    child: Padding(
-                      key: ValueKey('track-$trackId'),
-                      padding: const EdgeInsets.all(24),
-                      child: SizedBox(
-                        width:
-                            (hasLyrics ? (maxWidth / 2) : maxWidth) -
-                            (hasLyrics ? 64 : (maxWidth * 0.1)) -
-                            48.0,
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            _CoverImage(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: SizedBox(
+                      width:
+                          (hasLyrics ? (maxWidth / 2) : maxWidth) -
+                          (hasLyrics ? 64 : (maxWidth * 0.1)) -
+                          48.0,
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          SyncedTransformSwitcher(
+                            slideOffset: slideOffset,
+                            moveScale: coverSize,
+                            duration: const Duration(milliseconds: 550),
+                            crossFade: false,
+                            child: _CoverImage(
+                              key: ValueKey('cover-$trackId'),
                               coverDir: coverDir,
                               trackId: trackId,
                               size: coverSize,
                             ),
-                            SizedBox(
-                              height: (coverSize / 12).clamp(16.0, 40.0),
-                            ),
-                            ConstrainedBox(
+                          ),
+                          SizedBox(height: (coverSize / 12).clamp(16.0, 40.0)),
+                          SyncedTransformSwitcher(
+                            slideOffset: slideOffset,
+                            moveScale: coverSize,
+                            duration: const Duration(milliseconds: 550),
+                            crossFade: true,
+                            child: ConstrainedBox(
+                              key: ValueKey('text-$trackId'),
                               constraints: BoxConstraints(
                                 minHeight: (coverSize / 2.5).clamp(
                                   110.0,
@@ -385,8 +464,8 @@ class _WideLayout extends StatelessWidget {
                                 ],
                               ),
                             ),
-                          ],
-                        ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
@@ -401,8 +480,8 @@ class _WideLayout extends StatelessWidget {
             maxWidth: (maxWidth - 400).clamp(0.0, maxWidth / 2),
           ),
           child: AnimatedContainer(
-            duration: const Duration(milliseconds: 600),
-            curve: Curves.easeInOutCubic,
+            duration: const Duration(milliseconds: 800),
+            curve: Curves.easeOutQuart,
             width: hasLyrics ? (maxWidth / 2) : 0,
             child: ClipRect(
               child: OverflowBox(
@@ -493,30 +572,36 @@ class _NarrowLayout extends StatelessWidget {
             Colors.black,
             Colors.transparent,
           ],
-          stops: [0.0, 0.08, 0.92, 1.0],
+          stops: [0.0, 0.06, 0.94, 1.0],
         ).createShader(bounds);
       },
       blendMode: BlendMode.dstIn,
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
-        child: SyncedTransformSwitcher(
-          slideOffset: slideOffset,
-          moveScale: coverSize,
-          duration: const Duration(milliseconds: 550),
-          child: SizedBox(
-            width: (MediaQuery.sizeOf(context).width - 48.0),
-            child: Column(
-              key: ValueKey('track-$trackId'),
-              children: [
-                _CoverImage(
+        child: SizedBox(
+          width: (MediaQuery.sizeOf(context).width - 48.0),
+          child: Column(
+            children: [
+              SyncedTransformSwitcher(
+                slideOffset: slideOffset,
+                moveScale: coverSize,
+                duration: const Duration(milliseconds: 550),
+                crossFade: false,
+                child: _CoverImage(
+                  key: ValueKey('cover-$trackId'),
                   coverDir: coverDir,
                   trackId: trackId,
                   size: coverSize,
                 ),
-                SizedBox(height: (coverSize / 12).clamp(24.0, 48.0)),
-                // Constant height container for text to prevent jitter
-                // Use ConstrainedBox with minHeight to avoid overflow
-                ConstrainedBox(
+              ),
+              SizedBox(height: (coverSize / 12).clamp(24.0, 48.0)),
+              SyncedTransformSwitcher(
+                slideOffset: slideOffset,
+                moveScale: coverSize,
+                duration: const Duration(milliseconds: 550),
+                crossFade: true,
+                child: ConstrainedBox(
+                  key: ValueKey('text-$trackId'),
                   constraints: BoxConstraints(
                     minHeight: (coverSize * 0.45).clamp(110.0, 180.0),
                   ),
@@ -553,17 +638,17 @@ class _NarrowLayout extends StatelessWidget {
                     ],
                   ),
                 ),
-                if (hasLyrics) ...[
-                  SizedBox(height: (coverSize / 8).clamp(32.0, 64.0)),
-                  Text(
-                    l10n.noLyrics,
-                    style: theme.textTheme.titleLarge?.copyWith(
-                      color: foregroundColor.withValues(alpha: 0.6),
-                    ),
+              ),
+              if (hasLyrics) ...[
+                SizedBox(height: (coverSize / 8).clamp(32.0, 64.0)),
+                Text(
+                  l10n.noLyrics,
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    color: foregroundColor.withValues(alpha: 0.6),
                   ),
-                ],
+                ),
               ],
-            ),
+            ],
           ),
         ),
       ),
@@ -760,6 +845,7 @@ class _BottomPlaybackBarState extends State<_BottomPlaybackBar> {
 /// Cover image with placeholder fallback.
 class _CoverImage extends StatelessWidget {
   const _CoverImage({
+    super.key,
     required this.coverDir,
     required this.trackId,
     required this.size,
@@ -1235,12 +1321,14 @@ class SyncedTransformSwitcher extends StatefulWidget {
     required this.slideOffset, // e.g. 1.2 or -1.2
     required this.moveScale,
     this.duration = const Duration(milliseconds: 550),
+    this.crossFade = false,
   });
 
   final Widget child;
   final double slideOffset;
   final double moveScale;
   final Duration duration;
+  final bool crossFade;
 
   @override
   State<SyncedTransformSwitcher> createState() =>
@@ -1345,7 +1433,12 @@ class _SyncedTransformSwitcherState extends State<SyncedTransformSwitcher>
                   -_lastSlideOffset * outgoingMoveValue * moveScale,
                   0,
                 ),
-                child: _lastChild,
+                child: Opacity(
+                  opacity: widget.crossFade
+                      ? (1.0 - (controllerValue / 0.4)).clamp(0.0, 1.0)
+                      : 1.0,
+                  child: _lastChild,
+                ),
               ),
             // Incoming child
             Transform.translate(
@@ -1353,7 +1446,10 @@ class _SyncedTransformSwitcherState extends State<SyncedTransformSwitcher>
                 _lastSlideOffset * incomingMoveValue * moveScale,
                 0,
               ),
-              child: Opacity(opacity: incomingOpacity, child: widget.child),
+              child: Opacity(
+                opacity: widget.crossFade ? incomingOpacity : 1.0,
+                child: widget.child,
+              ),
             ),
           ],
         );

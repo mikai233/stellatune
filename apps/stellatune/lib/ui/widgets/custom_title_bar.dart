@@ -6,10 +6,12 @@ class CustomTitleBar extends StatelessWidget {
     super.key,
     this.foregroundColor = Colors.white,
     this.backgroundColor = Colors.transparent,
+    this.showTitle = true,
   });
 
   final Color foregroundColor;
   final Color backgroundColor;
+  final bool showTitle;
 
   @override
   Widget build(BuildContext context) {
@@ -23,14 +25,16 @@ class CustomTitleBar extends StatelessWidget {
               child: Container(
                 alignment: Alignment.centerLeft,
                 padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Text(
-                  'Stellatune',
-                  style: TextStyle(
-                    color: foregroundColor.withValues(alpha: 0.6),
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
+                child: showTitle
+                    ? Text(
+                        'Stellatune',
+                        style: TextStyle(
+                          color: foregroundColor.withValues(alpha: 0.6),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      )
+                    : const SizedBox.shrink(),
               ),
             ),
           ),
