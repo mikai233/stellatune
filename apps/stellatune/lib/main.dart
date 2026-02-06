@@ -20,7 +20,7 @@ Future<void> main() async {
     await windowManager.ensureInitialized();
     const windowOptions = WindowOptions(
       minimumSize: Size(900, 700),
-      size: Size(1280, 720),
+      size: Size(1000, 720),
       center: true,
       title: 'Stellatune',
       titleBarStyle: TitleBarStyle.hidden,

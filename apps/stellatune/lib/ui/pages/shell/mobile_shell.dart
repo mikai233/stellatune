@@ -1,0 +1,81 @@
+import 'package:flutter/material.dart';
+import 'package:stellatune/l10n/app_localizations.dart';
+import 'package:stellatune/ui/widgets/mobile_now_playing_bar.dart';
+
+class MobileShell extends StatelessWidget {
+  const MobileShell({
+    super.key,
+    required this.selectedIndex,
+    required this.onDestinationSelected,
+    required this.child,
+  });
+
+  final int selectedIndex;
+  final ValueChanged<int> onDestinationSelected;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final destinations = <NavigationDestination>[
+      NavigationDestination(
+        icon: const Icon(Icons.library_music_outlined),
+        selectedIcon: const Icon(Icons.library_music),
+        label: l10n.navLibrary,
+      ),
+      NavigationDestination(
+        icon: const Icon(Icons.queue_music_outlined),
+        selectedIcon: const Icon(Icons.queue_music),
+        label: l10n.navQueue,
+      ),
+      NavigationDestination(
+        icon: const Icon(Icons.settings_outlined),
+        selectedIcon: const Icon(Icons.settings),
+        label: l10n.navSettings,
+      ),
+    ];
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('Stellatune')),
+      drawer: Drawer(
+        child: ListView(
+          padding: EdgeInsets.zero,
+          children: [
+            DrawerHeader(
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.primary,
+              ),
+              child: Text(
+                'Stellatune',
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onPrimary,
+                  fontSize: 24,
+                ),
+              ),
+            ),
+            // Placeholder items
+            ListTile(
+              leading: const Icon(Icons.info),
+              title: const Text('About'),
+              onTap: () {
+                Navigator.pop(context);
+                // TODO: Navigate to About
+              },
+            ),
+          ],
+        ),
+      ),
+      body: Column(
+        children: [
+          Expanded(child: child),
+          const MobileNowPlayingBar(),
+        ],
+      ),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: selectedIndex,
+        onDestinationSelected: onDestinationSelected,
+        destinations: destinations,
+      ),
+    );
+  }
+}
