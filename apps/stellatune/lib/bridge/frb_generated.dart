@@ -71,7 +71,7 @@ class StellatuneApi
   String get codegenVersion => '2.11.1';
 
   @override
-  int get rustContentHash => -129326103;
+  int get rustContentHash => 1027187623;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -273,7 +273,12 @@ abstract class StellatuneApiApi extends BaseApi {
   Future<void> crateApiSetOutputDevice({
     required Player player,
     required AudioBackend backend,
-    String? deviceName,
+    String? deviceId,
+  });
+
+  Future<void> crateApiSetOutputOptions({
+    required Player player,
+    required bool matchTrackSampleRate,
   });
 
   Future<void> crateApiSetVolume({
@@ -1806,7 +1811,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   Future<void> crateApiSetOutputDevice({
     required Player player,
     required AudioBackend backend,
-    String? deviceName,
+    String? deviceId,
   }) {
     return handler.executeNormal(
       NormalTask(
@@ -1814,7 +1819,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_RustOpaque_Player(player, serializer);
           sse_encode_audio_backend(backend, serializer);
-          sse_encode_opt_String(deviceName, serializer);
+          sse_encode_opt_String(deviceId, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -1827,7 +1832,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           decodeErrorData: null,
         ),
         constMeta: kCrateApiSetOutputDeviceConstMeta,
-        argValues: [player, backend, deviceName],
+        argValues: [player, backend, deviceId],
         apiImpl: this,
       ),
     );
@@ -1835,7 +1840,41 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
 
   TaskConstMeta get kCrateApiSetOutputDeviceConstMeta => const TaskConstMeta(
     debugName: "set_output_device",
-    argNames: ["player", "backend", "deviceName"],
+    argNames: ["player", "backend", "deviceId"],
+  );
+
+  @override
+  Future<void> crateApiSetOutputOptions({
+    required Player player,
+    required bool matchTrackSampleRate,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_RustOpaque_Player(player, serializer);
+          sse_encode_bool(matchTrackSampleRate, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 47,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiSetOutputOptionsConstMeta,
+        argValues: [player, matchTrackSampleRate],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiSetOutputOptionsConstMeta => const TaskConstMeta(
+    debugName: "set_output_options",
+    argNames: ["player", "matchTrackSampleRate"],
   );
 
   @override
@@ -1852,7 +1891,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 47,
+            funcId: 48,
             port: port_,
           );
         },
@@ -1882,7 +1921,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 48,
+            funcId: 49,
             port: port_,
           );
         },
@@ -1964,11 +2003,12 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   AudioDevice dco_decode_audio_device(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 2)
-      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    if (arr.length != 3)
+      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
     return AudioDevice(
       backend: dco_decode_audio_backend(arr[0]),
-      name: dco_decode_String(arr[1]),
+      id: dco_decode_String(arr[1]),
+      name: dco_decode_String(arr[2]),
     );
   }
 
@@ -2435,8 +2475,9 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   AudioDevice sse_decode_audio_device(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_backend = sse_decode_audio_backend(deserializer);
+    var var_id = sse_decode_String(deserializer);
     var var_name = sse_decode_String(deserializer);
-    return AudioDevice(backend: var_backend, name: var_name);
+    return AudioDevice(backend: var_backend, id: var_id, name: var_name);
   }
 
   @protected
@@ -3047,6 +3088,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   void sse_encode_audio_device(AudioDevice self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_audio_backend(self.backend, serializer);
+    sse_encode_String(self.id, serializer);
     sse_encode_String(self.name, serializer);
   }
 

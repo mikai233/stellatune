@@ -36,7 +36,8 @@ pub(crate) fn start_session(
     events: Arc<EventHub>,
     internal_tx: Sender<InternalMsg>,
     backend: stellatune_output::AudioBackend,
-    device_name: Option<String>,
+    device_id: Option<String>,
+    match_track_sample_rate: bool,
     out_spec: OutputSpec,
     start_at_ms: i64,
     volume: Arc<AtomicU32>,
@@ -81,10 +82,28 @@ pub(crate) fn start_session(
         t_after_spawn.elapsed().as_millis()
     );
 
-    let capacity_samples =
-        ((out_spec.sample_rate as usize * out_spec.channels as usize * RING_BUFFER_CAPACITY_MS)
-            / 1000)
-            .max(1024);
+    let mut desired_out_spec = out_spec;
+    if match_track_sample_rate
+        && matches!(
+            backend,
+            stellatune_output::AudioBackend::WasapiExclusive
+                | stellatune_output::AudioBackend::Asio
+        )
+    {
+        let candidate = OutputSpec {
+            sample_rate: track_info.sample_rate,
+            channels: out_spec.channels,
+        };
+        if stellatune_output::supports_output_spec(backend, device_id.clone(), candidate) {
+            desired_out_spec = candidate;
+        }
+    }
+
+    let capacity_samples = ((desired_out_spec.sample_rate as usize
+        * desired_out_spec.channels as usize
+        * RING_BUFFER_CAPACITY_MS)
+        / 1000)
+        .max(1024);
     let (producer, consumer) = new_ring_buffer::<f32>(capacity_samples);
     debug!(
         "ring buffer capacity: {} samples (~{}ms)",
@@ -106,9 +125,9 @@ pub(crate) fn start_session(
     let t_output = Instant::now();
     let output = OutputHandle::start(
         backend,
-        device_name,
+        device_id,
         output_consumer,
-        out_spec,
+        desired_out_spec,
         move |err| {
             let _ = output_internal_tx.try_send(InternalMsg::OutputError(err.to_string()));
         },
@@ -125,8 +144,8 @@ pub(crate) fn start_session(
     setup_tx
         .send(DecodeCtrl::Setup {
             producer,
-            target_sample_rate: out_spec.sample_rate,
-            target_channels: out_spec.channels,
+            target_sample_rate: desired_out_spec.sample_rate,
+            target_channels: desired_out_spec.channels,
             start_at_ms,
             output_enabled: Arc::clone(&output_enabled),
             buffer_prefill_cap_ms: match backend {
@@ -146,8 +165,8 @@ pub(crate) fn start_session(
         volume,
         buffered_samples,
         underrun_callbacks,
-        out_sample_rate: out_spec.sample_rate,
-        out_channels: out_spec.channels,
+        out_sample_rate: desired_out_spec.sample_rate,
+        out_channels: desired_out_spec.channels,
         track_info,
     })
 }

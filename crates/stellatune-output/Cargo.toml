@@ -9,6 +9,7 @@ thiserror.workspace = true
 cpal.workspace = true
 anyhow.workspace = true
 serde.workspace = true
+stellatune-asio-proto = { workspace = true, features = ["shm"] }
 
 [target.'cfg(windows)'.dependencies]
 wasapi = "0.22.0"

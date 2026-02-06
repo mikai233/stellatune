@@ -1,0 +1,15 @@
+[package]
+name = "stellatune-asio-proto"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+postcard = { version = "1.1.3", features = ["use-std"] }
+thiserror = "2.0.18"
+memmap2 = { version = "0.9.5", optional = true }
+
+[features]
+default = []
+shm = ["dep:memmap2"]

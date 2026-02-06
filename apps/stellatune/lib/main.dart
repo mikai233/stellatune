@@ -39,7 +39,10 @@ Future<void> main() async {
   try {
     await bridge.setOutputDevice(
       backend: settings.selectedBackend,
-      deviceName: settings.selectedDeviceName,
+      deviceId: settings.selectedDeviceId,
+    );
+    await bridge.setOutputOptions(
+      matchTrackSampleRate: settings.matchTrackSampleRate,
     );
   } catch (_) {}
   final dbPath = await defaultLibraryDbPath();

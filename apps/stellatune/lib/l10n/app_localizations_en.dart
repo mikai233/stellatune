@@ -69,10 +69,17 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsBackendWasapiExclusive => 'Exclusive (WASAPI Exclusive)';
 
   @override
+  String get settingsBackendAsioExternal => 'ASIO (External)';
+
+  @override
   String get settingsDevice => 'Device';
 
   @override
   String get settingsDeviceDefault => 'System Default';
+
+  @override
+  String get settingsMatchTrackSampleRate =>
+      'Match track sample rate (Exclusive/ASIO)';
 
   @override
   String get settingsPluginsTitle => 'Plugins';

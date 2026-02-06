@@ -75,11 +75,19 @@ Future<void> refreshDevices({required Player player}) =>
 Future<void> setOutputDevice({
   required Player player,
   required AudioBackend backend,
-  String? deviceName,
+  String? deviceId,
 }) => StellatuneApi.instance.api.crateApiSetOutputDevice(
   player: player,
   backend: backend,
-  deviceName: deviceName,
+  deviceId: deviceId,
+);
+
+Future<void> setOutputOptions({
+  required Player player,
+  required bool matchTrackSampleRate,
+}) => StellatuneApi.instance.api.crateApiSetOutputOptions(
+  player: player,
+  matchTrackSampleRate: matchTrackSampleRate,
 );
 
 Future<Library> createLibrary({

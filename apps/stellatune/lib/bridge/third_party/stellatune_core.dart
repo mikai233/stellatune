@@ -15,12 +15,17 @@ enum AudioBackend { shared, wasapiExclusive, asio }
 
 class AudioDevice {
   final AudioBackend backend;
+  final String id;
   final String name;
 
-  const AudioDevice({required this.backend, required this.name});
+  const AudioDevice({
+    required this.backend,
+    required this.id,
+    required this.name,
+  });
 
   @override
-  int get hashCode => backend.hashCode ^ name.hashCode;
+  int get hashCode => backend.hashCode ^ id.hashCode ^ name.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -28,6 +33,7 @@ class AudioDevice {
       other is AudioDevice &&
           runtimeType == other.runtimeType &&
           backend == other.backend &&
+          id == other.id &&
           name == other.name;
 }
 

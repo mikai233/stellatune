@@ -138,11 +138,16 @@ pub fn refresh_devices(player: RustOpaque<Player>) {
 pub fn set_output_device(
     player: RustOpaque<Player>,
     backend: stellatune_core::AudioBackend,
-    device_name: Option<String>,
+    device_id: Option<String>,
 ) {
-    player.engine.send_command(Command::SetOutputDevice {
-        backend,
-        device_name,
+    player
+        .engine
+        .send_command(Command::SetOutputDevice { backend, device_id });
+}
+
+pub fn set_output_options(player: RustOpaque<Player>, match_track_sample_rate: bool) {
+    player.engine.send_command(Command::SetOutputOptions {
+        match_track_sample_rate,
     });
 }
 

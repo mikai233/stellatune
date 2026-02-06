@@ -148,7 +148,8 @@ struct EngineState {
     desired_dsp_chain: Vec<stellatune_core::DspChainItem>,
     lfe_mode: stellatune_core::LfeMode,
     selected_backend: stellatune_core::AudioBackend,
-    selected_device_name: Option<String>,
+    selected_device_id: Option<String>,
+    match_track_sample_rate: bool,
 }
 
 impl EngineState {
@@ -172,7 +173,8 @@ impl EngineState {
             desired_dsp_chain: Vec::new(),
             lfe_mode: stellatune_core::LfeMode::default(),
             selected_backend: stellatune_core::AudioBackend::Shared,
-            selected_device_name: None,
+            selected_device_id: None,
+            match_track_sample_rate: false,
         }
     }
 }
@@ -475,7 +477,8 @@ fn handle_command(
                                 stellatune_output::AudioBackend::Asio
                             }
                         },
-                        state.selected_device_name.clone(),
+                        state.selected_device_id.clone(),
+                        state.match_track_sample_rate,
                         out_spec,
                         state.position_ms,
                         Arc::clone(&state.volume_atomic),
@@ -591,12 +594,9 @@ fn handle_command(
             });
             set_state(state, events, PlayerState::Stopped);
         }
-        Command::SetOutputDevice {
-            backend,
-            device_name,
-        } => {
+        Command::SetOutputDevice { backend, device_id } => {
             state.selected_backend = backend;
-            state.selected_device_name = device_name;
+            state.selected_device_id = device_id;
             // Output spec depends on device/backend (sample rate/channels). Refresh it.
             state.cached_output_spec = None;
             state.output_spec_prewarm_inflight = false;
@@ -610,8 +610,28 @@ fn handle_command(
                 }
             }
         }
+        Command::SetOutputOptions {
+            match_track_sample_rate,
+        } => {
+            if state.match_track_sample_rate != match_track_sample_rate {
+                state.match_track_sample_rate = match_track_sample_rate;
+                if state.session.is_some() {
+                    stop_session(state, events, track_info);
+                    if state.wants_playback {
+                        state.pending_session_start = true;
+                    }
+                }
+            }
+        }
         Command::RefreshDevices => {
-            let devices = stellatune_output::list_host_devices()
+            let selected_backend = match state.selected_backend {
+                stellatune_core::AudioBackend::Shared => stellatune_output::AudioBackend::Shared,
+                stellatune_core::AudioBackend::WasapiExclusive => {
+                    stellatune_output::AudioBackend::WasapiExclusive
+                }
+                stellatune_core::AudioBackend::Asio => stellatune_output::AudioBackend::Asio,
+            };
+            let devices = stellatune_output::list_host_devices(Some(selected_backend))
                 .into_iter()
                 .map(|d| stellatune_core::AudioDevice {
                     backend: match d.backend {
@@ -625,6 +645,7 @@ fn handle_command(
                             stellatune_core::AudioBackend::Asio
                         }
                     },
+                    id: d.id,
                     name: d.name,
                 })
                 .collect();
@@ -676,13 +697,13 @@ fn ensure_output_spec_prewarm(state: &mut EngineState, internal_tx: &Sender<Inte
         }
         stellatune_core::AudioBackend::Asio => stellatune_output::AudioBackend::Asio,
     };
-    let device_name = state.selected_device_name.clone();
+    let device_id = state.selected_device_id.clone();
     let tx = internal_tx.clone();
     thread::Builder::new()
         .name("stellatune-output-spec".to_string())
         .spawn(move || {
             let t0 = Instant::now();
-            match output_spec_for_device(backend, device_name) {
+            match output_spec_for_device(backend, device_id) {
                 Ok(spec) => {
                     let _ = tx.send(InternalMsg::OutputSpecReady {
                         spec,
@@ -735,7 +756,8 @@ fn handle_tick(
                 }
                 stellatune_core::AudioBackend::Asio => stellatune_output::AudioBackend::Asio,
             },
-            state.selected_device_name.clone(),
+            state.selected_device_id.clone(),
+            state.match_track_sample_rate,
             out_spec,
             state.position_ms,
             Arc::clone(&state.volume_atomic),

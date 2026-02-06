@@ -46,38 +46,96 @@ impl Drop for WasapiExclusiveHandle {
     }
 }
 
-pub fn output_spec_for_exclusive_device(device_name: String) -> Result<OutputSpec, OutputError> {
+fn select_device(
+    enumerator: &DeviceEnumerator,
+    device_id: Option<&str>,
+) -> Result<wasapi::Device, OutputError> {
+    if device_id.is_none() {
+        return enumerator
+            .get_default_device(&Direction::Render)
+            .map_err(|e| OutputError::ConfigMismatch {
+                message: e.to_string(),
+            });
+    }
+    let sel = device_id.expect("checked");
+    let collection = enumerator
+        .get_device_collection(&Direction::Render)
+        .map_err(|e| OutputError::ConfigMismatch {
+            message: e.to_string(),
+        })?;
+    for d in collection.into_iter() {
+        if let Ok(dev) = d {
+            if dev.get_id().ok().as_deref() == Some(sel) {
+                return Ok(dev);
+            }
+        }
+    }
+    Err(OutputError::NoDevice)
+}
+
+pub fn supports_exclusive_spec(
+    device_id: Option<String>,
+    spec: OutputSpec,
+) -> Result<bool, OutputError> {
+    let _ = wasapi::initialize_mta();
+    let enumerator = DeviceEnumerator::new().map_err(|e| OutputError::ConfigMismatch {
+        message: e.to_string(),
+    })?;
+    let device = select_device(&enumerator, device_id.as_deref())?;
+    let audio_client = device
+        .get_iaudioclient()
+        .map_err(|e| OutputError::ConfigMismatch {
+            message: e.to_string(),
+        })?;
+
+    let requested = [
+        WaveFormat::new(
+            32,
+            32,
+            &SampleType::Float,
+            spec.sample_rate as usize,
+            spec.channels as usize,
+            None,
+        ),
+        WaveFormat::new(
+            16,
+            16,
+            &SampleType::Int,
+            spec.sample_rate as usize,
+            spec.channels as usize,
+            None,
+        ),
+        WaveFormat::new(
+            32,
+            32,
+            &SampleType::Int,
+            spec.sample_rate as usize,
+            spec.channels as usize,
+            None,
+        ),
+    ];
+
+    for fmt in requested {
+        if audio_client
+            .is_supported_exclusive_with_quirks(&fmt)
+            .is_ok()
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+pub fn output_spec_for_exclusive_device(
+    device_id: Option<String>,
+) -> Result<OutputSpec, OutputError> {
     let _ = wasapi::initialize_mta();
 
     let enumerator = DeviceEnumerator::new().map_err(|e| OutputError::ConfigMismatch {
         message: e.to_string(),
     })?;
 
-    let device = if device_name == "default" {
-        enumerator
-            .get_default_device(&Direction::Render)
-            .map_err(|e| OutputError::ConfigMismatch {
-                message: e.to_string(),
-            })?
-    } else {
-        enumerator
-            .get_device_collection(&Direction::Render)
-            .map_err(|e| OutputError::ConfigMismatch {
-                message: e.to_string(),
-            })?
-            .into_iter()
-            .find_map(|d| {
-                if let Ok(dev) = d {
-                    if let Ok(name) = dev.get_friendlyname() {
-                        if name == device_name {
-                            return Some(dev);
-                        }
-                    }
-                }
-                None
-            })
-            .ok_or_else(|| OutputError::NoDevice)?
-    };
+    let device = select_device(&enumerator, device_id.as_deref())?;
 
     let audio_client = device
         .get_iaudioclient()
@@ -99,7 +157,7 @@ pub fn output_spec_for_exclusive_device(device_name: String) -> Result<OutputSpe
 
 impl WasapiExclusiveHandle {
     pub fn start<C: SampleConsumer, F>(
-        device_name: String,
+        device_id: Option<String>,
         mut consumer: C,
         expected_spec: OutputSpec,
         on_error: F,
@@ -116,7 +174,7 @@ impl WasapiExclusiveHandle {
                 #[cfg(windows)]
                 let _mmcss = enable_mmcss_pro_audio();
                 if let Err(e) =
-                    run_exclusive_loop(device_name, &mut consumer, expected_spec, thread_shutdown)
+                    run_exclusive_loop(device_id, &mut consumer, expected_spec, thread_shutdown)
                 {
                     on_error(e.to_string());
                 }
@@ -137,7 +195,7 @@ impl WasapiExclusiveHandle {
 }
 
 fn run_exclusive_loop<C: SampleConsumer>(
-    device_name: String,
+    device_id: Option<String>,
     consumer: &mut C,
     expected_spec: OutputSpec,
     shutdown: Arc<AtomicBool>,
@@ -145,27 +203,8 @@ fn run_exclusive_loop<C: SampleConsumer>(
     let _ = wasapi::initialize_mta();
 
     let enumerator = DeviceEnumerator::new().map_err(|e| anyhow::anyhow!("{}", e))?;
-    let device = if device_name == "default" {
-        enumerator
-            .get_default_device(&Direction::Render)
-            .map_err(|e| anyhow::anyhow!("{}", e))?
-    } else {
-        enumerator
-            .get_device_collection(&Direction::Render)
-            .map_err(|e| anyhow::anyhow!("{}", e))?
-            .into_iter()
-            .find_map(|d| {
-                if let Ok(dev) = d {
-                    if let Ok(name) = dev.get_friendlyname() {
-                        if name == device_name {
-                            return Some(dev);
-                        }
-                    }
-                }
-                None
-            })
-            .ok_or_else(|| anyhow::anyhow!("device not found: {}", device_name))?
-    };
+    let device =
+        select_device(&enumerator, device_id.as_deref()).map_err(|e| anyhow::anyhow!("{e}"))?;
 
     let mut audio_client = device
         .get_iaudioclient()
@@ -229,9 +268,10 @@ fn run_exclusive_loop<C: SampleConsumer>(
     }
 
     let (format, sample_kind) = selected.ok_or_else(|| {
+        let dev_label = device_id.as_deref().unwrap_or("default");
         let mut details = format!(
             "Could not find a compatible format (exclusive): requested {}Hz {}ch for device \"{}\"",
-            expected_spec.sample_rate, expected_spec.channels, device_name
+            expected_spec.sample_rate, expected_spec.channels, dev_label
         );
         if let Some(mix) = &mix {
             let sub = mix.get_subformat().ok();
@@ -391,11 +431,13 @@ pub fn list_exclusive_devices_detailed() -> Result<Vec<crate::AudioDevice>, Outp
     let mut devices = Vec::new();
     for dev in collection.into_iter() {
         if let Ok(dev) = dev {
+            let id = dev.get_id().unwrap_or_else(|_| "unknown".to_string());
             let name = dev
                 .get_friendlyname()
                 .unwrap_or_else(|_| "Unknown WASAPI Device".to_string());
             devices.push(crate::AudioDevice {
                 backend: crate::AudioBackend::WasapiExclusive,
+                id,
                 name,
             });
         }

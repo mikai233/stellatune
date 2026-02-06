@@ -20,7 +20,8 @@ class SettingsStore {
   static const _keyDspChain = 'dsp_chain';
   static const _keyDisabledPlugins = 'disabled_plugins';
   static const _keySelectedBackend = 'selected_backend';
-  static const _keySelectedDeviceName = 'selected_device_name';
+  static const _keySelectedDeviceId = 'selected_device_id';
+  static const _keyMatchTrackSampleRate = 'match_track_sample_rate';
 
   final Box _box;
 
@@ -179,8 +180,22 @@ class SettingsStore {
   Future<void> setSelectedBackend(AudioBackend backend) =>
       _box.put(_keySelectedBackend, backend.name);
 
-  String? get selectedDeviceName => _box.get(_keySelectedDeviceName);
+  String? get selectedDeviceId {
+    final v = _box.get(_keySelectedDeviceId);
+    if (v is String && v.trim().isNotEmpty) return v;
+    return null;
+  }
 
-  Future<void> setSelectedDeviceName(String? name) =>
-      _box.put(_keySelectedDeviceName, name);
+  Future<void> setSelectedDeviceId(String? id) async {
+    await _box.put(_keySelectedDeviceId, id);
+  }
+
+  bool get matchTrackSampleRate {
+    final v = _box.get(_keyMatchTrackSampleRate, defaultValue: false);
+    if (v is bool) return v;
+    return false;
+  }
+
+  Future<void> setMatchTrackSampleRate(bool v) =>
+      _box.put(_keyMatchTrackSampleRate, v);
 }

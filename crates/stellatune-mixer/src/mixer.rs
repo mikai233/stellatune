@@ -6,9 +6,13 @@ use crate::{ChannelLayout, MixMatrix};
 ///
 /// # Example
 /// ```
-/// use stellatune_mixer::{ChannelLayout, ChannelMixer};
+/// use stellatune_mixer::{ChannelLayout, ChannelMixer, LfeMode};
 ///
-/// let mixer = ChannelMixer::new(ChannelLayout::Surround5_1, ChannelLayout::Stereo);
+/// let mixer = ChannelMixer::new(
+///     ChannelLayout::Surround5_1,
+///     ChannelLayout::Stereo,
+///     LfeMode::MixToFront,
+/// );
 /// let input_5_1 = vec![0.5; 6]; // One frame of 5.1 audio
 /// let output_stereo = mixer.mix(&input_5_1);
 /// assert_eq!(output_stereo.len(), 2);

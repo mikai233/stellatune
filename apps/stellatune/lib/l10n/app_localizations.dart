@@ -218,6 +218,12 @@ abstract class AppLocalizations {
   /// **'Exclusive (WASAPI Exclusive)'**
   String get settingsBackendWasapiExclusive;
 
+  /// No description provided for @settingsBackendAsioExternal.
+  ///
+  /// In en, this message translates to:
+  /// **'ASIO (External)'**
+  String get settingsBackendAsioExternal;
+
   /// No description provided for @settingsDevice.
   ///
   /// In en, this message translates to:
@@ -229,6 +235,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'System Default'**
   String get settingsDeviceDefault;
+
+  /// No description provided for @settingsMatchTrackSampleRate.
+  ///
+  /// In en, this message translates to:
+  /// **'Match track sample rate (Exclusive/ASIO)'**
+  String get settingsMatchTrackSampleRate;
 
   /// No description provided for @settingsPluginsTitle.
   ///

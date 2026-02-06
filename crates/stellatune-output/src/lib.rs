@@ -56,11 +56,15 @@ pub enum AudioBackend {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct AudioDevice {
     pub backend: AudioBackend,
+    pub id: String,
     pub name: String,
 }
 
 #[cfg(windows)]
 mod wasapi_exclusive;
+
+#[cfg(windows)]
+mod asio_external;
 
 pub enum OutputHandle {
     Shared {
@@ -69,9 +73,11 @@ pub enum OutputHandle {
     },
     #[cfg(windows)]
     Exclusive(wasapi_exclusive::WasapiExclusiveHandle),
+    #[cfg(windows)]
+    AsioExternal(asio_external::AsioExternalHandle),
 }
 
-pub fn list_host_devices() -> Vec<AudioDevice> {
+pub fn list_host_devices(selected_backend: Option<AudioBackend>) -> Vec<AudioDevice> {
     let mut shared_devices = Vec::new();
 
     // CPAL Shared Output
@@ -81,6 +87,7 @@ pub fn list_host_devices() -> Vec<AudioDevice> {
             let name = cpal_device_label(&device);
             shared_devices.push(AudioDevice {
                 backend: AudioBackend::Shared,
+                id: cpal_device_id(&device),
                 name,
             });
         }
@@ -115,6 +122,7 @@ pub fn list_host_devices() -> Vec<AudioDevice> {
                 *idx += 1;
                 final_devs.push(AudioDevice {
                     backend: d.backend,
+                    id: d.id,
                     name: format!("{} ({})", d.name, idx),
                 });
             } else {
@@ -126,7 +134,35 @@ pub fn list_host_devices() -> Vec<AudioDevice> {
 
     let mut all_devices = process_list(shared_devices);
     all_devices.extend(process_list(exclusive_devices));
+
+    #[cfg(windows)]
+    {
+        if matches!(selected_backend, Some(AudioBackend::Asio)) {
+            all_devices.extend(process_list(asio_external::list_asio_devices_via_host()));
+        }
+    }
+
     all_devices
+}
+
+pub fn supports_output_spec(
+    backend: AudioBackend,
+    device_id: Option<String>,
+    spec: OutputSpec,
+) -> bool {
+    match backend {
+        AudioBackend::Shared => true,
+        #[cfg(windows)]
+        AudioBackend::WasapiExclusive => {
+            wasapi_exclusive::supports_exclusive_spec(device_id, spec).unwrap_or(false)
+        }
+        #[cfg(not(windows))]
+        AudioBackend::WasapiExclusive => false,
+        #[cfg(windows)]
+        AudioBackend::Asio => asio_external::supports_asio_spec(device_id, spec).unwrap_or(false),
+        #[cfg(not(windows))]
+        AudioBackend::Asio => false,
+    }
 }
 
 fn cpal_device_label(device: &cpal::Device) -> String {
@@ -146,6 +182,14 @@ fn cpal_device_label(device: &cpal::Device) -> String {
     }
 }
 
+fn cpal_device_id(device: &cpal::Device) -> String {
+    device
+        .id()
+        .ok()
+        .map(|id| id.to_string())
+        .unwrap_or_else(|| cpal_device_label(device))
+}
+
 pub fn default_output_spec() -> Result<OutputSpec, OutputError> {
     let host = cpal::default_host();
     let device = host.default_output_device().ok_or(OutputError::NoDevice)?;
@@ -158,14 +202,14 @@ pub fn default_output_spec() -> Result<OutputSpec, OutputError> {
 
 pub fn output_spec_for_device(
     backend: AudioBackend,
-    device_name: Option<String>,
+    device_id: Option<String>,
 ) -> Result<OutputSpec, OutputError> {
     match backend {
         AudioBackend::Shared => {
             let host = cpal::default_host();
-            let device = if let Some(name) = device_name {
+            let device = if let Some(sel) = device_id {
                 host.output_devices()?
-                    .find(|d| cpal_device_label(d) == name)
+                    .find(|d| cpal_device_id(d) == sel)
                     .ok_or(OutputError::NoDevice)?
             } else {
                 host.default_output_device().ok_or(OutputError::NoDevice)?
@@ -177,13 +221,16 @@ pub fn output_spec_for_device(
             })
         }
         #[cfg(windows)]
-        AudioBackend::WasapiExclusive => wasapi_exclusive::output_spec_for_exclusive_device(
-            device_name.unwrap_or_else(|| "default".to_string()),
-        ),
+        AudioBackend::WasapiExclusive => {
+            wasapi_exclusive::output_spec_for_exclusive_device(device_id)
+        }
         #[cfg(not(windows))]
         AudioBackend::WasapiExclusive => Err(OutputError::NoDevice),
+        #[cfg(windows)]
+        AudioBackend::Asio => asio_external::output_spec_for_asio_device(device_id),
+        #[cfg(not(windows))]
         AudioBackend::Asio => Err(OutputError::ConfigMismatch {
-            message: "ASIO not implemented yet".to_string(),
+            message: "ASIO not supported on this platform".to_string(),
         }),
     }
 }
@@ -191,7 +238,7 @@ pub fn output_spec_for_device(
 impl OutputHandle {
     pub fn start<C: SampleConsumer, F>(
         backend: AudioBackend,
-        device_name: Option<String>,
+        device_id: Option<String>,
         mut consumer: C,
         expected_spec: OutputSpec,
         on_error: F,
@@ -202,12 +249,9 @@ impl OutputHandle {
         match backend {
             AudioBackend::Shared => {
                 let host = cpal::default_host();
-                let device = if let Some(name) = device_name {
+                let device = if let Some(sel) = device_id {
                     host.output_devices()?
-                        .find(|d| {
-                            let d_name = cpal_device_label(d);
-                            d_name == name
-                        })
+                        .find(|d| cpal_device_id(d) == sel)
                         .ok_or(OutputError::NoDevice)?
                 } else {
                     host.default_output_device().ok_or(OutputError::NoDevice)?
@@ -287,7 +331,7 @@ impl OutputHandle {
             #[cfg(windows)]
             AudioBackend::WasapiExclusive => {
                 let handle = wasapi_exclusive::WasapiExclusiveHandle::start(
-                    device_name.unwrap_or_else(|| "default".to_string()),
+                    device_id,
                     consumer,
                     expected_spec,
                     on_error,
@@ -296,8 +340,14 @@ impl OutputHandle {
             }
             #[cfg(not(windows))]
             AudioBackend::WasapiExclusive => Err(OutputError::NoDevice),
+            #[cfg(windows)]
+            AudioBackend::Asio => {
+                asio_external::start_asio_external(device_id, consumer, expected_spec, on_error)
+                    .map(Self::AsioExternal)
+            }
+            #[cfg(not(windows))]
             AudioBackend::Asio => Err(OutputError::ConfigMismatch {
-                message: "ASIO not implemented yet".to_string(),
+                message: "ASIO not supported on this platform".to_string(),
             }),
         }
     }
@@ -310,6 +360,8 @@ impl OutputHandle {
                 sample_rate: 0, // Not easily available without storing it
                 channels: 2,
             },
+            #[cfg(windows)]
+            Self::AsioExternal(h) => h.spec(),
         }
     }
 }

@@ -71,12 +71,15 @@ class PlayerBridge {
 
   Future<void> setOutputDevice({
     required AudioBackend backend,
-    String? deviceName,
-  }) => api.setOutputDevice(
-    player: player,
-    backend: backend,
-    deviceName: deviceName,
-  );
+    String? deviceId,
+  }) =>
+      api.setOutputDevice(player: player, backend: backend, deviceId: deviceId);
+
+  Future<void> setOutputOptions({required bool matchTrackSampleRate}) =>
+      api.setOutputOptions(
+        player: player,
+        matchTrackSampleRate: matchTrackSampleRate,
+      );
 }
 
 class LibraryBridge {

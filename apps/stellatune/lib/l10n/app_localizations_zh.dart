@@ -69,10 +69,16 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsBackendWasapiExclusive => '独占 (WASAPI Exclusive)';
 
   @override
+  String get settingsBackendAsioExternal => 'ASIO (外部进程)';
+
+  @override
   String get settingsDevice => '输出设备';
 
   @override
   String get settingsDeviceDefault => '系统默认';
+
+  @override
+  String get settingsMatchTrackSampleRate => '采样率匹配曲目（独占/ASIO）';
 
   @override
   String get settingsPluginsTitle => '插件';

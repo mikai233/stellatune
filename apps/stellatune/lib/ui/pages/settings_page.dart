@@ -338,6 +338,11 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                         value: AudioBackend.wasapiExclusive,
                         child: Text(l10n.settingsBackendWasapiExclusive),
                       ),
+                      if (Platform.isWindows)
+                        DropdownMenuItem(
+                          value: AudioBackend.asio,
+                          child: Text(l10n.settingsBackendAsioExternal),
+                        ),
                     ],
                     onChanged: (v) async {
                       if (v == null) return;
@@ -346,23 +351,24 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
 
                       // If the previously selected device isn't available on the new backend,
                       // fall back to Default (null) to avoid passing an invalid device name.
-                      var deviceName = settings.selectedDeviceName;
+                      var deviceId = settings.selectedDeviceId;
                       final available = _devices
                           .where((d) => d.backend == v)
-                          .map((d) => d.name)
+                          .map((d) => d.id)
                           .toSet();
-                      if (deviceName != null &&
+                      if (deviceId != null &&
                           available.isNotEmpty &&
-                          !available.contains(deviceName)) {
-                        deviceName = null;
-                        await settings.setSelectedDeviceName(null);
+                          !available.contains(deviceId)) {
+                        deviceId = null;
+                        await settings.setSelectedDeviceId(null);
                       }
 
                       final bridge = ref.read(playerBridgeProvider);
                       await bridge.setOutputDevice(
                         backend: v,
-                        deviceName: deviceName,
+                        deviceId: deviceId,
                       );
+                      bridge.refreshDevices();
                       setState(() {});
                     },
                   ),
@@ -376,16 +382,17 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                     value: () {
                       final selected = ref
                           .watch(settingsStoreProvider)
-                          .selectedDeviceName;
+                          .selectedDeviceId;
                       final backend = ref
                           .read(settingsStoreProvider)
                           .selectedBackend;
                       final available = _devices
                           .where((d) => d.backend == backend)
-                          .map((d) => d.name)
                           .toList();
 
-                      if (selected != null && !available.contains(selected)) {
+                      final availableIds = available.map((d) => d.id).toSet();
+                      if (selected != null &&
+                          !availableIds.contains(selected)) {
                         return null; // Fallback to Default
                       }
                       return selected;
@@ -393,7 +400,26 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                     items: [
                       DropdownMenuItem(
                         value: null,
-                        child: Text(l10n.settingsDeviceDefault),
+                        child: Text(() {
+                          final backend = ref
+                              .read(settingsStoreProvider)
+                              .selectedBackend;
+                          if (backend == AudioBackend.asio) {
+                            final available =
+                                _devices
+                                    .where((d) => d.backend == backend)
+                                    .toList()
+                                  ..sort((a, b) => a.name.compareTo(b.name));
+                            if (available.isNotEmpty) {
+                              final lang = Localizations.localeOf(
+                                context,
+                              ).languageCode;
+                              final title = lang == 'zh' ? '自动选择' : 'Auto';
+                              return '$title (${available.first.name})';
+                            }
+                          }
+                          return l10n.settingsDeviceDefault;
+                        }()),
                       ),
                       ..._devices
                           .where(
@@ -403,20 +429,46 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                           )
                           .map(
                             (d) => DropdownMenuItem(
-                              value: d.name,
+                              value: d.id,
                               child: Text(d.name),
                             ),
                           ),
                     ],
                     onChanged: (v) async {
                       final settings = ref.read(settingsStoreProvider);
-                      await settings.setSelectedDeviceName(v);
+                      await settings.setSelectedDeviceId(v);
                       final bridge = ref.read(playerBridgeProvider);
                       await bridge.setOutputDevice(
                         backend: settings.selectedBackend,
-                        deviceName: v,
+                        deviceId: v,
                       );
                       setState(() {});
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  Builder(
+                    builder: (context) {
+                      final settings = ref.watch(settingsStoreProvider);
+                      final backend = settings.selectedBackend;
+                      final enabled =
+                          backend == AudioBackend.asio ||
+                          backend == AudioBackend.wasapiExclusive;
+                      if (!enabled) return const SizedBox.shrink();
+                      return SwitchListTile(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(l10n.settingsMatchTrackSampleRate),
+                        value: settings.matchTrackSampleRate,
+                        onChanged: (v) async {
+                          await ref
+                              .read(settingsStoreProvider)
+                              .setMatchTrackSampleRate(v);
+                          await ref
+                              .read(playerBridgeProvider)
+                              .setOutputOptions(matchTrackSampleRate: v);
+                          setState(() {});
+                        },
+                      );
                     },
                   ),
                 ],

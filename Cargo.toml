@@ -2,6 +2,7 @@
 resolver = "3"
 members = [
   "crates/stellatune-audio",
+  "crates/stellatune-asio-proto",
   "crates/stellatune-core",
   "crates/stellatune-decode",
   "crates/stellatune-dsp",
@@ -14,6 +15,7 @@ members = [
   "crates/stellatune-plugin-sdk",
   "crates/stellatune-plugins",
 ]
+exclude = ["crates/stellatune-asio-host"]
 
 [workspace.package]
 license = "MIT"
@@ -23,6 +25,7 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(frb_expand)'] }
 
 [workspace.dependencies]
 stellatune-audio = { path = "crates/stellatune-audio" }
+stellatune-asio-proto = { path = "crates/stellatune-asio-proto" }
 stellatune-core = { path = "crates/stellatune-core" }
 stellatune-decode = { path = "crates/stellatune-decode" }
 stellatune-dsp = { path = "crates/stellatune-dsp" }

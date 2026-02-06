@@ -1,0 +1,16 @@
+[package]
+name = "stellatune-asio-host"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-only"
+
+[dependencies]
+stellatune-asio-proto = { path = "../stellatune-asio-proto", features = ["shm"] }
+
+# Note: enabling cpal's `asio` feature can pull the Steinberg ASIO SDK at build time
+# (depending on CPAL_ASIO_DIR / cache), and may require clang/bindgen.
+cpal = "0.17.1"
+
+[features]
+default = []
+asio = ["cpal/asio"]

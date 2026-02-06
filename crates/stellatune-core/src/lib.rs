@@ -31,6 +31,7 @@ pub enum AudioBackend {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AudioDevice {
     pub backend: AudioBackend,
+    pub id: String,
     pub name: String,
 }
 
@@ -55,7 +56,10 @@ pub enum Command {
     Shutdown,
     SetOutputDevice {
         backend: AudioBackend,
-        device_name: Option<String>,
+        device_id: Option<String>,
+    },
+    SetOutputOptions {
+        match_track_sample_rate: bool,
     },
     RefreshDevices,
 }
