@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -171,6 +172,8 @@ class _MusicDetailPageState extends ConsumerState<MusicDetailPage> {
               child: LayoutBuilder(
                 builder: (context, constraints) {
                   final isWide = constraints.maxWidth > 700;
+                  final hasLyrics = (trackId ?? 0) % 2 == 0;
+
                   if (isWide) {
                     return _WideLayout(
                       coverDir: coverDir,
@@ -181,6 +184,9 @@ class _MusicDetailPageState extends ConsumerState<MusicDetailPage> {
                       foregroundColor: _foregroundColor,
                       currentPath: playback.currentPath,
                       sampleRate: playback.trackInfo?.sampleRate,
+                      maxWidth: constraints.maxWidth,
+                      maxHeight: constraints.maxHeight,
+                      hasLyrics: hasLyrics,
                     );
                   }
                   return _NarrowLayout(
@@ -192,6 +198,8 @@ class _MusicDetailPageState extends ConsumerState<MusicDetailPage> {
                     foregroundColor: _foregroundColor,
                     currentPath: playback.currentPath,
                     sampleRate: playback.trackInfo?.sampleRate,
+                    maxHeight: constraints.maxHeight,
+                    hasLyrics: hasLyrics,
                   );
                 },
               ),
@@ -238,6 +246,9 @@ class _WideLayout extends StatelessWidget {
     required this.foregroundColor,
     this.currentPath,
     this.sampleRate,
+    required this.maxWidth,
+    required this.maxHeight,
+    required this.hasLyrics,
   });
 
   final String coverDir;
@@ -248,89 +259,168 @@ class _WideLayout extends StatelessWidget {
   final Color foregroundColor;
   final String? currentPath;
   final int? sampleRate;
+  final double maxWidth;
+  final double maxHeight;
+  final bool hasLyrics;
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
+
+    // Dynamic scaling based on available height and width
+    // Limit cover size to at most 65% of screen height or width
+    final baseSize = min(maxWidth * (hasLyrics ? 0.45 : 0.6), maxHeight * 0.55);
+    final coverSize = baseSize.clamp(280.0, 600.0);
+
+    // Font size scaling (relative to cover size)
+    final titleFontSize = (coverSize / 11).clamp(22.0, 48.0);
+    final subtitleFontSize = (coverSize / 17).clamp(14.0, 24.0);
+
     final textStyle = theme.textTheme.headlineSmall?.copyWith(
       fontWeight: FontWeight.bold,
       color: foregroundColor,
+      fontSize: titleFontSize,
     );
     final subtitleStyle = theme.textTheme.bodyLarge?.copyWith(
       color: foregroundColor.withValues(alpha: 0.7),
+      fontSize: subtitleFontSize,
     );
 
     // Slide offset for the carousel effect (must be > 1.0 for a physical gap)
-    final slideOffset = slideDirection >= 0 ? 1.01 : -1.01;
+    final slideOffset = slideDirection >= 0 ? 1.05 : -1.05;
 
     return Row(
       children: [
         // Left side: Cover + Info
         Expanded(
-          flex: 1,
-          child: SyncedTransformSwitcher(
-            slideOffset: slideOffset,
-            duration: const Duration(milliseconds: 550),
-            child: Padding(
-              key: ValueKey('track-$trackId'),
-              padding: const EdgeInsets.all(32),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  _CoverImage(coverDir: coverDir, trackId: trackId, size: 340),
-                  const SizedBox(height: 24),
-                  // Constant height container for text to prevent jitter
-                  SizedBox(
-                    height: 100,
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.start,
-                      children: [
-                        Text(
-                          title,
-                          style: textStyle,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          textAlign: TextAlign.center,
-                        ),
-                        if (subtitle.isNotEmpty) ...[
-                          const SizedBox(height: 8),
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              if (currentPath != null) ...[
-                                AudioFormatBadge(
-                                  path: currentPath!,
-                                  sampleRate: sampleRate,
-                                ),
-                                const SizedBox(width: 4),
-                              ],
-                              Flexible(
-                                child: MarqueeText(
-                                  text: subtitle,
-                                  style: subtitleStyle,
-                                  textAlign: TextAlign.center,
+          child: ShaderMask(
+            shaderCallback: (Rect bounds) {
+              return const LinearGradient(
+                begin: Alignment.centerLeft,
+                end: Alignment.centerRight,
+                colors: [
+                  Colors.transparent,
+                  Colors.black,
+                  Colors.black,
+                  Colors.transparent,
+                ],
+                stops: [0.0, 0.08, 0.92, 1.0],
+              ).createShader(bounds);
+            },
+            blendMode: BlendMode.dstIn,
+            child: ClipRect(
+              child: OverflowBox(
+                minWidth: 400,
+                maxWidth: double.infinity,
+                alignment: Alignment.center,
+                child: AnimatedPadding(
+                  duration: const Duration(milliseconds: 600),
+                  curve: Curves.easeInOutCubic,
+                  padding: EdgeInsets.symmetric(
+                    horizontal: hasLyrics ? 32 : (maxWidth * 0.05),
+                  ),
+                  child: SyncedTransformSwitcher(
+                    slideOffset: slideOffset,
+                    moveScale: coverSize,
+                    duration: const Duration(milliseconds: 550),
+                    child: Padding(
+                      key: ValueKey('track-$trackId'),
+                      padding: const EdgeInsets.all(24),
+                      child: SizedBox(
+                        width:
+                            (hasLyrics ? (maxWidth / 2) : maxWidth) -
+                            (hasLyrics ? 64 : (maxWidth * 0.1)) -
+                            48.0,
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            _CoverImage(
+                              coverDir: coverDir,
+                              trackId: trackId,
+                              size: coverSize,
+                            ),
+                            SizedBox(
+                              height: (coverSize / 12).clamp(16.0, 40.0),
+                            ),
+                            ConstrainedBox(
+                              constraints: BoxConstraints(
+                                minHeight: (coverSize / 2.5).clamp(
+                                  110.0,
+                                  220.0,
                                 ),
                               ),
-                            ],
-                          ),
-                        ],
-                      ],
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  MarqueeText(
+                                    text: title,
+                                    style: textStyle,
+                                    textAlign: TextAlign.center,
+                                  ),
+                                  if (subtitle.isNotEmpty) ...[
+                                    SizedBox(
+                                      height: (coverSize / 40).clamp(4.0, 12.0),
+                                    ),
+                                    Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        if (currentPath != null) ...[
+                                          AudioFormatBadge(
+                                            path: currentPath!,
+                                            sampleRate: sampleRate,
+                                          ),
+                                          const SizedBox(width: 4),
+                                        ],
+                                        Flexible(
+                                          child: MarqueeText(
+                                            text: subtitle,
+                                            style: subtitleStyle,
+                                            textAlign: TextAlign.center,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
                   ),
-                ],
+                ),
               ),
             ),
           ),
         ),
-        // Right side: Lyrics placeholder
-        Expanded(
-          flex: 1,
-          child: Center(
-            child: Text(
-              l10n.noLyrics,
-              style: theme.textTheme.titleLarge?.copyWith(
-                color: foregroundColor.withValues(alpha: 0.6),
+        // Right side: Lyrics area
+        ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: (maxWidth - 400).clamp(0.0, maxWidth / 2),
+          ),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 600),
+            curve: Curves.easeInOutCubic,
+            width: hasLyrics ? (maxWidth / 2) : 0,
+            child: ClipRect(
+              child: OverflowBox(
+                minWidth: maxWidth / 2,
+                maxWidth: maxWidth / 2,
+                alignment: Alignment.center,
+                child: AnimatedOpacity(
+                  duration: const Duration(milliseconds: 400),
+                  opacity: hasLyrics ? 1.0 : 0.0,
+                  child: Center(
+                    child: Text(
+                      l10n.noLyrics,
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        color: foregroundColor.withValues(alpha: 0.6),
+                      ),
+                    ),
+                  ),
+                ),
               ),
             ),
           ),
@@ -351,6 +441,8 @@ class _NarrowLayout extends StatelessWidget {
     required this.foregroundColor,
     this.currentPath,
     this.sampleRate,
+    required this.maxHeight,
+    required this.hasLyrics,
   });
 
   final String coverDir;
@@ -361,78 +453,118 @@ class _NarrowLayout extends StatelessWidget {
   final Color foregroundColor;
   final String? currentPath;
   final int? sampleRate;
+  final double maxHeight;
+  final bool hasLyrics;
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
+
+    // Dynamic scaling for narrow layout
+    // Cover size mostly determined by height, but capped by width
+    // Use MediaQuery as fallback or just use passed maxHeight if available
+    final coverSize = (maxHeight * 0.45).clamp(240.0, 500.0);
+
+    final titleFontSize = (coverSize / 12).clamp(20.0, 42.0);
+    final subtitleFontSize = (coverSize / 18).clamp(14.0, 20.0);
+
     final textStyle = theme.textTheme.headlineSmall?.copyWith(
       fontWeight: FontWeight.bold,
       color: foregroundColor,
+      fontSize: titleFontSize,
     );
     final subtitleStyle = theme.textTheme.bodyLarge?.copyWith(
       color: foregroundColor.withValues(alpha: 0.7),
+      fontSize: subtitleFontSize,
     );
 
     // Slide offset for the carousel effect
-    final slideOffset = slideDirection >= 0 ? 1.01 : -1.01;
+    final slideOffset = slideDirection >= 0 ? 1.05 : -1.05;
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
-      child: SyncedTransformSwitcher(
-        slideOffset: slideOffset,
-        duration: const Duration(milliseconds: 550),
-        child: Column(
-          key: ValueKey('track-$trackId'),
-          children: [
-            _CoverImage(coverDir: coverDir, trackId: trackId, size: 340),
-            const SizedBox(height: 32),
-            // Constant height container for text to prevent jitter
-            SizedBox(
-              height: 100,
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: textStyle,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
+    return ShaderMask(
+      shaderCallback: (Rect bounds) {
+        return const LinearGradient(
+          begin: Alignment.centerLeft,
+          end: Alignment.centerRight,
+          colors: [
+            Colors.transparent,
+            Colors.black,
+            Colors.black,
+            Colors.transparent,
+          ],
+          stops: [0.0, 0.08, 0.92, 1.0],
+        ).createShader(bounds);
+      },
+      blendMode: BlendMode.dstIn,
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: SyncedTransformSwitcher(
+          slideOffset: slideOffset,
+          moveScale: coverSize,
+          duration: const Duration(milliseconds: 550),
+          child: SizedBox(
+            width: (MediaQuery.sizeOf(context).width - 48.0),
+            child: Column(
+              key: ValueKey('track-$trackId'),
+              children: [
+                _CoverImage(
+                  coverDir: coverDir,
+                  trackId: trackId,
+                  size: coverSize,
+                ),
+                SizedBox(height: (coverSize / 12).clamp(24.0, 48.0)),
+                // Constant height container for text to prevent jitter
+                // Use ConstrainedBox with minHeight to avoid overflow
+                ConstrainedBox(
+                  constraints: BoxConstraints(
+                    minHeight: (coverSize * 0.45).clamp(110.0, 180.0),
                   ),
-                  if (subtitle.isNotEmpty) ...[
-                    const SizedBox(height: 8),
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        if (currentPath != null) ...[
-                          AudioFormatBadge(
-                            path: currentPath!,
-                            sampleRate: sampleRate,
-                          ),
-                          const SizedBox(width: 4),
-                        ],
-                        Flexible(
-                          child: MarqueeText(
-                            text: subtitle,
-                            style: subtitleStyle,
-                            textAlign: TextAlign.center,
-                          ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      MarqueeText(
+                        text: title,
+                        style: textStyle,
+                        textAlign: TextAlign.center,
+                      ),
+                      if (subtitle.isNotEmpty) ...[
+                        SizedBox(height: (coverSize / 40).clamp(6.0, 12.0)),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (currentPath != null) ...[
+                              AudioFormatBadge(
+                                path: currentPath!,
+                                sampleRate: sampleRate,
+                              ),
+                              const SizedBox(width: 4),
+                            ],
+                            Flexible(
+                              child: MarqueeText(
+                                text: subtitle,
+                                style: subtitleStyle,
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
+                          ],
                         ),
                       ],
+                    ],
+                  ),
+                ),
+                if (hasLyrics) ...[
+                  SizedBox(height: (coverSize / 8).clamp(32.0, 64.0)),
+                  Text(
+                    l10n.noLyrics,
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      color: foregroundColor.withValues(alpha: 0.6),
                     ),
-                  ],
+                  ),
                 ],
-              ),
+              ],
             ),
-            const SizedBox(height: 48),
-            Text(
-              l10n.noLyrics,
-              style: theme.textTheme.titleLarge?.copyWith(
-                color: foregroundColor.withValues(alpha: 0.6),
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -1101,11 +1233,13 @@ class SyncedTransformSwitcher extends StatefulWidget {
     super.key,
     required this.child,
     required this.slideOffset, // e.g. 1.2 or -1.2
-    required this.duration,
+    required this.moveScale,
+    this.duration = const Duration(milliseconds: 550),
   });
 
   final Widget child;
   final double slideOffset;
+  final double moveScale;
   final Duration duration;
 
   @override
@@ -1178,72 +1312,50 @@ class _SyncedTransformSwitcherState extends State<SyncedTransformSwitcher>
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        return ShaderMask(
-          shaderCallback: (Rect bounds) {
-            return const LinearGradient(
-              begin: Alignment.centerLeft,
-              end: Alignment.centerRight,
-              colors: [
-                Colors.transparent,
-                Colors.black,
-                Colors.black,
-                Colors.transparent,
-              ],
-              stops: [0.0, 0.02, 0.98, 1.0],
-            ).createShader(bounds);
-          },
-          blendMode: BlendMode.dstIn,
-          child: ClipRect(
-            child: AnimatedBuilder(
-              animation: _controller,
-              builder: (context, _) {
-                final controllerValue = _controller.value;
-                final animValue = _animation.value;
-                final isFinished = controllerValue >= 1.0;
-                const moveScale = 370.0;
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, _) {
+        final controllerValue = _controller.value;
+        final animValue = _animation.value;
+        final isFinished = controllerValue >= 1.0;
+        final moveScale = widget.moveScale;
 
-                // Incoming child follows the main animation sequence (glide + snap)
-                final incomingMoveValue = 1.0 - animValue;
+        // Incoming child follows the main animation sequence (glide + snap)
+        final incomingMoveValue = 1.0 - animValue;
+        final incomingOpacity = (controllerValue / 0.3).clamp(0.0, 1.0);
 
-                // Outgoing child follows the glide until impact at 50%, then "launched"
-                double outgoingMoveValue;
-                if (controllerValue <= 0.50) {
-                  outgoingMoveValue = animValue;
-                } else {
-                  // Explosive momentum transfer at 0.50
-                  final t = ((controllerValue - 0.50) / 0.50).clamp(0.0, 1.0);
-                  outgoingMoveValue =
-                      1.0 + Curves.easeInExpo.transform(t) * 4.5;
-                }
+        // Outgoing child follows the glide until impact at 50%, then "launched"
+        double outgoingMoveValue;
+        if (controllerValue <= 0.50) {
+          outgoingMoveValue = animValue;
+        } else {
+          // Explosive momentum transfer at 0.50
+          final t = ((controllerValue - 0.50) / 0.50).clamp(0.0, 1.0);
+          outgoingMoveValue = 1.0 + Curves.easeInExpo.transform(t) * 4.5;
+        }
 
-                return Stack(
-                  clipBehavior: Clip.none,
-                  alignment: Alignment.center,
-                  children: [
-                    // Outgoing child
-                    if (!isFinished && _lastChild != null)
-                      Transform.translate(
-                        offset: Offset(
-                          -_lastSlideOffset * outgoingMoveValue * moveScale,
-                          0,
-                        ),
-                        child: _lastChild,
-                      ),
-                    // Incoming child
-                    Transform.translate(
-                      offset: Offset(
-                        _lastSlideOffset * incomingMoveValue * moveScale,
-                        0,
-                      ),
-                      child: widget.child,
-                    ),
-                  ],
-                );
-              },
+        return Stack(
+          clipBehavior: Clip.none,
+          alignment: Alignment.center,
+          children: [
+            // Outgoing child
+            if (!isFinished && _lastChild != null)
+              Transform.translate(
+                offset: Offset(
+                  -_lastSlideOffset * outgoingMoveValue * moveScale,
+                  0,
+                ),
+                child: _lastChild,
+              ),
+            // Incoming child
+            Transform.translate(
+              offset: Offset(
+                _lastSlideOffset * incomingMoveValue * moveScale,
+                0,
+              ),
+              child: Opacity(opacity: incomingOpacity, child: widget.child),
             ),
-          ),
+          ],
         );
       },
     );

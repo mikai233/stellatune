@@ -19,7 +19,7 @@ Future<void> main() async {
   if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
     await windowManager.ensureInitialized();
     const windowOptions = WindowOptions(
-      minimumSize: Size(800, 700),
+      minimumSize: Size(900, 700),
       size: Size(1280, 720),
       center: true,
       title: 'Stellatune',
