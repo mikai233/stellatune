@@ -78,8 +78,17 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsDeviceDefault => 'System Default';
 
   @override
+  String settingsDeviceAutoWithName(String name) {
+    return 'Auto ($name)';
+  }
+
+  @override
   String get settingsMatchTrackSampleRate =>
       'Match track sample rate (Exclusive/ASIO)';
+
+  @override
+  String get settingsGaplessPlayback =>
+      'Gapless playback (prefer stream reuse)';
 
   @override
   String get settingsPluginsTitle => 'Plugins';

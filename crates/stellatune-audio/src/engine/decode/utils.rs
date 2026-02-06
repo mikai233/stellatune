@@ -63,7 +63,11 @@ pub(crate) fn write_pending(ctx: &mut DecodeContext) -> bool {
             break;
         }
 
-        let written = ctx.producer.push_slice(&ctx.out_pending[offset..]);
+        let written = if let Ok(mut producer) = ctx.producer.lock() {
+            producer.push_slice(&ctx.out_pending[offset..])
+        } else {
+            0
+        };
         offset += written;
         *ctx.frames_written =
             (*ctx.frames_written).saturating_add((written / ctx.out_channels) as u64);

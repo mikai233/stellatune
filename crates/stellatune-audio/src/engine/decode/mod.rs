@@ -52,7 +52,7 @@ pub(crate) fn decode_thread(
     let _ = spec_tx.send(Ok(info));
 
     let (
-        mut producer,
+        producer,
         target_sample_rate,
         target_channels,
         start_at_ms,
@@ -149,7 +149,10 @@ pub(crate) fn decode_thread(
 
     'main: loop {
         if playing && !output_enabled.load(Ordering::Acquire) {
-            let buffered_frames = (producer.len() / out_channels) as u64;
+            let buffered_frames = producer
+                .lock()
+                .map(|p| (p.len() / out_channels) as u64)
+                .unwrap_or(0);
             let buffered_ms = ((buffered_frames * 1000) / target_sample_rate.max(1) as u64) as i64;
             if buffered_ms >= buffer_prefill_cap_ms {
                 thread::sleep(Duration::from_millis(5));
@@ -164,7 +167,7 @@ pub(crate) fn decode_thread(
             post_mix_dsp: &mut post_mix_dsp,
             decoder: &mut decoder,
             resampler: &mut resampler,
-            producer: &mut producer,
+            producer: &producer,
             decode_pending: &mut decode_pending,
             out_pending: &mut out_pending,
             frames_written: &mut frames_written,
@@ -250,7 +253,9 @@ pub(crate) fn decode_thread(
 fn perform_seek(target_ms: i64, ctx: &mut DecodeContext) -> Result<(), String> {
     let target_ms = target_ms.max(0);
     ctx.output_enabled.store(false, Ordering::Release);
-    ctx.producer.clear();
+    if let Ok(mut producer) = ctx.producer.lock() {
+        producer.clear();
+    }
     ctx.decode_pending.clear();
     ctx.out_pending.clear();
     *ctx.frames_written = 0;
@@ -333,7 +338,11 @@ fn handle_playing_controls(ctx: &mut DecodeContext) -> bool {
 
 fn emit_position(ctx: &mut DecodeContext) {
     if ctx.last_emit.elapsed() >= Duration::from_millis(200) {
-        let buffered_frames = (ctx.producer.len() / ctx.out_channels) as u64;
+        let buffered_frames = ctx
+            .producer
+            .lock()
+            .map(|p| (p.len() / ctx.out_channels) as u64)
+            .unwrap_or(0);
         let played_frames = ctx.frames_written.saturating_sub(buffered_frames);
         let ms = ctx.base_ms.saturating_add(
             ((played_frames.saturating_mul(1000)) / ctx.target_sample_rate as u64) as i64,

@@ -22,6 +22,7 @@ class SettingsStore {
   static const _keySelectedBackend = 'selected_backend';
   static const _keySelectedDeviceId = 'selected_device_id';
   static const _keyMatchTrackSampleRate = 'match_track_sample_rate';
+  static const _keyGaplessPlayback = 'gapless_playback';
 
   final Box _box;
 
@@ -198,4 +199,12 @@ class SettingsStore {
 
   Future<void> setMatchTrackSampleRate(bool v) =>
       _box.put(_keyMatchTrackSampleRate, v);
+
+  bool get gaplessPlayback {
+    final v = _box.get(_keyGaplessPlayback, defaultValue: true);
+    if (v is bool) return v;
+    return true;
+  }
+
+  Future<void> setGaplessPlayback(bool v) => _box.put(_keyGaplessPlayback, v);
 }

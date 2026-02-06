@@ -85,9 +85,11 @@ Future<void> setOutputDevice({
 Future<void> setOutputOptions({
   required Player player,
   required bool matchTrackSampleRate,
+  required bool gaplessPlayback,
 }) => StellatuneApi.instance.api.crateApiSetOutputOptions(
   player: player,
   matchTrackSampleRate: matchTrackSampleRate,
+  gaplessPlayback: gaplessPlayback,
 );
 
 Future<Library> createLibrary({

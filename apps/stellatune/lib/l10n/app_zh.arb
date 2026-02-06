@@ -25,7 +25,16 @@
   "settingsBackendAsioExternal": "ASIO (外部进程)",
   "settingsDevice": "输出设备",
   "settingsDeviceDefault": "系统默认",
+  "settingsDeviceAutoWithName": "自动选择（{name}）",
+  "@settingsDeviceAutoWithName": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
   "settingsMatchTrackSampleRate": "采样率匹配曲目（独占/ASIO）",
+  "settingsGaplessPlayback": "无缝播放（优先复用输出流）",
   "settingsPluginsTitle": "插件",
   "settingsPluginDir": "插件目录",
   "settingsNoPlugins": "未安装任何插件。",

@@ -43,6 +43,7 @@ Future<void> main() async {
     );
     await bridge.setOutputOptions(
       matchTrackSampleRate: settings.matchTrackSampleRate,
+      gaplessPlayback: settings.gaplessPlayback,
     );
   } catch (_) {}
   final dbPath = await defaultLibraryDbPath();

@@ -4,6 +4,7 @@ use crate::engine::messages::{DecodeCtrl, InternalMsg};
 use crate::ring_buffer::RingBufferProducer;
 use crossbeam_channel::{Receiver, Sender};
 use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use stellatune_mixer::ChannelMixer;
 use stellatune_plugins::DspInstance;
@@ -15,7 +16,7 @@ pub(crate) struct DecodeContext<'a> {
     pub(crate) post_mix_dsp: &'a mut Vec<DspInstance>,
     pub(crate) decoder: &'a mut decoder::EngineDecoder,
     pub(crate) resampler: &'a mut Option<rubato::Async<f32>>,
-    pub(crate) producer: &'a mut RingBufferProducer<f32>,
+    pub(crate) producer: &'a Arc<Mutex<RingBufferProducer<f32>>>,
     pub(crate) decode_pending: &'a mut Vec<f32>,
     pub(crate) out_pending: &'a mut Vec<f32>,
     pub(crate) frames_written: &'a mut u64,

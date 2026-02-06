@@ -328,7 +328,9 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                       border: const OutlineInputBorder(),
                       isDense: true,
                     ),
-                    value: ref.watch(settingsStoreProvider).selectedBackend,
+                    initialValue: ref
+                        .watch(settingsStoreProvider)
+                        .selectedBackend,
                     items: [
                       DropdownMenuItem(
                         value: AudioBackend.shared,
@@ -379,7 +381,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                       border: const OutlineInputBorder(),
                       isDense: true,
                     ),
-                    value: () {
+                    initialValue: () {
                       final selected = ref
                           .watch(settingsStoreProvider)
                           .selectedDeviceId;
@@ -411,11 +413,9 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                                     .toList()
                                   ..sort((a, b) => a.name.compareTo(b.name));
                             if (available.isNotEmpty) {
-                              final lang = Localizations.localeOf(
-                                context,
-                              ).languageCode;
-                              final title = lang == 'zh' ? '自动选择' : 'Auto';
-                              return '$title (${available.first.name})';
+                              return l10n.settingsDeviceAutoWithName(
+                                available.first.name,
+                              );
                             }
                           }
                           return l10n.settingsDeviceDefault;
@@ -454,20 +454,44 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                           backend == AudioBackend.asio ||
                           backend == AudioBackend.wasapiExclusive;
                       if (!enabled) return const SizedBox.shrink();
-                      return SwitchListTile(
-                        dense: true,
-                        contentPadding: EdgeInsets.zero,
-                        title: Text(l10n.settingsMatchTrackSampleRate),
-                        value: settings.matchTrackSampleRate,
-                        onChanged: (v) async {
-                          await ref
-                              .read(settingsStoreProvider)
-                              .setMatchTrackSampleRate(v);
-                          await ref
-                              .read(playerBridgeProvider)
-                              .setOutputOptions(matchTrackSampleRate: v);
-                          setState(() {});
-                        },
+                      return Column(
+                        children: [
+                          SwitchListTile(
+                            dense: true,
+                            contentPadding: EdgeInsets.zero,
+                            title: Text(l10n.settingsMatchTrackSampleRate),
+                            value: settings.matchTrackSampleRate,
+                            onChanged: (v) async {
+                              final store = ref.read(settingsStoreProvider);
+                              await store.setMatchTrackSampleRate(v);
+                              await ref
+                                  .read(playerBridgeProvider)
+                                  .setOutputOptions(
+                                    matchTrackSampleRate: v,
+                                    gaplessPlayback: store.gaplessPlayback,
+                                  );
+                              setState(() {});
+                            },
+                          ),
+                          SwitchListTile(
+                            dense: true,
+                            contentPadding: EdgeInsets.zero,
+                            title: Text(l10n.settingsGaplessPlayback),
+                            value: settings.gaplessPlayback,
+                            onChanged: (v) async {
+                              final store = ref.read(settingsStoreProvider);
+                              await store.setGaplessPlayback(v);
+                              await ref
+                                  .read(playerBridgeProvider)
+                                  .setOutputOptions(
+                                    matchTrackSampleRate:
+                                        store.matchTrackSampleRate,
+                                    gaplessPlayback: v,
+                                  );
+                              setState(() {});
+                            },
+                          ),
+                        ],
                       );
                     },
                   ),

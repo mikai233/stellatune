@@ -78,7 +78,15 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsDeviceDefault => '系统默认';
 
   @override
+  String settingsDeviceAutoWithName(String name) {
+    return '自动选择（$name）';
+  }
+
+  @override
   String get settingsMatchTrackSampleRate => '采样率匹配曲目（独占/ASIO）';
+
+  @override
+  String get settingsGaplessPlayback => '无缝播放（优先复用输出流）';
 
   @override
   String get settingsPluginsTitle => '插件';

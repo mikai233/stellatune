@@ -25,7 +25,16 @@
   "settingsBackendAsioExternal": "ASIO (External)",
   "settingsDevice": "Device",
   "settingsDeviceDefault": "System Default",
+  "settingsDeviceAutoWithName": "Auto ({name})",
+  "@settingsDeviceAutoWithName": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
   "settingsMatchTrackSampleRate": "Match track sample rate (Exclusive/ASIO)",
+  "settingsGaplessPlayback": "Gapless playback (prefer stream reuse)",
   "settingsPluginsTitle": "Plugins",
   "settingsPluginDir": "Plugin dir",
   "settingsNoPlugins": "No plugins installed.",

@@ -236,11 +236,23 @@ abstract class AppLocalizations {
   /// **'System Default'**
   String get settingsDeviceDefault;
 
+  /// No description provided for @settingsDeviceAutoWithName.
+  ///
+  /// In en, this message translates to:
+  /// **'Auto ({name})'**
+  String settingsDeviceAutoWithName(String name);
+
   /// No description provided for @settingsMatchTrackSampleRate.
   ///
   /// In en, this message translates to:
   /// **'Match track sample rate (Exclusive/ASIO)'**
   String get settingsMatchTrackSampleRate;
+
+  /// No description provided for @settingsGaplessPlayback.
+  ///
+  /// In en, this message translates to:
+  /// **'Gapless playback (prefer stream reuse)'**
+  String get settingsGaplessPlayback;
 
   /// No description provided for @settingsPluginsTitle.
   ///

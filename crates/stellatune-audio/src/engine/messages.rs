@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::atomic::AtomicBool;
 
 use stellatune_output::OutputSpec;
@@ -8,7 +9,7 @@ use crate::ring_buffer::RingBufferProducer;
 
 pub(crate) enum DecodeCtrl {
     Setup {
-        producer: RingBufferProducer<f32>,
+        producer: Arc<Mutex<RingBufferProducer<f32>>>,
         target_sample_rate: u32,
         target_channels: u16,
         start_at_ms: i64,

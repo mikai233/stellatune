@@ -60,6 +60,7 @@ pub enum Command {
     },
     SetOutputOptions {
         match_track_sample_rate: bool,
+        gapless_playback: bool,
     },
     RefreshDevices,
 }

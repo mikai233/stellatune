@@ -16,7 +16,7 @@ use crate::engine::config::{
 };
 use crate::engine::event_hub::EventHub;
 use crate::engine::messages::{DecodeCtrl, EngineCtrl, InternalMsg};
-use crate::engine::session::{PlaybackSession, start_session};
+use crate::engine::session::{OutputPipeline, PlaybackSession, start_session};
 
 /// Handle used by higher layers (e.g. FFI) to drive the player.
 #[derive(Clone)]
@@ -150,6 +150,8 @@ struct EngineState {
     selected_backend: stellatune_core::AudioBackend,
     selected_device_id: Option<String>,
     match_track_sample_rate: bool,
+    gapless_playback: bool,
+    output_pipeline: Option<OutputPipeline>,
 }
 
 impl EngineState {
@@ -175,6 +177,8 @@ impl EngineState {
             selected_backend: stellatune_core::AudioBackend::Shared,
             selected_device_id: None,
             match_track_sample_rate: false,
+            gapless_playback: true,
+            output_pipeline: None,
         }
     }
 }
@@ -217,7 +221,7 @@ fn run_control_loop(
         }
     }
 
-    stop_session(&mut state, &events, &track_info);
+    stop_all_audio(&mut state, &events, &track_info);
     events.emit(Event::Log {
         message: "control thread exited".to_string(),
     });
@@ -264,7 +268,7 @@ fn handle_reload_plugins(
     disabled_ids: Vec<String>,
 ) {
     // Safe(v1): stop playback so no decode thread holds plugin instances.
-    stop_session(state, events, track_info);
+    stop_decode_session(state, events, track_info);
     state.wants_playback = false;
     state.play_request_started_at = None;
     state.pending_session_start = false;
@@ -317,14 +321,14 @@ fn handle_internal(
                     events.emit(Event::PlaybackEnded { path });
                 }
             }
-            stop_session(state, events, track_info);
+            stop_decode_session(state, events, track_info);
             state.wants_playback = false;
             state.play_request_started_at = None;
             set_state(state, events, PlayerState::Stopped);
         }
         InternalMsg::Error(message) => {
             events.emit(Event::Error { message });
-            stop_session(state, events, track_info);
+            stop_decode_session(state, events, track_info);
             state.wants_playback = false;
             state.play_request_started_at = None;
             set_state(state, events, PlayerState::Stopped);
@@ -344,14 +348,15 @@ fn handle_internal(
             });
 
             let Some(_path) = state.current_track.clone() else {
-                stop_session(state, events, track_info);
+                stop_all_audio(state, events, track_info);
                 state.wants_playback = false;
                 set_state(state, events, PlayerState::Stopped);
                 return;
             };
 
             let prev_state = state.player_state;
-            stop_session(state, events, track_info);
+            stop_decode_session(state, events, track_info);
+            drop_output_pipeline(state, events);
 
             // Force refresh output spec (device may have changed sample rate).
             state.cached_output_spec = None;
@@ -433,7 +438,7 @@ fn handle_command(
 ) -> bool {
     match cmd {
         Command::LoadTrack { path } => {
-            stop_session(state, events, track_info);
+            stop_decode_session(state, events, track_info);
             state.current_track = Some(path.clone());
             state.position_ms = 0;
             state.wants_playback = false;
@@ -479,11 +484,13 @@ fn handle_command(
                         },
                         state.selected_device_id.clone(),
                         state.match_track_sample_rate,
+                        state.gapless_playback,
                         out_spec,
                         state.position_ms,
                         Arc::clone(&state.volume_atomic),
                         Arc::clone(plugins),
                         state.lfe_mode,
+                        &mut state.output_pipeline,
                     ) {
                         Ok(session) => {
                             if let Ok(mut g) = track_info.lock() {
@@ -571,9 +578,6 @@ fn handle_command(
             let gain = ui_volume_to_gain(ui);
             state.volume = ui;
             state.volume_atomic.store(gain.to_bits(), Ordering::Relaxed);
-            if let Some(session) = state.session.as_ref() {
-                session.volume.store(gain.to_bits(), Ordering::Relaxed);
-            }
             // Emit UI volume so Flutter keeps the slider position stable.
             events.emit(Event::VolumeChanged { volume: ui });
         }
@@ -584,7 +588,7 @@ fn handle_command(
             }
         }
         Command::Stop => {
-            stop_session(state, events, track_info);
+            stop_decode_session(state, events, track_info);
             state.position_ms = 0;
             state.wants_playback = false;
             state.play_request_started_at = None;
@@ -602,24 +606,31 @@ fn handle_command(
             state.output_spec_prewarm_inflight = false;
             state.output_spec_token = state.output_spec_token.wrapping_add(1);
             ensure_output_spec_prewarm(state, internal_tx);
-            // Force a session restart if we are playing or have a session
             if state.session.is_some() {
-                stop_session(state, events, track_info);
-                if state.wants_playback {
-                    state.pending_session_start = true;
-                }
+                stop_decode_session(state, events, track_info);
+            }
+            drop_output_pipeline(state, events);
+            if state.wants_playback {
+                state.pending_session_start = true;
             }
         }
         Command::SetOutputOptions {
             match_track_sample_rate,
+            gapless_playback,
         } => {
-            if state.match_track_sample_rate != match_track_sample_rate {
+            let changed = state.match_track_sample_rate != match_track_sample_rate
+                || state.gapless_playback != gapless_playback;
+            if changed {
                 state.match_track_sample_rate = match_track_sample_rate;
+                state.gapless_playback = gapless_playback;
                 if state.session.is_some() {
-                    stop_session(state, events, track_info);
+                    stop_decode_session(state, events, track_info);
                     if state.wants_playback {
                         state.pending_session_start = true;
                     }
+                }
+                if !state.gapless_playback {
+                    drop_output_pipeline(state, events);
                 }
             }
         }
@@ -652,7 +663,7 @@ fn handle_command(
             events.emit(Event::OutputDevicesChanged { devices });
         }
         Command::Shutdown => {
-            stop_session(state, events, track_info);
+            stop_all_audio(state, events, track_info);
             state.wants_playback = false;
             state.play_request_started_at = None;
             state.pending_session_start = false;
@@ -758,11 +769,13 @@ fn handle_tick(
             },
             state.selected_device_id.clone(),
             state.match_track_sample_rate,
+            state.gapless_playback,
             out_spec,
             state.position_ms,
             Arc::clone(&state.volume_atomic),
             Arc::clone(plugins),
             state.lfe_mode,
+            &mut state.output_pipeline,
         ) {
             Ok(session) => {
                 if let Ok(mut g) = track_info.lock() {
@@ -908,7 +921,7 @@ fn apply_dsp_chain(
     Ok(())
 }
 
-fn stop_session(
+fn stop_decode_session(
     state: &mut EngineState,
     events: &Arc<EventHub>,
     track_info: &Arc<Mutex<Option<stellatune_core::TrackDecodeInfo>>>,
@@ -929,4 +942,22 @@ fn stop_session(
         message: "session stopped".to_string(),
     });
     info!("session stopped");
+}
+
+fn drop_output_pipeline(state: &mut EngineState, events: &Arc<EventHub>) {
+    if state.output_pipeline.take().is_some() {
+        events.emit(Event::Log {
+            message: "output pipeline dropped".to_string(),
+        });
+        info!("output pipeline dropped");
+    }
+}
+
+fn stop_all_audio(
+    state: &mut EngineState,
+    events: &Arc<EventHub>,
+    track_info: &Arc<Mutex<Option<stellatune_core::TrackDecodeInfo>>>,
+) {
+    stop_decode_session(state, events, track_info);
+    drop_output_pipeline(state, events);
 }

@@ -1804,11 +1804,16 @@ fn wire__crate__api__set_output_options_impl(
                 flutter_rust_bridge::for_generated::SseDeserializer::new(message);
             let api_player = <RustOpaqueMoi<Player>>::sse_decode(&mut deserializer);
             let api_match_track_sample_rate = <bool>::sse_decode(&mut deserializer);
+            let api_gapless_playback = <bool>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
                 transform_result_sse::<_, ()>((move || {
                     let output_ok = Result::<_, ()>::Ok({
-                        crate::api::set_output_options(api_player, api_match_track_sample_rate);
+                        crate::api::set_output_options(
+                            api_player,
+                            api_match_track_sample_rate,
+                            api_gapless_playback,
+                        );
                     })?;
                     Ok(output_ok)
                 })())

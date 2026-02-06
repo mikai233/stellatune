@@ -75,11 +75,14 @@ class PlayerBridge {
   }) =>
       api.setOutputDevice(player: player, backend: backend, deviceId: deviceId);
 
-  Future<void> setOutputOptions({required bool matchTrackSampleRate}) =>
-      api.setOutputOptions(
-        player: player,
-        matchTrackSampleRate: matchTrackSampleRate,
-      );
+  Future<void> setOutputOptions({
+    required bool matchTrackSampleRate,
+    required bool gaplessPlayback,
+  }) => api.setOutputOptions(
+    player: player,
+    matchTrackSampleRate: matchTrackSampleRate,
+    gaplessPlayback: gaplessPlayback,
+  );
 }
 
 class LibraryBridge {

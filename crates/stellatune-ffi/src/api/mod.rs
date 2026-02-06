@@ -145,9 +145,14 @@ pub fn set_output_device(
         .send_command(Command::SetOutputDevice { backend, device_id });
 }
 
-pub fn set_output_options(player: RustOpaque<Player>, match_track_sample_rate: bool) {
+pub fn set_output_options(
+    player: RustOpaque<Player>,
+    match_track_sample_rate: bool,
+    gapless_playback: bool,
+) {
     player.engine.send_command(Command::SetOutputOptions {
         match_track_sample_rate,
+        gapless_playback,
     });
 }
 
