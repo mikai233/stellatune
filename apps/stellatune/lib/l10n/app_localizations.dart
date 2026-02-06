@@ -332,6 +332,36 @@ abstract class AppLocalizations {
   /// **'DSP'**
   String get settingsDspTitle;
 
+  /// No description provided for @settingsLyricsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Lyrics'**
+  String get settingsLyricsTitle;
+
+  /// No description provided for @settingsLyricsCacheSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Store online lyrics in local SQLite cache for faster loading.'**
+  String get settingsLyricsCacheSubtitle;
+
+  /// No description provided for @settingsClearLyricsCache.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear lyrics cache'**
+  String get settingsClearLyricsCache;
+
+  /// No description provided for @settingsClearLyricsCacheDone.
+  ///
+  /// In en, this message translates to:
+  /// **'Lyrics cache cleared'**
+  String get settingsClearLyricsCacheDone;
+
+  /// No description provided for @settingsClearLyricsCacheFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to clear lyrics cache'**
+  String get settingsClearLyricsCacheFailed;
+
   /// No description provided for @settingsEnableGain.
   ///
   /// In en, this message translates to:
@@ -613,6 +643,48 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Repeat one'**
   String get playModeRepeatOne;
+
+  /// No description provided for @lyricsMoreShowLyrics.
+  ///
+  /// In en, this message translates to:
+  /// **'Show lyrics'**
+  String get lyricsMoreShowLyrics;
+
+  /// No description provided for @lyricsMoreHideLyrics.
+  ///
+  /// In en, this message translates to:
+  /// **'Hide lyrics'**
+  String get lyricsMoreHideLyrics;
+
+  /// No description provided for @lyricsMoreChooseCandidate.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose lyrics candidate'**
+  String get lyricsMoreChooseCandidate;
+
+  /// No description provided for @lyricsCandidatesLoadFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to load'**
+  String get lyricsCandidatesLoadFailed;
+
+  /// No description provided for @lyricsCandidatesEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'No candidate lyrics found'**
+  String get lyricsCandidatesEmpty;
+
+  /// No description provided for @lyricsCandidateApplied.
+  ///
+  /// In en, this message translates to:
+  /// **'Lyrics candidate applied'**
+  String get lyricsCandidateApplied;
+
+  /// No description provided for @lyricsCandidateApplyFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to apply lyrics candidate'**
+  String get lyricsCandidateApplyFailed;
 
   /// No description provided for @noLyrics.
   ///

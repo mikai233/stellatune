@@ -7,12 +7,14 @@ import 'package:palette_generator/palette_generator.dart';
 import 'package:stellatune/app/providers.dart';
 import 'package:stellatune/bridge/bridge.dart';
 import 'package:stellatune/l10n/app_localizations.dart';
+import 'package:stellatune/lyrics/lyrics_controller.dart';
 import 'package:stellatune/player/playback_controller.dart';
 import 'package:stellatune/player/queue_controller.dart';
 import 'package:stellatune/ui/widgets/dynamic_background.dart';
 
 import 'widgets/bottom_playback_bar.dart';
 import 'widgets/layouts.dart';
+import 'widgets/lyrics_more_options.dart';
 
 /// Full-screen music detail page tailored for mobile.
 class MobileMusicDetailPage extends ConsumerStatefulWidget {
@@ -41,6 +43,7 @@ class _MobileMusicDetailPageState extends ConsumerState<MobileMusicDetailPage> {
   @override
   void dispose() {
     _lyricDelayTimer?.cancel();
+    _lyricDelayTimer = null;
     super.dispose();
   }
 
@@ -67,6 +70,7 @@ class _MobileMusicDetailPageState extends ConsumerState<MobileMusicDetailPage> {
       if (isExpansionConflict || isContractionConflict) {
         _lyricDelayTimer?.cancel();
         _lyricDelayTimer = Timer(const Duration(milliseconds: 350), () {
+          _lyricDelayTimer = null;
           if (mounted) {
             setState(() => _renderedHasLyrics = targetHasLyrics);
           }
@@ -74,11 +78,16 @@ class _MobileMusicDetailPageState extends ConsumerState<MobileMusicDetailPage> {
       } else {
         // Harmonized or No Change: Immediate update
         _lyricDelayTimer?.cancel();
+        _lyricDelayTimer = null;
         _renderedHasLyrics = targetHasLyrics;
       }
-    } else if (_lyricDelayTimer == null &&
-        _renderedHasLyrics != targetHasLyrics) {
+      return;
+    }
+
+    if (_renderedHasLyrics != targetHasLyrics) {
       // If not changing tracks but lyrics status changed (e.g. loaded), update immediately
+      _lyricDelayTimer?.cancel();
+      _lyricDelayTimer = null;
       _renderedHasLyrics = targetHasLyrics;
     }
   }
@@ -144,6 +153,7 @@ class _MobileMusicDetailPageState extends ConsumerState<MobileMusicDetailPage> {
     final l10n = AppLocalizations.of(context)!;
     final playback = ref.watch(playbackControllerProvider);
     final queue = ref.watch(queueControllerProvider);
+    final lyrics = ref.watch(lyricsControllerProvider);
     final coverDir = ref.watch(coverDirProvider);
 
     final currentItem = queue.currentItem;
@@ -180,8 +190,7 @@ class _MobileMusicDetailPageState extends ConsumerState<MobileMusicDetailPage> {
     final positionMs = playback.positionMs;
     final durationMs = currentItem?.durationMs ?? 0;
 
-    // TODO: Connect to real lyrics availability when added to data model
-    final hasLyrics = false;
+    final hasLyrics = lyrics.enabled && lyrics.hasLyrics;
     _updateLyricsState(hasLyrics, trackChanged);
 
     // Finally update previous states for next build
@@ -218,13 +227,7 @@ class _MobileMusicDetailPageState extends ConsumerState<MobileMusicDetailPage> {
                           tooltip: l10n.tooltipBack,
                           onPressed: () => Navigator.of(context).pop(),
                         ),
-                        IconButton(
-                          icon: Icon(Icons.more_vert, color: effectiveColor),
-                          tooltip: l10n.menuMore,
-                          onPressed: () {
-                            // TODO: Show more options menu
-                          },
-                        ),
+                        LyricsMoreMenuButton(foregroundColor: effectiveColor),
                       ],
                     ),
                   ),
@@ -247,6 +250,8 @@ class _MobileMusicDetailPageState extends ConsumerState<MobileMusicDetailPage> {
                           sampleRate: playback.trackInfo?.sampleRate,
                           maxHeight: constraints.maxHeight,
                           hasLyrics: effectiveHasLyrics,
+                          lyricLines: lyrics.lines,
+                          currentLyricLineIndex: lyrics.currentLineIndex,
                         );
                       },
                     ),

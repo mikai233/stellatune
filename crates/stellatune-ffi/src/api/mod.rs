@@ -2,6 +2,7 @@ use std::sync::OnceLock;
 use std::thread;
 
 use crate::frb_generated::{RustOpaque, StreamSink};
+use crate::lyrics_service::LyricsService;
 use anyhow::Result;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::time::LocalTime;
@@ -9,7 +10,8 @@ use tracing_subscriber::fmt::time::LocalTime;
 use stellatune_audio::start_engine;
 use stellatune_core::{
     Command, DlnaHttpServerInfo, DlnaPositionInfo, DlnaRenderer, DlnaSsdpDevice, DlnaTransportInfo,
-    Event, LibraryCommand, LibraryEvent, TrackDecodeInfo,
+    Event, LibraryCommand, LibraryEvent, LyricsDoc, LyricsEvent, LyricsQuery,
+    LyricsSearchCandidate, TrackDecodeInfo,
 };
 use stellatune_library::start_library;
 
@@ -44,6 +46,7 @@ fn init_tracing() {
 
 pub struct Player {
     engine: stellatune_audio::EngineHandle,
+    lyrics: std::sync::Arc<LyricsService>,
 }
 
 impl Player {
@@ -52,6 +55,7 @@ impl Player {
         tracing::info!("creating player");
         Self {
             engine: start_engine(),
+            lyrics: LyricsService::new(),
         }
     }
 }
@@ -97,6 +101,62 @@ pub fn events(player: RustOpaque<Player>, sink: StreamSink<Event>) -> Result<()>
             }
         })
         .expect("failed to spawn stellatune-events thread");
+
+    Ok(())
+}
+
+pub fn lyrics_prepare(player: RustOpaque<Player>, query: LyricsQuery) -> Result<()> {
+    player.lyrics.prepare(query)
+}
+
+pub fn lyrics_prefetch(player: RustOpaque<Player>, query: LyricsQuery) -> Result<()> {
+    player.lyrics.prefetch(query)
+}
+
+pub async fn lyrics_search_candidates(
+    player: RustOpaque<Player>,
+    query: LyricsQuery,
+) -> Result<Vec<LyricsSearchCandidate>> {
+    player.lyrics.search_candidates(query).await
+}
+
+pub fn lyrics_apply_candidate(
+    player: RustOpaque<Player>,
+    track_key: String,
+    doc: LyricsDoc,
+) -> Result<()> {
+    player.lyrics.apply_candidate(track_key, doc)
+}
+
+pub fn lyrics_set_cache_db_path(player: RustOpaque<Player>, db_path: String) -> Result<()> {
+    player.lyrics.set_cache_db_path(db_path)
+}
+
+pub fn lyrics_clear_cache(player: RustOpaque<Player>) -> Result<()> {
+    player.lyrics.clear_cache()
+}
+
+pub fn lyrics_refresh_current(player: RustOpaque<Player>) -> Result<()> {
+    player.lyrics.refresh_current()
+}
+
+pub fn lyrics_set_position_ms(player: RustOpaque<Player>, position_ms: u64) {
+    player.lyrics.set_position_ms(position_ms);
+}
+
+pub fn lyrics_events(player: RustOpaque<Player>, sink: StreamSink<LyricsEvent>) -> Result<()> {
+    let rx = player.lyrics.subscribe_events();
+
+    thread::Builder::new()
+        .name("stellatune-lyrics-events".to_string())
+        .spawn(move || {
+            for event in rx.iter() {
+                if sink.add(event).is_err() {
+                    break;
+                }
+            }
+        })
+        .expect("failed to spawn stellatune-lyrics-events thread");
 
     Ok(())
 }

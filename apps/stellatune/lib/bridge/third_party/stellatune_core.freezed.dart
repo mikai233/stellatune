@@ -4277,3 +4277,987 @@ abstract class LibraryEvent_Log extends LibraryEvent {
   _$$LibraryEvent_LogImplCopyWith<_$LibraryEvent_LogImpl> get copyWith =>
       throw _privateConstructorUsedError;
 }
+
+/// @nodoc
+mixin _$LyricsEvent {
+  String get trackKey => throw _privateConstructorUsedError;
+  @optionalTypeArgs
+  TResult when<TResult extends Object?>({
+    required TResult Function(String trackKey) loading,
+    required TResult Function(String trackKey, LyricsDoc doc) ready,
+    required TResult Function(String trackKey, int lineIndex) cursor,
+    required TResult Function(String trackKey) empty,
+    required TResult Function(String trackKey, String message) error,
+  }) => throw _privateConstructorUsedError;
+  @optionalTypeArgs
+  TResult? whenOrNull<TResult extends Object?>({
+    TResult? Function(String trackKey)? loading,
+    TResult? Function(String trackKey, LyricsDoc doc)? ready,
+    TResult? Function(String trackKey, int lineIndex)? cursor,
+    TResult? Function(String trackKey)? empty,
+    TResult? Function(String trackKey, String message)? error,
+  }) => throw _privateConstructorUsedError;
+  @optionalTypeArgs
+  TResult maybeWhen<TResult extends Object?>({
+    TResult Function(String trackKey)? loading,
+    TResult Function(String trackKey, LyricsDoc doc)? ready,
+    TResult Function(String trackKey, int lineIndex)? cursor,
+    TResult Function(String trackKey)? empty,
+    TResult Function(String trackKey, String message)? error,
+    required TResult orElse(),
+  }) => throw _privateConstructorUsedError;
+  @optionalTypeArgs
+  TResult map<TResult extends Object?>({
+    required TResult Function(LyricsEvent_Loading value) loading,
+    required TResult Function(LyricsEvent_Ready value) ready,
+    required TResult Function(LyricsEvent_Cursor value) cursor,
+    required TResult Function(LyricsEvent_Empty value) empty,
+    required TResult Function(LyricsEvent_Error value) error,
+  }) => throw _privateConstructorUsedError;
+  @optionalTypeArgs
+  TResult? mapOrNull<TResult extends Object?>({
+    TResult? Function(LyricsEvent_Loading value)? loading,
+    TResult? Function(LyricsEvent_Ready value)? ready,
+    TResult? Function(LyricsEvent_Cursor value)? cursor,
+    TResult? Function(LyricsEvent_Empty value)? empty,
+    TResult? Function(LyricsEvent_Error value)? error,
+  }) => throw _privateConstructorUsedError;
+  @optionalTypeArgs
+  TResult maybeMap<TResult extends Object?>({
+    TResult Function(LyricsEvent_Loading value)? loading,
+    TResult Function(LyricsEvent_Ready value)? ready,
+    TResult Function(LyricsEvent_Cursor value)? cursor,
+    TResult Function(LyricsEvent_Empty value)? empty,
+    TResult Function(LyricsEvent_Error value)? error,
+    required TResult orElse(),
+  }) => throw _privateConstructorUsedError;
+
+  /// Create a copy of LyricsEvent
+  /// with the given fields replaced by the non-null parameter values.
+  @JsonKey(includeFromJson: false, includeToJson: false)
+  $LyricsEventCopyWith<LyricsEvent> get copyWith =>
+      throw _privateConstructorUsedError;
+}
+
+/// @nodoc
+abstract class $LyricsEventCopyWith<$Res> {
+  factory $LyricsEventCopyWith(
+    LyricsEvent value,
+    $Res Function(LyricsEvent) then,
+  ) = _$LyricsEventCopyWithImpl<$Res, LyricsEvent>;
+  @useResult
+  $Res call({String trackKey});
+}
+
+/// @nodoc
+class _$LyricsEventCopyWithImpl<$Res, $Val extends LyricsEvent>
+    implements $LyricsEventCopyWith<$Res> {
+  _$LyricsEventCopyWithImpl(this._value, this._then);
+
+  // ignore: unused_field
+  final $Val _value;
+  // ignore: unused_field
+  final $Res Function($Val) _then;
+
+  /// Create a copy of LyricsEvent
+  /// with the given fields replaced by the non-null parameter values.
+  @pragma('vm:prefer-inline')
+  @override
+  $Res call({Object? trackKey = null}) {
+    return _then(
+      _value.copyWith(
+            trackKey: null == trackKey
+                ? _value.trackKey
+                : trackKey // ignore: cast_nullable_to_non_nullable
+                      as String,
+          )
+          as $Val,
+    );
+  }
+}
+
+/// @nodoc
+abstract class _$$LyricsEvent_LoadingImplCopyWith<$Res>
+    implements $LyricsEventCopyWith<$Res> {
+  factory _$$LyricsEvent_LoadingImplCopyWith(
+    _$LyricsEvent_LoadingImpl value,
+    $Res Function(_$LyricsEvent_LoadingImpl) then,
+  ) = __$$LyricsEvent_LoadingImplCopyWithImpl<$Res>;
+  @override
+  @useResult
+  $Res call({String trackKey});
+}
+
+/// @nodoc
+class __$$LyricsEvent_LoadingImplCopyWithImpl<$Res>
+    extends _$LyricsEventCopyWithImpl<$Res, _$LyricsEvent_LoadingImpl>
+    implements _$$LyricsEvent_LoadingImplCopyWith<$Res> {
+  __$$LyricsEvent_LoadingImplCopyWithImpl(
+    _$LyricsEvent_LoadingImpl _value,
+    $Res Function(_$LyricsEvent_LoadingImpl) _then,
+  ) : super(_value, _then);
+
+  /// Create a copy of LyricsEvent
+  /// with the given fields replaced by the non-null parameter values.
+  @pragma('vm:prefer-inline')
+  @override
+  $Res call({Object? trackKey = null}) {
+    return _then(
+      _$LyricsEvent_LoadingImpl(
+        trackKey: null == trackKey
+            ? _value.trackKey
+            : trackKey // ignore: cast_nullable_to_non_nullable
+                  as String,
+      ),
+    );
+  }
+}
+
+/// @nodoc
+
+class _$LyricsEvent_LoadingImpl extends LyricsEvent_Loading {
+  const _$LyricsEvent_LoadingImpl({required this.trackKey}) : super._();
+
+  @override
+  final String trackKey;
+
+  @override
+  String toString() {
+    return 'LyricsEvent.loading(trackKey: $trackKey)';
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return identical(this, other) ||
+        (other.runtimeType == runtimeType &&
+            other is _$LyricsEvent_LoadingImpl &&
+            (identical(other.trackKey, trackKey) ||
+                other.trackKey == trackKey));
+  }
+
+  @override
+  int get hashCode => Object.hash(runtimeType, trackKey);
+
+  /// Create a copy of LyricsEvent
+  /// with the given fields replaced by the non-null parameter values.
+  @JsonKey(includeFromJson: false, includeToJson: false)
+  @override
+  @pragma('vm:prefer-inline')
+  _$$LyricsEvent_LoadingImplCopyWith<_$LyricsEvent_LoadingImpl> get copyWith =>
+      __$$LyricsEvent_LoadingImplCopyWithImpl<_$LyricsEvent_LoadingImpl>(
+        this,
+        _$identity,
+      );
+
+  @override
+  @optionalTypeArgs
+  TResult when<TResult extends Object?>({
+    required TResult Function(String trackKey) loading,
+    required TResult Function(String trackKey, LyricsDoc doc) ready,
+    required TResult Function(String trackKey, int lineIndex) cursor,
+    required TResult Function(String trackKey) empty,
+    required TResult Function(String trackKey, String message) error,
+  }) {
+    return loading(trackKey);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult? whenOrNull<TResult extends Object?>({
+    TResult? Function(String trackKey)? loading,
+    TResult? Function(String trackKey, LyricsDoc doc)? ready,
+    TResult? Function(String trackKey, int lineIndex)? cursor,
+    TResult? Function(String trackKey)? empty,
+    TResult? Function(String trackKey, String message)? error,
+  }) {
+    return loading?.call(trackKey);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult maybeWhen<TResult extends Object?>({
+    TResult Function(String trackKey)? loading,
+    TResult Function(String trackKey, LyricsDoc doc)? ready,
+    TResult Function(String trackKey, int lineIndex)? cursor,
+    TResult Function(String trackKey)? empty,
+    TResult Function(String trackKey, String message)? error,
+    required TResult orElse(),
+  }) {
+    if (loading != null) {
+      return loading(trackKey);
+    }
+    return orElse();
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult map<TResult extends Object?>({
+    required TResult Function(LyricsEvent_Loading value) loading,
+    required TResult Function(LyricsEvent_Ready value) ready,
+    required TResult Function(LyricsEvent_Cursor value) cursor,
+    required TResult Function(LyricsEvent_Empty value) empty,
+    required TResult Function(LyricsEvent_Error value) error,
+  }) {
+    return loading(this);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult? mapOrNull<TResult extends Object?>({
+    TResult? Function(LyricsEvent_Loading value)? loading,
+    TResult? Function(LyricsEvent_Ready value)? ready,
+    TResult? Function(LyricsEvent_Cursor value)? cursor,
+    TResult? Function(LyricsEvent_Empty value)? empty,
+    TResult? Function(LyricsEvent_Error value)? error,
+  }) {
+    return loading?.call(this);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult maybeMap<TResult extends Object?>({
+    TResult Function(LyricsEvent_Loading value)? loading,
+    TResult Function(LyricsEvent_Ready value)? ready,
+    TResult Function(LyricsEvent_Cursor value)? cursor,
+    TResult Function(LyricsEvent_Empty value)? empty,
+    TResult Function(LyricsEvent_Error value)? error,
+    required TResult orElse(),
+  }) {
+    if (loading != null) {
+      return loading(this);
+    }
+    return orElse();
+  }
+}
+
+abstract class LyricsEvent_Loading extends LyricsEvent {
+  const factory LyricsEvent_Loading({required final String trackKey}) =
+      _$LyricsEvent_LoadingImpl;
+  const LyricsEvent_Loading._() : super._();
+
+  @override
+  String get trackKey;
+
+  /// Create a copy of LyricsEvent
+  /// with the given fields replaced by the non-null parameter values.
+  @override
+  @JsonKey(includeFromJson: false, includeToJson: false)
+  _$$LyricsEvent_LoadingImplCopyWith<_$LyricsEvent_LoadingImpl> get copyWith =>
+      throw _privateConstructorUsedError;
+}
+
+/// @nodoc
+abstract class _$$LyricsEvent_ReadyImplCopyWith<$Res>
+    implements $LyricsEventCopyWith<$Res> {
+  factory _$$LyricsEvent_ReadyImplCopyWith(
+    _$LyricsEvent_ReadyImpl value,
+    $Res Function(_$LyricsEvent_ReadyImpl) then,
+  ) = __$$LyricsEvent_ReadyImplCopyWithImpl<$Res>;
+  @override
+  @useResult
+  $Res call({String trackKey, LyricsDoc doc});
+}
+
+/// @nodoc
+class __$$LyricsEvent_ReadyImplCopyWithImpl<$Res>
+    extends _$LyricsEventCopyWithImpl<$Res, _$LyricsEvent_ReadyImpl>
+    implements _$$LyricsEvent_ReadyImplCopyWith<$Res> {
+  __$$LyricsEvent_ReadyImplCopyWithImpl(
+    _$LyricsEvent_ReadyImpl _value,
+    $Res Function(_$LyricsEvent_ReadyImpl) _then,
+  ) : super(_value, _then);
+
+  /// Create a copy of LyricsEvent
+  /// with the given fields replaced by the non-null parameter values.
+  @pragma('vm:prefer-inline')
+  @override
+  $Res call({Object? trackKey = null, Object? doc = null}) {
+    return _then(
+      _$LyricsEvent_ReadyImpl(
+        trackKey: null == trackKey
+            ? _value.trackKey
+            : trackKey // ignore: cast_nullable_to_non_nullable
+                  as String,
+        doc: null == doc
+            ? _value.doc
+            : doc // ignore: cast_nullable_to_non_nullable
+                  as LyricsDoc,
+      ),
+    );
+  }
+}
+
+/// @nodoc
+
+class _$LyricsEvent_ReadyImpl extends LyricsEvent_Ready {
+  const _$LyricsEvent_ReadyImpl({required this.trackKey, required this.doc})
+    : super._();
+
+  @override
+  final String trackKey;
+  @override
+  final LyricsDoc doc;
+
+  @override
+  String toString() {
+    return 'LyricsEvent.ready(trackKey: $trackKey, doc: $doc)';
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return identical(this, other) ||
+        (other.runtimeType == runtimeType &&
+            other is _$LyricsEvent_ReadyImpl &&
+            (identical(other.trackKey, trackKey) ||
+                other.trackKey == trackKey) &&
+            (identical(other.doc, doc) || other.doc == doc));
+  }
+
+  @override
+  int get hashCode => Object.hash(runtimeType, trackKey, doc);
+
+  /// Create a copy of LyricsEvent
+  /// with the given fields replaced by the non-null parameter values.
+  @JsonKey(includeFromJson: false, includeToJson: false)
+  @override
+  @pragma('vm:prefer-inline')
+  _$$LyricsEvent_ReadyImplCopyWith<_$LyricsEvent_ReadyImpl> get copyWith =>
+      __$$LyricsEvent_ReadyImplCopyWithImpl<_$LyricsEvent_ReadyImpl>(
+        this,
+        _$identity,
+      );
+
+  @override
+  @optionalTypeArgs
+  TResult when<TResult extends Object?>({
+    required TResult Function(String trackKey) loading,
+    required TResult Function(String trackKey, LyricsDoc doc) ready,
+    required TResult Function(String trackKey, int lineIndex) cursor,
+    required TResult Function(String trackKey) empty,
+    required TResult Function(String trackKey, String message) error,
+  }) {
+    return ready(trackKey, doc);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult? whenOrNull<TResult extends Object?>({
+    TResult? Function(String trackKey)? loading,
+    TResult? Function(String trackKey, LyricsDoc doc)? ready,
+    TResult? Function(String trackKey, int lineIndex)? cursor,
+    TResult? Function(String trackKey)? empty,
+    TResult? Function(String trackKey, String message)? error,
+  }) {
+    return ready?.call(trackKey, doc);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult maybeWhen<TResult extends Object?>({
+    TResult Function(String trackKey)? loading,
+    TResult Function(String trackKey, LyricsDoc doc)? ready,
+    TResult Function(String trackKey, int lineIndex)? cursor,
+    TResult Function(String trackKey)? empty,
+    TResult Function(String trackKey, String message)? error,
+    required TResult orElse(),
+  }) {
+    if (ready != null) {
+      return ready(trackKey, doc);
+    }
+    return orElse();
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult map<TResult extends Object?>({
+    required TResult Function(LyricsEvent_Loading value) loading,
+    required TResult Function(LyricsEvent_Ready value) ready,
+    required TResult Function(LyricsEvent_Cursor value) cursor,
+    required TResult Function(LyricsEvent_Empty value) empty,
+    required TResult Function(LyricsEvent_Error value) error,
+  }) {
+    return ready(this);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult? mapOrNull<TResult extends Object?>({
+    TResult? Function(LyricsEvent_Loading value)? loading,
+    TResult? Function(LyricsEvent_Ready value)? ready,
+    TResult? Function(LyricsEvent_Cursor value)? cursor,
+    TResult? Function(LyricsEvent_Empty value)? empty,
+    TResult? Function(LyricsEvent_Error value)? error,
+  }) {
+    return ready?.call(this);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult maybeMap<TResult extends Object?>({
+    TResult Function(LyricsEvent_Loading value)? loading,
+    TResult Function(LyricsEvent_Ready value)? ready,
+    TResult Function(LyricsEvent_Cursor value)? cursor,
+    TResult Function(LyricsEvent_Empty value)? empty,
+    TResult Function(LyricsEvent_Error value)? error,
+    required TResult orElse(),
+  }) {
+    if (ready != null) {
+      return ready(this);
+    }
+    return orElse();
+  }
+}
+
+abstract class LyricsEvent_Ready extends LyricsEvent {
+  const factory LyricsEvent_Ready({
+    required final String trackKey,
+    required final LyricsDoc doc,
+  }) = _$LyricsEvent_ReadyImpl;
+  const LyricsEvent_Ready._() : super._();
+
+  @override
+  String get trackKey;
+  LyricsDoc get doc;
+
+  /// Create a copy of LyricsEvent
+  /// with the given fields replaced by the non-null parameter values.
+  @override
+  @JsonKey(includeFromJson: false, includeToJson: false)
+  _$$LyricsEvent_ReadyImplCopyWith<_$LyricsEvent_ReadyImpl> get copyWith =>
+      throw _privateConstructorUsedError;
+}
+
+/// @nodoc
+abstract class _$$LyricsEvent_CursorImplCopyWith<$Res>
+    implements $LyricsEventCopyWith<$Res> {
+  factory _$$LyricsEvent_CursorImplCopyWith(
+    _$LyricsEvent_CursorImpl value,
+    $Res Function(_$LyricsEvent_CursorImpl) then,
+  ) = __$$LyricsEvent_CursorImplCopyWithImpl<$Res>;
+  @override
+  @useResult
+  $Res call({String trackKey, int lineIndex});
+}
+
+/// @nodoc
+class __$$LyricsEvent_CursorImplCopyWithImpl<$Res>
+    extends _$LyricsEventCopyWithImpl<$Res, _$LyricsEvent_CursorImpl>
+    implements _$$LyricsEvent_CursorImplCopyWith<$Res> {
+  __$$LyricsEvent_CursorImplCopyWithImpl(
+    _$LyricsEvent_CursorImpl _value,
+    $Res Function(_$LyricsEvent_CursorImpl) _then,
+  ) : super(_value, _then);
+
+  /// Create a copy of LyricsEvent
+  /// with the given fields replaced by the non-null parameter values.
+  @pragma('vm:prefer-inline')
+  @override
+  $Res call({Object? trackKey = null, Object? lineIndex = null}) {
+    return _then(
+      _$LyricsEvent_CursorImpl(
+        trackKey: null == trackKey
+            ? _value.trackKey
+            : trackKey // ignore: cast_nullable_to_non_nullable
+                  as String,
+        lineIndex: null == lineIndex
+            ? _value.lineIndex
+            : lineIndex // ignore: cast_nullable_to_non_nullable
+                  as int,
+      ),
+    );
+  }
+}
+
+/// @nodoc
+
+class _$LyricsEvent_CursorImpl extends LyricsEvent_Cursor {
+  const _$LyricsEvent_CursorImpl({
+    required this.trackKey,
+    required this.lineIndex,
+  }) : super._();
+
+  @override
+  final String trackKey;
+  @override
+  final int lineIndex;
+
+  @override
+  String toString() {
+    return 'LyricsEvent.cursor(trackKey: $trackKey, lineIndex: $lineIndex)';
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return identical(this, other) ||
+        (other.runtimeType == runtimeType &&
+            other is _$LyricsEvent_CursorImpl &&
+            (identical(other.trackKey, trackKey) ||
+                other.trackKey == trackKey) &&
+            (identical(other.lineIndex, lineIndex) ||
+                other.lineIndex == lineIndex));
+  }
+
+  @override
+  int get hashCode => Object.hash(runtimeType, trackKey, lineIndex);
+
+  /// Create a copy of LyricsEvent
+  /// with the given fields replaced by the non-null parameter values.
+  @JsonKey(includeFromJson: false, includeToJson: false)
+  @override
+  @pragma('vm:prefer-inline')
+  _$$LyricsEvent_CursorImplCopyWith<_$LyricsEvent_CursorImpl> get copyWith =>
+      __$$LyricsEvent_CursorImplCopyWithImpl<_$LyricsEvent_CursorImpl>(
+        this,
+        _$identity,
+      );
+
+  @override
+  @optionalTypeArgs
+  TResult when<TResult extends Object?>({
+    required TResult Function(String trackKey) loading,
+    required TResult Function(String trackKey, LyricsDoc doc) ready,
+    required TResult Function(String trackKey, int lineIndex) cursor,
+    required TResult Function(String trackKey) empty,
+    required TResult Function(String trackKey, String message) error,
+  }) {
+    return cursor(trackKey, lineIndex);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult? whenOrNull<TResult extends Object?>({
+    TResult? Function(String trackKey)? loading,
+    TResult? Function(String trackKey, LyricsDoc doc)? ready,
+    TResult? Function(String trackKey, int lineIndex)? cursor,
+    TResult? Function(String trackKey)? empty,
+    TResult? Function(String trackKey, String message)? error,
+  }) {
+    return cursor?.call(trackKey, lineIndex);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult maybeWhen<TResult extends Object?>({
+    TResult Function(String trackKey)? loading,
+    TResult Function(String trackKey, LyricsDoc doc)? ready,
+    TResult Function(String trackKey, int lineIndex)? cursor,
+    TResult Function(String trackKey)? empty,
+    TResult Function(String trackKey, String message)? error,
+    required TResult orElse(),
+  }) {
+    if (cursor != null) {
+      return cursor(trackKey, lineIndex);
+    }
+    return orElse();
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult map<TResult extends Object?>({
+    required TResult Function(LyricsEvent_Loading value) loading,
+    required TResult Function(LyricsEvent_Ready value) ready,
+    required TResult Function(LyricsEvent_Cursor value) cursor,
+    required TResult Function(LyricsEvent_Empty value) empty,
+    required TResult Function(LyricsEvent_Error value) error,
+  }) {
+    return cursor(this);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult? mapOrNull<TResult extends Object?>({
+    TResult? Function(LyricsEvent_Loading value)? loading,
+    TResult? Function(LyricsEvent_Ready value)? ready,
+    TResult? Function(LyricsEvent_Cursor value)? cursor,
+    TResult? Function(LyricsEvent_Empty value)? empty,
+    TResult? Function(LyricsEvent_Error value)? error,
+  }) {
+    return cursor?.call(this);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult maybeMap<TResult extends Object?>({
+    TResult Function(LyricsEvent_Loading value)? loading,
+    TResult Function(LyricsEvent_Ready value)? ready,
+    TResult Function(LyricsEvent_Cursor value)? cursor,
+    TResult Function(LyricsEvent_Empty value)? empty,
+    TResult Function(LyricsEvent_Error value)? error,
+    required TResult orElse(),
+  }) {
+    if (cursor != null) {
+      return cursor(this);
+    }
+    return orElse();
+  }
+}
+
+abstract class LyricsEvent_Cursor extends LyricsEvent {
+  const factory LyricsEvent_Cursor({
+    required final String trackKey,
+    required final int lineIndex,
+  }) = _$LyricsEvent_CursorImpl;
+  const LyricsEvent_Cursor._() : super._();
+
+  @override
+  String get trackKey;
+  int get lineIndex;
+
+  /// Create a copy of LyricsEvent
+  /// with the given fields replaced by the non-null parameter values.
+  @override
+  @JsonKey(includeFromJson: false, includeToJson: false)
+  _$$LyricsEvent_CursorImplCopyWith<_$LyricsEvent_CursorImpl> get copyWith =>
+      throw _privateConstructorUsedError;
+}
+
+/// @nodoc
+abstract class _$$LyricsEvent_EmptyImplCopyWith<$Res>
+    implements $LyricsEventCopyWith<$Res> {
+  factory _$$LyricsEvent_EmptyImplCopyWith(
+    _$LyricsEvent_EmptyImpl value,
+    $Res Function(_$LyricsEvent_EmptyImpl) then,
+  ) = __$$LyricsEvent_EmptyImplCopyWithImpl<$Res>;
+  @override
+  @useResult
+  $Res call({String trackKey});
+}
+
+/// @nodoc
+class __$$LyricsEvent_EmptyImplCopyWithImpl<$Res>
+    extends _$LyricsEventCopyWithImpl<$Res, _$LyricsEvent_EmptyImpl>
+    implements _$$LyricsEvent_EmptyImplCopyWith<$Res> {
+  __$$LyricsEvent_EmptyImplCopyWithImpl(
+    _$LyricsEvent_EmptyImpl _value,
+    $Res Function(_$LyricsEvent_EmptyImpl) _then,
+  ) : super(_value, _then);
+
+  /// Create a copy of LyricsEvent
+  /// with the given fields replaced by the non-null parameter values.
+  @pragma('vm:prefer-inline')
+  @override
+  $Res call({Object? trackKey = null}) {
+    return _then(
+      _$LyricsEvent_EmptyImpl(
+        trackKey: null == trackKey
+            ? _value.trackKey
+            : trackKey // ignore: cast_nullable_to_non_nullable
+                  as String,
+      ),
+    );
+  }
+}
+
+/// @nodoc
+
+class _$LyricsEvent_EmptyImpl extends LyricsEvent_Empty {
+  const _$LyricsEvent_EmptyImpl({required this.trackKey}) : super._();
+
+  @override
+  final String trackKey;
+
+  @override
+  String toString() {
+    return 'LyricsEvent.empty(trackKey: $trackKey)';
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return identical(this, other) ||
+        (other.runtimeType == runtimeType &&
+            other is _$LyricsEvent_EmptyImpl &&
+            (identical(other.trackKey, trackKey) ||
+                other.trackKey == trackKey));
+  }
+
+  @override
+  int get hashCode => Object.hash(runtimeType, trackKey);
+
+  /// Create a copy of LyricsEvent
+  /// with the given fields replaced by the non-null parameter values.
+  @JsonKey(includeFromJson: false, includeToJson: false)
+  @override
+  @pragma('vm:prefer-inline')
+  _$$LyricsEvent_EmptyImplCopyWith<_$LyricsEvent_EmptyImpl> get copyWith =>
+      __$$LyricsEvent_EmptyImplCopyWithImpl<_$LyricsEvent_EmptyImpl>(
+        this,
+        _$identity,
+      );
+
+  @override
+  @optionalTypeArgs
+  TResult when<TResult extends Object?>({
+    required TResult Function(String trackKey) loading,
+    required TResult Function(String trackKey, LyricsDoc doc) ready,
+    required TResult Function(String trackKey, int lineIndex) cursor,
+    required TResult Function(String trackKey) empty,
+    required TResult Function(String trackKey, String message) error,
+  }) {
+    return empty(trackKey);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult? whenOrNull<TResult extends Object?>({
+    TResult? Function(String trackKey)? loading,
+    TResult? Function(String trackKey, LyricsDoc doc)? ready,
+    TResult? Function(String trackKey, int lineIndex)? cursor,
+    TResult? Function(String trackKey)? empty,
+    TResult? Function(String trackKey, String message)? error,
+  }) {
+    return empty?.call(trackKey);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult maybeWhen<TResult extends Object?>({
+    TResult Function(String trackKey)? loading,
+    TResult Function(String trackKey, LyricsDoc doc)? ready,
+    TResult Function(String trackKey, int lineIndex)? cursor,
+    TResult Function(String trackKey)? empty,
+    TResult Function(String trackKey, String message)? error,
+    required TResult orElse(),
+  }) {
+    if (empty != null) {
+      return empty(trackKey);
+    }
+    return orElse();
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult map<TResult extends Object?>({
+    required TResult Function(LyricsEvent_Loading value) loading,
+    required TResult Function(LyricsEvent_Ready value) ready,
+    required TResult Function(LyricsEvent_Cursor value) cursor,
+    required TResult Function(LyricsEvent_Empty value) empty,
+    required TResult Function(LyricsEvent_Error value) error,
+  }) {
+    return empty(this);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult? mapOrNull<TResult extends Object?>({
+    TResult? Function(LyricsEvent_Loading value)? loading,
+    TResult? Function(LyricsEvent_Ready value)? ready,
+    TResult? Function(LyricsEvent_Cursor value)? cursor,
+    TResult? Function(LyricsEvent_Empty value)? empty,
+    TResult? Function(LyricsEvent_Error value)? error,
+  }) {
+    return empty?.call(this);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult maybeMap<TResult extends Object?>({
+    TResult Function(LyricsEvent_Loading value)? loading,
+    TResult Function(LyricsEvent_Ready value)? ready,
+    TResult Function(LyricsEvent_Cursor value)? cursor,
+    TResult Function(LyricsEvent_Empty value)? empty,
+    TResult Function(LyricsEvent_Error value)? error,
+    required TResult orElse(),
+  }) {
+    if (empty != null) {
+      return empty(this);
+    }
+    return orElse();
+  }
+}
+
+abstract class LyricsEvent_Empty extends LyricsEvent {
+  const factory LyricsEvent_Empty({required final String trackKey}) =
+      _$LyricsEvent_EmptyImpl;
+  const LyricsEvent_Empty._() : super._();
+
+  @override
+  String get trackKey;
+
+  /// Create a copy of LyricsEvent
+  /// with the given fields replaced by the non-null parameter values.
+  @override
+  @JsonKey(includeFromJson: false, includeToJson: false)
+  _$$LyricsEvent_EmptyImplCopyWith<_$LyricsEvent_EmptyImpl> get copyWith =>
+      throw _privateConstructorUsedError;
+}
+
+/// @nodoc
+abstract class _$$LyricsEvent_ErrorImplCopyWith<$Res>
+    implements $LyricsEventCopyWith<$Res> {
+  factory _$$LyricsEvent_ErrorImplCopyWith(
+    _$LyricsEvent_ErrorImpl value,
+    $Res Function(_$LyricsEvent_ErrorImpl) then,
+  ) = __$$LyricsEvent_ErrorImplCopyWithImpl<$Res>;
+  @override
+  @useResult
+  $Res call({String trackKey, String message});
+}
+
+/// @nodoc
+class __$$LyricsEvent_ErrorImplCopyWithImpl<$Res>
+    extends _$LyricsEventCopyWithImpl<$Res, _$LyricsEvent_ErrorImpl>
+    implements _$$LyricsEvent_ErrorImplCopyWith<$Res> {
+  __$$LyricsEvent_ErrorImplCopyWithImpl(
+    _$LyricsEvent_ErrorImpl _value,
+    $Res Function(_$LyricsEvent_ErrorImpl) _then,
+  ) : super(_value, _then);
+
+  /// Create a copy of LyricsEvent
+  /// with the given fields replaced by the non-null parameter values.
+  @pragma('vm:prefer-inline')
+  @override
+  $Res call({Object? trackKey = null, Object? message = null}) {
+    return _then(
+      _$LyricsEvent_ErrorImpl(
+        trackKey: null == trackKey
+            ? _value.trackKey
+            : trackKey // ignore: cast_nullable_to_non_nullable
+                  as String,
+        message: null == message
+            ? _value.message
+            : message // ignore: cast_nullable_to_non_nullable
+                  as String,
+      ),
+    );
+  }
+}
+
+/// @nodoc
+
+class _$LyricsEvent_ErrorImpl extends LyricsEvent_Error {
+  const _$LyricsEvent_ErrorImpl({required this.trackKey, required this.message})
+    : super._();
+
+  @override
+  final String trackKey;
+  @override
+  final String message;
+
+  @override
+  String toString() {
+    return 'LyricsEvent.error(trackKey: $trackKey, message: $message)';
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return identical(this, other) ||
+        (other.runtimeType == runtimeType &&
+            other is _$LyricsEvent_ErrorImpl &&
+            (identical(other.trackKey, trackKey) ||
+                other.trackKey == trackKey) &&
+            (identical(other.message, message) || other.message == message));
+  }
+
+  @override
+  int get hashCode => Object.hash(runtimeType, trackKey, message);
+
+  /// Create a copy of LyricsEvent
+  /// with the given fields replaced by the non-null parameter values.
+  @JsonKey(includeFromJson: false, includeToJson: false)
+  @override
+  @pragma('vm:prefer-inline')
+  _$$LyricsEvent_ErrorImplCopyWith<_$LyricsEvent_ErrorImpl> get copyWith =>
+      __$$LyricsEvent_ErrorImplCopyWithImpl<_$LyricsEvent_ErrorImpl>(
+        this,
+        _$identity,
+      );
+
+  @override
+  @optionalTypeArgs
+  TResult when<TResult extends Object?>({
+    required TResult Function(String trackKey) loading,
+    required TResult Function(String trackKey, LyricsDoc doc) ready,
+    required TResult Function(String trackKey, int lineIndex) cursor,
+    required TResult Function(String trackKey) empty,
+    required TResult Function(String trackKey, String message) error,
+  }) {
+    return error(trackKey, message);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult? whenOrNull<TResult extends Object?>({
+    TResult? Function(String trackKey)? loading,
+    TResult? Function(String trackKey, LyricsDoc doc)? ready,
+    TResult? Function(String trackKey, int lineIndex)? cursor,
+    TResult? Function(String trackKey)? empty,
+    TResult? Function(String trackKey, String message)? error,
+  }) {
+    return error?.call(trackKey, message);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult maybeWhen<TResult extends Object?>({
+    TResult Function(String trackKey)? loading,
+    TResult Function(String trackKey, LyricsDoc doc)? ready,
+    TResult Function(String trackKey, int lineIndex)? cursor,
+    TResult Function(String trackKey)? empty,
+    TResult Function(String trackKey, String message)? error,
+    required TResult orElse(),
+  }) {
+    if (error != null) {
+      return error(trackKey, message);
+    }
+    return orElse();
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult map<TResult extends Object?>({
+    required TResult Function(LyricsEvent_Loading value) loading,
+    required TResult Function(LyricsEvent_Ready value) ready,
+    required TResult Function(LyricsEvent_Cursor value) cursor,
+    required TResult Function(LyricsEvent_Empty value) empty,
+    required TResult Function(LyricsEvent_Error value) error,
+  }) {
+    return error(this);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult? mapOrNull<TResult extends Object?>({
+    TResult? Function(LyricsEvent_Loading value)? loading,
+    TResult? Function(LyricsEvent_Ready value)? ready,
+    TResult? Function(LyricsEvent_Cursor value)? cursor,
+    TResult? Function(LyricsEvent_Empty value)? empty,
+    TResult? Function(LyricsEvent_Error value)? error,
+  }) {
+    return error?.call(this);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult maybeMap<TResult extends Object?>({
+    TResult Function(LyricsEvent_Loading value)? loading,
+    TResult Function(LyricsEvent_Ready value)? ready,
+    TResult Function(LyricsEvent_Cursor value)? cursor,
+    TResult Function(LyricsEvent_Empty value)? empty,
+    TResult Function(LyricsEvent_Error value)? error,
+    required TResult orElse(),
+  }) {
+    if (error != null) {
+      return error(this);
+    }
+    return orElse();
+  }
+}
+
+abstract class LyricsEvent_Error extends LyricsEvent {
+  const factory LyricsEvent_Error({
+    required final String trackKey,
+    required final String message,
+  }) = _$LyricsEvent_ErrorImpl;
+  const LyricsEvent_Error._() : super._();
+
+  @override
+  String get trackKey;
+  String get message;
+
+  /// Create a copy of LyricsEvent
+  /// with the given fields replaced by the non-null parameter values.
+  @override
+  @JsonKey(includeFromJson: false, includeToJson: false)
+  _$$LyricsEvent_ErrorImplCopyWith<_$LyricsEvent_ErrorImpl> get copyWith =>
+      throw _privateConstructorUsedError;
+}

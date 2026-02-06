@@ -130,8 +130,9 @@ class _OpenContainerShaderWarmupState
                                         transitionDuration:
                                             widget.transitionDuration,
                                         onFinished: () {
-                                          if (!done.isCompleted)
+                                          if (!done.isCompleted) {
                                             done.complete();
+                                          }
                                         },
                                       ),
                                     ),

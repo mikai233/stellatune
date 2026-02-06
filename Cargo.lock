@@ -3086,6 +3086,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
+ "crossbeam-channel",
  "flutter_rust_bridge",
  "get_if_addrs",
  "local-ip-address",
@@ -3093,7 +3094,9 @@ dependencies = [
  "rand 0.8.5",
  "reqwest",
  "roxmltree",
+ "serde_json",
  "socket2 0.5.10",
+ "sqlx",
  "stellatune-audio",
  "stellatune-core",
  "stellatune-library",

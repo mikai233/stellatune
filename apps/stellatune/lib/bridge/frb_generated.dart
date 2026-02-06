@@ -71,7 +71,7 @@ class StellatuneApi
   String get codegenVersion => '2.11.1';
 
   @override
-  int get rustContentHash => 1550702919;
+  int get rustContentHash => 32784879;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -245,6 +245,43 @@ abstract class StellatuneApiApi extends BaseApi {
   });
 
   Future<void> crateApiLoad({required Player player, required String path});
+
+  Future<void> crateApiLyricsApplyCandidate({
+    required Player player,
+    required String trackKey,
+    required LyricsDoc doc,
+  });
+
+  Future<void> crateApiLyricsClearCache({required Player player});
+
+  Stream<LyricsEvent> crateApiLyricsEvents({required Player player});
+
+  Future<void> crateApiLyricsPrefetch({
+    required Player player,
+    required LyricsQuery query,
+  });
+
+  Future<void> crateApiLyricsPrepare({
+    required Player player,
+    required LyricsQuery query,
+  });
+
+  Future<void> crateApiLyricsRefreshCurrent({required Player player});
+
+  Future<List<LyricsSearchCandidate>> crateApiLyricsSearchCandidates({
+    required Player player,
+    required LyricsQuery query,
+  });
+
+  Future<void> crateApiLyricsSetCacheDbPath({
+    required Player player,
+    required String dbPath,
+  });
+
+  Future<void> crateApiLyricsSetPositionMs({
+    required Player player,
+    required BigInt positionMs,
+  });
 
   Future<void> crateApiPause({required Player player});
 
@@ -1598,6 +1635,312 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
       const TaskConstMeta(debugName: "load", argNames: ["player", "path"]);
 
   @override
+  Future<void> crateApiLyricsApplyCandidate({
+    required Player player,
+    required String trackKey,
+    required LyricsDoc doc,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_RustOpaque_Player(player, serializer);
+          sse_encode_String(trackKey, serializer);
+          sse_encode_box_autoadd_lyrics_doc(doc, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 39,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiLyricsApplyCandidateConstMeta,
+        argValues: [player, trackKey, doc],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiLyricsApplyCandidateConstMeta =>
+      const TaskConstMeta(
+        debugName: "lyrics_apply_candidate",
+        argNames: ["player", "trackKey", "doc"],
+      );
+
+  @override
+  Future<void> crateApiLyricsClearCache({required Player player}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_RustOpaque_Player(player, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 40,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiLyricsClearCacheConstMeta,
+        argValues: [player],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiLyricsClearCacheConstMeta => const TaskConstMeta(
+    debugName: "lyrics_clear_cache",
+    argNames: ["player"],
+  );
+
+  @override
+  Stream<LyricsEvent> crateApiLyricsEvents({required Player player}) {
+    final sink = RustStreamSink<LyricsEvent>();
+    unawaited(
+      handler.executeNormal(
+        NormalTask(
+          callFfi: (port_) {
+            final serializer = SseSerializer(generalizedFrbRustBinding);
+            sse_encode_RustOpaque_Player(player, serializer);
+            sse_encode_StreamSink_lyrics_event_Sse(sink, serializer);
+            pdeCallFfi(
+              generalizedFrbRustBinding,
+              serializer,
+              funcId: 41,
+              port: port_,
+            );
+          },
+          codec: SseCodec(
+            decodeSuccessData: sse_decode_unit,
+            decodeErrorData: sse_decode_AnyhowException,
+          ),
+          constMeta: kCrateApiLyricsEventsConstMeta,
+          argValues: [player, sink],
+          apiImpl: this,
+        ),
+      ),
+    );
+    return sink.stream;
+  }
+
+  TaskConstMeta get kCrateApiLyricsEventsConstMeta => const TaskConstMeta(
+    debugName: "lyrics_events",
+    argNames: ["player", "sink"],
+  );
+
+  @override
+  Future<void> crateApiLyricsPrefetch({
+    required Player player,
+    required LyricsQuery query,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_RustOpaque_Player(player, serializer);
+          sse_encode_box_autoadd_lyrics_query(query, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 42,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiLyricsPrefetchConstMeta,
+        argValues: [player, query],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiLyricsPrefetchConstMeta => const TaskConstMeta(
+    debugName: "lyrics_prefetch",
+    argNames: ["player", "query"],
+  );
+
+  @override
+  Future<void> crateApiLyricsPrepare({
+    required Player player,
+    required LyricsQuery query,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_RustOpaque_Player(player, serializer);
+          sse_encode_box_autoadd_lyrics_query(query, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 43,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiLyricsPrepareConstMeta,
+        argValues: [player, query],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiLyricsPrepareConstMeta => const TaskConstMeta(
+    debugName: "lyrics_prepare",
+    argNames: ["player", "query"],
+  );
+
+  @override
+  Future<void> crateApiLyricsRefreshCurrent({required Player player}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_RustOpaque_Player(player, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 44,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiLyricsRefreshCurrentConstMeta,
+        argValues: [player],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiLyricsRefreshCurrentConstMeta =>
+      const TaskConstMeta(
+        debugName: "lyrics_refresh_current",
+        argNames: ["player"],
+      );
+
+  @override
+  Future<List<LyricsSearchCandidate>> crateApiLyricsSearchCandidates({
+    required Player player,
+    required LyricsQuery query,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_RustOpaque_Player(player, serializer);
+          sse_encode_box_autoadd_lyrics_query(query, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 45,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_lyrics_search_candidate,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiLyricsSearchCandidatesConstMeta,
+        argValues: [player, query],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiLyricsSearchCandidatesConstMeta =>
+      const TaskConstMeta(
+        debugName: "lyrics_search_candidates",
+        argNames: ["player", "query"],
+      );
+
+  @override
+  Future<void> crateApiLyricsSetCacheDbPath({
+    required Player player,
+    required String dbPath,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_RustOpaque_Player(player, serializer);
+          sse_encode_String(dbPath, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 46,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiLyricsSetCacheDbPathConstMeta,
+        argValues: [player, dbPath],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiLyricsSetCacheDbPathConstMeta =>
+      const TaskConstMeta(
+        debugName: "lyrics_set_cache_db_path",
+        argNames: ["player", "dbPath"],
+      );
+
+  @override
+  Future<void> crateApiLyricsSetPositionMs({
+    required Player player,
+    required BigInt positionMs,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_RustOpaque_Player(player, serializer);
+          sse_encode_u_64(positionMs, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 47,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiLyricsSetPositionMsConstMeta,
+        argValues: [player, positionMs],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiLyricsSetPositionMsConstMeta =>
+      const TaskConstMeta(
+        debugName: "lyrics_set_position_ms",
+        argNames: ["player", "positionMs"],
+      );
+
+  @override
   Future<void> crateApiPause({required Player player}) {
     return handler.executeNormal(
       NormalTask(
@@ -1607,7 +1950,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 39,
+            funcId: 48,
             port: port_,
           );
         },
@@ -1635,7 +1978,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 40,
+            funcId: 49,
             port: port_,
           );
         },
@@ -1663,7 +2006,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 41,
+            funcId: 50,
             port: port_,
           );
         },
@@ -1695,7 +2038,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 42,
+            funcId: 51,
             port: port_,
           );
         },
@@ -1731,7 +2074,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 43,
+            funcId: 52,
             port: port_,
           );
         },
@@ -1768,7 +2111,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 44,
+            funcId: 53,
             port: port_,
           );
         },
@@ -1798,7 +2141,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 45,
+            funcId: 54,
             port: port_,
           );
         },
@@ -1830,7 +2173,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 46,
+            funcId: 55,
             port: port_,
           );
         },
@@ -1866,7 +2209,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 47,
+            funcId: 56,
             port: port_,
           );
         },
@@ -1902,7 +2245,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 48,
+            funcId: 57,
             port: port_,
           );
         },
@@ -1936,7 +2279,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 49,
+            funcId: 58,
             port: port_,
           );
         },
@@ -1966,7 +2309,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 50,
+            funcId: 59,
             port: port_,
           );
         },
@@ -2033,6 +2376,14 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   }
 
   @protected
+  RustStreamSink<LyricsEvent> dco_decode_StreamSink_lyrics_event_Sse(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    throw UnimplementedError();
+  }
+
+  @protected
   String dco_decode_String(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as String;
@@ -2073,6 +2424,18 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   PlatformInt64 dco_decode_box_autoadd_i_64(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dco_decode_i_64(raw);
+  }
+
+  @protected
+  LyricsDoc dco_decode_box_autoadd_lyrics_doc(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_lyrics_doc(raw);
+  }
+
+  @protected
+  LyricsQuery dco_decode_box_autoadd_lyrics_query(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_lyrics_query(raw);
   }
 
   @protected
@@ -2328,6 +2691,22 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   }
 
   @protected
+  List<LyricLine> dco_decode_list_lyric_line(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_lyric_line).toList();
+  }
+
+  @protected
+  List<LyricsSearchCandidate> dco_decode_list_lyrics_search_candidate(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>)
+        .map(dco_decode_lyrics_search_candidate)
+        .toList();
+  }
+
+  @protected
   List<PluginDescriptor> dco_decode_list_plugin_descriptor(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return (raw as List<dynamic>).map(dco_decode_plugin_descriptor).toList();
@@ -2343,6 +2722,94 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   List<TrackLite> dco_decode_list_track_lite(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return (raw as List<dynamic>).map(dco_decode_track_lite).toList();
+  }
+
+  @protected
+  LyricLine dco_decode_lyric_line(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 3)
+      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
+    return LyricLine(
+      startMs: dco_decode_opt_box_autoadd_i_64(arr[0]),
+      endMs: dco_decode_opt_box_autoadd_i_64(arr[1]),
+      text: dco_decode_String(arr[2]),
+    );
+  }
+
+  @protected
+  LyricsDoc dco_decode_lyrics_doc(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 4)
+      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    return LyricsDoc(
+      trackKey: dco_decode_String(arr[0]),
+      source: dco_decode_String(arr[1]),
+      isSynced: dco_decode_bool(arr[2]),
+      lines: dco_decode_list_lyric_line(arr[3]),
+    );
+  }
+
+  @protected
+  LyricsEvent dco_decode_lyrics_event(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    switch (raw[0]) {
+      case 0:
+        return LyricsEvent_Loading(trackKey: dco_decode_String(raw[1]));
+      case 1:
+        return LyricsEvent_Ready(
+          trackKey: dco_decode_String(raw[1]),
+          doc: dco_decode_box_autoadd_lyrics_doc(raw[2]),
+        );
+      case 2:
+        return LyricsEvent_Cursor(
+          trackKey: dco_decode_String(raw[1]),
+          lineIndex: dco_decode_i_64(raw[2]),
+        );
+      case 3:
+        return LyricsEvent_Empty(trackKey: dco_decode_String(raw[1]));
+      case 4:
+        return LyricsEvent_Error(
+          trackKey: dco_decode_String(raw[1]),
+          message: dco_decode_String(raw[2]),
+        );
+      default:
+        throw Exception("unreachable");
+    }
+  }
+
+  @protected
+  LyricsQuery dco_decode_lyrics_query(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 5)
+      throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
+    return LyricsQuery(
+      trackKey: dco_decode_String(arr[0]),
+      title: dco_decode_String(arr[1]),
+      artist: dco_decode_opt_String(arr[2]),
+      album: dco_decode_opt_String(arr[3]),
+      durationMs: dco_decode_opt_box_autoadd_i_64(arr[4]),
+    );
+  }
+
+  @protected
+  LyricsSearchCandidate dco_decode_lyrics_search_candidate(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 8)
+      throw Exception('unexpected arr length: expect 8 but see ${arr.length}');
+    return LyricsSearchCandidate(
+      candidateId: dco_decode_String(arr[0]),
+      title: dco_decode_String(arr[1]),
+      artist: dco_decode_opt_String(arr[2]),
+      album: dco_decode_opt_String(arr[3]),
+      source: dco_decode_String(arr[4]),
+      isSynced: dco_decode_bool(arr[5]),
+      preview: dco_decode_opt_String(arr[6]),
+      doc: dco_decode_lyrics_doc(arr[7]),
+    );
   }
 
   @protected
@@ -2503,6 +2970,14 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   }
 
   @protected
+  RustStreamSink<LyricsEvent> sse_decode_StreamSink_lyrics_event_Sse(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    throw UnimplementedError('Unreachable ()');
+  }
+
+  @protected
   String sse_decode_String(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var inner = sse_decode_list_prim_u_8_strict(deserializer);
@@ -2543,6 +3018,20 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   PlatformInt64 sse_decode_box_autoadd_i_64(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return (sse_decode_i_64(deserializer));
+  }
+
+  @protected
+  LyricsDoc sse_decode_box_autoadd_lyrics_doc(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_lyrics_doc(deserializer));
+  }
+
+  @protected
+  LyricsQuery sse_decode_box_autoadd_lyrics_query(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_lyrics_query(deserializer));
   }
 
   @protected
@@ -2879,6 +3368,32 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   }
 
   @protected
+  List<LyricLine> sse_decode_list_lyric_line(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <LyricLine>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_lyric_line(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  List<LyricsSearchCandidate> sse_decode_list_lyrics_search_candidate(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <LyricsSearchCandidate>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_lyrics_search_candidate(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
   List<PluginDescriptor> sse_decode_list_plugin_descriptor(
     SseDeserializer deserializer,
   ) {
@@ -2909,6 +3424,104 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
       ans_.add(sse_decode_track_lite(deserializer));
     }
     return ans_;
+  }
+
+  @protected
+  LyricLine sse_decode_lyric_line(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_startMs = sse_decode_opt_box_autoadd_i_64(deserializer);
+    var var_endMs = sse_decode_opt_box_autoadd_i_64(deserializer);
+    var var_text = sse_decode_String(deserializer);
+    return LyricLine(startMs: var_startMs, endMs: var_endMs, text: var_text);
+  }
+
+  @protected
+  LyricsDoc sse_decode_lyrics_doc(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_trackKey = sse_decode_String(deserializer);
+    var var_source = sse_decode_String(deserializer);
+    var var_isSynced = sse_decode_bool(deserializer);
+    var var_lines = sse_decode_list_lyric_line(deserializer);
+    return LyricsDoc(
+      trackKey: var_trackKey,
+      source: var_source,
+      isSynced: var_isSynced,
+      lines: var_lines,
+    );
+  }
+
+  @protected
+  LyricsEvent sse_decode_lyrics_event(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var tag_ = sse_decode_i_32(deserializer);
+    switch (tag_) {
+      case 0:
+        var var_trackKey = sse_decode_String(deserializer);
+        return LyricsEvent_Loading(trackKey: var_trackKey);
+      case 1:
+        var var_trackKey = sse_decode_String(deserializer);
+        var var_doc = sse_decode_box_autoadd_lyrics_doc(deserializer);
+        return LyricsEvent_Ready(trackKey: var_trackKey, doc: var_doc);
+      case 2:
+        var var_trackKey = sse_decode_String(deserializer);
+        var var_lineIndex = sse_decode_i_64(deserializer);
+        return LyricsEvent_Cursor(
+          trackKey: var_trackKey,
+          lineIndex: var_lineIndex,
+        );
+      case 3:
+        var var_trackKey = sse_decode_String(deserializer);
+        return LyricsEvent_Empty(trackKey: var_trackKey);
+      case 4:
+        var var_trackKey = sse_decode_String(deserializer);
+        var var_message = sse_decode_String(deserializer);
+        return LyricsEvent_Error(trackKey: var_trackKey, message: var_message);
+      default:
+        throw UnimplementedError('');
+    }
+  }
+
+  @protected
+  LyricsQuery sse_decode_lyrics_query(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_trackKey = sse_decode_String(deserializer);
+    var var_title = sse_decode_String(deserializer);
+    var var_artist = sse_decode_opt_String(deserializer);
+    var var_album = sse_decode_opt_String(deserializer);
+    var var_durationMs = sse_decode_opt_box_autoadd_i_64(deserializer);
+    return LyricsQuery(
+      trackKey: var_trackKey,
+      title: var_title,
+      artist: var_artist,
+      album: var_album,
+      durationMs: var_durationMs,
+    );
+  }
+
+  @protected
+  LyricsSearchCandidate sse_decode_lyrics_search_candidate(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_candidateId = sse_decode_String(deserializer);
+    var var_title = sse_decode_String(deserializer);
+    var var_artist = sse_decode_opt_String(deserializer);
+    var var_album = sse_decode_opt_String(deserializer);
+    var var_source = sse_decode_String(deserializer);
+    var var_isSynced = sse_decode_bool(deserializer);
+    var var_preview = sse_decode_opt_String(deserializer);
+    var var_doc = sse_decode_lyrics_doc(deserializer);
+    return LyricsSearchCandidate(
+      candidateId: var_candidateId,
+      title: var_title,
+      artist: var_artist,
+      album: var_album,
+      source: var_source,
+      isSynced: var_isSynced,
+      preview: var_preview,
+      doc: var_doc,
+    );
   }
 
   @protected
@@ -3118,6 +3731,23 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   }
 
   @protected
+  void sse_encode_StreamSink_lyrics_event_Sse(
+    RustStreamSink<LyricsEvent> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(
+      self.setupAndSerialize(
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_lyrics_event,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+      ),
+      serializer,
+    );
+  }
+
+  @protected
   void sse_encode_String(String self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_list_prim_u_8_strict(utf8.encoder.convert(self), serializer);
@@ -3159,6 +3789,24 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_i_64(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_lyrics_doc(
+    LyricsDoc self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_lyrics_doc(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_lyrics_query(
+    LyricsQuery self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_lyrics_query(self, serializer);
   }
 
   @protected
@@ -3447,6 +4095,30 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   }
 
   @protected
+  void sse_encode_list_lyric_line(
+    List<LyricLine> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_lyric_line(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_lyrics_search_candidate(
+    List<LyricsSearchCandidate> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_lyrics_search_candidate(item, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_list_plugin_descriptor(
     List<PluginDescriptor> self,
     SseSerializer serializer,
@@ -3478,6 +4150,77 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
     for (final item in self) {
       sse_encode_track_lite(item, serializer);
     }
+  }
+
+  @protected
+  void sse_encode_lyric_line(LyricLine self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_opt_box_autoadd_i_64(self.startMs, serializer);
+    sse_encode_opt_box_autoadd_i_64(self.endMs, serializer);
+    sse_encode_String(self.text, serializer);
+  }
+
+  @protected
+  void sse_encode_lyrics_doc(LyricsDoc self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.trackKey, serializer);
+    sse_encode_String(self.source, serializer);
+    sse_encode_bool(self.isSynced, serializer);
+    sse_encode_list_lyric_line(self.lines, serializer);
+  }
+
+  @protected
+  void sse_encode_lyrics_event(LyricsEvent self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    switch (self) {
+      case LyricsEvent_Loading(trackKey: final trackKey):
+        sse_encode_i_32(0, serializer);
+        sse_encode_String(trackKey, serializer);
+      case LyricsEvent_Ready(trackKey: final trackKey, doc: final doc):
+        sse_encode_i_32(1, serializer);
+        sse_encode_String(trackKey, serializer);
+        sse_encode_box_autoadd_lyrics_doc(doc, serializer);
+      case LyricsEvent_Cursor(
+        trackKey: final trackKey,
+        lineIndex: final lineIndex,
+      ):
+        sse_encode_i_32(2, serializer);
+        sse_encode_String(trackKey, serializer);
+        sse_encode_i_64(lineIndex, serializer);
+      case LyricsEvent_Empty(trackKey: final trackKey):
+        sse_encode_i_32(3, serializer);
+        sse_encode_String(trackKey, serializer);
+      case LyricsEvent_Error(trackKey: final trackKey, message: final message):
+        sse_encode_i_32(4, serializer);
+        sse_encode_String(trackKey, serializer);
+        sse_encode_String(message, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_lyrics_query(LyricsQuery self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.trackKey, serializer);
+    sse_encode_String(self.title, serializer);
+    sse_encode_opt_String(self.artist, serializer);
+    sse_encode_opt_String(self.album, serializer);
+    sse_encode_opt_box_autoadd_i_64(self.durationMs, serializer);
+  }
+
+  @protected
+  void sse_encode_lyrics_search_candidate(
+    LyricsSearchCandidate self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.candidateId, serializer);
+    sse_encode_String(self.title, serializer);
+    sse_encode_opt_String(self.artist, serializer);
+    sse_encode_opt_String(self.album, serializer);
+    sse_encode_String(self.source, serializer);
+    sse_encode_bool(self.isSynced, serializer);
+    sse_encode_opt_String(self.preview, serializer);
+    sse_encode_lyrics_doc(self.doc, serializer);
   }
 
   @protected

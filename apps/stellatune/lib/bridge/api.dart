@@ -39,6 +39,65 @@ Future<void> stop({required Player player}) =>
 Stream<Event> events({required Player player}) =>
     StellatuneApi.instance.api.crateApiEvents(player: player);
 
+Future<void> lyricsPrepare({
+  required Player player,
+  required LyricsQuery query,
+}) => StellatuneApi.instance.api.crateApiLyricsPrepare(
+  player: player,
+  query: query,
+);
+
+Future<void> lyricsPrefetch({
+  required Player player,
+  required LyricsQuery query,
+}) => StellatuneApi.instance.api.crateApiLyricsPrefetch(
+  player: player,
+  query: query,
+);
+
+Future<List<LyricsSearchCandidate>> lyricsSearchCandidates({
+  required Player player,
+  required LyricsQuery query,
+}) => StellatuneApi.instance.api.crateApiLyricsSearchCandidates(
+  player: player,
+  query: query,
+);
+
+Future<void> lyricsApplyCandidate({
+  required Player player,
+  required String trackKey,
+  required LyricsDoc doc,
+}) => StellatuneApi.instance.api.crateApiLyricsApplyCandidate(
+  player: player,
+  trackKey: trackKey,
+  doc: doc,
+);
+
+Future<void> lyricsSetCacheDbPath({
+  required Player player,
+  required String dbPath,
+}) => StellatuneApi.instance.api.crateApiLyricsSetCacheDbPath(
+  player: player,
+  dbPath: dbPath,
+);
+
+Future<void> lyricsClearCache({required Player player}) =>
+    StellatuneApi.instance.api.crateApiLyricsClearCache(player: player);
+
+Future<void> lyricsRefreshCurrent({required Player player}) =>
+    StellatuneApi.instance.api.crateApiLyricsRefreshCurrent(player: player);
+
+Future<void> lyricsSetPositionMs({
+  required Player player,
+  required BigInt positionMs,
+}) => StellatuneApi.instance.api.crateApiLyricsSetPositionMs(
+  player: player,
+  positionMs: positionMs,
+);
+
+Stream<LyricsEvent> lyricsEvents({required Player player}) =>
+    StellatuneApi.instance.api.crateApiLyricsEvents(player: player);
+
 Future<List<PluginDescriptor>> pluginsList({required Player player}) =>
     StellatuneApi.instance.api.crateApiPluginsList(player: player);
 

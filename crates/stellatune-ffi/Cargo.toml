@@ -10,6 +10,7 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 
 [dependencies]
 anyhow.workspace = true
+crossbeam-channel.workspace = true
 flutter_rust_bridge.workspace = true
 tokio.workspace = true
 tracing.workspace = true
@@ -24,6 +25,8 @@ rand = "0.8.5"
 local-ip-address = "0.6.6"
 get_if_addrs = "0.5.3"
 socket2 = "0.5"
+serde_json.workspace = true
+sqlx.workspace = true
 
 stellatune-audio.workspace = true
 stellatune-core.workspace = true

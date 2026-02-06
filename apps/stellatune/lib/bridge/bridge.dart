@@ -14,6 +14,11 @@ export 'third_party/stellatune_core.dart'
         LibraryEvent,
         TrackDecodeInfo,
         TrackLite,
+        LyricsQuery,
+        LyricsEvent,
+        LyricsDoc,
+        LyricLine,
+        LyricsSearchCandidate,
         DlnaSsdpDevice,
         DlnaRenderer,
         DlnaHttpServerInfo;
@@ -32,6 +37,7 @@ class PlayerBridge {
   }
 
   Stream<Event> events() => api.events(player: player);
+  Stream<LyricsEvent> lyricsEvents() => api.lyricsEvents(player: player);
 
   Future<void> load(String path) => api.load(player: player, path: path);
 
@@ -42,6 +48,34 @@ class PlayerBridge {
   Future<void> setVolume(double volume) =>
       api.setVolume(player: player, volume: volume);
   Future<void> stop() => api.stop(player: player);
+
+  Future<void> lyricsPrepare(LyricsQuery query) =>
+      api.lyricsPrepare(player: player, query: query);
+
+  Future<void> lyricsPrefetch(LyricsQuery query) =>
+      api.lyricsPrefetch(player: player, query: query);
+
+  Future<List<LyricsSearchCandidate>> lyricsSearchCandidates(
+    LyricsQuery query,
+  ) => api.lyricsSearchCandidates(player: player, query: query);
+
+  Future<void> lyricsApplyCandidate({
+    required String trackKey,
+    required LyricsDoc doc,
+  }) => api.lyricsApplyCandidate(player: player, trackKey: trackKey, doc: doc);
+
+  Future<void> lyricsSetCacheDbPath(String dbPath) =>
+      api.lyricsSetCacheDbPath(player: player, dbPath: dbPath);
+
+  Future<void> lyricsClearCache() => api.lyricsClearCache(player: player);
+
+  Future<void> lyricsRefreshCurrent() =>
+      api.lyricsRefreshCurrent(player: player);
+
+  Future<void> lyricsSetPositionMs(int positionMs) => api.lyricsSetPositionMs(
+    player: player,
+    positionMs: BigInt.from(positionMs),
+  );
 
   Future<List<PluginDescriptor>> pluginsList() =>
       api.pluginsList(player: player);

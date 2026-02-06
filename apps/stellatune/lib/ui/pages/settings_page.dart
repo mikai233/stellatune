@@ -9,6 +9,7 @@ import 'package:stellatune/app/providers.dart';
 import 'package:stellatune/app/plugin_paths.dart';
 import 'package:stellatune/bridge/bridge.dart';
 import 'package:stellatune/l10n/app_localizations.dart';
+import 'package:stellatune/lyrics/lyrics_controller.dart';
 
 class SettingsPage extends ConsumerStatefulWidget {
   const SettingsPage({super.key});
@@ -282,6 +283,22 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       _gain = 1.0;
     });
     await _apply();
+  }
+
+  Future<void> _clearLyricsCache() async {
+    final l10n = AppLocalizations.of(context)!;
+    try {
+      await ref.read(lyricsControllerProvider.notifier).clearCache();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(l10n.settingsClearLyricsCacheDone)),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(l10n.settingsClearLyricsCacheFailed)),
+      );
+    }
   }
 
   @override
@@ -742,6 +759,35 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                     ],
                   );
                 },
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    l10n.settingsLyricsTitle,
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    l10n.settingsLyricsCacheSubtitle,
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                  const SizedBox(height: 10),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: OutlinedButton.icon(
+                      onPressed: _clearLyricsCache,
+                      icon: const Icon(Icons.delete_sweep_outlined),
+                      label: Text(l10n.settingsClearLyricsCache),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),

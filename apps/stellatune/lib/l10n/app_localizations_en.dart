@@ -133,6 +133,22 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsDspTitle => 'DSP';
 
   @override
+  String get settingsLyricsTitle => 'Lyrics';
+
+  @override
+  String get settingsLyricsCacheSubtitle =>
+      'Store online lyrics in local SQLite cache for faster loading.';
+
+  @override
+  String get settingsClearLyricsCache => 'Clear lyrics cache';
+
+  @override
+  String get settingsClearLyricsCacheDone => 'Lyrics cache cleared';
+
+  @override
+  String get settingsClearLyricsCacheFailed => 'Failed to clear lyrics cache';
+
+  @override
   String get settingsEnableGain => 'Enable Gain (example plugin)';
 
   @override
@@ -276,6 +292,27 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get playModeRepeatOne => 'Repeat one';
+
+  @override
+  String get lyricsMoreShowLyrics => 'Show lyrics';
+
+  @override
+  String get lyricsMoreHideLyrics => 'Hide lyrics';
+
+  @override
+  String get lyricsMoreChooseCandidate => 'Choose lyrics candidate';
+
+  @override
+  String get lyricsCandidatesLoadFailed => 'Failed to load';
+
+  @override
+  String get lyricsCandidatesEmpty => 'No candidate lyrics found';
+
+  @override
+  String get lyricsCandidateApplied => 'Lyrics candidate applied';
+
+  @override
+  String get lyricsCandidateApplyFailed => 'Failed to apply lyrics candidate';
 
   @override
   String get noLyrics => 'No lyrics';

@@ -1,7 +1,7 @@
 import 'dart:math';
 
 import 'package:flutter/material.dart';
-import 'package:stellatune/l10n/app_localizations.dart'; // Check if I need this? Yes for noLyrics text.
+import 'package:stellatune/bridge/bridge.dart';
 import 'package:stellatune/ui/widgets/audio_format_badge.dart';
 import 'package:stellatune/ui/widgets/marquee_text.dart';
 
@@ -22,6 +22,8 @@ class WideLayout extends StatelessWidget {
     required this.maxWidth,
     required this.maxHeight,
     required this.hasLyrics,
+    required this.lyricLines,
+    required this.currentLyricLineIndex,
   });
 
   final String coverDir;
@@ -35,10 +37,11 @@ class WideLayout extends StatelessWidget {
   final double maxWidth;
   final double maxHeight;
   final bool hasLyrics;
+  final List<LyricLine> lyricLines;
+  final int currentLyricLineIndex;
 
   @override
   Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
 
     // Dynamic scaling based on available height and width
@@ -192,13 +195,18 @@ class WideLayout extends StatelessWidget {
                 child: AnimatedOpacity(
                   duration: const Duration(milliseconds: 400),
                   opacity: hasLyrics ? 1.0 : 0.0,
-                  child: Center(
-                    child: Text(
-                      l10n.noLyrics, // Using l10n
-                      style: theme.textTheme.titleLarge?.copyWith(
-                        color: foregroundColor.withValues(alpha: 0.6),
-                      ),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 24,
                     ),
+                    child: hasLyrics
+                        ? _LyricsPanel(
+                            lines: lyricLines,
+                            currentLineIndex: currentLyricLineIndex,
+                            foregroundColor: foregroundColor,
+                          )
+                        : const SizedBox.shrink(),
                   ),
                 ),
               ),
@@ -224,6 +232,8 @@ class NarrowLayout extends StatelessWidget {
     this.sampleRate,
     required this.maxHeight,
     required this.hasLyrics,
+    required this.lyricLines,
+    required this.currentLyricLineIndex,
   });
 
   final String coverDir;
@@ -236,10 +246,11 @@ class NarrowLayout extends StatelessWidget {
   final int? sampleRate;
   final double maxHeight;
   final bool hasLyrics;
+  final List<LyricLine> lyricLines;
+  final int currentLyricLineIndex;
 
   @override
   Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
 
     // Dynamic scaling for narrow layout
@@ -343,10 +354,12 @@ class NarrowLayout extends StatelessWidget {
               ),
               if (hasLyrics) ...[
                 SizedBox(height: (coverSize / 8).clamp(32.0, 64.0)),
-                Text(
-                  l10n.noLyrics,
-                  style: theme.textTheme.titleLarge?.copyWith(
-                    color: foregroundColor.withValues(alpha: 0.6),
+                SizedBox(
+                  height: (coverSize * 0.9).clamp(220.0, 380.0),
+                  child: _LyricsPanel(
+                    lines: lyricLines,
+                    currentLineIndex: currentLyricLineIndex,
+                    foregroundColor: foregroundColor,
                   ),
                 ),
               ],
@@ -354,6 +367,107 @@ class NarrowLayout extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _LyricsPanel extends StatefulWidget {
+  const _LyricsPanel({
+    required this.lines,
+    required this.currentLineIndex,
+    required this.foregroundColor,
+  });
+
+  final List<LyricLine> lines;
+  final int currentLineIndex;
+  final Color foregroundColor;
+
+  @override
+  State<_LyricsPanel> createState() => _LyricsPanelState();
+}
+
+class _LyricsPanelState extends State<_LyricsPanel> {
+  final ScrollController _controller = ScrollController();
+  final Map<int, GlobalKey> _lineKeys = <int, GlobalKey>{};
+
+  @override
+  void didUpdateWidget(covariant _LyricsPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.lines.length != oldWidget.lines.length) {
+      _lineKeys.removeWhere((k, _) => k >= widget.lines.length);
+    }
+    if (widget.currentLineIndex != oldWidget.currentLineIndex) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _scrollToCurrentLine();
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _scrollToCurrentLine() {
+    final idx = widget.currentLineIndex;
+    if (idx < 0 || idx >= widget.lines.length) return;
+    final key = _lineKeys[idx];
+    final ctx = key?.currentContext;
+    if (ctx == null) return;
+    Scrollable.ensureVisible(
+      ctx,
+      alignment: 0.32,
+      duration: const Duration(milliseconds: 260),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final shortestSide = MediaQuery.sizeOf(context).shortestSide;
+    final inactiveFontSize = shortestSide < 420
+        ? 17.0
+        : shortestSide < 700
+        ? 18.0
+        : 19.0;
+    final activeFontSize = inactiveFontSize + 3.0;
+    return ListView.builder(
+      controller: _controller,
+      itemCount: widget.lines.length,
+      itemBuilder: (context, index) {
+        final line = widget.lines[index];
+        final active = index == widget.currentLineIndex;
+        final key = _lineKeys.putIfAbsent(index, GlobalKey.new);
+        final style =
+            (active ? theme.textTheme.titleMedium : theme.textTheme.bodyLarge)
+                ?.copyWith(
+                  color: widget.foregroundColor.withValues(
+                    alpha: active ? 0.96 : 0.58,
+                  ),
+                  fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+                  fontSize: active ? activeFontSize : inactiveFontSize,
+                  height: 1.32,
+                );
+
+        return Container(
+          key: key,
+          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 6),
+          child: AnimatedDefaultTextStyle(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOut,
+            style: style ?? TextStyle(fontSize: inactiveFontSize, height: 1.32),
+            child: Text(
+              line.text,
+              maxLines: 3,
+              softWrap: true,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+            ),
+          ),
+        );
+      },
     );
   }
 }

@@ -46,6 +46,11 @@ abstract class StellatuneApiApiImplPlatform
   );
 
   @protected
+  RustStreamSink<LyricsEvent> dco_decode_StreamSink_lyrics_event_Sse(
+    dynamic raw,
+  );
+
+  @protected
   String dco_decode_String(dynamic raw);
 
   @protected
@@ -62,6 +67,12 @@ abstract class StellatuneApiApiImplPlatform
 
   @protected
   PlatformInt64 dco_decode_box_autoadd_i_64(dynamic raw);
+
+  @protected
+  LyricsDoc dco_decode_box_autoadd_lyrics_doc(dynamic raw);
+
+  @protected
+  LyricsQuery dco_decode_box_autoadd_lyrics_query(dynamic raw);
 
   @protected
   TrackDecodeInfo dco_decode_box_autoadd_track_decode_info(dynamic raw);
@@ -130,6 +141,14 @@ abstract class StellatuneApiApiImplPlatform
   List<DspTypeDescriptor> dco_decode_list_dsp_type_descriptor(dynamic raw);
 
   @protected
+  List<LyricLine> dco_decode_list_lyric_line(dynamic raw);
+
+  @protected
+  List<LyricsSearchCandidate> dco_decode_list_lyrics_search_candidate(
+    dynamic raw,
+  );
+
+  @protected
   List<PluginDescriptor> dco_decode_list_plugin_descriptor(dynamic raw);
 
   @protected
@@ -137,6 +156,21 @@ abstract class StellatuneApiApiImplPlatform
 
   @protected
   List<TrackLite> dco_decode_list_track_lite(dynamic raw);
+
+  @protected
+  LyricLine dco_decode_lyric_line(dynamic raw);
+
+  @protected
+  LyricsDoc dco_decode_lyrics_doc(dynamic raw);
+
+  @protected
+  LyricsEvent dco_decode_lyrics_event(dynamic raw);
+
+  @protected
+  LyricsQuery dco_decode_lyrics_query(dynamic raw);
+
+  @protected
+  LyricsSearchCandidate dco_decode_lyrics_search_candidate(dynamic raw);
 
   @protected
   String? dco_decode_opt_String(dynamic raw);
@@ -203,6 +237,11 @@ abstract class StellatuneApiApiImplPlatform
   );
 
   @protected
+  RustStreamSink<LyricsEvent> sse_decode_StreamSink_lyrics_event_Sse(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   String sse_decode_String(SseDeserializer deserializer);
 
   @protected
@@ -221,6 +260,12 @@ abstract class StellatuneApiApiImplPlatform
 
   @protected
   PlatformInt64 sse_decode_box_autoadd_i_64(SseDeserializer deserializer);
+
+  @protected
+  LyricsDoc sse_decode_box_autoadd_lyrics_doc(SseDeserializer deserializer);
+
+  @protected
+  LyricsQuery sse_decode_box_autoadd_lyrics_query(SseDeserializer deserializer);
 
   @protected
   TrackDecodeInfo sse_decode_box_autoadd_track_decode_info(
@@ -305,6 +350,14 @@ abstract class StellatuneApiApiImplPlatform
   );
 
   @protected
+  List<LyricLine> sse_decode_list_lyric_line(SseDeserializer deserializer);
+
+  @protected
+  List<LyricsSearchCandidate> sse_decode_list_lyrics_search_candidate(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   List<PluginDescriptor> sse_decode_list_plugin_descriptor(
     SseDeserializer deserializer,
   );
@@ -314,6 +367,23 @@ abstract class StellatuneApiApiImplPlatform
 
   @protected
   List<TrackLite> sse_decode_list_track_lite(SseDeserializer deserializer);
+
+  @protected
+  LyricLine sse_decode_lyric_line(SseDeserializer deserializer);
+
+  @protected
+  LyricsDoc sse_decode_lyrics_doc(SseDeserializer deserializer);
+
+  @protected
+  LyricsEvent sse_decode_lyrics_event(SseDeserializer deserializer);
+
+  @protected
+  LyricsQuery sse_decode_lyrics_query(SseDeserializer deserializer);
+
+  @protected
+  LyricsSearchCandidate sse_decode_lyrics_search_candidate(
+    SseDeserializer deserializer,
+  );
 
   @protected
   String? sse_decode_opt_String(SseDeserializer deserializer);
@@ -387,6 +457,12 @@ abstract class StellatuneApiApiImplPlatform
   );
 
   @protected
+  void sse_encode_StreamSink_lyrics_event_Sse(
+    RustStreamSink<LyricsEvent> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_String(String self, SseSerializer serializer);
 
   @protected
@@ -407,6 +483,18 @@ abstract class StellatuneApiApiImplPlatform
   @protected
   void sse_encode_box_autoadd_i_64(
     PlatformInt64 self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_lyrics_doc(
+    LyricsDoc self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_lyrics_query(
+    LyricsQuery self,
     SseSerializer serializer,
   );
 
@@ -510,6 +598,18 @@ abstract class StellatuneApiApiImplPlatform
   );
 
   @protected
+  void sse_encode_list_lyric_line(
+    List<LyricLine> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_lyrics_search_candidate(
+    List<LyricsSearchCandidate> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_plugin_descriptor(
     List<PluginDescriptor> self,
     SseSerializer serializer,
@@ -524,6 +624,24 @@ abstract class StellatuneApiApiImplPlatform
   @protected
   void sse_encode_list_track_lite(
     List<TrackLite> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_lyric_line(LyricLine self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_lyrics_doc(LyricsDoc self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_lyrics_event(LyricsEvent self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_lyrics_query(LyricsQuery self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_lyrics_search_candidate(
+    LyricsSearchCandidate self,
     SseSerializer serializer,
   );
 

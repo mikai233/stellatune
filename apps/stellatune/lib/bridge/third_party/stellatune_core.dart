@@ -9,7 +9,7 @@ import 'package:freezed_annotation/freezed_annotation.dart' hide protected;
 part 'stellatune_core.freezed.dart';
 
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `Command`, `LibraryCommand`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
 
 enum AudioBackend { shared, wasapiExclusive, asio }
 
@@ -298,6 +298,158 @@ sealed class LibraryEvent with _$LibraryEvent {
   const factory LibraryEvent.error({required String message}) =
       LibraryEvent_Error;
   const factory LibraryEvent.log({required String message}) = LibraryEvent_Log;
+}
+
+class LyricLine {
+  final PlatformInt64? startMs;
+  final PlatformInt64? endMs;
+  final String text;
+
+  const LyricLine({this.startMs, this.endMs, required this.text});
+
+  @override
+  int get hashCode => startMs.hashCode ^ endMs.hashCode ^ text.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is LyricLine &&
+          runtimeType == other.runtimeType &&
+          startMs == other.startMs &&
+          endMs == other.endMs &&
+          text == other.text;
+}
+
+class LyricsDoc {
+  final String trackKey;
+  final String source;
+  final bool isSynced;
+  final List<LyricLine> lines;
+
+  const LyricsDoc({
+    required this.trackKey,
+    required this.source,
+    required this.isSynced,
+    required this.lines,
+  });
+
+  @override
+  int get hashCode =>
+      trackKey.hashCode ^ source.hashCode ^ isSynced.hashCode ^ lines.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is LyricsDoc &&
+          runtimeType == other.runtimeType &&
+          trackKey == other.trackKey &&
+          source == other.source &&
+          isSynced == other.isSynced &&
+          lines == other.lines;
+}
+
+@freezed
+sealed class LyricsEvent with _$LyricsEvent {
+  const LyricsEvent._();
+
+  const factory LyricsEvent.loading({required String trackKey}) =
+      LyricsEvent_Loading;
+  const factory LyricsEvent.ready({
+    required String trackKey,
+    required LyricsDoc doc,
+  }) = LyricsEvent_Ready;
+  const factory LyricsEvent.cursor({
+    required String trackKey,
+    required PlatformInt64 lineIndex,
+  }) = LyricsEvent_Cursor;
+  const factory LyricsEvent.empty({required String trackKey}) =
+      LyricsEvent_Empty;
+  const factory LyricsEvent.error({
+    required String trackKey,
+    required String message,
+  }) = LyricsEvent_Error;
+}
+
+class LyricsQuery {
+  final String trackKey;
+  final String title;
+  final String? artist;
+  final String? album;
+  final PlatformInt64? durationMs;
+
+  const LyricsQuery({
+    required this.trackKey,
+    required this.title,
+    this.artist,
+    this.album,
+    this.durationMs,
+  });
+
+  @override
+  int get hashCode =>
+      trackKey.hashCode ^
+      title.hashCode ^
+      artist.hashCode ^
+      album.hashCode ^
+      durationMs.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is LyricsQuery &&
+          runtimeType == other.runtimeType &&
+          trackKey == other.trackKey &&
+          title == other.title &&
+          artist == other.artist &&
+          album == other.album &&
+          durationMs == other.durationMs;
+}
+
+class LyricsSearchCandidate {
+  final String candidateId;
+  final String title;
+  final String? artist;
+  final String? album;
+  final String source;
+  final bool isSynced;
+  final String? preview;
+  final LyricsDoc doc;
+
+  const LyricsSearchCandidate({
+    required this.candidateId,
+    required this.title,
+    this.artist,
+    this.album,
+    required this.source,
+    required this.isSynced,
+    this.preview,
+    required this.doc,
+  });
+
+  @override
+  int get hashCode =>
+      candidateId.hashCode ^
+      title.hashCode ^
+      artist.hashCode ^
+      album.hashCode ^
+      source.hashCode ^
+      isSynced.hashCode ^
+      preview.hashCode ^
+      doc.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is LyricsSearchCandidate &&
+          runtimeType == other.runtimeType &&
+          candidateId == other.candidateId &&
+          title == other.title &&
+          artist == other.artist &&
+          album == other.album &&
+          source == other.source &&
+          isSynced == other.isSynced &&
+          preview == other.preview &&
+          doc == other.doc;
 }
 
 enum PlayerState { stopped, playing, paused, buffering }

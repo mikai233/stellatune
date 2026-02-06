@@ -130,6 +130,21 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsDspTitle => 'DSP';
 
   @override
+  String get settingsLyricsTitle => '歌词';
+
+  @override
+  String get settingsLyricsCacheSubtitle => '将在线歌词缓存到本地 SQLite，提升后续加载速度。';
+
+  @override
+  String get settingsClearLyricsCache => '清空歌词缓存';
+
+  @override
+  String get settingsClearLyricsCacheDone => '歌词缓存已清空';
+
+  @override
+  String get settingsClearLyricsCacheFailed => '清空歌词缓存失败';
+
+  @override
   String get settingsEnableGain => '启用增益（示例插件）';
 
   @override
@@ -271,6 +286,27 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get playModeRepeatOne => '单曲循环';
+
+  @override
+  String get lyricsMoreShowLyrics => '显示歌词';
+
+  @override
+  String get lyricsMoreHideLyrics => '隐藏歌词';
+
+  @override
+  String get lyricsMoreChooseCandidate => '选择候选歌词';
+
+  @override
+  String get lyricsCandidatesLoadFailed => '加载失败';
+
+  @override
+  String get lyricsCandidatesEmpty => '没有可用候选歌词';
+
+  @override
+  String get lyricsCandidateApplied => '已应用候选歌词';
+
+  @override
+  String get lyricsCandidateApplyFailed => '应用候选歌词失败';
 
   @override
   String get noLyrics => '无歌词';
