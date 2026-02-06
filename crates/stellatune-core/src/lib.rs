@@ -62,6 +62,10 @@ pub enum Command {
         match_track_sample_rate: bool,
         gapless_playback: bool,
     },
+    PreloadTrack {
+        path: String,
+        position_ms: u64,
+    },
     RefreshDevices,
 }
 

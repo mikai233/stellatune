@@ -92,6 +92,16 @@ Future<void> setOutputOptions({
   gaplessPlayback: gaplessPlayback,
 );
 
+Future<void> preloadTrack({
+  required Player player,
+  required String path,
+  required BigInt positionMs,
+}) => StellatuneApi.instance.api.crateApiPreloadTrack(
+  player: player,
+  path: path,
+  positionMs: positionMs,
+);
+
 Future<Library> createLibrary({
   required String dbPath,
   required List<String> disabledPluginIds,

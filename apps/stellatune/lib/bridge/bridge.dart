@@ -83,6 +83,13 @@ class PlayerBridge {
     matchTrackSampleRate: matchTrackSampleRate,
     gaplessPlayback: gaplessPlayback,
   );
+
+  Future<void> preloadTrack(String path, {int positionMs = 0}) =>
+      api.preloadTrack(
+        player: player,
+        path: path,
+        positionMs: BigInt.from(positionMs),
+      );
 }
 
 class LibraryBridge {

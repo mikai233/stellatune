@@ -33,6 +33,7 @@ class PlaybackController extends Notifier<PlaybackState> {
   int _dlnaVolumeMismatchCount = 0;
   int? _dlnaLastReportedDlnaVolume;
   bool _dlnaVolumeUnsupported = false;
+  String? _lastPreloadedNextPath;
 
   @override
   PlaybackState build() {
@@ -48,6 +49,7 @@ class PlaybackController extends Notifier<PlaybackState> {
     _dlnaLastTransportState = null;
     _dlnaSuppressAutoNextUntil = null;
     _dlnaLastPlayStartedAt = null;
+    _lastPreloadedNextPath = null;
 
     final bridge = ref.read(playerBridgeProvider);
     _sub = bridge.events().listen(
@@ -101,6 +103,68 @@ class PlaybackController extends Notifier<PlaybackState> {
     }
   }
 
+  QueueItem? _peekNextQueueItem(QueueState queue) {
+    final current = queue.currentItem;
+    if (current == null || queue.items.isEmpty || queue.order.isEmpty) {
+      return null;
+    }
+
+    if (queue.repeatMode == RepeatMode.one) {
+      return current;
+    }
+
+    final nextPos = queue.orderPos + 1;
+    if (nextPos < queue.order.length) {
+      final nextIndex = queue.order[nextPos];
+      if (nextIndex >= 0 && nextIndex < queue.items.length) {
+        return queue.items[nextIndex];
+      }
+      return null;
+    }
+
+    if (queue.repeatMode != RepeatMode.all) {
+      return null;
+    }
+
+    // Repeat-all with shuffle rebuilds order dynamically; skip preload to avoid wrong guesses.
+    if (queue.shuffle) {
+      return null;
+    }
+
+    return queue.items.first;
+  }
+
+  Future<void> _requestPreloadNext() async {
+    if (_dlnaActive) {
+      _lastPreloadedNextPath = null;
+      return;
+    }
+
+    final queue = ref.read(queueControllerProvider);
+    final nextItem = _peekNextQueueItem(queue);
+    final currentPath = queue.currentItem?.path.trim();
+    final nextPath = nextItem?.path.trim();
+
+    if (nextPath == null || nextPath.isEmpty || nextPath == currentPath) {
+      _lastPreloadedNextPath = null;
+      return;
+    }
+    if (_lastPreloadedNextPath == nextPath) {
+      return;
+    }
+
+    _lastPreloadedNextPath = nextPath;
+    try {
+      await ref
+          .read(playerBridgeProvider)
+          .preloadTrack(nextPath, positionMs: 0);
+    } catch (e) {
+      // Best-effort optimization; ignore failures to avoid affecting playback flow.
+      ref.read(loggerProvider).d('preload next failed: $e');
+      _lastPreloadedNextPath = null;
+    }
+  }
+
   Future<void> _restoreResume() async {
     if (_dlnaActive) return;
 
@@ -134,6 +198,11 @@ class PlaybackController extends Notifier<PlaybackState> {
         currentPath: path,
         positionMs: pos,
         lastError: null,
+      );
+      unawaited(
+        bridge.preloadTrack(path, positionMs: pos).catchError((Object e) {
+          ref.read(loggerProvider).d('resume preload failed: $e');
+        }),
       );
     } catch (e) {
       ref.read(loggerProvider).w('resume failed: $e');
@@ -465,6 +534,7 @@ class PlaybackController extends Notifier<PlaybackState> {
         .setQueue(items, startIndex: startIndex);
     final item = ref.read(queueControllerProvider).currentItem;
     if (item == null) return;
+    unawaited(_requestPreloadNext());
     await _loadAndPlay(item.path);
   }
 
@@ -486,6 +556,7 @@ class PlaybackController extends Notifier<PlaybackState> {
         .toList();
     final queue = ref.read(queueControllerProvider);
     ref.read(queueControllerProvider.notifier).enqueue(items);
+    unawaited(_requestPreloadNext());
 
     // If nothing is loaded yet, start playing immediately from the first enqueued item.
     if (queue.currentItem == null && items.isNotEmpty) {
@@ -498,6 +569,7 @@ class PlaybackController extends Notifier<PlaybackState> {
     ref.read(queueControllerProvider.notifier).selectIndex(index);
     final item = ref.read(queueControllerProvider).currentItem;
     if (item == null) return;
+    unawaited(_requestPreloadNext());
     await _loadAndPlay(item.path);
   }
 
@@ -588,6 +660,7 @@ class PlaybackController extends Notifier<PlaybackState> {
     if (!_dlnaActive) {
       await ref.read(playerBridgeProvider).stop();
       state = state.copyWith(positionMs: 0);
+      _lastPreloadedNextPath = null;
       final path = state.currentPath;
       if (path != null && path.isNotEmpty) {
         unawaited(_persistResumeNow(path: path, positionMs: 0));
@@ -630,6 +703,7 @@ class PlaybackController extends Notifier<PlaybackState> {
       await stop();
       return;
     }
+    unawaited(_requestPreloadNext());
     await _loadAndPlay(item.path);
   }
 
@@ -637,6 +711,7 @@ class PlaybackController extends Notifier<PlaybackState> {
     _dlnaSuppressAutoNext(const Duration(seconds: 1));
     final item = ref.read(queueControllerProvider.notifier).previous();
     if (item == null) return;
+    unawaited(_requestPreloadNext());
     await _loadAndPlay(item.path);
   }
 
@@ -703,6 +778,7 @@ class PlaybackController extends Notifier<PlaybackState> {
         state = state.copyWith(currentPath: path);
         unawaited(_persistResumeNow(path: path, positionMs: 0));
         unawaited(_updateTrackInfo());
+        unawaited(_requestPreloadNext());
       },
       playbackEnded: (path) {
         ref.read(loggerProvider).i('playback ended: $path');

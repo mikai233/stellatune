@@ -14,9 +14,92 @@ use crate::engine::config::{
     BUFFER_HIGH_WATERMARK_MS, BUFFER_HIGH_WATERMARK_MS_EXCLUSIVE, BUFFER_LOW_WATERMARK_MS,
     BUFFER_LOW_WATERMARK_MS_EXCLUSIVE, CONTROL_TICK_MS, UNDERRUN_LOG_INTERVAL,
 };
+use crate::engine::decode::decoder::open_engine_decoder;
 use crate::engine::event_hub::EventHub;
-use crate::engine::messages::{DecodeCtrl, EngineCtrl, InternalMsg};
-use crate::engine::session::{OutputPipeline, PlaybackSession, start_session};
+use crate::engine::messages::{DecodeCtrl, EngineCtrl, InternalMsg, PredecodedChunk};
+use crate::engine::session::{
+    DecodeWorker, OutputPipeline, PlaybackSession, PromotedPreload, start_decode_worker,
+    start_session,
+};
+
+#[cfg(debug_assertions)]
+const DEBUG_PRELOAD_LOG_EVERY: u64 = 24;
+
+mod debug_metrics {
+    #[cfg(debug_assertions)]
+    use super::DEBUG_PRELOAD_LOG_EVERY;
+    #[cfg(debug_assertions)]
+    use std::sync::atomic::{AtomicU64, Ordering};
+    #[cfg(debug_assertions)]
+    use tracing::debug;
+
+    #[cfg(debug_assertions)]
+    static PRELOAD_REQUESTS: AtomicU64 = AtomicU64::new(0);
+    #[cfg(debug_assertions)]
+    static PRELOAD_READY: AtomicU64 = AtomicU64::new(0);
+    #[cfg(debug_assertions)]
+    static PRELOAD_FAILED: AtomicU64 = AtomicU64::new(0);
+    #[cfg(debug_assertions)]
+    static PRELOAD_TASK_TOTAL_MS: AtomicU64 = AtomicU64::new(0);
+    #[cfg(debug_assertions)]
+    static PRELOAD_TASK_MAX_MS: AtomicU64 = AtomicU64::new(0);
+
+    #[cfg(debug_assertions)]
+    fn update_max(max: &AtomicU64, value: u64) {
+        let mut cur = max.load(Ordering::Relaxed);
+        while value > cur {
+            match max.compare_exchange(cur, value, Ordering::Relaxed, Ordering::Relaxed) {
+                Ok(_) => break,
+                Err(v) => cur = v,
+            }
+        }
+    }
+
+    #[cfg(debug_assertions)]
+    pub(crate) fn note_preload_request() {
+        PRELOAD_REQUESTS.fetch_add(1, Ordering::Relaxed);
+    }
+
+    #[cfg(not(debug_assertions))]
+    pub(crate) fn note_preload_request() {}
+
+    #[cfg(debug_assertions)]
+    pub(crate) fn note_preload_result(success: bool, took_ms: u64) {
+        PRELOAD_TASK_TOTAL_MS.fetch_add(took_ms, Ordering::Relaxed);
+        update_max(&PRELOAD_TASK_MAX_MS, took_ms);
+        if success {
+            PRELOAD_READY.fetch_add(1, Ordering::Relaxed);
+        } else {
+            PRELOAD_FAILED.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    #[cfg(not(debug_assertions))]
+    pub(crate) fn note_preload_result(_success: bool, _took_ms: u64) {}
+
+    #[cfg(debug_assertions)]
+    pub(crate) fn maybe_log_preload_stats() {
+        let ready = PRELOAD_READY.load(Ordering::Relaxed);
+        let failed = PRELOAD_FAILED.load(Ordering::Relaxed);
+        let completed = ready + failed;
+        if completed == 0 || completed % DEBUG_PRELOAD_LOG_EVERY != 0 {
+            return;
+        }
+        let requests = PRELOAD_REQUESTS.load(Ordering::Relaxed);
+        let avg_task_ms = PRELOAD_TASK_TOTAL_MS.load(Ordering::Relaxed) as f64 / completed as f64;
+        debug!(
+            requests,
+            ready,
+            failed,
+            avg_task_ms,
+            max_task_ms = PRELOAD_TASK_MAX_MS.load(Ordering::Relaxed),
+            "preload stats"
+        );
+    }
+
+    #[cfg(not(debug_assertions))]
+    pub(crate) fn maybe_log_preload_stats() {}
+}
 
 /// Handle used by higher layers (e.g. FFI) to drive the player.
 #[derive(Clone)]
@@ -152,6 +235,25 @@ struct EngineState {
     match_track_sample_rate: bool,
     gapless_playback: bool,
     output_pipeline: Option<OutputPipeline>,
+    decode_worker: Option<DecodeWorker>,
+    preload_worker: Option<PreloadWorker>,
+    preload_token: u64,
+    requested_preload_path: Option<String>,
+    requested_preload_position_ms: u64,
+}
+
+struct PreloadWorker {
+    tx: Sender<PreloadJob>,
+    join: JoinHandle<()>,
+}
+
+enum PreloadJob {
+    Task {
+        path: String,
+        position_ms: u64,
+        token: u64,
+    },
+    Shutdown,
 }
 
 impl EngineState {
@@ -179,6 +281,11 @@ impl EngineState {
             match_track_sample_rate: false,
             gapless_playback: true,
             output_pipeline: None,
+            decode_worker: None,
+            preload_worker: None,
+            preload_token: 0,
+            requested_preload_path: None,
+            requested_preload_position_ms: 0,
         }
     }
 }
@@ -194,6 +301,15 @@ fn run_control_loop(
 ) {
     info!("control thread started");
     let mut state = EngineState::new();
+    state.decode_worker = Some(start_decode_worker(
+        Arc::clone(&events),
+        internal_tx.clone(),
+        Arc::clone(&plugins),
+    ));
+    state.preload_worker = Some(start_preload_worker(
+        Arc::clone(&plugins),
+        internal_tx.clone(),
+    ));
     let tick = crossbeam_channel::tick(Duration::from_millis(CONTROL_TICK_MS));
 
     // Prewarm output spec in the background so the first Play doesn't pay the WASAPI/COM setup cost.
@@ -221,7 +337,9 @@ fn run_control_loop(
         }
     }
 
-    stop_all_audio(&mut state, &events, &track_info);
+    stop_all_audio(&mut state, &track_info);
+    shutdown_decode_worker(&mut state);
+    shutdown_preload_worker(&mut state);
     events.emit(Event::Log {
         message: "control thread exited".to_string(),
     });
@@ -268,7 +386,7 @@ fn handle_reload_plugins(
     disabled_ids: Vec<String>,
 ) {
     // Safe(v1): stop playback so no decode thread holds plugin instances.
-    stop_decode_session(state, events, track_info);
+    stop_decode_session(state, track_info);
     state.wants_playback = false;
     state.play_request_started_at = None;
     state.pending_session_start = false;
@@ -321,14 +439,14 @@ fn handle_internal(
                     events.emit(Event::PlaybackEnded { path });
                 }
             }
-            stop_decode_session(state, events, track_info);
+            stop_decode_session(state, track_info);
             state.wants_playback = false;
             state.play_request_started_at = None;
             set_state(state, events, PlayerState::Stopped);
         }
         InternalMsg::Error(message) => {
             events.emit(Event::Error { message });
-            stop_decode_session(state, events, track_info);
+            stop_decode_session(state, track_info);
             state.wants_playback = false;
             state.play_request_started_at = None;
             set_state(state, events, PlayerState::Stopped);
@@ -348,15 +466,15 @@ fn handle_internal(
             });
 
             let Some(_path) = state.current_track.clone() else {
-                stop_all_audio(state, events, track_info);
+                stop_all_audio(state, track_info);
                 state.wants_playback = false;
                 set_state(state, events, PlayerState::Stopped);
                 return;
             };
 
             let prev_state = state.player_state;
-            stop_decode_session(state, events, track_info);
-            drop_output_pipeline(state, events);
+            stop_decode_session(state, track_info);
+            drop_output_pipeline(state);
 
             // Force refresh output spec (device may have changed sample rate).
             state.cached_output_spec = None;
@@ -425,6 +543,57 @@ fn handle_internal(
                 set_state(state, events, PlayerState::Stopped);
             }
         }
+        InternalMsg::PreloadReady {
+            path,
+            position_ms,
+            decoder,
+            track_info,
+            chunk,
+            took_ms,
+            token,
+        } => {
+            if token != state.preload_token {
+                return;
+            }
+            if state.requested_preload_path.as_deref() != Some(path.as_str()) {
+                return;
+            }
+            if state.requested_preload_position_ms != position_ms {
+                return;
+            }
+            debug_metrics::note_preload_result(true, took_ms);
+            if let Some(worker) = state.decode_worker.as_ref() {
+                worker.promote_preload(PromotedPreload {
+                    path: path.clone(),
+                    position_ms,
+                    decoder,
+                    track_info,
+                    chunk,
+                });
+            }
+            debug_metrics::maybe_log_preload_stats();
+            debug!(%path, position_ms, took_ms, "preload cached");
+        }
+        InternalMsg::PreloadFailed {
+            path,
+            position_ms,
+            message,
+            took_ms,
+            token,
+        } => {
+            if token != state.preload_token {
+                return;
+            }
+            if state.requested_preload_path.as_deref() != Some(path.as_str()) {
+                return;
+            }
+            if state.requested_preload_position_ms != position_ms {
+                return;
+            }
+            debug_metrics::note_preload_result(false, took_ms);
+            debug_metrics::maybe_log_preload_stats();
+            debug!(%path, position_ms, took_ms, "preload failed: {message}");
+        }
     }
 }
 
@@ -438,7 +607,7 @@ fn handle_command(
 ) -> bool {
     match cmd {
         Command::LoadTrack { path } => {
-            stop_decode_session(state, events, track_info);
+            stop_decode_session(state, track_info);
             state.current_track = Some(path.clone());
             state.position_ms = 0;
             state.wants_playback = false;
@@ -467,9 +636,20 @@ fn handle_command(
             if state.session.is_none() {
                 set_state(state, events, PlayerState::Buffering);
                 if let Some(out_spec) = state.cached_output_spec {
+                    let start_at_ms = state.position_ms.max(0) as u64;
+                    let Some(decode_worker) = state.decode_worker.as_ref() else {
+                        events.emit(Event::Error {
+                            message: "decode worker unavailable".to_string(),
+                        });
+                        set_state(state, events, PlayerState::Stopped);
+                        state.wants_playback = false;
+                        state.pending_session_start = false;
+                        state.play_request_started_at = None;
+                        return false;
+                    };
                     match start_session(
                         path,
-                        events.clone(),
+                        decode_worker,
                         internal_tx.clone(),
                         match state.selected_backend {
                             stellatune_core::AudioBackend::Shared => {
@@ -486,9 +666,8 @@ fn handle_command(
                         state.match_track_sample_rate,
                         state.gapless_playback,
                         out_spec,
-                        state.position_ms,
+                        start_at_ms as i64,
                         Arc::clone(&state.volume_atomic),
-                        Arc::clone(plugins),
                         state.lfe_mode,
                         &mut state.output_pipeline,
                     ) {
@@ -588,7 +767,7 @@ fn handle_command(
             }
         }
         Command::Stop => {
-            stop_decode_session(state, events, track_info);
+            stop_decode_session(state, track_info);
             state.position_ms = 0;
             state.wants_playback = false;
             state.play_request_started_at = None;
@@ -607,9 +786,9 @@ fn handle_command(
             state.output_spec_token = state.output_spec_token.wrapping_add(1);
             ensure_output_spec_prewarm(state, internal_tx);
             if state.session.is_some() {
-                stop_decode_session(state, events, track_info);
+                stop_decode_session(state, track_info);
             }
-            drop_output_pipeline(state, events);
+            drop_output_pipeline(state);
             if state.wants_playback {
                 state.pending_session_start = true;
             }
@@ -624,15 +803,31 @@ fn handle_command(
                 state.match_track_sample_rate = match_track_sample_rate;
                 state.gapless_playback = gapless_playback;
                 if state.session.is_some() {
-                    stop_decode_session(state, events, track_info);
+                    stop_decode_session(state, track_info);
                     if state.wants_playback {
                         state.pending_session_start = true;
                     }
                 }
                 if !state.gapless_playback {
-                    drop_output_pipeline(state, events);
+                    drop_output_pipeline(state);
                 }
             }
+        }
+        Command::PreloadTrack { path, position_ms } => {
+            let path = path.trim().to_string();
+            if path.is_empty() {
+                return false;
+            }
+            if state.requested_preload_path.as_deref() == Some(path.as_str())
+                && state.requested_preload_position_ms == position_ms
+            {
+                return false;
+            }
+            state.requested_preload_path = Some(path.clone());
+            state.requested_preload_position_ms = position_ms;
+            state.preload_token = state.preload_token.wrapping_add(1);
+            debug_metrics::note_preload_request();
+            enqueue_preload_task(state, path, position_ms, state.preload_token);
         }
         Command::RefreshDevices => {
             let selected_backend = match state.selected_backend {
@@ -663,7 +858,7 @@ fn handle_command(
             events.emit(Event::OutputDevicesChanged { devices });
         }
         Command::Shutdown => {
-            stop_all_audio(state, events, track_info);
+            stop_all_audio(state, track_info);
             state.wants_playback = false;
             state.play_request_started_at = None;
             state.pending_session_start = false;
@@ -672,6 +867,111 @@ fn handle_command(
     }
 
     false
+}
+
+fn start_preload_worker(
+    plugins: Arc<Mutex<PluginManager>>,
+    internal_tx: Sender<InternalMsg>,
+) -> PreloadWorker {
+    let (tx, rx) = crossbeam_channel::unbounded::<PreloadJob>();
+    let join = thread::Builder::new()
+        .name("stellatune-preload-next".to_string())
+        .spawn(move || {
+            while let Ok(job) = rx.recv() {
+                match job {
+                    PreloadJob::Task {
+                        path,
+                        position_ms,
+                        token,
+                    } => handle_preload_task(path, position_ms, token, &plugins, &internal_tx),
+                    PreloadJob::Shutdown => break,
+                }
+            }
+        })
+        .expect("failed to spawn stellatune-preload-next thread");
+    PreloadWorker { tx, join }
+}
+
+fn enqueue_preload_task(state: &mut EngineState, path: String, position_ms: u64, token: u64) {
+    let Some(worker) = state.preload_worker.as_ref() else {
+        return;
+    };
+    let _ = worker.tx.send(PreloadJob::Task {
+        path,
+        position_ms,
+        token,
+    });
+}
+
+fn handle_preload_task(
+    path: String,
+    position_ms: u64,
+    token: u64,
+    plugins: &Arc<Mutex<PluginManager>>,
+    internal_tx: &Sender<InternalMsg>,
+) {
+    let t0 = Instant::now();
+    match open_engine_decoder(&path, plugins) {
+        Ok((mut decoder, track_info)) => {
+            if position_ms > 0 {
+                if let Err(err) = decoder.seek_ms(position_ms) {
+                    let _ = internal_tx.send(InternalMsg::PreloadFailed {
+                        path: path.clone(),
+                        position_ms,
+                        message: err,
+                        took_ms: t0.elapsed().as_millis() as u64,
+                        token,
+                    });
+                    return;
+                }
+            }
+            match decoder.next_block(2048) {
+                Ok(Some(samples)) if !samples.is_empty() => {
+                    let _ = internal_tx.send(InternalMsg::PreloadReady {
+                        path: path.clone(),
+                        position_ms,
+                        decoder,
+                        track_info: track_info.clone(),
+                        chunk: PredecodedChunk {
+                            samples,
+                            sample_rate: track_info.sample_rate,
+                            channels: track_info.channels,
+                            start_at_ms: position_ms,
+                        },
+                        took_ms: t0.elapsed().as_millis() as u64,
+                        token,
+                    });
+                }
+                Ok(_) => {
+                    let _ = internal_tx.send(InternalMsg::PreloadFailed {
+                        path: path.clone(),
+                        position_ms,
+                        message: "decoder returned no preload audio".to_string(),
+                        took_ms: t0.elapsed().as_millis() as u64,
+                        token,
+                    });
+                }
+                Err(err) => {
+                    let _ = internal_tx.send(InternalMsg::PreloadFailed {
+                        path: path.clone(),
+                        position_ms,
+                        message: err,
+                        took_ms: t0.elapsed().as_millis() as u64,
+                        token,
+                    });
+                }
+            }
+        }
+        Err(err) => {
+            let _ = internal_tx.send(InternalMsg::PreloadFailed {
+                path: path.clone(),
+                position_ms,
+                message: err,
+                took_ms: t0.elapsed().as_millis() as u64,
+                token,
+            });
+        }
+    }
 }
 
 fn ui_volume_to_gain(ui: f32) -> f32 {
@@ -756,9 +1056,20 @@ fn handle_tick(
             return;
         };
         let out_spec = state.cached_output_spec.expect("checked");
+        let start_at_ms = state.position_ms.max(0) as u64;
+        let Some(decode_worker) = state.decode_worker.as_ref() else {
+            state.pending_session_start = false;
+            state.wants_playback = false;
+            state.play_request_started_at = None;
+            events.emit(Event::Error {
+                message: "decode worker unavailable".to_string(),
+            });
+            set_state(state, events, PlayerState::Stopped);
+            return;
+        };
         match start_session(
             path,
-            Arc::clone(events),
+            decode_worker,
             internal_tx.clone(),
             match state.selected_backend {
                 stellatune_core::AudioBackend::Shared => stellatune_output::AudioBackend::Shared,
@@ -771,9 +1082,8 @@ fn handle_tick(
             state.match_track_sample_rate,
             state.gapless_playback,
             out_spec,
-            state.position_ms,
+            start_at_ms as i64,
             Arc::clone(&state.volume_atomic),
-            Arc::clone(plugins),
             state.lfe_mode,
             &mut state.output_pipeline,
         ) {
@@ -854,14 +1164,11 @@ fn handle_tick(
             if buffered_ms >= high_watermark_ms {
                 session.output_enabled.store(true, Ordering::Release);
                 set_state(state, events, PlayerState::Playing);
-                if let Some(t0) = state.play_request_started_at.take() {
-                    debug!(
-                        "buffering completed: buffered_ms={buffered_ms} elapsed_ms={}",
-                        t0.elapsed().as_millis()
-                    );
-                } else {
-                    debug!("buffering completed: buffered_ms={buffered_ms}");
-                }
+                let elapsed_ms = state
+                    .play_request_started_at
+                    .take()
+                    .map(|t0| t0.elapsed().as_millis() as u64);
+                debug!(buffered_ms, elapsed_ms = ?elapsed_ms, "buffering completed");
             } else {
                 session.output_enabled.store(false, Ordering::Release);
             }
@@ -923,7 +1230,6 @@ fn apply_dsp_chain(
 
 fn stop_decode_session(
     state: &mut EngineState,
-    events: &Arc<EventHub>,
     track_info: &Arc<Mutex<Option<stellatune_core::TrackDecodeInfo>>>,
 ) {
     if let Ok(mut g) = track_info.lock() {
@@ -934,30 +1240,48 @@ fn stop_decode_session(
         return;
     };
 
+    let buffered_samples = session.buffered_samples.load(Ordering::Relaxed);
     session.output_enabled.store(false, Ordering::Release);
     let _ = session.ctrl_tx.send(DecodeCtrl::Stop);
-    let _ = session.decode_join.join();
 
-    events.emit(Event::Log {
-        message: "session stopped".to_string(),
-    });
-    info!("session stopped");
+    debug!(
+        track = state.current_track.as_deref().unwrap_or("<none>"),
+        player_state = ?state.player_state,
+        wants_playback = state.wants_playback,
+        position_ms = state.position_ms,
+        out_sample_rate = session.out_sample_rate,
+        out_channels = session.out_channels,
+        buffered_samples,
+        "session stopped"
+    );
 }
 
-fn drop_output_pipeline(state: &mut EngineState, events: &Arc<EventHub>) {
+fn shutdown_decode_worker(state: &mut EngineState) {
+    if let Some(worker) = state.decode_worker.take() {
+        worker.shutdown();
+        debug!("decode worker stopped");
+    }
+}
+
+fn shutdown_preload_worker(state: &mut EngineState) {
+    let Some(worker) = state.preload_worker.take() else {
+        return;
+    };
+    let _ = worker.tx.send(PreloadJob::Shutdown);
+    let _ = worker.join.join();
+    debug!("preload worker stopped");
+}
+
+fn drop_output_pipeline(state: &mut EngineState) {
     if state.output_pipeline.take().is_some() {
-        events.emit(Event::Log {
-            message: "output pipeline dropped".to_string(),
-        });
-        info!("output pipeline dropped");
+        debug!("output pipeline dropped");
     }
 }
 
 fn stop_all_audio(
     state: &mut EngineState,
-    events: &Arc<EventHub>,
     track_info: &Arc<Mutex<Option<stellatune_core::TrackDecodeInfo>>>,
 ) {
-    stop_decode_session(state, events, track_info);
-    drop_output_pipeline(state, events);
+    stop_decode_session(state, track_info);
+    drop_output_pipeline(state);
 }

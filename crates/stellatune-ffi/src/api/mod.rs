@@ -156,6 +156,12 @@ pub fn set_output_options(
     });
 }
 
+pub fn preload_track(player: RustOpaque<Player>, path: String, position_ms: u64) {
+    player
+        .engine
+        .send_command(Command::PreloadTrack { path, position_ms });
+}
+
 pub struct Library {
     handle: stellatune_library::LibraryHandle,
 }

@@ -1,10 +1,10 @@
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::Instant;
 
-use crossbeam_channel::Sender;
-use tracing::{debug, info};
+use crossbeam_channel::{Receiver, Sender};
+use tracing::debug;
 
 use stellatune_core::TrackDecodeInfo;
 use stellatune_output::{OutputError, OutputHandle, OutputSpec};
@@ -13,11 +13,160 @@ use crate::engine::config::{
     BUFFER_PREFILL_CAP_MS, BUFFER_PREFILL_CAP_MS_EXCLUSIVE, RING_BUFFER_CAPACITY_MS,
 };
 use crate::engine::decode::decode_thread;
+use crate::engine::decode::decoder::EngineDecoder;
 use crate::engine::event_hub::EventHub;
-use crate::engine::messages::{DecodeCtrl, InternalMsg};
+use crate::engine::messages::{DecodeCtrl, DecodeWorkerState, InternalMsg, PredecodedChunk};
 use crate::ring_buffer::{RingBufferConsumer, RingBufferProducer, new_ring_buffer};
 
 const OUTPUT_CONSUMER_CHUNK_SAMPLES: usize = 1024;
+#[cfg(debug_assertions)]
+const DEBUG_SESSION_LOG_EVERY: u64 = 12;
+#[cfg(debug_assertions)]
+const DEBUG_PROMOTE_LOG_EVERY: u64 = 24;
+
+mod debug_metrics {
+    #[cfg(debug_assertions)]
+    use super::DEBUG_PROMOTE_LOG_EVERY;
+    #[cfg(debug_assertions)]
+    use super::DEBUG_SESSION_LOG_EVERY;
+    #[cfg(debug_assertions)]
+    use std::sync::atomic::{AtomicU64, Ordering};
+    #[cfg(debug_assertions)]
+    use tracing::debug;
+
+    #[cfg(debug_assertions)]
+    static WORKER_STARTS: AtomicU64 = AtomicU64::new(0);
+    #[cfg(debug_assertions)]
+    static SESSION_STARTS: AtomicU64 = AtomicU64::new(0);
+    #[cfg(debug_assertions)]
+    static PREPARE_WAIT_TOTAL_MS: AtomicU64 = AtomicU64::new(0);
+    #[cfg(debug_assertions)]
+    static PREPARE_WAIT_MAX_MS: AtomicU64 = AtomicU64::new(0);
+    #[cfg(debug_assertions)]
+    static SESSION_TOTAL_MS: AtomicU64 = AtomicU64::new(0);
+    #[cfg(debug_assertions)]
+    static SESSION_TOTAL_MAX_MS: AtomicU64 = AtomicU64::new(0);
+    #[cfg(debug_assertions)]
+    static PIPELINE_REBUILDS: AtomicU64 = AtomicU64::new(0);
+    #[cfg(debug_assertions)]
+    static PROMOTE_STORES: AtomicU64 = AtomicU64::new(0);
+    #[cfg(debug_assertions)]
+    static PROMOTE_LOOKUPS: AtomicU64 = AtomicU64::new(0);
+    #[cfg(debug_assertions)]
+    static PROMOTE_HITS: AtomicU64 = AtomicU64::new(0);
+    #[cfg(debug_assertions)]
+    static PROMOTE_MISS_EMPTY: AtomicU64 = AtomicU64::new(0);
+    #[cfg(debug_assertions)]
+    static PROMOTE_MISS_MISMATCH: AtomicU64 = AtomicU64::new(0);
+
+    #[derive(Debug, Clone, Copy)]
+    pub(crate) enum PromoteLookupResult {
+        Hit,
+        MissEmpty,
+        MissMismatch,
+    }
+
+    #[cfg(debug_assertions)]
+    fn update_max(max: &AtomicU64, value: u64) {
+        let mut cur = max.load(Ordering::Relaxed);
+        while value > cur {
+            match max.compare_exchange(cur, value, Ordering::Relaxed, Ordering::Relaxed) {
+                Ok(_) => break,
+                Err(v) => cur = v,
+            }
+        }
+    }
+
+    #[cfg(debug_assertions)]
+    pub(crate) fn note_worker_start() {
+        let starts = WORKER_STARTS.fetch_add(1, Ordering::Relaxed) + 1;
+        debug!(starts, "decode worker started");
+    }
+
+    #[cfg(not(debug_assertions))]
+    pub(crate) fn note_worker_start() {}
+
+    #[cfg(debug_assertions)]
+    pub(crate) fn note_promote_store() {
+        PROMOTE_STORES.fetch_add(1, Ordering::Relaxed);
+    }
+
+    #[cfg(not(debug_assertions))]
+    pub(crate) fn note_promote_store() {}
+
+    #[cfg(debug_assertions)]
+    pub(crate) fn note_promote_lookup(result: PromoteLookupResult) {
+        let lookups = PROMOTE_LOOKUPS.fetch_add(1, Ordering::Relaxed) + 1;
+        match result {
+            PromoteLookupResult::Hit => {
+                PROMOTE_HITS.fetch_add(1, Ordering::Relaxed);
+            }
+            PromoteLookupResult::MissEmpty => {
+                PROMOTE_MISS_EMPTY.fetch_add(1, Ordering::Relaxed);
+            }
+            PromoteLookupResult::MissMismatch => {
+                PROMOTE_MISS_MISMATCH.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+        if lookups % DEBUG_PROMOTE_LOG_EVERY == 0 {
+            let stores = PROMOTE_STORES.load(Ordering::Relaxed);
+            let hits = PROMOTE_HITS.load(Ordering::Relaxed);
+            let miss_empty = PROMOTE_MISS_EMPTY.load(Ordering::Relaxed);
+            let miss_mismatch = PROMOTE_MISS_MISMATCH.load(Ordering::Relaxed);
+            let hit_ratio = if lookups > 0 {
+                hits as f64 / lookups as f64
+            } else {
+                0.0
+            };
+            debug!(
+                stores,
+                lookups, hits, miss_empty, miss_mismatch, hit_ratio, "decode promote stats"
+            );
+        }
+    }
+
+    #[cfg(not(debug_assertions))]
+    pub(crate) fn note_promote_lookup(_result: PromoteLookupResult) {}
+
+    #[cfg(debug_assertions)]
+    pub(crate) fn note_session_start(
+        prepare_wait_ms: u64,
+        session_total_ms: u64,
+        pipeline_rebuilt: bool,
+    ) {
+        let starts = SESSION_STARTS.fetch_add(1, Ordering::Relaxed) + 1;
+        PREPARE_WAIT_TOTAL_MS.fetch_add(prepare_wait_ms, Ordering::Relaxed);
+        SESSION_TOTAL_MS.fetch_add(session_total_ms, Ordering::Relaxed);
+        if pipeline_rebuilt {
+            PIPELINE_REBUILDS.fetch_add(1, Ordering::Relaxed);
+        }
+        update_max(&PREPARE_WAIT_MAX_MS, prepare_wait_ms);
+        update_max(&SESSION_TOTAL_MAX_MS, session_total_ms);
+
+        if starts % DEBUG_SESSION_LOG_EVERY == 0 {
+            let avg_prepare = PREPARE_WAIT_TOTAL_MS.load(Ordering::Relaxed) as f64 / starts as f64;
+            let avg_total = SESSION_TOTAL_MS.load(Ordering::Relaxed) as f64 / starts as f64;
+            let rebuilds = PIPELINE_REBUILDS.load(Ordering::Relaxed);
+            debug!(
+                starts,
+                avg_prepare_ms = avg_prepare,
+                max_prepare_ms = PREPARE_WAIT_MAX_MS.load(Ordering::Relaxed),
+                avg_total_ms = avg_total,
+                max_total_ms = SESSION_TOTAL_MAX_MS.load(Ordering::Relaxed),
+                pipeline_rebuilds = rebuilds,
+                "decode session stats"
+            );
+        }
+    }
+
+    #[cfg(not(debug_assertions))]
+    pub(crate) fn note_session_start(
+        _prepare_wait_ms: u64,
+        _session_total_ms: u64,
+        _pipeline_rebuilt: bool,
+    ) {
+    }
+}
 
 pub(crate) struct OutputPipeline {
     pub(crate) _output: OutputHandle,
@@ -33,13 +182,218 @@ pub(crate) struct OutputPipeline {
 
 pub(crate) struct PlaybackSession {
     pub(crate) ctrl_tx: Sender<DecodeCtrl>,
-    pub(crate) decode_join: JoinHandle<()>,
     pub(crate) output_enabled: Arc<AtomicBool>,
     pub(crate) buffered_samples: Arc<AtomicUsize>,
     pub(crate) underrun_callbacks: Arc<AtomicU64>,
     pub(crate) out_sample_rate: u32,
     pub(crate) out_channels: u16,
     pub(crate) track_info: TrackDecodeInfo,
+}
+
+pub(crate) struct PromotedPreload {
+    pub(crate) path: String,
+    pub(crate) position_ms: u64,
+    pub(crate) decoder: EngineDecoder,
+    pub(crate) track_info: TrackDecodeInfo,
+    pub(crate) chunk: PredecodedChunk,
+}
+
+struct DecodePrepare {
+    path: String,
+    producer: Arc<Mutex<RingBufferProducer<f32>>>,
+    target_sample_rate: u32,
+    target_channels: u16,
+    start_at_ms: i64,
+    output_enabled: Arc<AtomicBool>,
+    buffer_prefill_cap_ms: i64,
+    lfe_mode: stellatune_core::LfeMode,
+    spec_tx: Sender<Result<TrackDecodeInfo, String>>,
+}
+
+enum DecodePrepareMsg {
+    Prepare(DecodePrepare),
+    Shutdown,
+}
+
+pub(crate) struct DecodeWorker {
+    pub(crate) ctrl_tx: Sender<DecodeCtrl>,
+    prepare_tx: Sender<DecodePrepareMsg>,
+    promoted_preload: Arc<Mutex<Option<PromotedPreload>>>,
+    join: JoinHandle<()>,
+}
+
+impl DecodeWorker {
+    pub(crate) fn peek_promoted_track_info(
+        &self,
+        path: &str,
+        position_ms: u64,
+    ) -> Option<TrackDecodeInfo> {
+        let Ok(slot) = self.promoted_preload.lock() else {
+            return None;
+        };
+        let promoted = slot.as_ref()?;
+        if promoted.path == path && promoted.position_ms == position_ms {
+            return Some(promoted.track_info.clone());
+        }
+        None
+    }
+
+    pub(crate) fn promote_preload(&self, preload: PromotedPreload) {
+        if let Ok(mut slot) = self.promoted_preload.lock() {
+            *slot = Some(preload);
+            debug_metrics::note_promote_store();
+        }
+    }
+
+    pub(crate) fn shutdown(self) {
+        let _ = self.ctrl_tx.send(DecodeCtrl::Stop);
+        let _ = self.prepare_tx.send(DecodePrepareMsg::Shutdown);
+        let _ = self.join.join();
+    }
+}
+
+pub(crate) fn start_decode_worker(
+    events: Arc<EventHub>,
+    internal_tx: Sender<InternalMsg>,
+    plugins: Arc<Mutex<stellatune_plugins::PluginManager>>,
+) -> DecodeWorker {
+    debug_metrics::note_worker_start();
+    let runtime_state = Arc::new(AtomicU8::new(DecodeWorkerState::Idle as u8));
+    let promoted_preload = Arc::new(Mutex::new(None));
+    let promoted_preload_for_thread = Arc::clone(&promoted_preload);
+    let (ctrl_tx, ctrl_rx) = crossbeam_channel::unbounded::<DecodeCtrl>();
+    let (prepare_tx, prepare_rx) = crossbeam_channel::unbounded::<DecodePrepareMsg>();
+
+    let join = std::thread::Builder::new()
+        .name("stellatune-decode".to_string())
+        .spawn(move || {
+            run_decode_worker(
+                events,
+                internal_tx,
+                plugins,
+                ctrl_rx,
+                prepare_rx,
+                Arc::clone(&runtime_state),
+                Arc::clone(&promoted_preload_for_thread),
+            )
+        })
+        .expect("failed to spawn stellatune-decode thread");
+
+    DecodeWorker {
+        ctrl_tx,
+        prepare_tx,
+        promoted_preload,
+        join,
+    }
+}
+
+fn run_decode_worker(
+    events: Arc<EventHub>,
+    internal_tx: Sender<InternalMsg>,
+    plugins: Arc<Mutex<stellatune_plugins::PluginManager>>,
+    ctrl_rx: Receiver<DecodeCtrl>,
+    prepare_rx: Receiver<DecodePrepareMsg>,
+    runtime_state: Arc<AtomicU8>,
+    promoted_preload: Arc<Mutex<Option<PromotedPreload>>>,
+) {
+    while let Ok(msg) = prepare_rx.recv() {
+        let prepare = match msg {
+            DecodePrepareMsg::Prepare(prepare) => {
+                set_decode_worker_state(
+                    &runtime_state,
+                    DecodeWorkerState::Prepared,
+                    "prepare received",
+                );
+                prepare
+            }
+            DecodePrepareMsg::Shutdown => {
+                set_decode_worker_state(&runtime_state, DecodeWorkerState::Idle, "shutdown");
+                break;
+            }
+        };
+
+        // Clear stale controls from the previous session before switching tracks.
+        while ctrl_rx.try_recv().is_ok() {}
+
+        let promoted =
+            take_matching_promoted_preload(&promoted_preload, &prepare.path, prepare.start_at_ms);
+        let (preopened, predecoded) = match promoted {
+            Some(promoted) => (
+                Some((promoted.decoder, promoted.track_info)),
+                Some(promoted.chunk),
+            ),
+            None => (None, None),
+        };
+
+        let (setup_tx, setup_rx) = crossbeam_channel::bounded::<DecodeCtrl>(1);
+        if setup_tx
+            .send(DecodeCtrl::Setup {
+                producer: Arc::clone(&prepare.producer),
+                target_sample_rate: prepare.target_sample_rate,
+                target_channels: prepare.target_channels,
+                predecoded,
+                start_at_ms: prepare.start_at_ms,
+                output_enabled: Arc::clone(&prepare.output_enabled),
+                buffer_prefill_cap_ms: prepare.buffer_prefill_cap_ms,
+                lfe_mode: prepare.lfe_mode,
+            })
+            .is_err()
+        {
+            let _ = prepare
+                .spec_tx
+                .send(Err("failed to setup decode session".to_string()));
+            set_decode_worker_state(&runtime_state, DecodeWorkerState::Idle, "setup failed");
+            continue;
+        }
+
+        decode_thread(
+            prepare.path,
+            Arc::clone(&events),
+            internal_tx.clone(),
+            Arc::clone(&plugins),
+            preopened,
+            ctrl_rx.clone(),
+            setup_rx,
+            prepare.spec_tx,
+            Arc::clone(&runtime_state),
+        );
+        set_decode_worker_state(
+            &runtime_state,
+            DecodeWorkerState::Idle,
+            "decode session completed",
+        );
+    }
+}
+
+fn set_decode_worker_state(runtime_state: &Arc<AtomicU8>, next: DecodeWorkerState, reason: &str) {
+    let prev = runtime_state.swap(next as u8, Ordering::Relaxed);
+    if prev == next as u8 {
+        return;
+    }
+    let prev = DecodeWorkerState::from_u8(prev);
+    debug!(from = ?prev, to = ?next, reason, "decode worker state");
+}
+
+fn take_matching_promoted_preload(
+    promoted_preload: &Arc<Mutex<Option<PromotedPreload>>>,
+    path: &str,
+    start_at_ms: i64,
+) -> Option<PromotedPreload> {
+    let Ok(mut slot) = promoted_preload.lock() else {
+        return None;
+    };
+    let Some(cached) = slot.take() else {
+        debug_metrics::note_promote_lookup(debug_metrics::PromoteLookupResult::MissEmpty);
+        return None;
+    };
+    let expected_ms = start_at_ms.max(0) as u64;
+    if cached.path == path && cached.position_ms == expected_ms {
+        debug_metrics::note_promote_lookup(debug_metrics::PromoteLookupResult::Hit);
+        return Some(cached);
+    }
+    debug_metrics::note_promote_lookup(debug_metrics::PromoteLookupResult::MissMismatch);
+    *slot = Some(cached);
+    None
 }
 
 fn create_output_pipeline(
@@ -101,7 +455,7 @@ fn create_output_pipeline(
 
 pub(crate) fn start_session(
     path: String,
-    events: Arc<EventHub>,
+    decode_worker: &DecodeWorker,
     internal_tx: Sender<InternalMsg>,
     backend: stellatune_output::AudioBackend,
     device_id: Option<String>,
@@ -110,47 +464,22 @@ pub(crate) fn start_session(
     out_spec: OutputSpec,
     start_at_ms: i64,
     volume: Arc<AtomicU32>,
-    plugins: Arc<Mutex<stellatune_plugins::PluginManager>>,
     lfe_mode: stellatune_core::LfeMode,
     output_pipeline: &mut Option<OutputPipeline>,
 ) -> Result<PlaybackSession, String> {
     let t0 = Instant::now();
-    debug!(%path, start_at_ms, "start_session begin");
-    info!("starting session");
-    let (ctrl_tx, ctrl_rx) = crossbeam_channel::unbounded();
-    let (setup_tx, setup_rx) = crossbeam_channel::bounded::<DecodeCtrl>(1);
-    let (spec_tx, spec_rx) = crossbeam_channel::bounded::<Result<TrackDecodeInfo, String>>(1);
-
-    let thread_path = path.clone();
-    let thread_events = Arc::clone(&events);
-    let thread_internal_tx = internal_tx.clone();
-    let thread_plugins = Arc::clone(&plugins);
-
-    let decode_join = std::thread::Builder::new()
-        .name("stellatune-decode".to_string())
-        .spawn(move || {
-            decode_thread(
-                thread_path,
-                thread_events,
-                thread_internal_tx,
-                thread_plugins,
-                ctrl_rx,
-                setup_rx,
-                spec_tx,
-            )
-        })
-        .expect("failed to spawn stellatune-decode thread");
-
-    let t_after_spawn = Instant::now();
-    let track_info = match spec_rx.recv() {
-        Ok(Ok(info)) => info,
-        Ok(Err(message)) => return Err(message),
-        Err(_) => return Err("decoder thread exited unexpectedly".to_string()),
-    };
+    let start_position_ms = start_at_ms.max(0) as u64;
+    let promoted_track_info = decode_worker.peek_promoted_track_info(&path, start_position_ms);
     debug!(
-        "decoder opened/probed in {}ms",
-        t_after_spawn.elapsed().as_millis()
+        %path,
+        start_at_ms,
+        backend = ?backend,
+        device_id = device_id.as_deref().unwrap_or("system-default"),
+        match_track_sample_rate,
+        gapless_playback,
+        "start_session requested"
     );
+    let (spec_tx, spec_rx) = crossbeam_channel::bounded::<Result<TrackDecodeInfo, String>>(1);
 
     let mut desired_out_spec = out_spec;
     if match_track_sample_rate
@@ -160,12 +489,14 @@ pub(crate) fn start_session(
                 | stellatune_output::AudioBackend::Asio
         )
     {
-        let candidate = OutputSpec {
-            sample_rate: track_info.sample_rate,
-            channels: out_spec.channels,
-        };
-        if stellatune_output::supports_output_spec(backend, device_id.clone(), candidate) {
-            desired_out_spec = candidate;
+        if let Some(info) = promoted_track_info.as_ref() {
+            let candidate = OutputSpec {
+                sample_rate: info.sample_rate,
+                channels: out_spec.channels,
+            };
+            if stellatune_output::supports_output_spec(backend, device_id.clone(), candidate) {
+                desired_out_spec = candidate;
+            }
         }
     }
 
@@ -218,8 +549,10 @@ pub(crate) fn start_session(
         producer.clear();
     }
 
-    setup_tx
-        .send(DecodeCtrl::Setup {
+    decode_worker
+        .prepare_tx
+        .send(DecodePrepareMsg::Prepare(DecodePrepare {
+            path,
             producer: Arc::clone(&pipeline.producer),
             target_sample_rate: pipeline.out_sample_rate,
             target_channels: pipeline.out_channels,
@@ -230,13 +563,31 @@ pub(crate) fn start_session(
                 _ => BUFFER_PREFILL_CAP_MS,
             },
             lfe_mode,
-        })
-        .map_err(|_| "decoder thread exited unexpectedly".to_string())?;
+            spec_tx,
+        }))
+        .map_err(|_| "decode worker unavailable".to_string())?;
 
-    debug!("start_session total {}ms", t0.elapsed().as_millis());
+    let t_after_prepare = Instant::now();
+    let track_info = match spec_rx.recv() {
+        Ok(Ok(info)) => info,
+        Ok(Err(message)) => return Err(message),
+        Err(_) => return Err("decoder thread exited unexpectedly".to_string()),
+    };
+    let prepare_wait_ms = t_after_prepare.elapsed().as_millis() as u64;
+    let session_total_ms = t0.elapsed().as_millis() as u64;
+    debug!(
+        prepare_wait_ms,
+        session_total_ms,
+        pipeline_rebuilt = rebuild_pipeline,
+        out_sample_rate = pipeline.out_sample_rate,
+        out_channels = pipeline.out_channels,
+        track_sample_rate = track_info.sample_rate,
+        track_channels = track_info.channels,
+        "start_session ready"
+    );
+    debug_metrics::note_session_start(prepare_wait_ms, session_total_ms, rebuild_pipeline);
     Ok(PlaybackSession {
-        ctrl_tx,
-        decode_join,
+        ctrl_tx: decode_worker.ctrl_tx.clone(),
         output_enabled: Arc::clone(&pipeline.output_enabled),
         buffered_samples: Arc::clone(&pipeline.buffered_samples),
         underrun_callbacks: Arc::clone(&pipeline.underrun_callbacks),
