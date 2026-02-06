@@ -44,7 +44,12 @@ class NowPlayingCover extends StatelessWidget {
     );
 
     if (trackId == null) {
-      return GestureDetector(onTap: onTap, child: placeholder);
+      return MouseRegion(
+        cursor: onTap != null
+            ? SystemMouseCursors.click
+            : SystemMouseCursors.basic,
+        child: GestureDetector(onTap: onTap, child: placeholder),
+      );
     }
 
     final coverPath = '$coverDir${Platform.pathSeparator}$trackId';
@@ -55,17 +60,22 @@ class NowPlayingCover extends StatelessWidget {
       allowUpscaling: false,
     );
 
-    return GestureDetector(
-      onTap: onTap,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(8),
-        child: Image(
-          image: provider,
-          width: 48,
-          height: 48,
-          fit: BoxFit.cover,
-          gaplessPlayback: true,
-          errorBuilder: (context, error, stackTrace) => placeholder,
+    return MouseRegion(
+      cursor: onTap != null
+          ? SystemMouseCursors.click
+          : SystemMouseCursors.basic,
+      child: GestureDetector(
+        onTap: onTap,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: Image(
+            image: provider,
+            width: 48,
+            height: 48,
+            fit: BoxFit.cover,
+            gaplessPlayback: true,
+            errorBuilder: (context, error, stackTrace) => placeholder,
+          ),
         ),
       ),
     );
