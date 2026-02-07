@@ -68,6 +68,8 @@ struct PluginMetadataDoc {
     id: String,
     name: String,
     api_version: u32,
+    #[serde(default)]
+    info: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -76,6 +78,7 @@ pub struct InstalledPluginInfo {
     pub name: String,
     pub root_dir: PathBuf,
     pub library_path: PathBuf,
+    pub info_json: Option<String>,
 }
 
 fn now_unix_ms() -> u64 {
@@ -83,6 +86,12 @@ fn now_unix_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0)
+}
+
+fn metadata_info_json(metadata_json: Option<&str>) -> Option<String> {
+    let raw = metadata_json?;
+    let meta: PluginMetadataDoc = serde_json::from_str(raw).ok()?;
+    meta.info.and_then(|v| serde_json::to_string(&v).ok())
 }
 
 pub struct PluginLibrary {
@@ -2164,6 +2173,7 @@ pub fn install_plugin_from_artifact(
         name: manifest.name.unwrap_or_else(|| manifest.id.clone()),
         root_dir: install_root.clone(),
         library_path: install_root.join(library_rel_path),
+        info_json: metadata_info_json(manifest.metadata_json.as_deref()),
     };
 
     info!(
@@ -2190,6 +2200,7 @@ pub fn list_installed_plugins(plugins_dir: impl AsRef<Path>) -> Result<Vec<Insta
                 .unwrap_or_else(|| d.manifest.id.clone()),
             root_dir: d.root_dir.clone(),
             library_path: d.library_path.clone(),
+            info_json: metadata_info_json(d.manifest.metadata_json.as_deref()),
         });
     }
     out.sort_by(|a, b| a.id.cmp(&b.id));

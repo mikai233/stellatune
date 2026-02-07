@@ -24,11 +24,13 @@ class _InstalledPlugin {
     required this.dirPath,
     required this.id,
     required this.name,
+    required this.infoJson,
   });
 
   final String dirPath;
   final String? id;
   final String? name;
+  final String? infoJson;
 
   String get nameOrDir => name ?? p.basename(dirPath);
 }
@@ -55,6 +57,7 @@ class _PluginTile extends StatelessWidget {
     final theme = Theme.of(context);
     final title = plugin.nameOrDir;
     final subtitle = plugin.id ?? p.basename(plugin.dirPath);
+    final infoText = plugin.infoJson;
     return ListTile(
       dense: true,
       leading: Icon(
@@ -67,6 +70,17 @@ class _PluginTile extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(subtitle),
+          if (infoText != null && infoText.isNotEmpty) ...[
+            const SizedBox(height: 2),
+            Text(
+              infoText,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
           const SizedBox(height: 2),
           Text(
             statusText,
@@ -196,11 +210,13 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       if (id.isEmpty) continue;
       final dirPath = (map['root_dir'] ?? '').toString().trim();
       final nameRaw = (map['name'] ?? '').toString().trim();
+      final infoRaw = (map['info_json'] ?? '').toString().trim();
       out.add(
         _InstalledPlugin(
           dirPath: dirPath.isEmpty ? p.join(_pluginDir!, id) : dirPath,
           id: id,
           name: nameRaw.isEmpty ? null : nameRaw,
+          infoJson: infoRaw.isEmpty ? null : infoRaw,
         ),
       );
     }

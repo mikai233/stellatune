@@ -117,6 +117,8 @@ pub struct PluginMetadata {
     pub name: String,
     pub api_version: u32,
     pub version: PluginMetadataVersion,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub info: Option<serde_json::Value>,
 }
 
 impl PluginMetadata {
@@ -141,7 +143,21 @@ pub fn build_plugin_metadata(
             minor,
             patch,
         },
+        info: None,
     }
+}
+
+pub fn build_plugin_metadata_with_info(
+    id: impl Into<String>,
+    name: impl Into<String>,
+    major: u16,
+    minor: u16,
+    patch: u16,
+    info: Option<serde_json::Value>,
+) -> PluginMetadata {
+    let mut meta = build_plugin_metadata(id, name, major, minor, patch);
+    meta.info = info;
+    meta
 }
 
 pub fn build_plugin_metadata_json(
@@ -165,6 +181,37 @@ pub fn build_plugin_metadata_json(
     }
 }
 
+pub fn build_plugin_metadata_json_with_info_json(
+    id: impl Into<String>,
+    name: impl Into<String>,
+    major: u16,
+    minor: u16,
+    patch: u16,
+    info_json: Option<&str>,
+) -> String {
+    let info = info_json.and_then(|raw| {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+        match serde_json::from_str::<serde_json::Value>(trimmed) {
+            Ok(v) => Some(v),
+            Err(_) => Some(serde_json::Value::String(trimmed.to_string())),
+        }
+    });
+    let meta = build_plugin_metadata_with_info(id, name, major, minor, patch, info);
+    match meta.to_json() {
+        Ok(s) => s,
+        Err(_) => build_plugin_metadata_json(
+            meta.id,
+            meta.name,
+            meta.version.major,
+            meta.version.minor,
+            meta.version.patch,
+        ),
+    }
+}
+
 #[doc(hidden)]
 #[macro_export]
 macro_rules! __st_opt_get_interface {
@@ -173,6 +220,17 @@ macro_rules! __st_opt_get_interface {
     };
     ($f:path) => {
         Some($f)
+    };
+}
+
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __st_opt_info_json {
+    () => {
+        None::<&str>
+    };
+    ($v:expr) => {
+        Some($v)
     };
 }
 
@@ -463,6 +521,8 @@ pub struct DecoderBox<T: Decoder> {
 ///   dsps: [
 ///     gain => GainDsp,
 ///   ]
+///   // Optional free-form JSON for UI display.
+///   // info_json: r#"{"author":"StellaTune Team","homepage":"https://example.com"}"#,
 ///   // Optional advanced interfaces (source/lyrics/output) can be exposed by
 ///   // implementing a custom `get_interface` callback.
 ///   // get_interface: my_get_interface,
@@ -480,6 +540,7 @@ macro_rules! export_plugin {
         dsps: [
             $($dsp_mod:ident => $dsp_ty:ty),* $(,)?
         ]
+        $(, info_json: $info_json:expr)?
         $(, get_interface: $get_interface:path)?
         $(,)?
     ) => {
@@ -497,12 +558,13 @@ macro_rules! export_plugin {
         fn __st_plugin_metadata_json() -> &'static str {
             static META: std::sync::OnceLock<String> = std::sync::OnceLock::new();
             META.get_or_init(|| {
-                $crate::build_plugin_metadata_json(
+                $crate::build_plugin_metadata_json_with_info_json(
                     __ST_PLUGIN_ID,
                     __ST_PLUGIN_NAME,
                     $vmaj,
                     $vmin,
                     $vpatch,
+                    $crate::__st_opt_info_json!($($info_json)?),
                 )
             })
         }
