@@ -9,6 +9,7 @@ import 'package:stellatune/library/library_controller.dart';
 import 'package:stellatune/l10n/app_localizations.dart';
 import 'package:stellatune/player/playback_controller.dart';
 import 'package:stellatune/player/queue_controller.dart';
+import 'package:stellatune/player/queue_models.dart';
 import 'package:stellatune/ui/widgets/track_list.dart';
 
 class PlaylistsPage extends ConsumerStatefulWidget {
@@ -105,12 +106,17 @@ class PlaylistsPageState extends ConsumerState<PlaylistsPage> {
                         .read(libraryControllerProvider.notifier)
                         .setQuery(q),
                     onActivate: (index, items) async {
+                      final source = QueueSource(
+                        type: QueueSourceType.playlist,
+                        playlistId: selectedPlaylistId,
+                        label: selectionSourceLabel,
+                      );
                       await ref
                           .read(playbackControllerProvider.notifier)
                           .setQueueAndPlayTracks(
                             items,
                             startIndex: index,
-                            sourceLabel: selectionSourceLabel,
+                            source: source,
                           );
                     },
                     onEnqueue: (track) async {

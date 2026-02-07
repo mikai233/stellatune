@@ -14,7 +14,8 @@ class QueueController extends Notifier<QueueState> {
 
   @override
   QueueState build() {
-    final mode = ref.read(settingsStoreProvider).playMode;
+    final settings = ref.read(settingsStoreProvider);
+    final mode = settings.playMode;
     final shuffle = mode == PlayMode.shuffle;
     final repeatMode = switch (mode) {
       PlayMode.sequential => RepeatMode.off,
@@ -22,23 +23,26 @@ class QueueController extends Notifier<QueueState> {
       PlayMode.repeatAll => RepeatMode.all,
       PlayMode.repeatOne => RepeatMode.one,
     };
+    final source = settings.queueSource;
     return const QueueState.empty().copyWith(
       shuffle: shuffle,
       repeatMode: repeatMode,
+      source: source,
     );
   }
 
   void setQueue(
     List<QueueItem> items, {
     int startIndex = 0,
-    String? sourceLabel,
+    QueueSource? source,
   }) {
     if (items.isEmpty) {
       state = const QueueState.empty().copyWith(
         shuffle: state.shuffle,
         repeatMode: state.repeatMode,
-        sourceLabel: null,
+        source: null,
       );
+      unawaited(ref.read(settingsStoreProvider).setQueueSource(null));
       return;
     }
 
@@ -55,8 +59,9 @@ class QueueController extends Notifier<QueueState> {
       currentIndex: idx,
       order: order,
       orderPos: 0,
-      sourceLabel: sourceLabel,
+      source: source,
     );
+    unawaited(ref.read(settingsStoreProvider).setQueueSource(source));
   }
 
   void enqueue(List<QueueItem> items) {
@@ -228,7 +233,8 @@ class QueueController extends Notifier<QueueState> {
     state = const QueueState.empty().copyWith(
       shuffle: state.shuffle,
       repeatMode: state.repeatMode,
-      sourceLabel: null,
+      source: null,
     );
+    unawaited(ref.read(settingsStoreProvider).setQueueSource(null));
   }
 }

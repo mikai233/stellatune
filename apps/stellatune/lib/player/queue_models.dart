@@ -37,6 +37,46 @@ enum RepeatMode { off, all, one }
 
 enum PlayMode { sequential, shuffle, repeatAll, repeatOne }
 
+enum QueueSourceType { all, folder, playlist }
+
+@immutable
+class QueueSource {
+  const QueueSource({
+    required this.type,
+    this.folderPath,
+    this.includeSubfolders = false,
+    this.playlistId,
+    this.label,
+  });
+
+  final QueueSourceType type;
+  final String? folderPath;
+  final bool includeSubfolders;
+  final int? playlistId;
+  final String? label;
+
+  Map<String, dynamic> toJson() => {
+    'type': type.name,
+    'folderPath': folderPath,
+    'includeSubfolders': includeSubfolders,
+    'playlistId': playlistId,
+    'label': label,
+  };
+
+  factory QueueSource.fromJson(Map<String, dynamic> json) {
+    return QueueSource(
+      type: QueueSourceType.values.firstWhere(
+        (e) => e.name == json['type'],
+        orElse: () => QueueSourceType.all,
+      ),
+      folderPath: json['folderPath'] as String?,
+      includeSubfolders: json['includeSubfolders'] as bool? ?? false,
+      playlistId: json['playlistId'] as int?,
+      label: json['label'] as String?,
+    );
+  }
+}
+
 @immutable
 class QueueState {
   const QueueState({
@@ -46,7 +86,7 @@ class QueueState {
     required this.repeatMode,
     required this.order,
     required this.orderPos,
-    required this.sourceLabel,
+    required this.source,
   });
 
   const QueueState.empty()
@@ -56,7 +96,7 @@ class QueueState {
       repeatMode = RepeatMode.off,
       order = const [],
       orderPos = 0,
-      sourceLabel = null;
+      source = null;
 
   final List<QueueItem> items;
   final int? currentIndex;
@@ -64,7 +104,9 @@ class QueueState {
   final RepeatMode repeatMode;
   final List<int> order;
   final int orderPos;
-  final String? sourceLabel;
+  final QueueSource? source;
+
+  String? get sourceLabel => source?.label;
 
   PlayMode get playMode {
     if (repeatMode == RepeatMode.one) return PlayMode.repeatOne;
@@ -86,7 +128,7 @@ class QueueState {
     RepeatMode? repeatMode,
     List<int>? order,
     int? orderPos,
-    Object? sourceLabel = _queueSentinel,
+    Object? source = _queueSentinel,
   }) {
     return QueueState(
       items: items ?? this.items,
@@ -95,9 +137,9 @@ class QueueState {
       repeatMode: repeatMode ?? this.repeatMode,
       order: order ?? this.order,
       orderPos: orderPos ?? this.orderPos,
-      sourceLabel: identical(sourceLabel, _queueSentinel)
-          ? this.sourceLabel
-          : sourceLabel as String?,
+      source: identical(source, _queueSentinel)
+          ? this.source
+          : source as QueueSource?,
     );
   }
 }

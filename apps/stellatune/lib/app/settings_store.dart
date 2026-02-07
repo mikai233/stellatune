@@ -26,6 +26,7 @@ class SettingsStore {
   static const _keySeekTrackFade = 'seek_track_fade';
   static const _keyOutputSinkRoute = 'output_sink_route';
   static const _keySourceConfigs = 'source_configs';
+  static const _keyQueueSource = 'queue_source';
 
   final Box _box;
 
@@ -292,5 +293,25 @@ class SettingsStore {
     final next = Map<String, String>.from(sourceConfigs);
     next[key] = configJson;
     await _box.put(_keySourceConfigs, jsonEncode(next));
+  }
+
+  QueueSource? get queueSource {
+    final raw = _box.get(_keyQueueSource);
+    if (raw is! String || raw.isEmpty) return null;
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map) {
+        return QueueSource.fromJson(decoded.cast<String, dynamic>());
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  Future<void> setQueueSource(QueueSource? source) async {
+    if (source == null) {
+      await _box.delete(_keyQueueSource);
+    } else {
+      await _box.put(_keyQueueSource, jsonEncode(source.toJson()));
+    }
   }
 }

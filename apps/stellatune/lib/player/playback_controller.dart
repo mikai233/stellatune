@@ -165,19 +165,24 @@ class PlaybackController extends Notifier<PlaybackState> {
     if (track == null) return;
     final pos = settings.resumePositionMs.clamp(0, 1 << 31);
 
+    // Try to restore the full queue first.
+    final restoredQueue = await _restoreQueue();
+
     // Ensure the UI shows a sensible "current track" even before any user action.
-    final queue = ref.read(queueControllerProvider);
-    if (queue.items.isEmpty) {
-      ref.read(queueControllerProvider.notifier).setQueue([
-        QueueItem(
-          track: track,
-          id: settings.resumeTrackId,
-          title: settings.resumeTitle,
-          artist: settings.resumeArtist,
-          album: settings.resumeAlbum,
-          durationMs: settings.resumeDurationMs,
-        ),
-      ], startIndex: 0);
+    if (!restoredQueue) {
+      final queue = ref.read(queueControllerProvider);
+      if (queue.items.isEmpty) {
+        ref.read(queueControllerProvider.notifier).setQueue([
+          QueueItem(
+            track: track,
+            id: settings.resumeTrackId,
+            title: settings.resumeTitle,
+            artist: settings.resumeArtist,
+            album: settings.resumeAlbum,
+            durationMs: settings.resumeDurationMs,
+          ),
+        ], startIndex: 0);
+      }
     }
 
     final bridge = ref.read(playerBridgeProvider);
@@ -198,6 +203,145 @@ class PlaybackController extends Notifier<PlaybackState> {
       );
     } catch (e) {
       ref.read(loggerProvider).w('resume failed: $e');
+    }
+  }
+
+  Future<bool> _restoreQueue() async {
+    final settings = ref.read(settingsStoreProvider);
+    final source = settings.queueSource;
+    final resumeTrack = settings.resumeTrack;
+    final logger = ref.read(loggerProvider);
+
+    if (source == null || resumeTrack == null) {
+      logger.d(
+        'restore queue skipped: source=$source, resumeTrack=$resumeTrack',
+      );
+      return false;
+    }
+
+    logger.d(
+      'restoring queue from source: ${source.type.name} (label: ${source.label})',
+    );
+
+    final bridge = ref.read(libraryBridgeProvider);
+    final completer = Completer<List<QueueItem>?>();
+
+    StreamSubscription? sub;
+    sub = bridge.events().listen((event) {
+      if (completer.isCompleted) return;
+      event.maybeWhen(
+        tracks: (folder, recursive, query, items) {
+          final isFolderMatch =
+              source.type == QueueSourceType.folder &&
+              source.folderPath == folder &&
+              source.includeSubfolders == recursive;
+          final isAllMatch =
+              source.type == QueueSourceType.all &&
+              folder.isEmpty &&
+              recursive == true;
+
+          if ((isFolderMatch || isAllMatch) && query.isEmpty) {
+            logger.d('restore queue: received ${items.length} tracks');
+            completer.complete(
+              items
+                  .map(
+                    (t) => QueueItem(
+                      track: _localTrackRef(t.path),
+                      id: t.id.toInt() >= 0 ? t.id.toInt() : null,
+                      title: t.title,
+                      artist: t.artist,
+                      album: t.album,
+                      durationMs: t.durationMs?.toInt(),
+                    ),
+                  )
+                  .toList(),
+            );
+          }
+        },
+        playlistTracks: (playlistId, query, items) {
+          if (source.type == QueueSourceType.playlist &&
+              source.playlistId == playlistId &&
+              query.isEmpty) {
+            logger.d('restore queue: received ${items.length} playlist tracks');
+            completer.complete(
+              items
+                  .map(
+                    (t) => QueueItem(
+                      track: _localTrackRef(t.path),
+                      id: t.id.toInt() >= 0 ? t.id.toInt() : null,
+                      title: t.title,
+                      artist: t.artist,
+                      album: t.album,
+                      durationMs: t.durationMs?.toInt(),
+                    ),
+                  )
+                  .toList(),
+            );
+          }
+        },
+        error: (msg) {
+          logger.e('restore queue error event: $msg');
+          if (!completer.isCompleted) completer.complete(null);
+        },
+        orElse: () {},
+      );
+    });
+
+    try {
+      if (source.type == QueueSourceType.folder) {
+        await bridge.listTracks(
+          folder: source.folderPath ?? '',
+          recursive: source.includeSubfolders,
+          query: '',
+        );
+      } else if (source.type == QueueSourceType.playlist) {
+        await bridge.listPlaylistTracks(
+          playlistId: source.playlistId ?? 0,
+          query: '',
+        );
+      } else if (source.type == QueueSourceType.all) {
+        await bridge.listTracks(folder: '', recursive: true, query: '');
+      }
+
+      final items = await completer.future.timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {
+          logger.w('restore queue timed out waiting for events');
+          return null;
+        },
+      );
+      if (items == null || items.isEmpty) {
+        logger.d('restore queue failed: no items');
+        return false;
+      }
+
+      // Find the index of the resume track.
+      int startIndex = -1;
+      final resumeKey = '${resumeTrack.sourceId}:${resumeTrack.trackId}';
+      for (var i = 0; i < items.length; i++) {
+        if (items[i].stableTrackKey == resumeKey) {
+          startIndex = i;
+          break;
+        }
+      }
+
+      if (startIndex == -1) {
+        logger.d('restore queue failed: track $resumeKey not in list');
+        return false;
+      }
+
+      logger.d(
+        'restore queue success: items=${items.length}, start=$startIndex',
+      );
+      ref
+          .read(queueControllerProvider.notifier)
+          .setQueue(items, startIndex: startIndex, source: source);
+      return true;
+    } catch (e) {
+      logger.e('restore queue failed with exception', error: e);
+      return false;
+    } finally {
+      unawaited(sub.cancel());
     }
   }
 
@@ -510,22 +654,22 @@ class PlaybackController extends Notifier<PlaybackState> {
   Future<void> setQueueAndPlay(
     List<String> paths, {
     int startIndex = 0,
-    String? sourceLabel,
+    QueueSource? source,
   }) => setQueueAndPlayTracks(
     paths.map((p) => TrackLite(id: -1, path: p)).toList(),
     startIndex: startIndex,
-    sourceLabel: sourceLabel,
+    source: source,
   );
 
   Future<void> setQueueAndPlayItems(
     List<QueueItem> items, {
     int startIndex = 0,
-    String? sourceLabel,
+    QueueSource? source,
   }) async {
     if (items.isEmpty) return;
     ref
         .read(queueControllerProvider.notifier)
-        .setQueue(items, startIndex: startIndex, sourceLabel: sourceLabel);
+        .setQueue(items, startIndex: startIndex, source: source);
     final item = ref.read(queueControllerProvider).currentItem;
     if (item == null) return;
     unawaited(_requestPreloadNext());
@@ -535,7 +679,7 @@ class PlaybackController extends Notifier<PlaybackState> {
   Future<void> setQueueAndPlayTracks(
     List<TrackLite> tracks, {
     int startIndex = 0,
-    String? sourceLabel,
+    QueueSource? source,
   }) => setQueueAndPlayItems(
     tracks
         .map(
@@ -550,7 +694,7 @@ class PlaybackController extends Notifier<PlaybackState> {
         )
         .toList(),
     startIndex: startIndex,
-    sourceLabel: sourceLabel,
+    source: source,
   );
 
   Future<void> enqueueItems(List<QueueItem> items) async {
