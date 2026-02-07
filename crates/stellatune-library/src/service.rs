@@ -15,6 +15,9 @@ use crate::worker::{DisabledPluginIds, LibraryWorker, Plugins, WorkerDeps};
 use std::collections::HashSet;
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+use arc_swap::ArcSwap;
+
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 use stellatune_plugins::{PluginManager, default_host_vtable};
 
 #[derive(Clone)]
@@ -50,18 +53,7 @@ impl LibraryHandle {
                 .filter(|s| !s.is_empty())
                 .collect::<HashSet<_>>();
 
-            match self.disabled_plugin_ids.lock() {
-                Ok(mut guard) => {
-                    *guard = disabled.clone();
-                }
-                Err(_) => {
-                    self.events.emit(LibraryEvent::Log {
-                        message: "plugins reload skipped: disabled_plugin_ids mutex poisoned"
-                            .to_string(),
-                    });
-                    return;
-                }
-            }
+            self.disabled_plugin_ids.store(Arc::new(disabled.clone()));
 
             if !dir.exists() {
                 return;
@@ -128,7 +120,7 @@ pub fn start_library(db_path: String, disabled_plugin_ids: Vec<String>) -> Resul
 
     #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
     let disabled_plugin_ids: DisabledPluginIds =
-        Arc::new(std::sync::Mutex::new(disabled_plugin_ids));
+        Arc::new(ArcSwap::from_pointee(disabled_plugin_ids));
 
     #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
     let disabled_plugin_ids: DisabledPluginIds = ();

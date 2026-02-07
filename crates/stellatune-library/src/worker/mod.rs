@@ -25,13 +25,16 @@ use self::watch::{WatchCtrl, spawn_watch_task};
 use std::collections::HashSet;
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+use arc_swap::ArcSwap;
+
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 use stellatune_plugins::PluginManager;
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 pub(crate) type Plugins = std::sync::Arc<std::sync::Mutex<PluginManager>>;
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-pub(crate) type DisabledPluginIds = std::sync::Arc<std::sync::Mutex<HashSet<String>>>;
+pub(crate) type DisabledPluginIds = std::sync::Arc<ArcSwap<HashSet<String>>>;
 
 #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
 pub(crate) type Plugins = ();
@@ -70,11 +73,7 @@ impl WorkerDeps {
         {
             // Best-effort initial load; scanning will also attempt additive loads.
             if plugins_dir.exists() {
-                let disabled = disabled_plugin_ids
-                    .lock()
-                    .ok()
-                    .map(|g| g.clone())
-                    .unwrap_or_default();
+                let disabled = disabled_plugin_ids.load_full().as_ref().clone();
                 let load_result = plugins.lock().map(|mut pm| unsafe {
                     pm.load_dir_additive_filtered(&plugins_dir, &disabled)
                 });
@@ -106,8 +105,9 @@ impl WorkerDeps {
             }
 
             // Ensure the in-memory plugin manager knows what is disabled (even if already loaded).
-            if let (Ok(mut pm), Ok(disabled)) = (plugins.lock(), disabled_plugin_ids.lock()) {
-                pm.set_disabled_ids(disabled.clone());
+            if let Ok(mut pm) = plugins.lock() {
+                let disabled = disabled_plugin_ids.load_full();
+                pm.set_disabled_ids(disabled.as_ref().clone());
             } else {
                 events.emit(LibraryEvent::Log {
                     message:
@@ -163,12 +163,7 @@ impl LibraryWorker {
             if !self.plugins_dir.exists() {
                 return;
             }
-            let disabled = self
-                .disabled_plugin_ids
-                .lock()
-                .ok()
-                .map(|g| g.clone())
-                .unwrap_or_default();
+            let disabled = self.disabled_plugin_ids.load_full().as_ref().clone();
             let mut pm = match self.plugins.lock() {
                 Ok(v) => v,
                 Err(_) => {

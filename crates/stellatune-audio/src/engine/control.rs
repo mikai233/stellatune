@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
+use arc_swap::ArcSwapOption;
 use crossbeam_channel::{Receiver, Sender};
 use tracing::{debug, error, info, warn};
 
@@ -26,6 +27,7 @@ use crate::engine::session::{
 #[cfg(debug_assertions)]
 const DEBUG_PRELOAD_LOG_EVERY: u64 = 24;
 const TRACK_REF_TOKEN_PREFIX: &str = "stref-json:";
+type SharedTrackInfo = Arc<ArcSwapOption<stellatune_core::TrackDecodeInfo>>;
 
 mod debug_metrics {
     #[cfg(debug_assertions)]
@@ -110,7 +112,7 @@ pub struct EngineHandle {
     engine_ctrl_tx: Sender<EngineCtrl>,
     events: Arc<EventHub>,
     plugins: Arc<Mutex<PluginManager>>,
-    track_info: Arc<Mutex<Option<stellatune_core::TrackDecodeInfo>>>,
+    track_info: SharedTrackInfo,
 }
 
 impl EngineHandle {
@@ -289,10 +291,9 @@ impl EngineHandle {
     }
 
     pub fn current_track_info(&self) -> Option<stellatune_core::TrackDecodeInfo> {
-        let Ok(g) = self.track_info.lock() else {
-            return None;
-        };
-        g.clone()
+        self.track_info
+            .load_full()
+            .map(|track_info| track_info.as_ref().clone())
     }
 }
 
@@ -305,7 +306,7 @@ pub fn start_engine() -> EngineHandle {
     let thread_events = Arc::clone(&events);
 
     let plugins = Arc::new(Mutex::new(PluginManager::new(default_host_vtable())));
-    let track_info = Arc::new(Mutex::new(None));
+    let track_info: SharedTrackInfo = Arc::new(ArcSwapOption::new(None));
 
     let plugins_for_thread = Arc::clone(&plugins);
     let track_info_for_thread = Arc::clone(&track_info);
@@ -421,7 +422,7 @@ fn run_control_loop(
     internal_tx: Sender<InternalMsg>,
     events: Arc<EventHub>,
     plugins: Arc<Mutex<PluginManager>>,
-    track_info: Arc<Mutex<Option<stellatune_core::TrackDecodeInfo>>>,
+    track_info: SharedTrackInfo,
 ) {
     info!("control thread started");
     let mut state = EngineState::new();
@@ -475,7 +476,7 @@ fn handle_engine_ctrl(
     state: &mut EngineState,
     events: &Arc<EventHub>,
     plugins: &Arc<Mutex<PluginManager>>,
-    track_info: &Arc<Mutex<Option<stellatune_core::TrackDecodeInfo>>>,
+    track_info: &SharedTrackInfo,
 ) {
     match msg {
         EngineCtrl::SetDspChain { chain } => {
@@ -505,7 +506,7 @@ fn handle_reload_plugins(
     state: &mut EngineState,
     events: &Arc<EventHub>,
     plugins: &Arc<Mutex<PluginManager>>,
-    track_info: &Arc<Mutex<Option<stellatune_core::TrackDecodeInfo>>>,
+    track_info: &SharedTrackInfo,
     dir: String,
     disabled_ids: Vec<String>,
 ) {
@@ -559,7 +560,7 @@ fn handle_internal(
     state: &mut EngineState,
     events: &Arc<EventHub>,
     internal_tx: &Sender<InternalMsg>,
-    track_info: &Arc<Mutex<Option<stellatune_core::TrackDecodeInfo>>>,
+    track_info: &SharedTrackInfo,
 ) {
     match msg {
         InternalMsg::Eof => {
@@ -737,7 +738,7 @@ fn handle_command(
     events: &Arc<EventHub>,
     internal_tx: &Sender<InternalMsg>,
     plugins: &Arc<Mutex<PluginManager>>,
-    track_info: &Arc<Mutex<Option<stellatune_core::TrackDecodeInfo>>>,
+    track_info: &SharedTrackInfo,
 ) -> bool {
     match cmd {
         Command::LoadTrack { path } => {
@@ -747,9 +748,7 @@ fn handle_command(
             state.wants_playback = false;
             state.pending_session_start = false;
             state.play_request_started_at = None;
-            if let Ok(mut g) = track_info.lock() {
-                *g = None;
-            }
+            track_info.store(None);
             events.emit(Event::TrackChanged { path });
             events.emit(Event::Position {
                 ms: state.position_ms,
@@ -775,9 +774,7 @@ fn handle_command(
             state.wants_playback = false;
             state.pending_session_start = false;
             state.play_request_started_at = None;
-            if let Ok(mut g) = track_info.lock() {
-                *g = None;
-            }
+            track_info.store(None);
             events.emit(Event::TrackChanged { path: event_path });
             events.emit(Event::Position {
                 ms: state.position_ms,
@@ -835,9 +832,7 @@ fn handle_command(
                         &mut state.output_pipeline,
                     ) {
                         Ok(session) => {
-                            if let Ok(mut g) = track_info.lock() {
-                                *g = Some(session.track_info.clone());
-                            }
+                            track_info.store(Some(Arc::new(session.track_info.clone())));
                             state.session = Some(session);
                             if let Err(message) =
                                 sync_output_sink_with_active_session(state, plugins)
@@ -1287,7 +1282,7 @@ fn handle_tick(
     events: &Arc<EventHub>,
     internal_tx: &Sender<InternalMsg>,
     plugins: &Arc<Mutex<PluginManager>>,
-    track_info: &Arc<Mutex<Option<stellatune_core::TrackDecodeInfo>>>,
+    track_info: &SharedTrackInfo,
 ) {
     // If we are waiting for an output spec (prewarm) and have no active session, start the session
     // as soon as the spec becomes available.
@@ -1337,9 +1332,7 @@ fn handle_tick(
             &mut state.output_pipeline,
         ) {
             Ok(session) => {
-                if let Ok(mut g) = track_info.lock() {
-                    *g = Some(session.track_info.clone());
-                }
+                track_info.store(Some(Arc::new(session.track_info.clone())));
                 state.session = Some(session);
                 state.pending_session_start = false;
                 if let Err(message) = sync_output_sink_with_active_session(state, plugins) {
@@ -1559,13 +1552,8 @@ fn shutdown_output_sink_worker(state: &mut EngineState) {
     worker.shutdown();
 }
 
-fn stop_decode_session(
-    state: &mut EngineState,
-    track_info: &Arc<Mutex<Option<stellatune_core::TrackDecodeInfo>>>,
-) {
-    if let Ok(mut g) = track_info.lock() {
-        *g = None;
-    }
+fn stop_decode_session(state: &mut EngineState, track_info: &SharedTrackInfo) {
+    track_info.store(None);
 
     let Some(session) = state.session.take() else {
         shutdown_output_sink_worker(state);
@@ -1619,10 +1607,7 @@ fn drop_output_pipeline(state: &mut EngineState) {
     }
 }
 
-fn stop_all_audio(
-    state: &mut EngineState,
-    track_info: &Arc<Mutex<Option<stellatune_core::TrackDecodeInfo>>>,
-) {
+fn stop_all_audio(state: &mut EngineState, track_info: &SharedTrackInfo) {
     stop_decode_session(state, track_info);
     drop_output_pipeline(state);
 }

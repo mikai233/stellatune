@@ -5,6 +5,7 @@ use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, anyhow};
+use arc_swap::ArcSwapOption;
 use crossbeam_channel::{Receiver, Sender};
 use reqwest::StatusCode;
 use serde_json::Value;
@@ -84,7 +85,7 @@ pub(crate) struct LyricsService {
     hub: LyricsEventHub,
     state: Mutex<LyricsState>,
     client: reqwest::Client,
-    cache_db_path: Mutex<Option<PathBuf>>,
+    cache_db_path: ArcSwapOption<PathBuf>,
     http_rate: Mutex<HttpRateState>,
     source_health: Mutex<HashMap<&'static str, SourceHealth>>,
     active_fetch: Mutex<ActiveFetchState>,
@@ -99,7 +100,7 @@ impl LyricsService {
                 .user_agent("StellaTune/0.1")
                 .build()
                 .expect("failed to build lyrics http client"),
-            cache_db_path: Mutex::new(None),
+            cache_db_path: ArcSwapOption::new(None),
             http_rate: Mutex::new(HttpRateState::default()),
             source_health: Mutex::new(HashMap::new()),
             active_fetch: Mutex::new(ActiveFetchState::default()),
@@ -130,10 +131,7 @@ impl LyricsService {
             .context("failed to create lyrics sqlite runtime")?;
         runtime.block_on(Self::init_cache_db(&path))?;
 
-        *self
-            .cache_db_path
-            .lock()
-            .expect("lyrics db path mutex poisoned") = Some(path);
+        self.cache_db_path.store(Some(Arc::new(path)));
         Ok(())
     }
 
@@ -860,9 +858,8 @@ impl LyricsService {
 
     fn cache_db_path(&self) -> Option<PathBuf> {
         self.cache_db_path
-            .lock()
-            .expect("lyrics db path mutex poisoned")
-            .clone()
+            .load_full()
+            .map(|db_path| db_path.as_ref().clone())
     }
 
     fn load_doc_from_cache_db(&self, track_key: &str) -> Option<LyricsDoc> {

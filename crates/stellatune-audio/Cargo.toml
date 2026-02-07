@@ -13,6 +13,7 @@ audioadapter-buffers.workspace = true
 tracing.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+arc-swap.workspace = true
 
 stellatune-core.workspace = true
 stellatune-decode.workspace = true

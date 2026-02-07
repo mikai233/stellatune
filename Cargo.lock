@@ -100,6 +100,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a23eb6b1614318a8071c9b2521f36b424b2c83db5eb3a0fead4a6c0809af6e61"
 
 [[package]]
+name = "arc-swap"
+version = "1.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9ded5f9a03ac8f24d1b8a25101ee812cd32cdc8c50a4c50237de2c4915850e73"
+dependencies = [
+ "rustversion",
+]
+
+[[package]]
 name = "arrayvec"
 version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3045,6 +3054,7 @@ dependencies = [
 name = "stellatune-audio"
 version = "0.1.0"
 dependencies = [
+ "arc-swap",
  "audioadapter-buffers",
  "crossbeam-channel",
  "ringbuf",
@@ -3087,6 +3097,7 @@ name = "stellatune-ffi"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "arc-swap",
  "axum",
  "crossbeam-channel",
  "flutter_rust_bridge",
@@ -3114,6 +3125,7 @@ name = "stellatune-library"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "arc-swap",
  "base64 0.22.1",
  "crossbeam-channel",
  "notify",

@@ -27,6 +27,7 @@ get_if_addrs = "0.5.3"
 socket2 = "0.5"
 serde_json.workspace = true
 sqlx.workspace = true
+arc-swap.workspace = true
 
 stellatune-audio.workspace = true
 stellatune-core.workspace = true
