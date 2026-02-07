@@ -66,6 +66,9 @@ mod wasapi_exclusive;
 #[cfg(windows)]
 mod asio_external;
 
+#[cfg(windows)]
+pub(crate) mod mmcss;
+
 pub enum OutputHandle {
     Shared {
         _stream: cpal::Stream,

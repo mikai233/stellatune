@@ -1,10 +1,16 @@
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use stellatune_asio_proto::{
-    AudioSpec, DeviceCaps, DeviceInfo, PROTOCOL_VERSION, Request, Response, SampleFormat,
-    read_frame, shm::SharedRingMapped, write_frame,
+    read_frame, shm::SharedRingMapped, write_frame, AudioSpec, DeviceCaps, DeviceInfo, Request,
+    Response, SampleFormat, PROTOCOL_VERSION,
+};
+
+#[cfg(windows)]
+use windows::Win32::System::Threading::{
+    AvSetMmThreadCharacteristicsW, AvSetMmThreadPriority, GetCurrentProcess, SetPriorityClass,
+    AVRT_PRIORITY_HIGH, HIGH_PRIORITY_CLASS,
 };
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -12,6 +18,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let stdout = std::io::stdout();
     let mut r = stdin.lock();
     let mut w = stdout.lock();
+
+    #[cfg(windows)]
+    unsafe {
+        let _ = SetPriorityClass(GetCurrentProcess(), HIGH_PRIORITY_CLASS);
+    }
 
     let mut state: Option<StreamState> = None;
 
@@ -24,9 +35,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 {
                     break;
                 }
-                let _ = write_frame(&mut w, &Response::Err {
-                    message: e.to_string(),
-                });
+                let _ = write_frame(
+                    &mut w,
+                    &Response::Err {
+                        message: e.to_string(),
+                    },
+                );
                 continue;
             }
         };
@@ -95,6 +109,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+#[cfg(windows)]
+struct MmcssGuard(#[allow(dead_code)] windows::Win32::Foundation::HANDLE);
+
+#[cfg(windows)]
+unsafe impl Send for MmcssGuard {}
+
+#[cfg(windows)]
+fn enable_mmcss_pro_audio() -> Option<MmcssGuard> {
+    let mut task_index = 0u32;
+    let task = windows::core::HSTRING::from("Pro Audio");
+    let handle = unsafe { AvSetMmThreadCharacteristicsW(&task, &mut task_index) }.ok()?;
+    let _ = unsafe { AvSetMmThreadPriority(handle, AVRT_PRIORITY_HIGH) };
+    Some(MmcssGuard(handle))
 }
 
 fn device_id_string(dev: &cpal::Device) -> String {
@@ -235,9 +264,7 @@ impl StreamState {
         };
 
         // Prefer f32; if unavailable, fall back to i16/i32/u16.
-        let supported = dev
-            .supported_output_configs()
-            .map_err(|e| e.to_string())?;
+        let supported = dev.supported_output_configs().map_err(|e| e.to_string())?;
         let mut chosen_format = None;
         for cand in [
             cpal::SampleFormat::F32,
@@ -259,9 +286,17 @@ impl StreamState {
                 let ring = SharedRingMapped::open(std::path::Path::new(&ring_path))
                     .map_err(|e| format!("failed to open shared ring: {e}"))?;
                 let running_cb = Arc::clone(&running);
+                #[cfg(windows)]
+                let mut mmcss_guard: Option<MmcssGuard> = None;
                 dev.build_output_stream(
                     &cfg,
-                    move |out: &mut [f32], _| fill_shm_f32(out, &ring, &running_cb),
+                    move |out: &mut [f32], _| {
+                        #[cfg(windows)]
+                        if mmcss_guard.is_none() {
+                            mmcss_guard = enable_mmcss_pro_audio();
+                        }
+                        fill_shm_f32(out, &ring, &running_cb)
+                    },
                     err_fn,
                     None,
                 )
@@ -272,9 +307,17 @@ impl StreamState {
                 let ring = SharedRingMapped::open(std::path::Path::new(&ring_path))
                     .map_err(|e| format!("failed to open shared ring: {e}"))?;
                 let running_cb = Arc::clone(&running);
+                #[cfg(windows)]
+                let mut mmcss_guard: Option<MmcssGuard> = None;
                 dev.build_output_stream(
                     &cfg,
-                    move |out: &mut [i16], _| fill_shm_i16(out, &ring, &running_cb, &mut tmp),
+                    move |out: &mut [i16], _| {
+                        #[cfg(windows)]
+                        if mmcss_guard.is_none() {
+                            mmcss_guard = enable_mmcss_pro_audio();
+                        }
+                        fill_shm_i16(out, &ring, &running_cb, &mut tmp)
+                    },
                     err_fn,
                     None,
                 )
@@ -285,9 +328,17 @@ impl StreamState {
                 let ring = SharedRingMapped::open(std::path::Path::new(&ring_path))
                     .map_err(|e| format!("failed to open shared ring: {e}"))?;
                 let running_cb = Arc::clone(&running);
+                #[cfg(windows)]
+                let mut mmcss_guard: Option<MmcssGuard> = None;
                 dev.build_output_stream(
                     &cfg,
-                    move |out: &mut [i32], _| fill_shm_i32(out, &ring, &running_cb, &mut tmp),
+                    move |out: &mut [i32], _| {
+                        #[cfg(windows)]
+                        if mmcss_guard.is_none() {
+                            mmcss_guard = enable_mmcss_pro_audio();
+                        }
+                        fill_shm_i32(out, &ring, &running_cb, &mut tmp)
+                    },
                     err_fn,
                     None,
                 )
@@ -298,9 +349,17 @@ impl StreamState {
                 let ring = SharedRingMapped::open(std::path::Path::new(&ring_path))
                     .map_err(|e| format!("failed to open shared ring: {e}"))?;
                 let running_cb = Arc::clone(&running);
+                #[cfg(windows)]
+                let mut mmcss_guard: Option<MmcssGuard> = None;
                 dev.build_output_stream(
                     &cfg,
-                    move |out: &mut [u16], _| fill_shm_u16(out, &ring, &running_cb, &mut tmp),
+                    move |out: &mut [u16], _| {
+                        #[cfg(windows)]
+                        if mmcss_guard.is_none() {
+                            mmcss_guard = enable_mmcss_pro_audio();
+                        }
+                        fill_shm_u16(out, &ring, &running_cb, &mut tmp)
+                    },
                     err_fn,
                     None,
                 )

@@ -309,6 +309,8 @@ where
     let thread = thread::Builder::new()
         .name("stellatune-asio-external".to_string())
         .spawn(move || {
+            #[cfg(windows)]
+            let _mmcss = crate::mmcss::enable_mmcss_pro_audio();
             // Batch size: ~10ms of audio.
             let frames_per_chunk = (expected_spec.sample_rate / 100).max(64) as usize;
             let samples_per_chunk = frames_per_chunk * expected_spec.channels as usize;

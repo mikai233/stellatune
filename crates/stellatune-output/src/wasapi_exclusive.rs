@@ -4,11 +4,6 @@ use std::thread;
 use std::time::Duration;
 
 use wasapi::{DeviceEnumerator, Direction, SampleType, StreamMode, WaveFormat};
-#[cfg(windows)]
-use windows::Win32::System::Threading::{
-    AVRT_PRIORITY_HIGH, AvRevertMmThreadCharacteristics, AvSetMmThreadCharacteristicsW,
-    AvSetMmThreadPriority,
-};
 
 use crate::{OutputError, OutputSpec, SampleConsumer};
 
@@ -17,25 +12,7 @@ pub struct WasapiExclusiveHandle {
     thread: Option<thread::JoinHandle<()>>,
 }
 
-#[cfg(windows)]
-struct MmcssGuard(windows::Win32::Foundation::HANDLE);
-
-#[cfg(windows)]
-impl Drop for MmcssGuard {
-    fn drop(&mut self) {
-        // Best-effort revert. Nothing we can do if it fails.
-        let _ = unsafe { AvRevertMmThreadCharacteristics(self.0) };
-    }
-}
-
-#[cfg(windows)]
-fn enable_mmcss_pro_audio() -> Option<MmcssGuard> {
-    let mut task_index = 0u32;
-    let task = windows::core::HSTRING::from("Pro Audio");
-    let handle = unsafe { AvSetMmThreadCharacteristicsW(&task, &mut task_index) }.ok()?;
-    let _ = unsafe { AvSetMmThreadPriority(handle, AVRT_PRIORITY_HIGH) };
-    Some(MmcssGuard(handle))
-}
+// MMCSS logic moved to crate::mmcss
 
 impl Drop for WasapiExclusiveHandle {
     fn drop(&mut self) {
@@ -172,7 +149,7 @@ impl WasapiExclusiveHandle {
             .name("stellatune-wasapi-exclusive".to_string())
             .spawn(move || {
                 #[cfg(windows)]
-                let _mmcss = enable_mmcss_pro_audio();
+                let _mmcss = crate::mmcss::enable_mmcss_pro_audio();
                 if let Err(e) =
                     run_exclusive_loop(device_id, &mut consumer, expected_spec, thread_shutdown)
                 {
