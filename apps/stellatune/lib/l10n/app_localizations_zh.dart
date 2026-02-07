@@ -477,4 +477,85 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsLocaleZh => '中文';
+
+  @override
+  String get settingsCloseToTray => '关闭窗口时隐藏到托盘';
+
+  @override
+  String get settingsCloseToTraySubtitle => '点击关闭按钮时，将应用隐藏到系统托盘而不是完全退出';
+
+  @override
+  String get trayRestore => '显示主界面';
+
+  @override
+  String get trayExit => '完全退出';
+
+  @override
+  String get settingsSourceConfigSaved => '来源配置已保存';
+
+  @override
+  String settingsPluginInstallFailed(String error) {
+    return '插件安装失败: $error';
+  }
+
+  @override
+  String get settingsSinkLoadTargetsFailed => '加载输出目标失败';
+
+  @override
+  String get settingsSinkRouteCleared => '输出路由已清除';
+
+  @override
+  String get settingsSinkRouteApplied => '输出路由已应用';
+
+  @override
+  String get settingsSinkLocalDevice => '本地设备';
+
+  @override
+  String get settingsSinkPluginSink => '插件输出';
+
+  @override
+  String get settingsSinkLoadTargets => '加载目标';
+
+  @override
+  String get settingsSinkClearRoute => '清除路由';
+
+  @override
+  String get settingsSinkApplyRoute => '应用路由';
+
+  @override
+  String get deviceLocal => '本机';
+
+  @override
+  String get deviceLocalSubtitle => '本地输出';
+
+  @override
+  String get about => '关于';
+
+  @override
+  String get dlna => 'DLNA';
+
+  @override
+  String dlnaSearchFailed(String error) {
+    return '发现失败: $error';
+  }
+
+  @override
+  String get dlnaNoDevices => '未发现 DLNA 设备';
+
+  @override
+  String get dlnaNoDevicesSubtitle => '请确保设备与本机在同一局域网内，并关闭可能拦截组播的代理/VPN。';
+
+  @override
+  String get dlnaNoVolumeSupport => '不支持音量控制';
+
+  @override
+  String get dlnaNoAvTransportSupport => '不支持 AVTransport（无法播放）';
+
+  @override
+  String get dlnaSwitchedToLocal => '已切换到本地输出';
+
+  @override
+  String dlnaSelected(String name) {
+    return '已选择 DLNA：$name';
+  }
 }

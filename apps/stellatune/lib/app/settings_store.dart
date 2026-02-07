@@ -33,6 +33,7 @@ class SettingsStore extends ChangeNotifier {
   static const _keyQueueSource = 'queue_source';
   static const _keyLocale = 'locale';
   static const _keyThemeMode = 'theme_mode';
+  static const _keyCloseToTray = 'close_to_tray';
 
   final Box _box;
 
@@ -352,6 +353,17 @@ class SettingsStore extends ChangeNotifier {
 
   Future<void> setThemeMode(ThemeMode mode) async {
     await _box.put(_keyThemeMode, mode.name);
+    notifyListeners();
+  }
+
+  bool get closeToTray {
+    final v = _box.get(_keyCloseToTray, defaultValue: true);
+    if (v is bool) return v;
+    return true;
+  }
+
+  Future<void> setCloseToTray(bool v) async {
+    await _box.put(_keyCloseToTray, v);
     notifyListeners();
   }
 }

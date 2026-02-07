@@ -254,6 +254,7 @@ class _DesktopGlobalTopBar extends StatelessWidget {
             icon: Icons.minimize,
             onPressed: () => windowManager.minimize(),
             color: theme.colorScheme.onSurface,
+            height: 50,
             tooltip: l10n.tooltipMinimize,
           ),
           WindowButton(
@@ -266,6 +267,7 @@ class _DesktopGlobalTopBar extends StatelessWidget {
               }
             },
             color: theme.colorScheme.onSurface,
+            height: 50,
             tooltip: l10n.tooltipMaximize,
           ),
           WindowButton(
@@ -273,6 +275,7 @@ class _DesktopGlobalTopBar extends StatelessWidget {
             onPressed: () => windowManager.close(),
             color: theme.colorScheme.onSurface,
             isClose: true,
+            height: 50,
             tooltip: l10n.tooltipClose,
           ),
         ],

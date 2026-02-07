@@ -7,6 +7,7 @@ import 'package:stellatune/app/settings_store.dart';
 import 'package:stellatune/bridge/bridge.dart';
 import 'package:stellatune/library/library_paths.dart';
 import 'package:stellatune/platform/rust_runtime.dart';
+import 'package:stellatune/platform/tray_service.dart';
 import 'package:window_manager/window_manager.dart';
 
 class AppBootstrapResult {
@@ -53,6 +54,24 @@ Future<void> initializeDesktopWindowIfNeeded() async {
     await windowManager.show();
     await windowManager.focus();
   });
+
+  // Tray and Close behavior
+  await TrayService.instance.init();
+  await windowManager.setPreventClose(true);
+}
+
+class WindowCloseHandler extends WindowListener {
+  WindowCloseHandler(this.settings);
+  final SettingsStore settings;
+
+  @override
+  void onWindowClose() async {
+    if (settings.closeToTray) {
+      await windowManager.hide();
+    } else {
+      exit(0);
+    }
+  }
 }
 
 Future<AppBootstrapResult> bootstrapApp() async {
@@ -76,6 +95,10 @@ Future<AppBootstrapResult> bootstrapApp() async {
     pluginDir: paths.pluginDir,
     disabledPluginIds: settings.disabledPluginIds.toList(),
   );
+
+  if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+    windowManager.addListener(WindowCloseHandler(settings));
+  }
 
   return AppBootstrapResult(
     bridge: bridge,

@@ -212,5 +212,51 @@
   "settingsThemeDark": "Dark",
   "settingsLocaleSystem": "Follow System",
   "settingsLocaleEn": "English",
-  "settingsLocaleZh": "Chinese"
+  "settingsLocaleZh": "Chinese",
+  "settingsCloseToTray": "Minimize to tray on close",
+  "settingsCloseToTraySubtitle": "Hide the window to system tray when clicking the close button instead of exiting",
+  "trayRestore": "Restore",
+  "trayExit": "Exit",
+  "settingsSourceConfigSaved": "Source config saved",
+  "settingsPluginInstallFailed": "Failed to install plugin: {error}",
+  "@settingsPluginInstallFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsSinkLoadTargetsFailed": "Failed to load output sink targets",
+  "settingsSinkRouteCleared": "Output sink route cleared",
+  "settingsSinkRouteApplied": "Output sink route applied",
+  "settingsSinkLocalDevice": "Local Device",
+  "settingsSinkPluginSink": "Plugin Sink",
+  "settingsSinkLoadTargets": "Load Targets",
+  "settingsSinkClearRoute": "Clear Route",
+  "settingsSinkApplyRoute": "Apply Route",
+  "deviceLocal": "Local Device",
+  "deviceLocalSubtitle": "Local Output",
+  "about": "About",
+  "dlna": "DLNA",
+  "dlnaSearchFailed": "Discovery failed: {error}",
+  "@dlnaSearchFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "dlnaNoDevices": "No DLNA devices found",
+  "dlnaNoDevicesSubtitle": "Ensure devices are on same network and multicast is allowed.",
+  "dlnaNoVolumeSupport": "No volume control support",
+  "dlnaNoAvTransportSupport": "AVTransport not supported (cannot play)",
+  "dlnaSwitchedToLocal": "Switched to local output",
+  "dlnaSelected": "Selected DLNA: {name}",
+  "@dlnaSelected": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  }
 }

@@ -171,9 +171,10 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
           configJson: value,
         );
     if (!mounted) return;
+    final l10n = AppLocalizations.of(context)!;
     ScaffoldMessenger.of(
       context,
-    ).showSnackBar(const SnackBar(content: Text('Source config saved')));
+    ).showSnackBar(SnackBar(content: Text(l10n.settingsSourceConfigSaved)));
   }
 
   Future<void> _reloadPluginsWithCurrentDisabled() async {
@@ -268,9 +269,10 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
       ).showSnackBar(SnackBar(content: Text(l10n.settingsPluginInstalled)));
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Failed to install plugin: $e')));
+      final l10n = AppLocalizations.of(context)!;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(l10n.settingsPluginInstallFailed(e.toString()))),
+      );
     }
   }
 
@@ -317,8 +319,9 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
       }
     } catch (_) {
       if (!mounted) return;
+      final l10n = AppLocalizations.of(context)!;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Failed to load output sink targets')),
+        SnackBar(content: Text(l10n.settingsSinkLoadTargetsFailed)),
       );
     } finally {
       if (mounted) {
@@ -334,9 +337,10 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
       await bridge.clearOutputSinkRoute();
       await settings.clearOutputSinkRoute();
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Output sink route cleared')),
-      );
+      final l10n = AppLocalizations.of(context)!;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(l10n.settingsSinkRouteCleared)));
       return;
     }
     final selectedKey = _selectedOutputSinkTypeKey;
@@ -353,9 +357,10 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
     await bridge.setOutputSinkRoute(route);
     await settings.setOutputSinkRoute(route);
     if (!mounted) return;
+    final l10n = AppLocalizations.of(context)!;
     ScaffoldMessenger.of(
       context,
-    ).showSnackBar(const SnackBar(content: Text('Output sink route applied')));
+    ).showSnackBar(SnackBar(content: Text(l10n.settingsSinkRouteApplied)));
   }
 
   Future<void> _clearLyricsCache() async {
@@ -423,7 +428,7 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
                     border: const OutlineInputBorder(),
                     isDense: true,
                   ),
-                  value: ref.watch(settingsStoreProvider).locale,
+                  initialValue: ref.watch(settingsStoreProvider).locale,
                   items: [
                     DropdownMenuItem(
                       value: null,
@@ -450,7 +455,7 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
                     border: const OutlineInputBorder(),
                     isDense: true,
                   ),
-                  value: ref.watch(settingsStoreProvider).themeMode,
+                  initialValue: ref.watch(settingsStoreProvider).themeMode,
                   items: [
                     DropdownMenuItem(
                       value: ThemeMode.system,
@@ -471,6 +476,17 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
                     setState(() {});
                   },
                 ),
+                if (Platform.isWindows || Platform.isLinux || Platform.isMacOS)
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(l10n.settingsCloseToTray),
+                    subtitle: Text(l10n.settingsCloseToTraySubtitle),
+                    value: ref.watch(settingsStoreProvider).closeToTray,
+                    onChanged: (v) async {
+                      await ref.read(settingsStoreProvider).setCloseToTray(v);
+                      setState(() {});
+                    },
+                  ),
               ],
             ),
           ),

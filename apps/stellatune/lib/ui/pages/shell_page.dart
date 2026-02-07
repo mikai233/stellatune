@@ -10,6 +10,7 @@ import 'package:stellatune/ui/pages/shell/desktop_shell.dart'
     show DesktopShell, DesktopTopBarAction;
 import 'package:stellatune/ui/pages/shell/mobile_shell.dart';
 import 'package:stellatune/ui/widgets/open_container_shader_warmup.dart';
+import 'package:stellatune/platform/tray_service.dart';
 import 'package:stellatune/l10n/app_localizations.dart';
 
 class ShellPage extends ConsumerStatefulWidget {
@@ -24,6 +25,20 @@ class _ShellPageState extends ConsumerState<ShellPage> {
   final _libraryPageKey = GlobalKey<LibraryPageState>();
   final _playlistsPageKey = GlobalKey<PlaylistsPageState>();
   final _settingsPageKey = GlobalKey<SettingsPageState>();
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+      final l10n = AppLocalizations.of(context);
+      if (l10n != null) {
+        TrayService.instance.setLocaleStrings(
+          restoreLabel: l10n.trayRestore,
+          exitLabel: l10n.trayExit,
+        );
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {

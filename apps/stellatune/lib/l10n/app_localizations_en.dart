@@ -486,4 +486,89 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsLocaleZh => 'Chinese';
+
+  @override
+  String get settingsCloseToTray => 'Minimize to tray on close';
+
+  @override
+  String get settingsCloseToTraySubtitle =>
+      'Hide the window to system tray when clicking the close button instead of exiting';
+
+  @override
+  String get trayRestore => 'Restore';
+
+  @override
+  String get trayExit => 'Exit';
+
+  @override
+  String get settingsSourceConfigSaved => 'Source config saved';
+
+  @override
+  String settingsPluginInstallFailed(String error) {
+    return 'Failed to install plugin: $error';
+  }
+
+  @override
+  String get settingsSinkLoadTargetsFailed =>
+      'Failed to load output sink targets';
+
+  @override
+  String get settingsSinkRouteCleared => 'Output sink route cleared';
+
+  @override
+  String get settingsSinkRouteApplied => 'Output sink route applied';
+
+  @override
+  String get settingsSinkLocalDevice => 'Local Device';
+
+  @override
+  String get settingsSinkPluginSink => 'Plugin Sink';
+
+  @override
+  String get settingsSinkLoadTargets => 'Load Targets';
+
+  @override
+  String get settingsSinkClearRoute => 'Clear Route';
+
+  @override
+  String get settingsSinkApplyRoute => 'Apply Route';
+
+  @override
+  String get deviceLocal => 'Local Device';
+
+  @override
+  String get deviceLocalSubtitle => 'Local Output';
+
+  @override
+  String get about => 'About';
+
+  @override
+  String get dlna => 'DLNA';
+
+  @override
+  String dlnaSearchFailed(String error) {
+    return 'Discovery failed: $error';
+  }
+
+  @override
+  String get dlnaNoDevices => 'No DLNA devices found';
+
+  @override
+  String get dlnaNoDevicesSubtitle =>
+      'Ensure devices are on same network and multicast is allowed.';
+
+  @override
+  String get dlnaNoVolumeSupport => 'No volume control support';
+
+  @override
+  String get dlnaNoAvTransportSupport =>
+      'AVTransport not supported (cannot play)';
+
+  @override
+  String get dlnaSwitchedToLocal => 'Switched to local output';
+
+  @override
+  String dlnaSelected(String name) {
+    return 'Selected DLNA: $name';
+  }
 }

@@ -1009,6 +1009,156 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Chinese'**
   String get settingsLocaleZh;
+
+  /// No description provided for @settingsCloseToTray.
+  ///
+  /// In en, this message translates to:
+  /// **'Minimize to tray on close'**
+  String get settingsCloseToTray;
+
+  /// No description provided for @settingsCloseToTraySubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Hide the window to system tray when clicking the close button instead of exiting'**
+  String get settingsCloseToTraySubtitle;
+
+  /// No description provided for @trayRestore.
+  ///
+  /// In en, this message translates to:
+  /// **'Restore'**
+  String get trayRestore;
+
+  /// No description provided for @trayExit.
+  ///
+  /// In en, this message translates to:
+  /// **'Exit'**
+  String get trayExit;
+
+  /// No description provided for @settingsSourceConfigSaved.
+  ///
+  /// In en, this message translates to:
+  /// **'Source config saved'**
+  String get settingsSourceConfigSaved;
+
+  /// No description provided for @settingsPluginInstallFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to install plugin: {error}'**
+  String settingsPluginInstallFailed(String error);
+
+  /// No description provided for @settingsSinkLoadTargetsFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to load output sink targets'**
+  String get settingsSinkLoadTargetsFailed;
+
+  /// No description provided for @settingsSinkRouteCleared.
+  ///
+  /// In en, this message translates to:
+  /// **'Output sink route cleared'**
+  String get settingsSinkRouteCleared;
+
+  /// No description provided for @settingsSinkRouteApplied.
+  ///
+  /// In en, this message translates to:
+  /// **'Output sink route applied'**
+  String get settingsSinkRouteApplied;
+
+  /// No description provided for @settingsSinkLocalDevice.
+  ///
+  /// In en, this message translates to:
+  /// **'Local Device'**
+  String get settingsSinkLocalDevice;
+
+  /// No description provided for @settingsSinkPluginSink.
+  ///
+  /// In en, this message translates to:
+  /// **'Plugin Sink'**
+  String get settingsSinkPluginSink;
+
+  /// No description provided for @settingsSinkLoadTargets.
+  ///
+  /// In en, this message translates to:
+  /// **'Load Targets'**
+  String get settingsSinkLoadTargets;
+
+  /// No description provided for @settingsSinkClearRoute.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear Route'**
+  String get settingsSinkClearRoute;
+
+  /// No description provided for @settingsSinkApplyRoute.
+  ///
+  /// In en, this message translates to:
+  /// **'Apply Route'**
+  String get settingsSinkApplyRoute;
+
+  /// No description provided for @deviceLocal.
+  ///
+  /// In en, this message translates to:
+  /// **'Local Device'**
+  String get deviceLocal;
+
+  /// No description provided for @deviceLocalSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Local Output'**
+  String get deviceLocalSubtitle;
+
+  /// No description provided for @about.
+  ///
+  /// In en, this message translates to:
+  /// **'About'**
+  String get about;
+
+  /// No description provided for @dlna.
+  ///
+  /// In en, this message translates to:
+  /// **'DLNA'**
+  String get dlna;
+
+  /// No description provided for @dlnaSearchFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Discovery failed: {error}'**
+  String dlnaSearchFailed(String error);
+
+  /// No description provided for @dlnaNoDevices.
+  ///
+  /// In en, this message translates to:
+  /// **'No DLNA devices found'**
+  String get dlnaNoDevices;
+
+  /// No description provided for @dlnaNoDevicesSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Ensure devices are on same network and multicast is allowed.'**
+  String get dlnaNoDevicesSubtitle;
+
+  /// No description provided for @dlnaNoVolumeSupport.
+  ///
+  /// In en, this message translates to:
+  /// **'No volume control support'**
+  String get dlnaNoVolumeSupport;
+
+  /// No description provided for @dlnaNoAvTransportSupport.
+  ///
+  /// In en, this message translates to:
+  /// **'AVTransport not supported (cannot play)'**
+  String get dlnaNoAvTransportSupport;
+
+  /// No description provided for @dlnaSwitchedToLocal.
+  ///
+  /// In en, this message translates to:
+  /// **'Switched to local output'**
+  String get dlnaSwitchedToLocal;
+
+  /// No description provided for @dlnaSelected.
+  ///
+  /// In en, this message translates to:
+  /// **'Selected DLNA: {name}'**
+  String dlnaSelected(String name);
 }
 
 class _AppLocalizationsDelegate

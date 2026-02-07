@@ -376,6 +376,7 @@ class _DlnaDialogState extends State<_DlnaDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
 
     final okLabel = MaterialLocalizations.of(context).okButtonLabel;
@@ -396,10 +397,10 @@ class _DlnaDialogState extends State<_DlnaDialog> {
                   Icon(Icons.cast, color: theme.colorScheme.primary),
                   const SizedBox(width: 12),
                   Expanded(
-                    child: Text('DLNA', style: theme.textTheme.titleLarge),
+                    child: Text(l10n.dlna, style: theme.textTheme.titleLarge),
                   ),
                   IconButton(
-                    tooltip: '刷新',
+                    tooltip: l10n.refresh,
                     onPressed: _refresh,
                     icon: const Icon(Icons.refresh),
                   ),
@@ -409,7 +410,7 @@ class _DlnaDialogState extends State<_DlnaDialog> {
               Align(
                 alignment: Alignment.centerLeft,
                 child: Text(
-                  '输出设备',
+                  l10n.settingsOutputTitle,
                   style: theme.textTheme.labelMedium?.copyWith(
                     color: theme.colorScheme.onSurfaceVariant,
                   ),
@@ -428,7 +429,7 @@ class _DlnaDialogState extends State<_DlnaDialog> {
                     if (snapshot.hasError) {
                       return _DlnaEmptyState(
                         icon: Icons.error_outline,
-                        title: '发现失败',
+                        title: l10n.dlnaSearchFailed(snapshot.error.toString()),
                         subtitle: '${snapshot.error}',
                         onRetry: _refresh,
                       );
@@ -438,8 +439,8 @@ class _DlnaDialogState extends State<_DlnaDialog> {
                     if (devices.isEmpty) {
                       return _DlnaEmptyState(
                         icon: Icons.wifi_off,
-                        title: '未发现 DLNA 设备',
-                        subtitle: '请确保设备与本机在同一局域网内，并关闭可能拦截组播的代理/VPN。',
+                        title: l10n.dlnaNoDevices,
+                        subtitle: l10n.dlnaNoDevicesSubtitle,
                         onRetry: _refresh,
                       );
                     }
@@ -464,8 +465,8 @@ class _DlnaDialogState extends State<_DlnaDialog> {
                             return ListTile(
                               dense: true,
                               leading: const Icon(Icons.computer),
-                              title: const Text('本机'),
-                              subtitle: const Text('本地输出'),
+                              title: Text(l10n.deviceLocal),
+                              subtitle: Text(l10n.deviceLocalSubtitle),
                               trailing: selected
                                   ? Icon(
                                       Icons.check_circle,
@@ -482,8 +483,8 @@ class _DlnaDialogState extends State<_DlnaDialog> {
                           final selected = _selected?.usn == d.usn;
                           final volOk = d.renderingControlUrl != null;
                           final subtitle = ok
-                              ? (volOk ? null : '不支持音量控制')
-                              : '不支持 AVTransport（无法播放）';
+                              ? (volOk ? null : l10n.dlnaNoVolumeSupport)
+                              : l10n.dlnaNoAvTransportSupport;
                           return ListTile(
                             dense: true,
                             enabled: ok,
@@ -524,7 +525,7 @@ class _DlnaDialogState extends State<_DlnaDialog> {
                           _DlnaActionResult(
                             applySelection: true,
                             selected: null,
-                            message: '已切换到本地输出',
+                            message: l10n.dlnaSwitchedToLocal,
                           ),
                         );
                         return;
@@ -533,7 +534,7 @@ class _DlnaDialogState extends State<_DlnaDialog> {
                         Navigator.of(context).pop(
                           _DlnaActionResult(
                             applySelection: false,
-                            message: '不支持 AVTransport（无法播放）',
+                            message: l10n.dlnaNoAvTransportSupport,
                           ),
                         );
                         return;
@@ -542,7 +543,7 @@ class _DlnaDialogState extends State<_DlnaDialog> {
                         _DlnaActionResult(
                           applySelection: true,
                           selected: d,
-                          message: '已选择 DLNA：${d.friendlyName}',
+                          message: l10n.dlnaSelected(d.friendlyName),
                         ),
                       );
                     },
@@ -573,6 +574,7 @@ class _DlnaEmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
     return Center(
       child: Padding(
@@ -595,7 +597,7 @@ class _DlnaEmptyState extends StatelessWidget {
             FilledButton.tonalIcon(
               onPressed: onRetry,
               icon: const Icon(Icons.refresh),
-              label: const Text('刷新'),
+              label: Text(l10n.refresh),
             ),
           ],
         ),

@@ -57,7 +57,7 @@ class MobileShell extends StatelessWidget {
             // Placeholder items
             ListTile(
               leading: const Icon(Icons.info),
-              title: const Text('About'),
+              title: Text(l10n.about),
               onTap: () {
                 Navigator.pop(context);
                 // TODO: Navigate to About

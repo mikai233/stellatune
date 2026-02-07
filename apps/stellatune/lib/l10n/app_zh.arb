@@ -212,5 +212,51 @@
   "settingsThemeDark": "深色",
   "settingsLocaleSystem": "跟随系统",
   "settingsLocaleEn": "英文",
-  "settingsLocaleZh": "中文"
+  "settingsLocaleZh": "中文",
+  "settingsCloseToTray": "关闭窗口时隐藏到托盘",
+  "settingsCloseToTraySubtitle": "点击关闭按钮时，将应用隐藏到系统托盘而不是完全退出",
+  "trayRestore": "显示主界面",
+  "trayExit": "完全退出",
+  "settingsSourceConfigSaved": "来源配置已保存",
+  "settingsPluginInstallFailed": "插件安装失败: {error}",
+  "@settingsPluginInstallFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsSinkLoadTargetsFailed": "加载输出目标失败",
+  "settingsSinkRouteCleared": "输出路由已清除",
+  "settingsSinkRouteApplied": "输出路由已应用",
+  "settingsSinkLocalDevice": "本地设备",
+  "settingsSinkPluginSink": "插件输出",
+  "settingsSinkLoadTargets": "加载目标",
+  "settingsSinkClearRoute": "清除路由",
+  "settingsSinkApplyRoute": "应用路由",
+  "deviceLocal": "本机",
+  "deviceLocalSubtitle": "本地输出",
+  "about": "关于",
+  "dlna": "DLNA",
+  "dlnaSearchFailed": "发现失败: {error}",
+  "@dlnaSearchFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "dlnaNoDevices": "未发现 DLNA 设备",
+  "dlnaNoDevicesSubtitle": "请确保设备与本机在同一局域网内，并关闭可能拦截组播的代理/VPN。",
+  "dlnaNoVolumeSupport": "不支持音量控制",
+  "dlnaNoAvTransportSupport": "不支持 AVTransport（无法播放）",
+  "dlnaSwitchedToLocal": "已切换到本地输出",
+  "dlnaSelected": "已选择 DLNA：{name}",
+  "@dlnaSelected": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  }
 }
