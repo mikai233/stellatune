@@ -241,11 +241,10 @@ class _DesktopGlobalTopBar extends StatelessWidget {
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: actions.map((action) {
-                  return IconButton(
-                    visualDensity: VisualDensity.compact,
+                  return _TopBarActionButton(
+                    icon: action.icon,
                     tooltip: action.tooltip,
                     onPressed: action.onPressed,
-                    icon: Icon(action.icon, size: 19),
                   );
                 }).toList(),
               ),
@@ -277,6 +276,82 @@ class _DesktopGlobalTopBar extends StatelessWidget {
             tooltip: l10n.tooltipClose,
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _TopBarActionButton extends StatefulWidget {
+  const _TopBarActionButton({
+    required this.icon,
+    required this.tooltip,
+    this.onPressed,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback? onPressed;
+
+  @override
+  State<_TopBarActionButton> createState() => _TopBarActionButtonState();
+}
+
+class _TopBarActionButtonState extends State<_TopBarActionButton> {
+  bool _isHovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isEnabled = widget.onPressed != null;
+
+    final backgroundColor = _isHovered
+        ? theme.colorScheme.primary.withValues(alpha: 0.12)
+        : Colors.transparent;
+
+    final borderColor = _isHovered
+        ? theme.colorScheme.primary.withValues(alpha: 0.35)
+        : Colors.transparent;
+
+    final borderWidth = _isHovered ? 1.5 : 0.0;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 1.5),
+      child: Tooltip(
+        message: widget.tooltip,
+        waitDuration: const Duration(milliseconds: 600),
+        child: MouseRegion(
+          onEnter: (_) => setState(() => _isHovered = true),
+          onExit: (_) => setState(() => _isHovered = false),
+          cursor: isEnabled
+              ? SystemMouseCursors.click
+              : SystemMouseCursors.basic,
+          child: GestureDetector(
+            onTap: widget.onPressed,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 240),
+              curve: Curves.easeOutCubic,
+              width: 38,
+              height: 28,
+              decoration: BoxDecoration(
+                color: isEnabled ? backgroundColor : Colors.transparent,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: isEnabled ? borderColor : Colors.transparent,
+                  width: isEnabled ? borderWidth : 0.0,
+                ),
+              ),
+              child: Icon(
+                widget.icon,
+                size: 17,
+                color: isEnabled
+                    ? theme.colorScheme.onSurface.withValues(
+                        alpha: _isHovered ? 1.0 : 0.8,
+                      )
+                    : theme.colorScheme.onSurface.withValues(alpha: 0.25),
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }

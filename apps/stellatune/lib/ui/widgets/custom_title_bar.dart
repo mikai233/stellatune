@@ -104,7 +104,7 @@ class CustomTitleBar extends StatelessWidget {
   }
 }
 
-class TitleBarButton extends StatelessWidget {
+class TitleBarButton extends StatefulWidget {
   const TitleBarButton({
     super.key,
     required this.icon,
@@ -121,24 +121,47 @@ class TitleBarButton extends StatelessWidget {
   final String? tooltip;
 
   @override
+  State<TitleBarButton> createState() => _TitleBarButtonState();
+}
+
+class _TitleBarButtonState extends State<TitleBarButton> {
+  bool _isHovered = false;
+
+  @override
   Widget build(BuildContext context) {
+    final borderColor = _isHovered
+        ? widget.color.withValues(alpha: 0.35)
+        : Colors.transparent;
+
+    final borderWidth = _isHovered ? 1.5 : 0.0;
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 4),
       child: Tooltip(
-        message: tooltip ?? '',
+        message: widget.tooltip ?? '',
         waitDuration: const Duration(milliseconds: 500),
-        child: Container(
-          decoration: BoxDecoration(borderRadius: BorderRadius.circular(8)),
-          clipBehavior: Clip.antiAlias,
-          child: Material(
-            color: Colors.transparent,
-            child: InkWell(
-              onTap: onPressed,
-              hoverColor: color.withValues(alpha: 0.15),
-              child: SizedBox(
-                width: 40,
-                height: height - 8,
-                child: Icon(icon, size: 18, color: color),
+        child: MouseRegion(
+          onEnter: (_) => setState(() => _isHovered = true),
+          onExit: (_) => setState(() => _isHovered = false),
+          cursor: SystemMouseCursors.click,
+          child: GestureDetector(
+            onTap: widget.onPressed,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 240),
+              curve: Curves.easeOutCubic,
+              width: 40,
+              height: widget.height - 8,
+              decoration: BoxDecoration(
+                color: _isHovered
+                    ? widget.color.withValues(alpha: 0.12)
+                    : Colors.transparent,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: borderColor, width: borderWidth),
+              ),
+              child: Icon(
+                widget.icon,
+                size: 18,
+                color: widget.color.withValues(alpha: _isHovered ? 1.0 : 0.75),
               ),
             ),
           ),
@@ -148,7 +171,7 @@ class TitleBarButton extends StatelessWidget {
   }
 }
 
-class WindowButton extends StatelessWidget {
+class WindowButton extends StatefulWidget {
   const WindowButton({
     super.key,
     required this.icon,
@@ -167,26 +190,57 @@ class WindowButton extends StatelessWidget {
   final String? tooltip;
 
   @override
+  State<WindowButton> createState() => _WindowButtonState();
+}
+
+class _WindowButtonState extends State<WindowButton> {
+  bool _isHovered = false;
+
+  @override
   Widget build(BuildContext context) {
+    final activeColor = widget.isClose
+        ? Colors.red.withValues(alpha: 1.0)
+        : widget.color;
+
+    final borderColor = _isHovered
+        ? activeColor.withValues(alpha: widget.isClose ? 0.6 : 0.35)
+        : Colors.transparent;
+
+    final borderWidth = _isHovered ? 1.5 : 0.0;
+
+    final backgroundColor = _isHovered
+        ? (widget.isClose
+              ? Colors.red.withValues(alpha: 0.15)
+              : widget.color.withValues(alpha: 0.12))
+        : Colors.transparent;
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 1, vertical: 4),
       child: Tooltip(
-        message: tooltip ?? '',
+        message: widget.tooltip ?? '',
         waitDuration: const Duration(milliseconds: 500),
-        child: Container(
-          decoration: BoxDecoration(borderRadius: BorderRadius.circular(8)),
-          clipBehavior: Clip.antiAlias,
-          child: Material(
-            color: Colors.transparent,
-            child: InkWell(
-              onTap: onPressed,
-              hoverColor: isClose
-                  ? Colors.red.withValues(alpha: 0.8)
-                  : color.withValues(alpha: 0.15),
-              child: SizedBox(
-                width: 44,
-                height: height - 8,
-                child: Icon(icon, size: 18, color: color),
+        child: MouseRegion(
+          onEnter: (_) => setState(() => _isHovered = true),
+          onExit: (_) => setState(() => _isHovered = false),
+          cursor: SystemMouseCursors.click,
+          child: GestureDetector(
+            onTap: widget.onPressed,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 240),
+              curve: Curves.easeOutCubic,
+              width: 44,
+              height: widget.height - 8,
+              decoration: BoxDecoration(
+                color: backgroundColor,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: borderColor, width: borderWidth),
+              ),
+              child: Icon(
+                widget.icon,
+                size: 18,
+                color: widget.isClose && _isHovered
+                    ? Colors.red
+                    : widget.color.withValues(alpha: _isHovered ? 1.0 : 0.75),
               ),
             ),
           ),
