@@ -171,6 +171,19 @@ class PlayerBridge {
     disabledIds: disabledIds,
   );
 
+  Future<String> pluginsInstallFromFile({
+    required String dir,
+    required String artifactPath,
+  }) => api.pluginsInstallFromFile(pluginsDir: dir, artifactPath: artifactPath);
+
+  Future<String> pluginsListInstalledJson({required String dir}) =>
+      api.pluginsListInstalledJson(pluginsDir: dir);
+
+  Future<void> pluginsUninstallById({
+    required String dir,
+    required String pluginId,
+  }) => api.pluginsUninstallById(pluginsDir: dir, pluginId: pluginId);
+
   Future<void> refreshDevices() => api.refreshDevices(player: player);
 
   Future<void> setOutputDevice({

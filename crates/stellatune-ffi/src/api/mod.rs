@@ -264,6 +264,23 @@ pub fn plugins_reload_with_disabled(
         .reload_plugins_with_disabled(dir, disabled_ids);
 }
 
+pub fn plugins_install_from_file(plugins_dir: String, artifact_path: String) -> Result<String> {
+    let installed = stellatune_plugins::install_plugin_from_artifact(&plugins_dir, &artifact_path)
+        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+    Ok(installed.id)
+}
+
+pub fn plugins_list_installed_json(plugins_dir: String) -> Result<String> {
+    let installed = stellatune_plugins::list_installed_plugins(&plugins_dir)
+        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+    serde_json::to_string(&installed).map_err(|e| anyhow::anyhow!(e.to_string()))
+}
+
+pub fn plugins_uninstall_by_id(plugins_dir: String, plugin_id: String) -> Result<()> {
+    stellatune_plugins::uninstall_plugin(&plugins_dir, &plugin_id)
+        .map_err(|e| anyhow::anyhow!(e.to_string()))
+}
+
 pub fn refresh_devices(player: RustOpaque<Player>) {
     player.engine.send_command(Command::RefreshDevices);
 }

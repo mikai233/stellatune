@@ -184,69 +184,59 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
 
   Future<List<_InstalledPlugin>> _listInstalledPlugins() async {
     await _ensurePluginDir();
-    final root = Directory(_pluginDir!);
-    if (!await root.exists()) return const [];
-
+    final bridge = ref.read(playerBridgeProvider);
+    final raw = await bridge.pluginsListInstalledJson(dir: _pluginDir!);
+    final decoded = jsonDecode(raw);
+    if (decoded is! List) return const [];
     final out = <_InstalledPlugin>[];
-    await for (final entity in root.list(
-      recursive: false,
-      followLinks: false,
-    )) {
-      if (entity is! Directory) continue;
-      final manifest = File(p.join(entity.path, 'plugin.toml'));
-      if (!await manifest.exists()) continue;
-      final text = await manifest.readAsString();
-      final id = _parseTomlString(text, 'id');
-      final name = _parseTomlString(text, 'name');
-      out.add(_InstalledPlugin(dirPath: entity.path, id: id, name: name));
+    for (final item in decoded) {
+      if (item is! Map) continue;
+      final map = item.cast<Object?, Object?>();
+      final id = (map['id'] ?? '').toString().trim();
+      if (id.isEmpty) continue;
+      final dirPath = (map['root_dir'] ?? '').toString().trim();
+      final nameRaw = (map['name'] ?? '').toString().trim();
+      out.add(
+        _InstalledPlugin(
+          dirPath: dirPath.isEmpty ? p.join(_pluginDir!, id) : dirPath,
+          id: id,
+          name: nameRaw.isEmpty ? null : nameRaw,
+        ),
+      );
     }
     out.sort((a, b) => (a.nameOrDir).compareTo(b.nameOrDir));
     return out;
   }
 
-  String? _parseTomlString(String toml, String key) {
-    final re = RegExp(
-      '^\\s*${RegExp.escape(key)}\\s*=\\s*"([^"]*)"\\s*\$',
-      multiLine: true,
-    );
-    final m = re.firstMatch(toml);
-    if (m == null) return null;
-    final v = (m.group(1) ?? '').trim();
-    return v.isEmpty ? null : v;
+  String _pluginLibExtForPlatform() {
+    if (Platform.isWindows) return 'dll';
+    if (Platform.isLinux) return 'so';
+    if (Platform.isMacOS) return 'dylib';
+    return 'dll';
   }
 
-  Future<void> _installPluginFolder() async {
+  Future<void> _installPluginArtifact() async {
     final l10n = AppLocalizations.of(context)!;
     await _ensurePluginDir();
     final pluginDir = _pluginDir!;
 
-    final src = await FilePicker.platform.getDirectoryPath(
+    final picked = await FilePicker.platform.pickFiles(
       dialogTitle: l10n.settingsInstallPluginPickFolder,
+      type: FileType.custom,
+      allowMultiple: false,
+      allowedExtensions: ['zip', _pluginLibExtForPlatform()],
     );
-    if (src == null || src.trim().isEmpty) return;
-
-    final srcDir = Directory(src);
-    if (!await srcDir.exists()) return;
-    final manifest = File(p.join(srcDir.path, 'plugin.toml'));
-    if (!await manifest.exists()) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l10n.settingsInstallPluginMissingManifest)),
-      );
-      return;
-    }
+    final files = picked?.files;
+    if (files == null || files.isEmpty) return;
+    final srcPath = files.first.path?.trim();
+    if (srcPath == null || srcPath.isEmpty) return;
 
     try {
-      final destRoot = Directory(pluginDir);
-      await destRoot.create(recursive: true);
-
-      final dest = Directory(p.join(pluginDir, p.basename(src)));
-      if (await dest.exists()) {
-        await dest.delete(recursive: true);
-      }
-      await _copyDir(srcDir, dest);
-
       final bridge = ref.read(playerBridgeProvider);
+      await bridge.pluginsInstallFromFile(
+        dir: pluginDir,
+        artifactPath: srcPath,
+      );
       final library = ref.read(libraryBridgeProvider);
       final disabledIds = ref.read(settingsStoreProvider).disabledPluginIds;
       await bridge.pluginsReloadWithDisabled(
@@ -267,19 +257,6 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Failed to install plugin: $e')));
-    }
-  }
-
-  Future<void> _copyDir(Directory src, Directory dest) async {
-    await dest.create(recursive: true);
-    await for (final entity in src.list(recursive: false, followLinks: false)) {
-      final name = p.basename(entity.path);
-      final newPath = p.join(dest.path, name);
-      if (entity is File) {
-        await entity.copy(newPath);
-      } else if (entity is Directory) {
-        await _copyDir(entity, Directory(newPath));
-      }
     }
   }
 
@@ -451,7 +428,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
         actions: [
           IconButton(
             tooltip: l10n.settingsInstallPlugin,
-            onPressed: _installPluginFolder,
+            onPressed: _installPluginArtifact,
             icon: const Icon(Icons.add),
           ),
           IconButton(
@@ -996,18 +973,23 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                                       if (ok != true) return;
 
                                       try {
-                                        await Directory(
-                                          p.dirPath,
-                                        ).delete(recursive: true);
+                                        await _ensurePluginDir();
                                         if (p.id != null) {
+                                          await bridge.pluginsUninstallById(
+                                            dir: _pluginDir!,
+                                            pluginId: p.id!,
+                                          );
                                           await ref
                                               .read(settingsStoreProvider)
                                               .setPluginEnabled(
                                                 pluginId: p.id!,
                                                 enabled: true,
                                               );
+                                        } else {
+                                          await Directory(
+                                            p.dirPath,
+                                          ).delete(recursive: true);
                                         }
-                                        await _ensurePluginDir();
                                         final disabledIds = ref
                                             .read(settingsStoreProvider)
                                             .disabledPluginIds;

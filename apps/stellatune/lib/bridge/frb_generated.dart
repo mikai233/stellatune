@@ -71,7 +71,7 @@ class StellatuneApi
   String get codegenVersion => '2.11.1';
 
   @override
-  int get rustContentHash => 974228519;
+  int get rustContentHash => -1272108007;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -323,7 +323,14 @@ abstract class StellatuneApiApi extends BaseApi {
 
   Future<void> crateApiPlay({required Player player});
 
+  Future<String> crateApiPluginsInstallFromFile({
+    required String pluginsDir,
+    required String artifactPath,
+  });
+
   Future<List<PluginDescriptor>> crateApiPluginsList({required Player player});
+
+  Future<String> crateApiPluginsListInstalledJson({required String pluginsDir});
 
   Future<void> crateApiPluginsReload({
     required Player player,
@@ -334,6 +341,11 @@ abstract class StellatuneApiApi extends BaseApi {
     required Player player,
     required String dir,
     required List<String> disabledIds,
+  });
+
+  Future<void> crateApiPluginsUninstallById({
+    required String pluginsDir,
+    required String pluginId,
   });
 
   Future<void> crateApiPreloadTrack({
@@ -2315,6 +2327,41 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
       const TaskConstMeta(debugName: "play", argNames: ["player"]);
 
   @override
+  Future<String> crateApiPluginsInstallFromFile({
+    required String pluginsDir,
+    required String artifactPath,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(pluginsDir, serializer);
+          sse_encode_String(artifactPath, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 57,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_String,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiPluginsInstallFromFileConstMeta,
+        argValues: [pluginsDir, artifactPath],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiPluginsInstallFromFileConstMeta =>
+      const TaskConstMeta(
+        debugName: "plugins_install_from_file",
+        argNames: ["pluginsDir", "artifactPath"],
+      );
+
+  @override
   Future<List<PluginDescriptor>> crateApiPluginsList({required Player player}) {
     return handler.executeNormal(
       NormalTask(
@@ -2324,7 +2371,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 57,
+            funcId: 58,
             port: port_,
           );
         },
@@ -2343,6 +2390,39 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
       const TaskConstMeta(debugName: "plugins_list", argNames: ["player"]);
 
   @override
+  Future<String> crateApiPluginsListInstalledJson({
+    required String pluginsDir,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(pluginsDir, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 59,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_String,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiPluginsListInstalledJsonConstMeta,
+        argValues: [pluginsDir],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiPluginsListInstalledJsonConstMeta =>
+      const TaskConstMeta(
+        debugName: "plugins_list_installed_json",
+        argNames: ["pluginsDir"],
+      );
+
+  @override
   Future<void> crateApiPluginsReload({
     required Player player,
     required String dir,
@@ -2356,7 +2436,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 58,
+            funcId: 60,
             port: port_,
           );
         },
@@ -2392,7 +2472,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 59,
+            funcId: 61,
             port: port_,
           );
         },
@@ -2414,6 +2494,41 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
       );
 
   @override
+  Future<void> crateApiPluginsUninstallById({
+    required String pluginsDir,
+    required String pluginId,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(pluginsDir, serializer);
+          sse_encode_String(pluginId, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 62,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiPluginsUninstallByIdConstMeta,
+        argValues: [pluginsDir, pluginId],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiPluginsUninstallByIdConstMeta =>
+      const TaskConstMeta(
+        debugName: "plugins_uninstall_by_id",
+        argNames: ["pluginsDir", "pluginId"],
+      );
+
+  @override
   Future<void> crateApiPreloadTrack({
     required Player player,
     required String path,
@@ -2429,7 +2544,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 60,
+            funcId: 63,
             port: port_,
           );
         },
@@ -2465,7 +2580,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 61,
+            funcId: 64,
             port: port_,
           );
         },
@@ -2495,7 +2610,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 62,
+            funcId: 65,
             port: port_,
           );
         },
@@ -2527,7 +2642,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 63,
+            funcId: 66,
             port: port_,
           );
         },
@@ -2563,7 +2678,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 64,
+            funcId: 67,
             port: port_,
           );
         },
@@ -2601,7 +2716,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 65,
+            funcId: 68,
             port: port_,
           );
         },
@@ -2645,7 +2760,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 66,
+            funcId: 69,
             port: port_,
           );
         },
@@ -2679,7 +2794,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 67,
+            funcId: 70,
             port: port_,
           );
         },
@@ -2719,7 +2834,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 68,
+            funcId: 71,
             port: port_,
           );
         },
@@ -2752,7 +2867,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 69,
+            funcId: 72,
             port: port_,
           );
         },
@@ -2780,7 +2895,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 70,
+            funcId: 73,
             port: port_,
           );
         },
@@ -2808,7 +2923,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 71,
+            funcId: 74,
             port: port_,
           );
         },
@@ -2845,7 +2960,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 72,
+            funcId: 75,
             port: port_,
           );
         },
@@ -2875,7 +2990,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 73,
+            funcId: 76,
             port: port_,
           );
         },

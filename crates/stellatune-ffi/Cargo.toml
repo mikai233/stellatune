@@ -32,3 +32,4 @@ arc-swap.workspace = true
 stellatune-audio.workspace = true
 stellatune-core.workspace = true
 stellatune-library.workspace = true
+stellatune-plugins.workspace = true

@@ -4,9 +4,10 @@ use core::ffi::c_void;
 
 // Single in-development ABI version (early-stage project).
 // Note: changing ABI without changing this can break older native plugins.
-// ABI was changed by adding `get_interface` to `StPluginVTableV1` and new optional interfaces.
+// ABI was changed by adding `get_interface` to `StPluginVTableV1`, `metadata_json_utf8`,
+// and `get_runtime_root_utf8` host callback.
 // Bump host/plugin API version to reject stale binaries at load time.
-pub const STELLATUNE_PLUGIN_API_VERSION_V1: u32 = 2;
+pub const STELLATUNE_PLUGIN_API_VERSION_V1: u32 = 3;
 pub const STELLATUNE_PLUGIN_ENTRY_SYMBOL_V1: &str = "stellatune_plugin_entry_v1";
 pub const ST_INTERFACE_SOURCE_CATALOG_V1: &str = "stellatune.source_catalog.v1";
 pub const ST_INTERFACE_LYRICS_PROVIDER_V1: &str = "stellatune.lyrics_provider.v1";
@@ -151,6 +152,9 @@ pub struct StHostVTableV1 {
     pub api_version: u32,
     pub user_data: *mut c_void,
     pub log_utf8: Option<extern "C" fn(user_data: *mut c_void, level: StLogLevel, msg: StStr)>,
+    /// Returns plugin runtime root path as UTF-8 bytes.
+    /// The returned bytes are host-owned and must be treated as read-only.
+    pub get_runtime_root_utf8: Option<extern "C" fn(user_data: *mut c_void) -> StStr>,
 }
 
 // Raw pointers make this not auto-Send/Sync. For StellaTune v1 we treat the host vtable as
@@ -171,6 +175,8 @@ pub struct StPluginVTableV1 {
 
     pub id_utf8: extern "C" fn() -> StStr,
     pub name_utf8: extern "C" fn() -> StStr,
+    /// Plugin metadata JSON for host-side installation and diagnostics.
+    pub metadata_json_utf8: extern "C" fn() -> StStr,
 
     pub decoder_count: extern "C" fn() -> usize,
     pub decoder_get: extern "C" fn(index: usize) -> *const StDecoderVTableV1,

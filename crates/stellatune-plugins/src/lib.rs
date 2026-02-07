@@ -4,9 +4,11 @@ mod util;
 use std::collections::HashSet;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, anyhow};
 use libloading::{Library, Symbol};
+use serde::{Deserialize, Serialize};
 use stellatune_plugin_api::{
     ST_ERR_INTERNAL, ST_ERR_INVALID_ARG, ST_ERR_IO, ST_INTERFACE_LYRICS_PROVIDER_V1,
     ST_INTERFACE_OUTPUT_SINK_V1, ST_INTERFACE_SOURCE_CATALOG_V1, STELLATUNE_PLUGIN_API_VERSION_V1,
@@ -17,7 +19,10 @@ use stellatune_plugin_api::{
 };
 use tracing::{debug, info, warn};
 
-pub use manifest::{DiscoveredPlugin, PluginManifest, discover_plugins};
+pub use manifest::{
+    DiscoveredPlugin, INSTALL_RECEIPT_FILE_NAME, PluginInstallReceipt, PluginManifest,
+    discover_plugins, read_receipt, receipt_path_for_plugin_root, write_receipt,
+};
 
 extern "C" fn default_host_log(_: *mut core::ffi::c_void, level: StLogLevel, msg: StStr) {
     let text = unsafe { util::ststr_to_string_lossy(msg) };
@@ -35,7 +40,49 @@ pub fn default_host_vtable() -> StHostVTableV1 {
         api_version: STELLATUNE_PLUGIN_API_VERSION_V1,
         user_data: core::ptr::null_mut(),
         log_utf8: Some(default_host_log),
+        get_runtime_root_utf8: None,
     }
+}
+
+#[derive(Debug, Clone)]
+struct PluginHostCtx {
+    runtime_root_utf8: Box<[u8]>,
+}
+
+extern "C" fn plugin_host_runtime_root(user_data: *mut core::ffi::c_void) -> StStr {
+    if user_data.is_null() {
+        return StStr::empty();
+    }
+    let ctx = unsafe { &*(user_data as *const PluginHostCtx) };
+    if ctx.runtime_root_utf8.is_empty() {
+        return StStr::empty();
+    }
+    StStr {
+        ptr: ctx.runtime_root_utf8.as_ptr(),
+        len: ctx.runtime_root_utf8.len(),
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct PluginMetadataDoc {
+    id: String,
+    name: String,
+    api_version: u32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct InstalledPluginInfo {
+    pub id: String,
+    pub name: String,
+    pub root_dir: PathBuf,
+    pub library_path: PathBuf,
+}
+
+fn now_unix_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 pub struct PluginLibrary {
@@ -188,6 +235,10 @@ impl PluginLibrary {
         unsafe { util::ststr_to_string_lossy(((*self.vtable).name_utf8)()) }
     }
 
+    pub fn metadata_json(&self) -> String {
+        unsafe { util::ststr_to_string_lossy(((*self.vtable).metadata_json_utf8)()) }
+    }
+
     pub fn vtable(&self) -> *const StPluginVTableV1 {
         self.vtable
     }
@@ -314,6 +365,8 @@ pub struct LoadedPlugin {
     pub manifest: PluginManifest,
     pub library_path: PathBuf,
     pub library: PluginLibrary,
+    _host_vtable: Box<StHostVTableV1>,
+    _host_ctx: Box<PluginHostCtx>,
 }
 
 #[derive(Debug, Clone)]
@@ -1769,8 +1822,7 @@ impl PluginManager {
             ));
         }
 
-        let rel = discovered.manifest.library_path_for_current_platform()?;
-        let library_path = discovered.root_dir.join(rel);
+        let library_path = discovered.library_path.clone();
         if !library_path.exists() {
             return Err(anyhow!(
                 "plugin `{}` library not found: {}",
@@ -1779,13 +1831,21 @@ impl PluginManager {
             ));
         }
 
-        let entry_symbol = discovered
-            .manifest
-            .entry_symbol
-            .as_deref()
-            .unwrap_or(STELLATUNE_PLUGIN_ENTRY_SYMBOL_V1);
+        let runtime_root = discovered.root_dir.to_string_lossy().into_owned();
+        let mut host_ctx = Box::new(PluginHostCtx {
+            runtime_root_utf8: runtime_root.into_bytes().into_boxed_slice(),
+        });
+        let mut host_vtable = Box::new(self.host);
+        host_vtable.user_data = (&mut *host_ctx) as *mut PluginHostCtx as *mut core::ffi::c_void;
+        host_vtable.get_runtime_root_utf8 = Some(plugin_host_runtime_root);
 
-        let library = unsafe { PluginLibrary::load(&library_path, entry_symbol, &self.host)? };
+        let library = unsafe {
+            PluginLibrary::load(
+                &library_path,
+                discovered.manifest.entry_symbol(),
+                host_vtable.as_ref(),
+            )?
+        };
 
         let exported_id = library.id();
         if exported_id != discovered.manifest.id {
@@ -1796,11 +1856,365 @@ impl PluginManager {
             ));
         }
 
+        let metadata_json = library.metadata_json();
+        let meta: PluginMetadataDoc = serde_json::from_str(&metadata_json).with_context(|| {
+            format!(
+                "invalid metadata_json_utf8 for plugin `{}` at {}",
+                exported_id,
+                library_path.display()
+            )
+        })?;
+        if meta.id != exported_id {
+            return Err(anyhow!(
+                "plugin metadata id mismatch: metadata.id=`{}`, exported.id=`{}`",
+                meta.id,
+                exported_id
+            ));
+        }
+        let exported_name = library.name();
+        if meta.name != exported_name {
+            return Err(anyhow!(
+                "plugin metadata name mismatch: metadata.name=`{}`, exported.name=`{}`",
+                meta.name,
+                exported_name
+            ));
+        }
+        if meta.api_version != STELLATUNE_PLUGIN_API_VERSION_V1 {
+            return Err(anyhow!(
+                "plugin `{}` metadata api_version mismatch: plugin={}, host={}",
+                exported_id,
+                meta.api_version,
+                STELLATUNE_PLUGIN_API_VERSION_V1
+            ));
+        }
+
         Ok(LoadedPlugin {
             root_dir: discovered.root_dir.clone(),
             manifest: discovered.manifest.clone(),
             library_path,
             library,
+            _host_vtable: host_vtable,
+            _host_ctx: host_ctx,
         })
     }
+}
+
+fn dynamic_library_ext() -> &'static str {
+    match std::env::consts::OS {
+        "windows" => "dll",
+        "linux" => "so",
+        "macos" => "dylib",
+        _ => "",
+    }
+}
+
+fn is_dynamic_library_file(path: &Path) -> bool {
+    let ext = dynamic_library_ext();
+    if ext.is_empty() {
+        return false;
+    }
+    path.extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.eq_ignore_ascii_case(ext))
+        .unwrap_or(false)
+}
+
+fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
+    std::fs::create_dir_all(dst).with_context(|| format!("create {}", dst.display()))?;
+    for entry in walkdir::WalkDir::new(src)
+        .follow_links(false)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
+        let path = entry.path();
+        if path == src {
+            continue;
+        }
+        let rel = path
+            .strip_prefix(src)
+            .with_context(|| format!("strip prefix {} from {}", src.display(), path.display()))?;
+        let target = dst.join(rel);
+        if entry.file_type().is_dir() {
+            std::fs::create_dir_all(&target)
+                .with_context(|| format!("create {}", target.display()))?;
+            continue;
+        }
+        if entry.file_type().is_file() {
+            if let Some(parent) = target.parent() {
+                std::fs::create_dir_all(parent)
+                    .with_context(|| format!("create {}", parent.display()))?;
+            }
+            std::fs::copy(path, &target)
+                .with_context(|| format!("copy {} -> {}", path.display(), target.display()))?;
+        }
+    }
+    Ok(())
+}
+
+fn extract_zip_to_dir(zip_path: &Path, out_dir: &Path) -> Result<()> {
+    let file =
+        std::fs::File::open(zip_path).with_context(|| format!("open {}", zip_path.display()))?;
+    let mut archive = zip::ZipArchive::new(file)
+        .with_context(|| format!("open zip archive {}", zip_path.display()))?;
+    for i in 0..archive.len() {
+        let mut entry = archive
+            .by_index(i)
+            .with_context(|| format!("read zip entry #{i} from {}", zip_path.display()))?;
+        let enclosed = entry
+            .enclosed_name()
+            .ok_or_else(|| anyhow!("zip entry has invalid path: {}", entry.name()))?;
+        let out_path = out_dir.join(enclosed);
+        if entry.is_dir() {
+            std::fs::create_dir_all(&out_path)
+                .with_context(|| format!("create {}", out_path.display()))?;
+            continue;
+        }
+        if let Some(parent) = out_path.parent() {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("create {}", parent.display()))?;
+        }
+        let mut out = std::fs::File::create(&out_path)
+            .with_context(|| format!("create {}", out_path.display()))?;
+        std::io::copy(&mut entry, &mut out)
+            .with_context(|| format!("extract {} to {}", entry.name(), out_path.display()))?;
+        #[cfg(unix)]
+        if let Some(mode) = entry.unix_mode() {
+            use std::os::unix::fs::PermissionsExt;
+            let perm = std::fs::Permissions::from_mode(mode);
+            std::fs::set_permissions(&out_path, perm)
+                .with_context(|| format!("set permissions {}", out_path.display()))?;
+        }
+    }
+    Ok(())
+}
+
+fn inspect_plugin_library_at(path: &Path, runtime_root: &Path) -> Result<PluginManifest> {
+    let mut host_ctx = Box::new(PluginHostCtx {
+        runtime_root_utf8: runtime_root
+            .to_string_lossy()
+            .into_owned()
+            .into_bytes()
+            .into_boxed_slice(),
+    });
+    let mut host_vtable = Box::new(default_host_vtable());
+    host_vtable.user_data = (&mut *host_ctx) as *mut PluginHostCtx as *mut core::ffi::c_void;
+    host_vtable.get_runtime_root_utf8 = Some(plugin_host_runtime_root);
+
+    let library = unsafe {
+        PluginLibrary::load(
+            path,
+            STELLATUNE_PLUGIN_ENTRY_SYMBOL_V1,
+            host_vtable.as_ref(),
+        )
+    }?;
+    let id = library.id();
+    let name = library.name();
+    let metadata_json = library.metadata_json();
+    let meta: PluginMetadataDoc = serde_json::from_str(&metadata_json).with_context(|| {
+        format!(
+            "invalid metadata_json_utf8 for plugin `{}` at {}",
+            id,
+            path.display()
+        )
+    })?;
+    if meta.id != id {
+        return Err(anyhow!(
+            "plugin metadata id mismatch: metadata.id=`{}`, exported.id=`{}`",
+            meta.id,
+            id
+        ));
+    }
+    if meta.name != name {
+        return Err(anyhow!(
+            "plugin metadata name mismatch: metadata.name=`{}`, exported.name=`{}`",
+            meta.name,
+            name
+        ));
+    }
+    if meta.api_version != STELLATUNE_PLUGIN_API_VERSION_V1 {
+        return Err(anyhow!(
+            "plugin `{}` metadata api_version mismatch: plugin={}, host={}",
+            id,
+            meta.api_version,
+            STELLATUNE_PLUGIN_API_VERSION_V1
+        ));
+    }
+
+    Ok(PluginManifest {
+        id,
+        api_version: meta.api_version,
+        name: Some(name),
+        entry_symbol: Some(STELLATUNE_PLUGIN_ENTRY_SYMBOL_V1.to_string()),
+        metadata_json: Some(metadata_json),
+    })
+}
+
+fn find_plugin_library_candidates(root: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    for entry in walkdir::WalkDir::new(root)
+        .follow_links(false)
+        .max_depth(8)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        let path = entry.path();
+        if is_dynamic_library_file(path) {
+            out.push(path.to_path_buf());
+        }
+    }
+    out
+}
+
+pub fn install_plugin_from_artifact(
+    plugins_dir: impl AsRef<Path>,
+    artifact_path: impl AsRef<Path>,
+) -> Result<InstalledPluginInfo> {
+    let plugins_dir = plugins_dir.as_ref();
+    let artifact_path = artifact_path.as_ref();
+    if !artifact_path.exists() {
+        return Err(anyhow!("artifact not found: {}", artifact_path.display()));
+    }
+    std::fs::create_dir_all(plugins_dir)
+        .with_context(|| format!("create {}", plugins_dir.display()))?;
+
+    let temp = tempfile::tempdir().context("create plugin install temp dir")?;
+    let staging_root = temp.path().join("staging");
+    std::fs::create_dir_all(&staging_root)
+        .with_context(|| format!("create {}", staging_root.display()))?;
+
+    let ext = artifact_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+
+    if ext == "zip" {
+        extract_zip_to_dir(artifact_path, &staging_root)?;
+    } else if is_dynamic_library_file(artifact_path) {
+        let file_name = artifact_path
+            .file_name()
+            .ok_or_else(|| anyhow!("invalid artifact path: {}", artifact_path.display()))?;
+        let dst = staging_root.join(file_name);
+        std::fs::copy(artifact_path, &dst)
+            .with_context(|| format!("copy {} -> {}", artifact_path.display(), dst.display()))?;
+    } else {
+        return Err(anyhow!(
+            "unsupported plugin artifact: {} (expect .zip or .{})",
+            artifact_path.display(),
+            dynamic_library_ext()
+        ));
+    }
+
+    let mut valid = Vec::<(PathBuf, PluginManifest)>::new();
+    for candidate in find_plugin_library_candidates(&staging_root) {
+        match inspect_plugin_library_at(&candidate, &staging_root) {
+            Ok(manifest) => valid.push((candidate, manifest)),
+            Err(_) => {}
+        }
+    }
+
+    let (library_path, manifest) = match valid.len() {
+        0 => {
+            return Err(anyhow!(
+                "no valid StellaTune plugin library found in artifact: {}",
+                artifact_path.display()
+            ));
+        }
+        1 => valid.pop().expect("single item"),
+        _ => {
+            let ids = valid
+                .iter()
+                .map(|(_, m)| m.id.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
+            return Err(anyhow!(
+                "artifact contains multiple StellaTune plugins ({ids}); one artifact must contain exactly one plugin"
+            ));
+        }
+    };
+
+    let library_rel_path = library_path
+        .strip_prefix(&staging_root)
+        .with_context(|| {
+            format!(
+                "failed to derive library_rel_path from {}",
+                library_path.display()
+            )
+        })?
+        .to_path_buf();
+    let install_root = plugins_dir.join(&manifest.id);
+    if install_root.exists() {
+        std::fs::remove_dir_all(&install_root)
+            .with_context(|| format!("remove {}", install_root.display()))?;
+    }
+    copy_dir_recursive(&staging_root, &install_root)?;
+
+    let library_rel_path_string = library_rel_path.to_string_lossy().replace('\\', "/");
+    let receipt = PluginInstallReceipt {
+        manifest: manifest.clone(),
+        library_rel_path: library_rel_path_string,
+    };
+    write_receipt(&install_root, &receipt)?;
+
+    let installed = InstalledPluginInfo {
+        id: manifest.id.clone(),
+        name: manifest.name.unwrap_or_else(|| manifest.id.clone()),
+        root_dir: install_root.clone(),
+        library_path: install_root.join(library_rel_path),
+    };
+
+    info!(
+        target: "stellatune_plugins::install",
+        plugin_id = %installed.id,
+        plugin_name = %installed.name,
+        install_root = %installed.root_dir.display(),
+        library_path = %installed.library_path.display(),
+        installed_at_ms = now_unix_ms(),
+        "plugin installed"
+    );
+    Ok(installed)
+}
+
+pub fn list_installed_plugins(plugins_dir: impl AsRef<Path>) -> Result<Vec<InstalledPluginInfo>> {
+    let mut out = Vec::new();
+    for d in manifest::discover_plugins(plugins_dir)? {
+        out.push(InstalledPluginInfo {
+            id: d.manifest.id.clone(),
+            name: d
+                .manifest
+                .name
+                .clone()
+                .unwrap_or_else(|| d.manifest.id.clone()),
+            root_dir: d.root_dir.clone(),
+            library_path: d.library_path.clone(),
+        });
+    }
+    out.sort_by(|a, b| a.id.cmp(&b.id));
+    Ok(out)
+}
+
+pub fn uninstall_plugin(plugins_dir: impl AsRef<Path>, plugin_id: &str) -> Result<()> {
+    let plugin_id = plugin_id.trim();
+    if plugin_id.is_empty() {
+        return Err(anyhow!("plugin_id is empty"));
+    }
+    let plugins_dir = plugins_dir.as_ref();
+    let mut roots = Vec::new();
+    for d in manifest::discover_plugins(plugins_dir)? {
+        if d.manifest.id == plugin_id {
+            roots.push(d.root_dir);
+        }
+    }
+    if roots.is_empty() {
+        return Err(anyhow!("plugin not installed: {plugin_id}"));
+    }
+    for root in roots {
+        if root.exists() {
+            std::fs::remove_dir_all(&root).with_context(|| format!("remove {}", root.display()))?;
+        }
+    }
+    Ok(())
 }

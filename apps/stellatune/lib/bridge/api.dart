@@ -197,6 +197,27 @@ Future<void> pluginsReloadWithDisabled({
   disabledIds: disabledIds,
 );
 
+Future<String> pluginsInstallFromFile({
+  required String pluginsDir,
+  required String artifactPath,
+}) => StellatuneApi.instance.api.crateApiPluginsInstallFromFile(
+  pluginsDir: pluginsDir,
+  artifactPath: artifactPath,
+);
+
+Future<String> pluginsListInstalledJson({required String pluginsDir}) =>
+    StellatuneApi.instance.api.crateApiPluginsListInstalledJson(
+      pluginsDir: pluginsDir,
+    );
+
+Future<void> pluginsUninstallById({
+  required String pluginsDir,
+  required String pluginId,
+}) => StellatuneApi.instance.api.crateApiPluginsUninstallById(
+  pluginsDir: pluginsDir,
+  pluginId: pluginId,
+);
+
 Future<void> refreshDevices({required Player player}) =>
     StellatuneApi.instance.api.crateApiRefreshDevices(player: player);
 

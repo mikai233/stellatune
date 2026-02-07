@@ -139,10 +139,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsInstallPlugin => '安装插件';
 
   @override
-  String get settingsInstallPluginPickFolder => '选择插件文件夹';
+  String get settingsInstallPluginPickFolder => '选择插件文件（.zip/.dll/.so/.dylib）';
 
   @override
-  String get settingsInstallPluginMissingManifest => '所选文件夹缺少 plugin.toml。';
+  String get settingsInstallPluginMissingManifest => '不支持的插件包。';
 
   @override
   String get settingsPluginInstalled => '插件已安装';

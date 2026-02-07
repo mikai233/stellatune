@@ -353,13 +353,13 @@ abstract class AppLocalizations {
   /// No description provided for @settingsInstallPluginPickFolder.
   ///
   /// In en, this message translates to:
-  /// **'Pick plugin folder'**
+  /// **'Pick plugin file (.zip/.dll/.so/.dylib)'**
   String get settingsInstallPluginPickFolder;
 
   /// No description provided for @settingsInstallPluginMissingManifest.
   ///
   /// In en, this message translates to:
-  /// **'Missing plugin.toml in the selected folder.'**
+  /// **'Unsupported plugin package.'**
   String get settingsInstallPluginMissingManifest;
 
   /// No description provided for @settingsPluginInstalled.

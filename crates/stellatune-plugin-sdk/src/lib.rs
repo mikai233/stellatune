@@ -3,6 +3,8 @@ pub use stellatune_plugin_api::*;
 use core::ffi::c_void;
 use core::sync::atomic::{AtomicPtr, Ordering};
 use std::io::{self, Read, Seek, SeekFrom};
+use std::path::{Path, PathBuf};
+use std::process::{Child, Command};
 
 static HOST_VTABLE_V1: AtomicPtr<StHostVTableV1> = AtomicPtr::new(core::ptr::null_mut());
 
@@ -40,6 +42,127 @@ macro_rules! host_log {
     ($lvl:expr, $($arg:tt)*) => {{
         $crate::host_log($lvl, &format!($($arg)*));
     }};
+}
+
+/// Returns runtime root directory assigned by host for this plugin.
+pub fn plugin_runtime_root() -> Option<String> {
+    let host = HOST_VTABLE_V1.load(Ordering::Acquire);
+    if host.is_null() {
+        return None;
+    }
+    let cb = unsafe { (*host).get_runtime_root_utf8 }?;
+    let user_data = unsafe { (*host).user_data };
+    let root = cb(user_data);
+    if root.ptr.is_null() || root.len == 0 {
+        return None;
+    }
+    unsafe { ststr_to_str(&root).ok().map(ToOwned::to_owned) }
+}
+
+/// Returns runtime root directory assigned by host for this plugin as `PathBuf`.
+pub fn plugin_runtime_root_path() -> Option<PathBuf> {
+    plugin_runtime_root().map(PathBuf::from)
+}
+
+/// Resolves a path relative to plugin runtime root.
+pub fn resolve_runtime_path(relative: impl AsRef<Path>) -> Option<PathBuf> {
+    let root = plugin_runtime_root_path()?;
+    let rel = relative.as_ref();
+    if rel.as_os_str().is_empty() {
+        return Some(root);
+    }
+    if rel.is_absolute() {
+        return Some(rel.to_path_buf());
+    }
+    Some(root.join(rel))
+}
+
+/// Build a command to launch a sidecar program under plugin runtime root.
+///
+/// The current working directory is set to runtime root.
+pub fn sidecar_command(relative_program: impl AsRef<Path>) -> io::Result<Command> {
+    let root = plugin_runtime_root_path().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            "plugin runtime root is unavailable",
+        )
+    })?;
+    let program = root.join(relative_program.as_ref());
+    let mut cmd = Command::new(program);
+    cmd.current_dir(root);
+    Ok(cmd)
+}
+
+/// Spawn a sidecar program under plugin runtime root.
+pub fn spawn_sidecar<I, S>(relative_program: impl AsRef<Path>, args: I) -> io::Result<Child>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<std::ffi::OsStr>,
+{
+    let mut cmd = sidecar_command(relative_program)?;
+    cmd.args(args);
+    cmd.spawn()
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct PluginMetadataVersion {
+    pub major: u16,
+    pub minor: u16,
+    pub patch: u16,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct PluginMetadata {
+    pub id: String,
+    pub name: String,
+    pub api_version: u32,
+    pub version: PluginMetadataVersion,
+}
+
+impl PluginMetadata {
+    pub fn to_json(&self) -> Result<String, serde_json::Error> {
+        serde_json::to_string(self)
+    }
+}
+
+pub fn build_plugin_metadata(
+    id: impl Into<String>,
+    name: impl Into<String>,
+    major: u16,
+    minor: u16,
+    patch: u16,
+) -> PluginMetadata {
+    PluginMetadata {
+        id: id.into(),
+        name: name.into(),
+        api_version: STELLATUNE_PLUGIN_API_VERSION_V1,
+        version: PluginMetadataVersion {
+            major,
+            minor,
+            patch,
+        },
+    }
+}
+
+pub fn build_plugin_metadata_json(
+    id: impl Into<String>,
+    name: impl Into<String>,
+    major: u16,
+    minor: u16,
+    patch: u16,
+) -> String {
+    let meta = build_plugin_metadata(id, name, major, minor, patch);
+    match meta.to_json() {
+        Ok(s) => s,
+        Err(_) => {
+            let id = meta.id.replace('\\', "\\\\").replace('"', "\\\"");
+            let name = meta.name.replace('\\', "\\\\").replace('"', "\\\"");
+            format!(
+                r#"{{"id":"{id}","name":"{name}","api_version":{},"version":{{"major":{},"minor":{},"patch":{}}}}}"#,
+                meta.api_version, meta.version.major, meta.version.minor, meta.version.patch
+            )
+        }
+    }
 }
 
 #[doc(hidden)]
@@ -371,6 +494,27 @@ macro_rules! export_plugin {
             $crate::ststr(__ST_PLUGIN_NAME)
         }
 
+        fn __st_plugin_metadata_json() -> &'static str {
+            static META: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+            META.get_or_init(|| {
+                $crate::build_plugin_metadata_json(
+                    __ST_PLUGIN_ID,
+                    __ST_PLUGIN_NAME,
+                    $vmaj,
+                    $vmin,
+                    $vpatch,
+                )
+            })
+        }
+
+        extern "C" fn __st_plugin_metadata_json_utf8() -> $crate::StStr {
+            let s = __st_plugin_metadata_json();
+            $crate::StStr {
+                ptr: s.as_ptr(),
+                len: s.len(),
+            }
+        }
+
         $(
             mod $dec_mod {
                 use super::*;
@@ -685,6 +829,7 @@ macro_rules! export_plugin {
             plugin_free: Some($crate::plugin_free),
             id_utf8: __st_plugin_id_utf8,
             name_utf8: __st_plugin_name_utf8,
+            metadata_json_utf8: __st_plugin_metadata_json_utf8,
             decoder_count: __st_decoder_count,
             decoder_get: __st_decoder_get,
             dsp_count: __st_dsp_count,
