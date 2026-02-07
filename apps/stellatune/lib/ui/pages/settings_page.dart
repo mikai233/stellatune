@@ -45,8 +45,6 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
   Future<List<OutputSinkTypeDescriptor>>? _outputSinkTypesFuture;
   Future<List<SourceCatalogTypeDescriptor>>? _sourceTypesFuture;
   Future<List<_InstalledPlugin>>? _installedPluginsFuture;
-  List<AudioDevice> _devices = [];
-  StreamSubscription<Event>? _eventSub;
   String? _pluginDir;
 
   _OutputMode _outputMode = _OutputMode.device;
@@ -72,30 +70,13 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
     super.initState();
     _loadFromSettings();
     _refresh();
-    _initEvents();
   }
 
   @override
   void dispose() {
-    _eventSub?.cancel();
     _outputSinkConfigController.dispose();
     _outputSinkTargetController.dispose();
     super.dispose();
-  }
-
-  void _initEvents() {
-    final bridge = ref.read(playerBridgeProvider);
-    _eventSub = bridge.events().listen((event) {
-      if (!mounted) return;
-      event.whenOrNull(
-        outputDevicesChanged: (devices) {
-          setState(() {
-            _devices = devices;
-          });
-        },
-      );
-    });
-    bridge.refreshDevices();
   }
 
   void _loadFromSettings() {
@@ -404,6 +385,8 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
     }
     _installedPluginsFuture ??= _listInstalledPlugins();
 
+    final devices = ref.watch(audioDevicesProvider).value ?? const [];
+
     final appBar = AppBar(
       title: Text(l10n.settingsTitle),
       actions: [
@@ -536,10 +519,14 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
                     // If the previously selected device isn't available on the new backend,
                     // fall back to Default (null) to avoid passing an invalid device name.
                     var deviceId = settings.selectedDeviceId;
-                    final available = _devices
+                    final available = devices
                         .where((d) => d.backend == v)
                         .map((d) => d.id)
                         .toSet();
+                    if (deviceId != null && !available.contains(deviceId)) {
+                      deviceId = null;
+                      await settings.setSelectedDeviceId(null);
+                    }
                     if (deviceId != null &&
                         available.isNotEmpty &&
                         !available.contains(deviceId)) {
@@ -553,7 +540,6 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
                       deviceId: deviceId,
                     );
                     bridge.refreshDevices();
-                    setState(() {});
                   },
                 ),
                 const SizedBox(height: 12),
@@ -570,7 +556,7 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
                     final backend = ref
                         .read(settingsStoreProvider)
                         .selectedBackend;
-                    final available = _devices
+                    final available = devices
                         .where((d) => d.backend == backend)
                         .toList();
 
@@ -589,7 +575,7 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
                             .selectedBackend;
                         if (backend == AudioBackend.asio) {
                           final available =
-                              _devices
+                              devices
                                   .where((d) => d.backend == backend)
                                   .toList()
                                 ..sort((a, b) => a.name.compareTo(b.name));
@@ -602,7 +588,7 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
                         return l10n.settingsDeviceDefault;
                       }()),
                     ),
-                    ..._devices
+                    ...devices
                         .where(
                           (d) =>
                               d.backend ==

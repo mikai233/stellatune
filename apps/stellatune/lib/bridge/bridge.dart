@@ -38,14 +38,20 @@ class PlayerBridge {
   PlayerBridge._(this.player);
 
   final api.Player player;
+  Stream<Event>? _eventBroadcast;
+  Stream<LyricsEvent>? _lyricsEventBroadcast;
 
   static Future<PlayerBridge> create() async {
     final player = await api.createPlayer();
     return PlayerBridge._(player);
   }
 
-  Stream<Event> events() => api.events(player: player);
-  Stream<LyricsEvent> lyricsEvents() => api.lyricsEvents(player: player);
+  Stream<Event> events() =>
+      _eventBroadcast ??= api.events(player: player).asBroadcastStream();
+
+  Stream<LyricsEvent> lyricsEvents() => _lyricsEventBroadcast ??= api
+      .lyricsEvents(player: player)
+      .asBroadcastStream();
 
   Future<void> load(String path) => api.load(player: player, path: path);
   Future<void> loadTrackRef(TrackRef track) =>
@@ -242,6 +248,7 @@ class LibraryBridge {
   LibraryBridge._(this.library);
 
   final api.Library library;
+  Stream<LibraryEvent>? _eventBroadcast;
 
   static Future<LibraryBridge> create({
     required String dbPath,
@@ -254,7 +261,9 @@ class LibraryBridge {
     return LibraryBridge._(library);
   }
 
-  Stream<LibraryEvent> events() => api.libraryEvents(library_: library);
+  Stream<LibraryEvent> events() => _eventBroadcast ??= api
+      .libraryEvents(library_: library)
+      .asBroadcastStream();
 
   Future<void> addRoot(String path) =>
       api.libraryAddRoot(library_: library, path: path);
