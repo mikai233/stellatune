@@ -16,7 +16,7 @@ final coverDirProvider = Provider<String>((ref) {
   throw UnimplementedError('coverDirProvider must be overridden in main()');
 });
 
-final settingsStoreProvider = Provider<SettingsStore>((ref) {
+final settingsStoreProvider = ChangeNotifierProvider<SettingsStore>((ref) {
   throw UnimplementedError(
     'settingsStoreProvider must be overridden in main()',
   );

@@ -430,6 +430,76 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
+                  l10n.settingsAppearanceTitle,
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<Locale?>(
+                  decoration: InputDecoration(
+                    labelText: l10n.settingsLanguage,
+                    border: const OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                  value: ref.watch(settingsStoreProvider).locale,
+                  items: [
+                    DropdownMenuItem(
+                      value: null,
+                      child: Text(l10n.settingsLocaleSystem),
+                    ),
+                    DropdownMenuItem(
+                      value: const Locale('zh'),
+                      child: Text(l10n.settingsLocaleZh),
+                    ),
+                    DropdownMenuItem(
+                      value: const Locale('en'),
+                      child: Text(l10n.settingsLocaleEn),
+                    ),
+                  ],
+                  onChanged: (v) async {
+                    await ref.read(settingsStoreProvider).setLocale(v);
+                    setState(() {});
+                  },
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<ThemeMode>(
+                  decoration: InputDecoration(
+                    labelText: l10n.settingsThemeMode,
+                    border: const OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                  value: ref.watch(settingsStoreProvider).themeMode,
+                  items: [
+                    DropdownMenuItem(
+                      value: ThemeMode.system,
+                      child: Text(l10n.settingsThemeSystem),
+                    ),
+                    DropdownMenuItem(
+                      value: ThemeMode.light,
+                      child: Text(l10n.settingsThemeLight),
+                    ),
+                    DropdownMenuItem(
+                      value: ThemeMode.dark,
+                      child: Text(l10n.settingsThemeDark),
+                    ),
+                  ],
+                  onChanged: (v) async {
+                    if (v == null) return;
+                    await ref.read(settingsStoreProvider).setThemeMode(v);
+                    setState(() {});
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
                   l10n.settingsOutputTitle,
                   style: Theme.of(context).textTheme.titleMedium,
                 ),

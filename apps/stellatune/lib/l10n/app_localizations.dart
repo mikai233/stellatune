@@ -955,6 +955,60 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Toggle Fullscreen'**
   String get tooltipFullscreen;
+
+  /// No description provided for @settingsAppearanceTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Appearance'**
+  String get settingsAppearanceTitle;
+
+  /// No description provided for @settingsLanguage.
+  ///
+  /// In en, this message translates to:
+  /// **'Language'**
+  String get settingsLanguage;
+
+  /// No description provided for @settingsThemeMode.
+  ///
+  /// In en, this message translates to:
+  /// **'Theme Mode'**
+  String get settingsThemeMode;
+
+  /// No description provided for @settingsThemeSystem.
+  ///
+  /// In en, this message translates to:
+  /// **'Follow System'**
+  String get settingsThemeSystem;
+
+  /// No description provided for @settingsThemeLight.
+  ///
+  /// In en, this message translates to:
+  /// **'Light'**
+  String get settingsThemeLight;
+
+  /// No description provided for @settingsThemeDark.
+  ///
+  /// In en, this message translates to:
+  /// **'Dark'**
+  String get settingsThemeDark;
+
+  /// No description provided for @settingsLocaleSystem.
+  ///
+  /// In en, this message translates to:
+  /// **'Follow System'**
+  String get settingsLocaleSystem;
+
+  /// No description provided for @settingsLocaleEn.
+  ///
+  /// In en, this message translates to:
+  /// **'English'**
+  String get settingsLocaleEn;
+
+  /// No description provided for @settingsLocaleZh.
+  ///
+  /// In en, this message translates to:
+  /// **'Chinese'**
+  String get settingsLocaleZh;
 }
 
 class _AppLocalizationsDelegate

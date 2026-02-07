@@ -1,10 +1,14 @@
 import 'dart:convert';
+import 'dart:ui';
+import 'package:flutter/foundation.dart';
+
+import 'package:flutter/material.dart' show ThemeMode;
 
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:stellatune/player/queue_models.dart';
 import 'package:stellatune/bridge/bridge.dart';
 
-class SettingsStore {
+class SettingsStore extends ChangeNotifier {
   SettingsStore._(this._box);
 
   static const _boxName = 'settings';
@@ -27,6 +31,8 @@ class SettingsStore {
   static const _keyOutputSinkRoute = 'output_sink_route';
   static const _keySourceConfigs = 'source_configs';
   static const _keyQueueSource = 'queue_source';
+  static const _keyLocale = 'locale';
+  static const _keyThemeMode = 'theme_mode';
 
   final Box _box;
 
@@ -313,5 +319,39 @@ class SettingsStore {
     } else {
       await _box.put(_keyQueueSource, jsonEncode(source.toJson()));
     }
+  }
+
+  Locale? get locale {
+    final raw = _box.get(_keyLocale);
+    if (raw is String && raw.isNotEmpty) {
+      final parts = raw.split('_');
+      if (parts.length == 1) return Locale(parts[0]);
+      if (parts.length == 2) return Locale(parts[0], parts[1]);
+    }
+    return null;
+  }
+
+  Future<void> setLocale(Locale? locale) async {
+    if (locale == null) {
+      await _box.delete(_keyLocale);
+    } else {
+      await _box.put(_keyLocale, locale.toString());
+    }
+    notifyListeners();
+  }
+
+  ThemeMode get themeMode {
+    final raw = _box.get(_keyThemeMode);
+    if (raw is String) {
+      for (final m in ThemeMode.values) {
+        if (m.name == raw) return m;
+      }
+    }
+    return ThemeMode.system;
+  }
+
+  Future<void> setThemeMode(ThemeMode mode) async {
+    await _box.put(_keyThemeMode, mode.name);
+    notifyListeners();
   }
 }

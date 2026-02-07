@@ -450,4 +450,31 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get tooltipFullscreen => '全屏切换';
+
+  @override
+  String get settingsAppearanceTitle => '外观';
+
+  @override
+  String get settingsLanguage => '语言';
+
+  @override
+  String get settingsThemeMode => '主题模式';
+
+  @override
+  String get settingsThemeSystem => '跟随系统';
+
+  @override
+  String get settingsThemeLight => '浅色';
+
+  @override
+  String get settingsThemeDark => '深色';
+
+  @override
+  String get settingsLocaleSystem => '跟随系统';
+
+  @override
+  String get settingsLocaleEn => '英文';
+
+  @override
+  String get settingsLocaleZh => '中文';
 }

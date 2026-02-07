@@ -459,4 +459,31 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get tooltipFullscreen => 'Toggle Fullscreen';
+
+  @override
+  String get settingsAppearanceTitle => 'Appearance';
+
+  @override
+  String get settingsLanguage => 'Language';
+
+  @override
+  String get settingsThemeMode => 'Theme Mode';
+
+  @override
+  String get settingsThemeSystem => 'Follow System';
+
+  @override
+  String get settingsThemeLight => 'Light';
+
+  @override
+  String get settingsThemeDark => 'Dark';
+
+  @override
+  String get settingsLocaleSystem => 'Follow System';
+
+  @override
+  String get settingsLocaleEn => 'English';
+
+  @override
+  String get settingsLocaleZh => 'Chinese';
 }

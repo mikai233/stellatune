@@ -203,5 +203,14 @@
   "tooltipMinimize": "最小化",
   "tooltipMaximize": "最大化/还原",
   "tooltipClose": "关闭",
-  "tooltipFullscreen": "全屏切换"
+  "tooltipFullscreen": "全屏切换",
+  "settingsAppearanceTitle": "外观",
+  "settingsLanguage": "语言",
+  "settingsThemeMode": "主题模式",
+  "settingsThemeSystem": "跟随系统",
+  "settingsThemeLight": "浅色",
+  "settingsThemeDark": "深色",
+  "settingsLocaleSystem": "跟随系统",
+  "settingsLocaleEn": "英文",
+  "settingsLocaleZh": "中文"
 }

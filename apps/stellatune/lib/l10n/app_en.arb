@@ -203,5 +203,14 @@
   "tooltipMinimize": "Minimize",
   "tooltipMaximize": "Maximize",
   "tooltipClose": "Close",
-  "tooltipFullscreen": "Toggle Fullscreen"
+  "tooltipFullscreen": "Toggle Fullscreen",
+  "settingsAppearanceTitle": "Appearance",
+  "settingsLanguage": "Language",
+  "settingsThemeMode": "Theme Mode",
+  "settingsThemeSystem": "Follow System",
+  "settingsThemeLight": "Light",
+  "settingsThemeDark": "Dark",
+  "settingsLocaleSystem": "Follow System",
+  "settingsLocaleEn": "English",
+  "settingsLocaleZh": "Chinese"
 }
