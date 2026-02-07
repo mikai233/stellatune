@@ -438,4 +438,16 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get menuMore => '更多';
+
+  @override
+  String get tooltipMinimize => '最小化';
+
+  @override
+  String get tooltipMaximize => '最大化/还原';
+
+  @override
+  String get tooltipClose => '关闭';
+
+  @override
+  String get tooltipFullscreen => '全屏切换';
 }

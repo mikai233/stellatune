@@ -199,5 +199,9 @@
 
   "noLyrics": "No lyrics",
   "tooltipBack": "Back",
-  "menuMore": "More"
+  "menuMore": "More",
+  "tooltipMinimize": "Minimize",
+  "tooltipMaximize": "Maximize",
+  "tooltipClose": "Close",
+  "tooltipFullscreen": "Toggle Fullscreen"
 }

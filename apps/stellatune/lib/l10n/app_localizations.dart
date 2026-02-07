@@ -931,6 +931,30 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'More'**
   String get menuMore;
+
+  /// No description provided for @tooltipMinimize.
+  ///
+  /// In en, this message translates to:
+  /// **'Minimize'**
+  String get tooltipMinimize;
+
+  /// No description provided for @tooltipMaximize.
+  ///
+  /// In en, this message translates to:
+  /// **'Maximize'**
+  String get tooltipMaximize;
+
+  /// No description provided for @tooltipClose.
+  ///
+  /// In en, this message translates to:
+  /// **'Close'**
+  String get tooltipClose;
+
+  /// No description provided for @tooltipFullscreen.
+  ///
+  /// In en, this message translates to:
+  /// **'Toggle Fullscreen'**
+  String get tooltipFullscreen;
 }
 
 class _AppLocalizationsDelegate

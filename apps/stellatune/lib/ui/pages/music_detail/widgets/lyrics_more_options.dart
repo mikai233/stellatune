@@ -3,24 +3,38 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:stellatune/bridge/bridge.dart';
 import 'package:stellatune/lyrics/lyrics_controller.dart';
 import 'package:stellatune/l10n/app_localizations.dart';
+import 'package:stellatune/ui/widgets/custom_title_bar.dart';
 
 enum _LyricsMoreAction { toggleLyrics, chooseCandidate }
 
-class LyricsMoreMenuButton extends ConsumerWidget {
-  const LyricsMoreMenuButton({super.key, required this.foregroundColor});
+class LyricsMoreMenuButton extends ConsumerStatefulWidget {
+  const LyricsMoreMenuButton({
+    super.key,
+    required this.foregroundColor,
+    this.height = 32,
+  });
 
   final Color foregroundColor;
+  final double height;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<LyricsMoreMenuButton> createState() =>
+      _LyricsMoreMenuButtonState();
+}
+
+class _LyricsMoreMenuButtonState extends ConsumerState<LyricsMoreMenuButton> {
+  final GlobalKey<PopupMenuButtonState> _popupKey = GlobalKey();
+
+  @override
+  Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final enabled = ref.watch(
       lyricsControllerProvider.select((s) => s.enabled),
     );
 
     return PopupMenuButton<_LyricsMoreAction>(
+      key: _popupKey,
       tooltip: l10n.menuMore,
-      icon: Icon(Icons.more_vert, color: foregroundColor),
       onSelected: (action) async {
         switch (action) {
           case _LyricsMoreAction.toggleLyrics:
@@ -55,6 +69,13 @@ class LyricsMoreMenuButton extends ConsumerWidget {
           ),
         ),
       ],
+      child: TitleBarButton(
+        icon: Icons.more_vert,
+        onPressed: () => _popupKey.currentState?.showButtonMenu(),
+        color: widget.foregroundColor,
+        height: widget.height,
+        tooltip: l10n.menuMore,
+      ),
     );
   }
 }

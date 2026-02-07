@@ -447,4 +447,16 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get menuMore => 'More';
+
+  @override
+  String get tooltipMinimize => 'Minimize';
+
+  @override
+  String get tooltipMaximize => 'Maximize';
+
+  @override
+  String get tooltipClose => 'Close';
+
+  @override
+  String get tooltipFullscreen => 'Toggle Fullscreen';
 }

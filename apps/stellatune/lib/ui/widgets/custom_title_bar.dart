@@ -8,19 +8,27 @@ class CustomTitleBar extends StatelessWidget {
     this.foregroundColor = Colors.white,
     this.backgroundColor = Colors.transparent,
     this.showTitle = true,
+    this.height = 32,
+    this.leading,
+    this.trailing,
   });
 
   final Color foregroundColor;
   final Color backgroundColor;
   final bool showTitle;
+  final double height;
+  final Widget? leading;
+  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 32,
+      height: height,
       color: backgroundColor,
+      padding: const EdgeInsets.symmetric(horizontal: 4), // Window edge padding
       child: Row(
         children: [
+          if (leading != null) leading!,
           Expanded(
             child: DragToMoveArea(
               child: Container(
@@ -50,10 +58,24 @@ class CustomTitleBar extends StatelessWidget {
               ),
             ),
           ),
+          if (trailing != null) trailing!,
+          const SizedBox(width: 4),
+          WindowButton(
+            icon: Icons.fullscreen,
+            onPressed: () async {
+              final isFullScreen = await windowManager.isFullScreen();
+              await windowManager.setFullScreen(!isFullScreen);
+            },
+            color: foregroundColor,
+            height: height,
+            tooltip: AppLocalizations.of(context)!.tooltipFullscreen,
+          ),
           WindowButton(
             icon: Icons.minimize,
             onPressed: () => windowManager.minimize(),
             color: foregroundColor,
+            height: height,
+            tooltip: AppLocalizations.of(context)!.tooltipMinimize,
           ),
           WindowButton(
             icon: Icons.crop_square,
@@ -65,14 +87,62 @@ class CustomTitleBar extends StatelessWidget {
               }
             },
             color: foregroundColor,
+            height: height,
+            tooltip: AppLocalizations.of(context)!.tooltipMaximize,
           ),
           WindowButton(
             icon: Icons.close,
             onPressed: () => windowManager.close(),
             color: foregroundColor,
             isClose: true,
+            height: height,
+            tooltip: AppLocalizations.of(context)!.tooltipClose,
           ),
         ],
+      ),
+    );
+  }
+}
+
+class TitleBarButton extends StatelessWidget {
+  const TitleBarButton({
+    super.key,
+    required this.icon,
+    required this.onPressed,
+    required this.color,
+    this.height = 32,
+    this.tooltip,
+  });
+
+  final IconData icon;
+  final VoidCallback onPressed;
+  final Color color;
+  final double height;
+  final String? tooltip;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 4),
+      child: Tooltip(
+        message: tooltip ?? '',
+        waitDuration: const Duration(milliseconds: 500),
+        child: Container(
+          decoration: BoxDecoration(borderRadius: BorderRadius.circular(8)),
+          clipBehavior: Clip.antiAlias,
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: onPressed,
+              hoverColor: color.withValues(alpha: 0.15),
+              child: SizedBox(
+                width: 40,
+                height: height - 8,
+                child: Icon(icon, size: 18, color: color),
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -85,24 +155,42 @@ class WindowButton extends StatelessWidget {
     required this.onPressed,
     required this.color,
     this.isClose = false,
+    this.height = 32,
+    this.tooltip,
   });
 
   final IconData icon;
   final VoidCallback onPressed;
   final Color color;
   final bool isClose;
+  final double height;
+  final String? tooltip;
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: 46,
-      height: 32,
-      child: InkWell(
-        onTap: onPressed,
-        hoverColor: isClose
-            ? Colors.red.withValues(alpha: 0.8)
-            : color.withValues(alpha: 0.1),
-        child: Icon(icon, size: 16, color: color),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 1, vertical: 4),
+      child: Tooltip(
+        message: tooltip ?? '',
+        waitDuration: const Duration(milliseconds: 500),
+        child: Container(
+          decoration: BoxDecoration(borderRadius: BorderRadius.circular(8)),
+          clipBehavior: Clip.antiAlias,
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: onPressed,
+              hoverColor: isClose
+                  ? Colors.red.withValues(alpha: 0.8)
+                  : color.withValues(alpha: 0.15),
+              child: SizedBox(
+                width: 44,
+                height: height - 8,
+                child: Icon(icon, size: 18, color: color),
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }

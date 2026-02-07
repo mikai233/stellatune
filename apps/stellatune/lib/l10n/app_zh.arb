@@ -199,5 +199,9 @@
 
   "noLyrics": "无歌词",
   "tooltipBack": "返回",
-  "menuMore": "更多"
+  "menuMore": "更多",
+  "tooltipMinimize": "最小化",
+  "tooltipMaximize": "最大化/还原",
+  "tooltipClose": "关闭",
+  "tooltipFullscreen": "全屏切换"
 }

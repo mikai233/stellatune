@@ -226,30 +226,19 @@ class _DesktopMusicDetailPageState
                         CustomTitleBar(
                           foregroundColor: effectiveColor,
                           showTitle: false,
+                          height: 50,
+                          leading: TitleBarButton(
+                            icon: Icons.keyboard_arrow_down,
+                            color: effectiveColor,
+                            height: 50,
+                            tooltip: l10n.tooltipBack,
+                            onPressed: () => Navigator.of(context).pop(),
+                          ),
+                          trailing: LyricsMoreMenuButton(
+                            foregroundColor: effectiveColor,
+                            height: 50,
+                          ),
                         ),
-                      // Custom App Bar Row
-                      Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 4,
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            IconButton(
-                              icon: Icon(
-                                Icons.keyboard_arrow_down,
-                                color: effectiveColor,
-                              ),
-                              tooltip: l10n.tooltipBack,
-                              onPressed: () => Navigator.of(context).pop(),
-                            ),
-                            LyricsMoreMenuButton(
-                              foregroundColor: effectiveColor,
-                            ),
-                          ],
-                        ),
-                      ),
                       // Main content area
                       Expanded(
                         child: LayoutBuilder(

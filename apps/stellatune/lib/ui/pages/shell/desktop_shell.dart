@@ -239,6 +239,7 @@ class _DesktopGlobalTopBar extends StatelessWidget {
             icon: Icons.minimize,
             onPressed: () => windowManager.minimize(),
             color: theme.colorScheme.onSurface,
+            tooltip: l10n.tooltipMinimize,
           ),
           WindowButton(
             icon: Icons.crop_square,
@@ -250,12 +251,14 @@ class _DesktopGlobalTopBar extends StatelessWidget {
               }
             },
             color: theme.colorScheme.onSurface,
+            tooltip: l10n.tooltipMaximize,
           ),
           WindowButton(
             icon: Icons.close,
             onPressed: () => windowManager.close(),
             color: theme.colorScheme.onSurface,
             isClose: true,
+            tooltip: l10n.tooltipClose,
           ),
         ],
       ),
