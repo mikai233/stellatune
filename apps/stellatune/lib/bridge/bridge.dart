@@ -10,8 +10,6 @@ export 'third_party/stellatune_core.dart'
         AudioBackend,
         AudioDevice,
         TrackRef,
-        DspChainItem,
-        DspTypeDescriptor,
         SourceCatalogTypeDescriptor,
         LyricsProviderTypeDescriptor,
         OutputSinkTypeDescriptor,
@@ -89,9 +87,6 @@ class PlayerBridge {
   Future<List<PluginDescriptor>> pluginsList() =>
       api.pluginsList(player: player);
 
-  Future<List<DspTypeDescriptor>> dspListTypes() =>
-      api.dspListTypes(player: player);
-
   Future<List<SourceCatalogTypeDescriptor>> sourceListTypes() =>
       api.sourceListTypes(player: player);
 
@@ -152,9 +147,6 @@ class PlayerBridge {
 
   Future<void> clearOutputSinkRoute() =>
       api.clearOutputSinkRoute(player: player);
-
-  Future<void> dspSetChain(List<DspChainItem> chain) =>
-      api.dspSetChain(player: player, chain: chain);
 
   Future<TrackDecodeInfo?> currentTrackInfo() =>
       api.currentTrackInfo(player: player);

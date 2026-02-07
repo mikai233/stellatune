@@ -18,7 +18,6 @@ class SettingsStore {
   static const _keyResumeArtist = 'resume_artist';
   static const _keyResumeAlbum = 'resume_album';
   static const _keyResumeDurationMs = 'resume_duration_ms';
-  static const _keyDspChain = 'dsp_chain';
   static const _keyDisabledPlugins = 'disabled_plugins';
   static const _keySelectedBackend = 'selected_backend';
   static const _keySelectedDeviceId = 'selected_device_id';
@@ -26,6 +25,7 @@ class SettingsStore {
   static const _keyGaplessPlayback = 'gapless_playback';
   static const _keySeekTrackFade = 'seek_track_fade';
   static const _keyOutputSinkRoute = 'output_sink_route';
+  static const _keySourceConfigs = 'source_configs';
 
   final Box _box;
 
@@ -141,44 +141,6 @@ class SettingsStore {
     await _box.delete(_keyResumeDurationMs);
   }
 
-  List<DspChainItem> get dspChain {
-    final raw = _box.get(_keyDspChain, defaultValue: '[]');
-    final text = raw is String ? raw : '[]';
-    try {
-      final decoded = jsonDecode(text);
-      if (decoded is! List) return const [];
-      return decoded
-          .whereType<Map>()
-          .map((m) => m.cast<String, dynamic>())
-          .map(
-            (m) => DspChainItem(
-              pluginId: (m['pluginId'] as String?) ?? '',
-              typeId: (m['typeId'] as String?) ?? '',
-              configJson: (m['configJson'] as String?) ?? '{}',
-            ),
-          )
-          .where((x) => x.pluginId.isNotEmpty && x.typeId.isNotEmpty)
-          .toList(growable: false);
-    } catch (_) {
-      return const [];
-    }
-  }
-
-  Future<void> setDspChain(List<DspChainItem> chain) async {
-    final encoded = jsonEncode(
-      chain
-          .map(
-            (x) => <String, dynamic>{
-              'pluginId': x.pluginId,
-              'typeId': x.typeId,
-              'configJson': x.configJson,
-            },
-          )
-          .toList(growable: false),
-    );
-    await _box.put(_keyDspChain, encoded);
-  }
-
   Set<String> get disabledPluginIds {
     final raw = _box.get(_keyDisabledPlugins, defaultValue: '[]');
     final text = raw is String ? raw : '[]';
@@ -290,4 +252,45 @@ class SettingsStore {
   );
 
   Future<void> clearOutputSinkRoute() => _box.delete(_keyOutputSinkRoute);
+
+  Map<String, String> get sourceConfigs {
+    final raw = _box.get(_keySourceConfigs, defaultValue: '{}');
+    final text = raw is String ? raw : '{}';
+    try {
+      final decoded = jsonDecode(text);
+      if (decoded is! Map) return const <String, String>{};
+      final out = <String, String>{};
+      for (final entry in decoded.entries) {
+        final k = entry.key.toString().trim();
+        if (k.isEmpty) continue;
+        final v = (entry.value ?? '').toString();
+        out[k] = v;
+      }
+      return out;
+    } catch (_) {
+      return const <String, String>{};
+    }
+  }
+
+  String sourceConfigFor({
+    required String pluginId,
+    required String typeId,
+    String defaultValue = '{}',
+  }) {
+    final key = '${pluginId.trim()}::${typeId.trim()}';
+    if (key == '::') return defaultValue;
+    return sourceConfigs[key] ?? defaultValue;
+  }
+
+  Future<void> setSourceConfigFor({
+    required String pluginId,
+    required String typeId,
+    required String configJson,
+  }) async {
+    final key = '${pluginId.trim()}::${typeId.trim()}';
+    if (key == '::') return;
+    final next = Map<String, String>.from(sourceConfigs);
+    next[key] = configJson;
+    await _box.put(_keySourceConfigs, jsonEncode(next));
+  }
 }

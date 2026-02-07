@@ -27,11 +27,6 @@ class DesktopShell extends StatelessWidget {
         label: Text(l10n.navLibrary),
       ),
       NavigationRailDestination(
-        icon: const Icon(Icons.travel_explore_outlined),
-        selectedIcon: const Icon(Icons.travel_explore),
-        label: Text(l10n.navSources),
-      ),
-      NavigationRailDestination(
         icon: const Icon(Icons.queue_music_outlined),
         selectedIcon: const Icon(Icons.queue_music),
         label: Text(l10n.navQueue),

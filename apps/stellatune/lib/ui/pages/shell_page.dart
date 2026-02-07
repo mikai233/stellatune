@@ -5,7 +5,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:stellatune/ui/pages/library_page.dart';
 import 'package:stellatune/ui/pages/queue_page.dart';
 import 'package:stellatune/ui/pages/settings_page.dart';
-import 'package:stellatune/ui/pages/sources_page.dart';
 import 'package:stellatune/ui/pages/shell/desktop_shell.dart';
 import 'package:stellatune/ui/pages/shell/mobile_shell.dart';
 import 'package:stellatune/ui/widgets/open_container_shader_warmup.dart';
@@ -24,8 +23,7 @@ class _ShellPageState extends ConsumerState<ShellPage> {
   Widget build(BuildContext context) {
     final body = switch (_index) {
       0 => const LibraryPage(),
-      1 => const SourcesPage(),
-      2 => const QueuePage(),
+      1 => const QueuePage(),
       _ => const SettingsPage(),
     };
 

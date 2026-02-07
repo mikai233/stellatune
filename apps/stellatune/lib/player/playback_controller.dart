@@ -80,7 +80,6 @@ class PlaybackController extends Notifier<PlaybackState> {
 
     if (!_dlnaActive) {
       unawaited(bridge.setVolume(savedVolume));
-      unawaited(_applyPersistedDspChain());
     } else {
       _ensureDlnaPoller();
     }
@@ -92,16 +91,6 @@ class PlaybackController extends Notifier<PlaybackState> {
 
   bool get _dlnaActive =>
       ref.read(dlnaSelectedRendererProvider)?.avTransportControlUrl != null;
-
-  Future<void> _applyPersistedDspChain() async {
-    if (_dlnaActive) return;
-    final chain = ref.read(settingsStoreProvider).dspChain;
-    try {
-      await ref.read(playerBridgeProvider).dspSetChain(chain);
-    } catch (e) {
-      ref.read(loggerProvider).w('apply dsp chain failed: $e');
-    }
-  }
 
   QueueItem? _peekNextQueueItem(QueueState queue) {
     final current = queue.currentItem;
