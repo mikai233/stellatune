@@ -9,7 +9,7 @@ import 'package:freezed_annotation/freezed_annotation.dart' hide protected;
 part 'stellatune_core.freezed.dart';
 
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `Command`, `LibraryCommand`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
 
 enum AudioBackend { shared, wasapiExclusive, asio }
 
@@ -370,6 +370,37 @@ sealed class LyricsEvent with _$LyricsEvent {
   }) = LyricsEvent_Error;
 }
 
+class LyricsProviderTypeDescriptor {
+  final String pluginId;
+  final String pluginName;
+  final String typeId;
+  final String displayName;
+
+  const LyricsProviderTypeDescriptor({
+    required this.pluginId,
+    required this.pluginName,
+    required this.typeId,
+    required this.displayName,
+  });
+
+  @override
+  int get hashCode =>
+      pluginId.hashCode ^
+      pluginName.hashCode ^
+      typeId.hashCode ^
+      displayName.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is LyricsProviderTypeDescriptor &&
+          runtimeType == other.runtimeType &&
+          pluginId == other.pluginId &&
+          pluginName == other.pluginName &&
+          typeId == other.typeId &&
+          displayName == other.displayName;
+}
+
 class LyricsQuery {
   final String trackKey;
   final String title;
@@ -452,6 +483,76 @@ class LyricsSearchCandidate {
           doc == other.doc;
 }
 
+class OutputSinkRoute {
+  final String pluginId;
+  final String typeId;
+  final String configJson;
+  final String targetJson;
+
+  const OutputSinkRoute({
+    required this.pluginId,
+    required this.typeId,
+    required this.configJson,
+    required this.targetJson,
+  });
+
+  @override
+  int get hashCode =>
+      pluginId.hashCode ^
+      typeId.hashCode ^
+      configJson.hashCode ^
+      targetJson.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is OutputSinkRoute &&
+          runtimeType == other.runtimeType &&
+          pluginId == other.pluginId &&
+          typeId == other.typeId &&
+          configJson == other.configJson &&
+          targetJson == other.targetJson;
+}
+
+class OutputSinkTypeDescriptor {
+  final String pluginId;
+  final String pluginName;
+  final String typeId;
+  final String displayName;
+  final String configSchemaJson;
+  final String defaultConfigJson;
+
+  const OutputSinkTypeDescriptor({
+    required this.pluginId,
+    required this.pluginName,
+    required this.typeId,
+    required this.displayName,
+    required this.configSchemaJson,
+    required this.defaultConfigJson,
+  });
+
+  @override
+  int get hashCode =>
+      pluginId.hashCode ^
+      pluginName.hashCode ^
+      typeId.hashCode ^
+      displayName.hashCode ^
+      configSchemaJson.hashCode ^
+      defaultConfigJson.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is OutputSinkTypeDescriptor &&
+          runtimeType == other.runtimeType &&
+          pluginId == other.pluginId &&
+          pluginName == other.pluginName &&
+          typeId == other.typeId &&
+          displayName == other.displayName &&
+          configSchemaJson == other.configSchemaJson &&
+          defaultConfigJson == other.defaultConfigJson;
+}
+
 enum PlayerState { stopped, playing, paused, buffering }
 
 class PluginDescriptor {
@@ -470,6 +571,45 @@ class PluginDescriptor {
           runtimeType == other.runtimeType &&
           id == other.id &&
           name == other.name;
+}
+
+class SourceCatalogTypeDescriptor {
+  final String pluginId;
+  final String pluginName;
+  final String typeId;
+  final String displayName;
+  final String configSchemaJson;
+  final String defaultConfigJson;
+
+  const SourceCatalogTypeDescriptor({
+    required this.pluginId,
+    required this.pluginName,
+    required this.typeId,
+    required this.displayName,
+    required this.configSchemaJson,
+    required this.defaultConfigJson,
+  });
+
+  @override
+  int get hashCode =>
+      pluginId.hashCode ^
+      pluginName.hashCode ^
+      typeId.hashCode ^
+      displayName.hashCode ^
+      configSchemaJson.hashCode ^
+      defaultConfigJson.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SourceCatalogTypeDescriptor &&
+          runtimeType == other.runtimeType &&
+          pluginId == other.pluginId &&
+          pluginName == other.pluginName &&
+          typeId == other.typeId &&
+          displayName == other.displayName &&
+          configSchemaJson == other.configSchemaJson &&
+          defaultConfigJson == other.defaultConfigJson;
 }
 
 class TrackDecodeInfo {
@@ -548,4 +688,50 @@ class TrackLite {
           artist == other.artist &&
           album == other.album &&
           durationMs == other.durationMs;
+}
+
+class TrackRef {
+  /// Logical source id (e.g. `local`, `netease`, `onedrive`).
+  final String sourceId;
+
+  /// Stable identifier inside the source.
+  final String trackId;
+
+  /// Opaque locator used by source/decoder implementations.
+  final String locator;
+
+  const TrackRef({
+    required this.sourceId,
+    required this.trackId,
+    required this.locator,
+  });
+
+  static Future<TrackRef> forLocalPath({required String path}) =>
+      StellatuneApi.instance.api.stellatuneCoreTrackRefForLocalPath(path: path);
+
+  // HINT: Make it `#[frb(sync)]` to let it become the default constructor of Dart class.
+  static Future<TrackRef> newInstance({
+    required String sourceId,
+    required String trackId,
+    required String locator,
+  }) => StellatuneApi.instance.api.stellatuneCoreTrackRefNew(
+    sourceId: sourceId,
+    trackId: trackId,
+    locator: locator,
+  );
+
+  Future<String> stableKey() =>
+      StellatuneApi.instance.api.stellatuneCoreTrackRefStableKey(that: this);
+
+  @override
+  int get hashCode => sourceId.hashCode ^ trackId.hashCode ^ locator.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is TrackRef &&
+          runtimeType == other.runtimeType &&
+          sourceId == other.sourceId &&
+          trackId == other.trackId &&
+          locator == other.locator;
 }

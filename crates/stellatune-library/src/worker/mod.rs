@@ -72,15 +72,14 @@ impl WorkerDeps {
             if plugins_dir.exists() {
                 let disabled = disabled_plugin_ids
                     .lock()
-                    .expect("disabled_plugin_ids mutex poisoned")
-                    .clone();
-                match unsafe {
-                    plugins
-                        .lock()
-                        .expect("plugins mutex poisoned")
-                        .load_dir_additive_filtered(&plugins_dir, &disabled)
-                } {
-                    Ok(report) => {
+                    .ok()
+                    .map(|g| g.clone())
+                    .unwrap_or_default();
+                let load_result = plugins.lock().map(|mut pm| unsafe {
+                    pm.load_dir_additive_filtered(&plugins_dir, &disabled)
+                });
+                match load_result {
+                    Ok(Ok(report)) => {
                         if !report.loaded.is_empty() || !report.errors.is_empty() {
                             events.emit(LibraryEvent::Log {
                                 message: format!(
@@ -97,20 +96,24 @@ impl WorkerDeps {
                             });
                         }
                     }
-                    Err(e) => events.emit(LibraryEvent::Log {
+                    Ok(Err(e)) => events.emit(LibraryEvent::Log {
                         message: format!("plugin load failed: {e:#}"),
+                    }),
+                    Err(_) => events.emit(LibraryEvent::Log {
+                        message: "plugin load skipped: plugins mutex poisoned".to_string(),
                     }),
                 }
             }
 
             // Ensure the in-memory plugin manager knows what is disabled (even if already loaded).
-            if let Ok(mut pm) = plugins.lock() {
-                pm.set_disabled_ids(
-                    disabled_plugin_ids
-                        .lock()
-                        .expect("disabled_plugin_ids mutex poisoned")
-                        .clone(),
-                );
+            if let (Ok(mut pm), Ok(disabled)) = (plugins.lock(), disabled_plugin_ids.lock()) {
+                pm.set_disabled_ids(disabled.clone());
+            } else {
+                events.emit(LibraryEvent::Log {
+                    message:
+                        "set disabled plugin ids skipped: mutex poisoned (plugins/disabled ids)"
+                            .to_string(),
+                });
             }
         }
 
@@ -163,9 +166,18 @@ impl LibraryWorker {
             let disabled = self
                 .disabled_plugin_ids
                 .lock()
-                .expect("disabled_plugin_ids mutex poisoned")
-                .clone();
-            let mut pm = self.plugins.lock().expect("plugins mutex poisoned");
+                .ok()
+                .map(|g| g.clone())
+                .unwrap_or_default();
+            let mut pm = match self.plugins.lock() {
+                Ok(v) => v,
+                Err(_) => {
+                    self.events.emit(LibraryEvent::Log {
+                        message: "refresh plugins skipped: plugins mutex poisoned".to_string(),
+                    });
+                    return;
+                }
+            };
             pm.set_disabled_ids(disabled.clone());
             let _ = unsafe { pm.load_dir_additive_filtered(&self.plugins_dir, &disabled) };
         }

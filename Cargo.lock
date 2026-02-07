@@ -3049,6 +3049,8 @@ dependencies = [
  "crossbeam-channel",
  "ringbuf",
  "rubato",
+ "serde",
+ "serde_json",
  "stellatune-core",
  "stellatune-decode",
  "stellatune-dsp",

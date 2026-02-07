@@ -42,6 +42,17 @@ macro_rules! host_log {
     }};
 }
 
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __st_opt_get_interface {
+    () => {
+        None
+    };
+    ($f:path) => {
+        Some($f)
+    };
+}
+
 pub trait Dsp: Send + 'static {
     fn set_config_json(&mut self, _json: &str) -> Result<(), String> {
         Ok(())
@@ -329,6 +340,9 @@ pub struct DecoderBox<T: Decoder> {
 ///   dsps: [
 ///     gain => GainDsp,
 ///   ]
+///   // Optional advanced interfaces (source/lyrics/output) can be exposed by
+///   // implementing a custom `get_interface` callback.
+///   // get_interface: my_get_interface,
 /// }
 /// ```
 #[macro_export]
@@ -343,6 +357,7 @@ macro_rules! export_plugin {
         dsps: [
             $($dsp_mod:ident => $dsp_ty:ty),* $(,)?
         ]
+        $(, get_interface: $get_interface:path)?
         $(,)?
     ) => {
         const __ST_PLUGIN_ID: &str = $plugin_id;
@@ -674,6 +689,7 @@ macro_rules! export_plugin {
             decoder_get: __st_decoder_get,
             dsp_count: __st_dsp_count,
             dsp_get: __st_dsp_get,
+            get_interface: $crate::__st_opt_get_interface!($($get_interface)?),
         };
 
         #[unsafe(no_mangle)]

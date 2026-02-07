@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -36,12 +37,16 @@ class _PluginTile extends StatelessWidget {
   const _PluginTile({
     required this.plugin,
     required this.enabled,
+    required this.statusText,
+    required this.statusIsError,
     required this.onToggle,
     required this.onUninstall,
   });
 
   final _InstalledPlugin plugin;
   final bool enabled;
+  final String statusText;
+  final bool statusIsError;
   final ValueChanged<bool>? onToggle;
   final VoidCallback onUninstall;
 
@@ -57,7 +62,22 @@ class _PluginTile extends StatelessWidget {
         color: enabled ? null : theme.colorScheme.onSurfaceVariant,
       ),
       title: Text(title),
-      subtitle: Text(subtitle),
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(subtitle),
+          const SizedBox(height: 2),
+          Text(
+            statusText,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: statusIsError
+                  ? theme.colorScheme.error
+                  : theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -73,9 +93,12 @@ class _PluginTile extends StatelessWidget {
   }
 }
 
+enum _OutputMode { device, plugin }
+
 class _SettingsPageState extends ConsumerState<SettingsPage> {
   Future<List<PluginDescriptor>>? _pluginsFuture;
   Future<List<DspTypeDescriptor>>? _dspTypesFuture;
+  Future<List<OutputSinkTypeDescriptor>>? _outputSinkTypesFuture;
   Future<List<_InstalledPlugin>>? _installedPluginsFuture;
   List<AudioDevice> _devices = [];
   StreamSubscription<Event>? _eventSub;
@@ -83,6 +106,14 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
 
   bool _gainEnabled = false;
   double _gain = 1.0;
+  _OutputMode _outputMode = _OutputMode.device;
+  String? _selectedOutputSinkTypeKey;
+  final TextEditingController _outputSinkConfigController =
+      TextEditingController(text: '{}');
+  final TextEditingController _outputSinkTargetController =
+      TextEditingController(text: '{}');
+  List<Object?> _outputSinkTargets = const [];
+  bool _loadingOutputSinkTargets = false;
 
   @override
   void initState() {
@@ -95,6 +126,8 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   @override
   void dispose() {
     _eventSub?.cancel();
+    _outputSinkConfigController.dispose();
+    _outputSinkTargetController.dispose();
     super.dispose();
   }
 
@@ -114,7 +147,8 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   }
 
   void _loadFromSettings() {
-    final chain = ref.read(settingsStoreProvider).dspChain;
+    final settings = ref.read(settingsStoreProvider);
+    final chain = settings.dspChain;
     var enabled = false;
     var gain = 1.0;
     for (final item in chain) {
@@ -126,12 +160,21 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     }
     _gainEnabled = enabled;
     _gain = gain;
+
+    final route = settings.outputSinkRoute;
+    _outputMode = route == null ? _OutputMode.device : _OutputMode.plugin;
+    _selectedOutputSinkTypeKey = route == null
+        ? null
+        : '${route.pluginId}::${route.typeId}';
+    _outputSinkConfigController.text = route?.configJson ?? '{}';
+    _outputSinkTargetController.text = route?.targetJson ?? '{}';
   }
 
   void _refresh() {
     final bridge = ref.read(playerBridgeProvider);
     _pluginsFuture = bridge.pluginsList();
     _dspTypesFuture = bridge.dspListTypes();
+    _outputSinkTypesFuture = null;
     _installedPluginsFuture = _listInstalledPlugins();
   }
 
@@ -193,32 +236,38 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       return;
     }
 
-    final destRoot = Directory(pluginDir);
-    await destRoot.create(recursive: true);
+    try {
+      final destRoot = Directory(pluginDir);
+      await destRoot.create(recursive: true);
 
-    final dest = Directory(p.join(pluginDir, p.basename(src)));
-    if (await dest.exists()) {
-      await dest.delete(recursive: true);
+      final dest = Directory(p.join(pluginDir, p.basename(src)));
+      if (await dest.exists()) {
+        await dest.delete(recursive: true);
+      }
+      await _copyDir(srcDir, dest);
+
+      final bridge = ref.read(playerBridgeProvider);
+      final library = ref.read(libraryBridgeProvider);
+      final disabledIds = ref.read(settingsStoreProvider).disabledPluginIds;
+      await bridge.pluginsReloadWithDisabled(
+        dir: pluginDir,
+        disabledIds: disabledIds.toList(),
+      );
+      await library.pluginsReloadWithDisabled(
+        dir: pluginDir,
+        disabledIds: disabledIds.toList(),
+      );
+      if (!mounted) return;
+      setState(_refresh);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(l10n.settingsPluginInstalled)));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Failed to install plugin: $e')));
     }
-    await _copyDir(srcDir, dest);
-
-    final bridge = ref.read(playerBridgeProvider);
-    final library = ref.read(libraryBridgeProvider);
-    final disabledIds = ref.read(settingsStoreProvider).disabledPluginIds;
-    await bridge.pluginsReloadWithDisabled(
-      dir: pluginDir,
-      disabledIds: disabledIds.toList(),
-    );
-    await library.pluginsReloadWithDisabled(
-      dir: pluginDir,
-      disabledIds: disabledIds.toList(),
-    );
-    setState(_refresh);
-
-    if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(l10n.settingsPluginInstalled)));
   }
 
   Future<void> _copyDir(Directory src, Directory dest) async {
@@ -285,6 +334,90 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     await _apply();
   }
 
+  List<Object?> _parseOutputSinkTargets(String raw) {
+    dynamic decoded;
+    try {
+      decoded = jsonDecode(raw);
+    } catch (_) {
+      return const [];
+    }
+    if (decoded is List) {
+      return decoded.cast<Object?>();
+    }
+    if (decoded is Map) {
+      for (final key in ['targets', 'items', 'list', 'data', 'results']) {
+        final v = decoded[key];
+        if (v is List) {
+          return v.cast<Object?>();
+        }
+      }
+    }
+    return const [];
+  }
+
+  Future<void> _loadOutputSinkTargets() async {
+    final selectedKey = _selectedOutputSinkTypeKey;
+    if (selectedKey == null || selectedKey.isEmpty) return;
+    final parts = selectedKey.split('::');
+    if (parts.length != 2) return;
+    setState(() => _loadingOutputSinkTargets = true);
+    try {
+      final raw = await ref
+          .read(playerBridgeProvider)
+          .outputSinkListTargetsJson(
+            pluginId: parts[0],
+            typeId: parts[1],
+            configJson: _outputSinkConfigController.text.trim(),
+          );
+      final targets = _parseOutputSinkTargets(raw);
+      if (!mounted) return;
+      setState(() => _outputSinkTargets = targets);
+      if (targets.isNotEmpty) {
+        _outputSinkTargetController.text = jsonEncode(targets.first);
+      }
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Failed to load output sink targets')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _loadingOutputSinkTargets = false);
+      }
+    }
+  }
+
+  Future<void> _applyOutputSinkRoute() async {
+    final bridge = ref.read(playerBridgeProvider);
+    final settings = ref.read(settingsStoreProvider);
+    if (_outputMode == _OutputMode.device) {
+      await bridge.clearOutputSinkRoute();
+      await settings.clearOutputSinkRoute();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Output sink route cleared')),
+      );
+      return;
+    }
+    final selectedKey = _selectedOutputSinkTypeKey;
+    if (selectedKey == null || selectedKey.isEmpty) return;
+    final parts = selectedKey.split('::');
+    if (parts.length != 2) return;
+
+    final route = OutputSinkRoute(
+      pluginId: parts[0],
+      typeId: parts[1],
+      configJson: _outputSinkConfigController.text.trim(),
+      targetJson: _outputSinkTargetController.text.trim(),
+    );
+    await bridge.setOutputSinkRoute(route);
+    await settings.setOutputSinkRoute(route);
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Output sink route applied')));
+  }
+
   Future<void> _clearLyricsCache() async {
     final l10n = AppLocalizations.of(context)!;
     try {
@@ -307,6 +440,9 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     final bridge = ref.read(playerBridgeProvider);
     _pluginsFuture ??= bridge.pluginsList();
     _dspTypesFuture ??= bridge.dspListTypes();
+    if (_outputMode == _OutputMode.plugin) {
+      _outputSinkTypesFuture ??= bridge.outputSinkListTypes();
+    }
     _installedPluginsFuture ??= _listInstalledPlugins();
 
     return Scaffold(
@@ -512,6 +648,170 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                       );
                     },
                   ),
+                  const SizedBox(height: 12),
+                  const Divider(height: 1),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Plugin Output Sink',
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                  const SizedBox(height: 8),
+                  SegmentedButton<_OutputMode>(
+                    segments: const [
+                      ButtonSegment<_OutputMode>(
+                        value: _OutputMode.device,
+                        label: Text('Local Device'),
+                        icon: Icon(Icons.speaker),
+                      ),
+                      ButtonSegment<_OutputMode>(
+                        value: _OutputMode.plugin,
+                        label: Text('Plugin Sink'),
+                        icon: Icon(Icons.settings_ethernet),
+                      ),
+                    ],
+                    selected: <_OutputMode>{_outputMode},
+                    onSelectionChanged: (selection) {
+                      if (selection.isEmpty) return;
+                      setState(() => _outputMode = selection.first);
+                    },
+                  ),
+                  if (_outputMode == _OutputMode.device)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text(
+                        '当前使用本地设备输出，不会调用插件输出。',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    )
+                  else
+                    FutureBuilder<List<OutputSinkTypeDescriptor>>(
+                      future: _outputSinkTypesFuture,
+                      builder: (context, snap) {
+                        if (snap.connectionState != ConnectionState.done) {
+                          return const LinearProgressIndicator();
+                        }
+                        final types = snap.data ?? const [];
+                        final typeKeys = types
+                            .map((t) => '${t.pluginId}::${t.typeId}')
+                            .toSet();
+                        if (_selectedOutputSinkTypeKey != null &&
+                            !typeKeys.contains(_selectedOutputSinkTypeKey)) {
+                          _selectedOutputSinkTypeKey = null;
+                        }
+                        return Column(
+                          children: [
+                            DropdownButtonFormField<String>(
+                              decoration: const InputDecoration(
+                                labelText: 'Output Sink Type',
+                                border: OutlineInputBorder(),
+                                isDense: true,
+                              ),
+                              initialValue: _selectedOutputSinkTypeKey,
+                              items: [
+                                for (final t in types)
+                                  DropdownMenuItem(
+                                    value: '${t.pluginId}::${t.typeId}',
+                                    child: Text(
+                                      '${t.displayName} (${t.pluginName})',
+                                    ),
+                                  ),
+                              ],
+                              onChanged: (v) => setState(() {
+                                _selectedOutputSinkTypeKey = v;
+                              }),
+                            ),
+                            const SizedBox(height: 8),
+                            TextField(
+                              controller: _outputSinkConfigController,
+                              minLines: 2,
+                              maxLines: 4,
+                              decoration: const InputDecoration(
+                                labelText: 'Config JSON',
+                                border: OutlineInputBorder(),
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                FilledButton.tonalIcon(
+                                  onPressed:
+                                      !_loadingOutputSinkTargets &&
+                                          _selectedOutputSinkTypeKey != null
+                                      ? _loadOutputSinkTargets
+                                      : null,
+                                  icon: const Icon(Icons.travel_explore),
+                                  label: const Text('Load Targets'),
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  '${_outputSinkTargets.length} targets',
+                                  style: Theme.of(context).textTheme.bodySmall,
+                                ),
+                              ],
+                            ),
+                            if (_outputSinkTargets.isNotEmpty) ...[
+                              const SizedBox(height: 8),
+                              SizedBox(
+                                height: 120,
+                                child: ListView.builder(
+                                  itemCount: _outputSinkTargets.length,
+                                  itemBuilder: (context, index) {
+                                    final item = _outputSinkTargets[index];
+                                    final text = item is String
+                                        ? item
+                                        : jsonEncode(item);
+                                    return ListTile(
+                                      dense: true,
+                                      title: Text(
+                                        text,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      onTap: () {
+                                        _outputSinkTargetController.text =
+                                            item is String
+                                            ? item
+                                            : jsonEncode(item);
+                                      },
+                                    );
+                                  },
+                                ),
+                              ),
+                            ],
+                            const SizedBox(height: 8),
+                            TextField(
+                              controller: _outputSinkTargetController,
+                              minLines: 2,
+                              maxLines: 4,
+                              decoration: const InputDecoration(
+                                labelText: 'Target JSON',
+                                border: OutlineInputBorder(),
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.end,
+                              children: [
+                                TextButton(
+                                  onPressed: () {
+                                    setState(() {
+                                      _outputMode = _OutputMode.device;
+                                    });
+                                    _applyOutputSinkRoute();
+                                  },
+                                  child: const Text('Clear Route'),
+                                ),
+                                const SizedBox(width: 8),
+                                FilledButton(
+                                  onPressed: _applyOutputSinkRoute,
+                                  child: const Text('Apply Route'),
+                                ),
+                              ],
+                            ),
+                          ],
+                        );
+                      },
+                    ),
                 ],
               ),
             ),
@@ -555,117 +855,185 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                           .read(settingsStoreProvider)
                           .disabledPluginIds;
 
-                      return Column(
-                        children: [
-                          for (final p in items)
-                            _PluginTile(
-                              plugin: p,
-                              enabled: p.id == null
-                                  ? true
-                                  : !disabled.contains(p.id),
-                              onToggle: p.id == null
-                                  ? null
-                                  : (v) async {
-                                      await ref
-                                          .read(settingsStoreProvider)
-                                          .setPluginEnabled(
-                                            pluginId: p.id!,
-                                            enabled: v,
-                                          );
-                                      await _ensurePluginDir();
-                                      final disabledIds = ref
-                                          .read(settingsStoreProvider)
-                                          .disabledPluginIds;
-                                      await bridge.pluginsReloadWithDisabled(
-                                        dir: _pluginDir!,
-                                        disabledIds: disabledIds.toList(),
-                                      );
-                                      await ref
-                                          .read(libraryBridgeProvider)
-                                          .pluginsReloadWithDisabled(
-                                            dir: _pluginDir!,
-                                            disabledIds: disabledIds.toList(),
-                                          );
-                                      if (mounted) setState(_refresh);
-                                    },
-                              onUninstall: () async {
-                                final ok = await showDialog<bool>(
-                                  context: context,
-                                  builder: (context) => AlertDialog(
-                                    title: Text(l10n.settingsUninstallPlugin),
-                                    content: Text(
-                                      l10n.settingsUninstallPluginConfirm(
-                                        p.nameOrDir,
-                                      ),
-                                    ),
-                                    actions: [
-                                      TextButton(
-                                        onPressed: () =>
-                                            Navigator.of(context).pop(false),
-                                        child: Text(l10n.cancel),
-                                      ),
-                                      FilledButton(
-                                        onPressed: () =>
-                                            Navigator.of(context).pop(true),
-                                        child: Text(l10n.uninstall),
-                                      ),
-                                    ],
-                                  ),
-                                );
-                                if (ok != true) return;
+                      return FutureBuilder<List<PluginDescriptor>>(
+                        future: _pluginsFuture,
+                        builder: (context, loadedSnap) {
+                          final loadedKnown =
+                              loadedSnap.connectionState ==
+                              ConnectionState.done;
+                          final loadedIds =
+                              (loadedSnap.data ?? const <PluginDescriptor>[])
+                                  .map((p) => p.id)
+                                  .toSet();
 
-                                try {
-                                  await Directory(
-                                    p.dirPath,
-                                  ).delete(recursive: true);
-                                  if (p.id != null) {
-                                    await ref
-                                        .read(settingsStoreProvider)
-                                        .setPluginEnabled(
-                                          pluginId: p.id!,
-                                          enabled: true,
-                                        );
-                                  }
-                                  await _ensurePluginDir();
-                                  final disabledIds = ref
-                                      .read(settingsStoreProvider)
-                                      .disabledPluginIds;
-                                  await bridge.pluginsReloadWithDisabled(
-                                    dir: _pluginDir!,
-                                    disabledIds: disabledIds.toList(),
-                                  );
-                                  await ref
-                                      .read(libraryBridgeProvider)
-                                      .pluginsReloadWithDisabled(
-                                        dir: _pluginDir!,
-                                        disabledIds: disabledIds.toList(),
+                          return Column(
+                            children: [
+                              for (final p in items)
+                                () {
+                                  final pluginId = p.id;
+                                  final isDisabled = pluginId != null
+                                      ? disabled.contains(pluginId)
+                                      : false;
+                                  final isLoaded = pluginId != null
+                                      ? loadedIds.contains(pluginId)
+                                      : false;
+
+                                  final (statusText, statusIsError) = switch ((
+                                    pluginId,
+                                    isDisabled,
+                                    loadedKnown,
+                                    isLoaded,
+                                  )) {
+                                    (null, _, _, _) => ('插件 ID 缺失', true),
+                                    (_, true, _, _) => ('已禁用', false),
+                                    (_, false, false, _) => (
+                                      '正在检查加载状态...',
+                                      false,
+                                    ),
+                                    (_, false, true, true) => ('已加载', false),
+                                    (_, false, true, false) => (
+                                      '未加载（可能加载失败，请检查日志）',
+                                      true,
+                                    ),
+                                  };
+
+                                  return _PluginTile(
+                                    plugin: p,
+                                    enabled: p.id == null
+                                        ? true
+                                        : !disabled.contains(p.id),
+                                    statusText: statusText,
+                                    statusIsError: statusIsError,
+                                    onToggle: p.id == null
+                                        ? null
+                                        : (v) async {
+                                            try {
+                                              await ref
+                                                  .read(settingsStoreProvider)
+                                                  .setPluginEnabled(
+                                                    pluginId: p.id!,
+                                                    enabled: v,
+                                                  );
+                                              await _ensurePluginDir();
+                                              final disabledIds = ref
+                                                  .read(settingsStoreProvider)
+                                                  .disabledPluginIds;
+                                              await bridge
+                                                  .pluginsReloadWithDisabled(
+                                                    dir: _pluginDir!,
+                                                    disabledIds: disabledIds
+                                                        .toList(),
+                                                  );
+                                              await ref
+                                                  .read(libraryBridgeProvider)
+                                                  .pluginsReloadWithDisabled(
+                                                    dir: _pluginDir!,
+                                                    disabledIds: disabledIds
+                                                        .toList(),
+                                                  );
+                                              if (mounted) setState(_refresh);
+                                            } catch (e) {
+                                              if (!context.mounted) return;
+                                              ScaffoldMessenger.of(
+                                                context,
+                                              ).showSnackBar(
+                                                SnackBar(
+                                                  content: Text(
+                                                    'Failed to reload plugins: $e',
+                                                  ),
+                                                ),
+                                              );
+                                            }
+                                          },
+                                    onUninstall: () async {
+                                      final ok = await showDialog<bool>(
+                                        context: context,
+                                        builder: (context) => AlertDialog(
+                                          title: Text(
+                                            l10n.settingsUninstallPlugin,
+                                          ),
+                                          content: Text(
+                                            l10n.settingsUninstallPluginConfirm(
+                                              p.nameOrDir,
+                                            ),
+                                          ),
+                                          actions: [
+                                            TextButton(
+                                              onPressed: () => Navigator.of(
+                                                context,
+                                              ).pop(false),
+                                              child: Text(l10n.cancel),
+                                            ),
+                                            FilledButton(
+                                              onPressed: () => Navigator.of(
+                                                context,
+                                              ).pop(true),
+                                              child: Text(l10n.uninstall),
+                                            ),
+                                          ],
+                                        ),
                                       );
-                                  if (!context.mounted) return;
-                                  setState(_refresh);
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: Text(
-                                        AppLocalizations.of(
+                                      if (ok != true) return;
+
+                                      try {
+                                        await Directory(
+                                          p.dirPath,
+                                        ).delete(recursive: true);
+                                        if (p.id != null) {
+                                          await ref
+                                              .read(settingsStoreProvider)
+                                              .setPluginEnabled(
+                                                pluginId: p.id!,
+                                                enabled: true,
+                                              );
+                                        }
+                                        await _ensurePluginDir();
+                                        final disabledIds = ref
+                                            .read(settingsStoreProvider)
+                                            .disabledPluginIds;
+                                        await bridge.pluginsReloadWithDisabled(
+                                          dir: _pluginDir!,
+                                          disabledIds: disabledIds.toList(),
+                                        );
+                                        await ref
+                                            .read(libraryBridgeProvider)
+                                            .pluginsReloadWithDisabled(
+                                              dir: _pluginDir!,
+                                              disabledIds: disabledIds.toList(),
+                                            );
+                                        if (!context.mounted) return;
+                                        setState(_refresh);
+                                        ScaffoldMessenger.of(
                                           context,
-                                        )!.settingsPluginUninstalled,
-                                      ),
-                                    ),
-                                  );
-                                } catch (_) {
-                                  if (!context.mounted) return;
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: Text(
-                                        AppLocalizations.of(
+                                        ).showSnackBar(
+                                          SnackBar(
+                                            content: Text(
+                                              AppLocalizations.of(
+                                                context,
+                                              )!.settingsPluginUninstalled,
+                                            ),
+                                          ),
+                                        );
+                                      } catch (_) {
+                                        if (!context.mounted) return;
+                                        ScaffoldMessenger.of(
                                           context,
-                                        )!.settingsUninstallPluginFailed,
-                                      ),
-                                    ),
+                                        ).showSnackBar(
+                                          SnackBar(
+                                            content: Text(
+                                              AppLocalizations.of(
+                                                context,
+                                              )!.settingsUninstallPluginFailed,
+                                            ),
+                                          ),
+                                        );
+                                      }
+                                    },
                                   );
-                                }
-                              },
-                            ),
-                        ],
+                                }(),
+                            ],
+                          );
+                        },
                       );
                     },
                   ),

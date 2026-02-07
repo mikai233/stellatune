@@ -24,6 +24,9 @@ pub enum DecodeError {
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
 
+    #[error("unsupported file extension for built-in decoder: `{ext}`")]
+    UnsupportedExtension { ext: String },
+
     #[error("unsupported channel count: {channels} (only mono/stereo supported)")]
     UnsupportedChannels { channels: u16 },
 
@@ -46,12 +49,42 @@ pub struct Decoder {
     pending: Vec<f32>,
 }
 
+/// Built-in decoder extension support allowlist.
+///
+/// Keep this explicit so higher layers can decide whether fallback to built-in decoding is valid
+/// after a plugin decoder fails to open.
+pub fn supports_extension(ext: &str) -> bool {
+    matches!(ext, "mp3" | "flac" | "wav")
+}
+
+/// Returns whether built-in decoding is allowed for a given path by extension allowlist.
+pub fn supports_path(path: impl AsRef<Path>) -> bool {
+    let ext = path
+        .as_ref()
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
+    supports_extension(&ext)
+}
+
 impl Decoder {
     pub fn open(path: impl AsRef<Path>) -> Result<Self, DecodeError> {
         let path = path.as_ref();
+        let ext = path
+            .extension()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .trim()
+            .to_ascii_lowercase();
+        if !supports_extension(&ext) {
+            return Err(DecodeError::UnsupportedExtension { ext });
+        }
+
         let mut hint = Hint::new();
-        if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
-            hint.with_extension(ext);
+        if !ext.is_empty() {
+            hint.with_extension(&ext);
         }
 
         let file = File::open(path)?;

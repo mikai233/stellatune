@@ -13,7 +13,7 @@ use stellatune_plugins::DspInstance;
 
 use crate::engine::config::RESAMPLE_CHUNK_FRAMES;
 use crate::engine::event_hub::EventHub;
-use crate::engine::messages::{DecodeCtrl, DecodeWorkerState, InternalMsg};
+use crate::engine::messages::{DecodeCtrl, DecodeWorkerState, InternalMsg, OutputSinkWrite};
 
 pub mod context;
 pub mod decoder;
@@ -68,6 +68,19 @@ pub(crate) fn decode_thread(
         output_enabled,
         buffer_prefill_cap_ms,
         initial_lfe_mode,
+        mut output_sink_tx,
+        output_sink_only,
+    ): (
+        Arc<Mutex<crate::ring_buffer::RingBufferProducer<f32>>>,
+        u32,
+        u16,
+        Option<crate::engine::messages::PredecodedChunk>,
+        i64,
+        Arc<std::sync::atomic::AtomicBool>,
+        i64,
+        stellatune_core::LfeMode,
+        Option<Sender<OutputSinkWrite>>,
+        bool,
     ) = loop {
         crossbeam_channel::select! {
             recv(setup_rx) -> msg => {
@@ -81,6 +94,8 @@ pub(crate) fn decode_thread(
                     output_enabled,
                     buffer_prefill_cap_ms,
                     lfe_mode: initial_lfe_mode,
+                    output_sink_tx,
+                    output_sink_only,
                 } = ctrl {
                     break (
                         ring_buffer_producer,
@@ -91,6 +106,8 @@ pub(crate) fn decode_thread(
                         output_enabled,
                         buffer_prefill_cap_ms,
                         initial_lfe_mode,
+                        output_sink_tx,
+                        output_sink_only,
                     );
                 }
             }
@@ -212,6 +229,8 @@ pub(crate) fn decode_thread(
             spec_sample_rate: spec.sample_rate,
             target_sample_rate,
             output_enabled: &output_enabled,
+            output_sink_tx: &mut output_sink_tx,
+            output_sink_only,
             events: &events,
             ctrl_rx: &ctrl_rx,
             internal_tx: &internal_tx,
@@ -365,6 +384,9 @@ fn handle_paused_controls(ctx: &mut DecodeContext, runtime_state: &Arc<AtomicU8>
                 *ctx.lfe_mode,
             );
         }
+        Ok(DecodeCtrl::SetOutputSinkTx { tx }) => {
+            *ctx.output_sink_tx = tx;
+        }
         Ok(DecodeCtrl::Stop) | Err(_) => {
             set_decode_worker_state(runtime_state, DecodeWorkerState::Idle, "stop");
             return true;
@@ -401,6 +423,9 @@ fn handle_playing_controls(ctx: &mut DecodeContext, runtime_state: &Arc<AtomicU8
                 let (pre, post) = split_dsp_chain_by_layout(chain, ctx.in_channels);
                 *ctx.pre_mix_dsp = pre;
                 *ctx.post_mix_dsp = post;
+            }
+            DecodeCtrl::SetOutputSinkTx { tx } => {
+                *ctx.output_sink_tx = tx;
             }
             DecodeCtrl::Stop => {
                 set_decode_worker_state(runtime_state, DecodeWorkerState::Idle, "stop");

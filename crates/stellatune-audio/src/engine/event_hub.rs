@@ -17,15 +17,15 @@ impl EventHub {
 
     pub(crate) fn subscribe(&self) -> Receiver<Event> {
         let (tx, rx) = crossbeam_channel::unbounded();
-        self.subscribers
-            .lock()
-            .expect("event hub mutex poisoned")
-            .push(tx);
+        if let Ok(mut subs) = self.subscribers.lock() {
+            subs.push(tx);
+        }
         rx
     }
 
     pub(crate) fn emit(&self, event: Event) {
-        let mut subs = self.subscribers.lock().expect("event hub mutex poisoned");
-        subs.retain(|tx| tx.send(event.clone()).is_ok());
+        if let Ok(mut subs) = self.subscribers.lock() {
+            subs.retain(|tx| tx.send(event.clone()).is_ok());
+        }
     }
 }

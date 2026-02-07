@@ -8,10 +8,12 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, anyhow};
 use libloading::{Library, Symbol};
 use stellatune_plugin_api::{
-    ST_ERR_INTERNAL, ST_ERR_INVALID_ARG, ST_ERR_IO, STELLATUNE_PLUGIN_API_VERSION_V1,
+    ST_ERR_INTERNAL, ST_ERR_INVALID_ARG, ST_ERR_IO, ST_INTERFACE_LYRICS_PROVIDER_V1,
+    ST_INTERFACE_OUTPUT_SINK_V1, ST_INTERFACE_SOURCE_CATALOG_V1, STELLATUNE_PLUGIN_API_VERSION_V1,
     STELLATUNE_PLUGIN_ENTRY_SYMBOL_V1, StAudioSpec, StDecoderInfoV1, StDecoderOpenArgsV1,
-    StDecoderVTableV1, StHostVTableV1, StIoVTableV1, StLogLevel, StPluginEntryV1, StPluginVTableV1,
-    StSeekWhence, StStatus, StStr,
+    StDecoderVTableV1, StHostVTableV1, StIoVTableV1, StLogLevel, StLyricsProviderVTableV1,
+    StOutputSinkVTableV1, StPluginEntryV1, StPluginVTableV1, StSeekWhence, StSourceCatalogVTableV1,
+    StStatus, StStr,
 };
 use tracing::{debug, info, warn};
 
@@ -72,6 +74,20 @@ fn status_to_result(
         return Ok(());
     }
     Err(status_err_to_anyhow(what, status, plugin_free))
+}
+
+fn take_plugin_string(
+    s: StStr,
+    plugin_free: Option<extern "C" fn(ptr: *mut core::ffi::c_void, len: usize, align: usize)>,
+) -> String {
+    if s.ptr.is_null() || s.len == 0 {
+        return String::new();
+    }
+    let text = unsafe { util::ststr_to_string_lossy(s) };
+    if let Some(free) = plugin_free {
+        (free)(s.ptr as *mut core::ffi::c_void, s.len, 1);
+    }
+    text
 }
 
 impl core::fmt::Debug for PluginLibrary {
@@ -174,6 +190,17 @@ impl PluginLibrary {
 
     pub fn vtable(&self) -> *const StPluginVTableV1 {
         self.vtable
+    }
+
+    pub fn get_interface_raw(&self, interface_id: &str) -> *const core::ffi::c_void {
+        let Some(get_interface) = (unsafe { (*self.vtable).get_interface }) else {
+            return core::ptr::null();
+        };
+        let id = StStr {
+            ptr: interface_id.as_ptr(),
+            len: interface_id.len(),
+        };
+        (get_interface)(id)
     }
 }
 
@@ -343,6 +370,142 @@ pub struct DecoderTypeInfo {
     pub type_id: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct SourceCatalogKey {
+    pub plugin_index: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct SourceCatalogTypeInfo {
+    pub key: SourceCatalogKey,
+    pub plugin_id: String,
+    pub plugin_name: String,
+    pub type_id: String,
+    pub display_name: String,
+    pub config_schema_json: String,
+    pub default_config_json: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct LyricsProviderKey {
+    pub plugin_index: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct LyricsProviderTypeInfo {
+    pub key: LyricsProviderKey,
+    pub plugin_id: String,
+    pub plugin_name: String,
+    pub type_id: String,
+    pub display_name: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct OutputSinkKey {
+    pub plugin_index: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct OutputSinkTypeInfo {
+    pub key: OutputSinkKey,
+    pub plugin_id: String,
+    pub plugin_name: String,
+    pub type_id: String,
+    pub display_name: String,
+    pub config_schema_json: String,
+    pub default_config_json: String,
+}
+
+pub struct SourceStream {
+    io_vtable: *const StIoVTableV1,
+    io_handle: *mut core::ffi::c_void,
+    close_stream: extern "C" fn(io_handle: *mut core::ffi::c_void),
+}
+
+unsafe impl Send for SourceStream {}
+
+impl SourceStream {
+    pub fn io_vtable(&self) -> *const StIoVTableV1 {
+        self.io_vtable
+    }
+
+    pub fn io_handle(&self) -> *mut core::ffi::c_void {
+        self.io_handle
+    }
+}
+
+impl Drop for SourceStream {
+    fn drop(&mut self) {
+        if self.io_handle.is_null() {
+            return;
+        }
+        (self.close_stream)(self.io_handle);
+        self.io_handle = core::ptr::null_mut();
+    }
+}
+
+pub struct OutputSinkInstance {
+    handle: *mut core::ffi::c_void,
+    vtable: *const StOutputSinkVTableV1,
+    plugin_free: Option<extern "C" fn(ptr: *mut core::ffi::c_void, len: usize, align: usize)>,
+}
+
+unsafe impl Send for OutputSinkInstance {}
+
+impl OutputSinkInstance {
+    pub fn write_interleaved_f32(&mut self, channels: u16, samples: &[f32]) -> Result<u32> {
+        if self.handle.is_null() || self.vtable.is_null() {
+            return Err(anyhow!("output sink instance is not initialized"));
+        }
+        let channels = channels.max(1);
+        if !samples.len().is_multiple_of(channels as usize) {
+            return Err(anyhow!(
+                "samples length {} is not divisible by channels {}",
+                samples.len(),
+                channels
+            ));
+        }
+        let frames = (samples.len() / channels as usize) as u32;
+        let mut out_frames_accepted = 0u32;
+        let status = unsafe {
+            ((*self.vtable).write_interleaved_f32)(
+                self.handle,
+                frames,
+                channels,
+                samples.as_ptr(),
+                &mut out_frames_accepted,
+            )
+        };
+        status_to_result(
+            "Output sink write_interleaved_f32",
+            status,
+            self.plugin_free,
+        )?;
+        Ok(out_frames_accepted)
+    }
+
+    pub fn flush(&mut self) -> Result<()> {
+        if self.handle.is_null() || self.vtable.is_null() {
+            return Err(anyhow!("output sink instance is not initialized"));
+        }
+        let Some(flush) = (unsafe { (*self.vtable).flush }) else {
+            return Ok(());
+        };
+        let status = (flush)(self.handle);
+        status_to_result("Output sink flush", status, self.plugin_free)
+    }
+}
+
+impl Drop for OutputSinkInstance {
+    fn drop(&mut self) {
+        if self.handle.is_null() || self.vtable.is_null() {
+            return;
+        }
+        unsafe { ((*self.vtable).close)(self.handle) };
+        self.handle = core::ptr::null_mut();
+    }
+}
+
 pub struct DspInstance {
     handle: *mut core::ffi::c_void,
     vtable: *const stellatune_plugin_api::StDspVTableV1,
@@ -413,12 +576,18 @@ impl Drop for DspInstance {
     }
 }
 
+#[allow(dead_code)]
+enum DecoderIoGuard {
+    File(Box<FileIo>),
+    Source(SourceStream),
+}
+
 pub struct DecoderInstance {
     handle: *mut core::ffi::c_void,
     vtable: *const StDecoderVTableV1,
     info: StDecoderInfoV1,
     plugin_free: Option<extern "C" fn(ptr: *mut core::ffi::c_void, len: usize, align: usize)>,
-    _io: Box<FileIo>,
+    _io_guard: DecoderIoGuard,
     plugin_id: String,
     decoder_type_id: String,
 }
@@ -460,10 +629,7 @@ impl DecoderInstance {
         if s.ptr.is_null() || s.len == 0 {
             return Ok(None);
         }
-        let text = unsafe { util::ststr_to_string_lossy(s) };
-        if let Some(free) = self.plugin_free {
-            (free)(s.ptr as *mut core::ffi::c_void, s.len, 1);
-        }
+        let text = take_plugin_string(s, self.plugin_free);
         Ok(Some(text))
     }
 
@@ -608,6 +774,446 @@ impl PluginManager {
         out
     }
 
+    pub fn list_source_catalog_types(&self) -> Vec<SourceCatalogTypeInfo> {
+        let mut out = Vec::new();
+        for (plugin_index, p) in self.plugins.iter().enumerate() {
+            if self.is_disabled(&p.manifest.id) {
+                continue;
+            }
+            let vt = p.library.get_interface_raw(ST_INTERFACE_SOURCE_CATALOG_V1)
+                as *const StSourceCatalogVTableV1;
+            if vt.is_null() {
+                continue;
+            }
+            let plugin_id = p.library.id();
+            let plugin_name = p.library.name();
+            let type_id = unsafe { util::ststr_to_string_lossy(((*vt).type_id_utf8)()) };
+            let display_name = unsafe { util::ststr_to_string_lossy(((*vt).display_name_utf8)()) };
+            let config_schema_json =
+                unsafe { util::ststr_to_string_lossy(((*vt).config_schema_json_utf8)()) };
+            let default_config_json =
+                unsafe { util::ststr_to_string_lossy(((*vt).default_config_json_utf8)()) };
+            out.push(SourceCatalogTypeInfo {
+                key: SourceCatalogKey { plugin_index },
+                plugin_id,
+                plugin_name,
+                type_id,
+                display_name,
+                config_schema_json,
+                default_config_json,
+            });
+        }
+        out
+    }
+
+    pub fn list_lyrics_provider_types(&self) -> Vec<LyricsProviderTypeInfo> {
+        let mut out = Vec::new();
+        for (plugin_index, p) in self.plugins.iter().enumerate() {
+            if self.is_disabled(&p.manifest.id) {
+                continue;
+            }
+            let vt = p.library.get_interface_raw(ST_INTERFACE_LYRICS_PROVIDER_V1)
+                as *const StLyricsProviderVTableV1;
+            if vt.is_null() {
+                continue;
+            }
+            let plugin_id = p.library.id();
+            let plugin_name = p.library.name();
+            let type_id = unsafe { util::ststr_to_string_lossy(((*vt).type_id_utf8)()) };
+            let display_name = unsafe { util::ststr_to_string_lossy(((*vt).display_name_utf8)()) };
+            out.push(LyricsProviderTypeInfo {
+                key: LyricsProviderKey { plugin_index },
+                plugin_id,
+                plugin_name,
+                type_id,
+                display_name,
+            });
+        }
+        out
+    }
+
+    pub fn list_output_sink_types(&self) -> Vec<OutputSinkTypeInfo> {
+        let mut out = Vec::new();
+        for (plugin_index, p) in self.plugins.iter().enumerate() {
+            if self.is_disabled(&p.manifest.id) {
+                continue;
+            }
+            let vt = p.library.get_interface_raw(ST_INTERFACE_OUTPUT_SINK_V1)
+                as *const StOutputSinkVTableV1;
+            if vt.is_null() {
+                continue;
+            }
+            let plugin_id = p.library.id();
+            let plugin_name = p.library.name();
+            let type_id = unsafe { util::ststr_to_string_lossy(((*vt).type_id_utf8)()) };
+            let display_name = unsafe { util::ststr_to_string_lossy(((*vt).display_name_utf8)()) };
+            let config_schema_json =
+                unsafe { util::ststr_to_string_lossy(((*vt).config_schema_json_utf8)()) };
+            let default_config_json =
+                unsafe { util::ststr_to_string_lossy(((*vt).default_config_json_utf8)()) };
+            out.push(OutputSinkTypeInfo {
+                key: OutputSinkKey { plugin_index },
+                plugin_id,
+                plugin_name,
+                type_id,
+                display_name,
+                config_schema_json,
+                default_config_json,
+            });
+        }
+        out
+    }
+
+    pub fn find_source_catalog_key(
+        &self,
+        plugin_id: &str,
+        type_id: &str,
+    ) -> Option<SourceCatalogKey> {
+        for (plugin_index, p) in self.plugins.iter().enumerate() {
+            if p.library.id() != plugin_id || self.is_disabled(&p.manifest.id) {
+                continue;
+            }
+            let vt = p.library.get_interface_raw(ST_INTERFACE_SOURCE_CATALOG_V1)
+                as *const StSourceCatalogVTableV1;
+            if vt.is_null() {
+                continue;
+            }
+            let tid = unsafe { util::ststr_to_string_lossy(((*vt).type_id_utf8)()) };
+            if tid == type_id {
+                return Some(SourceCatalogKey { plugin_index });
+            }
+        }
+        None
+    }
+
+    pub fn find_lyrics_provider_key(
+        &self,
+        plugin_id: &str,
+        type_id: &str,
+    ) -> Option<LyricsProviderKey> {
+        for (plugin_index, p) in self.plugins.iter().enumerate() {
+            if p.library.id() != plugin_id || self.is_disabled(&p.manifest.id) {
+                continue;
+            }
+            let vt = p.library.get_interface_raw(ST_INTERFACE_LYRICS_PROVIDER_V1)
+                as *const StLyricsProviderVTableV1;
+            if vt.is_null() {
+                continue;
+            }
+            let tid = unsafe { util::ststr_to_string_lossy(((*vt).type_id_utf8)()) };
+            if tid == type_id {
+                return Some(LyricsProviderKey { plugin_index });
+            }
+        }
+        None
+    }
+
+    pub fn find_output_sink_key(&self, plugin_id: &str, type_id: &str) -> Option<OutputSinkKey> {
+        for (plugin_index, p) in self.plugins.iter().enumerate() {
+            if p.library.id() != plugin_id || self.is_disabled(&p.manifest.id) {
+                continue;
+            }
+            let vt = p.library.get_interface_raw(ST_INTERFACE_OUTPUT_SINK_V1)
+                as *const StOutputSinkVTableV1;
+            if vt.is_null() {
+                continue;
+            }
+            let tid = unsafe { util::ststr_to_string_lossy(((*vt).type_id_utf8)()) };
+            if tid == type_id {
+                return Some(OutputSinkKey { plugin_index });
+            }
+        }
+        None
+    }
+
+    pub fn source_catalog_vtable(
+        &self,
+        key: SourceCatalogKey,
+    ) -> Result<*const StSourceCatalogVTableV1> {
+        let p = self
+            .plugins
+            .get(key.plugin_index)
+            .ok_or_else(|| anyhow!("invalid plugin_index {}", key.plugin_index))?;
+        if self.is_disabled(&p.manifest.id) {
+            return Err(anyhow!("plugin `{}` is disabled", p.manifest.id));
+        }
+        let vt = p.library.get_interface_raw(ST_INTERFACE_SOURCE_CATALOG_V1)
+            as *const StSourceCatalogVTableV1;
+        if vt.is_null() {
+            return Err(anyhow!(
+                "plugin `{}` does not provide source catalog interface",
+                p.manifest.id
+            ));
+        }
+        Ok(vt)
+    }
+
+    pub fn lyrics_provider_vtable(
+        &self,
+        key: LyricsProviderKey,
+    ) -> Result<*const StLyricsProviderVTableV1> {
+        let p = self
+            .plugins
+            .get(key.plugin_index)
+            .ok_or_else(|| anyhow!("invalid plugin_index {}", key.plugin_index))?;
+        if self.is_disabled(&p.manifest.id) {
+            return Err(anyhow!("plugin `{}` is disabled", p.manifest.id));
+        }
+        let vt = p.library.get_interface_raw(ST_INTERFACE_LYRICS_PROVIDER_V1)
+            as *const StLyricsProviderVTableV1;
+        if vt.is_null() {
+            return Err(anyhow!(
+                "plugin `{}` does not provide lyrics provider interface",
+                p.manifest.id
+            ));
+        }
+        Ok(vt)
+    }
+
+    pub fn output_sink_vtable(&self, key: OutputSinkKey) -> Result<*const StOutputSinkVTableV1> {
+        let p = self
+            .plugins
+            .get(key.plugin_index)
+            .ok_or_else(|| anyhow!("invalid plugin_index {}", key.plugin_index))?;
+        if self.is_disabled(&p.manifest.id) {
+            return Err(anyhow!("plugin `{}` is disabled", p.manifest.id));
+        }
+        let vt =
+            p.library.get_interface_raw(ST_INTERFACE_OUTPUT_SINK_V1) as *const StOutputSinkVTableV1;
+        if vt.is_null() {
+            return Err(anyhow!(
+                "plugin `{}` does not provide output sink interface",
+                p.manifest.id
+            ));
+        }
+        Ok(vt)
+    }
+
+    pub fn source_list_items_json(
+        &self,
+        key: SourceCatalogKey,
+        config_json: &str,
+        request_json: &str,
+    ) -> Result<String> {
+        let p = self
+            .plugins
+            .get(key.plugin_index)
+            .ok_or_else(|| anyhow!("invalid plugin_index {}", key.plugin_index))?;
+        if self.is_disabled(&p.manifest.id) {
+            return Err(anyhow!("plugin `{}` is disabled", p.manifest.id));
+        }
+        let vt = p.library.get_interface_raw(ST_INTERFACE_SOURCE_CATALOG_V1)
+            as *const StSourceCatalogVTableV1;
+        if vt.is_null() {
+            return Err(anyhow!(
+                "plugin `{}` does not provide source catalog interface",
+                p.manifest.id
+            ));
+        }
+        let plugin_free = p.library.plugin_free();
+        let cfg = StStr {
+            ptr: config_json.as_ptr(),
+            len: config_json.len(),
+        };
+        let req = StStr {
+            ptr: request_json.as_ptr(),
+            len: request_json.len(),
+        };
+        let mut out = StStr::empty();
+        let status = unsafe { ((*vt).list_items_json_utf8)(cfg, req, &mut out) };
+        status_to_result("Source list_items_json", status, plugin_free)?;
+        Ok(take_plugin_string(out, plugin_free))
+    }
+
+    pub fn source_open_stream(
+        &self,
+        key: SourceCatalogKey,
+        config_json: &str,
+        track_json: &str,
+    ) -> Result<(SourceStream, Option<String>)> {
+        let p = self
+            .plugins
+            .get(key.plugin_index)
+            .ok_or_else(|| anyhow!("invalid plugin_index {}", key.plugin_index))?;
+        if self.is_disabled(&p.manifest.id) {
+            return Err(anyhow!("plugin `{}` is disabled", p.manifest.id));
+        }
+        let vt = p.library.get_interface_raw(ST_INTERFACE_SOURCE_CATALOG_V1)
+            as *const StSourceCatalogVTableV1;
+        if vt.is_null() {
+            return Err(anyhow!(
+                "plugin `{}` does not provide source catalog interface",
+                p.manifest.id
+            ));
+        }
+        let plugin_free = p.library.plugin_free();
+        let cfg = StStr {
+            ptr: config_json.as_ptr(),
+            len: config_json.len(),
+        };
+        let track = StStr {
+            ptr: track_json.as_ptr(),
+            len: track_json.len(),
+        };
+        let mut out_io_vtable: *const StIoVTableV1 = core::ptr::null();
+        let mut out_io_handle: *mut core::ffi::c_void = core::ptr::null_mut();
+        let mut out_track_meta_json_utf8 = StStr::empty();
+        let status = unsafe {
+            ((*vt).open_stream)(
+                cfg,
+                track,
+                &mut out_io_vtable,
+                &mut out_io_handle,
+                &mut out_track_meta_json_utf8,
+            )
+        };
+        status_to_result("Source open_stream", status, plugin_free)?;
+        if out_io_vtable.is_null() || out_io_handle.is_null() {
+            if !out_io_handle.is_null() {
+                unsafe { ((*vt).close_stream)(out_io_handle) };
+            }
+            return Err(anyhow!("source open_stream returned invalid io handle"));
+        }
+        let meta = take_plugin_string(out_track_meta_json_utf8, plugin_free);
+        Ok((
+            SourceStream {
+                io_vtable: out_io_vtable,
+                io_handle: out_io_handle,
+                close_stream: unsafe { (*vt).close_stream },
+            },
+            if meta.is_empty() { None } else { Some(meta) },
+        ))
+    }
+
+    pub fn lyrics_search_json(&self, key: LyricsProviderKey, query_json: &str) -> Result<String> {
+        let p = self
+            .plugins
+            .get(key.plugin_index)
+            .ok_or_else(|| anyhow!("invalid plugin_index {}", key.plugin_index))?;
+        if self.is_disabled(&p.manifest.id) {
+            return Err(anyhow!("plugin `{}` is disabled", p.manifest.id));
+        }
+        let vt = p.library.get_interface_raw(ST_INTERFACE_LYRICS_PROVIDER_V1)
+            as *const StLyricsProviderVTableV1;
+        if vt.is_null() {
+            return Err(anyhow!(
+                "plugin `{}` does not provide lyrics provider interface",
+                p.manifest.id
+            ));
+        }
+        let plugin_free = p.library.plugin_free();
+        let query = StStr {
+            ptr: query_json.as_ptr(),
+            len: query_json.len(),
+        };
+        let mut out = StStr::empty();
+        let status = unsafe { ((*vt).search_json_utf8)(query, &mut out) };
+        status_to_result("Lyrics search_json", status, plugin_free)?;
+        Ok(take_plugin_string(out, plugin_free))
+    }
+
+    pub fn lyrics_fetch_json(&self, key: LyricsProviderKey, track_json: &str) -> Result<String> {
+        let p = self
+            .plugins
+            .get(key.plugin_index)
+            .ok_or_else(|| anyhow!("invalid plugin_index {}", key.plugin_index))?;
+        if self.is_disabled(&p.manifest.id) {
+            return Err(anyhow!("plugin `{}` is disabled", p.manifest.id));
+        }
+        let vt = p.library.get_interface_raw(ST_INTERFACE_LYRICS_PROVIDER_V1)
+            as *const StLyricsProviderVTableV1;
+        if vt.is_null() {
+            return Err(anyhow!(
+                "plugin `{}` does not provide lyrics provider interface",
+                p.manifest.id
+            ));
+        }
+        let plugin_free = p.library.plugin_free();
+        let track = StStr {
+            ptr: track_json.as_ptr(),
+            len: track_json.len(),
+        };
+        let mut out = StStr::empty();
+        let status = unsafe { ((*vt).fetch_json_utf8)(track, &mut out) };
+        status_to_result("Lyrics fetch_json", status, plugin_free)?;
+        Ok(take_plugin_string(out, plugin_free))
+    }
+
+    pub fn output_list_targets_json(
+        &self,
+        key: OutputSinkKey,
+        config_json: &str,
+    ) -> Result<String> {
+        let p = self
+            .plugins
+            .get(key.plugin_index)
+            .ok_or_else(|| anyhow!("invalid plugin_index {}", key.plugin_index))?;
+        if self.is_disabled(&p.manifest.id) {
+            return Err(anyhow!("plugin `{}` is disabled", p.manifest.id));
+        }
+        let vt =
+            p.library.get_interface_raw(ST_INTERFACE_OUTPUT_SINK_V1) as *const StOutputSinkVTableV1;
+        if vt.is_null() {
+            return Err(anyhow!(
+                "plugin `{}` does not provide output sink interface",
+                p.manifest.id
+            ));
+        }
+        let plugin_free = p.library.plugin_free();
+        let cfg = StStr {
+            ptr: config_json.as_ptr(),
+            len: config_json.len(),
+        };
+        let mut out = StStr::empty();
+        let status = unsafe { ((*vt).list_targets_json_utf8)(cfg, &mut out) };
+        status_to_result("Output sink list_targets_json", status, plugin_free)?;
+        Ok(take_plugin_string(out, plugin_free))
+    }
+
+    pub fn output_open(
+        &self,
+        key: OutputSinkKey,
+        config_json: &str,
+        target_json: &str,
+        spec: StAudioSpec,
+    ) -> Result<OutputSinkInstance> {
+        let p = self
+            .plugins
+            .get(key.plugin_index)
+            .ok_or_else(|| anyhow!("invalid plugin_index {}", key.plugin_index))?;
+        if self.is_disabled(&p.manifest.id) {
+            return Err(anyhow!("plugin `{}` is disabled", p.manifest.id));
+        }
+        let vt =
+            p.library.get_interface_raw(ST_INTERFACE_OUTPUT_SINK_V1) as *const StOutputSinkVTableV1;
+        if vt.is_null() {
+            return Err(anyhow!(
+                "plugin `{}` does not provide output sink interface",
+                p.manifest.id
+            ));
+        }
+        let plugin_free = p.library.plugin_free();
+        let cfg = StStr {
+            ptr: config_json.as_ptr(),
+            len: config_json.len(),
+        };
+        let target = StStr {
+            ptr: target_json.as_ptr(),
+            len: target_json.len(),
+        };
+        let mut handle: *mut core::ffi::c_void = core::ptr::null_mut();
+        let status = unsafe { ((*vt).open)(cfg, target, spec, &mut handle) };
+        status_to_result("Output sink open", status, plugin_free)?;
+        if handle.is_null() {
+            return Err(anyhow!("output sink open returned null handle"));
+        }
+        Ok(OutputSinkInstance {
+            handle,
+            vtable: vt,
+            plugin_free,
+        })
+    }
+
     pub fn find_dsp_key(&self, plugin_id: &str, type_id: &str) -> Option<DspKey> {
         for (plugin_index, p) in self.plugins.iter().enumerate() {
             if p.library.id() != plugin_id {
@@ -668,7 +1274,15 @@ impl PluginManager {
         None
     }
 
-    pub fn open_decoder(&self, key: DecoderKey, path: &str) -> Result<DecoderInstance> {
+    fn open_decoder_with_io_guard(
+        &self,
+        key: DecoderKey,
+        path_hint: &str,
+        ext_hint: &str,
+        io_vtable: *const StIoVTableV1,
+        io_handle: *mut core::ffi::c_void,
+        io_guard: DecoderIoGuard,
+    ) -> Result<DecoderInstance> {
         let p = self
             .plugins
             .get(key.plugin_index)
@@ -686,25 +1300,17 @@ impl PluginManager {
         }
         let decoder_type_id = unsafe { util::ststr_to_string_lossy(((*vt).type_id_utf8)()) };
         let plugin_id = p.library.id();
-
-        let ext = std::path::Path::new(path)
-            .extension()
-            .and_then(|s| s.to_str())
-            .unwrap_or("")
-            .to_string();
-
-        let mut io = Box::new(FileIo::open(path)?);
         let args = StDecoderOpenArgsV1 {
             path_utf8: StStr {
-                ptr: path.as_ptr(),
-                len: path.len(),
+                ptr: path_hint.as_ptr(),
+                len: path_hint.len(),
             },
             ext_utf8: StStr {
-                ptr: ext.as_ptr(),
-                len: ext.len(),
+                ptr: ext_hint.as_ptr(),
+                len: ext_hint.len(),
             },
-            io_vtable: &FILE_IO_VTABLE as *const StIoVTableV1,
-            io_handle: (&mut *io) as *mut FileIo as *mut core::ffi::c_void,
+            io_vtable,
+            io_handle,
         };
 
         let plugin_free = p.library.plugin_free();
@@ -739,10 +1345,47 @@ impl PluginManager {
             vtable: vt,
             info,
             plugin_free,
-            _io: io,
+            _io_guard: io_guard,
             plugin_id,
             decoder_type_id,
         })
+    }
+
+    pub fn open_decoder(&self, key: DecoderKey, path: &str) -> Result<DecoderInstance> {
+        let mut io = Box::new(FileIo::open(path)?);
+        let io_handle = (&mut *io) as *mut FileIo as *mut core::ffi::c_void;
+        let ext = std::path::Path::new(path)
+            .extension()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .to_string();
+        self.open_decoder_with_io_guard(
+            key,
+            path,
+            &ext,
+            &FILE_IO_VTABLE as *const StIoVTableV1,
+            io_handle,
+            DecoderIoGuard::File(io),
+        )
+    }
+
+    pub fn open_decoder_with_source_stream(
+        &self,
+        key: DecoderKey,
+        path_hint: &str,
+        ext_hint: &str,
+        stream: SourceStream,
+    ) -> Result<DecoderInstance> {
+        let io_vtable = stream.io_vtable();
+        let io_handle = stream.io_handle();
+        self.open_decoder_with_io_guard(
+            key,
+            path_hint,
+            ext_hint,
+            io_vtable,
+            io_handle,
+            DecoderIoGuard::Source(stream),
+        )
     }
 
     pub fn open_best_decoder(&self, path: &str) -> Result<Option<DecoderInstance>> {

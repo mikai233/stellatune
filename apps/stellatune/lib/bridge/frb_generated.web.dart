@@ -75,7 +75,13 @@ abstract class StellatuneApiApiImplPlatform
   LyricsQuery dco_decode_box_autoadd_lyrics_query(dynamic raw);
 
   @protected
+  OutputSinkRoute dco_decode_box_autoadd_output_sink_route(dynamic raw);
+
+  @protected
   TrackDecodeInfo dco_decode_box_autoadd_track_decode_info(dynamic raw);
+
+  @protected
+  TrackRef dco_decode_box_autoadd_track_ref(dynamic raw);
 
   @protected
   int dco_decode_box_autoadd_u_16(dynamic raw);
@@ -144,7 +150,16 @@ abstract class StellatuneApiApiImplPlatform
   List<LyricLine> dco_decode_list_lyric_line(dynamic raw);
 
   @protected
+  List<LyricsProviderTypeDescriptor>
+  dco_decode_list_lyrics_provider_type_descriptor(dynamic raw);
+
+  @protected
   List<LyricsSearchCandidate> dco_decode_list_lyrics_search_candidate(
+    dynamic raw,
+  );
+
+  @protected
+  List<OutputSinkTypeDescriptor> dco_decode_list_output_sink_type_descriptor(
     dynamic raw,
   );
 
@@ -153,6 +168,10 @@ abstract class StellatuneApiApiImplPlatform
 
   @protected
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw);
+
+  @protected
+  List<SourceCatalogTypeDescriptor>
+  dco_decode_list_source_catalog_type_descriptor(dynamic raw);
 
   @protected
   List<TrackLite> dco_decode_list_track_lite(dynamic raw);
@@ -165,6 +184,11 @@ abstract class StellatuneApiApiImplPlatform
 
   @protected
   LyricsEvent dco_decode_lyrics_event(dynamic raw);
+
+  @protected
+  LyricsProviderTypeDescriptor dco_decode_lyrics_provider_type_descriptor(
+    dynamic raw,
+  );
 
   @protected
   LyricsQuery dco_decode_lyrics_query(dynamic raw);
@@ -188,16 +212,30 @@ abstract class StellatuneApiApiImplPlatform
   BigInt? dco_decode_opt_box_autoadd_u_64(dynamic raw);
 
   @protected
+  OutputSinkRoute dco_decode_output_sink_route(dynamic raw);
+
+  @protected
+  OutputSinkTypeDescriptor dco_decode_output_sink_type_descriptor(dynamic raw);
+
+  @protected
   PlayerState dco_decode_player_state(dynamic raw);
 
   @protected
   PluginDescriptor dco_decode_plugin_descriptor(dynamic raw);
 
   @protected
+  SourceCatalogTypeDescriptor dco_decode_source_catalog_type_descriptor(
+    dynamic raw,
+  );
+
+  @protected
   TrackDecodeInfo dco_decode_track_decode_info(dynamic raw);
 
   @protected
   TrackLite dco_decode_track_lite(dynamic raw);
+
+  @protected
+  TrackRef dco_decode_track_ref(dynamic raw);
 
   @protected
   int dco_decode_u_16(dynamic raw);
@@ -268,9 +306,17 @@ abstract class StellatuneApiApiImplPlatform
   LyricsQuery sse_decode_box_autoadd_lyrics_query(SseDeserializer deserializer);
 
   @protected
+  OutputSinkRoute sse_decode_box_autoadd_output_sink_route(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   TrackDecodeInfo sse_decode_box_autoadd_track_decode_info(
     SseDeserializer deserializer,
   );
+
+  @protected
+  TrackRef sse_decode_box_autoadd_track_ref(SseDeserializer deserializer);
 
   @protected
   int sse_decode_box_autoadd_u_16(SseDeserializer deserializer);
@@ -353,7 +399,16 @@ abstract class StellatuneApiApiImplPlatform
   List<LyricLine> sse_decode_list_lyric_line(SseDeserializer deserializer);
 
   @protected
+  List<LyricsProviderTypeDescriptor>
+  sse_decode_list_lyrics_provider_type_descriptor(SseDeserializer deserializer);
+
+  @protected
   List<LyricsSearchCandidate> sse_decode_list_lyrics_search_candidate(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<OutputSinkTypeDescriptor> sse_decode_list_output_sink_type_descriptor(
     SseDeserializer deserializer,
   );
 
@@ -366,6 +421,10 @@ abstract class StellatuneApiApiImplPlatform
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer);
 
   @protected
+  List<SourceCatalogTypeDescriptor>
+  sse_decode_list_source_catalog_type_descriptor(SseDeserializer deserializer);
+
+  @protected
   List<TrackLite> sse_decode_list_track_lite(SseDeserializer deserializer);
 
   @protected
@@ -376,6 +435,11 @@ abstract class StellatuneApiApiImplPlatform
 
   @protected
   LyricsEvent sse_decode_lyrics_event(SseDeserializer deserializer);
+
+  @protected
+  LyricsProviderTypeDescriptor sse_decode_lyrics_provider_type_descriptor(
+    SseDeserializer deserializer,
+  );
 
   @protected
   LyricsQuery sse_decode_lyrics_query(SseDeserializer deserializer);
@@ -403,16 +467,32 @@ abstract class StellatuneApiApiImplPlatform
   BigInt? sse_decode_opt_box_autoadd_u_64(SseDeserializer deserializer);
 
   @protected
+  OutputSinkRoute sse_decode_output_sink_route(SseDeserializer deserializer);
+
+  @protected
+  OutputSinkTypeDescriptor sse_decode_output_sink_type_descriptor(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   PlayerState sse_decode_player_state(SseDeserializer deserializer);
 
   @protected
   PluginDescriptor sse_decode_plugin_descriptor(SseDeserializer deserializer);
 
   @protected
+  SourceCatalogTypeDescriptor sse_decode_source_catalog_type_descriptor(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   TrackDecodeInfo sse_decode_track_decode_info(SseDeserializer deserializer);
 
   @protected
   TrackLite sse_decode_track_lite(SseDeserializer deserializer);
+
+  @protected
+  TrackRef sse_decode_track_ref(SseDeserializer deserializer);
 
   @protected
   int sse_decode_u_16(SseDeserializer deserializer);
@@ -499,8 +579,20 @@ abstract class StellatuneApiApiImplPlatform
   );
 
   @protected
+  void sse_encode_box_autoadd_output_sink_route(
+    OutputSinkRoute self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_box_autoadd_track_decode_info(
     TrackDecodeInfo self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_track_ref(
+    TrackRef self,
     SseSerializer serializer,
   );
 
@@ -604,8 +696,20 @@ abstract class StellatuneApiApiImplPlatform
   );
 
   @protected
+  void sse_encode_list_lyrics_provider_type_descriptor(
+    List<LyricsProviderTypeDescriptor> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_lyrics_search_candidate(
     List<LyricsSearchCandidate> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_output_sink_type_descriptor(
+    List<OutputSinkTypeDescriptor> self,
     SseSerializer serializer,
   );
 
@@ -618,6 +722,12 @@ abstract class StellatuneApiApiImplPlatform
   @protected
   void sse_encode_list_prim_u_8_strict(
     Uint8List self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_source_catalog_type_descriptor(
+    List<SourceCatalogTypeDescriptor> self,
     SseSerializer serializer,
   );
 
@@ -635,6 +745,12 @@ abstract class StellatuneApiApiImplPlatform
 
   @protected
   void sse_encode_lyrics_event(LyricsEvent self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_lyrics_provider_type_descriptor(
+    LyricsProviderTypeDescriptor self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_lyrics_query(LyricsQuery self, SseSerializer serializer);
@@ -667,11 +783,29 @@ abstract class StellatuneApiApiImplPlatform
   void sse_encode_opt_box_autoadd_u_64(BigInt? self, SseSerializer serializer);
 
   @protected
+  void sse_encode_output_sink_route(
+    OutputSinkRoute self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_output_sink_type_descriptor(
+    OutputSinkTypeDescriptor self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_player_state(PlayerState self, SseSerializer serializer);
 
   @protected
   void sse_encode_plugin_descriptor(
     PluginDescriptor self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_source_catalog_type_descriptor(
+    SourceCatalogTypeDescriptor self,
     SseSerializer serializer,
   );
 
@@ -683,6 +817,9 @@ abstract class StellatuneApiApiImplPlatform
 
   @protected
   void sse_encode_track_lite(TrackLite self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_track_ref(TrackRef self, SseSerializer serializer);
 
   @protected
   void sse_encode_u_16(int self, SseSerializer serializer);

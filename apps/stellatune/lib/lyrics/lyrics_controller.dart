@@ -125,7 +125,7 @@ class LyricsController extends Notifier<LyricsState> {
       return;
     }
 
-    final trackKey = item.path.trim();
+    final trackKey = item.stableTrackKey.trim();
     if (trackKey.isEmpty) {
       _preparedTrackKey = null;
       state = state.copyWith(
@@ -170,15 +170,17 @@ class LyricsController extends Notifier<LyricsState> {
   }
 
   void _prefetchNextQueueItem(QueueState queue) {
-    final currentPath = queue.currentItem?.path.trim();
+    final currentTrackKey = queue.currentItem?.stableTrackKey.trim();
     final next = _peekNextQueueItem(queue);
-    final nextPath = next?.path.trim();
-    if (nextPath == null || nextPath.isEmpty || nextPath == currentPath) {
+    final nextTrackKey = next?.stableTrackKey.trim();
+    if (nextTrackKey == null ||
+        nextTrackKey.isEmpty ||
+        nextTrackKey == currentTrackKey) {
       _prefetchedTrackKey = null;
       return;
     }
-    if (_prefetchedTrackKey == nextPath) return;
-    _prefetchedTrackKey = nextPath;
+    if (_prefetchedTrackKey == nextTrackKey) return;
+    _prefetchedTrackKey = nextTrackKey;
 
     final query = _queryFromQueueItem(next!);
     if (query == null) return;
@@ -195,15 +197,16 @@ class LyricsController extends Notifier<LyricsState> {
   }
 
   String? _currentTrackKey() {
-    final path =
-        ref.read(queueControllerProvider).currentItem?.path.trim() ?? '';
-    if (path.isEmpty) return null;
-    return path;
+    final trackKey =
+        ref.read(queueControllerProvider).currentItem?.stableTrackKey.trim() ??
+        '';
+    if (trackKey.isEmpty) return null;
+    return trackKey;
   }
 
   LyricsQuery? _queryFromQueueItem(QueueItem? item) {
     if (item == null) return null;
-    final trackKey = item.path.trim();
+    final trackKey = item.stableTrackKey.trim();
     if (trackKey.isEmpty) return null;
     final title = _resolveTitle(item);
     if (title.isEmpty) return null;

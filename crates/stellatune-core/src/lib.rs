@@ -36,10 +36,46 @@ pub struct AudioDevice {
 }
 
 #[flutter_rust_bridge::frb(non_opaque)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TrackRef {
+    /// Logical source id (e.g. `local`, `netease`, `onedrive`).
+    pub source_id: String,
+    /// Stable identifier inside the source.
+    pub track_id: String,
+    /// Opaque locator used by source/decoder implementations.
+    pub locator: String,
+}
+
+impl TrackRef {
+    pub fn new(source_id: String, track_id: String, locator: String) -> Self {
+        Self {
+            source_id,
+            track_id,
+            locator,
+        }
+    }
+
+    pub fn for_local_path(path: String) -> Self {
+        Self {
+            source_id: "local".to_string(),
+            track_id: path.clone(),
+            locator: path,
+        }
+    }
+
+    pub fn stable_key(&self) -> String {
+        format!("{}:{}", self.source_id, self.track_id)
+    }
+}
+
+#[flutter_rust_bridge::frb(non_opaque)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Command {
     LoadTrack {
         path: String,
+    },
+    LoadTrackRef {
+        track: TrackRef,
     },
     Play,
     Pause,
@@ -62,8 +98,16 @@ pub enum Command {
         match_track_sample_rate: bool,
         gapless_playback: bool,
     },
+    SetOutputSinkRoute {
+        route: OutputSinkRoute,
+    },
+    ClearOutputSinkRoute,
     PreloadTrack {
         path: String,
+        position_ms: u64,
+    },
+    PreloadTrackRef {
+        track: TrackRef,
         position_ms: u64,
     },
     RefreshDevices,
@@ -93,6 +137,46 @@ pub struct DspTypeDescriptor {
     pub display_name: String,
     pub config_schema_json: String,
     pub default_config_json: String,
+}
+
+#[flutter_rust_bridge::frb(non_opaque)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SourceCatalogTypeDescriptor {
+    pub plugin_id: String,
+    pub plugin_name: String,
+    pub type_id: String,
+    pub display_name: String,
+    pub config_schema_json: String,
+    pub default_config_json: String,
+}
+
+#[flutter_rust_bridge::frb(non_opaque)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LyricsProviderTypeDescriptor {
+    pub plugin_id: String,
+    pub plugin_name: String,
+    pub type_id: String,
+    pub display_name: String,
+}
+
+#[flutter_rust_bridge::frb(non_opaque)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OutputSinkTypeDescriptor {
+    pub plugin_id: String,
+    pub plugin_name: String,
+    pub type_id: String,
+    pub display_name: String,
+    pub config_schema_json: String,
+    pub default_config_json: String,
+}
+
+#[flutter_rust_bridge::frb(non_opaque)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OutputSinkRoute {
+    pub plugin_id: String,
+    pub type_id: String,
+    pub config_json: String,
+    pub target_json: String,
 }
 
 #[flutter_rust_bridge::frb(non_opaque)]

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'api.dart' as api;
 import 'third_party/stellatune_core.dart';
 
@@ -7,8 +9,13 @@ export 'third_party/stellatune_core.dart'
         Event,
         AudioBackend,
         AudioDevice,
+        TrackRef,
         DspChainItem,
         DspTypeDescriptor,
+        SourceCatalogTypeDescriptor,
+        LyricsProviderTypeDescriptor,
+        OutputSinkTypeDescriptor,
+        OutputSinkRoute,
         PluginDescriptor,
         PlayerState,
         LibraryEvent,
@@ -40,6 +47,8 @@ class PlayerBridge {
   Stream<LyricsEvent> lyricsEvents() => api.lyricsEvents(player: player);
 
   Future<void> load(String path) => api.load(player: player, path: path);
+  Future<void> loadTrackRef(TrackRef track) =>
+      api.loadTrackRef(player: player, track: track);
 
   Future<void> play() => api.play(player: player);
   Future<void> pause() => api.pause(player: player);
@@ -83,6 +92,67 @@ class PlayerBridge {
   Future<List<DspTypeDescriptor>> dspListTypes() =>
       api.dspListTypes(player: player);
 
+  Future<List<SourceCatalogTypeDescriptor>> sourceListTypes() =>
+      api.sourceListTypes(player: player);
+
+  Future<List<LyricsProviderTypeDescriptor>> lyricsProviderListTypes() =>
+      api.lyricsProviderListTypes(player: player);
+
+  Future<List<OutputSinkTypeDescriptor>> outputSinkListTypes() =>
+      api.outputSinkListTypes(player: player);
+
+  Future<String> sourceListItemsJson({
+    required String pluginId,
+    required String typeId,
+    required String configJson,
+    required String requestJson,
+  }) => api.sourceListItemsJson(
+    player: player,
+    pluginId: pluginId,
+    typeId: typeId,
+    configJson: configJson,
+    requestJson: requestJson,
+  );
+
+  Future<String> lyricsProviderSearchJson({
+    required String pluginId,
+    required String typeId,
+    required String queryJson,
+  }) => api.lyricsProviderSearchJson(
+    player: player,
+    pluginId: pluginId,
+    typeId: typeId,
+    queryJson: queryJson,
+  );
+
+  Future<String> lyricsProviderFetchJson({
+    required String pluginId,
+    required String typeId,
+    required String trackJson,
+  }) => api.lyricsProviderFetchJson(
+    player: player,
+    pluginId: pluginId,
+    typeId: typeId,
+    trackJson: trackJson,
+  );
+
+  Future<String> outputSinkListTargetsJson({
+    required String pluginId,
+    required String typeId,
+    required String configJson,
+  }) => api.outputSinkListTargetsJson(
+    player: player,
+    pluginId: pluginId,
+    typeId: typeId,
+    configJson: configJson,
+  );
+
+  Future<void> setOutputSinkRoute(OutputSinkRoute route) =>
+      api.setOutputSinkRoute(player: player, route: route);
+
+  Future<void> clearOutputSinkRoute() =>
+      api.clearOutputSinkRoute(player: player);
+
   Future<void> dspSetChain(List<DspChainItem> chain) =>
       api.dspSetChain(player: player, chain: chain);
 
@@ -124,6 +194,38 @@ class PlayerBridge {
         path: path,
         positionMs: BigInt.from(positionMs),
       );
+
+  Future<void> preloadTrackRef(TrackRef track, {int positionMs = 0}) =>
+      api.preloadTrackRef(
+        player: player,
+        track: track,
+        positionMs: BigInt.from(positionMs),
+      );
+}
+
+TrackRef buildPluginSourceTrackRef({
+  required String sourceId,
+  required String trackId,
+  required String pluginId,
+  required String typeId,
+  required String configJson,
+  required String trackJson,
+  String extHint = '',
+  String pathHint = '',
+  String? decoderPluginId,
+  String? decoderTypeId,
+}) {
+  final locator = jsonEncode(<String, Object?>{
+    'plugin_id': pluginId,
+    'type_id': typeId,
+    'config_json': configJson,
+    'track_json': trackJson,
+    'ext_hint': extHint,
+    'path_hint': pathHint,
+    'decoder_plugin_id': decoderPluginId,
+    'decoder_type_id': decoderTypeId,
+  });
+  return TrackRef(sourceId: sourceId, trackId: trackId, locator: locator);
 }
 
 class LibraryBridge {

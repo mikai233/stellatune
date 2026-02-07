@@ -42,6 +42,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get navLibrary => '音乐库';
 
   @override
+  String get navSources => '来源';
+
+  @override
   String get navQueue => '队列';
 
   @override
@@ -51,10 +54,39 @@ class AppLocalizationsZh extends AppLocalizations {
   String get libraryTitle => '音乐库';
 
   @override
+  String get sourcesTitle => '来源';
+
+  @override
   String get queueTitle => '队列';
 
   @override
   String get settingsTitle => '设置';
+
+  @override
+  String get sourcesTypeLabel => '来源类型';
+
+  @override
+  String get sourcesRefreshTypes => '刷新来源类型';
+
+  @override
+  String get sourcesConfigJsonLabel => '配置 JSON';
+
+  @override
+  String get sourcesRequestJsonLabel => '请求 JSON';
+
+  @override
+  String get sourcesLoadItems => '加载条目';
+
+  @override
+  String get sourcesNoTypes => '未加载任何来源插件。';
+
+  @override
+  String get sourcesNoItems => '没有来源条目。';
+
+  @override
+  String sourcesItemsCount(int count) {
+    return '$count 条';
+  }
 
   @override
   String get settingsOutputTitle => '输出设备';

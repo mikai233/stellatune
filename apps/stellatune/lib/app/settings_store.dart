@@ -10,6 +10,7 @@ class SettingsStore {
   static const _boxName = 'settings';
   static const _keyVolume = 'volume';
   static const _keyPlayMode = 'play_mode';
+  static const _keyResumeTrackRef = 'resume_track_ref';
   static const _keyResumePath = 'resume_path';
   static const _keyResumePositionMs = 'resume_position_ms';
   static const _keyResumeTrackId = 'resume_track_id';
@@ -23,6 +24,7 @@ class SettingsStore {
   static const _keySelectedDeviceId = 'selected_device_id';
   static const _keyMatchTrackSampleRate = 'match_track_sample_rate';
   static const _keyGaplessPlayback = 'gapless_playback';
+  static const _keyOutputSinkRoute = 'output_sink_route';
 
   final Box _box;
 
@@ -52,6 +54,36 @@ class SettingsStore {
 
   Future<void> setPlayMode(PlayMode mode) => _box.put(_keyPlayMode, mode.name);
 
+  TrackRef? get resumeTrack {
+    final raw = _box.get(_keyResumeTrackRef);
+    if (raw is String && raw.trim().isNotEmpty) {
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map) {
+          final map = decoded.cast<String, dynamic>();
+          final sourceId = (map['sourceId'] as String?)?.trim() ?? '';
+          final trackId = (map['trackId'] as String?)?.trim() ?? '';
+          final locator = (map['locator'] as String?)?.trim() ?? '';
+          if (sourceId.isNotEmpty && trackId.isNotEmpty && locator.isNotEmpty) {
+            return TrackRef(
+              sourceId: sourceId,
+              trackId: trackId,
+              locator: locator,
+            );
+          }
+        }
+      } catch (_) {}
+    }
+
+    final legacyPath = resumePath;
+    if (legacyPath == null) return null;
+    return TrackRef(
+      sourceId: 'local',
+      trackId: legacyPath,
+      locator: legacyPath,
+    );
+  }
+
   String? get resumePath {
     final v = _box.get(_keyResumePath);
     if (v is String && v.trim().isNotEmpty) return v;
@@ -72,7 +104,7 @@ class SettingsStore {
   int? get resumeDurationMs => _box.get(_keyResumeDurationMs);
 
   Future<void> setResume({
-    required String path,
+    required TrackRef track,
     required int positionMs,
     int? trackId,
     String? title,
@@ -80,7 +112,15 @@ class SettingsStore {
     String? album,
     int? durationMs,
   }) async {
-    await _box.put(_keyResumePath, path);
+    await _box.put(
+      _keyResumeTrackRef,
+      jsonEncode(<String, String>{
+        'sourceId': track.sourceId,
+        'trackId': track.trackId,
+        'locator': track.locator,
+      }),
+    );
+    await _box.put(_keyResumePath, track.locator);
     await _box.put(_keyResumePositionMs, positionMs);
     await _box.put(_keyResumeTrackId, trackId);
     await _box.put(_keyResumeTitle, title);
@@ -90,6 +130,7 @@ class SettingsStore {
   }
 
   Future<void> clearResume() async {
+    await _box.delete(_keyResumeTrackRef);
     await _box.delete(_keyResumePath);
     await _box.delete(_keyResumePositionMs);
     await _box.delete(_keyResumeTrackId);
@@ -207,4 +248,37 @@ class SettingsStore {
   }
 
   Future<void> setGaplessPlayback(bool v) => _box.put(_keyGaplessPlayback, v);
+
+  OutputSinkRoute? get outputSinkRoute {
+    final raw = _box.get(_keyOutputSinkRoute);
+    if (raw is! String || raw.trim().isEmpty) return null;
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return null;
+      final map = decoded.cast<String, dynamic>();
+      final pluginId = (map['pluginId'] as String?)?.trim() ?? '';
+      final typeId = (map['typeId'] as String?)?.trim() ?? '';
+      if (pluginId.isEmpty || typeId.isEmpty) return null;
+      return OutputSinkRoute(
+        pluginId: pluginId,
+        typeId: typeId,
+        configJson: (map['configJson'] as String?) ?? '{}',
+        targetJson: (map['targetJson'] as String?) ?? '{}',
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> setOutputSinkRoute(OutputSinkRoute route) => _box.put(
+    _keyOutputSinkRoute,
+    jsonEncode(<String, String>{
+      'pluginId': route.pluginId,
+      'typeId': route.typeId,
+      'configJson': route.configJson,
+      'targetJson': route.targetJson,
+    }),
+  );
+
+  Future<void> clearOutputSinkRoute() => _box.delete(_keyOutputSinkRoute);
 }

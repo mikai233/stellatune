@@ -1,11 +1,12 @@
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
+import 'package:stellatune/bridge/bridge.dart';
 
 @immutable
 class QueueItem {
   const QueueItem({
-    required this.path,
+    required this.track,
     this.id,
     this.title,
     this.artist,
@@ -13,16 +14,23 @@ class QueueItem {
     this.durationMs,
   });
 
-  final String path;
+  final TrackRef track;
   final int? id;
   final String? title;
   final String? artist;
   final String? album;
   final int? durationMs;
 
-  String get displayTitle => title?.trim().isNotEmpty == true
-      ? title!.trim()
-      : path.split(RegExp(r'[\\/]+')).last;
+  String get path => track.locator;
+
+  String get stableTrackKey => '${track.sourceId}:${track.trackId}';
+
+  String get displayTitle {
+    final explicit = title?.trim() ?? '';
+    if (explicit.isNotEmpty) return explicit;
+    final fallback = track.trackId.trim().isNotEmpty ? track.trackId : path;
+    return fallback.split(RegExp(r'[\\/]+')).last;
+  }
 }
 
 enum RepeatMode { off, all, one }

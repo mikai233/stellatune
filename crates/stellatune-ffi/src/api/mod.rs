@@ -65,7 +65,13 @@ pub fn create_player() -> RustOpaque<Player> {
 }
 
 pub fn load(player: RustOpaque<Player>, path: String) {
-    player.engine.send_command(Command::LoadTrack { path });
+    player.engine.send_command(Command::LoadTrackRef {
+        track: stellatune_core::TrackRef::for_local_path(path),
+    });
+}
+
+pub fn load_track_ref(player: RustOpaque<Player>, track: stellatune_core::TrackRef) {
+    player.engine.send_command(Command::LoadTrackRef { track });
 }
 
 pub fn play(player: RustOpaque<Player>) {
@@ -169,6 +175,73 @@ pub fn dsp_list_types(player: RustOpaque<Player>) -> Vec<stellatune_core::DspTyp
     player.engine.list_dsp_types()
 }
 
+pub fn source_list_types(
+    player: RustOpaque<Player>,
+) -> Vec<stellatune_core::SourceCatalogTypeDescriptor> {
+    player.engine.list_source_catalog_types()
+}
+
+pub fn lyrics_provider_list_types(
+    player: RustOpaque<Player>,
+) -> Vec<stellatune_core::LyricsProviderTypeDescriptor> {
+    player.engine.list_lyrics_provider_types()
+}
+
+pub fn output_sink_list_types(
+    player: RustOpaque<Player>,
+) -> Vec<stellatune_core::OutputSinkTypeDescriptor> {
+    player.engine.list_output_sink_types()
+}
+
+pub fn source_list_items_json(
+    player: RustOpaque<Player>,
+    plugin_id: String,
+    type_id: String,
+    config_json: String,
+    request_json: String,
+) -> Result<String> {
+    player
+        .engine
+        .source_list_items_json(&plugin_id, &type_id, &config_json, &request_json)
+        .map_err(|e| anyhow::anyhow!(e))
+}
+
+pub fn lyrics_provider_search_json(
+    player: RustOpaque<Player>,
+    plugin_id: String,
+    type_id: String,
+    query_json: String,
+) -> Result<String> {
+    player
+        .engine
+        .lyrics_provider_search_json(&plugin_id, &type_id, &query_json)
+        .map_err(|e| anyhow::anyhow!(e))
+}
+
+pub fn lyrics_provider_fetch_json(
+    player: RustOpaque<Player>,
+    plugin_id: String,
+    type_id: String,
+    track_json: String,
+) -> Result<String> {
+    player
+        .engine
+        .lyrics_provider_fetch_json(&plugin_id, &type_id, &track_json)
+        .map_err(|e| anyhow::anyhow!(e))
+}
+
+pub fn output_sink_list_targets_json(
+    player: RustOpaque<Player>,
+    plugin_id: String,
+    type_id: String,
+    config_json: String,
+) -> Result<String> {
+    player
+        .engine
+        .output_sink_list_targets_json(&plugin_id, &type_id, &config_json)
+        .map_err(|e| anyhow::anyhow!(e))
+}
+
 pub fn dsp_set_chain(player: RustOpaque<Player>, chain: Vec<stellatune_core::DspChainItem>) {
     player.engine.set_dsp_chain(chain);
 }
@@ -216,10 +289,31 @@ pub fn set_output_options(
     });
 }
 
-pub fn preload_track(player: RustOpaque<Player>, path: String, position_ms: u64) {
+pub fn set_output_sink_route(player: RustOpaque<Player>, route: stellatune_core::OutputSinkRoute) {
     player
         .engine
-        .send_command(Command::PreloadTrack { path, position_ms });
+        .send_command(Command::SetOutputSinkRoute { route });
+}
+
+pub fn clear_output_sink_route(player: RustOpaque<Player>) {
+    player.engine.send_command(Command::ClearOutputSinkRoute);
+}
+
+pub fn preload_track(player: RustOpaque<Player>, path: String, position_ms: u64) {
+    player.engine.send_command(Command::PreloadTrackRef {
+        track: stellatune_core::TrackRef::for_local_path(path),
+        position_ms,
+    });
+}
+
+pub fn preload_track_ref(
+    player: RustOpaque<Player>,
+    track: stellatune_core::TrackRef,
+    position_ms: u64,
+) {
+    player
+        .engine
+        .send_command(Command::PreloadTrackRef { track, position_ms });
 }
 
 pub struct Library {

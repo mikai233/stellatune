@@ -6,7 +6,7 @@ use stellatune_mixer::ChannelMixer;
 use super::context::DecodeContext;
 use super::decoder::EngineDecoder;
 use super::dsp::split_dsp_chain_by_layout;
-use crate::engine::messages::DecodeCtrl;
+use crate::engine::messages::{DecodeCtrl, OutputSinkWrite};
 
 pub(crate) fn skip_frames_by_decoding(
     decoder: &mut EngineDecoder,
@@ -55,6 +55,9 @@ pub(crate) fn write_pending(ctx: &mut DecodeContext) -> bool {
                     *ctx.pending_seek = Some(position_ms);
                     return false;
                 }
+                DecodeCtrl::SetOutputSinkTx { tx } => {
+                    *ctx.output_sink_tx = tx;
+                }
                 DecodeCtrl::Stop => return true,
                 _ => {}
             }
@@ -63,7 +66,22 @@ pub(crate) fn write_pending(ctx: &mut DecodeContext) -> bool {
             break;
         }
 
-        let written = if let Ok(mut producer) = ctx.producer.lock() {
+        let written = if ctx.output_sink_only {
+            let Some(tx) = ctx.output_sink_tx.as_ref() else {
+                thread::sleep(Duration::from_millis(2));
+                continue;
+            };
+            let chunk = ctx.out_pending[offset..].to_vec();
+            let chunk_len = chunk.len();
+            match tx.send(OutputSinkWrite::Samples(chunk)) {
+                Ok(()) => chunk_len,
+                Err(_) => {
+                    *ctx.output_sink_tx = None;
+                    thread::sleep(Duration::from_millis(2));
+                    continue;
+                }
+            }
+        } else if let Ok(mut producer) = ctx.producer.lock() {
             producer.push_slice(&ctx.out_pending[offset..])
         } else {
             0

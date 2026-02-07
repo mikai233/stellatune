@@ -50,18 +50,55 @@ impl LibraryHandle {
                 .filter(|s| !s.is_empty())
                 .collect::<HashSet<_>>();
 
-            *self
-                .disabled_plugin_ids
-                .lock()
-                .expect("disabled_plugin_ids mutex poisoned") = disabled.clone();
+            match self.disabled_plugin_ids.lock() {
+                Ok(mut guard) => {
+                    *guard = disabled.clone();
+                }
+                Err(_) => {
+                    self.events.emit(LibraryEvent::Log {
+                        message: "plugins reload skipped: disabled_plugin_ids mutex poisoned"
+                            .to_string(),
+                    });
+                    return;
+                }
+            }
 
             if !dir.exists() {
                 return;
             }
 
-            let mut pm = self.plugins.lock().expect("plugins mutex poisoned");
+            let mut pm = match self.plugins.lock() {
+                Ok(v) => v,
+                Err(_) => {
+                    self.events.emit(LibraryEvent::Log {
+                        message: "plugins reload skipped: plugins mutex poisoned".to_string(),
+                    });
+                    return;
+                }
+            };
             pm.set_disabled_ids(disabled.clone());
-            let _ = unsafe { pm.load_dir_additive_filtered(&dir, &disabled) };
+            match unsafe { pm.load_dir_additive_filtered(&dir, &disabled) } {
+                Ok(report) => {
+                    self.events.emit(LibraryEvent::Log {
+                        message: format!(
+                            "library plugins reloaded from {}: loaded={} errors={}",
+                            dir.display(),
+                            report.loaded.len(),
+                            report.errors.len()
+                        ),
+                    });
+                    for e in report.errors {
+                        self.events.emit(LibraryEvent::Log {
+                            message: format!("plugin load error: {e:#}"),
+                        });
+                    }
+                }
+                Err(e) => {
+                    self.events.emit(LibraryEvent::Log {
+                        message: format!("library plugins reload failed: {e:#}"),
+                    });
+                }
+            }
         }
 
         #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
@@ -233,15 +270,15 @@ impl EventHub {
 
     pub(crate) fn subscribe(&self) -> Receiver<LibraryEvent> {
         let (tx, rx) = crossbeam_channel::unbounded();
-        self.subscribers
-            .lock()
-            .expect("event hub mutex poisoned")
-            .push(tx);
+        if let Ok(mut subs) = self.subscribers.lock() {
+            subs.push(tx);
+        }
         rx
     }
 
     pub(crate) fn emit(&self, event: LibraryEvent) {
-        let mut subs = self.subscribers.lock().expect("event hub mutex poisoned");
-        subs.retain(|tx| tx.send(event.clone()).is_ok());
+        if let Ok(mut subs) = self.subscribers.lock() {
+            subs.retain(|tx| tx.send(event.clone()).is_ok());
+        }
     }
 }

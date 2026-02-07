@@ -1,0 +1,9 @@
+id = "dev.stellatune.decoder.ncm"
+api_version = 2
+name = "NCM Decoder (ncmdump)"
+
+[library]
+windows = "bin/win64/stellatune_plugin_ncm.dll"
+linux = "bin/linux64/libstellatune_plugin_ncm.so"
+macos = "bin/macos/libstellatune_plugin_ncm.dylib"
+

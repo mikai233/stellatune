@@ -313,11 +313,15 @@ pub(super) async fn scan_folder_into_db(
         let supported = is_audio_ext(&ext) || {
             #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
             {
-                let pm = plugins.lock().expect("plugins mutex poisoned");
-                if ext.is_empty() {
-                    pm.can_decode_path(&path_str).unwrap_or(false)
-                } else {
-                    pm.probe_best_decoder_hint(&ext).is_some()
+                match plugins.lock() {
+                    Ok(pm) => {
+                        if ext.is_empty() {
+                            pm.can_decode_path(&path_str).unwrap_or(false)
+                        } else {
+                            pm.probe_best_decoder_hint(&ext).is_some()
+                        }
+                    }
+                    Err(_) => false,
                 }
             }
             #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]

@@ -12,12 +12,29 @@
   "log": "日志",
 
   "navLibrary": "音乐库",
+  "navSources": "来源",
   "navQueue": "队列",
   "navSettings": "设置",
 
   "libraryTitle": "音乐库",
+  "sourcesTitle": "来源",
   "queueTitle": "队列",
   "settingsTitle": "设置",
+  "sourcesTypeLabel": "来源类型",
+  "sourcesRefreshTypes": "刷新来源类型",
+  "sourcesConfigJsonLabel": "配置 JSON",
+  "sourcesRequestJsonLabel": "请求 JSON",
+  "sourcesLoadItems": "加载条目",
+  "sourcesNoTypes": "未加载任何来源插件。",
+  "sourcesNoItems": "没有来源条目。",
+  "sourcesItemsCount": "{count} 条",
+  "@sourcesItemsCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "settingsOutputTitle": "输出设备",
   "settingsBackend": "音频后端",
   "settingsBackendShared": "共享 (WASAPI Shared)",

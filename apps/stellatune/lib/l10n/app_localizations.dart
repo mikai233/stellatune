@@ -164,6 +164,12 @@ abstract class AppLocalizations {
   /// **'Library'**
   String get navLibrary;
 
+  /// No description provided for @navSources.
+  ///
+  /// In en, this message translates to:
+  /// **'Sources'**
+  String get navSources;
+
   /// No description provided for @navQueue.
   ///
   /// In en, this message translates to:
@@ -182,6 +188,12 @@ abstract class AppLocalizations {
   /// **'Library'**
   String get libraryTitle;
 
+  /// No description provided for @sourcesTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Sources'**
+  String get sourcesTitle;
+
   /// No description provided for @queueTitle.
   ///
   /// In en, this message translates to:
@@ -193,6 +205,54 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Settings'**
   String get settingsTitle;
+
+  /// No description provided for @sourcesTypeLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Source type'**
+  String get sourcesTypeLabel;
+
+  /// No description provided for @sourcesRefreshTypes.
+  ///
+  /// In en, this message translates to:
+  /// **'Reload source types'**
+  String get sourcesRefreshTypes;
+
+  /// No description provided for @sourcesConfigJsonLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Config JSON'**
+  String get sourcesConfigJsonLabel;
+
+  /// No description provided for @sourcesRequestJsonLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Request JSON'**
+  String get sourcesRequestJsonLabel;
+
+  /// No description provided for @sourcesLoadItems.
+  ///
+  /// In en, this message translates to:
+  /// **'Load items'**
+  String get sourcesLoadItems;
+
+  /// No description provided for @sourcesNoTypes.
+  ///
+  /// In en, this message translates to:
+  /// **'No source plugins loaded.'**
+  String get sourcesNoTypes;
+
+  /// No description provided for @sourcesNoItems.
+  ///
+  /// In en, this message translates to:
+  /// **'No source items.'**
+  String get sourcesNoItems;
+
+  /// No description provided for @sourcesItemsCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} items'**
+  String sourcesItemsCount(int count);
 
   /// No description provided for @settingsOutputTitle.
   ///

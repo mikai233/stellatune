@@ -20,7 +20,7 @@ class PlaybackController extends Notifier<PlaybackState> {
   StreamSubscription<Event>? _sub;
   Timer? _volumePersistDebounce;
   Timer? _resumePersistTimer;
-  String? _resumePendingPath;
+  TrackRef? _resumePendingTrack;
   int _resumePendingPositionMs = 0;
   double _lastNonZeroVolume = 1.0;
   String? _dlnaLastPath;
@@ -33,7 +33,7 @@ class PlaybackController extends Notifier<PlaybackState> {
   int _dlnaVolumeMismatchCount = 0;
   int? _dlnaLastReportedDlnaVolume;
   bool _dlnaVolumeUnsupported = false;
-  String? _lastPreloadedNextPath;
+  String? _lastPreloadedNextTrackKey;
 
   @override
   PlaybackState build() {
@@ -42,14 +42,14 @@ class PlaybackController extends Notifier<PlaybackState> {
     _volumePersistDebounce = null;
     _resumePersistTimer?.cancel();
     _resumePersistTimer = null;
-    _resumePendingPath = null;
+    _resumePendingTrack = null;
     _dlnaPollTimer?.cancel();
     _dlnaPollTimer = null;
     _dlnaPollInFlight = false;
     _dlnaLastTransportState = null;
     _dlnaSuppressAutoNextUntil = null;
     _dlnaLastPlayStartedAt = null;
-    _lastPreloadedNextPath = null;
+    _lastPreloadedNextTrackKey = null;
 
     final bridge = ref.read(playerBridgeProvider);
     _sub = bridge.events().listen(
@@ -136,32 +136,35 @@ class PlaybackController extends Notifier<PlaybackState> {
 
   Future<void> _requestPreloadNext() async {
     if (_dlnaActive) {
-      _lastPreloadedNextPath = null;
+      _lastPreloadedNextTrackKey = null;
       return;
     }
 
     final queue = ref.read(queueControllerProvider);
     final nextItem = _peekNextQueueItem(queue);
-    final currentPath = queue.currentItem?.path.trim();
-    final nextPath = nextItem?.path.trim();
+    final currentTrackKey = queue.currentItem?.stableTrackKey.trim();
+    final nextTrackKey = nextItem?.stableTrackKey.trim();
 
-    if (nextPath == null || nextPath.isEmpty || nextPath == currentPath) {
-      _lastPreloadedNextPath = null;
+    if (nextTrackKey == null ||
+        nextTrackKey.isEmpty ||
+        nextTrackKey == currentTrackKey ||
+        nextItem == null) {
+      _lastPreloadedNextTrackKey = null;
       return;
     }
-    if (_lastPreloadedNextPath == nextPath) {
+    if (_lastPreloadedNextTrackKey == nextTrackKey) {
       return;
     }
 
-    _lastPreloadedNextPath = nextPath;
+    _lastPreloadedNextTrackKey = nextTrackKey;
     try {
       await ref
           .read(playerBridgeProvider)
-          .preloadTrack(nextPath, positionMs: 0);
+          .preloadTrackRef(nextItem.track, positionMs: 0);
     } catch (e) {
       // Best-effort optimization; ignore failures to avoid affecting playback flow.
       ref.read(loggerProvider).d('preload next failed: $e');
-      _lastPreloadedNextPath = null;
+      _lastPreloadedNextTrackKey = null;
     }
   }
 
@@ -169,8 +172,8 @@ class PlaybackController extends Notifier<PlaybackState> {
     if (_dlnaActive) return;
 
     final settings = ref.read(settingsStoreProvider);
-    final path = settings.resumePath;
-    if (path == null) return;
+    final track = settings.resumeTrack;
+    if (track == null) return;
     final pos = settings.resumePositionMs.clamp(0, 1 << 31);
 
     // Ensure the UI shows a sensible "current track" even before any user action.
@@ -178,7 +181,7 @@ class PlaybackController extends Notifier<PlaybackState> {
     if (queue.items.isEmpty) {
       ref.read(queueControllerProvider.notifier).setQueue([
         QueueItem(
-          path: path,
+          track: track,
           id: settings.resumeTrackId,
           title: settings.resumeTitle,
           artist: settings.resumeArtist,
@@ -190,17 +193,17 @@ class PlaybackController extends Notifier<PlaybackState> {
 
     final bridge = ref.read(playerBridgeProvider);
     try {
-      await bridge.load(path);
+      await bridge.loadTrackRef(track);
       if (pos > 0) {
         await bridge.seekMs(pos);
       }
       state = state.copyWith(
-        currentPath: path,
+        currentPath: track.locator,
         positionMs: pos,
         lastError: null,
       );
       unawaited(
-        bridge.preloadTrack(path, positionMs: pos).catchError((Object e) {
+        bridge.preloadTrackRef(track, positionMs: pos).catchError((Object e) {
           ref.read(loggerProvider).d('resume preload failed: $e');
         }),
       );
@@ -209,14 +212,22 @@ class PlaybackController extends Notifier<PlaybackState> {
     }
   }
 
-  void _scheduleResumePersist(String path, int positionMs) {
-    _resumePendingPath = path;
+  TrackRef? _resolveCurrentTrackForResume() {
+    final queueItem = ref.read(queueControllerProvider).currentItem;
+    if (queueItem != null) return queueItem.track;
+    final path = state.currentPath?.trim() ?? '';
+    if (path.isEmpty) return null;
+    return _localTrackRef(path);
+  }
+
+  void _scheduleResumePersist(TrackRef track, int positionMs) {
+    _resumePendingTrack = track;
     _resumePendingPositionMs = positionMs;
     if (_resumePersistTimer != null) return;
     _resumePersistTimer = Timer(const Duration(seconds: 1), () {
       _resumePersistTimer = null;
-      final p = _resumePendingPath;
-      if (p == null || p.isEmpty) return;
+      final track = _resumePendingTrack;
+      if (track == null) return;
       final ms = _resumePendingPositionMs.clamp(0, 1 << 31);
 
       final currentItem = ref.read(queueControllerProvider).currentItem;
@@ -224,7 +235,7 @@ class PlaybackController extends Notifier<PlaybackState> {
         ref
             .read(settingsStoreProvider)
             .setResume(
-              path: p,
+              track: track,
               positionMs: ms,
               trackId: currentItem?.id,
               title: currentItem?.title,
@@ -237,18 +248,18 @@ class PlaybackController extends Notifier<PlaybackState> {
   }
 
   Future<void> _persistResumeNow({
-    required String path,
+    required TrackRef track,
     required int positionMs,
   }) async {
-    final p = path.trim();
-    if (p.isEmpty) return;
+    final locator = track.locator.trim();
+    if (locator.isEmpty) return;
     final ms = positionMs.clamp(0, 1 << 31);
 
     final currentItem = ref.read(queueControllerProvider).currentItem;
     await ref
         .read(settingsStoreProvider)
         .setResume(
-          path: p,
+          track: track,
           positionMs: ms,
           trackId: currentItem?.id,
           title: currentItem?.title,
@@ -264,9 +275,9 @@ class PlaybackController extends Notifier<PlaybackState> {
       await ref.read(playerBridgeProvider).seekMs(pos);
       // Optimistically update the UI; engine events will resync shortly.
       state = state.copyWith(positionMs: pos, lastError: null);
-      final path = state.currentPath;
-      if (path != null && path.isNotEmpty) {
-        unawaited(_persistResumeNow(path: path, positionMs: pos));
+      final track = _resolveCurrentTrackForResume();
+      if (track != null) {
+        unawaited(_persistResumeNow(track: track, positionMs: pos));
       }
       return;
     }
@@ -284,9 +295,9 @@ class PlaybackController extends Notifier<PlaybackState> {
     state = state.copyWith(positionMs: pos, lastError: null);
     _ensureDlnaPoller();
 
-    final path = state.currentPath;
-    if (path != null && path.isNotEmpty) {
-      unawaited(_persistResumeNow(path: path, positionMs: pos));
+    final track = _resolveCurrentTrackForResume();
+    if (track != null) {
+      unawaited(_persistResumeNow(track: track, positionMs: pos));
     }
   }
 
@@ -462,7 +473,7 @@ class PlaybackController extends Notifier<PlaybackState> {
     final wasPlaying =
         state.playerState == PlayerState.playing ||
         state.playerState == PlayerState.buffering;
-    final currentPath = ref.read(queueControllerProvider).currentItem?.path;
+    final currentItem = ref.read(queueControllerProvider).currentItem;
     _dlnaSuppressAutoNext();
 
     // Stop whichever output was previously active.
@@ -503,8 +514,8 @@ class PlaybackController extends Notifier<PlaybackState> {
       }
     }
 
-    if (!wasPlaying || currentPath == null) return;
-    await _loadAndPlay(currentPath);
+    if (!wasPlaying || currentItem == null) return;
+    await _loadAndPlayQueueItem(currentItem);
   }
 
   Future<void> setQueueAndPlay(List<String> paths, {int startIndex = 0}) =>
@@ -513,56 +524,68 @@ class PlaybackController extends Notifier<PlaybackState> {
         startIndex: startIndex,
       );
 
-  Future<void> setQueueAndPlayTracks(
-    List<TrackLite> tracks, {
+  Future<void> setQueueAndPlayItems(
+    List<QueueItem> items, {
     int startIndex = 0,
   }) async {
-    final items = tracks
-        .map(
-          (t) => QueueItem(
-            id: t.id.toInt() >= 0 ? t.id.toInt() : null,
-            path: t.path,
-            title: t.title,
-            artist: t.artist,
-            album: t.album,
-            durationMs: t.durationMs?.toInt(),
-          ),
-        )
-        .toList();
+    if (items.isEmpty) return;
     ref
         .read(queueControllerProvider.notifier)
         .setQueue(items, startIndex: startIndex);
     final item = ref.read(queueControllerProvider).currentItem;
     if (item == null) return;
     unawaited(_requestPreloadNext());
-    await _loadAndPlay(item.path);
+    await _loadAndPlayQueueItem(item);
   }
 
-  Future<void> enqueue(List<String> paths) =>
-      enqueueTracks(paths.map((p) => TrackLite(id: -1, path: p)).toList());
-
-  Future<void> enqueueTracks(List<TrackLite> tracks) async {
-    final items = tracks
+  Future<void> setQueueAndPlayTracks(
+    List<TrackLite> tracks, {
+    int startIndex = 0,
+  }) => setQueueAndPlayItems(
+    tracks
         .map(
           (t) => QueueItem(
+            track: _localTrackRef(t.path),
             id: t.id.toInt() >= 0 ? t.id.toInt() : null,
-            path: t.path,
             title: t.title,
             artist: t.artist,
             album: t.album,
             durationMs: t.durationMs?.toInt(),
           ),
         )
-        .toList();
+        .toList(),
+    startIndex: startIndex,
+  );
+
+  Future<void> enqueueItems(List<QueueItem> items) async {
+    if (items.isEmpty) return;
     final queue = ref.read(queueControllerProvider);
     ref.read(queueControllerProvider.notifier).enqueue(items);
     unawaited(_requestPreloadNext());
 
     // If nothing is loaded yet, start playing immediately from the first enqueued item.
     if (queue.currentItem == null && items.isNotEmpty) {
-      await _loadAndPlay(items.first.path);
+      await _loadAndPlayQueueItem(items.first);
     }
   }
+
+  Future<void> enqueueTracks(List<TrackLite> tracks) => enqueueItems(
+    tracks
+        .map(
+          (t) => QueueItem(
+            track: _localTrackRef(t.path),
+            id: t.id.toInt() >= 0 ? t.id.toInt() : null,
+            title: t.title,
+            artist: t.artist,
+            album: t.album,
+            durationMs: t.durationMs?.toInt(),
+          ),
+        )
+        .toList(),
+  );
+
+  Future<void> enqueue(List<String> paths) =>
+      enqueueTracks(paths.map((p) => TrackLite(id: -1, path: p)).toList());
 
   Future<void> playIndex(int index) async {
     _dlnaSuppressAutoNext();
@@ -570,7 +593,7 @@ class PlaybackController extends Notifier<PlaybackState> {
     final item = ref.read(queueControllerProvider).currentItem;
     if (item == null) return;
     unawaited(_requestPreloadNext());
-    await _loadAndPlay(item.path);
+    await _loadAndPlayQueueItem(item);
   }
 
   Future<void> play() async {
@@ -583,8 +606,9 @@ class PlaybackController extends Notifier<PlaybackState> {
     final controlUrl = renderer?.avTransportControlUrl;
     if (renderer == null || controlUrl == null) return;
 
-    final path = ref.read(queueControllerProvider).currentItem?.path;
-    if (path == null) return;
+    final currentItem = ref.read(queueControllerProvider).currentItem;
+    final path = currentItem?.path;
+    if (currentItem == null || path == null) return;
 
     if (_dlnaLastPath == path) {
       await _dlna.avTransportPlay(
@@ -601,7 +625,7 @@ class PlaybackController extends Notifier<PlaybackState> {
       return;
     }
 
-    await _loadAndPlay(path);
+    await _loadAndPlayQueueItem(currentItem);
   }
 
   Future<void> pause() async {
@@ -660,10 +684,10 @@ class PlaybackController extends Notifier<PlaybackState> {
     if (!_dlnaActive) {
       await ref.read(playerBridgeProvider).stop();
       state = state.copyWith(positionMs: 0);
-      _lastPreloadedNextPath = null;
-      final path = state.currentPath;
-      if (path != null && path.isNotEmpty) {
-        unawaited(_persistResumeNow(path: path, positionMs: 0));
+      _lastPreloadedNextTrackKey = null;
+      final track = _resolveCurrentTrackForResume();
+      if (track != null) {
+        unawaited(_persistResumeNow(track: track, positionMs: 0));
       }
       return;
     }
@@ -688,9 +712,9 @@ class PlaybackController extends Notifier<PlaybackState> {
       lastError: null,
     );
 
-    final path = state.currentPath;
-    if (path != null && path.isNotEmpty) {
-      unawaited(_persistResumeNow(path: path, positionMs: 0));
+    final track = _resolveCurrentTrackForResume();
+    if (track != null) {
+      unawaited(_persistResumeNow(track: track, positionMs: 0));
     }
   }
 
@@ -704,7 +728,7 @@ class PlaybackController extends Notifier<PlaybackState> {
       return;
     }
     unawaited(_requestPreloadNext());
-    await _loadAndPlay(item.path);
+    await _loadAndPlayQueueItem(item);
   }
 
   Future<void> previous() async {
@@ -712,7 +736,7 @@ class PlaybackController extends Notifier<PlaybackState> {
     final item = ref.read(queueControllerProvider.notifier).previous();
     if (item == null) return;
     unawaited(_requestPreloadNext());
-    await _loadAndPlay(item.path);
+    await _loadAndPlayQueueItem(item);
   }
 
   Future<void> _updateTrackInfo() async {
@@ -725,23 +749,32 @@ class PlaybackController extends Notifier<PlaybackState> {
     }
   }
 
-  Future<void> _loadAndPlay(String path) async {
+  TrackRef _localTrackRef(String path) =>
+      TrackRef(sourceId: 'local', trackId: path, locator: path);
+
+  Future<void> _loadAndPlayQueueItem(QueueItem item) async {
+    final path = item.path;
     state = state.copyWith(lastError: null, lastLog: '');
     if (_dlnaActive) {
+      if (item.track.sourceId.toLowerCase() != 'local') {
+        state = state.copyWith(
+          lastError: 'DLNA output currently only supports local tracks',
+        );
+        return;
+      }
       final renderer = ref.read(dlnaSelectedRendererProvider);
       if (renderer == null) return;
-      final current = ref.read(queueControllerProvider).currentItem;
-      final coverPath = current?.id == null
+      final coverPath = item.id == null
           ? null
-          : p.join(ref.read(coverDirProvider), current!.id.toString());
+          : p.join(ref.read(coverDirProvider), item.id.toString());
       final coverExists = coverPath != null && File(coverPath).existsSync();
       await ref.read(playerBridgeProvider).stop();
       await _dlna.playLocalTrack(
         renderer: renderer,
         path: path,
-        title: current?.title,
-        artist: current?.artist,
-        album: current?.album,
+        title: item.title,
+        artist: item.artist,
+        album: item.album,
         coverPath: coverExists ? coverPath : null,
       );
       _dlnaLastPath = path;
@@ -756,7 +789,7 @@ class PlaybackController extends Notifier<PlaybackState> {
     }
 
     final bridge = ref.read(playerBridgeProvider);
-    await bridge.load(path);
+    await bridge.loadTrackRef(item.track);
     unawaited(_updateTrackInfo());
     await bridge.play();
   }
@@ -769,14 +802,19 @@ class PlaybackController extends Notifier<PlaybackState> {
       },
       position: (ms) {
         state = state.copyWith(positionMs: ms);
-        final path = state.currentPath;
-        if (path != null && path.isNotEmpty) {
-          _scheduleResumePersist(path, ms);
+        final track = _resolveCurrentTrackForResume();
+        if (track != null) {
+          _scheduleResumePersist(track, ms);
         }
       },
       trackChanged: (path) {
         state = state.copyWith(currentPath: path);
-        unawaited(_persistResumeNow(path: path, positionMs: 0));
+        unawaited(
+          _persistResumeNow(
+            track: _resolveCurrentTrackForResume() ?? _localTrackRef(path),
+            positionMs: 0,
+          ),
+        );
         unawaited(_updateTrackInfo());
         unawaited(_requestPreloadNext());
       },

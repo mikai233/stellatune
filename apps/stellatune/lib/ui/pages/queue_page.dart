@@ -96,6 +96,9 @@ class _QueueList extends StatelessWidget {
       itemBuilder: (context, i) {
         final item = items[i];
         final selected = currentIndex == i;
+        final subtitle = item.track.sourceId.toLowerCase() == 'local'
+            ? item.path
+            : '${item.track.sourceId} • ${item.track.trackId}';
         return ListTile(
           selected: selected,
           leading: selected
@@ -107,7 +110,7 @@ class _QueueList extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
           ),
           subtitle: Text(
-            item.path,
+            subtitle,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),

@@ -4,7 +4,7 @@ use std::thread::JoinHandle;
 use std::time::Instant;
 
 use crossbeam_channel::{Receiver, Sender};
-use tracing::debug;
+use tracing::{debug, warn};
 
 use stellatune_core::TrackDecodeInfo;
 use stellatune_output::{OutputError, OutputHandle, OutputSpec};
@@ -15,7 +15,9 @@ use crate::engine::config::{
 use crate::engine::decode::decode_thread;
 use crate::engine::decode::decoder::EngineDecoder;
 use crate::engine::event_hub::EventHub;
-use crate::engine::messages::{DecodeCtrl, DecodeWorkerState, InternalMsg, PredecodedChunk};
+use crate::engine::messages::{
+    DecodeCtrl, DecodeWorkerState, InternalMsg, OutputSinkWrite, PredecodedChunk,
+};
 use crate::ring_buffer::{RingBufferConsumer, RingBufferProducer, new_ring_buffer};
 
 const OUTPUT_CONSUMER_CHUNK_SAMPLES: usize = 1024;
@@ -169,13 +171,14 @@ mod debug_metrics {
 }
 
 pub(crate) struct OutputPipeline {
-    pub(crate) _output: OutputHandle,
+    pub(crate) _output: Option<OutputHandle>,
     pub(crate) producer: Arc<Mutex<RingBufferProducer<f32>>>,
     pub(crate) output_enabled: Arc<AtomicBool>,
     pub(crate) buffered_samples: Arc<AtomicUsize>,
     pub(crate) underrun_callbacks: Arc<AtomicU64>,
     pub(crate) backend: stellatune_output::AudioBackend,
     pub(crate) device_id: Option<String>,
+    pub(crate) device_output_enabled: bool,
     pub(crate) out_sample_rate: u32,
     pub(crate) out_channels: u16,
 }
@@ -188,6 +191,71 @@ pub(crate) struct PlaybackSession {
     pub(crate) out_sample_rate: u32,
     pub(crate) out_channels: u16,
     pub(crate) track_info: TrackDecodeInfo,
+}
+
+pub(crate) struct OutputSinkWorker {
+    tx: Sender<OutputSinkWrite>,
+    join: JoinHandle<()>,
+}
+
+impl OutputSinkWorker {
+    pub(crate) fn start(mut sink: stellatune_plugins::OutputSinkInstance, channels: u16) -> Self {
+        let (tx, rx) = crossbeam_channel::bounded::<OutputSinkWrite>(8);
+        let join = std::thread::Builder::new()
+            .name("stellatune-output-sink".to_string())
+            .spawn(move || {
+                while let Ok(msg) = rx.recv() {
+                    match msg {
+                        OutputSinkWrite::Samples(samples) => {
+                            if samples.is_empty() {
+                                continue;
+                            }
+                            if let Err(e) = write_all_frames(&mut sink, channels, &samples) {
+                                warn!("output sink write failed: {e:#}");
+                            }
+                        }
+                        OutputSinkWrite::Shutdown => {
+                            let _ = sink.flush();
+                            break;
+                        }
+                    }
+                }
+            })
+            .expect("failed to spawn stellatune-output-sink thread");
+        Self { tx, join }
+    }
+
+    pub(crate) fn sender(&self) -> Sender<OutputSinkWrite> {
+        self.tx.clone()
+    }
+
+    pub(crate) fn shutdown(self) {
+        let _ = self.tx.send(OutputSinkWrite::Shutdown);
+        let _ = self.join.join();
+    }
+}
+
+fn write_all_frames(
+    sink: &mut stellatune_plugins::OutputSinkInstance,
+    channels: u16,
+    samples: &[f32],
+) -> Result<(), String> {
+    let channels = channels.max(1) as usize;
+    if channels == 0 || samples.is_empty() {
+        return Ok(());
+    }
+    let mut offset = 0usize;
+    while offset < samples.len() {
+        let frames_accepted = sink
+            .write_interleaved_f32(channels as u16, &samples[offset..])
+            .map_err(|e| e.to_string())?;
+        let accepted_samples = frames_accepted as usize * channels;
+        if accepted_samples == 0 {
+            break;
+        }
+        offset = offset.saturating_add(accepted_samples.min(samples.len() - offset));
+    }
+    Ok(())
 }
 
 pub(crate) struct PromotedPreload {
@@ -207,6 +275,7 @@ struct DecodePrepare {
     output_enabled: Arc<AtomicBool>,
     buffer_prefill_cap_ms: i64,
     lfe_mode: stellatune_core::LfeMode,
+    output_sink_only: bool,
     spec_tx: Sender<Result<TrackDecodeInfo, String>>,
 }
 
@@ -336,6 +405,8 @@ fn run_decode_worker(
                 output_enabled: Arc::clone(&prepare.output_enabled),
                 buffer_prefill_cap_ms: prepare.buffer_prefill_cap_ms,
                 lfe_mode: prepare.lfe_mode,
+                output_sink_tx: None,
+                output_sink_only: prepare.output_sink_only,
             })
             .is_err()
         {
@@ -402,6 +473,7 @@ fn create_output_pipeline(
     out_spec: OutputSpec,
     volume: Arc<AtomicU32>,
     internal_tx: Sender<InternalMsg>,
+    device_output_enabled: bool,
 ) -> Result<OutputPipeline, String> {
     let capacity_samples =
         ((out_spec.sample_rate as usize * out_spec.channels as usize * RING_BUFFER_CAPACITY_MS)
@@ -415,30 +487,35 @@ fn create_output_pipeline(
     let buffered_samples = Arc::new(AtomicUsize::new(0));
     let underrun_callbacks = Arc::new(AtomicU64::new(0));
 
-    let output_consumer = GatedConsumer {
-        inner: Arc::clone(&consumer),
-        enabled: Arc::clone(&output_enabled),
-        volume,
-        buffered_samples: Arc::clone(&buffered_samples),
-        underrun_callbacks: Arc::clone(&underrun_callbacks),
-        scratch: vec![0.0; OUTPUT_CONSUMER_CHUNK_SAMPLES],
-        scratch_len: 0,
-        scratch_cursor: 0,
-    };
+    let output = if device_output_enabled {
+        let output_consumer = GatedConsumer {
+            inner: Arc::clone(&consumer),
+            enabled: Arc::clone(&output_enabled),
+            volume,
+            buffered_samples: Arc::clone(&buffered_samples),
+            underrun_callbacks: Arc::clone(&underrun_callbacks),
+            scratch: vec![0.0; OUTPUT_CONSUMER_CHUNK_SAMPLES],
+            scratch_len: 0,
+            scratch_cursor: 0,
+        };
 
-    let output = OutputHandle::start(
-        backend,
-        device_id.clone(),
-        output_consumer,
-        out_spec,
-        move |err| {
-            let _ = internal_tx.try_send(InternalMsg::OutputError(err.to_string()));
-        },
-    )
-    .map_err(|e| match e {
-        OutputError::ConfigMismatch { message } => message,
-        other => other.to_string(),
-    })?;
+        let output = OutputHandle::start(
+            backend,
+            device_id.clone(),
+            output_consumer,
+            out_spec,
+            move |err| {
+                let _ = internal_tx.try_send(InternalMsg::OutputError(err.to_string()));
+            },
+        )
+        .map_err(|e| match e {
+            OutputError::ConfigMismatch { message } => message,
+            other => other.to_string(),
+        })?;
+        Some(output)
+    } else {
+        None
+    };
 
     Ok(OutputPipeline {
         _output: output,
@@ -448,6 +525,7 @@ fn create_output_pipeline(
         underrun_callbacks,
         backend,
         device_id,
+        device_output_enabled,
         out_sample_rate: out_spec.sample_rate,
         out_channels: out_spec.channels,
     })
@@ -465,6 +543,7 @@ pub(crate) fn start_session(
     start_at_ms: i64,
     volume: Arc<AtomicU32>,
     lfe_mode: stellatune_core::LfeMode,
+    output_sink_only: bool,
     output_pipeline: &mut Option<OutputPipeline>,
 ) -> Result<PlaybackSession, String> {
     let t0 = Instant::now();
@@ -528,6 +607,7 @@ pub(crate) fn start_session(
         .map(|p| {
             p.backend != backend
                 || p.device_id.as_deref() != device_id.as_deref()
+                || p.device_output_enabled == output_sink_only
                 || p.out_sample_rate != target_spec.sample_rate
                 || p.out_channels != target_spec.channels
         })
@@ -539,6 +619,7 @@ pub(crate) fn start_session(
             target_spec,
             Arc::clone(&volume),
             internal_tx.clone(),
+            !output_sink_only,
         )?);
     }
 
@@ -563,6 +644,7 @@ pub(crate) fn start_session(
                 _ => BUFFER_PREFILL_CAP_MS,
             },
             lfe_mode,
+            output_sink_only,
             spec_tx,
         }))
         .map_err(|_| "decode worker unavailable".to_string())?;

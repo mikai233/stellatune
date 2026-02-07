@@ -4,8 +4,13 @@ use core::ffi::c_void;
 
 // Single in-development ABI version (early-stage project).
 // Note: changing ABI without changing this can break older native plugins.
-pub const STELLATUNE_PLUGIN_API_VERSION_V1: u32 = 1;
+// ABI was changed by adding `get_interface` to `StPluginVTableV1` and new optional interfaces.
+// Bump host/plugin API version to reject stale binaries at load time.
+pub const STELLATUNE_PLUGIN_API_VERSION_V1: u32 = 2;
 pub const STELLATUNE_PLUGIN_ENTRY_SYMBOL_V1: &str = "stellatune_plugin_entry_v1";
+pub const ST_INTERFACE_SOURCE_CATALOG_V1: &str = "stellatune.source_catalog.v1";
+pub const ST_INTERFACE_LYRICS_PROVIDER_V1: &str = "stellatune.lyrics_provider.v1";
+pub const ST_INTERFACE_OUTPUT_SINK_V1: &str = "stellatune.output_sink.v1";
 
 // Status codes (non-exhaustive). Plugins may use other non-zero codes, but the SDK uses these.
 pub const ST_ERR_INVALID_ARG: i32 = 1;
@@ -155,6 +160,7 @@ unsafe impl Sync for StHostVTableV1 {}
 
 pub type StPluginEntryV1 =
     unsafe extern "C" fn(host: *const StHostVTableV1) -> *const StPluginVTableV1;
+pub type StPluginGetInterfaceV1 = extern "C" fn(interface_id_utf8: StStr) -> *const c_void;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
@@ -171,6 +177,11 @@ pub struct StPluginVTableV1 {
 
     pub dsp_count: extern "C" fn() -> usize,
     pub dsp_get: extern "C" fn(index: usize) -> *const StDspVTableV1,
+    /// Optional interface lookup for non-decoder/DSP plugin capabilities.
+    ///
+    /// Pass one of `ST_INTERFACE_*_V1` and cast the returned pointer accordingly.
+    /// Returns null when unsupported.
+    pub get_interface: Option<StPluginGetInterfaceV1>,
 }
 
 #[repr(C)]
@@ -224,6 +235,74 @@ pub struct StDspVTableV1 {
     /// Returns the output channel count if this DSP changes the channel count.
     /// Returns 0 if the DSP preserves the input channel count (passthrough).
     pub output_channels: extern "C" fn() -> u16,
+}
+
+/// Optional source-catalog interface.
+///
+/// JSON contracts are plugin-defined. Host passes/receives UTF-8 JSON blobs.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct StSourceCatalogVTableV1 {
+    pub type_id_utf8: extern "C" fn() -> StStr,
+    pub display_name_utf8: extern "C" fn() -> StStr,
+    pub config_schema_json_utf8: extern "C" fn() -> StStr,
+    pub default_config_json_utf8: extern "C" fn() -> StStr,
+    pub list_items_json_utf8: extern "C" fn(
+        config_json_utf8: StStr,
+        request_json_utf8: StStr,
+        out_json_utf8: *mut StStr,
+    ) -> StStatus,
+    pub open_stream: extern "C" fn(
+        config_json_utf8: StStr,
+        track_json_utf8: StStr,
+        out_io_vtable: *mut *const StIoVTableV1,
+        out_io_handle: *mut *mut c_void,
+        out_track_meta_json_utf8: *mut StStr,
+    ) -> StStatus,
+    pub close_stream: extern "C" fn(io_handle: *mut c_void),
+}
+
+/// Optional lyrics-provider interface.
+///
+/// JSON contracts are plugin-defined. Host passes/receives UTF-8 JSON blobs.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct StLyricsProviderVTableV1 {
+    pub type_id_utf8: extern "C" fn() -> StStr,
+    pub display_name_utf8: extern "C" fn() -> StStr,
+    pub search_json_utf8:
+        extern "C" fn(query_json_utf8: StStr, out_json_utf8: *mut StStr) -> StStatus,
+    pub fetch_json_utf8:
+        extern "C" fn(track_json_utf8: StStr, out_json_utf8: *mut StStr) -> StStatus,
+}
+
+/// Optional output-sink interface.
+///
+/// JSON contracts are plugin-defined. Host passes/receives UTF-8 JSON blobs.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct StOutputSinkVTableV1 {
+    pub type_id_utf8: extern "C" fn() -> StStr,
+    pub display_name_utf8: extern "C" fn() -> StStr,
+    pub config_schema_json_utf8: extern "C" fn() -> StStr,
+    pub default_config_json_utf8: extern "C" fn() -> StStr,
+    pub list_targets_json_utf8:
+        extern "C" fn(config_json_utf8: StStr, out_json_utf8: *mut StStr) -> StStatus,
+    pub open: extern "C" fn(
+        config_json_utf8: StStr,
+        target_json_utf8: StStr,
+        spec: StAudioSpec,
+        out_handle: *mut *mut c_void,
+    ) -> StStatus,
+    pub write_interleaved_f32: extern "C" fn(
+        handle: *mut c_void,
+        frames: u32,
+        channels: u16,
+        samples: *const f32,
+        out_frames_accepted: *mut u32,
+    ) -> StStatus,
+    pub flush: Option<extern "C" fn(handle: *mut c_void) -> StStatus>,
+    pub close: extern "C" fn(handle: *mut c_void),
 }
 
 // Channel layout bitmask flags for DSP plugins.

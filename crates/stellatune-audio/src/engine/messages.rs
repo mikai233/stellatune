@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::AtomicBool;
 
+use crossbeam_channel::Sender;
 use stellatune_core::TrackDecodeInfo;
 use stellatune_output::OutputSpec;
 use stellatune_plugins::DspInstance;
@@ -36,6 +37,11 @@ impl DecodeWorkerState {
     }
 }
 
+pub(crate) enum OutputSinkWrite {
+    Samples(Vec<f32>),
+    Shutdown,
+}
+
 pub(crate) enum DecodeCtrl {
     Setup {
         producer: Arc<Mutex<RingBufferProducer<f32>>>,
@@ -46,6 +52,8 @@ pub(crate) enum DecodeCtrl {
         output_enabled: Arc<AtomicBool>,
         buffer_prefill_cap_ms: i64,
         lfe_mode: stellatune_core::LfeMode,
+        output_sink_tx: Option<Sender<OutputSinkWrite>>,
+        output_sink_only: bool,
     },
     SetDspChain {
         chain: Vec<DspInstance>,
@@ -57,6 +65,9 @@ pub(crate) enum DecodeCtrl {
     },
     SetLfeMode {
         mode: stellatune_core::LfeMode,
+    },
+    SetOutputSinkTx {
+        tx: Option<Sender<OutputSinkWrite>>,
     },
     Stop,
 }

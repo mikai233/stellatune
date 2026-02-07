@@ -12,12 +12,29 @@
   "log": "Log",
 
   "navLibrary": "Library",
+  "navSources": "Sources",
   "navQueue": "Queue",
   "navSettings": "Settings",
 
   "libraryTitle": "Library",
+  "sourcesTitle": "Sources",
   "queueTitle": "Queue",
   "settingsTitle": "Settings",
+  "sourcesTypeLabel": "Source type",
+  "sourcesRefreshTypes": "Reload source types",
+  "sourcesConfigJsonLabel": "Config JSON",
+  "sourcesRequestJsonLabel": "Request JSON",
+  "sourcesLoadItems": "Load items",
+  "sourcesNoTypes": "No source plugins loaded.",
+  "sourcesNoItems": "No source items.",
+  "sourcesItemsCount": "{count} items",
+  "@sourcesItemsCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "settingsOutputTitle": "Output Device",
   "settingsBackend": "Audio Backend",
   "settingsBackendShared": "Shared (WASAPI Shared)",

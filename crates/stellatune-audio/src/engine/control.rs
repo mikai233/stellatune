@@ -8,6 +8,7 @@ use tracing::{debug, error, info, warn};
 
 use stellatune_core::{Command, Event, PlayerState};
 use stellatune_output::{OutputSpec, output_spec_for_device};
+use stellatune_plugin_api::StAudioSpec;
 use stellatune_plugins::{PluginManager, default_host_vtable};
 
 use crate::engine::config::{
@@ -18,12 +19,13 @@ use crate::engine::decode::decoder::open_engine_decoder;
 use crate::engine::event_hub::EventHub;
 use crate::engine::messages::{DecodeCtrl, EngineCtrl, InternalMsg, PredecodedChunk};
 use crate::engine::session::{
-    DecodeWorker, OutputPipeline, PlaybackSession, PromotedPreload, start_decode_worker,
-    start_session,
+    DecodeWorker, OutputPipeline, OutputSinkWorker, PlaybackSession, PromotedPreload,
+    start_decode_worker, start_session,
 };
 
 #[cfg(debug_assertions)]
 const DEBUG_PRELOAD_LOG_EVERY: u64 = 24;
+const TRACK_REF_TOKEN_PREFIX: &str = "stref-json:";
 
 mod debug_metrics {
     #[cfg(debug_assertions)]
@@ -168,6 +170,124 @@ impl EngineHandle {
             .collect()
     }
 
+    pub fn list_source_catalog_types(&self) -> Vec<stellatune_core::SourceCatalogTypeDescriptor> {
+        let Ok(pm) = self.plugins.lock() else {
+            return Vec::new();
+        };
+        pm.list_source_catalog_types()
+            .into_iter()
+            .map(|t| stellatune_core::SourceCatalogTypeDescriptor {
+                plugin_id: t.plugin_id,
+                plugin_name: t.plugin_name,
+                type_id: t.type_id,
+                display_name: t.display_name,
+                config_schema_json: t.config_schema_json,
+                default_config_json: t.default_config_json,
+            })
+            .collect()
+    }
+
+    pub fn list_lyrics_provider_types(&self) -> Vec<stellatune_core::LyricsProviderTypeDescriptor> {
+        let Ok(pm) = self.plugins.lock() else {
+            return Vec::new();
+        };
+        pm.list_lyrics_provider_types()
+            .into_iter()
+            .map(|t| stellatune_core::LyricsProviderTypeDescriptor {
+                plugin_id: t.plugin_id,
+                plugin_name: t.plugin_name,
+                type_id: t.type_id,
+                display_name: t.display_name,
+            })
+            .collect()
+    }
+
+    pub fn list_output_sink_types(&self) -> Vec<stellatune_core::OutputSinkTypeDescriptor> {
+        let Ok(pm) = self.plugins.lock() else {
+            return Vec::new();
+        };
+        pm.list_output_sink_types()
+            .into_iter()
+            .map(|t| stellatune_core::OutputSinkTypeDescriptor {
+                plugin_id: t.plugin_id,
+                plugin_name: t.plugin_name,
+                type_id: t.type_id,
+                display_name: t.display_name,
+                config_schema_json: t.config_schema_json,
+                default_config_json: t.default_config_json,
+            })
+            .collect()
+    }
+
+    pub fn source_list_items_json(
+        &self,
+        plugin_id: &str,
+        type_id: &str,
+        config_json: &str,
+        request_json: &str,
+    ) -> Result<String, String> {
+        let pm = self
+            .plugins
+            .lock()
+            .map_err(|_| "plugins mutex poisoned".to_string())?;
+        let key = pm
+            .find_source_catalog_key(plugin_id, type_id)
+            .ok_or_else(|| format!("source catalog not found: {}::{}", plugin_id, type_id))?;
+        pm.source_list_items_json(key, config_json, request_json)
+            .map_err(|e| e.to_string())
+    }
+
+    pub fn lyrics_provider_search_json(
+        &self,
+        plugin_id: &str,
+        type_id: &str,
+        query_json: &str,
+    ) -> Result<String, String> {
+        let pm = self
+            .plugins
+            .lock()
+            .map_err(|_| "plugins mutex poisoned".to_string())?;
+        let key = pm
+            .find_lyrics_provider_key(plugin_id, type_id)
+            .ok_or_else(|| format!("lyrics provider not found: {}::{}", plugin_id, type_id))?;
+        pm.lyrics_search_json(key, query_json)
+            .map_err(|e| e.to_string())
+    }
+
+    pub fn lyrics_provider_fetch_json(
+        &self,
+        plugin_id: &str,
+        type_id: &str,
+        track_json: &str,
+    ) -> Result<String, String> {
+        let pm = self
+            .plugins
+            .lock()
+            .map_err(|_| "plugins mutex poisoned".to_string())?;
+        let key = pm
+            .find_lyrics_provider_key(plugin_id, type_id)
+            .ok_or_else(|| format!("lyrics provider not found: {}::{}", plugin_id, type_id))?;
+        pm.lyrics_fetch_json(key, track_json)
+            .map_err(|e| e.to_string())
+    }
+
+    pub fn output_sink_list_targets_json(
+        &self,
+        plugin_id: &str,
+        type_id: &str,
+        config_json: &str,
+    ) -> Result<String, String> {
+        let pm = self
+            .plugins
+            .lock()
+            .map_err(|_| "plugins mutex poisoned".to_string())?;
+        let key = pm
+            .find_output_sink_key(plugin_id, type_id)
+            .ok_or_else(|| format!("output sink not found: {}::{}", plugin_id, type_id))?;
+        pm.output_list_targets_json(key, config_json)
+            .map_err(|e| e.to_string())
+    }
+
     pub fn current_track_info(&self) -> Option<stellatune_core::TrackDecodeInfo> {
         let Ok(g) = self.track_info.lock() else {
             return None;
@@ -234,6 +354,8 @@ struct EngineState {
     selected_device_id: Option<String>,
     match_track_sample_rate: bool,
     gapless_playback: bool,
+    desired_output_sink_route: Option<stellatune_core::OutputSinkRoute>,
+    output_sink_worker: Option<OutputSinkWorker>,
     output_pipeline: Option<OutputPipeline>,
     decode_worker: Option<DecodeWorker>,
     preload_worker: Option<PreloadWorker>,
@@ -280,6 +402,8 @@ impl EngineState {
             selected_device_id: None,
             match_track_sample_rate: false,
             gapless_playback: true,
+            desired_output_sink_route: None,
+            output_sink_worker: None,
             output_pipeline: None,
             decode_worker: None,
             preload_worker: None,
@@ -392,7 +516,15 @@ fn handle_reload_plugins(
     state.pending_session_start = false;
     set_state(state, events, PlayerState::Stopped);
 
-    let mut pm = plugins.lock().expect("plugins mutex poisoned");
+    let mut pm = match plugins.lock() {
+        Ok(pm) => pm,
+        Err(_) => {
+            events.emit(Event::Error {
+                message: "failed to reload plugins: plugins mutex poisoned".to_string(),
+            });
+            return;
+        }
+    };
     *pm = PluginManager::new(default_host_vtable());
     let disabled = disabled_ids
         .into_iter()
@@ -436,7 +568,9 @@ fn handle_internal(
             });
             if state.wants_playback {
                 if let Some(path) = state.current_track.clone() {
-                    events.emit(Event::PlaybackEnded { path });
+                    events.emit(Event::PlaybackEnded {
+                        path: event_path_from_engine_token(&path),
+                    });
                 }
             }
             stop_decode_session(state, track_info);
@@ -622,6 +756,34 @@ fn handle_command(
             });
             set_state(state, events, PlayerState::Stopped);
         }
+        Command::LoadTrackRef { track } => {
+            let Some(path) = track_ref_to_engine_token(&track) else {
+                events.emit(Event::Error {
+                    message: "track locator is empty".to_string(),
+                });
+                return false;
+            };
+            let Some(event_path) = track_ref_to_event_path(&track) else {
+                events.emit(Event::Error {
+                    message: "track locator is empty".to_string(),
+                });
+                return false;
+            };
+            stop_decode_session(state, track_info);
+            state.current_track = Some(path.clone());
+            state.position_ms = 0;
+            state.wants_playback = false;
+            state.pending_session_start = false;
+            state.play_request_started_at = None;
+            if let Ok(mut g) = track_info.lock() {
+                *g = None;
+            }
+            events.emit(Event::TrackChanged { path: event_path });
+            events.emit(Event::Position {
+                ms: state.position_ms,
+            });
+            set_state(state, events, PlayerState::Stopped);
+        }
         Command::Play => {
             let Some(path) = state.current_track.clone() else {
                 events.emit(Event::Error {
@@ -669,6 +831,7 @@ fn handle_command(
                         start_at_ms as i64,
                         Arc::clone(&state.volume_atomic),
                         state.lfe_mode,
+                        state.desired_output_sink_route.is_some(),
                         &mut state.output_pipeline,
                     ) {
                         Ok(session) => {
@@ -676,6 +839,11 @@ fn handle_command(
                                 *g = Some(session.track_info.clone());
                             }
                             state.session = Some(session);
+                            if let Err(message) =
+                                sync_output_sink_with_active_session(state, plugins)
+                            {
+                                events.emit(Event::Error { message });
+                            }
                             if let Err(message) = apply_dsp_chain(state, plugins) {
                                 events.emit(Event::Error { message });
                             }
@@ -813,11 +981,62 @@ fn handle_command(
                 }
             }
         }
+        Command::SetOutputSinkRoute { route } => {
+            let mode_changed = state.desired_output_sink_route.is_none();
+            state.desired_output_sink_route = Some(route);
+            if mode_changed {
+                let resume_playback = state.wants_playback;
+                if state.session.is_some() {
+                    stop_decode_session(state, track_info);
+                    drop_output_pipeline(state);
+                }
+                if resume_playback {
+                    state.pending_session_start = true;
+                    set_state(state, events, PlayerState::Buffering);
+                }
+            }
+            if let Err(message) = sync_output_sink_with_active_session(state, plugins) {
+                events.emit(Event::Error { message });
+            }
+        }
+        Command::ClearOutputSinkRoute => {
+            let mode_changed = state.desired_output_sink_route.is_some();
+            state.desired_output_sink_route = None;
+            if mode_changed {
+                let resume_playback = state.wants_playback;
+                if state.session.is_some() {
+                    stop_decode_session(state, track_info);
+                    drop_output_pipeline(state);
+                }
+                if resume_playback {
+                    state.pending_session_start = true;
+                    set_state(state, events, PlayerState::Buffering);
+                }
+            }
+            if let Err(message) = sync_output_sink_with_active_session(state, plugins) {
+                events.emit(Event::Error { message });
+            }
+        }
         Command::PreloadTrack { path, position_ms } => {
             let path = path.trim().to_string();
             if path.is_empty() {
                 return false;
             }
+            if state.requested_preload_path.as_deref() == Some(path.as_str())
+                && state.requested_preload_position_ms == position_ms
+            {
+                return false;
+            }
+            state.requested_preload_path = Some(path.clone());
+            state.requested_preload_position_ms = position_ms;
+            state.preload_token = state.preload_token.wrapping_add(1);
+            debug_metrics::note_preload_request();
+            enqueue_preload_task(state, path, position_ms, state.preload_token);
+        }
+        Command::PreloadTrackRef { track, position_ms } => {
+            let Some(path) = track_ref_to_engine_token(&track) else {
+                return false;
+            };
             if state.requested_preload_path.as_deref() == Some(path.as_str())
                 && state.requested_preload_position_ms == position_ms
             {
@@ -974,6 +1193,35 @@ fn handle_preload_task(
     }
 }
 
+fn engine_token_to_track_ref(token: &str) -> Option<stellatune_core::TrackRef> {
+    let json = token.strip_prefix(TRACK_REF_TOKEN_PREFIX)?;
+    serde_json::from_str::<stellatune_core::TrackRef>(json).ok()
+}
+
+fn event_path_from_engine_token(token: &str) -> String {
+    match engine_token_to_track_ref(token) {
+        Some(track) => track.locator,
+        None => token.to_string(),
+    }
+}
+
+fn track_ref_to_event_path(track: &stellatune_core::TrackRef) -> Option<String> {
+    let locator = track.locator.trim();
+    if locator.is_empty() {
+        None
+    } else {
+        Some(locator.to_string())
+    }
+}
+
+fn track_ref_to_engine_token(track: &stellatune_core::TrackRef) -> Option<String> {
+    if track.source_id.trim().eq_ignore_ascii_case("local") {
+        return track_ref_to_event_path(track);
+    }
+    let json = serde_json::to_string(track).ok()?;
+    Some(format!("{TRACK_REF_TOKEN_PREFIX}{json}"))
+}
+
 fn ui_volume_to_gain(ui: f32) -> f32 {
     // 0 maps to true mute.
     if ui <= 0.0 {
@@ -1085,6 +1333,7 @@ fn handle_tick(
             start_at_ms as i64,
             Arc::clone(&state.volume_atomic),
             state.lfe_mode,
+            state.desired_output_sink_route.is_some(),
             &mut state.output_pipeline,
         ) {
             Ok(session) => {
@@ -1093,6 +1342,9 @@ fn handle_tick(
                 }
                 state.session = Some(session);
                 state.pending_session_start = false;
+                if let Err(message) = sync_output_sink_with_active_session(state, plugins) {
+                    events.emit(Event::Error { message });
+                }
                 if let Err(message) = apply_dsp_chain(state, plugins) {
                     events.emit(Event::Error { message });
                 }
@@ -1114,6 +1366,19 @@ fn handle_tick(
     let Some(session) = state.session.as_ref() else {
         return;
     };
+
+    if state.desired_output_sink_route.is_some() {
+        session.output_enabled.store(false, Ordering::Release);
+        if state.wants_playback {
+            if state.player_state != PlayerState::Playing {
+                state.play_request_started_at = None;
+                set_state(state, events, PlayerState::Playing);
+            }
+        } else if state.player_state == PlayerState::Buffering {
+            set_state(state, events, PlayerState::Paused);
+        }
+        return;
+    }
 
     let channels = session.out_channels as usize;
     if channels == 0 {
@@ -1228,6 +1493,72 @@ fn apply_dsp_chain(
     Ok(())
 }
 
+fn open_output_sink_worker(
+    plugins: &Arc<Mutex<PluginManager>>,
+    route: &stellatune_core::OutputSinkRoute,
+    sample_rate: u32,
+    channels: u16,
+) -> Result<OutputSinkWorker, String> {
+    let pm = plugins
+        .lock()
+        .map_err(|_| "plugins mutex poisoned".to_string())?;
+    let key = pm
+        .find_output_sink_key(&route.plugin_id, &route.type_id)
+        .ok_or_else(|| {
+            format!(
+                "output sink not found: {}::{}",
+                route.plugin_id, route.type_id
+            )
+        })?;
+    let sink = pm
+        .output_open(
+            key,
+            &route.config_json,
+            &route.target_json,
+            StAudioSpec {
+                sample_rate,
+                channels,
+                reserved: 0,
+            },
+        )
+        .map_err(|e| format!("output sink open failed: {e:#}"))?;
+    Ok(OutputSinkWorker::start(sink, channels))
+}
+
+fn sync_output_sink_with_active_session(
+    state: &mut EngineState,
+    plugins: &Arc<Mutex<PluginManager>>,
+) -> Result<(), String> {
+    let Some(session) = state.session.as_ref() else {
+        shutdown_output_sink_worker(state);
+        return Ok(());
+    };
+    let ctrl_tx = session.ctrl_tx.clone();
+    let sample_rate = session.out_sample_rate;
+    let channels = session.out_channels;
+    let desired_route = state.desired_output_sink_route.clone();
+
+    let _ = ctrl_tx.send(DecodeCtrl::SetOutputSinkTx { tx: None });
+    shutdown_output_sink_worker(state);
+
+    let Some(route) = desired_route else {
+        return Ok(());
+    };
+
+    let worker = open_output_sink_worker(plugins, &route, sample_rate, channels)?;
+    let tx = worker.sender();
+    state.output_sink_worker = Some(worker);
+    let _ = ctrl_tx.send(DecodeCtrl::SetOutputSinkTx { tx: Some(tx) });
+    Ok(())
+}
+
+fn shutdown_output_sink_worker(state: &mut EngineState) {
+    let Some(worker) = state.output_sink_worker.take() else {
+        return;
+    };
+    worker.shutdown();
+}
+
 fn stop_decode_session(
     state: &mut EngineState,
     track_info: &Arc<Mutex<Option<stellatune_core::TrackDecodeInfo>>>,
@@ -1237,15 +1568,25 @@ fn stop_decode_session(
     }
 
     let Some(session) = state.session.take() else {
+        shutdown_output_sink_worker(state);
         return;
     };
+
+    let _ = session
+        .ctrl_tx
+        .send(DecodeCtrl::SetOutputSinkTx { tx: None });
+    shutdown_output_sink_worker(state);
 
     let buffered_samples = session.buffered_samples.load(Ordering::Relaxed);
     session.output_enabled.store(false, Ordering::Release);
     let _ = session.ctrl_tx.send(DecodeCtrl::Stop);
 
     debug!(
-        track = state.current_track.as_deref().unwrap_or("<none>"),
+        track = state
+            .current_track
+            .as_ref()
+            .map(|t| event_path_from_engine_token(t))
+            .unwrap_or_else(|| "<none>".to_string()),
         player_state = ?state.player_state,
         wants_playback = state.wants_playback,
         position_ms = state.position_ms,

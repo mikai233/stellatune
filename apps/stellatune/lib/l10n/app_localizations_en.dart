@@ -42,6 +42,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get navLibrary => 'Library';
 
   @override
+  String get navSources => 'Sources';
+
+  @override
   String get navQueue => 'Queue';
 
   @override
@@ -51,10 +54,39 @@ class AppLocalizationsEn extends AppLocalizations {
   String get libraryTitle => 'Library';
 
   @override
+  String get sourcesTitle => 'Sources';
+
+  @override
   String get queueTitle => 'Queue';
 
   @override
   String get settingsTitle => 'Settings';
+
+  @override
+  String get sourcesTypeLabel => 'Source type';
+
+  @override
+  String get sourcesRefreshTypes => 'Reload source types';
+
+  @override
+  String get sourcesConfigJsonLabel => 'Config JSON';
+
+  @override
+  String get sourcesRequestJsonLabel => 'Request JSON';
+
+  @override
+  String get sourcesLoadItems => 'Load items';
+
+  @override
+  String get sourcesNoTypes => 'No source plugins loaded.';
+
+  @override
+  String get sourcesNoItems => 'No source items.';
+
+  @override
+  String sourcesItemsCount(int count) {
+    return '$count items';
+  }
 
   @override
   String get settingsOutputTitle => 'Output Device';

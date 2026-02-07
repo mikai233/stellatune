@@ -15,6 +15,12 @@ Future<Player> createPlayer() =>
 Future<void> load({required Player player, required String path}) =>
     StellatuneApi.instance.api.crateApiLoad(player: player, path: path);
 
+Future<void> loadTrackRef({required Player player, required TrackRef track}) =>
+    StellatuneApi.instance.api.crateApiLoadTrackRef(
+      player: player,
+      track: track,
+    );
+
 Future<void> play({required Player player}) =>
     StellatuneApi.instance.api.crateApiPlay(player: player);
 
@@ -104,6 +110,69 @@ Future<List<PluginDescriptor>> pluginsList({required Player player}) =>
 Future<List<DspTypeDescriptor>> dspListTypes({required Player player}) =>
     StellatuneApi.instance.api.crateApiDspListTypes(player: player);
 
+Future<List<SourceCatalogTypeDescriptor>> sourceListTypes({
+  required Player player,
+}) => StellatuneApi.instance.api.crateApiSourceListTypes(player: player);
+
+Future<List<LyricsProviderTypeDescriptor>> lyricsProviderListTypes({
+  required Player player,
+}) =>
+    StellatuneApi.instance.api.crateApiLyricsProviderListTypes(player: player);
+
+Future<List<OutputSinkTypeDescriptor>> outputSinkListTypes({
+  required Player player,
+}) => StellatuneApi.instance.api.crateApiOutputSinkListTypes(player: player);
+
+Future<String> sourceListItemsJson({
+  required Player player,
+  required String pluginId,
+  required String typeId,
+  required String configJson,
+  required String requestJson,
+}) => StellatuneApi.instance.api.crateApiSourceListItemsJson(
+  player: player,
+  pluginId: pluginId,
+  typeId: typeId,
+  configJson: configJson,
+  requestJson: requestJson,
+);
+
+Future<String> lyricsProviderSearchJson({
+  required Player player,
+  required String pluginId,
+  required String typeId,
+  required String queryJson,
+}) => StellatuneApi.instance.api.crateApiLyricsProviderSearchJson(
+  player: player,
+  pluginId: pluginId,
+  typeId: typeId,
+  queryJson: queryJson,
+);
+
+Future<String> lyricsProviderFetchJson({
+  required Player player,
+  required String pluginId,
+  required String typeId,
+  required String trackJson,
+}) => StellatuneApi.instance.api.crateApiLyricsProviderFetchJson(
+  player: player,
+  pluginId: pluginId,
+  typeId: typeId,
+  trackJson: trackJson,
+);
+
+Future<String> outputSinkListTargetsJson({
+  required Player player,
+  required String pluginId,
+  required String typeId,
+  required String configJson,
+}) => StellatuneApi.instance.api.crateApiOutputSinkListTargetsJson(
+  player: player,
+  pluginId: pluginId,
+  typeId: typeId,
+  configJson: configJson,
+);
+
 Future<void> dspSetChain({
   required Player player,
   required List<DspChainItem> chain,
@@ -151,6 +220,17 @@ Future<void> setOutputOptions({
   gaplessPlayback: gaplessPlayback,
 );
 
+Future<void> setOutputSinkRoute({
+  required Player player,
+  required OutputSinkRoute route,
+}) => StellatuneApi.instance.api.crateApiSetOutputSinkRoute(
+  player: player,
+  route: route,
+);
+
+Future<void> clearOutputSinkRoute({required Player player}) =>
+    StellatuneApi.instance.api.crateApiClearOutputSinkRoute(player: player);
+
 Future<void> preloadTrack({
   required Player player,
   required String path,
@@ -158,6 +238,16 @@ Future<void> preloadTrack({
 }) => StellatuneApi.instance.api.crateApiPreloadTrack(
   player: player,
   path: path,
+  positionMs: positionMs,
+);
+
+Future<void> preloadTrackRef({
+  required Player player,
+  required TrackRef track,
+  required BigInt positionMs,
+}) => StellatuneApi.instance.api.crateApiPreloadTrackRef(
+  player: player,
+  track: track,
   positionMs: positionMs,
 );
 

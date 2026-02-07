@@ -113,6 +113,12 @@ Future<void> _applyPersistedOutputSettings({
       matchTrackSampleRate: settings.matchTrackSampleRate,
       gaplessPlayback: settings.gaplessPlayback,
     );
+    final route = settings.outputSinkRoute;
+    if (route == null) {
+      await bridge.clearOutputSinkRoute();
+    } else {
+      await bridge.setOutputSinkRoute(route);
+    }
   } catch (_) {}
 }
 
