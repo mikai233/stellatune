@@ -427,6 +427,124 @@ pub fn library_search(library: RustOpaque<Library>, query: String, limit: i64, o
     });
 }
 
+pub fn library_list_playlists(library: RustOpaque<Library>) {
+    library.handle.send_command(LibraryCommand::ListPlaylists);
+}
+
+pub fn library_create_playlist(library: RustOpaque<Library>, name: String) {
+    library
+        .handle
+        .send_command(LibraryCommand::CreatePlaylist { name });
+}
+
+pub fn library_rename_playlist(library: RustOpaque<Library>, id: i64, name: String) {
+    library
+        .handle
+        .send_command(LibraryCommand::RenamePlaylist { id, name });
+}
+
+pub fn library_delete_playlist(library: RustOpaque<Library>, id: i64) {
+    library
+        .handle
+        .send_command(LibraryCommand::DeletePlaylist { id });
+}
+
+pub fn library_list_playlist_tracks(
+    library: RustOpaque<Library>,
+    playlist_id: i64,
+    query: String,
+    limit: i64,
+    offset: i64,
+) {
+    library
+        .handle
+        .send_command(LibraryCommand::ListPlaylistTracks {
+            playlist_id,
+            query,
+            limit,
+            offset,
+        });
+}
+
+pub fn library_add_track_to_playlist(
+    library: RustOpaque<Library>,
+    playlist_id: i64,
+    track_id: i64,
+) {
+    library
+        .handle
+        .send_command(LibraryCommand::AddTrackToPlaylist {
+            playlist_id,
+            track_id,
+        });
+}
+
+pub fn library_add_tracks_to_playlist(
+    library: RustOpaque<Library>,
+    playlist_id: i64,
+    track_ids: Vec<i64>,
+) {
+    library
+        .handle
+        .send_command(LibraryCommand::AddTracksToPlaylist {
+            playlist_id,
+            track_ids,
+        });
+}
+
+pub fn library_remove_track_from_playlist(
+    library: RustOpaque<Library>,
+    playlist_id: i64,
+    track_id: i64,
+) {
+    library
+        .handle
+        .send_command(LibraryCommand::RemoveTrackFromPlaylist {
+            playlist_id,
+            track_id,
+        });
+}
+
+pub fn library_remove_tracks_from_playlist(
+    library: RustOpaque<Library>,
+    playlist_id: i64,
+    track_ids: Vec<i64>,
+) {
+    library
+        .handle
+        .send_command(LibraryCommand::RemoveTracksFromPlaylist {
+            playlist_id,
+            track_ids,
+        });
+}
+
+pub fn library_move_track_in_playlist(
+    library: RustOpaque<Library>,
+    playlist_id: i64,
+    track_id: i64,
+    new_index: i64,
+) {
+    library
+        .handle
+        .send_command(LibraryCommand::MoveTrackInPlaylist {
+            playlist_id,
+            track_id,
+            new_index,
+        });
+}
+
+pub fn library_list_liked_track_ids(library: RustOpaque<Library>) {
+    library
+        .handle
+        .send_command(LibraryCommand::ListLikedTrackIds);
+}
+
+pub fn library_set_track_liked(library: RustOpaque<Library>, track_id: i64, liked: bool) {
+    library
+        .handle
+        .send_command(LibraryCommand::SetTrackLiked { track_id, liked });
+}
+
 pub fn library_events(library: RustOpaque<Library>, sink: StreamSink<LibraryEvent>) -> Result<()> {
     let rx = library.handle.subscribe_events();
 

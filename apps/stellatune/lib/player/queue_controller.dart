@@ -28,9 +28,17 @@ class QueueController extends Notifier<QueueState> {
     );
   }
 
-  void setQueue(List<QueueItem> items, {int startIndex = 0}) {
+  void setQueue(
+    List<QueueItem> items, {
+    int startIndex = 0,
+    String? sourceLabel,
+  }) {
     if (items.isEmpty) {
-      state = const QueueState.empty();
+      state = const QueueState.empty().copyWith(
+        shuffle: state.shuffle,
+        repeatMode: state.repeatMode,
+        sourceLabel: null,
+      );
       return;
     }
 
@@ -47,6 +55,7 @@ class QueueController extends Notifier<QueueState> {
       currentIndex: idx,
       order: order,
       orderPos: 0,
+      sourceLabel: sourceLabel,
     );
   }
 
@@ -216,6 +225,10 @@ class QueueController extends Notifier<QueueState> {
   }
 
   void clear() {
-    state = const QueueState.empty();
+    state = const QueueState.empty().copyWith(
+      shuffle: state.shuffle,
+      repeatMode: state.repeatMode,
+      sourceLabel: null,
+    );
   }
 }

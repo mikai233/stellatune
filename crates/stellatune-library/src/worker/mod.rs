@@ -10,10 +10,10 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use sqlx::SqlitePool;
+use sqlx::{FromRow, QueryBuilder, SqlitePool};
 use tokio::sync::mpsc;
 
-use stellatune_core::{LibraryCommand, LibraryEvent, TrackLite};
+use stellatune_core::{LibraryCommand, LibraryEvent, PlaylistLite, TrackLite};
 
 use crate::service::EventHub;
 
@@ -41,6 +41,15 @@ pub(crate) type Plugins = ();
 
 #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
 pub(crate) type DisabledPluginIds = ();
+
+#[derive(Debug, FromRow)]
+struct PlaylistLiteRow {
+    id: i64,
+    name: String,
+    system_key: Option<String>,
+    track_count: i64,
+    first_track_id: Option<i64>,
+}
 
 pub(crate) struct WorkerDeps {
     pool: SqlitePool,
@@ -204,6 +213,50 @@ impl LibraryWorker {
                 limit,
                 offset,
             } => self.search(query, limit, offset).await,
+            LibraryCommand::ListPlaylists => self.list_playlists().await,
+            LibraryCommand::CreatePlaylist { name } => self.create_playlist(name).await,
+            LibraryCommand::RenamePlaylist { id, name } => self.rename_playlist(id, name).await,
+            LibraryCommand::DeletePlaylist { id } => self.delete_playlist(id).await,
+            LibraryCommand::ListPlaylistTracks {
+                playlist_id,
+                query,
+                limit,
+                offset,
+            } => {
+                self.list_playlist_tracks(playlist_id, query, limit, offset)
+                    .await
+            }
+            LibraryCommand::AddTrackToPlaylist {
+                playlist_id,
+                track_id,
+            } => self.add_track_to_playlist(playlist_id, track_id).await,
+            LibraryCommand::AddTracksToPlaylist {
+                playlist_id,
+                track_ids,
+            } => self.add_tracks_to_playlist(playlist_id, track_ids).await,
+            LibraryCommand::RemoveTrackFromPlaylist {
+                playlist_id,
+                track_id,
+            } => self.remove_track_from_playlist(playlist_id, track_id).await,
+            LibraryCommand::RemoveTracksFromPlaylist {
+                playlist_id,
+                track_ids,
+            } => {
+                self.remove_tracks_from_playlist(playlist_id, track_ids)
+                    .await
+            }
+            LibraryCommand::MoveTrackInPlaylist {
+                playlist_id,
+                track_id,
+                new_index,
+            } => {
+                self.move_track_in_playlist(playlist_id, track_id, new_index)
+                    .await
+            }
+            LibraryCommand::ListLikedTrackIds => self.list_liked_track_ids().await,
+            LibraryCommand::SetTrackLiked { track_id, liked } => {
+                self.set_track_liked(track_id, liked).await
+            }
             LibraryCommand::Shutdown => Ok(()),
         }
     }
@@ -447,6 +500,484 @@ impl LibraryWorker {
             query,
             items,
         });
+        Ok(())
+    }
+
+    async fn list_playlists(&self) -> Result<()> {
+        let rows = sqlx::query_as::<_, PlaylistLiteRow>(
+            r#"
+            SELECT
+              p.id,
+              p.name,
+              p.system_key,
+              CAST(COUNT(pt.track_id) AS INTEGER) AS track_count,
+              (
+                SELECT pt2.track_id
+                FROM playlist_tracks pt2
+                WHERE pt2.playlist_id = p.id
+                ORDER BY pt2.sort_index ASC, pt2.track_id ASC
+                LIMIT 1
+              ) AS first_track_id
+            FROM playlists p
+            LEFT JOIN playlist_tracks pt ON pt.playlist_id = p.id
+            GROUP BY p.id
+            ORDER BY
+              CASE WHEN p.system_key = 'liked' THEN 0 ELSE 1 END,
+              p.name COLLATE NOCASE,
+              p.id
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        let items = rows
+            .into_iter()
+            .map(|row| PlaylistLite {
+                id: row.id,
+                name: row.name,
+                system_key: row.system_key,
+                track_count: row.track_count,
+                first_track_id: row.first_track_id,
+            })
+            .collect::<Vec<_>>();
+
+        self.events.emit(LibraryEvent::Playlists { items });
+        Ok(())
+    }
+
+    async fn create_playlist(&self, name: String) -> Result<()> {
+        let name = name.trim();
+        if name.is_empty() {
+            return Ok(());
+        }
+
+        sqlx::query(
+            r#"
+            INSERT INTO playlists(name, system_key)
+            VALUES(?1, NULL)
+            "#,
+        )
+        .bind(name)
+        .execute(&self.pool)
+        .await?;
+
+        self.events.emit(LibraryEvent::Changed);
+        Ok(())
+    }
+
+    async fn rename_playlist(&self, id: i64, name: String) -> Result<()> {
+        let name = name.trim();
+        if id <= 0 || name.is_empty() {
+            return Ok(());
+        }
+
+        sqlx::query(
+            r#"
+            UPDATE playlists
+            SET name = ?1
+            WHERE id = ?2 AND system_key IS NULL
+            "#,
+        )
+        .bind(name)
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+
+        self.events.emit(LibraryEvent::Changed);
+        Ok(())
+    }
+
+    async fn delete_playlist(&self, id: i64) -> Result<()> {
+        if id <= 0 {
+            return Ok(());
+        }
+
+        sqlx::query(
+            r#"
+            DELETE FROM playlists
+            WHERE id = ?1 AND system_key IS NULL
+            "#,
+        )
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+
+        self.events.emit(LibraryEvent::Changed);
+        Ok(())
+    }
+
+    async fn list_playlist_tracks(
+        &self,
+        playlist_id: i64,
+        query: String,
+        limit: i64,
+        offset: i64,
+    ) -> Result<()> {
+        if playlist_id <= 0 {
+            self.events.emit(LibraryEvent::PlaylistTracks {
+                playlist_id,
+                query: query.trim().to_string(),
+                items: Vec::new(),
+            });
+            return Ok(());
+        }
+
+        let query = query.trim().to_string();
+        let limit = limit.max(1).min(5000);
+        let offset = offset.max(0);
+
+        let rows = if query.is_empty() {
+            sqlx::query_as::<_, tracks::TrackLiteRow>(
+                r#"
+                SELECT t.id, t.path, t.title, t.artist, t.album, t.duration_ms
+                FROM playlist_tracks pt
+                JOIN tracks t ON t.id = pt.track_id
+                WHERE pt.playlist_id = ?1
+                ORDER BY pt.sort_index ASC, pt.track_id ASC
+                LIMIT ?2 OFFSET ?3
+                "#,
+            )
+            .bind(playlist_id)
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(&self.pool)
+            .await
+            .context("list playlist tracks failed")?
+        } else {
+            let fts = build_fts_query(&query);
+            sqlx::query_as::<_, tracks::TrackLiteRow>(
+                r#"
+                SELECT t.id, t.path, t.title, t.artist, t.album, t.duration_ms
+                FROM tracks_fts
+                JOIN tracks t ON t.id = tracks_fts.rowid
+                JOIN playlist_tracks pt ON pt.track_id = t.id
+                WHERE pt.playlist_id = ?1 AND tracks_fts MATCH ?2
+                ORDER BY pt.sort_index ASC, pt.track_id ASC
+                LIMIT ?3 OFFSET ?4
+                "#,
+            )
+            .bind(playlist_id)
+            .bind(fts)
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(&self.pool)
+            .await
+            .context("list playlist tracks with fts failed")?
+        };
+
+        let items = rows
+            .into_iter()
+            .map(|row| TrackLite {
+                id: row.id,
+                path: row.path,
+                title: row.title,
+                artist: row.artist,
+                album: row.album,
+                duration_ms: row.duration_ms,
+            })
+            .collect::<Vec<_>>();
+
+        self.events.emit(LibraryEvent::PlaylistTracks {
+            playlist_id,
+            query,
+            items,
+        });
+        Ok(())
+    }
+
+    async fn add_track_to_playlist(&self, playlist_id: i64, track_id: i64) -> Result<()> {
+        if playlist_id <= 0 || track_id <= 0 {
+            return Ok(());
+        }
+        sqlx::query(
+            r#"
+            INSERT INTO playlist_tracks(playlist_id, track_id, sort_index)
+            SELECT
+              ?1,
+              ?2,
+              COALESCE((
+                SELECT MAX(pt.sort_index) + 1
+                FROM playlist_tracks pt
+                WHERE pt.playlist_id = ?1
+              ), 0)
+            ON CONFLICT(playlist_id, track_id) DO NOTHING
+            "#,
+        )
+        .bind(playlist_id)
+        .bind(track_id)
+        .execute(&self.pool)
+        .await?;
+
+        self.events.emit(LibraryEvent::Changed);
+        Ok(())
+    }
+
+    async fn remove_track_from_playlist(&self, playlist_id: i64, track_id: i64) -> Result<()> {
+        if playlist_id <= 0 || track_id <= 0 {
+            return Ok(());
+        }
+        sqlx::query(
+            r#"
+            DELETE FROM playlist_tracks
+            WHERE playlist_id = ?1 AND track_id = ?2
+            "#,
+        )
+        .bind(playlist_id)
+        .bind(track_id)
+        .execute(&self.pool)
+        .await?;
+
+        self.normalize_playlist_order(playlist_id).await?;
+        self.events.emit(LibraryEvent::Changed);
+        Ok(())
+    }
+
+    async fn add_tracks_to_playlist(&self, playlist_id: i64, track_ids: Vec<i64>) -> Result<()> {
+        if playlist_id <= 0 {
+            return Ok(());
+        }
+        let mut ids = track_ids
+            .into_iter()
+            .filter(|id| *id > 0)
+            .collect::<Vec<_>>();
+        ids.sort_unstable();
+        ids.dedup();
+        if ids.is_empty() {
+            return Ok(());
+        }
+
+        let mut tx = self.pool.begin().await?;
+        let mut sort_index = sqlx::query_scalar::<_, i64>(
+            r#"
+            SELECT COALESCE(MAX(sort_index) + 1, 0)
+            FROM playlist_tracks
+            WHERE playlist_id = ?1
+            "#,
+        )
+        .bind(playlist_id)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        for track_id in ids {
+            let result = sqlx::query(
+                r#"
+                INSERT INTO playlist_tracks(playlist_id, track_id, sort_index)
+                VALUES(?1, ?2, ?3)
+                ON CONFLICT(playlist_id, track_id) DO NOTHING
+                "#,
+            )
+            .bind(playlist_id)
+            .bind(track_id)
+            .bind(sort_index)
+            .execute(&mut *tx)
+            .await?;
+            if result.rows_affected() > 0 {
+                sort_index += 1;
+            }
+        }
+
+        tx.commit().await?;
+        self.events.emit(LibraryEvent::Changed);
+        Ok(())
+    }
+
+    async fn remove_tracks_from_playlist(
+        &self,
+        playlist_id: i64,
+        track_ids: Vec<i64>,
+    ) -> Result<()> {
+        if playlist_id <= 0 {
+            return Ok(());
+        }
+        let mut ids = track_ids
+            .into_iter()
+            .filter(|id| *id > 0)
+            .collect::<Vec<_>>();
+        ids.sort_unstable();
+        ids.dedup();
+        if ids.is_empty() {
+            return Ok(());
+        }
+
+        let mut qb = QueryBuilder::new("DELETE FROM playlist_tracks WHERE playlist_id = ");
+        qb.push_bind(playlist_id);
+        qb.push(" AND track_id IN (");
+        {
+            let mut separated = qb.separated(", ");
+            for id in ids {
+                separated.push_bind(id);
+            }
+        }
+        qb.push(")");
+        qb.build().execute(&self.pool).await?;
+
+        self.normalize_playlist_order(playlist_id).await?;
+        self.events.emit(LibraryEvent::Changed);
+        Ok(())
+    }
+
+    async fn move_track_in_playlist(
+        &self,
+        playlist_id: i64,
+        track_id: i64,
+        new_index: i64,
+    ) -> Result<()> {
+        if playlist_id <= 0 || track_id <= 0 {
+            return Ok(());
+        }
+
+        let mut order = sqlx::query_scalar::<_, i64>(
+            r#"
+            SELECT track_id
+            FROM playlist_tracks
+            WHERE playlist_id = ?1
+            ORDER BY sort_index ASC, track_id ASC
+            "#,
+        )
+        .bind(playlist_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let Some(old_index) = order.iter().position(|id| *id == track_id) else {
+            return Ok(());
+        };
+        let item = order.remove(old_index);
+
+        let mut dst = new_index.max(0) as usize;
+        if dst > order.len() {
+            dst = order.len();
+        }
+        order.insert(dst, item);
+
+        let mut tx = self.pool.begin().await?;
+        for (idx, id) in order.into_iter().enumerate() {
+            sqlx::query(
+                r#"
+                UPDATE playlist_tracks
+                SET sort_index = ?1
+                WHERE playlist_id = ?2 AND track_id = ?3
+                "#,
+            )
+            .bind(idx as i64)
+            .bind(playlist_id)
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
+
+        self.events.emit(LibraryEvent::Changed);
+        Ok(())
+    }
+
+    async fn list_liked_track_ids(&self) -> Result<()> {
+        let liked_id = self.liked_playlist_id().await?;
+        let track_ids = if let Some(playlist_id) = liked_id {
+            sqlx::query_scalar::<_, i64>(
+                r#"
+                SELECT track_id
+                FROM playlist_tracks
+                WHERE playlist_id = ?1
+                "#,
+            )
+            .bind(playlist_id)
+            .fetch_all(&self.pool)
+            .await?
+        } else {
+            Vec::new()
+        };
+        self.events.emit(LibraryEvent::LikedTrackIds { track_ids });
+        Ok(())
+    }
+
+    async fn set_track_liked(&self, track_id: i64, liked: bool) -> Result<()> {
+        if track_id <= 0 {
+            return Ok(());
+        }
+        let Some(playlist_id) = self.liked_playlist_id().await? else {
+            return Ok(());
+        };
+
+        if liked {
+            sqlx::query(
+                r#"
+                INSERT INTO playlist_tracks(playlist_id, track_id, sort_index)
+                SELECT
+                  ?1,
+                  ?2,
+                  COALESCE((
+                    SELECT MAX(pt.sort_index) + 1
+                    FROM playlist_tracks pt
+                    WHERE pt.playlist_id = ?1
+                  ), 0)
+                ON CONFLICT(playlist_id, track_id) DO NOTHING
+                "#,
+            )
+            .bind(playlist_id)
+            .bind(track_id)
+            .execute(&self.pool)
+            .await?;
+        } else {
+            sqlx::query(
+                r#"
+                DELETE FROM playlist_tracks
+                WHERE playlist_id = ?1 AND track_id = ?2
+                "#,
+            )
+            .bind(playlist_id)
+            .bind(track_id)
+            .execute(&self.pool)
+            .await?;
+            self.normalize_playlist_order(playlist_id).await?;
+        }
+
+        self.events.emit(LibraryEvent::Changed);
+        Ok(())
+    }
+
+    async fn liked_playlist_id(&self) -> Result<Option<i64>> {
+        sqlx::query_scalar::<_, i64>(
+            r#"
+            SELECT id
+            FROM playlists
+            WHERE system_key = 'liked'
+            LIMIT 1
+            "#,
+        )
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(Into::into)
+    }
+
+    async fn normalize_playlist_order(&self, playlist_id: i64) -> Result<()> {
+        let track_ids = sqlx::query_scalar::<_, i64>(
+            r#"
+            SELECT track_id
+            FROM playlist_tracks
+            WHERE playlist_id = ?1
+            ORDER BY sort_index ASC, track_id ASC
+            "#,
+        )
+        .bind(playlist_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut tx = self.pool.begin().await?;
+        for (idx, track_id) in track_ids.into_iter().enumerate() {
+            sqlx::query(
+                r#"
+                UPDATE playlist_tracks
+                SET sort_index = ?1
+                WHERE playlist_id = ?2 AND track_id = ?3
+                "#,
+            )
+            .bind(idx as i64)
+            .bind(playlist_id)
+            .bind(track_id)
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
         Ok(())
     }
 

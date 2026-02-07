@@ -359,6 +359,116 @@ Future<void> librarySearch({
   offset: offset,
 );
 
+Future<void> libraryListPlaylists({required Library library_}) =>
+    StellatuneApi.instance.api.crateApiLibraryListPlaylists(library_: library_);
+
+Future<void> libraryCreatePlaylist({
+  required Library library_,
+  required String name,
+}) => StellatuneApi.instance.api.crateApiLibraryCreatePlaylist(
+  library_: library_,
+  name: name,
+);
+
+Future<void> libraryRenamePlaylist({
+  required Library library_,
+  required PlatformInt64 id,
+  required String name,
+}) => StellatuneApi.instance.api.crateApiLibraryRenamePlaylist(
+  library_: library_,
+  id: id,
+  name: name,
+);
+
+Future<void> libraryDeletePlaylist({
+  required Library library_,
+  required PlatformInt64 id,
+}) => StellatuneApi.instance.api.crateApiLibraryDeletePlaylist(
+  library_: library_,
+  id: id,
+);
+
+Future<void> libraryListPlaylistTracks({
+  required Library library_,
+  required PlatformInt64 playlistId,
+  required String query,
+  required PlatformInt64 limit,
+  required PlatformInt64 offset,
+}) => StellatuneApi.instance.api.crateApiLibraryListPlaylistTracks(
+  library_: library_,
+  playlistId: playlistId,
+  query: query,
+  limit: limit,
+  offset: offset,
+);
+
+Future<void> libraryAddTrackToPlaylist({
+  required Library library_,
+  required PlatformInt64 playlistId,
+  required PlatformInt64 trackId,
+}) => StellatuneApi.instance.api.crateApiLibraryAddTrackToPlaylist(
+  library_: library_,
+  playlistId: playlistId,
+  trackId: trackId,
+);
+
+Future<void> libraryAddTracksToPlaylist({
+  required Library library_,
+  required PlatformInt64 playlistId,
+  required Int64List trackIds,
+}) => StellatuneApi.instance.api.crateApiLibraryAddTracksToPlaylist(
+  library_: library_,
+  playlistId: playlistId,
+  trackIds: trackIds,
+);
+
+Future<void> libraryRemoveTrackFromPlaylist({
+  required Library library_,
+  required PlatformInt64 playlistId,
+  required PlatformInt64 trackId,
+}) => StellatuneApi.instance.api.crateApiLibraryRemoveTrackFromPlaylist(
+  library_: library_,
+  playlistId: playlistId,
+  trackId: trackId,
+);
+
+Future<void> libraryRemoveTracksFromPlaylist({
+  required Library library_,
+  required PlatformInt64 playlistId,
+  required Int64List trackIds,
+}) => StellatuneApi.instance.api.crateApiLibraryRemoveTracksFromPlaylist(
+  library_: library_,
+  playlistId: playlistId,
+  trackIds: trackIds,
+);
+
+Future<void> libraryMoveTrackInPlaylist({
+  required Library library_,
+  required PlatformInt64 playlistId,
+  required PlatformInt64 trackId,
+  required PlatformInt64 newIndex,
+}) => StellatuneApi.instance.api.crateApiLibraryMoveTrackInPlaylist(
+  library_: library_,
+  playlistId: playlistId,
+  trackId: trackId,
+  newIndex: newIndex,
+);
+
+Future<void> libraryListLikedTrackIds({required Library library_}) =>
+    StellatuneApi.instance.api.crateApiLibraryListLikedTrackIds(
+      library_: library_,
+    );
+
+Future<void> librarySetTrackLiked({
+  required Library library_,
+  required PlatformInt64 trackId,
+  required bool liked,
+}) => StellatuneApi.instance.api.crateApiLibrarySetTrackLiked(
+  library_: library_,
+  trackId: trackId,
+  liked: liked,
+);
+
 Stream<LibraryEvent> libraryEvents({required Library library_}) =>
     StellatuneApi.instance.api.crateApiLibraryEvents(library_: library_);
 

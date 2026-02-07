@@ -16,6 +16,7 @@ import 'package:stellatune/ui/widgets/dynamic_background.dart';
 import 'widgets/bottom_playback_bar.dart';
 import 'widgets/layouts.dart';
 import 'widgets/lyrics_more_options.dart';
+import 'widgets/queue_drawer_panel.dart';
 
 /// Full-screen music detail page showing album cover, track info and lyrics placeholder.
 class DesktopMusicDetailPage extends ConsumerStatefulWidget {
@@ -41,6 +42,7 @@ class _DesktopMusicDetailPageState
   String? _lastLoadedCover;
   bool? _renderedHasLyrics;
   Timer? _lyricDelayTimer;
+  bool _queuePanelOpen = false;
 
   @override
   void dispose() {
@@ -209,113 +211,157 @@ class _DesktopMusicDetailPageState
           tween: ColorTween(end: _foregroundColor),
           builder: (context, color, child) {
             final effectiveColor = color ?? _foregroundColor;
-            return SafeArea(
-              child: Column(
-                children: [
-                  if (Platform.isWindows ||
-                      Platform.isLinux ||
-                      Platform.isMacOS)
-                    CustomTitleBar(
-                      foregroundColor: effectiveColor,
-                      showTitle: false,
-                    ),
-                  // Custom App Bar Row
-                  Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 4,
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        IconButton(
-                          icon: Icon(
-                            Icons.keyboard_arrow_down,
-                            color: effectiveColor,
-                          ),
-                          tooltip: l10n.tooltipBack,
-                          onPressed: () => Navigator.of(context).pop(),
-                        ),
-                        LyricsMoreMenuButton(foregroundColor: effectiveColor),
-                      ],
-                    ),
-                  ),
-                  // Main content area
-                  Expanded(
-                    child: LayoutBuilder(
-                      builder: (context, constraints) {
-                        final isWide = constraints.maxWidth > 700;
-                        final effectiveHasLyrics =
-                            _renderedHasLyrics ?? hasLyrics;
-
-                        if (isWide) {
-                          return WideLayout(
-                            coverDir: coverDir,
-                            trackId: trackId,
-                            title: title,
-                            subtitle: subtitle,
-                            slideDirection: _slideDirection,
-                            foregroundColor: effectiveColor,
-                            currentPath: playback.currentPath,
-                            sampleRate: playback.trackInfo?.sampleRate,
-                            maxWidth: constraints.maxWidth,
-                            maxHeight: constraints.maxHeight,
-                            hasLyrics: effectiveHasLyrics,
-                            lyricLines: lyrics.lines,
-                            currentLyricLineIndex: lyrics.currentLineIndex,
-                          );
-                        }
-                        return NarrowLayout(
-                          coverDir: coverDir,
-                          trackId: trackId,
-                          title: title,
-                          subtitle: subtitle,
-                          slideDirection: _slideDirection,
+            final panelWidth = (MediaQuery.sizeOf(context).width * 0.38).clamp(
+              320.0,
+              460.0,
+            );
+            return Stack(
+              children: [
+                SafeArea(
+                  child: Column(
+                    children: [
+                      if (Platform.isWindows ||
+                          Platform.isLinux ||
+                          Platform.isMacOS)
+                        CustomTitleBar(
                           foregroundColor: effectiveColor,
-                          currentPath: playback.currentPath,
-                          sampleRate: playback.trackInfo?.sampleRate,
-                          maxHeight: constraints.maxHeight,
-                          hasLyrics: effectiveHasLyrics,
-                          lyricLines: lyrics.lines,
-                          currentLyricLineIndex: lyrics.currentLineIndex,
-                        );
-                      },
+                          showTitle: false,
+                        ),
+                      // Custom App Bar Row
+                      Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            IconButton(
+                              icon: Icon(
+                                Icons.keyboard_arrow_down,
+                                color: effectiveColor,
+                              ),
+                              tooltip: l10n.tooltipBack,
+                              onPressed: () => Navigator.of(context).pop(),
+                            ),
+                            LyricsMoreMenuButton(
+                              foregroundColor: effectiveColor,
+                            ),
+                          ],
+                        ),
+                      ),
+                      // Main content area
+                      Expanded(
+                        child: LayoutBuilder(
+                          builder: (context, constraints) {
+                            final isWide = constraints.maxWidth > 700;
+                            final effectiveHasLyrics =
+                                _renderedHasLyrics ?? hasLyrics;
+
+                            if (isWide) {
+                              return WideLayout(
+                                coverDir: coverDir,
+                                trackId: trackId,
+                                title: title,
+                                subtitle: subtitle,
+                                slideDirection: _slideDirection,
+                                foregroundColor: effectiveColor,
+                                currentPath: playback.currentPath,
+                                sampleRate: playback.trackInfo?.sampleRate,
+                                maxWidth: constraints.maxWidth,
+                                maxHeight: constraints.maxHeight,
+                                hasLyrics: effectiveHasLyrics,
+                                lyricLines: lyrics.lines,
+                                currentLyricLineIndex: lyrics.currentLineIndex,
+                              );
+                            }
+                            return NarrowLayout(
+                              coverDir: coverDir,
+                              trackId: trackId,
+                              title: title,
+                              subtitle: subtitle,
+                              slideDirection: _slideDirection,
+                              foregroundColor: effectiveColor,
+                              currentPath: playback.currentPath,
+                              sampleRate: playback.trackInfo?.sampleRate,
+                              maxHeight: constraints.maxHeight,
+                              hasLyrics: effectiveHasLyrics,
+                              lyricLines: lyrics.lines,
+                              currentLyricLineIndex: lyrics.currentLineIndex,
+                            );
+                          },
+                        ),
+                      ),
+                      // Bottom playback bar
+                      BottomPlaybackBar(
+                        positionMs: positionMs,
+                        durationMs: durationMs,
+                        isPlaying: isPlaying,
+                        playMode: queue.playMode,
+                        volume: playback.volume,
+                        foregroundColor: effectiveColor,
+                        currentPath: playback.currentPath,
+                        sampleRate: playback.trackInfo?.sampleRate,
+                        onPlayPause: () => isPlaying
+                            ? ref
+                                  .read(playbackControllerProvider.notifier)
+                                  .pause()
+                            : ref
+                                  .read(playbackControllerProvider.notifier)
+                                  .play(),
+                        onPrevious: () => ref
+                            .read(playbackControllerProvider.notifier)
+                            .previous(),
+                        onNext: () => ref
+                            .read(playbackControllerProvider.notifier)
+                            .next(),
+                        onSeek: (ms) => ref
+                            .read(playbackControllerProvider.notifier)
+                            .seekMs(ms),
+                        onVolumeChanged: (v) => ref
+                            .read(playbackControllerProvider.notifier)
+                            .setVolume(v),
+                        onToggleMute: () => ref
+                            .read(playbackControllerProvider.notifier)
+                            .toggleMute(),
+                        enableVolumeHover: true,
+                        onPlayModeChanged: () => ref
+                            .read(queueControllerProvider.notifier)
+                            .cyclePlayMode(),
+                        onQueuePressed: () {
+                          setState(() => _queuePanelOpen = !_queuePanelOpen);
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+                IgnorePointer(
+                  ignoring: !_queuePanelOpen,
+                  child: AnimatedOpacity(
+                    duration: const Duration(milliseconds: 220),
+                    opacity: _queuePanelOpen ? 1.0 : 0.0,
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () => setState(() => _queuePanelOpen = false),
+                      child: Container(color: Colors.black26),
                     ),
                   ),
-                  // Bottom playback bar
-                  BottomPlaybackBar(
-                    positionMs: positionMs,
-                    durationMs: durationMs,
-                    isPlaying: isPlaying,
-                    playMode: queue.playMode,
-                    volume: playback.volume,
-                    foregroundColor: effectiveColor,
-                    currentPath: playback.currentPath,
-                    sampleRate: playback.trackInfo?.sampleRate,
-                    onPlayPause: () => isPlaying
-                        ? ref.read(playbackControllerProvider.notifier).pause()
-                        : ref.read(playbackControllerProvider.notifier).play(),
-                    onPrevious: () => ref
-                        .read(playbackControllerProvider.notifier)
-                        .previous(),
-                    onNext: () =>
-                        ref.read(playbackControllerProvider.notifier).next(),
-                    onSeek: (ms) => ref
-                        .read(playbackControllerProvider.notifier)
-                        .seekMs(ms),
-                    onVolumeChanged: (v) => ref
-                        .read(playbackControllerProvider.notifier)
-                        .setVolume(v),
-                    onToggleMute: () => ref
-                        .read(playbackControllerProvider.notifier)
-                        .toggleMute(),
-                    enableVolumeHover: true,
-                    onPlayModeChanged: () => ref
-                        .read(queueControllerProvider.notifier)
-                        .cyclePlayMode(),
+                ),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: AnimatedSlide(
+                    duration: const Duration(milliseconds: 260),
+                    curve: Curves.easeOutCubic,
+                    offset: _queuePanelOpen
+                        ? Offset.zero
+                        : const Offset(1.0, 0),
+                    child: SizedBox(
+                      width: panelWidth,
+                      child: const QueueDrawerPanel(),
+                    ),
                   ),
-                ],
-              ),
+                ),
+              ],
             );
           },
         ),

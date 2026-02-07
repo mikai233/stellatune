@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use sqlx::Row;
 use sqlx::SqlitePool;
 
-#[derive(Debug)]
+#[derive(Debug, sqlx::FromRow)]
 pub(super) struct TrackLiteRow {
     pub(super) id: i64,
     pub(super) path: String,

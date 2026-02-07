@@ -33,6 +33,8 @@ class _MarqueeTextState extends State<MarqueeText>
   final ScrollController _scrollController = ScrollController();
   late final Ticker _ticker;
   bool _isScrolling = false;
+  bool _startScheduled = false;
+  bool _stopScheduled = false;
   bool _shouldScroll = false;
   double _textWidth = 0;
   double _scrollDistance = 0;
@@ -56,13 +58,16 @@ class _MarqueeTextState extends State<MarqueeText>
 
   @override
   void dispose() {
+    if (_ticker.isActive) {
+      _ticker.stop();
+    }
     _ticker.dispose();
     _scrollController.dispose();
     super.dispose();
   }
 
   void _resetScroll() {
-    _isScrolling = false;
+    _stopScroll();
     _isPaused = true;
     _scrollStartTime = null;
     if (_scrollController.hasClients) {
@@ -113,15 +118,17 @@ class _MarqueeTextState extends State<MarqueeText>
   }
 
   void _startScrollIfNeeded() {
-    if (_shouldScroll && !_ticker.isActive) {
-      _ticker.start();
-      _isScrolling = true;
-      _isPaused = true;
-      _scrollStartTime = null;
-    }
+    _startScheduled = false;
+    if (!mounted || !_shouldScroll || _isScrolling || _ticker.isActive) return;
+    _ticker.start();
+    _isScrolling = true;
+    _isPaused = true;
+    _scrollStartTime = null;
   }
 
   void _stopScroll() {
+    _stopScheduled = false;
+    if (!mounted) return;
     if (_ticker.isActive) {
       _ticker.stop();
     }
@@ -152,7 +159,8 @@ class _MarqueeTextState extends State<MarqueeText>
 
         if (!textOverflows) {
           _shouldScroll = false;
-          if (_isScrolling) {
+          if (_isScrolling && !_stopScheduled) {
+            _stopScheduled = true;
             WidgetsBinding.instance.addPostFrameCallback((_) => _stopScroll());
           }
           return Text(
@@ -165,7 +173,8 @@ class _MarqueeTextState extends State<MarqueeText>
         }
 
         _shouldScroll = true;
-        if (!_isScrolling) {
+        if (!_isScrolling && !_startScheduled) {
+          _startScheduled = true;
           WidgetsBinding.instance.addPostFrameCallback(
             (_) => _startScrollIfNeeded(),
           );

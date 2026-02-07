@@ -46,6 +46,7 @@ class QueueState {
     required this.repeatMode,
     required this.order,
     required this.orderPos,
+    required this.sourceLabel,
   });
 
   const QueueState.empty()
@@ -54,7 +55,8 @@ class QueueState {
       shuffle = false,
       repeatMode = RepeatMode.off,
       order = const [],
-      orderPos = 0;
+      orderPos = 0,
+      sourceLabel = null;
 
   final List<QueueItem> items;
   final int? currentIndex;
@@ -62,6 +64,7 @@ class QueueState {
   final RepeatMode repeatMode;
   final List<int> order;
   final int orderPos;
+  final String? sourceLabel;
 
   PlayMode get playMode {
     if (repeatMode == RepeatMode.one) return PlayMode.repeatOne;
@@ -83,6 +86,7 @@ class QueueState {
     RepeatMode? repeatMode,
     List<int>? order,
     int? orderPos,
+    Object? sourceLabel = _queueSentinel,
   }) {
     return QueueState(
       items: items ?? this.items,
@@ -91,9 +95,14 @@ class QueueState {
       repeatMode: repeatMode ?? this.repeatMode,
       order: order ?? this.order,
       orderPos: orderPos ?? this.orderPos,
+      sourceLabel: identical(sourceLabel, _queueSentinel)
+          ? this.sourceLabel
+          : sourceLabel as String?,
     );
   }
 }
+
+const Object _queueSentinel = Object();
 
 List<int> buildOrder({
   required int length,

@@ -51,11 +51,31 @@ class NowPlayingBar extends ConsumerWidget {
         ? '${NowPlayingCommon.formatMs(playback.positionMs)} / ${NowPlayingCommon.formatMs(totalDurationMs)}'
         : NowPlayingCommon.formatMs(playback.positionMs);
 
-    return Material(
-      elevation: 2,
-      color: theme.colorScheme.surfaceContainer,
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.9),
+            theme.colorScheme.surfaceContainer.withValues(alpha: 0.94),
+          ],
+        ),
+        border: Border(
+          top: BorderSide(
+            color: theme.colorScheme.onSurface.withValues(alpha: 0.08),
+          ),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.08),
+            blurRadius: 12,
+            offset: const Offset(0, -2),
+          ),
+        ],
+      ),
       child: SizedBox(
-        height: 72,
+        height: 76,
         child: LayoutBuilder(
           builder: (context, constraints) {
             return Stack(
@@ -122,7 +142,7 @@ class NowPlayingBar extends ConsumerWidget {
                         ],
                       ),
                     ),
-                    const SizedBox(width: 16),
+                    const SizedBox(width: 14),
                     Text(timeLabel, style: theme.textTheme.titleMedium),
                     if (playback.lastError != null) ...[
                       const SizedBox(width: 8),
@@ -141,96 +161,146 @@ class NowPlayingBar extends ConsumerWidget {
                         ),
                       ),
                     ],
-                    const SizedBox(width: 16),
-                    IconButton(
-                      tooltip: l10n.tooltipPrevious,
-                      onPressed: () => ref
-                          .read(playbackControllerProvider.notifier)
-                          .previous(),
-                      icon: const Icon(Icons.skip_previous),
-                    ),
-                    IconButton(
-                      tooltip: isPlaying ? l10n.pause : l10n.play,
-                      onPressed: () => isPlaying
-                          ? ref
+                    const SizedBox(width: 14),
+                    Container(
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.surface.withValues(
+                          alpha: 0.54,
+                        ),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: theme.colorScheme.onSurface.withValues(
+                            alpha: 0.08,
+                          ),
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            visualDensity: VisualDensity.compact,
+                            tooltip: l10n.tooltipPrevious,
+                            onPressed: () => ref
                                 .read(playbackControllerProvider.notifier)
-                                .pause()
-                          : ref
+                                .previous(),
+                            icon: const Icon(Icons.skip_previous),
+                          ),
+                          IconButton(
+                            visualDensity: VisualDensity.compact,
+                            tooltip: isPlaying ? l10n.pause : l10n.play,
+                            onPressed: () => isPlaying
+                                ? ref
+                                      .read(playbackControllerProvider.notifier)
+                                      .pause()
+                                : ref
+                                      .read(playbackControllerProvider.notifier)
+                                      .play(),
+                            icon: Icon(
+                              isPlaying ? Icons.pause : Icons.play_arrow,
+                            ),
+                          ),
+                          IconButton(
+                            visualDensity: VisualDensity.compact,
+                            tooltip: l10n.stop,
+                            onPressed: () => ref
                                 .read(playbackControllerProvider.notifier)
-                                .play(),
-                      icon: Icon(isPlaying ? Icons.pause : Icons.play_arrow),
-                    ),
-                    IconButton(
-                      tooltip: l10n.stop,
-                      onPressed: () =>
-                          ref.read(playbackControllerProvider.notifier).stop(),
-                      icon: const Icon(Icons.stop),
-                    ),
-                    IconButton(
-                      tooltip: l10n.tooltipNext,
-                      onPressed: () =>
-                          ref.read(playbackControllerProvider.notifier).next(),
-                      icon: const Icon(Icons.skip_next),
-                    ),
-                    const SizedBox(width: 8),
-                    VolumePopupButton(
-                      volume: playback.volume,
-                      enableHover: true, // Desktop behavior
-                      onChanged: (v) => ref
-                          .read(playbackControllerProvider.notifier)
-                          .setVolume(v),
-                      onToggleMute: () => ref
-                          .read(playbackControllerProvider.notifier)
-                          .toggleMute(),
-                    ),
-                    IconButton(
-                      tooltip: playModeLabel,
-                      onPressed: () => ref
-                          .read(queueControllerProvider.notifier)
-                          .cyclePlayMode(),
-                      icon: Icon(
-                        switch (queue.playMode) {
-                          PlayMode.sequential => Icons.playlist_play,
-                          PlayMode.shuffle => Icons.shuffle,
-                          PlayMode.repeatAll => Icons.repeat,
-                          PlayMode.repeatOne => Icons.repeat_one,
-                        },
-                        color: queue.playMode == PlayMode.sequential
-                            ? null
-                            : theme.colorScheme.primary,
+                                .stop(),
+                            icon: const Icon(Icons.stop),
+                          ),
+                          IconButton(
+                            visualDensity: VisualDensity.compact,
+                            tooltip: l10n.tooltipNext,
+                            onPressed: () => ref
+                                .read(playbackControllerProvider.notifier)
+                                .next(),
+                            icon: const Icon(Icons.skip_next),
+                          ),
+                        ],
                       ),
                     ),
-                    IconButton(
-                      tooltip: selectedRenderer == null
-                          ? 'DLNA'
-                          : 'DLNA: ${selectedRenderer.friendlyName}',
-                      onPressed: () async {
-                        final chosen = await showDialog<_DlnaActionResult>(
-                          context: context,
-                          builder: (context) =>
-                              _DlnaDialog(selected: selectedRenderer),
-                        );
-                        if (chosen == null) return;
+                    const SizedBox(width: 10),
+                    Container(
+                      height: 40,
+                      padding: const EdgeInsets.symmetric(horizontal: 2),
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.surface.withValues(
+                          alpha: 0.54,
+                        ),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: theme.colorScheme.onSurface.withValues(
+                            alpha: 0.08,
+                          ),
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          VolumePopupButton(
+                            volume: playback.volume,
+                            enableHover: true, // Desktop behavior
+                            onChanged: (v) => ref
+                                .read(playbackControllerProvider.notifier)
+                                .setVolume(v),
+                            onToggleMute: () => ref
+                                .read(playbackControllerProvider.notifier)
+                                .toggleMute(),
+                          ),
+                          IconButton(
+                            visualDensity: VisualDensity.compact,
+                            tooltip: playModeLabel,
+                            onPressed: () => ref
+                                .read(queueControllerProvider.notifier)
+                                .cyclePlayMode(),
+                            icon: Icon(
+                              switch (queue.playMode) {
+                                PlayMode.sequential => Icons.playlist_play,
+                                PlayMode.shuffle => Icons.shuffle,
+                                PlayMode.repeatAll => Icons.repeat,
+                                PlayMode.repeatOne => Icons.repeat_one,
+                              },
+                              color: queue.playMode == PlayMode.sequential
+                                  ? null
+                                  : theme.colorScheme.primary,
+                            ),
+                          ),
+                          IconButton(
+                            visualDensity: VisualDensity.compact,
+                            tooltip: selectedRenderer == null
+                                ? 'DLNA'
+                                : 'DLNA: ${selectedRenderer.friendlyName}',
+                            onPressed: () async {
+                              final chosen =
+                                  await showDialog<_DlnaActionResult>(
+                                    context: context,
+                                    builder: (context) =>
+                                        _DlnaDialog(selected: selectedRenderer),
+                                  );
+                              if (chosen == null) return;
 
-                        if (chosen.applySelection) {
-                          ref
-                                  .read(dlnaSelectedRendererProvider.notifier)
-                                  .state =
-                              chosen.selected;
-                        }
+                              if (chosen.applySelection) {
+                                ref
+                                    .read(dlnaSelectedRendererProvider.notifier)
+                                    .state = chosen
+                                    .selected;
+                              }
 
-                        final message = chosen.message;
-                        if (message != null && context.mounted) {
-                          ScaffoldMessenger.of(
-                            context,
-                          ).showSnackBar(SnackBar(content: Text(message)));
-                        }
-                      },
-                      icon: Icon(
-                        Icons.cast,
-                        color: selectedRenderer == null
-                            ? null
-                            : theme.colorScheme.primary,
+                              final message = chosen.message;
+                              if (message != null && context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text(message)),
+                                );
+                              }
+                            },
+                            icon: Icon(
+                              Icons.cast,
+                              color: selectedRenderer == null
+                                  ? null
+                                  : theme.colorScheme.primary,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                     const SizedBox(width: 12),

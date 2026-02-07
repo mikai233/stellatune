@@ -42,6 +42,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get navLibrary => '音乐库';
 
   @override
+  String get navPlaylists => '歌单';
+
+  @override
   String get navSources => '来源';
 
   @override
@@ -58,6 +61,15 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get queueTitle => '队列';
+
+  @override
+  String get queueSourceTitle => '当前队列来源';
+
+  @override
+  String get queueSourceHint => '仅在当前视图点击播放歌曲时才会更新队列来源';
+
+  @override
+  String get queueSourceUnset => '尚未设置';
 
   @override
   String get settingsTitle => '设置';
@@ -270,6 +282,81 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get menuEnqueue => '加入队列';
+
+  @override
+  String get menuAddToPlaylist => '添加到歌单';
+
+  @override
+  String get menuRemoveFromCurrentPlaylist => '从当前歌单移除';
+
+  @override
+  String get playlistSectionTitle => '歌单';
+
+  @override
+  String get foldersSectionTitle => '文件夹';
+
+  @override
+  String get playlistCreateTooltip => '新建歌单';
+
+  @override
+  String get playlistCreateTitle => '新建歌单';
+
+  @override
+  String get playlistRenameTitle => '重命名歌单';
+
+  @override
+  String get playlistNameHint => '输入歌单名称';
+
+  @override
+  String get playlistDeleteTitle => '删除歌单';
+
+  @override
+  String playlistDeleteConfirm(String name) {
+    return '确定要删除歌单「$name」吗？';
+  }
+
+  @override
+  String get playlistRenameAction => '重命名';
+
+  @override
+  String get playlistDeleteAction => '删除';
+
+  @override
+  String playlistTrackCount(int count) {
+    return '$count 首';
+  }
+
+  @override
+  String get playlistEmptyHint => '还没有歌单';
+
+  @override
+  String playlistSelectionCount(int count) {
+    return '已选 $count 首';
+  }
+
+  @override
+  String get playlistSelectAll => '全选';
+
+  @override
+  String get playlistAllSelected => '已全选';
+
+  @override
+  String get playlistBatchAddToPlaylist => '批量添加到歌单';
+
+  @override
+  String get playlistBatchRemoveFromCurrent => '批量从当前歌单移除';
+
+  @override
+  String get likedAddTooltip => '添加到我喜欢的音乐';
+
+  @override
+  String get likedRemoveTooltip => '取消喜欢';
+
+  @override
+  String get likedPlaylistName => '我喜欢的音乐';
+
+  @override
+  String get ok => '确定';
 
   @override
   String get queueShuffle => '随机';

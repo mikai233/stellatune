@@ -507,20 +507,25 @@ class PlaybackController extends Notifier<PlaybackState> {
     await _loadAndPlayQueueItem(currentItem);
   }
 
-  Future<void> setQueueAndPlay(List<String> paths, {int startIndex = 0}) =>
-      setQueueAndPlayTracks(
-        paths.map((p) => TrackLite(id: -1, path: p)).toList(),
-        startIndex: startIndex,
-      );
+  Future<void> setQueueAndPlay(
+    List<String> paths, {
+    int startIndex = 0,
+    String? sourceLabel,
+  }) => setQueueAndPlayTracks(
+    paths.map((p) => TrackLite(id: -1, path: p)).toList(),
+    startIndex: startIndex,
+    sourceLabel: sourceLabel,
+  );
 
   Future<void> setQueueAndPlayItems(
     List<QueueItem> items, {
     int startIndex = 0,
+    String? sourceLabel,
   }) async {
     if (items.isEmpty) return;
     ref
         .read(queueControllerProvider.notifier)
-        .setQueue(items, startIndex: startIndex);
+        .setQueue(items, startIndex: startIndex, sourceLabel: sourceLabel);
     final item = ref.read(queueControllerProvider).currentItem;
     if (item == null) return;
     unawaited(_requestPreloadNext());
@@ -530,6 +535,7 @@ class PlaybackController extends Notifier<PlaybackState> {
   Future<void> setQueueAndPlayTracks(
     List<TrackLite> tracks, {
     int startIndex = 0,
+    String? sourceLabel,
   }) => setQueueAndPlayItems(
     tracks
         .map(
@@ -544,6 +550,7 @@ class PlaybackController extends Notifier<PlaybackState> {
         )
         .toList(),
     startIndex: startIndex,
+    sourceLabel: sourceLabel,
   );
 
   Future<void> enqueueItems(List<QueueItem> items) async {

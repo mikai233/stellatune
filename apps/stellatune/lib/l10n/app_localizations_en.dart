@@ -42,6 +42,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get navLibrary => 'Library';
 
   @override
+  String get navPlaylists => 'Playlists';
+
+  @override
   String get navSources => 'Sources';
 
   @override
@@ -58,6 +61,16 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get queueTitle => 'Queue';
+
+  @override
+  String get queueSourceTitle => 'Current Queue Source';
+
+  @override
+  String get queueSourceHint =>
+      'Queue source changes only when you play a track from this view';
+
+  @override
+  String get queueSourceUnset => 'Not set yet';
 
   @override
   String get settingsTitle => 'Settings';
@@ -277,6 +290,82 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get menuEnqueue => 'Enqueue';
+
+  @override
+  String get menuAddToPlaylist => 'Add to playlist';
+
+  @override
+  String get menuRemoveFromCurrentPlaylist => 'Remove from current playlist';
+
+  @override
+  String get playlistSectionTitle => 'Playlists';
+
+  @override
+  String get foldersSectionTitle => 'Folders';
+
+  @override
+  String get playlistCreateTooltip => 'Create playlist';
+
+  @override
+  String get playlistCreateTitle => 'Create playlist';
+
+  @override
+  String get playlistRenameTitle => 'Rename playlist';
+
+  @override
+  String get playlistNameHint => 'Enter playlist name';
+
+  @override
+  String get playlistDeleteTitle => 'Delete playlist';
+
+  @override
+  String playlistDeleteConfirm(String name) {
+    return 'Delete playlist \"$name\"?';
+  }
+
+  @override
+  String get playlistRenameAction => 'Rename';
+
+  @override
+  String get playlistDeleteAction => 'Delete';
+
+  @override
+  String playlistTrackCount(int count) {
+    return '$count tracks';
+  }
+
+  @override
+  String get playlistEmptyHint => 'No playlists yet';
+
+  @override
+  String playlistSelectionCount(int count) {
+    return '$count selected';
+  }
+
+  @override
+  String get playlistSelectAll => 'Select all';
+
+  @override
+  String get playlistAllSelected => 'All selected';
+
+  @override
+  String get playlistBatchAddToPlaylist => 'Add selected to playlist';
+
+  @override
+  String get playlistBatchRemoveFromCurrent =>
+      'Remove selected from current playlist';
+
+  @override
+  String get likedAddTooltip => 'Add to Liked Music';
+
+  @override
+  String get likedRemoveTooltip => 'Remove from Liked Music';
+
+  @override
+  String get likedPlaylistName => 'Liked Music';
+
+  @override
+  String get ok => 'OK';
 
   @override
   String get queueShuffle => 'Shuffle';

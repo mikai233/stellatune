@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart'
+    as frb;
 import 'api.dart' as api;
 import 'third_party/stellatune_core.dart';
 
@@ -17,6 +19,7 @@ export 'third_party/stellatune_core.dart'
         PluginDescriptor,
         PlayerState,
         LibraryEvent,
+        PlaylistLite,
         TrackDecodeInfo,
         TrackLite,
         LyricsQuery,
@@ -297,6 +300,83 @@ class LibraryBridge {
         limit: limit,
         offset: offset,
       );
+
+  Future<void> listPlaylists() => api.libraryListPlaylists(library_: library);
+
+  Future<void> createPlaylist(String name) =>
+      api.libraryCreatePlaylist(library_: library, name: name);
+
+  Future<void> renamePlaylist({required int id, required String name}) =>
+      api.libraryRenamePlaylist(library_: library, id: id, name: name);
+
+  Future<void> deletePlaylist({required int id}) =>
+      api.libraryDeletePlaylist(library_: library, id: id);
+
+  Future<void> listPlaylistTracks({
+    required int playlistId,
+    required String query,
+    int limit = 5000,
+    int offset = 0,
+  }) => api.libraryListPlaylistTracks(
+    library_: library,
+    playlistId: playlistId,
+    query: query,
+    limit: limit,
+    offset: offset,
+  );
+
+  Future<void> addTrackToPlaylist({
+    required int playlistId,
+    required int trackId,
+  }) => api.libraryAddTrackToPlaylist(
+    library_: library,
+    playlistId: playlistId,
+    trackId: trackId,
+  );
+
+  Future<void> addTracksToPlaylist({
+    required int playlistId,
+    required List<int> trackIds,
+  }) => api.libraryAddTracksToPlaylist(
+    library_: library,
+    playlistId: playlistId,
+    trackIds: frb.Int64List.fromList(trackIds),
+  );
+
+  Future<void> removeTrackFromPlaylist({
+    required int playlistId,
+    required int trackId,
+  }) => api.libraryRemoveTrackFromPlaylist(
+    library_: library,
+    playlistId: playlistId,
+    trackId: trackId,
+  );
+
+  Future<void> removeTracksFromPlaylist({
+    required int playlistId,
+    required List<int> trackIds,
+  }) => api.libraryRemoveTracksFromPlaylist(
+    library_: library,
+    playlistId: playlistId,
+    trackIds: frb.Int64List.fromList(trackIds),
+  );
+
+  Future<void> moveTrackInPlaylist({
+    required int playlistId,
+    required int trackId,
+    required int newIndex,
+  }) => api.libraryMoveTrackInPlaylist(
+    library_: library,
+    playlistId: playlistId,
+    trackId: trackId,
+    newIndex: newIndex,
+  );
+
+  Future<void> listLikedTrackIds() =>
+      api.libraryListLikedTrackIds(library_: library);
+
+  Future<void> setTrackLiked({required int trackId, required bool liked}) => api
+      .librarySetTrackLiked(library_: library, trackId: trackId, liked: liked);
 
   Future<void> pluginsReloadWithDisabled({
     required String dir,

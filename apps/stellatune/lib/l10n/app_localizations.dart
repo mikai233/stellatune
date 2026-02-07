@@ -164,6 +164,12 @@ abstract class AppLocalizations {
   /// **'Library'**
   String get navLibrary;
 
+  /// No description provided for @navPlaylists.
+  ///
+  /// In en, this message translates to:
+  /// **'Playlists'**
+  String get navPlaylists;
+
   /// No description provided for @navSources.
   ///
   /// In en, this message translates to:
@@ -199,6 +205,24 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Queue'**
   String get queueTitle;
+
+  /// No description provided for @queueSourceTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Current Queue Source'**
+  String get queueSourceTitle;
+
+  /// No description provided for @queueSourceHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Queue source changes only when you play a track from this view'**
+  String get queueSourceHint;
+
+  /// No description provided for @queueSourceUnset.
+  ///
+  /// In en, this message translates to:
+  /// **'Not set yet'**
+  String get queueSourceUnset;
 
   /// No description provided for @settingsTitle.
   ///
@@ -607,6 +631,144 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Enqueue'**
   String get menuEnqueue;
+
+  /// No description provided for @menuAddToPlaylist.
+  ///
+  /// In en, this message translates to:
+  /// **'Add to playlist'**
+  String get menuAddToPlaylist;
+
+  /// No description provided for @menuRemoveFromCurrentPlaylist.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove from current playlist'**
+  String get menuRemoveFromCurrentPlaylist;
+
+  /// No description provided for @playlistSectionTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Playlists'**
+  String get playlistSectionTitle;
+
+  /// No description provided for @foldersSectionTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Folders'**
+  String get foldersSectionTitle;
+
+  /// No description provided for @playlistCreateTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Create playlist'**
+  String get playlistCreateTooltip;
+
+  /// No description provided for @playlistCreateTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Create playlist'**
+  String get playlistCreateTitle;
+
+  /// No description provided for @playlistRenameTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Rename playlist'**
+  String get playlistRenameTitle;
+
+  /// No description provided for @playlistNameHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter playlist name'**
+  String get playlistNameHint;
+
+  /// No description provided for @playlistDeleteTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete playlist'**
+  String get playlistDeleteTitle;
+
+  /// No description provided for @playlistDeleteConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete playlist \"{name}\"?'**
+  String playlistDeleteConfirm(String name);
+
+  /// No description provided for @playlistRenameAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Rename'**
+  String get playlistRenameAction;
+
+  /// No description provided for @playlistDeleteAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete'**
+  String get playlistDeleteAction;
+
+  /// No description provided for @playlistTrackCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} tracks'**
+  String playlistTrackCount(int count);
+
+  /// No description provided for @playlistEmptyHint.
+  ///
+  /// In en, this message translates to:
+  /// **'No playlists yet'**
+  String get playlistEmptyHint;
+
+  /// No description provided for @playlistSelectionCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} selected'**
+  String playlistSelectionCount(int count);
+
+  /// No description provided for @playlistSelectAll.
+  ///
+  /// In en, this message translates to:
+  /// **'Select all'**
+  String get playlistSelectAll;
+
+  /// No description provided for @playlistAllSelected.
+  ///
+  /// In en, this message translates to:
+  /// **'All selected'**
+  String get playlistAllSelected;
+
+  /// No description provided for @playlistBatchAddToPlaylist.
+  ///
+  /// In en, this message translates to:
+  /// **'Add selected to playlist'**
+  String get playlistBatchAddToPlaylist;
+
+  /// No description provided for @playlistBatchRemoveFromCurrent.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove selected from current playlist'**
+  String get playlistBatchRemoveFromCurrent;
+
+  /// No description provided for @likedAddTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Add to Liked Music'**
+  String get likedAddTooltip;
+
+  /// No description provided for @likedRemoveTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove from Liked Music'**
+  String get likedRemoveTooltip;
+
+  /// No description provided for @likedPlaylistName.
+  ///
+  /// In en, this message translates to:
+  /// **'Liked Music'**
+  String get likedPlaylistName;
+
+  /// No description provided for @ok.
+  ///
+  /// In en, this message translates to:
+  /// **'OK'**
+  String get ok;
 
   /// No description provided for @queueShuffle.
   ///

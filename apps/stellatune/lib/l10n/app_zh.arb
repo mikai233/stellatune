@@ -12,6 +12,7 @@
   "log": "日志",
 
   "navLibrary": "音乐库",
+  "navPlaylists": "歌单",
   "navSources": "来源",
   "navQueue": "队列",
   "navSettings": "设置",
@@ -19,6 +20,9 @@
   "libraryTitle": "音乐库",
   "sourcesTitle": "来源",
   "queueTitle": "队列",
+  "queueSourceTitle": "当前队列来源",
+  "queueSourceHint": "仅在当前视图点击播放歌曲时才会更新队列来源",
+  "queueSourceUnset": "尚未设置",
   "settingsTitle": "设置",
   "sourcesTypeLabel": "来源类型",
   "sourcesRefreshTypes": "刷新来源类型",
@@ -119,6 +123,51 @@
 
   "menuPlay": "播放",
   "menuEnqueue": "加入队列",
+  "menuAddToPlaylist": "添加到歌单",
+  "menuRemoveFromCurrentPlaylist": "从当前歌单移除",
+
+  "playlistSectionTitle": "歌单",
+  "foldersSectionTitle": "文件夹",
+  "playlistCreateTooltip": "新建歌单",
+  "playlistCreateTitle": "新建歌单",
+  "playlistRenameTitle": "重命名歌单",
+  "playlistNameHint": "输入歌单名称",
+  "playlistDeleteTitle": "删除歌单",
+  "playlistDeleteConfirm": "确定要删除歌单「{name}」吗？",
+  "@playlistDeleteConfirm": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "playlistRenameAction": "重命名",
+  "playlistDeleteAction": "删除",
+  "playlistTrackCount": "{count} 首",
+  "@playlistTrackCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "playlistEmptyHint": "还没有歌单",
+  "playlistSelectionCount": "已选 {count} 首",
+  "@playlistSelectionCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "playlistSelectAll": "全选",
+  "playlistAllSelected": "已全选",
+  "playlistBatchAddToPlaylist": "批量添加到歌单",
+  "playlistBatchRemoveFromCurrent": "批量从当前歌单移除",
+  "likedAddTooltip": "添加到我喜欢的音乐",
+  "likedRemoveTooltip": "取消喜欢",
+  "likedPlaylistName": "我喜欢的音乐",
+  "ok": "确定",
 
   "queueShuffle": "随机",
   "repeatOff": "循环：关",

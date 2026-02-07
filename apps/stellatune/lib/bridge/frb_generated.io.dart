@@ -162,7 +162,13 @@ abstract class StellatuneApiApiImplPlatform
   );
 
   @protected
+  List<PlaylistLite> dco_decode_list_playlist_lite(dynamic raw);
+
+  @protected
   List<PluginDescriptor> dco_decode_list_plugin_descriptor(dynamic raw);
+
+  @protected
+  Int64List dco_decode_list_prim_i_64_strict(dynamic raw);
 
   @protected
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw);
@@ -217,6 +223,9 @@ abstract class StellatuneApiApiImplPlatform
 
   @protected
   PlayerState dco_decode_player_state(dynamic raw);
+
+  @protected
+  PlaylistLite dco_decode_playlist_lite(dynamic raw);
 
   @protected
   PluginDescriptor dco_decode_plugin_descriptor(dynamic raw);
@@ -411,9 +420,17 @@ abstract class StellatuneApiApiImplPlatform
   );
 
   @protected
+  List<PlaylistLite> sse_decode_list_playlist_lite(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   List<PluginDescriptor> sse_decode_list_plugin_descriptor(
     SseDeserializer deserializer,
   );
+
+  @protected
+  Int64List sse_decode_list_prim_i_64_strict(SseDeserializer deserializer);
 
   @protected
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer);
@@ -474,6 +491,9 @@ abstract class StellatuneApiApiImplPlatform
 
   @protected
   PlayerState sse_decode_player_state(SseDeserializer deserializer);
+
+  @protected
+  PlaylistLite sse_decode_playlist_lite(SseDeserializer deserializer);
 
   @protected
   PluginDescriptor sse_decode_plugin_descriptor(SseDeserializer deserializer);
@@ -712,8 +732,20 @@ abstract class StellatuneApiApiImplPlatform
   );
 
   @protected
+  void sse_encode_list_playlist_lite(
+    List<PlaylistLite> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_plugin_descriptor(
     List<PluginDescriptor> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_prim_i_64_strict(
+    Int64List self,
     SseSerializer serializer,
   );
 
@@ -794,6 +826,9 @@ abstract class StellatuneApiApiImplPlatform
 
   @protected
   void sse_encode_player_state(PlayerState self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_playlist_lite(PlaylistLite self, SseSerializer serializer);
 
   @protected
   void sse_encode_plugin_descriptor(

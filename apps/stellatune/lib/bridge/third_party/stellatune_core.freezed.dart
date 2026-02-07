@@ -1608,6 +1608,14 @@ mixin _$LibraryEvent {
     )
     scanFinished,
     required TResult Function(String query, List<TrackLite> items) searchResult,
+    required TResult Function(List<PlaylistLite> items) playlists,
+    required TResult Function(
+      int playlistId,
+      String query,
+      List<TrackLite> items,
+    )
+    playlistTracks,
+    required TResult Function(Int64List trackIds) likedTrackIds,
     required TResult Function(String message) error,
     required TResult Function(String message) log,
   }) => throw _privateConstructorUsedError;
@@ -1635,6 +1643,10 @@ mixin _$LibraryEvent {
     )?
     scanFinished,
     TResult? Function(String query, List<TrackLite> items)? searchResult,
+    TResult? Function(List<PlaylistLite> items)? playlists,
+    TResult? Function(int playlistId, String query, List<TrackLite> items)?
+    playlistTracks,
+    TResult? Function(Int64List trackIds)? likedTrackIds,
     TResult? Function(String message)? error,
     TResult? Function(String message)? log,
   }) => throw _privateConstructorUsedError;
@@ -1662,6 +1674,10 @@ mixin _$LibraryEvent {
     )?
     scanFinished,
     TResult Function(String query, List<TrackLite> items)? searchResult,
+    TResult Function(List<PlaylistLite> items)? playlists,
+    TResult Function(int playlistId, String query, List<TrackLite> items)?
+    playlistTracks,
+    TResult Function(Int64List trackIds)? likedTrackIds,
     TResult Function(String message)? error,
     TResult Function(String message)? log,
     required TResult orElse(),
@@ -1677,6 +1693,9 @@ mixin _$LibraryEvent {
     required TResult Function(LibraryEvent_ScanProgress value) scanProgress,
     required TResult Function(LibraryEvent_ScanFinished value) scanFinished,
     required TResult Function(LibraryEvent_SearchResult value) searchResult,
+    required TResult Function(LibraryEvent_Playlists value) playlists,
+    required TResult Function(LibraryEvent_PlaylistTracks value) playlistTracks,
+    required TResult Function(LibraryEvent_LikedTrackIds value) likedTrackIds,
     required TResult Function(LibraryEvent_Error value) error,
     required TResult Function(LibraryEvent_Log value) log,
   }) => throw _privateConstructorUsedError;
@@ -1690,6 +1709,9 @@ mixin _$LibraryEvent {
     TResult? Function(LibraryEvent_ScanProgress value)? scanProgress,
     TResult? Function(LibraryEvent_ScanFinished value)? scanFinished,
     TResult? Function(LibraryEvent_SearchResult value)? searchResult,
+    TResult? Function(LibraryEvent_Playlists value)? playlists,
+    TResult? Function(LibraryEvent_PlaylistTracks value)? playlistTracks,
+    TResult? Function(LibraryEvent_LikedTrackIds value)? likedTrackIds,
     TResult? Function(LibraryEvent_Error value)? error,
     TResult? Function(LibraryEvent_Log value)? log,
   }) => throw _privateConstructorUsedError;
@@ -1703,6 +1725,9 @@ mixin _$LibraryEvent {
     TResult Function(LibraryEvent_ScanProgress value)? scanProgress,
     TResult Function(LibraryEvent_ScanFinished value)? scanFinished,
     TResult Function(LibraryEvent_SearchResult value)? searchResult,
+    TResult Function(LibraryEvent_Playlists value)? playlists,
+    TResult Function(LibraryEvent_PlaylistTracks value)? playlistTracks,
+    TResult Function(LibraryEvent_LikedTrackIds value)? likedTrackIds,
     TResult Function(LibraryEvent_Error value)? error,
     TResult Function(LibraryEvent_Log value)? log,
     required TResult orElse(),
@@ -1834,6 +1859,14 @@ class _$LibraryEvent_RootsImpl extends LibraryEvent_Roots {
     )
     scanFinished,
     required TResult Function(String query, List<TrackLite> items) searchResult,
+    required TResult Function(List<PlaylistLite> items) playlists,
+    required TResult Function(
+      int playlistId,
+      String query,
+      List<TrackLite> items,
+    )
+    playlistTracks,
+    required TResult Function(Int64List trackIds) likedTrackIds,
     required TResult Function(String message) error,
     required TResult Function(String message) log,
   }) {
@@ -1865,6 +1898,10 @@ class _$LibraryEvent_RootsImpl extends LibraryEvent_Roots {
     )?
     scanFinished,
     TResult? Function(String query, List<TrackLite> items)? searchResult,
+    TResult? Function(List<PlaylistLite> items)? playlists,
+    TResult? Function(int playlistId, String query, List<TrackLite> items)?
+    playlistTracks,
+    TResult? Function(Int64List trackIds)? likedTrackIds,
     TResult? Function(String message)? error,
     TResult? Function(String message)? log,
   }) {
@@ -1896,6 +1933,10 @@ class _$LibraryEvent_RootsImpl extends LibraryEvent_Roots {
     )?
     scanFinished,
     TResult Function(String query, List<TrackLite> items)? searchResult,
+    TResult Function(List<PlaylistLite> items)? playlists,
+    TResult Function(int playlistId, String query, List<TrackLite> items)?
+    playlistTracks,
+    TResult Function(Int64List trackIds)? likedTrackIds,
     TResult Function(String message)? error,
     TResult Function(String message)? log,
     required TResult orElse(),
@@ -1918,6 +1959,9 @@ class _$LibraryEvent_RootsImpl extends LibraryEvent_Roots {
     required TResult Function(LibraryEvent_ScanProgress value) scanProgress,
     required TResult Function(LibraryEvent_ScanFinished value) scanFinished,
     required TResult Function(LibraryEvent_SearchResult value) searchResult,
+    required TResult Function(LibraryEvent_Playlists value) playlists,
+    required TResult Function(LibraryEvent_PlaylistTracks value) playlistTracks,
+    required TResult Function(LibraryEvent_LikedTrackIds value) likedTrackIds,
     required TResult Function(LibraryEvent_Error value) error,
     required TResult Function(LibraryEvent_Log value) log,
   }) {
@@ -1935,6 +1979,9 @@ class _$LibraryEvent_RootsImpl extends LibraryEvent_Roots {
     TResult? Function(LibraryEvent_ScanProgress value)? scanProgress,
     TResult? Function(LibraryEvent_ScanFinished value)? scanFinished,
     TResult? Function(LibraryEvent_SearchResult value)? searchResult,
+    TResult? Function(LibraryEvent_Playlists value)? playlists,
+    TResult? Function(LibraryEvent_PlaylistTracks value)? playlistTracks,
+    TResult? Function(LibraryEvent_LikedTrackIds value)? likedTrackIds,
     TResult? Function(LibraryEvent_Error value)? error,
     TResult? Function(LibraryEvent_Log value)? log,
   }) {
@@ -1952,6 +1999,9 @@ class _$LibraryEvent_RootsImpl extends LibraryEvent_Roots {
     TResult Function(LibraryEvent_ScanProgress value)? scanProgress,
     TResult Function(LibraryEvent_ScanFinished value)? scanFinished,
     TResult Function(LibraryEvent_SearchResult value)? searchResult,
+    TResult Function(LibraryEvent_Playlists value)? playlists,
+    TResult Function(LibraryEvent_PlaylistTracks value)? playlistTracks,
+    TResult Function(LibraryEvent_LikedTrackIds value)? likedTrackIds,
     TResult Function(LibraryEvent_Error value)? error,
     TResult Function(LibraryEvent_Log value)? log,
     required TResult orElse(),
@@ -2081,6 +2131,14 @@ class _$LibraryEvent_FoldersImpl extends LibraryEvent_Folders {
     )
     scanFinished,
     required TResult Function(String query, List<TrackLite> items) searchResult,
+    required TResult Function(List<PlaylistLite> items) playlists,
+    required TResult Function(
+      int playlistId,
+      String query,
+      List<TrackLite> items,
+    )
+    playlistTracks,
+    required TResult Function(Int64List trackIds) likedTrackIds,
     required TResult Function(String message) error,
     required TResult Function(String message) log,
   }) {
@@ -2112,6 +2170,10 @@ class _$LibraryEvent_FoldersImpl extends LibraryEvent_Folders {
     )?
     scanFinished,
     TResult? Function(String query, List<TrackLite> items)? searchResult,
+    TResult? Function(List<PlaylistLite> items)? playlists,
+    TResult? Function(int playlistId, String query, List<TrackLite> items)?
+    playlistTracks,
+    TResult? Function(Int64List trackIds)? likedTrackIds,
     TResult? Function(String message)? error,
     TResult? Function(String message)? log,
   }) {
@@ -2143,6 +2205,10 @@ class _$LibraryEvent_FoldersImpl extends LibraryEvent_Folders {
     )?
     scanFinished,
     TResult Function(String query, List<TrackLite> items)? searchResult,
+    TResult Function(List<PlaylistLite> items)? playlists,
+    TResult Function(int playlistId, String query, List<TrackLite> items)?
+    playlistTracks,
+    TResult Function(Int64List trackIds)? likedTrackIds,
     TResult Function(String message)? error,
     TResult Function(String message)? log,
     required TResult orElse(),
@@ -2165,6 +2231,9 @@ class _$LibraryEvent_FoldersImpl extends LibraryEvent_Folders {
     required TResult Function(LibraryEvent_ScanProgress value) scanProgress,
     required TResult Function(LibraryEvent_ScanFinished value) scanFinished,
     required TResult Function(LibraryEvent_SearchResult value) searchResult,
+    required TResult Function(LibraryEvent_Playlists value) playlists,
+    required TResult Function(LibraryEvent_PlaylistTracks value) playlistTracks,
+    required TResult Function(LibraryEvent_LikedTrackIds value) likedTrackIds,
     required TResult Function(LibraryEvent_Error value) error,
     required TResult Function(LibraryEvent_Log value) log,
   }) {
@@ -2182,6 +2251,9 @@ class _$LibraryEvent_FoldersImpl extends LibraryEvent_Folders {
     TResult? Function(LibraryEvent_ScanProgress value)? scanProgress,
     TResult? Function(LibraryEvent_ScanFinished value)? scanFinished,
     TResult? Function(LibraryEvent_SearchResult value)? searchResult,
+    TResult? Function(LibraryEvent_Playlists value)? playlists,
+    TResult? Function(LibraryEvent_PlaylistTracks value)? playlistTracks,
+    TResult? Function(LibraryEvent_LikedTrackIds value)? likedTrackIds,
     TResult? Function(LibraryEvent_Error value)? error,
     TResult? Function(LibraryEvent_Log value)? log,
   }) {
@@ -2199,6 +2271,9 @@ class _$LibraryEvent_FoldersImpl extends LibraryEvent_Folders {
     TResult Function(LibraryEvent_ScanProgress value)? scanProgress,
     TResult Function(LibraryEvent_ScanFinished value)? scanFinished,
     TResult Function(LibraryEvent_SearchResult value)? searchResult,
+    TResult Function(LibraryEvent_Playlists value)? playlists,
+    TResult Function(LibraryEvent_PlaylistTracks value)? playlistTracks,
+    TResult Function(LibraryEvent_LikedTrackIds value)? likedTrackIds,
     TResult Function(LibraryEvent_Error value)? error,
     TResult Function(LibraryEvent_Log value)? log,
     required TResult orElse(),
@@ -2329,6 +2404,14 @@ class _$LibraryEvent_ExcludedFoldersImpl extends LibraryEvent_ExcludedFolders {
     )
     scanFinished,
     required TResult Function(String query, List<TrackLite> items) searchResult,
+    required TResult Function(List<PlaylistLite> items) playlists,
+    required TResult Function(
+      int playlistId,
+      String query,
+      List<TrackLite> items,
+    )
+    playlistTracks,
+    required TResult Function(Int64List trackIds) likedTrackIds,
     required TResult Function(String message) error,
     required TResult Function(String message) log,
   }) {
@@ -2360,6 +2443,10 @@ class _$LibraryEvent_ExcludedFoldersImpl extends LibraryEvent_ExcludedFolders {
     )?
     scanFinished,
     TResult? Function(String query, List<TrackLite> items)? searchResult,
+    TResult? Function(List<PlaylistLite> items)? playlists,
+    TResult? Function(int playlistId, String query, List<TrackLite> items)?
+    playlistTracks,
+    TResult? Function(Int64List trackIds)? likedTrackIds,
     TResult? Function(String message)? error,
     TResult? Function(String message)? log,
   }) {
@@ -2391,6 +2478,10 @@ class _$LibraryEvent_ExcludedFoldersImpl extends LibraryEvent_ExcludedFolders {
     )?
     scanFinished,
     TResult Function(String query, List<TrackLite> items)? searchResult,
+    TResult Function(List<PlaylistLite> items)? playlists,
+    TResult Function(int playlistId, String query, List<TrackLite> items)?
+    playlistTracks,
+    TResult Function(Int64List trackIds)? likedTrackIds,
     TResult Function(String message)? error,
     TResult Function(String message)? log,
     required TResult orElse(),
@@ -2413,6 +2504,9 @@ class _$LibraryEvent_ExcludedFoldersImpl extends LibraryEvent_ExcludedFolders {
     required TResult Function(LibraryEvent_ScanProgress value) scanProgress,
     required TResult Function(LibraryEvent_ScanFinished value) scanFinished,
     required TResult Function(LibraryEvent_SearchResult value) searchResult,
+    required TResult Function(LibraryEvent_Playlists value) playlists,
+    required TResult Function(LibraryEvent_PlaylistTracks value) playlistTracks,
+    required TResult Function(LibraryEvent_LikedTrackIds value) likedTrackIds,
     required TResult Function(LibraryEvent_Error value) error,
     required TResult Function(LibraryEvent_Log value) log,
   }) {
@@ -2430,6 +2524,9 @@ class _$LibraryEvent_ExcludedFoldersImpl extends LibraryEvent_ExcludedFolders {
     TResult? Function(LibraryEvent_ScanProgress value)? scanProgress,
     TResult? Function(LibraryEvent_ScanFinished value)? scanFinished,
     TResult? Function(LibraryEvent_SearchResult value)? searchResult,
+    TResult? Function(LibraryEvent_Playlists value)? playlists,
+    TResult? Function(LibraryEvent_PlaylistTracks value)? playlistTracks,
+    TResult? Function(LibraryEvent_LikedTrackIds value)? likedTrackIds,
     TResult? Function(LibraryEvent_Error value)? error,
     TResult? Function(LibraryEvent_Log value)? log,
   }) {
@@ -2447,6 +2544,9 @@ class _$LibraryEvent_ExcludedFoldersImpl extends LibraryEvent_ExcludedFolders {
     TResult Function(LibraryEvent_ScanProgress value)? scanProgress,
     TResult Function(LibraryEvent_ScanFinished value)? scanFinished,
     TResult Function(LibraryEvent_SearchResult value)? searchResult,
+    TResult Function(LibraryEvent_Playlists value)? playlists,
+    TResult Function(LibraryEvent_PlaylistTracks value)? playlistTracks,
+    TResult Function(LibraryEvent_LikedTrackIds value)? likedTrackIds,
     TResult Function(LibraryEvent_Error value)? error,
     TResult Function(LibraryEvent_Log value)? log,
     required TResult orElse(),
@@ -2541,6 +2641,14 @@ class _$LibraryEvent_ChangedImpl extends LibraryEvent_Changed {
     )
     scanFinished,
     required TResult Function(String query, List<TrackLite> items) searchResult,
+    required TResult Function(List<PlaylistLite> items) playlists,
+    required TResult Function(
+      int playlistId,
+      String query,
+      List<TrackLite> items,
+    )
+    playlistTracks,
+    required TResult Function(Int64List trackIds) likedTrackIds,
     required TResult Function(String message) error,
     required TResult Function(String message) log,
   }) {
@@ -2572,6 +2680,10 @@ class _$LibraryEvent_ChangedImpl extends LibraryEvent_Changed {
     )?
     scanFinished,
     TResult? Function(String query, List<TrackLite> items)? searchResult,
+    TResult? Function(List<PlaylistLite> items)? playlists,
+    TResult? Function(int playlistId, String query, List<TrackLite> items)?
+    playlistTracks,
+    TResult? Function(Int64List trackIds)? likedTrackIds,
     TResult? Function(String message)? error,
     TResult? Function(String message)? log,
   }) {
@@ -2603,6 +2715,10 @@ class _$LibraryEvent_ChangedImpl extends LibraryEvent_Changed {
     )?
     scanFinished,
     TResult Function(String query, List<TrackLite> items)? searchResult,
+    TResult Function(List<PlaylistLite> items)? playlists,
+    TResult Function(int playlistId, String query, List<TrackLite> items)?
+    playlistTracks,
+    TResult Function(Int64List trackIds)? likedTrackIds,
     TResult Function(String message)? error,
     TResult Function(String message)? log,
     required TResult orElse(),
@@ -2625,6 +2741,9 @@ class _$LibraryEvent_ChangedImpl extends LibraryEvent_Changed {
     required TResult Function(LibraryEvent_ScanProgress value) scanProgress,
     required TResult Function(LibraryEvent_ScanFinished value) scanFinished,
     required TResult Function(LibraryEvent_SearchResult value) searchResult,
+    required TResult Function(LibraryEvent_Playlists value) playlists,
+    required TResult Function(LibraryEvent_PlaylistTracks value) playlistTracks,
+    required TResult Function(LibraryEvent_LikedTrackIds value) likedTrackIds,
     required TResult Function(LibraryEvent_Error value) error,
     required TResult Function(LibraryEvent_Log value) log,
   }) {
@@ -2642,6 +2761,9 @@ class _$LibraryEvent_ChangedImpl extends LibraryEvent_Changed {
     TResult? Function(LibraryEvent_ScanProgress value)? scanProgress,
     TResult? Function(LibraryEvent_ScanFinished value)? scanFinished,
     TResult? Function(LibraryEvent_SearchResult value)? searchResult,
+    TResult? Function(LibraryEvent_Playlists value)? playlists,
+    TResult? Function(LibraryEvent_PlaylistTracks value)? playlistTracks,
+    TResult? Function(LibraryEvent_LikedTrackIds value)? likedTrackIds,
     TResult? Function(LibraryEvent_Error value)? error,
     TResult? Function(LibraryEvent_Log value)? log,
   }) {
@@ -2659,6 +2781,9 @@ class _$LibraryEvent_ChangedImpl extends LibraryEvent_Changed {
     TResult Function(LibraryEvent_ScanProgress value)? scanProgress,
     TResult Function(LibraryEvent_ScanFinished value)? scanFinished,
     TResult Function(LibraryEvent_SearchResult value)? searchResult,
+    TResult Function(LibraryEvent_Playlists value)? playlists,
+    TResult Function(LibraryEvent_PlaylistTracks value)? playlistTracks,
+    TResult Function(LibraryEvent_LikedTrackIds value)? likedTrackIds,
     TResult Function(LibraryEvent_Error value)? error,
     TResult Function(LibraryEvent_Log value)? log,
     required TResult orElse(),
@@ -2819,6 +2944,14 @@ class _$LibraryEvent_TracksImpl extends LibraryEvent_Tracks {
     )
     scanFinished,
     required TResult Function(String query, List<TrackLite> items) searchResult,
+    required TResult Function(List<PlaylistLite> items) playlists,
+    required TResult Function(
+      int playlistId,
+      String query,
+      List<TrackLite> items,
+    )
+    playlistTracks,
+    required TResult Function(Int64List trackIds) likedTrackIds,
     required TResult Function(String message) error,
     required TResult Function(String message) log,
   }) {
@@ -2850,6 +2983,10 @@ class _$LibraryEvent_TracksImpl extends LibraryEvent_Tracks {
     )?
     scanFinished,
     TResult? Function(String query, List<TrackLite> items)? searchResult,
+    TResult? Function(List<PlaylistLite> items)? playlists,
+    TResult? Function(int playlistId, String query, List<TrackLite> items)?
+    playlistTracks,
+    TResult? Function(Int64List trackIds)? likedTrackIds,
     TResult? Function(String message)? error,
     TResult? Function(String message)? log,
   }) {
@@ -2881,6 +3018,10 @@ class _$LibraryEvent_TracksImpl extends LibraryEvent_Tracks {
     )?
     scanFinished,
     TResult Function(String query, List<TrackLite> items)? searchResult,
+    TResult Function(List<PlaylistLite> items)? playlists,
+    TResult Function(int playlistId, String query, List<TrackLite> items)?
+    playlistTracks,
+    TResult Function(Int64List trackIds)? likedTrackIds,
     TResult Function(String message)? error,
     TResult Function(String message)? log,
     required TResult orElse(),
@@ -2903,6 +3044,9 @@ class _$LibraryEvent_TracksImpl extends LibraryEvent_Tracks {
     required TResult Function(LibraryEvent_ScanProgress value) scanProgress,
     required TResult Function(LibraryEvent_ScanFinished value) scanFinished,
     required TResult Function(LibraryEvent_SearchResult value) searchResult,
+    required TResult Function(LibraryEvent_Playlists value) playlists,
+    required TResult Function(LibraryEvent_PlaylistTracks value) playlistTracks,
+    required TResult Function(LibraryEvent_LikedTrackIds value) likedTrackIds,
     required TResult Function(LibraryEvent_Error value) error,
     required TResult Function(LibraryEvent_Log value) log,
   }) {
@@ -2920,6 +3064,9 @@ class _$LibraryEvent_TracksImpl extends LibraryEvent_Tracks {
     TResult? Function(LibraryEvent_ScanProgress value)? scanProgress,
     TResult? Function(LibraryEvent_ScanFinished value)? scanFinished,
     TResult? Function(LibraryEvent_SearchResult value)? searchResult,
+    TResult? Function(LibraryEvent_Playlists value)? playlists,
+    TResult? Function(LibraryEvent_PlaylistTracks value)? playlistTracks,
+    TResult? Function(LibraryEvent_LikedTrackIds value)? likedTrackIds,
     TResult? Function(LibraryEvent_Error value)? error,
     TResult? Function(LibraryEvent_Log value)? log,
   }) {
@@ -2937,6 +3084,9 @@ class _$LibraryEvent_TracksImpl extends LibraryEvent_Tracks {
     TResult Function(LibraryEvent_ScanProgress value)? scanProgress,
     TResult Function(LibraryEvent_ScanFinished value)? scanFinished,
     TResult Function(LibraryEvent_SearchResult value)? searchResult,
+    TResult Function(LibraryEvent_Playlists value)? playlists,
+    TResult Function(LibraryEvent_PlaylistTracks value)? playlistTracks,
+    TResult Function(LibraryEvent_LikedTrackIds value)? likedTrackIds,
     TResult Function(LibraryEvent_Error value)? error,
     TResult Function(LibraryEvent_Log value)? log,
     required TResult orElse(),
@@ -3096,6 +3246,14 @@ class _$LibraryEvent_ScanProgressImpl extends LibraryEvent_ScanProgress {
     )
     scanFinished,
     required TResult Function(String query, List<TrackLite> items) searchResult,
+    required TResult Function(List<PlaylistLite> items) playlists,
+    required TResult Function(
+      int playlistId,
+      String query,
+      List<TrackLite> items,
+    )
+    playlistTracks,
+    required TResult Function(Int64List trackIds) likedTrackIds,
     required TResult Function(String message) error,
     required TResult Function(String message) log,
   }) {
@@ -3127,6 +3285,10 @@ class _$LibraryEvent_ScanProgressImpl extends LibraryEvent_ScanProgress {
     )?
     scanFinished,
     TResult? Function(String query, List<TrackLite> items)? searchResult,
+    TResult? Function(List<PlaylistLite> items)? playlists,
+    TResult? Function(int playlistId, String query, List<TrackLite> items)?
+    playlistTracks,
+    TResult? Function(Int64List trackIds)? likedTrackIds,
     TResult? Function(String message)? error,
     TResult? Function(String message)? log,
   }) {
@@ -3158,6 +3320,10 @@ class _$LibraryEvent_ScanProgressImpl extends LibraryEvent_ScanProgress {
     )?
     scanFinished,
     TResult Function(String query, List<TrackLite> items)? searchResult,
+    TResult Function(List<PlaylistLite> items)? playlists,
+    TResult Function(int playlistId, String query, List<TrackLite> items)?
+    playlistTracks,
+    TResult Function(Int64List trackIds)? likedTrackIds,
     TResult Function(String message)? error,
     TResult Function(String message)? log,
     required TResult orElse(),
@@ -3180,6 +3346,9 @@ class _$LibraryEvent_ScanProgressImpl extends LibraryEvent_ScanProgress {
     required TResult Function(LibraryEvent_ScanProgress value) scanProgress,
     required TResult Function(LibraryEvent_ScanFinished value) scanFinished,
     required TResult Function(LibraryEvent_SearchResult value) searchResult,
+    required TResult Function(LibraryEvent_Playlists value) playlists,
+    required TResult Function(LibraryEvent_PlaylistTracks value) playlistTracks,
+    required TResult Function(LibraryEvent_LikedTrackIds value) likedTrackIds,
     required TResult Function(LibraryEvent_Error value) error,
     required TResult Function(LibraryEvent_Log value) log,
   }) {
@@ -3197,6 +3366,9 @@ class _$LibraryEvent_ScanProgressImpl extends LibraryEvent_ScanProgress {
     TResult? Function(LibraryEvent_ScanProgress value)? scanProgress,
     TResult? Function(LibraryEvent_ScanFinished value)? scanFinished,
     TResult? Function(LibraryEvent_SearchResult value)? searchResult,
+    TResult? Function(LibraryEvent_Playlists value)? playlists,
+    TResult? Function(LibraryEvent_PlaylistTracks value)? playlistTracks,
+    TResult? Function(LibraryEvent_LikedTrackIds value)? likedTrackIds,
     TResult? Function(LibraryEvent_Error value)? error,
     TResult? Function(LibraryEvent_Log value)? log,
   }) {
@@ -3214,6 +3386,9 @@ class _$LibraryEvent_ScanProgressImpl extends LibraryEvent_ScanProgress {
     TResult Function(LibraryEvent_ScanProgress value)? scanProgress,
     TResult Function(LibraryEvent_ScanFinished value)? scanFinished,
     TResult Function(LibraryEvent_SearchResult value)? searchResult,
+    TResult Function(LibraryEvent_Playlists value)? playlists,
+    TResult Function(LibraryEvent_PlaylistTracks value)? playlistTracks,
+    TResult Function(LibraryEvent_LikedTrackIds value)? likedTrackIds,
     TResult Function(LibraryEvent_Error value)? error,
     TResult Function(LibraryEvent_Log value)? log,
     required TResult orElse(),
@@ -3389,6 +3564,14 @@ class _$LibraryEvent_ScanFinishedImpl extends LibraryEvent_ScanFinished {
     )
     scanFinished,
     required TResult Function(String query, List<TrackLite> items) searchResult,
+    required TResult Function(List<PlaylistLite> items) playlists,
+    required TResult Function(
+      int playlistId,
+      String query,
+      List<TrackLite> items,
+    )
+    playlistTracks,
+    required TResult Function(Int64List trackIds) likedTrackIds,
     required TResult Function(String message) error,
     required TResult Function(String message) log,
   }) {
@@ -3420,6 +3603,10 @@ class _$LibraryEvent_ScanFinishedImpl extends LibraryEvent_ScanFinished {
     )?
     scanFinished,
     TResult? Function(String query, List<TrackLite> items)? searchResult,
+    TResult? Function(List<PlaylistLite> items)? playlists,
+    TResult? Function(int playlistId, String query, List<TrackLite> items)?
+    playlistTracks,
+    TResult? Function(Int64List trackIds)? likedTrackIds,
     TResult? Function(String message)? error,
     TResult? Function(String message)? log,
   }) {
@@ -3451,6 +3638,10 @@ class _$LibraryEvent_ScanFinishedImpl extends LibraryEvent_ScanFinished {
     )?
     scanFinished,
     TResult Function(String query, List<TrackLite> items)? searchResult,
+    TResult Function(List<PlaylistLite> items)? playlists,
+    TResult Function(int playlistId, String query, List<TrackLite> items)?
+    playlistTracks,
+    TResult Function(Int64List trackIds)? likedTrackIds,
     TResult Function(String message)? error,
     TResult Function(String message)? log,
     required TResult orElse(),
@@ -3473,6 +3664,9 @@ class _$LibraryEvent_ScanFinishedImpl extends LibraryEvent_ScanFinished {
     required TResult Function(LibraryEvent_ScanProgress value) scanProgress,
     required TResult Function(LibraryEvent_ScanFinished value) scanFinished,
     required TResult Function(LibraryEvent_SearchResult value) searchResult,
+    required TResult Function(LibraryEvent_Playlists value) playlists,
+    required TResult Function(LibraryEvent_PlaylistTracks value) playlistTracks,
+    required TResult Function(LibraryEvent_LikedTrackIds value) likedTrackIds,
     required TResult Function(LibraryEvent_Error value) error,
     required TResult Function(LibraryEvent_Log value) log,
   }) {
@@ -3490,6 +3684,9 @@ class _$LibraryEvent_ScanFinishedImpl extends LibraryEvent_ScanFinished {
     TResult? Function(LibraryEvent_ScanProgress value)? scanProgress,
     TResult? Function(LibraryEvent_ScanFinished value)? scanFinished,
     TResult? Function(LibraryEvent_SearchResult value)? searchResult,
+    TResult? Function(LibraryEvent_Playlists value)? playlists,
+    TResult? Function(LibraryEvent_PlaylistTracks value)? playlistTracks,
+    TResult? Function(LibraryEvent_LikedTrackIds value)? likedTrackIds,
     TResult? Function(LibraryEvent_Error value)? error,
     TResult? Function(LibraryEvent_Log value)? log,
   }) {
@@ -3507,6 +3704,9 @@ class _$LibraryEvent_ScanFinishedImpl extends LibraryEvent_ScanFinished {
     TResult Function(LibraryEvent_ScanProgress value)? scanProgress,
     TResult Function(LibraryEvent_ScanFinished value)? scanFinished,
     TResult Function(LibraryEvent_SearchResult value)? searchResult,
+    TResult Function(LibraryEvent_Playlists value)? playlists,
+    TResult Function(LibraryEvent_PlaylistTracks value)? playlistTracks,
+    TResult Function(LibraryEvent_LikedTrackIds value)? likedTrackIds,
     TResult Function(LibraryEvent_Error value)? error,
     TResult Function(LibraryEvent_Log value)? log,
     required TResult orElse(),
@@ -3656,6 +3856,14 @@ class _$LibraryEvent_SearchResultImpl extends LibraryEvent_SearchResult {
     )
     scanFinished,
     required TResult Function(String query, List<TrackLite> items) searchResult,
+    required TResult Function(List<PlaylistLite> items) playlists,
+    required TResult Function(
+      int playlistId,
+      String query,
+      List<TrackLite> items,
+    )
+    playlistTracks,
+    required TResult Function(Int64List trackIds) likedTrackIds,
     required TResult Function(String message) error,
     required TResult Function(String message) log,
   }) {
@@ -3687,6 +3895,10 @@ class _$LibraryEvent_SearchResultImpl extends LibraryEvent_SearchResult {
     )?
     scanFinished,
     TResult? Function(String query, List<TrackLite> items)? searchResult,
+    TResult? Function(List<PlaylistLite> items)? playlists,
+    TResult? Function(int playlistId, String query, List<TrackLite> items)?
+    playlistTracks,
+    TResult? Function(Int64List trackIds)? likedTrackIds,
     TResult? Function(String message)? error,
     TResult? Function(String message)? log,
   }) {
@@ -3718,6 +3930,10 @@ class _$LibraryEvent_SearchResultImpl extends LibraryEvent_SearchResult {
     )?
     scanFinished,
     TResult Function(String query, List<TrackLite> items)? searchResult,
+    TResult Function(List<PlaylistLite> items)? playlists,
+    TResult Function(int playlistId, String query, List<TrackLite> items)?
+    playlistTracks,
+    TResult Function(Int64List trackIds)? likedTrackIds,
     TResult Function(String message)? error,
     TResult Function(String message)? log,
     required TResult orElse(),
@@ -3740,6 +3956,9 @@ class _$LibraryEvent_SearchResultImpl extends LibraryEvent_SearchResult {
     required TResult Function(LibraryEvent_ScanProgress value) scanProgress,
     required TResult Function(LibraryEvent_ScanFinished value) scanFinished,
     required TResult Function(LibraryEvent_SearchResult value) searchResult,
+    required TResult Function(LibraryEvent_Playlists value) playlists,
+    required TResult Function(LibraryEvent_PlaylistTracks value) playlistTracks,
+    required TResult Function(LibraryEvent_LikedTrackIds value) likedTrackIds,
     required TResult Function(LibraryEvent_Error value) error,
     required TResult Function(LibraryEvent_Log value) log,
   }) {
@@ -3757,6 +3976,9 @@ class _$LibraryEvent_SearchResultImpl extends LibraryEvent_SearchResult {
     TResult? Function(LibraryEvent_ScanProgress value)? scanProgress,
     TResult? Function(LibraryEvent_ScanFinished value)? scanFinished,
     TResult? Function(LibraryEvent_SearchResult value)? searchResult,
+    TResult? Function(LibraryEvent_Playlists value)? playlists,
+    TResult? Function(LibraryEvent_PlaylistTracks value)? playlistTracks,
+    TResult? Function(LibraryEvent_LikedTrackIds value)? likedTrackIds,
     TResult? Function(LibraryEvent_Error value)? error,
     TResult? Function(LibraryEvent_Log value)? log,
   }) {
@@ -3774,6 +3996,9 @@ class _$LibraryEvent_SearchResultImpl extends LibraryEvent_SearchResult {
     TResult Function(LibraryEvent_ScanProgress value)? scanProgress,
     TResult Function(LibraryEvent_ScanFinished value)? scanFinished,
     TResult Function(LibraryEvent_SearchResult value)? searchResult,
+    TResult Function(LibraryEvent_Playlists value)? playlists,
+    TResult Function(LibraryEvent_PlaylistTracks value)? playlistTracks,
+    TResult Function(LibraryEvent_LikedTrackIds value)? likedTrackIds,
     TResult Function(LibraryEvent_Error value)? error,
     TResult Function(LibraryEvent_Log value)? log,
     required TResult orElse(),
@@ -3799,6 +4024,846 @@ abstract class LibraryEvent_SearchResult extends LibraryEvent {
   /// with the given fields replaced by the non-null parameter values.
   @JsonKey(includeFromJson: false, includeToJson: false)
   _$$LibraryEvent_SearchResultImplCopyWith<_$LibraryEvent_SearchResultImpl>
+  get copyWith => throw _privateConstructorUsedError;
+}
+
+/// @nodoc
+abstract class _$$LibraryEvent_PlaylistsImplCopyWith<$Res> {
+  factory _$$LibraryEvent_PlaylistsImplCopyWith(
+    _$LibraryEvent_PlaylistsImpl value,
+    $Res Function(_$LibraryEvent_PlaylistsImpl) then,
+  ) = __$$LibraryEvent_PlaylistsImplCopyWithImpl<$Res>;
+  @useResult
+  $Res call({List<PlaylistLite> items});
+}
+
+/// @nodoc
+class __$$LibraryEvent_PlaylistsImplCopyWithImpl<$Res>
+    extends _$LibraryEventCopyWithImpl<$Res, _$LibraryEvent_PlaylistsImpl>
+    implements _$$LibraryEvent_PlaylistsImplCopyWith<$Res> {
+  __$$LibraryEvent_PlaylistsImplCopyWithImpl(
+    _$LibraryEvent_PlaylistsImpl _value,
+    $Res Function(_$LibraryEvent_PlaylistsImpl) _then,
+  ) : super(_value, _then);
+
+  /// Create a copy of LibraryEvent
+  /// with the given fields replaced by the non-null parameter values.
+  @pragma('vm:prefer-inline')
+  @override
+  $Res call({Object? items = null}) {
+    return _then(
+      _$LibraryEvent_PlaylistsImpl(
+        items: null == items
+            ? _value._items
+            : items // ignore: cast_nullable_to_non_nullable
+                  as List<PlaylistLite>,
+      ),
+    );
+  }
+}
+
+/// @nodoc
+
+class _$LibraryEvent_PlaylistsImpl extends LibraryEvent_Playlists {
+  const _$LibraryEvent_PlaylistsImpl({required final List<PlaylistLite> items})
+    : _items = items,
+      super._();
+
+  final List<PlaylistLite> _items;
+  @override
+  List<PlaylistLite> get items {
+    if (_items is EqualUnmodifiableListView) return _items;
+    // ignore: implicit_dynamic_type
+    return EqualUnmodifiableListView(_items);
+  }
+
+  @override
+  String toString() {
+    return 'LibraryEvent.playlists(items: $items)';
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return identical(this, other) ||
+        (other.runtimeType == runtimeType &&
+            other is _$LibraryEvent_PlaylistsImpl &&
+            const DeepCollectionEquality().equals(other._items, _items));
+  }
+
+  @override
+  int get hashCode =>
+      Object.hash(runtimeType, const DeepCollectionEquality().hash(_items));
+
+  /// Create a copy of LibraryEvent
+  /// with the given fields replaced by the non-null parameter values.
+  @JsonKey(includeFromJson: false, includeToJson: false)
+  @override
+  @pragma('vm:prefer-inline')
+  _$$LibraryEvent_PlaylistsImplCopyWith<_$LibraryEvent_PlaylistsImpl>
+  get copyWith =>
+      __$$LibraryEvent_PlaylistsImplCopyWithImpl<_$LibraryEvent_PlaylistsImpl>(
+        this,
+        _$identity,
+      );
+
+  @override
+  @optionalTypeArgs
+  TResult when<TResult extends Object?>({
+    required TResult Function(List<String> paths) roots,
+    required TResult Function(List<String> paths) folders,
+    required TResult Function(List<String> paths) excludedFolders,
+    required TResult Function() changed,
+    required TResult Function(
+      String folder,
+      bool recursive,
+      String query,
+      List<TrackLite> items,
+    )
+    tracks,
+    required TResult Function(int scanned, int updated, int skipped, int errors)
+    scanProgress,
+    required TResult Function(
+      int durationMs,
+      int scanned,
+      int updated,
+      int skipped,
+      int errors,
+    )
+    scanFinished,
+    required TResult Function(String query, List<TrackLite> items) searchResult,
+    required TResult Function(List<PlaylistLite> items) playlists,
+    required TResult Function(
+      int playlistId,
+      String query,
+      List<TrackLite> items,
+    )
+    playlistTracks,
+    required TResult Function(Int64List trackIds) likedTrackIds,
+    required TResult Function(String message) error,
+    required TResult Function(String message) log,
+  }) {
+    return playlists(items);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult? whenOrNull<TResult extends Object?>({
+    TResult? Function(List<String> paths)? roots,
+    TResult? Function(List<String> paths)? folders,
+    TResult? Function(List<String> paths)? excludedFolders,
+    TResult? Function()? changed,
+    TResult? Function(
+      String folder,
+      bool recursive,
+      String query,
+      List<TrackLite> items,
+    )?
+    tracks,
+    TResult? Function(int scanned, int updated, int skipped, int errors)?
+    scanProgress,
+    TResult? Function(
+      int durationMs,
+      int scanned,
+      int updated,
+      int skipped,
+      int errors,
+    )?
+    scanFinished,
+    TResult? Function(String query, List<TrackLite> items)? searchResult,
+    TResult? Function(List<PlaylistLite> items)? playlists,
+    TResult? Function(int playlistId, String query, List<TrackLite> items)?
+    playlistTracks,
+    TResult? Function(Int64List trackIds)? likedTrackIds,
+    TResult? Function(String message)? error,
+    TResult? Function(String message)? log,
+  }) {
+    return playlists?.call(items);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult maybeWhen<TResult extends Object?>({
+    TResult Function(List<String> paths)? roots,
+    TResult Function(List<String> paths)? folders,
+    TResult Function(List<String> paths)? excludedFolders,
+    TResult Function()? changed,
+    TResult Function(
+      String folder,
+      bool recursive,
+      String query,
+      List<TrackLite> items,
+    )?
+    tracks,
+    TResult Function(int scanned, int updated, int skipped, int errors)?
+    scanProgress,
+    TResult Function(
+      int durationMs,
+      int scanned,
+      int updated,
+      int skipped,
+      int errors,
+    )?
+    scanFinished,
+    TResult Function(String query, List<TrackLite> items)? searchResult,
+    TResult Function(List<PlaylistLite> items)? playlists,
+    TResult Function(int playlistId, String query, List<TrackLite> items)?
+    playlistTracks,
+    TResult Function(Int64List trackIds)? likedTrackIds,
+    TResult Function(String message)? error,
+    TResult Function(String message)? log,
+    required TResult orElse(),
+  }) {
+    if (playlists != null) {
+      return playlists(items);
+    }
+    return orElse();
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult map<TResult extends Object?>({
+    required TResult Function(LibraryEvent_Roots value) roots,
+    required TResult Function(LibraryEvent_Folders value) folders,
+    required TResult Function(LibraryEvent_ExcludedFolders value)
+    excludedFolders,
+    required TResult Function(LibraryEvent_Changed value) changed,
+    required TResult Function(LibraryEvent_Tracks value) tracks,
+    required TResult Function(LibraryEvent_ScanProgress value) scanProgress,
+    required TResult Function(LibraryEvent_ScanFinished value) scanFinished,
+    required TResult Function(LibraryEvent_SearchResult value) searchResult,
+    required TResult Function(LibraryEvent_Playlists value) playlists,
+    required TResult Function(LibraryEvent_PlaylistTracks value) playlistTracks,
+    required TResult Function(LibraryEvent_LikedTrackIds value) likedTrackIds,
+    required TResult Function(LibraryEvent_Error value) error,
+    required TResult Function(LibraryEvent_Log value) log,
+  }) {
+    return playlists(this);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult? mapOrNull<TResult extends Object?>({
+    TResult? Function(LibraryEvent_Roots value)? roots,
+    TResult? Function(LibraryEvent_Folders value)? folders,
+    TResult? Function(LibraryEvent_ExcludedFolders value)? excludedFolders,
+    TResult? Function(LibraryEvent_Changed value)? changed,
+    TResult? Function(LibraryEvent_Tracks value)? tracks,
+    TResult? Function(LibraryEvent_ScanProgress value)? scanProgress,
+    TResult? Function(LibraryEvent_ScanFinished value)? scanFinished,
+    TResult? Function(LibraryEvent_SearchResult value)? searchResult,
+    TResult? Function(LibraryEvent_Playlists value)? playlists,
+    TResult? Function(LibraryEvent_PlaylistTracks value)? playlistTracks,
+    TResult? Function(LibraryEvent_LikedTrackIds value)? likedTrackIds,
+    TResult? Function(LibraryEvent_Error value)? error,
+    TResult? Function(LibraryEvent_Log value)? log,
+  }) {
+    return playlists?.call(this);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult maybeMap<TResult extends Object?>({
+    TResult Function(LibraryEvent_Roots value)? roots,
+    TResult Function(LibraryEvent_Folders value)? folders,
+    TResult Function(LibraryEvent_ExcludedFolders value)? excludedFolders,
+    TResult Function(LibraryEvent_Changed value)? changed,
+    TResult Function(LibraryEvent_Tracks value)? tracks,
+    TResult Function(LibraryEvent_ScanProgress value)? scanProgress,
+    TResult Function(LibraryEvent_ScanFinished value)? scanFinished,
+    TResult Function(LibraryEvent_SearchResult value)? searchResult,
+    TResult Function(LibraryEvent_Playlists value)? playlists,
+    TResult Function(LibraryEvent_PlaylistTracks value)? playlistTracks,
+    TResult Function(LibraryEvent_LikedTrackIds value)? likedTrackIds,
+    TResult Function(LibraryEvent_Error value)? error,
+    TResult Function(LibraryEvent_Log value)? log,
+    required TResult orElse(),
+  }) {
+    if (playlists != null) {
+      return playlists(this);
+    }
+    return orElse();
+  }
+}
+
+abstract class LibraryEvent_Playlists extends LibraryEvent {
+  const factory LibraryEvent_Playlists({
+    required final List<PlaylistLite> items,
+  }) = _$LibraryEvent_PlaylistsImpl;
+  const LibraryEvent_Playlists._() : super._();
+
+  List<PlaylistLite> get items;
+
+  /// Create a copy of LibraryEvent
+  /// with the given fields replaced by the non-null parameter values.
+  @JsonKey(includeFromJson: false, includeToJson: false)
+  _$$LibraryEvent_PlaylistsImplCopyWith<_$LibraryEvent_PlaylistsImpl>
+  get copyWith => throw _privateConstructorUsedError;
+}
+
+/// @nodoc
+abstract class _$$LibraryEvent_PlaylistTracksImplCopyWith<$Res> {
+  factory _$$LibraryEvent_PlaylistTracksImplCopyWith(
+    _$LibraryEvent_PlaylistTracksImpl value,
+    $Res Function(_$LibraryEvent_PlaylistTracksImpl) then,
+  ) = __$$LibraryEvent_PlaylistTracksImplCopyWithImpl<$Res>;
+  @useResult
+  $Res call({int playlistId, String query, List<TrackLite> items});
+}
+
+/// @nodoc
+class __$$LibraryEvent_PlaylistTracksImplCopyWithImpl<$Res>
+    extends _$LibraryEventCopyWithImpl<$Res, _$LibraryEvent_PlaylistTracksImpl>
+    implements _$$LibraryEvent_PlaylistTracksImplCopyWith<$Res> {
+  __$$LibraryEvent_PlaylistTracksImplCopyWithImpl(
+    _$LibraryEvent_PlaylistTracksImpl _value,
+    $Res Function(_$LibraryEvent_PlaylistTracksImpl) _then,
+  ) : super(_value, _then);
+
+  /// Create a copy of LibraryEvent
+  /// with the given fields replaced by the non-null parameter values.
+  @pragma('vm:prefer-inline')
+  @override
+  $Res call({
+    Object? playlistId = null,
+    Object? query = null,
+    Object? items = null,
+  }) {
+    return _then(
+      _$LibraryEvent_PlaylistTracksImpl(
+        playlistId: null == playlistId
+            ? _value.playlistId
+            : playlistId // ignore: cast_nullable_to_non_nullable
+                  as int,
+        query: null == query
+            ? _value.query
+            : query // ignore: cast_nullable_to_non_nullable
+                  as String,
+        items: null == items
+            ? _value._items
+            : items // ignore: cast_nullable_to_non_nullable
+                  as List<TrackLite>,
+      ),
+    );
+  }
+}
+
+/// @nodoc
+
+class _$LibraryEvent_PlaylistTracksImpl extends LibraryEvent_PlaylistTracks {
+  const _$LibraryEvent_PlaylistTracksImpl({
+    required this.playlistId,
+    required this.query,
+    required final List<TrackLite> items,
+  }) : _items = items,
+       super._();
+
+  @override
+  final int playlistId;
+  @override
+  final String query;
+  final List<TrackLite> _items;
+  @override
+  List<TrackLite> get items {
+    if (_items is EqualUnmodifiableListView) return _items;
+    // ignore: implicit_dynamic_type
+    return EqualUnmodifiableListView(_items);
+  }
+
+  @override
+  String toString() {
+    return 'LibraryEvent.playlistTracks(playlistId: $playlistId, query: $query, items: $items)';
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return identical(this, other) ||
+        (other.runtimeType == runtimeType &&
+            other is _$LibraryEvent_PlaylistTracksImpl &&
+            (identical(other.playlistId, playlistId) ||
+                other.playlistId == playlistId) &&
+            (identical(other.query, query) || other.query == query) &&
+            const DeepCollectionEquality().equals(other._items, _items));
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    runtimeType,
+    playlistId,
+    query,
+    const DeepCollectionEquality().hash(_items),
+  );
+
+  /// Create a copy of LibraryEvent
+  /// with the given fields replaced by the non-null parameter values.
+  @JsonKey(includeFromJson: false, includeToJson: false)
+  @override
+  @pragma('vm:prefer-inline')
+  _$$LibraryEvent_PlaylistTracksImplCopyWith<_$LibraryEvent_PlaylistTracksImpl>
+  get copyWith =>
+      __$$LibraryEvent_PlaylistTracksImplCopyWithImpl<
+        _$LibraryEvent_PlaylistTracksImpl
+      >(this, _$identity);
+
+  @override
+  @optionalTypeArgs
+  TResult when<TResult extends Object?>({
+    required TResult Function(List<String> paths) roots,
+    required TResult Function(List<String> paths) folders,
+    required TResult Function(List<String> paths) excludedFolders,
+    required TResult Function() changed,
+    required TResult Function(
+      String folder,
+      bool recursive,
+      String query,
+      List<TrackLite> items,
+    )
+    tracks,
+    required TResult Function(int scanned, int updated, int skipped, int errors)
+    scanProgress,
+    required TResult Function(
+      int durationMs,
+      int scanned,
+      int updated,
+      int skipped,
+      int errors,
+    )
+    scanFinished,
+    required TResult Function(String query, List<TrackLite> items) searchResult,
+    required TResult Function(List<PlaylistLite> items) playlists,
+    required TResult Function(
+      int playlistId,
+      String query,
+      List<TrackLite> items,
+    )
+    playlistTracks,
+    required TResult Function(Int64List trackIds) likedTrackIds,
+    required TResult Function(String message) error,
+    required TResult Function(String message) log,
+  }) {
+    return playlistTracks(playlistId, query, items);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult? whenOrNull<TResult extends Object?>({
+    TResult? Function(List<String> paths)? roots,
+    TResult? Function(List<String> paths)? folders,
+    TResult? Function(List<String> paths)? excludedFolders,
+    TResult? Function()? changed,
+    TResult? Function(
+      String folder,
+      bool recursive,
+      String query,
+      List<TrackLite> items,
+    )?
+    tracks,
+    TResult? Function(int scanned, int updated, int skipped, int errors)?
+    scanProgress,
+    TResult? Function(
+      int durationMs,
+      int scanned,
+      int updated,
+      int skipped,
+      int errors,
+    )?
+    scanFinished,
+    TResult? Function(String query, List<TrackLite> items)? searchResult,
+    TResult? Function(List<PlaylistLite> items)? playlists,
+    TResult? Function(int playlistId, String query, List<TrackLite> items)?
+    playlistTracks,
+    TResult? Function(Int64List trackIds)? likedTrackIds,
+    TResult? Function(String message)? error,
+    TResult? Function(String message)? log,
+  }) {
+    return playlistTracks?.call(playlistId, query, items);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult maybeWhen<TResult extends Object?>({
+    TResult Function(List<String> paths)? roots,
+    TResult Function(List<String> paths)? folders,
+    TResult Function(List<String> paths)? excludedFolders,
+    TResult Function()? changed,
+    TResult Function(
+      String folder,
+      bool recursive,
+      String query,
+      List<TrackLite> items,
+    )?
+    tracks,
+    TResult Function(int scanned, int updated, int skipped, int errors)?
+    scanProgress,
+    TResult Function(
+      int durationMs,
+      int scanned,
+      int updated,
+      int skipped,
+      int errors,
+    )?
+    scanFinished,
+    TResult Function(String query, List<TrackLite> items)? searchResult,
+    TResult Function(List<PlaylistLite> items)? playlists,
+    TResult Function(int playlistId, String query, List<TrackLite> items)?
+    playlistTracks,
+    TResult Function(Int64List trackIds)? likedTrackIds,
+    TResult Function(String message)? error,
+    TResult Function(String message)? log,
+    required TResult orElse(),
+  }) {
+    if (playlistTracks != null) {
+      return playlistTracks(playlistId, query, items);
+    }
+    return orElse();
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult map<TResult extends Object?>({
+    required TResult Function(LibraryEvent_Roots value) roots,
+    required TResult Function(LibraryEvent_Folders value) folders,
+    required TResult Function(LibraryEvent_ExcludedFolders value)
+    excludedFolders,
+    required TResult Function(LibraryEvent_Changed value) changed,
+    required TResult Function(LibraryEvent_Tracks value) tracks,
+    required TResult Function(LibraryEvent_ScanProgress value) scanProgress,
+    required TResult Function(LibraryEvent_ScanFinished value) scanFinished,
+    required TResult Function(LibraryEvent_SearchResult value) searchResult,
+    required TResult Function(LibraryEvent_Playlists value) playlists,
+    required TResult Function(LibraryEvent_PlaylistTracks value) playlistTracks,
+    required TResult Function(LibraryEvent_LikedTrackIds value) likedTrackIds,
+    required TResult Function(LibraryEvent_Error value) error,
+    required TResult Function(LibraryEvent_Log value) log,
+  }) {
+    return playlistTracks(this);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult? mapOrNull<TResult extends Object?>({
+    TResult? Function(LibraryEvent_Roots value)? roots,
+    TResult? Function(LibraryEvent_Folders value)? folders,
+    TResult? Function(LibraryEvent_ExcludedFolders value)? excludedFolders,
+    TResult? Function(LibraryEvent_Changed value)? changed,
+    TResult? Function(LibraryEvent_Tracks value)? tracks,
+    TResult? Function(LibraryEvent_ScanProgress value)? scanProgress,
+    TResult? Function(LibraryEvent_ScanFinished value)? scanFinished,
+    TResult? Function(LibraryEvent_SearchResult value)? searchResult,
+    TResult? Function(LibraryEvent_Playlists value)? playlists,
+    TResult? Function(LibraryEvent_PlaylistTracks value)? playlistTracks,
+    TResult? Function(LibraryEvent_LikedTrackIds value)? likedTrackIds,
+    TResult? Function(LibraryEvent_Error value)? error,
+    TResult? Function(LibraryEvent_Log value)? log,
+  }) {
+    return playlistTracks?.call(this);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult maybeMap<TResult extends Object?>({
+    TResult Function(LibraryEvent_Roots value)? roots,
+    TResult Function(LibraryEvent_Folders value)? folders,
+    TResult Function(LibraryEvent_ExcludedFolders value)? excludedFolders,
+    TResult Function(LibraryEvent_Changed value)? changed,
+    TResult Function(LibraryEvent_Tracks value)? tracks,
+    TResult Function(LibraryEvent_ScanProgress value)? scanProgress,
+    TResult Function(LibraryEvent_ScanFinished value)? scanFinished,
+    TResult Function(LibraryEvent_SearchResult value)? searchResult,
+    TResult Function(LibraryEvent_Playlists value)? playlists,
+    TResult Function(LibraryEvent_PlaylistTracks value)? playlistTracks,
+    TResult Function(LibraryEvent_LikedTrackIds value)? likedTrackIds,
+    TResult Function(LibraryEvent_Error value)? error,
+    TResult Function(LibraryEvent_Log value)? log,
+    required TResult orElse(),
+  }) {
+    if (playlistTracks != null) {
+      return playlistTracks(this);
+    }
+    return orElse();
+  }
+}
+
+abstract class LibraryEvent_PlaylistTracks extends LibraryEvent {
+  const factory LibraryEvent_PlaylistTracks({
+    required final int playlistId,
+    required final String query,
+    required final List<TrackLite> items,
+  }) = _$LibraryEvent_PlaylistTracksImpl;
+  const LibraryEvent_PlaylistTracks._() : super._();
+
+  int get playlistId;
+  String get query;
+  List<TrackLite> get items;
+
+  /// Create a copy of LibraryEvent
+  /// with the given fields replaced by the non-null parameter values.
+  @JsonKey(includeFromJson: false, includeToJson: false)
+  _$$LibraryEvent_PlaylistTracksImplCopyWith<_$LibraryEvent_PlaylistTracksImpl>
+  get copyWith => throw _privateConstructorUsedError;
+}
+
+/// @nodoc
+abstract class _$$LibraryEvent_LikedTrackIdsImplCopyWith<$Res> {
+  factory _$$LibraryEvent_LikedTrackIdsImplCopyWith(
+    _$LibraryEvent_LikedTrackIdsImpl value,
+    $Res Function(_$LibraryEvent_LikedTrackIdsImpl) then,
+  ) = __$$LibraryEvent_LikedTrackIdsImplCopyWithImpl<$Res>;
+  @useResult
+  $Res call({Int64List trackIds});
+}
+
+/// @nodoc
+class __$$LibraryEvent_LikedTrackIdsImplCopyWithImpl<$Res>
+    extends _$LibraryEventCopyWithImpl<$Res, _$LibraryEvent_LikedTrackIdsImpl>
+    implements _$$LibraryEvent_LikedTrackIdsImplCopyWith<$Res> {
+  __$$LibraryEvent_LikedTrackIdsImplCopyWithImpl(
+    _$LibraryEvent_LikedTrackIdsImpl _value,
+    $Res Function(_$LibraryEvent_LikedTrackIdsImpl) _then,
+  ) : super(_value, _then);
+
+  /// Create a copy of LibraryEvent
+  /// with the given fields replaced by the non-null parameter values.
+  @pragma('vm:prefer-inline')
+  @override
+  $Res call({Object? trackIds = null}) {
+    return _then(
+      _$LibraryEvent_LikedTrackIdsImpl(
+        trackIds: null == trackIds
+            ? _value.trackIds
+            : trackIds // ignore: cast_nullable_to_non_nullable
+                  as Int64List,
+      ),
+    );
+  }
+}
+
+/// @nodoc
+
+class _$LibraryEvent_LikedTrackIdsImpl extends LibraryEvent_LikedTrackIds {
+  const _$LibraryEvent_LikedTrackIdsImpl({required this.trackIds}) : super._();
+
+  @override
+  final Int64List trackIds;
+
+  @override
+  String toString() {
+    return 'LibraryEvent.likedTrackIds(trackIds: $trackIds)';
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return identical(this, other) ||
+        (other.runtimeType == runtimeType &&
+            other is _$LibraryEvent_LikedTrackIdsImpl &&
+            const DeepCollectionEquality().equals(other.trackIds, trackIds));
+  }
+
+  @override
+  int get hashCode =>
+      Object.hash(runtimeType, const DeepCollectionEquality().hash(trackIds));
+
+  /// Create a copy of LibraryEvent
+  /// with the given fields replaced by the non-null parameter values.
+  @JsonKey(includeFromJson: false, includeToJson: false)
+  @override
+  @pragma('vm:prefer-inline')
+  _$$LibraryEvent_LikedTrackIdsImplCopyWith<_$LibraryEvent_LikedTrackIdsImpl>
+  get copyWith =>
+      __$$LibraryEvent_LikedTrackIdsImplCopyWithImpl<
+        _$LibraryEvent_LikedTrackIdsImpl
+      >(this, _$identity);
+
+  @override
+  @optionalTypeArgs
+  TResult when<TResult extends Object?>({
+    required TResult Function(List<String> paths) roots,
+    required TResult Function(List<String> paths) folders,
+    required TResult Function(List<String> paths) excludedFolders,
+    required TResult Function() changed,
+    required TResult Function(
+      String folder,
+      bool recursive,
+      String query,
+      List<TrackLite> items,
+    )
+    tracks,
+    required TResult Function(int scanned, int updated, int skipped, int errors)
+    scanProgress,
+    required TResult Function(
+      int durationMs,
+      int scanned,
+      int updated,
+      int skipped,
+      int errors,
+    )
+    scanFinished,
+    required TResult Function(String query, List<TrackLite> items) searchResult,
+    required TResult Function(List<PlaylistLite> items) playlists,
+    required TResult Function(
+      int playlistId,
+      String query,
+      List<TrackLite> items,
+    )
+    playlistTracks,
+    required TResult Function(Int64List trackIds) likedTrackIds,
+    required TResult Function(String message) error,
+    required TResult Function(String message) log,
+  }) {
+    return likedTrackIds(trackIds);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult? whenOrNull<TResult extends Object?>({
+    TResult? Function(List<String> paths)? roots,
+    TResult? Function(List<String> paths)? folders,
+    TResult? Function(List<String> paths)? excludedFolders,
+    TResult? Function()? changed,
+    TResult? Function(
+      String folder,
+      bool recursive,
+      String query,
+      List<TrackLite> items,
+    )?
+    tracks,
+    TResult? Function(int scanned, int updated, int skipped, int errors)?
+    scanProgress,
+    TResult? Function(
+      int durationMs,
+      int scanned,
+      int updated,
+      int skipped,
+      int errors,
+    )?
+    scanFinished,
+    TResult? Function(String query, List<TrackLite> items)? searchResult,
+    TResult? Function(List<PlaylistLite> items)? playlists,
+    TResult? Function(int playlistId, String query, List<TrackLite> items)?
+    playlistTracks,
+    TResult? Function(Int64List trackIds)? likedTrackIds,
+    TResult? Function(String message)? error,
+    TResult? Function(String message)? log,
+  }) {
+    return likedTrackIds?.call(trackIds);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult maybeWhen<TResult extends Object?>({
+    TResult Function(List<String> paths)? roots,
+    TResult Function(List<String> paths)? folders,
+    TResult Function(List<String> paths)? excludedFolders,
+    TResult Function()? changed,
+    TResult Function(
+      String folder,
+      bool recursive,
+      String query,
+      List<TrackLite> items,
+    )?
+    tracks,
+    TResult Function(int scanned, int updated, int skipped, int errors)?
+    scanProgress,
+    TResult Function(
+      int durationMs,
+      int scanned,
+      int updated,
+      int skipped,
+      int errors,
+    )?
+    scanFinished,
+    TResult Function(String query, List<TrackLite> items)? searchResult,
+    TResult Function(List<PlaylistLite> items)? playlists,
+    TResult Function(int playlistId, String query, List<TrackLite> items)?
+    playlistTracks,
+    TResult Function(Int64List trackIds)? likedTrackIds,
+    TResult Function(String message)? error,
+    TResult Function(String message)? log,
+    required TResult orElse(),
+  }) {
+    if (likedTrackIds != null) {
+      return likedTrackIds(trackIds);
+    }
+    return orElse();
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult map<TResult extends Object?>({
+    required TResult Function(LibraryEvent_Roots value) roots,
+    required TResult Function(LibraryEvent_Folders value) folders,
+    required TResult Function(LibraryEvent_ExcludedFolders value)
+    excludedFolders,
+    required TResult Function(LibraryEvent_Changed value) changed,
+    required TResult Function(LibraryEvent_Tracks value) tracks,
+    required TResult Function(LibraryEvent_ScanProgress value) scanProgress,
+    required TResult Function(LibraryEvent_ScanFinished value) scanFinished,
+    required TResult Function(LibraryEvent_SearchResult value) searchResult,
+    required TResult Function(LibraryEvent_Playlists value) playlists,
+    required TResult Function(LibraryEvent_PlaylistTracks value) playlistTracks,
+    required TResult Function(LibraryEvent_LikedTrackIds value) likedTrackIds,
+    required TResult Function(LibraryEvent_Error value) error,
+    required TResult Function(LibraryEvent_Log value) log,
+  }) {
+    return likedTrackIds(this);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult? mapOrNull<TResult extends Object?>({
+    TResult? Function(LibraryEvent_Roots value)? roots,
+    TResult? Function(LibraryEvent_Folders value)? folders,
+    TResult? Function(LibraryEvent_ExcludedFolders value)? excludedFolders,
+    TResult? Function(LibraryEvent_Changed value)? changed,
+    TResult? Function(LibraryEvent_Tracks value)? tracks,
+    TResult? Function(LibraryEvent_ScanProgress value)? scanProgress,
+    TResult? Function(LibraryEvent_ScanFinished value)? scanFinished,
+    TResult? Function(LibraryEvent_SearchResult value)? searchResult,
+    TResult? Function(LibraryEvent_Playlists value)? playlists,
+    TResult? Function(LibraryEvent_PlaylistTracks value)? playlistTracks,
+    TResult? Function(LibraryEvent_LikedTrackIds value)? likedTrackIds,
+    TResult? Function(LibraryEvent_Error value)? error,
+    TResult? Function(LibraryEvent_Log value)? log,
+  }) {
+    return likedTrackIds?.call(this);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult maybeMap<TResult extends Object?>({
+    TResult Function(LibraryEvent_Roots value)? roots,
+    TResult Function(LibraryEvent_Folders value)? folders,
+    TResult Function(LibraryEvent_ExcludedFolders value)? excludedFolders,
+    TResult Function(LibraryEvent_Changed value)? changed,
+    TResult Function(LibraryEvent_Tracks value)? tracks,
+    TResult Function(LibraryEvent_ScanProgress value)? scanProgress,
+    TResult Function(LibraryEvent_ScanFinished value)? scanFinished,
+    TResult Function(LibraryEvent_SearchResult value)? searchResult,
+    TResult Function(LibraryEvent_Playlists value)? playlists,
+    TResult Function(LibraryEvent_PlaylistTracks value)? playlistTracks,
+    TResult Function(LibraryEvent_LikedTrackIds value)? likedTrackIds,
+    TResult Function(LibraryEvent_Error value)? error,
+    TResult Function(LibraryEvent_Log value)? log,
+    required TResult orElse(),
+  }) {
+    if (likedTrackIds != null) {
+      return likedTrackIds(this);
+    }
+    return orElse();
+  }
+}
+
+abstract class LibraryEvent_LikedTrackIds extends LibraryEvent {
+  const factory LibraryEvent_LikedTrackIds({
+    required final Int64List trackIds,
+  }) = _$LibraryEvent_LikedTrackIdsImpl;
+  const LibraryEvent_LikedTrackIds._() : super._();
+
+  Int64List get trackIds;
+
+  /// Create a copy of LibraryEvent
+  /// with the given fields replaced by the non-null parameter values.
+  @JsonKey(includeFromJson: false, includeToJson: false)
+  _$$LibraryEvent_LikedTrackIdsImplCopyWith<_$LibraryEvent_LikedTrackIdsImpl>
   get copyWith => throw _privateConstructorUsedError;
 }
 
@@ -3897,6 +4962,14 @@ class _$LibraryEvent_ErrorImpl extends LibraryEvent_Error {
     )
     scanFinished,
     required TResult Function(String query, List<TrackLite> items) searchResult,
+    required TResult Function(List<PlaylistLite> items) playlists,
+    required TResult Function(
+      int playlistId,
+      String query,
+      List<TrackLite> items,
+    )
+    playlistTracks,
+    required TResult Function(Int64List trackIds) likedTrackIds,
     required TResult Function(String message) error,
     required TResult Function(String message) log,
   }) {
@@ -3928,6 +5001,10 @@ class _$LibraryEvent_ErrorImpl extends LibraryEvent_Error {
     )?
     scanFinished,
     TResult? Function(String query, List<TrackLite> items)? searchResult,
+    TResult? Function(List<PlaylistLite> items)? playlists,
+    TResult? Function(int playlistId, String query, List<TrackLite> items)?
+    playlistTracks,
+    TResult? Function(Int64List trackIds)? likedTrackIds,
     TResult? Function(String message)? error,
     TResult? Function(String message)? log,
   }) {
@@ -3959,6 +5036,10 @@ class _$LibraryEvent_ErrorImpl extends LibraryEvent_Error {
     )?
     scanFinished,
     TResult Function(String query, List<TrackLite> items)? searchResult,
+    TResult Function(List<PlaylistLite> items)? playlists,
+    TResult Function(int playlistId, String query, List<TrackLite> items)?
+    playlistTracks,
+    TResult Function(Int64List trackIds)? likedTrackIds,
     TResult Function(String message)? error,
     TResult Function(String message)? log,
     required TResult orElse(),
@@ -3981,6 +5062,9 @@ class _$LibraryEvent_ErrorImpl extends LibraryEvent_Error {
     required TResult Function(LibraryEvent_ScanProgress value) scanProgress,
     required TResult Function(LibraryEvent_ScanFinished value) scanFinished,
     required TResult Function(LibraryEvent_SearchResult value) searchResult,
+    required TResult Function(LibraryEvent_Playlists value) playlists,
+    required TResult Function(LibraryEvent_PlaylistTracks value) playlistTracks,
+    required TResult Function(LibraryEvent_LikedTrackIds value) likedTrackIds,
     required TResult Function(LibraryEvent_Error value) error,
     required TResult Function(LibraryEvent_Log value) log,
   }) {
@@ -3998,6 +5082,9 @@ class _$LibraryEvent_ErrorImpl extends LibraryEvent_Error {
     TResult? Function(LibraryEvent_ScanProgress value)? scanProgress,
     TResult? Function(LibraryEvent_ScanFinished value)? scanFinished,
     TResult? Function(LibraryEvent_SearchResult value)? searchResult,
+    TResult? Function(LibraryEvent_Playlists value)? playlists,
+    TResult? Function(LibraryEvent_PlaylistTracks value)? playlistTracks,
+    TResult? Function(LibraryEvent_LikedTrackIds value)? likedTrackIds,
     TResult? Function(LibraryEvent_Error value)? error,
     TResult? Function(LibraryEvent_Log value)? log,
   }) {
@@ -4015,6 +5102,9 @@ class _$LibraryEvent_ErrorImpl extends LibraryEvent_Error {
     TResult Function(LibraryEvent_ScanProgress value)? scanProgress,
     TResult Function(LibraryEvent_ScanFinished value)? scanFinished,
     TResult Function(LibraryEvent_SearchResult value)? searchResult,
+    TResult Function(LibraryEvent_Playlists value)? playlists,
+    TResult Function(LibraryEvent_PlaylistTracks value)? playlistTracks,
+    TResult Function(LibraryEvent_LikedTrackIds value)? likedTrackIds,
     TResult Function(LibraryEvent_Error value)? error,
     TResult Function(LibraryEvent_Log value)? log,
     required TResult orElse(),
@@ -4135,6 +5225,14 @@ class _$LibraryEvent_LogImpl extends LibraryEvent_Log {
     )
     scanFinished,
     required TResult Function(String query, List<TrackLite> items) searchResult,
+    required TResult Function(List<PlaylistLite> items) playlists,
+    required TResult Function(
+      int playlistId,
+      String query,
+      List<TrackLite> items,
+    )
+    playlistTracks,
+    required TResult Function(Int64List trackIds) likedTrackIds,
     required TResult Function(String message) error,
     required TResult Function(String message) log,
   }) {
@@ -4166,6 +5264,10 @@ class _$LibraryEvent_LogImpl extends LibraryEvent_Log {
     )?
     scanFinished,
     TResult? Function(String query, List<TrackLite> items)? searchResult,
+    TResult? Function(List<PlaylistLite> items)? playlists,
+    TResult? Function(int playlistId, String query, List<TrackLite> items)?
+    playlistTracks,
+    TResult? Function(Int64List trackIds)? likedTrackIds,
     TResult? Function(String message)? error,
     TResult? Function(String message)? log,
   }) {
@@ -4197,6 +5299,10 @@ class _$LibraryEvent_LogImpl extends LibraryEvent_Log {
     )?
     scanFinished,
     TResult Function(String query, List<TrackLite> items)? searchResult,
+    TResult Function(List<PlaylistLite> items)? playlists,
+    TResult Function(int playlistId, String query, List<TrackLite> items)?
+    playlistTracks,
+    TResult Function(Int64List trackIds)? likedTrackIds,
     TResult Function(String message)? error,
     TResult Function(String message)? log,
     required TResult orElse(),
@@ -4219,6 +5325,9 @@ class _$LibraryEvent_LogImpl extends LibraryEvent_Log {
     required TResult Function(LibraryEvent_ScanProgress value) scanProgress,
     required TResult Function(LibraryEvent_ScanFinished value) scanFinished,
     required TResult Function(LibraryEvent_SearchResult value) searchResult,
+    required TResult Function(LibraryEvent_Playlists value) playlists,
+    required TResult Function(LibraryEvent_PlaylistTracks value) playlistTracks,
+    required TResult Function(LibraryEvent_LikedTrackIds value) likedTrackIds,
     required TResult Function(LibraryEvent_Error value) error,
     required TResult Function(LibraryEvent_Log value) log,
   }) {
@@ -4236,6 +5345,9 @@ class _$LibraryEvent_LogImpl extends LibraryEvent_Log {
     TResult? Function(LibraryEvent_ScanProgress value)? scanProgress,
     TResult? Function(LibraryEvent_ScanFinished value)? scanFinished,
     TResult? Function(LibraryEvent_SearchResult value)? searchResult,
+    TResult? Function(LibraryEvent_Playlists value)? playlists,
+    TResult? Function(LibraryEvent_PlaylistTracks value)? playlistTracks,
+    TResult? Function(LibraryEvent_LikedTrackIds value)? likedTrackIds,
     TResult? Function(LibraryEvent_Error value)? error,
     TResult? Function(LibraryEvent_Log value)? log,
   }) {
@@ -4253,6 +5365,9 @@ class _$LibraryEvent_LogImpl extends LibraryEvent_Log {
     TResult Function(LibraryEvent_ScanProgress value)? scanProgress,
     TResult Function(LibraryEvent_ScanFinished value)? scanFinished,
     TResult Function(LibraryEvent_SearchResult value)? searchResult,
+    TResult Function(LibraryEvent_Playlists value)? playlists,
+    TResult Function(LibraryEvent_PlaylistTracks value)? playlistTracks,
+    TResult Function(LibraryEvent_LikedTrackIds value)? likedTrackIds,
     TResult Function(LibraryEvent_Error value)? error,
     TResult Function(LibraryEvent_Log value)? log,
     required TResult orElse(),

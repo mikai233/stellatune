@@ -284,31 +284,45 @@ class _FolderTreeState extends State<FolderTree> {
 
     final titleColor = isExcluded ? theme.colorScheme.error : null;
 
-    return ListTile(
-      dense: true,
-      selected: selected,
-      leading: SizedBox(
-        width: 24 + row.depth * 14,
-        child: Align(
-          alignment: Alignment.centerRight,
-          child: row.depth == 0
-              ? const Icon(Icons.folder_outlined, size: 18)
-              : const Icon(Icons.subdirectory_arrow_right, size: 16),
-        ),
-      ),
-      title: Text(
-        title,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: titleColor == null ? null : TextStyle(color: titleColor),
-      ),
-      trailing: trailing,
-      onTap: () {
-        if (isAll) {
-          widget.onSelectAll();
-        } else {
-          widget.onSelectFolder(row.folder);
-        }
+    final indentWidth = (24 + row.depth * 14).toDouble().clamp(24.0, 112.0);
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final maxW = constraints.maxWidth;
+        final showLeading = maxW >= 150;
+        final showTrailing = maxW >= 200;
+        return ListTile(
+          dense: true,
+          selected: selected,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+          horizontalTitleGap: 8,
+          minLeadingWidth: 0,
+          leading: showLeading
+              ? SizedBox(
+                  width: indentWidth,
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: row.depth == 0
+                        ? const Icon(Icons.folder_outlined, size: 18)
+                        : const Icon(Icons.subdirectory_arrow_right, size: 16),
+                  ),
+                )
+              : null,
+          title: Text(
+            title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: titleColor == null ? null : TextStyle(color: titleColor),
+          ),
+          trailing: showTrailing ? trailing : null,
+          onTap: () {
+            if (isAll) {
+              widget.onSelectAll();
+            } else {
+              widget.onSelectFolder(row.folder);
+            }
+          },
+        );
       },
     );
   }

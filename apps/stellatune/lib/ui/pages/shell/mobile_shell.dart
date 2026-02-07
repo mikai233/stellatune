@@ -24,9 +24,9 @@ class MobileShell extends StatelessWidget {
         label: l10n.navLibrary,
       ),
       NavigationDestination(
-        icon: const Icon(Icons.queue_music_outlined),
-        selectedIcon: const Icon(Icons.queue_music),
-        label: l10n.navQueue,
+        icon: const Icon(Icons.playlist_play_outlined),
+        selectedIcon: const Icon(Icons.playlist_play),
+        label: l10n.navPlaylists,
       ),
       NavigationDestination(
         icon: const Icon(Icons.settings_outlined),

@@ -42,6 +42,8 @@ class LibraryController extends Notifier<LibraryState> {
       unawaited(bridge.listRoots());
       unawaited(bridge.listFolders());
       unawaited(bridge.listExcludedFolders());
+      unawaited(bridge.listPlaylists());
+      unawaited(bridge.listLikedTrackIds());
       unawaited(_refreshTracks());
     });
 
@@ -91,10 +93,13 @@ class LibraryController extends Notifier<LibraryState> {
 
   void selectFolder(String folder) {
     final norm = _normalizePath(folder);
-    if (state.selectedFolder == norm) return;
+    if (state.selectedFolder == norm && state.selectedPlaylistId == null) {
+      return;
+    }
     // Selecting a folder defaults to recursive listing (include subfolders).
     state = state.copyWith(
       selectedFolder: norm,
+      selectedPlaylistId: null,
       includeSubfolders: true,
       lastError: null,
     );
@@ -102,8 +107,25 @@ class LibraryController extends Notifier<LibraryState> {
   }
 
   void selectAllMusic() {
-    if (state.selectedFolder.isEmpty) return;
-    state = state.copyWith(selectedFolder: '', lastError: null);
+    if (state.selectedFolder.isEmpty && state.selectedPlaylistId == null) {
+      return;
+    }
+    state = state.copyWith(
+      selectedFolder: '',
+      selectedPlaylistId: null,
+      lastError: null,
+    );
+    unawaited(_refreshTracks());
+  }
+
+  void selectPlaylist(int playlistId) {
+    if (playlistId <= 0) return;
+    if (state.selectedPlaylistId == playlistId) return;
+    state = state.copyWith(
+      selectedPlaylistId: playlistId,
+      selectedFolder: '',
+      lastError: null,
+    );
     unawaited(_refreshTracks());
   }
 
@@ -146,6 +168,12 @@ class LibraryController extends Notifier<LibraryState> {
   }
 
   Future<void> _refreshTracks() {
+    final playlistId = state.selectedPlaylistId;
+    if (playlistId != null) {
+      return ref
+          .read(libraryBridgeProvider)
+          .listPlaylistTracks(playlistId: playlistId, query: state.query);
+    }
     return ref
         .read(libraryBridgeProvider)
         .listTracks(
@@ -153,6 +181,71 @@ class LibraryController extends Notifier<LibraryState> {
           recursive: state.includeSubfolders,
           query: state.query,
         );
+  }
+
+  Future<void> createPlaylist(String name) {
+    return ref.read(libraryBridgeProvider).createPlaylist(name);
+  }
+
+  Future<void> renamePlaylist(int id, String name) {
+    return ref.read(libraryBridgeProvider).renamePlaylist(id: id, name: name);
+  }
+
+  Future<void> deletePlaylist(int id) {
+    if (state.selectedPlaylistId == id) {
+      state = state.copyWith(selectedPlaylistId: null, selectedFolder: '');
+    }
+    return ref.read(libraryBridgeProvider).deletePlaylist(id: id);
+  }
+
+  Future<void> addTrackToPlaylist(int playlistId, int trackId) {
+    return ref
+        .read(libraryBridgeProvider)
+        .addTrackToPlaylist(playlistId: playlistId, trackId: trackId);
+  }
+
+  Future<void> addTracksToPlaylist({
+    required int playlistId,
+    required List<int> trackIds,
+  }) {
+    return ref
+        .read(libraryBridgeProvider)
+        .addTracksToPlaylist(playlistId: playlistId, trackIds: trackIds);
+  }
+
+  Future<void> removeTrackFromPlaylist(int playlistId, int trackId) {
+    return ref
+        .read(libraryBridgeProvider)
+        .removeTrackFromPlaylist(playlistId: playlistId, trackId: trackId);
+  }
+
+  Future<void> removeTracksFromPlaylist({
+    required int playlistId,
+    required List<int> trackIds,
+  }) {
+    return ref
+        .read(libraryBridgeProvider)
+        .removeTracksFromPlaylist(playlistId: playlistId, trackIds: trackIds);
+  }
+
+  Future<void> moveTrackInPlaylist({
+    required int playlistId,
+    required int trackId,
+    required int newIndex,
+  }) {
+    return ref
+        .read(libraryBridgeProvider)
+        .moveTrackInPlaylist(
+          playlistId: playlistId,
+          trackId: trackId,
+          newIndex: newIndex,
+        );
+  }
+
+  Future<void> setTrackLiked(int trackId, bool liked) {
+    return ref
+        .read(libraryBridgeProvider)
+        .setTrackLiked(trackId: trackId, liked: liked);
   }
 
   void _onEvent(LibraryEvent event) {
@@ -174,14 +267,36 @@ class LibraryController extends Notifier<LibraryState> {
         unawaited(ref.read(libraryBridgeProvider).listRoots());
         unawaited(ref.read(libraryBridgeProvider).listFolders());
         unawaited(ref.read(libraryBridgeProvider).listExcludedFolders());
+        unawaited(ref.read(libraryBridgeProvider).listPlaylists());
+        unawaited(ref.read(libraryBridgeProvider).listLikedTrackIds());
         unawaited(_refreshTracks());
       },
       tracks: (folder, recursive, query, items) {
+        if (state.selectedPlaylistId != null) return;
         final folderN = _normalizePath(folder);
         if (folderN != state.selectedFolder) return;
         if (query != state.query) return;
         if (recursive != state.includeSubfolders) return;
         state = state.copyWith(results: items);
+      },
+      playlists: (items) {
+        final selected = state.selectedPlaylistId;
+        final selectedExists =
+            selected == null || items.any((p) => p.id == selected);
+        state = state.copyWith(
+          playlists: items,
+          selectedPlaylistId: selectedExists ? selected : null,
+        );
+      },
+      playlistTracks: (playlistId, query, items) {
+        if (state.selectedPlaylistId != playlistId) return;
+        if (query != state.query) return;
+        state = state.copyWith(results: items);
+      },
+      likedTrackIds: (trackIds) {
+        state = state.copyWith(
+          likedTrackIds: trackIds.map((v) => v.toInt()).toSet(),
+        );
       },
       scanProgress: (scanned, updated, skipped, errors) {
         state = state.copyWith(

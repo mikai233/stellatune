@@ -17,6 +17,8 @@ class CoverImage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final dpr = MediaQuery.devicePixelRatioOf(context).clamp(1.0, 2.0);
+    final decodeSize = (size * dpr).round().clamp(256, 896);
 
     final placeholder = Container(
       width: size,
@@ -47,8 +49,8 @@ class CoverImage extends StatelessWidget {
     final coverPath = '$coverDir${Platform.pathSeparator}$trackId';
     final provider = ResizeImage(
       FileImage(File(coverPath)),
-      width: (size * 2).toInt(),
-      height: (size * 2).toInt(),
+      width: decodeSize,
+      height: decodeSize,
       allowUpscaling: false,
     );
 

@@ -12,6 +12,7 @@
   "log": "Log",
 
   "navLibrary": "Library",
+  "navPlaylists": "Playlists",
   "navSources": "Sources",
   "navQueue": "Queue",
   "navSettings": "Settings",
@@ -19,6 +20,9 @@
   "libraryTitle": "Library",
   "sourcesTitle": "Sources",
   "queueTitle": "Queue",
+  "queueSourceTitle": "Current Queue Source",
+  "queueSourceHint": "Queue source changes only when you play a track from this view",
+  "queueSourceUnset": "Not set yet",
   "settingsTitle": "Settings",
   "sourcesTypeLabel": "Source type",
   "sourcesRefreshTypes": "Reload source types",
@@ -119,6 +123,51 @@
 
   "menuPlay": "Play",
   "menuEnqueue": "Enqueue",
+  "menuAddToPlaylist": "Add to playlist",
+  "menuRemoveFromCurrentPlaylist": "Remove from current playlist",
+
+  "playlistSectionTitle": "Playlists",
+  "foldersSectionTitle": "Folders",
+  "playlistCreateTooltip": "Create playlist",
+  "playlistCreateTitle": "Create playlist",
+  "playlistRenameTitle": "Rename playlist",
+  "playlistNameHint": "Enter playlist name",
+  "playlistDeleteTitle": "Delete playlist",
+  "playlistDeleteConfirm": "Delete playlist \"{name}\"?",
+  "@playlistDeleteConfirm": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "playlistRenameAction": "Rename",
+  "playlistDeleteAction": "Delete",
+  "playlistTrackCount": "{count} tracks",
+  "@playlistTrackCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "playlistEmptyHint": "No playlists yet",
+  "playlistSelectionCount": "{count} selected",
+  "@playlistSelectionCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "playlistSelectAll": "Select all",
+  "playlistAllSelected": "All selected",
+  "playlistBatchAddToPlaylist": "Add selected to playlist",
+  "playlistBatchRemoveFromCurrent": "Remove selected from current playlist",
+  "likedAddTooltip": "Add to Liked Music",
+  "likedRemoveTooltip": "Remove from Liked Music",
+  "likedPlaylistName": "Liked Music",
+  "ok": "OK",
 
   "queueShuffle": "Shuffle",
   "repeatOff": "Repeat: Off",

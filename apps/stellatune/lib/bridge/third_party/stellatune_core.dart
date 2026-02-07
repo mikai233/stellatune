@@ -9,7 +9,7 @@ import 'package:freezed_annotation/freezed_annotation.dart' hide protected;
 part 'stellatune_core.freezed.dart';
 
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `Command`, `LibraryCommand`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
 
 enum AudioBackend { shared, wasapiExclusive, asio }
 
@@ -295,6 +295,15 @@ sealed class LibraryEvent with _$LibraryEvent {
     required String query,
     required List<TrackLite> items,
   }) = LibraryEvent_SearchResult;
+  const factory LibraryEvent.playlists({required List<PlaylistLite> items}) =
+      LibraryEvent_Playlists;
+  const factory LibraryEvent.playlistTracks({
+    required PlatformInt64 playlistId,
+    required String query,
+    required List<TrackLite> items,
+  }) = LibraryEvent_PlaylistTracks;
+  const factory LibraryEvent.likedTrackIds({required Int64List trackIds}) =
+      LibraryEvent_LikedTrackIds;
   const factory LibraryEvent.error({required String message}) =
       LibraryEvent_Error;
   const factory LibraryEvent.log({required String message}) = LibraryEvent_Log;
@@ -554,6 +563,41 @@ class OutputSinkTypeDescriptor {
 }
 
 enum PlayerState { stopped, playing, paused, buffering }
+
+class PlaylistLite {
+  final PlatformInt64 id;
+  final String name;
+  final String? systemKey;
+  final PlatformInt64 trackCount;
+  final PlatformInt64? firstTrackId;
+
+  const PlaylistLite({
+    required this.id,
+    required this.name,
+    this.systemKey,
+    required this.trackCount,
+    this.firstTrackId,
+  });
+
+  @override
+  int get hashCode =>
+      id.hashCode ^
+      name.hashCode ^
+      systemKey.hashCode ^
+      trackCount.hashCode ^
+      firstTrackId.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is PlaylistLite &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          name == other.name &&
+          systemKey == other.systemKey &&
+          trackCount == other.trackCount &&
+          firstTrackId == other.firstTrackId;
+}
 
 class PluginDescriptor {
   final String id;

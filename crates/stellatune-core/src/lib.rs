@@ -206,6 +206,16 @@ pub struct TrackLite {
 
 #[flutter_rust_bridge::frb(non_opaque)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PlaylistLite {
+    pub id: i64,
+    pub name: String,
+    pub system_key: Option<String>,
+    pub track_count: i64,
+    pub first_track_id: Option<i64>,
+}
+
+#[flutter_rust_bridge::frb(non_opaque)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TrackDecodeInfo {
     pub sample_rate: u32,
     pub channels: u16,
@@ -297,6 +307,49 @@ pub enum LibraryCommand {
         limit: i64,
         offset: i64,
     },
+    ListPlaylists,
+    CreatePlaylist {
+        name: String,
+    },
+    RenamePlaylist {
+        id: i64,
+        name: String,
+    },
+    DeletePlaylist {
+        id: i64,
+    },
+    ListPlaylistTracks {
+        playlist_id: i64,
+        query: String,
+        limit: i64,
+        offset: i64,
+    },
+    AddTrackToPlaylist {
+        playlist_id: i64,
+        track_id: i64,
+    },
+    AddTracksToPlaylist {
+        playlist_id: i64,
+        track_ids: Vec<i64>,
+    },
+    RemoveTrackFromPlaylist {
+        playlist_id: i64,
+        track_id: i64,
+    },
+    RemoveTracksFromPlaylist {
+        playlist_id: i64,
+        track_ids: Vec<i64>,
+    },
+    MoveTrackInPlaylist {
+        playlist_id: i64,
+        track_id: i64,
+        new_index: i64,
+    },
+    ListLikedTrackIds,
+    SetTrackLiked {
+        track_id: i64,
+        liked: bool,
+    },
     Shutdown,
 }
 
@@ -335,6 +388,17 @@ pub enum LibraryEvent {
     SearchResult {
         query: String,
         items: Vec<TrackLite>,
+    },
+    Playlists {
+        items: Vec<PlaylistLite>,
+    },
+    PlaylistTracks {
+        playlist_id: i64,
+        query: String,
+        items: Vec<TrackLite>,
+    },
+    LikedTrackIds {
+        track_ids: Vec<i64>,
     },
     Error {
         message: String,

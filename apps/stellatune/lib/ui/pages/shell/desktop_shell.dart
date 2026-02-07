@@ -1,24 +1,38 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:stellatune/l10n/app_localizations.dart';
-import 'package:stellatune/ui/widgets/custom_title_bar.dart';
+import 'package:stellatune/ui/widgets/custom_title_bar.dart' show WindowButton;
 import 'package:stellatune/ui/widgets/now_playing_bar.dart';
+import 'package:window_manager/window_manager.dart';
+
+class DesktopTopBarAction {
+  const DesktopTopBarAction({
+    required this.icon,
+    required this.tooltip,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback? onPressed;
+}
 
 class DesktopShell extends StatelessWidget {
   const DesktopShell({
     super.key,
     required this.selectedIndex,
     required this.onDestinationSelected,
+    required this.topBarActions,
     required this.child,
   });
 
   final int selectedIndex;
   final ValueChanged<int> onDestinationSelected;
+  final List<DesktopTopBarAction> topBarActions;
   final Widget child;
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     final l10n = AppLocalizations.of(context)!;
     final destinations = <NavigationRailDestination>[
       NavigationRailDestination(
@@ -27,9 +41,9 @@ class DesktopShell extends StatelessWidget {
         label: Text(l10n.navLibrary),
       ),
       NavigationRailDestination(
-        icon: const Icon(Icons.queue_music_outlined),
-        selectedIcon: const Icon(Icons.queue_music),
-        label: Text(l10n.navQueue),
+        icon: const Icon(Icons.playlist_play_outlined),
+        selectedIcon: const Icon(Icons.playlist_play),
+        label: Text(l10n.navPlaylists),
       ),
       NavigationRailDestination(
         icon: const Icon(Icons.settings_outlined),
@@ -38,37 +52,195 @@ class DesktopShell extends StatelessWidget {
       ),
     ];
 
+    const topBarHeight = 50.0;
     return Scaffold(
+      backgroundColor: theme.colorScheme.surface,
       body: Column(
         children: [
-          if (Platform.isWindows || Platform.isLinux || Platform.isMacOS)
-            CustomTitleBar(
-              foregroundColor: Theme.of(context).colorScheme.onSurface,
-              backgroundColor: Theme.of(
-                context,
-              ).colorScheme.surfaceContainerLow,
-            ),
           Expanded(
-            child: Row(
+            child: Stack(
               children: [
-                NavigationRail(
-                  selectedIndex: selectedIndex,
-                  onDestinationSelected: onDestinationSelected,
-                  destinations: destinations,
-                  labelType: NavigationRailLabelType.all,
-                  groupAlignment: -1,
-                ),
-                const VerticalDivider(width: 1),
-                Expanded(
-                  child: Column(
-                    children: [
-                      Expanded(child: child),
-                      const NowPlayingBar(),
-                    ],
+                Positioned.fill(
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: topBarHeight),
+                    child: Row(
+                      children: [
+                        Container(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [
+                                theme.colorScheme.surfaceContainerLow,
+                                theme.colorScheme.surfaceContainerLowest,
+                              ],
+                            ),
+                            border: Border(
+                              right: BorderSide(
+                                color: theme.colorScheme.onSurface.withValues(
+                                  alpha: 0.10,
+                                ),
+                              ),
+                            ),
+                          ),
+                          child: NavigationRail(
+                            selectedIndex: selectedIndex,
+                            onDestinationSelected: onDestinationSelected,
+                            destinations: destinations,
+                            labelType: NavigationRailLabelType.all,
+                            groupAlignment: -1,
+                            backgroundColor: Colors.transparent,
+                            indicatorColor: theme.colorScheme.secondaryContainer
+                                .withValues(alpha: 0.72),
+                            useIndicator: true,
+                          ),
+                        ),
+                        Expanded(
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: [
+                                  theme.colorScheme.surface,
+                                  theme.colorScheme.surfaceContainerLowest
+                                      .withValues(alpha: 0.45),
+                                ],
+                              ),
+                            ),
+                            child: child,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
+                ),
+                Positioned(
+                  left: 0,
+                  top: 0,
+                  right: 0,
+                  child: _DesktopGlobalTopBar(actions: topBarActions),
                 ),
               ],
             ),
+          ),
+          const NowPlayingBar(),
+        ],
+      ),
+    );
+  }
+}
+
+class _DesktopGlobalTopBar extends StatelessWidget {
+  const _DesktopGlobalTopBar({required this.actions});
+
+  final List<DesktopTopBarAction> actions;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final topTintStrong =
+        Color.lerp(
+          theme.colorScheme.primaryContainer,
+          theme.colorScheme.surfaceContainerLow,
+          0.38,
+        ) ??
+        theme.colorScheme.surfaceContainerLow;
+    final topTintSoft =
+        Color.lerp(
+          theme.colorScheme.secondaryContainer,
+          theme.colorScheme.surfaceContainerLowest,
+          0.55,
+        ) ??
+        theme.colorScheme.surfaceContainerLowest;
+
+    return Container(
+      height: 50,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [topTintStrong, topTintSoft],
+        ),
+        border: Border(
+          bottom: BorderSide(
+            color: theme.colorScheme.primary.withValues(alpha: 0.24),
+          ),
+        ),
+      ),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 236,
+            child: DragToMoveArea(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Stellatune',
+                    maxLines: 1,
+                    overflow: TextOverflow.fade,
+                    softWrap: false,
+                    style: theme.textTheme.labelMedium?.copyWith(
+                      color: theme.colorScheme.onSurface.withValues(
+                        alpha: 0.66,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          if (actions.isNotEmpty)
+            Container(
+              height: 34,
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              decoration: BoxDecoration(
+                color: Color.alphaBlend(
+                  theme.colorScheme.primary.withValues(alpha: 0.10),
+                  theme.colorScheme.primaryContainer.withValues(alpha: 0.66),
+                ),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: theme.colorScheme.primary.withValues(alpha: 0.26),
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: actions.map((action) {
+                  return IconButton(
+                    visualDensity: VisualDensity.compact,
+                    tooltip: action.tooltip,
+                    onPressed: action.onPressed,
+                    icon: Icon(action.icon, size: 19),
+                  );
+                }).toList(),
+              ),
+            ),
+          Expanded(child: DragToMoveArea(child: const SizedBox.expand())),
+          WindowButton(
+            icon: Icons.minimize,
+            onPressed: () => windowManager.minimize(),
+            color: theme.colorScheme.onSurface,
+          ),
+          WindowButton(
+            icon: Icons.crop_square,
+            onPressed: () async {
+              if (await windowManager.isMaximized()) {
+                windowManager.restore();
+              } else {
+                windowManager.maximize();
+              }
+            },
+            color: theme.colorScheme.onSurface,
+          ),
+          WindowButton(
+            icon: Icons.close,
+            onPressed: () => windowManager.close(),
+            color: theme.colorScheme.onSurface,
+            isClose: true,
           ),
         ],
       ),

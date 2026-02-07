@@ -20,6 +20,7 @@ class BottomPlaybackBar extends StatefulWidget {
     required this.onSeek,
     required this.onVolumeChanged,
     required this.onPlayModeChanged,
+    required this.onQueuePressed,
     required this.foregroundColor,
     required this.onToggleMute,
     this.currentPath,
@@ -38,6 +39,7 @@ class BottomPlaybackBar extends StatefulWidget {
   final ValueChanged<int> onSeek;
   final ValueChanged<double> onVolumeChanged;
   final VoidCallback onPlayModeChanged;
+  final VoidCallback onQueuePressed;
   final Color foregroundColor;
   final String? currentPath;
   final int? sampleRate;
@@ -189,9 +191,8 @@ class _BottomPlaybackBarState extends State<BottomPlaybackBar> {
                       IconButton(
                         icon: Icon(Icons.menu, color: widget.foregroundColor),
                         iconSize: 24,
-                        onPressed: () {
-                          // TODO: Queue menu
-                        },
+                        tooltip: l10n.queueTitle,
+                        onPressed: widget.onQueuePressed,
                       ),
                     ],
                   ),
