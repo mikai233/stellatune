@@ -365,6 +365,7 @@ abstract class StellatuneApiApi extends BaseApi {
     required Player player,
     required bool matchTrackSampleRate,
     required bool gaplessPlayback,
+    required bool seekTrackFade,
   });
 
   Future<void> crateApiSetOutputSinkRoute({
@@ -2587,6 +2588,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
     required Player player,
     required bool matchTrackSampleRate,
     required bool gaplessPlayback,
+    required bool seekTrackFade,
   }) {
     return handler.executeNormal(
       NormalTask(
@@ -2595,6 +2597,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           sse_encode_RustOpaque_Player(player, serializer);
           sse_encode_bool(matchTrackSampleRate, serializer);
           sse_encode_bool(gaplessPlayback, serializer);
+          sse_encode_bool(seekTrackFade, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -2607,7 +2610,12 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           decodeErrorData: null,
         ),
         constMeta: kCrateApiSetOutputOptionsConstMeta,
-        argValues: [player, matchTrackSampleRate, gaplessPlayback],
+        argValues: [
+          player,
+          matchTrackSampleRate,
+          gaplessPlayback,
+          seekTrackFade,
+        ],
         apiImpl: this,
       ),
     );
@@ -2615,7 +2623,12 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
 
   TaskConstMeta get kCrateApiSetOutputOptionsConstMeta => const TaskConstMeta(
     debugName: "set_output_options",
-    argNames: ["player", "matchTrackSampleRate", "gaplessPlayback"],
+    argNames: [
+      "player",
+      "matchTrackSampleRate",
+      "gaplessPlayback",
+      "seekTrackFade",
+    ],
   );
 
   @override

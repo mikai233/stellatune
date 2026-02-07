@@ -2477,6 +2477,7 @@ fn wire__crate__api__set_output_options_impl(
             let api_player = <RustOpaqueMoi<Player>>::sse_decode(&mut deserializer);
             let api_match_track_sample_rate = <bool>::sse_decode(&mut deserializer);
             let api_gapless_playback = <bool>::sse_decode(&mut deserializer);
+            let api_seek_track_fade = <bool>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
                 transform_result_sse::<_, ()>((move || {
@@ -2485,6 +2486,7 @@ fn wire__crate__api__set_output_options_impl(
                             api_player,
                             api_match_track_sample_rate,
                             api_gapless_playback,
+                            api_seek_track_fade,
                         );
                     })?;
                     Ok(output_ok)

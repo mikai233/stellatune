@@ -182,10 +182,12 @@ class PlayerBridge {
   Future<void> setOutputOptions({
     required bool matchTrackSampleRate,
     required bool gaplessPlayback,
+    required bool seekTrackFade,
   }) => api.setOutputOptions(
     player: player,
     matchTrackSampleRate: matchTrackSampleRate,
     gaplessPlayback: gaplessPlayback,
+    seekTrackFade: seekTrackFade,
   );
 
   Future<void> preloadTrack(String path, {int positionMs = 0}) =>

@@ -314,6 +314,12 @@ abstract class AppLocalizations {
   /// **'Gapless playback (prefer stream reuse)'**
   String get settingsGaplessPlayback;
 
+  /// No description provided for @settingsSeekTrackFade.
+  ///
+  /// In en, this message translates to:
+  /// **'Fade on play/pause/seek/track switch'**
+  String get settingsSeekTrackFade;
+
   /// No description provided for @settingsPluginsTitle.
   ///
   /// In en, this message translates to:

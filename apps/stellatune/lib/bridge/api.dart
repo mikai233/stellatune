@@ -214,10 +214,12 @@ Future<void> setOutputOptions({
   required Player player,
   required bool matchTrackSampleRate,
   required bool gaplessPlayback,
+  required bool seekTrackFade,
 }) => StellatuneApi.instance.api.crateApiSetOutputOptions(
   player: player,
   matchTrackSampleRate: matchTrackSampleRate,
   gaplessPlayback: gaplessPlayback,
+  seekTrackFade: seekTrackFade,
 );
 
 Future<void> setOutputSinkRoute({

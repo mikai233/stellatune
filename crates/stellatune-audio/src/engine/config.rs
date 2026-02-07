@@ -13,6 +13,9 @@ pub(crate) const BUFFER_HIGH_WATERMARK_MS_EXCLUSIVE: i64 = 400;
 pub(crate) const BUFFER_PREFILL_CAP_MS: i64 = BUFFER_HIGH_WATERMARK_MS + 50;
 pub(crate) const BUFFER_PREFILL_CAP_MS_EXCLUSIVE: i64 = BUFFER_HIGH_WATERMARK_MS_EXCLUSIVE + 50;
 pub(crate) const UNDERRUN_LOG_INTERVAL: Duration = Duration::from_secs(1);
+pub(crate) const SEEK_TRACK_FADE_RAMP_MS: u64 = 80;
+pub(crate) const SEEK_TRACK_FADE_WAIT_TIMEOUT_MS: u64 = 140;
+pub(crate) const SEEK_TRACK_FADE_WAIT_POLL_MS: u64 = 2;
 
 pub(crate) const RESAMPLE_CHUNK_FRAMES: usize = 1024;
 // High-quality resampler preset.

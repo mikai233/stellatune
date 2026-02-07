@@ -123,6 +123,9 @@ class AppLocalizationsEn extends AppLocalizations {
       'Gapless playback (prefer stream reuse)';
 
   @override
+  String get settingsSeekTrackFade => 'Fade on play/pause/seek/track switch';
+
+  @override
   String get settingsPluginsTitle => 'Plugins';
 
   @override

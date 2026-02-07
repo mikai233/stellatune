@@ -11,6 +11,7 @@ use stellatune_output::{OutputError, OutputHandle, OutputSpec};
 
 use crate::engine::config::{
     BUFFER_PREFILL_CAP_MS, BUFFER_PREFILL_CAP_MS_EXCLUSIVE, RING_BUFFER_CAPACITY_MS,
+    SEEK_TRACK_FADE_RAMP_MS,
 };
 use crate::engine::decode::decode_thread;
 use crate::engine::decode::decoder::EngineDecoder;
@@ -176,6 +177,8 @@ pub(crate) struct OutputPipeline {
     pub(crate) output_enabled: Arc<AtomicBool>,
     pub(crate) buffered_samples: Arc<AtomicUsize>,
     pub(crate) underrun_callbacks: Arc<AtomicU64>,
+    pub(crate) transition_gain: Arc<AtomicU32>,
+    pub(crate) transition_target_gain: Arc<AtomicU32>,
     pub(crate) backend: stellatune_output::AudioBackend,
     pub(crate) device_id: Option<String>,
     pub(crate) device_output_enabled: bool,
@@ -188,6 +191,8 @@ pub(crate) struct PlaybackSession {
     pub(crate) output_enabled: Arc<AtomicBool>,
     pub(crate) buffered_samples: Arc<AtomicUsize>,
     pub(crate) underrun_callbacks: Arc<AtomicU64>,
+    pub(crate) transition_gain: Arc<AtomicU32>,
+    pub(crate) transition_target_gain: Arc<AtomicU32>,
     pub(crate) out_sample_rate: u32,
     pub(crate) out_channels: u16,
     pub(crate) track_info: TrackDecodeInfo,
@@ -486,12 +491,21 @@ fn create_output_pipeline(
     let output_enabled = Arc::new(AtomicBool::new(false));
     let buffered_samples = Arc::new(AtomicUsize::new(0));
     let underrun_callbacks = Arc::new(AtomicU64::new(0));
+    let transition_gain = Arc::new(AtomicU32::new(1.0f32.to_bits()));
+    let transition_target_gain = Arc::new(AtomicU32::new(1.0f32.to_bits()));
 
     let output = if device_output_enabled {
         let output_consumer = GatedConsumer {
             inner: Arc::clone(&consumer),
             enabled: Arc::clone(&output_enabled),
             volume,
+            transition_gain: Arc::clone(&transition_gain),
+            transition_target_gain: Arc::clone(&transition_target_gain),
+            transition_current: 1.0,
+            transition_step: (1.0
+                / ((out_spec.sample_rate as f32 * SEEK_TRACK_FADE_RAMP_MS as f32) / 1000.0)
+                    .max(1.0))
+            .min(1.0),
             buffered_samples: Arc::clone(&buffered_samples),
             underrun_callbacks: Arc::clone(&underrun_callbacks),
             scratch: vec![0.0; OUTPUT_CONSUMER_CHUNK_SAMPLES],
@@ -523,6 +537,8 @@ fn create_output_pipeline(
         output_enabled,
         buffered_samples,
         underrun_callbacks,
+        transition_gain,
+        transition_target_gain,
         backend,
         device_id,
         device_output_enabled,
@@ -673,6 +689,8 @@ pub(crate) fn start_session(
         output_enabled: Arc::clone(&pipeline.output_enabled),
         buffered_samples: Arc::clone(&pipeline.buffered_samples),
         underrun_callbacks: Arc::clone(&pipeline.underrun_callbacks),
+        transition_gain: Arc::clone(&pipeline.transition_gain),
+        transition_target_gain: Arc::clone(&pipeline.transition_target_gain),
         out_sample_rate: pipeline.out_sample_rate,
         out_channels: pipeline.out_channels,
         track_info,
@@ -683,11 +701,30 @@ struct GatedConsumer {
     inner: Arc<Mutex<RingBufferConsumer<f32>>>,
     enabled: Arc<AtomicBool>,
     volume: Arc<AtomicU32>,
+    transition_gain: Arc<AtomicU32>,
+    transition_target_gain: Arc<AtomicU32>,
+    transition_current: f32,
+    transition_step: f32,
     buffered_samples: Arc<AtomicUsize>,
     underrun_callbacks: Arc<AtomicU64>,
     scratch: Vec<f32>,
     scratch_len: usize,
     scratch_cursor: usize,
+}
+
+impl GatedConsumer {
+    fn next_transition_gain(&mut self) -> f32 {
+        let target =
+            f32::from_bits(self.transition_target_gain.load(Ordering::Relaxed)).clamp(0.0, 1.0);
+        if self.transition_current < target {
+            self.transition_current = (self.transition_current + self.transition_step).min(target);
+        } else if self.transition_current > target {
+            self.transition_current = (self.transition_current - self.transition_step).max(target);
+        }
+        self.transition_gain
+            .store(self.transition_current.to_bits(), Ordering::Relaxed);
+        self.transition_current
+    }
 }
 
 impl stellatune_output::SampleConsumer for GatedConsumer {
@@ -711,7 +748,8 @@ impl stellatune_output::SampleConsumer for GatedConsumer {
         let sample = self.scratch[self.scratch_cursor];
         self.scratch_cursor += 1;
         let v = f32::from_bits(self.volume.load(Ordering::Relaxed));
-        Some(sample * v)
+        let transition = self.next_transition_gain();
+        Some(sample * v * transition)
     }
 
     fn on_output(&mut self, requested: usize, provided: usize) {

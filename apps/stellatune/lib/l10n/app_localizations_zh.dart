@@ -121,6 +121,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsGaplessPlayback => '无缝播放（优先复用输出流）';
 
   @override
+  String get settingsSeekTrackFade => '播放/暂停/Seek/切歌时淡入淡出';
+
+  @override
   String get settingsPluginsTitle => '插件';
 
   @override

@@ -24,6 +24,7 @@ class SettingsStore {
   static const _keySelectedDeviceId = 'selected_device_id';
   static const _keyMatchTrackSampleRate = 'match_track_sample_rate';
   static const _keyGaplessPlayback = 'gapless_playback';
+  static const _keySeekTrackFade = 'seek_track_fade';
   static const _keyOutputSinkRoute = 'output_sink_route';
 
   final Box _box;
@@ -248,6 +249,14 @@ class SettingsStore {
   }
 
   Future<void> setGaplessPlayback(bool v) => _box.put(_keyGaplessPlayback, v);
+
+  bool get seekTrackFade {
+    final v = _box.get(_keySeekTrackFade, defaultValue: true);
+    if (v is bool) return v;
+    return true;
+  }
+
+  Future<void> setSeekTrackFade(bool v) => _box.put(_keySeekTrackFade, v);
 
   OutputSinkRoute? get outputSinkRoute {
     final raw = _box.get(_keyOutputSinkRoute);

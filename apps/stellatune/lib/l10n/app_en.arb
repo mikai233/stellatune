@@ -52,6 +52,7 @@
   },
   "settingsMatchTrackSampleRate": "Match track sample rate (Exclusive/ASIO)",
   "settingsGaplessPlayback": "Gapless playback (prefer stream reuse)",
+  "settingsSeekTrackFade": "Fade on play/pause/seek/track switch",
   "settingsPluginsTitle": "Plugins",
   "settingsPluginDir": "Plugin dir",
   "settingsNoPlugins": "No plugins installed.",

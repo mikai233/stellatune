@@ -622,6 +622,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                                   .setOutputOptions(
                                     matchTrackSampleRate: v,
                                     gaplessPlayback: store.gaplessPlayback,
+                                    seekTrackFade: store.seekTrackFade,
                                   );
                               setState(() {});
                             },
@@ -640,12 +641,31 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                                     matchTrackSampleRate:
                                         store.matchTrackSampleRate,
                                     gaplessPlayback: v,
+                                    seekTrackFade: store.seekTrackFade,
                                   );
                               setState(() {});
                             },
                           ),
                         ],
                       );
+                    },
+                  ),
+                  SwitchListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(l10n.settingsSeekTrackFade),
+                    value: ref.watch(settingsStoreProvider).seekTrackFade,
+                    onChanged: (v) async {
+                      final store = ref.read(settingsStoreProvider);
+                      await store.setSeekTrackFade(v);
+                      await ref
+                          .read(playerBridgeProvider)
+                          .setOutputOptions(
+                            matchTrackSampleRate: store.matchTrackSampleRate,
+                            gaplessPlayback: store.gaplessPlayback,
+                            seekTrackFade: v,
+                          );
+                      setState(() {});
                     },
                   ),
                   const SizedBox(height: 12),

@@ -52,6 +52,7 @@
   },
   "settingsMatchTrackSampleRate": "采样率匹配曲目（独占/ASIO）",
   "settingsGaplessPlayback": "无缝播放（优先复用输出流）",
+  "settingsSeekTrackFade": "播放/暂停/Seek/切歌时淡入淡出",
   "settingsPluginsTitle": "插件",
   "settingsPluginDir": "插件目录",
   "settingsNoPlugins": "未安装任何插件。",

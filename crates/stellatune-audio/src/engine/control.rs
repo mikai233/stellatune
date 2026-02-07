@@ -14,7 +14,8 @@ use stellatune_plugins::{PluginManager, default_host_vtable};
 
 use crate::engine::config::{
     BUFFER_HIGH_WATERMARK_MS, BUFFER_HIGH_WATERMARK_MS_EXCLUSIVE, BUFFER_LOW_WATERMARK_MS,
-    BUFFER_LOW_WATERMARK_MS_EXCLUSIVE, CONTROL_TICK_MS, UNDERRUN_LOG_INTERVAL,
+    BUFFER_LOW_WATERMARK_MS_EXCLUSIVE, CONTROL_TICK_MS, SEEK_TRACK_FADE_WAIT_POLL_MS,
+    SEEK_TRACK_FADE_WAIT_TIMEOUT_MS, UNDERRUN_LOG_INTERVAL,
 };
 use crate::engine::decode::decoder::open_engine_decoder;
 use crate::engine::event_hub::EventHub;
@@ -355,6 +356,7 @@ struct EngineState {
     selected_device_id: Option<String>,
     match_track_sample_rate: bool,
     gapless_playback: bool,
+    seek_track_fade: bool,
     desired_output_sink_route: Option<stellatune_core::OutputSinkRoute>,
     output_sink_worker: Option<OutputSinkWorker>,
     output_pipeline: Option<OutputPipeline>,
@@ -403,6 +405,7 @@ impl EngineState {
             selected_device_id: None,
             match_track_sample_rate: false,
             gapless_playback: true,
+            seek_track_fade: true,
             desired_output_sink_route: None,
             output_sink_worker: None,
             output_pipeline: None,
@@ -742,6 +745,7 @@ fn handle_command(
 ) -> bool {
     match cmd {
         Command::LoadTrack { path } => {
+            maybe_fade_out_before_disrupt(state);
             stop_decode_session(state, track_info);
             state.current_track = Some(path.clone());
             state.position_ms = 0;
@@ -768,6 +772,7 @@ fn handle_command(
                 });
                 return false;
             };
+            maybe_fade_out_before_disrupt(state);
             stop_decode_session(state, track_info);
             state.current_track = Some(path.clone());
             state.position_ms = 0;
@@ -861,6 +866,16 @@ fn handle_command(
             }
 
             if let Some(session) = state.session.as_ref() {
+                if state.seek_track_fade {
+                    session
+                        .transition_gain
+                        .store(0.0f32.to_bits(), Ordering::Relaxed);
+                    session
+                        .transition_target_gain
+                        .store(0.0f32.to_bits(), Ordering::Relaxed);
+                } else {
+                    force_transition_gain_unity(Some(session));
+                }
                 session.output_enabled.store(false, Ordering::Release);
                 let _ = session.ctrl_tx.send(DecodeCtrl::Play);
             }
@@ -871,6 +886,7 @@ fn handle_command(
         }
         Command::Pause => {
             if let Some(session) = state.session.as_ref() {
+                maybe_fade_out_before_disrupt(state);
                 session.output_enabled.store(false, Ordering::Release);
                 let _ = session.ctrl_tx.send(DecodeCtrl::Pause);
             }
@@ -887,6 +903,7 @@ fn handle_command(
                 return false;
             };
 
+            maybe_fade_out_before_disrupt(state);
             state.position_ms = (position_ms as i64).max(0);
             events.emit(Event::Position {
                 ms: state.position_ms,
@@ -959,7 +976,13 @@ fn handle_command(
         Command::SetOutputOptions {
             match_track_sample_rate,
             gapless_playback,
+            seek_track_fade,
         } => {
+            if !seek_track_fade {
+                force_transition_gain_unity(state.session.as_ref());
+            }
+            state.seek_track_fade = seek_track_fade;
+
             let changed = state.match_track_sample_rate != match_track_sample_rate
                 || state.gapless_playback != gapless_playback;
             if changed {
@@ -1229,6 +1252,38 @@ fn ui_volume_to_gain(ui: f32) -> f32 {
     10.0_f32.powf(db / 20.0)
 }
 
+fn maybe_fade_out_before_disrupt(state: &EngineState) {
+    if !state.seek_track_fade || state.player_state != PlayerState::Playing {
+        return;
+    }
+    let Some(session) = state.session.as_ref() else {
+        return;
+    };
+    session
+        .transition_target_gain
+        .store(0.0f32.to_bits(), Ordering::Relaxed);
+    let started = Instant::now();
+    while started.elapsed().as_millis() < SEEK_TRACK_FADE_WAIT_TIMEOUT_MS as u128 {
+        let current = f32::from_bits(session.transition_gain.load(Ordering::Relaxed));
+        if current <= 0.05 {
+            break;
+        }
+        thread::sleep(Duration::from_millis(SEEK_TRACK_FADE_WAIT_POLL_MS));
+    }
+}
+
+fn force_transition_gain_unity(session: Option<&PlaybackSession>) {
+    let Some(session) = session else {
+        return;
+    };
+    session
+        .transition_target_gain
+        .store(1.0f32.to_bits(), Ordering::Relaxed);
+    session
+        .transition_gain
+        .store(1.0f32.to_bits(), Ordering::Relaxed);
+}
+
 fn set_state(state: &mut EngineState, events: &Arc<EventHub>, new_state: PlayerState) {
     if state.player_state == new_state {
         return;
@@ -1421,6 +1476,13 @@ fn handle_tick(
         PlayerState::Buffering => {
             if buffered_ms >= high_watermark_ms {
                 session.output_enabled.store(true, Ordering::Release);
+                if state.seek_track_fade {
+                    session
+                        .transition_target_gain
+                        .store(1.0f32.to_bits(), Ordering::Relaxed);
+                } else {
+                    force_transition_gain_unity(Some(session));
+                }
                 set_state(state, events, PlayerState::Playing);
                 let elapsed_ms = state
                     .play_request_started_at

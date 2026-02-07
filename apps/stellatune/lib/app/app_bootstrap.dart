@@ -112,6 +112,7 @@ Future<void> _applyPersistedOutputSettings({
     await bridge.setOutputOptions(
       matchTrackSampleRate: settings.matchTrackSampleRate,
       gaplessPlayback: settings.gaplessPlayback,
+      seekTrackFade: settings.seekTrackFade,
     );
     final route = settings.outputSinkRoute;
     if (route == null) {
