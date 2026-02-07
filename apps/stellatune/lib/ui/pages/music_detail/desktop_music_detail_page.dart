@@ -183,9 +183,21 @@ class _DesktopMusicDetailPageState
       }
     }
 
-    // Trigger palette update
-    if (trackId != null) {
-      _updatePalette(coverDir, trackId);
+    // Trigger palette update and other side effects when track changes
+    ref.listen(queueControllerProvider.select((s) => s.currentItem?.id), (
+      previous,
+      next,
+    ) {
+      if (next != null) {
+        _updatePalette(ref.read(coverDirProvider), next);
+      }
+    });
+
+    // Initial palette load if needed
+    if (_lastLoadedCover == null && trackId != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _updatePalette(coverDir, trackId);
+      });
     }
 
     final isPlaying =
