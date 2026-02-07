@@ -40,14 +40,6 @@ class _ShellPageState extends ConsumerState<ShellPage> {
       _ => SettingsPage(key: _settingsPageKey, useGlobalTopBar: !isMobile),
     };
 
-    if (isMobile) {
-      return MobileShell(
-        selectedIndex: _index,
-        onDestinationSelected: (v) => setState(() => _index = v),
-        child: body,
-      );
-    }
-
     final topBarActions = switch (_index) {
       0 => <DesktopTopBarAction>[
         DesktopTopBarAction(
@@ -116,11 +108,19 @@ class _ShellPageState extends ConsumerState<ShellPage> {
       _ => const <DesktopTopBarAction>[],
     };
 
-    return DesktopShell(
-      selectedIndex: _index,
-      onDestinationSelected: (v) => setState(() => _index = v),
-      topBarActions: topBarActions,
-      child: Stack(children: [body, const OpenContainerShaderWarmup()]),
-    );
+    final shell = isMobile
+        ? MobileShell(
+            selectedIndex: _index,
+            onDestinationSelected: (v) => setState(() => _index = v),
+            child: body,
+          )
+        : DesktopShell(
+            selectedIndex: _index,
+            onDestinationSelected: (v) => setState(() => _index = v),
+            topBarActions: topBarActions,
+            child: body,
+          );
+
+    return Stack(children: [shell, const OpenContainerShaderWarmup()]);
   }
 }

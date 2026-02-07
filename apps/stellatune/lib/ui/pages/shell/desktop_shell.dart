@@ -1,3 +1,4 @@
+import 'package:animations/animations.dart';
 import 'package:flutter/material.dart';
 import 'package:stellatune/l10n/app_localizations.dart';
 import 'package:stellatune/ui/widgets/custom_title_bar.dart' show WindowButton;
@@ -108,7 +109,22 @@ class DesktopShell extends StatelessWidget {
                                 ],
                               ),
                             ),
-                            child: child,
+                            child: PageTransitionSwitcher(
+                              duration: const Duration(milliseconds: 300),
+                              reverse: false,
+                              transitionBuilder:
+                                  (child, animation, secondaryAnimation) {
+                                    return FadeThroughTransition(
+                                      animation: animation,
+                                      secondaryAnimation: secondaryAnimation,
+                                      child: child,
+                                    );
+                                  },
+                              child: KeyedSubtree(
+                                key: ValueKey(selectedIndex),
+                                child: child,
+                              ),
+                            ),
                           ),
                         ),
                       ],

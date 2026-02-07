@@ -1,3 +1,4 @@
+import 'package:animations/animations.dart';
 import 'package:flutter/material.dart';
 import 'package:stellatune/l10n/app_localizations.dart';
 import 'package:stellatune/ui/widgets/mobile_now_playing_bar.dart';
@@ -67,7 +68,20 @@ class MobileShell extends StatelessWidget {
       ),
       body: Column(
         children: [
-          Expanded(child: child),
+          Expanded(
+            child: PageTransitionSwitcher(
+              duration: const Duration(milliseconds: 300),
+              reverse: false,
+              transitionBuilder: (child, animation, secondaryAnimation) {
+                return FadeThroughTransition(
+                  animation: animation,
+                  secondaryAnimation: secondaryAnimation,
+                  child: child,
+                );
+              },
+              child: KeyedSubtree(key: ValueKey(selectedIndex), child: child),
+            ),
+          ),
           const MobileNowPlayingBar(),
         ],
       ),

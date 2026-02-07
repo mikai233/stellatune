@@ -47,6 +47,7 @@ class OpenContainerShaderWarmup extends ConsumerStatefulWidget {
 
 class _OpenContainerShaderWarmupState
     extends ConsumerState<OpenContainerShaderWarmup> {
+  static bool _globalCompleted = false;
   bool _queued = false;
 
   bool get _isDesktop =>
@@ -62,26 +63,27 @@ class _OpenContainerShaderWarmupState
   @override
   void initState() {
     super.initState();
-    if (!widget.enabled) return;
+    if (!widget.enabled || _globalCompleted) return;
     unawaited(ShaderBackground.preloadProgram());
     if (!_isDesktop) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || _queued) return;
+      if (!mounted || _queued || _globalCompleted) return;
       _queued = true;
       unawaited(_runWarmup());
     });
   }
 
   Future<void> _runWarmup() async {
+    if (_globalCompleted) return;
     final logger = ref.read(loggerProvider);
     final stopwatch = Stopwatch()..start();
     final colors = await _resolveWarmupColors();
-    if (!mounted) return;
+    if (!mounted || _globalCompleted) return;
     final overlay = Overlay.maybeOf(context, rootOverlay: true);
     if (overlay == null) return;
 
     for (int i = 0; i < widget.cycles; i++) {
-      if (!mounted) break;
+      if (!mounted || _globalCompleted) break;
       final done = Completer<void>();
       final entry = OverlayEntry(
         builder: (_) => IgnorePointer(
@@ -160,6 +162,8 @@ class _OpenContainerShaderWarmupState
       }
     }
 
+    if (_globalCompleted) return;
+    _globalCompleted = true;
     stopwatch.stop();
     logger.d(
       '[Warmup] OpenContainer+Shader warmup completed: '
