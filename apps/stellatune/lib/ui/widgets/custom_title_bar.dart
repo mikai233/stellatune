@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:window_manager/window_manager.dart';
+import 'package:stellatune/l10n/app_localizations.dart';
 
 class CustomTitleBar extends StatelessWidget {
   const CustomTitleBar({
@@ -26,13 +27,24 @@ class CustomTitleBar extends StatelessWidget {
                 alignment: Alignment.centerLeft,
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: showTitle
-                    ? Text(
-                        'Stellatune',
-                        style: TextStyle(
-                          color: foregroundColor.withValues(alpha: 0.6),
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
-                        ),
+                    ? Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.music_note,
+                            size: 16,
+                            color: foregroundColor.withValues(alpha: 0.6),
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            AppLocalizations.of(context)!.appTitle,
+                            style: TextStyle(
+                              color: foregroundColor.withValues(alpha: 0.6),
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
                       )
                     : const SizedBox.shrink(),
               ),

@@ -9,7 +9,7 @@ class AppLocalizationsZh extends AppLocalizations {
   AppLocalizationsZh([String locale = 'zh']) : super(locale);
 
   @override
-  String get appTitle => 'StellaTune';
+  String get appTitle => '星律';
 
   @override
   String get openFile => '打开文件';

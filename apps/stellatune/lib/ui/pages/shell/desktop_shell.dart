@@ -139,6 +139,8 @@ class _DesktopGlobalTopBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final l10n = AppLocalizations.of(context)!;
+
     final topTintStrong =
         Color.lerp(
           theme.colorScheme.primaryContainer,
@@ -177,16 +179,29 @@ class _DesktopGlobalTopBar extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(horizontal: 12),
                 child: Align(
                   alignment: Alignment.centerLeft,
-                  child: Text(
-                    'Stellatune',
-                    maxLines: 1,
-                    overflow: TextOverflow.fade,
-                    softWrap: false,
-                    style: theme.textTheme.labelMedium?.copyWith(
-                      color: theme.colorScheme.onSurface.withValues(
-                        alpha: 0.66,
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.music_note_rounded,
+                        size: 20,
+                        color: theme.colorScheme.onSurface.withValues(
+                          alpha: 0.66,
+                        ),
                       ),
-                    ),
+                      const SizedBox(width: 8),
+                      Text(
+                        l10n.appTitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.fade,
+                        softWrap: false,
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                          color: theme.colorScheme.onSurface.withValues(
+                            alpha: 0.66,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),

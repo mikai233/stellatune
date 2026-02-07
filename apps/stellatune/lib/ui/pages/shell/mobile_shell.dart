@@ -36,7 +36,7 @@ class MobileShell extends StatelessWidget {
     ];
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Stellatune')),
+      appBar: AppBar(title: Text(l10n.appTitle)),
       drawer: Drawer(
         child: ListView(
           padding: EdgeInsets.zero,
@@ -46,7 +46,7 @@ class MobileShell extends StatelessWidget {
                 color: Theme.of(context).colorScheme.primary,
               ),
               child: Text(
-                'Stellatune',
+                l10n.appTitle,
                 style: TextStyle(
                   color: Theme.of(context).colorScheme.onPrimary,
                   fontSize: 24,

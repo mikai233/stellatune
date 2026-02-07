@@ -9,7 +9,7 @@ class AppLocalizationsEn extends AppLocalizations {
   AppLocalizationsEn([String locale = 'en']) : super(locale);
 
   @override
-  String get appTitle => 'StellaTune';
+  String get appTitle => 'Stellatune';
 
   @override
   String get openFile => 'Open File';
