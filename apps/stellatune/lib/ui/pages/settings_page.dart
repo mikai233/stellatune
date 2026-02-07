@@ -56,6 +56,10 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   List<Object?> _outputSinkTargets = const [];
   bool _loadingOutputSinkTargets = false;
   final Map<String, String> _sourceConfigDrafts = <String, String>{};
+  Set<String> _cachedLoadedPluginIds = <String>{};
+  bool _cachedLoadedPluginIdsReady = false;
+  List<SourceCatalogTypeDescriptor> _cachedSourceTypes = const [];
+  bool _cachedSourceTypesReady = false;
 
   @override
   void initState() {
@@ -105,6 +109,12 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     _outputSinkTypesFuture = null;
     _sourceTypesFuture = bridge.sourceListTypes();
     _installedPluginsFuture = _listInstalledPlugins();
+  }
+
+  void _refreshPluginRuntimeState() {
+    final bridge = ref.read(playerBridgeProvider);
+    _pluginsFuture = bridge.pluginsList();
+    _sourceTypesFuture = bridge.sourceListTypes();
   }
 
   Future<void> _ensurePluginDir() async {
@@ -206,7 +216,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
         .setPluginEnabled(pluginId: id, enabled: enabled);
     await _reloadPluginsWithCurrentDisabled();
     if (mounted) {
-      setState(_refresh);
+      setState(_refreshPluginRuntimeState);
     }
   }
 
@@ -839,10 +849,11 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                   FutureBuilder<List<_InstalledPlugin>>(
                     future: _installedPluginsFuture,
                     builder: (context, snap) {
-                      if (snap.connectionState != ConnectionState.done) {
+                      final items = snap.data ?? const <_InstalledPlugin>[];
+                      if (snap.connectionState != ConnectionState.done &&
+                          items.isEmpty) {
                         return const LinearProgressIndicator();
                       }
-                      final items = snap.data ?? const [];
                       if (items.isEmpty) {
                         return Text(l10n.settingsNoPlugins);
                       }
@@ -854,20 +865,39 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                       return FutureBuilder<List<PluginDescriptor>>(
                         future: _pluginsFuture,
                         builder: (context, loadedSnap) {
-                          final loadedKnown =
-                              loadedSnap.connectionState ==
-                              ConnectionState.done;
-                          final loadedIds =
-                              (loadedSnap.data ?? const <PluginDescriptor>[])
-                                  .map((p) => p.id)
-                                  .toSet();
+                          final loadedData = loadedSnap.data;
+                          if (loadedData != null) {
+                            _cachedLoadedPluginIds = loadedData
+                                .map((p) => p.id)
+                                .toSet();
+                            _cachedLoadedPluginIdsReady = true;
+                          } else if (loadedSnap.connectionState ==
+                              ConnectionState.done) {
+                            _cachedLoadedPluginIds = <String>{};
+                            _cachedLoadedPluginIdsReady = true;
+                          }
+                          final loadedKnown = _cachedLoadedPluginIdsReady;
+                          final loadedIds = _cachedLoadedPluginIds;
 
                           return FutureBuilder<
                             List<SourceCatalogTypeDescriptor>
                           >(
                             future: _sourceTypesFuture,
                             builder: (context, sourceSnap) {
-                              final sourceTypes = sourceSnap.data ?? const [];
+                              final sourceData = sourceSnap.data;
+                              if (sourceData != null) {
+                                _cachedSourceTypes = sourceData;
+                                _cachedSourceTypesReady = true;
+                              } else if (sourceSnap.connectionState ==
+                                  ConnectionState.done) {
+                                _cachedSourceTypes = const [];
+                                _cachedSourceTypesReady = true;
+                              }
+                              final sourceTypes =
+                                  sourceData ??
+                                  (_cachedSourceTypesReady
+                                      ? _cachedSourceTypes
+                                      : const <SourceCatalogTypeDescriptor>[]);
                               final sourceByPlugin =
                                   <String, List<SourceCatalogTypeDescriptor>>{};
                               for (final t in sourceTypes) {
