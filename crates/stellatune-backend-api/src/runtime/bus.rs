@@ -8,11 +8,11 @@ use stellatune_core::{
     ControlCommand, ControlScope, Event, HostControlFinishedPayload, HostControlResultPayload,
     HostEventTopic, LibraryEvent, PluginRuntimeEvent, PluginRuntimeKind,
 };
+use stellatune_plugin_protocol::{PluginControlRequest, RequestId};
 
 use super::SharedPlugins;
 use super::control::{
-    control_command_from_root, control_scope_from_root, is_wait_satisfied_by_library,
-    is_wait_satisfied_by_player,
+    control_scope_from_request, is_wait_satisfied_by_library, is_wait_satisfied_by_player,
 };
 use super::types::{PendingControlFinish, PluginRuntimeEventHub};
 
@@ -71,38 +71,60 @@ pub(super) fn broadcast_host_event_json(plugins: &SharedPlugins, event_json: Str
 }
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-pub(super) fn build_control_result_event_json(
-    root: Option<&serde_json::Value>,
+pub(super) fn build_control_result_payload(
+    request: Option<&PluginControlRequest>,
     error: Option<&str>,
-) -> String {
-    let scope = control_scope_from_root(root);
-    let payload = HostControlResultPayload {
+) -> HostControlResultPayload {
+    let scope = control_scope_from_request(request);
+    HostControlResultPayload {
         topic: HostEventTopic::HostControlResult,
-        request_id: root.and_then(|v| v.get("request_id")).cloned(),
+        request_id: request.and_then(PluginControlRequest::request_id).cloned(),
         scope,
-        command: control_command_from_root(root, scope),
+        command: request.map(PluginControlRequest::control_command),
         ok: error.is_none(),
         error: error.map(|v| v.to_string()),
-    };
-    serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string())
+    }
 }
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-pub(super) fn build_control_finished_event_json(
-    request_id: Option<serde_json::Value>,
+#[cfg(test)]
+pub(super) fn build_control_result_event_json(
+    request: Option<&PluginControlRequest>,
+    error: Option<&str>,
+) -> String {
+    serde_json::to_string(&build_control_result_payload(request, error))
+        .unwrap_or_else(|_| "{}".to_string())
+}
+
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+pub(super) fn build_control_finished_payload(
+    request_id: Option<RequestId>,
     scope: ControlScope,
     command: Option<ControlCommand>,
     error: Option<&str>,
-) -> String {
-    let payload = HostControlFinishedPayload {
+) -> HostControlFinishedPayload {
+    HostControlFinishedPayload {
         topic: HostEventTopic::HostControlFinished,
         request_id,
         scope,
         command,
         ok: error.is_none(),
         error: error.map(|v| v.to_string()),
-    };
-    serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string())
+    }
+}
+
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+#[cfg(test)]
+pub(super) fn build_control_finished_event_json(
+    request_id: Option<RequestId>,
+    scope: ControlScope,
+    command: Option<ControlCommand>,
+    error: Option<&str>,
+) -> String {
+    serde_json::to_string(&build_control_finished_payload(
+        request_id, scope, command, error,
+    ))
+    .unwrap_or_else(|_| "{}".to_string())
 }
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
@@ -120,7 +142,7 @@ pub(super) fn emit_runtime_event(
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 pub(super) struct ControlFinishedArgs<'a> {
     pub(super) plugin_id: &'a str,
-    pub(super) request_id: Option<serde_json::Value>,
+    pub(super) request_id: Option<RequestId>,
     pub(super) scope: ControlScope,
     pub(super) command: Option<ControlCommand>,
     pub(super) error: Option<&'a str>,
@@ -133,18 +155,21 @@ pub(super) fn emit_control_finished(
     engine: Option<&stellatune_audio::EngineHandle>,
     args: ControlFinishedArgs<'_>,
 ) {
-    let payload_json =
-        build_control_finished_event_json(args.request_id, args.scope, args.command, args.error);
-    push_plugin_host_event_json(plugins, args.plugin_id, payload_json.clone());
-    emit_runtime_event(
-        hub,
-        engine,
-        PluginRuntimeEvent {
-            plugin_id: args.plugin_id.to_string(),
-            kind: PluginRuntimeKind::ControlFinished,
-            payload_json,
-        },
-    );
+    let payload =
+        build_control_finished_payload(args.request_id, args.scope, args.command, args.error);
+    let payload_json = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string());
+    push_plugin_host_event_json(plugins, args.plugin_id, payload_json);
+    let event = PluginRuntimeEvent::from_payload(
+        args.plugin_id.to_string(),
+        PluginRuntimeKind::ControlFinished,
+        &payload,
+    )
+    .unwrap_or_else(|_| PluginRuntimeEvent {
+        plugin_id: args.plugin_id.to_string(),
+        kind: PluginRuntimeKind::ControlFinished,
+        payload_json: "{}".to_string(),
+    });
+    emit_runtime_event(hub, engine, event);
 }
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]

@@ -12,6 +12,22 @@ use tracing::debug;
 
 use super::Plugins;
 
+#[derive(Debug, serde::Deserialize)]
+struct PluginTrackMetadata {
+    #[serde(default)]
+    title: Option<String>,
+    #[serde(default)]
+    artist: Option<String>,
+    #[serde(default)]
+    album: Option<String>,
+    #[serde(default)]
+    duration_ms: Option<i64>,
+    #[serde(default)]
+    cover_base64: Option<String>,
+    #[serde(default)]
+    cover_bytes: Option<Vec<u8>>,
+}
+
 #[derive(Default)]
 pub(super) struct ExtractedMetadata {
     pub(super) title: Option<String>,
@@ -205,35 +221,27 @@ fn extract_plugin_metadata(path: &Path, plugins: &Plugins) -> Result<ExtractedMe
     };
 
     // Optional structured metadata from plugin.
-    if let Ok(Some(json)) = dec.metadata_json()
-        && let Ok(v) = serde_json::from_str::<serde_json::Value>(&json)
-    {
-        out.title = v
-            .get("title")
-            .and_then(|x| x.as_str())
+    if let Ok(Some(meta)) = dec.metadata::<PluginTrackMetadata>() {
+        out.title = meta
+            .title
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty());
-        out.artist = v
-            .get("artist")
-            .and_then(|x| x.as_str())
+        out.artist = meta
+            .artist
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty());
-        out.album = v
-            .get("album")
-            .and_then(|x| x.as_str())
+        out.album = meta
+            .album
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty());
 
         if out.duration_ms.is_none() {
-            out.duration_ms = v
-                .get("duration_ms")
-                .and_then(|x| x.as_i64())
-                .filter(|ms| *ms >= 0);
+            out.duration_ms = meta.duration_ms.filter(|ms| *ms >= 0);
         }
 
         if out.cover.is_none() {
             // Prefer base64 because JSON byte arrays are huge.
-            if let Some(s) = v.get("cover_base64").and_then(|x| x.as_str()) {
+            if let Some(s) = meta.cover_base64.as_deref() {
                 let s = s.trim();
                 if !s.is_empty()
                     && let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(s)
@@ -242,16 +250,11 @@ fn extract_plugin_metadata(path: &Path, plugins: &Plugins) -> Result<ExtractedMe
                 {
                     out.cover = Some(bytes);
                 }
-            } else if let Some(arr) = v.get("cover_bytes").and_then(|x| x.as_array()) {
-                let mut bytes = Vec::<u8>::with_capacity(arr.len());
-                for n in arr {
-                    if let Some(u) = n.as_u64().and_then(|u| u.try_into().ok()) {
-                        bytes.push(u);
-                    }
-                }
-                if !bytes.is_empty() && (bytes.len() as u64) <= COVER_BYTES_LIMIT {
-                    out.cover = Some(bytes);
-                }
+            } else if let Some(bytes) = meta.cover_bytes
+                && !bytes.is_empty()
+                && (bytes.len() as u64) <= COVER_BYTES_LIMIT
+            {
+                out.cover = Some(bytes);
             }
         }
     }

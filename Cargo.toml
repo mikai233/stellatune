@@ -12,6 +12,7 @@ members = [
   "crates/stellatune-mixer",
   "crates/stellatune-output",
   "crates/stellatune-plugin-api",
+  "crates/stellatune-plugin-protocol",
   "crates/stellatune-plugin-ncm",
   "crates/stellatune-plugin-sdk",
   "crates/stellatune-plugins",
@@ -35,6 +36,7 @@ stellatune-ffi = { path = "crates/stellatune-ffi" }
 stellatune-library = { path = "crates/stellatune-library" }
 stellatune-output = { path = "crates/stellatune-output" }
 stellatune-plugin-api = { path = "crates/stellatune-plugin-api" }
+stellatune-plugin-protocol = { path = "crates/stellatune-plugin-protocol" }
 stellatune-plugins = { path = "crates/stellatune-plugins" }
 stellatune-plugin-sdk = { path = "crates/stellatune-plugin-sdk" }
 stellatune-mixer = { path = "crates/stellatune-mixer" }

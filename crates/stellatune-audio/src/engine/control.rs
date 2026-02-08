@@ -35,6 +35,21 @@ const PLUGIN_SINK_FALLBACK_SAMPLE_RATE: u32 = 48_000;
 const PLUGIN_SINK_FALLBACK_CHANNELS: u16 = 2;
 type SharedTrackInfo = Arc<ArcSwapOption<stellatune_core::TrackDecodeInfo>>;
 
+#[derive(Debug, Clone)]
+struct DspChainEntry {
+    plugin_id: String,
+    type_id: String,
+    config: serde_json::Value,
+}
+
+#[derive(Debug, Clone)]
+struct OutputSinkRouteSpec {
+    plugin_id: String,
+    type_id: String,
+    config: serde_json::Value,
+    target: serde_json::Value,
+}
+
 mod debug_metrics {
     #[cfg(debug_assertions)]
     use super::DEBUG_PRELOAD_LOG_EVERY;
@@ -256,13 +271,18 @@ impl EngineHandle {
             .collect()
     }
 
-    pub fn source_list_items_json(
+    pub fn source_list_items<C, R, Items>(
         &self,
         plugin_id: &str,
         type_id: &str,
-        config_json: &str,
-        request_json: &str,
-    ) -> Result<String, String> {
+        config: &C,
+        request: &R,
+    ) -> Result<Items, String>
+    where
+        C: serde::Serialize,
+        R: serde::Serialize,
+        Items: serde::de::DeserializeOwned,
+    {
         let pm = self
             .plugins
             .lock()
@@ -270,16 +290,20 @@ impl EngineHandle {
         let key = pm
             .find_source_catalog_key(plugin_id, type_id)
             .ok_or_else(|| format!("source catalog not found: {}::{}", plugin_id, type_id))?;
-        pm.source_list_items_json(key, config_json, request_json)
+        pm.source_list_items(key, config, request)
             .map_err(|e| e.to_string())
     }
 
-    pub fn lyrics_provider_search_json(
+    pub fn lyrics_provider_search<Q, Resp>(
         &self,
         plugin_id: &str,
         type_id: &str,
-        query_json: &str,
-    ) -> Result<String, String> {
+        query: &Q,
+    ) -> Result<Resp, String>
+    where
+        Q: serde::Serialize,
+        Resp: serde::de::DeserializeOwned,
+    {
         let pm = self
             .plugins
             .lock()
@@ -287,16 +311,19 @@ impl EngineHandle {
         let key = pm
             .find_lyrics_provider_key(plugin_id, type_id)
             .ok_or_else(|| format!("lyrics provider not found: {}::{}", plugin_id, type_id))?;
-        pm.lyrics_search_json(key, query_json)
-            .map_err(|e| e.to_string())
+        pm.lyrics_search(key, query).map_err(|e| e.to_string())
     }
 
-    pub fn lyrics_provider_fetch_json(
+    pub fn lyrics_provider_fetch<T, Resp>(
         &self,
         plugin_id: &str,
         type_id: &str,
-        track_json: &str,
-    ) -> Result<String, String> {
+        track: &T,
+    ) -> Result<Resp, String>
+    where
+        T: serde::Serialize,
+        Resp: serde::de::DeserializeOwned,
+    {
         let pm = self
             .plugins
             .lock()
@@ -304,16 +331,19 @@ impl EngineHandle {
         let key = pm
             .find_lyrics_provider_key(plugin_id, type_id)
             .ok_or_else(|| format!("lyrics provider not found: {}::{}", plugin_id, type_id))?;
-        pm.lyrics_fetch_json(key, track_json)
-            .map_err(|e| e.to_string())
+        pm.lyrics_fetch(key, track).map_err(|e| e.to_string())
     }
 
-    pub fn output_sink_list_targets_json(
+    pub fn output_sink_list_targets<C, Targets>(
         &self,
         plugin_id: &str,
         type_id: &str,
-        config_json: &str,
-    ) -> Result<String, String> {
+        config: &C,
+    ) -> Result<Targets, String>
+    where
+        C: serde::Serialize,
+        Targets: serde::de::DeserializeOwned,
+    {
         let pm = self
             .plugins
             .lock()
@@ -321,7 +351,7 @@ impl EngineHandle {
         let key = pm
             .find_output_sink_key(plugin_id, type_id)
             .ok_or_else(|| format!("output sink not found: {}::{}", plugin_id, type_id))?;
-        pm.output_list_targets_json(key, config_json)
+        pm.output_list_targets(key, config)
             .map_err(|e| e.to_string())
     }
 
@@ -397,14 +427,14 @@ struct EngineState {
     output_spec_prewarm_inflight: bool,
     output_spec_token: u64,
     pending_session_start: bool,
-    desired_dsp_chain: Vec<stellatune_core::DspChainItem>,
+    desired_dsp_chain: Vec<DspChainEntry>,
     lfe_mode: stellatune_core::LfeMode,
     selected_backend: stellatune_core::AudioBackend,
     selected_device_id: Option<String>,
     match_track_sample_rate: bool,
     gapless_playback: bool,
     seek_track_fade: bool,
-    desired_output_sink_route: Option<stellatune_core::OutputSinkRoute>,
+    desired_output_sink_route: Option<OutputSinkRouteSpec>,
     output_sink_worker: Option<OutputSinkWorker>,
     output_pipeline: Option<OutputPipeline>,
     decode_worker: Option<DecodeWorker>,
@@ -556,6 +586,44 @@ fn run_control_loop(channels: ControlLoopChannels, deps: ControlLoopDeps) {
     info!("control thread exited");
 }
 
+fn parse_dsp_chain(
+    chain: Vec<stellatune_core::DspChainItem>,
+) -> Result<Vec<DspChainEntry>, String> {
+    chain
+        .into_iter()
+        .map(|item| {
+            let config = item.config::<serde_json::Value>().map_err(|e| {
+                format!(
+                    "invalid dsp config_json for {}::{}: {e}",
+                    item.plugin_id, item.type_id
+                )
+            })?;
+            Ok(DspChainEntry {
+                plugin_id: item.plugin_id,
+                type_id: item.type_id,
+                config,
+            })
+        })
+        .collect()
+}
+
+fn parse_output_sink_route(
+    route: stellatune_core::OutputSinkRoute,
+) -> Result<OutputSinkRouteSpec, String> {
+    let config = route
+        .config::<serde_json::Value>()
+        .map_err(|e| format!("invalid output sink route config_json: {e}"))?;
+    let target = route
+        .target::<serde_json::Value>()
+        .map_err(|e| format!("invalid output sink route target_json: {e}"))?;
+    Ok(OutputSinkRouteSpec {
+        plugin_id: route.plugin_id,
+        type_id: route.type_id,
+        config,
+        target,
+    })
+}
+
 fn handle_engine_ctrl(
     msg: EngineCtrl,
     state: &mut EngineState,
@@ -565,7 +633,14 @@ fn handle_engine_ctrl(
 ) {
     match msg {
         EngineCtrl::SetDspChain { chain } => {
-            state.desired_dsp_chain = chain;
+            let parsed = match parse_dsp_chain(chain) {
+                Ok(parsed) => parsed,
+                Err(message) => {
+                    events.emit(Event::Error { message });
+                    return;
+                }
+            };
+            state.desired_dsp_chain = parsed;
             if state.session.is_some()
                 && let Err(message) = apply_dsp_chain(state, plugins)
             {
@@ -1088,8 +1163,15 @@ fn handle_command(
             }
         }
         Command::SetOutputSinkRoute { route } => {
+            let parsed_route = match parse_output_sink_route(route) {
+                Ok(route) => route,
+                Err(message) => {
+                    events.emit(Event::Error { message });
+                    return false;
+                }
+            };
             let mode_changed = state.desired_output_sink_route.is_none();
-            state.desired_output_sink_route = Some(route);
+            state.desired_output_sink_route = Some(parsed_route);
             if mode_changed {
                 state.cached_output_spec = None;
                 state.output_spec_prewarm_inflight = false;
@@ -1669,7 +1751,7 @@ fn apply_dsp_chain(
                 key,
                 session.out_sample_rate,
                 session.out_channels,
-                &item.config_json,
+                &item.config,
             )
             .map_err(|e| {
                 format!(
@@ -1686,7 +1768,7 @@ fn apply_dsp_chain(
 
 fn open_output_sink_worker(
     plugins: &Arc<Mutex<PluginManager>>,
-    route: &stellatune_core::OutputSinkRoute,
+    route: &OutputSinkRouteSpec,
     sample_rate: u32,
     channels: u16,
 ) -> Result<OutputSinkWorker, String> {
@@ -1704,8 +1786,8 @@ fn open_output_sink_worker(
     let sink = pm
         .output_open(
             key,
-            &route.config_json,
-            &route.target_json,
+            &route.config,
+            &route.target,
             StAudioSpec {
                 sample_rate,
                 channels,

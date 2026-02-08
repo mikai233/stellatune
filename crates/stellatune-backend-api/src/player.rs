@@ -152,9 +152,16 @@ impl PlayerService {
         config_json: String,
         request_json: String,
     ) -> Result<String> {
-        self.engine
-            .source_list_items_json(&plugin_id, &type_id, &config_json, &request_json)
-            .map_err(|e| anyhow::anyhow!(e))
+        let config = serde_json::from_str::<serde_json::Value>(&config_json)
+            .map_err(|e| anyhow::anyhow!("invalid source config_json: {e}"))?;
+        let request = serde_json::from_str::<serde_json::Value>(&request_json)
+            .map_err(|e| anyhow::anyhow!("invalid source request_json: {e}"))?;
+        let response: serde_json::Value = self
+            .engine
+            .source_list_items(&plugin_id, &type_id, &config, &request)
+            .map_err(|e| anyhow::anyhow!(e))?;
+        serde_json::to_string(&response)
+            .map_err(|e| anyhow::anyhow!("serialize source list response: {e}"))
     }
 
     pub fn lyrics_provider_search_json(
@@ -163,9 +170,14 @@ impl PlayerService {
         type_id: String,
         query_json: String,
     ) -> Result<String> {
-        self.engine
-            .lyrics_provider_search_json(&plugin_id, &type_id, &query_json)
-            .map_err(|e| anyhow::anyhow!(e))
+        let query = serde_json::from_str::<serde_json::Value>(&query_json)
+            .map_err(|e| anyhow::anyhow!("invalid lyrics query_json: {e}"))?;
+        let response: serde_json::Value = self
+            .engine
+            .lyrics_provider_search(&plugin_id, &type_id, &query)
+            .map_err(|e| anyhow::anyhow!(e))?;
+        serde_json::to_string(&response)
+            .map_err(|e| anyhow::anyhow!("serialize lyrics search response: {e}"))
     }
 
     pub fn lyrics_provider_fetch_json(
@@ -174,9 +186,14 @@ impl PlayerService {
         type_id: String,
         track_json: String,
     ) -> Result<String> {
-        self.engine
-            .lyrics_provider_fetch_json(&plugin_id, &type_id, &track_json)
-            .map_err(|e| anyhow::anyhow!(e))
+        let track = serde_json::from_str::<serde_json::Value>(&track_json)
+            .map_err(|e| anyhow::anyhow!("invalid lyrics track_json: {e}"))?;
+        let response: serde_json::Value = self
+            .engine
+            .lyrics_provider_fetch(&plugin_id, &type_id, &track)
+            .map_err(|e| anyhow::anyhow!(e))?;
+        serde_json::to_string(&response)
+            .map_err(|e| anyhow::anyhow!("serialize lyrics fetch response: {e}"))
     }
 
     pub fn output_sink_list_targets_json(
@@ -185,9 +202,14 @@ impl PlayerService {
         type_id: String,
         config_json: String,
     ) -> Result<String> {
-        self.engine
-            .output_sink_list_targets_json(&plugin_id, &type_id, &config_json)
-            .map_err(|e| anyhow::anyhow!(e))
+        let config = serde_json::from_str::<serde_json::Value>(&config_json)
+            .map_err(|e| anyhow::anyhow!("invalid output sink config_json: {e}"))?;
+        let response: serde_json::Value = self
+            .engine
+            .output_sink_list_targets(&plugin_id, &type_id, &config)
+            .map_err(|e| anyhow::anyhow!(e))?;
+        serde_json::to_string(&response)
+            .map_err(|e| anyhow::anyhow!("serialize output sink targets: {e}"))
     }
 
     pub fn dsp_set_chain(&self, chain: Vec<DspChainItem>) {

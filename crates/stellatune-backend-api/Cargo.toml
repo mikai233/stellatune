@@ -20,4 +20,5 @@ url = "2.5.4"
 stellatune-audio.workspace = true
 stellatune-core.workspace = true
 stellatune-library.workspace = true
+stellatune-plugin-protocol.workspace = true
 stellatune-plugins.workspace = true

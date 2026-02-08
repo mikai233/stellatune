@@ -10,6 +10,13 @@ part 'stellatune_core.freezed.dart';
 
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `Command`, `ControlCommand`, `ControlScope`, `HostControlFinishedPayload`, `HostControlResultPayload`, `HostEventTopic`, `HostLibraryEventEnvelope`, `HostPlayerEventEnvelope`, `HostPlayerTickPayload`, `LibraryCommand`, `LibraryControlCommand`, `PlayerControlCommand`
 
+// Rust type: RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<RequestId>>
+abstract class RequestId implements RustOpaqueInterface {
+  Future<void> asStr();
+
+  Future<String> intoInner();
+}
+
 enum AudioBackend { shared, wasapiExclusive }
 
 class AudioDevice {

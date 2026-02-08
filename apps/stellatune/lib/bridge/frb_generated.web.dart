@@ -30,14 +30,36 @@ abstract class StellatuneApiApiImplPlatform
   CrossPlatformFinalizerArg get rust_arc_decrement_strong_count_PlayerPtr =>
       wire.rust_arc_decrement_strong_count_RustOpaque_Player;
 
+  CrossPlatformFinalizerArg
+  get rust_arc_decrement_strong_count_RequestIdPtr => wire
+      .rust_arc_decrement_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRequestId;
+
   @protected
   AnyhowException dco_decode_AnyhowException(dynamic raw);
+
+  @protected
+  RequestId
+  dco_decode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRequestId(
+    dynamic raw,
+  );
+
+  @protected
+  RequestId
+  dco_decode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRequestId(
+    dynamic raw,
+  );
 
   @protected
   Library dco_decode_RustOpaque_Library(dynamic raw);
 
   @protected
   Player dco_decode_RustOpaque_Player(dynamic raw);
+
+  @protected
+  RequestId
+  dco_decode_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRequestId(
+    dynamic raw,
+  );
 
   @protected
   RustStreamSink<Event> dco_decode_StreamSink_event_Sse(dynamic raw);
@@ -280,10 +302,28 @@ abstract class StellatuneApiApiImplPlatform
   AnyhowException sse_decode_AnyhowException(SseDeserializer deserializer);
 
   @protected
+  RequestId
+  sse_decode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRequestId(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  RequestId
+  sse_decode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRequestId(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   Library sse_decode_RustOpaque_Library(SseDeserializer deserializer);
 
   @protected
   Player sse_decode_RustOpaque_Player(SseDeserializer deserializer);
+
+  @protected
+  RequestId
+  sse_decode_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRequestId(
+    SseDeserializer deserializer,
+  );
 
   @protected
   RustStreamSink<Event> sse_decode_StreamSink_event_Sse(
@@ -565,10 +605,31 @@ abstract class StellatuneApiApiImplPlatform
   );
 
   @protected
+  void
+  sse_encode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRequestId(
+    RequestId self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void
+  sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRequestId(
+    RequestId self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_RustOpaque_Library(Library self, SseSerializer serializer);
 
   @protected
   void sse_encode_RustOpaque_Player(Player self, SseSerializer serializer);
+
+  @protected
+  void
+  sse_encode_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRequestId(
+    RequestId self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_StreamSink_event_Sse(
@@ -935,6 +996,22 @@ class StellatuneApiWire implements BaseWire {
 
   void rust_arc_decrement_strong_count_RustOpaque_Player(int ptr) =>
       wasmModule.rust_arc_decrement_strong_count_RustOpaque_Player(ptr);
+
+  void
+  rust_arc_increment_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRequestId(
+    int ptr,
+  ) => wasmModule
+      .rust_arc_increment_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRequestId(
+        ptr,
+      );
+
+  void
+  rust_arc_decrement_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRequestId(
+    int ptr,
+  ) => wasmModule
+      .rust_arc_decrement_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRequestId(
+        ptr,
+      );
 }
 
 @JS('wasm_bindgen')
@@ -950,4 +1027,14 @@ extension type StellatuneApiWasmModule._(JSObject _) implements JSObject {
   external void rust_arc_increment_strong_count_RustOpaque_Player(int ptr);
 
   external void rust_arc_decrement_strong_count_RustOpaque_Player(int ptr);
+
+  external void
+  rust_arc_increment_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRequestId(
+    int ptr,
+  );
+
+  external void
+  rust_arc_decrement_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRequestId(
+    int ptr,
+  );
 }

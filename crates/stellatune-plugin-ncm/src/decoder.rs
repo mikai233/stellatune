@@ -1,7 +1,9 @@
 use std::io::{Seek, SeekFrom};
 
 use stellatune_plugin_sdk::StLogLevel;
-use stellatune_plugin_sdk::{Decoder, DecoderDescriptor, DecoderInfo, DecoderOpenArgs};
+use stellatune_plugin_sdk::{
+    Decoder, DecoderDescriptor, DecoderInfo, DecoderOpenArgs, SdkError, SdkResult,
+};
 use symphonia::core::audio::{SampleBuffer, SignalSpec};
 use symphonia::core::codecs::{Decoder as SymphoniaDecoder, DecoderOptions};
 use symphonia::core::errors::Error as SymphoniaError;
@@ -13,7 +15,7 @@ use symphonia::core::units::Time;
 
 use crate::flac_offset::find_flac_streaminfo_start;
 use crate::io::NcmMediaSource;
-use crate::tags::{Tags, apply_revision, build_metadata_json};
+use crate::tags::{Tags, apply_revision, build_metadata};
 
 const NCM_MAGIC: &[u8; 8] = b"CTENFDAM";
 
@@ -33,13 +35,13 @@ struct SymphoniaBackend {
     spec: stellatune_plugin_sdk::StAudioSpec,
     sample_buf: Option<SampleBuffer<f32>>,
     pending: Vec<f32>,
-    metadata_json: Option<String>,
+    metadata: Option<serde_json::Value>,
     duration_ms: Option<u64>,
     seekable: bool,
 }
 
 impl NcmDecoder {
-    fn open_from_io(io: stellatune_plugin_sdk::HostIo) -> Result<Self, String> {
+    fn open_from_io(io: stellatune_plugin_sdk::HostIo) -> SdkResult<Self> {
         let mut io_copy = io;
         let file_size = io_copy.size().map_err(|e| e.to_string())?;
 
@@ -134,7 +136,7 @@ impl NcmDecoder {
         let channels = params.channels.as_ref().map(|c| c.count()).unwrap_or(0);
         let in_channels = channels as usize;
         if in_channels == 0 {
-            return Err("missing channels".to_string());
+            return Err(SdkError::msg("missing channels"));
         }
         let out_channels: u16 = if in_channels == 1 { 1 } else { 2 };
 
@@ -164,7 +166,7 @@ impl NcmDecoder {
             }
         }
 
-        let metadata_json = build_metadata_json(tags, duration_ms);
+        let metadata = build_metadata(tags, duration_ms);
         stellatune_plugin_sdk::host_log!(
             StLogLevel::Info,
             "ncm: opened sr={} ch={} hint_ext={:?} duration_ms={:?}",
@@ -187,7 +189,7 @@ impl NcmDecoder {
                 },
                 sample_buf: None,
                 pending: Vec::new(),
-                metadata_json,
+                metadata,
                 duration_ms,
                 seekable: true,
             }),
@@ -204,13 +206,13 @@ impl SymphoniaBackend {
         }
     }
 
-    fn metadata_json(&self) -> Option<String> {
-        self.metadata_json.clone()
+    fn metadata(&self) -> Option<serde_json::Value> {
+        self.metadata.clone()
     }
 
-    fn seek_ms(&mut self, position_ms: u64) -> Result<(), String> {
+    fn seek_ms(&mut self, position_ms: u64) -> SdkResult<()> {
         if !self.seekable {
-            return Err("seek not supported".to_string());
+            return Err(SdkError::msg("seek not supported"));
         }
         let secs = position_ms / 1000;
         let frac = (position_ms % 1000) as f64 / 1000.0;
@@ -234,10 +236,10 @@ impl SymphoniaBackend {
         &mut self,
         frames: u32,
         out_interleaved: &mut [f32],
-    ) -> Result<(u32, bool), String> {
+    ) -> SdkResult<(u32, bool)> {
         let want = (frames as usize).saturating_mul(self.spec.channels.max(1) as usize);
         if out_interleaved.len() < want {
-            return Err("output buffer too small".to_string());
+            return Err(SdkError::msg("output buffer too small"));
         }
 
         while self.pending.len() < want {
@@ -298,7 +300,7 @@ impl SymphoniaBackend {
                             self.decoder.reset();
                             continue;
                         }
-                        Err(e) => return Err(e.to_string()),
+                        Err(e) => return Err(SdkError::msg(e.to_string())),
                     }
                 }
                 Err(SymphoniaError::IoError(e))
@@ -306,7 +308,7 @@ impl SymphoniaBackend {
                 {
                     break;
                 }
-                Err(e) => return Err(e.to_string()),
+                Err(e) => return Err(SdkError::msg(e.to_string())),
             }
         }
 
@@ -322,19 +324,21 @@ impl SymphoniaBackend {
 }
 
 impl Decoder for NcmDecoder {
+    type Metadata = serde_json::Value;
+
     fn info(&self) -> DecoderInfo {
         match &self.backend {
             NcmBackend::Symphonia(b) => b.info(),
         }
     }
 
-    fn metadata_json(&self) -> Option<String> {
+    fn metadata(&self) -> Option<Self::Metadata> {
         match &self.backend {
-            NcmBackend::Symphonia(b) => b.metadata_json(),
+            NcmBackend::Symphonia(b) => b.metadata(),
         }
     }
 
-    fn seek_ms(&mut self, position_ms: u64) -> Result<(), String> {
+    fn seek_ms(&mut self, position_ms: u64) -> SdkResult<()> {
         match &mut self.backend {
             NcmBackend::Symphonia(b) => b.seek_ms(position_ms),
         }
@@ -344,7 +348,7 @@ impl Decoder for NcmDecoder {
         &mut self,
         frames: u32,
         out_interleaved: &mut [f32],
-    ) -> Result<(u32, bool), String> {
+    ) -> SdkResult<(u32, bool)> {
         match &mut self.backend {
             NcmBackend::Symphonia(b) => b.read_interleaved_f32(frames, out_interleaved),
         }
@@ -369,7 +373,7 @@ impl DecoderDescriptor for NcmDecoder {
         }
     }
 
-    fn open(args: DecoderOpenArgs<'_>) -> Result<Self, String> {
+    fn open(args: DecoderOpenArgs<'_>) -> SdkResult<Self> {
         let io = args.io;
         stellatune_plugin_sdk::host_log!(
             StLogLevel::Info,
@@ -379,7 +383,7 @@ impl DecoderDescriptor for NcmDecoder {
             io.is_seekable()
         );
         if !io.is_seekable() {
-            return Err("ncm: io must be seekable".to_string());
+            return Err(SdkError::msg("ncm: io must be seekable"));
         }
         Self::open_from_io(io)
     }

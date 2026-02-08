@@ -9,16 +9,18 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, anyhow};
 use libloading::{Library, Symbol};
-use serde::{Deserialize, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 use stellatune_core::{PluginRuntimeEvent, PluginRuntimeKind};
 use stellatune_plugin_api::{
     ST_ERR_INTERNAL, ST_ERR_INVALID_ARG, ST_ERR_IO, ST_INTERFACE_LYRICS_PROVIDER_V1,
-    ST_INTERFACE_OUTPUT_SINK_V1, ST_INTERFACE_SOURCE_CATALOG_V1, STELLATUNE_PLUGIN_API_VERSION_V1,
-    STELLATUNE_PLUGIN_ENTRY_SYMBOL_V1, StAudioSpec, StDecoderInfoV1, StDecoderOpenArgsV1,
-    StDecoderVTableV1, StHostVTableV1, StIoVTableV1, StLogLevel, StLyricsProviderVTableV1,
-    StOutputSinkVTableV1, StPluginEntryV1, StPluginVTableV1, StSeekWhence, StSourceCatalogVTableV1,
-    StStatus, StStr,
+    ST_INTERFACE_OUTPUT_SINKS_V1, ST_INTERFACE_SOURCE_CATALOGS_V1,
+    STELLATUNE_PLUGIN_API_VERSION_V1, STELLATUNE_PLUGIN_ENTRY_SYMBOL_V1, StAudioSpec,
+    StDecoderInfoV1, StDecoderOpenArgsV1, StDecoderVTableV1, StHostVTableV1, StIoVTableV1,
+    StLogLevel, StLyricsProviderVTableV1, StOutputSinkRegistryV1, StOutputSinkVTableV1,
+    StPluginEntryV1, StPluginVTableV1, StSeekWhence, StSourceCatalogRegistryV1,
+    StSourceCatalogVTableV1, StStatus, StStr,
 };
+use stellatune_plugin_protocol::PluginMetadata;
 use tracing::{debug, info, warn};
 
 pub use manifest::{
@@ -141,15 +143,6 @@ extern "C" fn plugin_host_free_str(_user_data: *mut core::ffi::c_void, s: StStr)
     free_host_owned_ststr(s);
 }
 
-#[derive(Debug, Clone, Deserialize)]
-struct PluginMetadataDoc {
-    id: String,
-    name: String,
-    api_version: u32,
-    #[serde(default)]
-    info: Option<serde_json::Value>,
-}
-
 #[derive(Debug, Clone, Serialize)]
 pub struct InstalledPluginInfo {
     pub id: String,
@@ -267,10 +260,17 @@ fn now_unix_ms() -> u64 {
         .unwrap_or(0)
 }
 
-fn metadata_info_json(metadata_json: Option<&str>) -> Option<String> {
-    let raw = metadata_json?;
-    let meta: PluginMetadataDoc = serde_json::from_str(raw).ok()?;
-    meta.info.and_then(|v| serde_json::to_string(&v).ok())
+fn to_json_string<T: Serialize>(value: &T, what: &str) -> Result<String> {
+    serde_json::to_string(value).with_context(|| format!("failed to serialize {what} to json"))
+}
+
+fn from_json_str<T: DeserializeOwned>(raw: &str, what: &str) -> Result<T> {
+    serde_json::from_str(raw).with_context(|| format!("failed to deserialize {what} from json"))
+}
+
+fn metadata_info_json(metadata: Option<&PluginMetadata>) -> Option<String> {
+    let meta = metadata?;
+    meta.info.as_ref().and_then(|v| serde_json::to_string(v).ok())
 }
 
 pub struct PluginLibrary {
@@ -619,6 +619,7 @@ pub struct DecoderTypeInfo {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SourceCatalogKey {
     pub plugin_index: usize,
+    pub source_catalog_index: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -649,6 +650,7 @@ pub struct LyricsProviderTypeInfo {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct OutputSinkKey {
     pub plugin_index: usize,
+    pub output_sink_index: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -879,6 +881,13 @@ impl DecoderInstance {
         Ok(Some(text))
     }
 
+    pub fn metadata<T: DeserializeOwned>(&mut self) -> Result<Option<T>> {
+        let Some(raw) = self.metadata_json()? else {
+            return Ok(None);
+        };
+        from_json_str(&raw, "decoder metadata").map(Some)
+    }
+
     pub fn seek_ms(&mut self, position_ms: u64) -> Result<()> {
         if self.handle.is_null() || self.vtable.is_null() {
             return Err(anyhow!("Decoder instance is not initialized"));
@@ -1048,34 +1057,64 @@ impl PluginManager {
         out
     }
 
+    fn source_catalog_registry_for_plugin(
+        &self,
+        plugin: &LoadedPlugin,
+    ) -> *const StSourceCatalogRegistryV1 {
+        plugin
+            .library
+            .get_interface_raw(ST_INTERFACE_SOURCE_CATALOGS_V1)
+            as *const StSourceCatalogRegistryV1
+    }
+
+    fn output_sink_registry_for_plugin(
+        &self,
+        plugin: &LoadedPlugin,
+    ) -> *const StOutputSinkRegistryV1 {
+        plugin
+            .library
+            .get_interface_raw(ST_INTERFACE_OUTPUT_SINKS_V1)
+            as *const StOutputSinkRegistryV1
+    }
+
     pub fn list_source_catalog_types(&self) -> Vec<SourceCatalogTypeInfo> {
         let mut out = Vec::new();
         for (plugin_index, p) in self.plugins.iter().enumerate() {
             if self.is_disabled(&p.manifest.id) {
                 continue;
             }
-            let vt = p.library.get_interface_raw(ST_INTERFACE_SOURCE_CATALOG_V1)
-                as *const StSourceCatalogVTableV1;
-            if vt.is_null() {
+            let registry = self.source_catalog_registry_for_plugin(p);
+            if registry.is_null() {
                 continue;
             }
             let plugin_id = p.library.id();
             let plugin_name = p.library.name();
-            let type_id = unsafe { util::ststr_to_string_lossy(((*vt).type_id_utf8)()) };
-            let display_name = unsafe { util::ststr_to_string_lossy(((*vt).display_name_utf8)()) };
-            let config_schema_json =
-                unsafe { util::ststr_to_string_lossy(((*vt).config_schema_json_utf8)()) };
-            let default_config_json =
-                unsafe { util::ststr_to_string_lossy(((*vt).default_config_json_utf8)()) };
-            out.push(SourceCatalogTypeInfo {
-                key: SourceCatalogKey { plugin_index },
-                plugin_id,
-                plugin_name,
-                type_id,
-                display_name,
-                config_schema_json,
-                default_config_json,
-            });
+            let count = unsafe { ((*registry).source_catalog_count)() };
+            for source_catalog_index in 0..count {
+                let vt = unsafe { ((*registry).source_catalog_get)(source_catalog_index) };
+                if vt.is_null() {
+                    continue;
+                }
+                let type_id = unsafe { util::ststr_to_string_lossy(((*vt).type_id_utf8)()) };
+                let display_name =
+                    unsafe { util::ststr_to_string_lossy(((*vt).display_name_utf8)()) };
+                let config_schema_json =
+                    unsafe { util::ststr_to_string_lossy(((*vt).config_schema_json_utf8)()) };
+                let default_config_json =
+                    unsafe { util::ststr_to_string_lossy(((*vt).default_config_json_utf8)()) };
+                out.push(SourceCatalogTypeInfo {
+                    key: SourceCatalogKey {
+                        plugin_index,
+                        source_catalog_index,
+                    },
+                    plugin_id: plugin_id.clone(),
+                    plugin_name: plugin_name.clone(),
+                    type_id,
+                    display_name,
+                    config_schema_json,
+                    default_config_json,
+                });
+            }
         }
         out
     }
@@ -1112,28 +1151,38 @@ impl PluginManager {
             if self.is_disabled(&p.manifest.id) {
                 continue;
             }
-            let vt = p.library.get_interface_raw(ST_INTERFACE_OUTPUT_SINK_V1)
-                as *const StOutputSinkVTableV1;
-            if vt.is_null() {
+            let registry = self.output_sink_registry_for_plugin(p);
+            if registry.is_null() {
                 continue;
             }
             let plugin_id = p.library.id();
             let plugin_name = p.library.name();
-            let type_id = unsafe { util::ststr_to_string_lossy(((*vt).type_id_utf8)()) };
-            let display_name = unsafe { util::ststr_to_string_lossy(((*vt).display_name_utf8)()) };
-            let config_schema_json =
-                unsafe { util::ststr_to_string_lossy(((*vt).config_schema_json_utf8)()) };
-            let default_config_json =
-                unsafe { util::ststr_to_string_lossy(((*vt).default_config_json_utf8)()) };
-            out.push(OutputSinkTypeInfo {
-                key: OutputSinkKey { plugin_index },
-                plugin_id,
-                plugin_name,
-                type_id,
-                display_name,
-                config_schema_json,
-                default_config_json,
-            });
+            let count = unsafe { ((*registry).output_sink_count)() };
+            for output_sink_index in 0..count {
+                let vt = unsafe { ((*registry).output_sink_get)(output_sink_index) };
+                if vt.is_null() {
+                    continue;
+                }
+                let type_id = unsafe { util::ststr_to_string_lossy(((*vt).type_id_utf8)()) };
+                let display_name =
+                    unsafe { util::ststr_to_string_lossy(((*vt).display_name_utf8)()) };
+                let config_schema_json =
+                    unsafe { util::ststr_to_string_lossy(((*vt).config_schema_json_utf8)()) };
+                let default_config_json =
+                    unsafe { util::ststr_to_string_lossy(((*vt).default_config_json_utf8)()) };
+                out.push(OutputSinkTypeInfo {
+                    key: OutputSinkKey {
+                        plugin_index,
+                        output_sink_index,
+                    },
+                    plugin_id: plugin_id.clone(),
+                    plugin_name: plugin_name.clone(),
+                    type_id,
+                    display_name,
+                    config_schema_json,
+                    default_config_json,
+                });
+            }
         }
         out
     }
@@ -1147,14 +1196,23 @@ impl PluginManager {
             if p.library.id() != plugin_id || self.is_disabled(&p.manifest.id) {
                 continue;
             }
-            let vt = p.library.get_interface_raw(ST_INTERFACE_SOURCE_CATALOG_V1)
-                as *const StSourceCatalogVTableV1;
-            if vt.is_null() {
+            let registry = self.source_catalog_registry_for_plugin(p);
+            if registry.is_null() {
                 continue;
             }
-            let tid = unsafe { util::ststr_to_string_lossy(((*vt).type_id_utf8)()) };
-            if tid == type_id {
-                return Some(SourceCatalogKey { plugin_index });
+            let count = unsafe { ((*registry).source_catalog_count)() };
+            for source_catalog_index in 0..count {
+                let vt = unsafe { ((*registry).source_catalog_get)(source_catalog_index) };
+                if vt.is_null() {
+                    continue;
+                }
+                let tid = unsafe { util::ststr_to_string_lossy(((*vt).type_id_utf8)()) };
+                if tid == type_id {
+                    return Some(SourceCatalogKey {
+                        plugin_index,
+                        source_catalog_index,
+                    });
+                }
             }
         }
         None
@@ -1187,14 +1245,23 @@ impl PluginManager {
             if p.library.id() != plugin_id || self.is_disabled(&p.manifest.id) {
                 continue;
             }
-            let vt = p.library.get_interface_raw(ST_INTERFACE_OUTPUT_SINK_V1)
-                as *const StOutputSinkVTableV1;
-            if vt.is_null() {
+            let registry = self.output_sink_registry_for_plugin(p);
+            if registry.is_null() {
                 continue;
             }
-            let tid = unsafe { util::ststr_to_string_lossy(((*vt).type_id_utf8)()) };
-            if tid == type_id {
-                return Some(OutputSinkKey { plugin_index });
+            let count = unsafe { ((*registry).output_sink_count)() };
+            for output_sink_index in 0..count {
+                let vt = unsafe { ((*registry).output_sink_get)(output_sink_index) };
+                if vt.is_null() {
+                    continue;
+                }
+                let tid = unsafe { util::ststr_to_string_lossy(((*vt).type_id_utf8)()) };
+                if tid == type_id {
+                    return Some(OutputSinkKey {
+                        plugin_index,
+                        output_sink_index,
+                    });
+                }
             }
         }
         None
@@ -1211,11 +1278,26 @@ impl PluginManager {
         if self.is_disabled(&p.manifest.id) {
             return Err(anyhow!("plugin `{}` is disabled", p.manifest.id));
         }
-        let vt = p.library.get_interface_raw(ST_INTERFACE_SOURCE_CATALOG_V1)
-            as *const StSourceCatalogVTableV1;
+        let registry = self.source_catalog_registry_for_plugin(p);
+        if registry.is_null() {
+            return Err(anyhow!(
+                "plugin `{}` does not provide source catalog interfaces",
+                p.manifest.id
+            ));
+        }
+        let count = unsafe { ((*registry).source_catalog_count)() };
+        if key.source_catalog_index >= count {
+            return Err(anyhow!(
+                "invalid source_catalog_index {} for plugin `{}`",
+                key.source_catalog_index,
+                p.manifest.id
+            ));
+        }
+        let vt = unsafe { ((*registry).source_catalog_get)(key.source_catalog_index) };
         if vt.is_null() {
             return Err(anyhow!(
-                "plugin `{}` does not provide source catalog interface",
+                "source catalog index {} resolved to null vtable for plugin `{}`",
+                key.source_catalog_index,
                 p.manifest.id
             ));
         }
@@ -1252,23 +1334,43 @@ impl PluginManager {
         if self.is_disabled(&p.manifest.id) {
             return Err(anyhow!("plugin `{}` is disabled", p.manifest.id));
         }
-        let vt =
-            p.library.get_interface_raw(ST_INTERFACE_OUTPUT_SINK_V1) as *const StOutputSinkVTableV1;
+        let registry = self.output_sink_registry_for_plugin(p);
+        if registry.is_null() {
+            return Err(anyhow!(
+                "plugin `{}` does not provide output sink interfaces",
+                p.manifest.id
+            ));
+        }
+        let count = unsafe { ((*registry).output_sink_count)() };
+        if key.output_sink_index >= count {
+            return Err(anyhow!(
+                "invalid output_sink_index {} for plugin `{}`",
+                key.output_sink_index,
+                p.manifest.id
+            ));
+        }
+        let vt = unsafe { ((*registry).output_sink_get)(key.output_sink_index) };
         if vt.is_null() {
             return Err(anyhow!(
-                "plugin `{}` does not provide output sink interface",
+                "output sink index {} resolved to null vtable for plugin `{}`",
+                key.output_sink_index,
                 p.manifest.id
             ));
         }
         Ok(vt)
     }
 
-    pub fn source_list_items_json(
+    pub fn source_list_items<C, R, Items>(
         &self,
         key: SourceCatalogKey,
-        config_json: &str,
-        request_json: &str,
-    ) -> Result<String> {
+        config: &C,
+        request: &R,
+    ) -> Result<Items>
+    where
+        C: Serialize,
+        R: Serialize,
+        Items: DeserializeOwned,
+    {
         let p = self
             .plugins
             .get(key.plugin_index)
@@ -1276,14 +1378,9 @@ impl PluginManager {
         if self.is_disabled(&p.manifest.id) {
             return Err(anyhow!("plugin `{}` is disabled", p.manifest.id));
         }
-        let vt = p.library.get_interface_raw(ST_INTERFACE_SOURCE_CATALOG_V1)
-            as *const StSourceCatalogVTableV1;
-        if vt.is_null() {
-            return Err(anyhow!(
-                "plugin `{}` does not provide source catalog interface",
-                p.manifest.id
-            ));
-        }
+        let config_json = to_json_string(config, "source config")?;
+        let request_json = to_json_string(request, "source list request")?;
+        let vt = self.source_catalog_vtable(key)?;
         let plugin_free = p.library.plugin_free();
         let cfg = StStr {
             ptr: config_json.as_ptr(),
@@ -1296,15 +1393,21 @@ impl PluginManager {
         let mut out = StStr::empty();
         let status = unsafe { ((*vt).list_items_json_utf8)(cfg, req, &mut out) };
         status_to_result("Source list_items_json", status, plugin_free)?;
-        Ok(take_plugin_string(out, plugin_free))
+        let raw = take_plugin_string(out, plugin_free);
+        from_json_str(&raw, "source list response")
     }
 
-    pub fn source_open_stream(
+    pub fn source_open_stream<C, T, M>(
         &self,
         key: SourceCatalogKey,
-        config_json: &str,
-        track_json: &str,
-    ) -> Result<(SourceStream, Option<String>)> {
+        config: &C,
+        track: &T,
+    ) -> Result<(SourceStream, Option<M>)>
+    where
+        C: Serialize,
+        T: Serialize,
+        M: DeserializeOwned,
+    {
         let p = self
             .plugins
             .get(key.plugin_index)
@@ -1312,14 +1415,9 @@ impl PluginManager {
         if self.is_disabled(&p.manifest.id) {
             return Err(anyhow!("plugin `{}` is disabled", p.manifest.id));
         }
-        let vt = p.library.get_interface_raw(ST_INTERFACE_SOURCE_CATALOG_V1)
-            as *const StSourceCatalogVTableV1;
-        if vt.is_null() {
-            return Err(anyhow!(
-                "plugin `{}` does not provide source catalog interface",
-                p.manifest.id
-            ));
-        }
+        let config_json = to_json_string(config, "source config")?;
+        let track_json = to_json_string(track, "source track request")?;
+        let vt = self.source_catalog_vtable(key)?;
         let plugin_free = p.library.plugin_free();
         let cfg = StStr {
             ptr: config_json.as_ptr(),
@@ -1355,11 +1453,19 @@ impl PluginManager {
                 io_handle: out_io_handle,
                 close_stream: unsafe { (*vt).close_stream },
             },
-            if meta.is_empty() { None } else { Some(meta) },
+            if meta.is_empty() {
+                None
+            } else {
+                Some(from_json_str(&meta, "source track metadata")?)
+            },
         ))
     }
 
-    pub fn lyrics_search_json(&self, key: LyricsProviderKey, query_json: &str) -> Result<String> {
+    pub fn lyrics_search<Q, Resp>(&self, key: LyricsProviderKey, query: &Q) -> Result<Resp>
+    where
+        Q: Serialize,
+        Resp: DeserializeOwned,
+    {
         let p = self
             .plugins
             .get(key.plugin_index)
@@ -1375,6 +1481,7 @@ impl PluginManager {
                 p.manifest.id
             ));
         }
+        let query_json = to_json_string(query, "lyrics search query")?;
         let plugin_free = p.library.plugin_free();
         let query = StStr {
             ptr: query_json.as_ptr(),
@@ -1383,10 +1490,15 @@ impl PluginManager {
         let mut out = StStr::empty();
         let status = unsafe { ((*vt).search_json_utf8)(query, &mut out) };
         status_to_result("Lyrics search_json", status, plugin_free)?;
-        Ok(take_plugin_string(out, plugin_free))
+        let raw = take_plugin_string(out, plugin_free);
+        from_json_str(&raw, "lyrics search response")
     }
 
-    pub fn lyrics_fetch_json(&self, key: LyricsProviderKey, track_json: &str) -> Result<String> {
+    pub fn lyrics_fetch<T, Resp>(&self, key: LyricsProviderKey, track: &T) -> Result<Resp>
+    where
+        T: Serialize,
+        Resp: DeserializeOwned,
+    {
         let p = self
             .plugins
             .get(key.plugin_index)
@@ -1402,6 +1514,7 @@ impl PluginManager {
                 p.manifest.id
             ));
         }
+        let track_json = to_json_string(track, "lyrics fetch request")?;
         let plugin_free = p.library.plugin_free();
         let track = StStr {
             ptr: track_json.as_ptr(),
@@ -1410,14 +1523,15 @@ impl PluginManager {
         let mut out = StStr::empty();
         let status = unsafe { ((*vt).fetch_json_utf8)(track, &mut out) };
         status_to_result("Lyrics fetch_json", status, plugin_free)?;
-        Ok(take_plugin_string(out, plugin_free))
+        let raw = take_plugin_string(out, plugin_free);
+        from_json_str(&raw, "lyrics fetch response")
     }
 
-    pub fn output_list_targets_json(
-        &self,
-        key: OutputSinkKey,
-        config_json: &str,
-    ) -> Result<String> {
+    pub fn output_list_targets<C, Targets>(&self, key: OutputSinkKey, config: &C) -> Result<Targets>
+    where
+        C: Serialize,
+        Targets: DeserializeOwned,
+    {
         let p = self
             .plugins
             .get(key.plugin_index)
@@ -1425,14 +1539,8 @@ impl PluginManager {
         if self.is_disabled(&p.manifest.id) {
             return Err(anyhow!("plugin `{}` is disabled", p.manifest.id));
         }
-        let vt =
-            p.library.get_interface_raw(ST_INTERFACE_OUTPUT_SINK_V1) as *const StOutputSinkVTableV1;
-        if vt.is_null() {
-            return Err(anyhow!(
-                "plugin `{}` does not provide output sink interface",
-                p.manifest.id
-            ));
-        }
+        let config_json = to_json_string(config, "output sink config")?;
+        let vt = self.output_sink_vtable(key)?;
         let plugin_free = p.library.plugin_free();
         let cfg = StStr {
             ptr: config_json.as_ptr(),
@@ -1441,16 +1549,21 @@ impl PluginManager {
         let mut out = StStr::empty();
         let status = unsafe { ((*vt).list_targets_json_utf8)(cfg, &mut out) };
         status_to_result("Output sink list_targets_json", status, plugin_free)?;
-        Ok(take_plugin_string(out, plugin_free))
+        let raw = take_plugin_string(out, plugin_free);
+        from_json_str(&raw, "output sink targets")
     }
 
-    pub fn output_open(
+    pub fn output_open<C, T>(
         &self,
         key: OutputSinkKey,
-        config_json: &str,
-        target_json: &str,
+        config: &C,
+        target: &T,
         spec: StAudioSpec,
-    ) -> Result<OutputSinkInstance> {
+    ) -> Result<OutputSinkInstance>
+    where
+        C: Serialize,
+        T: Serialize,
+    {
         let p = self
             .plugins
             .get(key.plugin_index)
@@ -1458,14 +1571,9 @@ impl PluginManager {
         if self.is_disabled(&p.manifest.id) {
             return Err(anyhow!("plugin `{}` is disabled", p.manifest.id));
         }
-        let vt =
-            p.library.get_interface_raw(ST_INTERFACE_OUTPUT_SINK_V1) as *const StOutputSinkVTableV1;
-        if vt.is_null() {
-            return Err(anyhow!(
-                "plugin `{}` does not provide output sink interface",
-                p.manifest.id
-            ));
-        }
+        let config_json = to_json_string(config, "output sink config")?;
+        let target_json = to_json_string(target, "output sink target")?;
+        let vt = self.output_sink_vtable(key)?;
         let plugin_free = p.library.plugin_free();
         let cfg = StStr {
             ptr: config_json.as_ptr(),
@@ -1856,13 +1964,16 @@ impl PluginManager {
         Ok(self.probe_best_decoder(path)?.is_some())
     }
 
-    pub fn create_dsp(
+    pub fn create_dsp<C>(
         &self,
         key: DspKey,
         sample_rate: u32,
         channels: u16,
-        config_json: &str,
-    ) -> Result<DspInstance> {
+        config: &C,
+    ) -> Result<DspInstance>
+    where
+        C: Serialize,
+    {
         let p = self
             .plugins
             .get(key.plugin_index)
@@ -1879,6 +1990,7 @@ impl PluginManager {
             return Err(anyhow!("invalid dsp_index {}", key.dsp_index));
         }
 
+        let config_json = to_json_string(config, "dsp config")?;
         let mut handle: *mut core::ffi::c_void = core::ptr::null_mut();
         let json = stellatune_plugin_api::StStr {
             ptr: config_json.as_ptr(),
@@ -2085,7 +2197,7 @@ impl PluginManager {
         }
 
         let metadata_json = library.metadata_json();
-        let meta: PluginMetadataDoc = serde_json::from_str(&metadata_json).with_context(|| {
+        let meta: PluginMetadata = serde_json::from_str(&metadata_json).with_context(|| {
             format!(
                 "invalid metadata_json_utf8 for plugin `{}` at {}",
                 exported_id,
@@ -2272,11 +2384,11 @@ fn inspect_plugin_library_at(path: &Path, runtime_root: &Path) -> Result<PluginM
     }?;
     let id = library.id();
     let name = library.name();
-    let metadata_json = library.metadata_json();
-    let meta: PluginMetadataDoc = serde_json::from_str(&metadata_json).with_context(|| {
-        format!(
-            "invalid metadata_json_utf8 for plugin `{}` at {}",
-            id,
+        let metadata_json = library.metadata_json();
+        let meta: PluginMetadata = serde_json::from_str(&metadata_json).with_context(|| {
+            format!(
+                "invalid metadata_json_utf8 for plugin `{}` at {}",
+                id,
             path.display()
         )
     })?;
@@ -2308,7 +2420,7 @@ fn inspect_plugin_library_at(path: &Path, runtime_root: &Path) -> Result<PluginM
         api_version: meta.api_version,
         name: Some(name),
         entry_symbol: Some(STELLATUNE_PLUGIN_ENTRY_SYMBOL_V1.to_string()),
-        metadata_json: Some(metadata_json),
+        metadata: Some(meta),
     })
 }
 
@@ -2426,7 +2538,7 @@ pub fn install_plugin_from_artifact(
         name: manifest.name.unwrap_or_else(|| manifest.id.clone()),
         root_dir: install_root.clone(),
         library_path: install_root.join(library_rel_path),
-        info_json: metadata_info_json(manifest.metadata_json.as_deref()),
+        info_json: metadata_info_json(manifest.metadata.as_ref()),
     };
 
     info!(
@@ -2453,7 +2565,7 @@ pub fn list_installed_plugins(plugins_dir: impl AsRef<Path>) -> Result<Vec<Insta
                 .unwrap_or_else(|| d.manifest.id.clone()),
             root_dir: d.root_dir.clone(),
             library_path: d.library_path.clone(),
-            info_json: metadata_info_json(d.manifest.metadata_json.as_deref()),
+            info_json: metadata_info_json(d.manifest.metadata.as_ref()),
         });
     }
     out.sort_by(|a, b| a.id.cmp(&b.id));

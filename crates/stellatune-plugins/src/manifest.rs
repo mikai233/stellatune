@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+use stellatune_plugin_protocol::PluginMetadata;
 use tracing::warn;
 
 pub const INSTALL_RECEIPT_FILE_NAME: &str = ".install.json";
@@ -18,7 +19,7 @@ pub struct PluginManifest {
     pub entry_symbol: Option<String>,
 
     #[serde(default)]
-    pub metadata_json: Option<String>,
+    pub metadata: Option<PluginMetadata>,
 }
 
 impl PluginManifest {

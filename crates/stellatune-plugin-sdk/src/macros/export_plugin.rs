@@ -10,7 +10,7 @@ macro_rules! export_plugin {
         dsps: [
             $($dsp_mod:ident => $dsp_ty:ty),* $(,)?
         ]
-        $(, info_json: $info_json:expr)?
+        $(, info: $info:expr)?
         $(, get_interface: $get_interface:path)?
         $(,)?
     ) => {
@@ -28,14 +28,16 @@ macro_rules! export_plugin {
         fn __st_plugin_metadata_json() -> &'static str {
             static META: std::sync::OnceLock<String> = std::sync::OnceLock::new();
             META.get_or_init(|| {
-                $crate::build_plugin_metadata_json_with_info_json(
+                let metadata = $crate::build_plugin_metadata_with_info(
                     __ST_PLUGIN_ID,
                     __ST_PLUGIN_NAME,
                     $vmaj,
                     $vmin,
                     $vpatch,
-                    $crate::__st_opt_info_json!($($info_json)?),
-                )
+                    $crate::__st_opt_info!($($info)?),
+                );
+                $crate::__private::serde_json::to_string(&metadata)
+                    .expect("export_plugin! metadata must be serializable")
             })
         }
 
@@ -131,14 +133,17 @@ macro_rules! export_plugin {
                         );
                     }
                     let boxed = unsafe { &mut *(handle as *mut $crate::DecoderBox<$dec_ty>) };
-                    match <$dec_ty as $crate::Decoder>::metadata_json(&boxed.inner) {
+                    match <$dec_ty as $crate::Decoder>::metadata(&boxed.inner) {
                         None => {
                             unsafe { *out_json = $crate::StStr::empty(); }
                             $crate::status_ok()
                         }
-                        Some(s) => {
-                            unsafe { *out_json = $crate::alloc_utf8_bytes(&s); }
-                            $crate::status_ok()
+                        Some(meta) => match $crate::__private::serde_json::to_string(&meta) {
+                            Ok(s) => {
+                                unsafe { *out_json = $crate::alloc_utf8_bytes(&s); }
+                                $crate::status_ok()
+                            }
+                            Err(e) => $crate::status_err_msg($crate::ST_ERR_INTERNAL, &e.to_string()),
                         }
                     }
                 }
@@ -155,7 +160,10 @@ macro_rules! export_plugin {
                         || out_frames_read.is_null()
                         || out_eof.is_null()
                     {
-                        return $crate::status_err(-1);
+                        return $crate::status_err_msg(
+                            $crate::ST_ERR_INVALID_ARG,
+                            "null handle/out_interleaved/out_frames_read/out_eof",
+                        );
                     }
 
                     let boxed = unsafe { &mut *(handle as *mut $crate::DecoderBox<$dec_ty>) };
@@ -217,14 +225,8 @@ macro_rules! export_plugin {
         const __ST_DEC_COUNT: usize = 0 $(+ { let _ = core::mem::size_of::<$dec_ty>(); 1 })*;
         extern "C" fn __st_decoder_count() -> usize { __ST_DEC_COUNT }
         extern "C" fn __st_decoder_get(index: usize) -> *const $crate::StDecoderVTableV1 {
-            let mut i = 0usize;
-            $(
-                if index == i {
-                    return &$dec_mod::VTABLE;
-                }
-                i += 1;
-            )*
-            core::ptr::null()
+            let vtables = [$( &$dec_mod::VTABLE as *const $crate::StDecoderVTableV1 ),*];
+            vtables.get(index).copied().unwrap_or(core::ptr::null())
         }
 
         $(
@@ -241,7 +243,15 @@ macro_rules! export_plugin {
                     $crate::ststr(<$dsp_ty as $crate::DspDescriptor>::CONFIG_SCHEMA_JSON)
                 }
                 extern "C" fn default_config_json_utf8() -> $crate::StStr {
-                    $crate::ststr(<$dsp_ty as $crate::DspDescriptor>::DEFAULT_CONFIG_JSON)
+                    static DEFAULT_CONFIG: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+                    let s = DEFAULT_CONFIG.get_or_init(|| {
+                        $crate::__private::serde_json::to_string(&<$dsp_ty as $crate::DspDescriptor>::default_config())
+                            .unwrap_or_else(|_| "{}".to_string())
+                    });
+                    $crate::StStr {
+                        ptr: s.as_ptr(),
+                        len: s.len(),
+                    }
                 }
 
                 extern "C" fn create(
@@ -251,11 +261,15 @@ macro_rules! export_plugin {
                     out: *mut *mut core::ffi::c_void,
                 ) -> $crate::StStatus {
                     if out.is_null() {
-                        return $crate::status_err(-1);
+                        return $crate::status_err_msg($crate::ST_ERR_INVALID_ARG, "null out");
                     }
                     let json = match unsafe { $crate::ststr_to_str(&config_json_utf8) } {
                         Ok(s) => s,
-                        Err(_) => return $crate::status_err(-2),
+                        Err(e) => return $crate::status_err_msg($crate::ST_ERR_INVALID_ARG, e),
+                    };
+                    let config = match $crate::__private::serde_json::from_str::<<$dsp_ty as $crate::Dsp>::Config>(json) {
+                        Ok(v) => v,
+                        Err(e) => return $crate::status_err_msg($crate::ST_ERR_INVALID_ARG, &e.to_string()),
                     };
                     let spec = $crate::StAudioSpec {
                         sample_rate,
@@ -264,7 +278,7 @@ macro_rules! export_plugin {
                     };
                     let channels = channels.max(1);
 
-                    match <$dsp_ty as $crate::DspDescriptor>::create(spec, json) {
+                    match <$dsp_ty as $crate::DspDescriptor>::create(spec, config) {
                         Ok(dsp) => {
                             let boxed = Box::new($crate::DspBox {
                                 inner: dsp,
@@ -273,7 +287,7 @@ macro_rules! export_plugin {
                             unsafe { *out = Box::into_raw(boxed) as *mut core::ffi::c_void; }
                             $crate::status_ok()
                         }
-                        Err(_) => $crate::status_err(-3),
+                        Err(e) => $crate::status_err_msg($crate::ST_ERR_INTERNAL, e),
                     }
                 }
 
@@ -282,16 +296,20 @@ macro_rules! export_plugin {
                     config_json_utf8: $crate::StStr,
                 ) -> $crate::StStatus {
                     if handle.is_null() {
-                        return $crate::status_err(-1);
+                        return $crate::status_err_msg($crate::ST_ERR_INVALID_ARG, "null handle");
                     }
                     let json = match unsafe { $crate::ststr_to_str(&config_json_utf8) } {
                         Ok(s) => s,
-                        Err(_) => return $crate::status_err(-2),
+                        Err(e) => return $crate::status_err_msg($crate::ST_ERR_INVALID_ARG, e),
+                    };
+                    let config = match $crate::__private::serde_json::from_str::<<$dsp_ty as $crate::Dsp>::Config>(json) {
+                        Ok(v) => v,
+                        Err(e) => return $crate::status_err_msg($crate::ST_ERR_INVALID_ARG, &e.to_string()),
                     };
                     let boxed = unsafe { &mut *(handle as *mut $crate::DspBox<$dsp_ty>) };
-                    match <$dsp_ty as $crate::Dsp>::set_config_json(&mut boxed.inner, json) {
+                    match <$dsp_ty as $crate::Dsp>::set_config(&mut boxed.inner, &config) {
                         Ok(()) => $crate::status_ok(),
-                        Err(_) => $crate::status_err(-3),
+                        Err(e) => $crate::status_err_msg($crate::ST_ERR_INTERNAL, e),
                     }
                 }
 
@@ -345,14 +363,8 @@ macro_rules! export_plugin {
         extern "C" fn __st_dsp_count() -> usize { __ST_DSP_COUNT }
 
         extern "C" fn __st_dsp_get(index: usize) -> *const $crate::StDspVTableV1 {
-            let mut i = 0usize;
-            $(
-                if index == i {
-                    return &$dsp_mod::VTABLE;
-                }
-                i += 1;
-            )*
-            core::ptr::null()
+            let vtables = [$( &$dsp_mod::VTABLE as *const $crate::StDspVTableV1 ),*];
+            vtables.get(index).copied().unwrap_or(core::ptr::null())
         }
 
         static __ST_PLUGIN_VTABLE: $crate::StPluginVTableV1 = $crate::StPluginVTableV1 {

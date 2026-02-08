@@ -1,6 +1,6 @@
 use core::ffi::c_void;
 
-use crate::{StStatus, StStr};
+use crate::{SdkError, SdkResult, StStatus, StStr};
 
 #[inline]
 pub const fn ststr(s: &'static str) -> StStr {
@@ -53,10 +53,11 @@ pub fn alloc_utf8_bytes(s: &str) -> StStr {
     }
 }
 
-pub fn status_err_msg(code: i32, msg: &str) -> StStatus {
+pub fn status_err_msg(code: i32, msg: impl core::fmt::Display) -> StStatus {
+    let msg = msg.to_string();
     StStatus {
         code,
-        message: alloc_utf8_bytes(msg),
+        message: alloc_utf8_bytes(&msg),
     }
 }
 
@@ -64,10 +65,10 @@ pub fn status_err_msg(code: i32, msg: &str) -> StStatus {
 ///
 /// The caller must ensure that the `StStr` contains a valid pointer to a memory region
 /// of at least `s.len` bytes.
-pub unsafe fn ststr_to_str(s: &StStr) -> Result<&str, String> {
+pub unsafe fn ststr_to_str(s: &StStr) -> SdkResult<&str> {
     if s.ptr.is_null() || s.len == 0 {
         return Ok("");
     }
     let bytes = unsafe { core::slice::from_raw_parts(s.ptr, s.len) };
-    core::str::from_utf8(bytes).map_err(|_| "invalid utf-8".to_string())
+    core::str::from_utf8(bytes).map_err(|_| SdkError::invalid_arg("invalid utf-8"))
 }

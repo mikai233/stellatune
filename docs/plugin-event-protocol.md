@@ -18,15 +18,9 @@ Flutter can subscribe via:
 
 Plugin SDK (`stellatune-plugin-sdk`) now also provides typed helpers:
 - build/send control requests:
-  - `build_player_control_request_json(...)`
-  - `build_library_control_request_json(...)`
-  - `host_send_player_control(...)`
-  - `host_send_library_control(...)`
-  - `host_set_output_sink_route(...)`
-  - `host_clear_output_sink_route(...)`
-  - `host_set_output_device(...)`
-  - `host_set_output_options(...)`
-  - `host_refresh_devices(...)`
+  - typed builders (recommended):
+    - `PlayerControl::seek_ms(...).request().request_id_str(...).send()`
+    - `LibraryControl::list_tracks(...).request().request_id_str(...).send()`
 - parse host-poll events:
   - `parse_host_event_json(...)`
   - `host_poll_event(...)`
@@ -35,37 +29,34 @@ Plugin SDK (`stellatune-plugin-sdk`) now also provides typed helpers:
   - `next_request_id()`
 - output sink implementation helper:
   - `OutputSink` / `OutputSinkDescriptor`
-  - `export_output_sink_interface! { sink: ... }`
+  - `SourceStream` / `SourceCatalogDescriptor`
+  - `export_output_sinks_interface! { sinks: [...] }`
+  - `export_source_catalogs_interface! { sources: [...] }`
+  - `compose_get_interface! { fn ...; ... }`
 
-Example (plugin side):
+Typed-builder example (recommended):
 
 ```rust
-use serde_json::{Map, Value};
-use stellatune_plugin_sdk::{
-    control_event_matches_request_id, host_poll_event, host_send_player_control, next_request_id,
-    PlayerControlCommand, PluginHostEvent,
-};
+use stellatune_plugin_sdk::{LibraryControl, LibraryListTracksQuery, PlayerControl};
 
-let request_id = next_request_id();
-let mut fields = Map::new();
-fields.insert("position_ms".to_string(), Value::from(30_000u64));
-let ack = host_send_player_control(
-    PlayerControlCommand::SeekMs,
-    Some(request_id.clone()),
-    Some(fields),
-)?;
+let ack = PlayerControl::seek_ms(30_000)
+    .request()
+    .request_id_str("req-typed-1")
+    .send()?;
 if !ack.ok {
     // optional: inspect ack.error
 }
 
-while let Some(event) = host_poll_event()? {
-    if control_event_matches_request_id(&event, &request_id) {
-        if let PluginHostEvent::ControlFinished(done) = event {
-            // done.ok / done.error
-            break;
-        }
-    }
-}
+let query = LibraryListTracksQuery::new()
+    .folder("")
+    .recursive(true)
+    .query("radiohead")
+    .limit(100)
+    .offset(0);
+let _ = LibraryControl::list_tracks(query)
+    .request()
+    .request_id_str("req-typed-2")
+    .send()?;
 ```
 
 ## Directions
@@ -73,14 +64,14 @@ while let Some(event) = host_poll_event()? {
 1. Host/Flutter -> Plugin
 - API: `plugin_publish_event_json(plugin_id, event_json)`
 - If `plugin_id` is `null`, the event is broadcast to all loaded plugins.
-- Plugin polls with SDK `host_poll_event_json()` or typed `host_poll_event()`.
+- Plugin polls with SDK `host_poll_event()`.
 
 2. Plugin -> Host/Flutter
 - SDK: `host_emit_event_json(event_json)`
 - Host pushes it into runtime queue and forwards as `PluginRuntimeEvent` stream.
 
 3. Plugin -> Host control
-- SDK: `host_send_control_json(request_json)`
+- SDK: typed control builders (`PlayerControl` / `LibraryControl`)
 - Current host behavior:
   - pushes event into runtime queue with `kind=control`
   - returns immediate `{"ok":true}` (accepted)
@@ -97,7 +88,7 @@ while let Some(event) = host_poll_event()? {
 Common fields:
 - `scope`: `player` or `library` (default `player`)
 - `command`: command string
-- `request_id`: optional, any JSON value; echoed in control result
+- `request_id`: optional string; echoed in control result
 
 ### Player Scope Commands
 

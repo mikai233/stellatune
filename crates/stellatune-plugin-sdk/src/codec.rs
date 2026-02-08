@@ -1,13 +1,17 @@
 use core::ffi::c_void;
 use std::io::{self, Read, Seek, SeekFrom};
 
+use serde::{Serialize, de::DeserializeOwned};
+
 use crate::{
-    ST_DECODER_INFO_FLAG_HAS_DURATION, ST_DECODER_INFO_FLAG_SEEKABLE, ST_LAYOUT_STEREO,
-    StAudioSpec, StDecoderInfoV1, StIoVTableV1, StSeekWhence,
+    ST_DECODER_INFO_FLAG_HAS_DURATION, ST_DECODER_INFO_FLAG_SEEKABLE, ST_LAYOUT_STEREO, SdkError,
+    SdkResult, StAudioSpec, StDecoderInfoV1, StIoVTableV1, StSeekWhence,
 };
 
 pub trait Dsp: Send + 'static {
-    fn set_config_json(&mut self, _json: &str) -> Result<(), String> {
+    type Config: Serialize + DeserializeOwned;
+
+    fn set_config(&mut self, _config: &Self::Config) -> SdkResult<()> {
         Ok(())
     }
 
@@ -18,7 +22,7 @@ pub trait DspDescriptor: Dsp {
     const TYPE_ID: &'static str;
     const DISPLAY_NAME: &'static str;
     const CONFIG_SCHEMA_JSON: &'static str;
-    const DEFAULT_CONFIG_JSON: &'static str;
+    fn default_config() -> Self::Config;
 
     /// Bitmask of supported channel layouts (ST_LAYOUT_* flags).
     /// Default: ST_LAYOUT_STEREO (stereo only).
@@ -28,7 +32,7 @@ pub trait DspDescriptor: Dsp {
     /// Return 0 to preserve input channel count (passthrough).
     const OUTPUT_CHANNELS: u16 = 0;
 
-    fn create(spec: StAudioSpec, config_json: &str) -> Result<Self, String>
+    fn create(spec: StAudioSpec, config: Self::Config) -> SdkResult<Self>
     where
         Self: Sized;
 }
@@ -163,13 +167,15 @@ pub struct DecoderOpenArgs<'a> {
 }
 
 pub trait Decoder: Send + 'static {
+    type Metadata: Serialize;
+
     fn info(&self) -> DecoderInfo;
 
-    fn seek_ms(&mut self, _position_ms: u64) -> Result<(), String> {
-        Err("seek not supported".to_string())
+    fn seek_ms(&mut self, _position_ms: u64) -> SdkResult<()> {
+        Err(SdkError::msg("seek not supported"))
     }
 
-    fn metadata_json(&self) -> Option<String> {
+    fn metadata(&self) -> Option<Self::Metadata> {
         None
     }
 
@@ -179,7 +185,7 @@ pub trait Decoder: Send + 'static {
         &mut self,
         frames: u32,
         out_interleaved: &mut [f32],
-    ) -> Result<(u32, bool), String>;
+    ) -> SdkResult<(u32, bool)>;
 }
 
 pub trait DecoderDescriptor: Decoder {
@@ -190,32 +196,97 @@ pub trait DecoderDescriptor: Decoder {
         0
     }
 
-    fn open(args: DecoderOpenArgs<'_>) -> Result<Self, String>
+    fn open(args: DecoderOpenArgs<'_>) -> SdkResult<Self>
     where
         Self: Sized;
 }
 
 pub trait OutputSink: Send + 'static {
     /// Writes interleaved f32 samples and returns accepted frame count.
-    fn write_interleaved_f32(&mut self, channels: u16, samples: &[f32]) -> Result<u32, String>;
+    fn write_interleaved_f32(&mut self, channels: u16, samples: &[f32]) -> SdkResult<u32>;
 
-    fn flush(&mut self) -> Result<(), String> {
+    fn flush(&mut self) -> SdkResult<()> {
         Ok(())
     }
 }
 
 pub trait OutputSinkDescriptor: OutputSink {
+    type Config: Serialize + DeserializeOwned;
+    type Target: Serialize + DeserializeOwned;
+
     const TYPE_ID: &'static str;
     const DISPLAY_NAME: &'static str;
     const CONFIG_SCHEMA_JSON: &'static str;
-    const DEFAULT_CONFIG_JSON: &'static str;
+    fn default_config() -> Self::Config;
 
-    /// Returns target list JSON for current plugin config.
-    fn list_targets_json(config_json: &str) -> Result<String, String>;
+    fn list_targets(config: &Self::Config) -> SdkResult<Vec<Self::Target>>;
 
-    fn open(spec: StAudioSpec, config_json: &str, target_json: &str) -> Result<Self, String>
+    fn open(spec: StAudioSpec, config: &Self::Config, target: &Self::Target) -> SdkResult<Self>
     where
         Self: Sized;
+}
+
+pub trait SourceStream: Send + 'static {
+    const SUPPORTS_SEEK: bool = false;
+    const SUPPORTS_TELL: bool = false;
+    const SUPPORTS_SIZE: bool = false;
+
+    fn read(&mut self, out: &mut [u8]) -> SdkResult<usize>;
+
+    fn seek(&mut self, _offset: i64, _whence: StSeekWhence) -> SdkResult<u64> {
+        Err(SdkError::msg("seek unsupported"))
+    }
+
+    fn tell(&mut self) -> SdkResult<u64> {
+        Err(SdkError::msg("tell unsupported"))
+    }
+
+    fn size(&mut self) -> SdkResult<u64> {
+        Err(SdkError::msg("size unsupported"))
+    }
+}
+
+pub struct SourceOpenResult<S: SourceStream, M> {
+    pub stream: S,
+    pub track_meta: Option<M>,
+}
+
+impl<S: SourceStream, M> SourceOpenResult<S, M> {
+    pub fn new(stream: S) -> Self {
+        Self {
+            stream,
+            track_meta: None,
+        }
+    }
+
+    pub fn with_track_meta(mut self, track_meta: M) -> Self {
+        self.track_meta = Some(track_meta);
+        self
+    }
+}
+
+pub trait SourceCatalogDescriptor: Send + Sync + 'static {
+    type Stream: SourceStream;
+    type Config: Serialize + DeserializeOwned;
+    type ListRequest: DeserializeOwned;
+    type ListItem: Serialize;
+    type Track: DeserializeOwned;
+    type TrackMeta: Serialize;
+
+    const TYPE_ID: &'static str;
+    const DISPLAY_NAME: &'static str;
+    const CONFIG_SCHEMA_JSON: &'static str;
+    fn default_config() -> Self::Config;
+
+    fn list_items(
+        config: &Self::Config,
+        request: &Self::ListRequest,
+    ) -> SdkResult<Vec<Self::ListItem>>;
+
+    fn open_stream(
+        config: &Self::Config,
+        track: &Self::Track,
+    ) -> SdkResult<SourceOpenResult<Self::Stream, Self::TrackMeta>>;
 }
 
 #[doc(hidden)]
@@ -226,6 +297,11 @@ pub struct DspBox<T: Dsp> {
 
 #[doc(hidden)]
 pub struct OutputSinkBox<T: OutputSink> {
+    pub inner: T,
+}
+
+#[doc(hidden)]
+pub struct SourceStreamBox<T: SourceStream> {
     pub inner: T,
 }
 

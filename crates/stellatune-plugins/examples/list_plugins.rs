@@ -32,7 +32,8 @@ fn main() -> anyhow::Result<()> {
     }
 
     if let Some(first) = dsps.first() {
-        let mut dsp = mgr.create_dsp(first.key, 48_000, 2, r#"{ "gain": 2.0 }"#)?;
+        let dsp_config = serde_json::json!({ "gain": 2.0 });
+        let mut dsp = mgr.create_dsp(first.key, 48_000, 2, &dsp_config)?;
         let mut samples = vec![0.25f32, -0.25f32, 0.5f32, -0.5f32]; // 2 frames, stereo
         dsp.process_in_place(&mut samples, 2);
         println!("DSP smoke output: {samples:?}");
@@ -50,7 +51,7 @@ fn main() -> anyhow::Result<()> {
     if let Some(mut dec) = mgr.open_best_decoder(path.to_string_lossy().as_ref())? {
         let spec = dec.spec();
         let duration = dec.duration_ms();
-        let meta = dec.metadata_json().unwrap_or(None);
+        let meta = dec.metadata::<serde_json::Value>().unwrap_or(None);
         let (samples, _eof) = dec.read_interleaved_f32(4)?;
         println!(
             "Decoder smoke: {}Hz ch={} duration_ms={:?} meta={:?} samples={:?}",

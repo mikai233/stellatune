@@ -3061,6 +3061,7 @@ dependencies = [
  "stellatune-audio",
  "stellatune-core",
  "stellatune-library",
+ "stellatune-plugin-protocol",
  "stellatune-plugins",
  "tokio",
  "tokio-util",
@@ -3108,6 +3109,7 @@ dependencies = [
  "socket2",
  "stellatune-backend-api",
  "stellatune-core",
+ "stellatune-plugin-protocol",
  "tokio",
  "tokio-util",
  "tracing",
@@ -3124,6 +3126,7 @@ dependencies = [
  "base64 0.22.1",
  "crossbeam-channel",
  "notify",
+ "serde",
  "serde_json",
  "sqlx",
  "stellatune-core",
@@ -3166,6 +3169,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "stellatune-plugin-protocol"
+version = "0.1.0"
+dependencies = [
+ "flutter_rust_bridge",
+ "serde",
+ "serde_json",
+ "stellatune-core",
+]
+
+[[package]]
 name = "stellatune-plugin-sdk"
 version = "0.1.0"
 dependencies = [
@@ -3173,6 +3186,7 @@ dependencies = [
  "serde_json",
  "stellatune-core",
  "stellatune-plugin-api",
+ "stellatune-plugin-protocol",
 ]
 
 [[package]]
@@ -3188,6 +3202,7 @@ dependencies = [
  "stellatune-core",
  "stellatune-decode",
  "stellatune-plugin-api",
+ "stellatune-plugin-protocol",
  "tempfile",
  "tracing",
  "walkdir",

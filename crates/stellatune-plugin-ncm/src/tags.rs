@@ -49,7 +49,7 @@ fn value_to_string(v: &Value) -> Option<String> {
     if s.is_empty() { None } else { Some(s) }
 }
 
-pub(crate) fn build_metadata_json(tags: Tags, duration_ms: Option<u64>) -> Option<String> {
+pub(crate) fn build_metadata(tags: Tags, duration_ms: Option<u64>) -> Option<serde_json::Value> {
     let mut obj = serde_json::Map::<String, serde_json::Value>::new();
     if let Some(s) = tags.title {
         obj.insert("title".to_string(), serde_json::Value::String(s));
@@ -74,6 +74,6 @@ pub(crate) fn build_metadata_json(tags: Tags, duration_ms: Option<u64>) -> Optio
     if obj.is_empty() {
         None
     } else {
-        Some(serde_json::Value::Object(obj).to_string())
+        Some(serde_json::Value::Object(obj))
     }
 }

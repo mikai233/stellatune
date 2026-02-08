@@ -15,8 +15,8 @@ const TRACK_REF_TOKEN_PREFIX: &str = "stref-json:";
 struct SourceStreamLocator {
     plugin_id: String,
     type_id: String,
-    config_json: String,
-    track_json: String,
+    config: serde_json::Value,
+    track: serde_json::Value,
     #[serde(default)]
     ext_hint: String,
     #[serde(default)]
@@ -90,26 +90,29 @@ fn build_builtin_track_info(spec: TrackSpec) -> TrackDecodeInfo {
 
 fn build_plugin_track_info(
     dec: &mut stellatune_plugins::DecoderInstance,
-    fallback_metadata_json: Option<String>,
+    fallback_metadata: Option<serde_json::Value>,
 ) -> Result<TrackDecodeInfo, String> {
     let spec = dec.spec();
     if spec.sample_rate == 0 {
         return Err("plugin decoder returned sample_rate=0".to_string());
     }
     let duration_ms = dec.duration_ms();
-    let metadata_json = dec
-        .metadata_json()
+    let metadata = dec
+        .metadata::<serde_json::Value>()
         .ok()
         .flatten()
-        .or(fallback_metadata_json);
-    Ok(TrackDecodeInfo {
+        .or(fallback_metadata);
+    let mut info = TrackDecodeInfo {
         sample_rate: spec.sample_rate,
         channels: spec.channels,
         duration_ms,
-        metadata_json,
+        metadata_json: None,
         decoder_plugin_id: Some(dec.plugin_id().to_string()),
         decoder_type_id: Some(dec.decoder_type_id().to_string()),
-    })
+    };
+    info.set_metadata(metadata.as_ref())
+        .map_err(|e| format!("failed to serialize decoder metadata: {e}"))?;
+    Ok(info)
 }
 
 pub(crate) fn open_engine_decoder(
@@ -223,8 +226,8 @@ pub(crate) fn open_engine_decoder(
                 source.plugin_id, source.type_id
             )
         })?;
-    let (stream, source_metadata_json) = pm
-        .source_open_stream(source_key, &source.config_json, &source.track_json)
+    let (stream, source_metadata) = pm
+        .source_open_stream::<_, _, serde_json::Value>(source_key, &source.config, &source.track)
         .map_err(|e| format!("source open_stream failed: {e:#}"))?;
     let ext_hint = source.ext_hint.trim().to_string();
     let path_hint = if source.path_hint.trim().is_empty() {
@@ -255,7 +258,7 @@ pub(crate) fn open_engine_decoder(
         .open_decoder_with_source_stream(decoder_key, &path_hint, &ext_hint, stream)
         .map_err(|e| format!("failed to open decoder on source stream: {e:#}"))?;
     let spec = dec.spec();
-    let info = build_plugin_track_info(&mut dec, source_metadata_json)?;
+    let info = build_plugin_track_info(&mut dec, source_metadata)?;
     Ok((
         Box::new(EngineDecoder::Plugin {
             spec: TrackSpec {

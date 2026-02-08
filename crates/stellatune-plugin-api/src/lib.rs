@@ -4,11 +4,11 @@ use core::ffi::c_void;
 
 // Single in-development ABI version (early-stage project).
 // Note: this ABI may change in place while staying on v1 during early development.
-pub const STELLATUNE_PLUGIN_API_VERSION_V1: u32 = 3;
+pub const STELLATUNE_PLUGIN_API_VERSION_V1: u32 = 4;
 pub const STELLATUNE_PLUGIN_ENTRY_SYMBOL_V1: &str = "stellatune_plugin_entry_v1";
-pub const ST_INTERFACE_SOURCE_CATALOG_V1: &str = "stellatune.source_catalog.v1";
+pub const ST_INTERFACE_SOURCE_CATALOGS_V1: &str = "stellatune.source_catalogs.v1";
 pub const ST_INTERFACE_LYRICS_PROVIDER_V1: &str = "stellatune.lyrics_provider.v1";
-pub const ST_INTERFACE_OUTPUT_SINK_V1: &str = "stellatune.output_sink.v1";
+pub const ST_INTERFACE_OUTPUT_SINKS_V1: &str = "stellatune.output_sinks.v1";
 
 // Status codes (non-exhaustive). Plugins may use other non-zero codes, but the SDK uses these.
 pub const ST_ERR_INVALID_ARG: i32 = 1;
@@ -286,6 +286,16 @@ pub struct StSourceCatalogVTableV1 {
     pub close_stream: extern "C" fn(io_handle: *mut c_void),
 }
 
+/// Optional source-catalog registry interface.
+///
+/// A plugin can expose multiple source catalog types via this registry.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct StSourceCatalogRegistryV1 {
+    pub source_catalog_count: extern "C" fn() -> usize,
+    pub source_catalog_get: extern "C" fn(index: usize) -> *const StSourceCatalogVTableV1,
+}
+
 /// Optional lyrics-provider interface.
 ///
 /// JSON contracts are plugin-defined. Host passes/receives UTF-8 JSON blobs.
@@ -327,6 +337,16 @@ pub struct StOutputSinkVTableV1 {
     ) -> StStatus,
     pub flush: Option<extern "C" fn(handle: *mut c_void) -> StStatus>,
     pub close: extern "C" fn(handle: *mut c_void),
+}
+
+/// Optional output-sink registry interface.
+///
+/// A plugin can expose multiple output sink types via this registry.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct StOutputSinkRegistryV1 {
+    pub output_sink_count: extern "C" fn() -> usize,
+    pub output_sink_get: extern "C" fn(index: usize) -> *const StOutputSinkVTableV1,
 }
 
 // Channel layout bitmask flags for DSP plugins.

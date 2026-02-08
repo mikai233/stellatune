@@ -8,6 +8,10 @@ license.workspace = true
 name = "stellatune_ffi"
 crate-type = ["cdylib", "staticlib", "rlib"]
 
+[features]
+default = []
+frb = ["stellatune-plugin-protocol/frb"]
+
 [dependencies]
 anyhow.workspace = true
 crossbeam-channel.workspace = true
@@ -29,3 +33,4 @@ serde_json.workspace = true
 
 stellatune-backend-api.workspace = true
 stellatune-core.workspace = true
+stellatune-plugin-protocol.workspace = true

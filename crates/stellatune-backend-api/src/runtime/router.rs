@@ -8,17 +8,15 @@ use stellatune_core::{
     HostEventTopic, HostLibraryEventEnvelope, HostPlayerEventEnvelope, PluginRuntimeEvent,
     PluginRuntimeKind,
 };
+use stellatune_plugin_protocol::PluginControlRequest;
 
 use super::bus::{
-    ControlFinishedArgs, broadcast_host_event_json, build_control_result_event_json,
+    ControlFinishedArgs, broadcast_host_event_json, build_control_result_payload,
     drain_finished_by_library_event, drain_finished_by_player_event, drain_router_receiver,
     drain_timed_out_pending, emit_control_finished, emit_runtime_event,
     push_plugin_host_event_json,
 };
-use super::control::{
-    control_command_from_root, control_scope_from_root, control_wait_kind,
-    route_plugin_control_root,
-};
+use super::control::{control_wait_kind, route_plugin_control_request};
 use super::shared_plugins;
 use super::types::{
     CONTROL_FINISH_TIMEOUT, ControlWaitKind, PendingControlFinish, PluginRuntimeEventHub,
@@ -61,26 +59,25 @@ fn plugin_runtime_router() -> &'static std::sync::Arc<PluginRuntimeRouter> {
                             event.clone(),
                         );
                         if event.kind == PluginRuntimeKind::Control {
-                            let (request_root, route_result) = match serde_json::from_str::<
-                                serde_json::Value,
-                            >(
-                                &event.payload_json
-                            ) {
-                                Ok(root) => {
-                                    let result = route_plugin_control_root(
-                                        &root,
-                                        engine.as_ref(),
-                                        library.as_ref(),
-                                    );
-                                    (Some(root), result)
-                                }
-                                Err(err) => (None, Err(format!("invalid json: {err}"))),
-                            };
+                            let (request, route_result) =
+                                match event.payload::<PluginControlRequest>() {
+                                    Ok(request) => {
+                                        let result = route_plugin_control_request(
+                                            &request,
+                                            engine.as_ref(),
+                                            library.as_ref(),
+                                        );
+                                        (Some(request), result)
+                                    }
+                                    Err(err) => (None, Err(format!("invalid json: {err}"))),
+                                };
 
-                            let response_json = build_control_result_event_json(
-                                request_root.as_ref(),
+                            let payload = build_control_result_payload(
+                                request.as_ref(),
                                 route_result.as_ref().err().map(String::as_str),
                             );
+                            let response_json = serde_json::to_string(&payload)
+                                .unwrap_or_else(|_| "{}".to_string());
 
                             push_plugin_host_event_json(
                                 &plugins,
@@ -88,26 +85,36 @@ fn plugin_runtime_router() -> &'static std::sync::Arc<PluginRuntimeRouter> {
                                 response_json.clone(),
                             );
 
+                            let runtime_event = PluginRuntimeEvent::from_payload(
+                                event.plugin_id.clone(),
+                                PluginRuntimeKind::ControlResult,
+                                &payload,
+                            )
+                            .unwrap_or_else(|_| PluginRuntimeEvent {
+                                plugin_id: event.plugin_id.clone(),
+                                kind: PluginRuntimeKind::ControlResult,
+                                payload_json: "{}".to_string(),
+                            });
+
                             emit_runtime_event(
                                 router_thread.runtime_hub.as_ref(),
                                 engine.as_ref(),
-                                PluginRuntimeEvent {
-                                    plugin_id: event.plugin_id.clone(),
-                                    kind: PluginRuntimeKind::ControlResult,
-                                    payload_json: response_json,
-                                },
+                                runtime_event,
                             );
 
                             match route_result {
                                 Ok(()) => {
-                                    let request_id = request_root
+                                    let request_id = request
                                         .as_ref()
-                                        .and_then(|v| v.get("request_id"))
+                                        .and_then(PluginControlRequest::request_id)
                                         .cloned();
-                                    let scope = control_scope_from_root(request_root.as_ref());
+                                    let scope = request
+                                        .as_ref()
+                                        .map(PluginControlRequest::scope)
+                                        .unwrap_or(stellatune_core::ControlScope::Player);
                                     let command =
-                                        control_command_from_root(request_root.as_ref(), scope);
-                                    let wait = request_root
+                                        request.as_ref().map(PluginControlRequest::control_command);
+                                    let wait = request
                                         .as_ref()
                                         .map(control_wait_kind)
                                         .unwrap_or(ControlWaitKind::Immediate);
@@ -143,13 +150,16 @@ fn plugin_runtime_router() -> &'static std::sync::Arc<PluginRuntimeRouter> {
                                         error = %err,
                                         "failed to route plugin control"
                                     );
-                                    let request_id = request_root
+                                    let request_id = request
                                         .as_ref()
-                                        .and_then(|v| v.get("request_id"))
+                                        .and_then(PluginControlRequest::request_id)
                                         .cloned();
-                                    let scope = control_scope_from_root(request_root.as_ref());
+                                    let scope = request
+                                        .as_ref()
+                                        .map(PluginControlRequest::scope)
+                                        .unwrap_or(stellatune_core::ControlScope::Player);
                                     let command =
-                                        control_command_from_root(request_root.as_ref(), scope);
+                                        request.as_ref().map(PluginControlRequest::control_command);
                                     emit_control_finished(
                                         &plugins,
                                         router_thread.runtime_hub.as_ref(),

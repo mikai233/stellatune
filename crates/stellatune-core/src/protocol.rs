@@ -3,6 +3,36 @@ use serde::{Deserialize, Serialize};
 use crate::library::LibraryEvent;
 use crate::playback::{Event, PlayerState};
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct RequestId(String);
+
+impl RequestId {
+    pub fn new(value: impl Into<String>) -> Self {
+        Self(value.into())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub fn into_inner(self) -> String {
+        self.0
+    }
+}
+
+impl From<String> for RequestId {
+    fn from(value: String) -> Self {
+        Self(value)
+    }
+}
+
+impl From<&str> for RequestId {
+    fn from(value: &str) -> Self {
+        Self(value.to_string())
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PluginRuntimeKind {
@@ -398,7 +428,7 @@ impl HostEventTopic {
 pub struct HostControlResultPayload {
     pub topic: HostEventTopic,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub request_id: Option<serde_json::Value>,
+    pub request_id: Option<RequestId>,
     pub scope: ControlScope,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub command: Option<ControlCommand>,
@@ -411,7 +441,7 @@ pub struct HostControlResultPayload {
 pub struct HostControlFinishedPayload {
     pub topic: HostEventTopic,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub request_id: Option<serde_json::Value>,
+    pub request_id: Option<RequestId>,
     pub scope: ControlScope,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub command: Option<ControlCommand>,

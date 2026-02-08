@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 use crossbeam_channel::{Receiver as CbReceiver, Sender as CbSender};
+use stellatune_plugin_protocol::RequestId;
 
 use stellatune_core::{ControlCommand, ControlScope, Event, LibraryEvent, PluginRuntimeEvent};
 
@@ -73,7 +74,7 @@ pub(super) enum ControlWaitKind {
 #[derive(Debug, Clone)]
 pub(super) struct PendingControlFinish {
     pub(super) plugin_id: String,
-    pub(super) request_id: Option<serde_json::Value>,
+    pub(super) request_id: Option<RequestId>,
     pub(super) scope: ControlScope,
     pub(super) command: Option<ControlCommand>,
     pub(super) wait: ControlWaitKind,
