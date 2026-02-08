@@ -597,10 +597,7 @@ pub(crate) fn start_session(args: StartSessionArgs<'_>) -> Result<PlaybackSessio
     let mut desired_out_spec = out_spec;
     if !output_sink_only
         && match_track_sample_rate
-        && matches!(
-            backend,
-            stellatune_output::AudioBackend::WasapiExclusive
-        )
+        && matches!(backend, stellatune_output::AudioBackend::WasapiExclusive)
         && let Some(info) = promoted_track_info.as_ref()
     {
         let candidate = OutputSpec {

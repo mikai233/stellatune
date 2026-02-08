@@ -22,12 +22,20 @@ Plugin SDK (`stellatune-plugin-sdk`) now also provides typed helpers:
   - `build_library_control_request_json(...)`
   - `host_send_player_control(...)`
   - `host_send_library_control(...)`
+  - `host_set_output_sink_route(...)`
+  - `host_clear_output_sink_route(...)`
+  - `host_set_output_device(...)`
+  - `host_set_output_options(...)`
+  - `host_refresh_devices(...)`
 - parse host-poll events:
   - `parse_host_event_json(...)`
   - `host_poll_event(...)`
   - `control_event_matches_request_id(...)`
 - request id helper:
   - `next_request_id()`
+- output sink implementation helper:
+  - `OutputSink` / `OutputSinkDescriptor`
+  - `export_output_sink_interface! { sink: ... }`
 
 Example (plugin side):
 

@@ -1426,7 +1426,8 @@ fn ensure_output_spec_prewarm(state: &mut EngineState, internal_tx: &Sender<Inte
 
 fn output_spec_for_plugin_sink(state: &EngineState) -> OutputSpec {
     let start_at_ms = state.position_ms.max(0) as u64;
-    if let (Some(path), Some(worker)) = (state.current_track.as_deref(), state.decode_worker.as_ref())
+    if let (Some(path), Some(worker)) =
+        (state.current_track.as_deref(), state.decode_worker.as_ref())
         && let Some(track_info) = worker.peek_promoted_track_info(path, start_at_ms)
     {
         return OutputSpec {
