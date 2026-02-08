@@ -13,7 +13,7 @@ use stellatune_plugins::DspInstance;
 
 use crate::engine::config::RESAMPLE_CHUNK_FRAMES;
 use crate::engine::event_hub::EventHub;
-use crate::engine::messages::{DecodeCtrl, DecodeWorkerState, InternalMsg, OutputSinkWrite};
+use crate::engine::messages::{DecodeCtrl, DecodeWorkerState, InternalMsg, OutputSinkTx};
 
 pub mod context;
 pub mod decoder;
@@ -38,7 +38,7 @@ type DecodeSetupState = (
     Arc<std::sync::atomic::AtomicBool>,
     i64,
     stellatune_core::LfeMode,
-    Option<Sender<OutputSinkWrite>>,
+    Option<OutputSinkTx>,
     u32,
     bool,
 );

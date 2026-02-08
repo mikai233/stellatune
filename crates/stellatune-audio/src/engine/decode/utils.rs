@@ -8,7 +8,7 @@ use super::context::DecodeContext;
 use super::decoder::EngineDecoder;
 use super::dsp::split_dsp_chain_by_layout;
 use crate::engine::config::OUTPUT_SINK_WRITE_RETRY_SLEEP_MS;
-use crate::engine::messages::{DecodeCtrl, OutputSinkWrite};
+use crate::engine::messages::DecodeCtrl;
 
 pub(crate) fn skip_frames_by_decoding(
     decoder: &mut EngineDecoder,
@@ -88,7 +88,7 @@ pub(crate) fn write_pending(ctx: &mut DecodeContext) -> bool {
             };
             let chunk = ctx.out_pending[offset..offset + chunk_len].to_vec();
             let chunk_len = chunk.len();
-            match tx.try_send(OutputSinkWrite::Samples(chunk)) {
+            match tx.try_send_samples(chunk) {
                 Ok(()) => chunk_len,
                 Err(TrySendError::Disconnected(_)) => {
                     *ctx.output_sink_tx = None;

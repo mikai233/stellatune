@@ -3158,6 +3158,15 @@ name = "stellatune-plugin-api"
 version = "0.1.0"
 
 [[package]]
+name = "stellatune-plugin-asio"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "stellatune-asio-proto",
+ "stellatune-plugin-sdk",
+]
+
+[[package]]
 name = "stellatune-plugin-ncm"
 version = "0.1.0"
 dependencies = [

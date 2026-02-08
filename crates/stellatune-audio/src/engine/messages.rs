@@ -1,8 +1,8 @@
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
-use crossbeam_channel::Sender;
+use crossbeam_channel::{Sender, TrySendError};
 use stellatune_core::TrackDecodeInfo;
 use stellatune_output::OutputSpec;
 use stellatune_plugins::DspInstance;
@@ -42,6 +42,42 @@ pub(crate) enum OutputSinkWrite {
     Shutdown,
 }
 
+#[derive(Clone)]
+pub(crate) struct OutputSinkTx {
+    tx: Sender<OutputSinkWrite>,
+    pending_samples: Arc<AtomicUsize>,
+}
+
+impl OutputSinkTx {
+    pub(crate) fn new(tx: Sender<OutputSinkWrite>, pending_samples: Arc<AtomicUsize>) -> Self {
+        Self {
+            tx,
+            pending_samples,
+        }
+    }
+
+    pub(crate) fn try_send_samples(
+        &self,
+        samples: Vec<f32>,
+    ) -> Result<(), TrySendError<OutputSinkWrite>> {
+        let count = samples.len();
+        self.pending_samples.fetch_add(count, Ordering::Relaxed);
+        match self.tx.try_send(OutputSinkWrite::Samples(samples)) {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                if count > 0 {
+                    let _ = self.pending_samples.fetch_update(
+                        Ordering::Relaxed,
+                        Ordering::Relaxed,
+                        |current| Some(current.saturating_sub(count)),
+                    );
+                }
+                Err(e)
+            }
+        }
+    }
+}
+
 pub(crate) enum DecodeCtrl {
     Setup {
         producer: Arc<Mutex<RingBufferProducer<f32>>>,
@@ -52,7 +88,7 @@ pub(crate) enum DecodeCtrl {
         output_enabled: Arc<AtomicBool>,
         buffer_prefill_cap_ms: i64,
         lfe_mode: stellatune_core::LfeMode,
-        output_sink_tx: Option<Sender<OutputSinkWrite>>,
+        output_sink_tx: Option<OutputSinkTx>,
         output_sink_chunk_frames: u32,
         output_sink_only: bool,
     },
@@ -68,7 +104,7 @@ pub(crate) enum DecodeCtrl {
         mode: stellatune_core::LfeMode,
     },
     SetOutputSinkTx {
-        tx: Option<Sender<OutputSinkWrite>>,
+        tx: Option<OutputSinkTx>,
         output_sink_chunk_frames: u32,
     },
     Stop,

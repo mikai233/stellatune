@@ -8,8 +8,23 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:stellatune/player/queue_models.dart';
 import 'package:stellatune/bridge/bridge.dart';
 
+class OutputSettingsUiSession {
+  bool initialized = false;
+  String? selectedOutputBackendKey;
+  String? selectedOutputSinkTypeKey;
+  String outputSinkConfigJson = '{}';
+  String outputSinkTargetJson = '{}';
+  List<Object?> outputSinkTargets = const [];
+  bool loadingOutputSinkTargets = false;
+  final Map<String, String> outputSinkConfigDrafts = <String, String>{};
+  List<OutputSinkTypeDescriptor> cachedOutputSinkTypes = const [];
+  bool cachedOutputSinkTypesReady = false;
+}
+
 class SettingsStore extends Notifier<SettingsStore> {
   SettingsStore();
+  final OutputSettingsUiSession outputSettingsUiSession =
+      OutputSettingsUiSession();
 
   @override
   SettingsStore build() {

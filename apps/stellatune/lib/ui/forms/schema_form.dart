@@ -163,7 +163,7 @@ class _SchemaFormState extends State<SchemaForm> {
       final field = value.cast<String, dynamic>();
       final title = (field['title'] as String?)?.trim();
       final description = (field['description'] as String?)?.trim();
-      final type = (field['type'] as String?)?.trim();
+      final type = _readType(field['type']);
 
       final enumValues = <String>[];
       final enumRaw = field['enum'];
@@ -237,6 +237,25 @@ class _SchemaFormState extends State<SchemaForm> {
       if (v is num) return v.toInt();
     }
     return 0;
+  }
+
+  static String? _readType(dynamic rawType) {
+    if (rawType is String) {
+      final t = rawType.trim();
+      return t.isEmpty ? null : t;
+    }
+    if (rawType is List) {
+      String? fallback;
+      for (final item in rawType) {
+        if (item is! String) continue;
+        final t = item.trim();
+        if (t.isEmpty) continue;
+        if (t != 'null') return t;
+        fallback ??= t;
+      }
+      return fallback;
+    }
+    return null;
   }
 
   static String _valueToText(Object? value, _SchemaFieldKind kind) {

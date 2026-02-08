@@ -12,6 +12,7 @@ members = [
   "crates/stellatune-mixer",
   "crates/stellatune-output",
   "crates/stellatune-plugin-api",
+  "crates/stellatune-plugin-asio",
   "crates/stellatune-plugin-protocol",
   "crates/stellatune-plugin-ncm",
   "crates/stellatune-plugin-sdk",

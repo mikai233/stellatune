@@ -17,11 +17,12 @@ use crate::engine::decode::decoder::EngineDecoder;
 use crate::engine::decode::{DecodeThreadArgs, decode_thread};
 use crate::engine::event_hub::EventHub;
 use crate::engine::messages::{
-    DecodeCtrl, DecodeWorkerState, InternalMsg, OutputSinkWrite, PredecodedChunk,
+    DecodeCtrl, DecodeWorkerState, InternalMsg, OutputSinkTx, OutputSinkWrite, PredecodedChunk,
 };
 use crate::ring_buffer::{RingBufferConsumer, RingBufferProducer, new_ring_buffer};
 
 const OUTPUT_CONSUMER_CHUNK_SAMPLES: usize = 1024;
+pub(crate) const OUTPUT_SINK_QUEUE_CAP_MESSAGES: usize = 8;
 #[cfg(debug_assertions)]
 const DEBUG_SESSION_LOG_EVERY: u64 = 12;
 #[cfg(debug_assertions)]
@@ -200,32 +201,113 @@ pub(crate) struct PlaybackSession {
 
 pub(crate) struct OutputSinkWorker {
     tx: Sender<OutputSinkWrite>,
+    pending_samples: Arc<AtomicUsize>,
     join: JoinHandle<()>,
+}
+
+struct MasterGainProcessor {
+    volume: Arc<AtomicU32>,
+    transition_gain: Arc<AtomicU32>,
+    transition_target_gain: Arc<AtomicU32>,
+    transition_current: f32,
+    transition_step: f32,
+}
+
+impl MasterGainProcessor {
+    fn new(
+        volume: Arc<AtomicU32>,
+        transition_gain: Arc<AtomicU32>,
+        transition_target_gain: Arc<AtomicU32>,
+        sample_rate: u32,
+    ) -> Self {
+        let transition_current =
+            f32::from_bits(transition_gain.load(Ordering::Relaxed)).clamp(0.0, 1.0);
+        let transition_step = (1.0
+            / ((sample_rate as f32 * SEEK_TRACK_FADE_RAMP_MS as f32) / 1000.0).max(1.0))
+        .min(1.0);
+        Self {
+            volume,
+            transition_gain,
+            transition_target_gain,
+            transition_current,
+            transition_step,
+        }
+    }
+
+    fn next_transition_gain(&mut self) -> f32 {
+        let target =
+            f32::from_bits(self.transition_target_gain.load(Ordering::Relaxed)).clamp(0.0, 1.0);
+        if self.transition_current < target {
+            self.transition_current = (self.transition_current + self.transition_step).min(target);
+        } else if self.transition_current > target {
+            self.transition_current = (self.transition_current - self.transition_step).max(target);
+        }
+        self.transition_gain
+            .store(self.transition_current.to_bits(), Ordering::Relaxed);
+        self.transition_current
+    }
+
+    fn apply_sample(&mut self, sample: f32) -> f32 {
+        let volume = f32::from_bits(self.volume.load(Ordering::Relaxed));
+        let transition = self.next_transition_gain();
+        sample * volume * transition
+    }
+
+    fn apply_in_place(&mut self, samples: &mut [f32]) {
+        for sample in samples {
+            *sample = self.apply_sample(*sample);
+        }
+    }
 }
 
 impl OutputSinkWorker {
     pub(crate) fn start(
         mut sink: stellatune_plugins::OutputSinkInstance,
         channels: u16,
+        sample_rate: u32,
+        volume: Arc<AtomicU32>,
+        transition_gain: Arc<AtomicU32>,
+        transition_target_gain: Arc<AtomicU32>,
         internal_tx: Sender<InternalMsg>,
     ) -> Self {
-        let (tx, rx) = crossbeam_channel::bounded::<OutputSinkWrite>(8);
+        let (tx, rx) =
+            crossbeam_channel::bounded::<OutputSinkWrite>(OUTPUT_SINK_QUEUE_CAP_MESSAGES);
+        let pending_samples = Arc::new(AtomicUsize::new(0));
+        let pending_samples_for_thread = Arc::clone(&pending_samples);
         let join = std::thread::Builder::new()
             .name("stellatune-output-sink".to_string())
             .spawn(move || {
+                let mut master_gain = MasterGainProcessor::new(
+                    volume,
+                    transition_gain,
+                    transition_target_gain,
+                    sample_rate,
+                );
                 while let Ok(msg) = rx.recv() {
                     match msg {
-                        OutputSinkWrite::Samples(samples) => {
+                        OutputSinkWrite::Samples(mut samples) => {
+                            let queued = samples.len();
                             if samples.is_empty() {
                                 continue;
                             }
+                            master_gain.apply_in_place(&mut samples);
                             if let Err(e) = write_all_frames(&mut sink, channels, &samples) {
+                                let _ = pending_samples_for_thread.fetch_update(
+                                    Ordering::Relaxed,
+                                    Ordering::Relaxed,
+                                    |current| Some(current.saturating_sub(queued)),
+                                );
                                 warn!("output sink write failed: {e:#}");
                                 let _ = internal_tx.try_send(InternalMsg::OutputError(format!(
                                     "plugin sink write failed: {e}"
                                 )));
                                 break;
                             }
+                            let _ = pending_samples_for_thread.fetch_update(
+                                Ordering::Relaxed,
+                                Ordering::Relaxed,
+                                |current| Some(current.saturating_sub(queued)),
+                            );
                         }
                         OutputSinkWrite::Shutdown => {
                             let _ = sink.flush();
@@ -235,11 +317,19 @@ impl OutputSinkWorker {
                 }
             })
             .expect("failed to spawn stellatune-output-sink thread");
-        Self { tx, join }
+        Self {
+            tx,
+            pending_samples,
+            join,
+        }
     }
 
-    pub(crate) fn sender(&self) -> Sender<OutputSinkWrite> {
-        self.tx.clone()
+    pub(crate) fn sender(&self) -> OutputSinkTx {
+        OutputSinkTx::new(self.tx.clone(), Arc::clone(&self.pending_samples))
+    }
+
+    pub(crate) fn pending_samples(&self) -> usize {
+        self.pending_samples.load(Ordering::Relaxed)
     }
 
     pub(crate) fn shutdown(self) {
@@ -519,14 +609,12 @@ fn create_output_pipeline(
         let output_consumer = GatedConsumer {
             inner: Arc::clone(&consumer),
             enabled: Arc::clone(&output_enabled),
-            volume,
-            transition_gain: Arc::clone(&transition_gain),
-            transition_target_gain: Arc::clone(&transition_target_gain),
-            transition_current: 1.0,
-            transition_step: (1.0
-                / ((out_spec.sample_rate as f32 * SEEK_TRACK_FADE_RAMP_MS as f32) / 1000.0)
-                    .max(1.0))
-            .min(1.0),
+            master_gain: MasterGainProcessor::new(
+                volume,
+                Arc::clone(&transition_gain),
+                Arc::clone(&transition_target_gain),
+                out_spec.sample_rate,
+            ),
             buffered_samples: Arc::clone(&buffered_samples),
             underrun_callbacks: Arc::clone(&underrun_callbacks),
             scratch: vec![0.0; OUTPUT_CONSUMER_CHUNK_SAMPLES],
@@ -640,7 +728,10 @@ pub(crate) fn start_session(args: StartSessionArgs<'_>) -> Result<PlaybackSessio
         let same_route =
             existing.backend == backend && existing.device_id.as_deref() == device_id.as_deref();
         let can_reuse = same_route
-            && if gapless_playback {
+            && if output_sink_only {
+                existing_spec.sample_rate == desired_out_spec.sample_rate
+                    && existing_spec.channels == desired_out_spec.channels
+            } else if gapless_playback {
                 existing_spec.channels == desired_out_spec.channels
             } else {
                 existing_spec.sample_rate == desired_out_spec.sample_rate
@@ -738,31 +829,12 @@ pub(crate) fn start_session(args: StartSessionArgs<'_>) -> Result<PlaybackSessio
 struct GatedConsumer {
     inner: Arc<Mutex<RingBufferConsumer<f32>>>,
     enabled: Arc<AtomicBool>,
-    volume: Arc<AtomicU32>,
-    transition_gain: Arc<AtomicU32>,
-    transition_target_gain: Arc<AtomicU32>,
-    transition_current: f32,
-    transition_step: f32,
+    master_gain: MasterGainProcessor,
     buffered_samples: Arc<AtomicUsize>,
     underrun_callbacks: Arc<AtomicU64>,
     scratch: Vec<f32>,
     scratch_len: usize,
     scratch_cursor: usize,
-}
-
-impl GatedConsumer {
-    fn next_transition_gain(&mut self) -> f32 {
-        let target =
-            f32::from_bits(self.transition_target_gain.load(Ordering::Relaxed)).clamp(0.0, 1.0);
-        if self.transition_current < target {
-            self.transition_current = (self.transition_current + self.transition_step).min(target);
-        } else if self.transition_current > target {
-            self.transition_current = (self.transition_current - self.transition_step).max(target);
-        }
-        self.transition_gain
-            .store(self.transition_current.to_bits(), Ordering::Relaxed);
-        self.transition_current
-    }
 }
 
 impl stellatune_output::SampleConsumer for GatedConsumer {
@@ -785,9 +857,7 @@ impl stellatune_output::SampleConsumer for GatedConsumer {
 
         let sample = self.scratch[self.scratch_cursor];
         self.scratch_cursor += 1;
-        let v = f32::from_bits(self.volume.load(Ordering::Relaxed));
-        let transition = self.next_transition_gain();
-        Some(sample * v * transition)
+        Some(self.master_gain.apply_sample(sample))
     }
 
     fn on_output(&mut self, requested: usize, provided: usize) {

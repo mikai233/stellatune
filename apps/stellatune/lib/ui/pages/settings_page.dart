@@ -8,6 +8,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as p;
 import 'package:stellatune/app/providers.dart';
 import 'package:stellatune/app/plugin_paths.dart';
+import 'package:stellatune/app/settings_store.dart';
 import 'package:stellatune/bridge/bridge.dart';
 import 'package:stellatune/l10n/app_localizations.dart';
 import 'package:stellatune/lyrics/lyrics_controller.dart';
@@ -38,16 +39,15 @@ class _InstalledPlugin {
   String get nameOrDir => name ?? p.basename(dirPath);
 }
 
-enum _OutputMode { device, plugin }
-
 class SettingsPageState extends ConsumerState<SettingsPage> {
   Future<List<PluginDescriptor>>? _pluginsFuture;
   Future<List<OutputSinkTypeDescriptor>>? _outputSinkTypesFuture;
   Future<List<SourceCatalogTypeDescriptor>>? _sourceTypesFuture;
   Future<List<_InstalledPlugin>>? _installedPluginsFuture;
   String? _pluginDir;
+  late final OutputSettingsUiSession _outputUiSession;
 
-  _OutputMode _outputMode = _OutputMode.device;
+  String? _selectedOutputBackendKey;
   String? _selectedOutputSinkTypeKey;
   final TextEditingController _outputSinkConfigController =
       TextEditingController(text: '{}');
@@ -58,12 +58,16 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
   final TextEditingController _pluginRuntimeJsonController =
       TextEditingController(text: '{"scope":"player","command":"play"}');
   StreamSubscription<PluginRuntimeEvent>? _pluginRuntimeSub;
+  Timer? _outputSinkConfigApplyDebounce;
   final List<PluginRuntimeEvent> _pluginRuntimeEvents = <PluginRuntimeEvent>[];
   List<Object?> _outputSinkTargets = const [];
   bool _loadingOutputSinkTargets = false;
   final Map<String, String> _sourceConfigDrafts = <String, String>{};
+  final Map<String, String> _outputSinkConfigDrafts = <String, String>{};
   Set<String> _cachedLoadedPluginIds = <String>{};
   bool _cachedLoadedPluginIdsReady = false;
+  List<OutputSinkTypeDescriptor> _cachedOutputSinkTypes = const [];
+  bool _cachedOutputSinkTypesReady = false;
   List<SourceCatalogTypeDescriptor> _cachedSourceTypes = const [];
   bool _cachedSourceTypesReady = false;
 
@@ -74,19 +78,60 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
   @override
   void initState() {
     super.initState();
-    _loadFromSettings();
+    _outputUiSession = ref.read(settingsStoreProvider).outputSettingsUiSession;
+    _restoreOutputUiSessionOrSettings();
     _refresh();
+    if (_parsePluginTypeKey(_selectedOutputBackendKey) != null) {
+      unawaited(_loadOutputSinkTargets());
+    }
     _startPluginRuntimeListener();
   }
 
   @override
   void dispose() {
+    _persistOutputUiSession();
+    _outputSinkConfigApplyDebounce?.cancel();
     _outputSinkConfigController.dispose();
     _outputSinkTargetController.dispose();
     _pluginRuntimeTargetIdController.dispose();
     _pluginRuntimeJsonController.dispose();
     unawaited(_pluginRuntimeSub?.cancel());
     super.dispose();
+  }
+
+  void _restoreOutputUiSessionOrSettings() {
+    final session = _outputUiSession;
+    if (!session.initialized) {
+      _loadFromSettings();
+      return;
+    }
+    _selectedOutputBackendKey = session.selectedOutputBackendKey;
+    _selectedOutputSinkTypeKey = session.selectedOutputSinkTypeKey;
+    _outputSinkConfigController.text = session.outputSinkConfigJson;
+    _outputSinkTargetController.text = session.outputSinkTargetJson;
+    _outputSinkTargets = List<Object?>.from(session.outputSinkTargets);
+    _loadingOutputSinkTargets = false;
+    _outputSinkConfigDrafts
+      ..clear()
+      ..addAll(session.outputSinkConfigDrafts);
+    _cachedOutputSinkTypes = session.cachedOutputSinkTypes;
+    _cachedOutputSinkTypesReady = session.cachedOutputSinkTypesReady;
+  }
+
+  void _persistOutputUiSession() {
+    final session = _outputUiSession;
+    session.initialized = true;
+    session.selectedOutputBackendKey = _selectedOutputBackendKey;
+    session.selectedOutputSinkTypeKey = _selectedOutputSinkTypeKey;
+    session.outputSinkConfigJson = _outputSinkConfigController.text;
+    session.outputSinkTargetJson = _outputSinkTargetController.text;
+    session.outputSinkTargets = List<Object?>.from(_outputSinkTargets);
+    session.loadingOutputSinkTargets = false;
+    session.outputSinkConfigDrafts
+      ..clear()
+      ..addAll(_outputSinkConfigDrafts);
+    session.cachedOutputSinkTypes = _cachedOutputSinkTypes;
+    session.cachedOutputSinkTypesReady = _cachedOutputSinkTypesReady;
   }
 
   void _startPluginRuntimeListener() {
@@ -134,18 +179,27 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
   void _loadFromSettings() {
     final settings = ref.read(settingsStoreProvider);
     final route = settings.outputSinkRoute;
-    _outputMode = route == null ? _OutputMode.device : _OutputMode.plugin;
+    _selectedOutputBackendKey = route == null
+        ? _localBackendKey(settings.selectedBackend)
+        : _pluginBackendKey(route.pluginId, route.typeId);
     _selectedOutputSinkTypeKey = route == null
         ? null
         : '${route.pluginId}::${route.typeId}';
     _outputSinkConfigController.text = route?.configJson ?? '{}';
     _outputSinkTargetController.text = route?.targetJson ?? '{}';
+    if (route != null) {
+      _outputSinkConfigDrafts['${route.pluginId}::${route.typeId}'] =
+          route.configJson;
+    }
+    _persistOutputUiSession();
   }
 
   void _refresh() {
     final bridge = ref.read(playerBridgeProvider);
     _pluginsFuture = bridge.pluginsList();
     _outputSinkTypesFuture = null;
+    _cachedOutputSinkTypes = const [];
+    _cachedOutputSinkTypesReady = false;
     _sourceTypesFuture = bridge.sourceListTypes();
     _installedPluginsFuture = _listInstalledPlugins();
   }
@@ -153,6 +207,9 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
   void _refreshPluginRuntimeState() {
     final bridge = ref.read(playerBridgeProvider);
     _pluginsFuture = bridge.pluginsList();
+    _outputSinkTypesFuture = null;
+    _cachedOutputSinkTypes = const [];
+    _cachedOutputSinkTypesReady = false;
     _sourceTypesFuture = bridge.sourceListTypes();
   }
 
@@ -197,6 +254,62 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
 
   String _sourceTypeKey(SourceCatalogTypeDescriptor t) =>
       '${t.pluginId}::${t.typeId}';
+
+  String _outputSinkTypeKey(OutputSinkTypeDescriptor t) =>
+      '${t.pluginId}::${t.typeId}';
+
+  String _localBackendKey(AudioBackend backend) => 'local:${backend.name}';
+
+  String _pluginBackendKey(String pluginId, String typeId) =>
+      'plugin:$pluginId::$typeId';
+
+  AudioBackend? _parseLocalBackendKey(String? key) {
+    if (key == null || !key.startsWith('local:')) return null;
+    final raw = key.substring('local:'.length);
+    for (final backend in AudioBackend.values) {
+      if (backend.name == raw) return backend;
+    }
+    return null;
+  }
+
+  String? _parsePluginTypeKey(String? key) {
+    if (key == null || !key.startsWith('plugin:')) return null;
+    final raw = key.substring('plugin:'.length);
+    final parts = raw.split('::');
+    if (parts.length != 2) return null;
+    if (parts[0].trim().isEmpty || parts[1].trim().isEmpty) return null;
+    return '${parts[0]}::${parts[1]}';
+  }
+
+  String _outputSinkConfigForType(OutputSinkTypeDescriptor t) {
+    final key = _outputSinkTypeKey(t);
+    final draft = _outputSinkConfigDrafts[key];
+    if (draft != null) return draft;
+    if (_selectedOutputSinkTypeKey == key) {
+      final live = _outputSinkConfigController.text.trim();
+      if (live.isNotEmpty) return live;
+    }
+    final route = ref.read(settingsStoreProvider).outputSinkRoute;
+    if (route != null && key == '${route.pluginId}::${route.typeId}') {
+      return route.configJson;
+    }
+    return t.defaultConfigJson;
+  }
+
+  String _targetValueOf(Object? target) =>
+      target is String ? target : jsonEncode(target);
+
+  String _targetLabelOf(Object? target) {
+    if (target is Map) {
+      final map = target.cast<Object?, Object?>();
+      final name = (map['name'] ?? '').toString().trim();
+      if (name.isNotEmpty) return name;
+      final id = (map['id'] ?? '').toString().trim();
+      if (id.isNotEmpty) return id;
+    }
+    final text = _targetValueOf(target);
+    return text.length <= 96 ? text : '${text.substring(0, 93)}...';
+  }
 
   String _sourceConfigForType(SourceCatalogTypeDescriptor t) {
     final key = _sourceTypeKey(t);
@@ -251,11 +364,24 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
   }) async {
     final id = plugin.id?.trim();
     if (id == null || id.isEmpty) return;
-    await ref
-        .read(settingsStoreProvider)
-        .setPluginEnabled(pluginId: id, enabled: enabled);
+    final settings = ref.read(settingsStoreProvider);
+    await settings.setPluginEnabled(pluginId: id, enabled: enabled);
     await _reloadPluginsWithCurrentDisabled();
+    if (!enabled) {
+      final route = settings.outputSinkRoute;
+      if (route != null && route.pluginId == id) {
+        final bridge = ref.read(playerBridgeProvider);
+        await bridge.clearOutputSinkRoute();
+        await settings.clearOutputSinkRoute();
+        await bridge.setOutputDevice(
+          backend: settings.selectedBackend,
+          deviceId: settings.selectedDeviceId,
+        );
+        unawaited(bridge.refreshDevices());
+      }
+    }
     if (mounted) {
+      _loadFromSettings();
       setState(_refreshPluginRuntimeState);
     }
   }
@@ -350,8 +476,12 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
   }
 
   Future<void> _loadOutputSinkTargets() async {
-    final selectedKey = _selectedOutputSinkTypeKey;
+    if (_loadingOutputSinkTargets) return;
+    final selectedKey =
+        _parsePluginTypeKey(_selectedOutputBackendKey) ??
+        _selectedOutputSinkTypeKey;
     if (selectedKey == null || selectedKey.isEmpty) return;
+    _selectedOutputSinkTypeKey = selectedKey;
     final parts = selectedKey.split('::');
     if (parts.length != 2) return;
     setState(() => _loadingOutputSinkTargets = true);
@@ -367,7 +497,11 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
       if (!mounted) return;
       setState(() => _outputSinkTargets = targets);
       if (targets.isNotEmpty) {
-        _outputSinkTargetController.text = jsonEncode(targets.first);
+        final targetValues = targets.map(_targetValueOf).toSet();
+        final current = _outputSinkTargetController.text.trim();
+        if (!targetValues.contains(current)) {
+          _outputSinkTargetController.text = _targetValueOf(targets.first);
+        }
       }
     } catch (_) {
       if (!mounted) return;
@@ -382,37 +516,67 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
     }
   }
 
-  Future<void> _applyOutputSinkRoute() async {
+  Future<void> _applyOutputSinkRoute({bool showFeedback = false}) async {
     final bridge = ref.read(playerBridgeProvider);
     final settings = ref.read(settingsStoreProvider);
-    if (_outputMode == _OutputMode.device) {
+    final selectedBackendKey =
+        _selectedOutputBackendKey ?? _localBackendKey(settings.selectedBackend);
+
+    final localBackend = _parseLocalBackendKey(selectedBackendKey);
+    if (localBackend != null) {
+      await settings.setSelectedBackend(localBackend);
       await bridge.clearOutputSinkRoute();
       await settings.clearOutputSinkRoute();
-      if (!mounted) return;
-      final l10n = AppLocalizations.of(context)!;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(l10n.settingsSinkRouteCleared)));
+      await bridge.setOutputDevice(
+        backend: localBackend,
+        deviceId: settings.selectedDeviceId,
+      );
+      if (showFeedback && mounted) {
+        final l10n = AppLocalizations.of(context)!;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('${l10n.settingsBackend}: 已切换为系统后端')),
+        );
+      }
       return;
     }
-    final selectedKey = _selectedOutputSinkTypeKey;
+
+    final selectedKey = _parsePluginTypeKey(selectedBackendKey);
     if (selectedKey == null || selectedKey.isEmpty) return;
+    _selectedOutputSinkTypeKey = selectedKey;
     final parts = selectedKey.split('::');
     if (parts.length != 2) return;
+
+    var targetJson = _outputSinkTargetController.text.trim();
+    if (targetJson.isEmpty && _outputSinkTargets.isNotEmpty) {
+      targetJson = _targetValueOf(_outputSinkTargets.first);
+      _outputSinkTargetController.text = targetJson;
+    }
+    if (targetJson.isEmpty) {
+      targetJson = '{}';
+      _outputSinkTargetController.text = targetJson;
+    }
+
+    var configJson = _outputSinkConfigController.text.trim();
+    if (configJson.isEmpty) {
+      configJson = '{}';
+      _outputSinkConfigController.text = configJson;
+    }
+    _outputSinkConfigDrafts[selectedKey] = configJson;
 
     final route = OutputSinkRoute(
       pluginId: parts[0],
       typeId: parts[1],
-      configJson: _outputSinkConfigController.text.trim(),
-      targetJson: _outputSinkTargetController.text.trim(),
+      configJson: configJson,
+      targetJson: targetJson,
     );
     await bridge.setOutputSinkRoute(route);
     await settings.setOutputSinkRoute(route);
-    if (!mounted) return;
-    final l10n = AppLocalizations.of(context)!;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(l10n.settingsSinkRouteApplied)));
+    if (showFeedback && mounted) {
+      final l10n = AppLocalizations.of(context)!;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(l10n.settingsSinkRouteApplied)));
+    }
   }
 
   Future<void> _clearLyricsCache() async {
@@ -437,12 +601,11 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
     final bridge = ref.read(playerBridgeProvider);
     _pluginsFuture ??= bridge.pluginsList();
     _sourceTypesFuture ??= bridge.sourceListTypes();
-    if (_outputMode == _OutputMode.plugin) {
-      _outputSinkTypesFuture ??= bridge.outputSinkListTypes();
-    }
+    _outputSinkTypesFuture ??= bridge.outputSinkListTypes();
     _installedPluginsFuture ??= _listInstalledPlugins();
 
     final devices = ref.watch(audioDevicesProvider).value ?? const [];
+    _persistOutputUiSession();
 
     final appBar = AppBar(
       title: Text(l10n.settingsTitle),
@@ -555,54 +718,129 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
                 const SizedBox(height: 8),
-                DropdownButtonFormField<AudioBackend>(
-                  decoration: InputDecoration(
-                    labelText: l10n.settingsBackend,
-                    border: const OutlineInputBorder(),
-                    isDense: true,
-                  ),
-                  initialValue: ref
-                      .watch(settingsStoreProvider)
-                      .selectedBackend,
-                  items: [
-                    DropdownMenuItem(
-                      value: AudioBackend.shared,
-                      child: Text(l10n.settingsBackendShared),
-                    ),
-                    DropdownMenuItem(
-                      value: AudioBackend.wasapiExclusive,
-                      child: Text(l10n.settingsBackendWasapiExclusive),
-                    ),
-                  ],
-                  onChanged: (v) async {
-                    if (v == null) return;
-                    final settings = ref.read(settingsStoreProvider);
-                    await settings.setSelectedBackend(v);
-
-                    // If the previously selected device isn't available on the new backend,
-                    // fall back to Default (null) to avoid passing an invalid device name.
-                    var deviceId = settings.selectedDeviceId;
-                    final available = devices
-                        .where((d) => d.backend == v)
-                        .map((d) => d.id)
-                        .toSet();
-                    if (deviceId != null && !available.contains(deviceId)) {
-                      deviceId = null;
-                      await settings.setSelectedDeviceId(null);
+                FutureBuilder<List<OutputSinkTypeDescriptor>>(
+                  future: _outputSinkTypesFuture,
+                  builder: (context, snap) {
+                    if (snap.data != null) {
+                      _cachedOutputSinkTypes = snap.data!;
+                      _cachedOutputSinkTypesReady = true;
+                    } else if (snap.connectionState == ConnectionState.done) {
+                      _cachedOutputSinkTypes = const [];
+                      _cachedOutputSinkTypesReady = true;
                     }
-                    if (deviceId != null &&
-                        available.isNotEmpty &&
-                        !available.contains(deviceId)) {
-                      deviceId = null;
-                      await settings.setSelectedDeviceId(null);
+                    final sinkTypes =
+                        snap.data ??
+                        (_cachedOutputSinkTypesReady
+                            ? _cachedOutputSinkTypes
+                            : const <OutputSinkTypeDescriptor>[]);
+                    final settings = ref.watch(settingsStoreProvider);
+                    final route = settings.outputSinkRoute;
+                    final selected =
+                        _selectedOutputBackendKey ??
+                        (route == null
+                            ? _localBackendKey(settings.selectedBackend)
+                            : _pluginBackendKey(route.pluginId, route.typeId));
+                    final values = <String>{
+                      _localBackendKey(AudioBackend.shared),
+                      _localBackendKey(AudioBackend.wasapiExclusive),
+                      ...sinkTypes.map(
+                        (t) => _pluginBackendKey(t.pluginId, t.typeId),
+                      ),
+                    };
+                    final value = values.contains(selected) ? selected : null;
+                    if (value == null &&
+                        selected.startsWith('plugin:') &&
+                        snap.connectionState == ConnectionState.done) {
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (!mounted) return;
+                        setState(() {
+                          _selectedOutputBackendKey = _localBackendKey(
+                            settings.selectedBackend,
+                          );
+                          _selectedOutputSinkTypeKey = null;
+                          _outputSinkTargets = const [];
+                        });
+                      });
                     }
-
-                    final bridge = ref.read(playerBridgeProvider);
-                    await bridge.setOutputDevice(
-                      backend: v,
-                      deviceId: deviceId,
+                    return DropdownButtonFormField<String>(
+                      decoration: InputDecoration(
+                        labelText: l10n.settingsBackend,
+                        border: const OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                      initialValue: value,
+                      items: [
+                        DropdownMenuItem(
+                          value: _localBackendKey(AudioBackend.shared),
+                          child: Text(l10n.settingsBackendShared),
+                        ),
+                        DropdownMenuItem(
+                          value: _localBackendKey(AudioBackend.wasapiExclusive),
+                          child: Text(l10n.settingsBackendWasapiExclusive),
+                        ),
+                        for (final t in sinkTypes)
+                          DropdownMenuItem(
+                            value: _pluginBackendKey(t.pluginId, t.typeId),
+                            child: Text(
+                              'Plugin: ${t.displayName} (${t.pluginName})',
+                            ),
+                          ),
+                      ],
+                      onChanged: (v) async {
+                        if (v == null) return;
+                        final messenger = ScaffoldMessenger.of(context);
+                        final local = _parseLocalBackendKey(v);
+                        setState(() {
+                          _selectedOutputBackendKey = v;
+                          if (local != null) {
+                            _selectedOutputSinkTypeKey = null;
+                            _outputSinkTargets = const [];
+                          } else {
+                            final sinkKey = _parsePluginTypeKey(v);
+                            _selectedOutputSinkTypeKey = sinkKey;
+                            _outputSinkTargets = const [];
+                            OutputSinkTypeDescriptor? sink;
+                            for (final t in sinkTypes) {
+                              if (_outputSinkTypeKey(t) == sinkKey) {
+                                sink = t;
+                                break;
+                              }
+                            }
+                            if (sink != null) {
+                              _outputSinkConfigController.text =
+                                  _outputSinkConfigForType(sink);
+                            } else {
+                              _outputSinkConfigController.text = '{}';
+                            }
+                            final active = settings.outputSinkRoute;
+                            if (active != null &&
+                                sinkKey ==
+                                    '${active.pluginId}::${active.typeId}') {
+                              _outputSinkTargetController.text =
+                                  active.targetJson;
+                            } else {
+                              _outputSinkTargetController.text = '{}';
+                            }
+                          }
+                        });
+                        try {
+                          if (local == null) {
+                            await _loadOutputSinkTargets();
+                          }
+                          await _applyOutputSinkRoute();
+                        } catch (e) {
+                          messenger.showSnackBar(
+                            SnackBar(content: Text('Apply backend failed: $e')),
+                          );
+                        } finally {
+                          try {
+                            await ref
+                                .read(playerBridgeProvider)
+                                .refreshDevices();
+                          } catch (_) {}
+                        }
+                      },
                     );
-                    bridge.refreshDevices();
                   },
                 ),
                 const SizedBox(height: 12),
@@ -613,46 +851,95 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
                     isDense: true,
                   ),
                   initialValue: () {
-                    final selected = ref
-                        .watch(settingsStoreProvider)
-                        .selectedDeviceId;
-                    final backend = ref
-                        .read(settingsStoreProvider)
-                        .selectedBackend;
-                    final available = devices
-                        .where((d) => d.backend == backend)
-                        .toList();
-
-                    final availableIds = available.map((d) => d.id).toSet();
-                    if (selected != null && !availableIds.contains(selected)) {
-                      return null; // Fallback to Default
+                    final selectedBackendKey =
+                        _selectedOutputBackendKey ??
+                        _localBackendKey(
+                          ref.read(settingsStoreProvider).selectedBackend,
+                        );
+                    final localBackend = _parseLocalBackendKey(
+                      selectedBackendKey,
+                    );
+                    if (localBackend != null) {
+                      final selected = ref
+                          .watch(settingsStoreProvider)
+                          .selectedDeviceId;
+                      final available = devices
+                          .where((d) => d.backend == localBackend)
+                          .toList();
+                      final availableIds = available.map((d) => d.id).toSet();
+                      if (selected != null &&
+                          !availableIds.contains(selected)) {
+                        return null;
+                      }
+                      return selected;
                     }
-                    return selected;
+                    final targetValue = _outputSinkTargetController.text.trim();
+                    final targetValues = _outputSinkTargets
+                        .map(_targetValueOf)
+                        .toSet();
+                    return targetValues.contains(targetValue)
+                        ? targetValue
+                        : null;
                   }(),
-                  items: [
-                    DropdownMenuItem(
-                      value: null,
-                      child: Text(l10n.settingsDeviceDefault),
-                    ),
-                    ...devices
-                        .where(
-                          (d) =>
-                              d.backend ==
-                              ref.read(settingsStoreProvider).selectedBackend,
-                        )
-                        .map(
-                          (d) => DropdownMenuItem(
-                            value: d.id,
-                            child: Text(d.name),
-                          ),
+                  items: () {
+                    final selectedBackendKey =
+                        _selectedOutputBackendKey ??
+                        _localBackendKey(
+                          ref.read(settingsStoreProvider).selectedBackend,
+                        );
+                    final localBackend = _parseLocalBackendKey(
+                      selectedBackendKey,
+                    );
+                    if (localBackend != null) {
+                      return <DropdownMenuItem<String?>>[
+                        DropdownMenuItem(
+                          value: null,
+                          child: Text(l10n.settingsDeviceDefault),
                         ),
-                  ],
+                        ...devices
+                            .where((d) => d.backend == localBackend)
+                            .map(
+                              (d) => DropdownMenuItem(
+                                value: d.id,
+                                child: Text(d.name),
+                              ),
+                            ),
+                      ];
+                    }
+                    return <DropdownMenuItem<String?>>[
+                      for (final item in _outputSinkTargets)
+                        DropdownMenuItem(
+                          value: _targetValueOf(item),
+                          child: Text(_targetLabelOf(item)),
+                        ),
+                    ];
+                  }(),
                   onChanged: (v) async {
+                    final messenger = ScaffoldMessenger.of(context);
+                    final localBackend = _parseLocalBackendKey(
+                      _selectedOutputBackendKey ??
+                          _localBackendKey(
+                            ref.read(settingsStoreProvider).selectedBackend,
+                          ),
+                    );
+                    if (localBackend == null) {
+                      setState(() {
+                        _outputSinkTargetController.text = v ?? '{}';
+                      });
+                      try {
+                        await _applyOutputSinkRoute();
+                      } catch (e) {
+                        messenger.showSnackBar(
+                          SnackBar(content: Text('Apply backend failed: $e')),
+                        );
+                      }
+                      return;
+                    }
                     final settings = ref.read(settingsStoreProvider);
                     await settings.setSelectedDeviceId(v);
                     final bridge = ref.read(playerBridgeProvider);
                     await bridge.setOutputDevice(
-                      backend: settings.selectedBackend,
+                      backend: localBackend,
                       deviceId: v,
                     );
                     setState(() {});
@@ -662,7 +949,10 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
                 Builder(
                   builder: (context) {
                     final settings = ref.watch(settingsStoreProvider);
-                    final backend = settings.selectedBackend;
+                    final backend = _parseLocalBackendKey(
+                      _selectedOutputBackendKey ??
+                          _localBackendKey(settings.selectedBackend),
+                    );
                     final enabled = backend == AudioBackend.wasapiExclusive;
                     if (!enabled) return const SizedBox.shrink();
                     return Column(
@@ -726,203 +1016,6 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
                     setState(() {});
                   },
                 ),
-                const SizedBox(height: 12),
-                const Divider(height: 1),
-                const SizedBox(height: 12),
-                Text(
-                  'Plugin Output Sink',
-                  style: Theme.of(context).textTheme.titleSmall,
-                ),
-                const SizedBox(height: 8),
-                SegmentedButton<_OutputMode>(
-                  segments: const [
-                    ButtonSegment<_OutputMode>(
-                      value: _OutputMode.device,
-                      label: Text('Local Device'),
-                      icon: Icon(Icons.speaker),
-                    ),
-                    ButtonSegment<_OutputMode>(
-                      value: _OutputMode.plugin,
-                      label: Text('Plugin Sink'),
-                      icon: Icon(Icons.settings_ethernet),
-                    ),
-                  ],
-                  selected: <_OutputMode>{_outputMode},
-                  onSelectionChanged: (selection) {
-                    if (selection.isEmpty) return;
-                    setState(() => _outputMode = selection.first);
-                  },
-                ),
-                if (_outputMode == _OutputMode.device)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 8),
-                    child: Text(
-                      '当前使用本地设备输出，不会调用插件输出。',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  )
-                else
-                  FutureBuilder<List<OutputSinkTypeDescriptor>>(
-                    future: _outputSinkTypesFuture,
-                    builder: (context, snap) {
-                      if (snap.connectionState != ConnectionState.done) {
-                        return const LinearProgressIndicator();
-                      }
-                      final types = snap.data ?? const [];
-                      final typeKeys = types
-                          .map((t) => '${t.pluginId}::${t.typeId}')
-                          .toSet();
-                      if (_selectedOutputSinkTypeKey != null &&
-                          !typeKeys.contains(_selectedOutputSinkTypeKey)) {
-                        _selectedOutputSinkTypeKey = null;
-                      }
-                      OutputSinkTypeDescriptor? selectedSinkType;
-                      for (final t in types) {
-                        if ('${t.pluginId}::${t.typeId}' ==
-                            _selectedOutputSinkTypeKey) {
-                          selectedSinkType = t;
-                          break;
-                        }
-                      }
-                      return Column(
-                        children: [
-                          DropdownButtonFormField<String>(
-                            decoration: const InputDecoration(
-                              labelText: 'Output Sink Type',
-                              border: OutlineInputBorder(),
-                              isDense: true,
-                            ),
-                            initialValue: _selectedOutputSinkTypeKey,
-                            items: [
-                              for (final t in types)
-                                DropdownMenuItem(
-                                  value: '${t.pluginId}::${t.typeId}',
-                                  child: Text(
-                                    '${t.displayName} (${t.pluginName})',
-                                  ),
-                                ),
-                            ],
-                            onChanged: (v) => setState(() {
-                              _selectedOutputSinkTypeKey = v;
-                              _outputSinkTargets = const [];
-                              OutputSinkTypeDescriptor? next;
-                              for (final t in types) {
-                                if ('${t.pluginId}::${t.typeId}' == v) {
-                                  next = t;
-                                  break;
-                                }
-                              }
-                              if (next != null) {
-                                _outputSinkConfigController.text =
-                                    next.defaultConfigJson;
-                              }
-                            }),
-                          ),
-                          const SizedBox(height: 8),
-                          if (selectedSinkType != null)
-                            SchemaForm(
-                              key: ValueKey(
-                                'sink-config-form:${selectedSinkType.pluginId}:${selectedSinkType.typeId}',
-                              ),
-                              schemaJson: selectedSinkType.configSchemaJson,
-                              initialValueJson:
-                                  _outputSinkConfigController.text,
-                              onChangedJson: (json) {
-                                _outputSinkConfigController.text = json;
-                              },
-                            )
-                          else
-                            TextField(
-                              controller: _outputSinkConfigController,
-                              minLines: 2,
-                              maxLines: 4,
-                              decoration: const InputDecoration(
-                                labelText: 'Config JSON',
-                                border: OutlineInputBorder(),
-                              ),
-                            ),
-                          const SizedBox(height: 8),
-                          Row(
-                            children: [
-                              FilledButton.tonalIcon(
-                                onPressed:
-                                    !_loadingOutputSinkTargets &&
-                                        _selectedOutputSinkTypeKey != null
-                                    ? _loadOutputSinkTargets
-                                    : null,
-                                icon: const Icon(Icons.travel_explore),
-                                label: const Text('Load Targets'),
-                              ),
-                              const SizedBox(width: 8),
-                              Text(
-                                '${_outputSinkTargets.length} targets',
-                                style: Theme.of(context).textTheme.bodySmall,
-                              ),
-                            ],
-                          ),
-                          if (_outputSinkTargets.isNotEmpty) ...[
-                            const SizedBox(height: 8),
-                            SizedBox(
-                              height: 120,
-                              child: ListView.builder(
-                                itemCount: _outputSinkTargets.length,
-                                itemBuilder: (context, index) {
-                                  final item = _outputSinkTargets[index];
-                                  final text = item is String
-                                      ? item
-                                      : jsonEncode(item);
-                                  return ListTile(
-                                    dense: true,
-                                    title: Text(
-                                      text,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                    onTap: () {
-                                      _outputSinkTargetController.text =
-                                          item is String
-                                          ? item
-                                          : jsonEncode(item);
-                                    },
-                                  );
-                                },
-                              ),
-                            ),
-                          ],
-                          const SizedBox(height: 8),
-                          TextField(
-                            controller: _outputSinkTargetController,
-                            minLines: 2,
-                            maxLines: 4,
-                            decoration: const InputDecoration(
-                              labelText: 'Target JSON',
-                              border: OutlineInputBorder(),
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.end,
-                            children: [
-                              TextButton(
-                                onPressed: () {
-                                  setState(() {
-                                    _outputMode = _OutputMode.device;
-                                  });
-                                  _applyOutputSinkRoute();
-                                },
-                                child: const Text('Clear Route'),
-                              ),
-                              const SizedBox(width: 8),
-                              FilledButton(
-                                onPressed: _applyOutputSinkRoute,
-                                child: const Text('Apply Route'),
-                              ),
-                            ],
-                          ),
-                        ],
-                      );
-                    },
-                  ),
               ],
             ),
           ),
@@ -1011,6 +1104,19 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
                                   )
                                   .add(t);
                             }
+                            final outputTypes = _cachedOutputSinkTypesReady
+                                ? _cachedOutputSinkTypes
+                                : const <OutputSinkTypeDescriptor>[];
+                            final outputByPlugin =
+                                <String, List<OutputSinkTypeDescriptor>>{};
+                            for (final t in outputTypes) {
+                              outputByPlugin
+                                  .putIfAbsent(
+                                    t.pluginId,
+                                    () => <OutputSinkTypeDescriptor>[],
+                                  )
+                                  .add(t);
+                            }
 
                             return Column(
                               children: [
@@ -1029,8 +1135,16 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
                                               const <
                                                 SourceCatalogTypeDescriptor
                                               >[]);
+                                    final pluginOutputSinkTypes =
+                                        pluginId == null
+                                        ? const <OutputSinkTypeDescriptor>[]
+                                        : (outputByPlugin[pluginId] ??
+                                              const <
+                                                OutputSinkTypeDescriptor
+                                              >[]);
                                     final hasCustomUi =
-                                        pluginSourceTypes.isNotEmpty;
+                                        pluginSourceTypes.isNotEmpty ||
+                                        pluginOutputSinkTypes.isNotEmpty;
                                     final isEnabled = pluginId == null
                                         ? true
                                         : !disabled.contains(pluginId);
@@ -1277,6 +1391,64 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
                                                           _saveSourceConfig(t),
                                                       child: Text(l10n.apply),
                                                     ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          for (final t in pluginOutputSinkTypes)
+                                            Padding(
+                                              padding: const EdgeInsets.only(
+                                                top: 8,
+                                              ),
+                                              child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
+                                                  Text(
+                                                    'Output: ${t.displayName}',
+                                                    style: Theme.of(
+                                                      context,
+                                                    ).textTheme.titleSmall,
+                                                  ),
+                                                  const SizedBox(height: 6),
+                                                  SchemaForm(
+                                                    key: ValueKey(
+                                                      'settings-output-config:${t.pluginId}:${t.typeId}',
+                                                    ),
+                                                    schemaJson:
+                                                        t.configSchemaJson,
+                                                    initialValueJson:
+                                                        _outputSinkConfigForType(
+                                                          t,
+                                                        ),
+                                                    onChangedJson: (json) {
+                                                      final key =
+                                                          _outputSinkTypeKey(t);
+                                                      _outputSinkConfigDrafts[key] =
+                                                          json;
+                                                      if (_selectedOutputSinkTypeKey ==
+                                                          key) {
+                                                        _outputSinkConfigController
+                                                                .text =
+                                                            json;
+                                                        _outputSinkConfigApplyDebounce
+                                                            ?.cancel();
+                                                        _outputSinkConfigApplyDebounce = Timer(
+                                                          const Duration(
+                                                            milliseconds: 350,
+                                                          ),
+                                                          () async {
+                                                            if (!mounted) {
+                                                              return;
+                                                            }
+                                                            try {
+                                                              await _loadOutputSinkTargets();
+                                                              await _applyOutputSinkRoute();
+                                                            } catch (_) {}
+                                                          },
+                                                        );
+                                                      }
+                                                    },
                                                   ),
                                                 ],
                                               ),

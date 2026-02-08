@@ -24,8 +24,8 @@ use crate::engine::event_hub::EventHub;
 use crate::engine::messages::{DecodeCtrl, EngineCtrl, InternalMsg, PredecodedChunk};
 use crate::engine::plugin_event_hub::PluginEventHub;
 use crate::engine::session::{
-    DecodeWorker, OutputPipeline, OutputSinkWorker, PlaybackSession, PromotedPreload,
-    StartSessionArgs, start_decode_worker, start_session,
+    DecodeWorker, OUTPUT_SINK_QUEUE_CAP_MESSAGES, OutputPipeline, OutputSinkWorker,
+    PlaybackSession, PromotedPreload, StartSessionArgs, start_decode_worker, start_session,
 };
 
 #[cfg(debug_assertions)]
@@ -33,6 +33,9 @@ const DEBUG_PRELOAD_LOG_EVERY: u64 = 24;
 const TRACK_REF_TOKEN_PREFIX: &str = "stref-json:";
 const PLUGIN_SINK_FALLBACK_SAMPLE_RATE: u32 = 48_000;
 const PLUGIN_SINK_FALLBACK_CHANNELS: u16 = 2;
+const PLUGIN_SINK_DEFAULT_CHUNK_FRAMES: u32 = 256;
+const PLUGIN_SINK_MIN_LOW_WATERMARK_MS: i64 = 2;
+const PLUGIN_SINK_MIN_HIGH_WATERMARK_MS: i64 = 4;
 type SharedTrackInfo = Arc<ArcSwapOption<stellatune_core::TrackDecodeInfo>>;
 
 #[derive(Debug, Clone)]
@@ -48,6 +51,14 @@ struct OutputSinkRouteSpec {
     type_id: String,
     config: serde_json::Value,
     target: serde_json::Value,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct OutputSinkWorkerSpec {
+    route: OutputSinkRouteSpec,
+    sample_rate: u32,
+    channels: u16,
+    chunk_frames: u32,
 }
 
 mod debug_metrics {
@@ -437,6 +448,7 @@ struct EngineState {
     desired_output_sink_route: Option<OutputSinkRouteSpec>,
     output_sink_chunk_frames: u32,
     output_sink_worker: Option<OutputSinkWorker>,
+    output_sink_worker_spec: Option<OutputSinkWorkerSpec>,
     output_pipeline: Option<OutputPipeline>,
     decode_worker: Option<DecodeWorker>,
     preload_worker: Option<PreloadWorker>,
@@ -501,6 +513,7 @@ impl EngineState {
             desired_output_sink_route: None,
             output_sink_chunk_frames: 0,
             output_sink_worker: None,
+            output_sink_worker_spec: None,
             output_pipeline: None,
             decode_worker: None,
             preload_worker: None,
@@ -1544,6 +1557,25 @@ fn output_spec_for_plugin_sink(state: &EngineState) -> OutputSpec {
     }
 }
 
+fn output_sink_queue_watermarks_ms(sample_rate: u32, chunk_frames: u32) -> (i64, i64) {
+    let frames_per_chunk = if chunk_frames == 0 {
+        PLUGIN_SINK_DEFAULT_CHUNK_FRAMES as u64
+    } else {
+        chunk_frames as u64
+    };
+    let capacity_frames = frames_per_chunk
+        .saturating_mul(OUTPUT_SINK_QUEUE_CAP_MESSAGES as u64)
+        .max(1);
+    let sample_rate = sample_rate.max(1) as u64;
+    let capacity_ms = ((capacity_frames.saturating_mul(1000)) / sample_rate)
+        .max(PLUGIN_SINK_MIN_LOW_WATERMARK_MS as u64);
+    let high = ((capacity_ms.saturating_mul(3)) / 4)
+        .max(PLUGIN_SINK_MIN_HIGH_WATERMARK_MS as u64)
+        .min(capacity_ms) as i64;
+    let low = (high / 2).max(PLUGIN_SINK_MIN_LOW_WATERMARK_MS);
+    (low.min(high.saturating_sub(1)), high)
+}
+
 fn negotiate_output_sink_spec(
     state: &EngineState,
     plugins: &Arc<Mutex<PluginManager>>,
@@ -1724,13 +1756,48 @@ fn handle_tick(
 
     if state.desired_output_sink_route.is_some() {
         session.output_enabled.store(false, Ordering::Release);
-        if state.wants_playback {
-            if state.player_state != PlayerState::Playing {
-                state.play_request_started_at = None;
-                set_state(state, events, PlayerState::Playing);
-            }
-        } else if state.player_state == PlayerState::Buffering {
+        if !state.wants_playback {
             set_state(state, events, PlayerState::Paused);
+            return;
+        }
+
+        let channels = session.out_channels as usize;
+        if channels == 0 {
+            return;
+        }
+        let pending_samples = state
+            .output_sink_worker
+            .as_ref()
+            .map(|worker| worker.pending_samples())
+            .unwrap_or(0);
+        let pending_frames = pending_samples / channels;
+        let buffered_ms =
+            ((pending_frames as u64 * 1000) / session.out_sample_rate.max(1) as u64) as i64;
+        let (low_watermark_ms, high_watermark_ms) = output_sink_queue_watermarks_ms(
+            session.out_sample_rate,
+            state.output_sink_chunk_frames,
+        );
+
+        match state.player_state {
+            PlayerState::Playing => {
+                if buffered_ms <= low_watermark_ms {
+                    set_state(state, events, PlayerState::Buffering);
+                }
+            }
+            PlayerState::Buffering => {
+                if buffered_ms >= high_watermark_ms {
+                    if state.seek_track_fade {
+                        session
+                            .transition_target_gain
+                            .store(1.0f32.to_bits(), Ordering::Relaxed);
+                    } else {
+                        force_transition_gain_unity(Some(session));
+                    }
+                    state.play_request_started_at = None;
+                    set_state(state, events, PlayerState::Playing);
+                }
+            }
+            PlayerState::Paused | PlayerState::Stopped => {}
         }
         return;
     }
@@ -1860,6 +1927,9 @@ fn open_output_sink_worker(
     route: &OutputSinkRouteSpec,
     sample_rate: u32,
     channels: u16,
+    volume: Arc<AtomicU32>,
+    transition_gain: Arc<AtomicU32>,
+    transition_target_gain: Arc<AtomicU32>,
     internal_tx: &Sender<InternalMsg>,
 ) -> Result<OutputSinkWorker, String> {
     let pm = plugins
@@ -1885,7 +1955,15 @@ fn open_output_sink_worker(
             },
         )
         .map_err(|e| format!("output sink open failed: {e:#}"))?;
-    Ok(OutputSinkWorker::start(sink, channels, internal_tx.clone()))
+    Ok(OutputSinkWorker::start(
+        sink,
+        channels,
+        sample_rate,
+        volume,
+        transition_gain,
+        transition_target_gain,
+        internal_tx.clone(),
+    ))
 }
 
 fn sync_output_sink_with_active_session(
@@ -1900,7 +1978,34 @@ fn sync_output_sink_with_active_session(
     let ctrl_tx = session.ctrl_tx.clone();
     let sample_rate = session.out_sample_rate;
     let channels = session.out_channels;
+    let transition_gain = Arc::clone(&session.transition_gain);
+    let transition_target_gain = Arc::clone(&session.transition_target_gain);
     let desired_route = state.desired_output_sink_route.clone();
+    let Some(route) = desired_route else {
+        let _ = ctrl_tx.send(DecodeCtrl::SetOutputSinkTx {
+            tx: None,
+            output_sink_chunk_frames: 0,
+        });
+        shutdown_output_sink_worker(state);
+        return Ok(());
+    };
+    let desired_spec = OutputSinkWorkerSpec {
+        route: route.clone(),
+        sample_rate,
+        channels,
+        chunk_frames: state.output_sink_chunk_frames,
+    };
+    if let (Some(worker), Some(active_spec)) = (
+        state.output_sink_worker.as_ref(),
+        state.output_sink_worker_spec.as_ref(),
+    ) && active_spec == &desired_spec
+    {
+        let _ = ctrl_tx.send(DecodeCtrl::SetOutputSinkTx {
+            tx: Some(worker.sender()),
+            output_sink_chunk_frames: state.output_sink_chunk_frames,
+        });
+        return Ok(());
+    }
 
     let _ = ctrl_tx.send(DecodeCtrl::SetOutputSinkTx {
         tx: None,
@@ -1908,13 +2013,19 @@ fn sync_output_sink_with_active_session(
     });
     shutdown_output_sink_worker(state);
 
-    let Some(route) = desired_route else {
-        return Ok(());
-    };
-
-    let worker = open_output_sink_worker(plugins, &route, sample_rate, channels, internal_tx)?;
+    let worker = open_output_sink_worker(
+        plugins,
+        &route,
+        sample_rate,
+        channels,
+        Arc::clone(&state.volume_atomic),
+        transition_gain,
+        transition_target_gain,
+        internal_tx,
+    )?;
     let tx = worker.sender();
     state.output_sink_worker = Some(worker);
+    state.output_sink_worker_spec = Some(desired_spec);
     let _ = ctrl_tx.send(DecodeCtrl::SetOutputSinkTx {
         tx: Some(tx),
         output_sink_chunk_frames: state.output_sink_chunk_frames,
@@ -1923,6 +2034,7 @@ fn sync_output_sink_with_active_session(
 }
 
 fn shutdown_output_sink_worker(state: &mut EngineState) {
+    state.output_sink_worker_spec = None;
     let Some(worker) = state.output_sink_worker.take() else {
         return;
     };
