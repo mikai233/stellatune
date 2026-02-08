@@ -572,7 +572,15 @@ fn run_control_loop(channels: ControlLoopChannels, deps: ControlLoopDeps) {
             }
             recv(engine_ctrl_rx) -> msg => {
                 let Ok(msg) = msg else { break };
-                handle_engine_ctrl(msg, &mut state, &events, &plugins, &track_info);
+                handle_engine_ctrl(
+                    msg,
+                    &mut state,
+                    &events,
+                    &internal_rx,
+                    &internal_tx,
+                    &plugins,
+                    &track_info,
+                );
             }
             recv(internal_rx) -> msg => {
                 let Ok(msg) = msg else { break };
@@ -643,6 +651,8 @@ fn handle_engine_ctrl(
     msg: EngineCtrl,
     state: &mut EngineState,
     events: &Arc<EventHub>,
+    internal_rx: &Receiver<InternalMsg>,
+    internal_tx: &Sender<InternalMsg>,
     plugins: &Arc<Mutex<PluginManager>>,
     track_info: &SharedTrackInfo,
 ) {
@@ -663,10 +673,28 @@ fn handle_engine_ctrl(
             }
         }
         EngineCtrl::ReloadPlugins { dir } => {
-            handle_reload_plugins(state, events, plugins, track_info, dir, Vec::new());
+            handle_reload_plugins(
+                state,
+                events,
+                internal_rx,
+                internal_tx,
+                plugins,
+                track_info,
+                dir,
+                Vec::new(),
+            );
         }
         EngineCtrl::ReloadPluginsWithDisabled { dir, disabled_ids } => {
-            handle_reload_plugins(state, events, plugins, track_info, dir, disabled_ids);
+            handle_reload_plugins(
+                state,
+                events,
+                internal_rx,
+                internal_tx,
+                plugins,
+                track_info,
+                dir,
+                disabled_ids,
+            );
         }
         EngineCtrl::SetLfeMode { mode } => {
             state.lfe_mode = mode;
@@ -680,17 +708,30 @@ fn handle_engine_ctrl(
 fn handle_reload_plugins(
     state: &mut EngineState,
     events: &Arc<EventHub>,
+    internal_rx: &Receiver<InternalMsg>,
+    internal_tx: &Sender<InternalMsg>,
     plugins: &Arc<Mutex<PluginManager>>,
     track_info: &SharedTrackInfo,
     dir: String,
     disabled_ids: Vec<String>,
 ) {
-    // Safe(v1): stop playback so no decode thread holds plugin instances.
+    // Stop playback and fully tear down decode/preload workers before replacing PluginManager.
+    // This prevents old decoder instances from dropping after plugin libraries are replaced.
     stop_decode_session(state, track_info);
     state.wants_playback = false;
     state.play_request_started_at = None;
     state.pending_session_start = false;
     set_state(state, events, PlayerState::Stopped);
+    state.requested_preload_path = None;
+    state.requested_preload_position_ms = 0;
+    state.preload_token = state.preload_token.wrapping_add(1);
+
+    // Ensure all old plugin-owned objects are released before replacing PluginManager.
+    shutdown_decode_worker(state);
+    shutdown_preload_worker(state);
+
+    // Drop stale queued internal messages (especially PreloadReady carrying decoders).
+    while internal_rx.try_recv().is_ok() {}
 
     let mut pm = match plugins.lock() {
         Ok(pm) => pm,
@@ -728,6 +769,16 @@ fn handle_reload_plugins(
             });
         }
     }
+
+    state.decode_worker = Some(start_decode_worker(
+        Arc::clone(events),
+        internal_tx.clone(),
+        Arc::clone(plugins),
+    ));
+    state.preload_worker = Some(start_preload_worker(
+        Arc::clone(plugins),
+        internal_tx.clone(),
+    ));
 }
 
 fn handle_internal(

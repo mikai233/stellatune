@@ -162,6 +162,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsPluginInstalled => 'Plugin installed';
 
   @override
+  String get settingsOpenPluginDir => 'Open plugin directory';
+
+  @override
   String get settingsUninstallPlugin => 'Uninstall plugin';
 
   @override

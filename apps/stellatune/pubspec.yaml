@@ -50,6 +50,7 @@ dependencies:
   window_manager: ^0.5.1
   palette_generator: ^0.3.3+7
   tray_manager: ^0.5.2
+  url_launcher: ^6.3.2
 
 dev_dependencies:
   flutter_test:

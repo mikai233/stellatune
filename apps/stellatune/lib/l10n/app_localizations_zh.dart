@@ -157,6 +157,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsPluginInstalled => '插件已安装';
 
   @override
+  String get settingsOpenPluginDir => '打开插件目录';
+
+  @override
   String get settingsUninstallPlugin => '卸载插件';
 
   @override

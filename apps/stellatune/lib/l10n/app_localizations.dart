@@ -386,6 +386,12 @@ abstract class AppLocalizations {
   /// **'Plugin installed'**
   String get settingsPluginInstalled;
 
+  /// No description provided for @settingsOpenPluginDir.
+  ///
+  /// In en, this message translates to:
+  /// **'Open plugin directory'**
+  String get settingsOpenPluginDir;
+
   /// No description provided for @settingsUninstallPlugin.
   ///
   /// In en, this message translates to:

@@ -64,6 +64,7 @@
   "settingsInstallPluginPickFolder": "选择插件文件（.zip/.dll/.so/.dylib）",
   "settingsInstallPluginMissingManifest": "不支持的插件包。",
   "settingsPluginInstalled": "插件已安装",
+  "settingsOpenPluginDir": "打开插件目录",
   "settingsUninstallPlugin": "卸载插件",
   "settingsUninstallPluginConfirm": "确定要卸载「{name}」吗？",
   "@settingsUninstallPluginConfirm": {

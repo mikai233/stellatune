@@ -3,6 +3,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as p;
@@ -71,10 +72,6 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
   bool _cachedOutputSinkTypesReady = false;
   List<SourceCatalogTypeDescriptor> _cachedSourceTypes = const [];
   bool _cachedSourceTypesReady = false;
-
-  Future<void> installPluginFromTopBar() => _installPluginArtifact();
-
-  void refreshFromTopBar() => setState(_refresh);
 
   @override
   void initState() {
@@ -605,21 +602,7 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
     final devices = ref.watch(audioDevicesProvider).value ?? const [];
     _persistOutputUiSession();
 
-    final appBar = AppBar(
-      title: Text(l10n.settingsTitle),
-      actions: [
-        IconButton(
-          tooltip: l10n.settingsInstallPlugin,
-          onPressed: _installPluginArtifact,
-          icon: const Icon(Icons.add),
-        ),
-        IconButton(
-          tooltip: l10n.refresh,
-          onPressed: () => setState(_refresh),
-          icon: const Icon(Icons.refresh),
-        ),
-      ],
-    );
+    final appBar = AppBar(title: Text(l10n.settingsTitle));
 
     final pageBody = ListView(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
@@ -1041,9 +1024,44 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  l10n.settingsPluginsTitle,
-                  style: Theme.of(context).textTheme.titleMedium,
+                Row(
+                  children: [
+                    Text(
+                      l10n.settingsPluginsTitle,
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const Spacer(),
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
+                      tooltip: l10n.settingsInstallPlugin,
+                      onPressed: _installPluginArtifact,
+                      icon: const Icon(Icons.add),
+                    ),
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
+                      tooltip: l10n.refresh,
+                      onPressed: () => setState(_refresh),
+                      icon: const Icon(Icons.refresh),
+                    ),
+                    FutureBuilder<String>(
+                      future: defaultPluginDir(),
+                      builder: (context, snap) {
+                        final dir = snap.data;
+                        if (dir == null) return const SizedBox.shrink();
+                        return IconButton(
+                          visualDensity: VisualDensity.compact,
+                          tooltip: l10n.settingsOpenPluginDir,
+                          onPressed: () async {
+                            final uri = Uri.directory(dir);
+                            if (await canLaunchUrl(uri)) {
+                              await launchUrl(uri);
+                            }
+                          },
+                          icon: const Icon(Icons.folder_open_outlined),
+                        );
+                      },
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 6),
                 FutureBuilder<String>(
@@ -1135,358 +1153,59 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
                             return Column(
                               children: [
                                 for (final p in items)
-                                  () {
-                                    final pluginId = p.id;
-                                    final isDisabled = pluginId != null
-                                        ? disabled.contains(pluginId)
-                                        : false;
-                                    final isLoaded = pluginId != null
-                                        ? loadedIds.contains(pluginId)
-                                        : false;
-                                    final pluginSourceTypes = pluginId == null
-                                        ? const <SourceCatalogTypeDescriptor>[]
-                                        : (sourceByPlugin[pluginId] ??
-                                              const <
-                                                SourceCatalogTypeDescriptor
-                                              >[]);
-                                    final pluginOutputSinkTypes =
-                                        pluginId == null
-                                        ? const <OutputSinkTypeDescriptor>[]
-                                        : (outputByPlugin[pluginId] ??
-                                              const <
-                                                OutputSinkTypeDescriptor
-                                              >[]);
-                                    final hasCustomUi =
-                                        pluginSourceTypes.isNotEmpty ||
-                                        pluginOutputSinkTypes.isNotEmpty;
-                                    final isEnabled = pluginId == null
-                                        ? true
-                                        : !disabled.contains(pluginId);
-                                    final canUninstall = !isEnabled;
-
-                                    final (
-                                      statusText,
-                                      statusIsError,
-                                    ) = switch ((
-                                      pluginId,
-                                      isDisabled,
-                                      loadedKnown,
-                                      isLoaded,
-                                    )) {
-                                      (null, _, _, _) => ('插件 ID 缺失', true),
-                                      (_, true, _, _) => ('已禁用', false),
-                                      (_, false, false, _) => (
-                                        '正在检查加载状态...',
-                                        false,
-                                      ),
-                                      (_, false, true, true) => ('已加载', false),
-                                      (_, false, true, false) => (
-                                        '未加载（可能加载失败，请检查日志）',
-                                        true,
-                                      ),
-                                    };
-                                    final Color? pluginIconColor;
-                                    if (isDisabled) {
-                                      pluginIconColor = null;
-                                    } else if (statusIsError) {
-                                      pluginIconColor = Theme.of(
-                                        context,
-                                      ).colorScheme.error;
-                                    } else {
-                                      pluginIconColor = Colors.green.shade600;
-                                    }
-
-                                    Widget buildActions() => Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Switch(
-                                          value: isEnabled,
-                                          onChanged: pluginId == null
-                                              ? null
-                                              : (v) async {
-                                                  try {
-                                                    await _setPluginEnabled(
-                                                      plugin: p,
-                                                      enabled: v,
-                                                    );
-                                                  } catch (e, s) {
-                                                    logger.e(
-                                                      'failed to toggle plugin state',
-                                                      error: e,
-                                                      stackTrace: s,
-                                                    );
-                                                    if (!context.mounted) {
-                                                      return;
-                                                    }
-                                                    ScaffoldMessenger.of(
-                                                      context,
-                                                    ).showSnackBar(
-                                                      SnackBar(
-                                                        content: Text(
-                                                          'Failed to reload plugins: $e',
-                                                        ),
-                                                      ),
-                                                    );
-                                                  }
-                                                },
-                                        ),
-                                        IconButton(
-                                          tooltip: l10n.settingsUninstallPlugin,
-                                          onPressed: canUninstall
-                                              ? () async {
-                                                  final ok = await showDialog<bool>(
-                                                    context: context,
-                                                    builder: (context) => AlertDialog(
-                                                      title: Text(
-                                                        l10n.settingsUninstallPlugin,
-                                                      ),
-                                                      content: Text(
-                                                        l10n.settingsUninstallPluginConfirm(
-                                                          p.nameOrDir,
-                                                        ),
-                                                      ),
-                                                      actions: [
-                                                        TextButton(
-                                                          onPressed: () =>
-                                                              Navigator.of(
-                                                                context,
-                                                              ).pop(false),
-                                                          child: Text(
-                                                            l10n.cancel,
-                                                          ),
-                                                        ),
-                                                        FilledButton(
-                                                          onPressed: () =>
-                                                              Navigator.of(
-                                                                context,
-                                                              ).pop(true),
-                                                          child: Text(
-                                                            l10n.uninstall,
-                                                          ),
-                                                        ),
-                                                      ],
-                                                    ),
-                                                  );
-                                                  if (ok != true) return;
-                                                  try {
-                                                    await _uninstallPlugin(p);
-                                                  } catch (e, s) {
-                                                    logger.e(
-                                                      'failed to uninstall plugin',
-                                                      error: e,
-                                                      stackTrace: s,
-                                                    );
-                                                    if (!context.mounted) {
-                                                      return;
-                                                    }
-                                                    ScaffoldMessenger.of(
-                                                      context,
-                                                    ).showSnackBar(
-                                                      SnackBar(
-                                                        content: Text(
-                                                          AppLocalizations.of(
-                                                            context,
-                                                          )!.settingsUninstallPluginFailed,
-                                                        ),
-                                                      ),
-                                                    );
-                                                  }
-                                                }
-                                              : null,
-                                          icon: const Icon(
-                                            Icons.delete_outline,
-                                          ),
-                                        ),
-                                      ],
-                                    );
-
-                                    final subtitle = Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(p.id ?? p.dirPath),
-                                        if (p.infoJson != null &&
-                                            p.infoJson!.isNotEmpty)
-                                          Text(
-                                            p.infoJson!,
-                                            maxLines: 2,
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                        Text(
-                                          statusText,
-                                          style: Theme.of(context)
-                                              .textTheme
-                                              .bodySmall
-                                              ?.copyWith(
-                                                color: statusIsError
-                                                    ? Theme.of(
-                                                        context,
-                                                      ).colorScheme.error
-                                                    : Theme.of(context)
-                                                          .colorScheme
-                                                          .onSurfaceVariant,
-                                              ),
-                                        ),
-                                      ],
-                                    );
-
-                                    if (!hasCustomUi) {
-                                      return Card(
-                                        margin: const EdgeInsets.only(
-                                          bottom: 8,
-                                        ),
-                                        child: ListTile(
-                                          leading: Icon(
-                                            Icons.extension,
-                                            color: pluginIconColor,
-                                          ),
-                                          title: Row(
-                                            children: [
-                                              Expanded(
-                                                child: Text(p.nameOrDir),
-                                              ),
-                                              buildActions(),
-                                            ],
-                                          ),
-                                          subtitle: subtitle,
-                                        ),
-                                      );
-                                    }
-
-                                    return Card(
-                                      margin: const EdgeInsets.only(bottom: 8),
-                                      child: ExpansionTile(
-                                        leading: Icon(
-                                          Icons.extension,
-                                          color: pluginIconColor,
-                                        ),
-                                        title: Row(
-                                          children: [
-                                            Expanded(child: Text(p.nameOrDir)),
-                                            buildActions(),
-                                          ],
-                                        ),
-                                        subtitle: subtitle,
-                                        childrenPadding:
-                                            const EdgeInsets.fromLTRB(
-                                              12,
-                                              0,
-                                              12,
-                                              12,
-                                            ),
-                                        children: [
-                                          for (final t in pluginSourceTypes)
-                                            Padding(
-                                              padding: const EdgeInsets.only(
-                                                top: 8,
-                                              ),
-                                              child: Column(
-                                                crossAxisAlignment:
-                                                    CrossAxisAlignment.start,
-                                                children: [
-                                                  Text(
-                                                    'Source: ${t.displayName}',
-                                                    style: Theme.of(
-                                                      context,
-                                                    ).textTheme.titleSmall,
-                                                  ),
-                                                  const SizedBox(height: 6),
-                                                  SchemaForm(
-                                                    key: ValueKey(
-                                                      'settings-source-config:${t.pluginId}:${t.typeId}',
-                                                    ),
-                                                    schemaJson:
-                                                        t.configSchemaJson,
-                                                    initialValueJson:
-                                                        _sourceConfigForType(t),
-                                                    onChangedJson: (json) {
-                                                      _sourceConfigDrafts[_sourceTypeKey(
-                                                            t,
-                                                          )] =
-                                                          json;
-                                                    },
-                                                  ),
-                                                  const SizedBox(height: 6),
-                                                  Align(
-                                                    alignment:
-                                                        Alignment.centerRight,
-                                                    child: FilledButton.tonal(
-                                                      onPressed: () =>
-                                                          _saveSourceConfig(t),
-                                                      child: Text(l10n.apply),
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                            ),
-                                          for (final t in pluginOutputSinkTypes)
-                                            Padding(
-                                              padding: const EdgeInsets.only(
-                                                top: 8,
-                                              ),
-                                              child: Column(
-                                                crossAxisAlignment:
-                                                    CrossAxisAlignment.start,
-                                                children: [
-                                                  Text(
-                                                    'Output: ${t.displayName}',
-                                                    style: Theme.of(
-                                                      context,
-                                                    ).textTheme.titleSmall,
-                                                  ),
-                                                  const SizedBox(height: 6),
-                                                  SchemaForm(
-                                                    key: ValueKey(
-                                                      'settings-output-config:${t.pluginId}:${t.typeId}',
-                                                    ),
-                                                    schemaJson:
-                                                        t.configSchemaJson,
-                                                    initialValueJson:
-                                                        _outputSinkConfigForType(
-                                                          t,
-                                                        ),
-                                                    onChangedJson: (json) {
-                                                      final key =
-                                                          _outputSinkTypeKey(t);
-                                                      _outputSinkConfigDrafts[key] =
-                                                          json;
-                                                      if (_selectedOutputSinkTypeKey ==
-                                                          key) {
-                                                        _outputSinkConfigController
-                                                                .text =
-                                                            json;
-                                                        _outputSinkConfigApplyDebounce
-                                                            ?.cancel();
-                                                        _outputSinkConfigApplyDebounce = Timer(
-                                                          const Duration(
-                                                            milliseconds: 350,
-                                                          ),
-                                                          () async {
-                                                            if (!mounted) {
-                                                              return;
-                                                            }
-                                                            try {
-                                                              await _loadOutputSinkTargets();
-                                                              await _applyOutputSinkRoute();
-                                                            } catch (e, s) {
-                                                              logger.e(
-                                                                'failed to apply output sink route in debounce',
-                                                                error: e,
-                                                                stackTrace: s,
-                                                              );
-                                                            }
-                                                          },
-                                                        );
-                                                      }
-                                                    },
-                                                  ),
-                                                ],
-                                              ),
-                                            ),
-                                        ],
-                                      ),
-                                    );
-                                  }(),
+                                  _PluginTile(
+                                    plugin: p,
+                                    isDisabled: p.id != null
+                                        ? disabled.contains(p.id)
+                                        : false,
+                                    isLoaded: p.id != null
+                                        ? loadedIds.contains(p.id)
+                                        : false,
+                                    loadedKnown: loadedKnown,
+                                    pluginSourceTypes: p.id == null
+                                        ? const []
+                                        : (sourceByPlugin[p.id] ?? const []),
+                                    pluginOutputSinkTypes: p.id == null
+                                        ? const []
+                                        : (outputByPlugin[p.id] ?? const []),
+                                    onToggleEnabled: (v) => _setPluginEnabled(
+                                      plugin: p,
+                                      enabled: v,
+                                    ),
+                                    onUninstall: () => _uninstallPlugin(p),
+                                    sourceConfigForType: _sourceConfigForType,
+                                    outputSinkConfigForType:
+                                        _outputSinkConfigForType,
+                                    onSourceConfigChanged: (t, json) =>
+                                        _sourceConfigDrafts[_sourceTypeKey(t)] =
+                                            json,
+                                    onOutputSinkConfigChanged: (t, json) {
+                                      final key = _outputSinkTypeKey(t);
+                                      _outputSinkConfigDrafts[key] = json;
+                                      if (_selectedOutputSinkTypeKey == key) {
+                                        _outputSinkConfigController.text = json;
+                                        _outputSinkConfigApplyDebounce
+                                            ?.cancel();
+                                        _outputSinkConfigApplyDebounce = Timer(
+                                          const Duration(milliseconds: 350),
+                                          () async {
+                                            if (!mounted) return;
+                                            try {
+                                              await _loadOutputSinkTargets();
+                                              await _applyOutputSinkRoute();
+                                            } catch (e, s) {
+                                              logger.e(
+                                                'failed to apply output sink route in debounce',
+                                                error: e,
+                                                stackTrace: s,
+                                              );
+                                            }
+                                          },
+                                        );
+                                      }
+                                    },
+                                    onSaveSourceConfig: _saveSourceConfig,
+                                  ),
                               ],
                             );
                           },
@@ -1614,5 +1333,280 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
     }
 
     return Scaffold(appBar: appBar, body: pageBody);
+  }
+}
+
+class _PluginTile extends StatefulWidget {
+  final _InstalledPlugin plugin;
+  final bool isDisabled;
+  final bool isLoaded;
+  final bool loadedKnown;
+  final List<SourceCatalogTypeDescriptor> pluginSourceTypes;
+  final List<OutputSinkTypeDescriptor> pluginOutputSinkTypes;
+  final Future<void> Function(bool) onToggleEnabled;
+  final Future<void> Function() onUninstall;
+  final String? Function(SourceCatalogTypeDescriptor) sourceConfigForType;
+  final String? Function(OutputSinkTypeDescriptor) outputSinkConfigForType;
+  final void Function(SourceCatalogTypeDescriptor, String)
+  onSourceConfigChanged;
+  final void Function(OutputSinkTypeDescriptor, String)
+  onOutputSinkConfigChanged;
+  final Future<void> Function(SourceCatalogTypeDescriptor) onSaveSourceConfig;
+
+  const _PluginTile({
+    required this.plugin,
+    required this.isDisabled,
+    required this.isLoaded,
+    required this.loadedKnown,
+    required this.pluginSourceTypes,
+    required this.pluginOutputSinkTypes,
+    required this.onToggleEnabled,
+    required this.onUninstall,
+    required this.sourceConfigForType,
+    required this.outputSinkConfigForType,
+    required this.onSourceConfigChanged,
+    required this.onOutputSinkConfigChanged,
+    required this.onSaveSourceConfig,
+  });
+
+  @override
+  State<_PluginTile> createState() => _PluginTileState();
+}
+
+class _PluginTileState extends State<_PluginTile> {
+  @override
+  Widget build(BuildContext context) {
+    final p = widget.plugin;
+    final l10n = AppLocalizations.of(context)!;
+    final hasCustomUi =
+        widget.pluginSourceTypes.isNotEmpty ||
+        widget.pluginOutputSinkTypes.isNotEmpty;
+    final isEnabled = !widget.isDisabled;
+    final canUninstall = !isEnabled;
+
+    final (statusText, statusIsError) = switch ((
+      p.id,
+      widget.isDisabled,
+      widget.loadedKnown,
+      widget.isLoaded,
+    )) {
+      (null, _, _, _) => ('插件 ID 缺失', true),
+      (_, true, _, _) => ('已禁用', false),
+      (_, false, false, _) => ('正在检查加载状态...', false),
+      (_, false, true, true) => ('已加载', false),
+      (_, false, true, false) => ('未加载（可能加载失败，请检查日志）', true),
+    };
+
+    final Color? pluginIconColor;
+    if (widget.isDisabled) {
+      pluginIconColor = null;
+    } else if (statusIsError) {
+      pluginIconColor = Theme.of(context).colorScheme.error;
+    } else {
+      pluginIconColor = Colors.green.shade600;
+    }
+
+    Widget buildActions() => Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Switch(
+          value: isEnabled,
+          onChanged: p.id == null
+              ? null
+              : (v) async {
+                  try {
+                    await widget.onToggleEnabled(v);
+                  } catch (e, s) {
+                    logger.e(
+                      'failed to toggle plugin state',
+                      error: e,
+                      stackTrace: s,
+                    );
+                    if (!context.mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Failed to reload: $e')),
+                    );
+                  }
+                },
+        ),
+        IconButton(
+          tooltip: l10n.settingsUninstallPlugin,
+          onPressed: canUninstall
+              ? () async {
+                  final ok = await showDialog<bool>(
+                    context: context,
+                    builder: (context) => AlertDialog(
+                      title: Text(l10n.settingsUninstallPlugin),
+                      content: Text(
+                        l10n.settingsUninstallPluginConfirm(p.nameOrDir),
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.of(context).pop(false),
+                          child: Text(l10n.cancel),
+                        ),
+                        FilledButton(
+                          onPressed: () => Navigator.of(context).pop(true),
+                          child: Text(l10n.uninstall),
+                        ),
+                      ],
+                    ),
+                  );
+                  if (ok == true) {
+                    try {
+                      await widget.onUninstall();
+                    } catch (e, s) {
+                      logger.e(
+                        'failed to uninstall plugin',
+                        error: e,
+                        stackTrace: s,
+                      );
+                      if (!context.mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(l10n.settingsUninstallPluginFailed),
+                        ),
+                      );
+                    }
+                  }
+                }
+              : null,
+          icon: Icon(
+            Icons.delete_outline,
+            color: canUninstall
+                ? Theme.of(context).colorScheme.error
+                : Theme.of(context).disabledColor,
+          ),
+        ),
+      ],
+    );
+
+    final subtitle = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          p.id ?? p.dirPath,
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: Theme.of(
+              context,
+            ).colorScheme.onSurfaceVariant.withOpacity(0.7),
+          ),
+        ),
+        if (p.infoJson != null && p.infoJson!.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Text(
+              p.infoJson!,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        Text(
+          statusText,
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: statusIsError
+                ? Theme.of(context).colorScheme.error
+                : Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ],
+    );
+
+    if (!hasCustomUi) {
+      return Card(
+        margin: const EdgeInsets.only(bottom: 8),
+        child: ListTile(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          contentPadding: const EdgeInsets.fromLTRB(16, 4, 8, 4),
+          leading: Icon(Icons.extension, color: pluginIconColor),
+          title: Text(p.nameOrDir),
+          subtitle: subtitle,
+          trailing: buildActions(),
+        ),
+      );
+    }
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: Theme(
+        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          onExpansionChanged: (v) {},
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          collapsedShape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          tilePadding: const EdgeInsets.fromLTRB(16, 4, 8, 4),
+          leading: Icon(Icons.extension, color: pluginIconColor),
+          title: Text(p.nameOrDir),
+          subtitle: subtitle,
+          trailing: buildActions(),
+          childrenPadding: const EdgeInsets.fromLTRB(16, 0, 8, 12),
+          children: [
+            for (final t in widget.pluginSourceTypes)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Source: ${t.displayName}',
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                    const SizedBox(height: 6),
+                    SchemaForm(
+                      key: ValueKey(
+                        'settings-source-config:${t.pluginId}:${t.typeId}',
+                      ),
+                      schemaJson: t.configSchemaJson,
+                      initialValueJson: widget.sourceConfigForType(t) ?? '',
+                      onChangedJson: (json) =>
+                          widget.onSourceConfigChanged(t, json),
+                    ),
+                    const SizedBox(height: 6),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: FilledButton.tonal(
+                          onPressed: () => widget.onSaveSourceConfig(t),
+                          child: Text(l10n.apply),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            for (final t in widget.pluginOutputSinkTypes)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Output: ${t.displayName}',
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                    const SizedBox(height: 6),
+                    SchemaForm(
+                      key: ValueKey(
+                        'settings-output-config:${t.pluginId}:${t.typeId}',
+                      ),
+                      schemaJson: t.configSchemaJson,
+                      initialValueJson: widget.outputSinkConfigForType(t) ?? '',
+                      onChangedJson: (json) =>
+                          widget.onOutputSinkConfigChanged(t, json),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
   }
 }

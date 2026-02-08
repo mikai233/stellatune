@@ -107,19 +107,7 @@ class _ShellPageState extends ConsumerState<ShellPage> {
               _playlistsPageKey.currentState?.createPlaylistFromTopBar(),
         ),
       ],
-      2 => <DesktopTopBarAction>[
-        DesktopTopBarAction(
-          icon: Icons.add,
-          tooltip: l10n.settingsInstallPlugin,
-          onPressed: () =>
-              _settingsPageKey.currentState?.installPluginFromTopBar(),
-        ),
-        DesktopTopBarAction(
-          icon: Icons.refresh,
-          tooltip: l10n.refresh,
-          onPressed: () => _settingsPageKey.currentState?.refreshFromTopBar(),
-        ),
-      ],
+      2 => const <DesktopTopBarAction>[],
       _ => const <DesktopTopBarAction>[],
     };
 
