@@ -42,7 +42,7 @@ struct DspChainEntry {
     config: serde_json::Value,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 struct OutputSinkRouteSpec {
     plugin_id: String,
     type_id: String,
@@ -1171,8 +1171,9 @@ fn handle_command(
                 }
             };
             let mode_changed = state.desired_output_sink_route.is_none();
+            let route_changed = state.desired_output_sink_route.as_ref() != Some(&parsed_route);
             state.desired_output_sink_route = Some(parsed_route);
-            if mode_changed {
+            if mode_changed || route_changed {
                 state.cached_output_spec = None;
                 state.output_spec_prewarm_inflight = false;
                 state.output_spec_token = state.output_spec_token.wrapping_add(1);
@@ -1524,6 +1525,44 @@ fn output_spec_for_plugin_sink(state: &EngineState) -> OutputSpec {
     }
 }
 
+fn negotiate_output_sink_spec(
+    state: &EngineState,
+    plugins: &Arc<Mutex<PluginManager>>,
+    desired_spec: OutputSpec,
+) -> Result<OutputSpec, String> {
+    let route = state
+        .desired_output_sink_route
+        .as_ref()
+        .ok_or_else(|| "output sink route not configured".to_string())?;
+    let pm = plugins
+        .lock()
+        .map_err(|_| "plugins mutex poisoned".to_string())?;
+    let key = pm
+        .find_output_sink_key(&route.plugin_id, &route.type_id)
+        .ok_or_else(|| {
+            format!(
+                "output sink not found: {}::{}",
+                route.plugin_id, route.type_id
+            )
+        })?;
+    let negotiated = pm
+        .output_negotiate(
+            key,
+            &route.config,
+            &route.target,
+            StAudioSpec {
+                sample_rate: desired_spec.sample_rate.max(1),
+                channels: desired_spec.channels.max(1),
+                reserved: 0,
+            },
+        )
+        .map_err(|e| format!("output sink negotiate failed: {e:#}"))?;
+    Ok(OutputSpec {
+        sample_rate: negotiated.spec.sample_rate.max(1),
+        channels: negotiated.spec.channels.max(1),
+    })
+}
+
 fn output_backend_for_selected(
     backend: stellatune_core::AudioBackend,
 ) -> stellatune_output::AudioBackend {
@@ -1574,9 +1613,24 @@ fn handle_tick(
             set_state(state, events, PlayerState::Stopped);
             return;
         };
-        let out_spec = state
-            .cached_output_spec
-            .unwrap_or_else(|| panic!("checked"));
+        let out_spec = if state.desired_output_sink_route.is_some() {
+            let desired_spec = output_spec_for_plugin_sink(state);
+            match negotiate_output_sink_spec(state, plugins, desired_spec) {
+                Ok(spec) => spec,
+                Err(message) => {
+                    state.pending_session_start = false;
+                    state.wants_playback = false;
+                    state.play_request_started_at = None;
+                    events.emit(Event::Error { message });
+                    set_state(state, events, PlayerState::Stopped);
+                    return;
+                }
+            }
+        } else {
+            state
+                .cached_output_spec
+                .unwrap_or_else(|| panic!("checked"))
+        };
         let start_at_ms = state.position_ms.max(0) as u64;
         let Some(decode_worker) = state.decode_worker.as_ref() else {
             state.pending_session_start = false;

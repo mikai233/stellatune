@@ -134,6 +134,50 @@ macro_rules! export_output_sinks_interface {
                     }
                 }
 
+                extern "C" fn negotiate_spec(
+                    config_json_utf8: $crate::StStr,
+                    target_json_utf8: $crate::StStr,
+                    desired_spec: $crate::StAudioSpec,
+                    out_negotiated: *mut $crate::StOutputSinkNegotiatedSpecV1,
+                ) -> $crate::StStatus {
+                    if out_negotiated.is_null() {
+                        return $crate::status_err_msg($crate::ST_ERR_INVALID_ARG, "null out_negotiated");
+                    }
+                    let config_json = match unsafe { $crate::ststr_to_str(&config_json_utf8) } {
+                        Ok(s) => s,
+                        Err(e) => return $crate::status_err_msg($crate::ST_ERR_INVALID_ARG, &e),
+                    };
+                    let config = match $crate::__private::serde_json::from_str::<<$sink_ty as $crate::OutputSinkDescriptor>::Config>(config_json) {
+                        Ok(v) => v,
+                        Err(e) => return $crate::status_err_msg($crate::ST_ERR_INVALID_ARG, &e.to_string()),
+                    };
+                    let target_json = match unsafe { $crate::ststr_to_str(&target_json_utf8) } {
+                        Ok(s) => s,
+                        Err(e) => return $crate::status_err_msg($crate::ST_ERR_INVALID_ARG, &e),
+                    };
+                    let target = match $crate::__private::serde_json::from_str::<<$sink_ty as $crate::OutputSinkDescriptor>::Target>(target_json) {
+                        Ok(v) => v,
+                        Err(e) => return $crate::status_err_msg($crate::ST_ERR_INVALID_ARG, &e.to_string()),
+                    };
+
+                    match <$sink_ty as $crate::OutputSinkDescriptor>::negotiate_spec(
+                        desired_spec,
+                        &config,
+                        &target,
+                    ) {
+                        Ok(mut negotiated) => {
+                            negotiated.spec.sample_rate = negotiated.spec.sample_rate.max(1);
+                            negotiated.spec.channels = negotiated.spec.channels.max(1);
+                            negotiated.spec.reserved = 0;
+                            unsafe {
+                                *out_negotiated = negotiated;
+                            }
+                            $crate::status_ok()
+                        }
+                        Err(e) => $crate::status_err_msg($crate::ST_ERR_INTERNAL, &e),
+                    }
+                }
+
                 extern "C" fn write_interleaved_f32(
                     handle: *mut core::ffi::c_void,
                     frames: u32,
@@ -199,6 +243,7 @@ macro_rules! export_output_sinks_interface {
                     config_schema_json_utf8,
                     default_config_json_utf8,
                     list_targets_json_utf8,
+                    negotiate_spec,
                     open,
                     write_interleaved_f32,
                     flush: Some(flush),

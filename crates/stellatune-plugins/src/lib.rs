@@ -13,12 +13,13 @@ use serde::{Serialize, de::DeserializeOwned};
 use stellatune_core::{PluginRuntimeEvent, PluginRuntimeKind};
 use stellatune_plugin_api::{
     ST_ERR_INTERNAL, ST_ERR_INVALID_ARG, ST_ERR_IO, ST_INTERFACE_LYRICS_PROVIDER_V1,
-    ST_INTERFACE_OUTPUT_SINKS_V1, ST_INTERFACE_SOURCE_CATALOGS_V1,
-    STELLATUNE_PLUGIN_API_VERSION_V1, STELLATUNE_PLUGIN_ENTRY_SYMBOL_V1, StAudioSpec,
-    StDecoderInfoV1, StDecoderOpenArgsV1, StDecoderVTableV1, StHostVTableV1, StIoVTableV1,
-    StLogLevel, StLyricsProviderVTableV1, StOutputSinkRegistryV1, StOutputSinkVTableV1,
-    StPluginEntryV1, StPluginVTableV1, StSeekWhence, StSourceCatalogRegistryV1,
-    StSourceCatalogVTableV1, StStatus, StStr,
+    ST_INTERFACE_OUTPUT_SINKS_V1, ST_INTERFACE_SOURCE_CATALOGS_V1, ST_OUTPUT_NEGOTIATE_CHANGED_CH,
+    ST_OUTPUT_NEGOTIATE_CHANGED_SR, ST_OUTPUT_NEGOTIATE_EXACT, STELLATUNE_PLUGIN_API_VERSION_V1,
+    STELLATUNE_PLUGIN_ENTRY_SYMBOL_V1, StAudioSpec, StDecoderInfoV1, StDecoderOpenArgsV1,
+    StDecoderVTableV1, StHostVTableV1, StIoVTableV1, StLogLevel, StLyricsProviderVTableV1,
+    StOutputSinkNegotiatedSpecV1, StOutputSinkRegistryV1, StOutputSinkVTableV1, StPluginEntryV1,
+    StPluginVTableV1, StSeekWhence, StSourceCatalogRegistryV1, StSourceCatalogVTableV1, StStatus,
+    StStr,
 };
 use stellatune_plugin_protocol::PluginMetadata;
 use tracing::{debug, info, warn};
@@ -270,7 +271,9 @@ fn from_json_str<T: DeserializeOwned>(raw: &str, what: &str) -> Result<T> {
 
 fn metadata_info_json(metadata: Option<&PluginMetadata>) -> Option<String> {
     let meta = metadata?;
-    meta.info.as_ref().and_then(|v| serde_json::to_string(v).ok())
+    meta.info
+        .as_ref()
+        .and_then(|v| serde_json::to_string(v).ok())
 }
 
 pub struct PluginLibrary {
@@ -662,6 +665,13 @@ pub struct OutputSinkTypeInfo {
     pub display_name: String,
     pub config_schema_json: String,
     pub default_config_json: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OutputSinkNegotiatedSpec {
+    pub spec: StAudioSpec,
+    pub preferred_chunk_frames: u32,
+    pub flags: u32,
 }
 
 pub struct SourceStream {
@@ -1553,6 +1563,76 @@ impl PluginManager {
         from_json_str(&raw, "output sink targets")
     }
 
+    pub fn output_negotiate<C, T>(
+        &self,
+        key: OutputSinkKey,
+        config: &C,
+        target: &T,
+        desired_spec: StAudioSpec,
+    ) -> Result<OutputSinkNegotiatedSpec>
+    where
+        C: Serialize,
+        T: Serialize,
+    {
+        let p = self
+            .plugins
+            .get(key.plugin_index)
+            .ok_or_else(|| anyhow!("invalid plugin_index {}", key.plugin_index))?;
+        if self.is_disabled(&p.manifest.id) {
+            return Err(anyhow!("plugin `{}` is disabled", p.manifest.id));
+        }
+        let config_json = to_json_string(config, "output sink config")?;
+        let target_json = to_json_string(target, "output sink target")?;
+        let vt = self.output_sink_vtable(key)?;
+        let plugin_free = p.library.plugin_free();
+        let cfg = StStr {
+            ptr: config_json.as_ptr(),
+            len: config_json.len(),
+        };
+        let target = StStr {
+            ptr: target_json.as_ptr(),
+            len: target_json.len(),
+        };
+        let mut out = StOutputSinkNegotiatedSpecV1 {
+            spec: desired_spec,
+            preferred_chunk_frames: 0,
+            flags: 0,
+            reserved: 0,
+        };
+        let status = unsafe { ((*vt).negotiate_spec)(cfg, target, desired_spec, &mut out) };
+        status_to_result("Output sink negotiate_spec", status, plugin_free)?;
+        if out.spec.sample_rate == 0 || out.spec.channels == 0 {
+            return Err(anyhow!(
+                "output sink negotiate_spec returned invalid spec: {}Hz {}ch",
+                out.spec.sample_rate,
+                out.spec.channels
+            ));
+        }
+
+        let mut flags = out.flags;
+        let sr_changed = out.spec.sample_rate != desired_spec.sample_rate;
+        let ch_changed = out.spec.channels != desired_spec.channels;
+        if sr_changed {
+            flags |= ST_OUTPUT_NEGOTIATE_CHANGED_SR;
+        }
+        if ch_changed {
+            flags |= ST_OUTPUT_NEGOTIATE_CHANGED_CH;
+        }
+        if !sr_changed && !ch_changed {
+            flags |= ST_OUTPUT_NEGOTIATE_EXACT;
+        }
+
+        Ok(OutputSinkNegotiatedSpec {
+            spec: StAudioSpec {
+                sample_rate: out.spec.sample_rate.max(1),
+                channels: out.spec.channels.max(1),
+                reserved: 0,
+            },
+            preferred_chunk_frames: out.preferred_chunk_frames,
+            flags,
+        })
+    }
+
     pub fn output_open<C, T>(
         &self,
         key: OutputSinkKey,
@@ -2384,11 +2464,11 @@ fn inspect_plugin_library_at(path: &Path, runtime_root: &Path) -> Result<PluginM
     }?;
     let id = library.id();
     let name = library.name();
-        let metadata_json = library.metadata_json();
-        let meta: PluginMetadata = serde_json::from_str(&metadata_json).with_context(|| {
-            format!(
-                "invalid metadata_json_utf8 for plugin `{}` at {}",
-                id,
+    let metadata_json = library.metadata_json();
+    let meta: PluginMetadata = serde_json::from_str(&metadata_json).with_context(|| {
+        format!(
+            "invalid metadata_json_utf8 for plugin `{}` at {}",
+            id,
             path.display()
         )
     })?;

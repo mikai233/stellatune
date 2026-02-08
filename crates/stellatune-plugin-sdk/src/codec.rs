@@ -4,8 +4,9 @@ use std::io::{self, Read, Seek, SeekFrom};
 use serde::{Serialize, de::DeserializeOwned};
 
 use crate::{
-    ST_DECODER_INFO_FLAG_HAS_DURATION, ST_DECODER_INFO_FLAG_SEEKABLE, ST_LAYOUT_STEREO, SdkError,
-    SdkResult, StAudioSpec, StDecoderInfoV1, StIoVTableV1, StSeekWhence,
+    ST_DECODER_INFO_FLAG_HAS_DURATION, ST_DECODER_INFO_FLAG_SEEKABLE, ST_LAYOUT_STEREO,
+    ST_OUTPUT_NEGOTIATE_EXACT, SdkError, SdkResult, StAudioSpec, StDecoderInfoV1, StIoVTableV1,
+    StOutputSinkNegotiatedSpecV1, StSeekWhence,
 };
 
 pub trait Dsp: Send + 'static {
@@ -220,6 +221,23 @@ pub trait OutputSinkDescriptor: OutputSink {
     fn default_config() -> Self::Config;
 
     fn list_targets(config: &Self::Config) -> SdkResult<Vec<Self::Target>>;
+
+    fn negotiate_spec(
+        desired_spec: StAudioSpec,
+        _config: &Self::Config,
+        _target: &Self::Target,
+    ) -> SdkResult<StOutputSinkNegotiatedSpecV1> {
+        Ok(StOutputSinkNegotiatedSpecV1 {
+            spec: StAudioSpec {
+                sample_rate: desired_spec.sample_rate.max(1),
+                channels: desired_spec.channels.max(1),
+                reserved: 0,
+            },
+            preferred_chunk_frames: 0,
+            flags: ST_OUTPUT_NEGOTIATE_EXACT,
+            reserved: 0,
+        })
+    }
 
     fn open(spec: StAudioSpec, config: &Self::Config, target: &Self::Target) -> SdkResult<Self>
     where

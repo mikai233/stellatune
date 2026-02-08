@@ -4,7 +4,7 @@ use core::ffi::c_void;
 
 // Single in-development ABI version (early-stage project).
 // Note: this ABI may change in place while staying on v1 during early development.
-pub const STELLATUNE_PLUGIN_API_VERSION_V1: u32 = 4;
+pub const STELLATUNE_PLUGIN_API_VERSION_V1: u32 = 5;
 pub const STELLATUNE_PLUGIN_ENTRY_SYMBOL_V1: &str = "stellatune_plugin_entry_v1";
 pub const ST_INTERFACE_SOURCE_CATALOGS_V1: &str = "stellatune.source_catalogs.v1";
 pub const ST_INTERFACE_LYRICS_PROVIDER_V1: &str = "stellatune.lyrics_provider.v1";
@@ -313,6 +313,20 @@ pub struct StLyricsProviderVTableV1 {
 /// Optional output-sink interface.
 ///
 /// JSON contracts are plugin-defined. Host passes/receives UTF-8 JSON blobs.
+pub const ST_OUTPUT_NEGOTIATE_EXACT: u32 = 1 << 0;
+pub const ST_OUTPUT_NEGOTIATE_CHANGED_SR: u32 = 1 << 1;
+pub const ST_OUTPUT_NEGOTIATE_CHANGED_CH: u32 = 1 << 2;
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StOutputSinkNegotiatedSpecV1 {
+    pub spec: StAudioSpec,
+    /// Plugin preferred write chunk in frames. 0 means "no preference".
+    pub preferred_chunk_frames: u32,
+    pub flags: u32,
+    pub reserved: u32,
+}
+
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct StOutputSinkVTableV1 {
@@ -322,6 +336,15 @@ pub struct StOutputSinkVTableV1 {
     pub default_config_json_utf8: extern "C" fn() -> StStr,
     pub list_targets_json_utf8:
         extern "C" fn(config_json_utf8: StStr, out_json_utf8: *mut StStr) -> StStatus,
+    /// Negotiate an output spec for `target_json_utf8` from the host desired spec.
+    ///
+    /// Host must call this before `open`, and pass the negotiated spec to `open`.
+    pub negotiate_spec: extern "C" fn(
+        config_json_utf8: StStr,
+        target_json_utf8: StStr,
+        desired_spec: StAudioSpec,
+        out_negotiated: *mut StOutputSinkNegotiatedSpecV1,
+    ) -> StStatus,
     pub open: extern "C" fn(
         config_json_utf8: StStr,
         target_json_utf8: StStr,

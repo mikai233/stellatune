@@ -368,8 +368,23 @@ fn exported_output_sink_interface_works() {
         channels: 2,
         reserved: 0,
     };
+    let mut negotiated = StOutputSinkNegotiatedSpecV1 {
+        spec: StAudioSpec {
+            sample_rate: 0,
+            channels: 0,
+            reserved: 0,
+        },
+        preferred_chunk_frames: 0,
+        flags: 0,
+        reserved: 0,
+    };
+    let st = unsafe { ((*vt).negotiate_spec)(cfg, target, spec, &mut negotiated) };
+    assert_eq!(st.code, 0);
+    assert_eq!(negotiated.spec.sample_rate, spec.sample_rate);
+    assert_eq!(negotiated.spec.channels, spec.channels);
+
     let mut handle: *mut c_void = core::ptr::null_mut();
-    let st = unsafe { ((*vt).open)(cfg, target, spec, &mut handle) };
+    let st = unsafe { ((*vt).open)(cfg, target, negotiated.spec, &mut handle) };
     assert_eq!(st.code, 0);
     assert!(!handle.is_null());
 
