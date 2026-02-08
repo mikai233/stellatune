@@ -39,7 +39,7 @@ stellatune-plugins = { path = "crates/stellatune-plugins" }
 stellatune-plugin-sdk = { path = "crates/stellatune-plugin-sdk" }
 stellatune-mixer = { path = "crates/stellatune-mixer" }
 
-anyhow = "1.0.100"
+anyhow = "1.0.101"
 crossbeam-channel = "0.5.15"
 flutter_rust_bridge = "=2.11.1"
 ringbuf = "0.4.8"
