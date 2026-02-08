@@ -24,7 +24,7 @@ mime_guess = "2.0.5"
 rand = "0.8.5"
 local-ip-address = "0.6.6"
 get_if_addrs = "0.5.3"
-socket2 = "0.5"
+socket2 = "0.6"
 serde_json.workspace = true
 
 stellatune-backend-api.workspace = true
