@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crossbeam_channel::{Receiver, Sender};
 use tracing::{debug, warn};
@@ -10,8 +10,8 @@ use stellatune_core::TrackDecodeInfo;
 use stellatune_output::{OutputError, OutputHandle, OutputSpec};
 
 use crate::engine::config::{
-    BUFFER_PREFILL_CAP_MS, BUFFER_PREFILL_CAP_MS_EXCLUSIVE, RING_BUFFER_CAPACITY_MS,
-    SEEK_TRACK_FADE_RAMP_MS,
+    BUFFER_PREFILL_CAP_MS, BUFFER_PREFILL_CAP_MS_EXCLUSIVE, OUTPUT_SINK_WRITE_RETRY_SLEEP_MS,
+    OUTPUT_SINK_WRITE_STALL_TIMEOUT_MS, RING_BUFFER_CAPACITY_MS, SEEK_TRACK_FADE_RAMP_MS,
 };
 use crate::engine::decode::decoder::EngineDecoder;
 use crate::engine::decode::{DecodeThreadArgs, decode_thread};
@@ -250,14 +250,25 @@ fn write_all_frames(
         return Ok(());
     }
     let mut offset = 0usize;
+    let mut zero_accept_since: Option<Instant> = None;
     while offset < samples.len() {
         let frames_accepted = sink
             .write_interleaved_f32(channels as u16, &samples[offset..])
             .map_err(|e| e.to_string())?;
         let accepted_samples = frames_accepted as usize * channels;
         if accepted_samples == 0 {
-            break;
+            let started = *zero_accept_since.get_or_insert_with(Instant::now);
+            if started.elapsed() >= Duration::from_millis(OUTPUT_SINK_WRITE_STALL_TIMEOUT_MS) {
+                let remaining_frames = (samples.len().saturating_sub(offset)) / channels;
+                return Err(format!(
+                    "output sink stalled: accepted 0 frames for {}ms (remaining_frames={remaining_frames})",
+                    OUTPUT_SINK_WRITE_STALL_TIMEOUT_MS
+                ));
+            }
+            std::thread::sleep(Duration::from_millis(OUTPUT_SINK_WRITE_RETRY_SLEEP_MS));
+            continue;
         }
+        zero_accept_since = None;
         offset = offset.saturating_add(accepted_samples.min(samples.len() - offset));
     }
     Ok(())

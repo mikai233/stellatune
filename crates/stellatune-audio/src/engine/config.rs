@@ -16,6 +16,10 @@ pub(crate) const UNDERRUN_LOG_INTERVAL: Duration = Duration::from_secs(1);
 pub(crate) const SEEK_TRACK_FADE_RAMP_MS: u64 = 80;
 pub(crate) const SEEK_TRACK_FADE_WAIT_TIMEOUT_MS: u64 = 140;
 pub(crate) const SEEK_TRACK_FADE_WAIT_POLL_MS: u64 = 2;
+// When a plugin output sink returns 0 accepted frames, retry with a short sleep.
+pub(crate) const OUTPUT_SINK_WRITE_RETRY_SLEEP_MS: u64 = 2;
+// Upper bound for continuous 0-frame accepts before treating the sink as stalled.
+pub(crate) const OUTPUT_SINK_WRITE_STALL_TIMEOUT_MS: u64 = 250;
 
 pub(crate) const RESAMPLE_CHUNK_FRAMES: usize = 1024;
 // High-quality resampler preset.
