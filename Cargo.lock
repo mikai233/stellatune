@@ -3186,7 +3186,7 @@ dependencies = [
  "get_if_addrs",
  "local-ip-address",
  "mime_guess",
- "rand 0.8.5",
+ "rand 0.9.2",
  "reqwest",
  "roxmltree",
  "serde_json",
