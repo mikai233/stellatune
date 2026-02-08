@@ -573,11 +573,6 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
                       value: AudioBackend.wasapiExclusive,
                       child: Text(l10n.settingsBackendWasapiExclusive),
                     ),
-                    if (Platform.isWindows)
-                      DropdownMenuItem(
-                        value: AudioBackend.asio,
-                        child: Text(l10n.settingsBackendAsioExternal),
-                      ),
                   ],
                   onChanged: (v) async {
                     if (v == null) return;
@@ -637,24 +632,7 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
                   items: [
                     DropdownMenuItem(
                       value: null,
-                      child: Text(() {
-                        final backend = ref
-                            .read(settingsStoreProvider)
-                            .selectedBackend;
-                        if (backend == AudioBackend.asio) {
-                          final available =
-                              devices
-                                  .where((d) => d.backend == backend)
-                                  .toList()
-                                ..sort((a, b) => a.name.compareTo(b.name));
-                          if (available.isNotEmpty) {
-                            return l10n.settingsDeviceAutoWithName(
-                              available.first.name,
-                            );
-                          }
-                        }
-                        return l10n.settingsDeviceDefault;
-                      }()),
+                      child: Text(l10n.settingsDeviceDefault),
                     ),
                     ...devices
                         .where(
@@ -685,9 +663,7 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
                   builder: (context) {
                     final settings = ref.watch(settingsStoreProvider);
                     final backend = settings.selectedBackend;
-                    final enabled =
-                        backend == AudioBackend.asio ||
-                        backend == AudioBackend.wasapiExclusive;
+                    final enabled = backend == AudioBackend.wasapiExclusive;
                     if (!enabled) return const SizedBox.shrink();
                     return Column(
                       children: [

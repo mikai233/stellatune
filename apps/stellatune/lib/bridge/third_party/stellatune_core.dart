@@ -10,7 +10,7 @@ part 'stellatune_core.freezed.dart';
 
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `Command`, `ControlCommand`, `ControlScope`, `HostControlFinishedPayload`, `HostControlResultPayload`, `HostEventTopic`, `HostLibraryEventEnvelope`, `HostPlayerEventEnvelope`, `HostPlayerTickPayload`, `LibraryCommand`, `LibraryControlCommand`, `PlayerControlCommand`
 
-enum AudioBackend { shared, wasapiExclusive, asio }
+enum AudioBackend { shared, wasapiExclusive }
 
 class AudioDevice {
   final AudioBackend backend;

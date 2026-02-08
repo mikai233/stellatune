@@ -24,7 +24,6 @@ pub enum LfeMode {
 pub enum AudioBackend {
     Shared,
     WasapiExclusive,
-    Asio,
 }
 
 #[flutter_rust_bridge::frb(non_opaque)]

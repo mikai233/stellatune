@@ -595,11 +595,11 @@ pub(crate) fn start_session(args: StartSessionArgs<'_>) -> Result<PlaybackSessio
     let (spec_tx, spec_rx) = crossbeam_channel::bounded::<Result<TrackDecodeInfo, String>>(1);
 
     let mut desired_out_spec = out_spec;
-    if match_track_sample_rate
+    if !output_sink_only
+        && match_track_sample_rate
         && matches!(
             backend,
             stellatune_output::AudioBackend::WasapiExclusive
-                | stellatune_output::AudioBackend::Asio
         )
         && let Some(info) = promoted_track_info.as_ref()
     {

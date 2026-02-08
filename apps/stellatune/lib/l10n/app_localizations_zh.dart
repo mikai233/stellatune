@@ -113,9 +113,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsBackendWasapiExclusive => '独占 (WASAPI Exclusive)';
 
   @override
-  String get settingsBackendAsioExternal => 'ASIO (外部进程)';
-
-  @override
   String get settingsDevice => '输出设备';
 
   @override
@@ -127,7 +124,7 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
-  String get settingsMatchTrackSampleRate => '采样率匹配曲目（独占/ASIO）';
+  String get settingsMatchTrackSampleRate => '采样率匹配曲目（独占）';
 
   @override
   String get settingsGaplessPlayback => '无缝播放（优先复用输出流）';

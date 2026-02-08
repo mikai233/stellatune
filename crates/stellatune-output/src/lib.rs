@@ -50,7 +50,6 @@ pub enum OutputError {
 pub enum AudioBackend {
     Shared,
     WasapiExclusive,
-    Asio,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -64,9 +63,6 @@ pub struct AudioDevice {
 mod wasapi_exclusive;
 
 #[cfg(windows)]
-mod asio_external;
-
-#[cfg(windows)]
 pub(crate) mod mmcss;
 
 pub enum OutputHandle {
@@ -76,11 +72,9 @@ pub enum OutputHandle {
     },
     #[cfg(windows)]
     Exclusive(wasapi_exclusive::WasapiExclusiveHandle),
-    #[cfg(windows)]
-    AsioExternal(asio_external::AsioExternalHandle),
 }
 
-pub fn list_host_devices(selected_backend: Option<AudioBackend>) -> Vec<AudioDevice> {
+pub fn list_host_devices(_selected_backend: Option<AudioBackend>) -> Vec<AudioDevice> {
     let mut shared_devices = Vec::new();
 
     // CPAL Shared Output
@@ -138,13 +132,6 @@ pub fn list_host_devices(selected_backend: Option<AudioBackend>) -> Vec<AudioDev
     let mut all_devices = process_list(shared_devices);
     all_devices.extend(process_list(exclusive_devices));
 
-    #[cfg(windows)]
-    {
-        if matches!(selected_backend, Some(AudioBackend::Asio)) {
-            all_devices.extend(process_list(asio_external::list_asio_devices_via_host()));
-        }
-    }
-
     all_devices
 }
 
@@ -161,10 +148,6 @@ pub fn supports_output_spec(
         }
         #[cfg(not(windows))]
         AudioBackend::WasapiExclusive => false,
-        #[cfg(windows)]
-        AudioBackend::Asio => asio_external::supports_asio_spec(device_id, spec).unwrap_or(false),
-        #[cfg(not(windows))]
-        AudioBackend::Asio => false,
     }
 }
 
@@ -229,12 +212,6 @@ pub fn output_spec_for_device(
         }
         #[cfg(not(windows))]
         AudioBackend::WasapiExclusive => Err(OutputError::NoDevice),
-        #[cfg(windows)]
-        AudioBackend::Asio => asio_external::output_spec_for_asio_device(device_id),
-        #[cfg(not(windows))]
-        AudioBackend::Asio => Err(OutputError::ConfigMismatch {
-            message: "ASIO not supported on this platform".to_string(),
-        }),
     }
 }
 
@@ -343,15 +320,6 @@ impl OutputHandle {
             }
             #[cfg(not(windows))]
             AudioBackend::WasapiExclusive => Err(OutputError::NoDevice),
-            #[cfg(windows)]
-            AudioBackend::Asio => {
-                asio_external::start_asio_external(device_id, consumer, expected_spec, on_error)
-                    .map(Self::AsioExternal)
-            }
-            #[cfg(not(windows))]
-            AudioBackend::Asio => Err(OutputError::ConfigMismatch {
-                message: "ASIO not supported on this platform".to_string(),
-            }),
         }
     }
 
@@ -363,8 +331,6 @@ impl OutputHandle {
                 sample_rate: 0, // Not easily available without storing it
                 channels: 2,
             },
-            #[cfg(windows)]
-            Self::AsioExternal(h) => h.spec(),
         }
     }
 }

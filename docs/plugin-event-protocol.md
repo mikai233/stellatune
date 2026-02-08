@@ -104,7 +104,7 @@ Common fields:
 - `set_volume` with `volume: f64` (0..1 expected)
 - `set_lfe_mode` with `mode: "Mute" | "MixToFront"` (also accepts `mute`/`mix_to_front`)
 - `set_output_device` with:
-  - `backend: "Shared" | "WasapiExclusive" | "Asio"` (also accepts `shared`/`wasapi_exclusive`/`asio`)
+  - `backend: "Shared" | "WasapiExclusive"` (also accepts `shared`/`wasapi_exclusive`)
   - `device_id: string | null` (optional)
 - `set_output_options` with:
   - `match_track_sample_rate: bool`

@@ -278,7 +278,6 @@ fn parse_audio_backend(
             "wasapi_exclusive" | "WasapiExclusive" => {
                 Ok(stellatune_core::AudioBackend::WasapiExclusive)
             }
-            "asio" | "Asio" => Ok(stellatune_core::AudioBackend::Asio),
             _ => Err(format!("invalid `{key}`")),
         };
     }

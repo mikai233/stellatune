@@ -114,9 +114,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsBackendWasapiExclusive => 'Exclusive (WASAPI Exclusive)';
 
   @override
-  String get settingsBackendAsioExternal => 'ASIO (External)';
-
-  @override
   String get settingsDevice => 'Device';
 
   @override
@@ -129,7 +126,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsMatchTrackSampleRate =>
-      'Match track sample rate (Exclusive/ASIO)';
+      'Match track sample rate (Exclusive)';
 
   @override
   String get settingsGaplessPlayback =>

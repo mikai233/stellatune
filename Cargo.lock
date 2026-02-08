@@ -3145,7 +3145,6 @@ dependencies = [
  "anyhow",
  "cpal",
  "serde",
- "stellatune-asio-proto",
  "thiserror 2.0.18",
  "wasapi",
  "windows",

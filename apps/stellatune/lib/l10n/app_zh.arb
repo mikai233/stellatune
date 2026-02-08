@@ -43,7 +43,6 @@
   "settingsBackend": "音频后端",
   "settingsBackendShared": "共享 (WASAPI Shared)",
   "settingsBackendWasapiExclusive": "独占 (WASAPI Exclusive)",
-  "settingsBackendAsioExternal": "ASIO (外部进程)",
   "settingsDevice": "输出设备",
   "settingsDeviceDefault": "系统默认",
   "settingsDeviceAutoWithName": "自动选择（{name}）",
@@ -54,7 +53,7 @@
       }
     }
   },
-  "settingsMatchTrackSampleRate": "采样率匹配曲目（独占/ASIO）",
+  "settingsMatchTrackSampleRate": "采样率匹配曲目（独占）",
   "settingsGaplessPlayback": "无缝播放（优先复用输出流）",
   "settingsSeekTrackFade": "播放/暂停/Seek/切歌时淡入淡出",
   "settingsPluginsTitle": "插件",

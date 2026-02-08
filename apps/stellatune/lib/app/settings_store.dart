@@ -187,8 +187,13 @@ class SettingsStore extends Notifier<SettingsStore> {
   AudioBackend get selectedBackend {
     final raw = _box.get(_keySelectedBackend);
     if (raw is String) {
-      for (final b in AudioBackend.values) {
-        if (b.name == raw) return b;
+      switch (raw) {
+        case 'shared':
+          return AudioBackend.shared;
+        case 'wasapiExclusive':
+          return AudioBackend.wasapiExclusive;
+        default:
+          break;
       }
     }
     return AudioBackend.shared;

@@ -43,7 +43,6 @@
   "settingsBackend": "Audio Backend",
   "settingsBackendShared": "Shared (WASAPI Shared)",
   "settingsBackendWasapiExclusive": "Exclusive (WASAPI Exclusive)",
-  "settingsBackendAsioExternal": "ASIO (External)",
   "settingsDevice": "Device",
   "settingsDeviceDefault": "System Default",
   "settingsDeviceAutoWithName": "Auto ({name})",
@@ -54,7 +53,7 @@
       }
     }
   },
-  "settingsMatchTrackSampleRate": "Match track sample rate (Exclusive/ASIO)",
+  "settingsMatchTrackSampleRate": "Match track sample rate (Exclusive)",
   "settingsGaplessPlayback": "Gapless playback (prefer stream reuse)",
   "settingsSeekTrackFade": "Fade on play/pause/seek/track switch",
   "settingsPluginsTitle": "Plugins",

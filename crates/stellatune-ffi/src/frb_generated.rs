@@ -28,7 +28,7 @@
 use crate::api::library::*;
 use crate::api::player::*;
 use flutter_rust_bridge::for_generated::byteorder::{NativeEndian, ReadBytesExt, WriteBytesExt};
-use flutter_rust_bridge::for_generated::{Lifetimeable, Lockable, transform_result_dco};
+use flutter_rust_bridge::for_generated::{transform_result_dco, Lifetimeable, Lockable};
 use flutter_rust_bridge::{Handler, IntoIntoDart};
 
 // Section: boilerplate
@@ -3904,7 +3904,6 @@ impl SseDecode for stellatune_core::AudioBackend {
         return match inner {
             0 => stellatune_core::AudioBackend::Shared,
             1 => stellatune_core::AudioBackend::WasapiExclusive,
-            2 => stellatune_core::AudioBackend::Asio,
             _ => unreachable!("Invalid variant for AudioBackend: {}", inner),
         };
     }
@@ -5189,7 +5188,6 @@ impl flutter_rust_bridge::IntoDart for FrbWrapper<stellatune_core::AudioBackend>
         match self.0 {
             stellatune_core::AudioBackend::Shared => 0.into_dart(),
             stellatune_core::AudioBackend::WasapiExclusive => 1.into_dart(),
-            stellatune_core::AudioBackend::Asio => 2.into_dart(),
             _ => unreachable!(),
         }
     }
@@ -6064,7 +6062,6 @@ impl SseEncode for stellatune_core::AudioBackend {
             match self {
                 stellatune_core::AudioBackend::Shared => 0,
                 stellatune_core::AudioBackend::WasapiExclusive => 1,
-                stellatune_core::AudioBackend::Asio => 2,
                 _ => {
                     unimplemented!("");
                 }
@@ -6822,7 +6819,7 @@ mod io {
     use flutter_rust_bridge::for_generated::byteorder::{
         NativeEndian, ReadBytesExt, WriteBytesExt,
     };
-    use flutter_rust_bridge::for_generated::{Lifetimeable, Lockable, transform_result_dco};
+    use flutter_rust_bridge::for_generated::{transform_result_dco, Lifetimeable, Lockable};
     use flutter_rust_bridge::{Handler, IntoIntoDart};
 
     // Section: boilerplate
@@ -6876,7 +6873,7 @@ mod web {
     };
     use flutter_rust_bridge::for_generated::wasm_bindgen;
     use flutter_rust_bridge::for_generated::wasm_bindgen::prelude::*;
-    use flutter_rust_bridge::for_generated::{Lifetimeable, Lockable, transform_result_dco};
+    use flutter_rust_bridge::for_generated::{transform_result_dco, Lifetimeable, Lockable};
     use flutter_rust_bridge::{Handler, IntoIntoDart};
 
     // Section: boilerplate
