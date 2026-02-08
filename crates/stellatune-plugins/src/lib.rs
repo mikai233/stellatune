@@ -2179,37 +2179,65 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
 }
 
 fn extract_zip_to_dir(zip_path: &Path, out_dir: &Path) -> Result<()> {
-    let file =
-        std::fs::File::open(zip_path).with_context(|| format!("open {}", zip_path.display()))?;
-    let mut archive = zip::ZipArchive::new(file)
-        .with_context(|| format!("open zip archive {}", zip_path.display()))?;
-    for i in 0..archive.len() {
-        let mut entry = archive
-            .by_index(i)
-            .with_context(|| format!("read zip entry #{i} from {}", zip_path.display()))?;
-        let enclosed = entry
-            .enclosed_name()
-            .ok_or_else(|| anyhow!("zip entry has invalid path: {}", entry.name()))?;
-        let out_path = out_dir.join(enclosed);
+    let buf = std::fs::read(zip_path).with_context(|| format!("read {}", zip_path.display()))?;
+    let archive = rawzip::ZipArchive::from_slice(&buf)
+        .map_err(|e| anyhow!("invalid zip archive: {:?}", e))?;
+
+    for entry in archive.entries() {
+        let entry = entry.map_err(|e| anyhow!("zip entry error: {:?}", e))?;
+        let filename = entry
+            .file_path()
+            .try_normalize()
+            .map_err(|e| anyhow!("failed to normalize zip path: {:?}", e))?
+            .as_ref()
+            .to_string();
+
+        // Basic zip-slip protection: check for ".." or absolute paths
+        let path = Path::new(&filename);
+        if path.is_absolute()
+            || path
+                .components()
+                .any(|c| matches!(c, std::path::Component::ParentDir))
+        {
+            return Err(anyhow!(
+                "unsupported or malicious path in zip: {}",
+                filename
+            ));
+        }
+
+        let out_path = out_dir.join(&filename);
         if entry.is_dir() {
             std::fs::create_dir_all(&out_path)
                 .with_context(|| format!("create {}", out_path.display()))?;
             continue;
         }
+
         if let Some(parent) = out_path.parent() {
             std::fs::create_dir_all(parent)
                 .with_context(|| format!("create {}", parent.display()))?;
         }
+
         let mut out = std::fs::File::create(&out_path)
             .with_context(|| format!("create {}", out_path.display()))?;
-        std::io::copy(&mut entry, &mut out)
-            .with_context(|| format!("extract {} to {}", entry.name(), out_path.display()))?;
-        #[cfg(unix)]
-        if let Some(mode) = entry.unix_mode() {
-            use std::os::unix::fs::PermissionsExt;
-            let perm = std::fs::Permissions::from_mode(mode);
-            std::fs::set_permissions(&out_path, perm)
-                .with_context(|| format!("set permissions {}", out_path.display()))?;
+
+        let wayfinder = entry.wayfinder();
+        let slice_entry = archive
+            .get_entry(wayfinder)
+            .map_err(|e| anyhow!("failed to get entry data: {:?}", e))?;
+        let data = slice_entry.data();
+
+        match entry.compression_method() {
+            rawzip::CompressionMethod::Store => {
+                std::io::copy(&mut &data[..], &mut out)
+                    .with_context(|| format!("extract {} to {}", filename, out_path.display()))?;
+            }
+            rawzip::CompressionMethod::Deflate => {
+                let mut decoder = flate2::read::DeflateDecoder::new(&data[..]);
+                std::io::copy(&mut decoder, &mut out).with_context(|| {
+                    format!("extract (deflate) {} to {}", filename, out_path.display())
+                })?;
+            }
+            m => return Err(anyhow!("unsupported compression method: {:?}", m)),
         }
     }
     Ok(())

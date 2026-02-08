@@ -78,7 +78,8 @@ Future<AppBootstrapResult> bootstrapApp() async {
   await initRustRuntime();
 
   final bridge = await PlayerBridge.create();
-  final settings = await SettingsStore.open();
+  await SettingsStore.initHive();
+  final settings = SettingsStore();
   final paths = await _resolvePaths();
 
   await _applyPersistedOutputSettings(bridge: bridge, settings: settings);

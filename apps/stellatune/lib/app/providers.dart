@@ -16,11 +16,9 @@ final coverDirProvider = Provider<String>((ref) {
   throw UnimplementedError('coverDirProvider must be overridden in main()');
 });
 
-final settingsStoreProvider = ChangeNotifierProvider<SettingsStore>((ref) {
-  throw UnimplementedError(
-    'settingsStoreProvider must be overridden in main()',
-  );
-});
+final settingsStoreProvider = NotifierProvider<SettingsStore, SettingsStore>(
+  SettingsStore.new,
+);
 
 final audioDevicesProvider = StreamProvider<List<AudioDevice>>((ref) async* {
   final bridge = ref.watch(playerBridgeProvider);

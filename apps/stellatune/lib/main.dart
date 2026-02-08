@@ -15,7 +15,7 @@ Future<void> main() async {
         playerBridgeProvider.overrideWithValue(bootstrap.bridge),
         libraryBridgeProvider.overrideWithValue(bootstrap.library),
         coverDirProvider.overrideWithValue(bootstrap.coverDir),
-        settingsStoreProvider.overrideWith((ref) => bootstrap.settings),
+        settingsStoreProvider.overrideWith(() => bootstrap.settings),
       ],
       child: const StellatuneApp(),
     ),

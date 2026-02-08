@@ -282,8 +282,7 @@ class NowPlayingBar extends ConsumerWidget {
                               if (chosen.applySelection) {
                                 ref
                                     .read(dlnaSelectedRendererProvider.notifier)
-                                    .state = chosen
-                                    .selected;
+                                    .set(chosen.selected);
                               }
 
                               final message = chosen.message;

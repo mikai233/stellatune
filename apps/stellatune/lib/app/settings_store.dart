@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'dart:ui';
-import 'package:flutter/foundation.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:flutter/material.dart' show ThemeMode;
 
@@ -8,8 +8,15 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:stellatune/player/queue_models.dart';
 import 'package:stellatune/bridge/bridge.dart';
 
-class SettingsStore extends ChangeNotifier {
-  SettingsStore._(this._box);
+class SettingsStore extends Notifier<SettingsStore> {
+  SettingsStore();
+
+  @override
+  SettingsStore build() {
+    return this;
+  }
+
+  Box get _box => Hive.box(_boxName);
 
   static const _boxName = 'settings';
   static const _keyVolume = 'volume';
@@ -35,12 +42,9 @@ class SettingsStore extends ChangeNotifier {
   static const _keyThemeMode = 'theme_mode';
   static const _keyCloseToTray = 'close_to_tray';
 
-  final Box _box;
-
-  static Future<SettingsStore> open() async {
+  static Future<void> initHive() async {
     await Hive.initFlutter();
-    final box = await Hive.openBox(_boxName);
-    return SettingsStore._(box);
+    await Hive.openBox(_boxName);
   }
 
   double get volume {
@@ -338,7 +342,7 @@ class SettingsStore extends ChangeNotifier {
     } else {
       await _box.put(_keyLocale, locale.toString());
     }
-    notifyListeners();
+    state = this; // trigger update
   }
 
   ThemeMode get themeMode {
@@ -353,7 +357,7 @@ class SettingsStore extends ChangeNotifier {
 
   Future<void> setThemeMode(ThemeMode mode) async {
     await _box.put(_keyThemeMode, mode.name);
-    notifyListeners();
+    state = this; // trigger update
   }
 
   bool get closeToTray {
@@ -364,6 +368,6 @@ class SettingsStore extends ChangeNotifier {
 
   Future<void> setCloseToTray(bool v) async {
     await _box.put(_keyCloseToTray, v);
-    notifyListeners();
+    state = this; // trigger update
   }
 }
