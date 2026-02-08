@@ -21,6 +21,7 @@ export 'third_party/stellatune_core.dart'
         LibraryEvent,
         PlaylistLite,
         TrackDecodeInfo,
+        TrackPlayability,
         TrackLite,
         LyricsQuery,
         LyricsEvent,
@@ -238,6 +239,9 @@ class PlayerBridge {
         track: track,
         positionMs: BigInt.from(positionMs),
       );
+
+  Future<List<TrackPlayability>> canPlayTrackRefs(List<TrackRef> tracks) =>
+      api.canPlayTrackRefs(player: player, tracks: tracks);
 }
 
 TrackRef buildPluginSourceTrackRef({

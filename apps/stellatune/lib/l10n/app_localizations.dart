@@ -152,6 +152,66 @@ abstract class AppLocalizations {
   /// **'Error'**
   String get error;
 
+  /// No description provided for @playbackUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Playback unavailable: {reason}'**
+  String playbackUnavailable(String reason);
+
+  /// No description provided for @playabilityReasonPluginsUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'plugins are reloading'**
+  String get playabilityReasonPluginsUnavailable;
+
+  /// No description provided for @playabilityReasonLocalTrackLocatorEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'local track path is empty'**
+  String get playabilityReasonLocalTrackLocatorEmpty;
+
+  /// No description provided for @playabilityReasonNoDecoderForLocalTrack.
+  ///
+  /// In en, this message translates to:
+  /// **'no decoder for this track format'**
+  String get playabilityReasonNoDecoderForLocalTrack;
+
+  /// No description provided for @playabilityReasonDecoderProbeFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'decoder probe failed'**
+  String get playabilityReasonDecoderProbeFailed;
+
+  /// No description provided for @playabilityReasonInvalidSourceTrackLocator.
+  ///
+  /// In en, this message translates to:
+  /// **'invalid source locator'**
+  String get playabilityReasonInvalidSourceTrackLocator;
+
+  /// No description provided for @playabilityReasonSourceCatalogUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'source plugin is unavailable'**
+  String get playabilityReasonSourceCatalogUnavailable;
+
+  /// No description provided for @playabilityReasonSourceDecoderUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'source decoder is unavailable'**
+  String get playabilityReasonSourceDecoderUnavailable;
+
+  /// No description provided for @playabilityReasonUnsupportedTrack.
+  ///
+  /// In en, this message translates to:
+  /// **'unsupported track'**
+  String get playabilityReasonUnsupportedTrack;
+
+  /// No description provided for @playabilityReasonUnknown.
+  ///
+  /// In en, this message translates to:
+  /// **'unknown reason ({code})'**
+  String playabilityReasonUnknown(String code);
+
   /// No description provided for @log.
   ///
   /// In en, this message translates to:

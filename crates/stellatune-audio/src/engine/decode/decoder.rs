@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 use tracing::debug;
 
 use serde::Deserialize;
-use stellatune_core::TrackDecodeInfo;
+use stellatune_core::{TrackDecodeInfo, TrackPlayability, TrackRef};
 use stellatune_decode::{Decoder, TrackSpec, supports_path};
 
 /// Built-in decoder "priority" when selecting between a plugin decoder and the built-in Symphonia
@@ -113,6 +113,89 @@ fn build_plugin_track_info(
     info.set_metadata(metadata.as_ref())
         .map_err(|e| format!("failed to serialize decoder metadata: {e}"))?;
     Ok(info)
+}
+
+pub(crate) fn assess_track_playability(
+    track: &TrackRef,
+    pm: &stellatune_plugins::PluginManager,
+) -> TrackPlayability {
+    if track.source_id.trim().eq_ignore_ascii_case("local") {
+        let path = track.locator.trim();
+        if path.is_empty() {
+            return TrackPlayability {
+                track: track.clone(),
+                playable: false,
+                reason: Some("local_track_locator_empty".to_string()),
+            };
+        }
+        if supports_path(path) {
+            return TrackPlayability {
+                track: track.clone(),
+                playable: true,
+                reason: None,
+            };
+        }
+        return match pm.can_decode_path(path) {
+            Ok(true) => TrackPlayability {
+                track: track.clone(),
+                playable: true,
+                reason: None,
+            },
+            Ok(false) => TrackPlayability {
+                track: track.clone(),
+                playable: false,
+                reason: Some("no_decoder_for_local_track".to_string()),
+            },
+            Err(_) => TrackPlayability {
+                track: track.clone(),
+                playable: false,
+                reason: Some("decoder_probe_failed".to_string()),
+            },
+        };
+    }
+
+    let source = match serde_json::from_str::<SourceStreamLocator>(&track.locator) {
+        Ok(v) => v,
+        Err(_) => {
+            return TrackPlayability {
+                track: track.clone(),
+                playable: false,
+                reason: Some("invalid_source_track_locator".to_string()),
+            };
+        }
+    };
+
+    let Some(_source_key) = pm.find_source_catalog_key(&source.plugin_id, &source.type_id) else {
+        return TrackPlayability {
+            track: track.clone(),
+            playable: false,
+            reason: Some("source_catalog_unavailable".to_string()),
+        };
+    };
+
+    let decoder_key = match (
+        source.decoder_plugin_id.as_deref(),
+        source.decoder_type_id.as_deref(),
+    ) {
+        (Some(plugin_id), Some(type_id)) => pm.find_decoder_key(plugin_id, type_id),
+        _ => pm
+            .probe_best_decoder_hint(source.ext_hint.trim())
+            .map(|(key, _)| key),
+    };
+
+    if decoder_key.is_none() {
+        return TrackPlayability {
+            track: track.clone(),
+            playable: false,
+            reason: Some("source_decoder_unavailable".to_string()),
+        };
+    }
+
+    TrackPlayability {
+        track: track.clone(),
+        playable: true,
+        reason: None,
+    }
 }
 
 pub(crate) fn open_engine_decoder(

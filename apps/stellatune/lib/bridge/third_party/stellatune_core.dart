@@ -766,6 +766,30 @@ class TrackLite {
           durationMs == other.durationMs;
 }
 
+class TrackPlayability {
+  final TrackRef track;
+  final bool playable;
+  final String? reason;
+
+  const TrackPlayability({
+    required this.track,
+    required this.playable,
+    this.reason,
+  });
+
+  @override
+  int get hashCode => track.hashCode ^ playable.hashCode ^ reason.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is TrackPlayability &&
+          runtimeType == other.runtimeType &&
+          track == other.track &&
+          playable == other.playable &&
+          reason == other.reason;
+}
+
 class TrackRef {
   /// Logical source id (e.g. `local`, `netease`, `onedrive`).
   final String sourceId;

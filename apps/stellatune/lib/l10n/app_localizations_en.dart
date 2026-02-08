@@ -36,6 +36,45 @@ class AppLocalizationsEn extends AppLocalizations {
   String get error => 'Error';
 
   @override
+  String playbackUnavailable(String reason) {
+    return 'Playback unavailable: $reason';
+  }
+
+  @override
+  String get playabilityReasonPluginsUnavailable => 'plugins are reloading';
+
+  @override
+  String get playabilityReasonLocalTrackLocatorEmpty =>
+      'local track path is empty';
+
+  @override
+  String get playabilityReasonNoDecoderForLocalTrack =>
+      'no decoder for this track format';
+
+  @override
+  String get playabilityReasonDecoderProbeFailed => 'decoder probe failed';
+
+  @override
+  String get playabilityReasonInvalidSourceTrackLocator =>
+      'invalid source locator';
+
+  @override
+  String get playabilityReasonSourceCatalogUnavailable =>
+      'source plugin is unavailable';
+
+  @override
+  String get playabilityReasonSourceDecoderUnavailable =>
+      'source decoder is unavailable';
+
+  @override
+  String get playabilityReasonUnsupportedTrack => 'unsupported track';
+
+  @override
+  String playabilityReasonUnknown(String code) {
+    return 'unknown reason ($code)';
+  }
+
+  @override
   String get log => 'Log';
 
   @override

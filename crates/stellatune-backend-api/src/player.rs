@@ -14,7 +14,7 @@ use stellatune_core::{
     AudioBackend, Command, DspChainItem, DspTypeDescriptor, Event, LyricsDoc, LyricsEvent,
     LyricsProviderTypeDescriptor, LyricsQuery, LyricsSearchCandidate, OutputSinkRoute,
     OutputSinkTypeDescriptor, PluginDescriptor, PluginRuntimeEvent, SourceCatalogTypeDescriptor,
-    TrackDecodeInfo, TrackRef,
+    TrackDecodeInfo, TrackPlayability, TrackRef,
 };
 
 pub struct PlayerService {
@@ -269,6 +269,10 @@ impl PlayerService {
     pub fn preload_track_ref(&self, track: TrackRef, position_ms: u64) {
         self.engine
             .send_command(Command::PreloadTrackRef { track, position_ms });
+    }
+
+    pub fn can_play_track_refs(&self, tracks: Vec<TrackRef>) -> Vec<TrackPlayability> {
+        self.engine.can_play_track_refs(tracks)
     }
 }
 

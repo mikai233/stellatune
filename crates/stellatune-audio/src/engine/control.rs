@@ -9,6 +9,7 @@ use tracing::{debug, error, info, warn};
 
 use stellatune_core::{
     Command, Event, HostEventTopic, HostPlayerTickPayload, PlayerState, PluginRuntimeEvent,
+    TrackPlayability, TrackRef,
 };
 use stellatune_output::{OutputSpec, output_spec_for_device};
 use stellatune_plugin_api::StAudioSpec;
@@ -19,7 +20,7 @@ use crate::engine::config::{
     BUFFER_LOW_WATERMARK_MS_EXCLUSIVE, CONTROL_TICK_MS, SEEK_TRACK_FADE_WAIT_POLL_MS,
     SEEK_TRACK_FADE_WAIT_TIMEOUT_MS, UNDERRUN_LOG_INTERVAL,
 };
-use crate::engine::decode::decoder::open_engine_decoder;
+use crate::engine::decode::decoder::{assess_track_playability, open_engine_decoder};
 use crate::engine::event_hub::EventHub;
 use crate::engine::messages::{DecodeCtrl, EngineCtrl, InternalMsg, PredecodedChunk};
 use crate::engine::plugin_event_hub::PluginEventHub;
@@ -210,8 +211,8 @@ impl EngineHandle {
         pm.plugins()
             .iter()
             .map(|p| stellatune_core::PluginDescriptor {
-                id: p.library.id(),
-                name: p.library.name(),
+                id: p.library().id(),
+                name: p.library().name(),
             })
             .collect()
     }
@@ -279,6 +280,23 @@ impl EngineHandle {
                 config_schema_json: t.config_schema_json,
                 default_config_json: t.default_config_json,
             })
+            .collect()
+    }
+
+    pub fn can_play_track_refs(&self, tracks: Vec<TrackRef>) -> Vec<TrackPlayability> {
+        let Ok(pm) = self.plugins.lock() else {
+            return tracks
+                .into_iter()
+                .map(|track| TrackPlayability {
+                    track,
+                    playable: false,
+                    reason: Some("plugins_unavailable".to_string()),
+                })
+                .collect();
+        };
+        tracks
+            .iter()
+            .map(|track| assess_track_playability(track, &pm))
             .collect()
     }
 
@@ -572,15 +590,7 @@ fn run_control_loop(channels: ControlLoopChannels, deps: ControlLoopDeps) {
             }
             recv(engine_ctrl_rx) -> msg => {
                 let Ok(msg) = msg else { break };
-                handle_engine_ctrl(
-                    msg,
-                    &mut state,
-                    &events,
-                    &internal_rx,
-                    &internal_tx,
-                    &plugins,
-                    &track_info,
-                );
+                handle_engine_ctrl(msg, &mut state, &events, &plugins);
             }
             recv(internal_rx) -> msg => {
                 let Ok(msg) = msg else { break };
@@ -651,10 +661,7 @@ fn handle_engine_ctrl(
     msg: EngineCtrl,
     state: &mut EngineState,
     events: &Arc<EventHub>,
-    internal_rx: &Receiver<InternalMsg>,
-    internal_tx: &Sender<InternalMsg>,
     plugins: &Arc<Mutex<PluginManager>>,
-    track_info: &SharedTrackInfo,
 ) {
     match msg {
         EngineCtrl::SetDspChain { chain } => {
@@ -673,28 +680,10 @@ fn handle_engine_ctrl(
             }
         }
         EngineCtrl::ReloadPlugins { dir } => {
-            handle_reload_plugins(
-                state,
-                events,
-                internal_rx,
-                internal_tx,
-                plugins,
-                track_info,
-                dir,
-                Vec::new(),
-            );
+            handle_reload_plugins(events, plugins, dir, Vec::new());
         }
         EngineCtrl::ReloadPluginsWithDisabled { dir, disabled_ids } => {
-            handle_reload_plugins(
-                state,
-                events,
-                internal_rx,
-                internal_tx,
-                plugins,
-                track_info,
-                dir,
-                disabled_ids,
-            );
+            handle_reload_plugins(events, plugins, dir, disabled_ids);
         }
         EngineCtrl::SetLfeMode { mode } => {
             state.lfe_mode = mode;
@@ -706,33 +695,13 @@ fn handle_engine_ctrl(
 }
 
 fn handle_reload_plugins(
-    state: &mut EngineState,
     events: &Arc<EventHub>,
-    internal_rx: &Receiver<InternalMsg>,
-    internal_tx: &Sender<InternalMsg>,
     plugins: &Arc<Mutex<PluginManager>>,
-    track_info: &SharedTrackInfo,
     dir: String,
     disabled_ids: Vec<String>,
 ) {
-    // Stop playback and fully tear down decode/preload workers before replacing PluginManager.
-    // This prevents old decoder instances from dropping after plugin libraries are replaced.
-    stop_decode_session(state, track_info);
-    state.wants_playback = false;
-    state.play_request_started_at = None;
-    state.pending_session_start = false;
-    set_state(state, events, PlayerState::Stopped);
-    state.requested_preload_path = None;
-    state.requested_preload_position_ms = 0;
-    state.preload_token = state.preload_token.wrapping_add(1);
-
-    // Ensure all old plugin-owned objects are released before replacing PluginManager.
-    shutdown_decode_worker(state);
-    shutdown_preload_worker(state);
-
-    // Drop stale queued internal messages (especially PreloadReady carrying decoders).
-    while internal_rx.try_recv().is_ok() {}
-
+    // Soft reload: keep current playback/session alive and only apply plugin availability
+    // to newly created instances. Existing instances stay valid via plugin runtime guards.
     let mut pm = match plugins.lock() {
         Ok(pm) => pm,
         Err(_) => {
@@ -769,16 +738,6 @@ fn handle_reload_plugins(
             });
         }
     }
-
-    state.decode_worker = Some(start_decode_worker(
-        Arc::clone(events),
-        internal_tx.clone(),
-        Arc::clone(plugins),
-    ));
-    state.preload_worker = Some(start_preload_worker(
-        Arc::clone(plugins),
-        internal_tx.clone(),
-    ));
 }
 
 fn handle_internal(

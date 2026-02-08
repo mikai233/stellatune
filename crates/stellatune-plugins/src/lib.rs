@@ -4,6 +4,7 @@ mod util;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -25,8 +26,11 @@ use stellatune_plugin_protocol::PluginMetadata;
 use tracing::{debug, info, warn};
 
 pub use manifest::{
-    DiscoveredPlugin, INSTALL_RECEIPT_FILE_NAME, PluginInstallReceipt, PluginManifest,
-    discover_plugins, read_receipt, receipt_path_for_plugin_root, write_receipt,
+    DiscoveredPlugin, INSTALL_RECEIPT_FILE_NAME, PluginInstallReceipt, PluginInstallState,
+    PluginManifest, UNINSTALL_PENDING_MARKER_FILE_NAME, UninstallPendingMarker,
+    discover_pending_uninstalls, discover_plugins, pending_marker_path_for_plugin_root,
+    read_receipt, read_uninstall_pending_marker, receipt_path_for_plugin_root, write_receipt,
+    write_uninstall_pending_marker,
 };
 
 extern "C" fn default_host_log(_: *mut core::ffi::c_void, level: StLogLevel, msg: StStr) {
@@ -151,6 +155,9 @@ pub struct InstalledPluginInfo {
     pub root_dir: PathBuf,
     pub library_path: PathBuf,
     pub info_json: Option<String>,
+    pub install_state: PluginInstallState,
+    pub uninstall_retry_count: u32,
+    pub uninstall_last_error: Option<String>,
 }
 
 #[derive(Debug, Default)]
@@ -551,14 +558,52 @@ static FILE_IO_VTABLE: StIoVTableV1 = StIoVTableV1 {
     size: Some(fileio_size),
 };
 
+static SHADOW_LOAD_SEQ: AtomicU64 = AtomicU64::new(1);
+
+#[derive(Debug)]
+struct ShadowRootCleanup {
+    root: PathBuf,
+}
+
+impl Drop for ShadowRootCleanup {
+    fn drop(&mut self) {
+        if self.root.as_os_str().is_empty() {
+            return;
+        }
+        if let Err(e) = std::fs::remove_dir_all(&self.root) {
+            debug!(
+                target: "stellatune_plugins::shadow",
+                root = %self.root.display(),
+                "shadow cleanup skipped: {e:#}"
+            );
+        }
+    }
+}
+
+#[derive(Debug)]
+struct LoadedPluginRuntime {
+    library: PluginLibrary,
+    _host_vtable: Box<StHostVTableV1>,
+    _host_ctx: Box<PluginHostCtx>,
+    _shadow_cleanup: Option<ShadowRootCleanup>,
+}
+
 #[derive(Debug)]
 pub struct LoadedPlugin {
     pub root_dir: PathBuf,
     pub manifest: PluginManifest,
     pub library_path: PathBuf,
-    pub library: PluginLibrary,
-    _host_vtable: Box<StHostVTableV1>,
-    _host_ctx: Box<PluginHostCtx>,
+    runtime: Arc<LoadedPluginRuntime>,
+}
+
+impl LoadedPlugin {
+    pub fn library(&self) -> &PluginLibrary {
+        &self.runtime.library
+    }
+
+    fn runtime(&self) -> Arc<LoadedPluginRuntime> {
+        Arc::clone(&self.runtime)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -678,6 +723,7 @@ pub struct SourceStream {
     io_vtable: *const StIoVTableV1,
     io_handle: *mut core::ffi::c_void,
     close_stream: extern "C" fn(io_handle: *mut core::ffi::c_void),
+    _plugin_runtime: Arc<LoadedPluginRuntime>,
 }
 
 unsafe impl Send for SourceStream {}
@@ -706,6 +752,7 @@ pub struct OutputSinkInstance {
     handle: *mut core::ffi::c_void,
     vtable: *const StOutputSinkVTableV1,
     plugin_free: Option<extern "C" fn(ptr: *mut core::ffi::c_void, len: usize, align: usize)>,
+    _plugin_runtime: Arc<LoadedPluginRuntime>,
 }
 
 unsafe impl Send for OutputSinkInstance {}
@@ -767,6 +814,7 @@ impl Drop for OutputSinkInstance {
 pub struct DspInstance {
     handle: *mut core::ffi::c_void,
     vtable: *const stellatune_plugin_api::StDspVTableV1,
+    _plugin_runtime: Arc<LoadedPluginRuntime>,
 }
 
 unsafe impl Send for DspInstance {}
@@ -846,6 +894,7 @@ pub struct DecoderInstance {
     info: StDecoderInfoV1,
     plugin_free: Option<extern "C" fn(ptr: *mut core::ffi::c_void, len: usize, align: usize)>,
     _io_guard: DecoderIoGuard,
+    _plugin_runtime: Arc<LoadedPluginRuntime>,
     plugin_id: String,
     decoder_type_id: String,
 }
@@ -997,12 +1046,12 @@ impl PluginManager {
             if self.is_disabled(&p.manifest.id) {
                 continue;
             }
-            let pv = p.library.vtable();
+            let pv = p.library().vtable();
             if pv.is_null() {
                 continue;
             }
-            let plugin_id = p.library.id();
-            let plugin_name = p.library.name();
+            let plugin_id = p.library().id();
+            let plugin_name = p.library().name();
             let count = unsafe { ((*pv).dsp_count)() };
             for dsp_index in 0..count {
                 let vt = unsafe { ((*pv).dsp_get)(dsp_index) };
@@ -1040,12 +1089,12 @@ impl PluginManager {
             if self.is_disabled(&p.manifest.id) {
                 continue;
             }
-            let pv = p.library.vtable();
+            let pv = p.library().vtable();
             if pv.is_null() {
                 continue;
             }
-            let plugin_id = p.library.id();
-            let plugin_name = p.library.name();
+            let plugin_id = p.library().id();
+            let plugin_name = p.library().name();
             let count = unsafe { ((*pv).decoder_count)() };
             for decoder_index in 0..count {
                 let vt = unsafe { ((*pv).decoder_get)(decoder_index) };
@@ -1072,7 +1121,7 @@ impl PluginManager {
         plugin: &LoadedPlugin,
     ) -> *const StSourceCatalogRegistryV1 {
         plugin
-            .library
+            .library()
             .get_interface_raw(ST_INTERFACE_SOURCE_CATALOGS_V1)
             as *const StSourceCatalogRegistryV1
     }
@@ -1082,7 +1131,7 @@ impl PluginManager {
         plugin: &LoadedPlugin,
     ) -> *const StOutputSinkRegistryV1 {
         plugin
-            .library
+            .library()
             .get_interface_raw(ST_INTERFACE_OUTPUT_SINKS_V1)
             as *const StOutputSinkRegistryV1
     }
@@ -1097,8 +1146,8 @@ impl PluginManager {
             if registry.is_null() {
                 continue;
             }
-            let plugin_id = p.library.id();
-            let plugin_name = p.library.name();
+            let plugin_id = p.library().id();
+            let plugin_name = p.library().name();
             let count = unsafe { ((*registry).source_catalog_count)() };
             for source_catalog_index in 0..count {
                 let vt = unsafe { ((*registry).source_catalog_get)(source_catalog_index) };
@@ -1135,13 +1184,15 @@ impl PluginManager {
             if self.is_disabled(&p.manifest.id) {
                 continue;
             }
-            let vt = p.library.get_interface_raw(ST_INTERFACE_LYRICS_PROVIDER_V1)
+            let vt = p
+                .library()
+                .get_interface_raw(ST_INTERFACE_LYRICS_PROVIDER_V1)
                 as *const StLyricsProviderVTableV1;
             if vt.is_null() {
                 continue;
             }
-            let plugin_id = p.library.id();
-            let plugin_name = p.library.name();
+            let plugin_id = p.library().id();
+            let plugin_name = p.library().name();
             let type_id = unsafe { util::ststr_to_string_lossy(((*vt).type_id_utf8)()) };
             let display_name = unsafe { util::ststr_to_string_lossy(((*vt).display_name_utf8)()) };
             out.push(LyricsProviderTypeInfo {
@@ -1165,8 +1216,8 @@ impl PluginManager {
             if registry.is_null() {
                 continue;
             }
-            let plugin_id = p.library.id();
-            let plugin_name = p.library.name();
+            let plugin_id = p.library().id();
+            let plugin_name = p.library().name();
             let count = unsafe { ((*registry).output_sink_count)() };
             for output_sink_index in 0..count {
                 let vt = unsafe { ((*registry).output_sink_get)(output_sink_index) };
@@ -1203,7 +1254,7 @@ impl PluginManager {
         type_id: &str,
     ) -> Option<SourceCatalogKey> {
         for (plugin_index, p) in self.plugins.iter().enumerate() {
-            if p.library.id() != plugin_id || self.is_disabled(&p.manifest.id) {
+            if p.library().id() != plugin_id || self.is_disabled(&p.manifest.id) {
                 continue;
             }
             let registry = self.source_catalog_registry_for_plugin(p);
@@ -1234,10 +1285,12 @@ impl PluginManager {
         type_id: &str,
     ) -> Option<LyricsProviderKey> {
         for (plugin_index, p) in self.plugins.iter().enumerate() {
-            if p.library.id() != plugin_id || self.is_disabled(&p.manifest.id) {
+            if p.library().id() != plugin_id || self.is_disabled(&p.manifest.id) {
                 continue;
             }
-            let vt = p.library.get_interface_raw(ST_INTERFACE_LYRICS_PROVIDER_V1)
+            let vt = p
+                .library()
+                .get_interface_raw(ST_INTERFACE_LYRICS_PROVIDER_V1)
                 as *const StLyricsProviderVTableV1;
             if vt.is_null() {
                 continue;
@@ -1252,7 +1305,7 @@ impl PluginManager {
 
     pub fn find_output_sink_key(&self, plugin_id: &str, type_id: &str) -> Option<OutputSinkKey> {
         for (plugin_index, p) in self.plugins.iter().enumerate() {
-            if p.library.id() != plugin_id || self.is_disabled(&p.manifest.id) {
+            if p.library().id() != plugin_id || self.is_disabled(&p.manifest.id) {
                 continue;
             }
             let registry = self.output_sink_registry_for_plugin(p);
@@ -1325,7 +1378,9 @@ impl PluginManager {
         if self.is_disabled(&p.manifest.id) {
             return Err(anyhow!("plugin `{}` is disabled", p.manifest.id));
         }
-        let vt = p.library.get_interface_raw(ST_INTERFACE_LYRICS_PROVIDER_V1)
+        let vt = p
+            .library()
+            .get_interface_raw(ST_INTERFACE_LYRICS_PROVIDER_V1)
             as *const StLyricsProviderVTableV1;
         if vt.is_null() {
             return Err(anyhow!(
@@ -1391,7 +1446,7 @@ impl PluginManager {
         let config_json = to_json_string(config, "source config")?;
         let request_json = to_json_string(request, "source list request")?;
         let vt = self.source_catalog_vtable(key)?;
-        let plugin_free = p.library.plugin_free();
+        let plugin_free = p.library().plugin_free();
         let cfg = StStr {
             ptr: config_json.as_ptr(),
             len: config_json.len(),
@@ -1428,7 +1483,7 @@ impl PluginManager {
         let config_json = to_json_string(config, "source config")?;
         let track_json = to_json_string(track, "source track request")?;
         let vt = self.source_catalog_vtable(key)?;
-        let plugin_free = p.library.plugin_free();
+        let plugin_free = p.library().plugin_free();
         let cfg = StStr {
             ptr: config_json.as_ptr(),
             len: config_json.len(),
@@ -1462,6 +1517,7 @@ impl PluginManager {
                 io_vtable: out_io_vtable,
                 io_handle: out_io_handle,
                 close_stream: unsafe { (*vt).close_stream },
+                _plugin_runtime: p.runtime(),
             },
             if meta.is_empty() {
                 None
@@ -1483,7 +1539,9 @@ impl PluginManager {
         if self.is_disabled(&p.manifest.id) {
             return Err(anyhow!("plugin `{}` is disabled", p.manifest.id));
         }
-        let vt = p.library.get_interface_raw(ST_INTERFACE_LYRICS_PROVIDER_V1)
+        let vt = p
+            .library()
+            .get_interface_raw(ST_INTERFACE_LYRICS_PROVIDER_V1)
             as *const StLyricsProviderVTableV1;
         if vt.is_null() {
             return Err(anyhow!(
@@ -1492,7 +1550,7 @@ impl PluginManager {
             ));
         }
         let query_json = to_json_string(query, "lyrics search query")?;
-        let plugin_free = p.library.plugin_free();
+        let plugin_free = p.library().plugin_free();
         let query = StStr {
             ptr: query_json.as_ptr(),
             len: query_json.len(),
@@ -1516,7 +1574,9 @@ impl PluginManager {
         if self.is_disabled(&p.manifest.id) {
             return Err(anyhow!("plugin `{}` is disabled", p.manifest.id));
         }
-        let vt = p.library.get_interface_raw(ST_INTERFACE_LYRICS_PROVIDER_V1)
+        let vt = p
+            .library()
+            .get_interface_raw(ST_INTERFACE_LYRICS_PROVIDER_V1)
             as *const StLyricsProviderVTableV1;
         if vt.is_null() {
             return Err(anyhow!(
@@ -1525,7 +1585,7 @@ impl PluginManager {
             ));
         }
         let track_json = to_json_string(track, "lyrics fetch request")?;
-        let plugin_free = p.library.plugin_free();
+        let plugin_free = p.library().plugin_free();
         let track = StStr {
             ptr: track_json.as_ptr(),
             len: track_json.len(),
@@ -1551,7 +1611,7 @@ impl PluginManager {
         }
         let config_json = to_json_string(config, "output sink config")?;
         let vt = self.output_sink_vtable(key)?;
-        let plugin_free = p.library.plugin_free();
+        let plugin_free = p.library().plugin_free();
         let cfg = StStr {
             ptr: config_json.as_ptr(),
             len: config_json.len(),
@@ -1584,7 +1644,7 @@ impl PluginManager {
         let config_json = to_json_string(config, "output sink config")?;
         let target_json = to_json_string(target, "output sink target")?;
         let vt = self.output_sink_vtable(key)?;
-        let plugin_free = p.library.plugin_free();
+        let plugin_free = p.library().plugin_free();
         let cfg = StStr {
             ptr: config_json.as_ptr(),
             len: config_json.len(),
@@ -1654,7 +1714,7 @@ impl PluginManager {
         let config_json = to_json_string(config, "output sink config")?;
         let target_json = to_json_string(target, "output sink target")?;
         let vt = self.output_sink_vtable(key)?;
-        let plugin_free = p.library.plugin_free();
+        let plugin_free = p.library().plugin_free();
         let cfg = StStr {
             ptr: config_json.as_ptr(),
             len: config_json.len(),
@@ -1673,18 +1733,19 @@ impl PluginManager {
             handle,
             vtable: vt,
             plugin_free,
+            _plugin_runtime: p.runtime(),
         })
     }
 
     pub fn find_dsp_key(&self, plugin_id: &str, type_id: &str) -> Option<DspKey> {
         for (plugin_index, p) in self.plugins.iter().enumerate() {
-            if p.library.id() != plugin_id {
+            if p.library().id() != plugin_id {
                 continue;
             }
             if self.is_disabled(&p.manifest.id) {
                 continue;
             }
-            let pv = p.library.vtable();
+            let pv = p.library().vtable();
             if pv.is_null() {
                 continue;
             }
@@ -1708,13 +1769,13 @@ impl PluginManager {
 
     pub fn find_decoder_key(&self, plugin_id: &str, type_id: &str) -> Option<DecoderKey> {
         for (plugin_index, p) in self.plugins.iter().enumerate() {
-            if p.library.id() != plugin_id {
+            if p.library().id() != plugin_id {
                 continue;
             }
             if self.is_disabled(&p.manifest.id) {
                 continue;
             }
-            let pv = p.library.vtable();
+            let pv = p.library().vtable();
             if pv.is_null() {
                 continue;
             }
@@ -1752,7 +1813,7 @@ impl PluginManager {
         if self.is_disabled(&p.manifest.id) {
             return Err(anyhow!("plugin `{}` is disabled", p.manifest.id));
         }
-        let pv = p.library.vtable();
+        let pv = p.library().vtable();
         if pv.is_null() {
             return Err(anyhow!("plugin has null vtable"));
         }
@@ -1761,7 +1822,7 @@ impl PluginManager {
             return Err(anyhow!("invalid decoder_index {}", key.decoder_index));
         }
         let decoder_type_id = unsafe { util::ststr_to_string_lossy(((*vt).type_id_utf8)()) };
-        let plugin_id = p.library.id();
+        let plugin_id = p.library().id();
         let args = StDecoderOpenArgsV1 {
             path_utf8: StStr {
                 ptr: path_hint.as_ptr(),
@@ -1775,7 +1836,7 @@ impl PluginManager {
             io_handle,
         };
 
-        let plugin_free = p.library.plugin_free();
+        let plugin_free = p.library().plugin_free();
         let mut handle: *mut core::ffi::c_void = core::ptr::null_mut();
         let status = unsafe { ((*vt).open)(args, &mut handle) };
         if status.code != 0 || handle.is_null() {
@@ -1808,6 +1869,7 @@ impl PluginManager {
             info,
             plugin_free,
             _io_guard: io_guard,
+            _plugin_runtime: p.runtime(),
             plugin_id,
             decoder_type_id,
         })
@@ -1856,7 +1918,7 @@ impl PluginManager {
         };
 
         if let Some(p) = self.plugins.get(key.plugin_index) {
-            let pv = p.library.vtable();
+            let pv = p.library().vtable();
             let decoder_type_id = if pv.is_null() {
                 "<unknown>".to_string()
             } else {
@@ -1871,7 +1933,7 @@ impl PluginManager {
                 target: "stellatune_plugins::decode",
                 path,
                 ext = %std::path::Path::new(path).extension().and_then(|s| s.to_str()).unwrap_or(""),
-                plugin_id = %p.library.id(),
+                plugin_id = %p.library().id(),
                 decoder_type_id = %decoder_type_id,
                 score,
                 "selected plugin decoder"
@@ -1913,7 +1975,7 @@ impl PluginManager {
             if self.is_disabled(&p.manifest.id) {
                 continue;
             }
-            let pv = p.library.vtable();
+            let pv = p.library().vtable();
             if pv.is_null() {
                 continue;
             }
@@ -1953,7 +2015,7 @@ impl PluginManager {
 
         if let Some((key, score)) = best {
             let p = &self.plugins[key.plugin_index];
-            let pv = p.library.vtable();
+            let pv = p.library().vtable();
             let decoder_type_id = if pv.is_null() {
                 "<unknown>".to_string()
             } else {
@@ -1969,7 +2031,7 @@ impl PluginManager {
                 path,
                 ext = %ext,
                 header_len = header.len(),
-                plugin_id = %p.library.id(),
+                plugin_id = %p.library().id(),
                 decoder_type_id = %decoder_type_id,
                 score,
                 "best plugin decoder probe match"
@@ -1999,7 +2061,7 @@ impl PluginManager {
             if self.is_disabled(&p.manifest.id) {
                 continue;
             }
-            let pv = p.library.vtable();
+            let pv = p.library().vtable();
             if pv.is_null() {
                 continue;
             }
@@ -2061,7 +2123,7 @@ impl PluginManager {
         if self.is_disabled(&p.manifest.id) {
             return Err(anyhow!("plugin `{}` is disabled", p.manifest.id));
         }
-        let pv = p.library.vtable();
+        let pv = p.library().vtable();
         if pv.is_null() {
             return Err(anyhow!("plugin has null vtable"));
         }
@@ -2081,7 +2143,11 @@ impl PluginManager {
             return Err(anyhow!("DSP create failed (code={})", status.code));
         }
 
-        Ok(DspInstance { handle, vtable: vt })
+        Ok(DspInstance {
+            handle,
+            vtable: vt,
+            _plugin_runtime: p.runtime(),
+        })
     }
 
     /// # Safety
@@ -2120,17 +2186,17 @@ impl PluginManager {
                 Ok(loaded) => {
                     info!(
                         target: "stellatune_plugins::load",
-                        plugin_id = %loaded.library.id(),
-                        plugin_name = %loaded.library.name(),
+                        plugin_id = %loaded.library().id(),
+                        plugin_name = %loaded.library().name(),
                         root_dir = %loaded.root_dir.display(),
                         library_path = %loaded.library_path.display(),
-                        decoders = loaded.library.decoder_count(),
-                        dsps = loaded.library.dsp_count(),
+                        decoders = loaded.library().decoder_count(),
+                        dsps = loaded.library().dsp_count(),
                         "plugin loaded"
                     );
                     report.loaded.push(LoadedPluginInfo {
-                        id: loaded.library.id(),
-                        name: loaded.library.name(),
+                        id: loaded.library().id(),
+                        name: loaded.library().name(),
                         root_dir: loaded.root_dir.clone(),
                         library_path: loaded.library_path.clone(),
                     });
@@ -2194,17 +2260,17 @@ impl PluginManager {
                 Ok(loaded) => {
                     info!(
                         target: "stellatune_plugins::load",
-                        plugin_id = %loaded.library.id(),
-                        plugin_name = %loaded.library.name(),
+                        plugin_id = %loaded.library().id(),
+                        plugin_name = %loaded.library().name(),
                         root_dir = %loaded.root_dir.display(),
                         library_path = %loaded.library_path.display(),
-                        decoders = loaded.library.decoder_count(),
-                        dsps = loaded.library.dsp_count(),
+                        decoders = loaded.library().decoder_count(),
+                        dsps = loaded.library().dsp_count(),
                         "plugin loaded"
                     );
                     report.loaded.push(LoadedPluginInfo {
-                        id: loaded.library.id(),
-                        name: loaded.library.name(),
+                        id: loaded.library().id(),
+                        name: loaded.library().name(),
                         root_dir: loaded.root_dir.clone(),
                         library_path: loaded.library_path.clone(),
                     });
@@ -2235,16 +2301,42 @@ impl PluginManager {
             ));
         }
 
-        let library_path = discovered.library_path.clone();
-        if !library_path.exists() {
+        let install_library_path = discovered.library_path.clone();
+        if !install_library_path.exists() {
             return Err(anyhow!(
                 "plugin `{}` library not found: {}",
                 discovered.manifest.id,
-                library_path.display()
+                install_library_path.display()
             ));
         }
-
-        let runtime_root = discovered.root_dir.to_string_lossy().into_owned();
+        let (runtime_root_dir, load_library_path, shadow_cleanup) =
+            match prepare_shadow_load_copy(discovered) {
+                Ok((shadow_root, shadow_library_path)) => {
+                    debug!(
+                        target: "stellatune_plugins::shadow",
+                        plugin_id = %discovered.manifest.id,
+                        install_root = %discovered.root_dir.display(),
+                        shadow_root = %shadow_root.display(),
+                        shadow_library = %shadow_library_path.display(),
+                        "prepared shadow load copy"
+                    );
+                    (
+                        shadow_root.clone(),
+                        shadow_library_path,
+                        Some(ShadowRootCleanup { root: shadow_root }),
+                    )
+                }
+                Err(e) => {
+                    warn!(
+                        target: "stellatune_plugins::shadow",
+                        plugin_id = %discovered.manifest.id,
+                        install_root = %discovered.root_dir.display(),
+                        "shadow load unavailable; fallback to install library: {e:#}"
+                    );
+                    (discovered.root_dir.clone(), install_library_path, None)
+                }
+            };
+        let runtime_root = runtime_root_dir.to_string_lossy().into_owned();
         self.event_bus.register_plugin(&discovered.manifest.id);
         let mut host_ctx = Box::new(PluginHostCtx {
             plugin_id: discovered.manifest.id.clone(),
@@ -2261,7 +2353,7 @@ impl PluginManager {
 
         let library = unsafe {
             PluginLibrary::load(
-                &library_path,
+                &load_library_path,
                 discovered.manifest.entry_symbol(),
                 host_vtable.as_ref(),
             )?
@@ -2281,7 +2373,7 @@ impl PluginManager {
             format!(
                 "invalid metadata_json_utf8 for plugin `{}` at {}",
                 exported_id,
-                library_path.display()
+                load_library_path.display()
             )
         })?;
         if meta.id != exported_id {
@@ -2311,10 +2403,13 @@ impl PluginManager {
         Ok(LoadedPlugin {
             root_dir: discovered.root_dir.clone(),
             manifest: discovered.manifest.clone(),
-            library_path,
-            library,
-            _host_vtable: host_vtable,
-            _host_ctx: host_ctx,
+            library_path: load_library_path,
+            runtime: Arc::new(LoadedPluginRuntime {
+                library,
+                _host_vtable: host_vtable,
+                _host_ctx: host_ctx,
+                _shadow_cleanup: shadow_cleanup,
+            }),
         })
     }
 }
@@ -2337,6 +2432,62 @@ fn is_dynamic_library_file(path: &Path) -> bool {
         .and_then(|e| e.to_str())
         .map(|e| e.eq_ignore_ascii_case(ext))
         .unwrap_or(false)
+}
+
+fn sanitize_plugin_id_for_path(id: &str) -> String {
+    let mut out = String::with_capacity(id.len());
+    for ch in id.chars() {
+        if ch.is_ascii_alphanumeric() || ch == '.' || ch == '_' || ch == '-' {
+            out.push(ch);
+        } else {
+            out.push('_');
+        }
+    }
+    if out.is_empty() {
+        "plugin".to_string()
+    } else {
+        out
+    }
+}
+
+fn shadow_plugins_root() -> PathBuf {
+    std::env::temp_dir()
+        .join("stellatune")
+        .join("plugin-shadow")
+}
+
+fn prepare_shadow_load_copy(discovered: &DiscoveredPlugin) -> Result<(PathBuf, PathBuf)> {
+    let rel_library_path = discovered
+        .library_path
+        .strip_prefix(&discovered.root_dir)
+        .with_context(|| {
+            format!(
+                "failed to derive plugin library relative path: root={} library={}",
+                discovered.root_dir.display(),
+                discovered.library_path.display()
+            )
+        })?;
+    let shadow_base = shadow_plugins_root();
+    std::fs::create_dir_all(&shadow_base)
+        .with_context(|| format!("create {}", shadow_base.display()))?;
+    let pid = std::process::id();
+    let seq = SHADOW_LOAD_SEQ.fetch_add(1, Ordering::Relaxed);
+    let shadow_root = shadow_base.join(format!(
+        "{}-{}-{}-{}",
+        sanitize_plugin_id_for_path(&discovered.manifest.id),
+        pid,
+        now_unix_ms(),
+        seq
+    ));
+    copy_dir_recursive(&discovered.root_dir, &shadow_root)?;
+    let shadow_library_path = shadow_root.join(rel_library_path);
+    if !shadow_library_path.exists() {
+        return Err(anyhow!(
+            "shadow plugin library not found after copy: {}",
+            shadow_library_path.display()
+        ));
+    }
+    Ok((shadow_root, shadow_library_path))
 }
 
 fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
@@ -2619,6 +2770,9 @@ pub fn install_plugin_from_artifact(
         root_dir: install_root.clone(),
         library_path: install_root.join(library_rel_path),
         info_json: metadata_info_json(manifest.metadata.as_ref()),
+        install_state: PluginInstallState::Installed,
+        uninstall_retry_count: 0,
+        uninstall_last_error: None,
     };
 
     info!(
@@ -2635,6 +2789,7 @@ pub fn install_plugin_from_artifact(
 
 pub fn list_installed_plugins(plugins_dir: impl AsRef<Path>) -> Result<Vec<InstalledPluginInfo>> {
     let mut out = Vec::new();
+    let plugins_dir = plugins_dir.as_ref();
     for d in manifest::discover_plugins(plugins_dir)? {
         out.push(InstalledPluginInfo {
             id: d.manifest.id.clone(),
@@ -2646,9 +2801,41 @@ pub fn list_installed_plugins(plugins_dir: impl AsRef<Path>) -> Result<Vec<Insta
             root_dir: d.root_dir.clone(),
             library_path: d.library_path.clone(),
             info_json: metadata_info_json(d.manifest.metadata.as_ref()),
+            install_state: PluginInstallState::Installed,
+            uninstall_retry_count: 0,
+            uninstall_last_error: None,
         });
     }
-    out.sort_by(|a, b| a.id.cmp(&b.id));
+    for pending in manifest::discover_pending_uninstalls(plugins_dir)? {
+        let receipt = pending.receipt.as_ref();
+        let id = receipt
+            .map(|r| r.manifest.id.clone())
+            .unwrap_or_else(|| pending.marker.plugin_id.clone());
+        let name = receipt
+            .and_then(|r| r.manifest.name.clone())
+            .unwrap_or_else(|| id.clone());
+        let library_path = receipt
+            .map(|r| pending.root_dir.join(&r.library_rel_path))
+            .unwrap_or_else(|| pending.root_dir.clone());
+        let info_json = receipt.and_then(|r| metadata_info_json(r.manifest.metadata.as_ref()));
+        out.push(InstalledPluginInfo {
+            id,
+            name,
+            root_dir: pending.root_dir.clone(),
+            library_path,
+            info_json,
+            install_state: pending.marker.state,
+            uninstall_retry_count: pending.marker.retry_count,
+            uninstall_last_error: pending.marker.last_error.clone(),
+        });
+    }
+    out.sort_by(|a, b| {
+        a.id.cmp(&b.id).then_with(|| {
+            a.root_dir
+                .to_string_lossy()
+                .cmp(&b.root_dir.to_string_lossy())
+        })
+    });
     Ok(out)
 }
 
@@ -2664,12 +2851,44 @@ pub fn uninstall_plugin(plugins_dir: impl AsRef<Path>, plugin_id: &str) -> Resul
             roots.push(d.root_dir);
         }
     }
+    for pending in manifest::discover_pending_uninstalls(plugins_dir)? {
+        let pending_id = pending
+            .receipt
+            .as_ref()
+            .map(|r| r.manifest.id.as_str())
+            .unwrap_or(pending.marker.plugin_id.as_str());
+        if pending_id == plugin_id {
+            roots.push(pending.root_dir);
+        }
+    }
     if roots.is_empty() {
         return Err(anyhow!("plugin not installed: {plugin_id}"));
     }
+    roots.sort();
+    roots.dedup();
     for root in roots {
         if root.exists() {
-            std::fs::remove_dir_all(&root).with_context(|| format!("remove {}", root.display()))?;
+            match std::fs::remove_dir_all(&root) {
+                Ok(()) => {}
+                Err(remove_err) => {
+                    let marker_path = pending_marker_path_for_plugin_root(&root);
+                    let marker = UninstallPendingMarker {
+                        plugin_id: plugin_id.to_string(),
+                        queued_at_ms: now_unix_ms(),
+                        retry_count: 0,
+                        last_error: Some(remove_err.to_string()),
+                        state: PluginInstallState::PendingUninstall,
+                    };
+                    write_uninstall_pending_marker(&marker_path, &marker)?;
+                    warn!(
+                        target: "stellatune_plugins::uninstall",
+                        plugin_id = %plugin_id,
+                        root = %root.display(),
+                        marker = %marker_path.display(),
+                        "plugin uninstall deferred; will retry on next discovery"
+                    );
+                }
+            }
         }
     }
     Ok(())

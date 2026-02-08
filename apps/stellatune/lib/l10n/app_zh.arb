@@ -9,6 +9,30 @@
   "position": "进度",
   "track": "曲目",
   "error": "错误",
+  "playbackUnavailable": "无法播放：{reason}",
+  "@playbackUnavailable": {
+    "placeholders": {
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "playabilityReasonPluginsUnavailable": "插件正在重载",
+  "playabilityReasonLocalTrackLocatorEmpty": "本地轨道路径为空",
+  "playabilityReasonNoDecoderForLocalTrack": "当前格式没有可用解码器",
+  "playabilityReasonDecoderProbeFailed": "解码器探测失败",
+  "playabilityReasonInvalidSourceTrackLocator": "音源定位信息无效",
+  "playabilityReasonSourceCatalogUnavailable": "音源插件不可用",
+  "playabilityReasonSourceDecoderUnavailable": "音源解码器不可用",
+  "playabilityReasonUnsupportedTrack": "不支持的音轨",
+  "playabilityReasonUnknown": "未知原因（{code}）",
+  "@playabilityReasonUnknown": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
   "log": "日志",
 
   "navLibrary": "音乐库",

@@ -1,10 +1,14 @@
+import 'dart:async';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:stellatune/app/providers.dart';
+import 'package:stellatune/bridge/bridge.dart';
 import 'package:stellatune/library/library_controller.dart';
 import 'package:stellatune/l10n/app_localizations.dart';
 import 'package:stellatune/player/playback_controller.dart';
+import 'package:stellatune/player/playability_messages.dart';
 import 'package:stellatune/player/queue_controller.dart';
 import 'package:stellatune/player/queue_models.dart';
 import 'package:stellatune/ui/widgets/folder_tree.dart';
@@ -21,6 +25,8 @@ class LibraryPage extends ConsumerStatefulWidget {
 
 class LibraryPageState extends ConsumerState<LibraryPage> {
   static const double _minFoldersPaneWidth = 220.0;
+  static const int _playabilityProbeMargin = 40;
+  static const int _playabilityCacheMaxEntries = 12000;
 
   final _searchController = TextEditingController();
   bool _foldersPaneCollapsed = false;
@@ -33,6 +39,13 @@ class LibraryPageState extends ConsumerState<LibraryPage> {
   bool _dividerHovering = false;
   bool _dividerRearmPending = false;
   double _dividerDragLastX = 0.0;
+  StreamSubscription<PluginRuntimeEvent>? _pluginRuntimeSub;
+  int _playabilityRequestSeq = 0;
+  int _viewportStart = 0;
+  int _viewportEnd = -1;
+  String _resultsKey = '';
+  final Map<String, String?> _playabilityCache = <String, String?>{};
+  Map<int, String> _blockedReasonByTrackId = const <int, String>{};
 
   bool get foldersPaneCollapsed => _foldersPaneCollapsed;
 
@@ -54,6 +67,14 @@ class LibraryPageState extends ConsumerState<LibraryPage> {
   @override
   void initState() {
     super.initState();
+    _pluginRuntimeSub = ref
+        .read(playerBridgeProvider)
+        .pluginRuntimeEvents()
+        .listen((_) {
+          _playabilityCache.clear();
+          final results = ref.read(libraryControllerProvider).results;
+          unawaited(_refreshTrackPlayability(results, force: true));
+        });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final selectedPlaylistId = ref
@@ -67,10 +88,142 @@ class LibraryPageState extends ConsumerState<LibraryPage> {
 
   @override
   void dispose() {
+    unawaited(_pluginRuntimeSub?.cancel());
     _searchController.dispose();
     _foldersPaneWidth.dispose();
     _isResizingFoldersPane.dispose();
     super.dispose();
+  }
+
+  TrackRef _toLocalTrackRef(TrackLite t) =>
+      TrackRef(sourceId: 'local', trackId: t.path, locator: t.path);
+
+  String _trackCacheKey(TrackLite t) => '${t.id}|${t.path}';
+
+  String _buildResultsKey(List<TrackLite> items) {
+    if (items.isEmpty) return '';
+    final buf = StringBuffer();
+    for (final t in items) {
+      buf
+        ..write(t.id)
+        ..write('|')
+        ..write(t.path)
+        ..write(';');
+    }
+    return buf.toString();
+  }
+
+  void _evictPlayabilityCacheIfNeeded() {
+    while (_playabilityCache.length > _playabilityCacheMaxEntries) {
+      if (_playabilityCache.isEmpty) return;
+      _playabilityCache.remove(_playabilityCache.keys.first);
+    }
+  }
+
+  bool _sameBlockedReasonMap(Map<int, String> next) {
+    final current = _blockedReasonByTrackId;
+    if (identical(current, next)) return true;
+    if (current.length != next.length) return false;
+    for (final entry in current.entries) {
+      if (next[entry.key] != entry.value) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  void _rebuildBlockedReasonByTrackId(List<TrackLite> items) {
+    final l10n = AppLocalizations.of(context);
+    if (l10n == null) return;
+    final blocked = <int, String>{};
+    for (final t in items) {
+      final reason = _playabilityCache[_trackCacheKey(t)];
+      if (reason == null) continue;
+      blocked[t.id.toInt()] = localizePlayabilityReason(l10n, reason);
+    }
+    if (_sameBlockedReasonMap(blocked)) return;
+    setState(() => _blockedReasonByTrackId = blocked);
+  }
+
+  void _onViewportRangeChanged(int startIndex, int endIndex) {
+    if (_viewportStart == startIndex && _viewportEnd == endIndex) {
+      return;
+    }
+    _viewportStart = startIndex;
+    _viewportEnd = endIndex;
+    final results = ref.read(libraryControllerProvider).results;
+    unawaited(_refreshTrackPlayability(results));
+  }
+
+  Future<void> _refreshTrackPlayability(
+    List<TrackLite> items, {
+    bool force = false,
+  }) async {
+    final key = _buildResultsKey(items);
+    if (_resultsKey != key) {
+      _resultsKey = key;
+      _viewportStart = 0;
+      _viewportEnd = -1;
+    }
+
+    if (items.isEmpty) {
+      if (!mounted) return;
+      setState(() => _blockedReasonByTrackId = const <int, String>{});
+      return;
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _rebuildBlockedReasonByTrackId(items);
+    });
+
+    final maxIndex = items.length - 1;
+    final initialEnd = (items.length - 1).clamp(0, 19).toInt();
+    var probeStart = _viewportEnd >= 0 ? _viewportStart : 0;
+    var probeEnd = _viewportEnd >= 0 ? _viewportEnd : initialEnd;
+    probeStart = (probeStart - _playabilityProbeMargin)
+        .clamp(0, maxIndex)
+        .toInt();
+    probeEnd = (probeEnd + _playabilityProbeMargin).clamp(0, maxIndex).toInt();
+    if (probeEnd < probeStart) {
+      probeEnd = probeStart;
+    }
+
+    final refs = <TrackRef>[];
+    final refKeys = <String>[];
+    for (var i = probeStart; i <= probeEnd; i++) {
+      final t = items[i];
+      final cacheKey = _trackCacheKey(t);
+      if (!force && _playabilityCache.containsKey(cacheKey)) {
+        continue;
+      }
+      refs.add(_toLocalTrackRef(t));
+      refKeys.add(cacheKey);
+    }
+    if (refs.isEmpty) {
+      return;
+    }
+
+    final requestSeq = ++_playabilityRequestSeq;
+    List<TrackPlayability> verdicts;
+    try {
+      verdicts = await ref.read(playerBridgeProvider).canPlayTrackRefs(refs);
+    } catch (_) {
+      return;
+    }
+    if (!mounted || requestSeq != _playabilityRequestSeq) return;
+
+    final count = verdicts.length < refKeys.length
+        ? verdicts.length
+        : refKeys.length;
+    for (var i = 0; i < count; i++) {
+      final verdict = verdicts[i];
+      _playabilityCache[refKeys[i]] = verdict.playable
+          ? null
+          : verdict.reason?.trim() ?? '';
+    }
+    _evictPlayabilityCacheIfNeeded();
+    _rebuildBlockedReasonByTrackId(items);
   }
 
   @override
@@ -108,6 +261,7 @@ class LibraryPageState extends ConsumerState<LibraryPage> {
     final results = ref.watch(
       libraryControllerProvider.select((s) => s.results),
     );
+    unawaited(_refreshTrackPlayability(results));
     final isScanning = ref.watch(
       libraryControllerProvider.select((s) => s.isScanning),
     );
@@ -631,6 +785,8 @@ class LibraryPageState extends ConsumerState<LibraryPage> {
                                         .toList(),
                                   );
                             },
+                            blockedReasonByTrackId: _blockedReasonByTrackId,
+                            onViewportRangeChanged: _onViewportRangeChanged,
                           ),
                         ),
                       ],

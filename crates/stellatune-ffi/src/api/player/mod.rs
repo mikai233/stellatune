@@ -12,7 +12,7 @@ use stellatune_core::{
     AudioBackend, DspChainItem, DspTypeDescriptor, Event, LyricsDoc, LyricsEvent,
     LyricsProviderTypeDescriptor, LyricsQuery, LyricsSearchCandidate, OutputSinkRoute,
     OutputSinkTypeDescriptor, PluginDescriptor, PluginRuntimeEvent, SourceCatalogTypeDescriptor,
-    TrackDecodeInfo, TrackRef,
+    TrackDecodeInfo, TrackPlayability, TrackRef,
 };
 
 pub struct Player {
@@ -315,4 +315,11 @@ pub fn preload_track(player: RustOpaque<Player>, path: String, position_ms: u64)
 
 pub fn preload_track_ref(player: RustOpaque<Player>, track: TrackRef, position_ms: u64) {
     player.service.preload_track_ref(track, position_ms);
+}
+
+pub fn can_play_track_refs(
+    player: RustOpaque<Player>,
+    tracks: Vec<TrackRef>,
+) -> Vec<TrackPlayability> {
+    player.service.can_play_track_refs(tracks)
 }

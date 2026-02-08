@@ -9,6 +9,30 @@
   "position": "Position",
   "track": "Track",
   "error": "Error",
+  "playbackUnavailable": "Playback unavailable: {reason}",
+  "@playbackUnavailable": {
+    "placeholders": {
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "playabilityReasonPluginsUnavailable": "plugins are reloading",
+  "playabilityReasonLocalTrackLocatorEmpty": "local track path is empty",
+  "playabilityReasonNoDecoderForLocalTrack": "no decoder for this track format",
+  "playabilityReasonDecoderProbeFailed": "decoder probe failed",
+  "playabilityReasonInvalidSourceTrackLocator": "invalid source locator",
+  "playabilityReasonSourceCatalogUnavailable": "source plugin is unavailable",
+  "playabilityReasonSourceDecoderUnavailable": "source decoder is unavailable",
+  "playabilityReasonUnsupportedTrack": "unsupported track",
+  "playabilityReasonUnknown": "unknown reason ({code})",
+  "@playabilityReasonUnknown": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
   "log": "Log",
 
   "navLibrary": "Library",

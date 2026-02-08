@@ -6,6 +6,36 @@ use stellatune_plugin_protocol::PluginMetadata;
 use tracing::warn;
 
 pub const INSTALL_RECEIPT_FILE_NAME: &str = ".install.json";
+pub const UNINSTALL_PENDING_MARKER_FILE_NAME: &str = ".uninstall-pending";
+const DELETE_FAILED_RETRY_THRESHOLD: u32 = 3;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PluginInstallState {
+    Installed,
+    PendingUninstall,
+    DeleteFailed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UninstallPendingMarker {
+    pub plugin_id: String,
+    pub queued_at_ms: u64,
+    #[serde(default)]
+    pub retry_count: u32,
+    #[serde(default)]
+    pub last_error: Option<String>,
+    #[serde(default = "default_pending_uninstall_state")]
+    pub state: PluginInstallState,
+}
+
+#[derive(Debug, Clone)]
+pub struct PendingUninstallPlugin {
+    pub root_dir: PathBuf,
+    pub marker_path: PathBuf,
+    pub marker: UninstallPendingMarker,
+    pub receipt: Option<PluginInstallReceipt>,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PluginManifest {
@@ -44,8 +74,16 @@ pub struct DiscoveredPlugin {
     pub library_path: PathBuf,
 }
 
+fn default_pending_uninstall_state() -> PluginInstallState {
+    PluginInstallState::PendingUninstall
+}
+
 pub fn receipt_path_for_plugin_root(root: &Path) -> PathBuf {
     root.join(INSTALL_RECEIPT_FILE_NAME)
+}
+
+pub fn pending_marker_path_for_plugin_root(root: &Path) -> PathBuf {
+    root.join(UNINSTALL_PENDING_MARKER_FILE_NAME)
 }
 
 pub fn write_receipt(root: &Path, receipt: &PluginInstallReceipt) -> Result<()> {
@@ -60,11 +98,66 @@ pub fn read_receipt(path: &Path) -> Result<PluginInstallReceipt> {
         .with_context(|| format!("parse {}", path.display()))
 }
 
+pub fn write_uninstall_pending_marker(path: &Path, marker: &UninstallPendingMarker) -> Result<()> {
+    let text =
+        serde_json::to_string_pretty(marker).context("serialize uninstall pending marker")?;
+    std::fs::write(path, text).with_context(|| format!("write {}", path.display()))
+}
+
+pub fn read_uninstall_pending_marker(path: &Path) -> Result<UninstallPendingMarker> {
+    let raw = std::fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
+    match serde_json::from_str::<UninstallPendingMarker>(&raw) {
+        Ok(marker) => Ok(marker),
+        Err(_) => {
+            let root = path.parent().unwrap_or_else(|| Path::new(""));
+            Ok(parse_legacy_uninstall_pending_marker(root, &raw))
+        }
+    }
+}
+
+pub fn discover_pending_uninstalls(dir: impl AsRef<Path>) -> Result<Vec<PendingUninstallPlugin>> {
+    let dir = dir.as_ref();
+    if !dir.exists() {
+        return Ok(Vec::new());
+    }
+    let mut out = Vec::new();
+    for entry in walkdir::WalkDir::new(dir)
+        .follow_links(false)
+        .max_depth(4)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        if entry.file_name().to_string_lossy() != UNINSTALL_PENDING_MARKER_FILE_NAME {
+            continue;
+        }
+        let marker_path = entry.path().to_path_buf();
+        let Some(root_dir) = marker_path.parent().map(Path::to_path_buf) else {
+            continue;
+        };
+        let marker = read_uninstall_pending_marker(&marker_path)
+            .unwrap_or_else(|_| default_marker_for_root(&root_dir));
+        let receipt_path = receipt_path_for_plugin_root(&root_dir);
+        let receipt = read_receipt(&receipt_path).ok();
+        out.push(PendingUninstallPlugin {
+            root_dir,
+            marker_path,
+            marker,
+            receipt,
+        });
+    }
+    out.sort_by(|a, b| a.marker.plugin_id.cmp(&b.marker.plugin_id));
+    Ok(out)
+}
+
 pub fn discover_plugins(dir: impl AsRef<Path>) -> Result<Vec<DiscoveredPlugin>> {
     let dir = dir.as_ref();
     if !dir.exists() {
         return Ok(Vec::new());
     }
+    try_cleanup_pending_uninstalls(dir);
 
     let mut out = Vec::new();
     for entry in walkdir::WalkDir::new(dir)
@@ -92,6 +185,16 @@ pub fn discover_plugins(dir: impl AsRef<Path>) -> Result<Vec<DiscoveredPlugin>> 
                 continue;
             }
         };
+        let uninstall_pending = pending_marker_path_for_plugin_root(&root_dir);
+        if uninstall_pending.exists() {
+            warn!(
+                target: "stellatune_plugins::discover",
+                receipt = %receipt_path.display(),
+                marker = %uninstall_pending.display(),
+                "skip plugin pending uninstall"
+            );
+            continue;
+        }
 
         let receipt = match read_receipt(&receipt_path) {
             Ok(v) => v,
@@ -133,4 +236,108 @@ pub fn discover_plugins(dir: impl AsRef<Path>) -> Result<Vec<DiscoveredPlugin>> 
     }
 
     Ok(out)
+}
+
+fn try_cleanup_pending_uninstalls(dir: &Path) {
+    let mut marker_paths = Vec::<PathBuf>::new();
+    for entry in walkdir::WalkDir::new(dir)
+        .follow_links(false)
+        .max_depth(4)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        if entry.file_name().to_string_lossy() != UNINSTALL_PENDING_MARKER_FILE_NAME {
+            continue;
+        }
+        marker_paths.push(entry.path().to_path_buf());
+    }
+
+    marker_paths.sort();
+    marker_paths.dedup();
+    for marker_path in marker_paths {
+        let Some(root) = marker_path.parent().map(Path::to_path_buf) else {
+            continue;
+        };
+        let mut marker = read_uninstall_pending_marker(&marker_path)
+            .unwrap_or_else(|_| default_marker_for_root(&root));
+        if let Err(e) = std::fs::remove_dir_all(&root) {
+            marker.retry_count = marker.retry_count.saturating_add(1);
+            marker.last_error = Some(e.to_string());
+            marker.state = if marker.retry_count >= DELETE_FAILED_RETRY_THRESHOLD {
+                PluginInstallState::DeleteFailed
+            } else {
+                PluginInstallState::PendingUninstall
+            };
+            if let Err(write_err) = write_uninstall_pending_marker(&marker_path, &marker) {
+                warn!(
+                    target: "stellatune_plugins::discover",
+                    marker = %marker_path.display(),
+                    "failed to update uninstall marker: {write_err:#}"
+                );
+            }
+            warn!(
+                target: "stellatune_plugins::discover",
+                root = %root.display(),
+                "cleanup pending uninstall failed: {e:#}"
+            );
+        }
+    }
+}
+
+fn default_marker_for_root(root: &Path) -> UninstallPendingMarker {
+    UninstallPendingMarker {
+        plugin_id: plugin_id_from_root(root),
+        queued_at_ms: 0,
+        retry_count: 0,
+        last_error: None,
+        state: PluginInstallState::PendingUninstall,
+    }
+}
+
+fn plugin_id_from_root(root: &Path) -> String {
+    root.file_name()
+        .and_then(|v| v.to_str())
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| "unknown-plugin".to_string())
+}
+
+fn parse_legacy_uninstall_pending_marker(root: &Path, raw: &str) -> UninstallPendingMarker {
+    let mut plugin_id = String::new();
+    let mut queued_at_ms = 0_u64;
+    let mut last_error: Option<String> = None;
+    for line in raw.lines() {
+        let mut parts = line.splitn(2, '=');
+        let Some(key) = parts.next().map(str::trim) else {
+            continue;
+        };
+        let Some(value) = parts.next().map(str::trim) else {
+            continue;
+        };
+        match key {
+            "plugin_id" => plugin_id = value.to_string(),
+            "queued_at_ms" => {
+                queued_at_ms = value.parse::<u64>().unwrap_or(0);
+            }
+            "remove_error" => {
+                if !value.is_empty() {
+                    last_error = Some(value.to_string());
+                }
+            }
+            _ => {}
+        }
+    }
+    if plugin_id.trim().is_empty() {
+        plugin_id = plugin_id_from_root(root);
+    }
+    UninstallPendingMarker {
+        plugin_id,
+        queued_at_ms,
+        retry_count: 0,
+        last_error,
+        state: PluginInstallState::PendingUninstall,
+    }
 }

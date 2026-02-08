@@ -68,6 +68,14 @@ impl TrackRef {
 }
 
 #[flutter_rust_bridge::frb(non_opaque)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TrackPlayability {
+    pub track: TrackRef,
+    pub playable: bool,
+    pub reason: Option<String>,
+}
+
+#[flutter_rust_bridge::frb(non_opaque)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Command {
     LoadTrack {

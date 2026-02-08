@@ -302,5 +302,13 @@ Future<void> preloadTrackRef({
   positionMs: positionMs,
 );
 
+Future<List<TrackPlayability>> canPlayTrackRefs({
+  required Player player,
+  required List<TrackRef> tracks,
+}) => StellatuneApi.instance.api.crateApiPlayerCanPlayTrackRefs(
+  player: player,
+  tracks: tracks,
+);
+
 // Rust type: RustOpaqueMoi<Player>
 abstract class Player implements RustOpaqueInterface {}

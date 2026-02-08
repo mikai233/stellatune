@@ -22,6 +22,8 @@ class TrackList extends StatefulWidget {
     this.onMoveInCurrentPlaylist,
     this.onBatchAddToPlaylist,
     this.onBatchRemoveFromCurrentPlaylist,
+    this.blockedReasonByTrackId = const <int, String>{},
+    this.onViewportRangeChanged,
   });
 
   final String coverDir;
@@ -41,6 +43,8 @@ class TrackList extends StatefulWidget {
   onBatchAddToPlaylist;
   final Future<void> Function(List<TrackLite> tracks, int playlistId)?
   onBatchRemoveFromCurrentPlaylist;
+  final Map<int, String> blockedReasonByTrackId;
+  final void Function(int startIndex, int endIndex)? onViewportRangeChanged;
 
   @override
   State<TrackList> createState() => _TrackListState();
@@ -49,6 +53,7 @@ class TrackList extends StatefulWidget {
 class _TrackListState extends State<TrackList> {
   static const _rowAnimDuration = Duration(milliseconds: 220);
   static const _rowAnimCurve = Cubic(0.22, 1.0, 0.36, 1.0);
+  static const _itemExtent = 72.0;
 
   final ScrollController _controller = ScrollController();
   Timer? _settleTimer;
@@ -59,6 +64,17 @@ class _TrackListState extends State<TrackList> {
   final Set<int> _selectedTrackIds = <int>{};
   int? _hoveredTrackId;
   int? _pressedTrackId;
+  int _lastViewportStart = -1;
+  int _lastViewportEnd = -1;
+
+  @override
+  void didUpdateWidget(covariant TrackList oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.items, widget.items)) {
+      _lastViewportStart = -1;
+      _lastViewportEnd = -1;
+    }
+  }
 
   @override
   void dispose() {
@@ -67,7 +83,28 @@ class _TrackListState extends State<TrackList> {
     super.dispose();
   }
 
+  void _emitViewportRange(ScrollMetrics metrics) {
+    final onViewportRangeChanged = widget.onViewportRangeChanged;
+    if (onViewportRangeChanged == null || widget.items.isEmpty) return;
+    final maxIndex = widget.items.length - 1;
+    var start = (metrics.pixels / _itemExtent).floor();
+    var end =
+        ((metrics.pixels + metrics.viewportDimension) / _itemExtent).ceil() - 1;
+    start = start.clamp(0, maxIndex).toInt();
+    end = end.clamp(0, maxIndex).toInt();
+    if (end < start) {
+      end = start;
+    }
+    if (start == _lastViewportStart && end == _lastViewportEnd) {
+      return;
+    }
+    _lastViewportStart = start;
+    _lastViewportEnd = end;
+    onViewportRangeChanged(start, end);
+  }
+
   bool _onScrollNotification(ScrollNotification n) {
+    _emitViewportRange(n.metrics);
     final nowMicros = DateTime.now().microsecondsSinceEpoch;
     final pixels = n.metrics.pixels;
 
@@ -105,39 +142,57 @@ class _TrackListState extends State<TrackList> {
       return Center(child: Text(l10n.noResultsHint));
     }
 
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (_controller.hasClients) {
+        _emitViewportRange(_controller.position);
+        return;
+      }
+      if (widget.items.isEmpty) return;
+      if (_lastViewportStart == 0 && _lastViewportEnd >= 0) return;
+      final fallbackEnd = (widget.items.length - 1).clamp(0, 11).toInt();
+      _lastViewportStart = 0;
+      _lastViewportEnd = fallbackEnd;
+      widget.onViewportRangeChanged?.call(0, fallbackEnd);
+    });
+
     final isSelectionMode = _selectedTrackIds.isNotEmpty;
     final canReorderCurrentPlaylist =
         widget.currentPlaylistId != null &&
         widget.onMoveInCurrentPlaylist != null &&
         !isSelectionMode;
     final body = canReorderCurrentPlaylist
-        ? ReorderableListView.builder(
-            buildDefaultDragHandles: false,
-            itemCount: widget.items.length,
-            itemExtent: 72,
-            onReorder: (oldIndex, newIndex) async {
-              if (newIndex > oldIndex) {
-                newIndex -= 1;
-              }
-              if (oldIndex == newIndex) return;
-              final t = widget.items[oldIndex];
-              await widget.onMoveInCurrentPlaylist!(t, newIndex);
-            },
-            itemBuilder: (context, i) {
-              final t = widget.items[i];
-              return KeyedSubtree(
-                key: ValueKey('playlist-track-${t.id}-$i'),
-                child: _buildTrackTile(
-                  context,
-                  l10n,
-                  i,
-                  t,
-                  reorderIndex: i,
-                  deferHeavy: false,
-                  selectionMode: false,
-                ),
-              );
-            },
+        ? NotificationListener<ScrollNotification>(
+            onNotification: _onScrollNotification,
+            child: ReorderableListView.builder(
+              scrollController: _controller,
+              buildDefaultDragHandles: false,
+              itemCount: widget.items.length,
+              itemExtent: _itemExtent,
+              onReorder: (oldIndex, newIndex) async {
+                if (newIndex > oldIndex) {
+                  newIndex -= 1;
+                }
+                if (oldIndex == newIndex) return;
+                final t = widget.items[oldIndex];
+                await widget.onMoveInCurrentPlaylist!(t, newIndex);
+              },
+              itemBuilder: (context, i) {
+                final t = widget.items[i];
+                return KeyedSubtree(
+                  key: ValueKey('playlist-track-${t.id}-$i'),
+                  child: _buildTrackTile(
+                    context,
+                    l10n,
+                    i,
+                    t,
+                    reorderIndex: i,
+                    deferHeavy: false,
+                    selectionMode: false,
+                  ),
+                );
+              },
+            ),
           )
         : NotificationListener<ScrollNotification>(
             onNotification: _onScrollNotification,
@@ -148,7 +203,7 @@ class _TrackListState extends State<TrackList> {
               cacheExtent: _deferHeavy ? 200 : 800,
               slivers: [
                 SliverFixedExtentList(
-                  itemExtent: 72,
+                  itemExtent: _itemExtent,
                   delegate: SliverChildBuilderDelegate((context, i) {
                     final t = widget.items[i];
                     return _buildTrackTile(
@@ -211,6 +266,8 @@ class _TrackListState extends State<TrackList> {
     final coverPath = '${widget.coverDir}${Platform.pathSeparator}${t.id}';
 
     final trackId = t.id.toInt();
+    final blockedReason = widget.blockedReasonByTrackId[trackId];
+    final isBlocked = blockedReason != null;
     final selected = _selectedTrackIds.contains(trackId);
     final theme = Theme.of(context);
     final hovered = _hoveredTrackId == trackId;
@@ -282,6 +339,11 @@ class _TrackListState extends State<TrackList> {
                   line1,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
+                  style: isBlocked
+                      ? theme.textTheme.bodyLarge?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        )
+                      : null,
                 ),
                 subtitle: deferHeavy
                     ? null
@@ -293,6 +355,11 @@ class _TrackListState extends State<TrackList> {
                               line2.isNotEmpty ? line2 : t.path,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
+                              style: isBlocked
+                                  ? theme.textTheme.bodyMedium?.copyWith(
+                                      color: theme.colorScheme.onSurfaceVariant,
+                                    )
+                                  : null,
                             ),
                           ),
                         ],
@@ -300,6 +367,18 @@ class _TrackListState extends State<TrackList> {
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    if (isBlocked)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 4),
+                        child: Tooltip(
+                          message: blockedReason,
+                          child: Icon(
+                            Icons.block,
+                            size: 18,
+                            color: theme.colorScheme.error,
+                          ),
+                        ),
+                      ),
                     if (selectionMode)
                       Checkbox(
                         value: selected,
@@ -321,10 +400,12 @@ class _TrackListState extends State<TrackList> {
                       PopupMenuButton<_TrackAction>(
                         onSelected: (action) async {
                           if (action == _TrackAction.enqueue) {
+                            if (isBlocked) return;
                             await widget.onEnqueue(t);
                             return;
                           }
                           if (action == _TrackAction.play) {
+                            if (isBlocked) return;
                             await widget.onActivate(i, widget.items);
                             return;
                           }
@@ -343,10 +424,12 @@ class _TrackListState extends State<TrackList> {
                         itemBuilder: (context) => [
                           PopupMenuItem(
                             value: _TrackAction.play,
+                            enabled: !isBlocked,
                             child: Text(l10n.menuPlay),
                           ),
                           PopupMenuItem(
                             value: _TrackAction.enqueue,
+                            enabled: !isBlocked,
                             child: Text(l10n.menuEnqueue),
                           ),
                           PopupMenuItem(
@@ -375,6 +458,7 @@ class _TrackListState extends State<TrackList> {
                     _toggleSelected(trackId);
                     return;
                   }
+                  if (isBlocked) return;
                   widget.onActivate(i, widget.items);
                 },
                 onLongPress: widget.currentPlaylistId == null

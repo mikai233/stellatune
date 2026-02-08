@@ -8,6 +8,7 @@ import 'package:stellatune/app/providers.dart';
 import 'package:stellatune/bridge/bridge.dart';
 import 'package:stellatune/dlna/dlna_providers.dart';
 import 'package:stellatune/player/playback_models.dart';
+import 'package:stellatune/player/playability_messages.dart';
 import 'package:stellatune/player/queue_controller.dart';
 import 'package:stellatune/player/queue_models.dart';
 
@@ -697,7 +698,10 @@ class PlaybackController extends Notifier<PlaybackState> {
     final item = ref.read(queueControllerProvider).currentItem;
     if (item == null) return;
     unawaited(_requestPreloadNext());
-    await _loadAndPlayQueueItem(item);
+    final ok = await _loadAndPlayQueueItem(item);
+    if (!ok) {
+      await next(auto: true);
+    }
   }
 
   Future<void> setQueueAndPlayTracks(
@@ -729,7 +733,10 @@ class PlaybackController extends Notifier<PlaybackState> {
 
     // If nothing is loaded yet, start playing immediately from the first enqueued item.
     if (queue.currentItem == null && items.isNotEmpty) {
-      await _loadAndPlayQueueItem(items.first);
+      final ok = await _loadAndPlayQueueItem(items.first);
+      if (!ok) {
+        await next(auto: true);
+      }
     }
   }
 
@@ -884,15 +891,27 @@ class PlaybackController extends Notifier<PlaybackState> {
 
   Future<void> next({bool auto = false}) async {
     _dlnaSuppressAutoNext(const Duration(seconds: 1));
-    final item = ref
-        .read(queueControllerProvider.notifier)
-        .next(fromAuto: auto);
-    if (item == null) {
+    final maxAttempts = ref.read(queueControllerProvider).items.length;
+    if (maxAttempts <= 0) {
       await stop();
       return;
     }
-    unawaited(_requestPreloadNext());
-    await _loadAndPlayQueueItem(item);
+    var attempts = 0;
+    while (attempts < maxAttempts) {
+      final item = ref
+          .read(queueControllerProvider.notifier)
+          .next(fromAuto: auto);
+      if (item == null) {
+        await stop();
+        return;
+      }
+      unawaited(_requestPreloadNext());
+      if (await _loadAndPlayQueueItem(item)) {
+        return;
+      }
+      attempts += 1;
+    }
+    await stop();
   }
 
   Future<void> previous() async {
@@ -916,18 +935,42 @@ class PlaybackController extends Notifier<PlaybackState> {
   TrackRef _localTrackRef(String path) =>
       TrackRef(sourceId: 'local', trackId: path, locator: path);
 
-  Future<void> _loadAndPlayQueueItem(QueueItem item) async {
+  Future<String?> _playabilityBlockReason(TrackRef track) async {
+    try {
+      final result = await ref.read(playerBridgeProvider).canPlayTrackRefs([
+        track,
+      ]);
+      if (result.isEmpty || result.first.playable) return null;
+      return result.first.reason?.trim();
+    } catch (e, st) {
+      ref
+          .read(loggerProvider)
+          .w(
+            'canPlayTrackRefs failed, fallback to optimistic playback',
+            error: e,
+            stackTrace: st,
+          );
+      return null;
+    }
+  }
+
+  Future<bool> _loadAndPlayQueueItem(QueueItem item) async {
     final path = item.path;
     state = state.copyWith(lastError: null, lastLog: '');
+    final blockedReason = await _playabilityBlockReason(item.track);
+    if (blockedReason != null) {
+      state = state.copyWith(lastError: encodePlayabilityError(blockedReason));
+      return false;
+    }
     if (_dlnaActive) {
       if (item.track.sourceId.toLowerCase() != 'local') {
         state = state.copyWith(
           lastError: 'DLNA output currently only supports local tracks',
         );
-        return;
+        return false;
       }
       final renderer = ref.read(dlnaSelectedRendererProvider);
-      if (renderer == null) return;
+      if (renderer == null) return false;
       final coverPath = item.id == null
           ? null
           : p.join(ref.read(coverDirProvider), item.id.toString());
@@ -949,13 +992,14 @@ class PlaybackController extends Notifier<PlaybackState> {
         positionMs: 0,
         playerState: PlayerState.playing,
       );
-      return;
+      return true;
     }
 
     final bridge = ref.read(playerBridgeProvider);
     await bridge.loadTrackRef(item.track);
     unawaited(_updateTrackInfo());
     await bridge.play();
+    return true;
   }
 
   void _onEvent(Event event) {

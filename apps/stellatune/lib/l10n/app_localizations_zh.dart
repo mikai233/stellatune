@@ -36,6 +36,40 @@ class AppLocalizationsZh extends AppLocalizations {
   String get error => '错误';
 
   @override
+  String playbackUnavailable(String reason) {
+    return '无法播放：$reason';
+  }
+
+  @override
+  String get playabilityReasonPluginsUnavailable => '插件正在重载';
+
+  @override
+  String get playabilityReasonLocalTrackLocatorEmpty => '本地轨道路径为空';
+
+  @override
+  String get playabilityReasonNoDecoderForLocalTrack => '当前格式没有可用解码器';
+
+  @override
+  String get playabilityReasonDecoderProbeFailed => '解码器探测失败';
+
+  @override
+  String get playabilityReasonInvalidSourceTrackLocator => '音源定位信息无效';
+
+  @override
+  String get playabilityReasonSourceCatalogUnavailable => '音源插件不可用';
+
+  @override
+  String get playabilityReasonSourceDecoderUnavailable => '音源解码器不可用';
+
+  @override
+  String get playabilityReasonUnsupportedTrack => '不支持的音轨';
+
+  @override
+  String playabilityReasonUnknown(String code) {
+    return '未知原因（$code）';
+  }
+
+  @override
   String get log => '日志';
 
   @override

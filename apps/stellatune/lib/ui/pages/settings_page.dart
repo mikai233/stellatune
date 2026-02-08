@@ -31,14 +31,23 @@ class _InstalledPlugin {
     required this.id,
     required this.name,
     required this.infoJson,
+    required this.installState,
+    required this.uninstallRetryCount,
+    required this.uninstallLastError,
   });
 
   final String dirPath;
   final String? id;
   final String? name;
   final String? infoJson;
+  final String installState;
+  final int uninstallRetryCount;
+  final String? uninstallLastError;
 
   String get nameOrDir => name ?? p.basename(dirPath);
+  bool get isInstalled => installState == 'installed';
+  bool get isPendingUninstall => installState == 'pending_uninstall';
+  bool get isDeleteFailed => installState == 'delete_failed';
 }
 
 class SettingsPageState extends ConsumerState<SettingsPage> {
@@ -230,12 +239,32 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
       final dirPath = (map['root_dir'] ?? '').toString().trim();
       final nameRaw = (map['name'] ?? '').toString().trim();
       final infoRaw = (map['info_json'] ?? '').toString().trim();
+      final installStateRaw = (map['install_state'] ?? 'installed')
+          .toString()
+          .trim();
+      final uninstallRetryCountRaw = map['uninstall_retry_count'];
+      final uninstallRetryCount = switch (uninstallRetryCountRaw) {
+        int v => v,
+        num v => v.toInt(),
+        String v => int.tryParse(v) ?? 0,
+        _ => 0,
+      };
+      final uninstallLastErrorRaw = (map['uninstall_last_error'] ?? '')
+          .toString()
+          .trim();
       out.add(
         _InstalledPlugin(
           dirPath: dirPath.isEmpty ? p.join(_pluginDir!, id) : dirPath,
           id: id,
           name: nameRaw.isEmpty ? null : nameRaw,
           infoJson: infoRaw.isEmpty ? null : infoRaw,
+          installState: installStateRaw.isEmpty ? 'installed' : installStateRaw,
+          uninstallRetryCount: uninstallRetryCount < 0
+              ? 0
+              : uninstallRetryCount,
+          uninstallLastError: uninstallLastErrorRaw.isEmpty
+              ? null
+              : uninstallLastErrorRaw,
         ),
       );
     }
@@ -1381,24 +1410,38 @@ class _PluginTileState extends State<_PluginTile> {
     final hasCustomUi =
         widget.pluginSourceTypes.isNotEmpty ||
         widget.pluginOutputSinkTypes.isNotEmpty;
-    final isEnabled = !widget.isDisabled;
-    final canUninstall = !isEnabled;
+    final canToggleEnabled = p.id != null && p.isInstalled;
+    final isEnabled = p.isInstalled && !widget.isDisabled;
+    final canUninstall = !isEnabled || p.isPendingUninstall || p.isDeleteFailed;
 
     final (statusText, statusIsError) = switch ((
       p.id,
+      p.installState,
       widget.isDisabled,
       widget.loadedKnown,
       widget.isLoaded,
     )) {
-      (null, _, _, _) => ('插件 ID 缺失', true),
-      (_, true, _, _) => ('已禁用', false),
-      (_, false, false, _) => ('正在检查加载状态...', false),
-      (_, false, true, true) => ('已加载', false),
-      (_, false, true, false) => ('未加载（可能加载失败，请检查日志）', true),
+      (null, _, _, _, _) => ('插件 ID 缺失', true),
+      (_, 'pending_uninstall', _, _, _) => (
+        '卸载中（后台重试中，${p.uninstallRetryCount} 次）',
+        false,
+      ),
+      (_, 'delete_failed', _, _, _) => (
+        '卸载失败（后台重试中，${p.uninstallRetryCount} 次）',
+        true,
+      ),
+      (_, _, true, _, _) => ('已禁用', false),
+      (_, _, false, false, _) => ('正在检查加载状态...', false),
+      (_, _, false, true, true) => ('已加载', false),
+      (_, _, false, true, false) => ('未加载（可能加载失败，请检查日志）', true),
     };
 
     final Color? pluginIconColor;
-    if (widget.isDisabled) {
+    if (p.isPendingUninstall) {
+      pluginIconColor = Colors.orange.shade700;
+    } else if (p.isDeleteFailed) {
+      pluginIconColor = Theme.of(context).colorScheme.error;
+    } else if (widget.isDisabled) {
       pluginIconColor = null;
     } else if (statusIsError) {
       pluginIconColor = Theme.of(context).colorScheme.error;
@@ -1411,7 +1454,7 @@ class _PluginTileState extends State<_PluginTile> {
       children: [
         Switch(
           value: isEnabled,
-          onChanged: p.id == null
+          onChanged: !canToggleEnabled
               ? null
               : (v) async {
                   try {
@@ -1489,7 +1532,7 @@ class _PluginTileState extends State<_PluginTile> {
           style: Theme.of(context).textTheme.bodySmall?.copyWith(
             color: Theme.of(
               context,
-            ).colorScheme.onSurfaceVariant.withOpacity(0.7),
+            ).colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
           ),
         ),
         if (p.infoJson != null && p.infoJson!.isNotEmpty)
@@ -1499,6 +1542,18 @@ class _PluginTileState extends State<_PluginTile> {
               p.infoJson!,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        if (p.uninstallLastError != null && p.uninstallLastError!.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Text(
+              p.uninstallLastError!,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.error,
+              ),
             ),
           ),
         Text(

@@ -9,6 +9,7 @@ import 'package:stellatune/bridge/bridge.dart';
 import 'package:stellatune/dlna/dlna_providers.dart';
 import 'package:stellatune/l10n/app_localizations.dart';
 import 'package:stellatune/player/playback_controller.dart';
+import 'package:stellatune/player/playability_messages.dart';
 import 'package:stellatune/player/queue_controller.dart';
 import 'package:stellatune/player/queue_models.dart';
 import 'package:stellatune/ui/pages/music_detail_page.dart';
@@ -46,6 +47,9 @@ class NowPlayingBar extends ConsumerWidget {
     final isPlaying =
         playback.playerState == PlayerState.playing ||
         playback.playerState == PlayerState.buffering;
+    final localizedPlaybackError = playback.lastError == null
+        ? null
+        : localizePlaybackError(l10n, playback.lastError!);
     final totalDurationMs = queue.currentItem?.durationMs;
     final timeLabel = (totalDurationMs != null && totalDurationMs > 0)
         ? '${NowPlayingCommon.formatMs(playback.positionMs)} / ${NowPlayingCommon.formatMs(totalDurationMs)}'
@@ -144,16 +148,14 @@ class NowPlayingBar extends ConsumerWidget {
                     ),
                     const SizedBox(width: 14),
                     Text(timeLabel, style: theme.textTheme.titleMedium),
-                    if (playback.lastError != null) ...[
+                    if (localizedPlaybackError != null) ...[
                       const SizedBox(width: 8),
                       IconButton(
-                        tooltip: playback.lastError!,
+                        tooltip: localizedPlaybackError,
                         onPressed: () {
-                          final msg = playback.lastError;
-                          if (msg == null) return;
-                          ScaffoldMessenger.of(
-                            context,
-                          ).showSnackBar(SnackBar(content: Text(msg)));
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text(localizedPlaybackError)),
+                          );
                         },
                         icon: Icon(
                           Icons.error_outline,
