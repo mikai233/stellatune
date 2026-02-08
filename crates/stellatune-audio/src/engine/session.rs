@@ -204,7 +204,11 @@ pub(crate) struct OutputSinkWorker {
 }
 
 impl OutputSinkWorker {
-    pub(crate) fn start(mut sink: stellatune_plugins::OutputSinkInstance, channels: u16) -> Self {
+    pub(crate) fn start(
+        mut sink: stellatune_plugins::OutputSinkInstance,
+        channels: u16,
+        internal_tx: Sender<InternalMsg>,
+    ) -> Self {
         let (tx, rx) = crossbeam_channel::bounded::<OutputSinkWrite>(8);
         let join = std::thread::Builder::new()
             .name("stellatune-output-sink".to_string())
@@ -217,6 +221,10 @@ impl OutputSinkWorker {
                             }
                             if let Err(e) = write_all_frames(&mut sink, channels, &samples) {
                                 warn!("output sink write failed: {e:#}");
+                                let _ = internal_tx.try_send(InternalMsg::OutputError(format!(
+                                    "plugin sink write failed: {e}"
+                                )));
+                                break;
                             }
                         }
                         OutputSinkWrite::Shutdown => {
@@ -291,6 +299,7 @@ struct DecodePrepare {
     output_enabled: Arc<AtomicBool>,
     buffer_prefill_cap_ms: i64,
     lfe_mode: stellatune_core::LfeMode,
+    output_sink_chunk_frames: u32,
     output_sink_only: bool,
     spec_tx: Sender<Result<TrackDecodeInfo, String>>,
 }
@@ -422,6 +431,7 @@ fn run_decode_worker(
                 buffer_prefill_cap_ms: prepare.buffer_prefill_cap_ms,
                 lfe_mode: prepare.lfe_mode,
                 output_sink_tx: None,
+                output_sink_chunk_frames: prepare.output_sink_chunk_frames,
                 output_sink_only: prepare.output_sink_only,
             })
             .is_err()
@@ -570,6 +580,7 @@ pub(crate) struct StartSessionArgs<'a> {
     pub(crate) start_at_ms: i64,
     pub(crate) volume: Arc<AtomicU32>,
     pub(crate) lfe_mode: stellatune_core::LfeMode,
+    pub(crate) output_sink_chunk_frames: u32,
     pub(crate) output_sink_only: bool,
     pub(crate) output_pipeline: &'a mut Option<OutputPipeline>,
 }
@@ -587,6 +598,7 @@ pub(crate) fn start_session(args: StartSessionArgs<'_>) -> Result<PlaybackSessio
         start_at_ms,
         volume,
         lfe_mode,
+        output_sink_chunk_frames,
         output_sink_only,
         output_pipeline,
     } = args;
@@ -685,6 +697,7 @@ pub(crate) fn start_session(args: StartSessionArgs<'_>) -> Result<PlaybackSessio
                 _ => BUFFER_PREFILL_CAP_MS,
             },
             lfe_mode,
+            output_sink_chunk_frames,
             output_sink_only,
             spec_tx,
         }))

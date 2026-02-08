@@ -32,6 +32,7 @@ pub(crate) struct DecodeContext<'a> {
 
     pub(crate) output_enabled: &'a AtomicBool,
     pub(crate) output_sink_tx: &'a mut Option<Sender<OutputSinkWrite>>,
+    pub(crate) output_sink_chunk_frames: &'a mut u32,
     pub(crate) output_sink_only: bool,
     pub(crate) events: &'a EventHub,
     pub(crate) ctrl_rx: &'a Receiver<DecodeCtrl>,

@@ -39,6 +39,7 @@ type DecodeSetupState = (
     i64,
     stellatune_core::LfeMode,
     Option<Sender<OutputSinkWrite>>,
+    u32,
     bool,
 );
 
@@ -97,6 +98,7 @@ pub(crate) fn decode_thread(args: DecodeThreadArgs) {
         buffer_prefill_cap_ms,
         initial_lfe_mode,
         mut output_sink_tx,
+        mut output_sink_chunk_frames,
         output_sink_only,
     ): DecodeSetupState = loop {
         crossbeam_channel::select! {
@@ -112,6 +114,7 @@ pub(crate) fn decode_thread(args: DecodeThreadArgs) {
                     buffer_prefill_cap_ms,
                     lfe_mode: initial_lfe_mode,
                     output_sink_tx,
+                    output_sink_chunk_frames,
                     output_sink_only,
                 } = ctrl {
                     break (
@@ -124,6 +127,7 @@ pub(crate) fn decode_thread(args: DecodeThreadArgs) {
                         buffer_prefill_cap_ms,
                         initial_lfe_mode,
                         output_sink_tx,
+                        output_sink_chunk_frames,
                         output_sink_only,
                     );
                 }
@@ -247,6 +251,7 @@ pub(crate) fn decode_thread(args: DecodeThreadArgs) {
             target_sample_rate,
             output_enabled: &output_enabled,
             output_sink_tx: &mut output_sink_tx,
+            output_sink_chunk_frames: &mut output_sink_chunk_frames,
             output_sink_only,
             events: &events,
             ctrl_rx: &ctrl_rx,
@@ -401,8 +406,12 @@ fn handle_paused_controls(ctx: &mut DecodeContext, runtime_state: &Arc<AtomicU8>
                 *ctx.lfe_mode,
             );
         }
-        Ok(DecodeCtrl::SetOutputSinkTx { tx }) => {
+        Ok(DecodeCtrl::SetOutputSinkTx {
+            tx,
+            output_sink_chunk_frames,
+        }) => {
             *ctx.output_sink_tx = tx;
+            *ctx.output_sink_chunk_frames = output_sink_chunk_frames;
         }
         Ok(DecodeCtrl::Stop) | Err(_) => {
             set_decode_worker_state(runtime_state, DecodeWorkerState::Idle, "stop");
@@ -441,8 +450,12 @@ fn handle_playing_controls(ctx: &mut DecodeContext, runtime_state: &Arc<AtomicU8
                 *ctx.pre_mix_dsp = pre;
                 *ctx.post_mix_dsp = post;
             }
-            DecodeCtrl::SetOutputSinkTx { tx } => {
+            DecodeCtrl::SetOutputSinkTx {
+                tx,
+                output_sink_chunk_frames,
+            } => {
                 *ctx.output_sink_tx = tx;
+                *ctx.output_sink_chunk_frames = output_sink_chunk_frames;
             }
             DecodeCtrl::Stop => {
                 set_decode_worker_state(runtime_state, DecodeWorkerState::Idle, "stop");

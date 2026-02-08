@@ -53,6 +53,7 @@ pub(crate) enum DecodeCtrl {
         buffer_prefill_cap_ms: i64,
         lfe_mode: stellatune_core::LfeMode,
         output_sink_tx: Option<Sender<OutputSinkWrite>>,
+        output_sink_chunk_frames: u32,
         output_sink_only: bool,
     },
     SetDspChain {
@@ -68,6 +69,7 @@ pub(crate) enum DecodeCtrl {
     },
     SetOutputSinkTx {
         tx: Option<Sender<OutputSinkWrite>>,
+        output_sink_chunk_frames: u32,
     },
     Stop,
 }

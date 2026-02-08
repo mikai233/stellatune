@@ -1,11 +1,13 @@
 use std::thread;
 use std::time::Duration;
 
+use crossbeam_channel::TrySendError;
 use stellatune_mixer::ChannelMixer;
 
 use super::context::DecodeContext;
 use super::decoder::EngineDecoder;
 use super::dsp::split_dsp_chain_by_layout;
+use crate::engine::config::OUTPUT_SINK_WRITE_RETRY_SLEEP_MS;
 use crate::engine::messages::{DecodeCtrl, OutputSinkWrite};
 
 pub(crate) fn skip_frames_by_decoding(
@@ -55,8 +57,12 @@ pub(crate) fn write_pending(ctx: &mut DecodeContext) -> bool {
                     *ctx.pending_seek = Some(position_ms);
                     return false;
                 }
-                DecodeCtrl::SetOutputSinkTx { tx } => {
+                DecodeCtrl::SetOutputSinkTx {
+                    tx,
+                    output_sink_chunk_frames,
+                } => {
                     *ctx.output_sink_tx = tx;
+                    *ctx.output_sink_chunk_frames = output_sink_chunk_frames;
                 }
                 DecodeCtrl::Stop => return true,
                 _ => {}
@@ -68,16 +74,29 @@ pub(crate) fn write_pending(ctx: &mut DecodeContext) -> bool {
 
         let written = if ctx.output_sink_only {
             let Some(tx) = ctx.output_sink_tx.as_ref() else {
-                thread::sleep(Duration::from_millis(2));
+                thread::sleep(Duration::from_millis(OUTPUT_SINK_WRITE_RETRY_SLEEP_MS));
                 continue;
             };
-            let chunk = ctx.out_pending[offset..].to_vec();
+            let preferred_samples = (*ctx.output_sink_chunk_frames as usize)
+                .saturating_mul(ctx.out_channels)
+                .max(ctx.out_channels);
+            let remaining = ctx.out_pending.len().saturating_sub(offset);
+            let chunk_len = if *ctx.output_sink_chunk_frames == 0 {
+                remaining
+            } else {
+                preferred_samples.min(remaining)
+            };
+            let chunk = ctx.out_pending[offset..offset + chunk_len].to_vec();
             let chunk_len = chunk.len();
-            match tx.send(OutputSinkWrite::Samples(chunk)) {
+            match tx.try_send(OutputSinkWrite::Samples(chunk)) {
                 Ok(()) => chunk_len,
-                Err(_) => {
+                Err(TrySendError::Disconnected(_)) => {
                     *ctx.output_sink_tx = None;
-                    thread::sleep(Duration::from_millis(2));
+                    thread::sleep(Duration::from_millis(OUTPUT_SINK_WRITE_RETRY_SLEEP_MS));
+                    continue;
+                }
+                Err(TrySendError::Full(_)) => {
+                    thread::sleep(Duration::from_millis(OUTPUT_SINK_WRITE_RETRY_SLEEP_MS));
                     continue;
                 }
             }
@@ -90,7 +109,7 @@ pub(crate) fn write_pending(ctx: &mut DecodeContext) -> bool {
         *ctx.frames_written =
             (*ctx.frames_written).saturating_add((written / ctx.out_channels) as u64);
         if written == 0 {
-            thread::sleep(Duration::from_millis(2));
+            thread::sleep(Duration::from_millis(OUTPUT_SINK_WRITE_RETRY_SLEEP_MS));
         }
     }
 

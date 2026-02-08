@@ -435,6 +435,7 @@ struct EngineState {
     gapless_playback: bool,
     seek_track_fade: bool,
     desired_output_sink_route: Option<OutputSinkRouteSpec>,
+    output_sink_chunk_frames: u32,
     output_sink_worker: Option<OutputSinkWorker>,
     output_pipeline: Option<OutputPipeline>,
     decode_worker: Option<DecodeWorker>,
@@ -498,6 +499,7 @@ impl EngineState {
             gapless_playback: true,
             seek_track_fade: true,
             desired_output_sink_route: None,
+            output_sink_chunk_frames: 0,
             output_sink_worker: None,
             output_pipeline: None,
             decode_worker: None,
@@ -957,7 +959,19 @@ fn handle_command(
 
             if state.session.is_none() {
                 set_state(state, events, PlayerState::Buffering);
-                if let Some(out_spec) = state.cached_output_spec {
+                if let Some(cached_out_spec) = state.cached_output_spec {
+                    let out_spec =
+                        match resolve_output_spec_and_sink_chunk(state, plugins, cached_out_spec) {
+                            Ok(spec) => spec,
+                            Err(message) => {
+                                events.emit(Event::Error { message });
+                                set_state(state, events, PlayerState::Stopped);
+                                state.wants_playback = false;
+                                state.pending_session_start = false;
+                                state.play_request_started_at = None;
+                                return false;
+                            }
+                        };
                     let start_at_ms = state.position_ms.max(0) as u64;
                     let Some(decode_worker) = state.decode_worker.as_ref() else {
                         events.emit(Event::Error {
@@ -982,6 +996,7 @@ fn handle_command(
                         start_at_ms: start_at_ms as i64,
                         volume: Arc::clone(&state.volume_atomic),
                         lfe_mode: state.lfe_mode,
+                        output_sink_chunk_frames: state.output_sink_chunk_frames,
                         output_sink_only: state.desired_output_sink_route.is_some(),
                         output_pipeline: &mut state.output_pipeline,
                     }) {
@@ -989,7 +1004,7 @@ fn handle_command(
                             track_info.store(Some(Arc::new(session.track_info.clone())));
                             state.session = Some(session);
                             if let Err(message) =
-                                sync_output_sink_with_active_session(state, plugins)
+                                sync_output_sink_with_active_session(state, plugins, internal_tx)
                             {
                                 events.emit(Event::Error { message });
                             }
@@ -1174,6 +1189,7 @@ fn handle_command(
             let route_changed = state.desired_output_sink_route.as_ref() != Some(&parsed_route);
             state.desired_output_sink_route = Some(parsed_route);
             if mode_changed || route_changed {
+                state.output_sink_chunk_frames = 0;
                 state.cached_output_spec = None;
                 state.output_spec_prewarm_inflight = false;
                 state.output_spec_token = state.output_spec_token.wrapping_add(1);
@@ -1188,13 +1204,15 @@ fn handle_command(
                     set_state(state, events, PlayerState::Buffering);
                 }
             }
-            if let Err(message) = sync_output_sink_with_active_session(state, plugins) {
+            if let Err(message) = sync_output_sink_with_active_session(state, plugins, internal_tx)
+            {
                 events.emit(Event::Error { message });
             }
         }
         Command::ClearOutputSinkRoute => {
             let mode_changed = state.desired_output_sink_route.is_some();
             state.desired_output_sink_route = None;
+            state.output_sink_chunk_frames = 0;
             if mode_changed {
                 state.cached_output_spec = None;
                 state.output_spec_prewarm_inflight = false;
@@ -1210,7 +1228,8 @@ fn handle_command(
                     set_state(state, events, PlayerState::Buffering);
                 }
             }
-            if let Err(message) = sync_output_sink_with_active_session(state, plugins) {
+            if let Err(message) = sync_output_sink_with_active_session(state, plugins, internal_tx)
+            {
                 events.emit(Event::Error { message });
             }
         }
@@ -1529,7 +1548,7 @@ fn negotiate_output_sink_spec(
     state: &EngineState,
     plugins: &Arc<Mutex<PluginManager>>,
     desired_spec: OutputSpec,
-) -> Result<OutputSpec, String> {
+) -> Result<stellatune_plugins::OutputSinkNegotiatedSpec, String> {
     let route = state
         .desired_output_sink_route
         .as_ref()
@@ -1557,6 +1576,23 @@ fn negotiate_output_sink_spec(
             },
         )
         .map_err(|e| format!("output sink negotiate failed: {e:#}"))?;
+    Ok(negotiated)
+}
+
+fn resolve_output_spec_and_sink_chunk(
+    state: &mut EngineState,
+    plugins: &Arc<Mutex<PluginManager>>,
+    non_sink_out_spec: OutputSpec,
+) -> Result<OutputSpec, String> {
+    if state.desired_output_sink_route.is_none() {
+        state.output_sink_chunk_frames = 0;
+        return Ok(non_sink_out_spec);
+    }
+
+    state.output_sink_chunk_frames = 0;
+    let desired_spec = output_spec_for_plugin_sink(state);
+    let negotiated = negotiate_output_sink_spec(state, plugins, desired_spec)?;
+    state.output_sink_chunk_frames = negotiated.preferred_chunk_frames;
     Ok(OutputSpec {
         sample_rate: negotiated.spec.sample_rate.max(1),
         channels: negotiated.spec.channels.max(1),
@@ -1613,23 +1649,19 @@ fn handle_tick(
             set_state(state, events, PlayerState::Stopped);
             return;
         };
-        let out_spec = if state.desired_output_sink_route.is_some() {
-            let desired_spec = output_spec_for_plugin_sink(state);
-            match negotiate_output_sink_spec(state, plugins, desired_spec) {
-                Ok(spec) => spec,
-                Err(message) => {
-                    state.pending_session_start = false;
-                    state.wants_playback = false;
-                    state.play_request_started_at = None;
-                    events.emit(Event::Error { message });
-                    set_state(state, events, PlayerState::Stopped);
-                    return;
-                }
+        let cached_out_spec = state
+            .cached_output_spec
+            .unwrap_or_else(|| panic!("checked"));
+        let out_spec = match resolve_output_spec_and_sink_chunk(state, plugins, cached_out_spec) {
+            Ok(spec) => spec,
+            Err(message) => {
+                state.pending_session_start = false;
+                state.wants_playback = false;
+                state.play_request_started_at = None;
+                events.emit(Event::Error { message });
+                set_state(state, events, PlayerState::Stopped);
+                return;
             }
-        } else {
-            state
-                .cached_output_spec
-                .unwrap_or_else(|| panic!("checked"))
         };
         let start_at_ms = state.position_ms.max(0) as u64;
         let Some(decode_worker) = state.decode_worker.as_ref() else {
@@ -1655,6 +1687,7 @@ fn handle_tick(
             start_at_ms: start_at_ms as i64,
             volume: Arc::clone(&state.volume_atomic),
             lfe_mode: state.lfe_mode,
+            output_sink_chunk_frames: state.output_sink_chunk_frames,
             output_sink_only: state.desired_output_sink_route.is_some(),
             output_pipeline: &mut state.output_pipeline,
         }) {
@@ -1662,7 +1695,9 @@ fn handle_tick(
                 track_info.store(Some(Arc::new(session.track_info.clone())));
                 state.session = Some(session);
                 state.pending_session_start = false;
-                if let Err(message) = sync_output_sink_with_active_session(state, plugins) {
+                if let Err(message) =
+                    sync_output_sink_with_active_session(state, plugins, internal_tx)
+                {
                     events.emit(Event::Error { message });
                 }
                 if let Err(message) = apply_dsp_chain(state, plugins) {
@@ -1825,6 +1860,7 @@ fn open_output_sink_worker(
     route: &OutputSinkRouteSpec,
     sample_rate: u32,
     channels: u16,
+    internal_tx: &Sender<InternalMsg>,
 ) -> Result<OutputSinkWorker, String> {
     let pm = plugins
         .lock()
@@ -1849,12 +1885,13 @@ fn open_output_sink_worker(
             },
         )
         .map_err(|e| format!("output sink open failed: {e:#}"))?;
-    Ok(OutputSinkWorker::start(sink, channels))
+    Ok(OutputSinkWorker::start(sink, channels, internal_tx.clone()))
 }
 
 fn sync_output_sink_with_active_session(
     state: &mut EngineState,
     plugins: &Arc<Mutex<PluginManager>>,
+    internal_tx: &Sender<InternalMsg>,
 ) -> Result<(), String> {
     let Some(session) = state.session.as_ref() else {
         shutdown_output_sink_worker(state);
@@ -1865,17 +1902,23 @@ fn sync_output_sink_with_active_session(
     let channels = session.out_channels;
     let desired_route = state.desired_output_sink_route.clone();
 
-    let _ = ctrl_tx.send(DecodeCtrl::SetOutputSinkTx { tx: None });
+    let _ = ctrl_tx.send(DecodeCtrl::SetOutputSinkTx {
+        tx: None,
+        output_sink_chunk_frames: 0,
+    });
     shutdown_output_sink_worker(state);
 
     let Some(route) = desired_route else {
         return Ok(());
     };
 
-    let worker = open_output_sink_worker(plugins, &route, sample_rate, channels)?;
+    let worker = open_output_sink_worker(plugins, &route, sample_rate, channels, internal_tx)?;
     let tx = worker.sender();
     state.output_sink_worker = Some(worker);
-    let _ = ctrl_tx.send(DecodeCtrl::SetOutputSinkTx { tx: Some(tx) });
+    let _ = ctrl_tx.send(DecodeCtrl::SetOutputSinkTx {
+        tx: Some(tx),
+        output_sink_chunk_frames: state.output_sink_chunk_frames,
+    });
     Ok(())
 }
 
@@ -1894,9 +1937,10 @@ fn stop_decode_session(state: &mut EngineState, track_info: &SharedTrackInfo) {
         return;
     };
 
-    let _ = session
-        .ctrl_tx
-        .send(DecodeCtrl::SetOutputSinkTx { tx: None });
+    let _ = session.ctrl_tx.send(DecodeCtrl::SetOutputSinkTx {
+        tx: None,
+        output_sink_chunk_frames: 0,
+    });
     shutdown_output_sink_worker(state);
 
     let buffered_samples = session.buffered_samples.load(Ordering::Relaxed);
