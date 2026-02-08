@@ -7,7 +7,9 @@ use arc_swap::ArcSwapOption;
 use crossbeam_channel::{Receiver, Sender};
 use tracing::{debug, error, info, warn};
 
-use stellatune_core::{Command, Event, PlayerState};
+use stellatune_core::{
+    Command, Event, HostEventTopic, HostPlayerTickPayload, PlayerState, PluginRuntimeEvent,
+};
 use stellatune_output::{OutputSpec, output_spec_for_device};
 use stellatune_plugin_api::StAudioSpec;
 use stellatune_plugins::{PluginManager, default_host_vtable};
@@ -20,6 +22,7 @@ use crate::engine::config::{
 use crate::engine::decode::decoder::open_engine_decoder;
 use crate::engine::event_hub::EventHub;
 use crate::engine::messages::{DecodeCtrl, EngineCtrl, InternalMsg, PredecodedChunk};
+use crate::engine::plugin_event_hub::PluginEventHub;
 use crate::engine::session::{
     DecodeWorker, OutputPipeline, OutputSinkWorker, PlaybackSession, PromotedPreload,
     start_decode_worker, start_session,
@@ -112,6 +115,7 @@ pub struct EngineHandle {
     cmd_tx: Sender<Command>,
     engine_ctrl_tx: Sender<EngineCtrl>,
     events: Arc<EventHub>,
+    plugin_events: Arc<PluginEventHub>,
     plugins: Arc<Mutex<PluginManager>>,
     track_info: SharedTrackInfo,
 }
@@ -141,6 +145,34 @@ impl EngineHandle {
 
     pub fn subscribe_events(&self) -> Receiver<Event> {
         self.events.subscribe()
+    }
+
+    pub fn subscribe_plugin_runtime_events(&self) -> Receiver<PluginRuntimeEvent> {
+        self.plugin_events.subscribe()
+    }
+
+    pub fn emit_plugin_runtime_event(&self, event: PluginRuntimeEvent) {
+        self.plugin_events.emit(event);
+    }
+
+    pub fn plugin_publish_event_json(
+        &self,
+        plugin_id: Option<String>,
+        event_json: String,
+    ) -> Result<(), String> {
+        let pm = self
+            .plugins
+            .lock()
+            .map_err(|_| "plugins mutex poisoned".to_string())?;
+        match plugin_id {
+            Some(plugin_id) => pm
+                .push_host_event_json(&plugin_id, &event_json)
+                .map_err(|e| e.to_string()),
+            None => {
+                pm.broadcast_host_event_json(&event_json);
+                Ok(())
+            }
+        }
     }
 
     pub fn list_plugins(&self) -> Vec<stellatune_core::PluginDescriptor> {
@@ -299,14 +331,21 @@ impl EngineHandle {
 }
 
 pub fn start_engine() -> EngineHandle {
+    start_engine_with_plugins(Arc::new(Mutex::new(PluginManager::new(
+        default_host_vtable(),
+    ))))
+}
+
+pub fn start_engine_with_plugins(plugins: Arc<Mutex<PluginManager>>) -> EngineHandle {
     let (cmd_tx, cmd_rx) = crossbeam_channel::unbounded();
     let (engine_ctrl_tx, engine_ctrl_rx) = crossbeam_channel::unbounded();
     let (internal_tx, internal_rx) = crossbeam_channel::unbounded();
 
     let events = Arc::new(EventHub::new());
     let thread_events = Arc::clone(&events);
+    let plugin_events = Arc::new(PluginEventHub::new());
+    let thread_plugin_events = Arc::clone(&plugin_events);
 
-    let plugins = Arc::new(Mutex::new(PluginManager::new(default_host_vtable())));
     let track_info: SharedTrackInfo = Arc::new(ArcSwapOption::new(None));
 
     let plugins_for_thread = Arc::clone(&plugins);
@@ -320,6 +359,7 @@ pub fn start_engine() -> EngineHandle {
                 internal_rx,
                 internal_tx,
                 thread_events,
+                thread_plugin_events,
                 plugins_for_thread,
                 track_info_for_thread,
             )
@@ -330,6 +370,7 @@ pub fn start_engine() -> EngineHandle {
         cmd_tx,
         engine_ctrl_tx,
         events,
+        plugin_events,
         plugins,
         track_info,
     }
@@ -424,6 +465,7 @@ fn run_control_loop(
     internal_rx: Receiver<InternalMsg>,
     internal_tx: Sender<InternalMsg>,
     events: Arc<EventHub>,
+    plugin_events: Arc<PluginEventHub>,
     plugins: Arc<Mutex<PluginManager>>,
     track_info: SharedTrackInfo,
 ) {
@@ -447,7 +489,15 @@ fn run_control_loop(
         crossbeam_channel::select! {
             recv(cmd_rx) -> msg => {
                 let Ok(cmd) = msg else { break };
-                if handle_command(cmd, &mut state, &events, &internal_tx, &plugins, &track_info) {
+                if handle_command(
+                    cmd,
+                    &mut state,
+                    &events,
+                    &plugin_events,
+                    &internal_tx,
+                    &plugins,
+                    &track_info,
+                ) {
                     break;
                 }
             }
@@ -460,7 +510,15 @@ fn run_control_loop(
                 handle_internal(msg, &mut state, &events, &internal_tx, &track_info);
             }
             recv(tick) -> _ => {
-                handle_tick(&mut state, &events, &internal_tx, &plugins, &track_info);
+                publish_player_tick_event(&state, &plugins);
+                handle_tick(
+                    &mut state,
+                    &events,
+                    &plugin_events,
+                    &internal_tx,
+                    &plugins,
+                    &track_info,
+                );
             }
         }
     }
@@ -739,6 +797,7 @@ fn handle_command(
     cmd: Command,
     state: &mut EngineState,
     events: &Arc<EventHub>,
+    plugin_events: &Arc<PluginEventHub>,
     internal_tx: &Sender<InternalMsg>,
     plugins: &Arc<Mutex<PluginManager>>,
     track_info: &SharedTrackInfo,
@@ -882,7 +941,14 @@ fn handle_command(
 
             // Enter Buffering until we have enough samples queued to start cleanly.
             set_state(state, events, PlayerState::Buffering);
-            handle_tick(state, events, internal_tx, plugins, track_info);
+            handle_tick(
+                state,
+                events,
+                plugin_events,
+                internal_tx,
+                plugins,
+                track_info,
+            );
         }
         Command::Pause => {
             if let Some(session) = state.session.as_ref() {
@@ -927,7 +993,14 @@ fn handle_command(
             {
                 set_state(state, events, PlayerState::Buffering);
                 state.play_request_started_at = Some(Instant::now());
-                handle_tick(state, events, internal_tx, plugins, track_info);
+                handle_tick(
+                    state,
+                    events,
+                    plugin_events,
+                    internal_tx,
+                    plugins,
+                    track_info,
+                );
             }
         }
         Command::SetVolume { volume } => {
@@ -1332,9 +1405,27 @@ fn ensure_output_spec_prewarm(state: &mut EngineState, internal_tx: &Sender<Inte
         .expect("failed to spawn stellatune-output-spec thread");
 }
 
+fn publish_player_tick_event(state: &EngineState, plugins: &Arc<Mutex<PluginManager>>) {
+    let event_json = match serde_json::to_string(&HostPlayerTickPayload {
+        topic: HostEventTopic::PlayerTick,
+        state: state.player_state,
+        position_ms: state.position_ms,
+        track: state.current_track.clone(),
+        wants_playback: state.wants_playback,
+    }) {
+        Ok(v) => v,
+        Err(_) => return,
+    };
+
+    if let Ok(pm) = plugins.lock() {
+        pm.broadcast_host_event_json(&event_json);
+    }
+}
+
 fn handle_tick(
     state: &mut EngineState,
     events: &Arc<EventHub>,
+    _plugin_events: &Arc<PluginEventHub>,
     internal_tx: &Sender<InternalMsg>,
     plugins: &Arc<Mutex<PluginManager>>,
     track_info: &SharedTrackInfo,

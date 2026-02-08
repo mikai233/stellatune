@@ -1,14 +1,16 @@
 mod manifest;
 mod util;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, anyhow};
 use libloading::{Library, Symbol};
 use serde::{Deserialize, Serialize};
+use stellatune_core::{PluginRuntimeEvent, PluginRuntimeKind};
 use stellatune_plugin_api::{
     ST_ERR_INTERNAL, ST_ERR_INVALID_ARG, ST_ERR_IO, ST_INTERFACE_LYRICS_PROVIDER_V1,
     ST_INTERFACE_OUTPUT_SINK_V1, ST_INTERFACE_SOURCE_CATALOG_V1, STELLATUNE_PLUGIN_API_VERSION_V1,
@@ -41,12 +43,18 @@ pub fn default_host_vtable() -> StHostVTableV1 {
         user_data: core::ptr::null_mut(),
         log_utf8: Some(default_host_log),
         get_runtime_root_utf8: None,
+        emit_event_json_utf8: None,
+        poll_host_event_json_utf8: None,
+        send_control_json_utf8: None,
+        free_host_str_utf8: None,
     }
 }
 
 #[derive(Debug, Clone)]
 struct PluginHostCtx {
+    plugin_id: String,
     runtime_root_utf8: Box<[u8]>,
+    event_bus: PluginEventBus,
 }
 
 extern "C" fn plugin_host_runtime_root(user_data: *mut core::ffi::c_void) -> StStr {
@@ -61,6 +69,76 @@ extern "C" fn plugin_host_runtime_root(user_data: *mut core::ffi::c_void) -> StS
         ptr: ctx.runtime_root_utf8.as_ptr(),
         len: ctx.runtime_root_utf8.len(),
     }
+}
+
+extern "C" fn plugin_host_emit_event_json(
+    user_data: *mut core::ffi::c_void,
+    event_json_utf8: StStr,
+) -> StStatus {
+    if user_data.is_null() {
+        return StStatus {
+            code: ST_ERR_INVALID_ARG,
+            message: StStr::empty(),
+        };
+    }
+    let ctx = unsafe { &*(user_data as *const PluginHostCtx) };
+    let payload = unsafe { util::ststr_to_string_lossy(event_json_utf8) };
+    ctx.event_bus.push_plugin_event(PluginRuntimeEvent {
+        plugin_id: ctx.plugin_id.clone(),
+        kind: PluginRuntimeKind::Notify,
+        payload_json: payload,
+    });
+    StStatus::ok()
+}
+
+extern "C" fn plugin_host_poll_event_json(
+    user_data: *mut core::ffi::c_void,
+    out_event_json_utf8: *mut StStr,
+) -> StStatus {
+    if user_data.is_null() || out_event_json_utf8.is_null() {
+        return StStatus {
+            code: ST_ERR_INVALID_ARG,
+            message: StStr::empty(),
+        };
+    }
+    let ctx = unsafe { &*(user_data as *const PluginHostCtx) };
+    let out = match ctx.event_bus.poll_host_event(&ctx.plugin_id) {
+        Some(event_json) => alloc_host_owned_ststr(&event_json),
+        None => StStr::empty(),
+    };
+    unsafe {
+        *out_event_json_utf8 = out;
+    }
+    StStatus::ok()
+}
+
+extern "C" fn plugin_host_send_control_json(
+    user_data: *mut core::ffi::c_void,
+    request_json_utf8: StStr,
+    out_response_json_utf8: *mut StStr,
+) -> StStatus {
+    if user_data.is_null() || out_response_json_utf8.is_null() {
+        return StStatus {
+            code: ST_ERR_INVALID_ARG,
+            message: StStr::empty(),
+        };
+    }
+    let ctx = unsafe { &*(user_data as *const PluginHostCtx) };
+    let payload = unsafe { util::ststr_to_string_lossy(request_json_utf8) };
+    ctx.event_bus.push_plugin_event(PluginRuntimeEvent {
+        plugin_id: ctx.plugin_id.clone(),
+        kind: PluginRuntimeKind::Control,
+        payload_json: payload,
+    });
+    let ack_json = r#"{"ok":true}"#;
+    unsafe {
+        *out_response_json_utf8 = alloc_host_owned_ststr(ack_json);
+    }
+    StStatus::ok()
+}
+
+extern "C" fn plugin_host_free_str(_user_data: *mut core::ffi::c_void, s: StStr) {
+    free_host_owned_ststr(s);
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -79,6 +157,107 @@ pub struct InstalledPluginInfo {
     pub root_dir: PathBuf,
     pub library_path: PathBuf,
     pub info_json: Option<String>,
+}
+
+#[derive(Debug, Default)]
+struct PluginEventBusState {
+    host_to_plugin: HashMap<String, VecDeque<String>>,
+    plugin_to_host: VecDeque<PluginRuntimeEvent>,
+}
+
+#[derive(Debug, Clone)]
+struct PluginEventBus {
+    inner: Arc<Mutex<PluginEventBusState>>,
+    per_plugin_queue_cap: usize,
+    outbound_queue_cap: usize,
+}
+
+impl PluginEventBus {
+    fn new(per_plugin_queue_cap: usize, outbound_queue_cap: usize) -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(PluginEventBusState::default())),
+            per_plugin_queue_cap,
+            outbound_queue_cap,
+        }
+    }
+
+    fn register_plugin(&self, plugin_id: &str) {
+        if let Ok(mut state) = self.inner.lock() {
+            state
+                .host_to_plugin
+                .entry(plugin_id.to_string())
+                .or_insert_with(VecDeque::new);
+        }
+    }
+
+    fn push_host_event(&self, plugin_id: &str, event_json: String) {
+        if let Ok(mut state) = self.inner.lock() {
+            let queue = state
+                .host_to_plugin
+                .entry(plugin_id.to_string())
+                .or_insert_with(VecDeque::new);
+            if queue.len() >= self.per_plugin_queue_cap {
+                queue.pop_front();
+            }
+            queue.push_back(event_json);
+        }
+    }
+
+    fn poll_host_event(&self, plugin_id: &str) -> Option<String> {
+        let mut state = self.inner.lock().ok()?;
+        state
+            .host_to_plugin
+            .get_mut(plugin_id)
+            .and_then(|queue| queue.pop_front())
+    }
+
+    fn push_plugin_event(&self, event: PluginRuntimeEvent) {
+        if let Ok(mut state) = self.inner.lock() {
+            if state.plugin_to_host.len() >= self.outbound_queue_cap {
+                state.plugin_to_host.pop_front();
+            }
+            state.plugin_to_host.push_back(event);
+        }
+    }
+
+    fn drain_plugin_events(&self, max: usize) -> Vec<PluginRuntimeEvent> {
+        if max == 0 {
+            return Vec::new();
+        }
+        let mut out = Vec::new();
+        if let Ok(mut state) = self.inner.lock() {
+            for _ in 0..max {
+                let Some(item) = state.plugin_to_host.pop_front() else {
+                    break;
+                };
+                out.push(item);
+            }
+        }
+        out
+    }
+}
+
+fn alloc_host_owned_ststr(text: &str) -> StStr {
+    if text.is_empty() {
+        return StStr::empty();
+    }
+    let boxed = text.as_bytes().to_vec().into_boxed_slice();
+    let out = StStr {
+        ptr: boxed.as_ptr(),
+        len: boxed.len(),
+    };
+    std::mem::forget(boxed);
+    out
+}
+
+fn free_host_owned_ststr(s: StStr) {
+    if s.ptr.is_null() || s.len == 0 {
+        return;
+    }
+    unsafe {
+        let raw = std::ptr::slice_from_raw_parts_mut(s.ptr as *mut u8, s.len);
+        drop(Box::from_raw(raw));
+    }
 }
 
 fn now_unix_ms() -> u64 {
@@ -392,10 +571,14 @@ pub struct LoadReport {
     pub errors: Vec<anyhow::Error>,
 }
 
+const HOST_TO_PLUGIN_QUEUE_CAP: usize = 1024;
+const PLUGIN_TO_HOST_QUEUE_CAP: usize = 2048;
+
 pub struct PluginManager {
     host: StHostVTableV1,
     plugins: Vec<LoadedPlugin>,
     disabled_ids: HashSet<String>,
+    event_bus: PluginEventBus,
 }
 
 unsafe impl Send for PluginManager {}
@@ -745,6 +928,7 @@ impl PluginManager {
             host,
             plugins: Vec::new(),
             disabled_ids: HashSet::new(),
+            event_bus: PluginEventBus::new(HOST_TO_PLUGIN_QUEUE_CAP, PLUGIN_TO_HOST_QUEUE_CAP),
         }
     }
 
@@ -758,6 +942,33 @@ impl PluginManager {
 
     pub fn plugins(&self) -> &[LoadedPlugin] {
         &self.plugins
+    }
+
+    pub fn push_host_event_json(&self, plugin_id: &str, event_json: &str) -> Result<()> {
+        let exists = self
+            .plugins
+            .iter()
+            .any(|p| p.manifest.id == plugin_id && !self.is_disabled(&p.manifest.id));
+        if !exists {
+            return Err(anyhow!("plugin not found or disabled: {plugin_id}"));
+        }
+        self.event_bus
+            .push_host_event(plugin_id, event_json.to_string());
+        Ok(())
+    }
+
+    pub fn broadcast_host_event_json(&self, event_json: &str) {
+        for p in &self.plugins {
+            if self.is_disabled(&p.manifest.id) {
+                continue;
+            }
+            self.event_bus
+                .push_host_event(&p.manifest.id, event_json.to_string());
+        }
+    }
+
+    pub fn drain_runtime_events(&self, max: usize) -> Vec<PluginRuntimeEvent> {
+        self.event_bus.drain_plugin_events(max)
     }
 
     pub fn list_dsp_types(&self) -> Vec<DspTypeInfo> {
@@ -1841,12 +2052,19 @@ impl PluginManager {
         }
 
         let runtime_root = discovered.root_dir.to_string_lossy().into_owned();
+        self.event_bus.register_plugin(&discovered.manifest.id);
         let mut host_ctx = Box::new(PluginHostCtx {
+            plugin_id: discovered.manifest.id.clone(),
             runtime_root_utf8: runtime_root.into_bytes().into_boxed_slice(),
+            event_bus: self.event_bus.clone(),
         });
         let mut host_vtable = Box::new(self.host);
         host_vtable.user_data = (&mut *host_ctx) as *mut PluginHostCtx as *mut core::ffi::c_void;
         host_vtable.get_runtime_root_utf8 = Some(plugin_host_runtime_root);
+        host_vtable.emit_event_json_utf8 = Some(plugin_host_emit_event_json);
+        host_vtable.poll_host_event_json_utf8 = Some(plugin_host_poll_event_json);
+        host_vtable.send_control_json_utf8 = Some(plugin_host_send_control_json);
+        host_vtable.free_host_str_utf8 = Some(plugin_host_free_str);
 
         let library = unsafe {
             PluginLibrary::load(
@@ -1998,16 +2216,23 @@ fn extract_zip_to_dir(zip_path: &Path, out_dir: &Path) -> Result<()> {
 }
 
 fn inspect_plugin_library_at(path: &Path, runtime_root: &Path) -> Result<PluginManifest> {
+    let event_bus = PluginEventBus::new(HOST_TO_PLUGIN_QUEUE_CAP, PLUGIN_TO_HOST_QUEUE_CAP);
     let mut host_ctx = Box::new(PluginHostCtx {
+        plugin_id: "__inspect__".to_string(),
         runtime_root_utf8: runtime_root
             .to_string_lossy()
             .into_owned()
             .into_bytes()
             .into_boxed_slice(),
+        event_bus,
     });
     let mut host_vtable = Box::new(default_host_vtable());
     host_vtable.user_data = (&mut *host_ctx) as *mut PluginHostCtx as *mut core::ffi::c_void;
     host_vtable.get_runtime_root_utf8 = Some(plugin_host_runtime_root);
+    host_vtable.emit_event_json_utf8 = Some(plugin_host_emit_event_json);
+    host_vtable.poll_host_event_json_utf8 = Some(plugin_host_poll_event_json);
+    host_vtable.send_control_json_utf8 = Some(plugin_host_send_control_json);
+    host_vtable.free_host_str_utf8 = Some(plugin_host_free_str);
 
     let library = unsafe {
         PluginLibrary::load(

@@ -8,8 +8,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:freezed_annotation/freezed_annotation.dart' hide protected;
 part 'stellatune_core.freezed.dart';
 
-// These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `Command`, `LibraryCommand`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
+// These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `Command`, `ControlCommand`, `ControlScope`, `HostControlFinishedPayload`, `HostControlResultPayload`, `HostEventTopic`, `HostLibraryEventEnvelope`, `HostPlayerEventEnvelope`, `HostPlayerTickPayload`, `LibraryCommand`, `LibraryControlCommand`, `PlayerControlCommand`
 
 enum AudioBackend { shared, wasapiExclusive, asio }
 
@@ -616,6 +615,32 @@ class PluginDescriptor {
           id == other.id &&
           name == other.name;
 }
+
+class PluginRuntimeEvent {
+  final String pluginId;
+  final PluginRuntimeKind kind;
+  final String payloadJson;
+
+  const PluginRuntimeEvent({
+    required this.pluginId,
+    required this.kind,
+    required this.payloadJson,
+  });
+
+  @override
+  int get hashCode => pluginId.hashCode ^ kind.hashCode ^ payloadJson.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is PluginRuntimeEvent &&
+          runtimeType == other.runtimeType &&
+          pluginId == other.pluginId &&
+          kind == other.kind &&
+          payloadJson == other.payloadJson;
+}
+
+enum PluginRuntimeKind { notify, control, controlResult, controlFinished }
 
 class SourceCatalogTypeDescriptor {
   final String pluginId;

@@ -3163,6 +3163,7 @@ version = "0.1.0"
 dependencies = [
  "flutter_rust_bridge",
  "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -3263,6 +3264,7 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+ "stellatune-core",
  "stellatune-plugin-api",
 ]
 
@@ -3274,6 +3276,7 @@ dependencies = [
  "libloading",
  "serde",
  "serde_json",
+ "stellatune-core",
  "stellatune-decode",
  "stellatune-plugin-api",
  "tempfile",

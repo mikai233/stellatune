@@ -1,12 +1,20 @@
 pub use stellatune_plugin_api::*;
 
 use core::ffi::c_void;
-use core::sync::atomic::{AtomicPtr, Ordering};
+use core::sync::atomic::{AtomicPtr, AtomicU64, Ordering};
+use serde_json::{Map, Value};
 use std::io::{self, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
+use std::time::{SystemTime, UNIX_EPOCH};
+use stellatune_core::{
+    ControlScope, HostControlFinishedPayload, HostControlResultPayload, HostEventTopic,
+    HostLibraryEventEnvelope, HostPlayerEventEnvelope, HostPlayerTickPayload,
+    LibraryControlCommand, PlayerControlCommand,
+};
 
 static HOST_VTABLE_V1: AtomicPtr<StHostVTableV1> = AtomicPtr::new(core::ptr::null_mut());
+static REQUEST_ID_SEQ: AtomicU64 = AtomicU64::new(1);
 
 #[doc(hidden)]
 pub unsafe fn __set_host_vtable_v1(host: *const StHostVTableV1) {
@@ -62,6 +70,243 @@ pub fn plugin_runtime_root() -> Option<String> {
 /// Returns runtime root directory assigned by host for this plugin as `PathBuf`.
 pub fn plugin_runtime_root_path() -> Option<PathBuf> {
     plugin_runtime_root().map(PathBuf::from)
+}
+
+fn host_take_owned_string(host: *const StHostVTableV1, s: StStr) -> String {
+    if s.ptr.is_null() || s.len == 0 {
+        return String::new();
+    }
+
+    let text = unsafe { ststr_to_str(&s) }
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|_| String::new());
+
+    let free_cb = unsafe { (*host).free_host_str_utf8 };
+    if let Some(free_cb) = free_cb {
+        let user_data = unsafe { (*host).user_data };
+        free_cb(user_data, s);
+    }
+
+    text
+}
+
+fn host_status_to_result(
+    host: *const StHostVTableV1,
+    what: &str,
+    status: StStatus,
+) -> Result<(), String> {
+    if status.code == 0 {
+        return Ok(());
+    }
+    let msg = host_take_owned_string(host, status.message);
+    if msg.is_empty() {
+        Err(format!("{what} failed (code={})", status.code))
+    } else {
+        Err(format!("{what} failed (code={}): {msg}", status.code))
+    }
+}
+
+/// Emit runtime event JSON to host (plugin -> host).
+pub fn host_emit_event_json(event_json: &str) -> Result<(), String> {
+    let host = HOST_VTABLE_V1.load(Ordering::Acquire);
+    if host.is_null() {
+        return Err("host vtable unavailable".to_string());
+    }
+    let cb = unsafe { (*host).emit_event_json_utf8 }
+        .ok_or_else(|| "host callback `emit_event_json_utf8` unavailable".to_string())?;
+    let user_data = unsafe { (*host).user_data };
+    let in_json = StStr {
+        ptr: event_json.as_ptr(),
+        len: event_json.len(),
+    };
+    let status = cb(user_data, in_json);
+    host_status_to_result(host, "emit_event_json_utf8", status)
+}
+
+/// Poll one host event JSON (host/flutter -> plugin).
+pub fn host_poll_event_json() -> Result<Option<String>, String> {
+    let host = HOST_VTABLE_V1.load(Ordering::Acquire);
+    if host.is_null() {
+        return Err("host vtable unavailable".to_string());
+    }
+    let cb = unsafe { (*host).poll_host_event_json_utf8 }
+        .ok_or_else(|| "host callback `poll_host_event_json_utf8` unavailable".to_string())?;
+    let user_data = unsafe { (*host).user_data };
+    let mut out = StStr::empty();
+    let status = cb(user_data, &mut out as *mut StStr);
+    host_status_to_result(host, "poll_host_event_json_utf8", status)?;
+    if out.ptr.is_null() || out.len == 0 {
+        return Ok(None);
+    }
+    Ok(Some(host_take_owned_string(host, out)))
+}
+
+/// Send control request JSON to host and receive immediate response JSON.
+pub fn host_send_control_json(request_json: &str) -> Result<String, String> {
+    let host = HOST_VTABLE_V1.load(Ordering::Acquire);
+    if host.is_null() {
+        return Err("host vtable unavailable".to_string());
+    }
+    let cb = unsafe { (*host).send_control_json_utf8 }
+        .ok_or_else(|| "host callback `send_control_json_utf8` unavailable".to_string())?;
+    let user_data = unsafe { (*host).user_data };
+    let in_json = StStr {
+        ptr: request_json.as_ptr(),
+        len: request_json.len(),
+    };
+    let mut out = StStr::empty();
+    let status = cb(user_data, in_json, &mut out as *mut StStr);
+    host_status_to_result(host, "send_control_json_utf8", status)?;
+    Ok(host_take_owned_string(host, out))
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct HostControlAck {
+    pub ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum PluginHostEvent {
+    PlayerTick(HostPlayerTickPayload),
+    PlayerEvent(HostPlayerEventEnvelope),
+    LibraryEvent(HostLibraryEventEnvelope),
+    ControlResult(HostControlResultPayload),
+    ControlFinished(HostControlFinishedPayload),
+    Custom(Value),
+}
+
+pub fn next_request_id() -> Value {
+    let seq = REQUEST_ID_SEQ.fetch_add(1, Ordering::Relaxed);
+    let ts_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    Value::String(format!("req-{ts_ms}-{seq}"))
+}
+
+pub fn as_control_result(event: &PluginHostEvent) -> Option<&HostControlResultPayload> {
+    match event {
+        PluginHostEvent::ControlResult(payload) => Some(payload),
+        _ => None,
+    }
+}
+
+pub fn as_control_finished(event: &PluginHostEvent) -> Option<&HostControlFinishedPayload> {
+    match event {
+        PluginHostEvent::ControlFinished(payload) => Some(payload),
+        _ => None,
+    }
+}
+
+pub fn control_event_request_id(event: &PluginHostEvent) -> Option<&Value> {
+    match event {
+        PluginHostEvent::ControlResult(payload) => payload.request_id.as_ref(),
+        PluginHostEvent::ControlFinished(payload) => payload.request_id.as_ref(),
+        _ => None,
+    }
+}
+
+pub fn control_event_matches_request_id(event: &PluginHostEvent, request_id: &Value) -> bool {
+    matches!(control_event_request_id(event), Some(v) if v == request_id)
+}
+
+fn build_control_request_json(
+    scope: ControlScope,
+    command: &str,
+    request_id: Option<Value>,
+    fields: Option<Map<String, Value>>,
+) -> Result<String, String> {
+    let mut root = fields.unwrap_or_default();
+    root.insert(
+        "scope".to_string(),
+        Value::String(scope.as_str().to_string()),
+    );
+    root.insert("command".to_string(), Value::String(command.to_string()));
+    if let Some(request_id) = request_id {
+        root.insert("request_id".to_string(), request_id);
+    }
+    serde_json::to_string(&Value::Object(root)).map_err(|e| e.to_string())
+}
+
+pub fn build_player_control_request_json(
+    command: PlayerControlCommand,
+    request_id: Option<Value>,
+    fields: Option<Map<String, Value>>,
+) -> Result<String, String> {
+    build_control_request_json(ControlScope::Player, command.as_str(), request_id, fields)
+}
+
+pub fn build_library_control_request_json(
+    command: LibraryControlCommand,
+    request_id: Option<Value>,
+    fields: Option<Map<String, Value>>,
+) -> Result<String, String> {
+    build_control_request_json(ControlScope::Library, command.as_str(), request_id, fields)
+}
+
+pub fn parse_control_ack_json(response_json: &str) -> Result<HostControlAck, String> {
+    serde_json::from_str(response_json).map_err(|e| e.to_string())
+}
+
+pub fn host_send_player_control(
+    command: PlayerControlCommand,
+    request_id: Option<Value>,
+    fields: Option<Map<String, Value>>,
+) -> Result<HostControlAck, String> {
+    let request = build_player_control_request_json(command, request_id, fields)?;
+    let response = host_send_control_json(&request)?;
+    parse_control_ack_json(&response)
+}
+
+pub fn host_send_library_control(
+    command: LibraryControlCommand,
+    request_id: Option<Value>,
+    fields: Option<Map<String, Value>>,
+) -> Result<HostControlAck, String> {
+    let request = build_library_control_request_json(command, request_id, fields)?;
+    let response = host_send_control_json(&request)?;
+    parse_control_ack_json(&response)
+}
+
+pub fn parse_host_event_json(event_json: &str) -> Result<PluginHostEvent, String> {
+    let root: Value = serde_json::from_str(event_json).map_err(|e| e.to_string())?;
+    let topic = root
+        .get("topic")
+        .and_then(|v| v.as_str())
+        .and_then(HostEventTopic::from_str);
+    let Some(topic) = topic else {
+        return Ok(PluginHostEvent::Custom(root));
+    };
+    match topic {
+        HostEventTopic::PlayerTick => serde_json::from_value::<HostPlayerTickPayload>(root)
+            .map(PluginHostEvent::PlayerTick)
+            .map_err(|e| e.to_string()),
+        HostEventTopic::PlayerEvent => serde_json::from_value::<HostPlayerEventEnvelope>(root)
+            .map(PluginHostEvent::PlayerEvent)
+            .map_err(|e| e.to_string()),
+        HostEventTopic::LibraryEvent => serde_json::from_value::<HostLibraryEventEnvelope>(root)
+            .map(PluginHostEvent::LibraryEvent)
+            .map_err(|e| e.to_string()),
+        HostEventTopic::HostControlResult => {
+            serde_json::from_value::<HostControlResultPayload>(root)
+                .map(PluginHostEvent::ControlResult)
+                .map_err(|e| e.to_string())
+        }
+        HostEventTopic::HostControlFinished => {
+            serde_json::from_value::<HostControlFinishedPayload>(root)
+                .map(PluginHostEvent::ControlFinished)
+                .map_err(|e| e.to_string())
+        }
+    }
+}
+
+pub fn host_poll_event() -> Result<Option<PluginHostEvent>, String> {
+    let Some(raw) = host_poll_event_json()? else {
+        return Ok(None);
+    };
+    parse_host_event_json(&raw).map(Some)
 }
 
 /// Resolves a path relative to plugin runtime root.
@@ -907,4 +1152,88 @@ macro_rules! export_plugin {
             &__ST_PLUGIN_VTABLE
         }
     };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn build_player_control_request_json_includes_scope_command_and_fields() {
+        let mut fields = Map::new();
+        fields.insert("position_ms".to_string(), Value::from(12345u64));
+        let raw = build_player_control_request_json(
+            PlayerControlCommand::SeekMs,
+            Some(Value::String("req-1".to_string())),
+            Some(fields),
+        )
+        .expect("build request");
+        let v: Value = serde_json::from_str(&raw).expect("parse request");
+        assert_eq!(v["scope"], Value::String("player".to_string()));
+        assert_eq!(v["command"], Value::String("seek_ms".to_string()));
+        assert_eq!(v["request_id"], Value::String("req-1".to_string()));
+        assert_eq!(v["position_ms"], Value::from(12345u64));
+    }
+
+    #[test]
+    fn parse_control_ack_json_works() {
+        let ack = parse_control_ack_json(r#"{"ok":true}"#).expect("parse ack");
+        assert_eq!(
+            ack,
+            HostControlAck {
+                ok: true,
+                error: None
+            }
+        );
+    }
+
+    #[test]
+    fn parse_host_event_json_recognizes_control_result() {
+        let raw = r#"{"topic":"host.control.result","request_id":"req-1","scope":"player","command":"play","ok":true}"#;
+        let event = parse_host_event_json(raw).expect("parse event");
+        match event {
+            PluginHostEvent::ControlResult(payload) => {
+                assert!(payload.ok);
+                assert_eq!(payload.request_id, Some(Value::String("req-1".to_string())));
+            }
+            other => panic!("unexpected event: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_host_event_json_falls_back_to_custom_when_topic_missing() {
+        let raw = r#"{"hello":"world"}"#;
+        let event = parse_host_event_json(raw).expect("parse custom");
+        match event {
+            PluginHostEvent::Custom(v) => {
+                assert_eq!(v["hello"], Value::String("world".to_string()));
+            }
+            other => panic!("unexpected event: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn next_request_id_returns_string_value() {
+        let request_id = next_request_id();
+        match request_id {
+            Value::String(v) => assert!(v.starts_with("req-")),
+            other => panic!("unexpected request id: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn control_event_helpers_match_request_id() {
+        let raw = r#"{"topic":"host.control.finished","request_id":"req-9","scope":"player","command":"play","ok":true}"#;
+        let event = parse_host_event_json(raw).expect("parse event");
+        assert!(as_control_finished(&event).is_some());
+        assert!(as_control_result(&event).is_none());
+        assert!(control_event_matches_request_id(
+            &event,
+            &Value::String("req-9".to_string())
+        ));
+        assert!(!control_event_matches_request_id(
+            &event,
+            &Value::String("req-other".to_string())
+        ));
+    }
 }

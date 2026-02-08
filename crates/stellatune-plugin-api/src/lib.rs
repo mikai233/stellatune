@@ -3,10 +3,7 @@
 use core::ffi::c_void;
 
 // Single in-development ABI version (early-stage project).
-// Note: changing ABI without changing this can break older native plugins.
-// ABI was changed by adding `get_interface` to `StPluginVTableV1`, `metadata_json_utf8`,
-// and `get_runtime_root_utf8` host callback.
-// Bump host/plugin API version to reject stale binaries at load time.
+// Note: this ABI may change in place while staying on v1 during early development.
 pub const STELLATUNE_PLUGIN_API_VERSION_V1: u32 = 3;
 pub const STELLATUNE_PLUGIN_ENTRY_SYMBOL_V1: &str = "stellatune_plugin_entry_v1";
 pub const ST_INTERFACE_SOURCE_CATALOG_V1: &str = "stellatune.source_catalog.v1";
@@ -155,6 +152,27 @@ pub struct StHostVTableV1 {
     /// Returns plugin runtime root path as UTF-8 bytes.
     /// The returned bytes are host-owned and must be treated as read-only.
     pub get_runtime_root_utf8: Option<extern "C" fn(user_data: *mut c_void) -> StStr>,
+    /// Emit plugin runtime event (plugin -> host).
+    /// `event_json_utf8` is UTF-8 JSON envelope.
+    pub emit_event_json_utf8:
+        Option<extern "C" fn(user_data: *mut c_void, event_json_utf8: StStr) -> StStatus>,
+    /// Poll next host event (host/flutter -> plugin).
+    /// On success:
+    /// - `out_event_json_utf8 == empty` means no event available.
+    /// - non-empty value is host-allocated and must be released by `free_host_str_utf8`.
+    pub poll_host_event_json_utf8:
+        Option<extern "C" fn(user_data: *mut c_void, out_event_json_utf8: *mut StStr) -> StStatus>,
+    /// Send control request to host and receive immediate response JSON.
+    /// `out_response_json_utf8` is host-allocated and must be released by `free_host_str_utf8`.
+    pub send_control_json_utf8: Option<
+        extern "C" fn(
+            user_data: *mut c_void,
+            request_json_utf8: StStr,
+            out_response_json_utf8: *mut StStr,
+        ) -> StStatus,
+    >,
+    /// Free strings returned by host callbacks above.
+    pub free_host_str_utf8: Option<extern "C" fn(user_data: *mut c_void, s: StStr)>,
 }
 
 // Raw pointers make this not auto-Send/Sync. For StellaTune v1 we treat the host vtable as

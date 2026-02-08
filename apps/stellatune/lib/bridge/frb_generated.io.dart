@@ -3,7 +3,9 @@
 
 // ignore_for_file: unused_import, unused_element, unnecessary_import, duplicate_ignore, invalid_use_of_internal_member, annotate_overrides, non_constant_identifier_names, curly_braces_in_flow_control_structures, prefer_const_literals_to_create_immutables, unused_field
 
-import 'api.dart';
+import 'api/dlna.dart';
+import 'api/library.dart';
+import 'api/player.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi' as ffi;
@@ -47,6 +49,10 @@ abstract class StellatuneApiApiImplPlatform
   RustStreamSink<LyricsEvent> dco_decode_StreamSink_lyrics_event_Sse(
     dynamic raw,
   );
+
+  @protected
+  RustStreamSink<PluginRuntimeEvent>
+  dco_decode_StreamSink_plugin_runtime_event_Sse(dynamic raw);
 
   @protected
   String dco_decode_String(dynamic raw);
@@ -231,6 +237,12 @@ abstract class StellatuneApiApiImplPlatform
   PluginDescriptor dco_decode_plugin_descriptor(dynamic raw);
 
   @protected
+  PluginRuntimeEvent dco_decode_plugin_runtime_event(dynamic raw);
+
+  @protected
+  PluginRuntimeKind dco_decode_plugin_runtime_kind(dynamic raw);
+
+  @protected
   SourceCatalogTypeDescriptor dco_decode_source_catalog_type_descriptor(
     dynamic raw,
   );
@@ -285,6 +297,10 @@ abstract class StellatuneApiApiImplPlatform
   RustStreamSink<LyricsEvent> sse_decode_StreamSink_lyrics_event_Sse(
     SseDeserializer deserializer,
   );
+
+  @protected
+  RustStreamSink<PluginRuntimeEvent>
+  sse_decode_StreamSink_plugin_runtime_event_Sse(SseDeserializer deserializer);
 
   @protected
   String sse_decode_String(SseDeserializer deserializer);
@@ -499,6 +515,16 @@ abstract class StellatuneApiApiImplPlatform
   PluginDescriptor sse_decode_plugin_descriptor(SseDeserializer deserializer);
 
   @protected
+  PluginRuntimeEvent sse_decode_plugin_runtime_event(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  PluginRuntimeKind sse_decode_plugin_runtime_kind(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   SourceCatalogTypeDescriptor sse_decode_source_catalog_type_descriptor(
     SseDeserializer deserializer,
   );
@@ -557,6 +583,12 @@ abstract class StellatuneApiApiImplPlatform
   @protected
   void sse_encode_StreamSink_lyrics_event_Sse(
     RustStreamSink<LyricsEvent> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_StreamSink_plugin_runtime_event_Sse(
+    RustStreamSink<PluginRuntimeEvent> self,
     SseSerializer serializer,
   );
 
@@ -833,6 +865,18 @@ abstract class StellatuneApiApiImplPlatform
   @protected
   void sse_encode_plugin_descriptor(
     PluginDescriptor self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_plugin_runtime_event(
+    PluginRuntimeEvent self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_plugin_runtime_kind(
+    PluginRuntimeKind self,
     SseSerializer serializer,
   );
 

@@ -24,12 +24,20 @@ export 'third_party/stellatune_core.dart'
         TrackLite,
         LyricsQuery,
         LyricsEvent,
+        PluginRuntimeEvent,
         LyricsDoc,
         LyricLine,
         LyricsSearchCandidate,
         DlnaSsdpDevice,
         DlnaRenderer,
         DlnaHttpServerInfo;
+
+Stream<PluginRuntimeEvent>? _pluginRuntimeEventGlobalBroadcast;
+
+Stream<PluginRuntimeEvent> pluginRuntimeEventsGlobal() =>
+    _pluginRuntimeEventGlobalBroadcast ??= api
+        .pluginRuntimeEventsGlobal()
+        .asBroadcastStream();
 
 /// Thin Dart-side facade over the generated FRB bindings.
 ///
@@ -40,6 +48,7 @@ class PlayerBridge {
   final api.Player player;
   Stream<Event>? _eventBroadcast;
   Stream<LyricsEvent>? _lyricsEventBroadcast;
+  Stream<PluginRuntimeEvent>? _pluginRuntimeEventBroadcast;
 
   static Future<PlayerBridge> create() async {
     final player = await api.createPlayer();
@@ -52,6 +61,9 @@ class PlayerBridge {
   Stream<LyricsEvent> lyricsEvents() => _lyricsEventBroadcast ??= api
       .lyricsEvents(player: player)
       .asBroadcastStream();
+
+  Stream<PluginRuntimeEvent> pluginRuntimeEvents() =>
+      _pluginRuntimeEventBroadcast ??= pluginRuntimeEventsGlobal();
 
   Future<void> load(String path) => api.load(player: player, path: path);
   Future<void> loadTrackRef(TrackRef track) =>
@@ -184,6 +196,15 @@ class PlayerBridge {
     required String dir,
     required String pluginId,
   }) => api.pluginsUninstallById(pluginsDir: dir, pluginId: pluginId);
+
+  Future<void> pluginPublishEventJson({
+    String? pluginId,
+    required String eventJson,
+  }) => api.pluginPublishEventJson(
+    player: player,
+    pluginId: pluginId,
+    eventJson: eventJson,
+  );
 
   Future<void> refreshDevices() => api.refreshDevices(player: player);
 

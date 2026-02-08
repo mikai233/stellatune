@@ -20,6 +20,12 @@ use arc_swap::ArcSwap;
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 use stellatune_plugins::{PluginManager, default_host_vtable};
 
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+pub type SharedPlugins = Arc<std::sync::Mutex<PluginManager>>;
+
+#[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+pub type SharedPlugins = ();
+
 #[derive(Clone)]
 pub struct LibraryHandle {
     cmd_tx: Sender<LibraryCommand>,
@@ -101,6 +107,22 @@ impl LibraryHandle {
 }
 
 pub fn start_library(db_path: String, disabled_plugin_ids: Vec<String>) -> Result<LibraryHandle> {
+    #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+    let plugins: SharedPlugins = Arc::new(std::sync::Mutex::new(PluginManager::new(
+        default_host_vtable(),
+    )));
+
+    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+    let plugins: SharedPlugins = ();
+
+    start_library_with_plugins(db_path, disabled_plugin_ids, plugins)
+}
+
+pub fn start_library_with_plugins(
+    db_path: String,
+    disabled_plugin_ids: Vec<String>,
+    shared_plugins: SharedPlugins,
+) -> Result<LibraryHandle> {
     let (cmd_tx, cmd_rx) = crossbeam_channel::unbounded::<LibraryCommand>();
     let events = Arc::new(EventHub::new());
     let thread_events = Arc::clone(&events);
@@ -125,13 +147,7 @@ pub fn start_library(db_path: String, disabled_plugin_ids: Vec<String>) -> Resul
     #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
     let disabled_plugin_ids: DisabledPluginIds = ();
 
-    #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-    let plugins: Plugins = Arc::new(std::sync::Mutex::new(PluginManager::new(
-        default_host_vtable(),
-    )));
-
-    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
-    let plugins: Plugins = ();
+    let plugins: Plugins = shared_plugins;
 
     let plugins_dir_thread = plugins_dir.clone();
     let plugins_thread = plugins.clone();

@@ -53,6 +53,12 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
       TextEditingController(text: '{}');
   final TextEditingController _outputSinkTargetController =
       TextEditingController(text: '{}');
+  final TextEditingController _pluginRuntimeTargetIdController =
+      TextEditingController();
+  final TextEditingController _pluginRuntimeJsonController =
+      TextEditingController(text: '{"scope":"player","command":"play"}');
+  StreamSubscription<PluginRuntimeEvent>? _pluginRuntimeSub;
+  final List<PluginRuntimeEvent> _pluginRuntimeEvents = <PluginRuntimeEvent>[];
   List<Object?> _outputSinkTargets = const [];
   bool _loadingOutputSinkTargets = false;
   final Map<String, String> _sourceConfigDrafts = <String, String>{};
@@ -70,13 +76,59 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
     super.initState();
     _loadFromSettings();
     _refresh();
+    _startPluginRuntimeListener();
   }
 
   @override
   void dispose() {
     _outputSinkConfigController.dispose();
     _outputSinkTargetController.dispose();
+    _pluginRuntimeTargetIdController.dispose();
+    _pluginRuntimeJsonController.dispose();
+    unawaited(_pluginRuntimeSub?.cancel());
     super.dispose();
+  }
+
+  void _startPluginRuntimeListener() {
+    unawaited(_pluginRuntimeSub?.cancel());
+    _pluginRuntimeSub = ref
+        .read(playerBridgeProvider)
+        .pluginRuntimeEvents()
+        .listen((event) {
+          if (!mounted) return;
+          setState(() {
+            _pluginRuntimeEvents.insert(0, event);
+            if (_pluginRuntimeEvents.length > 120) {
+              _pluginRuntimeEvents.removeRange(
+                120,
+                _pluginRuntimeEvents.length,
+              );
+            }
+          });
+        });
+  }
+
+  Future<void> _sendPluginRuntimeEventJson() async {
+    final payload = _pluginRuntimeJsonController.text.trim();
+    if (payload.isEmpty) return;
+    final pluginId = _pluginRuntimeTargetIdController.text.trim();
+    try {
+      await ref
+          .read(playerBridgeProvider)
+          .pluginPublishEventJson(
+            pluginId: pluginId.isEmpty ? null : pluginId,
+            eventJson: payload,
+          );
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Plugin event sent')));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Send failed: $e')));
+    }
   }
 
   void _loadFromSettings() {
@@ -1293,6 +1345,84 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
                     icon: const Icon(Icons.delete_sweep_outlined),
                     label: Text(l10n.settingsClearLyricsCache),
                   ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Plugin Runtime Debug',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _pluginRuntimeTargetIdController,
+                  decoration: const InputDecoration(
+                    labelText: 'Target plugin id (optional)',
+                    hintText: 'empty = broadcast',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _pluginRuntimeJsonController,
+                  minLines: 3,
+                  maxLines: 6,
+                  decoration: const InputDecoration(
+                    labelText: 'Event JSON',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    FilledButton.icon(
+                      onPressed: _sendPluginRuntimeEventJson,
+                      icon: const Icon(Icons.send),
+                      label: const Text('Send'),
+                    ),
+                    const SizedBox(width: 8),
+                    OutlinedButton(
+                      onPressed: () {
+                        setState(() => _pluginRuntimeEvents.clear());
+                      },
+                      child: const Text('Clear Events'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Container(
+                  width: double.infinity,
+                  height: 220,
+                  decoration: BoxDecoration(
+                    border: Border.all(
+                      color: Theme.of(
+                        context,
+                      ).dividerColor.withValues(alpha: 0.5),
+                    ),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: _pluginRuntimeEvents.isEmpty
+                      ? const Center(child: Text('No runtime events yet'))
+                      : ListView.separated(
+                          padding: const EdgeInsets.all(8),
+                          itemBuilder: (context, index) {
+                            final e = _pluginRuntimeEvents[index];
+                            return SelectableText(
+                              '[${e.kind.name}] ${e.pluginId}: ${e.payloadJson}',
+                              style: Theme.of(context).textTheme.bodySmall,
+                            );
+                          },
+                          separatorBuilder: (_, _) => const SizedBox(height: 6),
+                          itemCount: _pluginRuntimeEvents.length,
+                        ),
                 ),
               ],
             ),
