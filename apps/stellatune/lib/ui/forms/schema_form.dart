@@ -1,6 +1,6 @@
 import 'dart:convert';
-
 import 'package:flutter/material.dart';
+import 'package:stellatune/app/logging.dart';
 
 enum _SchemaFieldKind { string, number, integer, boolean, json }
 
@@ -108,7 +108,8 @@ class _SchemaFormState extends State<SchemaForm> {
       _fields = fields;
       _schemaError = null;
       _emit();
-    } catch (e) {
+    } catch (e, s) {
+      logger.e('failed to parse schema in SchemaForm', error: e, stackTrace: s);
       _fields = const [];
       _schemaError = e.toString();
       widget.onChangedJson(_fallbackController.text);
@@ -132,7 +133,13 @@ class _SchemaFormState extends State<SchemaForm> {
       if (decoded is Map) {
         return decoded.cast<String, dynamic>();
       }
-    } catch (_) {}
+    } catch (e, s) {
+      logger.w(
+        'failed to decode JSON object in SchemaForm',
+        error: e,
+        stackTrace: s,
+      );
+    }
     return null;
   }
 
@@ -263,7 +270,12 @@ class _SchemaFormState extends State<SchemaForm> {
     if (kind == _SchemaFieldKind.json) {
       try {
         return jsonEncode(value);
-      } catch (_) {
+      } catch (e, s) {
+        logger.w(
+          'failed to encode JSON value in SchemaForm',
+          error: e,
+          stackTrace: s,
+        );
         return value.toString();
       }
     }
@@ -413,7 +425,12 @@ class _SchemaFormState extends State<SchemaForm> {
               }
               try {
                 _setFieldValue(f, jsonDecode(trimmed));
-              } catch (_) {
+              } catch (e, s) {
+                logger.w(
+                  'failed to parse JSON field in SchemaForm',
+                  error: e,
+                  stackTrace: s,
+                );
                 _fieldErrors[f.key] = 'Invalid JSON';
               }
               break;

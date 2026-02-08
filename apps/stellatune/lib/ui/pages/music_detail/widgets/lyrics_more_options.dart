@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:stellatune/bridge/bridge.dart';
+import 'package:stellatune/app/logging.dart';
 import 'package:stellatune/lyrics/lyrics_controller.dart';
 import 'package:stellatune/l10n/app_localizations.dart';
 import 'package:stellatune/ui/widgets/custom_title_bar.dart';
@@ -163,7 +164,14 @@ Future<void> showLyricsCandidatePicker({
                                 ),
                               );
                             }
-                          } catch (_) {
+                          } catch (e, s) {
+                            ref
+                                .read(loggerProvider)
+                                .e(
+                                  'failed to apply lyrics candidate',
+                                  error: e,
+                                  stackTrace: s,
+                                );
                             if (context.mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(

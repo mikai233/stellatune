@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:palette_generator/palette_generator.dart';
+import 'package:stellatune/app/logging.dart';
 import 'package:stellatune/app/providers.dart';
 import 'package:stellatune/bridge/bridge.dart';
 import 'package:stellatune/l10n/app_localizations.dart';
@@ -145,8 +146,14 @@ class _MobileMusicDetailPageState extends ConsumerState<MobileMusicDetailPage> {
           _foregroundColor = foregroundColor;
         });
       }
-    } catch (e) {
-      debugPrint('Error generating palette: $e');
+    } catch (e, s) {
+      ref
+          .read(loggerProvider)
+          .w(
+            'failed to generate palette for mobile music detail',
+            error: e,
+            stackTrace: s,
+          );
     }
   }
 

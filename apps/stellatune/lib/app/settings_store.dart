@@ -7,6 +7,7 @@ import 'package:flutter/material.dart' show ThemeMode;
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:stellatune/player/queue_models.dart';
 import 'package:stellatune/bridge/bridge.dart';
+import 'package:stellatune/app/logging.dart';
 
 class OutputSettingsUiSession {
   bool initialized = false;
@@ -100,7 +101,9 @@ class SettingsStore extends Notifier<SettingsStore> {
             );
           }
         }
-      } catch (_) {}
+      } catch (e, s) {
+        logger.w('failed to decode resume track', error: e, stackTrace: s);
+      }
     }
 
     final legacyPath = resumePath;
@@ -179,7 +182,8 @@ class SettingsStore extends Notifier<SettingsStore> {
           .map((s) => s.trim())
           .where((s) => s.isNotEmpty)
           .toSet();
-    } catch (_) {
+    } catch (e, s) {
+      logger.w('failed to parse disabled plugin ids', error: e, stackTrace: s);
       return <String>{};
     }
   }
@@ -268,7 +272,8 @@ class SettingsStore extends Notifier<SettingsStore> {
         configJson: (map['configJson'] as String?) ?? '{}',
         targetJson: (map['targetJson'] as String?) ?? '{}',
       );
-    } catch (_) {
+    } catch (e, s) {
+      logger.w('failed to parse output sink route', error: e, stackTrace: s);
       return null;
     }
   }
@@ -299,7 +304,8 @@ class SettingsStore extends Notifier<SettingsStore> {
         out[k] = v;
       }
       return out;
-    } catch (_) {
+    } catch (e, s) {
+      logger.w('failed to parse source configs', error: e, stackTrace: s);
       return const <String, String>{};
     }
   }
@@ -334,7 +340,9 @@ class SettingsStore extends Notifier<SettingsStore> {
       if (decoded is Map) {
         return QueueSource.fromJson(decoded.cast<String, dynamic>());
       }
-    } catch (_) {}
+    } catch (e, s) {
+      logger.w('failed to parse queue source', error: e, stackTrace: s);
+    }
     return null;
   }
 

@@ -218,7 +218,14 @@ class _OpenContainerShaderWarmupState
         }
       }
       return weightedColors;
-    } catch (_) {
+    } catch (e, s) {
+      ref
+          .read(loggerProvider)
+          .w(
+            'failed to build warmup colors from current track',
+            error: e,
+            stackTrace: s,
+          );
       return null;
     }
   }

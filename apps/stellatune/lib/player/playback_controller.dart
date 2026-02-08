@@ -616,10 +616,26 @@ class PlaybackController extends Notifier<PlaybackState> {
           controlUrl: prev!.avTransportControlUrl!,
           serviceType: prev.avTransportServiceType,
         );
-      } catch (_) {}
+      } catch (e, s) {
+        ref
+            .read(loggerProvider)
+            .w(
+              'failed to stop DLNA transport during output change',
+              error: e,
+              stackTrace: s,
+            );
+      }
       try {
         await _dlna.httpUnpublishAll();
-      } catch (_) {}
+      } catch (e, s) {
+        ref
+            .read(loggerProvider)
+            .w(
+              'failed to unpublish DLNA HTTP services during output change',
+              error: e,
+              stackTrace: s,
+            );
+      }
       _dlnaLastPath = null;
       state = state.copyWith(playerState: PlayerState.stopped, positionMs: 0);
     }
@@ -643,7 +659,15 @@ class PlaybackController extends Notifier<PlaybackState> {
             controlUrl: prevUrl,
             serviceType: prev?.avTransportServiceType,
           );
-        } catch (_) {}
+        } catch (e, s) {
+          ref
+              .read(loggerProvider)
+              .w(
+                'failed to stop DLNA transport during output change',
+                error: e,
+                stackTrace: s,
+              );
+        }
       }
     }
 

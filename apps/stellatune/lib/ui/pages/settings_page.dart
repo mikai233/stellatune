@@ -13,6 +13,7 @@ import 'package:stellatune/bridge/bridge.dart';
 import 'package:stellatune/l10n/app_localizations.dart';
 import 'package:stellatune/lyrics/lyrics_controller.dart';
 import 'package:stellatune/ui/forms/schema_form.dart';
+import 'package:stellatune/app/logging.dart';
 
 class SettingsPage extends ConsumerStatefulWidget {
   const SettingsPage({super.key, this.useGlobalTopBar = false});
@@ -350,12 +351,6 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
       dir: _pluginDir!,
       disabledIds: disabledIds.toList(),
     );
-    await ref
-        .read(libraryBridgeProvider)
-        .pluginsReloadWithDisabled(
-          dir: _pluginDir!,
-          disabledIds: disabledIds.toList(),
-        );
   }
 
   Future<void> _setPluginEnabled({
@@ -430,13 +425,8 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
         dir: pluginDir,
         artifactPath: srcPath,
       );
-      final library = ref.read(libraryBridgeProvider);
       final disabledIds = ref.read(settingsStoreProvider).disabledPluginIds;
       await bridge.pluginsReloadWithDisabled(
-        dir: pluginDir,
-        disabledIds: disabledIds.toList(),
-      );
-      await library.pluginsReloadWithDisabled(
         dir: pluginDir,
         disabledIds: disabledIds.toList(),
       );
@@ -445,7 +435,8 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(l10n.settingsPluginInstalled)));
-    } catch (e) {
+    } catch (e, s) {
+      logger.e('failed to install plugin', error: e, stackTrace: s);
       if (!mounted) return;
       final l10n = AppLocalizations.of(context)!;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -458,7 +449,12 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
     dynamic decoded;
     try {
       decoded = jsonDecode(raw);
-    } catch (_) {
+    } catch (e, s) {
+      logger.w(
+        'failed to decode output sink targets JSON',
+        error: e,
+        stackTrace: s,
+      );
       return const [];
     }
     if (decoded is List) {
@@ -503,7 +499,8 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
           _outputSinkTargetController.text = _targetValueOf(targets.first);
         }
       }
-    } catch (_) {
+    } catch (e, s) {
+      logger.e('failed to load output sink targets', error: e, stackTrace: s);
       if (!mounted) return;
       final l10n = AppLocalizations.of(context)!;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -587,7 +584,8 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(l10n.settingsClearLyricsCacheDone)),
       );
-    } catch (_) {
+    } catch (e, s) {
+      logger.e('failed to clear lyrics cache', error: e, stackTrace: s);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(l10n.settingsClearLyricsCacheFailed)),
@@ -828,7 +826,12 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
                             await _loadOutputSinkTargets();
                           }
                           await _applyOutputSinkRoute();
-                        } catch (e) {
+                        } catch (e, s) {
+                          logger.e(
+                            'failed to apply backend',
+                            error: e,
+                            stackTrace: s,
+                          );
                           messenger.showSnackBar(
                             SnackBar(content: Text('Apply backend failed: $e')),
                           );
@@ -837,7 +840,13 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
                             await ref
                                 .read(playerBridgeProvider)
                                 .refreshDevices();
-                          } catch (_) {}
+                          } catch (e, s) {
+                            logger.w(
+                              'failed to refresh devices after backend change',
+                              error: e,
+                              stackTrace: s,
+                            );
+                          }
                         }
                       },
                     );
@@ -928,7 +937,12 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
                       });
                       try {
                         await _applyOutputSinkRoute();
-                      } catch (e) {
+                      } catch (e, s) {
+                        logger.e(
+                          'failed to set output device',
+                          error: e,
+                          stackTrace: s,
+                        );
                         messenger.showSnackBar(
                           SnackBar(content: Text('Apply backend failed: $e')),
                         );
@@ -1195,7 +1209,12 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
                                                       plugin: p,
                                                       enabled: v,
                                                     );
-                                                  } catch (e) {
+                                                  } catch (e, s) {
+                                                    logger.e(
+                                                      'failed to toggle plugin state',
+                                                      error: e,
+                                                      stackTrace: s,
+                                                    );
                                                     if (!context.mounted) {
                                                       return;
                                                     }
@@ -1251,7 +1270,12 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
                                                   if (ok != true) return;
                                                   try {
                                                     await _uninstallPlugin(p);
-                                                  } catch (_) {
+                                                  } catch (e, s) {
+                                                    logger.e(
+                                                      'failed to uninstall plugin',
+                                                      error: e,
+                                                      stackTrace: s,
+                                                    );
                                                     if (!context.mounted) {
                                                       return;
                                                     }
@@ -1444,7 +1468,13 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
                                                             try {
                                                               await _loadOutputSinkTargets();
                                                               await _applyOutputSinkRoute();
-                                                            } catch (_) {}
+                                                            } catch (e, s) {
+                                                              logger.e(
+                                                                'failed to apply output sink route in debounce',
+                                                                error: e,
+                                                                stackTrace: s,
+                                                              );
+                                                            }
                                                           },
                                                         );
                                                       }

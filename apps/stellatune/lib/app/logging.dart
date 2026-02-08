@@ -41,6 +41,8 @@ class RustLikePrinter extends LogPrinter {
   }
 }
 
+final logger = Logger(printer: RustLikePrinter());
+
 final loggerProvider = Provider<Logger>((ref) {
-  return Logger(printer: RustLikePrinter());
+  return logger;
 });

@@ -10,6 +10,7 @@ import 'package:stellatune/library/library_paths.dart';
 import 'package:stellatune/platform/rust_runtime.dart';
 import 'package:stellatune/platform/tray_service.dart';
 import 'package:window_manager/window_manager.dart';
+import 'package:stellatune/app/logging.dart';
 
 class AppBootstrapResult {
   const AppBootstrapResult({
@@ -133,7 +134,12 @@ Future<void> _applyPersistedOutputSettings({
     var localDeviceId = settings.selectedDeviceId;
     try {
       await bridge.setOutputDevice(backend: backend, deviceId: localDeviceId);
-    } catch (_) {
+    } catch (e, s) {
+      logger.w(
+        'failed to set persisted output device, falling back to default',
+        error: e,
+        stackTrace: s,
+      );
       // Persisted local device may no longer exist; fallback to system default.
       localDeviceId = null;
       await settings.setSelectedDeviceId(null);
@@ -178,7 +184,12 @@ Future<void> _applyPersistedOutputSettings({
               );
             }
           }
-        } catch (_) {
+        } catch (e, s) {
+          logger.w(
+            'failed to probe output sink targets',
+            error: e,
+            stackTrace: s,
+          );
           // Target probing failed. Keep route and let runtime apply decide fallback.
         }
 
@@ -187,7 +198,12 @@ Future<void> _applyPersistedOutputSettings({
           if (effectiveRoute != route) {
             await settings.setOutputSinkRoute(effectiveRoute);
           }
-        } catch (_) {
+        } catch (e, s) {
+          logger.e(
+            'failed to set output sink route, falling back to local',
+            error: e,
+            stackTrace: s,
+          );
           // Plugin route unusable (plugin disabled/unavailable/target invalid): fallback local output.
           await bridge.clearOutputSinkRoute();
           await settings.clearOutputSinkRoute();
@@ -197,17 +213,29 @@ Future<void> _applyPersistedOutputSettings({
 
     try {
       await bridge.refreshDevices();
-    } catch (_) {
+    } catch (e, s) {
+      logger.w('failed to refresh output devices', error: e, stackTrace: s);
       // Non-fatal. Device refresh stream update is best-effort.
     }
-  } catch (_) {}
+  } catch (e, s) {
+    logger.e(
+      'failed to apply persisted output settings',
+      error: e,
+      stackTrace: s,
+    );
+  }
 }
 
 List<Object?> _parseOutputSinkTargets(String raw) {
   dynamic decoded;
   try {
     decoded = jsonDecode(raw);
-  } catch (_) {
+  } catch (e, s) {
+    logger.w(
+      'failed to decode output sink targets JSON',
+      error: e,
+      stackTrace: s,
+    );
     return const [];
   }
   if (decoded is List) {
@@ -234,7 +262,9 @@ Future<void> _setupLyricsCacheDb({
   // Best-effort: lyrics can still work without persistent cache.
   try {
     await bridge.lyricsSetCacheDbPath(lyricsDbPath);
-  } catch (_) {}
+  } catch (e, s) {
+    logger.e('failed to setup lyrics cache db', error: e, stackTrace: s);
+  }
 }
 
 Future<void> _reloadPlugins({
@@ -249,9 +279,11 @@ Future<void> _reloadPlugins({
       dir: pluginDir,
       disabledIds: disabledPluginIds,
     );
-    await library.pluginsReloadWithDisabled(
-      dir: pluginDir,
-      disabledIds: disabledPluginIds,
+  } catch (e, s) {
+    logger.e(
+      'failed to reload plugins during bootstrap',
+      error: e,
+      stackTrace: s,
     );
-  } catch (_) {}
+  }
 }
