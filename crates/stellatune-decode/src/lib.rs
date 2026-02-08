@@ -194,7 +194,7 @@ fn append_decoded(
     pending: &mut Vec<f32>,
     audio_buf: AudioBufferRef<'_>,
 ) {
-    let spec = SignalSpec::new(audio_buf.spec().rate, audio_buf.spec().channels.clone());
+    let spec = SignalSpec::new(audio_buf.spec().rate, audio_buf.spec().channels);
     let duration = audio_buf.capacity() as u64;
 
     let needs_realloc = match sample_buf.as_ref() {

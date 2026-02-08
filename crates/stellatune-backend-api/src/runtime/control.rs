@@ -81,19 +81,40 @@ pub(super) fn is_wait_satisfied_by_player(wait: ControlWaitKind, event: &Event) 
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 pub(super) fn is_wait_satisfied_by_library(wait: ControlWaitKind, event: &LibraryEvent) -> bool {
-    match (wait, event) {
-        (ControlWaitKind::LibraryRoots, LibraryEvent::Roots { .. }) => true,
-        (ControlWaitKind::LibraryFolders, LibraryEvent::Folders { .. }) => true,
-        (ControlWaitKind::LibraryExcludedFolders, LibraryEvent::ExcludedFolders { .. }) => true,
-        (ControlWaitKind::LibraryTracks, LibraryEvent::Tracks { .. }) => true,
-        (ControlWaitKind::LibrarySearchResult, LibraryEvent::SearchResult { .. }) => true,
-        (ControlWaitKind::LibraryPlaylists, LibraryEvent::Playlists { .. }) => true,
-        (ControlWaitKind::LibraryPlaylistTracks, LibraryEvent::PlaylistTracks { .. }) => true,
-        (ControlWaitKind::LibraryLikedTrackIds, LibraryEvent::LikedTrackIds { .. }) => true,
-        (ControlWaitKind::LibraryScanFinished, LibraryEvent::ScanFinished { .. }) => true,
-        (ControlWaitKind::LibraryChanged, LibraryEvent::Changed) => true,
-        _ => false,
-    }
+    matches!(
+        (wait, event),
+        (ControlWaitKind::LibraryRoots, LibraryEvent::Roots { .. })
+            | (
+                ControlWaitKind::LibraryFolders,
+                LibraryEvent::Folders { .. }
+            )
+            | (
+                ControlWaitKind::LibraryExcludedFolders,
+                LibraryEvent::ExcludedFolders { .. }
+            )
+            | (ControlWaitKind::LibraryTracks, LibraryEvent::Tracks { .. })
+            | (
+                ControlWaitKind::LibrarySearchResult,
+                LibraryEvent::SearchResult { .. }
+            )
+            | (
+                ControlWaitKind::LibraryPlaylists,
+                LibraryEvent::Playlists { .. }
+            )
+            | (
+                ControlWaitKind::LibraryPlaylistTracks,
+                LibraryEvent::PlaylistTracks { .. }
+            )
+            | (
+                ControlWaitKind::LibraryLikedTrackIds,
+                LibraryEvent::LikedTrackIds { .. }
+            )
+            | (
+                ControlWaitKind::LibraryScanFinished,
+                LibraryEvent::ScanFinished { .. }
+            )
+            | (ControlWaitKind::LibraryChanged, LibraryEvent::Changed)
+    )
 }
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
@@ -415,7 +436,7 @@ pub(super) fn route_plugin_control_root(
             let Some(engine) = engine else {
                 return Err("player unavailable".to_string());
             };
-            if let Some(cmd) = parse_player_control(&root)? {
+            if let Some(cmd) = parse_player_control(root)? {
                 engine.send_command(cmd);
             }
             Ok(())
@@ -424,7 +445,7 @@ pub(super) fn route_plugin_control_root(
             let Some(library) = library else {
                 return Err("library unavailable".to_string());
             };
-            if let Some(cmd) = parse_library_control(&root)? {
+            if let Some(cmd) = parse_library_control(root)? {
                 library.send_command(cmd);
             }
             Ok(())

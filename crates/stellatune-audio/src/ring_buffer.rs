@@ -37,6 +37,10 @@ impl<T> RingBufferProducer<T> {
         self.inner.occupied_len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.inner.occupied_len() == 0
+    }
+
     pub fn capacity(&self) -> usize {
         self.inner.capacity().get()
     }
@@ -68,6 +72,10 @@ impl<T> RingBufferConsumer<T> {
 
     pub fn len(&self) -> usize {
         self.inner.occupied_len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.inner.occupied_len() == 0
     }
 
     pub fn capacity(&self) -> usize {

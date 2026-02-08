@@ -545,6 +545,10 @@ unsafe impl Send for HostIo {}
 unsafe impl Sync for HostIo {}
 
 impl HostIo {
+    /// # Safety
+    ///
+    /// The caller must ensure that `vtable` and `handle` are valid and remain valid for the
+    /// lifetime of the returned `HostIo`.
     pub unsafe fn from_raw(vtable: *const StIoVTableV1, handle: *mut c_void) -> Self {
         Self { vtable, handle }
     }
@@ -572,10 +576,7 @@ impl HostIo {
         let mut out = 0u64;
         let st = (size)(self.handle, &mut out);
         if st.code != 0 {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!("size failed (code={})", st.code),
-            ));
+            return Err(io::Error::other(format!("size failed (code={})", st.code)));
         }
         Ok(out)
     }
@@ -594,10 +595,7 @@ impl Read for HostIo {
             ((*self.vtable).read)(self.handle, buf.as_mut_ptr(), buf.len(), &mut out_read)
         };
         if st.code != 0 {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!("read failed (code={})", st.code),
-            ));
+            return Err(io::Error::other(format!("read failed (code={})", st.code)));
         }
         Ok(out_read)
     }
@@ -625,10 +623,7 @@ impl Seek for HostIo {
         let mut out_pos = 0u64;
         let st = (seek)(self.handle, offset, whence, &mut out_pos);
         if st.code != 0 {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!("seek failed (code={})", st.code),
-            ));
+            return Err(io::Error::other(format!("seek failed (code={})", st.code)));
         }
         Ok(out_pos)
     }
@@ -731,7 +726,11 @@ pub fn status_err_msg(code: i32, msg: &str) -> StStatus {
     }
 }
 
-pub unsafe fn ststr_to_str<'a>(s: &'a StStr) -> Result<&'a str, String> {
+/// # Safety
+///
+/// The caller must ensure that the `StStr` contains a valid pointer to a memory region
+/// of at least `s.len` bytes.
+pub unsafe fn ststr_to_str(s: &StStr) -> Result<&str, String> {
     if s.ptr.is_null() || s.len == 0 {
         return Ok("");
     }

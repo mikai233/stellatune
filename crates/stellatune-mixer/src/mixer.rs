@@ -46,7 +46,7 @@ impl ChannelMixer {
     pub fn mix(&self, input: &[f32]) -> Vec<f32> {
         let in_ch = self.in_layout.channel_count();
         debug_assert!(
-            input.len() % in_ch == 0,
+            input.len().is_multiple_of(in_ch),
             "input length {} not divisible by channel count {}",
             input.len(),
             in_ch

@@ -32,10 +32,10 @@ pub(crate) fn apply_revision(rev: &symphonia::core::meta::MetadataRevision, tags
             .find(|v| v.usage == Some(StandardVisualKey::FrontCover));
         let any = rev.visuals().first();
         let chosen = front.or(any);
-        if let Some(v) = chosen {
-            if !v.data.is_empty() {
-                tags.cover = Some(v.data.as_ref().to_vec());
-            }
+        if let Some(bytes) =
+            chosen.and_then(|v| (!v.data.is_empty()).then(|| v.data.as_ref().to_vec()))
+        {
+            tags.cover = Some(bytes);
         }
     }
 }
@@ -66,11 +66,10 @@ pub(crate) fn build_metadata_json(tags: Tags, duration_ms: Option<u64>) -> Optio
             serde_json::Value::Number(serde_json::Number::from(ms)),
         );
     }
-    if let Some(bytes) = tags.cover {
-        if !bytes.is_empty() {
-            let b64 = base64::engine::general_purpose::STANDARD.encode(bytes);
-            obj.insert("cover_base64".to_string(), serde_json::Value::String(b64));
-        }
+    if let Some(b64) = tags.cover.and_then(|bytes| {
+        (!bytes.is_empty()).then(|| base64::engine::general_purpose::STANDARD.encode(bytes))
+    }) {
+        obj.insert("cover_base64".to_string(), serde_json::Value::String(b64));
     }
     if obj.is_empty() {
         None

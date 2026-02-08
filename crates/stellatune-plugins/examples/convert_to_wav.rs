@@ -56,7 +56,7 @@ impl Wav16Writer {
             return Ok(());
         }
         let channels = self.channels.max(1) as usize;
-        if samples.len() % channels != 0 {
+        if !samples.len().is_multiple_of(channels) {
             return Err(anyhow!(
                 "interleaved sample count {} not divisible by channels {}",
                 samples.len(),

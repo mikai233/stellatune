@@ -13,7 +13,7 @@ use crate::service::EventHub;
 use super::Plugins;
 use super::metadata::{extract_metadata_with_plugins, write_cover_bytes};
 use super::paths::{is_drive_root, is_under_excluded, normalize_path_str, now_ms, parent_dir_norm};
-use super::tracks::{select_track_fingerprint, upsert_track};
+use super::tracks::{UpsertTrackInput, select_track_fingerprint, upsert_track};
 
 fn is_audio_ext(ext: &str) -> bool {
     matches!(ext, "mp3" | "flac" | "wav")
@@ -31,7 +31,7 @@ struct FileCandidate {
 pub(super) async fn scan_all(
     pool: &SqlitePool,
     events: &Arc<EventHub>,
-    cover_dir: &PathBuf,
+    cover_dir: &Path,
     plugins: &Plugins,
     force: bool,
 ) -> Result<()> {
@@ -148,14 +148,13 @@ pub(super) async fn scan_all(
 
             if !force {
                 // Skip unchanged.
-                if let Some(old) = select_track_fingerprint(pool, &file.path).await? {
-                    if old.mtime_ms == file.mtime_ms
-                        && old.size_bytes == file.size_bytes
-                        && old.meta_scanned_ms > 0
-                    {
-                        skipped += 1;
-                        continue;
-                    }
+                if let Some(old) = select_track_fingerprint(pool, &file.path).await?
+                    && old.mtime_ms == file.mtime_ms
+                    && old.size_bytes == file.size_bytes
+                    && old.meta_scanned_ms > 0
+                {
+                    skipped += 1;
+                    continue;
                 }
             }
 
@@ -190,17 +189,19 @@ pub(super) async fn scan_all(
 
             let track_id = match upsert_track(
                 pool,
-                &file.path,
-                &file.ext,
-                file.mtime_ms,
-                file.size_bytes,
-                title.as_deref(),
-                artist.as_deref(),
-                album.as_deref(),
-                duration_ms,
-                meta_scanned_ms,
-                &file.path_norm,
-                &file.dir_norm,
+                UpsertTrackInput {
+                    path: &file.path,
+                    ext: &file.ext,
+                    mtime_ms: file.mtime_ms,
+                    size_bytes: file.size_bytes,
+                    title: title.as_deref(),
+                    artist: artist.as_deref(),
+                    album: album.as_deref(),
+                    duration_ms,
+                    meta_scanned_ms,
+                    path_norm: &file.path_norm,
+                    dir_norm: &file.dir_norm,
+                },
             )
             .await
             {
@@ -214,18 +215,18 @@ pub(super) async fn scan_all(
                 }
             };
 
-            if let Some(bytes) = cover {
-                if let Err(e) = write_cover_bytes(cover_dir, track_id, &bytes) {
-                    errors += 1;
-                    events.emit(LibraryEvent::Log {
-                        message: format!("cover write error: {}: {e}", file.path),
-                    });
-                }
+            if let Some(bytes) = cover
+                && let Err(e) = write_cover_bytes(cover_dir, track_id, &bytes)
+            {
+                errors += 1;
+                events.emit(LibraryEvent::Log {
+                    message: format!("cover write error: {}: {e}", file.path),
+                });
             }
 
             upserted += 1;
 
-            if scanned % 500 == 0 {
+            if scanned.is_multiple_of(500) {
                 events.emit(LibraryEvent::ScanProgress {
                     scanned: scanned as i64,
                     updated: upserted as i64,
@@ -271,7 +272,7 @@ pub(super) async fn scan_all(
 pub(super) async fn scan_folder_into_db(
     pool: SqlitePool,
     events: &Arc<EventHub>,
-    cover_dir: &PathBuf,
+    cover_dir: &Path,
     plugins: &Plugins,
     folder_norm: &str,
 ) -> Result<bool> {
@@ -351,10 +352,12 @@ pub(super) async fn scan_folder_into_db(
             continue;
         }
 
-        if let Some(old) = select_track_fingerprint(&pool, &path_str).await? {
-            if old.mtime_ms == mtime_ms && old.size_bytes == size_bytes && old.meta_scanned_ms > 0 {
-                continue;
-            }
+        if let Some(old) = select_track_fingerprint(&pool, &path_str).await?
+            && old.mtime_ms == mtime_ms
+            && old.size_bytes == size_bytes
+            && old.meta_scanned_ms > 0
+        {
+            continue;
         }
 
         let meta_scanned_ms = now_ms();
@@ -386,26 +389,28 @@ pub(super) async fn scan_folder_into_db(
 
         let track_id = upsert_track(
             &pool,
-            &path_str,
-            &ext,
-            mtime_ms,
-            size_bytes,
-            title.as_deref(),
-            artist.as_deref(),
-            album.as_deref(),
-            duration_ms,
-            meta_scanned_ms,
-            &path_norm,
-            &dir_norm,
+            UpsertTrackInput {
+                path: &path_str,
+                ext: &ext,
+                mtime_ms,
+                size_bytes,
+                title: title.as_deref(),
+                artist: artist.as_deref(),
+                album: album.as_deref(),
+                duration_ms,
+                meta_scanned_ms,
+                path_norm: &path_norm,
+                dir_norm: &dir_norm,
+            },
         )
         .await?;
 
-        if let Some(bytes) = cover {
-            if let Err(e) = write_cover_bytes(cover_dir, track_id, &bytes) {
-                events.emit(LibraryEvent::Log {
-                    message: format!("cover write error: {}: {e}", path_str),
-                });
-            }
+        if let Some(bytes) = cover
+            && let Err(e) = write_cover_bytes(cover_dir, track_id, &bytes)
+        {
+            events.emit(LibraryEvent::Log {
+                message: format!("cover write error: {}: {e}", path_str),
+            });
         }
 
         changed = true;

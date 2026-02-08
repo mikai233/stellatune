@@ -117,12 +117,9 @@ impl LyricsService {
             return Err(anyhow!("lyrics cache db path is empty"));
         }
         let path = PathBuf::from(db_path);
-        if let Some(parent) = path.parent() {
-            if !parent.as_os_str().is_empty() {
-                std::fs::create_dir_all(parent).with_context(|| {
-                    format!("failed to create lyrics db dir: {}", parent.display())
-                })?;
-            }
+        if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("failed to create lyrics db dir: {}", parent.display()))?;
         }
 
         let runtime = tokio::runtime::Builder::new_current_thread()
@@ -665,10 +662,8 @@ impl LyricsService {
             if let Some(album) = query.album.as_ref() {
                 qp.append_pair("album_name", album);
             }
-            if let Some(duration_ms) = query.duration_ms {
-                if duration_ms > 0 {
-                    qp.append_pair("duration", &(duration_ms / 1000).to_string());
-                }
+            if let Some(duration_ms) = query.duration_ms.filter(|&d| d > 0) {
+                qp.append_pair("duration", &(duration_ms / 1000).to_string());
             }
         }
 
@@ -1019,10 +1014,10 @@ fn load_local_lrc_doc(track_key: &str) -> Option<LyricsDoc> {
             .and_then(|v| v.to_str())
             .unwrap_or_default()
             .to_string();
-        if file_stem.eq_ignore_ascii_case(&stem) {
-            if let Some(doc) = read_and_parse_lrc(&p, track_key) {
-                return Some(doc);
-            }
+        if file_stem.eq_ignore_ascii_case(&stem)
+            && let Some(doc) = read_and_parse_lrc(&p, track_key)
+        {
+            return Some(doc);
         }
     }
     None
@@ -1070,10 +1065,10 @@ fn doc_from_lrclib_value(track_key: &str, value: &Value) -> Option<LyricsDoc> {
         .and_then(Value::as_str)
         .map(str::trim)
         .unwrap_or_default();
-    if !synced.is_empty() {
-        if let Some(doc) = parse_lrc(track_key, "lrclib", synced) {
-            return Some(doc);
-        }
+    if !synced.is_empty()
+        && let Some(doc) = parse_lrc(track_key, "lrclib", synced)
+    {
+        return Some(doc);
     }
 
     let plain = value

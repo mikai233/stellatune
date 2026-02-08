@@ -284,14 +284,15 @@ fn status_err_to_anyhow(
     plugin_free: Option<extern "C" fn(ptr: *mut core::ffi::c_void, len: usize, align: usize)>,
 ) -> anyhow::Error {
     let msg = unsafe { util::ststr_to_string_lossy(status.message) };
-    if status.code != 0 && status.message.len != 0 {
-        if let Some(free) = plugin_free {
-            (free)(
-                status.message.ptr as *mut core::ffi::c_void,
-                status.message.len,
-                1,
-            );
-        }
+    if status.code != 0
+        && status.message.len != 0
+        && let Some(free) = plugin_free
+    {
+        (free)(
+            status.message.ptr as *mut core::ffi::c_void,
+            status.message.len,
+            1,
+        );
     }
     if msg.is_empty() {
         anyhow!("{what} failed (code={})", status.code)
@@ -2228,11 +2229,11 @@ fn extract_zip_to_dir(zip_path: &Path, out_dir: &Path) -> Result<()> {
 
         match entry.compression_method() {
             rawzip::CompressionMethod::Store => {
-                std::io::copy(&mut &data[..], &mut out)
+                std::io::copy(&mut &*data, &mut out)
                     .with_context(|| format!("extract {} to {}", filename, out_path.display()))?;
             }
             rawzip::CompressionMethod::Deflate => {
-                let mut decoder = flate2::read::DeflateDecoder::new(&data[..]);
+                let mut decoder = flate2::read::DeflateDecoder::new(data);
                 std::io::copy(&mut decoder, &mut out).with_context(|| {
                     format!("extract (deflate) {} to {}", filename, out_path.display())
                 })?;
@@ -2372,9 +2373,8 @@ pub fn install_plugin_from_artifact(
 
     let mut valid = Vec::<(PathBuf, PluginManifest)>::new();
     for candidate in find_plugin_library_candidates(&staging_root) {
-        match inspect_plugin_library_at(&candidate, &staging_root) {
-            Ok(manifest) => valid.push((candidate, manifest)),
-            Err(_) => {}
+        if let Ok(manifest) = inspect_plugin_library_at(&candidate, &staging_root) {
+            valid.push((candidate, manifest))
         }
     }
 

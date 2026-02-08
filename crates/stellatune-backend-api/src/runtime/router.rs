@@ -10,9 +10,10 @@ use stellatune_core::{
 };
 
 use super::bus::{
-    broadcast_host_event_json, build_control_result_event_json, drain_finished_by_library_event,
-    drain_finished_by_player_event, drain_router_receiver, drain_timed_out_pending,
-    emit_control_finished, emit_runtime_event, push_plugin_host_event_json,
+    ControlFinishedArgs, broadcast_host_event_json, build_control_result_event_json,
+    drain_finished_by_library_event, drain_finished_by_player_event, drain_router_receiver,
+    drain_timed_out_pending, emit_control_finished, emit_runtime_event,
+    push_plugin_host_event_json,
 };
 use super::control::{
     control_command_from_root, control_scope_from_root, control_wait_kind,
@@ -116,11 +117,13 @@ fn plugin_runtime_router() -> &'static std::sync::Arc<PluginRuntimeRouter> {
                                             &plugins,
                                             router_thread.runtime_hub.as_ref(),
                                             engine.as_ref(),
-                                            &event.plugin_id,
-                                            request_id,
-                                            scope,
-                                            command,
-                                            None,
+                                            ControlFinishedArgs {
+                                                plugin_id: &event.plugin_id,
+                                                request_id,
+                                                scope,
+                                                command,
+                                                error: None,
+                                            },
                                         );
                                     } else {
                                         pending_finishes.push(PendingControlFinish {
@@ -151,11 +154,13 @@ fn plugin_runtime_router() -> &'static std::sync::Arc<PluginRuntimeRouter> {
                                         &plugins,
                                         router_thread.runtime_hub.as_ref(),
                                         engine.as_ref(),
-                                        &event.plugin_id,
-                                        request_id,
-                                        scope,
-                                        command,
-                                        Some(&err),
+                                        ControlFinishedArgs {
+                                            plugin_id: &event.plugin_id,
+                                            request_id,
+                                            scope,
+                                            command,
+                                            error: Some(&err),
+                                        },
                                     );
                                 }
                             }
@@ -175,11 +180,13 @@ fn plugin_runtime_router() -> &'static std::sync::Arc<PluginRuntimeRouter> {
                                 &plugins,
                                 router_thread.runtime_hub.as_ref(),
                                 engine.as_ref(),
-                                &done.plugin_id,
-                                done.request_id,
-                                done.scope,
-                                done.command,
-                                None,
+                                ControlFinishedArgs {
+                                    plugin_id: &done.plugin_id,
+                                    request_id: done.request_id,
+                                    scope: done.scope,
+                                    command: done.command,
+                                    error: None,
+                                },
                             );
                         }
                     }
@@ -197,11 +204,13 @@ fn plugin_runtime_router() -> &'static std::sync::Arc<PluginRuntimeRouter> {
                                 &plugins,
                                 router_thread.runtime_hub.as_ref(),
                                 engine.as_ref(),
-                                &done.plugin_id,
-                                done.request_id,
-                                done.scope,
-                                done.command,
-                                None,
+                                ControlFinishedArgs {
+                                    plugin_id: &done.plugin_id,
+                                    request_id: done.request_id,
+                                    scope: done.scope,
+                                    command: done.command,
+                                    error: None,
+                                },
                             );
                         }
                     }
@@ -212,11 +221,13 @@ fn plugin_runtime_router() -> &'static std::sync::Arc<PluginRuntimeRouter> {
                             &plugins,
                             router_thread.runtime_hub.as_ref(),
                             engine.as_ref(),
-                            &timed_out.plugin_id,
-                            timed_out.request_id,
-                            timed_out.scope,
-                            timed_out.command,
-                            Some("control finish timeout"),
+                            ControlFinishedArgs {
+                                plugin_id: &timed_out.plugin_id,
+                                request_id: timed_out.request_id,
+                                scope: timed_out.scope,
+                                command: timed_out.command,
+                                error: Some("control finish timeout"),
+                            },
                         );
                     }
 

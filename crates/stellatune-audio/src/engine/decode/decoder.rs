@@ -115,7 +115,7 @@ fn build_plugin_track_info(
 pub(crate) fn open_engine_decoder(
     track_token: &str,
     plugins: &Arc<Mutex<stellatune_plugins::PluginManager>>,
-) -> Result<(EngineDecoder, TrackDecodeInfo), String> {
+) -> Result<(Box<EngineDecoder>, TrackDecodeInfo), String> {
     let track = decode_engine_track_token(track_token)?;
 
     // Local tracks keep built-in decoder fallback behavior.
@@ -128,7 +128,7 @@ pub(crate) fn open_engine_decoder(
             let d = Decoder::open(path).map_err(|e| format!("failed to open decoder: {e}"))?;
             let spec = d.spec();
             let info = build_builtin_track_info(spec);
-            return Ok((EngineDecoder::Builtin(d), info));
+            return Ok((Box::new(EngineDecoder::Builtin(d)), info));
         };
 
         let plugin_probe = pm
@@ -149,13 +149,13 @@ pub(crate) fn open_engine_decoder(
                         let spec = dec.spec();
                         let info = build_plugin_track_info(&mut dec, None)?;
                         Ok((
-                            EngineDecoder::Plugin {
+                            Box::new(EngineDecoder::Plugin {
                                 spec: TrackSpec {
                                     sample_rate: spec.sample_rate,
                                     channels: spec.channels,
                                 },
                                 dec,
-                            },
+                            }),
                             info,
                         ))
                     }
@@ -171,7 +171,7 @@ pub(crate) fn open_engine_decoder(
                         let spec = d.spec();
                         let info = build_builtin_track_info(spec);
                         debug!(path, score, "using built-in decoder fallback");
-                        Ok((EngineDecoder::Builtin(d), info))
+                        Ok((Box::new(EngineDecoder::Builtin(d)), info))
                     }
                 }
             }
@@ -180,7 +180,7 @@ pub(crate) fn open_engine_decoder(
                     let spec = d.spec();
                     let info = build_builtin_track_info(spec);
                     debug!(path, "using built-in decoder for local track");
-                    Ok((EngineDecoder::Builtin(d), info))
+                    Ok((Box::new(EngineDecoder::Builtin(d)), info))
                 }
                 Err(e) => {
                     if let Some((key, score)) = plugin_probe {
@@ -193,13 +193,13 @@ pub(crate) fn open_engine_decoder(
                         let spec = dec.spec();
                         let info = build_plugin_track_info(&mut dec, None)?;
                         return Ok((
-                            EngineDecoder::Plugin {
+                            Box::new(EngineDecoder::Plugin {
                                 spec: TrackSpec {
                                     sample_rate: spec.sample_rate,
                                     channels: spec.channels,
                                 },
                                 dec,
-                            },
+                            }),
                             info,
                         ));
                     }
@@ -257,13 +257,13 @@ pub(crate) fn open_engine_decoder(
     let spec = dec.spec();
     let info = build_plugin_track_info(&mut dec, source_metadata_json)?;
     Ok((
-        EngineDecoder::Plugin {
+        Box::new(EngineDecoder::Plugin {
             spec: TrackSpec {
                 sample_rate: spec.sample_rate,
                 channels: spec.channels,
             },
             dec,
-        },
+        }),
         info,
     ))
 }

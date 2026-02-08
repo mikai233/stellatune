@@ -5,10 +5,10 @@
 use crate::ChannelLayout;
 
 /// Standard mixing coefficient for center channel (1/√2 ≈ -3dB)
-pub const CENTER_COEFF: f32 = 0.7071067811865476;
+pub const CENTER_COEFF: f32 = std::f32::consts::FRAC_1_SQRT_2;
 
 /// Standard mixing coefficient for surround channels (1/√2 ≈ -3dB)
-pub const SURROUND_COEFF: f32 = 0.7071067811865476;
+pub const SURROUND_COEFF: f32 = std::f32::consts::FRAC_1_SQRT_2;
 
 /// Calculate LFE coefficient based on mode.
 fn get_lfe_coeff(mode: crate::LfeMode) -> f32 {
@@ -86,8 +86,8 @@ impl MixMatrix {
     /// Identity matrix (no mixing, passthrough).
     pub fn identity(channels: usize) -> Self {
         let mut coeffs = vec![vec![0.0; channels]; channels];
-        for i in 0..channels {
-            coeffs[i][i] = 1.0;
+        for (i, row) in coeffs.iter_mut().enumerate().take(channels) {
+            row[i] = 1.0;
         }
         Self {
             coeffs,
@@ -257,23 +257,23 @@ impl MixMatrix {
         if out_ch <= in_ch {
             // Downmix: each output channel gets its corresponding input
             // plus averaged contribution from extra inputs
-            for i in 0..out_ch {
-                coeffs[i][i] = 1.0;
+            for (i, row) in coeffs.iter_mut().enumerate().take(out_ch) {
+                row[i] = 1.0;
             }
             // Distribute extra channels
             if in_ch > out_ch {
                 let extra = in_ch - out_ch;
                 let factor = 1.0 / (out_ch as f32);
-                for in_i in out_ch..in_ch {
-                    for out_i in 0..out_ch {
-                        coeffs[out_i][in_i] = factor / (extra as f32);
+                for row in coeffs.iter_mut().take(out_ch) {
+                    for coeff in row.iter_mut().take(in_ch).skip(out_ch) {
+                        *coeff = factor / (extra as f32);
                     }
                 }
             }
         } else {
             // Upmix: copy inputs, rest are silent
-            for i in 0..in_ch {
-                coeffs[i][i] = 1.0;
+            for (i, row) in coeffs.iter_mut().enumerate().take(in_ch) {
+                row[i] = 1.0;
             }
         }
 

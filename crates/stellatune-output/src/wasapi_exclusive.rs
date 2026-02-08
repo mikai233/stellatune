@@ -40,11 +40,9 @@ fn select_device(
         .map_err(|e| OutputError::ConfigMismatch {
             message: e.to_string(),
         })?;
-    for d in collection.into_iter() {
-        if let Ok(dev) = d {
-            if dev.get_id().ok().as_deref() == Some(sel) {
-                return Ok(dev);
-            }
+    for dev in collection.into_iter().flatten() {
+        if dev.get_id().ok().as_deref() == Some(sel) {
+            return Ok(dev);
         }
     }
     Err(OutputError::NoDevice)
@@ -406,18 +404,16 @@ pub fn list_exclusive_devices_detailed() -> Result<Vec<crate::AudioDevice>, Outp
             message: e.to_string(),
         })?;
     let mut devices = Vec::new();
-    for dev in collection.into_iter() {
-        if let Ok(dev) = dev {
-            let id = dev.get_id().unwrap_or_else(|_| "unknown".to_string());
-            let name = dev
-                .get_friendlyname()
-                .unwrap_or_else(|_| "Unknown WASAPI Device".to_string());
-            devices.push(crate::AudioDevice {
-                backend: crate::AudioBackend::WasapiExclusive,
-                id,
-                name,
-            });
-        }
+    for dev in collection.into_iter().flatten() {
+        let id = dev.get_id().unwrap_or_else(|_| "unknown".to_string());
+        let name = dev
+            .get_friendlyname()
+            .unwrap_or_else(|_| "Unknown WASAPI Device".to_string());
+        devices.push(crate::AudioDevice {
+            backend: crate::AudioBackend::WasapiExclusive,
+            id,
+            name,
+        });
     }
     Ok(devices)
 }

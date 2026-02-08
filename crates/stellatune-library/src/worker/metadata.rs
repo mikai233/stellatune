@@ -48,7 +48,7 @@ pub(super) fn extract_metadata(path: &Path) -> Result<ExtractedMetadata> {
     let mut probed = match get_probe().format(&hint, mss, &FormatOptions::default(), &meta_opts) {
         Ok(p) => p,
         Err(e) => {
-            let (file_size, head16) = (|| {
+            let (file_size, head16) = {
                 let file_size = std::fs::metadata(path).ok().map(|m| m.len());
                 let mut head16 = [0u8; 16];
                 if let Ok(mut f) = std::fs::File::open(path) {
@@ -56,7 +56,7 @@ pub(super) fn extract_metadata(path: &Path) -> Result<ExtractedMetadata> {
                     let _ = f.read(&mut head16);
                 }
                 (file_size, head16)
-            })();
+            };
 
             debug!(
                 target: "stellatune_library::metadata",
@@ -75,10 +75,10 @@ pub(super) fn extract_metadata(path: &Path) -> Result<ExtractedMetadata> {
     let mut out = ExtractedMetadata::default();
 
     // Metadata read during probing (e.g. ID3 before container instantiation).
-    if let Some(mut m) = probed.metadata.get() {
-        if let Some(rev) = m.skip_to_latest() {
-            apply_revision(rev, &mut out);
-        }
+    if let Some(mut m) = probed.metadata.get()
+        && let Some(rev) = m.skip_to_latest()
+    {
+        apply_revision(rev, &mut out);
     }
 
     // Metadata read from the container itself.
@@ -199,58 +199,58 @@ fn extract_plugin_metadata(path: &Path, plugins: &Plugins) -> Result<ExtractedMe
         "plugin decoder opened for metadata"
     );
 
-    let mut out = ExtractedMetadata::default();
-
-    // Duration from decoder info.
-    out.duration_ms = dec.duration_ms().map(|d| d as i64);
+    let mut out = ExtractedMetadata {
+        duration_ms: dec.duration_ms().map(|d| d as i64),
+        ..Default::default()
+    };
 
     // Optional structured metadata from plugin.
-    if let Ok(Some(json)) = dec.metadata_json() {
-        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&json) {
-            out.title = v
-                .get("title")
-                .and_then(|x| x.as_str())
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty());
-            out.artist = v
-                .get("artist")
-                .and_then(|x| x.as_str())
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty());
-            out.album = v
-                .get("album")
-                .and_then(|x| x.as_str())
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty());
+    if let Ok(Some(json)) = dec.metadata_json()
+        && let Ok(v) = serde_json::from_str::<serde_json::Value>(&json)
+    {
+        out.title = v
+            .get("title")
+            .and_then(|x| x.as_str())
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        out.artist = v
+            .get("artist")
+            .and_then(|x| x.as_str())
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        out.album = v
+            .get("album")
+            .and_then(|x| x.as_str())
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
 
-            if out.duration_ms.is_none() {
-                out.duration_ms = v
-                    .get("duration_ms")
-                    .and_then(|x| x.as_i64())
-                    .filter(|ms| *ms >= 0);
-            }
+        if out.duration_ms.is_none() {
+            out.duration_ms = v
+                .get("duration_ms")
+                .and_then(|x| x.as_i64())
+                .filter(|ms| *ms >= 0);
+        }
 
-            if out.cover.is_none() {
-                // Prefer base64 because JSON byte arrays are huge.
-                if let Some(s) = v.get("cover_base64").and_then(|x| x.as_str()) {
-                    let s = s.trim();
-                    if !s.is_empty() {
-                        if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(s) {
-                            if !bytes.is_empty() && (bytes.len() as u64) <= COVER_BYTES_LIMIT {
-                                out.cover = Some(bytes);
-                            }
-                        }
+        if out.cover.is_none() {
+            // Prefer base64 because JSON byte arrays are huge.
+            if let Some(s) = v.get("cover_base64").and_then(|x| x.as_str()) {
+                let s = s.trim();
+                if !s.is_empty()
+                    && let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(s)
+                    && !bytes.is_empty()
+                    && (bytes.len() as u64) <= COVER_BYTES_LIMIT
+                {
+                    out.cover = Some(bytes);
+                }
+            } else if let Some(arr) = v.get("cover_bytes").and_then(|x| x.as_array()) {
+                let mut bytes = Vec::<u8>::with_capacity(arr.len());
+                for n in arr {
+                    if let Some(u) = n.as_u64().and_then(|u| u.try_into().ok()) {
+                        bytes.push(u);
                     }
-                } else if let Some(arr) = v.get("cover_bytes").and_then(|x| x.as_array()) {
-                    let mut bytes = Vec::<u8>::with_capacity(arr.len());
-                    for n in arr {
-                        if let Some(u) = n.as_u64().and_then(|u| u.try_into().ok()) {
-                            bytes.push(u);
-                        }
-                    }
-                    if !bytes.is_empty() && (bytes.len() as u64) <= COVER_BYTES_LIMIT {
-                        out.cover = Some(bytes);
-                    }
+                }
+                if !bytes.is_empty() && (bytes.len() as u64) <= COVER_BYTES_LIMIT {
+                    out.cover = Some(bytes);
                 }
             }
         }
@@ -296,10 +296,13 @@ fn load_sidecar_cover(track_path: &Path) -> Option<Vec<u8>> {
             .entry(dir.clone())
             .or_insert_with(|| build_dir_index(&dir));
 
-        if let Some(p) = idx.by_stem.get(&stem_key).cloned() {
-            if let Some(bytes) = read_cover_bytes(&p) {
-                return Some(bytes);
-            }
+        if let Some(bytes) = idx
+            .by_stem
+            .get(&stem_key)
+            .cloned()
+            .and_then(|p| read_cover_bytes(&p))
+        {
+            return Some(bytes);
         }
 
         if let Some(bytes) = idx.preferred_bytes.as_ref() {
@@ -479,10 +482,8 @@ fn apply_revision(rev: &symphonia::core::meta::MetadataRevision, out: &mut Extra
             .find(|v| v.usage == Some(StandardVisualKey::FrontCover));
         let any = rev.visuals().first();
         let chosen = front.or(any);
-        if let Some(v) = chosen {
-            if !v.data.is_empty() {
-                out.cover = Some(v.data.as_ref().to_vec());
-            }
+        if let Some(v) = chosen.filter(|v| !v.data.is_empty()) {
+            out.cover = Some(v.data.as_ref().to_vec());
         }
     }
 }

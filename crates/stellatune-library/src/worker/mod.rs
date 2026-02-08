@@ -365,7 +365,7 @@ impl LibraryWorker {
     ) -> Result<()> {
         let folder = normalize_path_str(&folder);
         let query = query.trim().to_string();
-        let limit = limit.max(1).min(5000);
+        let limit = limit.clamp(1, 5000);
         let offset = offset.max(0);
 
         let rows = if query.is_empty() {
@@ -623,7 +623,7 @@ impl LibraryWorker {
         }
 
         let query = query.trim().to_string();
-        let limit = limit.max(1).min(5000);
+        let limit = limit.clamp(1, 5000);
         let offset = offset.max(0);
 
         let rows = if query.is_empty() {
@@ -1124,7 +1124,7 @@ impl LibraryWorker {
 
     async fn search(&self, query: String, limit: i64, offset: i64) -> Result<()> {
         let query = query.trim().to_string();
-        let limit = limit.max(1).min(200);
+        let limit = limit.clamp(1, 200);
         let offset = offset.max(0);
 
         let rows = if query.is_empty() {

@@ -13,8 +13,8 @@ use crate::engine::config::{
     BUFFER_PREFILL_CAP_MS, BUFFER_PREFILL_CAP_MS_EXCLUSIVE, RING_BUFFER_CAPACITY_MS,
     SEEK_TRACK_FADE_RAMP_MS,
 };
-use crate::engine::decode::decode_thread;
 use crate::engine::decode::decoder::EngineDecoder;
+use crate::engine::decode::{DecodeThreadArgs, decode_thread};
 use crate::engine::event_hub::EventHub;
 use crate::engine::messages::{
     DecodeCtrl, DecodeWorkerState, InternalMsg, OutputSinkWrite, PredecodedChunk,
@@ -111,7 +111,7 @@ mod debug_metrics {
                 PROMOTE_MISS_MISMATCH.fetch_add(1, Ordering::Relaxed);
             }
         }
-        if lookups % DEBUG_PROMOTE_LOG_EVERY == 0 {
+        if lookups.is_multiple_of(DEBUG_PROMOTE_LOG_EVERY) {
             let stores = PROMOTE_STORES.load(Ordering::Relaxed);
             let hits = PROMOTE_HITS.load(Ordering::Relaxed);
             let miss_empty = PROMOTE_MISS_EMPTY.load(Ordering::Relaxed);
@@ -146,7 +146,7 @@ mod debug_metrics {
         update_max(&PREPARE_WAIT_MAX_MS, prepare_wait_ms);
         update_max(&SESSION_TOTAL_MAX_MS, session_total_ms);
 
-        if starts % DEBUG_SESSION_LOG_EVERY == 0 {
+        if starts.is_multiple_of(DEBUG_SESSION_LOG_EVERY) {
             let avg_prepare = PREPARE_WAIT_TOTAL_MS.load(Ordering::Relaxed) as f64 / starts as f64;
             let avg_total = SESSION_TOTAL_MS.load(Ordering::Relaxed) as f64 / starts as f64;
             let rebuilds = PIPELINE_REBUILDS.load(Ordering::Relaxed);
@@ -266,7 +266,7 @@ fn write_all_frames(
 pub(crate) struct PromotedPreload {
     pub(crate) path: String,
     pub(crate) position_ms: u64,
-    pub(crate) decoder: EngineDecoder,
+    pub(crate) decoder: Box<EngineDecoder>,
     pub(crate) track_info: TrackDecodeInfo,
     pub(crate) chunk: PredecodedChunk,
 }
@@ -422,17 +422,17 @@ fn run_decode_worker(
             continue;
         }
 
-        decode_thread(
-            prepare.path,
-            Arc::clone(&events),
-            internal_tx.clone(),
-            Arc::clone(&plugins),
+        decode_thread(DecodeThreadArgs {
+            path: prepare.path,
+            events: Arc::clone(&events),
+            internal_tx: internal_tx.clone(),
+            plugins: Arc::clone(&plugins),
             preopened,
-            ctrl_rx.clone(),
+            ctrl_rx: ctrl_rx.clone(),
             setup_rx,
-            prepare.spec_tx,
-            Arc::clone(&runtime_state),
-        );
+            spec_tx: prepare.spec_tx,
+            runtime_state: Arc::clone(&runtime_state),
+        });
         set_decode_worker_state(
             &runtime_state,
             DecodeWorkerState::Idle,
@@ -547,21 +547,39 @@ fn create_output_pipeline(
     })
 }
 
-pub(crate) fn start_session(
-    path: String,
-    decode_worker: &DecodeWorker,
-    internal_tx: Sender<InternalMsg>,
-    backend: stellatune_output::AudioBackend,
-    device_id: Option<String>,
-    match_track_sample_rate: bool,
-    gapless_playback: bool,
-    out_spec: OutputSpec,
-    start_at_ms: i64,
-    volume: Arc<AtomicU32>,
-    lfe_mode: stellatune_core::LfeMode,
-    output_sink_only: bool,
-    output_pipeline: &mut Option<OutputPipeline>,
-) -> Result<PlaybackSession, String> {
+pub(crate) struct StartSessionArgs<'a> {
+    pub(crate) path: String,
+    pub(crate) decode_worker: &'a DecodeWorker,
+    pub(crate) internal_tx: Sender<InternalMsg>,
+    pub(crate) backend: stellatune_output::AudioBackend,
+    pub(crate) device_id: Option<String>,
+    pub(crate) match_track_sample_rate: bool,
+    pub(crate) gapless_playback: bool,
+    pub(crate) out_spec: OutputSpec,
+    pub(crate) start_at_ms: i64,
+    pub(crate) volume: Arc<AtomicU32>,
+    pub(crate) lfe_mode: stellatune_core::LfeMode,
+    pub(crate) output_sink_only: bool,
+    pub(crate) output_pipeline: &'a mut Option<OutputPipeline>,
+}
+
+pub(crate) fn start_session(args: StartSessionArgs<'_>) -> Result<PlaybackSession, String> {
+    let StartSessionArgs {
+        path,
+        decode_worker,
+        internal_tx,
+        backend,
+        device_id,
+        match_track_sample_rate,
+        gapless_playback,
+        out_spec,
+        start_at_ms,
+        volume,
+        lfe_mode,
+        output_sink_only,
+        output_pipeline,
+    } = args;
+
     let t0 = Instant::now();
     let start_position_ms = start_at_ms.max(0) as u64;
     let promoted_track_info = decode_worker.peek_promoted_track_info(&path, start_position_ms);
@@ -583,15 +601,14 @@ pub(crate) fn start_session(
             stellatune_output::AudioBackend::WasapiExclusive
                 | stellatune_output::AudioBackend::Asio
         )
+        && let Some(info) = promoted_track_info.as_ref()
     {
-        if let Some(info) = promoted_track_info.as_ref() {
-            let candidate = OutputSpec {
-                sample_rate: info.sample_rate,
-                channels: out_spec.channels,
-            };
-            if stellatune_output::supports_output_spec(backend, device_id.clone(), candidate) {
-                desired_out_spec = candidate;
-            }
+        let candidate = OutputSpec {
+            sample_rate: info.sample_rate,
+            channels: out_spec.channels,
+        };
+        if stellatune_output::supports_output_spec(backend, device_id.clone(), candidate) {
+            desired_out_spec = candidate;
         }
     }
 

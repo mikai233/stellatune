@@ -47,7 +47,7 @@ impl NcmDecoder {
             ncmdump::Ncmdump::from_reader(io).map_err(|e| format!("ncmdump parse failed: {e}"))?;
 
         let audio_start_abs = io_copy
-            .seek(SeekFrom::Current(0))
+            .stream_position()
             .map_err(|e| format!("tell failed: {e}"))?;
         let len = file_size.saturating_sub(audio_start_abs);
 
@@ -68,25 +68,26 @@ impl NcmDecoder {
             .map_err(|e| format!("ncmdump seek to audio start failed: {e}"))?;
 
         let hint_ext = info.format.trim().to_string();
-        let duration_ms_container = Some(info.duration as u64).filter(|v| *v > 0);
+        let duration_ms_container = Some(info.duration).filter(|v| *v > 0);
 
-        let mut tags = Tags::default();
-        tags.title = Some(info.name.trim().to_string()).filter(|s| !s.is_empty());
-        tags.album = Some(info.album.trim().to_string()).filter(|s| !s.is_empty());
-        tags.artist = if info.artist.is_empty() {
-            None
-        } else {
-            Some(
-                info.artist
-                    .iter()
-                    .map(|(name, _id)| name.trim())
-                    .filter(|s| !s.is_empty())
-                    .collect::<Vec<_>>()
-                    .join(" / "),
-            )
-            .filter(|s| !s.is_empty())
+        let mut tags = Tags {
+            title: Some(info.name.trim().to_string()).filter(|s| !s.is_empty()),
+            album: Some(info.album.trim().to_string()).filter(|s| !s.is_empty()),
+            artist: if info.artist.is_empty() {
+                None
+            } else {
+                Some(
+                    info.artist
+                        .iter()
+                        .map(|(name, _id)| name.trim())
+                        .filter(|s| !s.is_empty())
+                        .collect::<Vec<_>>()
+                        .join(" / "),
+                )
+                .filter(|s| !s.is_empty())
+            },
+            cover: cover.filter(|b| !b.is_empty()),
         };
-        tags.cover = cover.filter(|b| !b.is_empty());
 
         let mut start_offset: u64 = 0;
         if hint_ext.eq_ignore_ascii_case("flac") {
@@ -151,10 +152,10 @@ impl NcmDecoder {
             })
         });
 
-        if let Some(mut m) = probed.metadata.get() {
-            if let Some(rev) = m.skip_to_latest() {
-                apply_revision(rev, &mut tags);
-            }
+        if let Some(mut m) = probed.metadata.get()
+            && let Some(rev) = m.skip_to_latest()
+        {
+            apply_revision(rev, &mut tags);
         }
         {
             let mut m = format.metadata();
@@ -247,10 +248,8 @@ impl SymphoniaBackend {
                     }
                     match self.decoder.decode(&packet) {
                         Ok(audio_buf) => {
-                            let spec = SignalSpec::new(
-                                audio_buf.spec().rate,
-                                audio_buf.spec().channels.clone(),
-                            );
+                            let spec =
+                                SignalSpec::new(audio_buf.spec().rate, audio_buf.spec().channels);
                             let duration = audio_buf.capacity() as u64;
 
                             let needs_realloc = match self.sample_buf.as_ref() {

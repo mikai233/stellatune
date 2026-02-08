@@ -16,7 +16,8 @@ use super::Plugins;
 use super::metadata::{extract_metadata_with_plugins, write_cover_bytes};
 use super::paths::{is_under_excluded, normalize_path_str, now_ms, parent_dir_norm};
 use super::tracks::{
-    delete_track_by_path_norm, select_track_fingerprint_by_path_norm, upsert_track_by_path_norm,
+    UpsertTrackInput, delete_track_by_path_norm, select_track_fingerprint_by_path_norm,
+    upsert_track_by_path_norm,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -174,7 +175,7 @@ fn is_audio_ext(ext: &str) -> bool {
 async fn apply_fs_changes(
     pool: &SqlitePool,
     events: &Arc<EventHub>,
-    cover_dir: &PathBuf,
+    cover_dir: &Path,
     excluded: &[String],
     plugins: &Plugins,
     raw_paths: Vec<String>,
@@ -249,10 +250,12 @@ async fn apply_fs_changes(
             .unwrap_or(0);
         let size_bytes = meta.len() as i64;
 
-        if let Some(old) = select_track_fingerprint_by_path_norm(pool, &path_norm).await? {
-            if old.mtime_ms == mtime_ms && old.size_bytes == size_bytes && old.meta_scanned_ms > 0 {
-                continue;
-            }
+        if let Some(old) = select_track_fingerprint_by_path_norm(pool, &path_norm).await?
+            && old.mtime_ms == mtime_ms
+            && old.size_bytes == size_bytes
+            && old.meta_scanned_ms > 0
+        {
+            continue;
         }
 
         // Heavy metadata extraction happens only when the fingerprint differs.
@@ -285,26 +288,28 @@ async fn apply_fs_changes(
 
         let track_id = upsert_track_by_path_norm(
             pool,
-            raw_trimmed,
-            &ext,
-            mtime_ms,
-            size_bytes,
-            title.as_deref(),
-            artist.as_deref(),
-            album.as_deref(),
-            duration_ms,
-            meta_scanned_ms,
-            &path_norm,
-            &dir_norm,
+            UpsertTrackInput {
+                path: raw_trimmed,
+                ext: &ext,
+                mtime_ms,
+                size_bytes,
+                title: title.as_deref(),
+                artist: artist.as_deref(),
+                album: album.as_deref(),
+                duration_ms,
+                meta_scanned_ms,
+                path_norm: &path_norm,
+                dir_norm: &dir_norm,
+            },
         )
         .await?;
 
-        if let Some(bytes) = cover {
-            if let Err(e) = write_cover_bytes(cover_dir, track_id, &bytes) {
-                events.emit(LibraryEvent::Log {
-                    message: format!("cover write error: {}: {e}", raw_trimmed),
-                });
-            }
+        if let Some(bytes) = cover
+            && let Err(e) = write_cover_bytes(cover_dir, track_id, &bytes)
+        {
+            events.emit(LibraryEvent::Log {
+                message: format!("cover write error: {}: {e}", raw_trimmed),
+            });
         }
 
         changed = true;

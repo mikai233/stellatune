@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use sqlx::Row;
 use sqlx::SqlitePool;
+use std::path::Path;
 
 #[derive(Debug, sqlx::FromRow)]
 pub(super) struct TrackLiteRow {
@@ -17,6 +18,20 @@ pub(super) struct TrackFingerprint {
     pub(super) mtime_ms: i64,
     pub(super) size_bytes: i64,
     pub(super) meta_scanned_ms: i64,
+}
+
+pub(super) struct UpsertTrackInput<'a> {
+    pub(super) path: &'a str,
+    pub(super) ext: &'a str,
+    pub(super) mtime_ms: i64,
+    pub(super) size_bytes: i64,
+    pub(super) title: Option<&'a str>,
+    pub(super) artist: Option<&'a str>,
+    pub(super) album: Option<&'a str>,
+    pub(super) duration_ms: Option<i64>,
+    pub(super) meta_scanned_ms: i64,
+    pub(super) path_norm: &'a str,
+    pub(super) dir_norm: &'a str,
 }
 
 pub(super) async fn select_track_fingerprint(
@@ -62,7 +77,7 @@ pub(super) async fn select_track_fingerprint_by_path_norm(
 
 pub(super) async fn delete_track_by_path_norm(
     pool: &SqlitePool,
-    cover_dir: &PathBuf,
+    cover_dir: &Path,
     path_norm: &str,
 ) -> Result<u64> {
     let ids: Vec<i64> = sqlx::query_scalar("SELECT id FROM tracks WHERE path_norm=?1")
@@ -91,22 +106,7 @@ pub(super) async fn delete_track_by_path_norm(
     Ok(deleted)
 }
 
-use std::path::PathBuf;
-
-pub(super) async fn upsert_track(
-    pool: &SqlitePool,
-    path: &str,
-    ext: &str,
-    mtime_ms: i64,
-    size_bytes: i64,
-    title: Option<&str>,
-    artist: Option<&str>,
-    album: Option<&str>,
-    duration_ms: Option<i64>,
-    meta_scanned_ms: i64,
-    path_norm: &str,
-    dir_norm: &str,
-) -> Result<i64> {
+pub(super) async fn upsert_track(pool: &SqlitePool, input: UpsertTrackInput<'_>) -> Result<i64> {
     sqlx::query!(
         r#"
         INSERT INTO tracks(path, ext, mtime_ms, size_bytes, title, artist, album, duration_ms, meta_scanned_ms, path_norm, dir_norm)
@@ -123,22 +123,22 @@ pub(super) async fn upsert_track(
             path_norm=excluded.path_norm,
             dir_norm=excluded.dir_norm
         "#,
-        path,
-        ext,
-        mtime_ms,
-        size_bytes,
-        title,
-        artist,
-        album,
-        duration_ms,
-        meta_scanned_ms,
-        path_norm,
-        dir_norm
+        input.path,
+        input.ext,
+        input.mtime_ms,
+        input.size_bytes,
+        input.title,
+        input.artist,
+        input.album,
+        input.duration_ms,
+        input.meta_scanned_ms,
+        input.path_norm,
+        input.dir_norm
     )
     .execute(pool)
     .await?;
 
-    let id: i64 = sqlx::query_scalar!("SELECT id FROM tracks WHERE path=?1", path)
+    let id: i64 = sqlx::query_scalar!("SELECT id FROM tracks WHERE path=?1", input.path)
         .fetch_one(pool)
         .await?
         .context("tracks.id is null")?;
@@ -147,21 +147,11 @@ pub(super) async fn upsert_track(
 
 pub(super) async fn upsert_track_by_path_norm(
     pool: &SqlitePool,
-    path: &str,
-    ext: &str,
-    mtime_ms: i64,
-    size_bytes: i64,
-    title: Option<&str>,
-    artist: Option<&str>,
-    album: Option<&str>,
-    duration_ms: Option<i64>,
-    meta_scanned_ms: i64,
-    path_norm: &str,
-    dir_norm: &str,
+    input: UpsertTrackInput<'_>,
 ) -> Result<i64> {
     let existing_id: Option<i64> =
         sqlx::query_scalar("SELECT id FROM tracks WHERE path_norm=?1 LIMIT 1")
-            .bind(path_norm)
+            .bind(input.path_norm)
             .fetch_optional(pool)
             .await?;
 
@@ -184,36 +174,22 @@ pub(super) async fn upsert_track_by_path_norm(
             WHERE id=?12
             "#,
         )
-        .bind(path)
-        .bind(ext)
-        .bind(mtime_ms)
-        .bind(size_bytes)
-        .bind(title)
-        .bind(artist)
-        .bind(album)
-        .bind(duration_ms)
-        .bind(meta_scanned_ms)
-        .bind(path_norm)
-        .bind(dir_norm)
+        .bind(input.path)
+        .bind(input.ext)
+        .bind(input.mtime_ms)
+        .bind(input.size_bytes)
+        .bind(input.title)
+        .bind(input.artist)
+        .bind(input.album)
+        .bind(input.duration_ms)
+        .bind(input.meta_scanned_ms)
+        .bind(input.path_norm)
+        .bind(input.dir_norm)
         .bind(id)
         .execute(pool)
         .await?;
         return Ok(id);
     }
 
-    upsert_track(
-        pool,
-        path,
-        ext,
-        mtime_ms,
-        size_bytes,
-        title,
-        artist,
-        album,
-        duration_ms,
-        meta_scanned_ms,
-        path_norm,
-        dir_norm,
-    )
-    .await
+    upsert_track(pool, input).await
 }

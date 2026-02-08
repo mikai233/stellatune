@@ -379,10 +379,7 @@ fn build_didl_metadata(
     album: Option<String>,
     cover_url: Option<&str>,
 ) -> String {
-    let fallback_title = track_path
-        .rsplit(|c| c == '/' || c == '\\')
-        .next()
-        .unwrap_or(track_path);
+    let fallback_title = track_path.rsplit(['/', '\\']).next().unwrap_or(track_path);
     let title = title
         .as_deref()
         .map(str::trim)
@@ -838,10 +835,10 @@ async fn http_track(
     let len = meta.len();
 
     let mut mime = MimeGuess::from_path(&path).first_or_octet_stream();
-    if mime.as_ref() == "application/octet-stream" {
-        if let Ok(Some(detected)) = sniff_mime_from_magic(&path).await {
-            mime = detected;
-        }
+    if mime.as_ref() == "application/octet-stream"
+        && let Ok(Some(detected)) = sniff_mime_from_magic(&path).await
+    {
+        mime = detected;
     }
 
     let range = range_header.and_then(|v| parse_single_range(v, len));
@@ -919,9 +916,7 @@ fn parse_single_range(header: &str, len: u64) -> Option<(u64, u64)> {
     // - bytes=-suffix
     let header = header.trim();
     let lower = header.to_ascii_lowercase();
-    let Some(rest) = lower.strip_prefix("bytes=") else {
-        return None;
-    };
+    let rest = lower.strip_prefix("bytes=")?;
     if rest.contains(',') {
         return None;
     }
@@ -1128,7 +1123,7 @@ fn truncate(s: &str, max: usize) -> String {
         return s.to_string();
     }
     let mut out = s[..max].to_string();
-    out.push_str("…");
+    out.push('…');
     out
 }
 

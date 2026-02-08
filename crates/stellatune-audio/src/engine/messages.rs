@@ -106,7 +106,7 @@ pub(crate) enum InternalMsg {
     PreloadReady {
         path: String,
         position_ms: u64,
-        decoder: EngineDecoder,
+        decoder: Box<EngineDecoder>,
         track_info: TrackDecodeInfo,
         chunk: PredecodedChunk,
         took_ms: u64,

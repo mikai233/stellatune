@@ -25,7 +25,7 @@ use crate::engine::messages::{DecodeCtrl, EngineCtrl, InternalMsg, PredecodedChu
 use crate::engine::plugin_event_hub::PluginEventHub;
 use crate::engine::session::{
     DecodeWorker, OutputPipeline, OutputSinkWorker, PlaybackSession, PromotedPreload,
-    start_decode_worker, start_session,
+    StartSessionArgs, start_decode_worker, start_session,
 };
 
 #[cfg(debug_assertions)]
@@ -90,7 +90,7 @@ mod debug_metrics {
         let ready = PRELOAD_READY.load(Ordering::Relaxed);
         let failed = PRELOAD_FAILED.load(Ordering::Relaxed);
         let completed = ready + failed;
-        if completed == 0 || completed % DEBUG_PRELOAD_LOG_EVERY != 0 {
+        if completed == 0 || !completed.is_multiple_of(DEBUG_PRELOAD_LOG_EVERY) {
             return;
         }
         let requests = PRELOAD_REQUESTS.load(Ordering::Relaxed);
@@ -354,14 +354,18 @@ pub fn start_engine_with_plugins(plugins: Arc<Mutex<PluginManager>>) -> EngineHa
         .name("stellatune-control".to_string())
         .spawn(move || {
             run_control_loop(
-                cmd_rx,
-                engine_ctrl_rx,
-                internal_rx,
-                internal_tx,
-                thread_events,
-                thread_plugin_events,
-                plugins_for_thread,
-                track_info_for_thread,
+                ControlLoopChannels {
+                    cmd_rx,
+                    engine_ctrl_rx,
+                    internal_rx,
+                    internal_tx,
+                },
+                ControlLoopDeps {
+                    events: thread_events,
+                    plugin_events: thread_plugin_events,
+                    plugins: plugins_for_thread,
+                    track_info: track_info_for_thread,
+                },
             )
         })
         .expect("failed to spawn stellatune-control thread");
@@ -413,6 +417,20 @@ struct PreloadWorker {
     join: JoinHandle<()>,
 }
 
+struct ControlLoopChannels {
+    cmd_rx: Receiver<Command>,
+    engine_ctrl_rx: Receiver<EngineCtrl>,
+    internal_rx: Receiver<InternalMsg>,
+    internal_tx: Sender<InternalMsg>,
+}
+
+struct ControlLoopDeps {
+    events: Arc<EventHub>,
+    plugin_events: Arc<PluginEventHub>,
+    plugins: Arc<Mutex<PluginManager>>,
+    track_info: SharedTrackInfo,
+}
+
 enum PreloadJob {
     Task {
         path: String,
@@ -459,16 +477,20 @@ impl EngineState {
     }
 }
 
-fn run_control_loop(
-    cmd_rx: Receiver<Command>,
-    engine_ctrl_rx: Receiver<EngineCtrl>,
-    internal_rx: Receiver<InternalMsg>,
-    internal_tx: Sender<InternalMsg>,
-    events: Arc<EventHub>,
-    plugin_events: Arc<PluginEventHub>,
-    plugins: Arc<Mutex<PluginManager>>,
-    track_info: SharedTrackInfo,
-) {
+fn run_control_loop(channels: ControlLoopChannels, deps: ControlLoopDeps) {
+    let ControlLoopChannels {
+        cmd_rx,
+        engine_ctrl_rx,
+        internal_rx,
+        internal_tx,
+    } = channels;
+    let ControlLoopDeps {
+        events,
+        plugin_events,
+        plugins,
+        track_info,
+    } = deps;
+
     info!("control thread started");
     let mut state = EngineState::new();
     state.decode_worker = Some(start_decode_worker(
@@ -542,10 +564,10 @@ fn handle_engine_ctrl(
     match msg {
         EngineCtrl::SetDspChain { chain } => {
             state.desired_dsp_chain = chain;
-            if state.session.is_some() {
-                if let Err(message) = apply_dsp_chain(state, plugins) {
-                    events.emit(Event::Error { message });
-                }
+            if state.session.is_some()
+                && let Err(message) = apply_dsp_chain(state, plugins)
+            {
+                events.emit(Event::Error { message });
             }
         }
         EngineCtrl::ReloadPlugins { dir } => {
@@ -628,12 +650,12 @@ fn handle_internal(
             events.emit(Event::Log {
                 message: "end of stream".to_string(),
             });
-            if state.wants_playback {
-                if let Some(path) = state.current_track.clone() {
-                    events.emit(Event::PlaybackEnded {
-                        path: event_path_from_engine_token(&path),
-                    });
-                }
+            if state.wants_playback
+                && let Some(path) = state.current_track.clone()
+            {
+                events.emit(Event::PlaybackEnded {
+                    path: event_path_from_engine_token(&path),
+                });
             }
             stop_decode_session(state, track_info);
             state.wants_playback = false;
@@ -870,11 +892,11 @@ fn handle_command(
                         state.play_request_started_at = None;
                         return false;
                     };
-                    match start_session(
+                    match start_session(StartSessionArgs {
                         path,
                         decode_worker,
-                        internal_tx.clone(),
-                        match state.selected_backend {
+                        internal_tx: internal_tx.clone(),
+                        backend: match state.selected_backend {
                             stellatune_core::AudioBackend::Shared => {
                                 stellatune_output::AudioBackend::Shared
                             }
@@ -885,16 +907,16 @@ fn handle_command(
                                 stellatune_output::AudioBackend::Asio
                             }
                         },
-                        state.selected_device_id.clone(),
-                        state.match_track_sample_rate,
-                        state.gapless_playback,
+                        device_id: state.selected_device_id.clone(),
+                        match_track_sample_rate: state.match_track_sample_rate,
+                        gapless_playback: state.gapless_playback,
                         out_spec,
-                        start_at_ms as i64,
-                        Arc::clone(&state.volume_atomic),
-                        state.lfe_mode,
-                        state.desired_output_sink_route.is_some(),
-                        &mut state.output_pipeline,
-                    ) {
+                        start_at_ms: start_at_ms as i64,
+                        volume: Arc::clone(&state.volume_atomic),
+                        lfe_mode: state.lfe_mode,
+                        output_sink_only: state.desired_output_sink_route.is_some(),
+                        output_pipeline: &mut state.output_pipeline,
+                    }) {
                         Ok(session) => {
                             track_info.store(Some(Arc::new(session.track_info.clone())));
                             state.session = Some(session);
@@ -1006,7 +1028,7 @@ fn handle_command(
         Command::SetVolume { volume } => {
             // UI volume is linear [0, 1], but perceived loudness is roughly logarithmic. Map to a
             // gain curve so the slider feels more even across its range.
-            let ui = volume.max(0.0).min(1.0);
+            let ui = volume.clamp(0.0, 1.0);
             let gain = ui_volume_to_gain(ui);
             state.volume = ui;
             state.volume_atomic.store(gain.to_bits(), Ordering::Relaxed);
@@ -1223,17 +1245,17 @@ fn handle_preload_task(
     let t0 = Instant::now();
     match open_engine_decoder(&path, plugins) {
         Ok((mut decoder, track_info)) => {
-            if position_ms > 0 {
-                if let Err(err) = decoder.seek_ms(position_ms) {
-                    let _ = internal_tx.send(InternalMsg::PreloadFailed {
-                        path: path.clone(),
-                        position_ms,
-                        message: err,
-                        took_ms: t0.elapsed().as_millis() as u64,
-                        token,
-                    });
-                    return;
-                }
+            if position_ms > 0
+                && let Err(err) = decoder.seek_ms(position_ms)
+            {
+                let _ = internal_tx.send(InternalMsg::PreloadFailed {
+                    path: path.clone(),
+                    position_ms,
+                    message: err,
+                    took_ms: t0.elapsed().as_millis() as u64,
+                    token,
+                });
+                return;
             }
             match decoder.next_block(2048) {
                 Ok(Some(samples)) if !samples.is_empty() => {
@@ -1444,7 +1466,9 @@ fn handle_tick(
             set_state(state, events, PlayerState::Stopped);
             return;
         };
-        let out_spec = state.cached_output_spec.expect("checked");
+        let out_spec = state
+            .cached_output_spec
+            .unwrap_or_else(|| panic!("checked"));
         let start_at_ms = state.position_ms.max(0) as u64;
         let Some(decode_worker) = state.decode_worker.as_ref() else {
             state.pending_session_start = false;
@@ -1456,27 +1480,27 @@ fn handle_tick(
             set_state(state, events, PlayerState::Stopped);
             return;
         };
-        match start_session(
+        match start_session(StartSessionArgs {
             path,
             decode_worker,
-            internal_tx.clone(),
-            match state.selected_backend {
+            internal_tx: internal_tx.clone(),
+            backend: match state.selected_backend {
                 stellatune_core::AudioBackend::Shared => stellatune_output::AudioBackend::Shared,
                 stellatune_core::AudioBackend::WasapiExclusive => {
                     stellatune_output::AudioBackend::WasapiExclusive
                 }
                 stellatune_core::AudioBackend::Asio => stellatune_output::AudioBackend::Asio,
             },
-            state.selected_device_id.clone(),
-            state.match_track_sample_rate,
-            state.gapless_playback,
+            device_id: state.selected_device_id.clone(),
+            match_track_sample_rate: state.match_track_sample_rate,
+            gapless_playback: state.gapless_playback,
             out_spec,
-            start_at_ms as i64,
-            Arc::clone(&state.volume_atomic),
-            state.lfe_mode,
-            state.desired_output_sink_route.is_some(),
-            &mut state.output_pipeline,
-        ) {
+            start_at_ms: start_at_ms as i64,
+            volume: Arc::clone(&state.volume_atomic),
+            lfe_mode: state.lfe_mode,
+            output_sink_only: state.desired_output_sink_route.is_some(),
+            output_pipeline: &mut state.output_pipeline,
+        }) {
             Ok(session) => {
                 track_info.store(Some(Arc::new(session.track_info.clone())));
                 state.session = Some(session);

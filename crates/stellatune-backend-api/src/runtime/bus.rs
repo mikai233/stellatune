@@ -52,14 +52,14 @@ pub(super) fn push_plugin_host_event_json(
     plugin_id: &str,
     event_json: String,
 ) {
-    if let Ok(pm) = plugins.lock() {
-        if let Err(err) = pm.push_host_event_json(plugin_id, &event_json) {
-            tracing::warn!(
-                plugin_id = plugin_id,
-                error = %err,
-                "failed to push host event to plugin"
-            );
-        }
+    if let Ok(pm) = plugins.lock()
+        && let Err(err) = pm.push_host_event_json(plugin_id, &event_json)
+    {
+        tracing::warn!(
+            plugin_id = plugin_id,
+            error = %err,
+            "failed to push host event to plugin"
+        );
     }
 }
 
@@ -118,23 +118,29 @@ pub(super) fn emit_runtime_event(
 }
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+pub(super) struct ControlFinishedArgs<'a> {
+    pub(super) plugin_id: &'a str,
+    pub(super) request_id: Option<serde_json::Value>,
+    pub(super) scope: ControlScope,
+    pub(super) command: Option<ControlCommand>,
+    pub(super) error: Option<&'a str>,
+}
+
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 pub(super) fn emit_control_finished(
     plugins: &SharedPlugins,
     hub: &PluginRuntimeEventHub,
     engine: Option<&stellatune_audio::EngineHandle>,
-    plugin_id: &str,
-    request_id: Option<serde_json::Value>,
-    scope: ControlScope,
-    command: Option<ControlCommand>,
-    error: Option<&str>,
+    args: ControlFinishedArgs<'_>,
 ) {
-    let payload_json = build_control_finished_event_json(request_id, scope, command, error);
-    push_plugin_host_event_json(plugins, plugin_id, payload_json.clone());
+    let payload_json =
+        build_control_finished_event_json(args.request_id, args.scope, args.command, args.error);
+    push_plugin_host_event_json(plugins, args.plugin_id, payload_json.clone());
     emit_runtime_event(
         hub,
         engine,
         PluginRuntimeEvent {
-            plugin_id: plugin_id.to_string(),
+            plugin_id: args.plugin_id.to_string(),
             kind: PluginRuntimeKind::ControlFinished,
             payload_json,
         },

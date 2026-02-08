@@ -28,7 +28,7 @@ class CustomTitleBar extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 4), // Window edge padding
       child: Row(
         children: [
-          if (leading != null) leading!,
+          ?leading,
           Expanded(
             child: DragToMoveArea(
               child: Container(
@@ -58,7 +58,7 @@ class CustomTitleBar extends StatelessWidget {
               ),
             ),
           ),
-          if (trailing != null) trailing!,
+          ?trailing,
           const SizedBox(width: 4),
           WindowButton(
             icon: Icons.fullscreen,

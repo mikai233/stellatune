@@ -29,32 +29,60 @@ use self::utils::{
     adapt_channels_interleaved, core_lfe_to_mixer, skip_frames_by_decoding, write_pending,
 };
 
-pub(crate) fn decode_thread(
-    path: String,
-    events: Arc<EventHub>,
-    internal_tx: Sender<InternalMsg>,
-    plugins: Arc<Mutex<stellatune_plugins::PluginManager>>,
-    preopened: Option<(EngineDecoder, TrackDecodeInfo)>,
-    ctrl_rx: Receiver<DecodeCtrl>,
-    setup_rx: Receiver<DecodeCtrl>,
-    spec_tx: Sender<Result<TrackDecodeInfo, String>>,
-    runtime_state: Arc<AtomicU8>,
-) {
-    let (mut decoder, info) = if let Some((decoder, info)) = preopened {
-        debug!("decoder open reused preloaded instance");
-        (decoder, info)
-    } else {
-        let t_open = Instant::now();
-        let (decoder, info) = match open_engine_decoder(&path, &plugins) {
-            Ok(v) => v,
-            Err(e) => {
-                let _ = spec_tx.send(Err(e));
-                return;
-            }
+type DecodeSetupState = (
+    Arc<Mutex<crate::ring_buffer::RingBufferProducer<f32>>>,
+    u32,
+    u16,
+    Option<crate::engine::messages::PredecodedChunk>,
+    i64,
+    Arc<std::sync::atomic::AtomicBool>,
+    i64,
+    stellatune_core::LfeMode,
+    Option<Sender<OutputSinkWrite>>,
+    bool,
+);
+
+pub(crate) struct DecodeThreadArgs {
+    pub(crate) path: String,
+    pub(crate) events: Arc<EventHub>,
+    pub(crate) internal_tx: Sender<InternalMsg>,
+    pub(crate) plugins: Arc<Mutex<stellatune_plugins::PluginManager>>,
+    pub(crate) preopened: Option<(Box<EngineDecoder>, TrackDecodeInfo)>,
+    pub(crate) ctrl_rx: Receiver<DecodeCtrl>,
+    pub(crate) setup_rx: Receiver<DecodeCtrl>,
+    pub(crate) spec_tx: Sender<Result<TrackDecodeInfo, String>>,
+    pub(crate) runtime_state: Arc<AtomicU8>,
+}
+
+pub(crate) fn decode_thread(args: DecodeThreadArgs) {
+    let DecodeThreadArgs {
+        path,
+        events,
+        internal_tx,
+        plugins,
+        preopened,
+        ctrl_rx,
+        setup_rx,
+        spec_tx,
+        runtime_state,
+    } = args;
+
+    let (mut decoder, info): (Box<EngineDecoder>, TrackDecodeInfo) =
+        if let Some((decoder, info)) = preopened {
+            debug!("decoder open reused preloaded instance");
+            (decoder, info)
+        } else {
+            let t_open = Instant::now();
+            let (decoder, info) = match open_engine_decoder(&path, &plugins) {
+                Ok(v) => v,
+                Err(e) => {
+                    let _ = spec_tx.send(Err(e));
+                    return;
+                }
+            };
+            debug!("decoder open took {}ms", t_open.elapsed().as_millis());
+            (decoder, info)
         };
-        debug!("decoder open took {}ms", t_open.elapsed().as_millis());
-        (decoder, info)
-    };
 
     let spec = decoder.spec();
     let _ = spec_tx.send(Ok(info));
@@ -70,18 +98,7 @@ pub(crate) fn decode_thread(
         initial_lfe_mode,
         mut output_sink_tx,
         output_sink_only,
-    ): (
-        Arc<Mutex<crate::ring_buffer::RingBufferProducer<f32>>>,
-        u32,
-        u16,
-        Option<crate::engine::messages::PredecodedChunk>,
-        i64,
-        Arc<std::sync::atomic::AtomicBool>,
-        i64,
-        stellatune_core::LfeMode,
-        Option<Sender<OutputSinkWrite>>,
-        bool,
-    ) = loop {
+    ): DecodeSetupState = loop {
         crossbeam_channel::select! {
             recv(setup_rx) -> msg => {
                 let Ok(ctrl) = msg else { return };

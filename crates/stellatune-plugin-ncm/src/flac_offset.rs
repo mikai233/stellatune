@@ -45,7 +45,7 @@ where
     }
 
     let pos0 = ncm
-        .seek(SeekFrom::Current(0))
+        .stream_position()
         .map_err(|e| format!("tell failed: {e}"))?;
     ncm.seek(SeekFrom::Start(0))
         .map_err(|e| format!("seek start failed: {e}"))?;
