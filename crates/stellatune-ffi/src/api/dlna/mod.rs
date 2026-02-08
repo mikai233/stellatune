@@ -1,8 +1,7 @@
 use anyhow::Result;
 
 use super::dlna_impl;
-use super::runtime::init_tracing;
-
+use stellatune_backend_api::runtime::init_tracing;
 use stellatune_core::{
     DlnaHttpServerInfo, DlnaPositionInfo, DlnaRenderer, DlnaSsdpDevice, DlnaTransportInfo,
 };

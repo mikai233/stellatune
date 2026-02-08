@@ -19,13 +19,13 @@ mod tests;
 mod types;
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-pub(crate) type SharedPlugins = Arc<Mutex<PluginManager>>;
+pub type SharedPlugins = Arc<Mutex<PluginManager>>;
 
 #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
-pub(crate) type SharedPlugins = ();
+pub type SharedPlugins = ();
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-pub(crate) fn shared_plugins() -> SharedPlugins {
+pub fn shared_plugins() -> SharedPlugins {
     static SHARED: OnceLock<SharedPlugins> = OnceLock::new();
     SHARED
         .get_or_init(|| Arc::new(Mutex::new(PluginManager::new(default_host_vtable()))))
@@ -33,17 +33,17 @@ pub(crate) fn shared_plugins() -> SharedPlugins {
 }
 
 #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
-pub(crate) fn shared_plugins() -> SharedPlugins {
+pub fn shared_plugins() -> SharedPlugins {
     ()
 }
 
-pub(crate) fn init_tracing() {
+pub fn init_tracing() {
     static INIT: OnceLock<()> = OnceLock::new();
     INIT.get_or_init(|| {
         let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
             if cfg!(debug_assertions) {
                 EnvFilter::new(
-                    "warn,stellatune_ffi=debug,stellatune_audio=debug,stellatune_decode=debug,stellatune_output=debug,stellatune_library=debug,stellatune_plugins=debug",
+                    "warn,stellatune_backend_api=debug,stellatune_audio=debug,stellatune_decode=debug,stellatune_output=debug,stellatune_library=debug,stellatune_plugins=debug",
                 )
             } else {
                 EnvFilter::new("info")
@@ -55,11 +55,20 @@ pub(crate) fn init_tracing() {
             .with_target(true)
             .with_thread_names(true)
             .with_thread_ids(true)
-            .init();
+            .try_init()
+            .ok();
     });
 }
 
-pub(crate) use router::{
-    register_plugin_runtime_engine, register_plugin_runtime_library,
-    subscribe_plugin_runtime_events_global,
-};
+pub fn register_plugin_runtime_engine(engine: stellatune_audio::EngineHandle) {
+    router::register_plugin_runtime_engine(engine);
+}
+
+pub fn register_plugin_runtime_library(library: stellatune_library::LibraryHandle) {
+    router::register_plugin_runtime_library(library);
+}
+
+pub fn subscribe_plugin_runtime_events_global()
+-> crossbeam_channel::Receiver<stellatune_core::PluginRuntimeEvent> {
+    router::subscribe_plugin_runtime_events_global()
+}

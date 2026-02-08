@@ -229,7 +229,7 @@ fn plugin_runtime_router() -> &'static std::sync::Arc<PluginRuntimeRouter> {
 }
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-pub(crate) fn register_plugin_runtime_engine(engine: stellatune_audio::EngineHandle) {
+pub fn register_plugin_runtime_engine(engine: stellatune_audio::EngineHandle) {
     let router = plugin_runtime_router();
     let player_rx = engine.subscribe_events();
     if let Ok(mut slot) = router.engine.lock() {
@@ -241,7 +241,7 @@ pub(crate) fn register_plugin_runtime_engine(engine: stellatune_audio::EngineHan
 }
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-pub(crate) fn register_plugin_runtime_library(library: stellatune_library::LibraryHandle) {
+pub fn register_plugin_runtime_library(library: stellatune_library::LibraryHandle) {
     let router = plugin_runtime_router();
     let library_rx = library.subscribe_events();
     if let Ok(mut slot) = router.library.lock() {
@@ -253,20 +253,18 @@ pub(crate) fn register_plugin_runtime_library(library: stellatune_library::Libra
 }
 
 #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
-pub(crate) fn register_plugin_runtime_engine(_engine: stellatune_audio::EngineHandle) {}
+pub fn register_plugin_runtime_engine(_engine: stellatune_audio::EngineHandle) {}
 
 #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
-pub(crate) fn register_plugin_runtime_library(_library: stellatune_library::LibraryHandle) {}
+pub fn register_plugin_runtime_library(_library: stellatune_library::LibraryHandle) {}
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-pub(crate) fn subscribe_plugin_runtime_events_global()
--> crossbeam_channel::Receiver<PluginRuntimeEvent> {
+pub fn subscribe_plugin_runtime_events_global() -> crossbeam_channel::Receiver<PluginRuntimeEvent> {
     plugin_runtime_router().runtime_hub.subscribe()
 }
 
 #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
-pub(crate) fn subscribe_plugin_runtime_events_global()
--> crossbeam_channel::Receiver<PluginRuntimeEvent> {
+pub fn subscribe_plugin_runtime_events_global() -> crossbeam_channel::Receiver<PluginRuntimeEvent> {
     let (_tx, rx) = crossbeam_channel::unbounded();
     rx
 }

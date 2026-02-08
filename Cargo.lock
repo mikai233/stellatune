@@ -3158,6 +3158,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "stellatune-backend-api"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arc-swap",
+ "crossbeam-channel",
+ "reqwest",
+ "serde_json",
+ "sqlx",
+ "stellatune-audio",
+ "stellatune-core",
+ "stellatune-library",
+ "stellatune-plugins",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+]
+
+[[package]]
 name = "stellatune-core"
 version = "0.1.0"
 dependencies = [
@@ -3183,7 +3204,6 @@ name = "stellatune-ffi"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "arc-swap",
  "axum",
  "crossbeam-channel",
  "flutter_rust_bridge",
@@ -3195,11 +3215,8 @@ dependencies = [
  "roxmltree",
  "serde_json",
  "socket2 0.5.10",
- "sqlx",
- "stellatune-audio",
+ "stellatune-backend-api",
  "stellatune-core",
- "stellatune-library",
- "stellatune-plugins",
  "tokio",
  "tokio-util",
  "tracing",

@@ -3,22 +3,17 @@ use std::thread;
 use crate::frb_generated::{RustOpaque, StreamSink};
 use anyhow::Result;
 
-use super::runtime::{init_tracing, register_plugin_runtime_library, shared_plugins};
-
-use stellatune_core::{LibraryCommand, LibraryEvent};
-use stellatune_library::start_library_with_plugins;
+use stellatune_backend_api::library::LibraryService;
+use stellatune_core::LibraryEvent;
 
 pub struct Library {
-    handle: stellatune_library::LibraryHandle,
+    service: LibraryService,
 }
 
 impl Library {
     fn new(db_path: String, disabled_plugin_ids: Vec<String>) -> Result<Self> {
-        init_tracing();
-        tracing::info!("creating library: {}", db_path);
-        let handle = start_library_with_plugins(db_path, disabled_plugin_ids, shared_plugins())?;
-        register_plugin_runtime_library(handle.clone());
-        Ok(Self { handle })
+        let service = LibraryService::new(db_path, disabled_plugin_ids)?;
+        Ok(Self { service })
     }
 }
 
@@ -30,49 +25,39 @@ pub fn create_library(
 }
 
 pub fn library_add_root(library: RustOpaque<Library>, path: String) {
-    library
-        .handle
-        .send_command(LibraryCommand::AddRoot { path });
+    library.service.add_root(path);
 }
 
 pub fn library_remove_root(library: RustOpaque<Library>, path: String) {
-    library
-        .handle
-        .send_command(LibraryCommand::RemoveRoot { path });
+    library.service.remove_root(path);
 }
 
 pub fn library_delete_folder(library: RustOpaque<Library>, path: String) {
-    library
-        .handle
-        .send_command(LibraryCommand::DeleteFolder { path });
+    library.service.delete_folder(path);
 }
 
 pub fn library_restore_folder(library: RustOpaque<Library>, path: String) {
-    library
-        .handle
-        .send_command(LibraryCommand::RestoreFolder { path });
+    library.service.restore_folder(path);
 }
 
 pub fn library_list_excluded_folders(library: RustOpaque<Library>) {
-    library
-        .handle
-        .send_command(LibraryCommand::ListExcludedFolders);
+    library.service.list_excluded_folders();
 }
 
 pub fn library_scan_all(library: RustOpaque<Library>) {
-    library.handle.send_command(LibraryCommand::ScanAll);
+    library.service.scan_all();
 }
 
 pub fn library_scan_all_force(library: RustOpaque<Library>) {
-    library.handle.send_command(LibraryCommand::ScanAllForce);
+    library.service.scan_all_force();
 }
 
 pub fn library_list_roots(library: RustOpaque<Library>) {
-    library.handle.send_command(LibraryCommand::ListRoots);
+    library.service.list_roots();
 }
 
 pub fn library_list_folders(library: RustOpaque<Library>) {
-    library.handle.send_command(LibraryCommand::ListFolders);
+    library.service.list_folders();
 }
 
 pub fn library_list_tracks(
@@ -83,43 +68,29 @@ pub fn library_list_tracks(
     limit: i64,
     offset: i64,
 ) {
-    library.handle.send_command(LibraryCommand::ListTracks {
-        folder,
-        recursive,
-        query,
-        limit,
-        offset,
-    });
+    library
+        .service
+        .list_tracks(folder, recursive, query, limit, offset);
 }
 
 pub fn library_search(library: RustOpaque<Library>, query: String, limit: i64, offset: i64) {
-    library.handle.send_command(LibraryCommand::Search {
-        query,
-        limit,
-        offset,
-    });
+    library.service.search(query, limit, offset);
 }
 
 pub fn library_list_playlists(library: RustOpaque<Library>) {
-    library.handle.send_command(LibraryCommand::ListPlaylists);
+    library.service.list_playlists();
 }
 
 pub fn library_create_playlist(library: RustOpaque<Library>, name: String) {
-    library
-        .handle
-        .send_command(LibraryCommand::CreatePlaylist { name });
+    library.service.create_playlist(name);
 }
 
 pub fn library_rename_playlist(library: RustOpaque<Library>, id: i64, name: String) {
-    library
-        .handle
-        .send_command(LibraryCommand::RenamePlaylist { id, name });
+    library.service.rename_playlist(id, name);
 }
 
 pub fn library_delete_playlist(library: RustOpaque<Library>, id: i64) {
-    library
-        .handle
-        .send_command(LibraryCommand::DeletePlaylist { id });
+    library.service.delete_playlist(id);
 }
 
 pub fn library_list_playlist_tracks(
@@ -130,13 +101,8 @@ pub fn library_list_playlist_tracks(
     offset: i64,
 ) {
     library
-        .handle
-        .send_command(LibraryCommand::ListPlaylistTracks {
-            playlist_id,
-            query,
-            limit,
-            offset,
-        });
+        .service
+        .list_playlist_tracks(playlist_id, query, limit, offset);
 }
 
 pub fn library_add_track_to_playlist(
@@ -144,12 +110,7 @@ pub fn library_add_track_to_playlist(
     playlist_id: i64,
     track_id: i64,
 ) {
-    library
-        .handle
-        .send_command(LibraryCommand::AddTrackToPlaylist {
-            playlist_id,
-            track_id,
-        });
+    library.service.add_track_to_playlist(playlist_id, track_id);
 }
 
 pub fn library_add_tracks_to_playlist(
@@ -158,11 +119,8 @@ pub fn library_add_tracks_to_playlist(
     track_ids: Vec<i64>,
 ) {
     library
-        .handle
-        .send_command(LibraryCommand::AddTracksToPlaylist {
-            playlist_id,
-            track_ids,
-        });
+        .service
+        .add_tracks_to_playlist(playlist_id, track_ids);
 }
 
 pub fn library_remove_track_from_playlist(
@@ -171,11 +129,8 @@ pub fn library_remove_track_from_playlist(
     track_id: i64,
 ) {
     library
-        .handle
-        .send_command(LibraryCommand::RemoveTrackFromPlaylist {
-            playlist_id,
-            track_id,
-        });
+        .service
+        .remove_track_from_playlist(playlist_id, track_id);
 }
 
 pub fn library_remove_tracks_from_playlist(
@@ -184,11 +139,8 @@ pub fn library_remove_tracks_from_playlist(
     track_ids: Vec<i64>,
 ) {
     library
-        .handle
-        .send_command(LibraryCommand::RemoveTracksFromPlaylist {
-            playlist_id,
-            track_ids,
-        });
+        .service
+        .remove_tracks_from_playlist(playlist_id, track_ids);
 }
 
 pub fn library_move_track_in_playlist(
@@ -198,28 +150,20 @@ pub fn library_move_track_in_playlist(
     new_index: i64,
 ) {
     library
-        .handle
-        .send_command(LibraryCommand::MoveTrackInPlaylist {
-            playlist_id,
-            track_id,
-            new_index,
-        });
+        .service
+        .move_track_in_playlist(playlist_id, track_id, new_index);
 }
 
 pub fn library_list_liked_track_ids(library: RustOpaque<Library>) {
-    library
-        .handle
-        .send_command(LibraryCommand::ListLikedTrackIds);
+    library.service.list_liked_track_ids();
 }
 
 pub fn library_set_track_liked(library: RustOpaque<Library>, track_id: i64, liked: bool) {
-    library
-        .handle
-        .send_command(LibraryCommand::SetTrackLiked { track_id, liked });
+    library.service.set_track_liked(track_id, liked);
 }
 
 pub fn library_events(library: RustOpaque<Library>, sink: StreamSink<LibraryEvent>) -> Result<()> {
-    let rx = library.handle.subscribe_events();
+    let rx = library.service.subscribe_events();
 
     thread::Builder::new()
         .name("stellatune-library-events".to_string())
@@ -241,6 +185,6 @@ pub fn library_plugins_reload_with_disabled(
     disabled_ids: Vec<String>,
 ) {
     library
-        .handle
+        .service
         .plugins_reload_with_disabled(dir, disabled_ids);
 }

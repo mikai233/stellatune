@@ -1,31 +1,23 @@
 [package]
-name = "stellatune-ffi"
+name = "stellatune-backend-api"
 version = "0.1.0"
 edition = "2024"
 license.workspace = true
 
-[lib]
-name = "stellatune_ffi"
-crate-type = ["cdylib", "staticlib", "rlib"]
-
 [dependencies]
 anyhow.workspace = true
 crossbeam-channel.workspace = true
-flutter_rust_bridge.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
-axum = "0.8.1"
-reqwest = { version = "0.12.12", default-features = false, features = ["rustls-tls", "gzip"] }
-roxmltree = "0.20.0"
-url = "2.5.4"
-tokio-util = { version = "0.7.13", features = ["io"] }
-mime_guess = "2.0.5"
-rand = "0.8.5"
-local-ip-address = "0.6.6"
-get_if_addrs = "0.5.3"
-socket2 = "0.5"
 serde_json.workspace = true
+sqlx.workspace = true
+arc-swap.workspace = true
+reqwest = { version = "0.12.12", default-features = false, features = ["rustls-tls", "gzip"] }
+tokio-util = { version = "0.7.13", features = ["io"] }
+url = "2.5.4"
 
-stellatune-backend-api.workspace = true
+stellatune-audio.workspace = true
 stellatune-core.workspace = true
+stellatune-library.workspace = true
+stellatune-plugins.workspace = true
