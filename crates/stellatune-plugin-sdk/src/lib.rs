@@ -13,6 +13,7 @@ mod ffi_utils;
 mod host;
 mod macros;
 mod metadata;
+pub mod v2;
 
 pub use codec::*;
 pub use control::*;

@@ -10,7 +10,6 @@ use stellatune_core::{
 };
 use stellatune_plugin_protocol::{PluginControlRequest, RequestId};
 
-use super::SharedPlugins;
 use super::control::{
     control_scope_from_request, is_wait_satisfied_by_library, is_wait_satisfied_by_player,
 };
@@ -47,27 +46,13 @@ pub(super) fn drain_router_receiver<T>(
 }
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-pub(super) fn push_plugin_host_event_json(
-    plugins: &SharedPlugins,
-    plugin_id: &str,
-    event_json: String,
-) {
-    if let Ok(pm) = plugins.lock()
-        && let Err(err) = pm.push_host_event_json(plugin_id, &event_json)
-    {
-        tracing::warn!(
-            plugin_id = plugin_id,
-            error = %err,
-            "failed to push host event to plugin"
-        );
-    }
+pub(super) fn push_plugin_host_event_json(plugin_id: &str, event_json: String) {
+    stellatune_plugins::push_shared_host_event_json(plugin_id, &event_json);
 }
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-pub(super) fn broadcast_host_event_json(plugins: &SharedPlugins, event_json: String) {
-    if let Ok(pm) = plugins.lock() {
-        pm.broadcast_host_event_json(&event_json);
-    }
+pub(super) fn broadcast_host_event_json(event_json: String) {
+    stellatune_plugins::broadcast_shared_host_event_json(&event_json);
 }
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
@@ -150,7 +135,6 @@ pub(super) struct ControlFinishedArgs<'a> {
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 pub(super) fn emit_control_finished(
-    plugins: &SharedPlugins,
     hub: &PluginRuntimeEventHub,
     engine: Option<&stellatune_audio::EngineHandle>,
     args: ControlFinishedArgs<'_>,
@@ -158,7 +142,7 @@ pub(super) fn emit_control_finished(
     let payload =
         build_control_finished_payload(args.request_id, args.scope, args.command, args.error);
     let payload_json = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string());
-    push_plugin_host_event_json(plugins, args.plugin_id, payload_json);
+    push_plugin_host_event_json(args.plugin_id, payload_json);
     let event = PluginRuntimeEvent::from_payload(
         args.plugin_id.to_string(),
         PluginRuntimeKind::ControlFinished,

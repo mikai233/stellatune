@@ -117,6 +117,28 @@ impl WorkerDeps {
             if let Ok(mut pm) = plugins.lock() {
                 let disabled = disabled_plugin_ids.load_full();
                 pm.set_disabled_ids(disabled.as_ref().clone());
+                match stellatune_plugins::v2::shared_runtime_service_v2().lock() {
+                    Ok(service) => {
+                        match service.reload_dir_filtered(&plugins_dir, disabled.as_ref()) {
+                            Ok(v2) => events.emit(LibraryEvent::Log {
+                                message: format!(
+                                    "library plugin runtime v2 reload: loaded={} deactivated={} errors={} unloaded_generations={}",
+                                    v2.loaded.len(),
+                                    v2.deactivated.len(),
+                                    v2.errors.len(),
+                                    v2.unloaded_generations
+                                ),
+                            }),
+                            Err(e) => events.emit(LibraryEvent::Log {
+                                message: format!("library plugin runtime v2 reload failed: {e:#}"),
+                            }),
+                        }
+                    }
+                    Err(_) => events.emit(LibraryEvent::Log {
+                        message: "library plugin runtime v2 reload skipped: runtime mutex poisoned"
+                            .to_string(),
+                    }),
+                }
             } else {
                 events.emit(LibraryEvent::Log {
                     message:
@@ -184,6 +206,9 @@ impl LibraryWorker {
             };
             pm.set_disabled_ids(disabled.clone());
             let _ = unsafe { pm.load_dir_additive_filtered(&self.plugins_dir, &disabled) };
+            if let Ok(service) = stellatune_plugins::v2::shared_runtime_service_v2().lock() {
+                let _ = service.reload_dir_filtered(&self.plugins_dir, &disabled);
+            }
         }
     }
 

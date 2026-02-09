@@ -3,10 +3,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use anyhow::Result;
 use crossbeam_channel::Receiver;
 
-use crate::runtime::{init_tracing, register_plugin_runtime_library, shared_plugins};
+use crate::runtime::{init_tracing, register_plugin_runtime_library};
 
 use stellatune_core::{LibraryCommand, LibraryEvent};
-use stellatune_library::{LibraryHandle, start_library_with_plugins};
+use stellatune_library::{LibraryHandle, start_library};
 
 pub struct LibraryService {
     instance_id: u64,
@@ -19,7 +19,7 @@ impl LibraryService {
         let instance_id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
         init_tracing();
         tracing::info!(instance_id, "creating library: {}", db_path);
-        let handle = start_library_with_plugins(db_path, disabled_plugin_ids, shared_plugins())?;
+        let handle = start_library(db_path, disabled_plugin_ids)?;
         register_plugin_runtime_library(handle.clone());
         Ok(Self {
             instance_id,

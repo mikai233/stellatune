@@ -7,13 +7,13 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use stellatune_mixer::ChannelMixer;
-use stellatune_plugins::DspInstance;
+use stellatune_plugins::v2::DspInstanceV2;
 
 pub(crate) struct DecodeContext<'a> {
     pub(crate) playing: &'a mut bool,
     pub(crate) last_emit: &'a mut Instant,
-    pub(crate) pre_mix_dsp: &'a mut Vec<DspInstance>,
-    pub(crate) post_mix_dsp: &'a mut Vec<DspInstance>,
+    pub(crate) pre_mix_dsp: &'a mut Vec<DspInstanceV2>,
+    pub(crate) post_mix_dsp: &'a mut Vec<DspInstanceV2>,
     pub(crate) decoder: &'a mut decoder::EngineDecoder,
     pub(crate) resampler: &'a mut Option<rubato::Async<f32>>,
     pub(crate) producer: &'a Arc<Mutex<RingBufferProducer<f32>>>,

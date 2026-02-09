@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
@@ -12,7 +13,8 @@ use stellatune_core::{
     TrackPlayability, TrackRef,
 };
 use stellatune_output::{OutputSpec, output_spec_for_device};
-use stellatune_plugin_api::StAudioSpec;
+use stellatune_plugin_api::{StAudioSpec, v2::StOutputSinkNegotiatedSpecV2};
+use stellatune_plugins::runtime::CapabilityKind;
 use stellatune_plugins::{PluginManager, default_host_vtable};
 
 use crate::engine::config::{
@@ -46,6 +48,29 @@ fn snapshot_plugins(plugins: &Arc<Mutex<PluginManager>>) -> Result<PluginManager
         .map_err(|_| "plugins mutex poisoned".to_string())
 }
 
+fn with_runtime_service<T>(
+    f: impl FnOnce(&stellatune_plugins::v2::PluginRuntimeService) -> Result<T, String>,
+) -> Result<T, String> {
+    let shared = stellatune_plugins::v2::shared_runtime_service_v2();
+    let service = shared
+        .lock()
+        .map_err(|_| "plugin runtime v2 mutex poisoned".to_string())?;
+    f(&service)
+}
+
+fn runtime_default_config_json(
+    plugin_id: &str,
+    kind: CapabilityKind,
+    type_id: &str,
+) -> Result<String, String> {
+    with_runtime_service(|service| {
+        service
+            .resolve_active_capability(plugin_id, kind, type_id)
+            .map(|c| c.default_config_json)
+            .ok_or_else(|| format!("capability not found: {plugin_id}::{type_id}"))
+    })
+}
+
 #[derive(Debug, Clone)]
 struct DspChainEntry {
     plugin_id: String,
@@ -70,7 +95,6 @@ struct OutputSinkWorkerSpec {
 }
 
 struct OpenOutputSinkWorkerArgs<'a> {
-    plugins: &'a Arc<Mutex<PluginManager>>,
     route: &'a OutputSinkRouteSpec,
     sample_rate: u32,
     channels: u16,
@@ -78,6 +102,23 @@ struct OpenOutputSinkWorkerArgs<'a> {
     transition_gain: Arc<AtomicU32>,
     transition_target_gain: Arc<AtomicU32>,
     internal_tx: &'a Sender<InternalMsg>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct RuntimeInstanceKey {
+    plugin_id: String,
+    type_id: String,
+    config_json: String,
+}
+
+impl RuntimeInstanceKey {
+    fn new(plugin_id: &str, type_id: &str, config_json: String) -> Self {
+        Self {
+            plugin_id: plugin_id.to_string(),
+            type_id: type_id.to_string(),
+            config_json,
+        }
+    }
 }
 
 mod debug_metrics {
@@ -168,6 +209,19 @@ pub struct EngineHandle {
 }
 
 impl EngineHandle {
+    fn send_engine_query_request(
+        &self,
+        build: impl FnOnce(Sender<Result<String, String>>) -> EngineCtrl,
+    ) -> Result<String, String> {
+        let (resp_tx, resp_rx) = crossbeam_channel::bounded(1);
+        self.engine_ctrl_tx
+            .send(build(resp_tx))
+            .map_err(|_| "control thread exited".to_string())?;
+        resp_rx
+            .recv()
+            .map_err(|_| "control thread dropped query response".to_string())?
+    }
+
     pub fn send_command(&self, cmd: Command) {
         let _ = self.cmd_tx.send(cmd);
     }
@@ -350,12 +404,20 @@ impl EngineHandle {
         R: serde::Serialize,
         Items: serde::de::DeserializeOwned,
     {
-        let pm = snapshot_plugins(&self.plugins)?;
-        let key = pm
-            .find_source_catalog_key(plugin_id, type_id)
-            .ok_or_else(|| format!("source catalog not found: {}::{}", plugin_id, type_id))?;
-        pm.source_list_items(key, config, request)
-            .map_err(|e| e.to_string())
+        let config_json = serde_json::to_string(config)
+            .map_err(|e| format!("failed to serialize source config: {e}"))?;
+        let request_json = serde_json::to_string(request)
+            .map_err(|e| format!("failed to serialize source request: {e}"))?;
+        let payload =
+            self.send_engine_query_request(|resp_tx| EngineCtrl::SourceListItemsJson {
+                plugin_id: plugin_id.to_string(),
+                type_id: type_id.to_string(),
+                config_json,
+                request_json,
+                resp_tx,
+            })?;
+        serde_json::from_str::<Items>(&payload)
+            .map_err(|e| format!("failed to deserialize source response: {e}"))
     }
 
     pub fn lyrics_provider_search<Q, Resp>(
@@ -368,11 +430,16 @@ impl EngineHandle {
         Q: serde::Serialize,
         Resp: serde::de::DeserializeOwned,
     {
-        let pm = snapshot_plugins(&self.plugins)?;
-        let key = pm
-            .find_lyrics_provider_key(plugin_id, type_id)
-            .ok_or_else(|| format!("lyrics provider not found: {}::{}", plugin_id, type_id))?;
-        pm.lyrics_search(key, query).map_err(|e| e.to_string())
+        let query_json = serde_json::to_string(query)
+            .map_err(|e| format!("failed to serialize lyrics query: {e}"))?;
+        let payload = self.send_engine_query_request(|resp_tx| EngineCtrl::LyricsSearchJson {
+            plugin_id: plugin_id.to_string(),
+            type_id: type_id.to_string(),
+            query_json,
+            resp_tx,
+        })?;
+        serde_json::from_str::<Resp>(&payload)
+            .map_err(|e| format!("failed to deserialize lyrics search response: {e}"))
     }
 
     pub fn lyrics_provider_fetch<T, Resp>(
@@ -385,11 +452,16 @@ impl EngineHandle {
         T: serde::Serialize,
         Resp: serde::de::DeserializeOwned,
     {
-        let pm = snapshot_plugins(&self.plugins)?;
-        let key = pm
-            .find_lyrics_provider_key(plugin_id, type_id)
-            .ok_or_else(|| format!("lyrics provider not found: {}::{}", plugin_id, type_id))?;
-        pm.lyrics_fetch(key, track).map_err(|e| e.to_string())
+        let track_json = serde_json::to_string(track)
+            .map_err(|e| format!("failed to serialize lyrics track: {e}"))?;
+        let payload = self.send_engine_query_request(|resp_tx| EngineCtrl::LyricsFetchJson {
+            plugin_id: plugin_id.to_string(),
+            type_id: type_id.to_string(),
+            track_json,
+            resp_tx,
+        })?;
+        serde_json::from_str::<Resp>(&payload)
+            .map_err(|e| format!("failed to deserialize lyrics fetch response: {e}"))
     }
 
     pub fn output_sink_list_targets<C, Targets>(
@@ -402,12 +474,17 @@ impl EngineHandle {
         C: serde::Serialize,
         Targets: serde::de::DeserializeOwned,
     {
-        let pm = snapshot_plugins(&self.plugins)?;
-        let key = pm
-            .find_output_sink_key(plugin_id, type_id)
-            .ok_or_else(|| format!("output sink not found: {}::{}", plugin_id, type_id))?;
-        pm.output_list_targets(key, config)
-            .map_err(|e| e.to_string())
+        let config_json = serde_json::to_string(config)
+            .map_err(|e| format!("failed to serialize output sink config: {e}"))?;
+        let payload =
+            self.send_engine_query_request(|resp_tx| EngineCtrl::OutputSinkListTargetsJson {
+                plugin_id: plugin_id.to_string(),
+                type_id: type_id.to_string(),
+                config_json,
+                resp_tx,
+            })?;
+        serde_json::from_str::<Targets>(&payload)
+            .map_err(|e| format!("failed to deserialize output sink targets: {e}"))
     }
 
     pub fn current_track_info(&self) -> Option<stellatune_core::TrackDecodeInfo> {
@@ -499,6 +576,10 @@ struct EngineState {
     preload_token: u64,
     requested_preload_path: Option<String>,
     requested_preload_position_ms: u64,
+    source_instances: HashMap<RuntimeInstanceKey, stellatune_plugins::v2::SourceCatalogInstanceV2>,
+    lyrics_instances: HashMap<RuntimeInstanceKey, stellatune_plugins::v2::LyricsProviderInstanceV2>,
+    output_sink_instances:
+        HashMap<RuntimeInstanceKey, stellatune_plugins::v2::OutputSinkInstanceV2>,
 }
 
 struct PreloadWorker {
@@ -564,6 +645,9 @@ impl EngineState {
             preload_token: 0,
             requested_preload_path: None,
             requested_preload_position_ms: 0,
+            source_instances: HashMap::new(),
+            lyrics_instances: HashMap::new(),
+            output_sink_instances: HashMap::new(),
         }
     }
 }
@@ -683,6 +767,107 @@ fn parse_output_sink_route(
     })
 }
 
+fn clear_runtime_query_instance_cache(state: &mut EngineState) {
+    state.source_instances.clear();
+    state.lyrics_instances.clear();
+    state.output_sink_instances.clear();
+}
+
+fn source_list_items_json_via_runtime(
+    state: &mut EngineState,
+    plugin_id: &str,
+    type_id: &str,
+    config_json: String,
+    request_json: String,
+) -> Result<String, String> {
+    let key = RuntimeInstanceKey::new(plugin_id, type_id, config_json.clone());
+    if !state.source_instances.contains_key(&key) {
+        let created = with_runtime_service(|service| {
+            service
+                .create_source_catalog_instance(plugin_id, type_id, &config_json)
+                .map_err(|e| e.to_string())
+        })?;
+        state.source_instances.insert(key.clone(), created);
+    }
+    let instance = state
+        .source_instances
+        .get_mut(&key)
+        .ok_or_else(|| "source instance cache insertion failed".to_string())?;
+    instance
+        .list_items_json(&request_json)
+        .map_err(|e| e.to_string())
+}
+
+fn lyrics_search_json_via_runtime(
+    state: &mut EngineState,
+    plugin_id: &str,
+    type_id: &str,
+    query_json: String,
+) -> Result<String, String> {
+    let config_json =
+        runtime_default_config_json(plugin_id, CapabilityKind::LyricsProvider, type_id)?;
+    let key = RuntimeInstanceKey::new(plugin_id, type_id, config_json.clone());
+    if !state.lyrics_instances.contains_key(&key) {
+        let created = with_runtime_service(|service| {
+            service
+                .create_lyrics_provider_instance(plugin_id, type_id, &config_json)
+                .map_err(|e| e.to_string())
+        })?;
+        state.lyrics_instances.insert(key.clone(), created);
+    }
+    let instance = state
+        .lyrics_instances
+        .get_mut(&key)
+        .ok_or_else(|| "lyrics instance cache insertion failed".to_string())?;
+    instance.search_json(&query_json).map_err(|e| e.to_string())
+}
+
+fn lyrics_fetch_json_via_runtime(
+    state: &mut EngineState,
+    plugin_id: &str,
+    type_id: &str,
+    track_json: String,
+) -> Result<String, String> {
+    let config_json =
+        runtime_default_config_json(plugin_id, CapabilityKind::LyricsProvider, type_id)?;
+    let key = RuntimeInstanceKey::new(plugin_id, type_id, config_json.clone());
+    if !state.lyrics_instances.contains_key(&key) {
+        let created = with_runtime_service(|service| {
+            service
+                .create_lyrics_provider_instance(plugin_id, type_id, &config_json)
+                .map_err(|e| e.to_string())
+        })?;
+        state.lyrics_instances.insert(key.clone(), created);
+    }
+    let instance = state
+        .lyrics_instances
+        .get_mut(&key)
+        .ok_or_else(|| "lyrics instance cache insertion failed".to_string())?;
+    instance.fetch_json(&track_json).map_err(|e| e.to_string())
+}
+
+fn output_sink_list_targets_json_via_runtime(
+    state: &mut EngineState,
+    plugin_id: &str,
+    type_id: &str,
+    config_json: String,
+) -> Result<String, String> {
+    let key = RuntimeInstanceKey::new(plugin_id, type_id, config_json.clone());
+    if !state.output_sink_instances.contains_key(&key) {
+        let created = with_runtime_service(|service| {
+            service
+                .create_output_sink_instance(plugin_id, type_id, &config_json)
+                .map_err(|e| e.to_string())
+        })?;
+        state.output_sink_instances.insert(key.clone(), created);
+    }
+    let instance = state
+        .output_sink_instances
+        .get_mut(&key)
+        .ok_or_else(|| "output sink instance cache insertion failed".to_string())?;
+    instance.list_targets_json().map_err(|e| e.to_string())
+}
+
 fn handle_engine_ctrl(
     msg: EngineCtrl,
     state: &mut EngineState,
@@ -700,16 +885,64 @@ fn handle_engine_ctrl(
             };
             state.desired_dsp_chain = parsed;
             if state.session.is_some()
-                && let Err(message) = apply_dsp_chain(state, plugins)
+                && let Err(message) = apply_dsp_chain(state)
             {
                 events.emit(Event::Error { message });
             }
         }
+        EngineCtrl::SourceListItemsJson {
+            plugin_id,
+            type_id,
+            config_json,
+            request_json,
+            resp_tx,
+        } => {
+            let _ = resp_tx.send(source_list_items_json_via_runtime(
+                state,
+                &plugin_id,
+                &type_id,
+                config_json,
+                request_json,
+            ));
+        }
+        EngineCtrl::LyricsSearchJson {
+            plugin_id,
+            type_id,
+            query_json,
+            resp_tx,
+        } => {
+            let _ = resp_tx.send(lyrics_search_json_via_runtime(
+                state, &plugin_id, &type_id, query_json,
+            ));
+        }
+        EngineCtrl::LyricsFetchJson {
+            plugin_id,
+            type_id,
+            track_json,
+            resp_tx,
+        } => {
+            let _ = resp_tx.send(lyrics_fetch_json_via_runtime(
+                state, &plugin_id, &type_id, track_json,
+            ));
+        }
+        EngineCtrl::OutputSinkListTargetsJson {
+            plugin_id,
+            type_id,
+            config_json,
+            resp_tx,
+        } => {
+            let _ = resp_tx.send(output_sink_list_targets_json_via_runtime(
+                state,
+                &plugin_id,
+                &type_id,
+                config_json,
+            ));
+        }
         EngineCtrl::ReloadPlugins { dir } => {
-            handle_reload_plugins(events, plugins, dir, Vec::new());
+            handle_reload_plugins(state, events, plugins, dir, Vec::new());
         }
         EngineCtrl::ReloadPluginsWithDisabled { dir, disabled_ids } => {
-            handle_reload_plugins(events, plugins, dir, disabled_ids);
+            handle_reload_plugins(state, events, plugins, dir, disabled_ids);
         }
         EngineCtrl::SetLfeMode { mode } => {
             state.lfe_mode = mode;
@@ -721,6 +954,7 @@ fn handle_engine_ctrl(
 }
 
 fn handle_reload_plugins(
+    state: &mut EngineState,
     events: &Arc<EventHub>,
     plugins: &Arc<Mutex<PluginManager>>,
     dir: String,
@@ -740,6 +974,7 @@ fn handle_reload_plugins(
             disabled.len()
         ),
     });
+    clear_runtime_query_instance_cache(state);
 
     let mut next_pm = PluginManager::new(default_host_vtable());
     next_pm.set_disabled_ids(disabled.clone());
@@ -789,12 +1024,32 @@ fn handle_reload_plugins(
     }
 
     *pm = next_pm;
+    let runtime_report = match stellatune_plugins::v2::shared_runtime_service_v2().lock() {
+        Ok(service) => service
+            .reload_dir_filtered(&dir, &disabled)
+            .map_err(|e| e.to_string()),
+        Err(_) => Err("plugin runtime v2 mutex poisoned".to_string()),
+    };
     events.emit(Event::Log {
         message: format!(
             "plugins reloaded from {}: previous={} loaded={} errors={} [{}]",
             dir, prev_count, loaded_count, error_count, loaded_ids
         ),
     });
+    match runtime_report {
+        Ok(v2) => events.emit(Event::Log {
+            message: format!(
+                "plugin runtime v2 reload: loaded={} deactivated={} errors={} unloaded_generations={}",
+                v2.loaded.len(),
+                v2.deactivated.len(),
+                v2.errors.len(),
+                v2.unloaded_generations
+            ),
+        }),
+        Err(err) => events.emit(Event::Error {
+            message: format!("plugin runtime v2 reload failed: {err}"),
+        }),
+    }
     for err in report.errors {
         events.emit(Event::Log {
             message: format!("plugin load error: {err:#}"),
@@ -1045,18 +1300,18 @@ fn handle_command(
             if state.session.is_none() {
                 set_state(state, events, PlayerState::Buffering);
                 if let Some(cached_out_spec) = state.cached_output_spec {
-                    let out_spec =
-                        match resolve_output_spec_and_sink_chunk(state, plugins, cached_out_spec) {
-                            Ok(spec) => spec,
-                            Err(message) => {
-                                events.emit(Event::Error { message });
-                                set_state(state, events, PlayerState::Stopped);
-                                state.wants_playback = false;
-                                state.pending_session_start = false;
-                                state.play_request_started_at = None;
-                                return false;
-                            }
-                        };
+                    let out_spec = match resolve_output_spec_and_sink_chunk(state, cached_out_spec)
+                    {
+                        Ok(spec) => spec,
+                        Err(message) => {
+                            events.emit(Event::Error { message });
+                            set_state(state, events, PlayerState::Stopped);
+                            state.wants_playback = false;
+                            state.pending_session_start = false;
+                            state.play_request_started_at = None;
+                            return false;
+                        }
+                    };
                     let start_at_ms = state.position_ms.max(0) as u64;
                     let Some(decode_worker) = state.decode_worker.as_ref() else {
                         events.emit(Event::Error {
@@ -1089,11 +1344,11 @@ fn handle_command(
                             track_info.store(Some(Arc::new(session.track_info.clone())));
                             state.session = Some(session);
                             if let Err(message) =
-                                sync_output_sink_with_active_session(state, plugins, internal_tx)
+                                sync_output_sink_with_active_session(state, internal_tx)
                             {
                                 events.emit(Event::Error { message });
                             }
-                            if let Err(message) = apply_dsp_chain(state, plugins) {
+                            if let Err(message) = apply_dsp_chain(state) {
                                 events.emit(Event::Error { message });
                             }
                         }
@@ -1289,8 +1544,7 @@ fn handle_command(
                     set_state(state, events, PlayerState::Buffering);
                 }
             }
-            if let Err(message) = sync_output_sink_with_active_session(state, plugins, internal_tx)
-            {
+            if let Err(message) = sync_output_sink_with_active_session(state, internal_tx) {
                 events.emit(Event::Error { message });
             }
         }
@@ -1313,8 +1567,7 @@ fn handle_command(
                     set_state(state, events, PlayerState::Buffering);
                 }
             }
-            if let Err(message) = sync_output_sink_with_active_session(state, plugins, internal_tx)
-            {
+            if let Err(message) = sync_output_sink_with_active_session(state, internal_tx) {
                 events.emit(Event::Error { message });
             }
         }
@@ -1650,40 +1903,34 @@ fn output_sink_queue_watermarks_ms(sample_rate: u32, chunk_frames: u32) -> (i64,
 
 fn negotiate_output_sink_spec(
     state: &EngineState,
-    plugins: &Arc<Mutex<PluginManager>>,
     desired_spec: OutputSpec,
-) -> Result<stellatune_plugins::OutputSinkNegotiatedSpec, String> {
+) -> Result<StOutputSinkNegotiatedSpecV2, String> {
     let route = state
         .desired_output_sink_route
         .as_ref()
         .ok_or_else(|| "output sink route not configured".to_string())?;
-    let pm = snapshot_plugins(plugins)?;
-    let key = pm
-        .find_output_sink_key(&route.plugin_id, &route.type_id)
-        .ok_or_else(|| {
-            format!(
-                "output sink not found: {}::{}",
-                route.plugin_id, route.type_id
-            )
-        })?;
-    let negotiated = pm
-        .output_negotiate(
-            key,
-            &route.config,
-            &route.target,
+    let config_json = serde_json::to_string(&route.config)
+        .map_err(|e| format!("invalid output sink config json: {e}"))?;
+    let target_json = serde_json::to_string(&route.target)
+        .map_err(|e| format!("invalid output sink target json: {e}"))?;
+    with_runtime_service(|service| {
+        let mut sink = service
+            .create_output_sink_instance(&route.plugin_id, &route.type_id, &config_json)
+            .map_err(|e| format!("output sink create failed: {e}"))?;
+        sink.negotiate_spec(
+            &target_json,
             StAudioSpec {
                 sample_rate: desired_spec.sample_rate.max(1),
                 channels: desired_spec.channels.max(1),
                 reserved: 0,
             },
         )
-        .map_err(|e| format!("output sink negotiate failed: {e:#}"))?;
-    Ok(negotiated)
+        .map_err(|e| format!("output sink negotiate failed: {e}"))
+    })
 }
 
 fn resolve_output_spec_and_sink_chunk(
     state: &mut EngineState,
-    plugins: &Arc<Mutex<PluginManager>>,
     non_sink_out_spec: OutputSpec,
 ) -> Result<OutputSpec, String> {
     if state.desired_output_sink_route.is_none() {
@@ -1693,7 +1940,7 @@ fn resolve_output_spec_and_sink_chunk(
 
     state.output_sink_chunk_frames = 0;
     let desired_spec = output_spec_for_plugin_sink(state);
-    let negotiated = negotiate_output_sink_spec(state, plugins, desired_spec)?;
+    let negotiated = negotiate_output_sink_spec(state, desired_spec)?;
     state.output_sink_chunk_frames = negotiated.preferred_chunk_frames;
     Ok(OutputSpec {
         sample_rate: negotiated.spec.sample_rate.max(1),
@@ -1734,7 +1981,7 @@ fn handle_tick(
     events: &Arc<EventHub>,
     _plugin_events: &Arc<PluginEventHub>,
     internal_tx: &Sender<InternalMsg>,
-    plugins: &Arc<Mutex<PluginManager>>,
+    _plugins: &Arc<Mutex<PluginManager>>,
     track_info: &SharedTrackInfo,
 ) {
     // If we are waiting for an output spec (prewarm) and have no active session, start the session
@@ -1761,7 +2008,7 @@ fn handle_tick(
             set_state(state, events, PlayerState::Stopped);
             return;
         };
-        let out_spec = match resolve_output_spec_and_sink_chunk(state, plugins, cached_out_spec) {
+        let out_spec = match resolve_output_spec_and_sink_chunk(state, cached_out_spec) {
             Ok(spec) => spec,
             Err(message) => {
                 state.pending_session_start = false;
@@ -1804,12 +2051,10 @@ fn handle_tick(
                 track_info.store(Some(Arc::new(session.track_info.clone())));
                 state.session = Some(session);
                 state.pending_session_start = false;
-                if let Err(message) =
-                    sync_output_sink_with_active_session(state, plugins, internal_tx)
-                {
+                if let Err(message) = sync_output_sink_with_active_session(state, internal_tx) {
                     events.emit(Event::Error { message });
                 }
-                if let Err(message) = apply_dsp_chain(state, plugins) {
+                if let Err(message) = apply_dsp_chain(state) {
                     events.emit(Event::Error { message });
                 }
                 if let Some(session) = state.session.as_ref() {
@@ -1950,10 +2195,7 @@ fn handle_tick(
     }
 }
 
-fn apply_dsp_chain(
-    state: &mut EngineState,
-    plugins: &Arc<Mutex<PluginManager>>,
-) -> Result<(), String> {
+fn apply_dsp_chain(state: &mut EngineState) -> Result<(), String> {
     let Some(session) = state.session.as_ref() else {
         return Ok(());
     };
@@ -1966,59 +2208,57 @@ fn apply_dsp_chain(
         return Ok(());
     }
 
-    let pm = snapshot_plugins(plugins)?;
-
-    let mut chain = Vec::with_capacity(chain_spec.len());
-    for item in &chain_spec {
-        let Some(key) = pm.find_dsp_key(&item.plugin_id, &item.type_id) else {
-            return Err(format!(
-                "DSP type not found: plugin_id={} type_id={}",
-                item.plugin_id, item.type_id
-            ));
-        };
-
-        let inst = pm
-            .create_dsp(
-                key,
-                session.out_sample_rate,
-                session.out_channels,
-                &item.config,
-            )
-            .map_err(|e| {
+    let chain = with_runtime_service(|service| {
+        let mut chain = Vec::with_capacity(chain_spec.len());
+        for item in &chain_spec {
+            let config_json = serde_json::to_string(&item.config).map_err(|e| {
                 format!(
-                    "failed to create DSP {}::{}: {e}",
+                    "invalid DSP config json for {}::{}: {e}",
                     item.plugin_id, item.type_id
                 )
             })?;
-        chain.push(inst);
-    }
+            let inst = service
+                .create_dsp_instance(
+                    &item.plugin_id,
+                    &item.type_id,
+                    session.out_sample_rate,
+                    session.out_channels,
+                    &config_json,
+                )
+                .map_err(|e| {
+                    format!(
+                        "failed to create DSP {}::{}: {e}",
+                        item.plugin_id, item.type_id
+                    )
+                })?;
+            chain.push(inst);
+        }
+        Ok(chain)
+    })?;
 
     let _ = session.ctrl_tx.send(DecodeCtrl::SetDspChain { chain });
     Ok(())
 }
 
 fn open_output_sink_worker(args: OpenOutputSinkWorkerArgs<'_>) -> Result<OutputSinkWorker, String> {
-    let pm = snapshot_plugins(args.plugins)?;
-    let key = pm
-        .find_output_sink_key(&args.route.plugin_id, &args.route.type_id)
-        .ok_or_else(|| {
-            format!(
-                "output sink not found: {}::{}",
-                args.route.plugin_id, args.route.type_id
-            )
-        })?;
-    let sink = pm
-        .output_open(
-            key,
-            &args.route.config,
-            &args.route.target,
-            StAudioSpec {
-                sample_rate: args.sample_rate,
-                channels: args.channels,
-                reserved: 0,
-            },
-        )
-        .map_err(|e| format!("output sink open failed: {e:#}"))?;
+    let config_json = serde_json::to_string(&args.route.config)
+        .map_err(|e| format!("invalid output sink config json: {e}"))?;
+    let target_json = serde_json::to_string(&args.route.target)
+        .map_err(|e| format!("invalid output sink target json: {e}"))?;
+    let mut sink = with_runtime_service(|service| {
+        service
+            .create_output_sink_instance(&args.route.plugin_id, &args.route.type_id, &config_json)
+            .map_err(|e| format!("output sink create failed: {e}"))
+    })?;
+    sink.open(
+        &target_json,
+        StAudioSpec {
+            sample_rate: args.sample_rate,
+            channels: args.channels,
+            reserved: 0,
+        },
+    )
+    .map_err(|e| format!("output sink open failed: {e}"))?;
     Ok(OutputSinkWorker::start(
         sink,
         args.channels,
@@ -2032,7 +2272,6 @@ fn open_output_sink_worker(args: OpenOutputSinkWorkerArgs<'_>) -> Result<OutputS
 
 fn sync_output_sink_with_active_session(
     state: &mut EngineState,
-    plugins: &Arc<Mutex<PluginManager>>,
     internal_tx: &Sender<InternalMsg>,
 ) -> Result<(), String> {
     let Some(session) = state.session.as_ref() else {
@@ -2078,7 +2317,6 @@ fn sync_output_sink_with_active_session(
     shutdown_output_sink_worker(state);
 
     let worker = open_output_sink_worker(OpenOutputSinkWorkerArgs {
-        plugins,
         route: &route,
         sample_rate,
         channels,

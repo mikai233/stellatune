@@ -17,7 +17,6 @@ use super::bus::{
     push_plugin_host_event_json,
 };
 use super::control::{control_wait_kind, route_plugin_control_request};
-use super::shared_plugins;
 use super::types::{
     CONTROL_FINISH_TIMEOUT, ControlWaitKind, PendingControlFinish, PluginRuntimeEventHub,
     PluginRuntimeRouter,
@@ -35,7 +34,6 @@ fn plugin_runtime_router() -> &'static std::sync::Arc<PluginRuntimeRouter> {
             runtime_hub: std::sync::Arc::new(PluginRuntimeEventHub::new()),
         });
         let router_thread = std::sync::Arc::clone(&router);
-        let plugins = shared_plugins();
         if let Err(e) = thread::Builder::new()
             .name("stellatune-plugin-runtime-router".to_string())
             .spawn(move || {
@@ -73,11 +71,7 @@ fn plugin_runtime_router() -> &'static std::sync::Arc<PluginRuntimeRouter> {
                             let response_json = serde_json::to_string(&payload)
                                 .unwrap_or_else(|_| "{}".to_string());
 
-                            push_plugin_host_event_json(
-                                &plugins,
-                                &event.plugin_id,
-                                response_json.clone(),
-                            );
+                            push_plugin_host_event_json(&event.plugin_id, response_json.clone());
 
                             let runtime_event = PluginRuntimeEvent::from_payload(
                                 event.plugin_id.clone(),
@@ -115,7 +109,6 @@ fn plugin_runtime_router() -> &'static std::sync::Arc<PluginRuntimeRouter> {
 
                                     if wait == ControlWaitKind::Immediate {
                                         emit_control_finished(
-                                            &plugins,
                                             router_thread.runtime_hub.as_ref(),
                                             engine.as_ref(),
                                             ControlFinishedArgs {
@@ -155,7 +148,6 @@ fn plugin_runtime_router() -> &'static std::sync::Arc<PluginRuntimeRouter> {
                                     let command =
                                         request.as_ref().map(PluginControlRequest::control_command);
                                     emit_control_finished(
-                                        &plugins,
                                         router_thread.runtime_hub.as_ref(),
                                         engine.as_ref(),
                                         ControlFinishedArgs {
@@ -177,11 +169,10 @@ fn plugin_runtime_router() -> &'static std::sync::Arc<PluginRuntimeRouter> {
                             topic: HostEventTopic::PlayerEvent,
                             event,
                         }) {
-                            broadcast_host_event_json(&plugins, payload_json);
+                            broadcast_host_event_json(payload_json);
                         }
                         for done in done {
                             emit_control_finished(
-                                &plugins,
                                 router_thread.runtime_hub.as_ref(),
                                 engine.as_ref(),
                                 ControlFinishedArgs {
@@ -201,11 +192,10 @@ fn plugin_runtime_router() -> &'static std::sync::Arc<PluginRuntimeRouter> {
                             topic: HostEventTopic::LibraryEvent,
                             event,
                         }) {
-                            broadcast_host_event_json(&plugins, payload_json);
+                            broadcast_host_event_json(payload_json);
                         }
                         for done in done {
                             emit_control_finished(
-                                &plugins,
                                 router_thread.runtime_hub.as_ref(),
                                 engine.as_ref(),
                                 ControlFinishedArgs {
@@ -222,7 +212,6 @@ fn plugin_runtime_router() -> &'static std::sync::Arc<PluginRuntimeRouter> {
                     for timed_out in drain_timed_out_pending(&mut pending_finishes, Instant::now())
                     {
                         emit_control_finished(
-                            &plugins,
                             router_thread.runtime_hub.as_ref(),
                             engine.as_ref(),
                             ControlFinishedArgs {

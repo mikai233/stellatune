@@ -11,7 +11,7 @@ use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::time::LocalTime;
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-use stellatune_plugins::{PluginManager, default_host_vtable};
+use stellatune_plugins::v2::SharedPluginRuntimeServiceV2;
 
 mod bus;
 mod control;
@@ -76,23 +76,18 @@ fn open_tracing_log_file() -> Option<Arc<Mutex<std::fs::File>>> {
 }
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-pub type SharedPlugins = Arc<Mutex<PluginManager>>;
+pub type SharedPluginRuntimeV2 = SharedPluginRuntimeServiceV2;
 
 #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
-pub type SharedPlugins = ();
+pub type SharedPluginRuntimeV2 = ();
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-pub fn shared_plugins() -> SharedPlugins {
-    static SHARED: OnceLock<SharedPlugins> = OnceLock::new();
-    SHARED
-        .get_or_init(|| Arc::new(Mutex::new(PluginManager::new(default_host_vtable()))))
-        .clone()
+pub fn shared_plugin_runtime_v2() -> SharedPluginRuntimeV2 {
+    stellatune_plugins::v2::shared_runtime_service_v2()
 }
 
 #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
-pub fn shared_plugins() -> SharedPlugins {
-    ()
-}
+pub fn shared_plugin_runtime_v2() -> SharedPluginRuntimeV2 {}
 
 pub fn init_tracing() {
     static INIT: OnceLock<()> = OnceLock::new();

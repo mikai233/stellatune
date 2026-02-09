@@ -97,6 +97,27 @@ impl LibraryHandle {
                     });
                 }
             }
+
+            match stellatune_plugins::v2::shared_runtime_service_v2().lock() {
+                Ok(service) => match service.reload_dir_filtered(&dir, &disabled) {
+                    Ok(v2) => self.events.emit(LibraryEvent::Log {
+                        message: format!(
+                            "library plugin runtime v2 reload: loaded={} deactivated={} errors={} unloaded_generations={}",
+                            v2.loaded.len(),
+                            v2.deactivated.len(),
+                            v2.errors.len(),
+                            v2.unloaded_generations
+                        ),
+                    }),
+                    Err(e) => self.events.emit(LibraryEvent::Log {
+                        message: format!("library plugin runtime v2 reload failed: {e:#}"),
+                    }),
+                },
+                Err(_) => self.events.emit(LibraryEvent::Log {
+                    message: "library plugin runtime v2 reload skipped: runtime mutex poisoned"
+                        .to_string(),
+                }),
+            }
         }
 
         #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]

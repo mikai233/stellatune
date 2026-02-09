@@ -262,7 +262,7 @@ impl MasterGainProcessor {
 
 impl OutputSinkWorker {
     pub(crate) fn start(
-        mut sink: stellatune_plugins::OutputSinkInstance,
+        mut sink: stellatune_plugins::v2::OutputSinkInstanceV2,
         channels: u16,
         sample_rate: u32,
         volume: Arc<AtomicU32>,
@@ -311,6 +311,7 @@ impl OutputSinkWorker {
                         }
                         OutputSinkWrite::Shutdown => {
                             let _ = sink.flush();
+                            sink.close();
                             break;
                         }
                     }
@@ -339,7 +340,7 @@ impl OutputSinkWorker {
 }
 
 fn write_all_frames(
-    sink: &mut stellatune_plugins::OutputSinkInstance,
+    sink: &mut stellatune_plugins::v2::OutputSinkInstanceV2,
     channels: u16,
     samples: &[f32],
 ) -> Result<(), String> {

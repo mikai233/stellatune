@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use crossbeam_channel::{Sender, TrySendError};
 use stellatune_core::TrackDecodeInfo;
 use stellatune_output::OutputSpec;
-use stellatune_plugins::DspInstance;
+use stellatune_plugins::v2::DspInstanceV2;
 
 use crate::engine::decode::decoder::EngineDecoder;
 use crate::ring_buffer::RingBufferProducer;
@@ -93,7 +93,7 @@ pub(crate) enum DecodeCtrl {
         output_sink_only: bool,
     },
     SetDspChain {
-        chain: Vec<DspInstance>,
+        chain: Vec<DspInstanceV2>,
     },
     Play,
     Pause,
@@ -113,6 +113,31 @@ pub(crate) enum DecodeCtrl {
 pub(crate) enum EngineCtrl {
     SetDspChain {
         chain: Vec<stellatune_core::DspChainItem>,
+    },
+    SourceListItemsJson {
+        plugin_id: String,
+        type_id: String,
+        config_json: String,
+        request_json: String,
+        resp_tx: Sender<Result<String, String>>,
+    },
+    LyricsSearchJson {
+        plugin_id: String,
+        type_id: String,
+        query_json: String,
+        resp_tx: Sender<Result<String, String>>,
+    },
+    LyricsFetchJson {
+        plugin_id: String,
+        type_id: String,
+        track_json: String,
+        resp_tx: Sender<Result<String, String>>,
+    },
+    OutputSinkListTargetsJson {
+        plugin_id: String,
+        type_id: String,
+        config_json: String,
+        resp_tx: Sender<Result<String, String>>,
     },
     ReloadPlugins {
         dir: String,

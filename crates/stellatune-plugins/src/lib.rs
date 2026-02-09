@@ -1,5 +1,7 @@
 mod manifest;
+pub mod runtime;
 mod util;
+pub mod v2;
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::{Read, Seek, SeekFrom};
@@ -24,6 +26,11 @@ use stellatune_plugin_api::{
 };
 use stellatune_plugin_protocol::PluginMetadata;
 use tracing::{debug, info, warn};
+
+use crate::runtime::{
+    CapabilityKind as RuntimeCapabilityKind, GenerationGuard, GenerationId, InstanceId,
+    InstanceRegistry, LifecycleStore,
+};
 
 pub use manifest::{
     DiscoveredPlugin, INSTALL_RECEIPT_FILE_NAME, PluginInstallReceipt, PluginInstallState,
@@ -191,6 +198,13 @@ impl PluginEventBus {
         }
     }
 
+    fn registered_plugin_ids(&self) -> Vec<String> {
+        let Ok(state) = self.inner.lock() else {
+            return Vec::new();
+        };
+        state.host_to_plugin.keys().cloned().collect()
+    }
+
     fn push_host_event(&self, plugin_id: &str, event_json: String) {
         if let Ok(mut state) = self.inner.lock() {
             let queue = state
@@ -247,6 +261,17 @@ fn shared_plugin_event_bus() -> PluginEventBus {
 
 pub fn drain_shared_runtime_events(max: usize) -> Vec<PluginRuntimeEvent> {
     shared_plugin_event_bus().drain_plugin_events(max)
+}
+
+pub fn push_shared_host_event_json(plugin_id: &str, event_json: &str) {
+    shared_plugin_event_bus().push_host_event(plugin_id, event_json.to_string());
+}
+
+pub fn broadcast_shared_host_event_json(event_json: &str) {
+    let bus = shared_plugin_event_bus();
+    for plugin_id in bus.registered_plugin_ids() {
+        bus.push_host_event(&plugin_id, event_json.to_string());
+    }
 }
 
 fn alloc_host_owned_ststr(text: &str) -> StStr {
@@ -571,6 +596,60 @@ static FILE_IO_VTABLE: StIoVTableV1 = StIoVTableV1 {
 
 static SHADOW_LOAD_SEQ: AtomicU64 = AtomicU64::new(1);
 
+#[derive(Debug, Default)]
+struct RuntimeState {
+    lifecycle: LifecycleStore,
+    instances: InstanceRegistry,
+    next_generation_id: AtomicU64,
+}
+
+impl RuntimeState {
+    fn activate_generation(&self, plugin_id: &str) -> Arc<GenerationGuard> {
+        let next = self
+            .next_generation_id
+            .fetch_add(1, Ordering::Relaxed)
+            .saturating_add(1);
+        let generation = GenerationGuard::new_active(GenerationId(next));
+        self.lifecycle
+            .activate_generation(plugin_id, Arc::clone(&generation));
+        generation
+    }
+
+    fn register_instance(
+        &self,
+        plugin_id: String,
+        capability_type_id: String,
+        kind: RuntimeCapabilityKind,
+        generation: Arc<GenerationGuard>,
+    ) -> InstanceId {
+        self.instances
+            .register(plugin_id, capability_type_id, kind, generation)
+    }
+
+    fn unregister_instance(&self, instance_id: InstanceId) {
+        let _ = self.instances.remove(instance_id);
+    }
+}
+
+struct GenerationCallGuard {
+    generation: Arc<GenerationGuard>,
+}
+
+impl GenerationCallGuard {
+    fn enter(generation: &Arc<GenerationGuard>) -> Self {
+        generation.inc_inflight_call();
+        Self {
+            generation: Arc::clone(generation),
+        }
+    }
+}
+
+impl Drop for GenerationCallGuard {
+    fn drop(&mut self) {
+        self.generation.dec_inflight_call();
+    }
+}
+
 #[derive(Debug)]
 struct ShadowRootCleanup {
     root: PathBuf,
@@ -593,10 +672,32 @@ impl Drop for ShadowRootCleanup {
 
 #[derive(Debug)]
 struct LoadedPluginRuntime {
+    plugin_id: String,
+    generation: Arc<GenerationGuard>,
+    runtime_state: Arc<RuntimeState>,
     library: PluginLibrary,
     _host_vtable: Box<StHostVTableV1>,
     _host_ctx: Box<PluginHostCtx>,
     _shadow_cleanup: Option<ShadowRootCleanup>,
+}
+
+impl LoadedPluginRuntime {
+    fn register_instance(
+        &self,
+        capability_type_id: String,
+        kind: RuntimeCapabilityKind,
+    ) -> InstanceId {
+        self.runtime_state.register_instance(
+            self.plugin_id.clone(),
+            capability_type_id,
+            kind,
+            Arc::clone(&self.generation),
+        )
+    }
+
+    fn unregister_instance(&self, instance_id: InstanceId) {
+        self.runtime_state.unregister_instance(instance_id);
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -639,6 +740,7 @@ pub struct PluginManager {
     plugins: Vec<LoadedPlugin>,
     disabled_ids: HashSet<String>,
     event_bus: PluginEventBus,
+    runtime_state: Arc<RuntimeState>,
 }
 
 impl Clone for PluginManager {
@@ -648,6 +750,7 @@ impl Clone for PluginManager {
             plugins: self.plugins.clone(),
             disabled_ids: self.disabled_ids.clone(),
             event_bus: self.event_bus.clone(),
+            runtime_state: Arc::clone(&self.runtime_state),
         }
     }
 }
@@ -745,6 +848,7 @@ pub struct SourceStream {
     io_vtable: *const StIoVTableV1,
     io_handle: *mut core::ffi::c_void,
     close_stream: extern "C" fn(io_handle: *mut core::ffi::c_void),
+    instance_id: InstanceId,
     _plugin_runtime: Arc<LoadedPluginRuntime>,
 }
 
@@ -762,11 +866,12 @@ impl SourceStream {
 
 impl Drop for SourceStream {
     fn drop(&mut self) {
-        if self.io_handle.is_null() {
-            return;
+        if !self.io_handle.is_null() {
+            let _call_guard = GenerationCallGuard::enter(&self._plugin_runtime.generation);
+            (self.close_stream)(self.io_handle);
+            self.io_handle = core::ptr::null_mut();
         }
-        (self.close_stream)(self.io_handle);
-        self.io_handle = core::ptr::null_mut();
+        self._plugin_runtime.unregister_instance(self.instance_id);
     }
 }
 
@@ -774,6 +879,7 @@ pub struct OutputSinkInstance {
     handle: *mut core::ffi::c_void,
     vtable: *const StOutputSinkVTableV1,
     plugin_free: Option<extern "C" fn(ptr: *mut core::ffi::c_void, len: usize, align: usize)>,
+    instance_id: InstanceId,
     _plugin_runtime: Arc<LoadedPluginRuntime>,
 }
 
@@ -784,6 +890,7 @@ impl OutputSinkInstance {
         if self.handle.is_null() || self.vtable.is_null() {
             return Err(anyhow!("output sink instance is not initialized"));
         }
+        let _call_guard = GenerationCallGuard::enter(&self._plugin_runtime.generation);
         let channels = channels.max(1);
         if !samples.len().is_multiple_of(channels as usize) {
             return Err(anyhow!(
@@ -815,6 +922,7 @@ impl OutputSinkInstance {
         if self.handle.is_null() || self.vtable.is_null() {
             return Err(anyhow!("output sink instance is not initialized"));
         }
+        let _call_guard = GenerationCallGuard::enter(&self._plugin_runtime.generation);
         let Some(flush) = (unsafe { (*self.vtable).flush }) else {
             return Ok(());
         };
@@ -825,17 +933,19 @@ impl OutputSinkInstance {
 
 impl Drop for OutputSinkInstance {
     fn drop(&mut self) {
-        if self.handle.is_null() || self.vtable.is_null() {
-            return;
+        if !self.handle.is_null() && !self.vtable.is_null() {
+            let _call_guard = GenerationCallGuard::enter(&self._plugin_runtime.generation);
+            unsafe { ((*self.vtable).close)(self.handle) };
+            self.handle = core::ptr::null_mut();
         }
-        unsafe { ((*self.vtable).close)(self.handle) };
-        self.handle = core::ptr::null_mut();
+        self._plugin_runtime.unregister_instance(self.instance_id);
     }
 }
 
 pub struct DspInstance {
     handle: *mut core::ffi::c_void,
     vtable: *const stellatune_plugin_api::StDspVTableV1,
+    instance_id: InstanceId,
     _plugin_runtime: Arc<LoadedPluginRuntime>,
 }
 
@@ -846,6 +956,7 @@ impl DspInstance {
         if self.handle.is_null() || self.vtable.is_null() {
             return;
         }
+        let _call_guard = GenerationCallGuard::enter(&self._plugin_runtime.generation);
         unsafe {
             ((*self.vtable).process_interleaved_f32_in_place)(
                 self.handle,
@@ -860,6 +971,7 @@ impl DspInstance {
         if self.vtable.is_null() {
             return stellatune_plugin_api::ST_LAYOUT_STEREO;
         }
+        let _call_guard = GenerationCallGuard::enter(&self._plugin_runtime.generation);
         unsafe { ((*self.vtable).supported_layouts)() }
     }
 
@@ -869,6 +981,7 @@ impl DspInstance {
         if self.vtable.is_null() {
             return 0;
         }
+        let _call_guard = GenerationCallGuard::enter(&self._plugin_runtime.generation);
         unsafe { ((*self.vtable).output_channels)() }
     }
 
@@ -882,6 +995,7 @@ impl DspInstance {
         if self.handle.is_null() || self.vtable.is_null() {
             return Err(anyhow!("DSP instance is not initialized"));
         }
+        let _call_guard = GenerationCallGuard::enter(&self._plugin_runtime.generation);
         let s = stellatune_plugin_api::StStr {
             ptr: json.as_ptr(),
             len: json.len(),
@@ -896,11 +1010,12 @@ impl DspInstance {
 
 impl Drop for DspInstance {
     fn drop(&mut self) {
-        if self.handle.is_null() || self.vtable.is_null() {
-            return;
+        if !self.handle.is_null() && !self.vtable.is_null() {
+            let _call_guard = GenerationCallGuard::enter(&self._plugin_runtime.generation);
+            unsafe { ((*self.vtable).drop)(self.handle) };
+            self.handle = core::ptr::null_mut();
         }
-        unsafe { ((*self.vtable).drop)(self.handle) };
-        self.handle = core::ptr::null_mut();
+        self._plugin_runtime.unregister_instance(self.instance_id);
     }
 }
 
@@ -915,6 +1030,7 @@ pub struct DecoderInstance {
     vtable: *const StDecoderVTableV1,
     info: StDecoderInfoV1,
     plugin_free: Option<extern "C" fn(ptr: *mut core::ffi::c_void, len: usize, align: usize)>,
+    instance_id: InstanceId,
     _io_guard: DecoderIoGuard,
     _plugin_runtime: Arc<LoadedPluginRuntime>,
     plugin_id: String,
@@ -952,6 +1068,7 @@ impl DecoderInstance {
         let Some(get) = (unsafe { (*self.vtable).get_metadata_json_utf8 }) else {
             return Ok(None);
         };
+        let _call_guard = GenerationCallGuard::enter(&self._plugin_runtime.generation);
         let mut s = StStr::empty();
         let status = (get)(self.handle, &mut s);
         status_to_result("Decoder get_metadata_json", status, self.plugin_free)?;
@@ -976,6 +1093,7 @@ impl DecoderInstance {
         let Some(seek) = (unsafe { (*self.vtable).seek_ms }) else {
             return Err(anyhow!("Decoder seek not supported"));
         };
+        let _call_guard = GenerationCallGuard::enter(&self._plugin_runtime.generation);
         let status = (seek)(self.handle, position_ms);
         status_to_result("Decoder seek", status, self.plugin_free)
     }
@@ -984,6 +1102,7 @@ impl DecoderInstance {
         if self.handle.is_null() || self.vtable.is_null() {
             return Err(anyhow!("Decoder instance is not initialized"));
         }
+        let _call_guard = GenerationCallGuard::enter(&self._plugin_runtime.generation);
         let channels = self.info.spec.channels.max(1) as usize;
         let mut out = vec![0.0f32; (frames as usize).saturating_mul(channels)];
         let mut frames_read: u32 = 0;
@@ -1005,11 +1124,12 @@ impl DecoderInstance {
 
 impl Drop for DecoderInstance {
     fn drop(&mut self) {
-        if self.handle.is_null() || self.vtable.is_null() {
-            return;
+        if !self.handle.is_null() && !self.vtable.is_null() {
+            let _call_guard = GenerationCallGuard::enter(&self._plugin_runtime.generation);
+            unsafe { ((*self.vtable).close)(self.handle) };
+            self.handle = core::ptr::null_mut();
         }
-        unsafe { ((*self.vtable).close)(self.handle) };
-        self.handle = core::ptr::null_mut();
+        self._plugin_runtime.unregister_instance(self.instance_id);
     }
 }
 
@@ -1020,6 +1140,7 @@ impl PluginManager {
             plugins: Vec::new(),
             disabled_ids: HashSet::new(),
             event_bus: shared_plugin_event_bus(),
+            runtime_state: Arc::new(RuntimeState::default()),
         }
     }
 
@@ -1033,6 +1154,10 @@ impl PluginManager {
 
     pub fn plugins(&self) -> &[LoadedPlugin] {
         &self.plugins
+    }
+
+    pub fn is_plugin_enabled(&self, plugin_id: &str) -> bool {
+        self.plugins.iter().any(|p| p.manifest.id == plugin_id) && !self.is_disabled(plugin_id)
     }
 
     pub fn push_host_event_json(&self, plugin_id: &str, event_json: &str) -> Result<()> {
@@ -1060,6 +1185,21 @@ impl PluginManager {
 
     pub fn drain_runtime_events(&self, max: usize) -> Vec<PluginRuntimeEvent> {
         self.event_bus.drain_plugin_events(max)
+    }
+
+    /// Returns currently tracked live instance ids for a plugin generation set.
+    pub fn runtime_instance_ids_for_plugin(&self, plugin_id: &str) -> Vec<InstanceId> {
+        self.runtime_state.instances.list_ids_for_plugin(plugin_id)
+    }
+
+    /// Collect generations that are safe to unload for the plugin id.
+    pub fn runtime_collect_ready_for_unload(&self, plugin_id: &str) -> Vec<GenerationId> {
+        self.runtime_state
+            .lifecycle
+            .collect_ready_for_unload(plugin_id)
+            .into_iter()
+            .map(|g| g.id())
+            .collect()
     }
 
     pub fn list_dsp_types(&self) -> Vec<DspTypeInfo> {
@@ -1478,6 +1618,8 @@ impl PluginManager {
             len: request_json.len(),
         };
         let mut out = StStr::empty();
+        let runtime = p.runtime();
+        let _call_guard = GenerationCallGuard::enter(&runtime.generation);
         let status = unsafe { ((*vt).list_items_json_utf8)(cfg, req, &mut out) };
         status_to_result("Source list_items_json", status, plugin_free)?;
         let raw = take_plugin_string(out, plugin_free);
@@ -1517,6 +1659,8 @@ impl PluginManager {
         let mut out_io_vtable: *const StIoVTableV1 = core::ptr::null();
         let mut out_io_handle: *mut core::ffi::c_void = core::ptr::null_mut();
         let mut out_track_meta_json_utf8 = StStr::empty();
+        let runtime = p.runtime();
+        let _call_guard = GenerationCallGuard::enter(&runtime.generation);
         let status = unsafe {
             ((*vt).open_stream)(
                 cfg,
@@ -1533,13 +1677,17 @@ impl PluginManager {
             }
             return Err(anyhow!("source open_stream returned invalid io handle"));
         }
+        let source_type_id = unsafe { util::ststr_to_string_lossy(((*vt).type_id_utf8)()) };
+        let instance_id =
+            runtime.register_instance(source_type_id, RuntimeCapabilityKind::SourceCatalog);
         let meta = take_plugin_string(out_track_meta_json_utf8, plugin_free);
         Ok((
             SourceStream {
                 io_vtable: out_io_vtable,
                 io_handle: out_io_handle,
                 close_stream: unsafe { (*vt).close_stream },
-                _plugin_runtime: p.runtime(),
+                instance_id,
+                _plugin_runtime: runtime,
             },
             if meta.is_empty() {
                 None
@@ -1578,6 +1726,8 @@ impl PluginManager {
             len: query_json.len(),
         };
         let mut out = StStr::empty();
+        let runtime = p.runtime();
+        let _call_guard = GenerationCallGuard::enter(&runtime.generation);
         let status = unsafe { ((*vt).search_json_utf8)(query, &mut out) };
         status_to_result("Lyrics search_json", status, plugin_free)?;
         let raw = take_plugin_string(out, plugin_free);
@@ -1613,6 +1763,8 @@ impl PluginManager {
             len: track_json.len(),
         };
         let mut out = StStr::empty();
+        let runtime = p.runtime();
+        let _call_guard = GenerationCallGuard::enter(&runtime.generation);
         let status = unsafe { ((*vt).fetch_json_utf8)(track, &mut out) };
         status_to_result("Lyrics fetch_json", status, plugin_free)?;
         let raw = take_plugin_string(out, plugin_free);
@@ -1639,6 +1791,8 @@ impl PluginManager {
             len: config_json.len(),
         };
         let mut out = StStr::empty();
+        let runtime = p.runtime();
+        let _call_guard = GenerationCallGuard::enter(&runtime.generation);
         let status = unsafe { ((*vt).list_targets_json_utf8)(cfg, &mut out) };
         status_to_result("Output sink list_targets_json", status, plugin_free)?;
         let raw = take_plugin_string(out, plugin_free);
@@ -1681,6 +1835,8 @@ impl PluginManager {
             flags: 0,
             reserved: 0,
         };
+        let runtime = p.runtime();
+        let _call_guard = GenerationCallGuard::enter(&runtime.generation);
         let status = unsafe { ((*vt).negotiate_spec)(cfg, target, desired_spec, &mut out) };
         status_to_result("Output sink negotiate_spec", status, plugin_free)?;
         if out.spec.sample_rate == 0 || out.spec.channels == 0 {
@@ -1746,16 +1902,22 @@ impl PluginManager {
             len: target_json.len(),
         };
         let mut handle: *mut core::ffi::c_void = core::ptr::null_mut();
+        let runtime = p.runtime();
+        let _call_guard = GenerationCallGuard::enter(&runtime.generation);
         let status = unsafe { ((*vt).open)(cfg, target, spec, &mut handle) };
         status_to_result("Output sink open", status, plugin_free)?;
         if handle.is_null() {
             return Err(anyhow!("output sink open returned null handle"));
         }
+        let output_type_id = unsafe { util::ststr_to_string_lossy(((*vt).type_id_utf8)()) };
+        let instance_id =
+            runtime.register_instance(output_type_id, RuntimeCapabilityKind::OutputSink);
         Ok(OutputSinkInstance {
             handle,
             vtable: vt,
             plugin_free,
-            _plugin_runtime: p.runtime(),
+            instance_id,
+            _plugin_runtime: runtime,
         })
     }
 
@@ -1860,6 +2022,8 @@ impl PluginManager {
 
         let plugin_free = p.library().plugin_free();
         let mut handle: *mut core::ffi::c_void = core::ptr::null_mut();
+        let runtime = p.runtime();
+        let _open_call_guard = GenerationCallGuard::enter(&runtime.generation);
         let status = unsafe { ((*vt).open)(args, &mut handle) };
         if status.code != 0 || handle.is_null() {
             return Err(status_err_to_anyhow("Decoder open", status, plugin_free));
@@ -1875,6 +2039,7 @@ impl PluginManager {
             flags: 0,
             reserved: 0,
         };
+        let _get_info_call_guard = GenerationCallGuard::enter(&runtime.generation);
         let status = unsafe { ((*vt).get_info)(handle, &mut info) };
         if status.code != 0 {
             unsafe { ((*vt).close)(handle) };
@@ -1885,13 +2050,17 @@ impl PluginManager {
             ));
         }
 
+        let instance_id =
+            runtime.register_instance(decoder_type_id.clone(), RuntimeCapabilityKind::Decoder);
+
         Ok(DecoderInstance {
             handle,
             vtable: vt,
             info,
             plugin_free,
+            instance_id,
             _io_guard: io_guard,
-            _plugin_runtime: p.runtime(),
+            _plugin_runtime: runtime,
             plugin_id,
             decoder_type_id,
         })
@@ -2160,15 +2329,20 @@ impl PluginManager {
             ptr: config_json.as_ptr(),
             len: config_json.len(),
         };
+        let runtime = p.runtime();
+        let _call_guard = GenerationCallGuard::enter(&runtime.generation);
         let status = unsafe { ((*vt).create)(sample_rate, channels, json, &mut handle) };
         if status.code != 0 || handle.is_null() {
             return Err(anyhow!("DSP create failed (code={})", status.code));
         }
+        let dsp_type_id = unsafe { util::ststr_to_string_lossy(((*vt).type_id_utf8)()) };
+        let instance_id = runtime.register_instance(dsp_type_id, RuntimeCapabilityKind::Dsp);
 
         Ok(DspInstance {
             handle,
             vtable: vt,
-            _plugin_runtime: p.runtime(),
+            instance_id,
+            _plugin_runtime: runtime,
         })
     }
 
@@ -2421,12 +2595,18 @@ impl PluginManager {
                 STELLATUNE_PLUGIN_API_VERSION_V1
             ));
         }
+        let generation = self
+            .runtime_state
+            .activate_generation(&discovered.manifest.id);
 
         Ok(LoadedPlugin {
             root_dir: discovered.root_dir.clone(),
             manifest: discovered.manifest.clone(),
             library_path: load_library_path,
             runtime: Arc::new(LoadedPluginRuntime {
+                plugin_id: discovered.manifest.id.clone(),
+                generation,
+                runtime_state: Arc::clone(&self.runtime_state),
                 library,
                 _host_vtable: host_vtable,
                 _host_ctx: host_ctx,

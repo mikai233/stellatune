@@ -1,22 +1,24 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use crossbeam_channel::Receiver;
+use stellatune_plugin_protocol::PluginMetadata;
 
 use crate::lyrics_service::LyricsService;
 use crate::runtime::{
-    init_tracing, register_plugin_runtime_engine, shared_plugins,
+    init_tracing, register_plugin_runtime_engine, shared_plugin_runtime_v2,
     subscribe_plugin_runtime_events_global,
 };
 
-use stellatune_audio::{EngineHandle, start_engine_with_plugins};
+use stellatune_audio::{EngineHandle, start_engine};
 use stellatune_core::{
     AudioBackend, Command, DspChainItem, DspTypeDescriptor, Event, LyricsDoc, LyricsEvent,
     LyricsProviderTypeDescriptor, LyricsQuery, LyricsSearchCandidate, OutputSinkRoute,
     OutputSinkTypeDescriptor, PluginDescriptor, PluginRuntimeEvent, SourceCatalogTypeDescriptor,
     TrackDecodeInfo, TrackPlayability, TrackRef,
 };
+use stellatune_plugins::runtime::CapabilityKind;
 
 pub struct PlayerService {
     instance_id: u64,
@@ -30,7 +32,7 @@ impl PlayerService {
         let instance_id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
         init_tracing();
         tracing::info!(instance_id, "creating player");
-        let engine = start_engine_with_plugins(shared_plugins());
+        let engine = start_engine();
         register_plugin_runtime_engine(engine.clone());
         Self {
             instance_id,
@@ -121,7 +123,7 @@ impl PlayerService {
     }
 
     pub fn plugins_list(&self) -> Vec<PluginDescriptor> {
-        self.engine.list_plugins()
+        runtime_plugin_catalog().plugins
     }
 
     pub fn plugin_publish_event_json(
@@ -135,19 +137,19 @@ impl PlayerService {
     }
 
     pub fn dsp_list_types(&self) -> Vec<DspTypeDescriptor> {
-        self.engine.list_dsp_types()
+        runtime_plugin_catalog().dsp_types
     }
 
     pub fn source_list_types(&self) -> Vec<SourceCatalogTypeDescriptor> {
-        self.engine.list_source_catalog_types()
+        runtime_plugin_catalog().source_catalog_types
     }
 
     pub fn lyrics_provider_list_types(&self) -> Vec<LyricsProviderTypeDescriptor> {
-        self.engine.list_lyrics_provider_types()
+        runtime_plugin_catalog().lyrics_provider_types
     }
 
     pub fn output_sink_list_types(&self) -> Vec<OutputSinkTypeDescriptor> {
-        self.engine.list_output_sink_types()
+        runtime_plugin_catalog().output_sink_types
     }
 
     pub fn source_list_items_json(
@@ -157,16 +159,16 @@ impl PlayerService {
         config_json: String,
         request_json: String,
     ) -> Result<String> {
-        let config = serde_json::from_str::<serde_json::Value>(&config_json)
+        let _config = serde_json::from_str::<serde_json::Value>(&config_json)
             .map_err(|e| anyhow::anyhow!("invalid source config_json: {e}"))?;
-        let request = serde_json::from_str::<serde_json::Value>(&request_json)
+        let _request = serde_json::from_str::<serde_json::Value>(&request_json)
             .map_err(|e| anyhow::anyhow!("invalid source request_json: {e}"))?;
-        let response: serde_json::Value = self
-            .engine
-            .source_list_items(&plugin_id, &type_id, &config, &request)
-            .map_err(|e| anyhow::anyhow!(e))?;
-        serde_json::to_string(&response)
-            .map_err(|e| anyhow::anyhow!("serialize source list response: {e}"))
+        let payload = with_runtime_service(|service| {
+            let mut inst =
+                service.create_source_catalog_instance(&plugin_id, &type_id, &config_json)?;
+            inst.list_items_json(&request_json)
+        })?;
+        normalize_json_payload("source list response", payload)
     }
 
     pub fn lyrics_provider_search_json(
@@ -175,14 +177,20 @@ impl PlayerService {
         type_id: String,
         query_json: String,
     ) -> Result<String> {
-        let query = serde_json::from_str::<serde_json::Value>(&query_json)
+        let _query = serde_json::from_str::<serde_json::Value>(&query_json)
             .map_err(|e| anyhow::anyhow!("invalid lyrics query_json: {e}"))?;
-        let response: serde_json::Value = self
-            .engine
-            .lyrics_provider_search(&plugin_id, &type_id, &query)
-            .map_err(|e| anyhow::anyhow!(e))?;
-        serde_json::to_string(&response)
-            .map_err(|e| anyhow::anyhow!("serialize lyrics search response: {e}"))
+        let payload = with_runtime_service(|service| {
+            let config_json = capability_default_config_json(
+                service,
+                &plugin_id,
+                CapabilityKind::LyricsProvider,
+                &type_id,
+            )?;
+            let mut inst =
+                service.create_lyrics_provider_instance(&plugin_id, &type_id, &config_json)?;
+            inst.search_json(&query_json)
+        })?;
+        normalize_json_payload("lyrics search response", payload)
     }
 
     pub fn lyrics_provider_fetch_json(
@@ -191,14 +199,20 @@ impl PlayerService {
         type_id: String,
         track_json: String,
     ) -> Result<String> {
-        let track = serde_json::from_str::<serde_json::Value>(&track_json)
+        let _track = serde_json::from_str::<serde_json::Value>(&track_json)
             .map_err(|e| anyhow::anyhow!("invalid lyrics track_json: {e}"))?;
-        let response: serde_json::Value = self
-            .engine
-            .lyrics_provider_fetch(&plugin_id, &type_id, &track)
-            .map_err(|e| anyhow::anyhow!(e))?;
-        serde_json::to_string(&response)
-            .map_err(|e| anyhow::anyhow!("serialize lyrics fetch response: {e}"))
+        let payload = with_runtime_service(|service| {
+            let config_json = capability_default_config_json(
+                service,
+                &plugin_id,
+                CapabilityKind::LyricsProvider,
+                &type_id,
+            )?;
+            let mut inst =
+                service.create_lyrics_provider_instance(&plugin_id, &type_id, &config_json)?;
+            inst.fetch_json(&track_json)
+        })?;
+        normalize_json_payload("lyrics fetch response", payload)
     }
 
     pub fn output_sink_list_targets_json(
@@ -207,14 +221,14 @@ impl PlayerService {
         type_id: String,
         config_json: String,
     ) -> Result<String> {
-        let config = serde_json::from_str::<serde_json::Value>(&config_json)
+        let _config = serde_json::from_str::<serde_json::Value>(&config_json)
             .map_err(|e| anyhow::anyhow!("invalid output sink config_json: {e}"))?;
-        let response: serde_json::Value = self
-            .engine
-            .output_sink_list_targets(&plugin_id, &type_id, &config)
-            .map_err(|e| anyhow::anyhow!(e))?;
-        serde_json::to_string(&response)
-            .map_err(|e| anyhow::anyhow!("serialize output sink targets: {e}"))
+        let payload = with_runtime_service(|service| {
+            let mut inst =
+                service.create_output_sink_instance(&plugin_id, &type_id, &config_json)?;
+            inst.list_targets_json()
+        })?;
+        normalize_json_payload("output sink targets", payload)
     }
 
     pub fn dsp_set_chain(&self, chain: Vec<DspChainItem>) {
@@ -308,4 +322,119 @@ pub fn plugins_list_installed_json(plugins_dir: String) -> Result<String> {
 pub fn plugins_uninstall_by_id(plugins_dir: String, plugin_id: String) -> Result<()> {
     stellatune_plugins::uninstall_plugin(&plugins_dir, &plugin_id)
         .map_err(|e| anyhow::anyhow!(e.to_string()))
+}
+
+#[derive(Default)]
+struct RuntimePluginCatalog {
+    plugins: Vec<PluginDescriptor>,
+    dsp_types: Vec<DspTypeDescriptor>,
+    source_catalog_types: Vec<SourceCatalogTypeDescriptor>,
+    lyrics_provider_types: Vec<LyricsProviderTypeDescriptor>,
+    output_sink_types: Vec<OutputSinkTypeDescriptor>,
+}
+
+fn runtime_plugin_catalog() -> RuntimePluginCatalog {
+    let shared = shared_plugin_runtime_v2();
+    let Ok(service) = shared.lock() else {
+        return RuntimePluginCatalog::default();
+    };
+
+    let mut plugin_ids = service.active_plugin_ids();
+    plugin_ids.sort();
+
+    let mut catalog = RuntimePluginCatalog::default();
+    for plugin_id in plugin_ids {
+        let Some(generation) = service.active_generation(&plugin_id) else {
+            continue;
+        };
+        let plugin_name = parse_plugin_name_from_metadata(&plugin_id, &generation.metadata_json);
+        catalog.plugins.push(PluginDescriptor {
+            id: plugin_id.clone(),
+            name: plugin_name.clone(),
+        });
+
+        let mut capabilities = service.list_active_capabilities(&plugin_id);
+        capabilities.sort_by(|a, b| a.type_id.cmp(&b.type_id));
+        for capability in capabilities {
+            match capability.kind {
+                CapabilityKind::Decoder => {}
+                CapabilityKind::Dsp => catalog.dsp_types.push(DspTypeDescriptor {
+                    plugin_id: plugin_id.clone(),
+                    plugin_name: plugin_name.clone(),
+                    type_id: capability.type_id,
+                    display_name: capability.display_name,
+                    config_schema_json: capability.config_schema_json,
+                    default_config_json: capability.default_config_json,
+                }),
+                CapabilityKind::SourceCatalog => {
+                    catalog
+                        .source_catalog_types
+                        .push(SourceCatalogTypeDescriptor {
+                            plugin_id: plugin_id.clone(),
+                            plugin_name: plugin_name.clone(),
+                            type_id: capability.type_id,
+                            display_name: capability.display_name,
+                            config_schema_json: capability.config_schema_json,
+                            default_config_json: capability.default_config_json,
+                        })
+                }
+                CapabilityKind::LyricsProvider => {
+                    catalog
+                        .lyrics_provider_types
+                        .push(LyricsProviderTypeDescriptor {
+                            plugin_id: plugin_id.clone(),
+                            plugin_name: plugin_name.clone(),
+                            type_id: capability.type_id,
+                            display_name: capability.display_name,
+                        })
+                }
+                CapabilityKind::OutputSink => {
+                    catalog.output_sink_types.push(OutputSinkTypeDescriptor {
+                        plugin_id: plugin_id.clone(),
+                        plugin_name: plugin_name.clone(),
+                        type_id: capability.type_id,
+                        display_name: capability.display_name,
+                        config_schema_json: capability.config_schema_json,
+                        default_config_json: capability.default_config_json,
+                    })
+                }
+            }
+        }
+    }
+
+    catalog
+}
+
+fn parse_plugin_name_from_metadata(plugin_id: &str, metadata_json: &str) -> String {
+    serde_json::from_str::<PluginMetadata>(metadata_json)
+        .map(|v| v.name)
+        .unwrap_or_else(|_| plugin_id.to_string())
+}
+
+fn with_runtime_service<T>(
+    f: impl FnOnce(&stellatune_plugins::v2::PluginRuntimeService) -> Result<T>,
+) -> Result<T> {
+    let shared = shared_plugin_runtime_v2();
+    let service = shared
+        .lock()
+        .map_err(|_| anyhow!("plugin runtime v2 mutex poisoned"))?;
+    f(&service)
+}
+
+fn capability_default_config_json(
+    service: &stellatune_plugins::v2::PluginRuntimeService,
+    plugin_id: &str,
+    kind: CapabilityKind,
+    type_id: &str,
+) -> Result<String> {
+    service
+        .resolve_active_capability(plugin_id, kind, type_id)
+        .map(|c| c.default_config_json)
+        .ok_or_else(|| anyhow!("capability not found: {plugin_id}::{type_id}"))
+}
+
+fn normalize_json_payload(label: &str, payload: String) -> Result<String> {
+    let value = serde_json::from_str::<serde_json::Value>(&payload)
+        .map_err(|e| anyhow!("invalid {label}: {e}"))?;
+    serde_json::to_string(&value).map_err(|e| anyhow!("serialize {label}: {e}"))
 }

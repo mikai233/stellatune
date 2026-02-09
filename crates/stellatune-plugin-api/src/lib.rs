@@ -2,6 +2,8 @@
 
 use core::ffi::c_void;
 
+pub mod v2;
+
 // Single in-development ABI version (early-stage project).
 // Note: this ABI may change in place while staying on v1 during early development.
 pub const STELLATUNE_PLUGIN_API_VERSION_V1: u32 = 5;
