@@ -28,7 +28,7 @@ class MobileMusicDetailPage extends ConsumerStatefulWidget {
 }
 
 class _MobileMusicDetailPageState extends ConsumerState<MobileMusicDetailPage> {
-  int? _previousTrackId;
+  String? _previousTrackKey;
   int? _previousOrderPos;
   int _slideDirection = 0;
   List<Color> _backgroundColors = [
@@ -171,10 +171,12 @@ class _MobileMusicDetailPageState extends ConsumerState<MobileMusicDetailPage> {
     final album = currentItem?.album?.trim() ?? '';
     final subtitle = [artist, album].where((s) => s.isNotEmpty).join(' - ');
     final trackId = currentItem?.id;
+    final cover = currentItem?.cover;
+    final trackKey = currentItem?.stableTrackKey ?? '';
 
-    final trackChanged = trackId != _previousTrackId;
+    final trackChanged = trackKey != _previousTrackKey;
     // Determine slide direction when track changes
-    if (trackChanged && _previousTrackId != null) {
+    if (trackChanged && (_previousTrackKey ?? '').isNotEmpty) {
       final len = queue.order.length;
       if (len > 1 && _previousOrderPos != null) {
         // Handle wrap-around cases (looping)
@@ -204,7 +206,7 @@ class _MobileMusicDetailPageState extends ConsumerState<MobileMusicDetailPage> {
 
     // Finally update previous states for next build
     _previousOrderPos = queue.orderPos;
-    _previousTrackId = trackId;
+    _previousTrackKey = trackKey;
 
     return ShaderBackground(
       colors: _backgroundColors,
@@ -259,6 +261,8 @@ class _MobileMusicDetailPageState extends ConsumerState<MobileMusicDetailPage> {
                             return NarrowLayout(
                               coverDir: coverDir,
                               trackId: trackId,
+                              trackIdentityKey: trackKey,
+                              cover: cover,
                               title: title,
                               subtitle: subtitle,
                               slideDirection: _slideDirection,

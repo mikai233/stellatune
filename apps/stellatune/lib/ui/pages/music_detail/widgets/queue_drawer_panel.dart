@@ -1,7 +1,9 @@
 import 'dart:io';
 import 'dart:ui';
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -243,6 +245,7 @@ class _QueueListState extends State<_QueueList> {
                     _QueueCover(
                       coverDir: widget.coverDir,
                       trackId: item.id,
+                      cover: item.cover,
                       highPriority: selected,
                       deferMs: selected ? 0 : 40 + (i % 7) * 18,
                     ),
@@ -351,12 +354,14 @@ class _QueueCover extends StatefulWidget {
   const _QueueCover({
     required this.coverDir,
     required this.trackId,
+    this.cover,
     required this.highPriority,
     required this.deferMs,
   });
 
   final String coverDir;
   final int? trackId;
+  final QueueCover? cover;
   final bool highPriority;
   final int deferMs;
 
@@ -378,6 +383,7 @@ class _QueueCoverState extends State<_QueueCover> {
   void didUpdateWidget(covariant _QueueCover oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.trackId != widget.trackId ||
+        oldWidget.cover != widget.cover ||
         oldWidget.highPriority != widget.highPriority ||
         oldWidget.deferMs != widget.deferMs) {
       _scheduleLoad();
@@ -393,7 +399,7 @@ class _QueueCoverState extends State<_QueueCover> {
   void _scheduleLoad() {
     _loadTimer?.cancel();
     final id = widget.trackId;
-    if (id == null) {
+    if (id == null && widget.cover == null) {
       _ready = false;
       return;
     }
@@ -424,30 +430,99 @@ class _QueueCoverState extends State<_QueueCover> {
       child: Icon(Icons.music_note, color: theme.colorScheme.primary),
     );
 
-    if (widget.trackId == null) {
+    final cover = widget.cover;
+    if (widget.trackId == null && cover == null) {
       return placeholder;
     }
     if (!_ready) {
       return placeholder;
     }
-    final path = '${widget.coverDir}${Platform.pathSeparator}${widget.trackId}';
-    final provider = ResizeImage(
-      FileImage(File(path)),
-      width: 96,
-      height: 96,
-      allowUpscaling: false,
-    );
+    final useLocal = widget.trackId != null && widget.coverDir.trim().isNotEmpty;
+    final localProvider = useLocal
+        ? ResizeImage(
+            FileImage(
+              File('${widget.coverDir}${Platform.pathSeparator}${widget.trackId}'),
+            ),
+            width: 96,
+            height: 96,
+            allowUpscaling: false,
+          )
+        : null;
     return ClipRRect(
       borderRadius: BorderRadius.circular(10),
-      child: Image(
-        image: provider,
-        width: 52,
-        height: 52,
-        fit: BoxFit.cover,
-        filterQuality: FilterQuality.low,
-        gaplessPlayback: true,
-        errorBuilder: (context, error, stackTrace) => placeholder,
-      ),
+      child:
+          localProvider != null
+              ? Image(
+                image: localProvider,
+                width: 52,
+                height: 52,
+                fit: BoxFit.cover,
+                filterQuality: FilterQuality.low,
+                gaplessPlayback: true,
+                errorBuilder:
+                    (context, error, stackTrace) => _buildCoverOrPlaceholder(
+                      cover,
+                      placeholder,
+                    ),
+              )
+              : _buildCoverOrPlaceholder(cover, placeholder),
     );
+  }
+
+  Widget _buildCoverOrPlaceholder(QueueCover? cover, Widget placeholder) {
+    if (cover == null) return placeholder;
+    switch (cover.kind) {
+      case QueueCoverKind.url:
+        return Image.network(
+          cover.value,
+          width: 52,
+          height: 52,
+          fit: BoxFit.cover,
+          filterQuality: FilterQuality.low,
+          gaplessPlayback: true,
+          errorBuilder: (context, error, stackTrace) => placeholder,
+        );
+      case QueueCoverKind.file:
+        return Image.file(
+          File(cover.value),
+          width: 52,
+          height: 52,
+          fit: BoxFit.cover,
+          filterQuality: FilterQuality.low,
+          gaplessPlayback: true,
+          errorBuilder: (context, error, stackTrace) => placeholder,
+        );
+      case QueueCoverKind.data:
+        final bytes = _decodeCoverBytes(cover.value);
+        if (bytes == null) return placeholder;
+        return Image.memory(
+          bytes,
+          width: 52,
+          height: 52,
+          fit: BoxFit.cover,
+          filterQuality: FilterQuality.low,
+          gaplessPlayback: true,
+          errorBuilder: (context, error, stackTrace) => placeholder,
+        );
+    }
+  }
+
+  Uint8List? _decodeCoverBytes(String raw) {
+    final text = raw.trim();
+    if (text.isEmpty) return null;
+    final data = () {
+      if (text.startsWith('data:')) {
+        final comma = text.indexOf(',');
+        if (comma <= 0 || comma >= text.length - 1) return '';
+        return text.substring(comma + 1);
+      }
+      return text;
+    }();
+    if (data.isEmpty) return null;
+    try {
+      return base64Decode(data);
+    } catch (_) {
+      return null;
+    }
   }
 }

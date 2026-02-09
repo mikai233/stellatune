@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -13,6 +14,8 @@ import 'package:stellatune/app/settings_store.dart';
 import 'package:stellatune/bridge/bridge.dart';
 import 'package:stellatune/l10n/app_localizations.dart';
 import 'package:stellatune/lyrics/lyrics_controller.dart';
+import 'package:stellatune/player/playback_controller.dart';
+import 'package:stellatune/player/queue_models.dart';
 import 'package:stellatune/ui/forms/schema_form.dart';
 import 'package:stellatune/app/logging.dart';
 
@@ -68,9 +71,32 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
       TextEditingController();
   final TextEditingController _pluginRuntimeJsonController =
       TextEditingController(text: '{"scope":"player","command":"play"}');
+  final TextEditingController _neteaseKeywordsController =
+      TextEditingController();
+  final TextEditingController _neteasePlaylistIdController =
+      TextEditingController();
+  final TextEditingController _neteaseSidecarBaseUrlController =
+      TextEditingController(text: 'http://127.0.0.1:46321');
+  final TextEditingController _neteaseLevelController = TextEditingController(
+    text: 'standard',
+  );
+  final TextEditingController _neteaseLimitController = TextEditingController(
+    text: '30',
+  );
   StreamSubscription<PluginRuntimeEvent>? _pluginRuntimeSub;
   Timer? _outputSinkConfigApplyDebounce;
   final List<PluginRuntimeEvent> _pluginRuntimeEvents = <PluginRuntimeEvent>[];
+  List<QueueItem> _neteaseDebugItems = const [];
+  bool _neteaseDebugLoading = false;
+  String? _neteaseDebugError;
+  bool _neteaseAuthBusy = false;
+  bool _neteaseAuthAutoPolling = false;
+  Timer? _neteaseAuthPollTimer;
+  String? _neteaseAuthMessage;
+  String? _neteaseQrKey;
+  String? _neteaseQrUrl;
+  String? _neteaseQrImageDataUrl;
+  Map<String, Object?>? _neteaseLoginStatus;
   List<Object?> _outputSinkTargets = const [];
   bool _loadingOutputSinkTargets = false;
   final Map<String, String> _sourceConfigDrafts = <String, String>{};
@@ -92,6 +118,8 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
       unawaited(_loadOutputSinkTargets());
     }
     _startPluginRuntimeListener();
+    unawaited(_syncNeteaseSidecarBaseUrlFromConfig());
+    unawaited(_ensureNeteaseSidecarResident());
   }
 
   @override
@@ -102,6 +130,12 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
     _outputSinkTargetController.dispose();
     _pluginRuntimeTargetIdController.dispose();
     _pluginRuntimeJsonController.dispose();
+    _neteaseKeywordsController.dispose();
+    _neteasePlaylistIdController.dispose();
+    _neteaseSidecarBaseUrlController.dispose();
+    _neteaseLevelController.dispose();
+    _neteaseLimitController.dispose();
+    _neteaseAuthPollTimer?.cancel();
     unawaited(_pluginRuntimeSub?.cancel());
     super.dispose();
   }
@@ -362,6 +396,10 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
           typeId: t.typeId,
           configJson: value,
         );
+    if (t.typeId.trim() == 'netease') {
+      unawaited(_syncNeteaseSidecarBaseUrlFromConfig());
+      unawaited(_ensureNeteaseSidecarResident());
+    }
     if (!mounted) return;
     final l10n = AppLocalizations.of(context)!;
     ScaffoldMessenger.of(
@@ -386,6 +424,12 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
     final id = plugin.id?.trim();
     if (id == null || id.isEmpty) return;
     final settings = ref.read(settingsStoreProvider);
+    if (!enabled) {
+      await _shutdownNeteaseSidecarResident(
+        onlyForPluginId: id,
+        silent: true,
+      );
+    }
     await settings.setPluginEnabled(pluginId: id, enabled: enabled);
     await _reloadPluginsWithCurrentDisabled();
     if (!enabled) {
@@ -400,6 +444,10 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
         );
         unawaited(bridge.refreshDevices());
       }
+    } else {
+      unawaited(
+        _ensureNeteaseSidecarResident(onlyForPluginId: id, silent: true),
+      );
     }
     if (mounted) {
       _loadFromSettings();
@@ -409,6 +457,13 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
 
   Future<void> _uninstallPlugin(_InstalledPlugin plugin) async {
     await _ensurePluginDir();
+    final pluginId = plugin.id?.trim();
+    if (pluginId != null && pluginId.isNotEmpty) {
+      await _shutdownNeteaseSidecarResident(
+        onlyForPluginId: pluginId,
+        silent: true,
+      );
+    }
     if (plugin.id != null && plugin.id!.trim().isNotEmpty) {
       await ref
           .read(playerBridgeProvider)
@@ -447,7 +502,7 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
 
     try {
       final bridge = ref.read(playerBridgeProvider);
-      await bridge.pluginsInstallFromFile(
+      final installedPluginId = await bridge.pluginsInstallFromFile(
         dir: pluginDir,
         artifactPath: srcPath,
       );
@@ -455,6 +510,12 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
       await bridge.pluginsReloadWithDisabled(
         dir: pluginDir,
         disabledIds: disabledIds.toList(),
+      );
+      unawaited(
+        _ensureNeteaseSidecarResident(
+          onlyForPluginId: installedPluginId,
+          silent: true,
+        ),
       );
       if (!mounted) return;
       setState(_refresh);
@@ -619,6 +680,567 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
     }
   }
 
+  String get _neteaseSidecarBaseUrl {
+    final raw = _neteaseSidecarBaseUrlController.text.trim();
+    if (raw.isEmpty) return 'http://127.0.0.1:46321';
+    return raw.endsWith('/') ? raw.substring(0, raw.length - 1) : raw;
+  }
+
+  Future<void> _syncNeteaseSidecarBaseUrlFromConfig() async {
+    try {
+      final sourceType = await _resolveNeteaseSourceType();
+      if (sourceType == null) return;
+      final config = _decodeJsonObjectOrEmpty(_sourceConfigForType(sourceType));
+      final sidecarBaseUrl = _asText(config['sidecar_base_url']);
+      if (sidecarBaseUrl == null || sidecarBaseUrl.isEmpty) return;
+      if (!mounted) return;
+      if (_neteaseSidecarBaseUrlController.text.trim() ==
+          sidecarBaseUrl.trim()) {
+        return;
+      }
+      setState(() {
+        _neteaseSidecarBaseUrlController.text = sidecarBaseUrl.trim();
+      });
+    } catch (e, s) {
+      logger.d(
+        'failed to sync netease sidecar base url from config',
+        error: e,
+        stackTrace: s,
+      );
+    }
+  }
+
+  Future<void> _ensureNeteaseSidecarResident({
+    String? onlyForPluginId,
+    bool silent = true,
+  }) async {
+    try {
+      final sourceType = await _resolveNeteaseSourceType();
+      if (sourceType == null) return;
+      final expected = onlyForPluginId?.trim() ?? '';
+      if (expected.isNotEmpty && sourceType.pluginId.trim() != expected) {
+        return;
+      }
+      final bridge = ref.read(playerBridgeProvider);
+      final config = _decodeJsonObjectOrEmpty(_sourceConfigForType(sourceType));
+      await bridge.sourceListItemsJson(
+        pluginId: sourceType.pluginId,
+        typeId: sourceType.typeId,
+        configJson: jsonEncode(config),
+        requestJson: jsonEncode(<String, Object?>{'action': 'ensure_sidecar'}),
+      );
+    } catch (e, s) {
+      logger.w(
+        'failed to ensure netease sidecar resident',
+        error: e,
+        stackTrace: s,
+      );
+      if (!silent && mounted) {
+        setState(() => _neteaseAuthMessage = 'Sidecar 启动失败: $e');
+      }
+    }
+  }
+
+  Future<void> _shutdownNeteaseSidecarResident({
+    String? onlyForPluginId,
+    bool silent = true,
+  }) async {
+    try {
+      final sourceType = await _resolveNeteaseSourceType();
+      if (sourceType == null) return;
+      final expected = onlyForPluginId?.trim() ?? '';
+      if (expected.isNotEmpty && sourceType.pluginId.trim() != expected) {
+        return;
+      }
+      final bridge = ref.read(playerBridgeProvider);
+      final config = _decodeJsonObjectOrEmpty(_sourceConfigForType(sourceType));
+      await bridge.sourceListItemsJson(
+        pluginId: sourceType.pluginId,
+        typeId: sourceType.typeId,
+        configJson: jsonEncode(config),
+        requestJson: jsonEncode(<String, Object?>{
+          'action': 'shutdown_sidecar',
+        }),
+      );
+    } catch (e, s) {
+      logger.w(
+        'failed to shutdown netease sidecar',
+        error: e,
+        stackTrace: s,
+      );
+      if (!silent && mounted) {
+        setState(() => _neteaseAuthMessage = 'Sidecar 关闭失败: $e');
+      }
+    }
+  }
+
+  Future<Map<String, Object?>> _neteaseSidecarGetJson(
+    String path, {
+    Map<String, Object?> query = const <String, Object?>{},
+  }) async {
+    final uri = Uri.parse('$_neteaseSidecarBaseUrl$path').replace(
+      queryParameters: <String, String>{
+        for (final entry in query.entries)
+          if (entry.value != null) entry.key: entry.value.toString(),
+      },
+    );
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 5);
+    try {
+      final request = await client.getUrl(uri);
+      final response = await request.close().timeout(
+        const Duration(seconds: 10),
+      );
+      final body = await response.transform(utf8.decoder).join();
+      dynamic decoded;
+      try {
+        decoded = body.isEmpty ? <String, Object?>{} : jsonDecode(body);
+      } catch (_) {
+        decoded = <String, Object?>{'raw': body};
+      }
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        final message = decoded is Map
+            ? (decoded['error'] ?? decoded['message'] ?? decoded['raw'])
+            : null;
+        throw Exception(
+          'HTTP ${response.statusCode}${message == null ? '' : ': $message'}',
+        );
+      }
+      if (decoded is Map<String, Object?>) return decoded;
+      if (decoded is Map) return decoded.cast<String, Object?>();
+      return <String, Object?>{'data': decoded};
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  int? _extractAuthCodeFromBody(Map<String, Object?> data) {
+    final body = data['body'];
+    if (body is! Map) return null;
+    final code = body['code'];
+    if (code is int) return code;
+    if (code is num) return code.toInt();
+    return int.tryParse(code?.toString() ?? '');
+  }
+
+  String _describeNeteaseQrCode(int? code) {
+    return switch (code) {
+      800 => '二维码已过期',
+      801 => '等待扫码',
+      802 => '已扫码，等待确认',
+      803 => '登录成功',
+      200 => '请求成功',
+      null => '未知状态',
+      _ => '状态码: $code',
+    };
+  }
+
+  Future<void> _fetchNeteaseLoginStatus() async {
+    if (_neteaseAuthBusy) return;
+    setState(() => _neteaseAuthBusy = true);
+    try {
+      await _ensureNeteaseSidecarResident();
+      final data = await _neteaseSidecarGetJson('/v1/auth/login_status');
+      Map<String, Object?>? bodyMap;
+      final body = data['body'];
+      if (body is Map<String, Object?>) bodyMap = body;
+      if (body is Map && bodyMap == null) {
+        bodyMap = body.cast<String, Object?>();
+      }
+      final profileRaw =
+          (bodyMap?['data'] as Map?)?['profile'] ??
+          bodyMap?['profile'] ??
+          (bodyMap?['profileData']);
+      String? nickname;
+      if (profileRaw is Map) {
+        nickname = _asText(profileRaw['nickname']);
+      }
+      final message = nickname == null || nickname.isEmpty
+          ? '登录状态已刷新'
+          : '当前账号: $nickname';
+      if (!mounted) return;
+      setState(() {
+        _neteaseLoginStatus = bodyMap;
+        _neteaseAuthMessage = message;
+      });
+    } catch (e, s) {
+      logger.e('failed to fetch netease login status', error: e, stackTrace: s);
+      if (!mounted) return;
+      setState(() => _neteaseAuthMessage = '登录状态获取失败: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _neteaseAuthBusy = false);
+      }
+    }
+  }
+
+  Future<void> _startNeteaseQrLogin() async {
+    if (_neteaseAuthBusy) return;
+    setState(() {
+      _neteaseAuthBusy = true;
+      _neteaseAuthMessage = null;
+    });
+    try {
+      await _ensureNeteaseSidecarResident(silent: false);
+      final keyResp = await _neteaseSidecarGetJson('/v1/auth/qr/key');
+      final keyBody = keyResp['body'];
+      final keyMap = keyBody is Map
+          ? (keyBody is Map<String, Object?>
+                ? keyBody
+                : keyBody.cast<String, Object?>())
+          : <String, Object?>{};
+      final keyData = keyMap['data'];
+      final keyDataMap = keyData is Map
+          ? (keyData is Map<String, Object?>
+                ? keyData
+                : keyData.cast<String, Object?>())
+          : <String, Object?>{};
+      final key = _asText(keyDataMap['unikey']) ?? _asText(keyDataMap['key']);
+      if (key == null || key.isEmpty) {
+        throw Exception('未获取到二维码 key');
+      }
+
+      final createResp = await _neteaseSidecarGetJson(
+        '/v1/auth/qr/create',
+        query: <String, Object?>{'key': key, 'qrimg': 'true'},
+      );
+      final createBody = createResp['body'];
+      final createMap = createBody is Map
+          ? (createBody is Map<String, Object?>
+                ? createBody
+                : createBody.cast<String, Object?>())
+          : <String, Object?>{};
+      final createData = createMap['data'];
+      final createDataMap = createData is Map
+          ? (createData is Map<String, Object?>
+                ? createData
+                : createData.cast<String, Object?>())
+          : <String, Object?>{};
+
+      if (!mounted) return;
+      setState(() {
+        _neteaseQrKey = key;
+        _neteaseQrUrl = _asText(createDataMap['qrurl']);
+        _neteaseQrImageDataUrl = _asText(createDataMap['qrimg']);
+        _neteaseAuthMessage = '二维码已生成，请使用网易云扫码';
+      });
+      _setNeteaseAuthAutoPolling(true);
+    } catch (e, s) {
+      logger.e('failed to start netease qr login', error: e, stackTrace: s);
+      if (!mounted) return;
+      setState(() => _neteaseAuthMessage = '二维码生成失败: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _neteaseAuthBusy = false);
+      }
+    }
+  }
+
+  Future<void> _pollNeteaseQrStatus({bool silent = false}) async {
+    if (_neteaseAuthBusy) return;
+    final key = _neteaseQrKey?.trim() ?? '';
+    if (key.isEmpty) {
+      if (!silent && mounted) {
+        setState(() => _neteaseAuthMessage = '请先生成二维码');
+      }
+      return;
+    }
+    setState(() => _neteaseAuthBusy = true);
+    try {
+      final resp = await _neteaseSidecarGetJson(
+        '/v1/auth/qr/check',
+        query: <String, Object?>{'key': key},
+      );
+      final code = _extractAuthCodeFromBody(resp);
+      final statusText = _describeNeteaseQrCode(code);
+
+      if (!mounted) return;
+      setState(() {
+        _neteaseAuthMessage = statusText;
+      });
+
+      if (code == 803) {
+        _setNeteaseAuthAutoPolling(false);
+        await _fetchNeteaseLoginStatus();
+      } else if (code == 800) {
+        _setNeteaseAuthAutoPolling(false);
+      }
+    } catch (e, s) {
+      logger.e('failed to poll netease qr status', error: e, stackTrace: s);
+      if (!mounted || silent) return;
+      setState(() => _neteaseAuthMessage = '二维码状态检查失败: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _neteaseAuthBusy = false);
+      }
+    }
+  }
+
+  Future<void> _refreshNeteaseLogin() async {
+    if (_neteaseAuthBusy) return;
+    setState(() => _neteaseAuthBusy = true);
+    try {
+      await _ensureNeteaseSidecarResident();
+      await _neteaseSidecarGetJson('/v1/auth/login_refresh');
+      if (!mounted) return;
+      setState(() => _neteaseAuthMessage = '登录状态已刷新');
+      await _fetchNeteaseLoginStatus();
+    } catch (e, s) {
+      logger.e('failed to refresh netease login', error: e, stackTrace: s);
+      if (!mounted) return;
+      setState(() => _neteaseAuthMessage = '刷新登录失败: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _neteaseAuthBusy = false);
+      }
+    }
+  }
+
+  Future<void> _logoutNeteaseLogin() async {
+    if (_neteaseAuthBusy) return;
+    setState(() => _neteaseAuthBusy = true);
+    try {
+      await _ensureNeteaseSidecarResident();
+      await _neteaseSidecarGetJson('/v1/auth/logout');
+      if (!mounted) return;
+      _setNeteaseAuthAutoPolling(false);
+      setState(() {
+        _neteaseLoginStatus = null;
+        _neteaseAuthMessage = '已退出登录';
+      });
+    } catch (e, s) {
+      logger.e('failed to logout netease login', error: e, stackTrace: s);
+      if (!mounted) return;
+      setState(() => _neteaseAuthMessage = '退出登录失败: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _neteaseAuthBusy = false);
+      }
+    }
+  }
+
+  void _setNeteaseAuthAutoPolling(bool enabled) {
+    _neteaseAuthPollTimer?.cancel();
+    _neteaseAuthPollTimer = null;
+    if (!mounted) return;
+    setState(() => _neteaseAuthAutoPolling = enabled);
+    if (!enabled) return;
+    _neteaseAuthPollTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+      unawaited(_pollNeteaseQrStatus(silent: true));
+    });
+  }
+
+  Uint8List? _decodeDataUrlBytes(String? dataUrl) {
+    final raw = dataUrl?.trim() ?? '';
+    if (raw.isEmpty) return null;
+    final comma = raw.indexOf(',');
+    if (comma <= 0 || comma >= raw.length - 1) return null;
+    final base64Raw = raw.substring(comma + 1);
+    try {
+      return base64Decode(base64Raw);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<SourceCatalogTypeDescriptor?> _resolveNeteaseSourceType() async {
+    final bridge = ref.read(playerBridgeProvider);
+    final sourceTypes = await (_sourceTypesFuture ??= bridge.sourceListTypes());
+    SourceCatalogTypeDescriptor? picked;
+    for (final t in sourceTypes) {
+      if (t.typeId.trim() != 'netease') continue;
+      if (t.pluginId.trim() == 'dev.stellatune.source.netease') {
+        return t;
+      }
+      picked ??= t;
+    }
+    return picked;
+  }
+
+  Map<String, Object?> _decodeJsonObjectOrEmpty(String raw) {
+    final text = raw.trim();
+    if (text.isEmpty) return <String, Object?>{};
+    try {
+      final decoded = jsonDecode(text);
+      if (decoded is Map<String, Object?>) return decoded;
+      if (decoded is Map) {
+        return decoded.cast<String, Object?>();
+      }
+    } catch (e, s) {
+      logger.w('failed to parse source config JSON', error: e, stackTrace: s);
+    }
+    return <String, Object?>{};
+  }
+
+  String? _asText(Object? value) {
+    if (value == null) return null;
+    final text = value.toString().trim();
+    if (text.isEmpty) return null;
+    return text;
+  }
+
+  int? _asInt(Object? value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString().trim() ?? '');
+  }
+
+  QueueCover? _asCover(Object? value) {
+    if (value is! Map) return null;
+    final map = value.cast<Object?, Object?>();
+    final kindRaw = _asText(map['kind'])?.toLowerCase();
+    final v = _asText(map['value']);
+    if (kindRaw == null || v == null) return null;
+    final kind = switch (kindRaw) {
+      'url' => QueueCoverKind.url,
+      'file' => QueueCoverKind.file,
+      'data' => QueueCoverKind.data,
+      _ => null,
+    };
+    if (kind == null) return null;
+    return QueueCover(kind: kind, value: v, mime: _asText(map['mime']));
+  }
+
+  Future<void> _fetchNeteaseDebugItems({required String action}) async {
+    if (_neteaseDebugLoading) return;
+    setState(() {
+      _neteaseDebugLoading = true;
+      _neteaseDebugError = null;
+    });
+
+    try {
+      final sourceType = await _resolveNeteaseSourceType();
+      if (sourceType == null) {
+        throw Exception('未找到 type_id=netease 的 SourceCatalog');
+      }
+
+      final bridge = ref.read(playerBridgeProvider);
+      final configJson = _sourceConfigForType(sourceType);
+      final config = _decodeJsonObjectOrEmpty(configJson);
+      final keywords = _neteaseKeywordsController.text.trim();
+      final level = _neteaseLevelController.text.trim();
+      final limit = (int.tryParse(_neteaseLimitController.text.trim()) ?? 30)
+          .clamp(1, 200);
+
+      final request = <String, Object?>{
+        'action': action,
+        'keywords': keywords,
+        'limit': limit,
+        'offset': 0,
+      };
+      if (level.isNotEmpty) {
+        request['level'] = level;
+      }
+      if (action == 'playlist_tracks') {
+        final playlistId =
+            int.tryParse(_neteasePlaylistIdController.text.trim()) ?? 0;
+        if (playlistId <= 0) {
+          throw Exception('请输入有效的歌单 ID');
+        }
+        request['playlist_id'] = playlistId;
+      }
+
+      final raw = await bridge.sourceListItemsJson(
+        pluginId: sourceType.pluginId,
+        typeId: sourceType.typeId,
+        configJson: jsonEncode(config),
+        requestJson: jsonEncode(request),
+      );
+
+      final decoded = jsonDecode(raw);
+      final List<QueueItem> items = <QueueItem>[];
+      if (decoded is List) {
+        for (final row in decoded) {
+          if (row is! Map) continue;
+          final map = row.cast<Object?, Object?>();
+          final trackObj = map['track'];
+          if (trackObj is! Map) continue;
+          final track = trackObj.cast<String, Object?>();
+
+          final sourceId = _asText(map['source_id']) ?? 'netease';
+          final trackId =
+              _asText(map['track_id']) ?? _asText(track['song_id']) ?? '';
+          if (trackId.isEmpty) continue;
+
+          final extHint = _asText(map['ext_hint']) ?? '';
+          final pathHint = _asText(map['path_hint']) ?? '';
+          final title = _asText(map['title']) ?? _asText(track['title']);
+          final artist = _asText(map['artist']) ?? _asText(track['artist']);
+          final album = _asText(map['album']) ?? _asText(track['album']);
+          final durationMs =
+              _asInt(map['duration_ms']) ?? _asInt(track['duration_ms']);
+          final cover = _asCover(map['cover']) ?? _asCover(track['cover']);
+
+          final trackRef = buildPluginSourceTrackRef(
+            sourceId: sourceId,
+            trackId: trackId,
+            pluginId: sourceType.pluginId,
+            typeId: sourceType.typeId,
+            config: config,
+            track: track,
+            extHint: extHint,
+            pathHint: pathHint,
+            decoderPluginId: sourceType.pluginId,
+            decoderTypeId: 'stream_symphonia',
+          );
+
+          items.add(
+            QueueItem(
+              track: trackRef,
+              title: title,
+              artist: artist,
+              album: album,
+              durationMs: durationMs,
+              cover: cover,
+            ),
+          );
+        }
+      }
+
+      setState(() {
+        _neteaseDebugItems = items;
+        _neteaseDebugError = null;
+      });
+    } catch (e, s) {
+      logger.e(
+        'failed to fetch netease debug source items',
+        error: e,
+        stackTrace: s,
+      );
+      setState(() {
+        _neteaseDebugError = e.toString();
+      });
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Netease source fetch failed: $e')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _neteaseDebugLoading = false);
+      }
+    }
+  }
+
+  Future<void> _playNeteaseDebugIndex(int index) async {
+    if (index < 0 || index >= _neteaseDebugItems.length) return;
+    await ref
+        .read(playbackControllerProvider.notifier)
+        .setQueueAndPlayItems(_neteaseDebugItems, startIndex: index);
+  }
+
+  Future<void> _playNeteaseDebugAll() async {
+    if (_neteaseDebugItems.isEmpty) return;
+    await ref
+        .read(playbackControllerProvider.notifier)
+        .setQueueAndPlayItems(_neteaseDebugItems, startIndex: 0);
+  }
+
+  Future<void> _enqueueNeteaseDebugAll() async {
+    if (_neteaseDebugItems.isEmpty) return;
+    await ref
+        .read(playbackControllerProvider.notifier)
+        .enqueueItems(_neteaseDebugItems);
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -712,6 +1334,296 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
                       setState(() {});
                     },
                   ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Netease Source Debug',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _neteaseSidecarBaseUrlController,
+                  decoration: const InputDecoration(
+                    labelText: 'Sidecar base URL',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    FilledButton.icon(
+                      onPressed: _neteaseAuthBusy ? null : _startNeteaseQrLogin,
+                      icon: const Icon(Icons.qr_code_2),
+                      label: const Text('Generate QR'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: _neteaseAuthBusy
+                          ? null
+                          : () => _pollNeteaseQrStatus(),
+                      icon: const Icon(Icons.sync),
+                      label: const Text('Check QR'),
+                    ),
+                    OutlinedButton(
+                      onPressed: _neteaseAuthBusy
+                          ? null
+                          : () => _setNeteaseAuthAutoPolling(
+                              !_neteaseAuthAutoPolling,
+                            ),
+                      child: Text(
+                        _neteaseAuthAutoPolling
+                            ? 'Stop Auto Poll'
+                            : 'Start Auto Poll',
+                      ),
+                    ),
+                    OutlinedButton(
+                      onPressed: _neteaseAuthBusy
+                          ? null
+                          : _fetchNeteaseLoginStatus,
+                      child: const Text('Login Status'),
+                    ),
+                    OutlinedButton(
+                      onPressed: _neteaseAuthBusy ? null : _refreshNeteaseLogin,
+                      child: const Text('Refresh Login'),
+                    ),
+                    OutlinedButton(
+                      onPressed: _neteaseAuthBusy ? null : _logoutNeteaseLogin,
+                      child: const Text('Logout'),
+                    ),
+                    if ((_neteaseQrUrl ?? '').trim().isNotEmpty)
+                      OutlinedButton(
+                        onPressed: () async {
+                          final url = _neteaseQrUrl!.trim();
+                          final uri = Uri.tryParse(url);
+                          if (uri == null) return;
+                          await launchUrl(uri);
+                        },
+                        child: const Text('Open QR URL'),
+                      ),
+                  ],
+                ),
+                if ((_neteaseAuthMessage ?? '').trim().isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    _neteaseAuthMessage!,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+                if (_neteaseLoginStatus != null) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    jsonEncode(_neteaseLoginStatus),
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+                if (_neteaseAuthBusy) ...[
+                  const SizedBox(height: 8),
+                  const LinearProgressIndicator(),
+                ],
+                Builder(
+                  builder: (context) {
+                    final bytes = _decodeDataUrlBytes(_neteaseQrImageDataUrl);
+                    if (bytes == null || bytes.isEmpty) {
+                      return const SizedBox.shrink();
+                    }
+                    return Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: Image.memory(
+                            bytes,
+                            width: 180,
+                            height: 180,
+                            fit: BoxFit.contain,
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: _neteaseKeywordsController,
+                  decoration: const InputDecoration(
+                    labelText: 'Search keywords',
+                    border: OutlineInputBorder(),
+                  ),
+                  onSubmitted: (_) =>
+                      unawaited(_fetchNeteaseDebugItems(action: 'search')),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _neteasePlaylistIdController,
+                        decoration: const InputDecoration(
+                          labelText: 'Playlist ID',
+                          border: OutlineInputBorder(),
+                        ),
+                        keyboardType: TextInputType.number,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    SizedBox(
+                      width: 120,
+                      child: TextField(
+                        controller: _neteaseLevelController,
+                        decoration: const InputDecoration(
+                          labelText: 'Level',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    SizedBox(
+                      width: 88,
+                      child: TextField(
+                        controller: _neteaseLimitController,
+                        decoration: const InputDecoration(
+                          labelText: 'Limit',
+                          border: OutlineInputBorder(),
+                        ),
+                        keyboardType: TextInputType.number,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    FilledButton.icon(
+                      onPressed: _neteaseDebugLoading
+                          ? null
+                          : () => _fetchNeteaseDebugItems(action: 'search'),
+                      icon: const Icon(Icons.search),
+                      label: const Text('Search'),
+                    ),
+                    const SizedBox(width: 8),
+                    OutlinedButton.icon(
+                      onPressed: _neteaseDebugLoading
+                          ? null
+                          : () => _fetchNeteaseDebugItems(
+                              action: 'playlist_tracks',
+                            ),
+                      icon: const Icon(Icons.queue_music_outlined),
+                      label: const Text('Load Playlist'),
+                    ),
+                    const SizedBox(width: 8),
+                    OutlinedButton(
+                      onPressed: _neteaseDebugItems.isEmpty
+                          ? null
+                          : _playNeteaseDebugAll,
+                      child: const Text('Play All'),
+                    ),
+                    const SizedBox(width: 8),
+                    OutlinedButton(
+                      onPressed: _neteaseDebugItems.isEmpty
+                          ? null
+                          : _enqueueNeteaseDebugAll,
+                      child: const Text('Enqueue All'),
+                    ),
+                  ],
+                ),
+                if (_neteaseDebugLoading) ...[
+                  const SizedBox(height: 8),
+                  const LinearProgressIndicator(),
+                ],
+                if (_neteaseDebugError != null &&
+                    _neteaseDebugError!.trim().isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    _neteaseDebugError!,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 10),
+                Container(
+                  width: double.infinity,
+                  height: 220,
+                  decoration: BoxDecoration(
+                    border: Border.all(
+                      color: Theme.of(
+                        context,
+                      ).dividerColor.withValues(alpha: 0.5),
+                    ),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: _neteaseDebugItems.isEmpty
+                      ? const Center(
+                          child: Text(
+                            'No source items. Use Search or Load Playlist.',
+                          ),
+                        )
+                      : ListView.separated(
+                          padding: const EdgeInsets.all(8),
+                          itemBuilder: (context, index) {
+                            final item = _neteaseDebugItems[index];
+                            final subtitleParts = <String>[
+                              if ((item.artist ?? '').trim().isNotEmpty)
+                                item.artist!.trim(),
+                              if ((item.album ?? '').trim().isNotEmpty)
+                                item.album!.trim(),
+                            ];
+                            return ListTile(
+                              dense: true,
+                              contentPadding: EdgeInsets.zero,
+                              title: Text(
+                                item.displayTitle,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              subtitle: subtitleParts.isEmpty
+                                  ? null
+                                  : Text(
+                                      subtitleParts.join(' - '),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                              trailing: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  IconButton(
+                                    tooltip: 'Play',
+                                    onPressed: () =>
+                                        _playNeteaseDebugIndex(index),
+                                    icon: const Icon(Icons.play_arrow),
+                                  ),
+                                  IconButton(
+                                    tooltip: 'Enqueue',
+                                    onPressed: () => ref
+                                        .read(
+                                          playbackControllerProvider.notifier,
+                                        )
+                                        .enqueueItems([item]),
+                                    icon: const Icon(Icons.queue_music),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                          separatorBuilder: (_, _) => const Divider(height: 1),
+                          itemCount: _neteaseDebugItems.length,
+                        ),
+                ),
               ],
             ),
           ),

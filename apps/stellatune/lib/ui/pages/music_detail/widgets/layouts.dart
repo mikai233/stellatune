@@ -2,6 +2,7 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:stellatune/bridge/bridge.dart';
+import 'package:stellatune/player/queue_models.dart';
 import 'package:stellatune/ui/widgets/audio_format_badge.dart';
 import 'package:stellatune/ui/widgets/marquee_text.dart';
 
@@ -13,6 +14,8 @@ class WideLayout extends StatelessWidget {
     super.key,
     required this.coverDir,
     required this.trackId,
+    required this.trackIdentityKey,
+    this.cover,
     required this.title,
     required this.subtitle,
     required this.slideDirection,
@@ -28,6 +31,8 @@ class WideLayout extends StatelessWidget {
 
   final String coverDir;
   final int? trackId;
+  final String trackIdentityKey;
+  final QueueCover? cover;
   final String title;
   final String subtitle;
   final int slideDirection; // 1 = forward, -1 = backward, 0 = initial
@@ -113,9 +118,12 @@ class WideLayout extends StatelessWidget {
                             duration: const Duration(milliseconds: 550),
                             crossFade: false,
                             child: CoverImage(
-                              key: ValueKey('cover-$trackId'),
+                              key: ValueKey(
+                                'cover-$trackIdentityKey',
+                              ),
                               coverDir: coverDir,
                               trackId: trackId,
+                              cover: cover,
                               size: coverSize,
                             ),
                           ),
@@ -126,7 +134,7 @@ class WideLayout extends StatelessWidget {
                             duration: const Duration(milliseconds: 550),
                             crossFade: true,
                             child: ConstrainedBox(
-                              key: ValueKey('text-$trackId'),
+                              key: ValueKey('text-$trackIdentityKey'),
                               constraints: BoxConstraints(
                                 minHeight: (coverSize / 2.5).clamp(
                                   110.0,
@@ -224,6 +232,8 @@ class NarrowLayout extends StatelessWidget {
     super.key,
     required this.coverDir,
     required this.trackId,
+    required this.trackIdentityKey,
+    this.cover,
     required this.title,
     required this.subtitle,
     required this.slideDirection,
@@ -238,6 +248,8 @@ class NarrowLayout extends StatelessWidget {
 
   final String coverDir;
   final int? trackId;
+  final String trackIdentityKey;
+  final QueueCover? cover;
   final String title;
   final String subtitle;
   final int slideDirection; // 1 = forward, -1 = backward, 0 = initial
@@ -301,9 +313,12 @@ class NarrowLayout extends StatelessWidget {
                 duration: const Duration(milliseconds: 550),
                 crossFade: false,
                 child: CoverImage(
-                  key: ValueKey('cover-$trackId'),
+                  key: ValueKey(
+                    'cover-$trackIdentityKey',
+                  ),
                   coverDir: coverDir,
                   trackId: trackId,
+                  cover: cover,
                   size: coverSize,
                 ),
               ),
@@ -314,7 +329,7 @@ class NarrowLayout extends StatelessWidget {
                 duration: const Duration(milliseconds: 550),
                 crossFade: true,
                 child: ConstrainedBox(
-                  key: ValueKey('text-$trackId'),
+                  key: ValueKey('text-$trackIdentityKey'),
                   constraints: BoxConstraints(
                     minHeight: (coverSize * 0.45).clamp(110.0, 180.0),
                   ),

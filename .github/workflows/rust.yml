@@ -32,3 +32,74 @@ jobs:
 
       - name: Clippy Check
         run: cargo clippy --all-targets --all-features -- -D warnings
+
+  netease-plugin-smoke:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+
+      - name: Install Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: tools/stellatune-ncm-sidecar/package-lock.json
+
+      - name: Build plugin crate
+        run: cargo build --manifest-path crates/stellatune-plugin-netease/Cargo.toml --release
+
+      - name: Package plugin artifact
+        shell: pwsh
+        run: |
+          powershell -ExecutionPolicy Bypass -File crates/stellatune-plugin-netease/scripts/package-windows.ps1
+
+      - name: Verify packaged files
+        shell: pwsh
+        run: |
+          $zip = Get-ChildItem target/plugins -Filter "stellatune-plugin-netease-*.zip" | Select-Object -First 1
+          if ($null -eq $zip) { throw "packaged zip not found under target/plugins" }
+          $extractDir = Join-Path $env:RUNNER_TEMP "netease-plugin-smoke"
+          if (Test-Path $extractDir) { Remove-Item -Recurse -Force $extractDir }
+          Expand-Archive -Path $zip.FullName -DestinationPath $extractDir -Force
+          if (-not (Test-Path (Join-Path $extractDir "stellatune_plugin_netease.dll"))) {
+            throw "missing packaged plugin dll"
+          }
+          if (-not (Test-Path (Join-Path $extractDir "bin/stellatune-ncm-sidecar.exe"))) {
+            throw "missing packaged sidecar executable"
+          }
+
+      - name: Sidecar exe health smoke
+        shell: pwsh
+        run: |
+          $extractDir = Join-Path $env:RUNNER_TEMP "netease-plugin-smoke"
+          $exe = Join-Path $extractDir "bin/stellatune-ncm-sidecar.exe"
+          if (-not (Test-Path $exe)) {
+            throw "sidecar executable not found for smoke test"
+          }
+          $proc = Start-Process -FilePath $exe -WorkingDirectory (Split-Path -Parent $exe) -PassThru
+          try {
+            $ready = $false
+            for ($i = 0; $i -lt 20; $i++) {
+              Start-Sleep -Milliseconds 500
+              try {
+                $resp = Invoke-RestMethod -Uri "http://127.0.0.1:46321/health" -Method Get -TimeoutSec 3
+                if ($resp.ok -eq $true) {
+                  $ready = $true
+                  break
+                }
+              } catch {}
+            }
+            if (-not $ready) {
+              throw "sidecar health endpoint did not become ready"
+            }
+          }
+          finally {
+            if ($proc -and -not $proc.HasExited) {
+              Stop-Process -Id $proc.Id -Force
+            }
+          }

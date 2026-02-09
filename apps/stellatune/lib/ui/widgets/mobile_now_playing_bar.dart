@@ -67,11 +67,13 @@ class MobileNowPlayingBar extends ConsumerWidget {
                       final innerQueue = ref.watch(queueControllerProvider);
                       final innerCoverDir = ref.watch(coverDirProvider);
                       final innerTrackId = innerQueue.currentItem?.id;
+                      final cover = innerQueue.currentItem?.cover;
                       return Padding(
                         padding: const EdgeInsets.all(4),
                         child: NowPlayingCover(
                           coverDir: innerCoverDir,
                           trackId: innerTrackId,
+                          cover: cover,
                           primaryColor: theme.colorScheme.primary,
                           onTap: innerQueue.currentItem != null ? open : null,
                         ),

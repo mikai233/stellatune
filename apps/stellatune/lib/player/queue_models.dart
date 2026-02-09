@@ -1,7 +1,18 @@
 import 'dart:math';
-
 import 'package:flutter/foundation.dart';
+
 import 'package:stellatune/bridge/bridge.dart';
+
+enum QueueCoverKind { url, file, data }
+
+@immutable
+class QueueCover {
+  const QueueCover({required this.kind, required this.value, this.mime});
+
+  final QueueCoverKind kind;
+  final String value;
+  final String? mime;
+}
 
 @immutable
 class QueueItem {
@@ -12,6 +23,7 @@ class QueueItem {
     this.artist,
     this.album,
     this.durationMs,
+    this.cover,
   });
 
   final TrackRef track;
@@ -20,6 +32,7 @@ class QueueItem {
   final String? artist;
   final String? album;
   final int? durationMs;
+  final QueueCover? cover;
 
   String get path => track.locator;
 

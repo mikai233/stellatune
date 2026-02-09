@@ -69,6 +69,17 @@ struct OutputSinkWorkerSpec {
     chunk_frames: u32,
 }
 
+struct OpenOutputSinkWorkerArgs<'a> {
+    plugins: &'a Arc<Mutex<PluginManager>>,
+    route: &'a OutputSinkRouteSpec,
+    sample_rate: u32,
+    channels: u16,
+    volume: Arc<AtomicU32>,
+    transition_gain: Arc<AtomicU32>,
+    transition_target_gain: Arc<AtomicU32>,
+    internal_tx: &'a Sender<InternalMsg>,
+}
+
 mod debug_metrics {
     #[cfg(debug_assertions)]
     use super::DEBUG_PRELOAD_LOG_EVERY;
@@ -1986,45 +1997,36 @@ fn apply_dsp_chain(
     Ok(())
 }
 
-fn open_output_sink_worker(
-    plugins: &Arc<Mutex<PluginManager>>,
-    route: &OutputSinkRouteSpec,
-    sample_rate: u32,
-    channels: u16,
-    volume: Arc<AtomicU32>,
-    transition_gain: Arc<AtomicU32>,
-    transition_target_gain: Arc<AtomicU32>,
-    internal_tx: &Sender<InternalMsg>,
-) -> Result<OutputSinkWorker, String> {
-    let pm = snapshot_plugins(plugins)?;
+fn open_output_sink_worker(args: OpenOutputSinkWorkerArgs<'_>) -> Result<OutputSinkWorker, String> {
+    let pm = snapshot_plugins(args.plugins)?;
     let key = pm
-        .find_output_sink_key(&route.plugin_id, &route.type_id)
+        .find_output_sink_key(&args.route.plugin_id, &args.route.type_id)
         .ok_or_else(|| {
             format!(
                 "output sink not found: {}::{}",
-                route.plugin_id, route.type_id
+                args.route.plugin_id, args.route.type_id
             )
         })?;
     let sink = pm
         .output_open(
             key,
-            &route.config,
-            &route.target,
+            &args.route.config,
+            &args.route.target,
             StAudioSpec {
-                sample_rate,
-                channels,
+                sample_rate: args.sample_rate,
+                channels: args.channels,
                 reserved: 0,
             },
         )
         .map_err(|e| format!("output sink open failed: {e:#}"))?;
     Ok(OutputSinkWorker::start(
         sink,
-        channels,
-        sample_rate,
-        volume,
-        transition_gain,
-        transition_target_gain,
-        internal_tx.clone(),
+        args.channels,
+        args.sample_rate,
+        args.volume,
+        args.transition_gain,
+        args.transition_target_gain,
+        args.internal_tx.clone(),
     ))
 }
 
@@ -2075,16 +2077,16 @@ fn sync_output_sink_with_active_session(
     });
     shutdown_output_sink_worker(state);
 
-    let worker = open_output_sink_worker(
+    let worker = open_output_sink_worker(OpenOutputSinkWorkerArgs {
         plugins,
-        &route,
+        route: &route,
         sample_rate,
         channels,
-        Arc::clone(&state.volume_atomic),
+        volume: Arc::clone(&state.volume_atomic),
         transition_gain,
         transition_target_gain,
         internal_tx,
-    )?;
+    })?;
     let tx = worker.sender();
     state.output_sink_worker = Some(worker);
     state.output_sink_worker_spec = Some(desired_spec);

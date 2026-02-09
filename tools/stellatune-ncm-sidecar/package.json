@@ -1,0 +1,24 @@
+{
+  "name": "stellatune-ncm-sidecar",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local sidecar for StellaTune Netease source plugin",
+  "main": "src/index.js",
+  "bin": "src/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/index.js",
+    "start:dev": "node src/index.js",
+    "build:exe": "pkg src/index.js --targets node18-win-x64 --output dist/stellatune-ncm-sidecar.exe"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "NeteaseCloudMusicApi": "4.28.1",
+    "express": "^4.21.2"
+  },
+  "devDependencies": {
+    "pkg": "^5.8.1"
+  }
+}

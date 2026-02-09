@@ -1,5 +1,8 @@
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:stellatune/player/queue_models.dart';
 
 /// Cover image with placeholder fallback.
 class CoverImage extends StatelessWidget {
@@ -7,11 +10,13 @@ class CoverImage extends StatelessWidget {
     super.key,
     required this.coverDir,
     required this.trackId,
+    this.cover,
     required this.size,
   });
 
   final String coverDir;
   final int? trackId;
+  final QueueCover? cover;
   final double size;
 
   @override
@@ -44,15 +49,17 @@ class CoverImage extends StatelessWidget {
       ),
     );
 
-    if (trackId == null) return placeholder;
+    if (trackId == null && cover == null) return placeholder;
 
-    final coverPath = '$coverDir${Platform.pathSeparator}$trackId';
-    final provider = ResizeImage(
-      FileImage(File(coverPath)),
-      width: decodeSize,
-      height: decodeSize,
-      allowUpscaling: false,
-    );
+    final useLocal = trackId != null && coverDir.trim().isNotEmpty;
+    final localProvider = useLocal
+        ? ResizeImage(
+            FileImage(File('$coverDir${Platform.pathSeparator}$trackId')),
+            width: decodeSize,
+            height: decodeSize,
+            allowUpscaling: false,
+          )
+        : null;
 
     return Container(
       decoration: BoxDecoration(
@@ -67,16 +74,86 @@ class CoverImage extends StatelessWidget {
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(16),
-        child: Image(
-          image: provider,
+        child:
+            localProvider != null
+                ? Image(
+                  image: localProvider,
+                  width: size,
+                  height: size,
+                  fit: BoxFit.cover,
+                  gaplessPlayback: true,
+                  errorBuilder:
+                      (context, error, stackTrace) => _buildByCoverOrPlaceholder(
+                        cover: cover,
+                        size: size,
+                        placeholder: placeholder,
+                      ),
+                )
+                : _buildByCoverOrPlaceholder(
+                  cover: cover,
+                  size: size,
+                  placeholder: placeholder,
+                ),
+      ),
+    );
+  }
+
+  Widget _buildByCoverOrPlaceholder({
+    required QueueCover? cover,
+    required double size,
+    required Widget placeholder,
+  }) {
+    if (cover == null) return placeholder;
+    switch (cover.kind) {
+      case QueueCoverKind.url:
+        return Image.network(
+          cover.value,
           width: size,
           height: size,
           fit: BoxFit.cover,
           gaplessPlayback: true,
           errorBuilder: (context, error, stackTrace) => placeholder,
-        ),
-      ),
-    );
+        );
+      case QueueCoverKind.file:
+        return Image.file(
+          File(cover.value),
+          width: size,
+          height: size,
+          fit: BoxFit.cover,
+          gaplessPlayback: true,
+          errorBuilder: (context, error, stackTrace) => placeholder,
+        );
+      case QueueCoverKind.data:
+        final bytes = _decodeCoverBytes(cover.value);
+        if (bytes == null) return placeholder;
+        return Image.memory(
+          bytes,
+          width: size,
+          height: size,
+          fit: BoxFit.cover,
+          gaplessPlayback: true,
+          errorBuilder: (context, error, stackTrace) => placeholder,
+        );
+    }
+  }
+
+  Uint8List? _decodeCoverBytes(String raw) {
+    final text = raw.trim();
+    if (text.isEmpty) return null;
+    final data = () {
+      if (text.startsWith('data:')) {
+        final comma = text.indexOf(',');
+        if (comma <= 0 || comma >= text.length - 1) return '';
+        return text.substring(comma + 1);
+      }
+      return text;
+    }();
+    if (data.isEmpty) return null;
+    try {
+      return base64Decode(data);
+    } catch (_) {
+      return null;
+    }
   }
 }
 

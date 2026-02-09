@@ -1,0 +1,15 @@
+[package]
+name = "stellatune-plugin-netease"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+stellatune-plugin-sdk.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+symphonia.workspace = true
+reqwest = { version = "0.12.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }

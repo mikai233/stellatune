@@ -62,10 +62,10 @@ fn tracing_log_file_path() -> PathBuf {
 
 fn open_tracing_log_file() -> Option<Arc<Mutex<std::fs::File>>> {
     let path = tracing_log_file_path();
-    if let Some(parent) = path.parent() {
-        if std::fs::create_dir_all(parent).is_err() {
-            return None;
-        }
+    if let Some(parent) = path.parent()
+        && std::fs::create_dir_all(parent).is_err()
+    {
+        return None;
     }
     let file = OpenOptions::new()
         .create(true)
@@ -99,9 +99,7 @@ pub fn init_tracing() {
     INIT.get_or_init(|| {
         let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
             if cfg!(debug_assertions) {
-                EnvFilter::new(
-                    "warn,stellatune_backend_api=debug,stellatune_audio=debug,stellatune_decode=debug,stellatune_output=debug,stellatune_library=debug,stellatune_plugins=info",
-                )
+                EnvFilter::new("debug")
             } else {
                 EnvFilter::new("info")
             }
