@@ -1,6 +1,6 @@
-use stellatune_plugins::v2::DspInstanceV2;
+use stellatune_plugins::DspInstance;
 
-pub fn apply_dsp_chain(dsp_chain: &mut [DspInstanceV2], samples: &mut [f32], out_channels: usize) {
+pub fn apply_dsp_chain(dsp_chain: &mut [DspInstance], samples: &mut [f32], out_channels: usize) {
     if dsp_chain.is_empty() || out_channels == 0 {
         return;
     }
@@ -25,9 +25,9 @@ pub fn layout_to_flag(channels: usize) -> u32 {
 }
 
 pub fn split_dsp_chain_by_layout(
-    chain: Vec<DspInstanceV2>,
+    chain: Vec<DspInstance>,
     in_channels: usize,
-) -> (Vec<DspInstanceV2>, Vec<DspInstanceV2>) {
+) -> (Vec<DspInstance>, Vec<DspInstance>) {
     let in_layout = layout_to_flag(in_channels);
     let mut pre_mix = Vec::new();
     let mut post_mix = Vec::new();

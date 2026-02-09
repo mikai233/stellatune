@@ -1,26 +1,24 @@
 use anyhow::{Result, anyhow};
 use stellatune_plugin_api::StStr;
-use stellatune_plugin_api::v2::{StConfigUpdatePlanV2, StLyricsProviderInstanceRefV2};
+use stellatune_plugin_api::{StConfigUpdatePlan, StDspInstanceRef};
 
 use super::common::{
     ConfigUpdatePlan, InstanceRuntimeCtx, plan_from_ffi, status_to_result, ststr_from_str,
     take_plugin_string,
 };
 
-pub struct LyricsProviderInstanceV2 {
+pub struct DspInstance {
     ctx: InstanceRuntimeCtx,
     handle: *mut core::ffi::c_void,
-    vtable: *const stellatune_plugin_api::v2::StLyricsProviderInstanceVTableV2,
+    vtable: *const stellatune_plugin_api::StDspInstanceVTable,
 }
 
-unsafe impl Send for LyricsProviderInstanceV2 {}
+unsafe impl Send for DspInstance {}
 
-impl LyricsProviderInstanceV2 {
-    pub fn from_ffi(ctx: InstanceRuntimeCtx, raw: StLyricsProviderInstanceRefV2) -> Result<Self> {
+impl DspInstance {
+    pub fn from_ffi(ctx: InstanceRuntimeCtx, raw: StDspInstanceRef) -> Result<Self> {
         if raw.handle.is_null() || raw.vtable.is_null() {
-            return Err(anyhow!(
-                "lyrics provider instance returned null handle/vtable"
-            ));
+            return Err(anyhow!("dsp instance returned null handle/vtable"));
         }
         Ok(Self {
             ctx,
@@ -33,50 +31,47 @@ impl LyricsProviderInstanceV2 {
         self.ctx.instance_id
     }
 
-    pub fn search_json(&mut self, query_json: &str) -> Result<String> {
+    pub fn process_interleaved_f32_in_place(&mut self, samples: &mut [f32], frames: u32) {
         let _call = self.ctx.begin_call();
-        let mut out = StStr::empty();
-        let status = unsafe {
-            ((*self.vtable).search_json_utf8)(self.handle, ststr_from_str(query_json), &mut out)
+        unsafe {
+            ((*self.vtable).process_interleaved_f32_in_place)(
+                self.handle,
+                samples.as_mut_ptr(),
+                frames,
+            )
         };
-        status_to_result("Lyrics search_json", status, self.ctx.plugin_free)?;
-        Ok(take_plugin_string(out, self.ctx.plugin_free))
     }
 
-    pub fn fetch_json(&mut self, track_json: &str) -> Result<String> {
+    pub fn supported_layouts(&self) -> u32 {
         let _call = self.ctx.begin_call();
-        let mut out = StStr::empty();
-        let status = unsafe {
-            ((*self.vtable).fetch_json_utf8)(self.handle, ststr_from_str(track_json), &mut out)
-        };
-        status_to_result("Lyrics fetch_json", status, self.ctx.plugin_free)?;
-        Ok(take_plugin_string(out, self.ctx.plugin_free))
+        unsafe { ((*self.vtable).supported_layouts)(self.handle) }
+    }
+
+    pub fn output_channels(&self) -> u16 {
+        let _call = self.ctx.begin_call();
+        unsafe { ((*self.vtable).output_channels)(self.handle) }
     }
 
     pub fn plan_config_update_json(&self, new_config_json: &str) -> Result<ConfigUpdatePlan> {
         let Some(plan_fn) = (unsafe { (*self.vtable).plan_config_update_json_utf8 }) else {
             return Ok(ConfigUpdatePlan {
-                mode: stellatune_plugin_api::v2::StConfigUpdateModeV2::Recreate,
+                mode: stellatune_plugin_api::StConfigUpdateMode::Recreate,
                 reason: Some("plugin does not implement plan_config_update".to_string()),
             });
         };
         let _call = self.ctx.begin_call();
-        let mut out = StConfigUpdatePlanV2 {
-            mode: stellatune_plugin_api::v2::StConfigUpdateModeV2::Reject,
+        let mut out = StConfigUpdatePlan {
+            mode: stellatune_plugin_api::StConfigUpdateMode::Reject,
             reason_utf8: StStr::empty(),
         };
         let status = (plan_fn)(self.handle, ststr_from_str(new_config_json), &mut out);
-        status_to_result(
-            "Lyrics plan_config_update_json",
-            status,
-            self.ctx.plugin_free,
-        )?;
+        status_to_result("Dsp plan_config_update_json", status, self.ctx.plugin_free)?;
         Ok(plan_from_ffi(out, self.ctx.plugin_free))
     }
 
     pub fn apply_config_update_json(&mut self, new_config_json: &str) -> Result<()> {
         let Some(apply_fn) = (unsafe { (*self.vtable).apply_config_update_json_utf8 }) else {
-            return Err(anyhow!("lyrics apply_config_update not supported"));
+            return Err(anyhow!("dsp apply_config_update not supported"));
         };
         let req = self
             .ctx
@@ -85,11 +80,7 @@ impl LyricsProviderInstanceV2 {
         let _call = self.ctx.begin_call();
         let status = (apply_fn)(self.handle, ststr_from_str(&req.config_json));
         self.ctx.updates.complete(self.ctx.instance_id);
-        status_to_result(
-            "Lyrics apply_config_update_json",
-            status,
-            self.ctx.plugin_free,
-        )
+        status_to_result("Dsp apply_config_update_json", status, self.ctx.plugin_free)
     }
 
     pub fn export_state_json(&self) -> Result<Option<String>> {
@@ -99,7 +90,7 @@ impl LyricsProviderInstanceV2 {
         let _call = self.ctx.begin_call();
         let mut out = StStr::empty();
         let status = (export_fn)(self.handle, &mut out);
-        status_to_result("Lyrics export_state_json", status, self.ctx.plugin_free)?;
+        status_to_result("Dsp export_state_json", status, self.ctx.plugin_free)?;
         let raw = take_plugin_string(out, self.ctx.plugin_free);
         if raw.is_empty() {
             Ok(None)
@@ -110,15 +101,15 @@ impl LyricsProviderInstanceV2 {
 
     pub fn import_state_json(&mut self, state_json: &str) -> Result<()> {
         let Some(import_fn) = (unsafe { (*self.vtable).import_state_json_utf8 }) else {
-            return Err(anyhow!("lyrics import_state_json not supported"));
+            return Err(anyhow!("dsp import_state_json not supported"));
         };
         let _call = self.ctx.begin_call();
         let status = (import_fn)(self.handle, ststr_from_str(state_json));
-        status_to_result("Lyrics import_state_json", status, self.ctx.plugin_free)
+        status_to_result("Dsp import_state_json", status, self.ctx.plugin_free)
     }
 }
 
-impl Drop for LyricsProviderInstanceV2 {
+impl Drop for DspInstance {
     fn drop(&mut self) {
         if !self.handle.is_null() && !self.vtable.is_null() {
             let _call = self.ctx.begin_call();

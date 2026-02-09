@@ -1,9 +1,11 @@
 use std::io::{Read, Seek, SeekFrom};
 
 use serde_json::{Map, Value};
+use stellatune_plugin_sdk::instance::{DecoderDescriptor, DecoderExtScoreRule, DecoderInstance};
+use stellatune_plugin_sdk::update::ConfigUpdatable;
 use stellatune_plugin_sdk::{
-    Decoder, DecoderDescriptor, DecoderInfo, DecoderOpenArgs, HostIo, SdkError, SdkResult,
-    StAudioSpec,
+    Decoder, DecoderDescriptor as LegacyDecoderDescriptor, DecoderInfo, DecoderOpenArgs, HostIo,
+    SdkError, SdkResult, StAudioSpec,
 };
 use symphonia::core::audio::{SampleBuffer, SignalSpec};
 use symphonia::core::codecs::{Decoder as SymphoniaDecoder, DecoderOptions};
@@ -15,6 +17,28 @@ use symphonia::core::probe::Hint;
 use symphonia::core::units::Time;
 
 const KNOWN_EXTENSIONS: &[&str] = &["mp3", "flac", "wav", "m4a", "aac"];
+const STREAM_DECODER_EXT_RULES: &[DecoderExtScoreRule] = &[
+    DecoderExtScoreRule {
+        ext: "mp3",
+        score: 80,
+    },
+    DecoderExtScoreRule {
+        ext: "flac",
+        score: 80,
+    },
+    DecoderExtScoreRule {
+        ext: "wav",
+        score: 80,
+    },
+    DecoderExtScoreRule {
+        ext: "m4a",
+        score: 80,
+    },
+    DecoderExtScoreRule {
+        ext: "aac",
+        score: 80,
+    },
+];
 
 pub struct StreamDecoder {
     format: Box<dyn FormatReader>,
@@ -134,7 +158,7 @@ impl Decoder for StreamDecoder {
     }
 }
 
-impl DecoderDescriptor for StreamDecoder {
+impl LegacyDecoderDescriptor for StreamDecoder {
     const TYPE_ID: &'static str = "stream_symphonia";
     const SUPPORTS_SEEK: bool = true;
 
@@ -242,6 +266,92 @@ impl DecoderDescriptor for StreamDecoder {
             metadata,
             seekable,
         })
+    }
+}
+
+pub struct StreamDecoderInstance {
+    inner: Option<StreamDecoder>,
+}
+
+impl ConfigUpdatable for StreamDecoderInstance {}
+
+impl DecoderInstance for StreamDecoderInstance {
+    fn open(
+        &mut self,
+        args: stellatune_plugin_sdk::instance::DecoderOpenArgsRef<'_>,
+    ) -> SdkResult<()> {
+        let host_io = unsafe { HostIo::from_raw(args.io.io_vtable, args.io.io_handle) };
+        let decoder = <StreamDecoder as LegacyDecoderDescriptor>::open(DecoderOpenArgs {
+            path: args.path_hint,
+            ext: args.ext_hint,
+            io: host_io,
+        })?;
+        self.inner = Some(decoder);
+        Ok(())
+    }
+
+    fn get_info(&self) -> stellatune_plugin_sdk::StDecoderInfo {
+        self.inner.as_ref().map(|d| d.info().to_ffi()).unwrap_or(
+            stellatune_plugin_sdk::StDecoderInfo {
+                spec: StAudioSpec {
+                    sample_rate: 0,
+                    channels: 0,
+                    reserved: 0,
+                },
+                duration_ms: 0,
+                flags: 0,
+                reserved: 0,
+            },
+        )
+    }
+
+    fn get_metadata_json(&self) -> SdkResult<Option<String>> {
+        let Some(decoder) = self.inner.as_ref() else {
+            return Ok(None);
+        };
+        decoder
+            .metadata()
+            .map(|v| serde_json::to_string(&v).map_err(SdkError::from))
+            .transpose()
+    }
+
+    fn read_interleaved_f32(
+        &mut self,
+        frames: u32,
+        out_interleaved: &mut [f32],
+    ) -> SdkResult<(u32, bool)> {
+        let decoder = self
+            .inner
+            .as_mut()
+            .ok_or_else(|| SdkError::msg("decoder is not open"))?;
+        decoder.read_interleaved_f32(frames, out_interleaved)
+    }
+
+    fn seek_ms(&mut self, position_ms: u64) -> SdkResult<()> {
+        let decoder = self
+            .inner
+            .as_mut()
+            .ok_or_else(|| SdkError::msg("decoder is not open"))?;
+        decoder.seek_ms(position_ms)
+    }
+}
+
+impl DecoderDescriptor for StreamDecoderInstance {
+    type Config = Value;
+    type Instance = StreamDecoderInstance;
+
+    const TYPE_ID: &'static str = <StreamDecoder as LegacyDecoderDescriptor>::TYPE_ID;
+    const DISPLAY_NAME: &'static str = "Stream Decoder (Symphonia)";
+    const CONFIG_SCHEMA_JSON: &'static str = "{}";
+    const DEFAULT_CONFIG_JSON: &'static str = "{}";
+    const EXT_SCORE_RULES: &'static [DecoderExtScoreRule] = STREAM_DECODER_EXT_RULES;
+
+    fn default_config() -> Self::Config {
+        Value::Object(Map::new())
+    }
+
+    fn create(_config: Self::Config) -> SdkResult<Self::Instance> {
+        Ok(StreamDecoderInstance { inner: None })
     }
 }
 

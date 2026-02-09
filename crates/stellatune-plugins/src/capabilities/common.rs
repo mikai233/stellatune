@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
-use stellatune_plugin_api::v2::{StConfigUpdateModeV2, StConfigUpdatePlanV2};
+use stellatune_plugin_api::{StConfigUpdateMode, StConfigUpdatePlan};
 use stellatune_plugin_api::{StStatus, StStr};
 
 use crate::runtime::{GenerationGuard, InstanceId, InstanceRegistry, InstanceUpdateCoordinator};
@@ -11,7 +11,7 @@ pub type PluginFreeFn =
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConfigUpdatePlan {
-    pub mode: StConfigUpdateModeV2,
+    pub mode: StConfigUpdateMode,
     pub reason: Option<String>,
 }
 
@@ -25,8 +25,8 @@ pub struct InstanceRuntimeCtx {
 }
 
 impl InstanceRuntimeCtx {
-    pub fn begin_call(&self) -> GenerationCallGuardV2 {
-        GenerationCallGuardV2::enter(&self.generation)
+    pub fn begin_call(&self) -> GenerationCallGuard {
+        GenerationCallGuard::enter(&self.generation)
     }
 
     pub fn unregister(&self) {
@@ -35,11 +35,11 @@ impl InstanceRuntimeCtx {
     }
 }
 
-pub struct GenerationCallGuardV2 {
+pub struct GenerationCallGuard {
     generation: Arc<GenerationGuard>,
 }
 
-impl GenerationCallGuardV2 {
+impl GenerationCallGuard {
     pub fn enter(generation: &Arc<GenerationGuard>) -> Self {
         generation.inc_inflight_call();
         Self {
@@ -48,7 +48,7 @@ impl GenerationCallGuardV2 {
     }
 }
 
-impl Drop for GenerationCallGuardV2 {
+impl Drop for GenerationCallGuard {
     fn drop(&mut self) {
         self.generation.dec_inflight_call();
     }
@@ -98,7 +98,7 @@ pub fn take_plugin_string(s: StStr, plugin_free: PluginFreeFn) -> String {
     text
 }
 
-pub fn plan_from_ffi(plan: StConfigUpdatePlanV2, plugin_free: PluginFreeFn) -> ConfigUpdatePlan {
+pub fn plan_from_ffi(plan: StConfigUpdatePlan, plugin_free: PluginFreeFn) -> ConfigUpdatePlan {
     let reason = if plan.reason_utf8.ptr.is_null() || plan.reason_utf8.len == 0 {
         None
     } else {

@@ -1,4 +1,4 @@
-//! V2 runtime scaffolding.
+//! Runtime scaffolding.
 //!
 //! During migration this module hosts generation lifecycle, instance registry,
 //! and config update orchestration for the new plugin execution model.

@@ -56,7 +56,7 @@ impl PluginManifest {
     pub fn entry_symbol(&self) -> &str {
         self.entry_symbol
             .as_deref()
-            .unwrap_or(stellatune_plugin_api::STELLATUNE_PLUGIN_ENTRY_SYMBOL_V1)
+            .unwrap_or(stellatune_plugin_api::STELLATUNE_PLUGIN_ENTRY_SYMBOL)
     }
 }
 
@@ -106,13 +106,8 @@ pub fn write_uninstall_pending_marker(path: &Path, marker: &UninstallPendingMark
 
 pub fn read_uninstall_pending_marker(path: &Path) -> Result<UninstallPendingMarker> {
     let raw = std::fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
-    match serde_json::from_str::<UninstallPendingMarker>(&raw) {
-        Ok(marker) => Ok(marker),
-        Err(_) => {
-            let root = path.parent().unwrap_or_else(|| Path::new(""));
-            Ok(parse_legacy_uninstall_pending_marker(root, &raw))
-        }
-    }
+    serde_json::from_str::<UninstallPendingMarker>(&raw)
+        .with_context(|| format!("parse {}", path.display()))
 }
 
 pub fn discover_pending_uninstalls(dir: impl AsRef<Path>) -> Result<Vec<PendingUninstallPlugin>> {
@@ -303,41 +298,4 @@ fn plugin_id_from_root(root: &Path) -> String {
         .map(|v| v.trim().to_string())
         .filter(|v| !v.is_empty())
         .unwrap_or_else(|| "unknown-plugin".to_string())
-}
-
-fn parse_legacy_uninstall_pending_marker(root: &Path, raw: &str) -> UninstallPendingMarker {
-    let mut plugin_id = String::new();
-    let mut queued_at_ms = 0_u64;
-    let mut last_error: Option<String> = None;
-    for line in raw.lines() {
-        let mut parts = line.splitn(2, '=');
-        let Some(key) = parts.next().map(str::trim) else {
-            continue;
-        };
-        let Some(value) = parts.next().map(str::trim) else {
-            continue;
-        };
-        match key {
-            "plugin_id" => plugin_id = value.to_string(),
-            "queued_at_ms" => {
-                queued_at_ms = value.parse::<u64>().unwrap_or(0);
-            }
-            "remove_error" => {
-                if !value.is_empty() {
-                    last_error = Some(value.to_string());
-                }
-            }
-            _ => {}
-        }
-    }
-    if plugin_id.trim().is_empty() {
-        plugin_id = plugin_id_from_root(root);
-    }
-    UninstallPendingMarker {
-        plugin_id,
-        queued_at_ms,
-        retry_count: 0,
-        last_error,
-        state: PluginInstallState::PendingUninstall,
-    }
 }

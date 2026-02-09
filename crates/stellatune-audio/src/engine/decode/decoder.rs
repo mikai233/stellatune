@@ -2,28 +2,18 @@ use std::collections::HashSet;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
-use std::sync::{Arc, Mutex};
 use tracing::debug;
 
 use serde::Deserialize;
 use stellatune_core::{TrackDecodeInfo, TrackPlayability, TrackRef};
 use stellatune_decode::{Decoder, TrackSpec, supports_path};
 use stellatune_plugin_api::{
-    ST_DECODER_INFO_FLAG_HAS_DURATION, ST_ERR_INVALID_ARG, ST_ERR_IO, StIoVTableV1, StSeekWhence,
+    ST_DECODER_INFO_FLAG_HAS_DURATION, ST_ERR_INVALID_ARG, ST_ERR_IO, StIoVTable, StSeekWhence,
     StStatus, StStr,
 };
 use stellatune_plugins::runtime::CapabilityKind as RuntimeCapabilityKind;
 
 const TRACK_REF_TOKEN_PREFIX: &str = "stref-json:";
-
-fn snapshot_plugins(
-    plugins: &Arc<Mutex<stellatune_plugins::PluginManager>>,
-) -> Result<stellatune_plugins::PluginManager, String> {
-    plugins
-        .lock()
-        .map(|pm| pm.clone())
-        .map_err(|_| "plugins mutex poisoned".to_string())
-}
 
 #[derive(Debug, Deserialize)]
 struct SourceStreamLocator {
@@ -45,23 +35,26 @@ pub(crate) struct LocalFileIoHandle {
     file: File,
 }
 
-pub(crate) enum DecoderIoOwnerV2 {
+pub(crate) enum DecoderIoOwner {
     Local(Box<LocalFileIoHandle>),
-    LegacySource(stellatune_plugins::SourceStream),
+    Source {
+        source: stellatune_plugins::SourceCatalogInstance,
+        io_handle_addr: usize,
+    },
 }
 
-impl DecoderIoOwnerV2 {
-    fn io_vtable_ptr(&self) -> *const StIoVTableV1 {
+impl DecoderIoOwner {
+    fn io_vtable_ptr(&self) -> *const StIoVTable {
         match self {
-            Self::Local(_) => &LOCAL_FILE_IO_VTABLE as *const StIoVTableV1,
-            Self::LegacySource(stream) => stream.io_vtable(),
+            Self::Local(_) => &LOCAL_FILE_IO_VTABLE as *const StIoVTable,
+            Self::Source { .. } => core::ptr::null(),
         }
     }
 
     fn io_handle_ptr(&mut self) -> *mut core::ffi::c_void {
         match self {
             Self::Local(file) => (&mut **file) as *mut LocalFileIoHandle as *mut core::ffi::c_void,
-            Self::LegacySource(stream) => stream.io_handle(),
+            Self::Source { io_handle_addr, .. } => *io_handle_addr as *mut core::ffi::c_void,
         }
     }
 
@@ -69,6 +62,20 @@ impl DecoderIoOwnerV2 {
         let file =
             File::open(path).map_err(|e| format!("failed to open local file `{path}`: {e}"))?;
         Ok(Self::Local(Box::new(LocalFileIoHandle { file })))
+    }
+}
+
+impl Drop for DecoderIoOwner {
+    fn drop(&mut self) {
+        if let Self::Source {
+            source,
+            io_handle_addr,
+        } = self
+            && *io_handle_addr != 0
+        {
+            source.close_stream(*io_handle_addr as *mut core::ffi::c_void);
+            *io_handle_addr = 0;
+        }
     }
 }
 
@@ -168,7 +175,7 @@ extern "C" fn local_io_size(handle: *mut core::ffi::c_void, out_size: *mut u64) 
     }
 }
 
-static LOCAL_FILE_IO_VTABLE: StIoVTableV1 = StIoVTableV1 {
+static LOCAL_FILE_IO_VTABLE: StIoVTable = StIoVTable {
     read: local_io_read,
     seek: Some(local_io_seek),
     tell: Some(local_io_tell),
@@ -180,11 +187,7 @@ pub(crate) enum EngineDecoder {
     Plugin {
         dec: stellatune_plugins::DecoderInstance,
         spec: TrackSpec,
-    },
-    PluginV2 {
-        dec: stellatune_plugins::v2::DecoderInstanceV2,
-        spec: TrackSpec,
-        _io_owner: DecoderIoOwnerV2,
+        _io_owner: DecoderIoOwner,
     },
 }
 
@@ -193,7 +196,6 @@ impl EngineDecoder {
         match self {
             Self::Builtin(d) => d.spec(),
             Self::Plugin { spec, .. } => *spec,
-            Self::PluginV2 { spec, .. } => *spec,
         }
     }
 
@@ -201,7 +203,6 @@ impl EngineDecoder {
         match self {
             Self::Builtin(d) => d.seek_ms(position_ms).map_err(|e| e.to_string()),
             Self::Plugin { dec, .. } => dec.seek_ms(position_ms).map_err(|e| e.to_string()),
-            Self::PluginV2 { dec, .. } => dec.seek_ms(position_ms).map_err(|e| e.to_string()),
         }
     }
 
@@ -209,18 +210,6 @@ impl EngineDecoder {
         match self {
             Self::Builtin(d) => d.next_block(frames).map_err(|e| e.to_string()),
             Self::Plugin { dec, .. } => {
-                let (samples, eof) = dec
-                    .read_interleaved_f32(frames as u32)
-                    .map_err(|e| e.to_string())?;
-                if samples.is_empty() {
-                    if eof {
-                        return Ok(None);
-                    }
-                    return Err("plugin decoder returned 0 frames without eof".to_string());
-                }
-                Ok(Some(samples))
-            }
-            Self::PluginV2 { dec, .. } => {
                 let (samples, _frames_read, eof) = dec
                     .read_interleaved_f32(frames as u32)
                     .map_err(|e| e.to_string())?;
@@ -255,42 +244,15 @@ fn build_builtin_track_info(spec: TrackSpec) -> TrackDecodeInfo {
     }
 }
 
-fn build_plugin_track_info(
-    dec: &mut stellatune_plugins::DecoderInstance,
-    fallback_metadata: Option<serde_json::Value>,
-) -> Result<TrackDecodeInfo, String> {
-    let spec = dec.spec();
-    if spec.sample_rate == 0 {
-        return Err("plugin decoder returned sample_rate=0".to_string());
-    }
-    let duration_ms = dec.duration_ms();
-    let metadata = dec
-        .metadata::<serde_json::Value>()
-        .ok()
-        .flatten()
-        .or(fallback_metadata);
-    let mut info = TrackDecodeInfo {
-        sample_rate: spec.sample_rate,
-        channels: spec.channels,
-        duration_ms,
-        metadata_json: None,
-        decoder_plugin_id: Some(dec.plugin_id().to_string()),
-        decoder_type_id: Some(dec.decoder_type_id().to_string()),
-    };
-    info.set_metadata(metadata.as_ref())
-        .map_err(|e| format!("failed to serialize decoder metadata: {e}"))?;
-    Ok(info)
-}
-
 #[derive(Debug, Clone)]
-struct DecoderCandidateV2 {
+struct DecoderCandidate {
     plugin_id: String,
     type_id: String,
     default_config_json: String,
 }
 
-fn build_plugin_track_info_v2(
-    dec: &mut stellatune_plugins::v2::DecoderInstanceV2,
+fn build_plugin_track_info(
+    dec: &mut stellatune_plugins::DecoderInstance,
     plugin_id: &str,
     decoder_type_id: &str,
     fallback_metadata: Option<serde_json::Value>,
@@ -339,18 +301,6 @@ fn build_plugin_track_info_v2(
     Ok(out)
 }
 
-fn list_decoder_keys(
-    pm: &stellatune_plugins::PluginManager,
-) -> Vec<stellatune_plugins::DecoderKey> {
-    let mut types = pm.list_decoder_types();
-    types.sort_by(|a, b| {
-        a.plugin_id
-            .cmp(&b.plugin_id)
-            .then_with(|| a.type_id.cmp(&b.type_id))
-    });
-    types.into_iter().map(|t| t.key).collect()
-}
-
 fn normalize_ext_hint(raw: &str) -> String {
     raw.trim().trim_start_matches('.').to_ascii_lowercase()
 }
@@ -363,12 +313,12 @@ fn ext_hint_from_path(path: &str) -> String {
         .unwrap_or_default()
 }
 
-fn runtime_scored_decoder_candidates_v2(ext_hint: &str) -> Vec<DecoderCandidateV2> {
+fn runtime_scored_decoder_candidates(ext_hint: &str) -> Vec<DecoderCandidate> {
     let ext = normalize_ext_hint(ext_hint);
     if ext.is_empty() {
         return Vec::new();
     }
-    let shared = stellatune_plugins::v2::shared_runtime_service_v2();
+    let shared = stellatune_plugins::shared_runtime_service();
     let Ok(service) = shared.lock() else {
         return Vec::new();
     };
@@ -385,7 +335,7 @@ fn runtime_scored_decoder_candidates_v2(ext_hint: &str) -> Vec<DecoderCandidateV
         ) else {
             continue;
         };
-        out.push(DecoderCandidateV2 {
+        out.push(DecoderCandidate {
             plugin_id: candidate.plugin_id,
             type_id: candidate.type_id,
             default_config_json: cap.default_config_json,
@@ -394,8 +344,8 @@ fn runtime_scored_decoder_candidates_v2(ext_hint: &str) -> Vec<DecoderCandidateV
     out
 }
 
-fn runtime_all_decoder_candidates_v2() -> Vec<DecoderCandidateV2> {
-    let shared = stellatune_plugins::v2::shared_runtime_service_v2();
+fn runtime_all_decoder_candidates() -> Vec<DecoderCandidate> {
+    let shared = stellatune_plugins::shared_runtime_service();
     let Ok(service) = shared.lock() else {
         return Vec::new();
     };
@@ -409,7 +359,7 @@ fn runtime_all_decoder_candidates_v2() -> Vec<DecoderCandidateV2> {
             if cap.kind != RuntimeCapabilityKind::Decoder {
                 continue;
             }
-            out.push(DecoderCandidateV2 {
+            out.push(DecoderCandidate {
                 plugin_id: plugin_id.clone(),
                 type_id: cap.type_id,
                 default_config_json: cap.default_config_json,
@@ -419,14 +369,14 @@ fn runtime_all_decoder_candidates_v2() -> Vec<DecoderCandidateV2> {
     out
 }
 
-fn select_decoder_candidates_v2(
+fn select_decoder_candidates(
     ext_hint: &str,
     decoder_plugin_id: Option<&str>,
     decoder_type_id: Option<&str>,
-) -> Result<Vec<DecoderCandidateV2>, String> {
+) -> Result<Vec<DecoderCandidate>, String> {
     match (decoder_plugin_id, decoder_type_id) {
         (Some(plugin_id), Some(type_id)) => {
-            let shared = stellatune_plugins::v2::shared_runtime_service_v2();
+            let shared = stellatune_plugins::shared_runtime_service();
             let service = shared
                 .lock()
                 .map_err(|_| "runtime service mutex poisoned".to_string())?;
@@ -438,7 +388,7 @@ fn select_decoder_candidates_v2(
                         plugin_id, type_id
                     )
                 })?;
-            Ok(vec![DecoderCandidateV2 {
+            Ok(vec![DecoderCandidate {
                 plugin_id: plugin_id.to_string(),
                 type_id: type_id.to_string(),
                 default_config_json: cap.default_config_json,
@@ -448,9 +398,9 @@ fn select_decoder_candidates_v2(
             "invalid decoder selector: both plugin_id and type_id are required, got `{plugin_id}` only"
         )),
         (None, None) => {
-            let mut out = runtime_scored_decoder_candidates_v2(ext_hint);
+            let mut out = runtime_scored_decoder_candidates(ext_hint);
             if out.is_empty() {
-                out = runtime_all_decoder_candidates_v2();
+                out = runtime_all_decoder_candidates();
             }
             if out.is_empty() {
                 Err("no v2 decoder candidates available".to_string())
@@ -461,136 +411,25 @@ fn select_decoder_candidates_v2(
     }
 }
 
-fn runtime_scored_decoder_keys(
-    pm: &stellatune_plugins::PluginManager,
-    ext_hint: &str,
-) -> Vec<stellatune_plugins::DecoderKey> {
-    let ext = normalize_ext_hint(ext_hint);
-    if ext.is_empty() {
-        return Vec::new();
-    }
-
-    let shared = stellatune_plugins::v2::shared_runtime_service_v2();
-    let Ok(service) = shared.lock() else {
-        return Vec::new();
-    };
-    let candidates = service.decoder_candidates_for_ext(&ext);
-    let mut keys = Vec::new();
-    let mut seen = HashSet::new();
-    for candidate in candidates {
-        let Some(key) = pm.find_decoder_key(&candidate.plugin_id, &candidate.type_id) else {
-            continue;
-        };
-        if seen.insert(key) {
-            keys.push(key);
-        }
-    }
-    keys
-}
-
-fn select_decoder_keys(
-    pm: &stellatune_plugins::PluginManager,
-    ext_hint: &str,
-    decoder_plugin_id: Option<&str>,
-    decoder_type_id: Option<&str>,
-) -> Result<Vec<stellatune_plugins::DecoderKey>, String> {
-    match (decoder_plugin_id, decoder_type_id) {
-        (Some(plugin_id), Some(type_id)) => pm
-            .find_decoder_key(plugin_id, type_id)
-            .map(|key| vec![key])
-            .ok_or_else(|| {
-                format!(
-                    "decoder not found for source track: plugin_id={} type_id={}",
-                    plugin_id, type_id
-                )
-            }),
-        (Some(plugin_id), None) | (None, Some(plugin_id)) => Err(format!(
-            "invalid decoder selector: both plugin_id and type_id are required, got `{plugin_id}` only"
-        )),
-        (None, None) => {
-            let mut keys = runtime_scored_decoder_keys(pm, ext_hint);
-            if keys.is_empty() {
-                keys = list_decoder_keys(pm);
-            }
-            if keys.is_empty() {
-                Err("no plugin decoders available".to_string())
-            } else {
-                Ok(keys)
-            }
-        }
-    }
-}
-
-fn try_open_plugin_decoder_for_local_path(
-    pm: &stellatune_plugins::PluginManager,
-    path: &str,
-    ext_hint: &str,
-) -> Result<Option<(stellatune_plugins::DecoderInstance, TrackDecodeInfo)>, String> {
-    let mut keys = runtime_scored_decoder_keys(pm, ext_hint);
-    if keys.is_empty() {
-        keys = list_decoder_keys(pm);
-    }
-    if keys.is_empty() {
-        return Ok(None);
-    }
-
-    let mut last_err: Option<String> = None;
-    for key in keys {
-        match pm.open_decoder(key, path) {
-            Ok(mut dec) => {
-                let spec = dec.spec();
-                let info = build_plugin_track_info(&mut dec, None)?;
-                debug!(
-                    path,
-                    plugin_id = dec.plugin_id(),
-                    decoder_type_id = dec.decoder_type_id(),
-                    "using plugin decoder for local track"
-                );
-                return Ok(Some((
-                    dec,
-                    TrackDecodeInfo {
-                        sample_rate: spec.sample_rate,
-                        channels: spec.channels,
-                        duration_ms: info.duration_ms,
-                        metadata_json: info.metadata_json.clone(),
-                        decoder_plugin_id: info.decoder_plugin_id.clone(),
-                        decoder_type_id: info.decoder_type_id.clone(),
-                    },
-                )));
-            }
-            Err(e) => {
-                last_err = Some(format!("{e:#}"));
-            }
-        }
-    }
-
-    match last_err {
-        Some(e) => Err(format!(
-            "failed to open any plugin decoder for `{path}`: {e}"
-        )),
-        None => Ok(None),
-    }
-}
-
-fn try_open_v2_decoder_for_local_path(
+fn try_open_decoder_for_local_path(
     path: &str,
     ext_hint: &str,
 ) -> Result<
     Option<(
-        stellatune_plugins::v2::DecoderInstanceV2,
+        stellatune_plugins::DecoderInstance,
         TrackDecodeInfo,
-        DecoderIoOwnerV2,
+        DecoderIoOwner,
     )>,
     String,
 > {
-    let candidates = select_decoder_candidates_v2(ext_hint, None, None).unwrap_or_default();
+    let candidates = select_decoder_candidates(ext_hint, None, None).unwrap_or_default();
     if candidates.is_empty() {
         return Ok(None);
     }
 
     let mut last_err: Option<String> = None;
     for candidate in candidates {
-        let shared = stellatune_plugins::v2::shared_runtime_service_v2();
+        let shared = stellatune_plugins::shared_runtime_service();
         let mut dec = match shared.lock() {
             Ok(service) => match service.create_decoder_instance(
                 &candidate.plugin_id,
@@ -612,7 +451,7 @@ fn try_open_v2_decoder_for_local_path(
             }
         };
 
-        let mut io_owner = match DecoderIoOwnerV2::local(path) {
+        let mut io_owner = match DecoderIoOwner::local(path) {
             Ok(v) => v,
             Err(e) => {
                 last_err = Some(e);
@@ -627,7 +466,7 @@ fn try_open_v2_decoder_for_local_path(
             io_owner.io_handle_ptr(),
         ) {
             Ok(()) => {
-                let info = build_plugin_track_info_v2(
+                let info = build_plugin_track_info(
                     &mut dec,
                     &candidate.plugin_id,
                     &candidate.type_id,
@@ -652,21 +491,19 @@ fn try_open_v2_decoder_for_local_path(
     }
 }
 
-fn try_open_v2_decoder_for_legacy_source_stream(
-    pm: &stellatune_plugins::PluginManager,
-    source_key: stellatune_plugins::SourceCatalogKey,
+fn try_open_decoder_for_source_stream(
     source: &SourceStreamLocator,
     path_hint: &str,
     ext_hint: &str,
 ) -> Result<
     Option<(
-        stellatune_plugins::v2::DecoderInstanceV2,
+        stellatune_plugins::DecoderInstance,
         TrackDecodeInfo,
-        DecoderIoOwnerV2,
+        DecoderIoOwner,
     )>,
     String,
 > {
-    let candidates = select_decoder_candidates_v2(
+    let candidates = select_decoder_candidates(
         ext_hint,
         source.decoder_plugin_id.as_deref(),
         source.decoder_type_id.as_deref(),
@@ -676,9 +513,32 @@ fn try_open_v2_decoder_for_legacy_source_stream(
         return Ok(None);
     }
 
+    let config_json = serde_json::to_string(&source.config)
+        .map_err(|e| format!("invalid source config json: {e}"))?;
+    let track_json = serde_json::to_string(&source.track)
+        .map_err(|e| format!("invalid source track json: {e}"))?;
+
+    let shared = stellatune_plugins::shared_runtime_service();
+    let mut source_inst = match shared.lock() {
+        Ok(service) => match service.create_source_catalog_instance(
+            &source.plugin_id,
+            &source.type_id,
+            &config_json,
+        ) {
+            Ok(v) => v,
+            Err(e) => {
+                return Err(format!(
+                    "create_source_catalog_instance failed for {}::{}: {e:#}",
+                    source.plugin_id, source.type_id
+                ));
+            }
+        },
+        Err(_) => return Err("runtime service mutex poisoned".to_string()),
+    };
+
     let mut last_err: Option<String> = None;
     for candidate in candidates {
-        let shared = stellatune_plugins::v2::shared_runtime_service_v2();
+        let shared = stellatune_plugins::shared_runtime_service();
         let mut dec = match shared.lock() {
             Ok(service) => match service.create_decoder_instance(
                 &candidate.plugin_id,
@@ -700,35 +560,43 @@ fn try_open_v2_decoder_for_legacy_source_stream(
             }
         };
 
-        let (stream, source_metadata) = match pm.source_open_stream::<_, _, serde_json::Value>(
-            source_key,
-            &source.config,
-            &source.track,
-        ) {
+        let (stream, source_metadata_json) = match source_inst.open_stream(&track_json) {
             Ok(v) => v,
             Err(e) => {
                 last_err = Some(format!("source open_stream failed: {e:#}"));
                 continue;
             }
         };
-        let mut io_owner = DecoderIoOwnerV2::LegacySource(stream);
+        let source_metadata = source_metadata_json.and_then(|raw| {
+            match serde_json::from_str::<serde_json::Value>(&raw) {
+                Ok(v) => Some(v),
+                Err(e) => {
+                    debug!(
+                        plugin_id = source.plugin_id,
+                        type_id = source.type_id,
+                        "source metadata json invalid: {e}"
+                    );
+                    None
+                }
+            }
+        });
 
-        match dec.open_with_io(
-            path_hint,
-            ext_hint,
-            io_owner.io_vtable_ptr(),
-            io_owner.io_handle_ptr(),
-        ) {
+        match dec.open_with_io(path_hint, ext_hint, stream.io_vtable, stream.io_handle) {
             Ok(()) => {
-                let info = build_plugin_track_info_v2(
+                let info = build_plugin_track_info(
                     &mut dec,
                     &candidate.plugin_id,
                     &candidate.type_id,
                     source_metadata,
                 )?;
+                let io_owner = DecoderIoOwner::Source {
+                    source: source_inst,
+                    io_handle_addr: stream.io_handle as usize,
+                };
                 return Ok(Some((dec, info, io_owner)));
             }
             Err(e) => {
+                source_inst.close_stream(stream.io_handle);
                 last_err = Some(format!(
                     "decoder open_with_io failed for {}::{}: {e:#}",
                     candidate.plugin_id, candidate.type_id
@@ -745,10 +613,17 @@ fn try_open_v2_decoder_for_legacy_source_stream(
     }
 }
 
-pub(crate) fn assess_track_playability(
-    track: &TrackRef,
-    pm: &stellatune_plugins::PluginManager,
-) -> TrackPlayability {
+fn runtime_has_source_catalog(plugin_id: &str, type_id: &str) -> bool {
+    let shared = stellatune_plugins::shared_runtime_service();
+    let Ok(service) = shared.lock() else {
+        return false;
+    };
+    service
+        .resolve_active_capability(plugin_id, RuntimeCapabilityKind::SourceCatalog, type_id)
+        .is_some()
+}
+
+pub(crate) fn assess_track_playability(track: &TrackRef) -> TrackPlayability {
     if track.source_id.trim().eq_ignore_ascii_case("local") {
         let path = track.locator.trim();
         if path.is_empty() {
@@ -766,11 +641,9 @@ pub(crate) fn assess_track_playability(
             };
         }
         let ext_hint = ext_hint_from_path(path);
-        if !select_decoder_candidates_v2(&ext_hint, None, None)
+        if !select_decoder_candidates(&ext_hint, None, None)
             .unwrap_or_default()
             .is_empty()
-            || !runtime_scored_decoder_keys(pm, &ext_hint).is_empty()
-            || !list_decoder_keys(pm).is_empty()
         {
             return TrackPlayability {
                 track: track.clone(),
@@ -796,30 +669,22 @@ pub(crate) fn assess_track_playability(
         }
     };
 
-    let Some(_source_key) = pm.find_source_catalog_key(&source.plugin_id, &source.type_id) else {
+    if !runtime_has_source_catalog(&source.plugin_id, &source.type_id) {
         return TrackPlayability {
             track: track.clone(),
             playable: false,
             reason: Some("source_catalog_unavailable".to_string()),
         };
-    };
+    }
 
-    let runtime_ok = !select_decoder_candidates_v2(
+    if select_decoder_candidates(
         source.ext_hint.trim(),
         source.decoder_plugin_id.as_deref(),
         source.decoder_type_id.as_deref(),
     )
     .unwrap_or_default()
-    .is_empty();
-    let legacy_ok = select_decoder_keys(
-        pm,
-        source.ext_hint.trim(),
-        source.decoder_plugin_id.as_deref(),
-        source.decoder_type_id.as_deref(),
-    )
-    .map(|v| !v.is_empty())
-    .unwrap_or(false);
-    if !runtime_ok && !legacy_ok {
+    .is_empty()
+    {
         return TrackPlayability {
             track: track.clone(),
             playable: false,
@@ -836,7 +701,6 @@ pub(crate) fn assess_track_playability(
 
 pub(crate) fn open_engine_decoder(
     track_token: &str,
-    plugins: &Arc<Mutex<stellatune_plugins::PluginManager>>,
 ) -> Result<(Box<EngineDecoder>, TrackDecodeInfo), String> {
     let track = decode_engine_track_token(track_token)?;
 
@@ -847,12 +711,6 @@ pub(crate) fn open_engine_decoder(
             return Err("local track locator is empty".to_string());
         }
         let ext_hint = ext_hint_from_path(path);
-        let Ok(pm) = snapshot_plugins(plugins) else {
-            let d = Decoder::open(path).map_err(|e| format!("failed to open decoder: {e}"))?;
-            let spec = d.spec();
-            let info = build_builtin_track_info(spec);
-            return Ok((Box::new(EngineDecoder::Builtin(d)), info));
-        };
 
         // Keep built-in first for local files when supported.
         if supports_path(path) {
@@ -869,10 +727,10 @@ pub(crate) fn open_engine_decoder(
             }
         }
 
-        match try_open_v2_decoder_for_local_path(path, &ext_hint) {
+        match try_open_decoder_for_local_path(path, &ext_hint) {
             Ok(Some((dec, info, io_owner))) => {
                 return Ok((
-                    Box::new(EngineDecoder::PluginV2 {
+                    Box::new(EngineDecoder::Plugin {
                         spec: TrackSpec {
                             sample_rate: info.sample_rate,
                             channels: info.channels,
@@ -889,20 +747,6 @@ pub(crate) fn open_engine_decoder(
             }
         }
 
-        if let Some((dec, info)) = try_open_plugin_decoder_for_local_path(&pm, path, &ext_hint)? {
-            let spec = dec.spec();
-            return Ok((
-                Box::new(EngineDecoder::Plugin {
-                    spec: TrackSpec {
-                        sample_rate: spec.sample_rate,
-                        channels: spec.channels,
-                    },
-                    dec,
-                }),
-                info,
-            ));
-        }
-
         let d = Decoder::open(path).map_err(|e| format!("failed to open decoder: {e}"))?;
         let spec = d.spec();
         let info = build_builtin_track_info(spec);
@@ -912,15 +756,6 @@ pub(crate) fn open_engine_decoder(
     // Plugin-backed source track.
     let source = serde_json::from_str::<SourceStreamLocator>(&track.locator)
         .map_err(|e| format!("invalid source track locator json: {e}"))?;
-    let pm = snapshot_plugins(plugins)?;
-    let source_key = pm
-        .find_source_catalog_key(&source.plugin_id, &source.type_id)
-        .ok_or_else(|| {
-            format!(
-                "source catalog not found: plugin_id={} type_id={}",
-                source.plugin_id, source.type_id
-            )
-        })?;
     let ext_hint = source.ext_hint.trim().to_string();
     let path_hint = if source.path_hint.trim().is_empty() {
         track.stable_key()
@@ -928,12 +763,10 @@ pub(crate) fn open_engine_decoder(
         source.path_hint.trim().to_string()
     };
 
-    match try_open_v2_decoder_for_legacy_source_stream(
-        &pm, source_key, &source, &path_hint, &ext_hint,
-    ) {
+    match try_open_decoder_for_source_stream(&source, &path_hint, &ext_hint) {
         Ok(Some((dec, info, io_owner))) => {
             return Ok((
-                Box::new(EngineDecoder::PluginV2 {
+                Box::new(EngineDecoder::Plugin {
                     spec: TrackSpec {
                         sample_rate: info.sample_rate,
                         channels: info.channels,
@@ -949,46 +782,7 @@ pub(crate) fn open_engine_decoder(
             debug!("v2 source decoder open failed: {e}");
         }
     }
-
-    let decoder_keys = select_decoder_keys(
-        &pm,
-        &ext_hint,
-        source.decoder_plugin_id.as_deref(),
-        source.decoder_type_id.as_deref(),
-    )?;
-
-    let mut last_open_err: Option<String> = None;
-    for decoder_key in decoder_keys {
-        let (stream, source_metadata) = pm
-            .source_open_stream::<_, _, serde_json::Value>(
-                source_key,
-                &source.config,
-                &source.track,
-            )
-            .map_err(|e| format!("source open_stream failed: {e:#}"))?;
-        match pm.open_decoder_with_source_stream(decoder_key, &path_hint, &ext_hint, stream) {
-            Ok(mut dec) => {
-                let spec = dec.spec();
-                let info = build_plugin_track_info(&mut dec, source_metadata)?;
-                return Ok((
-                    Box::new(EngineDecoder::Plugin {
-                        spec: TrackSpec {
-                            sample_rate: spec.sample_rate,
-                            channels: spec.channels,
-                        },
-                        dec,
-                    }),
-                    info,
-                ));
-            }
-            Err(e) => {
-                last_open_err = Some(format!("{e:#}"));
-            }
-        }
-    }
-
-    Err(match last_open_err {
-        Some(e) => format!("failed to open decoder on source stream: {e}"),
-        None => format!("no decoder candidates for source ext hint `{ext_hint}`"),
-    })
+    Err(format!(
+        "failed to open v2 decoder on source stream `{path_hint}` (ext hint `{ext_hint}`)"
+    ))
 }

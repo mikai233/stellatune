@@ -1,24 +1,24 @@
 use anyhow::{Result, anyhow};
-use stellatune_plugin_api::v2::{
-    StConfigUpdatePlanV2, StOutputSinkInstanceRefV2, StOutputSinkNegotiatedSpecV2,
-};
 use stellatune_plugin_api::{StAudioSpec, StStr};
+use stellatune_plugin_api::{
+    StConfigUpdatePlan, StOutputSinkInstanceRef, StOutputSinkNegotiatedSpec,
+};
 
 use super::common::{
     ConfigUpdatePlan, InstanceRuntimeCtx, plan_from_ffi, status_to_result, ststr_from_str,
     take_plugin_string,
 };
 
-pub struct OutputSinkInstanceV2 {
+pub struct OutputSinkInstance {
     ctx: InstanceRuntimeCtx,
     handle: *mut core::ffi::c_void,
-    vtable: *const stellatune_plugin_api::v2::StOutputSinkInstanceVTableV2,
+    vtable: *const stellatune_plugin_api::StOutputSinkInstanceVTable,
 }
 
-unsafe impl Send for OutputSinkInstanceV2 {}
+unsafe impl Send for OutputSinkInstance {}
 
-impl OutputSinkInstanceV2 {
-    pub fn from_ffi(ctx: InstanceRuntimeCtx, raw: StOutputSinkInstanceRefV2) -> Result<Self> {
+impl OutputSinkInstance {
+    pub fn from_ffi(ctx: InstanceRuntimeCtx, raw: StOutputSinkInstanceRef) -> Result<Self> {
         if raw.handle.is_null() || raw.vtable.is_null() {
             return Err(anyhow!("output sink instance returned null handle/vtable"));
         }
@@ -45,9 +45,9 @@ impl OutputSinkInstanceV2 {
         &mut self,
         target_json: &str,
         desired_spec: StAudioSpec,
-    ) -> Result<StOutputSinkNegotiatedSpecV2> {
+    ) -> Result<StOutputSinkNegotiatedSpec> {
         let _call = self.ctx.begin_call();
-        let mut out = StOutputSinkNegotiatedSpecV2 {
+        let mut out = StOutputSinkNegotiatedSpec {
             spec: StAudioSpec {
                 sample_rate: 0,
                 channels: 0,
@@ -118,13 +118,13 @@ impl OutputSinkInstanceV2 {
     pub fn plan_config_update_json(&self, new_config_json: &str) -> Result<ConfigUpdatePlan> {
         let Some(plan_fn) = (unsafe { (*self.vtable).plan_config_update_json_utf8 }) else {
             return Ok(ConfigUpdatePlan {
-                mode: stellatune_plugin_api::v2::StConfigUpdateModeV2::Recreate,
+                mode: stellatune_plugin_api::StConfigUpdateMode::Recreate,
                 reason: Some("plugin does not implement plan_config_update".to_string()),
             });
         };
         let _call = self.ctx.begin_call();
-        let mut out = StConfigUpdatePlanV2 {
-            mode: stellatune_plugin_api::v2::StConfigUpdateModeV2::Reject,
+        let mut out = StConfigUpdatePlan {
+            mode: stellatune_plugin_api::StConfigUpdateMode::Reject,
             reason_utf8: StStr::empty(),
         };
         let status = (plan_fn)(self.handle, ststr_from_str(new_config_json), &mut out);
@@ -180,7 +180,7 @@ impl OutputSinkInstanceV2 {
     }
 }
 
-impl Drop for OutputSinkInstanceV2 {
+impl Drop for OutputSinkInstance {
     fn drop(&mut self) {
         if !self.handle.is_null() && !self.vtable.is_null() {
             let _call = self.ctx.begin_call();

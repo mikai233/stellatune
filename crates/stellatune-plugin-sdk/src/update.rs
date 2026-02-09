@@ -1,15 +1,15 @@
-use stellatune_plugin_api::v2::{StConfigUpdateModeV2, StConfigUpdatePlanV2};
+use stellatune_plugin_api::{StConfigUpdateMode, StConfigUpdatePlan};
 
 use crate::{SdkError, SdkResult, StStatus, StStr, alloc_utf8_bytes};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum UpdatePlanV2 {
+pub enum UpdatePlan {
     HotApply,
     Recreate,
     Reject { reason: String },
 }
 
-impl UpdatePlanV2 {
+impl UpdatePlan {
     pub fn hot_apply() -> Self {
         Self::HotApply
     }
@@ -25,10 +25,10 @@ impl UpdatePlanV2 {
     }
 }
 
-pub trait ConfigUpdatableV2 {
+pub trait ConfigUpdatable {
     /// Decide whether the incoming config can be hot-applied, requires recreate, or should be rejected.
-    fn plan_config_update_json(&self, _new_config_json: &str) -> SdkResult<UpdatePlanV2> {
-        Ok(UpdatePlanV2::Recreate)
+    fn plan_config_update_json(&self, _new_config_json: &str) -> SdkResult<UpdatePlan> {
+        Ok(UpdatePlan::Recreate)
     }
 
     /// Apply a hot config update in-place.
@@ -51,24 +51,24 @@ pub trait ConfigUpdatableV2 {
 ///
 /// If `Reject` contains a reason, this function allocates plugin-owned UTF-8 bytes.
 /// Host must free via `plugin_free` from module vtable.
-pub fn plan_to_ffi(plan: UpdatePlanV2) -> StConfigUpdatePlanV2 {
+pub fn plan_to_ffi(plan: UpdatePlan) -> StConfigUpdatePlan {
     match plan {
-        UpdatePlanV2::HotApply => StConfigUpdatePlanV2 {
-            mode: StConfigUpdateModeV2::HotApply,
+        UpdatePlan::HotApply => StConfigUpdatePlan {
+            mode: StConfigUpdateMode::HotApply,
             reason_utf8: StStr::empty(),
         },
-        UpdatePlanV2::Recreate => StConfigUpdatePlanV2 {
-            mode: StConfigUpdateModeV2::Recreate,
+        UpdatePlan::Recreate => StConfigUpdatePlan {
+            mode: StConfigUpdateMode::Recreate,
             reason_utf8: StStr::empty(),
         },
-        UpdatePlanV2::Reject { reason } => StConfigUpdatePlanV2 {
-            mode: StConfigUpdateModeV2::Reject,
+        UpdatePlan::Reject { reason } => StConfigUpdatePlan {
+            mode: StConfigUpdateMode::Reject,
             reason_utf8: alloc_utf8_bytes(&reason),
         },
     }
 }
 
-pub fn write_plan_to_ffi(out: *mut StConfigUpdatePlanV2, plan: UpdatePlanV2) -> SdkResult<()> {
+pub fn write_plan_to_ffi(out: *mut StConfigUpdatePlan, plan: UpdatePlan) -> SdkResult<()> {
     if out.is_null() {
         return Err(SdkError::invalid_arg("null out plan pointer"));
     }
@@ -80,9 +80,9 @@ pub fn write_plan_to_ffi(out: *mut StConfigUpdatePlanV2, plan: UpdatePlanV2) -> 
     Ok(())
 }
 
-pub fn mode_to_status(plan: &UpdatePlanV2) -> StStatus {
+pub fn mode_to_status(plan: &UpdatePlan) -> StStatus {
     match plan {
-        UpdatePlanV2::HotApply | UpdatePlanV2::Recreate => StStatus::ok(),
-        UpdatePlanV2::Reject { .. } => StStatus::ok(),
+        UpdatePlan::HotApply | UpdatePlan::Recreate => StStatus::ok(),
+        UpdatePlan::Reject { .. } => StStatus::ok(),
     }
 }

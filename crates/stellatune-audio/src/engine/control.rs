@@ -1,6 +1,6 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
@@ -13,9 +13,8 @@ use stellatune_core::{
     TrackPlayability, TrackRef,
 };
 use stellatune_output::{OutputSpec, output_spec_for_device};
-use stellatune_plugin_api::{StAudioSpec, v2::StOutputSinkNegotiatedSpecV2};
+use stellatune_plugin_api::{StAudioSpec, StOutputSinkNegotiatedSpec};
 use stellatune_plugins::runtime::CapabilityKind;
-use stellatune_plugins::{PluginManager, default_host_vtable};
 
 use crate::engine::config::{
     BUFFER_HIGH_WATERMARK_MS, BUFFER_HIGH_WATERMARK_MS_EXCLUSIVE, BUFFER_LOW_WATERMARK_MS,
@@ -41,17 +40,10 @@ const PLUGIN_SINK_MIN_LOW_WATERMARK_MS: i64 = 2;
 const PLUGIN_SINK_MIN_HIGH_WATERMARK_MS: i64 = 4;
 type SharedTrackInfo = Arc<ArcSwapOption<stellatune_core::TrackDecodeInfo>>;
 
-fn snapshot_plugins(plugins: &Arc<Mutex<PluginManager>>) -> Result<PluginManager, String> {
-    plugins
-        .lock()
-        .map(|pm| pm.clone())
-        .map_err(|_| "plugins mutex poisoned".to_string())
-}
-
 fn with_runtime_service<T>(
-    f: impl FnOnce(&stellatune_plugins::v2::PluginRuntimeService) -> Result<T, String>,
+    f: impl FnOnce(&stellatune_plugins::PluginRuntimeService) -> Result<T, String>,
 ) -> Result<T, String> {
-    let shared = stellatune_plugins::v2::shared_runtime_service_v2();
+    let shared = stellatune_plugins::shared_runtime_service();
     let service = shared
         .lock()
         .map_err(|_| "plugin runtime v2 mutex poisoned".to_string())?;
@@ -69,6 +61,17 @@ fn runtime_default_config_json(
             .map(|c| c.default_config_json)
             .ok_or_else(|| format!("capability not found: {plugin_id}::{type_id}"))
     })
+}
+
+fn plugin_name_from_metadata_json(plugin_id: &str, metadata_json: &str) -> String {
+    serde_json::from_str::<serde_json::Value>(metadata_json)
+        .ok()
+        .and_then(|v| {
+            v.get("name")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string)
+        })
+        .unwrap_or_else(|| plugin_id.to_string())
 }
 
 #[derive(Debug, Clone)]
@@ -204,7 +207,6 @@ pub struct EngineHandle {
     engine_ctrl_tx: Sender<EngineCtrl>,
     events: Arc<EventHub>,
     plugin_events: Arc<PluginEventHub>,
-    plugins: Arc<Mutex<PluginManager>>,
     track_info: SharedTrackInfo,
 }
 
@@ -261,118 +263,170 @@ impl EngineHandle {
         plugin_id: Option<String>,
         event_json: String,
     ) -> Result<(), String> {
-        let pm = self
-            .plugins
-            .lock()
-            .map_err(|_| "plugins mutex poisoned".to_string())?;
         match plugin_id {
-            Some(plugin_id) => pm
-                .push_host_event_json(&plugin_id, &event_json)
-                .map_err(|e| e.to_string()),
+            Some(plugin_id) => with_runtime_service(|service| {
+                if service.active_generation(&plugin_id).is_none() {
+                    return Err(format!("plugin not found: {plugin_id}"));
+                }
+                stellatune_plugins::push_shared_host_event_json(&plugin_id, &event_json);
+                Ok(())
+            }),
             None => {
-                pm.broadcast_host_event_json(&event_json);
+                stellatune_plugins::broadcast_shared_host_event_json(&event_json);
                 Ok(())
             }
         }
     }
 
     pub fn list_plugins(&self) -> Vec<stellatune_core::PluginDescriptor> {
-        let Ok(pm) = snapshot_plugins(&self.plugins) else {
-            return Vec::new();
-        };
-        pm.plugins()
-            .iter()
-            .map(|p| stellatune_core::PluginDescriptor {
-                id: p.library().id(),
-                name: p.library().name(),
-            })
-            .collect()
+        with_runtime_service(|service| {
+            let mut plugin_ids = service.active_plugin_ids();
+            plugin_ids.sort();
+            let mut out = Vec::with_capacity(plugin_ids.len());
+            for plugin_id in plugin_ids {
+                let Some(generation) = service.active_generation(&plugin_id) else {
+                    continue;
+                };
+                out.push(stellatune_core::PluginDescriptor {
+                    id: plugin_id.clone(),
+                    name: plugin_name_from_metadata_json(&plugin_id, &generation.metadata_json),
+                });
+            }
+            Ok(out)
+        })
+        .unwrap_or_default()
     }
 
     pub fn list_dsp_types(&self) -> Vec<stellatune_core::DspTypeDescriptor> {
-        let Ok(pm) = snapshot_plugins(&self.plugins) else {
-            return Vec::new();
-        };
-        pm.list_dsp_types()
-            .into_iter()
-            .map(|t| stellatune_core::DspTypeDescriptor {
-                plugin_id: t.plugin_id,
-                plugin_name: t.plugin_name,
-                type_id: t.type_id,
-                display_name: t.display_name,
-                config_schema_json: t.config_schema_json,
-                default_config_json: t.default_config_json,
-            })
-            .collect()
+        with_runtime_service(|service| {
+            let mut plugin_ids = service.active_plugin_ids();
+            plugin_ids.sort();
+            let mut out = Vec::new();
+            for plugin_id in plugin_ids {
+                let Some(generation) = service.active_generation(&plugin_id) else {
+                    continue;
+                };
+                let plugin_name =
+                    plugin_name_from_metadata_json(&plugin_id, &generation.metadata_json);
+                let mut capabilities = service.list_active_capabilities(&plugin_id);
+                capabilities.sort_by(|a, b| a.type_id.cmp(&b.type_id));
+                for capability in capabilities {
+                    if capability.kind != CapabilityKind::Dsp {
+                        continue;
+                    }
+                    out.push(stellatune_core::DspTypeDescriptor {
+                        plugin_id: plugin_id.clone(),
+                        plugin_name: plugin_name.clone(),
+                        type_id: capability.type_id,
+                        display_name: capability.display_name,
+                        config_schema_json: capability.config_schema_json,
+                        default_config_json: capability.default_config_json,
+                    });
+                }
+            }
+            Ok(out)
+        })
+        .unwrap_or_default()
     }
 
     pub fn list_source_catalog_types(&self) -> Vec<stellatune_core::SourceCatalogTypeDescriptor> {
-        let Ok(pm) = snapshot_plugins(&self.plugins) else {
-            return Vec::new();
-        };
-        pm.list_source_catalog_types()
-            .into_iter()
-            .map(|t| stellatune_core::SourceCatalogTypeDescriptor {
-                plugin_id: t.plugin_id,
-                plugin_name: t.plugin_name,
-                type_id: t.type_id,
-                display_name: t.display_name,
-                config_schema_json: t.config_schema_json,
-                default_config_json: t.default_config_json,
-            })
-            .collect()
+        with_runtime_service(|service| {
+            let mut plugin_ids = service.active_plugin_ids();
+            plugin_ids.sort();
+            let mut out = Vec::new();
+            for plugin_id in plugin_ids {
+                let Some(generation) = service.active_generation(&plugin_id) else {
+                    continue;
+                };
+                let plugin_name =
+                    plugin_name_from_metadata_json(&plugin_id, &generation.metadata_json);
+                let mut capabilities = service.list_active_capabilities(&plugin_id);
+                capabilities.sort_by(|a, b| a.type_id.cmp(&b.type_id));
+                for capability in capabilities {
+                    if capability.kind != CapabilityKind::SourceCatalog {
+                        continue;
+                    }
+                    out.push(stellatune_core::SourceCatalogTypeDescriptor {
+                        plugin_id: plugin_id.clone(),
+                        plugin_name: plugin_name.clone(),
+                        type_id: capability.type_id,
+                        display_name: capability.display_name,
+                        config_schema_json: capability.config_schema_json,
+                        default_config_json: capability.default_config_json,
+                    });
+                }
+            }
+            Ok(out)
+        })
+        .unwrap_or_default()
     }
 
     pub fn list_lyrics_provider_types(&self) -> Vec<stellatune_core::LyricsProviderTypeDescriptor> {
-        let Ok(pm) = snapshot_plugins(&self.plugins) else {
-            return Vec::new();
-        };
-        pm.list_lyrics_provider_types()
-            .into_iter()
-            .map(|t| stellatune_core::LyricsProviderTypeDescriptor {
-                plugin_id: t.plugin_id,
-                plugin_name: t.plugin_name,
-                type_id: t.type_id,
-                display_name: t.display_name,
-            })
-            .collect()
+        with_runtime_service(|service| {
+            let mut plugin_ids = service.active_plugin_ids();
+            plugin_ids.sort();
+            let mut out = Vec::new();
+            for plugin_id in plugin_ids {
+                let Some(generation) = service.active_generation(&plugin_id) else {
+                    continue;
+                };
+                let plugin_name =
+                    plugin_name_from_metadata_json(&plugin_id, &generation.metadata_json);
+                let mut capabilities = service.list_active_capabilities(&plugin_id);
+                capabilities.sort_by(|a, b| a.type_id.cmp(&b.type_id));
+                for capability in capabilities {
+                    if capability.kind != CapabilityKind::LyricsProvider {
+                        continue;
+                    }
+                    out.push(stellatune_core::LyricsProviderTypeDescriptor {
+                        plugin_id: plugin_id.clone(),
+                        plugin_name: plugin_name.clone(),
+                        type_id: capability.type_id,
+                        display_name: capability.display_name,
+                    });
+                }
+            }
+            Ok(out)
+        })
+        .unwrap_or_default()
     }
 
     pub fn list_output_sink_types(&self) -> Vec<stellatune_core::OutputSinkTypeDescriptor> {
-        let Ok(pm) = snapshot_plugins(&self.plugins) else {
-            return Vec::new();
-        };
-        pm.list_output_sink_types()
-            .into_iter()
-            .map(|t| stellatune_core::OutputSinkTypeDescriptor {
-                plugin_id: t.plugin_id,
-                plugin_name: t.plugin_name,
-                type_id: t.type_id,
-                display_name: t.display_name,
-                config_schema_json: t.config_schema_json,
-                default_config_json: t.default_config_json,
-            })
-            .collect()
+        with_runtime_service(|service| {
+            let mut plugin_ids = service.active_plugin_ids();
+            plugin_ids.sort();
+            let mut out = Vec::new();
+            for plugin_id in plugin_ids {
+                let Some(generation) = service.active_generation(&plugin_id) else {
+                    continue;
+                };
+                let plugin_name =
+                    plugin_name_from_metadata_json(&plugin_id, &generation.metadata_json);
+                let mut capabilities = service.list_active_capabilities(&plugin_id);
+                capabilities.sort_by(|a, b| a.type_id.cmp(&b.type_id));
+                for capability in capabilities {
+                    if capability.kind != CapabilityKind::OutputSink {
+                        continue;
+                    }
+                    out.push(stellatune_core::OutputSinkTypeDescriptor {
+                        plugin_id: plugin_id.clone(),
+                        plugin_name: plugin_name.clone(),
+                        type_id: capability.type_id,
+                        display_name: capability.display_name,
+                        config_schema_json: capability.config_schema_json,
+                        default_config_json: capability.default_config_json,
+                    });
+                }
+            }
+            Ok(out)
+        })
+        .unwrap_or_default()
     }
 
     pub fn can_play_track_refs(&self, tracks: Vec<TrackRef>) -> Vec<TrackPlayability> {
-        let Ok(pm) = snapshot_plugins(&self.plugins) else {
-            warn!(
-                track_count = tracks.len(),
-                "can_play_track_refs failed: plugins mutex poisoned"
-            );
-            return tracks
-                .into_iter()
-                .map(|track| TrackPlayability {
-                    track,
-                    playable: false,
-                    reason: Some("plugins_unavailable".to_string()),
-                })
-                .collect();
-        };
         let verdicts = tracks
             .iter()
-            .map(|track| assess_track_playability(track, &pm))
+            .map(assess_track_playability)
             .collect::<Vec<_>>();
         let blocked = verdicts.iter().filter(|v| !v.playable).count();
         if blocked > 0 {
@@ -495,12 +549,6 @@ impl EngineHandle {
 }
 
 pub fn start_engine() -> EngineHandle {
-    start_engine_with_plugins(Arc::new(Mutex::new(PluginManager::new(
-        default_host_vtable(),
-    ))))
-}
-
-pub fn start_engine_with_plugins(plugins: Arc<Mutex<PluginManager>>) -> EngineHandle {
     let (cmd_tx, cmd_rx) = crossbeam_channel::unbounded();
     let (engine_ctrl_tx, engine_ctrl_rx) = crossbeam_channel::unbounded();
     let (internal_tx, internal_rx) = crossbeam_channel::unbounded();
@@ -512,7 +560,6 @@ pub fn start_engine_with_plugins(plugins: Arc<Mutex<PluginManager>>) -> EngineHa
 
     let track_info: SharedTrackInfo = Arc::new(ArcSwapOption::new(None));
 
-    let plugins_for_thread = Arc::clone(&plugins);
     let track_info_for_thread = Arc::clone(&track_info);
     let _join: JoinHandle<()> = thread::Builder::new()
         .name("stellatune-control".to_string())
@@ -527,7 +574,6 @@ pub fn start_engine_with_plugins(plugins: Arc<Mutex<PluginManager>>) -> EngineHa
                 ControlLoopDeps {
                     events: thread_events,
                     plugin_events: thread_plugin_events,
-                    plugins: plugins_for_thread,
                     track_info: track_info_for_thread,
                 },
             )
@@ -539,7 +585,6 @@ pub fn start_engine_with_plugins(plugins: Arc<Mutex<PluginManager>>) -> EngineHa
         engine_ctrl_tx,
         events,
         plugin_events,
-        plugins,
         track_info,
     }
 }
@@ -576,10 +621,9 @@ struct EngineState {
     preload_token: u64,
     requested_preload_path: Option<String>,
     requested_preload_position_ms: u64,
-    source_instances: HashMap<RuntimeInstanceKey, stellatune_plugins::v2::SourceCatalogInstanceV2>,
-    lyrics_instances: HashMap<RuntimeInstanceKey, stellatune_plugins::v2::LyricsProviderInstanceV2>,
-    output_sink_instances:
-        HashMap<RuntimeInstanceKey, stellatune_plugins::v2::OutputSinkInstanceV2>,
+    source_instances: HashMap<RuntimeInstanceKey, stellatune_plugins::SourceCatalogInstance>,
+    lyrics_instances: HashMap<RuntimeInstanceKey, stellatune_plugins::LyricsProviderInstance>,
+    output_sink_instances: HashMap<RuntimeInstanceKey, stellatune_plugins::OutputSinkInstance>,
 }
 
 struct PreloadWorker {
@@ -597,7 +641,6 @@ struct ControlLoopChannels {
 struct ControlLoopDeps {
     events: Arc<EventHub>,
     plugin_events: Arc<PluginEventHub>,
-    plugins: Arc<Mutex<PluginManager>>,
     track_info: SharedTrackInfo,
 }
 
@@ -662,7 +705,6 @@ fn run_control_loop(channels: ControlLoopChannels, deps: ControlLoopDeps) {
     let ControlLoopDeps {
         events,
         plugin_events,
-        plugins,
         track_info,
     } = deps;
 
@@ -671,12 +713,8 @@ fn run_control_loop(channels: ControlLoopChannels, deps: ControlLoopDeps) {
     state.decode_worker = Some(start_decode_worker(
         Arc::clone(&events),
         internal_tx.clone(),
-        Arc::clone(&plugins),
     ));
-    state.preload_worker = Some(start_preload_worker(
-        Arc::clone(&plugins),
-        internal_tx.clone(),
-    ));
+    state.preload_worker = Some(start_preload_worker(internal_tx.clone()));
     let tick = crossbeam_channel::tick(Duration::from_millis(CONTROL_TICK_MS));
 
     // Prewarm output spec in the background so the first Play doesn't pay the WASAPI/COM setup cost.
@@ -692,7 +730,6 @@ fn run_control_loop(channels: ControlLoopChannels, deps: ControlLoopDeps) {
                     &events,
                     &plugin_events,
                     &internal_tx,
-                    &plugins,
                     &track_info,
                 ) {
                     break;
@@ -700,20 +737,19 @@ fn run_control_loop(channels: ControlLoopChannels, deps: ControlLoopDeps) {
             }
             recv(engine_ctrl_rx) -> msg => {
                 let Ok(msg) = msg else { break };
-                handle_engine_ctrl(msg, &mut state, &events, &plugins);
+                handle_engine_ctrl(msg, &mut state, &events);
             }
             recv(internal_rx) -> msg => {
                 let Ok(msg) = msg else { break };
                 handle_internal(msg, &mut state, &events, &internal_tx, &track_info);
             }
             recv(tick) -> _ => {
-                publish_player_tick_event(&state, &plugins);
+                publish_player_tick_event(&state);
                 handle_tick(
                     &mut state,
                     &events,
                     &plugin_events,
                     &internal_tx,
-                    &plugins,
                     &track_info,
                 );
             }
@@ -868,12 +904,7 @@ fn output_sink_list_targets_json_via_runtime(
     instance.list_targets_json().map_err(|e| e.to_string())
 }
 
-fn handle_engine_ctrl(
-    msg: EngineCtrl,
-    state: &mut EngineState,
-    events: &Arc<EventHub>,
-    plugins: &Arc<Mutex<PluginManager>>,
-) {
+fn handle_engine_ctrl(msg: EngineCtrl, state: &mut EngineState, events: &Arc<EventHub>) {
     match msg {
         EngineCtrl::SetDspChain { chain } => {
             let parsed = match parse_dsp_chain(chain) {
@@ -939,10 +970,10 @@ fn handle_engine_ctrl(
             ));
         }
         EngineCtrl::ReloadPlugins { dir } => {
-            handle_reload_plugins(state, events, plugins, dir, Vec::new());
+            handle_reload_plugins(state, events, dir, Vec::new());
         }
         EngineCtrl::ReloadPluginsWithDisabled { dir, disabled_ids } => {
-            handle_reload_plugins(state, events, plugins, dir, disabled_ids);
+            handle_reload_plugins(state, events, dir, disabled_ids);
         }
         EngineCtrl::SetLfeMode { mode } => {
             state.lfe_mode = mode;
@@ -956,14 +987,9 @@ fn handle_engine_ctrl(
 fn handle_reload_plugins(
     state: &mut EngineState,
     events: &Arc<EventHub>,
-    plugins: &Arc<Mutex<PluginManager>>,
     dir: String,
     disabled_ids: Vec<String>,
 ) {
-    // Transactional reload:
-    // 1) Build a fresh manager and load plugins first.
-    // 2) Swap to the new manager only if load produced usable plugins (or if there were none before).
-    // This avoids ending up with an empty plugin set after a reload failure.
     let disabled = disabled_ids
         .into_iter()
         .collect::<std::collections::HashSet<_>>();
@@ -975,85 +1001,50 @@ fn handle_reload_plugins(
         ),
     });
     clear_runtime_query_instance_cache(state);
-
-    let mut next_pm = PluginManager::new(default_host_vtable());
-    next_pm.set_disabled_ids(disabled.clone());
-    let report = match unsafe { next_pm.load_dir_filtered(&dir, &disabled) } {
-        Ok(report) => report,
-        Err(e) => {
-            events.emit(Event::Error {
-                message: format!("failed to reload plugins (load stage): {e:#}"),
-            });
-            return;
-        }
-    };
-
-    let loaded_count = report.loaded.len();
-    let error_count = report.errors.len();
-    let loaded_ids = report
-        .loaded
-        .iter()
-        .map(|p| p.id.as_str())
-        .collect::<Vec<_>>()
-        .join(", ");
-
-    let mut pm = match plugins.lock() {
-        Ok(pm) => pm,
+    let prev_count = match stellatune_plugins::shared_runtime_service().lock() {
+        Ok(service) => service.active_plugin_ids().len(),
         Err(_) => {
             events.emit(Event::Error {
-                message: "failed to reload plugins: plugins mutex poisoned".to_string(),
+                message: "plugin runtime v2 mutex poisoned".to_string(),
             });
             return;
         }
     };
-    let prev_count = pm.plugins().len();
-
-    if loaded_count == 0 && prev_count > 0 {
-        events.emit(Event::Error {
-            message: format!(
-                "plugin reload aborted: loaded=0 errors={} (kept previous plugins={})",
-                error_count, prev_count
-            ),
-        });
-        for err in report.errors {
-            events.emit(Event::Log {
-                message: format!("plugin load error: {err:#}"),
-            });
-        }
-        return;
-    }
-
-    *pm = next_pm;
-    let runtime_report = match stellatune_plugins::v2::shared_runtime_service_v2().lock() {
+    let runtime_report = match stellatune_plugins::shared_runtime_service().lock() {
         Ok(service) => service
             .reload_dir_filtered(&dir, &disabled)
             .map_err(|e| e.to_string()),
         Err(_) => Err("plugin runtime v2 mutex poisoned".to_string()),
     };
-    events.emit(Event::Log {
-        message: format!(
-            "plugins reloaded from {}: previous={} loaded={} errors={} [{}]",
-            dir, prev_count, loaded_count, error_count, loaded_ids
-        ),
-    });
     match runtime_report {
-        Ok(v2) => events.emit(Event::Log {
-            message: format!(
-                "plugin runtime v2 reload: loaded={} deactivated={} errors={} unloaded_generations={}",
-                v2.loaded.len(),
-                v2.deactivated.len(),
-                v2.errors.len(),
-                v2.unloaded_generations
-            ),
-        }),
+        Ok(v2) => {
+            let loaded_ids = v2
+                .loaded
+                .iter()
+                .map(|p| p.id.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
+            events.emit(Event::Log {
+                message: format!(
+                    "plugins reloaded from {}: previous={} loaded={} deactivated={} errors={} unloaded_generations={} [{}]",
+                    dir,
+                    prev_count,
+                    v2.loaded.len(),
+                    v2.deactivated.len(),
+                    v2.errors.len(),
+                    v2.unloaded_generations,
+                    loaded_ids
+                ),
+            });
+            for err in v2.errors {
+                events.emit(Event::Log {
+                    message: format!("plugin load error: {err:#}"),
+                });
+            }
+        }
         Err(err) => events.emit(Event::Error {
             message: format!("plugin runtime v2 reload failed: {err}"),
         }),
-    }
-    for err in report.errors {
-        events.emit(Event::Log {
-            message: format!("plugin load error: {err:#}"),
-        });
     }
 }
 
@@ -1240,7 +1231,6 @@ fn handle_command(
     events: &Arc<EventHub>,
     plugin_events: &Arc<PluginEventHub>,
     internal_tx: &Sender<InternalMsg>,
-    plugins: &Arc<Mutex<PluginManager>>,
     track_info: &SharedTrackInfo,
 ) -> bool {
     match cmd {
@@ -1386,14 +1376,7 @@ fn handle_command(
 
             // Enter Buffering until we have enough samples queued to start cleanly.
             set_state(state, events, PlayerState::Buffering);
-            handle_tick(
-                state,
-                events,
-                plugin_events,
-                internal_tx,
-                plugins,
-                track_info,
-            );
+            handle_tick(state, events, plugin_events, internal_tx, track_info);
         }
         Command::Pause => {
             if let Some(session) = state.session.as_ref() {
@@ -1438,14 +1421,7 @@ fn handle_command(
             {
                 set_state(state, events, PlayerState::Buffering);
                 state.play_request_started_at = Some(Instant::now());
-                handle_tick(
-                    state,
-                    events,
-                    plugin_events,
-                    internal_tx,
-                    plugins,
-                    track_info,
-                );
+                handle_tick(state, events, plugin_events, internal_tx, track_info);
             }
         }
         Command::SetVolume { volume } => {
@@ -1633,10 +1609,7 @@ fn handle_command(
     false
 }
 
-fn start_preload_worker(
-    plugins: Arc<Mutex<PluginManager>>,
-    internal_tx: Sender<InternalMsg>,
-) -> PreloadWorker {
+fn start_preload_worker(internal_tx: Sender<InternalMsg>) -> PreloadWorker {
     let (tx, rx) = crossbeam_channel::unbounded::<PreloadJob>();
     let join = thread::Builder::new()
         .name("stellatune-preload-next".to_string())
@@ -1647,7 +1620,7 @@ fn start_preload_worker(
                         path,
                         position_ms,
                         token,
-                    } => handle_preload_task(path, position_ms, token, &plugins, &internal_tx),
+                    } => handle_preload_task(path, position_ms, token, &internal_tx),
                     PreloadJob::Shutdown => break,
                 }
             }
@@ -1671,11 +1644,10 @@ fn handle_preload_task(
     path: String,
     position_ms: u64,
     token: u64,
-    plugins: &Arc<Mutex<PluginManager>>,
     internal_tx: &Sender<InternalMsg>,
 ) {
     let t0 = Instant::now();
-    match open_engine_decoder(&path, plugins) {
+    match open_engine_decoder(&path) {
         Ok((mut decoder, track_info)) => {
             if position_ms > 0
                 && let Err(err) = decoder.seek_ms(position_ms)
@@ -1904,7 +1876,7 @@ fn output_sink_queue_watermarks_ms(sample_rate: u32, chunk_frames: u32) -> (i64,
 fn negotiate_output_sink_spec(
     state: &EngineState,
     desired_spec: OutputSpec,
-) -> Result<StOutputSinkNegotiatedSpecV2, String> {
+) -> Result<StOutputSinkNegotiatedSpec, String> {
     let route = state
         .desired_output_sink_route
         .as_ref()
@@ -1959,7 +1931,7 @@ fn output_backend_for_selected(
     }
 }
 
-fn publish_player_tick_event(state: &EngineState, plugins: &Arc<Mutex<PluginManager>>) {
+fn publish_player_tick_event(state: &EngineState) {
     let event_json = match serde_json::to_string(&HostPlayerTickPayload {
         topic: HostEventTopic::PlayerTick,
         state: state.player_state,
@@ -1971,9 +1943,7 @@ fn publish_player_tick_event(state: &EngineState, plugins: &Arc<Mutex<PluginMana
         Err(_) => return,
     };
 
-    if let Ok(pm) = plugins.lock() {
-        pm.broadcast_host_event_json(&event_json);
-    }
+    stellatune_plugins::broadcast_shared_host_event_json(&event_json);
 }
 
 fn handle_tick(
@@ -1981,7 +1951,6 @@ fn handle_tick(
     events: &Arc<EventHub>,
     _plugin_events: &Arc<PluginEventHub>,
     internal_tx: &Sender<InternalMsg>,
-    _plugins: &Arc<Mutex<PluginManager>>,
     track_info: &SharedTrackInfo,
 ) {
     // If we are waiting for an output spec (prewarm) and have no active session, start the session

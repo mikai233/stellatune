@@ -12,8 +12,9 @@ use stellatune_core::LibraryEvent;
 
 use crate::service::EventHub;
 
-use super::Plugins;
-use super::metadata::{extract_metadata_with_plugins, write_cover_bytes};
+use super::metadata::{
+    extract_metadata_with_plugins, has_plugin_decoder_for_path, write_cover_bytes,
+};
 use super::paths::{is_under_excluded, normalize_path_str, now_ms, parent_dir_norm};
 use super::tracks::{
     UpsertTrackInput, delete_track_by_path_norm, select_track_fingerprint_by_path_norm,
@@ -82,7 +83,6 @@ pub(super) fn spawn_watch_task(
     pool: SqlitePool,
     events: Arc<EventHub>,
     cover_dir: PathBuf,
-    plugins: Plugins,
 ) -> mpsc::UnboundedSender<WatchCtrl> {
     let (ctrl_tx, mut ctrl_rx) = mpsc::unbounded_channel::<WatchCtrl>();
 
@@ -155,7 +155,7 @@ pub(super) fn spawn_watch_task(
                     let batch = dirty.drain().collect::<Vec<_>>();
                     debounce = None;
 
-                    match apply_fs_changes(&pool, &events, &cover_dir, &excluded, &plugins, batch).await {
+                    match apply_fs_changes(&pool, &events, &cover_dir, &excluded, batch).await {
                         Ok(true) => events.emit(LibraryEvent::Changed),
                         Ok(false) => {}
                         Err(e) => events.emit(LibraryEvent::Log { message: format!("fs sync error: {e:#}") }),
@@ -177,12 +177,9 @@ async fn apply_fs_changes(
     events: &Arc<EventHub>,
     cover_dir: &Path,
     excluded: &[String],
-    plugins: &Plugins,
     raw_paths: Vec<String>,
 ) -> Result<bool> {
     let mut changed = false;
-    #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-    let plugins_snapshot = plugins.lock().ok().map(|pm| pm.clone());
 
     for raw in raw_paths {
         let raw_trimmed = raw.trim();
@@ -219,25 +216,7 @@ async fn apply_fs_changes(
             .and_then(|s| s.to_str())
             .unwrap_or("")
             .to_ascii_lowercase();
-        let supported = is_audio_ext(&ext) || {
-            #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-            {
-                match plugins_snapshot.as_ref() {
-                    Some(pm) => {
-                        if ext.is_empty() {
-                            pm.can_decode_path(raw_trimmed).unwrap_or(false)
-                        } else {
-                            pm.probe_best_decoder_hint(&ext).is_some()
-                        }
-                    }
-                    None => false,
-                }
-            }
-            #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
-            {
-                false
-            }
-        };
+        let supported = is_audio_ext(&ext) || has_plugin_decoder_for_path(&path);
         if !supported {
             let deleted = delete_track_by_path_norm(pool, cover_dir, &path_norm).await?;
             changed |= deleted > 0;
@@ -263,11 +242,10 @@ async fn apply_fs_changes(
         // Heavy metadata extraction happens only when the fingerprint differs.
         let meta_scanned_ms = now_ms();
 
-        let plugins = plugins.clone();
         let (title, artist, album, duration_ms, cover) = match tokio::task::spawn_blocking({
             let p = path.clone();
             move || {
-                extract_metadata_with_plugins(&p, &plugins)
+                extract_metadata_with_plugins(&p)
                     .map(|m| (m.title, m.artist, m.album, m.duration_ms, m.cover))
             }
         })

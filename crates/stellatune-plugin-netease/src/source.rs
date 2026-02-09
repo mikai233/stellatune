@@ -7,8 +7,13 @@ use reqwest::Url;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use stellatune_plugin_sdk::instance::{
+    SourceCatalogDescriptor, SourceCatalogInstance, SourceOpenResult, SourceStream,
+};
+use stellatune_plugin_sdk::update::ConfigUpdatable;
 use stellatune_plugin_sdk::{
-    SdkError, SdkResult, SourceCatalogDescriptor, SourceOpenResult, SourceStream, StLogLevel,
+    SdkError, SdkResult, SourceCatalogDescriptor as LegacySourceCatalogDescriptor,
+    SourceOpenResult as LegacySourceOpenResult, SourceStream as LegacySourceStream, StLogLevel,
     StSeekWhence, host_log, resolve_runtime_path, sidecar_command,
 };
 
@@ -180,7 +185,7 @@ pub struct SidecarCoverRef {
 
 pub struct NeteaseSourceCatalog;
 
-impl SourceCatalogDescriptor for NeteaseSourceCatalog {
+impl LegacySourceCatalogDescriptor for NeteaseSourceCatalog {
     type Stream = BytesSourceStream;
     type Config = NeteaseSourceConfig;
     type ListRequest = NeteaseListRequest;
@@ -254,7 +259,7 @@ impl SourceCatalogDescriptor for NeteaseSourceCatalog {
     fn open_stream(
         config: &Self::Config,
         track: &Self::Track,
-    ) -> SdkResult<SourceOpenResult<Self::Stream, Self::TrackMeta>> {
+    ) -> SdkResult<LegacySourceOpenResult<Self::Stream, Self::TrackMeta>> {
         ensure_sidecar_running(config)?;
         let resolved = resolve_stream_url(config, track)?;
         let bytes = download_audio_bytes(config, &resolved.url)?;
@@ -281,7 +286,65 @@ impl SourceCatalogDescriptor for NeteaseSourceCatalog {
             ),
         );
 
-        Ok(SourceOpenResult::new(source).with_track_meta(meta))
+        Ok(LegacySourceOpenResult::new(source).with_track_meta(meta))
+    }
+}
+
+pub struct NeteaseSourceCatalogInstance {
+    config: NeteaseSourceConfig,
+}
+
+impl ConfigUpdatable for NeteaseSourceCatalogInstance {
+    fn apply_config_update_json(&mut self, new_config_json: &str) -> SdkResult<()> {
+        self.config = serde_json::from_str(new_config_json).map_err(SdkError::from)?;
+        Ok(())
+    }
+}
+
+impl SourceCatalogDescriptor for NeteaseSourceCatalogInstance {
+    type Config = NeteaseSourceConfig;
+    type Instance = NeteaseSourceCatalogInstance;
+
+    const TYPE_ID: &'static str = <NeteaseSourceCatalog as LegacySourceCatalogDescriptor>::TYPE_ID;
+    const DISPLAY_NAME: &'static str =
+        <NeteaseSourceCatalog as LegacySourceCatalogDescriptor>::DISPLAY_NAME;
+    const CONFIG_SCHEMA_JSON: &'static str =
+        <NeteaseSourceCatalog as LegacySourceCatalogDescriptor>::CONFIG_SCHEMA_JSON;
+
+    fn default_config() -> Self::Config {
+        NeteaseSourceConfig::default()
+    }
+
+    fn create(config: Self::Config) -> SdkResult<Self::Instance> {
+        Ok(NeteaseSourceCatalogInstance { config })
+    }
+}
+
+impl SourceCatalogInstance for NeteaseSourceCatalogInstance {
+    type Stream = BytesSourceStream;
+
+    fn list_items_json(&mut self, request_json: &str) -> SdkResult<String> {
+        let request: NeteaseListRequest =
+            serde_json::from_str(request_json).map_err(SdkError::from)?;
+        let items = <NeteaseSourceCatalog as LegacySourceCatalogDescriptor>::list_items(
+            &self.config,
+            &request,
+        )?;
+        serde_json::to_string(&items).map_err(SdkError::from)
+    }
+
+    fn open_stream_json(&mut self, track_json: &str) -> SdkResult<SourceOpenResult<Self::Stream>> {
+        let track: NeteaseTrack = serde_json::from_str(track_json).map_err(SdkError::from)?;
+        let opened = <NeteaseSourceCatalog as LegacySourceCatalogDescriptor>::open_stream(
+            &self.config,
+            &track,
+        )?;
+        let mut out = SourceOpenResult::new(opened.stream);
+        if let Some(track_meta) = opened.track_meta {
+            let raw = serde_json::to_string(&track_meta).map_err(SdkError::from)?;
+            out = out.with_track_meta_json(raw);
+        }
+        Ok(out)
     }
 }
 
@@ -294,6 +357,38 @@ impl BytesSourceStream {
         Self {
             cursor: Cursor::new(bytes),
         }
+    }
+}
+
+impl LegacySourceStream for BytesSourceStream {
+    const SUPPORTS_SEEK: bool = true;
+    const SUPPORTS_TELL: bool = true;
+    const SUPPORTS_SIZE: bool = true;
+
+    fn read(&mut self, out: &mut [u8]) -> SdkResult<usize> {
+        self.cursor.read(out).map_err(SdkError::from)
+    }
+
+    fn seek(&mut self, offset: i64, whence: StSeekWhence) -> SdkResult<u64> {
+        let next = match whence {
+            StSeekWhence::Start => {
+                if offset < 0 {
+                    return Err(SdkError::invalid_arg("seek before start"));
+                }
+                SeekFrom::Start(offset as u64)
+            }
+            StSeekWhence::Current => SeekFrom::Current(offset),
+            StSeekWhence::End => SeekFrom::End(offset),
+        };
+        self.cursor.seek(next).map_err(SdkError::from)
+    }
+
+    fn tell(&mut self) -> SdkResult<u64> {
+        Ok(self.cursor.position())
+    }
+
+    fn size(&mut self) -> SdkResult<u64> {
+        Ok(self.cursor.get_ref().len() as u64)
     }
 }
 

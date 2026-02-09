@@ -9,5 +9,6 @@ crate-type = ["cdylib"]
 
 [dependencies]
 stellatune-plugin-sdk.workspace = true
+stellatune-plugin-api.workspace = true
 stellatune-asio-proto = { workspace = true, features = ["shm"] }
 serde.workspace = true

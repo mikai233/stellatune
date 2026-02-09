@@ -33,22 +33,36 @@ This section is a live status marker to avoid migration confusion.
 
 Current state:
 
-1. Repository is in a transitional phase, not final V2-only state.
+1. Repository is in late-stage migration, with core runtime paths already switched to the new mainline API surface.
 2. V2 ABI and V2 runtime execution layer exist, including typed capability instance wrappers for decoder/dsp/source/lyrics/output.
 3. `PluginRuntimeService` owns native runtime management APIs (`load/reload/unload/list`) plus V2 `create_*_instance` factory APIs, and is process-singleton in backend runtime access path.
 4. Backend read/query paths and source/lyrics/output execution entrypoints are partially migrated to V2 runtime.
 5. Audio data-plane migration has started: DSP chain instance creation and output sink negotiate/open now use V2 runtime instances.
 6. Audio query capability path (`source_list_items` / `lyrics_search/fetch` / `output_sink_list_targets`) now runs in control-thread owner actor mode with per-key instance reuse cache; caller threads use request/response messages instead of directly touching plugin instances.
 7. Audio decoder selection path no longer depends on legacy `probe_best_decoder*`; it now prefers V2 module-provided extension score rules (exact match > wildcard), keeps explicit decoder selector priority, and falls back to deterministic decoder iteration when no score table is available.
-8. Decoder open execution in audio is now V2-first (`create_decoder_instance` + instance `open_with_io`) with legacy V1 fallback for not-yet-migrated plugins/source paths; plugin runtime event bus still retains legacy V1 manager usage.
-9. Temporary legacy->V2 sync bridge (`stellatune-plugins/src/v2/sync.rs`) has been removed.
-10. Final target remains unchanged: delete all legacy runtime/ABI paths after call-site migration completes.
+8. Decoder open execution in audio now uses V2 plugin paths only (`create_decoder_instance` + instance `open_with_io`), with built-in decoder fallback kept for local files.
+9. Plugin runtime event ingress/egress is now runtime-native (`stellatune_plugins::events`): backend router drains runtime events directly, and host callbacks are bound per loaded module generation with ref-counted queue lifecycle cleanup on unload/deactivate.
+10. Library scan/watch support checks and metadata plugin decode extraction are now V2-driven (extension-score + V2 decoder instance `open_with_io`), removing call-heavy `PluginManager` probe/open usage from library worker hot paths.
+11. Temporary legacy sync bridge (`stellatune-plugins/src/v2/sync.rs`) has been removed.
+12. Audio host event publish/player-tick broadcast paths now send through runtime event bus directly (`stellatune_plugins::{push,broadcast}_shared_host_event_json`), no longer via `PluginManager` event bus.
+13. Audio decode worker + preload worker + plugin reload pipeline are now V2-runtime based and no longer depend on `PluginManager`.
+14. Library service bootstrap/reload path now uses V2 runtime only (legacy `start_library_with_plugins` + `PluginManager` bootstrap removed).
+15. `stellatune-plugins/src/lib.rs` legacy `PluginManager`/V1 runtime containers have been removed; crate root now keeps V2 runtime + plugin install/list/uninstall surface only.
+16. Remaining destructive cleanup is focused on final repository-wide V1 naming convergence and residual ABI suffix cleanup.
+17. `stellatune-plugin-api` shared data structs used by V2 paths (`StIoVTable`, `StDecoderInfo`, `StOutputSinkNegotiatedSpec`) are now de-V1-suffixed and call sites were updated.
+18. Root API constants were renamed to mainline names (`STELLATUNE_PLUGIN_API_VERSION`, `STELLATUNE_PLUGIN_ENTRY_SYMBOL`) and SDK/plugin call sites were updated.
+19. Built-in plugins (`asio`/`netease`/`ncm`) use the unified `export_plugin!` path with capability instance adapters.
+20. SDK legacy plugin-entry export chain (`macros/export_plugin.rs`) has been removed, and host helper path now resolves host callbacks through V2 host vtable.
+21. Residual V1 optional-interface ABI (`StSourceCatalog*V1` / `StLyricsProviderVTableV1` / `StOutputSink*V1`) and SDK helper macros (`export_source_catalogs_interface!`, `export_output_sinks_interface!`, `compose_get_interface!`) were removed.
+22. ABI naming convergence phase-1 is complete: ABI structs/constants now use mainline names (no `V2` suffix), and host/runtime/SDK/plugin call sites were updated accordingly.
+23. Naming convergence phase-2 is complete: runtime-side capability wrapper/service/event/load/report type names and shared runtime entrypoints were converged to mainline names; SDK config-update + descriptor/helper surfaces were simplified to mainline names; plugin instance adapter local `*V2` names were removed.
+24. Remaining cleanup is mainly documentation wording and final acceptance-criteria closure work.
 
 ## 3. High-Level Model
 
 V2 separates three layers:
 
-1. Module layer (`PluginModuleV2`): metadata + capability factories only.
+1. Module layer (`PluginModule` under `stellatune_plugin_api`): metadata + capability factories only.
 2. Capability descriptor/factory layer: discoverable capability types and create instance.
 3. Instance layer: stateful runtime object with its own VTable.
 
@@ -76,7 +90,7 @@ This keeps plugin authoring simple:
 ```rust
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum StCapabilityKindV2 {
+pub enum StCapabilityKind {
     Decoder = 1,
     Dsp = 2,
     SourceCatalog = 3,
@@ -86,8 +100,8 @@ pub enum StCapabilityKindV2 {
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
-pub struct StCapabilityDescriptorV2 {
-    pub kind: StCapabilityKindV2,
+pub struct StCapabilityDescriptor {
+    pub kind: StCapabilityKind,
     pub type_id_utf8: StStr,
     pub display_name_utf8: StStr,
     pub config_schema_json_utf8: StStr,
@@ -98,24 +112,24 @@ pub struct StCapabilityDescriptorV2 {
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
-pub struct StPluginModuleV2 {
+pub struct StPluginModule {
     pub api_version: u32,
     pub plugin_version: StVersion,
     pub metadata_json_utf8: extern "C" fn() -> StStr,
 
     pub capability_count: extern "C" fn() -> usize,
-    pub capability_get: extern "C" fn(index: usize) -> *const StCapabilityDescriptorV2,
+    pub capability_get: extern "C" fn(index: usize) -> *const StCapabilityDescriptor,
 
     pub decoder_ext_score_count: Option<extern "C" fn(type_id_utf8: StStr) -> usize>,
     pub decoder_ext_score_get: Option<
-        extern "C" fn(type_id_utf8: StStr, index: usize) -> *const StDecoderExtScoreV2,
+        extern "C" fn(type_id_utf8: StStr, index: usize) -> *const StDecoderExtScore,
     >,
 
     pub create_decoder_instance: Option<
         extern "C" fn(
             type_id_utf8: StStr,
             config_json_utf8: StStr,
-            out_instance: *mut StDecoderInstanceRefV2,
+            out_instance: *mut StDecoderInstanceRef,
         ) -> StStatus,
     >,
     pub create_dsp_instance: Option<
@@ -124,28 +138,28 @@ pub struct StPluginModuleV2 {
             sample_rate: u32,
             channels: u16,
             config_json_utf8: StStr,
-            out_instance: *mut StDspInstanceRefV2,
+            out_instance: *mut StDspInstanceRef,
         ) -> StStatus,
     >,
     pub create_source_catalog_instance: Option<
         extern "C" fn(
             type_id_utf8: StStr,
             config_json_utf8: StStr,
-            out_instance: *mut StSourceCatalogInstanceRefV2,
+            out_instance: *mut StSourceCatalogInstanceRef,
         ) -> StStatus,
     >,
     pub create_lyrics_provider_instance: Option<
         extern "C" fn(
             type_id_utf8: StStr,
             config_json_utf8: StStr,
-            out_instance: *mut StLyricsProviderInstanceRefV2,
+            out_instance: *mut StLyricsProviderInstanceRef,
         ) -> StStatus,
     >,
     pub create_output_sink_instance: Option<
         extern "C" fn(
             type_id_utf8: StStr,
             config_json_utf8: StStr,
-            out_instance: *mut StOutputSinkInstanceRefV2,
+            out_instance: *mut StOutputSinkInstanceRef,
         ) -> StStatus,
     >,
 
@@ -159,7 +173,7 @@ Decoder extension score rule shape:
 ```rust
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct StDecoderExtScoreV2 {
+pub struct StDecoderExtScore {
     pub ext_utf8: StStr, // lowercase extension without dot, "*" as wildcard
     pub score: u16,      // higher is preferred
     pub flags: u16,      // reserved
@@ -172,13 +186,13 @@ Selection rule in this phase:
 1. Only extension-hint based scoring is used for decoder ordering.
 2. No metadata/header probing is used in host selection path.
 3. Plugin may provide wildcard (`*`) fallback when exact extension is not present.
-4. ABI version must be bumped when V2 ABI layout changes (current draft implementation: `api_version = 4`).
+4. ABI version must be bumped when V2 ABI layout changes (current draft implementation: `api_version = 5`).
 
 Entry symbol:
 
 ```rust
-pub type StPluginEntryV2 =
-    unsafe extern "C" fn(host: *const StHostVTableV2) -> *const StPluginModuleV2;
+pub type StPluginEntry =
+    unsafe extern "C" fn(host: *const StHostVTable) -> *const StPluginModule;
 ```
 
 ## 6. Instance ABI Pattern
@@ -193,16 +207,16 @@ Example shape:
 ```rust
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
-pub struct StDecoderInstanceRefV2 {
+pub struct StDecoderInstanceRef {
     pub handle: *mut core::ffi::c_void,
-    pub vtable: *const StDecoderInstanceVTableV2,
+    pub vtable: *const StDecoderInstanceVTable,
     pub reserved0: u32,
     pub reserved1: u64,
 }
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum StConfigUpdateModeV2 {
+pub enum StConfigUpdateMode {
     HotApply = 1,
     Recreate = 2,
     Reject = 3,
@@ -210,16 +224,16 @@ pub enum StConfigUpdateModeV2 {
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
-pub struct StConfigUpdatePlanV2 {
-    pub mode: StConfigUpdateModeV2,
+pub struct StConfigUpdatePlan {
+    pub mode: StConfigUpdateMode,
     pub reason_utf8: StStr, // optional
 }
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
-pub struct StDecoderInstanceVTableV2 {
-    pub open: extern "C" fn(handle: *mut c_void, args: StDecoderOpenArgsV2) -> StStatus,
-    pub get_info: extern "C" fn(handle: *mut c_void, out: *mut StDecoderInfoV1) -> StStatus,
+pub struct StDecoderInstanceVTable {
+    pub open: extern "C" fn(handle: *mut c_void, args: StDecoderOpenArgs) -> StStatus,
+    pub get_info: extern "C" fn(handle: *mut c_void, out: *mut StDecoderInfo) -> StStatus,
     pub read_interleaved_f32: extern "C" fn(
         handle: *mut c_void,
         frames: u32,
@@ -233,7 +247,7 @@ pub struct StDecoderInstanceVTableV2 {
         extern "C" fn(
             handle: *mut c_void,
             new_config_json_utf8: StStr,
-            out_plan: *mut StConfigUpdatePlanV2,
+            out_plan: *mut StConfigUpdatePlan,
         ) -> StStatus,
     >,
     pub apply_config_update_json_utf8: Option<
@@ -252,10 +266,10 @@ pub struct StDecoderInstanceVTableV2 {
 ```rust
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
-pub struct StDecoderOpenArgsV2 {
+pub struct StDecoderOpenArgs {
     pub path_utf8: StStr,
     pub ext_utf8: StStr,
-    pub io_vtable: *const StIoVTableV1,
+    pub io_vtable: *const StIoVTable,
     pub io_handle: *mut c_void,
 }
 ```
@@ -352,13 +366,13 @@ Control-plane update entry:
 ```rust
 fn update_instance_config(rt: &InstanceRuntime, new_config_json: &str) -> anyhow::Result<UpdateOutcome> {
     match plan_update_mode(new_config_json)? {
-        StConfigUpdateModeV2::HotApply => {
+        StConfigUpdateMode::HotApply => {
             let block = build_param_block(new_config_json)?;
             rt.params.store(Arc::new(block));
             let gen = rt.config_gen.fetch_add(1, Ordering::AcqRel) + 1;
             Ok(UpdateOutcome::Applied { gen })
         }
-        StConfigUpdateModeV2::Recreate => {
+        StConfigUpdateMode::Recreate => {
             let next_gen = rt.config_gen.load(Ordering::Acquire) + 1;
             rt.cmd_tx.send(InstanceCmd::Recreate {
                 new_config_json: new_config_json.to_string(),
@@ -367,7 +381,7 @@ fn update_instance_config(rt: &InstanceRuntime, new_config_json: &str) -> anyhow
             // Caller waits for actor ack/event and returns Recreated/Rejected.
             wait_recreate_result(next_gen)
         }
-        StConfigUpdateModeV2::Reject => {
+        StConfigUpdateMode::Reject => {
             let gen = rt.config_gen.load(Ordering::Acquire);
             Ok(UpdateOutcome::Rejected {
                 reason: "plugin rejected update".to_string(),
@@ -538,40 +552,44 @@ Review checklist for PRs:
 Status legend: `DONE`, `IN_PROGRESS`, `NOT_STARTED`.
 
 1. `DONE` Introduce new ABI structs in `stellatune-plugin-api` (temporary `V2` names allowed during migration).
-2. `IN_PROGRESS` Implement SDK codegen against the new ABI only.
-Current: V2 SDK exists and now includes decoder extension-score export (`EXT_SCORE_RULES` -> ABI callbacks) plus decoder `open` IO bridge shim, but repository is not yet V2-only end-to-end.
+2. `DONE` Implement SDK codegen against the new ABI only.
+Current: SDK export path is mainline (`export_plugin!`), built-in plugins are migrated, and residual V1 optional-interface helper macros/types were removed.
 3. `DONE` Introduce host runtime generation manager in `stellatune-plugins`.
 Current: `PluginRuntimeService` includes native `load/reload/unload/list` management path, shared singleton access, and typed `create_*_instance` V2 execution APIs.
-4. `IN_PROGRESS` Remove `PluginManager: Clone` usage in call-heavy paths.
-Current: query control paths have moved to control-thread actor ownership for capability instances, but decode open/probe and library scan/metadata paths still depend on `PluginManager` snapshots/clones.
+4. `DONE` Remove `PluginManager: Clone` usage in call-heavy paths.
+Current: audio/library hot paths are V2 runtime only, and legacy `PluginManager` container code was removed from `stellatune-plugins` root.
 5. `IN_PROGRESS` Migrate `stellatune-audio` decode/output pipeline to instance-owner model.
-Current: DSP and output sink execution use V2 instances; source/lyrics/output query is now owner-actor based with instance reuse; decoder selection is extension-score based and no longer uses legacy probe scoring; decoder open in audio now attempts V2 instance open first and falls back to legacy V1 decoder path.
+Current: DSP and output sink execution use V2 instances; source/lyrics/output query is now owner-actor based with instance reuse; decoder selection is extension-score based and no longer uses legacy probe scoring; decoder open in audio now uses V2 source/decoder instances for plugin paths with built-in local fallback.
 6. `IN_PROGRESS` Migrate `stellatune-library` metadata scan/watch to instance-owner model.
-Current: V2 instance wrappers are ready; library execution path wiring to V2 instances is not completed yet.
-7. `NOT_STARTED` Delete all V1 ABI/types/symbols/adapters and old plugin runtime paths.
-8. `NOT_STARTED` Remove temporary migration suffixes and keep only the new mainline API surface.
-9. `IN_PROGRESS` Remove/avoid broad `unsafe impl Sync` on runtime containers.
-Current: broad unsafe impls still exist on legacy containers and must be removed with V1 path deletion.
+Current: scan/watch support checks and metadata plugin decode are runtime-driven; service-layer plugin bootstrap/reload is runtime-only.
+7. `DONE` Delete all V1 ABI/types/symbols/adapters and old plugin runtime paths.
+Current: `stellatune-plugins` legacy manager/runtime paths are deleted; legacy host/plugin entry ABI and old SDK `export_plugin!` path are removed; optional source/lyrics/output interface ABI + helper macros are deleted; repository code paths no longer contain V1 ABI symbols.
+8. `DONE` Remove temporary migration suffixes and keep only the new mainline API surface.
+Current: host/plugin entry symbols and ABI structs/constants are converged to mainline names; runtime/service/helper and SDK descriptor/helper naming convergence is complete; plugin instance adapter local `*V2` names are removed.
+9. `DONE` Remove/avoid broad `unsafe impl Sync` on runtime containers.
+Current: legacy broad `unsafe impl Sync` containers were removed with V1 container deletion; V2 instance wrappers remain `Send`-only.
 10. `IN_PROGRESS` Enforce modular file layout and readability constraints during migration.
-Current: V2 code is split by runtime concerns; final cleanup still pending after legacy deletion.
+Current: runtime code is split by concerns; ongoing refactor should continue tightening file/module boundaries.
 
 ### 14.1 Next Refactor Plan (From Current State)
 
 1. Stage A: Decoder path migration in audio worker
-   1. `DONE` Introduce a V2-native decoder selection strategy (replace legacy `probe_best_decoder*` dependency) using extension-score callbacks.
-   2. `IN_PROGRESS` Migrate `open_engine_decoder` and related decode entrypoints to V2 instance factories.
-   Current: audio decode open path is V2-first with fallback; full V1 removal waits for plugin migration.
+   1. `DONE` Introduce decoder selection strategy (replace legacy `probe_best_decoder*` dependency) using extension-score callbacks.
+   2. `DONE` Migrate `open_engine_decoder` and related decode entrypoints to instance factories.
+   Current: plugin decode open path is runtime-only (including source stream path via source instance `open_stream`); built-in decoder fallback is preserved for local files.
    3. Keep built-in decoder fallback behavior unchanged while replacing plugin decoder selection/open.
 2. Stage B: Library worker migration
-   1. Migrate metadata/scan/watch decode capability checks and decoder open calls to V2 runtime.
-   2. Remove library-side `PluginManager` snapshot/clone dependency.
+   1. `DONE` Migrate metadata/scan/watch decode capability checks and decoder open calls to V2 runtime.
+   2. `DONE` Remove library-side `PluginManager` snapshot/clone dependency in worker hot paths.
 3. Stage C: Runtime event path migration
-   1. Move plugin host event ingress/egress from legacy manager helpers to V2 runtime-native path.
-   2. Ensure reload/deactivate keeps actor-owned instance and event state consistent.
+   1. `DONE` Move plugin host event ingress/egress from legacy manager helpers to V2 runtime-native path.
+   2. `DONE` Ensure reload/deactivate keeps actor-owned instance and event state consistent.
+   Current: V2 host callback context is owned per loaded module generation; event queues are ref-counted by plugin id and automatically cleaned after last generation unloads, avoiding stale queue/event leakage across reload/deactivate.
 4. Stage D: Legacy deletion gate
-   1. Delete V1 runtime execution paths once audio/library call sites are fully migrated.
-   2. Remove broad legacy `unsafe impl Sync` containers together with V1 deletion.
-   3. Rename transition-only `V2` surfaces where appropriate to become the mainline API.
+   1. `DONE` Delete V1 runtime execution paths in `stellatune-plugins` after audio/library call sites were migrated.
+   2. `DONE` Remove broad legacy `unsafe impl Sync` containers together with V1 deletion.
+   3. `DONE` Rename transition-only `V2` surfaces where appropriate to become the mainline API.
+   Current: plugin implementations are migrated to `export_plugin!`; V1 ABI/runtime surfaces are deleted; naming/API convergence is completed in code.
 
 ## 15. Open Questions
 
@@ -589,5 +607,5 @@ Current: lifecycle primitives exist; full guarantee awaits V2-native load/unload
 2. `PARTIAL` No implicit concurrent calls to the same instance.
 Current: design and runtime structures are in place; full enforcement depends on audio/library worker migration completion.
 3. `PENDING` Hot config update path works for at least one DSP and one output sink plugin.
-4. `PENDING` Decode/output/library workers no longer depend on cloning whole plugin runtime state.
+4. `PASS` Decode/output/library workers no longer depend on cloning whole plugin runtime state.
 5. `PENDING` Per-instance serialization violations in host runtime are detected and surfaced as deterministic errors.

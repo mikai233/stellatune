@@ -1,12 +1,12 @@
 use serde::{Serialize, de::DeserializeOwned};
-use stellatune_plugin_api::v2::StOutputSinkNegotiatedSpecV2;
+use stellatune_plugin_api::StOutputSinkNegotiatedSpec;
 
-use crate::{SdkError, SdkResult, StAudioSpec, StDecoderInfoV1, StIoVTableV1, StSeekWhence};
+use crate::{SdkError, SdkResult, StAudioSpec, StDecoderInfo, StIoVTable, StSeekWhence};
 
-use super::update::ConfigUpdatableV2;
+use super::update::ConfigUpdatable;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DecoderExtScoreRuleV2 {
+pub struct DecoderExtScoreRule {
     /// Lowercase extension without dot (e.g. "flac").
     /// "*" means wildcard fallback.
     pub ext: &'static str,
@@ -14,12 +14,12 @@ pub struct DecoderExtScoreRuleV2 {
     pub score: u16,
 }
 
-pub trait DecoderInstanceV2: Send + ConfigUpdatableV2 + 'static {
-    fn open(&mut self, _args: DecoderOpenArgsRefV2<'_>) -> SdkResult<()> {
+pub trait DecoderInstance: Send + ConfigUpdatable + 'static {
+    fn open(&mut self, _args: DecoderOpenArgsRef<'_>) -> SdkResult<()> {
         Err(SdkError::msg("decoder open is not implemented"))
     }
 
-    fn get_info(&self) -> StDecoderInfoV1;
+    fn get_info(&self) -> StDecoderInfo;
 
     fn get_metadata_json(&self) -> SdkResult<Option<String>> {
         Ok(None)
@@ -39,12 +39,12 @@ pub trait DecoderInstanceV2: Send + ConfigUpdatableV2 + 'static {
 }
 
 #[derive(Clone, Copy)]
-pub struct DecoderOpenIoRefV2 {
-    pub io_vtable: *const StIoVTableV1,
+pub struct DecoderOpenIoRef {
+    pub io_vtable: *const StIoVTable,
     pub io_handle: *mut core::ffi::c_void,
 }
 
-impl DecoderOpenIoRefV2 {
+impl DecoderOpenIoRef {
     pub fn read(&mut self, out: &mut [u8]) -> SdkResult<usize> {
         if self.io_vtable.is_null() {
             return Err(SdkError::msg("decoder io_vtable is null"));
@@ -118,27 +118,27 @@ impl DecoderOpenIoRefV2 {
 }
 
 #[derive(Clone, Copy)]
-pub struct DecoderOpenArgsRefV2<'a> {
+pub struct DecoderOpenArgsRef<'a> {
     pub path_hint: &'a str,
     pub ext_hint: &'a str,
-    pub io: DecoderOpenIoRefV2,
+    pub io: DecoderOpenIoRef,
 }
 
-pub trait DecoderDescriptorV2 {
+pub trait DecoderDescriptor {
     type Config: Serialize + DeserializeOwned;
-    type Instance: DecoderInstanceV2;
+    type Instance: DecoderInstance;
 
     const TYPE_ID: &'static str;
     const DISPLAY_NAME: &'static str;
     const CONFIG_SCHEMA_JSON: &'static str;
     const DEFAULT_CONFIG_JSON: &'static str = "{}";
-    const EXT_SCORE_RULES: &'static [DecoderExtScoreRuleV2] = &[];
+    const EXT_SCORE_RULES: &'static [DecoderExtScoreRule] = &[];
     fn default_config() -> Self::Config;
 
     fn create(config: Self::Config) -> SdkResult<Self::Instance>;
 }
 
-pub trait DspInstanceV2: Send + ConfigUpdatableV2 + 'static {
+pub trait DspInstance: Send + ConfigUpdatable + 'static {
     /// Process interleaved f32 samples in place.
     fn process_interleaved_f32_in_place(&mut self, samples: &mut [f32], frames: u32);
 
@@ -151,9 +151,9 @@ pub trait DspInstanceV2: Send + ConfigUpdatableV2 + 'static {
     }
 }
 
-pub trait DspDescriptorV2 {
+pub trait DspDescriptor {
     type Config: Serialize + DeserializeOwned;
-    type Instance: DspInstanceV2;
+    type Instance: DspInstance;
 
     const TYPE_ID: &'static str;
     const DISPLAY_NAME: &'static str;
@@ -164,7 +164,7 @@ pub trait DspDescriptorV2 {
     fn create(spec: StAudioSpec, config: Self::Config) -> SdkResult<Self::Instance>;
 }
 
-pub trait SourceStreamV2: Send + 'static {
+pub trait SourceStream: Send + 'static {
     const SUPPORTS_SEEK: bool = false;
     const SUPPORTS_TELL: bool = false;
     const SUPPORTS_SIZE: bool = false;
@@ -184,12 +184,12 @@ pub trait SourceStreamV2: Send + 'static {
     }
 }
 
-pub struct SourceOpenResultV2<S: SourceStreamV2> {
+pub struct SourceOpenResult<S: SourceStream> {
     pub stream: S,
     pub track_meta_json: Option<String>,
 }
 
-impl<S: SourceStreamV2> SourceOpenResultV2<S> {
+impl<S: SourceStream> SourceOpenResult<S> {
     pub fn new(stream: S) -> Self {
         Self {
             stream,
@@ -203,22 +203,21 @@ impl<S: SourceStreamV2> SourceOpenResultV2<S> {
     }
 }
 
-pub trait SourceCatalogInstanceV2: Send + ConfigUpdatableV2 + 'static {
+pub trait SourceCatalogInstance: Send + ConfigUpdatable + 'static {
     fn list_items_json(&mut self, request_json: &str) -> SdkResult<String>;
 
-    fn open_stream_json(&mut self, track_json: &str)
-    -> SdkResult<SourceOpenResultV2<Self::Stream>>;
+    fn open_stream_json(&mut self, track_json: &str) -> SdkResult<SourceOpenResult<Self::Stream>>;
 
     fn close_stream(&mut self, _stream: &mut Self::Stream) -> SdkResult<()> {
         Ok(())
     }
 
-    type Stream: SourceStreamV2;
+    type Stream: SourceStream;
 }
 
-pub trait SourceCatalogDescriptorV2 {
+pub trait SourceCatalogDescriptor {
     type Config: Serialize + DeserializeOwned;
-    type Instance: SourceCatalogInstanceV2;
+    type Instance: SourceCatalogInstance;
 
     const TYPE_ID: &'static str;
     const DISPLAY_NAME: &'static str;
@@ -229,14 +228,14 @@ pub trait SourceCatalogDescriptorV2 {
     fn create(config: Self::Config) -> SdkResult<Self::Instance>;
 }
 
-pub trait LyricsProviderInstanceV2: Send + ConfigUpdatableV2 + 'static {
+pub trait LyricsProviderInstance: Send + ConfigUpdatable + 'static {
     fn search_json(&mut self, query_json: &str) -> SdkResult<String>;
     fn fetch_json(&mut self, track_json: &str) -> SdkResult<String>;
 }
 
-pub trait LyricsProviderDescriptorV2 {
+pub trait LyricsProviderDescriptor {
     type Config: Serialize + DeserializeOwned;
-    type Instance: LyricsProviderInstanceV2;
+    type Instance: LyricsProviderInstance;
 
     const TYPE_ID: &'static str;
     const DISPLAY_NAME: &'static str;
@@ -247,14 +246,14 @@ pub trait LyricsProviderDescriptorV2 {
     fn create(config: Self::Config) -> SdkResult<Self::Instance>;
 }
 
-pub trait OutputSinkInstanceV2: Send + ConfigUpdatableV2 + 'static {
+pub trait OutputSinkInstance: Send + ConfigUpdatable + 'static {
     fn list_targets_json(&mut self) -> SdkResult<String>;
 
     fn negotiate_spec_json(
         &mut self,
         target_json: &str,
         desired_spec: StAudioSpec,
-    ) -> SdkResult<StOutputSinkNegotiatedSpecV2>;
+    ) -> SdkResult<StOutputSinkNegotiatedSpec>;
 
     fn open_json(&mut self, target_json: &str, spec: StAudioSpec) -> SdkResult<()>;
 
@@ -270,9 +269,9 @@ pub trait OutputSinkInstanceV2: Send + ConfigUpdatableV2 + 'static {
     }
 }
 
-pub trait OutputSinkDescriptorV2 {
+pub trait OutputSinkDescriptor {
     type Config: Serialize + DeserializeOwned;
-    type Instance: OutputSinkInstanceV2;
+    type Instance: OutputSinkInstance;
 
     const TYPE_ID: &'static str;
     const DISPLAY_NAME: &'static str;
@@ -284,33 +283,33 @@ pub trait OutputSinkDescriptorV2 {
 }
 
 #[doc(hidden)]
-pub struct DecoderBoxV2<T: DecoderInstanceV2> {
+pub struct DecoderBox<T: DecoderInstance> {
     pub inner: T,
     pub channels: u16,
 }
 
 #[doc(hidden)]
-pub struct DspBoxV2<T: DspInstanceV2> {
+pub struct DspBox<T: DspInstance> {
     pub inner: T,
     pub channels: u16,
 }
 
 #[doc(hidden)]
-pub struct SourceCatalogBoxV2<T: SourceCatalogInstanceV2> {
+pub struct SourceCatalogBox<T: SourceCatalogInstance> {
     pub inner: T,
 }
 
 #[doc(hidden)]
-pub struct SourceStreamBoxV2<T: SourceStreamV2> {
+pub struct SourceStreamBox<T: SourceStream> {
     pub inner: T,
 }
 
 #[doc(hidden)]
-pub struct LyricsProviderBoxV2<T: LyricsProviderInstanceV2> {
+pub struct LyricsProviderBox<T: LyricsProviderInstance> {
     pub inner: T,
 }
 
 #[doc(hidden)]
-pub struct OutputSinkBoxV2<T: OutputSinkInstanceV2> {
+pub struct OutputSinkBox<T: OutputSinkInstance> {
     pub inner: T,
 }

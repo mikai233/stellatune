@@ -6,30 +6,31 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Result, anyhow};
-use stellatune_plugin_api::v2::{STELLATUNE_PLUGIN_API_VERSION_V2, StHostVTableV2};
-use stellatune_plugin_api::v2::{
-    StDecoderInstanceRefV2, StDspInstanceRefV2, StLyricsProviderInstanceRefV2,
-    StOutputSinkInstanceRefV2, StSourceCatalogInstanceRefV2,
+use stellatune_plugin_api::{STELLATUNE_PLUGIN_API_VERSION, StHostVTable};
+use stellatune_plugin_api::{
+    StDecoderInstanceRef, StDspInstanceRef, StLyricsProviderInstanceRef, StOutputSinkInstanceRef,
+    StSourceCatalogInstanceRef,
 };
+use stellatune_plugin_api::{StLogLevel, StStr};
 
+use crate::manifest;
 use crate::runtime::{
     CapabilityKind, GenerationGuard, GenerationId, InstanceId, InstanceRegistry,
     InstanceUpdateCoordinator, LifecycleStore,
 };
-use crate::{default_host_vtable, manifest};
 
 use super::capability_registry::CapabilityRegistry;
 use super::load::{
-    LoadedModuleCandidateV2, LoadedPluginModuleV2, RuntimeLoadReportV2, RuntimePluginInfoV2,
-    load_discovered_plugin_v2,
+    LoadedModuleCandidate, LoadedPluginModule, RuntimeLoadReport, RuntimePluginInfo,
+    load_discovered_plugin,
 };
 use super::{
     ActivationReport, CapabilityDescriptorInput, CapabilityDescriptorRecord, CapabilityId,
     PluginGenerationInfo, PluginSlotSnapshot,
 };
 use super::{
-    DecoderInstanceV2, DspInstanceV2, InstanceRuntimeCtx, LyricsProviderInstanceV2,
-    OutputSinkInstanceV2, SourceCatalogInstanceV2, ststr_from_str,
+    DecoderInstance, DspInstance, InstanceRuntimeCtx, LyricsProviderInstance, OutputSinkInstance,
+    SourceCatalogInstance, ststr_from_str,
 };
 
 #[derive(Debug)]
@@ -59,14 +60,14 @@ impl PluginSlotState {
     }
 }
 
-struct LoadedPluginGenerationV2 {
+struct LoadedPluginGeneration {
     generation: GenerationId,
     plugin_name: String,
-    loaded: LoadedPluginModuleV2,
+    loaded: LoadedPluginModule,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DecoderCandidateScoreV2 {
+pub struct DecoderCandidateScore {
     pub plugin_id: String,
     pub type_id: String,
     pub score: u16,
@@ -74,12 +75,12 @@ pub struct DecoderCandidateScoreV2 {
 
 #[derive(Default)]
 struct PluginModuleSlotState {
-    active: Option<Arc<LoadedPluginGenerationV2>>,
-    draining: Vec<Arc<LoadedPluginGenerationV2>>,
+    active: Option<Arc<LoadedPluginGeneration>>,
+    draining: Vec<Arc<LoadedPluginGeneration>>,
 }
 
 impl PluginModuleSlotState {
-    fn activate(&mut self, next: LoadedPluginGenerationV2) {
+    fn activate(&mut self, next: LoadedPluginGeneration) {
         if let Some(cur) = self.active.take() {
             self.draining.push(cur);
         }
@@ -94,7 +95,7 @@ impl PluginModuleSlotState {
 }
 
 pub struct PluginRuntimeService {
-    host: StHostVTableV2,
+    host: StHostVTable,
     slots: Mutex<HashMap<String, PluginSlotState>>,
     modules: Mutex<HashMap<String, PluginModuleSlotState>>,
     lifecycle: Arc<LifecycleStore>,
@@ -105,7 +106,7 @@ pub struct PluginRuntimeService {
 }
 
 impl PluginRuntimeService {
-    pub fn new(host: StHostVTableV2) -> Self {
+    pub fn new(host: StHostVTable) -> Self {
         Self {
             host,
             slots: Mutex::new(HashMap::new()),
@@ -118,7 +119,7 @@ impl PluginRuntimeService {
         }
     }
 
-    pub fn host(&self) -> &StHostVTableV2 {
+    pub fn host(&self) -> &StHostVTable {
         &self.host
     }
 
@@ -126,7 +127,7 @@ impl PluginRuntimeService {
         &self.updates
     }
 
-    pub fn list_active_plugins(&self) -> Vec<RuntimePluginInfoV2> {
+    pub fn list_active_plugins(&self) -> Vec<RuntimePluginInfo> {
         let mut plugin_ids = self.active_plugin_ids();
         plugin_ids.sort();
         let modules = self.modules.lock().ok();
@@ -135,7 +136,7 @@ impl PluginRuntimeService {
             let Some(generation) = self.active_generation(&plugin_id) else {
                 continue;
             };
-            let mut info = RuntimePluginInfoV2 {
+            let mut info = RuntimePluginInfo {
                 id: plugin_id.clone(),
                 name: plugin_id.clone(),
                 metadata_json: generation.metadata_json.clone(),
@@ -250,7 +251,7 @@ impl PluginRuntimeService {
         plugin_id: &str,
         type_id: &str,
         config_json: &str,
-    ) -> Result<DecoderInstanceV2> {
+    ) -> Result<DecoderInstance> {
         let capability = self
             .resolve_active_capability(plugin_id, CapabilityKind::Decoder, type_id)
             .ok_or_else(|| anyhow!("decoder capability not found: {plugin_id}::{type_id}"))?;
@@ -262,7 +263,7 @@ impl PluginRuntimeService {
                 "plugin `{plugin_id}` does not provide decoder factory"
             ));
         };
-        let mut raw = StDecoderInstanceRefV2 {
+        let mut raw = StDecoderInstanceRef {
             handle: core::ptr::null_mut(),
             vtable: core::ptr::null(),
             reserved0: 0,
@@ -284,10 +285,10 @@ impl PluginRuntimeService {
                 e
             })?;
         let ctx = self.instance_ctx(instance_id, plugin_free)?;
-        DecoderInstanceV2::from_ffi(ctx, raw)
+        DecoderInstance::from_ffi(ctx, raw)
     }
 
-    pub fn decoder_candidates_for_ext(&self, ext_hint: &str) -> Vec<DecoderCandidateScoreV2> {
+    pub fn decoder_candidates_for_ext(&self, ext_hint: &str) -> Vec<DecoderCandidateScore> {
         let ext = normalize_ext_hint(ext_hint);
         if ext.is_empty() {
             return Vec::new();
@@ -309,7 +310,7 @@ impl PluginRuntimeService {
                 if score == 0 {
                     continue;
                 }
-                out.push(DecoderCandidateScoreV2 {
+                out.push(DecoderCandidateScore {
                     plugin_id: plugin_id.clone(),
                     type_id: cap.type_id,
                     score,
@@ -333,7 +334,7 @@ impl PluginRuntimeService {
         sample_rate: u32,
         channels: u16,
         config_json: &str,
-    ) -> Result<DspInstanceV2> {
+    ) -> Result<DspInstance> {
         let capability = self
             .resolve_active_capability(plugin_id, CapabilityKind::Dsp, type_id)
             .ok_or_else(|| anyhow!("dsp capability not found: {plugin_id}::{type_id}"))?;
@@ -343,7 +344,7 @@ impl PluginRuntimeService {
         let Some(create) = module.loaded._module.create_dsp_instance else {
             return Err(anyhow!("plugin `{plugin_id}` does not provide dsp factory"));
         };
-        let mut raw = StDspInstanceRefV2 {
+        let mut raw = StDspInstanceRef {
             handle: core::ptr::null_mut(),
             vtable: core::ptr::null(),
             reserved0: 0,
@@ -367,7 +368,7 @@ impl PluginRuntimeService {
                 e
             })?;
         let ctx = self.instance_ctx(instance_id, plugin_free)?;
-        DspInstanceV2::from_ffi(ctx, raw)
+        DspInstance::from_ffi(ctx, raw)
     }
 
     pub fn create_source_catalog_instance(
@@ -375,7 +376,7 @@ impl PluginRuntimeService {
         plugin_id: &str,
         type_id: &str,
         config_json: &str,
-    ) -> Result<SourceCatalogInstanceV2> {
+    ) -> Result<SourceCatalogInstance> {
         let capability = self
             .resolve_active_capability(plugin_id, CapabilityKind::SourceCatalog, type_id)
             .ok_or_else(|| anyhow!("source capability not found: {plugin_id}::{type_id}"))?;
@@ -387,7 +388,7 @@ impl PluginRuntimeService {
                 "plugin `{plugin_id}` does not provide source catalog factory"
             ));
         };
-        let mut raw = StSourceCatalogInstanceRefV2 {
+        let mut raw = StSourceCatalogInstanceRef {
             handle: core::ptr::null_mut(),
             vtable: core::ptr::null(),
             reserved0: 0,
@@ -409,7 +410,7 @@ impl PluginRuntimeService {
                 e
             })?;
         let ctx = self.instance_ctx(instance_id, plugin_free)?;
-        SourceCatalogInstanceV2::from_ffi(ctx, raw)
+        SourceCatalogInstance::from_ffi(ctx, raw)
     }
 
     pub fn create_lyrics_provider_instance(
@@ -417,7 +418,7 @@ impl PluginRuntimeService {
         plugin_id: &str,
         type_id: &str,
         config_json: &str,
-    ) -> Result<LyricsProviderInstanceV2> {
+    ) -> Result<LyricsProviderInstance> {
         let capability = self
             .resolve_active_capability(plugin_id, CapabilityKind::LyricsProvider, type_id)
             .ok_or_else(|| anyhow!("lyrics capability not found: {plugin_id}::{type_id}"))?;
@@ -429,7 +430,7 @@ impl PluginRuntimeService {
                 "plugin `{plugin_id}` does not provide lyrics provider factory"
             ));
         };
-        let mut raw = StLyricsProviderInstanceRefV2 {
+        let mut raw = StLyricsProviderInstanceRef {
             handle: core::ptr::null_mut(),
             vtable: core::ptr::null(),
             reserved0: 0,
@@ -451,7 +452,7 @@ impl PluginRuntimeService {
                 e
             })?;
         let ctx = self.instance_ctx(instance_id, plugin_free)?;
-        LyricsProviderInstanceV2::from_ffi(ctx, raw)
+        LyricsProviderInstance::from_ffi(ctx, raw)
     }
 
     pub fn create_output_sink_instance(
@@ -459,7 +460,7 @@ impl PluginRuntimeService {
         plugin_id: &str,
         type_id: &str,
         config_json: &str,
-    ) -> Result<OutputSinkInstanceV2> {
+    ) -> Result<OutputSinkInstance> {
         let capability = self
             .resolve_active_capability(plugin_id, CapabilityKind::OutputSink, type_id)
             .ok_or_else(|| anyhow!("output capability not found: {plugin_id}::{type_id}"))?;
@@ -471,7 +472,7 @@ impl PluginRuntimeService {
                 "plugin `{plugin_id}` does not provide output sink factory"
             ));
         };
-        let mut raw = StOutputSinkInstanceRefV2 {
+        let mut raw = StOutputSinkInstanceRef {
             handle: core::ptr::null_mut(),
             vtable: core::ptr::null(),
             reserved0: 0,
@@ -493,7 +494,7 @@ impl PluginRuntimeService {
                 e
             })?;
         let ctx = self.instance_ctx(instance_id, plugin_free)?;
-        OutputSinkInstanceV2::from_ffi(ctx, raw)
+        OutputSinkInstance::from_ffi(ctx, raw)
     }
 
     pub fn register_instance_for_capability(
@@ -595,9 +596,9 @@ impl PluginRuntimeService {
         &self,
         dir: impl AsRef<Path>,
         disabled_ids: &HashSet<String>,
-    ) -> Result<RuntimeLoadReportV2> {
+    ) -> Result<RuntimeLoadReport> {
         let dir = dir.as_ref();
-        let mut report = RuntimeLoadReportV2::default();
+        let mut report = RuntimeLoadReport::default();
         for discovered in manifest::discover_plugins(dir)? {
             if disabled_ids.contains(&discovered.manifest.id) {
                 continue;
@@ -605,7 +606,7 @@ impl PluginRuntimeService {
             if self.active_generation(&discovered.manifest.id).is_some() {
                 continue;
             }
-            match load_discovered_plugin_v2(&discovered, &self.host) {
+            match load_discovered_plugin(&discovered, &self.host) {
                 Ok(candidate) => {
                     let activated = self.activate_loaded_candidate(candidate);
                     report.unloaded_generations += activated.unloaded_generations;
@@ -623,16 +624,16 @@ impl PluginRuntimeService {
         &self,
         dir: impl AsRef<Path>,
         disabled_ids: &HashSet<String>,
-    ) -> Result<RuntimeLoadReportV2> {
+    ) -> Result<RuntimeLoadReport> {
         let dir = dir.as_ref();
-        let mut report = RuntimeLoadReportV2::default();
+        let mut report = RuntimeLoadReport::default();
         let mut discovered_ids = HashSet::<String>::new();
         for discovered in manifest::discover_plugins(dir)? {
             discovered_ids.insert(discovered.manifest.id.clone());
             if disabled_ids.contains(&discovered.manifest.id) {
                 continue;
             }
-            match load_discovered_plugin_v2(&discovered, &self.host) {
+            match load_discovered_plugin(&discovered, &self.host) {
                 Ok(candidate) => {
                     let activated = self.activate_loaded_candidate(candidate);
                     report.unloaded_generations += activated.unloaded_generations;
@@ -658,8 +659,8 @@ impl PluginRuntimeService {
         Ok(report)
     }
 
-    pub fn unload_plugin(&self, plugin_id: &str) -> RuntimeLoadReportV2 {
-        let mut report = RuntimeLoadReportV2::default();
+    pub fn unload_plugin(&self, plugin_id: &str) -> RuntimeLoadReport {
+        let mut report = RuntimeLoadReport::default();
         if self.deactivate_plugin(plugin_id).is_some() {
             report.deactivated.push(plugin_id.to_string());
         }
@@ -689,7 +690,7 @@ impl PluginRuntimeService {
         &self,
         plugin_id: &str,
         generation: GenerationId,
-    ) -> Option<Arc<LoadedPluginGenerationV2>> {
+    ) -> Option<Arc<LoadedPluginGeneration>> {
         let modules = self.modules.lock().ok()?;
         let slot = modules.get(plugin_id)?;
         if let Some(active) = slot.active.as_ref()
@@ -740,7 +741,7 @@ impl PluginRuntimeService {
         best_exact.or(best_wildcard)
     }
 
-    fn activate_loaded_candidate(&self, candidate: LoadedModuleCandidateV2) -> ActivatedLoad {
+    fn activate_loaded_candidate(&self, candidate: LoadedModuleCandidate) -> ActivatedLoad {
         let activation = self.activate_generation(
             &candidate.plugin_id,
             candidate.metadata_json.clone(),
@@ -754,7 +755,7 @@ impl PluginRuntimeService {
         );
         let unloaded_generations = self.collect_ready_for_unload(&candidate.plugin_id).len();
         ActivatedLoad {
-            info: RuntimePluginInfoV2 {
+            info: RuntimePluginInfo {
                 id: candidate.plugin_id,
                 name: candidate.plugin_name,
                 metadata_json: candidate.metadata_json,
@@ -770,13 +771,13 @@ impl PluginRuntimeService {
         plugin_id: &str,
         generation: GenerationId,
         plugin_name: String,
-        loaded: LoadedPluginModuleV2,
+        loaded: LoadedPluginModule,
     ) {
         if let Ok(mut modules) = self.modules.lock() {
             modules
                 .entry(plugin_id.to_string())
                 .or_default()
-                .activate(LoadedPluginGenerationV2 {
+                .activate(LoadedPluginGeneration {
                     generation,
                     plugin_name,
                     loaded,
@@ -785,21 +786,17 @@ impl PluginRuntimeService {
     }
 }
 
-pub type SharedPluginRuntimeServiceV2 = Arc<Mutex<PluginRuntimeService>>;
+pub type SharedPluginRuntimeService = Arc<Mutex<PluginRuntimeService>>;
 
-pub fn shared_runtime_service_v2() -> SharedPluginRuntimeServiceV2 {
-    static SHARED: OnceLock<SharedPluginRuntimeServiceV2> = OnceLock::new();
+pub fn shared_runtime_service() -> SharedPluginRuntimeService {
+    static SHARED: OnceLock<SharedPluginRuntimeService> = OnceLock::new();
     SHARED
-        .get_or_init(|| {
-            Arc::new(Mutex::new(PluginRuntimeService::new(
-                default_host_vtable_v2(),
-            )))
-        })
+        .get_or_init(|| Arc::new(Mutex::new(PluginRuntimeService::new(default_host_vtable()))))
         .clone()
 }
 
 struct ActivatedLoad {
-    info: RuntimePluginInfoV2,
+    info: RuntimePluginInfo,
     unloaded_generations: usize,
 }
 
@@ -827,13 +824,22 @@ fn normalize_ext_hint(raw: impl AsRef<str>) -> String {
         .to_ascii_lowercase()
 }
 
-fn default_host_vtable_v2() -> StHostVTableV2 {
-    let mut host_v1 = default_host_vtable();
-    host_v1.api_version = STELLATUNE_PLUGIN_API_VERSION_V2;
-    StHostVTableV2 {
-        api_version: host_v1.api_version,
-        user_data: host_v1.user_data,
-        log_utf8: host_v1.log_utf8,
+fn default_host_vtable() -> StHostVTable {
+    extern "C" fn default_host_log(_: *mut core::ffi::c_void, level: StLogLevel, msg: StStr) {
+        let text = unsafe { crate::util::ststr_to_string_lossy(msg) };
+        match level {
+            StLogLevel::Error => tracing::error!(target: "stellatune_plugins::plugin", "{text}"),
+            StLogLevel::Warn => tracing::warn!(target: "stellatune_plugins::plugin", "{text}"),
+            StLogLevel::Info => tracing::info!(target: "stellatune_plugins::plugin", "{text}"),
+            StLogLevel::Debug => tracing::debug!(target: "stellatune_plugins::plugin", "{text}"),
+            StLogLevel::Trace => tracing::trace!(target: "stellatune_plugins::plugin", "{text}"),
+        }
+    }
+
+    StHostVTable {
+        api_version: STELLATUNE_PLUGIN_API_VERSION,
+        user_data: core::ptr::null_mut(),
+        log_utf8: Some(default_host_log),
         get_runtime_root_utf8: None,
         emit_event_json_utf8: None,
         poll_host_event_json_utf8: None,
@@ -846,9 +852,9 @@ fn default_host_vtable_v2() -> StHostVTableV2 {
 mod tests {
     use super::*;
 
-    fn test_host() -> StHostVTableV2 {
-        StHostVTableV2 {
-            api_version: STELLATUNE_PLUGIN_API_VERSION_V2,
+    fn test_host() -> StHostVTable {
+        StHostVTable {
+            api_version: STELLATUNE_PLUGIN_API_VERSION,
             user_data: core::ptr::null_mut(),
             log_utf8: None,
             get_runtime_root_utf8: None,

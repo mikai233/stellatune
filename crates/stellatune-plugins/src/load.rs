@@ -2,18 +2,19 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result, anyhow};
 use libloading::{Library, Symbol};
-use stellatune_plugin_api::v2::{
-    STELLATUNE_PLUGIN_API_VERSION_V2, STELLATUNE_PLUGIN_ENTRY_SYMBOL_V2, StHostVTableV2,
-    StPluginEntryV2, StPluginModuleV2,
+use stellatune_plugin_api::{
+    STELLATUNE_PLUGIN_API_VERSION, STELLATUNE_PLUGIN_ENTRY_SYMBOL, StHostVTable, StPluginEntry,
+    StPluginModule,
 };
 use stellatune_plugin_protocol::PluginMetadata;
 
 use crate::manifest::DiscoveredPlugin;
 
+use super::events::{PluginHostCtx, build_plugin_host_vtable};
 use super::{CapabilityDescriptorInput, capability_input_from_ffi};
 
 #[derive(Debug, Clone, Default)]
-pub struct RuntimePluginInfoV2 {
+pub struct RuntimePluginInfo {
     pub id: String,
     pub name: String,
     pub metadata_json: String,
@@ -22,40 +23,42 @@ pub struct RuntimePluginInfoV2 {
 }
 
 #[derive(Debug, Default)]
-pub struct RuntimeLoadReportV2 {
-    pub loaded: Vec<RuntimePluginInfoV2>,
+pub struct RuntimeLoadReport {
+    pub loaded: Vec<RuntimePluginInfo>,
     pub deactivated: Vec<String>,
     pub unloaded_generations: usize,
     pub errors: Vec<anyhow::Error>,
 }
 
-pub(crate) struct LoadedPluginModuleV2 {
+pub(crate) struct LoadedPluginModule {
     pub(crate) root_dir: PathBuf,
     pub(crate) library_path: PathBuf,
-    pub(crate) _module: StPluginModuleV2,
+    pub(crate) _module: StPluginModule,
     pub(crate) _lib: Library,
+    pub(crate) _host_vtable: Box<StHostVTable>,
+    pub(crate) _host_ctx: Box<PluginHostCtx>,
 }
 
-pub(crate) struct LoadedModuleCandidateV2 {
+pub(crate) struct LoadedModuleCandidate {
     pub(crate) plugin_id: String,
     pub(crate) plugin_name: String,
     pub(crate) metadata_json: String,
     pub(crate) root_dir: PathBuf,
     pub(crate) library_path: PathBuf,
     pub(crate) capabilities: Vec<CapabilityDescriptorInput>,
-    pub(crate) loaded_module: LoadedPluginModuleV2,
+    pub(crate) loaded_module: LoadedPluginModule,
 }
 
-pub(crate) fn load_discovered_plugin_v2(
+pub(crate) fn load_discovered_plugin(
     discovered: &DiscoveredPlugin,
-    host: &StHostVTableV2,
-) -> Result<LoadedModuleCandidateV2> {
-    if discovered.manifest.api_version != STELLATUNE_PLUGIN_API_VERSION_V2 {
+    base_host: &StHostVTable,
+) -> Result<LoadedModuleCandidate> {
+    if discovered.manifest.api_version != STELLATUNE_PLUGIN_API_VERSION {
         return Err(anyhow!(
             "plugin `{}` api_version mismatch: plugin={}, host={}",
             discovered.manifest.id,
             discovered.manifest.api_version,
-            STELLATUNE_PLUGIN_API_VERSION_V2
+            STELLATUNE_PLUGIN_API_VERSION
         ));
     }
     if !discovered.library_path.exists() {
@@ -78,9 +81,9 @@ pub(crate) fn load_discovered_plugin_v2(
         .manifest
         .entry_symbol
         .as_deref()
-        .unwrap_or(STELLATUNE_PLUGIN_ENTRY_SYMBOL_V2);
+        .unwrap_or(STELLATUNE_PLUGIN_ENTRY_SYMBOL);
     // SAFETY: Symbol type matches ABI contract; validated by plugin load checks.
-    let entry: Symbol<StPluginEntryV2> = unsafe {
+    let entry: Symbol<StPluginEntry> = unsafe {
         lib.get(entry_symbol.as_bytes()).with_context(|| {
             format!(
                 "missing entry symbol `{}` in {}",
@@ -90,8 +93,11 @@ pub(crate) fn load_discovered_plugin_v2(
         })?
     };
 
+    let (host_vtable, host_ctx) =
+        build_plugin_host_vtable(base_host, &discovered.manifest.id, &discovered.root_dir);
+
     // SAFETY: Plugin entrypoint is trusted by ABI contract. Null and version checked below.
-    let module_ptr = unsafe { (entry)(host as *const StHostVTableV2) };
+    let module_ptr = unsafe { (entry)(host_vtable.as_ref() as *const StHostVTable) };
     if module_ptr.is_null() {
         return Err(anyhow!(
             "plugin `{}` returned null module pointer",
@@ -100,12 +106,12 @@ pub(crate) fn load_discovered_plugin_v2(
     }
     // SAFETY: Module pointer comes from plugin entrypoint and remains valid while library loaded.
     let module = unsafe { *module_ptr };
-    if module.api_version != STELLATUNE_PLUGIN_API_VERSION_V2 {
+    if module.api_version != STELLATUNE_PLUGIN_API_VERSION {
         return Err(anyhow!(
             "plugin `{}` api_version mismatch: plugin={}, host={}",
             discovered.manifest.id,
             module.api_version,
-            STELLATUNE_PLUGIN_API_VERSION_V2
+            STELLATUNE_PLUGIN_API_VERSION
         ));
     }
 
@@ -125,12 +131,12 @@ pub(crate) fn load_discovered_plugin_v2(
             metadata.id
         ));
     }
-    if metadata.api_version != STELLATUNE_PLUGIN_API_VERSION_V2 {
+    if metadata.api_version != STELLATUNE_PLUGIN_API_VERSION {
         return Err(anyhow!(
             "plugin `{}` metadata api_version mismatch: plugin={}, host={}",
             metadata.id,
             metadata.api_version,
-            STELLATUNE_PLUGIN_API_VERSION_V2
+            STELLATUNE_PLUGIN_API_VERSION
         ));
     }
 
@@ -149,18 +155,20 @@ pub(crate) fn load_discovered_plugin_v2(
         capabilities.push(input);
     }
 
-    Ok(LoadedModuleCandidateV2 {
+    Ok(LoadedModuleCandidate {
         plugin_id: metadata.id,
         plugin_name: metadata.name,
         metadata_json,
         root_dir: discovered.root_dir.clone(),
         library_path: discovered.library_path.clone(),
         capabilities,
-        loaded_module: LoadedPluginModuleV2 {
+        loaded_module: LoadedPluginModule {
             root_dir: discovered.root_dir.clone(),
             library_path: discovered.library_path.clone(),
             _module: module,
             _lib: lib,
+            _host_vtable: host_vtable,
+            _host_ctx: host_ctx,
         },
     })
 }

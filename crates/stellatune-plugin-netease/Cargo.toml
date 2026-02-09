@@ -9,6 +9,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 stellatune-plugin-sdk.workspace = true
+stellatune-plugin-api.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 symphonia.workspace = true

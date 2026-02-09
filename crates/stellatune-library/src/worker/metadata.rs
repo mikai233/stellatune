@@ -1,21 +1,21 @@
 use std::collections::HashMap;
+use std::fs::File;
+use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use base64::Engine;
+use stellatune_plugin_api::{
+    ST_DECODER_INFO_FLAG_HAS_DURATION, ST_ERR_INVALID_ARG, ST_ERR_IO, StIoVTable, StSeekWhence,
+    StStatus, StStr,
+};
+use stellatune_plugins::runtime::CapabilityKind as RuntimeCapabilityKind;
 use symphonia::core::formats::FormatOptions;
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::{Limit, MetadataOptions, StandardTagKey, StandardVisualKey, Value};
 use symphonia::core::probe::Hint;
 use symphonia::default::get_probe;
 use tracing::debug;
-
-use super::Plugins;
-
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-fn snapshot_plugins(plugins: &Plugins) -> Option<stellatune_plugins::PluginManager> {
-    plugins.lock().ok().map(|pm| pm.clone())
-}
 
 #[derive(Debug, serde::Deserialize)]
 struct PluginTrackMetadata {
@@ -41,6 +41,129 @@ pub(super) struct ExtractedMetadata {
     pub(super) duration_ms: Option<i64>,
     pub(super) cover: Option<Vec<u8>>,
 }
+
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+#[derive(Debug, Clone)]
+struct DecoderCandidate {
+    plugin_id: String,
+    type_id: String,
+    default_config_json: String,
+    score: u16,
+}
+
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+struct LocalFileIoHandle {
+    file: File,
+}
+
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+fn status_code(code: i32) -> StStatus {
+    StStatus {
+        code,
+        message: StStr::empty(),
+    }
+}
+
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+extern "C" fn local_io_read(
+    handle: *mut core::ffi::c_void,
+    out: *mut u8,
+    len: usize,
+    out_read: *mut usize,
+) -> StStatus {
+    if handle.is_null() || out_read.is_null() || (len > 0 && out.is_null()) {
+        return status_code(ST_ERR_INVALID_ARG);
+    }
+    let state = unsafe { &mut *(handle as *mut LocalFileIoHandle) };
+    let out_slice: &mut [u8] = if len == 0 {
+        &mut []
+    } else {
+        unsafe { core::slice::from_raw_parts_mut(out, len) }
+    };
+    match state.file.read(out_slice) {
+        Ok(n) => {
+            unsafe {
+                *out_read = n;
+            }
+            StStatus::ok()
+        }
+        Err(_) => status_code(ST_ERR_IO),
+    }
+}
+
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+extern "C" fn local_io_seek(
+    handle: *mut core::ffi::c_void,
+    offset: i64,
+    whence: StSeekWhence,
+    out_pos: *mut u64,
+) -> StStatus {
+    if handle.is_null() || out_pos.is_null() {
+        return status_code(ST_ERR_INVALID_ARG);
+    }
+    let state = unsafe { &mut *(handle as *mut LocalFileIoHandle) };
+    let seek_from = match whence {
+        StSeekWhence::Start => {
+            if offset < 0 {
+                return status_code(ST_ERR_INVALID_ARG);
+            }
+            SeekFrom::Start(offset as u64)
+        }
+        StSeekWhence::Current => SeekFrom::Current(offset),
+        StSeekWhence::End => SeekFrom::End(offset),
+    };
+    match state.file.seek(seek_from) {
+        Ok(pos) => {
+            unsafe {
+                *out_pos = pos;
+            }
+            StStatus::ok()
+        }
+        Err(_) => status_code(ST_ERR_IO),
+    }
+}
+
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+extern "C" fn local_io_tell(handle: *mut core::ffi::c_void, out_pos: *mut u64) -> StStatus {
+    if handle.is_null() || out_pos.is_null() {
+        return status_code(ST_ERR_INVALID_ARG);
+    }
+    let state = unsafe { &mut *(handle as *mut LocalFileIoHandle) };
+    match state.file.stream_position() {
+        Ok(pos) => {
+            unsafe {
+                *out_pos = pos;
+            }
+            StStatus::ok()
+        }
+        Err(_) => status_code(ST_ERR_IO),
+    }
+}
+
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+extern "C" fn local_io_size(handle: *mut core::ffi::c_void, out_size: *mut u64) -> StStatus {
+    if handle.is_null() || out_size.is_null() {
+        return status_code(ST_ERR_INVALID_ARG);
+    }
+    let state = unsafe { &mut *(handle as *mut LocalFileIoHandle) };
+    match state.file.metadata() {
+        Ok(meta) => {
+            unsafe {
+                *out_size = meta.len();
+            }
+            StStatus::ok()
+        }
+        Err(_) => status_code(ST_ERR_IO),
+    }
+}
+
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+static LOCAL_FILE_IO_VTABLE: StIoVTable = StIoVTable {
+    read: local_io_read,
+    seek: Some(local_io_seek),
+    tell: Some(local_io_tell),
+    size: Some(local_io_size),
+};
 
 pub(super) fn extract_metadata(path: &Path) -> Result<ExtractedMetadata> {
     let mut hint = Hint::new();
@@ -138,45 +261,95 @@ pub(super) fn extract_metadata(path: &Path) -> Result<ExtractedMetadata> {
     Ok(out)
 }
 
-pub(super) fn extract_metadata_with_plugins(
-    path: &Path,
-    plugins: &Plugins,
-) -> Result<ExtractedMetadata> {
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+fn normalize_ext_hint(raw: &str) -> String {
+    raw.trim().trim_start_matches('.').to_ascii_lowercase()
+}
+
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+fn decoder_candidates_for_ext(ext: &str) -> Vec<DecoderCandidate> {
+    let normalized = normalize_ext_hint(ext);
+    if normalized.is_empty() {
+        return Vec::new();
+    }
+    let shared = stellatune_plugins::shared_runtime_service();
+    let Ok(service) = shared.lock() else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for candidate in service.decoder_candidates_for_ext(&normalized) {
+        let Some(cap) = service.resolve_active_capability(
+            &candidate.plugin_id,
+            RuntimeCapabilityKind::Decoder,
+            &candidate.type_id,
+        ) else {
+            continue;
+        };
+        out.push(DecoderCandidate {
+            plugin_id: candidate.plugin_id,
+            type_id: candidate.type_id,
+            default_config_json: cap.default_config_json,
+            score: candidate.score,
+        });
+    }
+    out
+}
+
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+fn best_decoder_score_for_ext(ext: &str) -> Option<u16> {
+    decoder_candidates_for_ext(ext)
+        .into_iter()
+        .map(|v| v.score)
+        .max()
+}
+
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+fn select_plugin_metadata_decoder_candidates(path: &Path) -> Vec<DecoderCandidate> {
+    let ext = path
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    decoder_candidates_for_ext(&ext)
+}
+
+pub(super) fn has_plugin_decoder_for_path(path: &Path) -> bool {
     #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
     {
-        // Selection rule:
-        // - Prefer a plugin decoder if it claims the extension (or path for extless files).
-        // - For built-in "primary" formats, prefer plugins only if they advertise a score higher
-        //   than the built-in default.
-        // - No fallback: once a decoder family is selected, errors bubble up.
-        //
-        // Rationale: Symphonia probing can produce a lot of MP3 demuxer warnings if fed non-MP3
-        // container bytes, so we avoid trying "the other" decoder family after failure.
+        let ext = path
+            .extension()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        if ext.is_empty() {
+            return false;
+        }
+        return !decoder_candidates_for_ext(&ext).is_empty();
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+    {
+        let _ = path;
+        false
+    }
+}
+
+pub(super) fn extract_metadata_with_plugins(path: &Path) -> Result<ExtractedMetadata> {
+    #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+    {
         let ext = path
             .extension()
             .and_then(|s| s.to_str())
             .unwrap_or("")
             .trim()
             .to_ascii_lowercase();
-        let path_str = path.to_string_lossy().to_string();
 
-        const BUILTIN_META_SCORE: u8 = 50;
-        let plugin_snapshot = snapshot_plugins(plugins);
+        const BUILTIN_META_SCORE: u16 = 50;
         let prefer_plugin = if ext.is_empty() {
-            plugin_snapshot
-                .as_ref()
-                .and_then(|pm| pm.can_decode_path(&path_str).ok())
-                .unwrap_or(false)
+            false
         } else if is_symphonia_primary_ext(&ext) {
-            plugin_snapshot
-                .as_ref()
-                .and_then(|pm| pm.probe_best_decoder_hint(&ext).map(|(_key, score)| score))
-                .is_some_and(|score| score > BUILTIN_META_SCORE)
+            best_decoder_score_for_ext(&ext).is_some_and(|score| score > BUILTIN_META_SCORE)
         } else {
-            plugin_snapshot
-                .as_ref()
-                .map(|pm| pm.probe_best_decoder_hint(&ext).is_some())
-                .unwrap_or(false)
+            best_decoder_score_for_ext(&ext).is_some_and(|score| score > 0)
         };
 
         if prefer_plugin {
@@ -184,9 +357,9 @@ pub(super) fn extract_metadata_with_plugins(
                 target: "stellatune_library::metadata",
                 path = %path.display(),
                 ext = %ext,
-                "using plugin metadata extractor"
+                "using v2 plugin metadata extractor"
             );
-            return extract_plugin_metadata(path, plugins);
+            return extract_plugin_metadata_from_plugin(path);
         }
     }
 
@@ -198,73 +371,136 @@ fn is_symphonia_primary_ext(ext_lower: &str) -> bool {
 }
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-fn extract_plugin_metadata(path: &Path, plugins: &Plugins) -> Result<ExtractedMetadata> {
+fn extract_plugin_metadata_from_plugin(path: &Path) -> Result<ExtractedMetadata> {
     let started = std::time::Instant::now();
     let path_str = path.to_string_lossy().to_string();
-    let pm = snapshot_plugins(plugins).ok_or_else(|| anyhow::anyhow!("plugins mutex poisoned"))?;
+    let ext = path
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let candidates = select_plugin_metadata_decoder_candidates(path);
+    if candidates.is_empty() {
+        return Err(anyhow::anyhow!(
+            "no v2 plugin decoder candidate for {}",
+            path.display()
+        ));
+    }
 
-    let mut dec = pm
-        .open_best_decoder(&path_str)?
-        .ok_or_else(|| anyhow::anyhow!("no plugin decoder for {}", path.display()))?;
+    let mut last_err: Option<String> = None;
+    for candidate in candidates {
+        let shared = stellatune_plugins::shared_runtime_service();
+        let mut dec = match shared.lock() {
+            Ok(service) => match service.create_decoder_instance(
+                &candidate.plugin_id,
+                &candidate.type_id,
+                &candidate.default_config_json,
+            ) {
+                Ok(v) => v,
+                Err(e) => {
+                    last_err = Some(format!(
+                        "create_decoder_instance failed for {}::{}: {e:#}",
+                        candidate.plugin_id, candidate.type_id
+                    ));
+                    continue;
+                }
+            },
+            Err(_) => {
+                last_err = Some("runtime service mutex poisoned".to_string());
+                continue;
+            }
+        };
 
-    debug!(
-        target: "stellatune_library::metadata",
-        path = %path.display(),
-        plugin_id = %dec.plugin_id(),
-        decoder_type_id = %dec.decoder_type_id(),
-        elapsed_ms = started.elapsed().as_millis(),
-        "plugin decoder opened for metadata"
-    );
-
-    let mut out = ExtractedMetadata {
-        duration_ms: dec.duration_ms().map(|d| d as i64),
-        ..Default::default()
-    };
-
-    // Optional structured metadata from plugin.
-    if let Ok(Some(meta)) = dec.metadata::<PluginTrackMetadata>() {
-        out.title = meta
-            .title
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty());
-        out.artist = meta
-            .artist
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty());
-        out.album = meta
-            .album
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty());
-
-        if out.duration_ms.is_none() {
-            out.duration_ms = meta.duration_ms.filter(|ms| *ms >= 0);
+        let mut file = match File::open(path) {
+            Ok(file) => Box::new(LocalFileIoHandle { file }),
+            Err(e) => {
+                return Err(e)
+                    .with_context(|| format!("failed to open for metadata: {}", path.display()));
+            }
+        };
+        let io_handle = (&mut *file) as *mut LocalFileIoHandle as *mut core::ffi::c_void;
+        if let Err(e) = dec.open_with_io(
+            &path_str,
+            &ext,
+            &LOCAL_FILE_IO_VTABLE as *const _,
+            io_handle,
+        ) {
+            last_err = Some(format!(
+                "decoder open_with_io failed for {}::{}: {e:#}",
+                candidate.plugin_id, candidate.type_id
+            ));
+            continue;
         }
 
-        if out.cover.is_none() {
-            // Prefer base64 because JSON byte arrays are huge.
-            if let Some(s) = meta.cover_base64.as_deref() {
-                let s = s.trim();
-                if !s.is_empty()
-                    && let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(s)
+        debug!(
+            target: "stellatune_library::metadata",
+            path = %path.display(),
+            plugin_id = %candidate.plugin_id,
+            decoder_type_id = %candidate.type_id,
+            elapsed_ms = started.elapsed().as_millis(),
+            "v2 plugin decoder opened for metadata"
+        );
+
+        let info = dec.get_info().map_err(|e| anyhow::anyhow!("{e:#}"))?;
+        let mut out = ExtractedMetadata {
+            duration_ms: if info.flags & ST_DECODER_INFO_FLAG_HAS_DURATION != 0 {
+                Some(info.duration_ms as i64)
+            } else {
+                None
+            },
+            ..Default::default()
+        };
+
+        if let Ok(Some(raw)) = dec.get_metadata_json()
+            && let Ok(meta) = serde_json::from_str::<PluginTrackMetadata>(&raw)
+        {
+            out.title = meta
+                .title
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty());
+            out.artist = meta
+                .artist
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty());
+            out.album = meta
+                .album
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty());
+
+            if out.duration_ms.is_none() {
+                out.duration_ms = meta.duration_ms.filter(|ms| *ms >= 0);
+            }
+
+            if out.cover.is_none() {
+                if let Some(s) = meta.cover_base64.as_deref() {
+                    let s = s.trim();
+                    if !s.is_empty()
+                        && let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(s)
+                        && !bytes.is_empty()
+                        && (bytes.len() as u64) <= COVER_BYTES_LIMIT
+                    {
+                        out.cover = Some(bytes);
+                    }
+                } else if let Some(bytes) = meta.cover_bytes
                     && !bytes.is_empty()
                     && (bytes.len() as u64) <= COVER_BYTES_LIMIT
                 {
                     out.cover = Some(bytes);
                 }
-            } else if let Some(bytes) = meta.cover_bytes
-                && !bytes.is_empty()
-                && (bytes.len() as u64) <= COVER_BYTES_LIMIT
-            {
-                out.cover = Some(bytes);
             }
         }
+
+        if out.cover.is_none() {
+            out.cover = load_sidecar_cover(path);
+        }
+        return Ok(out);
     }
 
-    if out.cover.is_none() {
-        out.cover = load_sidecar_cover(path);
-    }
-
-    Ok(out)
+    Err(anyhow::anyhow!(
+        "failed to extract plugin metadata for {}: {}",
+        path.display(),
+        last_err.unwrap_or_else(|| "no decoder candidate succeeded".to_string())
+    ))
 }
 
 const COVER_BYTES_LIMIT: u64 = 12 * 1024 * 1024;

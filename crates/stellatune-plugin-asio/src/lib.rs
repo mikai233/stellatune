@@ -9,11 +9,13 @@ use stellatune_asio_proto::{
     AudioSpec, DeviceCaps, DeviceInfo, PROTOCOL_VERSION, Request, Response, SharedRingFile,
     read_frame, write_frame,
 };
+use stellatune_plugin_sdk::instance::{OutputSinkDescriptor, OutputSinkInstance};
+use stellatune_plugin_sdk::update::ConfigUpdatable;
 use stellatune_plugin_sdk::{
-    OutputSink, OutputSinkDescriptor, ST_OUTPUT_NEGOTIATE_CHANGED_CH,
+    OutputSink, OutputSinkDescriptor as LegacyOutputSinkDescriptor, ST_OUTPUT_NEGOTIATE_CHANGED_CH,
     ST_OUTPUT_NEGOTIATE_CHANGED_SR, ST_OUTPUT_NEGOTIATE_EXACT, SdkError, SdkResult, StAudioSpec,
-    StLogLevel, StOutputSinkNegotiatedSpecV1, compose_get_interface, export_output_sinks_interface,
-    export_plugin, host_log, resolve_runtime_path, sidecar_command,
+    StLogLevel, StOutputSinkNegotiatedSpec, export_plugin, host_log, resolve_runtime_path,
+    sidecar_command,
 };
 
 const CONFIG_SCHEMA_JSON: &str = r#"{
@@ -123,7 +125,7 @@ impl OutputSink for AsioOutputSink {
     }
 }
 
-impl OutputSinkDescriptor for AsioOutputSink {
+impl LegacyOutputSinkDescriptor for AsioOutputSink {
     type Config = AsioOutputConfig;
     type Target = AsioOutputTarget;
 
@@ -154,7 +156,7 @@ impl OutputSinkDescriptor for AsioOutputSink {
         desired_spec: StAudioSpec,
         config: &Self::Config,
         target: &Self::Target,
-    ) -> SdkResult<StOutputSinkNegotiatedSpecV1> {
+    ) -> SdkResult<StOutputSinkNegotiatedSpec> {
         ensure_windows()?;
         let mut client = AsioHostClient::spawn(config)?;
         let caps = client.get_device_caps(&target.id)?;
@@ -177,7 +179,7 @@ impl OutputSinkDescriptor for AsioOutputSink {
             flags |= ST_OUTPUT_NEGOTIATE_EXACT;
         }
 
-        Ok(StOutputSinkNegotiatedSpecV1 {
+        Ok(StOutputSinkNegotiatedSpec {
             spec: StAudioSpec {
                 sample_rate,
                 channels,
@@ -231,6 +233,93 @@ impl OutputSinkDescriptor for AsioOutputSink {
             channels: spec.channels,
             flush_timeout_ms: config.flush_timeout_ms.max(1),
             ring_path,
+        })
+    }
+}
+
+pub struct AsioOutputSinkInstance {
+    config: AsioOutputConfig,
+    opened: Option<AsioOutputSink>,
+}
+
+impl ConfigUpdatable for AsioOutputSinkInstance {}
+
+impl OutputSinkInstance for AsioOutputSinkInstance {
+    fn list_targets_json(&mut self) -> SdkResult<String> {
+        let targets = <AsioOutputSink as LegacyOutputSinkDescriptor>::list_targets(&self.config)?;
+        stellatune_plugin_sdk::__private::serde_json::to_string(&targets).map_err(SdkError::from)
+    }
+
+    fn negotiate_spec_json(
+        &mut self,
+        target_json: &str,
+        desired_spec: StAudioSpec,
+    ) -> SdkResult<StOutputSinkNegotiatedSpec> {
+        let target: AsioOutputTarget =
+            stellatune_plugin_sdk::__private::serde_json::from_str(target_json)
+                .map_err(SdkError::from)?;
+        let negotiated = <AsioOutputSink as LegacyOutputSinkDescriptor>::negotiate_spec(
+            desired_spec,
+            &self.config,
+            &target,
+        )?;
+        Ok(StOutputSinkNegotiatedSpec {
+            spec: negotiated.spec,
+            preferred_chunk_frames: negotiated.preferred_chunk_frames,
+            flags: negotiated.flags,
+            reserved: 0,
+        })
+    }
+
+    fn open_json(&mut self, target_json: &str, spec: StAudioSpec) -> SdkResult<()> {
+        let target: AsioOutputTarget =
+            stellatune_plugin_sdk::__private::serde_json::from_str(target_json)
+                .map_err(SdkError::from)?;
+        let sink =
+            <AsioOutputSink as LegacyOutputSinkDescriptor>::open(spec, &self.config, &target)?;
+        self.opened = Some(sink);
+        Ok(())
+    }
+
+    fn write_interleaved_f32(&mut self, channels: u16, samples: &[f32]) -> SdkResult<u32> {
+        let sink = self
+            .opened
+            .as_mut()
+            .ok_or_else(|| SdkError::msg("output sink is not open"))?;
+        <AsioOutputSink as OutputSink>::write_interleaved_f32(sink, channels, samples)
+    }
+
+    fn flush(&mut self) -> SdkResult<()> {
+        let sink = self
+            .opened
+            .as_mut()
+            .ok_or_else(|| SdkError::msg("output sink is not open"))?;
+        <AsioOutputSink as OutputSink>::flush(sink)
+    }
+
+    fn close(&mut self) -> SdkResult<()> {
+        self.opened = None;
+        Ok(())
+    }
+}
+
+impl OutputSinkDescriptor for AsioOutputSinkInstance {
+    type Config = AsioOutputConfig;
+    type Instance = AsioOutputSinkInstance;
+
+    const TYPE_ID: &'static str = <AsioOutputSink as LegacyOutputSinkDescriptor>::TYPE_ID;
+    const DISPLAY_NAME: &'static str = <AsioOutputSink as LegacyOutputSinkDescriptor>::DISPLAY_NAME;
+    const CONFIG_SCHEMA_JSON: &'static str =
+        <AsioOutputSink as LegacyOutputSinkDescriptor>::CONFIG_SCHEMA_JSON;
+
+    fn default_config() -> Self::Config {
+        AsioOutputConfig::default()
+    }
+
+    fn create(config: Self::Config) -> SdkResult<Self::Instance> {
+        Ok(AsioOutputSinkInstance {
+            config,
+            opened: None,
         })
     }
 }
@@ -483,22 +572,15 @@ fn create_ring(
     Ok((ring, desc, path))
 }
 
-export_output_sinks_interface! {
-    sinks: [
-        asio => AsioOutputSink,
-    ],
-}
-
-compose_get_interface! {
-    fn __st_get_interface;
-    __st_output_sinks_get_interface,
-}
-
 export_plugin! {
     id: "dev.stellatune.output.asio",
     name: "ASIO Output Sink",
     version: (0, 1, 0),
     decoders: [],
     dsps: [],
-    get_interface: __st_get_interface,
+    source_catalogs: [],
+    lyrics_providers: [],
+    output_sinks: [
+        asio => AsioOutputSinkInstance,
+    ],
 }

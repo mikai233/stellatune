@@ -10,8 +10,9 @@ use stellatune_core::LibraryEvent;
 
 use crate::service::EventHub;
 
-use super::Plugins;
-use super::metadata::{extract_metadata_with_plugins, write_cover_bytes};
+use super::metadata::{
+    extract_metadata_with_plugins, has_plugin_decoder_for_path, write_cover_bytes,
+};
 use super::paths::{is_drive_root, is_under_excluded, normalize_path_str, now_ms, parent_dir_norm};
 use super::tracks::{UpsertTrackInput, select_track_fingerprint, upsert_track};
 
@@ -32,7 +33,6 @@ pub(super) async fn scan_all(
     pool: &SqlitePool,
     events: &Arc<EventHub>,
     cover_dir: &Path,
-    plugins: &Plugins,
     force: bool,
 ) -> Result<()> {
     let roots: Vec<String> = sqlx::query_scalar!("SELECT path FROM scan_roots WHERE enabled=1")
@@ -62,14 +62,8 @@ pub(super) async fn scan_all(
         let (tx, mut rx) = tokio::sync::mpsc::channel::<FileCandidate>(512);
         let root_clone = root.clone();
         let excluded_clone = excluded.clone();
-        let plugins_for_walk = plugins.clone();
-        let plugins_for_meta = plugins.clone();
-
         // Blocking filesystem enumeration & metadata.
         let walker = tokio::task::spawn_blocking(move || {
-            #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-            let plugins_snapshot = plugins_for_walk.lock().ok().map(|pm| pm.clone());
-
             for entry in WalkDir::new(&root_clone).follow_links(false).into_iter() {
                 let entry = match entry {
                     Ok(e) => e,
@@ -85,30 +79,7 @@ pub(super) async fn scan_all(
                     .and_then(|s| s.to_str())
                     .unwrap_or("")
                     .to_ascii_lowercase();
-                let supported = is_audio_ext(&ext) || {
-                    #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-                    {
-                        if ext.is_empty() {
-                            plugins_snapshot
-                                .as_ref()
-                                .and_then(|pm| pm.can_decode_path(&path_str).ok())
-                                .unwrap_or(false)
-                        } else {
-                            plugins_snapshot
-                                .as_ref()
-                                .map(|pm| pm.probe_best_decoder_hint(&ext).is_some())
-                                .unwrap_or(false)
-                        }
-                    }
-                    #[cfg(not(any(
-                        target_os = "windows",
-                        target_os = "linux",
-                        target_os = "macos"
-                    )))]
-                    {
-                        false
-                    }
-                };
+                let supported = is_audio_ext(&ext) || has_plugin_decoder_for_path(&path);
                 if !supported {
                     continue;
                 }
@@ -161,11 +132,10 @@ pub(super) async fn scan_all(
 
             let meta_scanned_ms = now_ms();
 
-            let plugins = plugins_for_meta.clone();
             let (title, artist, album, duration_ms, cover) = match tokio::task::spawn_blocking({
                 let path = file.path.clone();
                 move || {
-                    extract_metadata_with_plugins(Path::new(&path), &plugins)
+                    extract_metadata_with_plugins(Path::new(&path))
                         .map(|m| (m.title, m.artist, m.album, m.duration_ms, m.cover))
                 }
             })
@@ -274,7 +244,6 @@ pub(super) async fn scan_folder_into_db(
     pool: SqlitePool,
     events: &Arc<EventHub>,
     cover_dir: &Path,
-    plugins: &Plugins,
     folder_norm: &str,
 ) -> Result<bool> {
     let folder_norm = normalize_path_str(folder_norm);
@@ -295,8 +264,6 @@ pub(super) async fn scan_folder_into_db(
         .collect();
 
     let mut changed = false;
-    #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-    let plugins_snapshot = plugins.lock().ok().map(|pm| pm.clone());
 
     for entry in WalkDir::new(&root).follow_links(false).into_iter() {
         let entry = match entry {
@@ -314,25 +281,7 @@ pub(super) async fn scan_folder_into_db(
             .and_then(|s| s.to_str())
             .unwrap_or("")
             .to_ascii_lowercase();
-        let supported = is_audio_ext(&ext) || {
-            #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-            {
-                match plugins_snapshot.as_ref() {
-                    Some(pm) => {
-                        if ext.is_empty() {
-                            pm.can_decode_path(&path_str).unwrap_or(false)
-                        } else {
-                            pm.probe_best_decoder_hint(&ext).is_some()
-                        }
-                    }
-                    None => false,
-                }
-            }
-            #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
-            {
-                false
-            }
-        };
+        let supported = is_audio_ext(&ext) || has_plugin_decoder_for_path(&path);
         if !supported {
             continue;
         }
@@ -365,11 +314,10 @@ pub(super) async fn scan_folder_into_db(
 
         let meta_scanned_ms = now_ms();
 
-        let plugins = plugins.clone();
         let (title, artist, album, duration_ms, cover) = match tokio::task::spawn_blocking({
             let p = path.clone();
             move || {
-                extract_metadata_with_plugins(&p, &plugins)
+                extract_metadata_with_plugins(&p)
                     .map(|m| (m.title, m.artist, m.album, m.duration_ms, m.cover))
             }
         })

@@ -2,20 +2,20 @@ use core::ffi::c_void;
 
 use crate::{StStatus, StStr};
 
-use super::StConfigUpdatePlanV2;
+use super::StConfigUpdatePlan;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct StDspInstanceRefV2 {
+pub struct StDspInstanceRef {
     pub handle: *mut c_void,
-    pub vtable: *const StDspInstanceVTableV2,
+    pub vtable: *const StDspInstanceVTable,
     pub reserved0: u32,
     pub reserved1: u64,
 }
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
-pub struct StDspInstanceVTableV2 {
+pub struct StDspInstanceVTable {
     pub process_interleaved_f32_in_place:
         extern "C" fn(handle: *mut c_void, samples: *mut f32, frames: u32),
     /// Returns bitmask of supported input channel layouts (ST_LAYOUT_* flags).
@@ -27,7 +27,7 @@ pub struct StDspInstanceVTableV2 {
         extern "C" fn(
             handle: *mut c_void,
             new_config_json_utf8: StStr,
-            out_plan: *mut StConfigUpdatePlanV2,
+            out_plan: *mut StConfigUpdatePlan,
         ) -> StStatus,
     >,
     pub apply_config_update_json_utf8:

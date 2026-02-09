@@ -7,7 +7,7 @@ use stellatune_plugin_protocol::PluginMetadata;
 
 use crate::lyrics_service::LyricsService;
 use crate::runtime::{
-    init_tracing, register_plugin_runtime_engine, shared_plugin_runtime_v2,
+    init_tracing, register_plugin_runtime_engine, shared_plugin_runtime,
     subscribe_plugin_runtime_events_global,
 };
 
@@ -334,7 +334,7 @@ struct RuntimePluginCatalog {
 }
 
 fn runtime_plugin_catalog() -> RuntimePluginCatalog {
-    let shared = shared_plugin_runtime_v2();
+    let shared = shared_plugin_runtime();
     let Ok(service) = shared.lock() else {
         return RuntimePluginCatalog::default();
     };
@@ -412,9 +412,9 @@ fn parse_plugin_name_from_metadata(plugin_id: &str, metadata_json: &str) -> Stri
 }
 
 fn with_runtime_service<T>(
-    f: impl FnOnce(&stellatune_plugins::v2::PluginRuntimeService) -> Result<T>,
+    f: impl FnOnce(&stellatune_plugins::PluginRuntimeService) -> Result<T>,
 ) -> Result<T> {
-    let shared = shared_plugin_runtime_v2();
+    let shared = shared_plugin_runtime();
     let service = shared
         .lock()
         .map_err(|_| anyhow!("plugin runtime v2 mutex poisoned"))?;
@@ -422,7 +422,7 @@ fn with_runtime_service<T>(
 }
 
 fn capability_default_config_json(
-    service: &stellatune_plugins::v2::PluginRuntimeService,
+    service: &stellatune_plugins::PluginRuntimeService,
     plugin_id: &str,
     kind: CapabilityKind,
     type_id: &str,

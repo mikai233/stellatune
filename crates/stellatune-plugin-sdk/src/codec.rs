@@ -5,8 +5,8 @@ use serde::{Serialize, de::DeserializeOwned};
 
 use crate::{
     ST_DECODER_INFO_FLAG_HAS_DURATION, ST_DECODER_INFO_FLAG_SEEKABLE, ST_LAYOUT_STEREO,
-    ST_OUTPUT_NEGOTIATE_EXACT, SdkError, SdkResult, StAudioSpec, StDecoderInfoV1, StIoVTableV1,
-    StOutputSinkNegotiatedSpecV1, StSeekWhence,
+    ST_OUTPUT_NEGOTIATE_EXACT, SdkError, SdkResult, StAudioSpec, StDecoderInfo, StIoVTable,
+    StOutputSinkNegotiatedSpec, StSeekWhence,
 };
 
 pub trait Dsp: Send + 'static {
@@ -46,7 +46,7 @@ pub struct DecoderInfo {
 }
 
 impl DecoderInfo {
-    pub fn to_ffi(self) -> StDecoderInfoV1 {
+    pub fn to_ffi(self) -> StDecoderInfo {
         let mut flags = 0u32;
         if self.seekable {
             flags |= ST_DECODER_INFO_FLAG_SEEKABLE;
@@ -56,7 +56,7 @@ impl DecoderInfo {
             flags |= ST_DECODER_INFO_FLAG_HAS_DURATION;
             duration_ms = d;
         }
-        StDecoderInfoV1 {
+        StDecoderInfo {
             spec: self.spec,
             duration_ms,
             flags,
@@ -67,12 +67,12 @@ impl DecoderInfo {
 
 #[derive(Clone, Copy)]
 pub struct HostIo {
-    vtable: *const StIoVTableV1,
+    vtable: *const StIoVTable,
     handle: *mut c_void,
 }
 
 unsafe impl Send for HostIo {}
-// Raw pointers make this not auto-Sync. StellaTune v1 treats the IO vtable as immutable, and the
+// Raw pointers make this not auto-Sync. StellaTune treats the IO vtable as immutable, and the
 // host must ensure any IO handle is thread-safe if it is accessed from multiple threads.
 unsafe impl Sync for HostIo {}
 
@@ -81,7 +81,7 @@ impl HostIo {
     ///
     /// The caller must ensure that `vtable` and `handle` are valid and remain valid for the
     /// lifetime of the returned `HostIo`.
-    pub unsafe fn from_raw(vtable: *const StIoVTableV1, handle: *mut c_void) -> Self {
+    pub unsafe fn from_raw(vtable: *const StIoVTable, handle: *mut c_void) -> Self {
         Self { vtable, handle }
     }
 
@@ -226,8 +226,8 @@ pub trait OutputSinkDescriptor: OutputSink {
         desired_spec: StAudioSpec,
         _config: &Self::Config,
         _target: &Self::Target,
-    ) -> SdkResult<StOutputSinkNegotiatedSpecV1> {
-        Ok(StOutputSinkNegotiatedSpecV1 {
+    ) -> SdkResult<StOutputSinkNegotiatedSpec> {
+        Ok(StOutputSinkNegotiatedSpec {
             spec: StAudioSpec {
                 sample_rate: desired_spec.sample_rate.max(1),
                 channels: desired_spec.channels.max(1),

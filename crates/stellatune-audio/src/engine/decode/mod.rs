@@ -9,7 +9,7 @@ use tracing::debug;
 
 use stellatune_core::TrackDecodeInfo;
 use stellatune_mixer::{ChannelLayout, ChannelMixer};
-use stellatune_plugins::v2::DspInstanceV2;
+use stellatune_plugins::DspInstance;
 
 use crate::engine::config::RESAMPLE_CHUNK_FRAMES;
 use crate::engine::event_hub::EventHub;
@@ -47,7 +47,6 @@ pub(crate) struct DecodeThreadArgs {
     pub(crate) path: String,
     pub(crate) events: Arc<EventHub>,
     pub(crate) internal_tx: Sender<InternalMsg>,
-    pub(crate) plugins: Arc<Mutex<stellatune_plugins::PluginManager>>,
     pub(crate) preopened: Option<(Box<EngineDecoder>, TrackDecodeInfo)>,
     pub(crate) ctrl_rx: Receiver<DecodeCtrl>,
     pub(crate) setup_rx: Receiver<DecodeCtrl>,
@@ -60,7 +59,6 @@ pub(crate) fn decode_thread(args: DecodeThreadArgs) {
         path,
         events,
         internal_tx,
-        plugins,
         preopened,
         ctrl_rx,
         setup_rx,
@@ -74,7 +72,7 @@ pub(crate) fn decode_thread(args: DecodeThreadArgs) {
             (decoder, info)
         } else {
             let t_open = Instant::now();
-            let (decoder, info) = match open_engine_decoder(&path, &plugins) {
+            let (decoder, info) = match open_engine_decoder(&path) {
                 Ok(v) => v,
                 Err(e) => {
                     let _ = spec_tx.send(Err(e));
@@ -205,8 +203,8 @@ pub(crate) fn decode_thread(args: DecodeThreadArgs) {
         );
     }
 
-    let mut pre_mix_dsp: Vec<DspInstanceV2> = Vec::new();
-    let mut post_mix_dsp: Vec<DspInstanceV2> = Vec::new();
+    let mut pre_mix_dsp: Vec<DspInstance> = Vec::new();
+    let mut post_mix_dsp: Vec<DspInstance> = Vec::new();
 
     let mut lfe_mode = core_lfe_to_mixer(initial_lfe_mode);
     let mut channel_mixer = ChannelMixer::new(

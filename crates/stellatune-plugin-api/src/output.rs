@@ -2,37 +2,29 @@ use core::ffi::c_void;
 
 use crate::{StAudioSpec, StStatus, StStr};
 
-use super::StConfigUpdatePlanV2;
+use super::StConfigUpdatePlan;
+
+pub type StOutputSinkNegotiatedSpec = crate::StOutputSinkNegotiatedSpec;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct StOutputSinkNegotiatedSpecV2 {
-    pub spec: StAudioSpec,
-    /// Preferred write chunk in frames. 0 means "no preference".
-    pub preferred_chunk_frames: u32,
-    pub flags: u32,
-    pub reserved: u32,
-}
-
-#[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct StOutputSinkInstanceRefV2 {
+pub struct StOutputSinkInstanceRef {
     pub handle: *mut c_void,
-    pub vtable: *const StOutputSinkInstanceVTableV2,
+    pub vtable: *const StOutputSinkInstanceVTable,
     pub reserved0: u32,
     pub reserved1: u64,
 }
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
-pub struct StOutputSinkInstanceVTableV2 {
+pub struct StOutputSinkInstanceVTable {
     pub list_targets_json_utf8:
         extern "C" fn(handle: *mut c_void, out_json_utf8: *mut StStr) -> StStatus,
     pub negotiate_spec: extern "C" fn(
         handle: *mut c_void,
         target_json_utf8: StStr,
         desired_spec: StAudioSpec,
-        out_negotiated: *mut StOutputSinkNegotiatedSpecV2,
+        out_negotiated: *mut StOutputSinkNegotiatedSpec,
     ) -> StStatus,
     pub open:
         extern "C" fn(handle: *mut c_void, target_json_utf8: StStr, spec: StAudioSpec) -> StStatus,
@@ -50,7 +42,7 @@ pub struct StOutputSinkInstanceVTableV2 {
         extern "C" fn(
             handle: *mut c_void,
             new_config_json_utf8: StStr,
-            out_plan: *mut StConfigUpdatePlanV2,
+            out_plan: *mut StConfigUpdatePlan,
         ) -> StStatus,
     >,
     pub apply_config_update_json_utf8:

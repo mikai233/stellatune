@@ -3132,6 +3132,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "stellatune-core",
+ "stellatune-plugin-api",
  "stellatune-plugins",
  "symphonia",
  "tokio",
@@ -3165,6 +3166,7 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "stellatune-asio-proto",
+ "stellatune-plugin-api",
  "stellatune-plugin-sdk",
 ]
 
@@ -3175,6 +3177,7 @@ dependencies = [
  "base64 0.22.1",
  "ncmdump",
  "serde_json",
+ "stellatune-plugin-api",
  "stellatune-plugin-sdk",
  "symphonia",
 ]
@@ -3186,6 +3189,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "stellatune-plugin-api",
  "stellatune-plugin-sdk",
  "symphonia",
 ]

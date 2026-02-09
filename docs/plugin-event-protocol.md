@@ -1,6 +1,7 @@
-# Plugin Event Protocol (v1 In-Place)
+# Plugin Event Protocol (Legacy Notes During V2 Refactor)
 
 This document describes the runtime event/control JSON contract currently wired in StellaTune.
+It is a transitional note during the V2 refactor; plugin capability export is V2-only.
 
 ## Envelope
 
@@ -27,12 +28,10 @@ Plugin SDK (`stellatune-plugin-sdk`) now also provides typed helpers:
   - `control_event_matches_request_id(...)`
 - request id helper:
   - `next_request_id()`
-- output sink implementation helper:
+- capability implementation helper:
   - `OutputSink` / `OutputSinkDescriptor`
   - `SourceStream` / `SourceCatalogDescriptor`
-  - `export_output_sinks_interface! { sinks: [...] }`
-  - `export_source_catalogs_interface! { sources: [...] }`
-  - `compose_get_interface! { fn ...; ... }`
+  - V1 optional-interface export macros were removed; capability export is V2-only (`export_plugin_v2!`).
 
 Typed-builder example (recommended):
 

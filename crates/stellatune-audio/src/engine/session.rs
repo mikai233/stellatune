@@ -262,7 +262,7 @@ impl MasterGainProcessor {
 
 impl OutputSinkWorker {
     pub(crate) fn start(
-        mut sink: stellatune_plugins::v2::OutputSinkInstanceV2,
+        mut sink: stellatune_plugins::OutputSinkInstance,
         channels: u16,
         sample_rate: u32,
         volume: Arc<AtomicU32>,
@@ -340,7 +340,7 @@ impl OutputSinkWorker {
 }
 
 fn write_all_frames(
-    sink: &mut stellatune_plugins::v2::OutputSinkInstanceV2,
+    sink: &mut stellatune_plugins::OutputSinkInstance,
     channels: u16,
     samples: &[f32],
 ) -> Result<(), String> {
@@ -440,7 +440,6 @@ impl DecodeWorker {
 pub(crate) fn start_decode_worker(
     events: Arc<EventHub>,
     internal_tx: Sender<InternalMsg>,
-    plugins: Arc<Mutex<stellatune_plugins::PluginManager>>,
 ) -> DecodeWorker {
     debug_metrics::note_worker_start();
     let runtime_state = Arc::new(AtomicU8::new(DecodeWorkerState::Idle as u8));
@@ -455,7 +454,6 @@ pub(crate) fn start_decode_worker(
             run_decode_worker(
                 events,
                 internal_tx,
-                plugins,
                 ctrl_rx,
                 prepare_rx,
                 Arc::clone(&runtime_state),
@@ -475,7 +473,6 @@ pub(crate) fn start_decode_worker(
 fn run_decode_worker(
     events: Arc<EventHub>,
     internal_tx: Sender<InternalMsg>,
-    plugins: Arc<Mutex<stellatune_plugins::PluginManager>>,
     ctrl_rx: Receiver<DecodeCtrl>,
     prepare_rx: Receiver<DecodePrepareMsg>,
     runtime_state: Arc<AtomicU8>,
@@ -538,7 +535,6 @@ fn run_decode_worker(
             path: prepare.path,
             events: Arc::clone(&events),
             internal_tx: internal_tx.clone(),
-            plugins: Arc::clone(&plugins),
             preopened,
             ctrl_rx: ctrl_rx.clone(),
             setup_rx,

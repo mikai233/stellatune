@@ -1,24 +1,22 @@
 use anyhow::{Result, anyhow};
-use stellatune_plugin_api::v2::{
-    StConfigUpdatePlanV2, StDecoderInstanceRefV2, StDecoderOpenArgsV2,
-};
-use stellatune_plugin_api::{StDecoderInfoV1, StIoVTableV1, StStr};
+use stellatune_plugin_api::{StConfigUpdatePlan, StDecoderInstanceRef, StDecoderOpenArgs};
+use stellatune_plugin_api::{StDecoderInfo, StIoVTable, StStr};
 
 use super::common::{
     ConfigUpdatePlan, InstanceRuntimeCtx, plan_from_ffi, status_to_result, ststr_from_str,
     take_plugin_string,
 };
 
-pub struct DecoderInstanceV2 {
+pub struct DecoderInstance {
     ctx: InstanceRuntimeCtx,
     handle: *mut core::ffi::c_void,
-    vtable: *const stellatune_plugin_api::v2::StDecoderInstanceVTableV2,
+    vtable: *const stellatune_plugin_api::StDecoderInstanceVTable,
 }
 
-unsafe impl Send for DecoderInstanceV2 {}
+unsafe impl Send for DecoderInstance {}
 
-impl DecoderInstanceV2 {
-    pub fn from_ffi(ctx: InstanceRuntimeCtx, raw: StDecoderInstanceRefV2) -> Result<Self> {
+impl DecoderInstance {
+    pub fn from_ffi(ctx: InstanceRuntimeCtx, raw: StDecoderInstanceRef) -> Result<Self> {
         if raw.handle.is_null() || raw.vtable.is_null() {
             return Err(anyhow!("decoder instance returned null handle/vtable"));
         }
@@ -37,7 +35,7 @@ impl DecoderInstanceV2 {
         &mut self,
         path_hint: &str,
         ext_hint: &str,
-        io_vtable: *const StIoVTableV1,
+        io_vtable: *const StIoVTable,
         io_handle: *mut core::ffi::c_void,
     ) -> Result<()> {
         if io_vtable.is_null() || io_handle.is_null() {
@@ -45,7 +43,7 @@ impl DecoderInstanceV2 {
                 "decoder open_with_io received null io_vtable/io_handle"
             ));
         }
-        let args = StDecoderOpenArgsV2 {
+        let args = StDecoderOpenArgs {
             path_utf8: ststr_from_str(path_hint),
             ext_utf8: ststr_from_str(ext_hint),
             io_vtable,
@@ -56,9 +54,9 @@ impl DecoderInstanceV2 {
         status_to_result("Decoder open_with_io", status, self.ctx.plugin_free)
     }
 
-    pub fn get_info(&self) -> Result<StDecoderInfoV1> {
+    pub fn get_info(&self) -> Result<StDecoderInfo> {
         let _call = self.ctx.begin_call();
-        let mut out = StDecoderInfoV1 {
+        let mut out = StDecoderInfo {
             spec: stellatune_plugin_api::StAudioSpec {
                 sample_rate: 0,
                 channels: 0,
@@ -122,13 +120,13 @@ impl DecoderInstanceV2 {
     pub fn plan_config_update_json(&self, new_config_json: &str) -> Result<ConfigUpdatePlan> {
         let Some(plan_fn) = (unsafe { (*self.vtable).plan_config_update_json_utf8 }) else {
             return Ok(ConfigUpdatePlan {
-                mode: stellatune_plugin_api::v2::StConfigUpdateModeV2::Recreate,
+                mode: stellatune_plugin_api::StConfigUpdateMode::Recreate,
                 reason: Some("plugin does not implement plan_config_update".to_string()),
             });
         };
         let _call = self.ctx.begin_call();
-        let mut out = StConfigUpdatePlanV2 {
-            mode: stellatune_plugin_api::v2::StConfigUpdateModeV2::Reject,
+        let mut out = StConfigUpdatePlan {
+            mode: stellatune_plugin_api::StConfigUpdateMode::Reject,
             reason_utf8: StStr::empty(),
         };
         let status = (plan_fn)(self.handle, ststr_from_str(new_config_json), &mut out);
@@ -184,7 +182,7 @@ impl DecoderInstanceV2 {
     }
 }
 
-impl Drop for DecoderInstanceV2 {
+impl Drop for DecoderInstance {
     fn drop(&mut self) {
         if !self.handle.is_null() && !self.vtable.is_null() {
             let _call = self.ctx.begin_call();

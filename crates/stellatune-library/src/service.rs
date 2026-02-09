@@ -9,7 +9,7 @@ use tracing::{error, info};
 
 use stellatune_core::{LibraryCommand, LibraryEvent};
 
-use crate::worker::{DisabledPluginIds, LibraryWorker, Plugins, WorkerDeps};
+use crate::worker::{DisabledPluginIds, LibraryWorker, WorkerDeps};
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 use std::collections::HashSet;
@@ -17,21 +17,11 @@ use std::collections::HashSet;
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 use arc_swap::ArcSwap;
 
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-use stellatune_plugins::{PluginManager, default_host_vtable};
-
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-pub type SharedPlugins = Arc<std::sync::Mutex<PluginManager>>;
-
-#[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
-pub type SharedPlugins = ();
-
 #[derive(Clone)]
 pub struct LibraryHandle {
     cmd_tx: Sender<LibraryCommand>,
     events: Arc<EventHub>,
     plugins_dir: PathBuf,
-    plugins: Plugins,
     disabled_plugin_ids: DisabledPluginIds,
 }
 
@@ -65,40 +55,7 @@ impl LibraryHandle {
                 return;
             }
 
-            let mut pm = match self.plugins.lock() {
-                Ok(v) => v,
-                Err(_) => {
-                    self.events.emit(LibraryEvent::Log {
-                        message: "plugins reload skipped: plugins mutex poisoned".to_string(),
-                    });
-                    return;
-                }
-            };
-            pm.set_disabled_ids(disabled.clone());
-            match unsafe { pm.load_dir_additive_filtered(&dir, &disabled) } {
-                Ok(report) => {
-                    self.events.emit(LibraryEvent::Log {
-                        message: format!(
-                            "library plugins reloaded from {}: loaded={} errors={}",
-                            dir.display(),
-                            report.loaded.len(),
-                            report.errors.len()
-                        ),
-                    });
-                    for e in report.errors {
-                        self.events.emit(LibraryEvent::Log {
-                            message: format!("plugin load error: {e:#}"),
-                        });
-                    }
-                }
-                Err(e) => {
-                    self.events.emit(LibraryEvent::Log {
-                        message: format!("library plugins reload failed: {e:#}"),
-                    });
-                }
-            }
-
-            match stellatune_plugins::v2::shared_runtime_service_v2().lock() {
+            match stellatune_plugins::shared_runtime_service().lock() {
                 Ok(service) => match service.reload_dir_filtered(&dir, &disabled) {
                     Ok(v2) => self.events.emit(LibraryEvent::Log {
                         message: format!(
@@ -128,22 +85,6 @@ impl LibraryHandle {
 }
 
 pub fn start_library(db_path: String, disabled_plugin_ids: Vec<String>) -> Result<LibraryHandle> {
-    #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-    let plugins: SharedPlugins = Arc::new(std::sync::Mutex::new(PluginManager::new(
-        default_host_vtable(),
-    )));
-
-    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
-    let plugins: SharedPlugins = ();
-
-    start_library_with_plugins(db_path, disabled_plugin_ids, plugins)
-}
-
-pub fn start_library_with_plugins(
-    db_path: String,
-    disabled_plugin_ids: Vec<String>,
-    shared_plugins: SharedPlugins,
-) -> Result<LibraryHandle> {
     let (cmd_tx, cmd_rx) = crossbeam_channel::unbounded::<LibraryCommand>();
     let events = Arc::new(EventHub::new());
     let thread_events = Arc::clone(&events);
@@ -168,10 +109,7 @@ pub fn start_library_with_plugins(
     #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
     let disabled_plugin_ids: DisabledPluginIds = ();
 
-    let plugins: Plugins = shared_plugins;
-
     let plugins_dir_thread = plugins_dir.clone();
-    let plugins_thread = plugins.clone();
     let disabled_plugin_ids_thread = disabled_plugin_ids.clone();
 
     thread::Builder::new()
@@ -183,7 +121,6 @@ pub fn start_library_with_plugins(
                 thread_events,
                 init_tx,
                 plugins_dir_thread,
-                plugins_thread,
                 disabled_plugin_ids_thread,
             ) {
                 error!("library thread exited with error: {e:?}");
@@ -197,7 +134,6 @@ pub fn start_library_with_plugins(
         cmd_tx,
         events,
         plugins_dir,
-        plugins,
         disabled_plugin_ids,
     })
 }
@@ -208,7 +144,6 @@ fn library_thread_main(
     events: Arc<EventHub>,
     init_tx: Sender<Result<()>>,
     plugins_dir: PathBuf,
-    plugins: Plugins,
     disabled_plugin_ids: DisabledPluginIds,
 ) -> Result<()> {
     info!("library thread started");
@@ -243,7 +178,6 @@ fn library_thread_main(
             &db_path,
             Arc::clone(&events),
             plugins_dir,
-            plugins,
             disabled_plugin_ids,
         )
         .await

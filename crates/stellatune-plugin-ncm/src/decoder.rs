@@ -1,8 +1,11 @@
 use std::io::{Seek, SeekFrom};
 
 use stellatune_plugin_sdk::StLogLevel;
+use stellatune_plugin_sdk::instance::{DecoderDescriptor, DecoderExtScoreRule, DecoderInstance};
+use stellatune_plugin_sdk::update::ConfigUpdatable;
 use stellatune_plugin_sdk::{
-    Decoder, DecoderDescriptor, DecoderInfo, DecoderOpenArgs, SdkError, SdkResult,
+    Decoder, DecoderDescriptor as LegacyDecoderDescriptor, DecoderInfo, DecoderOpenArgs, SdkError,
+    SdkResult,
 };
 use symphonia::core::audio::{SampleBuffer, SignalSpec};
 use symphonia::core::codecs::{Decoder as SymphoniaDecoder, DecoderOptions};
@@ -18,6 +21,10 @@ use crate::io::NcmMediaSource;
 use crate::tags::{Tags, apply_revision, build_metadata};
 
 const NCM_MAGIC: &[u8; 8] = b"CTENFDAM";
+const NCM_EXT_RULES: &[DecoderExtScoreRule] = &[DecoderExtScoreRule {
+    ext: "ncm",
+    score: 100,
+}];
 
 pub struct NcmDecoder {
     backend: NcmBackend,
@@ -355,7 +362,7 @@ impl Decoder for NcmDecoder {
     }
 }
 
-impl DecoderDescriptor for NcmDecoder {
+impl LegacyDecoderDescriptor for NcmDecoder {
     const TYPE_ID: &'static str = "ncm";
     const SUPPORTS_SEEK: bool = true;
 
@@ -386,5 +393,93 @@ impl DecoderDescriptor for NcmDecoder {
             return Err(SdkError::msg("ncm: io must be seekable"));
         }
         Self::open_from_io(io)
+    }
+}
+
+pub struct NcmDecoderInstance {
+    inner: Option<NcmDecoder>,
+}
+
+impl ConfigUpdatable for NcmDecoderInstance {}
+
+impl DecoderInstance for NcmDecoderInstance {
+    fn open(
+        &mut self,
+        args: stellatune_plugin_sdk::instance::DecoderOpenArgsRef<'_>,
+    ) -> SdkResult<()> {
+        let host_io = unsafe {
+            stellatune_plugin_sdk::HostIo::from_raw(args.io.io_vtable, args.io.io_handle)
+        };
+        let decoder = <NcmDecoder as LegacyDecoderDescriptor>::open(DecoderOpenArgs {
+            path: args.path_hint,
+            ext: args.ext_hint,
+            io: host_io,
+        })?;
+        self.inner = Some(decoder);
+        Ok(())
+    }
+
+    fn get_info(&self) -> stellatune_plugin_sdk::StDecoderInfo {
+        self.inner.as_ref().map(|d| d.info().to_ffi()).unwrap_or(
+            stellatune_plugin_sdk::StDecoderInfo {
+                spec: stellatune_plugin_sdk::StAudioSpec {
+                    sample_rate: 0,
+                    channels: 0,
+                    reserved: 0,
+                },
+                duration_ms: 0,
+                flags: 0,
+                reserved: 0,
+            },
+        )
+    }
+
+    fn get_metadata_json(&self) -> SdkResult<Option<String>> {
+        let Some(decoder) = self.inner.as_ref() else {
+            return Ok(None);
+        };
+        decoder
+            .metadata()
+            .map(|v| serde_json::to_string(&v).map_err(SdkError::from))
+            .transpose()
+    }
+
+    fn read_interleaved_f32(
+        &mut self,
+        frames: u32,
+        out_interleaved: &mut [f32],
+    ) -> SdkResult<(u32, bool)> {
+        let decoder = self
+            .inner
+            .as_mut()
+            .ok_or_else(|| SdkError::msg("decoder is not open"))?;
+        decoder.read_interleaved_f32(frames, out_interleaved)
+    }
+
+    fn seek_ms(&mut self, position_ms: u64) -> SdkResult<()> {
+        let decoder = self
+            .inner
+            .as_mut()
+            .ok_or_else(|| SdkError::msg("decoder is not open"))?;
+        decoder.seek_ms(position_ms)
+    }
+}
+
+impl DecoderDescriptor for NcmDecoderInstance {
+    type Config = serde_json::Value;
+    type Instance = NcmDecoderInstance;
+
+    const TYPE_ID: &'static str = <NcmDecoder as LegacyDecoderDescriptor>::TYPE_ID;
+    const DISPLAY_NAME: &'static str = "NCM Decoder (ncmdump)";
+    const CONFIG_SCHEMA_JSON: &'static str = "{}";
+    const DEFAULT_CONFIG_JSON: &'static str = "{}";
+    const EXT_SCORE_RULES: &'static [DecoderExtScoreRule] = NCM_EXT_RULES;
+
+    fn default_config() -> Self::Config {
+        serde_json::Value::Object(serde_json::Map::new())
+    }
+
+    fn create(_config: Self::Config) -> SdkResult<Self::Instance> {
+        Ok(NcmDecoderInstance { inner: None })
     }
 }

@@ -1,28 +1,28 @@
 use anyhow::{Result, anyhow};
-use stellatune_plugin_api::v2::{StConfigUpdatePlanV2, StSourceCatalogInstanceRefV2};
-use stellatune_plugin_api::{StIoVTableV1, StStr};
+use stellatune_plugin_api::{StConfigUpdatePlan, StSourceCatalogInstanceRef};
+use stellatune_plugin_api::{StIoVTable, StStr};
 
 use super::common::{
     ConfigUpdatePlan, InstanceRuntimeCtx, plan_from_ffi, status_to_result, ststr_from_str,
     take_plugin_string,
 };
 
-pub struct SourceCatalogInstanceV2 {
+pub struct SourceCatalogInstance {
     ctx: InstanceRuntimeCtx,
     handle: *mut core::ffi::c_void,
-    vtable: *const stellatune_plugin_api::v2::StSourceCatalogInstanceVTableV2,
+    vtable: *const stellatune_plugin_api::StSourceCatalogInstanceVTable,
 }
 
-unsafe impl Send for SourceCatalogInstanceV2 {}
+unsafe impl Send for SourceCatalogInstance {}
 
 #[derive(Debug, Clone, Copy)]
-pub struct SourceOpenStreamResultV2 {
-    pub io_vtable: *const StIoVTableV1,
+pub struct SourceOpenStreamResult {
+    pub io_vtable: *const StIoVTable,
     pub io_handle: *mut core::ffi::c_void,
 }
 
-impl SourceCatalogInstanceV2 {
-    pub fn from_ffi(ctx: InstanceRuntimeCtx, raw: StSourceCatalogInstanceRefV2) -> Result<Self> {
+impl SourceCatalogInstance {
+    pub fn from_ffi(ctx: InstanceRuntimeCtx, raw: StSourceCatalogInstanceRef) -> Result<Self> {
         if raw.handle.is_null() || raw.vtable.is_null() {
             return Err(anyhow!(
                 "source catalog instance returned null handle/vtable"
@@ -56,9 +56,9 @@ impl SourceCatalogInstanceV2 {
     pub fn open_stream(
         &mut self,
         track_json: &str,
-    ) -> Result<(SourceOpenStreamResultV2, Option<String>)> {
+    ) -> Result<(SourceOpenStreamResult, Option<String>)> {
         let _call = self.ctx.begin_call();
-        let mut out_io_vtable: *const StIoVTableV1 = core::ptr::null();
+        let mut out_io_vtable: *const StIoVTable = core::ptr::null();
         let mut out_io_handle: *mut core::ffi::c_void = core::ptr::null_mut();
         let mut out_meta = StStr::empty();
         let status = unsafe {
@@ -78,7 +78,7 @@ impl SourceCatalogInstanceV2 {
         }
         let meta = take_plugin_string(out_meta, self.ctx.plugin_free);
         Ok((
-            SourceOpenStreamResultV2 {
+            SourceOpenStreamResult {
                 io_vtable: out_io_vtable,
                 io_handle: out_io_handle,
             },
@@ -97,13 +97,13 @@ impl SourceCatalogInstanceV2 {
     pub fn plan_config_update_json(&self, new_config_json: &str) -> Result<ConfigUpdatePlan> {
         let Some(plan_fn) = (unsafe { (*self.vtable).plan_config_update_json_utf8 }) else {
             return Ok(ConfigUpdatePlan {
-                mode: stellatune_plugin_api::v2::StConfigUpdateModeV2::Recreate,
+                mode: stellatune_plugin_api::StConfigUpdateMode::Recreate,
                 reason: Some("plugin does not implement plan_config_update".to_string()),
             });
         };
         let _call = self.ctx.begin_call();
-        let mut out = StConfigUpdatePlanV2 {
-            mode: stellatune_plugin_api::v2::StConfigUpdateModeV2::Reject,
+        let mut out = StConfigUpdatePlan {
+            mode: stellatune_plugin_api::StConfigUpdateMode::Reject,
             reason_utf8: StStr::empty(),
         };
         let status = (plan_fn)(self.handle, ststr_from_str(new_config_json), &mut out);
@@ -159,7 +159,7 @@ impl SourceCatalogInstanceV2 {
     }
 }
 
-impl Drop for SourceCatalogInstanceV2 {
+impl Drop for SourceCatalogInstance {
     fn drop(&mut self) {
         if !self.handle.is_null() && !self.vtable.is_null() {
             let _call = self.ctx.begin_call();

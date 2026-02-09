@@ -1,5 +1,5 @@
 use crate::runtime::{CapabilityKind, GenerationId};
-use stellatune_plugin_api::v2::{StCapabilityDescriptorV2, StCapabilityKindV2};
+use stellatune_plugin_api::{StCapabilityDescriptor, StCapabilityKind};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CapabilityId(pub u64);
@@ -46,20 +46,20 @@ pub struct ActivationReport {
     pub capabilities: Vec<CapabilityDescriptorRecord>,
 }
 
-pub fn capability_kind_from_api(kind: StCapabilityKindV2) -> CapabilityKind {
+pub fn capability_kind_from_api(kind: StCapabilityKind) -> CapabilityKind {
     match kind {
-        StCapabilityKindV2::Decoder => CapabilityKind::Decoder,
-        StCapabilityKindV2::Dsp => CapabilityKind::Dsp,
-        StCapabilityKindV2::SourceCatalog => CapabilityKind::SourceCatalog,
-        StCapabilityKindV2::LyricsProvider => CapabilityKind::LyricsProvider,
-        StCapabilityKindV2::OutputSink => CapabilityKind::OutputSink,
+        StCapabilityKind::Decoder => CapabilityKind::Decoder,
+        StCapabilityKind::Dsp => CapabilityKind::Dsp,
+        StCapabilityKind::SourceCatalog => CapabilityKind::SourceCatalog,
+        StCapabilityKind::LyricsProvider => CapabilityKind::LyricsProvider,
+        StCapabilityKind::OutputSink => CapabilityKind::OutputSink,
     }
 }
 
 /// # Safety
 /// Caller must ensure `desc` points to a valid descriptor from plugin ABI.
 pub unsafe fn capability_input_from_ffi(
-    desc: &StCapabilityDescriptorV2,
+    desc: &StCapabilityDescriptor,
 ) -> CapabilityDescriptorInput {
     CapabilityDescriptorInput {
         kind: capability_kind_from_api(desc.kind),

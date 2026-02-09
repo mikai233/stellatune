@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use crossbeam_channel::{Sender, TrySendError};
 use stellatune_core::TrackDecodeInfo;
 use stellatune_output::OutputSpec;
-use stellatune_plugins::v2::DspInstanceV2;
+use stellatune_plugins::DspInstance;
 
 use crate::engine::decode::decoder::EngineDecoder;
 use crate::ring_buffer::RingBufferProducer;
@@ -93,7 +93,7 @@ pub(crate) enum DecodeCtrl {
         output_sink_only: bool,
     },
     SetDspChain {
-        chain: Vec<DspInstanceV2>,
+        chain: Vec<DspInstance>,
     },
     Play,
     Pause,

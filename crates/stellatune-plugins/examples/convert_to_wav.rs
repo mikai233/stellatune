@@ -3,7 +3,6 @@ use std::io::{Seek, SeekFrom, Write};
 use std::path::Path;
 
 use anyhow::{Context, Result, anyhow};
-use stellatune_plugins::{PluginManager, default_host_vtable};
 
 struct Wav16Writer {
     file: File,
@@ -95,54 +94,15 @@ impl Wav16Writer {
 fn main() -> Result<()> {
     // Usage:
     //   convert_to_wav <plugin_dir> <input> <output.wav>
-    //
-    // Note: If no plugin decoder matches, we fall back to built-in Symphonia decode.
     let mut args = std::env::args().skip(1);
-    let plugin_dir = args.next().ok_or_else(|| anyhow!("missing <plugin_dir>"))?;
+    let _plugin_dir = args.next().ok_or_else(|| anyhow!("missing <plugin_dir>"))?;
     let input = args.next().ok_or_else(|| anyhow!("missing <input>"))?;
     let output = args.next().ok_or_else(|| anyhow!("missing <output.wav>"))?;
     if args.next().is_some() {
         return Err(anyhow!("unexpected extra arguments"));
     }
 
-    let mut mgr = PluginManager::new(default_host_vtable());
-    let report = unsafe { mgr.load_dir(&plugin_dir)? };
-    for e in report.errors {
-        eprintln!("plugin load error: {e:#}");
-    }
-
-    // Prefer plugins.
-    if let Some(mut dec) = mgr.open_best_decoder(&input)? {
-        let spec = dec.spec();
-        eprintln!(
-            "decoder: plugin={} type={} sr={} ch={} dur_ms={:?}",
-            dec.plugin_id(),
-            dec.decoder_type_id(),
-            spec.sample_rate,
-            spec.channels,
-            dec.duration_ms()
-        );
-        let mut out = Wav16Writer::create(&output, spec.sample_rate, spec.channels)?;
-        loop {
-            let (samples, eof) = dec.read_interleaved_f32(4096)?;
-            if !samples.is_empty() {
-                out.write_f32_interleaved(&samples)?;
-            }
-            if eof {
-                break;
-            }
-            if samples.is_empty() {
-                return Err(anyhow!(
-                    "plugin decoder returned 0 frames without eof (input={})",
-                    input
-                ));
-            }
-        }
-        out.finish()?;
-        return Ok(());
-    }
-
-    // Fall back to built-in decode.
+    // Built-in decode example. Plugin decode flow has moved to host runtime.
     let mut d = stellatune_decode::Decoder::open(&input)
         .map_err(|e| anyhow!("failed to open built-in decoder: {e}"))?;
     let spec = d.spec();

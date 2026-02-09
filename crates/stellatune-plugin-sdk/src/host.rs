@@ -1,22 +1,17 @@
 use core::ffi::c_void;
-use core::sync::atomic::{AtomicPtr, Ordering};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
+use stellatune_plugin_api::{STELLATUNE_PLUGIN_API_VERSION, StHostVTable};
 
-use crate::{
-    STELLATUNE_PLUGIN_API_VERSION_V1, SdkError, SdkResult, StHostVTableV1, StLogLevel, StStatus,
-    StStr, ststr_to_str,
-};
-
-static HOST_VTABLE_V1: AtomicPtr<StHostVTableV1> = AtomicPtr::new(core::ptr::null_mut());
+use crate::{SdkError, SdkResult, StLogLevel, StStatus, StStr, ststr_to_str};
 
 #[derive(Clone, Copy)]
 pub struct HostContext {
-    vtable: *const StHostVTableV1,
+    vtable: *const StHostVTable,
 }
 
 unsafe impl Send for HostContext {}
@@ -24,14 +19,16 @@ unsafe impl Sync for HostContext {}
 
 impl HostContext {
     pub fn current() -> SdkResult<Self> {
-        let vtable = HOST_VTABLE_V1.load(Ordering::Acquire);
+        let Some(vtable) = crate::export::host_vtable_raw() else {
+            return Err(SdkError::HostUnavailable);
+        };
         if vtable.is_null() {
             return Err(SdkError::HostUnavailable);
         }
         let api_version = unsafe { (*vtable).api_version };
-        if api_version != STELLATUNE_PLUGIN_API_VERSION_V1 {
+        if api_version != STELLATUNE_PLUGIN_API_VERSION {
             return Err(SdkError::HostApiVersionMismatch {
-                expected: STELLATUNE_PLUGIN_API_VERSION_V1,
+                expected: STELLATUNE_PLUGIN_API_VERSION,
                 actual: api_version,
             });
         }
@@ -174,11 +171,6 @@ impl HostContext {
         cmd.args(args);
         cmd.spawn()
     }
-}
-
-#[doc(hidden)]
-pub unsafe fn __set_host_vtable_v1(host: *const StHostVTableV1) {
-    HOST_VTABLE_V1.store(host as *mut StHostVTableV1, Ordering::Release);
 }
 
 pub fn host_context() -> SdkResult<HostContext> {

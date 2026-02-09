@@ -3,14 +3,14 @@ use core::ffi::c_void;
 use crate::{StLogLevel, StStatus, StStr, StVersion};
 
 use super::{
-    StDecoderExtScoreV2, StDecoderInstanceRefV2, StDspInstanceRefV2, StLyricsProviderInstanceRefV2,
-    StOutputSinkInstanceRefV2, StSourceCatalogInstanceRefV2,
+    StDecoderExtScore, StDecoderInstanceRef, StDspInstanceRef, StLyricsProviderInstanceRef,
+    StOutputSinkInstanceRef, StSourceCatalogInstanceRef,
 };
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct StCapabilityDescriptorV2 {
-    pub kind: super::StCapabilityKindV2,
+pub struct StCapabilityDescriptor {
+    pub kind: super::StCapabilityKind,
     pub type_id_utf8: StStr,
     pub display_name_utf8: StStr,
     pub config_schema_json_utf8: StStr,
@@ -21,7 +21,7 @@ pub struct StCapabilityDescriptorV2 {
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
-pub struct StHostVTableV2 {
+pub struct StHostVTable {
     pub api_version: u32,
     pub user_data: *mut c_void,
     pub log_utf8: Option<extern "C" fn(user_data: *mut c_void, level: StLogLevel, msg: StStr)>,
@@ -50,37 +50,36 @@ pub struct StHostVTableV2 {
     pub free_host_str_utf8: Option<extern "C" fn(user_data: *mut c_void, s: StStr)>,
 }
 
-// Raw pointers make this not auto-Send/Sync. V2 treats host vtable as immutable and requires
+// Raw pointers make this not auto-Send/Sync. Host vtable is treated as immutable and requires
 // `user_data` to be thread-safe when used across threads.
-unsafe impl Send for StHostVTableV2 {}
-unsafe impl Sync for StHostVTableV2 {}
+unsafe impl Send for StHostVTable {}
+unsafe impl Sync for StHostVTable {}
 
-pub type StPluginEntryV2 =
-    unsafe extern "C" fn(host: *const StHostVTableV2) -> *const StPluginModuleV2;
+pub type StPluginEntry = unsafe extern "C" fn(host: *const StHostVTable) -> *const StPluginModule;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
-pub struct StPluginModuleV2 {
+pub struct StPluginModule {
     pub api_version: u32,
     pub plugin_version: StVersion,
-    /// Optional free hook for plugin-owned UTF-8 bytes returned by V2 APIs.
+    /// Optional free hook for plugin-owned UTF-8 bytes returned by plugin APIs.
     pub plugin_free: Option<extern "C" fn(ptr: *mut c_void, len: usize, align: usize)>,
     pub metadata_json_utf8: extern "C" fn() -> StStr,
 
     pub capability_count: extern "C" fn() -> usize,
-    pub capability_get: extern "C" fn(index: usize) -> *const StCapabilityDescriptorV2,
+    pub capability_get: extern "C" fn(index: usize) -> *const StCapabilityDescriptor,
 
     /// Optional decoder extension scoring table access.
     /// Host may use this to rank decoder candidates by extension without content probing.
     pub decoder_ext_score_count: Option<extern "C" fn(type_id_utf8: StStr) -> usize>,
     pub decoder_ext_score_get:
-        Option<extern "C" fn(type_id_utf8: StStr, index: usize) -> *const StDecoderExtScoreV2>,
+        Option<extern "C" fn(type_id_utf8: StStr, index: usize) -> *const StDecoderExtScore>,
 
     pub create_decoder_instance: Option<
         extern "C" fn(
             type_id_utf8: StStr,
             config_json_utf8: StStr,
-            out_instance: *mut StDecoderInstanceRefV2,
+            out_instance: *mut StDecoderInstanceRef,
         ) -> StStatus,
     >,
     pub create_dsp_instance: Option<
@@ -89,28 +88,28 @@ pub struct StPluginModuleV2 {
             sample_rate: u32,
             channels: u16,
             config_json_utf8: StStr,
-            out_instance: *mut StDspInstanceRefV2,
+            out_instance: *mut StDspInstanceRef,
         ) -> StStatus,
     >,
     pub create_source_catalog_instance: Option<
         extern "C" fn(
             type_id_utf8: StStr,
             config_json_utf8: StStr,
-            out_instance: *mut StSourceCatalogInstanceRefV2,
+            out_instance: *mut StSourceCatalogInstanceRef,
         ) -> StStatus,
     >,
     pub create_lyrics_provider_instance: Option<
         extern "C" fn(
             type_id_utf8: StStr,
             config_json_utf8: StStr,
-            out_instance: *mut StLyricsProviderInstanceRefV2,
+            out_instance: *mut StLyricsProviderInstanceRef,
         ) -> StStatus,
     >,
     pub create_output_sink_instance: Option<
         extern "C" fn(
             type_id_utf8: StStr,
             config_json_utf8: StStr,
-            out_instance: *mut StOutputSinkInstanceRefV2,
+            out_instance: *mut StOutputSinkInstanceRef,
         ) -> StStatus,
     >,
 
