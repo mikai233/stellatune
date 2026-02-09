@@ -2,6 +2,7 @@ use std::thread;
 
 use crate::frb_generated::{RustOpaque, StreamSink};
 use anyhow::Result;
+use tracing::debug;
 
 use stellatune_backend_api::library::LibraryService;
 use stellatune_core::LibraryEvent;
@@ -170,11 +171,12 @@ pub fn library_events(library: RustOpaque<Library>, sink: StreamSink<LibraryEven
         .spawn(move || {
             for event in rx.iter() {
                 if sink.add(event).is_err() {
+                    debug!("library_events stream sink closed");
                     break;
                 }
             }
         })
-        .expect("failed to spawn stellatune-library-events thread");
+        .map_err(|e| anyhow::anyhow!("failed to spawn stellatune-library-events thread: {e}"))?;
 
     Ok(())
 }

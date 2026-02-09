@@ -1,3 +1,5 @@
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use anyhow::Result;
 use crossbeam_channel::Receiver;
 
@@ -7,16 +9,22 @@ use stellatune_core::{LibraryCommand, LibraryEvent};
 use stellatune_library::{LibraryHandle, start_library_with_plugins};
 
 pub struct LibraryService {
+    instance_id: u64,
     handle: LibraryHandle,
 }
 
 impl LibraryService {
     pub fn new(db_path: String, disabled_plugin_ids: Vec<String>) -> Result<Self> {
+        static NEXT_ID: AtomicU64 = AtomicU64::new(1);
+        let instance_id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
         init_tracing();
-        tracing::info!("creating library: {}", db_path);
+        tracing::info!(instance_id, "creating library: {}", db_path);
         let handle = start_library_with_plugins(db_path, disabled_plugin_ids, shared_plugins())?;
         register_plugin_runtime_library(handle.clone());
-        Ok(Self { handle })
+        Ok(Self {
+            instance_id,
+            handle,
+        })
     }
 
     pub fn handle(&self) -> &LibraryHandle {
@@ -173,5 +181,11 @@ impl LibraryService {
 
     pub fn plugins_reload_with_disabled(&self, dir: String, disabled_ids: Vec<String>) {
         self.handle.plugins_reload_with_disabled(dir, disabled_ids);
+    }
+}
+
+impl Drop for LibraryService {
+    fn drop(&mut self) {
+        tracing::info!(instance_id = self.instance_id, "dropping library");
     }
 }

@@ -168,7 +168,7 @@ pub fn start_library_with_plugins(
                 error!("library thread exited with error: {e:?}");
             }
         })
-        .expect("failed to spawn stellatune-library thread");
+        .context("failed to spawn stellatune-library thread")?;
 
     init_rx.recv().context("library init channel closed")??;
 

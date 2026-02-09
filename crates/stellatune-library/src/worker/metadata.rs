@@ -12,6 +12,11 @@ use tracing::debug;
 
 use super::Plugins;
 
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+fn snapshot_plugins(plugins: &Plugins) -> Option<stellatune_plugins::PluginManager> {
+    plugins.lock().ok().map(|pm| pm.clone())
+}
+
 #[derive(Debug, serde::Deserialize)]
 struct PluginTrackMetadata {
     #[serde(default)]
@@ -156,22 +161,20 @@ pub(super) fn extract_metadata_with_plugins(
         let path_str = path.to_string_lossy().to_string();
 
         const BUILTIN_META_SCORE: u8 = 50;
+        let plugin_snapshot = snapshot_plugins(plugins);
         let prefer_plugin = if ext.is_empty() {
-            plugins
-                .lock()
-                .ok()
+            plugin_snapshot
+                .as_ref()
                 .and_then(|pm| pm.can_decode_path(&path_str).ok())
                 .unwrap_or(false)
         } else if is_symphonia_primary_ext(&ext) {
-            plugins
-                .lock()
-                .ok()
+            plugin_snapshot
+                .as_ref()
                 .and_then(|pm| pm.probe_best_decoder_hint(&ext).map(|(_key, score)| score))
                 .is_some_and(|score| score > BUILTIN_META_SCORE)
         } else {
-            plugins
-                .lock()
-                .ok()
+            plugin_snapshot
+                .as_ref()
                 .map(|pm| pm.probe_best_decoder_hint(&ext).is_some())
                 .unwrap_or(false)
         };
@@ -198,9 +201,7 @@ fn is_symphonia_primary_ext(ext_lower: &str) -> bool {
 fn extract_plugin_metadata(path: &Path, plugins: &Plugins) -> Result<ExtractedMetadata> {
     let started = std::time::Instant::now();
     let path_str = path.to_string_lossy().to_string();
-    let pm = plugins
-        .lock()
-        .map_err(|_| anyhow::anyhow!("plugins mutex poisoned"))?;
+    let pm = snapshot_plugins(plugins).ok_or_else(|| anyhow::anyhow!("plugins mutex poisoned"))?;
 
     let mut dec = pm
         .open_best_decoder(&path_str)?

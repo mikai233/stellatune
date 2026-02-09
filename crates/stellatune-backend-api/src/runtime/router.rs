@@ -36,7 +36,7 @@ fn plugin_runtime_router() -> &'static std::sync::Arc<PluginRuntimeRouter> {
         });
         let router_thread = std::sync::Arc::clone(&router);
         let plugins = shared_plugins();
-        thread::Builder::new()
+        if let Err(e) = thread::Builder::new()
             .name("stellatune-plugin-runtime-router".to_string())
             .spawn(move || {
                 let mut pending_finishes: Vec<PendingControlFinish> = Vec::new();
@@ -44,13 +44,7 @@ fn plugin_runtime_router() -> &'static std::sync::Arc<PluginRuntimeRouter> {
                     let engine = router_thread.engine.lock().ok().and_then(|g| g.clone());
                     let library = router_thread.library.lock().ok().and_then(|g| g.clone());
 
-                    let runtime_events = match plugins.lock() {
-                        Ok(pm) => pm.drain_runtime_events(128),
-                        Err(_) => {
-                            thread::sleep(std::time::Duration::from_millis(20));
-                            continue;
-                        }
-                    };
+                    let runtime_events = stellatune_plugins::drain_shared_runtime_events(128);
 
                     for event in runtime_events {
                         emit_runtime_event(
@@ -244,7 +238,9 @@ fn plugin_runtime_router() -> &'static std::sync::Arc<PluginRuntimeRouter> {
                     thread::sleep(std::time::Duration::from_millis(10));
                 }
             })
-            .expect("failed to spawn stellatune-plugin-runtime-router");
+        {
+            tracing::error!("failed to spawn stellatune-plugin-runtime-router: {e}");
+        }
         router
     })
 }

@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use anyhow::Result;
 use crossbeam_channel::Receiver;
@@ -18,17 +19,21 @@ use stellatune_core::{
 };
 
 pub struct PlayerService {
+    instance_id: u64,
     engine: EngineHandle,
     lyrics: Arc<LyricsService>,
 }
 
 impl PlayerService {
     pub fn new() -> Self {
+        static NEXT_ID: AtomicU64 = AtomicU64::new(1);
+        let instance_id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
         init_tracing();
-        tracing::info!("creating player");
+        tracing::info!(instance_id, "creating player");
         let engine = start_engine_with_plugins(shared_plugins());
         register_plugin_runtime_engine(engine.clone());
         Self {
+            instance_id,
             engine,
             lyrics: LyricsService::new(),
         }
@@ -279,6 +284,12 @@ impl PlayerService {
 impl Default for PlayerService {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl Drop for PlayerService {
+    fn drop(&mut self) {
+        tracing::info!(instance_id = self.instance_id, "dropping player");
     }
 }
 

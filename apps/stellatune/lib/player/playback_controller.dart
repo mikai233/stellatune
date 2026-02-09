@@ -893,6 +893,7 @@ class PlaybackController extends Notifier<PlaybackState> {
     _dlnaSuppressAutoNext(const Duration(seconds: 1));
     final maxAttempts = ref.read(queueControllerProvider).items.length;
     if (maxAttempts <= 0) {
+      ref.read(loggerProvider).w('next aborted: empty queue');
       await stop();
       return;
     }
@@ -902,6 +903,9 @@ class PlaybackController extends Notifier<PlaybackState> {
           .read(queueControllerProvider.notifier)
           .next(fromAuto: auto);
       if (item == null) {
+        ref
+            .read(loggerProvider)
+            .w('next reached end of queue: attempts=$attempts auto=$auto');
         await stop();
         return;
       }
@@ -911,6 +915,9 @@ class PlaybackController extends Notifier<PlaybackState> {
       }
       attempts += 1;
     }
+    ref
+        .read(loggerProvider)
+        .w('next failed: all $maxAttempts candidates were blocked');
     await stop();
   }
 
@@ -941,7 +948,13 @@ class PlaybackController extends Notifier<PlaybackState> {
         track,
       ]);
       if (result.isEmpty || result.first.playable) return null;
-      return result.first.reason?.trim();
+      final reason = result.first.reason?.trim();
+      ref
+          .read(loggerProvider)
+          .w(
+            'playability blocked: track=${track.sourceId}:${track.trackId} reason=${reason ?? "unknown"}',
+          );
+      return reason;
     } catch (e, st) {
       ref
           .read(loggerProvider)

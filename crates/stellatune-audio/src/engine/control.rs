@@ -39,6 +39,13 @@ const PLUGIN_SINK_MIN_LOW_WATERMARK_MS: i64 = 2;
 const PLUGIN_SINK_MIN_HIGH_WATERMARK_MS: i64 = 4;
 type SharedTrackInfo = Arc<ArcSwapOption<stellatune_core::TrackDecodeInfo>>;
 
+fn snapshot_plugins(plugins: &Arc<Mutex<PluginManager>>) -> Result<PluginManager, String> {
+    plugins
+        .lock()
+        .map(|pm| pm.clone())
+        .map_err(|_| "plugins mutex poisoned".to_string())
+}
+
 #[derive(Debug, Clone)]
 struct DspChainEntry {
     plugin_id: String,
@@ -205,7 +212,7 @@ impl EngineHandle {
     }
 
     pub fn list_plugins(&self) -> Vec<stellatune_core::PluginDescriptor> {
-        let Ok(pm) = self.plugins.lock() else {
+        let Ok(pm) = snapshot_plugins(&self.plugins) else {
             return Vec::new();
         };
         pm.plugins()
@@ -218,7 +225,7 @@ impl EngineHandle {
     }
 
     pub fn list_dsp_types(&self) -> Vec<stellatune_core::DspTypeDescriptor> {
-        let Ok(pm) = self.plugins.lock() else {
+        let Ok(pm) = snapshot_plugins(&self.plugins) else {
             return Vec::new();
         };
         pm.list_dsp_types()
@@ -235,7 +242,7 @@ impl EngineHandle {
     }
 
     pub fn list_source_catalog_types(&self) -> Vec<stellatune_core::SourceCatalogTypeDescriptor> {
-        let Ok(pm) = self.plugins.lock() else {
+        let Ok(pm) = snapshot_plugins(&self.plugins) else {
             return Vec::new();
         };
         pm.list_source_catalog_types()
@@ -252,7 +259,7 @@ impl EngineHandle {
     }
 
     pub fn list_lyrics_provider_types(&self) -> Vec<stellatune_core::LyricsProviderTypeDescriptor> {
-        let Ok(pm) = self.plugins.lock() else {
+        let Ok(pm) = snapshot_plugins(&self.plugins) else {
             return Vec::new();
         };
         pm.list_lyrics_provider_types()
@@ -267,7 +274,7 @@ impl EngineHandle {
     }
 
     pub fn list_output_sink_types(&self) -> Vec<stellatune_core::OutputSinkTypeDescriptor> {
-        let Ok(pm) = self.plugins.lock() else {
+        let Ok(pm) = snapshot_plugins(&self.plugins) else {
             return Vec::new();
         };
         pm.list_output_sink_types()
@@ -284,7 +291,11 @@ impl EngineHandle {
     }
 
     pub fn can_play_track_refs(&self, tracks: Vec<TrackRef>) -> Vec<TrackPlayability> {
-        let Ok(pm) = self.plugins.lock() else {
+        let Ok(pm) = snapshot_plugins(&self.plugins) else {
+            warn!(
+                track_count = tracks.len(),
+                "can_play_track_refs failed: plugins mutex poisoned"
+            );
             return tracks
                 .into_iter()
                 .map(|track| TrackPlayability {
@@ -294,10 +305,26 @@ impl EngineHandle {
                 })
                 .collect();
         };
-        tracks
+        let verdicts = tracks
             .iter()
             .map(|track| assess_track_playability(track, &pm))
-            .collect()
+            .collect::<Vec<_>>();
+        let blocked = verdicts.iter().filter(|v| !v.playable).count();
+        if blocked > 0 {
+            let reasons = verdicts
+                .iter()
+                .filter(|v| !v.playable)
+                .map(|v| v.reason.as_deref().unwrap_or("unknown"))
+                .collect::<Vec<_>>()
+                .join(",");
+            debug!(
+                track_count = verdicts.len(),
+                blocked,
+                reasons = %reasons,
+                "can_play_track_refs blocked tracks"
+            );
+        }
+        verdicts
     }
 
     pub fn source_list_items<C, R, Items>(
@@ -312,10 +339,7 @@ impl EngineHandle {
         R: serde::Serialize,
         Items: serde::de::DeserializeOwned,
     {
-        let pm = self
-            .plugins
-            .lock()
-            .map_err(|_| "plugins mutex poisoned".to_string())?;
+        let pm = snapshot_plugins(&self.plugins)?;
         let key = pm
             .find_source_catalog_key(plugin_id, type_id)
             .ok_or_else(|| format!("source catalog not found: {}::{}", plugin_id, type_id))?;
@@ -333,10 +357,7 @@ impl EngineHandle {
         Q: serde::Serialize,
         Resp: serde::de::DeserializeOwned,
     {
-        let pm = self
-            .plugins
-            .lock()
-            .map_err(|_| "plugins mutex poisoned".to_string())?;
+        let pm = snapshot_plugins(&self.plugins)?;
         let key = pm
             .find_lyrics_provider_key(plugin_id, type_id)
             .ok_or_else(|| format!("lyrics provider not found: {}::{}", plugin_id, type_id))?;
@@ -353,10 +374,7 @@ impl EngineHandle {
         T: serde::Serialize,
         Resp: serde::de::DeserializeOwned,
     {
-        let pm = self
-            .plugins
-            .lock()
-            .map_err(|_| "plugins mutex poisoned".to_string())?;
+        let pm = snapshot_plugins(&self.plugins)?;
         let key = pm
             .find_lyrics_provider_key(plugin_id, type_id)
             .ok_or_else(|| format!("lyrics provider not found: {}::{}", plugin_id, type_id))?;
@@ -373,10 +391,7 @@ impl EngineHandle {
         C: serde::Serialize,
         Targets: serde::de::DeserializeOwned,
     {
-        let pm = self
-            .plugins
-            .lock()
-            .map_err(|_| "plugins mutex poisoned".to_string())?;
+        let pm = snapshot_plugins(&self.plugins)?;
         let key = pm
             .find_output_sink_key(plugin_id, type_id)
             .ok_or_else(|| format!("output sink not found: {}::{}", plugin_id, type_id))?;
@@ -700,8 +715,42 @@ fn handle_reload_plugins(
     dir: String,
     disabled_ids: Vec<String>,
 ) {
-    // Soft reload: keep current playback/session alive and only apply plugin availability
-    // to newly created instances. Existing instances stay valid via plugin runtime guards.
+    // Transactional reload:
+    // 1) Build a fresh manager and load plugins first.
+    // 2) Swap to the new manager only if load produced usable plugins (or if there were none before).
+    // This avoids ending up with an empty plugin set after a reload failure.
+    let disabled = disabled_ids
+        .into_iter()
+        .collect::<std::collections::HashSet<_>>();
+    events.emit(Event::Log {
+        message: format!(
+            "plugin reload requested: dir={} disabled_count={}",
+            dir,
+            disabled.len()
+        ),
+    });
+
+    let mut next_pm = PluginManager::new(default_host_vtable());
+    next_pm.set_disabled_ids(disabled.clone());
+    let report = match unsafe { next_pm.load_dir_filtered(&dir, &disabled) } {
+        Ok(report) => report,
+        Err(e) => {
+            events.emit(Event::Error {
+                message: format!("failed to reload plugins (load stage): {e:#}"),
+            });
+            return;
+        }
+    };
+
+    let loaded_count = report.loaded.len();
+    let error_count = report.errors.len();
+    let loaded_ids = report
+        .loaded
+        .iter()
+        .map(|p| p.id.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+
     let mut pm = match plugins.lock() {
         Ok(pm) => pm,
         Err(_) => {
@@ -711,32 +760,34 @@ fn handle_reload_plugins(
             return;
         }
     };
-    *pm = PluginManager::new(default_host_vtable());
-    let disabled = disabled_ids
-        .into_iter()
-        .collect::<std::collections::HashSet<_>>();
-    pm.set_disabled_ids(disabled.clone());
-    match unsafe { pm.load_dir_filtered(&dir, &disabled) } {
-        Ok(report) => {
+    let prev_count = pm.plugins().len();
+
+    if loaded_count == 0 && prev_count > 0 {
+        events.emit(Event::Error {
+            message: format!(
+                "plugin reload aborted: loaded=0 errors={} (kept previous plugins={})",
+                error_count, prev_count
+            ),
+        });
+        for err in report.errors {
             events.emit(Event::Log {
-                message: format!(
-                    "plugins reloaded from {}: loaded={} errors={}",
-                    dir,
-                    report.loaded.len(),
-                    report.errors.len()
-                ),
-            });
-            for err in report.errors {
-                events.emit(Event::Log {
-                    message: format!("plugin load error: {err:#}"),
-                });
-            }
-        }
-        Err(e) => {
-            events.emit(Event::Error {
-                message: format!("failed to reload plugins: {e:#}"),
+                message: format!("plugin load error: {err:#}"),
             });
         }
+        return;
+    }
+
+    *pm = next_pm;
+    events.emit(Event::Log {
+        message: format!(
+            "plugins reloaded from {}: previous={} loaded={} errors={} [{}]",
+            dir, prev_count, loaded_count, error_count, loaded_ids
+        ),
+    });
+    for err in report.errors {
+        events.emit(Event::Log {
+            message: format!("plugin load error: {err:#}"),
+        });
     }
 }
 
@@ -1595,9 +1646,7 @@ fn negotiate_output_sink_spec(
         .desired_output_sink_route
         .as_ref()
         .ok_or_else(|| "output sink route not configured".to_string())?;
-    let pm = plugins
-        .lock()
-        .map_err(|_| "plugins mutex poisoned".to_string())?;
+    let pm = snapshot_plugins(plugins)?;
     let key = pm
         .find_output_sink_key(&route.plugin_id, &route.type_id)
         .ok_or_else(|| {
@@ -1691,9 +1740,16 @@ fn handle_tick(
             set_state(state, events, PlayerState::Stopped);
             return;
         };
-        let cached_out_spec = state
-            .cached_output_spec
-            .unwrap_or_else(|| panic!("checked"));
+        let Some(cached_out_spec) = state.cached_output_spec else {
+            state.pending_session_start = false;
+            state.wants_playback = false;
+            state.play_request_started_at = None;
+            events.emit(Event::Error {
+                message: "output spec missing while pending session start".to_string(),
+            });
+            set_state(state, events, PlayerState::Stopped);
+            return;
+        };
         let out_spec = match resolve_output_spec_and_sink_chunk(state, plugins, cached_out_spec) {
             Ok(spec) => spec,
             Err(message) => {
@@ -1899,9 +1955,7 @@ fn apply_dsp_chain(
         return Ok(());
     }
 
-    let pm = plugins
-        .lock()
-        .map_err(|_| "plugins mutex poisoned".to_string())?;
+    let pm = snapshot_plugins(plugins)?;
 
     let mut chain = Vec::with_capacity(chain_spec.len());
     for item in &chain_spec {
@@ -1942,9 +1996,7 @@ fn open_output_sink_worker(
     transition_target_gain: Arc<AtomicU32>,
     internal_tx: &Sender<InternalMsg>,
 ) -> Result<OutputSinkWorker, String> {
-    let pm = plugins
-        .lock()
-        .map_err(|_| "plugins mutex poisoned".to_string())?;
+    let pm = snapshot_plugins(plugins)?;
     let key = pm
         .find_output_sink_key(&route.plugin_id, &route.type_id)
         .ok_or_else(|| {

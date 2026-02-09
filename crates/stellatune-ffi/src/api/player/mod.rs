@@ -2,6 +2,7 @@ use std::thread;
 
 use crate::frb_generated::{RustOpaque, StreamSink};
 use anyhow::Result;
+use tracing::debug;
 
 use stellatune_backend_api::player::{
     PlayerService, plugins_install_from_file as backend_plugins_install_from_file,
@@ -67,11 +68,12 @@ pub fn events(player: RustOpaque<Player>, sink: StreamSink<Event>) -> Result<()>
         .spawn(move || {
             for event in rx.iter() {
                 if sink.add(event).is_err() {
+                    debug!("events stream sink closed");
                     break;
                 }
             }
         })
-        .expect("failed to spawn stellatune-events thread");
+        .map_err(|e| anyhow::anyhow!("failed to spawn stellatune-events thread: {e}"))?;
 
     Ok(())
 }
@@ -87,11 +89,14 @@ pub fn plugin_runtime_events(
         .spawn(move || {
             for event in rx.iter() {
                 if sink.add(event).is_err() {
+                    debug!("plugin_runtime_events stream sink closed");
                     break;
                 }
             }
         })
-        .expect("failed to spawn stellatune-plugin-runtime-events thread");
+        .map_err(|e| {
+            anyhow::anyhow!("failed to spawn stellatune-plugin-runtime-events thread: {e}")
+        })?;
 
     Ok(())
 }
@@ -104,11 +109,14 @@ pub fn plugin_runtime_events_global(sink: StreamSink<PluginRuntimeEvent>) -> Res
         .spawn(move || {
             for event in rx.iter() {
                 if sink.add(event).is_err() {
+                    debug!("plugin_runtime_events_global stream sink closed");
                     break;
                 }
             }
         })
-        .expect("failed to spawn stellatune-plugin-runtime-events-global thread");
+        .map_err(|e| {
+            anyhow::anyhow!("failed to spawn stellatune-plugin-runtime-events-global thread: {e}")
+        })?;
 
     Ok(())
 }
@@ -160,11 +168,12 @@ pub fn lyrics_events(player: RustOpaque<Player>, sink: StreamSink<LyricsEvent>) 
         .spawn(move || {
             for event in rx.iter() {
                 if sink.add(event).is_err() {
+                    debug!("lyrics_events stream sink closed");
                     break;
                 }
             }
         })
-        .expect("failed to spawn stellatune-lyrics-events thread");
+        .map_err(|e| anyhow::anyhow!("failed to spawn stellatune-lyrics-events thread: {e}"))?;
 
     Ok(())
 }

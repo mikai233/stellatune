@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use tracing::debug;
 
@@ -10,6 +11,15 @@ use stellatune_decode::{Decoder, TrackSpec, supports_path};
 /// formats the built-in decoder can handle.
 const BUILTIN_DECODER_SCORE: u8 = 50;
 const TRACK_REF_TOKEN_PREFIX: &str = "stref-json:";
+
+fn snapshot_plugins(
+    plugins: &Arc<Mutex<stellatune_plugins::PluginManager>>,
+) -> Result<stellatune_plugins::PluginManager, String> {
+    plugins
+        .lock()
+        .map(|pm| pm.clone())
+        .map_err(|_| "plugins mutex poisoned".to_string())
+}
 
 #[derive(Debug, Deserialize)]
 struct SourceStreamLocator {
@@ -135,6 +145,15 @@ pub(crate) fn assess_track_playability(
                 reason: None,
             };
         }
+        if let Some(ext) = Path::new(path).extension().and_then(|v| v.to_str())
+            && pm.probe_best_decoder_hint(ext).is_some()
+        {
+            return TrackPlayability {
+                track: track.clone(),
+                playable: true,
+                reason: None,
+            };
+        }
         return match pm.can_decode_path(path) {
             Ok(true) => TrackPlayability {
                 track: track.clone(),
@@ -210,7 +229,7 @@ pub(crate) fn open_engine_decoder(
         if path.is_empty() {
             return Err("local track locator is empty".to_string());
         }
-        let Ok(pm) = plugins.lock() else {
+        let Ok(pm) = snapshot_plugins(plugins) else {
             let d = Decoder::open(path).map_err(|e| format!("failed to open decoder: {e}"))?;
             let spec = d.spec();
             let info = build_builtin_track_info(spec);
@@ -298,9 +317,7 @@ pub(crate) fn open_engine_decoder(
     // Plugin-backed source track.
     let source = serde_json::from_str::<SourceStreamLocator>(&track.locator)
         .map_err(|e| format!("invalid source track locator json: {e}"))?;
-    let pm = plugins
-        .lock()
-        .map_err(|_| "plugins mutex poisoned".to_string())?;
+    let pm = snapshot_plugins(plugins)?;
     let source_key = pm
         .find_source_catalog_key(&source.plugin_id, &source.type_id)
         .ok_or_else(|| {

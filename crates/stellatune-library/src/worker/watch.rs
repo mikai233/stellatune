@@ -181,6 +181,8 @@ async fn apply_fs_changes(
     raw_paths: Vec<String>,
 ) -> Result<bool> {
     let mut changed = false;
+    #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+    let plugins_snapshot = plugins.lock().ok().map(|pm| pm.clone());
 
     for raw in raw_paths {
         let raw_trimmed = raw.trim();
@@ -220,15 +222,15 @@ async fn apply_fs_changes(
         let supported = is_audio_ext(&ext) || {
             #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
             {
-                match plugins.lock() {
-                    Ok(pm) => {
+                match plugins_snapshot.as_ref() {
+                    Some(pm) => {
                         if ext.is_empty() {
                             pm.can_decode_path(raw_trimmed).unwrap_or(false)
                         } else {
                             pm.probe_best_decoder_hint(&ext).is_some()
                         }
                     }
-                    Err(_) => false,
+                    None => false,
                 }
             }
             #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]

@@ -67,6 +67,9 @@ pub(super) async fn scan_all(
 
         // Blocking filesystem enumeration & metadata.
         let walker = tokio::task::spawn_blocking(move || {
+            #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+            let plugins_snapshot = plugins_for_walk.lock().ok().map(|pm| pm.clone());
+
             for entry in WalkDir::new(&root_clone).follow_links(false).into_iter() {
                 let entry = match entry {
                     Ok(e) => e,
@@ -86,15 +89,13 @@ pub(super) async fn scan_all(
                     #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
                     {
                         if ext.is_empty() {
-                            plugins_for_walk
-                                .lock()
-                                .ok()
+                            plugins_snapshot
+                                .as_ref()
                                 .and_then(|pm| pm.can_decode_path(&path_str).ok())
                                 .unwrap_or(false)
                         } else {
-                            plugins_for_walk
-                                .lock()
-                                .ok()
+                            plugins_snapshot
+                                .as_ref()
                                 .map(|pm| pm.probe_best_decoder_hint(&ext).is_some())
                                 .unwrap_or(false)
                         }
@@ -294,6 +295,8 @@ pub(super) async fn scan_folder_into_db(
         .collect();
 
     let mut changed = false;
+    #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+    let plugins_snapshot = plugins.lock().ok().map(|pm| pm.clone());
 
     for entry in WalkDir::new(&root).follow_links(false).into_iter() {
         let entry = match entry {
@@ -314,15 +317,15 @@ pub(super) async fn scan_folder_into_db(
         let supported = is_audio_ext(&ext) || {
             #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
             {
-                match plugins.lock() {
-                    Ok(pm) => {
+                match plugins_snapshot.as_ref() {
+                    Some(pm) => {
                         if ext.is_empty() {
                             pm.can_decode_path(&path_str).unwrap_or(false)
                         } else {
                             pm.probe_best_decoder_hint(&ext).is_some()
                         }
                     }
-                    Err(_) => false,
+                    None => false,
                 }
             }
             #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]

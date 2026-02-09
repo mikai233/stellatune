@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, anyhow};
@@ -236,6 +236,17 @@ impl PluginEventBus {
         }
         out
     }
+}
+
+fn shared_plugin_event_bus() -> PluginEventBus {
+    static SHARED: OnceLock<PluginEventBus> = OnceLock::new();
+    SHARED
+        .get_or_init(|| PluginEventBus::new(HOST_TO_PLUGIN_QUEUE_CAP, PLUGIN_TO_HOST_QUEUE_CAP))
+        .clone()
+}
+
+pub fn drain_shared_runtime_events(max: usize) -> Vec<PluginRuntimeEvent> {
+    shared_plugin_event_bus().drain_plugin_events(max)
 }
 
 fn alloc_host_owned_ststr(text: &str) -> StStr {
@@ -588,7 +599,7 @@ struct LoadedPluginRuntime {
     _shadow_cleanup: Option<ShadowRootCleanup>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct LoadedPlugin {
     pub root_dir: PathBuf,
     pub manifest: PluginManifest,
@@ -628,6 +639,17 @@ pub struct PluginManager {
     plugins: Vec<LoadedPlugin>,
     disabled_ids: HashSet<String>,
     event_bus: PluginEventBus,
+}
+
+impl Clone for PluginManager {
+    fn clone(&self) -> Self {
+        Self {
+            host: self.host,
+            plugins: self.plugins.clone(),
+            disabled_ids: self.disabled_ids.clone(),
+            event_bus: self.event_bus.clone(),
+        }
+    }
 }
 
 unsafe impl Send for PluginManager {}
@@ -997,7 +1019,7 @@ impl PluginManager {
             host,
             plugins: Vec::new(),
             disabled_ids: HashSet::new(),
-            event_bus: PluginEventBus::new(HOST_TO_PLUGIN_QUEUE_CAP, PLUGIN_TO_HOST_QUEUE_CAP),
+            event_bus: shared_plugin_event_bus(),
         }
     }
 
