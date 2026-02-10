@@ -2220,7 +2220,7 @@ fn wire__crate__api__player__lyrics_clear_cache_impl(
     rust_vec_len_: i32,
     data_len_: i32,
 ) {
-    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
         flutter_rust_bridge::for_generated::TaskInfo {
             debug_name: "lyrics_clear_cache",
             port: Some(port_),
@@ -2238,12 +2238,13 @@ fn wire__crate__api__player__lyrics_clear_cache_impl(
                 flutter_rust_bridge::for_generated::SseDeserializer::new(message);
             let api_player = <RustOpaqueMoi<Player>>::sse_decode(&mut deserializer);
             deserializer.end();
-            move |context| {
+            move |context| async move {
                 transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
-                    (move || {
-                        let output_ok = crate::api::player::lyrics_clear_cache(api_player)?;
+                    (move || async move {
+                        let output_ok = crate::api::player::lyrics_clear_cache(api_player).await?;
                         Ok(output_ok)
-                    })(),
+                    })()
+                    .await,
                 )
             }
         },
@@ -2561,7 +2562,7 @@ fn wire__crate__api__player__lyrics_set_cache_db_path_impl(
     rust_vec_len_: i32,
     data_len_: i32,
 ) {
-    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
         flutter_rust_bridge::for_generated::TaskInfo {
             debug_name: "lyrics_set_cache_db_path",
             port: Some(port_),
@@ -2580,13 +2581,15 @@ fn wire__crate__api__player__lyrics_set_cache_db_path_impl(
             let api_player = <RustOpaqueMoi<Player>>::sse_decode(&mut deserializer);
             let api_db_path = <String>::sse_decode(&mut deserializer);
             deserializer.end();
-            move |context| {
+            move |context| async move {
                 transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
-                    (move || {
+                    (move || async move {
                         let output_ok =
-                            crate::api::player::lyrics_set_cache_db_path(api_player, api_db_path)?;
+                            crate::api::player::lyrics_set_cache_db_path(api_player, api_db_path)
+                                .await?;
                         Ok(output_ok)
-                    })(),
+                    })()
+                    .await,
                 )
             }
         },
@@ -2901,7 +2904,7 @@ fn wire__crate__api__player__plugins_install_from_file_impl(
     rust_vec_len_: i32,
     data_len_: i32,
 ) {
-    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
         flutter_rust_bridge::for_generated::TaskInfo {
             debug_name: "plugins_install_from_file",
             port: Some(port_),
@@ -2920,15 +2923,17 @@ fn wire__crate__api__player__plugins_install_from_file_impl(
             let api_plugins_dir = <String>::sse_decode(&mut deserializer);
             let api_artifact_path = <String>::sse_decode(&mut deserializer);
             deserializer.end();
-            move |context| {
+            move |context| async move {
                 transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
-                    (move || {
+                    (move || async move {
                         let output_ok = crate::api::player::plugins_install_from_file(
                             api_plugins_dir,
                             api_artifact_path,
-                        )?;
+                        )
+                        .await?;
                         Ok(output_ok)
-                    })(),
+                    })()
+                    .await,
                 )
             }
         },
@@ -2974,7 +2979,7 @@ fn wire__crate__api__player__plugins_list_installed_json_impl(
     rust_vec_len_: i32,
     data_len_: i32,
 ) {
-    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
         flutter_rust_bridge::for_generated::TaskInfo {
             debug_name: "plugins_list_installed_json",
             port: Some(port_),
@@ -2992,13 +2997,15 @@ fn wire__crate__api__player__plugins_list_installed_json_impl(
                 flutter_rust_bridge::for_generated::SseDeserializer::new(message);
             let api_plugins_dir = <String>::sse_decode(&mut deserializer);
             deserializer.end();
-            move |context| {
+            move |context| async move {
                 transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
-                    (move || {
+                    (move || async move {
                         let output_ok =
-                            crate::api::player::plugins_list_installed_json(api_plugins_dir)?;
+                            crate::api::player::plugins_list_installed_json(api_plugins_dir)
+                                .await?;
                         Ok(output_ok)
-                    })(),
+                    })()
+                    .await,
                 )
             }
         },
@@ -3087,7 +3094,7 @@ fn wire__crate__api__player__plugins_uninstall_by_id_impl(
     rust_vec_len_: i32,
     data_len_: i32,
 ) {
-    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
         flutter_rust_bridge::for_generated::TaskInfo {
             debug_name: "plugins_uninstall_by_id",
             port: Some(port_),
@@ -3106,15 +3113,17 @@ fn wire__crate__api__player__plugins_uninstall_by_id_impl(
             let api_plugins_dir = <String>::sse_decode(&mut deserializer);
             let api_plugin_id = <String>::sse_decode(&mut deserializer);
             deserializer.end();
-            move |context| {
+            move |context| async move {
                 transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
-                    (move || {
+                    (move || async move {
                         let output_ok = crate::api::player::plugins_uninstall_by_id(
                             api_plugins_dir,
                             api_plugin_id,
-                        )?;
+                        )
+                        .await?;
                         Ok(output_ok)
-                    })(),
+                    })()
+                    .await,
                 )
             }
         },

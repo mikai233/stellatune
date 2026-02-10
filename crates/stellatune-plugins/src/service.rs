@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Result, anyhow};
@@ -96,8 +96,8 @@ impl PluginModuleSlotState {
 
 pub struct PluginRuntimeService {
     host: StHostVTable,
-    slots: Mutex<HashMap<String, PluginSlotState>>,
-    modules: Mutex<HashMap<String, PluginModuleSlotState>>,
+    slots: RwLock<HashMap<String, PluginSlotState>>,
+    modules: RwLock<HashMap<String, PluginModuleSlotState>>,
     lifecycle: Arc<LifecycleStore>,
     capabilities: Arc<CapabilityRegistry>,
     instances: Arc<InstanceRegistry>,
@@ -109,8 +109,8 @@ impl PluginRuntimeService {
     pub fn new(host: StHostVTable) -> Self {
         Self {
             host,
-            slots: Mutex::new(HashMap::new()),
-            modules: Mutex::new(HashMap::new()),
+            slots: RwLock::new(HashMap::new()),
+            modules: RwLock::new(HashMap::new()),
             lifecycle: Arc::new(LifecycleStore::default()),
             capabilities: Arc::new(CapabilityRegistry::default()),
             instances: Arc::new(InstanceRegistry::default()),
@@ -130,7 +130,7 @@ impl PluginRuntimeService {
     pub fn list_active_plugins(&self) -> Vec<RuntimePluginInfo> {
         let mut plugin_ids = self.active_plugin_ids();
         plugin_ids.sort();
-        let modules = self.modules.lock().ok();
+        let modules = self.modules.read().ok();
         let mut out = Vec::with_capacity(plugin_ids.len());
         for plugin_id in plugin_ids {
             let Some(generation) = self.active_generation(&plugin_id) else {
@@ -181,7 +181,7 @@ impl PluginRuntimeService {
             },
             _guard: guard,
         });
-        if let Ok(mut slots) = self.slots.lock() {
+        if let Ok(mut slots) = self.slots.write() {
             slots
                 .entry(plugin_id.to_string())
                 .or_default()
@@ -199,7 +199,7 @@ impl PluginRuntimeService {
     }
 
     pub fn active_generation(&self, plugin_id: &str) -> Option<PluginGenerationInfo> {
-        let slots = self.slots.lock().ok()?;
+        let slots = self.slots.read().ok()?;
         slots
             .get(plugin_id)?
             .active
@@ -208,7 +208,7 @@ impl PluginRuntimeService {
     }
 
     pub fn slot_snapshot(&self, plugin_id: &str) -> Option<PluginSlotSnapshot> {
-        let slots = self.slots.lock().ok()?;
+        let slots = self.slots.read().ok()?;
         let slot = slots.get(plugin_id)?;
         Some(PluginSlotSnapshot {
             plugin_id: plugin_id.to_string(),
@@ -218,7 +218,7 @@ impl PluginRuntimeService {
     }
 
     pub fn active_plugin_ids(&self) -> Vec<String> {
-        let Ok(slots) = self.slots.lock() else {
+        let Ok(slots) = self.slots.read() else {
             return Vec::new();
         };
         slots
@@ -533,12 +533,12 @@ impl PluginRuntimeService {
 
     pub fn deactivate_plugin(&self, plugin_id: &str) -> Option<GenerationId> {
         let generation = self.lifecycle.deactivate_plugin(plugin_id)?;
-        if let Ok(mut slots) = self.slots.lock()
+        if let Ok(mut slots) = self.slots.write()
             && let Some(slot) = slots.get_mut(plugin_id)
         {
             slot.deactivate();
         }
-        if let Ok(mut modules) = self.modules.lock()
+        if let Ok(mut modules) = self.modules.write()
             && let Some(slot) = modules.get_mut(plugin_id)
         {
             slot.deactivate();
@@ -566,7 +566,7 @@ impl PluginRuntimeService {
             return Vec::new();
         }
 
-        if let Ok(mut slots) = self.slots.lock()
+        if let Ok(mut slots) = self.slots.write()
             && let Some(slot) = slots.get_mut(plugin_id)
         {
             let ready_ids: std::collections::HashSet<GenerationId> =
@@ -580,7 +580,7 @@ impl PluginRuntimeService {
             self.capabilities.remove_generation(plugin_id, gid);
             out.push(gid);
         }
-        if let Ok(mut modules) = self.modules.lock()
+        if let Ok(mut modules) = self.modules.write()
             && let Some(slot) = modules.get_mut(plugin_id)
         {
             let ready_ids: std::collections::HashSet<GenerationId> = out.iter().copied().collect();
@@ -691,7 +691,7 @@ impl PluginRuntimeService {
         plugin_id: &str,
         generation: GenerationId,
     ) -> Option<Arc<LoadedPluginGeneration>> {
-        let modules = self.modules.lock().ok()?;
+        let modules = self.modules.read().ok()?;
         let slot = modules.get(plugin_id)?;
         if let Some(active) = slot.active.as_ref()
             && active.generation == generation
@@ -773,7 +773,7 @@ impl PluginRuntimeService {
         plugin_name: String,
         loaded: LoadedPluginModule,
     ) {
-        if let Ok(mut modules) = self.modules.lock() {
+        if let Ok(mut modules) = self.modules.write() {
             modules
                 .entry(plugin_id.to_string())
                 .or_default()

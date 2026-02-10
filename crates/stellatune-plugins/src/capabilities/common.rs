@@ -4,7 +4,10 @@ use anyhow::{Result, anyhow};
 use stellatune_plugin_api::{StConfigUpdateMode, StConfigUpdatePlan};
 use stellatune_plugin_api::{StStatus, StStr};
 
-use crate::runtime::{GenerationGuard, InstanceId, InstanceRegistry, InstanceUpdateCoordinator};
+use crate::runtime::{
+    GenerationGuard, InstanceId, InstanceRegistry, InstanceUpdateCoordinator,
+    InstanceUpdateDecision,
+};
 
 pub type PluginFreeFn =
     Option<extern "C" fn(ptr: *mut core::ffi::c_void, len: usize, align: usize)>;
@@ -108,5 +111,13 @@ pub fn plan_from_ffi(plan: StConfigUpdatePlan, plugin_free: PluginFreeFn) -> Con
     ConfigUpdatePlan {
         mode: plan.mode,
         reason,
+    }
+}
+
+pub fn decision_from_plan(plan: &ConfigUpdatePlan) -> InstanceUpdateDecision {
+    match plan.mode {
+        StConfigUpdateMode::HotApply => InstanceUpdateDecision::HotApply,
+        StConfigUpdateMode::Recreate => InstanceUpdateDecision::Recreate,
+        StConfigUpdateMode::Reject => InstanceUpdateDecision::Reject,
     }
 }

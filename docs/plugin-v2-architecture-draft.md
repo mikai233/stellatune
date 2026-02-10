@@ -57,6 +57,17 @@ Current state:
 22. ABI naming convergence phase-1 is complete: ABI structs/constants now use mainline names (no `V2` suffix), and host/runtime/SDK/plugin call sites were updated accordingly.
 23. Naming convergence phase-2 is complete: runtime-side capability wrapper/service/event/load/report type names and shared runtime entrypoints were converged to mainline names; SDK config-update + descriptor/helper surfaces were simplified to mainline names; plugin instance adapter local `*V2` names were removed.
 24. Remaining cleanup is mainly documentation wording and final acceptance-criteria closure work.
+25. High-ROI lock optimization is in place for runtime read-mostly structures: `PluginRuntimeService` plugin slot/module maps and `CapabilityRegistry` now use `RwLock` with read/write path separation.
+26. Config-update runtime orchestration (stage-1) is now wired in `stellatune-plugins`: per-instance update requests track decision (`HotApply/Recreate/Reject`) and terminal outcome (`Applied/RequiresRecreate/Rejected/Failed`), and capability wrappers now return structured update results instead of fire-and-forget apply.
+27. Audio control-thread owner path now applies structured config updates for runtime query capability instances (`source_list_items` / `lyrics_search/fetch` / `output_sink_list_targets`): when config changes it attempts `HotApply`, falls back to owner-thread `Recreate` with optional state migration, and reports deterministic reject/fail errors.
+28. Active output-sink data-plane worker now supports owner-thread config hot update: when route identity (`plugin/type/target/spec`) is unchanged it first attempts `HotApply`, and automatically falls back to safe worker recreate when update fails or requires recreate.
+29. Active decode-thread DSP chain path now runs owner-thread update orchestration: control plane sends normalized DSP chain specs, decode thread applies in-place `HotApply` when shape is stable, and falls back to per-node recreate or full chain recreate when required.
+30. Active decoder path now supports owner-thread refresh/recreate on plugin reload: control plane issues a decode-thread `RefreshDecoder` command, decode thread reopens decoder from runtime and seeks back to current playback position at a safe boundary.
+31. Library metadata extraction now uses per-worker-thread decoder instance ownership with bounded idle cache: candidate generation/config drift is handled via structured `HotApply/Recreate` fallback, stale entries are evicted by TTL/cap policy, and library plugin reload paths clear worker-side decoder caches before reload to reduce draining-generation residue.
+32. Runtime update outcome visibility has started: control-thread query capability config updates now emit runtime `notify` events (`topic=host.instance.config_update`) with capability/type/status/generation/detail so backend/FFI/UI subscribers can render explicit update/recreate outcomes.
+33. Runtime update outcome visibility is extended to playback data-plane paths: decode-thread DSP updates and output sink worker config updates now emit the same `host.instance.config_update` notify payloads for applied/recreate/rejected/failed outcomes.
+34. Runtime update outcome visibility is now user-readable in Settings runtime debug: Flutter parses `host.instance.config_update` payloads into structured lines (`capability/type -> status, generation, detail`) instead of raw JSON blobs.
+35. Audio runtime notify emission has been consolidated into a shared engine helper, and recreate-failure branches in query/output/DSP update paths now emit explicit `failed` status events to keep HotApply/Recreate telemetry normalized.
 
 ## 3. High-Level Model
 
@@ -464,6 +475,7 @@ Use only:
 
 1. Runtime control-plane serialization for load/reload/unload state transitions (actor or single control thread).
 2. Optional per-instance mailbox when host wants explicit thread ownership handoff.
+3. Read-mostly runtime indexes/registries should prefer `RwLock` over `Mutex` when write frequency is low and read-side contention dominates.
 
 Data plane (decode/process/write/search) runs directly on owning worker thread.
 
@@ -558,10 +570,10 @@ Current: SDK export path is mainline (`export_plugin!`), built-in plugins are mi
 Current: `PluginRuntimeService` includes native `load/reload/unload/list` management path, shared singleton access, and typed `create_*_instance` V2 execution APIs.
 4. `DONE` Remove `PluginManager: Clone` usage in call-heavy paths.
 Current: audio/library hot paths are V2 runtime only, and legacy `PluginManager` container code was removed from `stellatune-plugins` root.
-5. `IN_PROGRESS` Migrate `stellatune-audio` decode/output pipeline to instance-owner model.
-Current: DSP and output sink execution use V2 instances; source/lyrics/output query is now owner-actor based with instance reuse; decoder selection is extension-score based and no longer uses legacy probe scoring; decoder open in audio now uses V2 source/decoder instances for plugin paths with built-in local fallback.
-6. `IN_PROGRESS` Migrate `stellatune-library` metadata scan/watch to instance-owner model.
-Current: scan/watch support checks and metadata plugin decode are runtime-driven; service-layer plugin bootstrap/reload is runtime-only.
+5. `DONE` Migrate `stellatune-audio` decode/output pipeline to instance-owner model.
+Current: DSP and output sink execution use V2 instances; source/lyrics/output query is now owner-actor based with instance reuse; output sink worker + decode-thread DSP chain now support owner-thread config update/recreate flow; reload path now forces active output sink generation rebind and decode promoted-preload cache invalidation; decoder selection is extension-score based and no longer uses legacy probe scoring; decoder open in audio now uses V2 source/decoder instances for plugin paths with built-in local fallback.
+6. `DONE` Migrate `stellatune-library` metadata scan/watch to instance-owner model.
+Current: scan/watch support checks and metadata plugin decode are runtime-driven; metadata decoder instances are owner-thread cached with generation/config-aware update/recreate fallback; service-layer plugin bootstrap/reload is runtime-only.
 7. `DONE` Delete all V1 ABI/types/symbols/adapters and old plugin runtime paths.
 Current: `stellatune-plugins` legacy manager/runtime paths are deleted; legacy host/plugin entry ABI and old SDK `export_plugin!` path are removed; optional source/lyrics/output interface ABI + helper macros are deleted; repository code paths no longer contain V1 ABI symbols.
 8. `DONE` Remove temporary migration suffixes and keep only the new mainline API surface.
@@ -569,7 +581,9 @@ Current: host/plugin entry symbols and ABI structs/constants are converged to ma
 9. `DONE` Remove/avoid broad `unsafe impl Sync` on runtime containers.
 Current: legacy broad `unsafe impl Sync` containers were removed with V1 container deletion; V2 instance wrappers remain `Send`-only.
 10. `IN_PROGRESS` Enforce modular file layout and readability constraints during migration.
-Current: runtime code is split by concerns; ongoing refactor should continue tightening file/module boundaries.
+Current: runtime code is split by concerns; shared runtime update notify logic is extracted into engine-level helper module, and ongoing refactor should continue tightening file/module boundaries.
+11. `DONE` Implement unified HotApply/Recreate orchestration.
+Current: runtime update coordinator + capability wrappers expose structured per-instance update outcomes; audio control-thread query-instance owner path, active output sink worker path, decode-thread DSP chain path, and library metadata decoder worker path perform `HotApply/Recreate`; runtime notify visibility is normalized across applied/requires_recreate/recreated/rejected/failed, including recreate-failure branches.
 
 ### 14.1 Next Refactor Plan (From Current State)
 
@@ -590,6 +604,13 @@ Current: runtime code is split by concerns; ongoing refactor should continue tig
    2. `DONE` Remove broad legacy `unsafe impl Sync` containers together with V1 deletion.
    3. `DONE` Rename transition-only `V2` surfaces where appropriate to become the mainline API.
    Current: plugin implementations are migrated to `export_plugin!`; V1 ABI/runtime surfaces are deleted; naming/API convergence is completed in code.
+5. Stage E: Config update execution completion
+   1. `DONE` Introduce runtime-side structured update coordination (`Applied/RequiresRecreate/Rejected/Failed`) for all capability wrappers.
+   2. `DONE` Wire owner-thread `Recreate` swap paths for decode/output/library workers at safe boundaries.
+   Current: control-thread query capability instances (`source/lyrics/output-targets`), active output sink worker (including generation-aware reload rebind), decode-thread DSP chain, reload-triggered active decoder recreate path, and library metadata worker decoder path are wired; recreate failure branches now emit explicit `failed` runtime notify status.
+   3. `DONE` Expose update outcome/status via backend/FFI/UI so users can observe hot-apply/recreate results explicitly.
+   Current: query capability + output sink worker + decode DSP + decoder refresh paths emit unified `host.instance.config_update` notify payloads; backend/FFI streams are wired and Settings runtime debug now renders these payloads as structured status lines.
+   Validation snapshot: `cargo test -p stellatune-plugins` and `cargo test -p stellatune-backend-api` pass; `cargo test -p stellatune-audio` currently has no test cases. Manual E2E verification for playback-time DSP/output hot-update and reload/uninstall behavior is still required for final acceptance closure.
 
 ## 15. Open Questions
 
@@ -606,6 +627,7 @@ Status legend: `PASS`, `PARTIAL`, `PENDING`.
 Current: lifecycle primitives exist; full guarantee awaits V2-native load/unload path replacing legacy manager execution.
 2. `PARTIAL` No implicit concurrent calls to the same instance.
 Current: design and runtime structures are in place; full enforcement depends on audio/library worker migration completion.
-3. `PENDING` Hot config update path works for at least one DSP and one output sink plugin.
+3. `PARTIAL` Hot config update path works for at least one DSP and one output sink plugin.
+Current: runtime orchestration + structured outcomes are implemented; owner-thread query-instance hot-update, active output sink worker hot-update/recreate fallback, and library metadata worker decoder update/recreate path are wired. Backend/FFI/UI observable update status is in place; concrete playback-time DSP/output sink E2E validation remains pending.
 4. `PASS` Decode/output/library workers no longer depend on cloning whole plugin runtime state.
 5. `PENDING` Per-instance serialization violations in host runtime are detected and surfaced as deterministic errors.

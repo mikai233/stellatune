@@ -144,12 +144,16 @@ pub fn lyrics_apply_candidate(
     player.service.lyrics_apply_candidate(track_key, doc)
 }
 
-pub fn lyrics_set_cache_db_path(player: RustOpaque<Player>, db_path: String) -> Result<()> {
-    player.service.lyrics_set_cache_db_path(db_path)
+pub async fn lyrics_set_cache_db_path(player: RustOpaque<Player>, db_path: String) -> Result<()> {
+    tokio::task::spawn_blocking(move || player.service.lyrics_set_cache_db_path(db_path))
+        .await
+        .map_err(|e| anyhow::anyhow!("JoinError: {e}"))?
 }
 
-pub fn lyrics_clear_cache(player: RustOpaque<Player>) -> Result<()> {
-    player.service.lyrics_clear_cache()
+pub async fn lyrics_clear_cache(player: RustOpaque<Player>) -> Result<()> {
+    tokio::task::spawn_blocking(move || player.service.lyrics_clear_cache())
+        .await
+        .map_err(|e| anyhow::anyhow!("JoinError: {e}"))?
 }
 
 pub fn lyrics_refresh_current(player: RustOpaque<Player>) -> Result<()> {
@@ -275,16 +279,27 @@ pub fn plugins_reload_with_disabled(
         .plugins_reload_with_disabled(dir, disabled_ids);
 }
 
-pub fn plugins_install_from_file(plugins_dir: String, artifact_path: String) -> Result<String> {
-    backend_plugins_install_from_file(plugins_dir, artifact_path)
+pub async fn plugins_install_from_file(
+    plugins_dir: String,
+    artifact_path: String,
+) -> Result<String> {
+    tokio::task::spawn_blocking(move || {
+        backend_plugins_install_from_file(plugins_dir, artifact_path)
+    })
+    .await
+    .map_err(|e| anyhow::anyhow!("JoinError: {e}"))?
 }
 
-pub fn plugins_list_installed_json(plugins_dir: String) -> Result<String> {
-    backend_plugins_list_installed_json(plugins_dir)
+pub async fn plugins_list_installed_json(plugins_dir: String) -> Result<String> {
+    tokio::task::spawn_blocking(move || backend_plugins_list_installed_json(plugins_dir))
+        .await
+        .map_err(|e| anyhow::anyhow!("JoinError: {e}"))?
 }
 
-pub fn plugins_uninstall_by_id(plugins_dir: String, plugin_id: String) -> Result<()> {
-    backend_plugins_uninstall_by_id(plugins_dir, plugin_id)
+pub async fn plugins_uninstall_by_id(plugins_dir: String, plugin_id: String) -> Result<()> {
+    tokio::task::spawn_blocking(move || backend_plugins_uninstall_by_id(plugins_dir, plugin_id))
+        .await
+        .map_err(|e| anyhow::anyhow!("JoinError: {e}"))?
 }
 
 pub fn refresh_devices(player: RustOpaque<Player>) {

@@ -262,7 +262,11 @@ macro_rules! export_plugin {
                         io,
                     };
                     match <$dec_ty as $crate::instance::DecoderInstance>::open(&mut boxed.inner, open_args) {
-                        Ok(()) => $crate::status_ok(),
+                        Ok(()) => {
+                            let info = <$dec_ty as $crate::instance::DecoderInstance>::get_info(&boxed.inner);
+                            boxed.channels = info.spec.channels.max(1);
+                            $crate::status_ok()
+                        }
                         Err(e) => $crate::status_err_msg($crate::ST_ERR_UNSUPPORTED, e),
                     }
                 }
@@ -276,6 +280,7 @@ macro_rules! export_plugin {
                     }
                     let boxed = unsafe { &mut *(handle as *mut $crate::instance::DecoderBox<$dec_ty>) };
                     let info = <$dec_ty as $crate::instance::DecoderInstance>::get_info(&boxed.inner);
+                    boxed.channels = info.spec.channels.max(1);
                     unsafe { *out_info = info; }
                     $crate::status_ok()
                 }
@@ -382,7 +387,11 @@ macro_rules! export_plugin {
                     };
                     let boxed = unsafe { &mut *(handle as *mut $crate::instance::DecoderBox<$dec_ty>) };
                     match <$dec_ty as $crate::update::ConfigUpdatable>::apply_config_update_json(&mut boxed.inner, new_json) {
-                        Ok(()) => $crate::status_ok(),
+                        Ok(()) => {
+                            let info = <$dec_ty as $crate::instance::DecoderInstance>::get_info(&boxed.inner);
+                            boxed.channels = info.spec.channels.max(1);
+                            $crate::status_ok()
+                        }
                         Err(e) => $crate::status_err_msg($crate::ST_ERR_INTERNAL, e),
                     }
                 }
@@ -421,7 +430,11 @@ macro_rules! export_plugin {
                     };
                     let boxed = unsafe { &mut *(handle as *mut $crate::instance::DecoderBox<$dec_ty>) };
                     match <$dec_ty as $crate::update::ConfigUpdatable>::import_state_json(&mut boxed.inner, state_json) {
-                        Ok(()) => $crate::status_ok(),
+                        Ok(()) => {
+                            let info = <$dec_ty as $crate::instance::DecoderInstance>::get_info(&boxed.inner);
+                            boxed.channels = info.spec.channels.max(1);
+                            $crate::status_ok()
+                        }
                         Err(e) => $crate::status_err_msg($crate::ST_ERR_INTERNAL, e),
                     }
                 }

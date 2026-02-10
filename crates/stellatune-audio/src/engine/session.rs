@@ -8,6 +8,8 @@ use tracing::{debug, warn};
 
 use stellatune_core::TrackDecodeInfo;
 use stellatune_output::{OutputError, OutputHandle, OutputSpec};
+use stellatune_plugin_api::StAudioSpec;
+use stellatune_plugins::runtime::InstanceUpdateResult;
 
 use crate::engine::config::{
     BUFFER_PREFILL_CAP_MS, BUFFER_PREFILL_CAP_MS_EXCLUSIVE, OUTPUT_SINK_WRITE_RETRY_SLEEP_MS,
@@ -19,6 +21,7 @@ use crate::engine::event_hub::EventHub;
 use crate::engine::messages::{
     DecodeCtrl, DecodeWorkerState, InternalMsg, OutputSinkTx, OutputSinkWrite, PredecodedChunk,
 };
+use crate::engine::update_events::emit_config_update_runtime_event;
 use crate::ring_buffer::{RingBufferConsumer, RingBufferProducer, new_ring_buffer};
 
 const OUTPUT_CONSUMER_CHUNK_SAMPLES: usize = 1024;
@@ -201,8 +204,16 @@ pub(crate) struct PlaybackSession {
 
 pub(crate) struct OutputSinkWorker {
     tx: Sender<OutputSinkWrite>,
+    ctrl_tx: Sender<OutputSinkControl>,
     pending_samples: Arc<AtomicUsize>,
     join: JoinHandle<()>,
+}
+
+enum OutputSinkControl {
+    UpdateConfig {
+        config_json: String,
+        resp_tx: Sender<Result<(), String>>,
+    },
 }
 
 struct MasterGainProcessor {
@@ -263,6 +274,10 @@ impl MasterGainProcessor {
 impl OutputSinkWorker {
     pub(crate) fn start(
         mut sink: stellatune_plugins::OutputSinkInstance,
+        plugin_id: String,
+        type_id: String,
+        target_json: String,
+        config_json: String,
         channels: u16,
         sample_rate: u32,
         volume: Arc<AtomicU32>,
@@ -272,47 +287,173 @@ impl OutputSinkWorker {
     ) -> Self {
         let (tx, rx) =
             crossbeam_channel::bounded::<OutputSinkWrite>(OUTPUT_SINK_QUEUE_CAP_MESSAGES);
+        let (ctrl_tx, ctrl_rx) = crossbeam_channel::unbounded::<OutputSinkControl>();
         let pending_samples = Arc::new(AtomicUsize::new(0));
         let pending_samples_for_thread = Arc::clone(&pending_samples);
         let join = std::thread::Builder::new()
             .name("stellatune-output-sink".to_string())
             .spawn(move || {
+                let mut current_config_json = config_json;
                 let mut master_gain = MasterGainProcessor::new(
                     volume,
                     transition_gain,
                     transition_target_gain,
                     sample_rate,
                 );
-                while let Ok(msg) = rx.recv() {
-                    match msg {
-                        OutputSinkWrite::Samples(mut samples) => {
-                            let queued = samples.len();
-                            if samples.is_empty() {
-                                continue;
-                            }
-                            master_gain.apply_in_place(&mut samples);
-                            if let Err(e) = write_all_frames(&mut sink, channels, &samples) {
-                                let _ = pending_samples_for_thread.fetch_update(
-                                    Ordering::Relaxed,
-                                    Ordering::Relaxed,
-                                    |current| Some(current.saturating_sub(queued)),
-                                );
-                                warn!("output sink write failed: {e:#}");
-                                let _ = internal_tx.try_send(InternalMsg::OutputError(format!(
-                                    "plugin sink write failed: {e}"
-                                )));
+                loop {
+                    crossbeam_channel::select! {
+                        recv(ctrl_rx) -> msg => {
+                            let Ok(msg) = msg else {
                                 break;
+                            };
+                            match msg {
+                                OutputSinkControl::UpdateConfig { config_json, resp_tx } => {
+                                    if config_json == current_config_json {
+                                        let _ = resp_tx.send(Ok(()));
+                                        continue;
+                                    }
+                                    let update_result = sink
+                                        .apply_config_update_json(&config_json)
+                                        .map_err(|e| e.to_string());
+                                    let update_outcome = match update_result {
+                                        Ok(v) => v,
+                                        Err(e) => {
+                                            let _ = resp_tx.send(Err(format!(
+                                                "output sink apply_config_update failed: {e}"
+                                            )));
+                                            continue;
+                                        }
+                                    };
+
+                                    match update_outcome {
+                                        InstanceUpdateResult::Applied { generation, .. } => {
+                                            emit_config_update_runtime_event(
+                                                &plugin_id,
+                                                "output_sink",
+                                                &type_id,
+                                                "applied",
+                                                generation,
+                                                None,
+                                            );
+                                            current_config_json = config_json;
+                                            let _ = resp_tx.send(Ok(()));
+                                        }
+                                        InstanceUpdateResult::RequiresRecreate { generation, reason, .. } => {
+                                            emit_config_update_runtime_event(
+                                                &plugin_id,
+                                                "output_sink",
+                                                &type_id,
+                                                "requires_recreate",
+                                                generation,
+                                                reason.as_deref(),
+                                            );
+                                            match recreate_output_sink_instance(
+                                                &plugin_id,
+                                                &type_id,
+                                                &config_json,
+                                                &target_json,
+                                                sample_rate,
+                                                channels,
+                                                &mut sink,
+                                            ) {
+                                                Ok(next) => {
+                                                    let _ = sink.flush();
+                                                    sink.close();
+                                                    sink = next;
+                                                    current_config_json = config_json;
+                                                    emit_config_update_runtime_event(
+                                                        &plugin_id,
+                                                        "output_sink",
+                                                        &type_id,
+                                                        "recreated",
+                                                        generation,
+                                                        None,
+                                                    );
+                                                    if let Some(reason) = reason {
+                                                        debug!(plugin_id, type_id, "output sink worker recreate: {reason}");
+                                                    }
+                                                    let _ = resp_tx.send(Ok(()));
+                                                }
+                                                Err(e) => {
+                                                    emit_config_update_runtime_event(
+                                                        &plugin_id,
+                                                        "output_sink",
+                                                        &type_id,
+                                                        "failed",
+                                                        generation,
+                                                        Some(&e),
+                                                    );
+                                                    let _ = resp_tx.send(Err(format!(
+                                                        "output sink recreate failed: {e}"
+                                                    )));
+                                                }
+                                            }
+                                        }
+                                        InstanceUpdateResult::Rejected { generation, reason, .. } => {
+                                            emit_config_update_runtime_event(
+                                                &plugin_id,
+                                                "output_sink",
+                                                &type_id,
+                                                "rejected",
+                                                generation,
+                                                Some(&reason),
+                                            );
+                                            let _ = resp_tx.send(Err(format!(
+                                                "output sink config update rejected: {reason}"
+                                            )));
+                                        }
+                                        InstanceUpdateResult::Failed { generation, error, .. } => {
+                                            emit_config_update_runtime_event(
+                                                &plugin_id,
+                                                "output_sink",
+                                                &type_id,
+                                                "failed",
+                                                generation,
+                                                Some(&error),
+                                            );
+                                            let _ = resp_tx.send(Err(format!(
+                                                "output sink config update failed: {error}"
+                                            )));
+                                        }
+                                    }
+                                }
                             }
-                            let _ = pending_samples_for_thread.fetch_update(
-                                Ordering::Relaxed,
-                                Ordering::Relaxed,
-                                |current| Some(current.saturating_sub(queued)),
-                            );
                         }
-                        OutputSinkWrite::Shutdown => {
-                            let _ = sink.flush();
-                            sink.close();
-                            break;
+                        recv(rx) -> msg => {
+                            let Ok(msg) = msg else {
+                                break;
+                            };
+                            match msg {
+                                OutputSinkWrite::Samples(mut samples) => {
+                                    let queued = samples.len();
+                                    if samples.is_empty() {
+                                        continue;
+                                    }
+                                    master_gain.apply_in_place(&mut samples);
+                                    if let Err(e) = write_all_frames(&mut sink, channels, &samples) {
+                                        let _ = pending_samples_for_thread.fetch_update(
+                                            Ordering::Relaxed,
+                                            Ordering::Relaxed,
+                                            |current| Some(current.saturating_sub(queued)),
+                                        );
+                                        warn!("output sink write failed: {e:#}");
+                                        let _ = internal_tx.try_send(InternalMsg::OutputError(format!(
+                                            "plugin sink write failed: {e}"
+                                        )));
+                                        break;
+                                    }
+                                    let _ = pending_samples_for_thread.fetch_update(
+                                        Ordering::Relaxed,
+                                        Ordering::Relaxed,
+                                        |current| Some(current.saturating_sub(queued)),
+                                    );
+                                }
+                                OutputSinkWrite::Shutdown => {
+                                    let _ = sink.flush();
+                                    sink.close();
+                                    break;
+                                }
+                            }
                         }
                     }
                 }
@@ -320,6 +461,7 @@ impl OutputSinkWorker {
             .expect("failed to spawn stellatune-output-sink thread");
         Self {
             tx,
+            ctrl_tx,
             pending_samples,
             join,
         }
@@ -333,10 +475,56 @@ impl OutputSinkWorker {
         self.pending_samples.load(Ordering::Relaxed)
     }
 
+    pub(crate) fn apply_config_json(&self, config_json: String) -> Result<(), String> {
+        let (resp_tx, resp_rx) = crossbeam_channel::bounded(1);
+        self.ctrl_tx
+            .send(OutputSinkControl::UpdateConfig {
+                config_json,
+                resp_tx,
+            })
+            .map_err(|_| "output sink worker exited".to_string())?;
+        resp_rx
+            .recv()
+            .map_err(|_| "output sink worker dropped config update response".to_string())?
+    }
+
     pub(crate) fn shutdown(self) {
         let _ = self.tx.send(OutputSinkWrite::Shutdown);
         let _ = self.join.join();
     }
+}
+
+fn recreate_output_sink_instance(
+    plugin_id: &str,
+    type_id: &str,
+    config_json: &str,
+    target_json: &str,
+    sample_rate: u32,
+    channels: u16,
+    current: &mut stellatune_plugins::OutputSinkInstance,
+) -> Result<stellatune_plugins::OutputSinkInstance, String> {
+    let mut next = {
+        let shared = stellatune_plugins::shared_runtime_service();
+        let service = shared
+            .lock()
+            .map_err(|_| "plugin runtime v2 mutex poisoned".to_string())?;
+        service
+            .create_output_sink_instance(plugin_id, type_id, config_json)
+            .map_err(|e| format!("create_output_sink_instance failed: {e}"))?
+    };
+    if let Ok(Some(state_json)) = current.export_state_json() {
+        let _ = next.import_state_json(&state_json);
+    }
+    next.open(
+        target_json,
+        StAudioSpec {
+            sample_rate: sample_rate.max(1),
+            channels: channels.max(1),
+            reserved: 0,
+        },
+    )
+    .map_err(|e| format!("output sink reopen failed: {e}"))?;
+    Ok(next)
 }
 
 fn write_all_frames(
@@ -427,6 +615,12 @@ impl DecodeWorker {
         if let Ok(mut slot) = self.promoted_preload.lock() {
             *slot = Some(preload);
             debug_metrics::note_promote_store();
+        }
+    }
+
+    pub(crate) fn clear_promoted_preload(&self) {
+        if let Ok(mut slot) = self.promoted_preload.lock() {
+            *slot = None;
         }
     }
 

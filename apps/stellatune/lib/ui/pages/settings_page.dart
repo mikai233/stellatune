@@ -194,6 +194,69 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
         });
   }
 
+  String _formatRuntimeEventLine(PluginRuntimeEvent event) {
+    final prefix = '[${event.kind.name}] ${event.pluginId}';
+    final payload = _tryDecodeRuntimePayload(event.payloadJson);
+    if (payload == null) {
+      return '$prefix: ${event.payloadJson}';
+    }
+    final topic = payload['topic']?.toString().trim() ?? '';
+    if (topic != 'host.instance.config_update') {
+      return '$prefix: ${event.payloadJson}';
+    }
+    final capability = payload['capability']?.toString().trim() ?? 'unknown';
+    final typeId = payload['type_id']?.toString().trim() ?? 'unknown';
+    final statusRaw = payload['status']?.toString().trim() ?? 'unknown';
+    final status = _runtimeConfigUpdateStatusLabel(statusRaw);
+    final generation = payload['generation']?.toString().trim();
+    final detail = payload['detail']?.toString().trim();
+    final genText = (generation == null || generation.isEmpty)
+        ? ''
+        : ' gen=$generation';
+    final detailText = (detail == null || detail.isEmpty) ? '' : ' ($detail)';
+    return '$prefix: $capability/$typeId -> $status$genText$detailText';
+  }
+
+  Map<String, Object?>? _tryDecodeRuntimePayload(String payloadJson) {
+    try {
+      final decoded = jsonDecode(payloadJson);
+      if (decoded is Map<String, dynamic>) {
+        return decoded.cast<String, Object?>();
+      }
+      if (decoded is Map) {
+        return decoded.map(
+          (key, value) => MapEntry(key.toString(), value as Object?),
+        );
+      }
+    } catch (_) {
+      return null;
+    }
+    return null;
+  }
+
+  String _runtimeConfigUpdateStatusLabel(String rawStatus) {
+    final status = rawStatus.toLowerCase();
+    final isZh = Localizations.localeOf(context).languageCode == 'zh';
+    if (isZh) {
+      return switch (status) {
+        'applied' => '已热更新',
+        'requires_recreate' => '需要重建',
+        'recreated' => '已重建',
+        'rejected' => '已拒绝',
+        'failed' => '失败',
+        _ => rawStatus,
+      };
+    }
+    return switch (status) {
+      'applied' => 'applied',
+      'requires_recreate' => 'requires recreate',
+      'recreated' => 'recreated',
+      'rejected' => 'rejected',
+      'failed' => 'failed',
+      _ => rawStatus,
+    };
+  }
+
   Future<void> _sendPluginRuntimeEventJson() async {
     final payload = _pluginRuntimeJsonController.text.trim();
     if (payload.isEmpty) return;
@@ -425,10 +488,7 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
     if (id == null || id.isEmpty) return;
     final settings = ref.read(settingsStoreProvider);
     if (!enabled) {
-      await _shutdownNeteaseSidecarResident(
-        onlyForPluginId: id,
-        silent: true,
-      );
+      await _shutdownNeteaseSidecarResident(onlyForPluginId: id, silent: true);
     }
     await settings.setPluginEnabled(pluginId: id, enabled: enabled);
     await _reloadPluginsWithCurrentDisabled();
@@ -763,11 +823,7 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
         }),
       );
     } catch (e, s) {
-      logger.w(
-        'failed to shutdown netease sidecar',
-        error: e,
-        stackTrace: s,
-      );
+      logger.w('failed to shutdown netease sidecar', error: e, stackTrace: s);
       if (!silent && mounted) {
         setState(() => _neteaseAuthMessage = 'Sidecar 关闭失败: $e');
       }
@@ -2254,7 +2310,7 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
                           itemBuilder: (context, index) {
                             final e = _pluginRuntimeEvents[index];
                             return SelectableText(
-                              '[${e.kind.name}] ${e.pluginId}: ${e.payloadJson}',
+                              _formatRuntimeEventLine(e),
                               style: Theme.of(context).textTheme.bodySmall,
                             );
                           },
@@ -2315,6 +2371,38 @@ class _PluginTile extends StatefulWidget {
 }
 
 class _PluginTileState extends State<_PluginTile> {
+  String _uninstallErrorMessage(
+    AppLocalizations l10n,
+    _InstalledPlugin plugin,
+    Object error,
+  ) {
+    final raw = error.toString();
+    final lower = raw.toLowerCase();
+    final pluginName = plugin.nameOrDir;
+    final isZh = Localizations.localeOf(context).languageCode == 'zh';
+    final looksBusy =
+        lower.contains('still in use') ||
+        lower.contains('draining generation') ||
+        lower.contains('busy');
+    if (looksBusy) {
+      if (isZh) {
+        return '插件“$pluginName”当前仍在使用中（可能正在播放当前歌曲）。请先停止播放或切换歌曲后重试卸载。';
+      }
+      return 'Plugin "$pluginName" is still in use (possibly by the current playback). Stop playback or switch tracks, then retry uninstall.';
+    }
+    final accessDenied =
+        lower.contains('拒绝访问') ||
+        lower.contains('access is denied') ||
+        lower.contains('os error 5');
+    if (accessDenied) {
+      if (isZh) {
+        return '无法卸载插件“$pluginName”：文件仍被占用。请先停止播放后重试。';
+      }
+      return 'Cannot uninstall plugin "$pluginName": files are still in use. Stop playback and retry.';
+    }
+    return l10n.settingsUninstallPluginFailed;
+  }
+
   @override
   Widget build(BuildContext context) {
     final p = widget.plugin;
@@ -2419,7 +2507,7 @@ class _PluginTileState extends State<_PluginTile> {
                       if (!context.mounted) return;
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
-                          content: Text(l10n.settingsUninstallPluginFailed),
+                          content: Text(_uninstallErrorMessage(l10n, p, e)),
                         ),
                       );
                     }

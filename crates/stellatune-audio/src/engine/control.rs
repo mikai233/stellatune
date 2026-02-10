@@ -14,7 +14,7 @@ use stellatune_core::{
 };
 use stellatune_output::{OutputSpec, output_spec_for_device};
 use stellatune_plugin_api::{StAudioSpec, StOutputSinkNegotiatedSpec};
-use stellatune_plugins::runtime::CapabilityKind;
+use stellatune_plugins::runtime::{CapabilityKind, InstanceUpdateResult};
 
 use crate::engine::config::{
     BUFFER_HIGH_WATERMARK_MS, BUFFER_HIGH_WATERMARK_MS_EXCLUSIVE, BUFFER_LOW_WATERMARK_MS,
@@ -23,12 +23,15 @@ use crate::engine::config::{
 };
 use crate::engine::decode::decoder::{assess_track_playability, open_engine_decoder};
 use crate::engine::event_hub::EventHub;
-use crate::engine::messages::{DecodeCtrl, EngineCtrl, InternalMsg, PredecodedChunk};
+use crate::engine::messages::{
+    DecodeCtrl, EngineCtrl, InternalMsg, PredecodedChunk, RuntimeDspChainEntry,
+};
 use crate::engine::plugin_event_hub::PluginEventHub;
 use crate::engine::session::{
     DecodeWorker, OUTPUT_SINK_QUEUE_CAP_MESSAGES, OutputPipeline, OutputSinkWorker,
     PlaybackSession, PromotedPreload, StartSessionArgs, start_decode_worker, start_session,
 };
+use crate::engine::update_events::emit_config_update_runtime_event;
 
 #[cfg(debug_assertions)]
 const DEBUG_PRELOAD_LOG_EVERY: u64 = 24;
@@ -59,6 +62,19 @@ fn runtime_default_config_json(
         service
             .resolve_active_capability(plugin_id, kind, type_id)
             .map(|c| c.default_config_json)
+            .ok_or_else(|| format!("capability not found: {plugin_id}::{type_id}"))
+    })
+}
+
+fn runtime_active_capability_generation(
+    plugin_id: &str,
+    kind: CapabilityKind,
+    type_id: &str,
+) -> Result<u64, String> {
+    with_runtime_service(|service| {
+        service
+            .resolve_active_capability(plugin_id, kind, type_id)
+            .map(|c| c.generation.0)
             .ok_or_else(|| format!("capability not found: {plugin_id}::{type_id}"))
     })
 }
@@ -95,6 +111,7 @@ struct OutputSinkWorkerSpec {
     sample_rate: u32,
     channels: u16,
     chunk_frames: u32,
+    generation: u64,
 }
 
 struct OpenOutputSinkWorkerArgs<'a> {
@@ -108,20 +125,33 @@ struct OpenOutputSinkWorkerArgs<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct RuntimeInstanceKey {
+struct RuntimeInstanceSlotKey {
     plugin_id: String,
     type_id: String,
-    config_json: String,
 }
 
-impl RuntimeInstanceKey {
-    fn new(plugin_id: &str, type_id: &str, config_json: String) -> Self {
+impl RuntimeInstanceSlotKey {
+    fn new(plugin_id: &str, type_id: &str) -> Self {
         Self {
             plugin_id: plugin_id.to_string(),
             type_id: type_id.to_string(),
-            config_json,
         }
     }
+}
+
+struct CachedSourceInstance {
+    config_json: String,
+    instance: stellatune_plugins::SourceCatalogInstance,
+}
+
+struct CachedLyricsInstance {
+    config_json: String,
+    instance: stellatune_plugins::LyricsProviderInstance,
+}
+
+struct CachedOutputSinkInstance {
+    config_json: String,
+    instance: stellatune_plugins::OutputSinkInstance,
 }
 
 mod debug_metrics {
@@ -621,9 +651,9 @@ struct EngineState {
     preload_token: u64,
     requested_preload_path: Option<String>,
     requested_preload_position_ms: u64,
-    source_instances: HashMap<RuntimeInstanceKey, stellatune_plugins::SourceCatalogInstance>,
-    lyrics_instances: HashMap<RuntimeInstanceKey, stellatune_plugins::LyricsProviderInstance>,
-    output_sink_instances: HashMap<RuntimeInstanceKey, stellatune_plugins::OutputSinkInstance>,
+    source_instances: HashMap<RuntimeInstanceSlotKey, CachedSourceInstance>,
+    lyrics_instances: HashMap<RuntimeInstanceSlotKey, CachedLyricsInstance>,
+    output_sink_instances: HashMap<RuntimeInstanceSlotKey, CachedOutputSinkInstance>,
 }
 
 struct PreloadWorker {
@@ -737,7 +767,7 @@ fn run_control_loop(channels: ControlLoopChannels, deps: ControlLoopDeps) {
             }
             recv(engine_ctrl_rx) -> msg => {
                 let Ok(msg) = msg else { break };
-                handle_engine_ctrl(msg, &mut state, &events);
+                handle_engine_ctrl(msg, &mut state, &events, &internal_tx);
             }
             recv(internal_rx) -> msg => {
                 let Ok(msg) = msg else { break };
@@ -809,6 +839,330 @@ fn clear_runtime_query_instance_cache(state: &mut EngineState) {
     state.output_sink_instances.clear();
 }
 
+fn apply_or_recreate_source_instance(
+    plugin_id: &str,
+    type_id: &str,
+    entry: &mut CachedSourceInstance,
+    config_json: &str,
+) -> Result<(), String> {
+    if entry.config_json == config_json {
+        return Ok(());
+    }
+    let result = entry
+        .instance
+        .apply_config_update_json(config_json)
+        .map_err(|e| e.to_string())?;
+    match result {
+        InstanceUpdateResult::Applied { generation, .. } => {
+            emit_config_update_runtime_event(
+                plugin_id,
+                "source_catalog",
+                type_id,
+                "applied",
+                generation,
+                None,
+            );
+            entry.config_json = config_json.to_string();
+            Ok(())
+        }
+        InstanceUpdateResult::RequiresRecreate {
+            generation, reason, ..
+        } => {
+            emit_config_update_runtime_event(
+                plugin_id,
+                "source_catalog",
+                type_id,
+                "requires_recreate",
+                generation,
+                reason.as_deref(),
+            );
+            let mut next = match with_runtime_service(|service| {
+                service
+                    .create_source_catalog_instance(plugin_id, type_id, config_json)
+                    .map_err(|e| e.to_string())
+            }) {
+                Ok(v) => v,
+                Err(error) => {
+                    emit_config_update_runtime_event(
+                        plugin_id,
+                        "source_catalog",
+                        type_id,
+                        "failed",
+                        generation,
+                        Some(&error),
+                    );
+                    return Err(format!(
+                        "source recreate failed for {plugin_id}::{type_id}: {error}"
+                    ));
+                }
+            };
+            if let Ok(Some(state_json)) = entry.instance.export_state_json() {
+                let _ = next.import_state_json(&state_json);
+            }
+            entry.instance = next;
+            entry.config_json = config_json.to_string();
+            emit_config_update_runtime_event(
+                plugin_id,
+                "source_catalog",
+                type_id,
+                "recreated",
+                generation,
+                None,
+            );
+            if let Some(reason) = reason {
+                debug!(plugin_id, type_id, "source config recreate: {reason}");
+            }
+            Ok(())
+        }
+        InstanceUpdateResult::Rejected {
+            generation, reason, ..
+        } => {
+            emit_config_update_runtime_event(
+                plugin_id,
+                "source_catalog",
+                type_id,
+                "rejected",
+                generation,
+                Some(&reason),
+            );
+            Err(format!(
+                "source config update rejected for {plugin_id}::{type_id}: {reason}"
+            ))
+        }
+        InstanceUpdateResult::Failed {
+            generation, error, ..
+        } => {
+            emit_config_update_runtime_event(
+                plugin_id,
+                "source_catalog",
+                type_id,
+                "failed",
+                generation,
+                Some(&error),
+            );
+            Err(format!(
+                "source config update failed for {plugin_id}::{type_id}: {error}"
+            ))
+        }
+    }
+}
+
+fn apply_or_recreate_lyrics_instance(
+    plugin_id: &str,
+    type_id: &str,
+    entry: &mut CachedLyricsInstance,
+    config_json: &str,
+) -> Result<(), String> {
+    if entry.config_json == config_json {
+        return Ok(());
+    }
+    let result = entry
+        .instance
+        .apply_config_update_json(config_json)
+        .map_err(|e| e.to_string())?;
+    match result {
+        InstanceUpdateResult::Applied { generation, .. } => {
+            emit_config_update_runtime_event(
+                plugin_id,
+                "lyrics_provider",
+                type_id,
+                "applied",
+                generation,
+                None,
+            );
+            entry.config_json = config_json.to_string();
+            Ok(())
+        }
+        InstanceUpdateResult::RequiresRecreate {
+            generation, reason, ..
+        } => {
+            emit_config_update_runtime_event(
+                plugin_id,
+                "lyrics_provider",
+                type_id,
+                "requires_recreate",
+                generation,
+                reason.as_deref(),
+            );
+            let mut next = match with_runtime_service(|service| {
+                service
+                    .create_lyrics_provider_instance(plugin_id, type_id, config_json)
+                    .map_err(|e| e.to_string())
+            }) {
+                Ok(v) => v,
+                Err(error) => {
+                    emit_config_update_runtime_event(
+                        plugin_id,
+                        "lyrics_provider",
+                        type_id,
+                        "failed",
+                        generation,
+                        Some(&error),
+                    );
+                    return Err(format!(
+                        "lyrics recreate failed for {plugin_id}::{type_id}: {error}"
+                    ));
+                }
+            };
+            if let Ok(Some(state_json)) = entry.instance.export_state_json() {
+                let _ = next.import_state_json(&state_json);
+            }
+            entry.instance = next;
+            entry.config_json = config_json.to_string();
+            emit_config_update_runtime_event(
+                plugin_id,
+                "lyrics_provider",
+                type_id,
+                "recreated",
+                generation,
+                None,
+            );
+            if let Some(reason) = reason {
+                debug!(plugin_id, type_id, "lyrics config recreate: {reason}");
+            }
+            Ok(())
+        }
+        InstanceUpdateResult::Rejected {
+            generation, reason, ..
+        } => {
+            emit_config_update_runtime_event(
+                plugin_id,
+                "lyrics_provider",
+                type_id,
+                "rejected",
+                generation,
+                Some(&reason),
+            );
+            Err(format!(
+                "lyrics config update rejected for {plugin_id}::{type_id}: {reason}"
+            ))
+        }
+        InstanceUpdateResult::Failed {
+            generation, error, ..
+        } => {
+            emit_config_update_runtime_event(
+                plugin_id,
+                "lyrics_provider",
+                type_id,
+                "failed",
+                generation,
+                Some(&error),
+            );
+            Err(format!(
+                "lyrics config update failed for {plugin_id}::{type_id}: {error}"
+            ))
+        }
+    }
+}
+
+fn apply_or_recreate_output_sink_instance(
+    plugin_id: &str,
+    type_id: &str,
+    entry: &mut CachedOutputSinkInstance,
+    config_json: &str,
+) -> Result<(), String> {
+    if entry.config_json == config_json {
+        return Ok(());
+    }
+    let result = entry
+        .instance
+        .apply_config_update_json(config_json)
+        .map_err(|e| e.to_string())?;
+    match result {
+        InstanceUpdateResult::Applied { generation, .. } => {
+            emit_config_update_runtime_event(
+                plugin_id,
+                "output_sink",
+                type_id,
+                "applied",
+                generation,
+                None,
+            );
+            entry.config_json = config_json.to_string();
+            Ok(())
+        }
+        InstanceUpdateResult::RequiresRecreate {
+            generation, reason, ..
+        } => {
+            emit_config_update_runtime_event(
+                plugin_id,
+                "output_sink",
+                type_id,
+                "requires_recreate",
+                generation,
+                reason.as_deref(),
+            );
+            let mut next = match with_runtime_service(|service| {
+                service
+                    .create_output_sink_instance(plugin_id, type_id, config_json)
+                    .map_err(|e| e.to_string())
+            }) {
+                Ok(v) => v,
+                Err(error) => {
+                    emit_config_update_runtime_event(
+                        plugin_id,
+                        "output_sink",
+                        type_id,
+                        "failed",
+                        generation,
+                        Some(&error),
+                    );
+                    return Err(format!(
+                        "output sink recreate failed for {plugin_id}::{type_id}: {error}"
+                    ));
+                }
+            };
+            if let Ok(Some(state_json)) = entry.instance.export_state_json() {
+                let _ = next.import_state_json(&state_json);
+            }
+            entry.instance = next;
+            entry.config_json = config_json.to_string();
+            emit_config_update_runtime_event(
+                plugin_id,
+                "output_sink",
+                type_id,
+                "recreated",
+                generation,
+                None,
+            );
+            if let Some(reason) = reason {
+                debug!(plugin_id, type_id, "output sink config recreate: {reason}");
+            }
+            Ok(())
+        }
+        InstanceUpdateResult::Rejected {
+            generation, reason, ..
+        } => {
+            emit_config_update_runtime_event(
+                plugin_id,
+                "output_sink",
+                type_id,
+                "rejected",
+                generation,
+                Some(&reason),
+            );
+            Err(format!(
+                "output sink config update rejected for {plugin_id}::{type_id}: {reason}"
+            ))
+        }
+        InstanceUpdateResult::Failed {
+            generation, error, ..
+        } => {
+            emit_config_update_runtime_event(
+                plugin_id,
+                "output_sink",
+                type_id,
+                "failed",
+                generation,
+                Some(&error),
+            );
+            Err(format!(
+                "output sink config update failed for {plugin_id}::{type_id}: {error}"
+            ))
+        }
+    }
+}
+
 fn source_list_items_json_via_runtime(
     state: &mut EngineState,
     plugin_id: &str,
@@ -816,20 +1170,30 @@ fn source_list_items_json_via_runtime(
     config_json: String,
     request_json: String,
 ) -> Result<String, String> {
-    let key = RuntimeInstanceKey::new(plugin_id, type_id, config_json.clone());
+    let key = RuntimeInstanceSlotKey::new(plugin_id, type_id);
     if !state.source_instances.contains_key(&key) {
         let created = with_runtime_service(|service| {
             service
                 .create_source_catalog_instance(plugin_id, type_id, &config_json)
                 .map_err(|e| e.to_string())
         })?;
-        state.source_instances.insert(key.clone(), created);
+        state.source_instances.insert(
+            key.clone(),
+            CachedSourceInstance {
+                config_json: config_json.clone(),
+                instance: created,
+            },
+        );
     }
-    let instance = state
+    let entry = state
         .source_instances
         .get_mut(&key)
         .ok_or_else(|| "source instance cache insertion failed".to_string())?;
-    instance
+    if entry.config_json != config_json {
+        apply_or_recreate_source_instance(plugin_id, type_id, entry, &config_json)?;
+    }
+    entry
+        .instance
         .list_items_json(&request_json)
         .map_err(|e| e.to_string())
 }
@@ -842,20 +1206,32 @@ fn lyrics_search_json_via_runtime(
 ) -> Result<String, String> {
     let config_json =
         runtime_default_config_json(plugin_id, CapabilityKind::LyricsProvider, type_id)?;
-    let key = RuntimeInstanceKey::new(plugin_id, type_id, config_json.clone());
+    let key = RuntimeInstanceSlotKey::new(plugin_id, type_id);
     if !state.lyrics_instances.contains_key(&key) {
         let created = with_runtime_service(|service| {
             service
                 .create_lyrics_provider_instance(plugin_id, type_id, &config_json)
                 .map_err(|e| e.to_string())
         })?;
-        state.lyrics_instances.insert(key.clone(), created);
+        state.lyrics_instances.insert(
+            key.clone(),
+            CachedLyricsInstance {
+                config_json: config_json.clone(),
+                instance: created,
+            },
+        );
     }
-    let instance = state
+    let entry = state
         .lyrics_instances
         .get_mut(&key)
         .ok_or_else(|| "lyrics instance cache insertion failed".to_string())?;
-    instance.search_json(&query_json).map_err(|e| e.to_string())
+    if entry.config_json != config_json {
+        apply_or_recreate_lyrics_instance(plugin_id, type_id, entry, &config_json)?;
+    }
+    entry
+        .instance
+        .search_json(&query_json)
+        .map_err(|e| e.to_string())
 }
 
 fn lyrics_fetch_json_via_runtime(
@@ -866,20 +1242,32 @@ fn lyrics_fetch_json_via_runtime(
 ) -> Result<String, String> {
     let config_json =
         runtime_default_config_json(plugin_id, CapabilityKind::LyricsProvider, type_id)?;
-    let key = RuntimeInstanceKey::new(plugin_id, type_id, config_json.clone());
+    let key = RuntimeInstanceSlotKey::new(plugin_id, type_id);
     if !state.lyrics_instances.contains_key(&key) {
         let created = with_runtime_service(|service| {
             service
                 .create_lyrics_provider_instance(plugin_id, type_id, &config_json)
                 .map_err(|e| e.to_string())
         })?;
-        state.lyrics_instances.insert(key.clone(), created);
+        state.lyrics_instances.insert(
+            key.clone(),
+            CachedLyricsInstance {
+                config_json: config_json.clone(),
+                instance: created,
+            },
+        );
     }
-    let instance = state
+    let entry = state
         .lyrics_instances
         .get_mut(&key)
         .ok_or_else(|| "lyrics instance cache insertion failed".to_string())?;
-    instance.fetch_json(&track_json).map_err(|e| e.to_string())
+    if entry.config_json != config_json {
+        apply_or_recreate_lyrics_instance(plugin_id, type_id, entry, &config_json)?;
+    }
+    entry
+        .instance
+        .fetch_json(&track_json)
+        .map_err(|e| e.to_string())
 }
 
 fn output_sink_list_targets_json_via_runtime(
@@ -888,23 +1276,40 @@ fn output_sink_list_targets_json_via_runtime(
     type_id: &str,
     config_json: String,
 ) -> Result<String, String> {
-    let key = RuntimeInstanceKey::new(plugin_id, type_id, config_json.clone());
+    let key = RuntimeInstanceSlotKey::new(plugin_id, type_id);
     if !state.output_sink_instances.contains_key(&key) {
         let created = with_runtime_service(|service| {
             service
                 .create_output_sink_instance(plugin_id, type_id, &config_json)
                 .map_err(|e| e.to_string())
         })?;
-        state.output_sink_instances.insert(key.clone(), created);
+        state.output_sink_instances.insert(
+            key.clone(),
+            CachedOutputSinkInstance {
+                config_json: config_json.clone(),
+                instance: created,
+            },
+        );
     }
-    let instance = state
+    let entry = state
         .output_sink_instances
         .get_mut(&key)
         .ok_or_else(|| "output sink instance cache insertion failed".to_string())?;
-    instance.list_targets_json().map_err(|e| e.to_string())
+    if entry.config_json != config_json {
+        apply_or_recreate_output_sink_instance(plugin_id, type_id, entry, &config_json)?;
+    }
+    entry
+        .instance
+        .list_targets_json()
+        .map_err(|e| e.to_string())
 }
 
-fn handle_engine_ctrl(msg: EngineCtrl, state: &mut EngineState, events: &Arc<EventHub>) {
+fn handle_engine_ctrl(
+    msg: EngineCtrl,
+    state: &mut EngineState,
+    events: &Arc<EventHub>,
+    internal_tx: &Sender<InternalMsg>,
+) {
     match msg {
         EngineCtrl::SetDspChain { chain } => {
             let parsed = match parse_dsp_chain(chain) {
@@ -970,10 +1375,10 @@ fn handle_engine_ctrl(msg: EngineCtrl, state: &mut EngineState, events: &Arc<Eve
             ));
         }
         EngineCtrl::ReloadPlugins { dir } => {
-            handle_reload_plugins(state, events, dir, Vec::new());
+            handle_reload_plugins(state, events, internal_tx, dir, Vec::new());
         }
         EngineCtrl::ReloadPluginsWithDisabled { dir, disabled_ids } => {
-            handle_reload_plugins(state, events, dir, disabled_ids);
+            handle_reload_plugins(state, events, internal_tx, dir, disabled_ids);
         }
         EngineCtrl::SetLfeMode { mode } => {
             state.lfe_mode = mode;
@@ -987,6 +1392,7 @@ fn handle_engine_ctrl(msg: EngineCtrl, state: &mut EngineState, events: &Arc<Eve
 fn handle_reload_plugins(
     state: &mut EngineState,
     events: &Arc<EventHub>,
+    internal_tx: &Sender<InternalMsg>,
     dir: String,
     disabled_ids: Vec<String>,
 ) {
@@ -1000,6 +1406,12 @@ fn handle_reload_plugins(
             disabled.len()
         ),
     });
+    if let Some(worker) = state.decode_worker.as_ref() {
+        worker.clear_promoted_preload();
+    }
+    state.preload_token = state.preload_token.wrapping_add(1);
+    state.requested_preload_path = None;
+    state.requested_preload_position_ms = 0;
     clear_runtime_query_instance_cache(state);
     let prev_count = match stellatune_plugins::shared_runtime_service().lock() {
         Ok(service) => service.active_plugin_ids().len(),
@@ -1040,6 +1452,18 @@ fn handle_reload_plugins(
                 events.emit(Event::Log {
                     message: format!("plugin load error: {err:#}"),
                 });
+            }
+
+            if state.session.is_some()
+                && let Err(message) = sync_output_sink_with_active_session(state, internal_tx)
+            {
+                events.emit(Event::Error { message });
+            }
+            if let Some(ctrl_tx) = state.session.as_ref().map(|s| s.ctrl_tx.clone()) {
+                let _ = ctrl_tx.send(DecodeCtrl::RefreshDecoder);
+                if let Err(message) = apply_dsp_chain(state) {
+                    events.emit(Event::Error { message });
+                }
             }
         }
         Err(err) => events.emit(Event::Error {
@@ -2170,40 +2594,20 @@ fn apply_dsp_chain(state: &mut EngineState) -> Result<(), String> {
     };
 
     let chain_spec = state.desired_dsp_chain.clone();
-    if chain_spec.is_empty() {
-        let _ = session
-            .ctrl_tx
-            .send(DecodeCtrl::SetDspChain { chain: Vec::new() });
-        return Ok(());
+    let mut chain = Vec::with_capacity(chain_spec.len());
+    for item in &chain_spec {
+        let config_json = serde_json::to_string(&item.config).map_err(|e| {
+            format!(
+                "invalid DSP config json for {}::{}: {e}",
+                item.plugin_id, item.type_id
+            )
+        })?;
+        chain.push(RuntimeDspChainEntry {
+            plugin_id: item.plugin_id.clone(),
+            type_id: item.type_id.clone(),
+            config_json,
+        });
     }
-
-    let chain = with_runtime_service(|service| {
-        let mut chain = Vec::with_capacity(chain_spec.len());
-        for item in &chain_spec {
-            let config_json = serde_json::to_string(&item.config).map_err(|e| {
-                format!(
-                    "invalid DSP config json for {}::{}: {e}",
-                    item.plugin_id, item.type_id
-                )
-            })?;
-            let inst = service
-                .create_dsp_instance(
-                    &item.plugin_id,
-                    &item.type_id,
-                    session.out_sample_rate,
-                    session.out_channels,
-                    &config_json,
-                )
-                .map_err(|e| {
-                    format!(
-                        "failed to create DSP {}::{}: {e}",
-                        item.plugin_id, item.type_id
-                    )
-                })?;
-            chain.push(inst);
-        }
-        Ok(chain)
-    })?;
 
     let _ = session.ctrl_tx.send(DecodeCtrl::SetDspChain { chain });
     Ok(())
@@ -2230,6 +2634,10 @@ fn open_output_sink_worker(args: OpenOutputSinkWorkerArgs<'_>) -> Result<OutputS
     .map_err(|e| format!("output sink open failed: {e}"))?;
     Ok(OutputSinkWorker::start(
         sink,
+        args.route.plugin_id.clone(),
+        args.route.type_id.clone(),
+        target_json,
+        config_json,
         args.channels,
         args.sample_rate,
         args.volume,
@@ -2266,17 +2674,47 @@ fn sync_output_sink_with_active_session(
         sample_rate,
         channels,
         chunk_frames: state.output_sink_chunk_frames,
+        generation: runtime_active_capability_generation(
+            &route.plugin_id,
+            CapabilityKind::OutputSink,
+            &route.type_id,
+        )?,
     };
     if let (Some(worker), Some(active_spec)) = (
         state.output_sink_worker.as_ref(),
         state.output_sink_worker_spec.as_ref(),
-    ) && active_spec == &desired_spec
-    {
-        let _ = ctrl_tx.send(DecodeCtrl::SetOutputSinkTx {
-            tx: Some(worker.sender()),
-            output_sink_chunk_frames: state.output_sink_chunk_frames,
-        });
-        return Ok(());
+    ) {
+        if active_spec == &desired_spec {
+            let _ = ctrl_tx.send(DecodeCtrl::SetOutputSinkTx {
+                tx: Some(worker.sender()),
+                output_sink_chunk_frames: state.output_sink_chunk_frames,
+            });
+            return Ok(());
+        }
+
+        let same_runtime_identity = active_spec.route.plugin_id == desired_spec.route.plugin_id
+            && active_spec.route.type_id == desired_spec.route.type_id
+            && active_spec.route.target == desired_spec.route.target
+            && active_spec.sample_rate == desired_spec.sample_rate
+            && active_spec.channels == desired_spec.channels
+            && active_spec.generation == desired_spec.generation;
+        if same_runtime_identity {
+            let config_json = serde_json::to_string(&desired_spec.route.config)
+                .map_err(|e| format!("invalid output sink config json: {e}"))?;
+            match worker.apply_config_json(config_json) {
+                Ok(()) => {
+                    state.output_sink_worker_spec = Some(desired_spec);
+                    let _ = ctrl_tx.send(DecodeCtrl::SetOutputSinkTx {
+                        tx: Some(worker.sender()),
+                        output_sink_chunk_frames: state.output_sink_chunk_frames,
+                    });
+                    return Ok(());
+                }
+                Err(e) => {
+                    warn!("output sink hot config update failed, fallback to recreate: {e}");
+                }
+            }
+        }
     }
 
     let _ = ctrl_tx.send(DecodeCtrl::SetOutputSinkTx {

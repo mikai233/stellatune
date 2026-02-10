@@ -320,6 +320,13 @@ pub fn plugins_list_installed_json(plugins_dir: String) -> Result<String> {
 }
 
 pub fn plugins_uninstall_by_id(plugins_dir: String, plugin_id: String) -> Result<()> {
+    let plugin_id = plugin_id.trim().to_string();
+    if plugin_id.is_empty() {
+        return Err(anyhow!("plugin_id is empty"));
+    }
+
+    ensure_plugin_runtime_unloaded_for_uninstall(&plugin_id)?;
+
     stellatune_plugins::uninstall_plugin(&plugins_dir, &plugin_id)
         .map_err(|e| anyhow::anyhow!(e.to_string()))
 }
@@ -437,4 +444,20 @@ fn normalize_json_payload(label: &str, payload: String) -> Result<String> {
     let value = serde_json::from_str::<serde_json::Value>(&payload)
         .map_err(|e| anyhow!("invalid {label}: {e}"))?;
     serde_json::to_string(&value).map_err(|e| anyhow!("serialize {label}: {e}"))
+}
+
+fn ensure_plugin_runtime_unloaded_for_uninstall(plugin_id: &str) -> Result<()> {
+    with_runtime_service(|service| {
+        let _ = service.unload_plugin(plugin_id);
+        let Some(slot) = service.slot_snapshot(plugin_id) else {
+            return Ok(());
+        };
+        if !slot.draining.is_empty() {
+            return Err(anyhow!(
+                "plugin `{plugin_id}` is still in use ({} draining generation(s)); stop playback/release instances and retry uninstall",
+                slot.draining.len()
+            ));
+        }
+        Ok(())
+    })
 }

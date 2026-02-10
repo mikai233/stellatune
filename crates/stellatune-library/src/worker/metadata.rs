@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use base64::Engine;
@@ -9,7 +10,7 @@ use stellatune_plugin_api::{
     ST_DECODER_INFO_FLAG_HAS_DURATION, ST_ERR_INVALID_ARG, ST_ERR_IO, StIoVTable, StSeekWhence,
     StStatus, StStr,
 };
-use stellatune_plugins::runtime::CapabilityKind as RuntimeCapabilityKind;
+use stellatune_plugins::runtime::{CapabilityKind as RuntimeCapabilityKind, InstanceUpdateResult};
 use symphonia::core::formats::FormatOptions;
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::{Limit, MetadataOptions, StandardTagKey, StandardVisualKey, Value};
@@ -49,6 +50,7 @@ struct DecoderCandidate {
     type_id: String,
     default_config_json: String,
     score: u16,
+    generation: u64,
 }
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
@@ -164,6 +166,162 @@ static LOCAL_FILE_IO_VTABLE: StIoVTable = StIoVTable {
     tell: Some(local_io_tell),
     size: Some(local_io_size),
 };
+
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+struct CachedMetadataDecoder {
+    generation: u64,
+    config_json: String,
+    decoder: stellatune_plugins::DecoderInstance,
+    last_used_at: Instant,
+}
+
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+const METADATA_DECODER_CACHE_IDLE_TTL: Duration = Duration::from_secs(2);
+
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+const METADATA_DECODER_CACHE_MAX_ENTRIES: usize = 8;
+
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+thread_local! {
+    static METADATA_DECODER_CACHE: std::cell::RefCell<
+        HashMap<(String, String), CachedMetadataDecoder>
+    > = std::cell::RefCell::new(HashMap::new());
+}
+
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+pub(super) fn clear_metadata_decoder_cache() {
+    METADATA_DECODER_CACHE.with_borrow_mut(|cache| cache.clear());
+}
+
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+fn create_plugin_metadata_decoder(
+    candidate: &DecoderCandidate,
+) -> Result<stellatune_plugins::DecoderInstance> {
+    let shared = stellatune_plugins::shared_runtime_service();
+    let service = shared
+        .lock()
+        .map_err(|_| anyhow::anyhow!("runtime service mutex poisoned"))?;
+    service
+        .create_decoder_instance(
+            &candidate.plugin_id,
+            &candidate.type_id,
+            &candidate.default_config_json,
+        )
+        .map_err(|e| {
+            anyhow::anyhow!(
+                "create_decoder_instance failed for {}::{}: {e:#}",
+                candidate.plugin_id,
+                candidate.type_id
+            )
+        })
+}
+
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+fn prune_metadata_decoder_cache(
+    cache: &mut HashMap<(String, String), CachedMetadataDecoder>,
+    now: Instant,
+) {
+    cache.retain(|_, entry| {
+        now.duration_since(entry.last_used_at) <= METADATA_DECODER_CACHE_IDLE_TTL
+    });
+    while cache.len() > METADATA_DECODER_CACHE_MAX_ENTRIES {
+        let Some(oldest_key) = cache
+            .iter()
+            .min_by_key(|(_, v)| v.last_used_at)
+            .map(|(k, _)| k.clone())
+        else {
+            break;
+        };
+        cache.remove(&oldest_key);
+    }
+}
+
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+fn refresh_cached_metadata_decoder(
+    entry: &mut CachedMetadataDecoder,
+    candidate: &DecoderCandidate,
+) -> Result<()> {
+    if entry.generation != candidate.generation {
+        entry.decoder = create_plugin_metadata_decoder(candidate)?;
+        entry.generation = candidate.generation;
+        entry.config_json = candidate.default_config_json.clone();
+        return Ok(());
+    }
+
+    if entry.config_json == candidate.default_config_json {
+        return Ok(());
+    }
+
+    let update_outcome = match entry
+        .decoder
+        .apply_config_update_json(&candidate.default_config_json)
+    {
+        Ok(outcome) => outcome,
+        Err(_) => {
+            let mut next = create_plugin_metadata_decoder(candidate)?;
+            if let Ok(Some(state_json)) = entry.decoder.export_state_json() {
+                let _ = next.import_state_json(&state_json);
+            }
+            entry.decoder = next;
+            entry.generation = candidate.generation;
+            entry.config_json = candidate.default_config_json.clone();
+            return Ok(());
+        }
+    };
+
+    match update_outcome {
+        InstanceUpdateResult::Applied { .. } => {
+            entry.config_json = candidate.default_config_json.clone();
+            Ok(())
+        }
+        InstanceUpdateResult::RequiresRecreate { .. }
+        | InstanceUpdateResult::Rejected { .. }
+        | InstanceUpdateResult::Failed { .. } => {
+            let mut next = create_plugin_metadata_decoder(candidate)?;
+            if let Ok(Some(state_json)) = entry.decoder.export_state_json() {
+                let _ = next.import_state_json(&state_json);
+            }
+            entry.decoder = next;
+            entry.generation = candidate.generation;
+            entry.config_json = candidate.default_config_json.clone();
+            Ok(())
+        }
+    }
+}
+
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+fn with_cached_metadata_decoder<T>(
+    candidate: &DecoderCandidate,
+    f: impl FnOnce(&mut stellatune_plugins::DecoderInstance) -> Result<T>,
+) -> Result<T> {
+    METADATA_DECODER_CACHE.with_borrow_mut(|cache| {
+        let now = Instant::now();
+        prune_metadata_decoder_cache(cache, now);
+
+        let key = (candidate.plugin_id.clone(), candidate.type_id.clone());
+        let mut entry = match cache.remove(&key) {
+            Some(entry) => entry,
+            None => CachedMetadataDecoder {
+                generation: candidate.generation,
+                config_json: candidate.default_config_json.clone(),
+                decoder: create_plugin_metadata_decoder(candidate)?,
+                last_used_at: now,
+            },
+        };
+
+        if entry.generation != candidate.generation
+            || entry.config_json != candidate.default_config_json
+        {
+            refresh_cached_metadata_decoder(&mut entry, candidate)?;
+        }
+
+        let result = f(&mut entry.decoder);
+        entry.last_used_at = Instant::now();
+        cache.insert(key, entry);
+        prune_metadata_decoder_cache(cache, Instant::now());
+        result
+    })
+}
 
 pub(super) fn extract_metadata(path: &Path) -> Result<ExtractedMetadata> {
     let mut hint = Hint::new();
@@ -290,6 +448,7 @@ fn decoder_candidates_for_ext(ext: &str) -> Vec<DecoderCandidate> {
             type_id: candidate.type_id,
             default_config_json: cap.default_config_json,
             score: candidate.score,
+            generation: cap.generation.0,
         });
     }
     out
@@ -389,111 +548,95 @@ fn extract_plugin_metadata_from_plugin(path: &Path) -> Result<ExtractedMetadata>
 
     let mut last_err: Option<String> = None;
     for candidate in candidates {
-        let shared = stellatune_plugins::shared_runtime_service();
-        let mut dec = match shared.lock() {
-            Ok(service) => match service.create_decoder_instance(
-                &candidate.plugin_id,
-                &candidate.type_id,
-                &candidate.default_config_json,
-            ) {
-                Ok(v) => v,
-                Err(e) => {
-                    last_err = Some(format!(
-                        "create_decoder_instance failed for {}::{}: {e:#}",
-                        candidate.plugin_id, candidate.type_id
-                    ));
-                    continue;
+        match with_cached_metadata_decoder(&candidate, |dec| {
+            let mut file = File::open(path)
+                .map(|file| Box::new(LocalFileIoHandle { file }))
+                .with_context(|| format!("failed to open for metadata: {}", path.display()))?;
+            let io_handle = (&mut *file) as *mut LocalFileIoHandle as *mut core::ffi::c_void;
+
+            dec.open_with_io(
+                &path_str,
+                &ext,
+                &LOCAL_FILE_IO_VTABLE as *const _,
+                io_handle,
+            )
+            .map_err(|e| anyhow::anyhow!("{e:#}"))
+            .with_context(|| {
+                format!(
+                    "decoder open_with_io failed for {}::{}",
+                    candidate.plugin_id, candidate.type_id
+                )
+            })?;
+
+            debug!(
+                target: "stellatune_library::metadata",
+                path = %path.display(),
+                plugin_id = %candidate.plugin_id,
+                decoder_type_id = %candidate.type_id,
+                elapsed_ms = started.elapsed().as_millis(),
+                "v2 plugin decoder opened for metadata"
+            );
+
+            let info = dec.get_info().map_err(|e| anyhow::anyhow!("{e:#}"))?;
+            let mut out = ExtractedMetadata {
+                duration_ms: if info.flags & ST_DECODER_INFO_FLAG_HAS_DURATION != 0 {
+                    Some(info.duration_ms as i64)
+                } else {
+                    None
+                },
+                ..Default::default()
+            };
+
+            if let Ok(Some(raw)) = dec.get_metadata_json()
+                && let Ok(meta) = serde_json::from_str::<PluginTrackMetadata>(&raw)
+            {
+                out.title = meta
+                    .title
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty());
+                out.artist = meta
+                    .artist
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty());
+                out.album = meta
+                    .album
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty());
+
+                if out.duration_ms.is_none() {
+                    out.duration_ms = meta.duration_ms.filter(|ms| *ms >= 0);
                 }
-            },
-            Err(_) => {
-                last_err = Some("runtime service mutex poisoned".to_string());
-                continue;
-            }
-        };
 
-        let mut file = match File::open(path) {
-            Ok(file) => Box::new(LocalFileIoHandle { file }),
-            Err(e) => {
-                return Err(e)
-                    .with_context(|| format!("failed to open for metadata: {}", path.display()));
-            }
-        };
-        let io_handle = (&mut *file) as *mut LocalFileIoHandle as *mut core::ffi::c_void;
-        if let Err(e) = dec.open_with_io(
-            &path_str,
-            &ext,
-            &LOCAL_FILE_IO_VTABLE as *const _,
-            io_handle,
-        ) {
-            last_err = Some(format!(
-                "decoder open_with_io failed for {}::{}: {e:#}",
-                candidate.plugin_id, candidate.type_id
-            ));
-            continue;
-        }
-
-        debug!(
-            target: "stellatune_library::metadata",
-            path = %path.display(),
-            plugin_id = %candidate.plugin_id,
-            decoder_type_id = %candidate.type_id,
-            elapsed_ms = started.elapsed().as_millis(),
-            "v2 plugin decoder opened for metadata"
-        );
-
-        let info = dec.get_info().map_err(|e| anyhow::anyhow!("{e:#}"))?;
-        let mut out = ExtractedMetadata {
-            duration_ms: if info.flags & ST_DECODER_INFO_FLAG_HAS_DURATION != 0 {
-                Some(info.duration_ms as i64)
-            } else {
-                None
-            },
-            ..Default::default()
-        };
-
-        if let Ok(Some(raw)) = dec.get_metadata_json()
-            && let Ok(meta) = serde_json::from_str::<PluginTrackMetadata>(&raw)
-        {
-            out.title = meta
-                .title
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty());
-            out.artist = meta
-                .artist
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty());
-            out.album = meta
-                .album
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty());
-
-            if out.duration_ms.is_none() {
-                out.duration_ms = meta.duration_ms.filter(|ms| *ms >= 0);
-            }
-
-            if out.cover.is_none() {
-                if let Some(s) = meta.cover_base64.as_deref() {
-                    let s = s.trim();
-                    if !s.is_empty()
-                        && let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(s)
+                if out.cover.is_none() {
+                    if let Some(s) = meta.cover_base64.as_deref() {
+                        let s = s.trim();
+                        if !s.is_empty()
+                            && let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(s)
+                            && !bytes.is_empty()
+                            && (bytes.len() as u64) <= COVER_BYTES_LIMIT
+                        {
+                            out.cover = Some(bytes);
+                        }
+                    } else if let Some(bytes) = meta.cover_bytes
                         && !bytes.is_empty()
                         && (bytes.len() as u64) <= COVER_BYTES_LIMIT
                     {
                         out.cover = Some(bytes);
                     }
-                } else if let Some(bytes) = meta.cover_bytes
-                    && !bytes.is_empty()
-                    && (bytes.len() as u64) <= COVER_BYTES_LIMIT
-                {
-                    out.cover = Some(bytes);
                 }
             }
-        }
 
-        if out.cover.is_none() {
-            out.cover = load_sidecar_cover(path);
+            if out.cover.is_none() {
+                out.cover = load_sidecar_cover(path);
+            }
+            Ok(out)
+        }) {
+            Ok(out) => return Ok(out),
+            Err(e) => {
+                last_err = Some(e.to_string());
+                continue;
+            }
         }
-        return Ok(out);
     }
 
     Err(anyhow::anyhow!(

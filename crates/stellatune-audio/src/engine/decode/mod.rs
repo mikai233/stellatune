@@ -9,11 +9,12 @@ use tracing::debug;
 
 use stellatune_core::TrackDecodeInfo;
 use stellatune_mixer::{ChannelLayout, ChannelMixer};
-use stellatune_plugins::DspInstance;
 
 use crate::engine::config::RESAMPLE_CHUNK_FRAMES;
 use crate::engine::event_hub::EventHub;
-use crate::engine::messages::{DecodeCtrl, DecodeWorkerState, InternalMsg, OutputSinkTx};
+use crate::engine::messages::{
+    DecodeCtrl, DecodeWorkerState, InternalMsg, OutputSinkTx, RuntimeDspChainEntry,
+};
 
 pub mod context;
 pub mod decoder;
@@ -23,10 +24,11 @@ pub mod utils;
 
 use self::context::DecodeContext;
 use self::decoder::{EngineDecoder, open_engine_decoder};
-use self::dsp::{apply_dsp_chain, split_dsp_chain_by_layout};
+use self::dsp::{ActiveDspNode, DspStage, apply_dsp_stage, apply_or_recreate_dsp_chain};
 use self::resampler::{create_resampler_if_needed, resample_interleaved_chunk};
 use self::utils::{
-    adapt_channels_interleaved, core_lfe_to_mixer, skip_frames_by_decoding, write_pending,
+    adapt_channels_interleaved, core_lfe_to_mixer, refresh_decoder, skip_frames_by_decoding,
+    write_pending,
 };
 
 type DecodeSetupState = (
@@ -203,8 +205,7 @@ pub(crate) fn decode_thread(args: DecodeThreadArgs) {
         );
     }
 
-    let mut pre_mix_dsp: Vec<DspInstance> = Vec::new();
-    let mut post_mix_dsp: Vec<DspInstance> = Vec::new();
+    let mut dsp_chain: Vec<ActiveDspNode> = Vec::new();
 
     let mut lfe_mode = core_lfe_to_mixer(initial_lfe_mode);
     let mut channel_mixer = ChannelMixer::new(
@@ -229,10 +230,10 @@ pub(crate) fn decode_thread(args: DecodeThreadArgs) {
         }
 
         let mut ctx = DecodeContext {
+            path: &path,
             playing: &mut playing,
             last_emit: &mut last_emit,
-            pre_mix_dsp: &mut pre_mix_dsp,
-            post_mix_dsp: &mut post_mix_dsp,
+            dsp_chain: &mut dsp_chain,
             decoder: &mut decoder,
             resampler: &mut resampler,
             producer: &producer,
@@ -387,9 +388,14 @@ fn handle_paused_controls(ctx: &mut DecodeContext, runtime_state: &Arc<AtomicU8>
             set_decode_worker_state(runtime_state, DecodeWorkerState::Paused, "pause");
         }
         Ok(DecodeCtrl::SetDspChain { chain }) => {
-            let (pre, post) = split_dsp_chain_by_layout(chain, ctx.in_channels);
-            *ctx.pre_mix_dsp = pre;
-            *ctx.post_mix_dsp = post;
+            if let Err(e) = sync_dsp_chain(ctx, chain) {
+                let _ = ctx.internal_tx.send(InternalMsg::Error(e));
+            }
+        }
+        Ok(DecodeCtrl::RefreshDecoder) => {
+            if let Err(e) = refresh_decoder(ctx) {
+                debug!("decoder refresh failed: {e}");
+            }
         }
         Ok(DecodeCtrl::SeekMs { position_ms }) => {
             if let Err(e) = perform_seek(position_ms, ctx) {
@@ -444,9 +450,14 @@ fn handle_playing_controls(ctx: &mut DecodeContext, runtime_state: &Arc<AtomicU8
                 return false;
             }
             DecodeCtrl::SetDspChain { chain } => {
-                let (pre, post) = split_dsp_chain_by_layout(chain, ctx.in_channels);
-                *ctx.pre_mix_dsp = pre;
-                *ctx.post_mix_dsp = post;
+                if let Err(e) = sync_dsp_chain(ctx, chain) {
+                    let _ = ctx.internal_tx.send(InternalMsg::Error(e));
+                }
+            }
+            DecodeCtrl::RefreshDecoder => {
+                if let Err(e) = refresh_decoder(ctx) {
+                    debug!("decoder refresh failed: {e}");
+                }
             }
             DecodeCtrl::SetOutputSinkTx {
                 tx,
@@ -483,7 +494,12 @@ fn emit_position(ctx: &mut DecodeContext) {
 }
 
 fn process_audio_no_resample(ctx: &mut DecodeContext) -> bool {
-    apply_dsp_chain(ctx.pre_mix_dsp, ctx.decode_pending, ctx.in_channels);
+    apply_dsp_stage(
+        ctx.dsp_chain,
+        DspStage::PreMix,
+        ctx.decode_pending,
+        ctx.in_channels,
+    );
 
     let mut chunk = if ctx.in_channels == ctx.out_channels {
         std::mem::take(ctx.decode_pending)
@@ -498,7 +514,12 @@ fn process_audio_no_resample(ctx: &mut DecodeContext) -> bool {
         v
     };
 
-    apply_dsp_chain(ctx.post_mix_dsp, &mut chunk, ctx.out_channels);
+    apply_dsp_stage(
+        ctx.dsp_chain,
+        DspStage::PostMix,
+        &mut chunk,
+        ctx.out_channels,
+    );
     ctx.out_pending.extend_from_slice(&chunk);
 
     write_pending(ctx)
@@ -511,7 +532,12 @@ fn process_audio_resampled(ctx: &mut DecodeContext) -> Result<bool, String> {
             .drain(..RESAMPLE_CHUNK_FRAMES * ctx.in_channels)
             .collect();
 
-        apply_dsp_chain(ctx.pre_mix_dsp, &mut chunk_in, ctx.in_channels);
+        apply_dsp_stage(
+            ctx.dsp_chain,
+            DspStage::PreMix,
+            &mut chunk_in,
+            ctx.in_channels,
+        );
 
         let chunk = if ctx.in_channels == ctx.out_channels {
             chunk_in
@@ -531,7 +557,12 @@ fn process_audio_resampled(ctx: &mut DecodeContext) -> Result<bool, String> {
         )?;
         let mut processed = processed;
 
-        apply_dsp_chain(ctx.post_mix_dsp, &mut processed, ctx.out_channels);
+        apply_dsp_stage(
+            ctx.dsp_chain,
+            DspStage::PostMix,
+            &mut processed,
+            ctx.out_channels,
+        );
         ctx.out_pending.extend_from_slice(&processed);
 
         if write_pending(ctx) {
@@ -552,7 +583,12 @@ fn handle_eof_and_flush(ctx: &mut DecodeContext) -> bool {
         if !ctx.decode_pending.is_empty() {
             ctx.decode_pending
                 .resize(RESAMPLE_CHUNK_FRAMES * ctx.in_channels, 0.0);
-            apply_dsp_chain(ctx.pre_mix_dsp, ctx.decode_pending, ctx.in_channels);
+            apply_dsp_stage(
+                ctx.dsp_chain,
+                DspStage::PreMix,
+                ctx.decode_pending,
+                ctx.in_channels,
+            );
 
             let chunk = if ctx.in_channels == ctx.out_channels {
                 ctx.decode_pending.clone()
@@ -566,7 +602,12 @@ fn handle_eof_and_flush(ctx: &mut DecodeContext) -> bool {
             };
             match resample_interleaved_chunk(resampler_inner, &chunk, ctx.out_channels) {
                 Ok(mut processed) => {
-                    apply_dsp_chain(ctx.post_mix_dsp, &mut processed, ctx.out_channels);
+                    apply_dsp_stage(
+                        ctx.dsp_chain,
+                        DspStage::PostMix,
+                        &mut processed,
+                        ctx.out_channels,
+                    );
                     ctx.out_pending.extend_from_slice(&processed);
                     ctx.decode_pending.clear();
                 }
@@ -585,7 +626,12 @@ fn handle_eof_and_flush(ctx: &mut DecodeContext) -> bool {
             }
         }
     } else if !ctx.decode_pending.is_empty() {
-        apply_dsp_chain(ctx.pre_mix_dsp, ctx.decode_pending, ctx.in_channels);
+        apply_dsp_stage(
+            ctx.dsp_chain,
+            DspStage::PreMix,
+            ctx.decode_pending,
+            ctx.in_channels,
+        );
 
         let mut chunk = if ctx.in_channels == ctx.out_channels {
             std::mem::take(ctx.decode_pending)
@@ -600,7 +646,12 @@ fn handle_eof_and_flush(ctx: &mut DecodeContext) -> bool {
             v
         };
 
-        apply_dsp_chain(ctx.post_mix_dsp, &mut chunk, ctx.out_channels);
+        apply_dsp_stage(
+            ctx.dsp_chain,
+            DspStage::PostMix,
+            &mut chunk,
+            ctx.out_channels,
+        );
         ctx.out_pending.extend_from_slice(&chunk);
 
         while !ctx.out_pending.is_empty() {
@@ -613,4 +664,14 @@ fn handle_eof_and_flush(ctx: &mut DecodeContext) -> bool {
         }
     }
     false
+}
+
+fn sync_dsp_chain(ctx: &mut DecodeContext, chain: Vec<RuntimeDspChainEntry>) -> Result<(), String> {
+    apply_or_recreate_dsp_chain(
+        ctx.dsp_chain,
+        &chain,
+        ctx.in_channels,
+        ctx.target_sample_rate,
+        ctx.out_channels as u16,
+    )
 }

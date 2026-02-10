@@ -138,6 +138,14 @@ pub fn broadcast_shared_host_event_json(event_json: &str) {
     }
 }
 
+pub fn push_shared_runtime_notify_json(plugin_id: &str, payload_json: &str) {
+    shared_plugin_event_bus().push_plugin_event(PluginRuntimeEvent {
+        plugin_id: plugin_id.to_string(),
+        kind: PluginRuntimeKind::Notify,
+        payload_json: payload_json.to_string(),
+    });
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct PluginHostCtx {
     plugin_id: String,

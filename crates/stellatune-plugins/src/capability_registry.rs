@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::RwLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::runtime::{CapabilityKind, GenerationId};
@@ -9,7 +9,7 @@ use super::{CapabilityDescriptorInput, CapabilityDescriptorRecord, CapabilityId}
 #[derive(Default)]
 pub struct CapabilityRegistry {
     next_id: AtomicU64,
-    inner: Mutex<HashMap<CapabilityId, CapabilityDescriptorRecord>>,
+    inner: RwLock<HashMap<CapabilityId, CapabilityDescriptorRecord>>,
 }
 
 impl CapabilityRegistry {
@@ -20,7 +20,7 @@ impl CapabilityRegistry {
         inputs: Vec<CapabilityDescriptorInput>,
     ) -> Vec<CapabilityDescriptorRecord> {
         let mut out = Vec::with_capacity(inputs.len());
-        let Ok(mut map) = self.inner.lock() else {
+        let Ok(mut map) = self.inner.write() else {
             return out;
         };
         for input in inputs {
@@ -42,14 +42,14 @@ impl CapabilityRegistry {
     }
 
     pub fn remove_generation(&self, plugin_id: &str, generation: GenerationId) {
-        let Ok(mut map) = self.inner.lock() else {
+        let Ok(mut map) = self.inner.write() else {
             return;
         };
         map.retain(|_, v| !(v.plugin_id == plugin_id && v.generation == generation));
     }
 
     pub fn get(&self, id: CapabilityId) -> Option<CapabilityDescriptorRecord> {
-        let map = self.inner.lock().ok()?;
+        let map = self.inner.read().ok()?;
         map.get(&id).cloned()
     }
 
@@ -60,7 +60,7 @@ impl CapabilityRegistry {
         kind: CapabilityKind,
         type_id: &str,
     ) -> Option<CapabilityDescriptorRecord> {
-        let map = self.inner.lock().ok()?;
+        let map = self.inner.read().ok()?;
         map.values()
             .find(|v| {
                 v.plugin_id == plugin_id
@@ -76,7 +76,7 @@ impl CapabilityRegistry {
         plugin_id: &str,
         generation: GenerationId,
     ) -> Vec<CapabilityDescriptorRecord> {
-        let Ok(map) = self.inner.lock() else {
+        let Ok(map) = self.inner.read() else {
             return Vec::new();
         };
         map.values()

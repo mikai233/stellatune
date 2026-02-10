@@ -18,6 +18,7 @@ use stellatune_core::{LibraryCommand, LibraryEvent, PlaylistLite, TrackLite};
 use crate::service::EventHub;
 
 use self::fts::build_fts_query;
+use self::metadata::clear_metadata_decoder_cache;
 use self::paths::{is_drive_root, normalize_path_str, parent_dir_norm};
 use self::watch::{WatchCtrl, spawn_watch_task};
 
@@ -69,6 +70,7 @@ impl WorkerDeps {
         #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
         {
             if plugins_dir.exists() {
+                clear_metadata_decoder_cache();
                 let disabled = disabled_plugin_ids.load_full();
                 match stellatune_plugins::shared_runtime_service().lock() {
                     Ok(service) => match service.reload_dir_filtered(&plugins_dir, disabled.as_ref())
@@ -136,6 +138,7 @@ impl LibraryWorker {
             if !self.plugins_dir.exists() {
                 return;
             }
+            clear_metadata_decoder_cache();
             let disabled = self.disabled_plugin_ids.load_full().as_ref().clone();
             if let Ok(service) = stellatune_plugins::shared_runtime_service().lock() {
                 let _ = service.reload_dir_filtered(&self.plugins_dir, &disabled);
@@ -1128,3 +1131,11 @@ impl LibraryWorker {
         Ok(())
     }
 }
+
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+pub(crate) fn clear_plugin_worker_caches() {
+    clear_metadata_decoder_cache();
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+pub(crate) fn clear_plugin_worker_caches() {}

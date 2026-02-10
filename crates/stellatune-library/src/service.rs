@@ -9,7 +9,7 @@ use tracing::{error, info};
 
 use stellatune_core::{LibraryCommand, LibraryEvent};
 
-use crate::worker::{DisabledPluginIds, LibraryWorker, WorkerDeps};
+use crate::worker::{DisabledPluginIds, LibraryWorker, WorkerDeps, clear_plugin_worker_caches};
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 use std::collections::HashSet;
@@ -55,6 +55,7 @@ impl LibraryHandle {
                 return;
             }
 
+            clear_plugin_worker_caches();
             match stellatune_plugins::shared_runtime_service().lock() {
                 Ok(service) => match service.reload_dir_filtered(&dir, &disabled) {
                     Ok(v2) => self.events.emit(LibraryEvent::Log {

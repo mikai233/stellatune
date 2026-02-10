@@ -5,8 +5,8 @@ use stellatune_plugin_api::{
 };
 
 use super::common::{
-    ConfigUpdatePlan, InstanceRuntimeCtx, plan_from_ffi, status_to_result, ststr_from_str,
-    take_plugin_string,
+    ConfigUpdatePlan, InstanceRuntimeCtx, decision_from_plan, plan_from_ffi, status_to_result,
+    ststr_from_str, take_plugin_string,
 };
 
 pub struct OutputSinkInstance {
@@ -136,22 +136,50 @@ impl OutputSinkInstance {
         Ok(plan_from_ffi(out, self.ctx.plugin_free))
     }
 
-    pub fn apply_config_update_json(&mut self, new_config_json: &str) -> Result<()> {
-        let Some(apply_fn) = (unsafe { (*self.vtable).apply_config_update_json_utf8 }) else {
-            return Err(anyhow!("output apply_config_update not supported"));
-        };
-        let req = self
-            .ctx
-            .updates
-            .enqueue(self.ctx.instance_id, new_config_json.to_string());
-        let _call = self.ctx.begin_call();
-        let status = (apply_fn)(self.handle, ststr_from_str(&req.config_json));
-        self.ctx.updates.complete(self.ctx.instance_id);
-        status_to_result(
-            "Output apply_config_update_json",
-            status,
-            self.ctx.plugin_free,
-        )
+    pub fn apply_config_update_json(
+        &mut self,
+        new_config_json: &str,
+    ) -> Result<crate::runtime::InstanceUpdateResult> {
+        let plan = self.plan_config_update_json(new_config_json)?;
+        let decision = decision_from_plan(&plan);
+        let req = self.ctx.updates.begin(
+            self.ctx.instance_id,
+            new_config_json.to_string(),
+            decision,
+            plan.reason.clone(),
+        );
+        match decision {
+            crate::runtime::InstanceUpdateDecision::HotApply => {
+                let Some(apply_fn) = (unsafe { (*self.vtable).apply_config_update_json_utf8 })
+                else {
+                    let msg = "output apply_config_update not supported".to_string();
+                    let _ = self.ctx.updates.finish_failed(&req, msg.clone());
+                    return Err(anyhow!(msg));
+                };
+                let _call = self.ctx.begin_call();
+                let status = (apply_fn)(self.handle, ststr_from_str(&req.config_json));
+                match status_to_result(
+                    "Output apply_config_update_json",
+                    status,
+                    self.ctx.plugin_free,
+                ) {
+                    Ok(()) => Ok(self.ctx.updates.finish_applied(&req)),
+                    Err(err) => {
+                        let _ = self.ctx.updates.finish_failed(&req, err.to_string());
+                        Err(err)
+                    }
+                }
+            }
+            crate::runtime::InstanceUpdateDecision::Recreate => {
+                Ok(self.ctx.updates.finish_requires_recreate(&req, plan.reason))
+            }
+            crate::runtime::InstanceUpdateDecision::Reject => {
+                let reason = plan
+                    .reason
+                    .unwrap_or_else(|| "output rejected config update".to_string());
+                Ok(self.ctx.updates.finish_rejected(&req, reason))
+            }
+        }
     }
 
     pub fn export_state_json(&self) -> Result<Option<String>> {
