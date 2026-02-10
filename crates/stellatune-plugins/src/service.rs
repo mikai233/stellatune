@@ -278,11 +278,10 @@ impl PluginRuntimeService {
         super::status_to_result("create_decoder_instance", status, plugin_free)?;
         let instance_id = self
             .register_instance_for_capability(capability.id)
-            .map_err(|e| {
+            .inspect_err(|_| {
                 if !raw.handle.is_null() && !raw.vtable.is_null() {
                     unsafe { ((*raw.vtable).destroy)(raw.handle) };
                 }
-                e
             })?;
         let ctx = self.instance_ctx(instance_id, plugin_free)?;
         DecoderInstance::from_ffi(ctx, raw)
@@ -361,11 +360,10 @@ impl PluginRuntimeService {
         super::status_to_result("create_dsp_instance", status, plugin_free)?;
         let instance_id = self
             .register_instance_for_capability(capability.id)
-            .map_err(|e| {
+            .inspect_err(|_| {
                 if !raw.handle.is_null() && !raw.vtable.is_null() {
                     unsafe { ((*raw.vtable).destroy)(raw.handle) };
                 }
-                e
             })?;
         let ctx = self.instance_ctx(instance_id, plugin_free)?;
         DspInstance::from_ffi(ctx, raw)
@@ -403,11 +401,10 @@ impl PluginRuntimeService {
         super::status_to_result("create_source_catalog_instance", status, plugin_free)?;
         let instance_id = self
             .register_instance_for_capability(capability.id)
-            .map_err(|e| {
+            .inspect_err(|_| {
                 if !raw.handle.is_null() && !raw.vtable.is_null() {
                     unsafe { ((*raw.vtable).destroy)(raw.handle) };
                 }
-                e
             })?;
         let ctx = self.instance_ctx(instance_id, plugin_free)?;
         SourceCatalogInstance::from_ffi(ctx, raw)
@@ -445,11 +442,10 @@ impl PluginRuntimeService {
         super::status_to_result("create_lyrics_provider_instance", status, plugin_free)?;
         let instance_id = self
             .register_instance_for_capability(capability.id)
-            .map_err(|e| {
+            .inspect_err(|_| {
                 if !raw.handle.is_null() && !raw.vtable.is_null() {
                     unsafe { ((*raw.vtable).destroy)(raw.handle) };
                 }
-                e
             })?;
         let ctx = self.instance_ctx(instance_id, plugin_free)?;
         LyricsProviderInstance::from_ffi(ctx, raw)
@@ -487,11 +483,10 @@ impl PluginRuntimeService {
         super::status_to_result("create_output_sink_instance", status, plugin_free)?;
         let instance_id = self
             .register_instance_for_capability(capability.id)
-            .map_err(|e| {
+            .inspect_err(|_| {
                 if !raw.handle.is_null() && !raw.vtable.is_null() {
                     unsafe { ((*raw.vtable).destroy)(raw.handle) };
                 }
-                e
             })?;
         let ctx = self.instance_ctx(instance_id, plugin_free)?;
         OutputSinkInstance::from_ffi(ctx, raw)

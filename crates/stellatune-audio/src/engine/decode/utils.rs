@@ -207,19 +207,19 @@ pub(crate) fn refresh_decoder(ctx: &mut DecodeContext) -> Result<(), String> {
         );
         return Err(message);
     }
-    if target_ms > 0 {
-        if let Err(e) = next_decoder.seek_ms(target_ms as u64) {
-            let message = format!("decoder refresh seek failed: {e}");
-            emit_config_update_runtime_event(
-                &plugin_id,
-                "decoder",
-                &type_id,
-                "failed",
-                generation,
-                Some(&message),
-            );
-            return Err(message);
-        }
+    if target_ms > 0
+        && let Err(e) = next_decoder.seek_ms(target_ms as u64)
+    {
+        let message = format!("decoder refresh seek failed: {e}");
+        emit_config_update_runtime_event(
+            &plugin_id,
+            "decoder",
+            &type_id,
+            "failed",
+            generation,
+            Some(&message),
+        );
+        return Err(message);
     }
 
     if let Ok(mut producer) = ctx.producer.lock() {

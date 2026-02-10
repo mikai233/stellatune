@@ -68,12 +68,16 @@ pub fn plan_to_ffi(plan: UpdatePlan) -> StConfigUpdatePlan {
     }
 }
 
-pub fn write_plan_to_ffi(out: *mut StConfigUpdatePlan, plan: UpdatePlan) -> SdkResult<()> {
+/// Write a config update plan into caller-provided FFI out pointer.
+///
+/// # Safety
+/// `out` must be valid for writes of `StConfigUpdatePlan` and properly aligned.
+pub unsafe fn write_plan_to_ffi(out: *mut StConfigUpdatePlan, plan: UpdatePlan) -> SdkResult<()> {
     if out.is_null() {
         return Err(SdkError::invalid_arg("null out plan pointer"));
     }
     let ffi = plan_to_ffi(plan);
-    // Safety: caller passed non-null out pointer.
+    // Safety: caller guarantees `out` is valid for writes.
     unsafe {
         *out = ffi;
     }

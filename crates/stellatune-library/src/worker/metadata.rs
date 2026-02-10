@@ -483,7 +483,7 @@ pub(super) fn has_plugin_decoder_for_path(path: &Path) -> bool {
         if ext.is_empty() {
             return false;
         }
-        return !decoder_candidates_for_ext(&ext).is_empty();
+        !decoder_candidates_for_ext(&ext).is_empty()
     }
     #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
     {

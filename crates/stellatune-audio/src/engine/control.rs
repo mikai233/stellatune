@@ -29,7 +29,8 @@ use crate::engine::messages::{
 use crate::engine::plugin_event_hub::PluginEventHub;
 use crate::engine::session::{
     DecodeWorker, OUTPUT_SINK_QUEUE_CAP_MESSAGES, OutputPipeline, OutputSinkWorker,
-    PlaybackSession, PromotedPreload, StartSessionArgs, start_decode_worker, start_session,
+    OutputSinkWorkerStartArgs, PlaybackSession, PromotedPreload, StartSessionArgs,
+    start_decode_worker, start_session,
 };
 use crate::engine::update_events::emit_config_update_runtime_event;
 
@@ -2632,19 +2633,19 @@ fn open_output_sink_worker(args: OpenOutputSinkWorkerArgs<'_>) -> Result<OutputS
         },
     )
     .map_err(|e| format!("output sink open failed: {e}"))?;
-    Ok(OutputSinkWorker::start(
+    Ok(OutputSinkWorker::start(OutputSinkWorkerStartArgs {
         sink,
-        args.route.plugin_id.clone(),
-        args.route.type_id.clone(),
+        plugin_id: args.route.plugin_id.clone(),
+        type_id: args.route.type_id.clone(),
         target_json,
         config_json,
-        args.channels,
-        args.sample_rate,
-        args.volume,
-        args.transition_gain,
-        args.transition_target_gain,
-        args.internal_tx.clone(),
-    ))
+        channels: args.channels,
+        sample_rate: args.sample_rate,
+        volume: args.volume,
+        transition_gain: args.transition_gain,
+        transition_target_gain: args.transition_target_gain,
+        internal_tx: args.internal_tx.clone(),
+    }))
 }
 
 fn sync_output_sink_with_active_session(

@@ -366,7 +366,7 @@ macro_rules! export_plugin {
                     };
                     let boxed = unsafe { &mut *(handle as *mut $crate::instance::DecoderBox<$dec_ty>) };
                     match <$dec_ty as $crate::update::ConfigUpdatable>::plan_config_update_json(&boxed.inner, new_json) {
-                        Ok(plan) => match $crate::update::write_plan_to_ffi(out_plan, plan) {
+                        Ok(plan) => match unsafe { $crate::update::write_plan_to_ffi(out_plan, plan) } {
                             Ok(()) => $crate::status_ok(),
                             Err(e) => $crate::status_err_msg($crate::ST_ERR_INTERNAL, e),
                         },
@@ -561,7 +561,7 @@ macro_rules! export_plugin {
                     };
                     let boxed = unsafe { &mut *(handle as *mut $crate::instance::DspBox<$dsp_ty>) };
                     match <$dsp_ty as $crate::update::ConfigUpdatable>::plan_config_update_json(&boxed.inner, new_json) {
-                        Ok(plan) => match $crate::update::write_plan_to_ffi(out_plan, plan) {
+                        Ok(plan) => match unsafe { $crate::update::write_plan_to_ffi(out_plan, plan) } {
                             Ok(()) => $crate::status_ok(),
                             Err(e) => $crate::status_err_msg($crate::ST_ERR_INTERNAL, e),
                         },
@@ -861,7 +861,7 @@ macro_rules! export_plugin {
                     };
                     let boxed = unsafe { &mut *(handle as *mut $crate::instance::SourceCatalogBox<CatalogImpl>) };
                     match <CatalogImpl as $crate::update::ConfigUpdatable>::plan_config_update_json(&boxed.inner, new_json) {
-                        Ok(plan) => match $crate::update::write_plan_to_ffi(out_plan, plan) {
+                        Ok(plan) => match unsafe { $crate::update::write_plan_to_ffi(out_plan, plan) } {
                             Ok(()) => $crate::status_ok(),
                             Err(e) => $crate::status_err_msg($crate::ST_ERR_INTERNAL, e),
                         },
@@ -1061,7 +1061,7 @@ macro_rules! export_plugin {
                     };
                     let boxed = unsafe { &mut *(handle as *mut $crate::instance::LyricsProviderBox<LyricsImpl>) };
                     match <LyricsImpl as $crate::update::ConfigUpdatable>::plan_config_update_json(&boxed.inner, new_json) {
-                        Ok(plan) => match $crate::update::write_plan_to_ffi(out_plan, plan) {
+                        Ok(plan) => match unsafe { $crate::update::write_plan_to_ffi(out_plan, plan) } {
                             Ok(()) => $crate::status_ok(),
                             Err(e) => $crate::status_err_msg($crate::ST_ERR_INTERNAL, e),
                         },
@@ -1330,7 +1330,7 @@ macro_rules! export_plugin {
                     };
                     let boxed = unsafe { &mut *(handle as *mut $crate::instance::OutputSinkBox<SinkImpl>) };
                     match <SinkImpl as $crate::update::ConfigUpdatable>::plan_config_update_json(&boxed.inner, new_json) {
-                        Ok(plan) => match $crate::update::write_plan_to_ffi(out_plan, plan) {
+                        Ok(plan) => match unsafe { $crate::update::write_plan_to_ffi(out_plan, plan) } {
                             Ok(()) => $crate::status_ok(),
                             Err(e) => $crate::status_err_msg($crate::ST_ERR_INTERNAL, e),
                         },

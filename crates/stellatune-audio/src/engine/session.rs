@@ -209,6 +209,20 @@ pub(crate) struct OutputSinkWorker {
     join: JoinHandle<()>,
 }
 
+pub(crate) struct OutputSinkWorkerStartArgs {
+    pub(crate) sink: stellatune_plugins::OutputSinkInstance,
+    pub(crate) plugin_id: String,
+    pub(crate) type_id: String,
+    pub(crate) target_json: String,
+    pub(crate) config_json: String,
+    pub(crate) channels: u16,
+    pub(crate) sample_rate: u32,
+    pub(crate) volume: Arc<AtomicU32>,
+    pub(crate) transition_gain: Arc<AtomicU32>,
+    pub(crate) transition_target_gain: Arc<AtomicU32>,
+    pub(crate) internal_tx: Sender<InternalMsg>,
+}
+
 enum OutputSinkControl {
     UpdateConfig {
         config_json: String,
@@ -272,19 +286,20 @@ impl MasterGainProcessor {
 }
 
 impl OutputSinkWorker {
-    pub(crate) fn start(
-        mut sink: stellatune_plugins::OutputSinkInstance,
-        plugin_id: String,
-        type_id: String,
-        target_json: String,
-        config_json: String,
-        channels: u16,
-        sample_rate: u32,
-        volume: Arc<AtomicU32>,
-        transition_gain: Arc<AtomicU32>,
-        transition_target_gain: Arc<AtomicU32>,
-        internal_tx: Sender<InternalMsg>,
-    ) -> Self {
+    pub(crate) fn start(args: OutputSinkWorkerStartArgs) -> Self {
+        let OutputSinkWorkerStartArgs {
+            mut sink,
+            plugin_id,
+            type_id,
+            target_json,
+            config_json,
+            channels,
+            sample_rate,
+            volume,
+            transition_gain,
+            transition_target_gain,
+            internal_tx,
+        } = args;
         let (tx, rx) =
             crossbeam_channel::bounded::<OutputSinkWrite>(OUTPUT_SINK_QUEUE_CAP_MESSAGES);
         let (ctrl_tx, ctrl_rx) = crossbeam_channel::unbounded::<OutputSinkControl>();
