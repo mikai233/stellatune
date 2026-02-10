@@ -38,7 +38,7 @@ pub(crate) fn apply_dsp_stage(
 }
 
 pub(crate) fn layout_to_flag(channels: usize) -> u32 {
-    use stellatune_plugin_api::*;
+    use stellatune_plugin_api::{ST_LAYOUT_5_1, ST_LAYOUT_7_1, ST_LAYOUT_MONO, ST_LAYOUT_STEREO};
     match channels {
         1 => ST_LAYOUT_MONO,
         2 => ST_LAYOUT_STEREO,

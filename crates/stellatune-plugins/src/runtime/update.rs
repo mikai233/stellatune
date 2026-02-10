@@ -210,7 +210,9 @@ impl SharedUpdateActor {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{
+        InstanceId, InstanceUpdateCoordinator, InstanceUpdateDecision, InstanceUpdateResult,
+    };
 
     #[test]
     fn coordinator_tracks_pending_and_last_result() {

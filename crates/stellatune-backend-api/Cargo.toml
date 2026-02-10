@@ -22,3 +22,7 @@ stellatune-core.workspace = true
 stellatune-library.workspace = true
 stellatune-plugin-protocol.workspace = true
 stellatune-plugins.workspace = true
+
+[lints]
+workspace = true
+

@@ -1,3 +1,5 @@
+#![allow(clippy::wildcard_imports)] // Intentional wildcard usage (API facade, macro template, or generated code).
+
 //! Runtime scaffolding.
 //!
 //! During migration this module hosts generation lifecycle, instance registry,

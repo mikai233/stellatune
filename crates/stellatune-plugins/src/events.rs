@@ -305,7 +305,7 @@ pub(crate) fn build_plugin_host_vtable(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{PluginEventBus, PluginRuntimeEvent, PluginRuntimeKind};
 
     #[test]
     fn plugin_acquire_release_cleans_all_plugin_state() {

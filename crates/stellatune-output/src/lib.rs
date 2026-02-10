@@ -90,14 +90,16 @@ pub fn list_host_devices(_selected_backend: Option<AudioBackend>) -> Vec<AudioDe
         }
     }
 
-    let mut exclusive_devices = Vec::new();
-    // WASAPI Exclusive (Windows only)
-    #[cfg(windows)]
-    {
-        if let Ok(devs) = wasapi_exclusive::list_exclusive_devices_detailed() {
-            exclusive_devices = devs;
+    let exclusive_devices = {
+        #[cfg(windows)]
+        {
+            wasapi_exclusive::list_exclusive_devices_detailed().unwrap_or_default()
         }
-    }
+        #[cfg(not(windows))]
+        {
+            Vec::new()
+        }
+    };
 
     // Helper to sort and disambiguate a list of devices
     fn process_list(mut devs: Vec<AudioDevice>) -> Vec<AudioDevice> {
@@ -147,7 +149,10 @@ pub fn supports_output_spec(
             wasapi_exclusive::supports_exclusive_spec(device_id, spec).unwrap_or(false)
         }
         #[cfg(not(windows))]
-        AudioBackend::WasapiExclusive => false,
+        AudioBackend::WasapiExclusive => {
+            let _ = (device_id, spec);
+            false
+        }
     }
 }
 

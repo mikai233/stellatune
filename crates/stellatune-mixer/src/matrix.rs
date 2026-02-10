@@ -319,7 +319,8 @@ impl MixMatrix {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{CENTER_COEFF, MixMatrix};
+    use crate::{ChannelLayout, LfeMode};
 
     #[test]
     fn identity_passthrough() {
@@ -334,7 +335,7 @@ mod tests {
         let matrix = MixMatrix::create(
             ChannelLayout::Mono,
             ChannelLayout::Stereo,
-            crate::LfeMode::default(),
+            LfeMode::default(),
         );
         let input = vec![0.5, 1.0]; // 2 frames, mono
         let output = matrix.apply(&input);
@@ -347,7 +348,7 @@ mod tests {
         let matrix = MixMatrix::create(
             ChannelLayout::Stereo,
             ChannelLayout::Mono,
-            crate::LfeMode::default(),
+            LfeMode::default(),
         );
         let input = vec![0.6, 0.4, 1.0, 0.0]; // 2 frames, stereo
         let output = matrix.apply(&input);
@@ -360,7 +361,7 @@ mod tests {
         let matrix = MixMatrix::create(
             ChannelLayout::Surround5_1,
             ChannelLayout::Stereo,
-            crate::LfeMode::default(),
+            LfeMode::default(),
         );
         // One frame: FL=1, FR=0, FC=0, LFE=0, BL=0, BR=0
         let input = vec![1.0, 0.0, 0.0, 0.0, 0.0, 0.0];
@@ -375,7 +376,7 @@ mod tests {
         let matrix = MixMatrix::create(
             ChannelLayout::Surround5_1,
             ChannelLayout::Stereo,
-            crate::LfeMode::default(),
+            LfeMode::default(),
         );
         // One frame: FC=1, all others=0
         let input = vec![0.0, 0.0, 1.0, 0.0, 0.0, 0.0];

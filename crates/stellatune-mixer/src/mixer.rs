@@ -87,14 +87,15 @@ impl ChannelMixer {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::ChannelMixer;
+    use crate::{ChannelLayout, LfeMode};
 
     #[test]
     fn passthrough_same_layout() {
         let mixer = ChannelMixer::new(
             ChannelLayout::Stereo,
             ChannelLayout::Stereo,
-            crate::LfeMode::default(),
+            LfeMode::default(),
         );
         assert!(mixer.is_passthrough());
 
@@ -108,7 +109,7 @@ mod tests {
         let mixer = ChannelMixer::new(
             ChannelLayout::Mono,
             ChannelLayout::Stereo,
-            crate::LfeMode::default(),
+            LfeMode::default(),
         );
         assert!(!mixer.is_passthrough());
         assert_eq!(mixer.in_channels(), 1);
@@ -124,7 +125,7 @@ mod tests {
         let mixer = ChannelMixer::new(
             ChannelLayout::Stereo,
             ChannelLayout::Mono,
-            crate::LfeMode::default(),
+            LfeMode::default(),
         );
         assert_eq!(mixer.in_channels(), 2);
         assert_eq!(mixer.out_channels(), 1);
@@ -140,7 +141,7 @@ mod tests {
         let mixer = ChannelMixer::new(
             ChannelLayout::Surround5_1,
             ChannelLayout::Stereo,
-            crate::LfeMode::default(),
+            LfeMode::default(),
         );
         assert_eq!(mixer.in_channels(), 6);
         assert_eq!(mixer.out_channels(), 2);

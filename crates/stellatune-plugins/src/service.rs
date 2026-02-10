@@ -845,7 +845,10 @@ fn default_host_vtable() -> StHostVTable {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{
+        CapabilityDescriptorInput, CapabilityKind, PluginRuntimeService,
+        STELLATUNE_PLUGIN_API_VERSION, StHostVTable,
+    };
 
     fn test_host() -> StHostVTable {
         StHostVTable {

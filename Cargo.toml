@@ -27,6 +27,9 @@ license = "MIT"
 [workspace.lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(frb_expand)'] }
 
+[workspace.lints.clippy]
+wildcard_imports = "deny"
+
 [workspace.dependencies]
 stellatune-audio = { path = "crates/stellatune-audio" }
 stellatune-asio-proto = { path = "crates/stellatune-asio-proto" }

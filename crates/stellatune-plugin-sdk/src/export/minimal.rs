@@ -1,0 +1,61 @@
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __st_opt_create_cb {
+    () => {
+        None
+    };
+    ($f:path) => {
+        Some($f)
+    };
+}
+
+/// Minimal module exporter.
+///
+/// This macro intentionally provides a narrow bootstrap surface so migration can proceed
+/// incrementally. Capability-specific export macros can be layered on top later.
+#[macro_export]
+macro_rules! export_plugin_minimal {
+    (
+        metadata_json_utf8: $metadata_json_utf8:path,
+        capability_count: $capability_count:path,
+        capability_get: $capability_get:path
+        $(, create_decoder_instance: $create_decoder_instance:path)?
+        $(, create_dsp_instance: $create_dsp_instance:path)?
+        $(, create_source_catalog_instance: $create_source_catalog_instance:path)?
+        $(, create_lyrics_provider_instance: $create_lyrics_provider_instance:path)?
+        $(, create_output_sink_instance: $create_output_sink_instance:path)?
+        $(, shutdown: $shutdown:path)?
+        $(,)?
+    ) => {
+        static __ST_PLUGIN_MODULE: stellatune_plugin_api::StPluginModule =
+            stellatune_plugin_api::StPluginModule {
+                api_version: stellatune_plugin_api::STELLATUNE_PLUGIN_API_VERSION,
+                plugin_version: stellatune_plugin_api::StVersion {
+                    major: 0,
+                    minor: 1,
+                    patch: 0,
+                    reserved: 0,
+                },
+                plugin_free: Some($crate::plugin_free),
+                metadata_json_utf8: $metadata_json_utf8,
+                capability_count: $capability_count,
+                capability_get: $capability_get,
+                decoder_ext_score_count: None,
+                decoder_ext_score_get: None,
+                create_decoder_instance: $crate::__st_opt_create_cb!($($create_decoder_instance)?),
+                create_dsp_instance: $crate::__st_opt_create_cb!($($create_dsp_instance)?),
+                create_source_catalog_instance: $crate::__st_opt_create_cb!($($create_source_catalog_instance)?),
+                create_lyrics_provider_instance: $crate::__st_opt_create_cb!($($create_lyrics_provider_instance)?),
+                create_output_sink_instance: $crate::__st_opt_create_cb!($($create_output_sink_instance)?),
+                shutdown: $crate::__st_opt_create_cb!($($shutdown)?),
+            };
+
+        #[unsafe(no_mangle)]
+        pub unsafe extern "C" fn stellatune_plugin_entry(
+            host: *const stellatune_plugin_api::StHostVTable,
+        ) -> *const stellatune_plugin_api::StPluginModule {
+            unsafe { $crate::export::__set_host_vtable(host) };
+            &__ST_PLUGIN_MODULE
+        }
+    };
+}

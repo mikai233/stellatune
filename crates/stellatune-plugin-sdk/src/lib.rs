@@ -1,3 +1,5 @@
+#![allow(clippy::wildcard_imports)] // Intentional wildcard usage (API facade, macro template, or generated code).
+
 pub use stellatune_plugin_api::*;
 pub use stellatune_plugin_protocol as protocol;
 

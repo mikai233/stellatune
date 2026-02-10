@@ -1,3 +1,5 @@
+#![allow(clippy::wildcard_imports)] // Intentional wildcard usage (API facade, macro template, or generated code).
+
 use serde_json::Value;
 use stellatune_core::{AudioBackend, OutputSinkRoute};
 

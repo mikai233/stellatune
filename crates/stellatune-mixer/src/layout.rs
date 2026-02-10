@@ -95,7 +95,7 @@ impl ChannelLayout {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::ChannelLayout;
 
     #[test]
     fn channel_count_matches() {

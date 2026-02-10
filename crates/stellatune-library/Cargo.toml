@@ -23,3 +23,7 @@ base64 = "0.22.1"
 [target.'cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))'.dependencies]
 stellatune-plugins.workspace = true
 stellatune-plugin-api.workspace = true
+
+[lints]
+workspace = true
+

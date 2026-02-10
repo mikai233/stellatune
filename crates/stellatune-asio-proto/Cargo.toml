@@ -13,3 +13,7 @@ memmap2 = { version = "0.9.5", optional = true }
 [features]
 default = []
 shm = ["dep:memmap2"]
+
+[lints]
+workspace = true
+

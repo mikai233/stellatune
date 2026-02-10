@@ -68,6 +68,13 @@ Current state:
 33. Runtime update outcome visibility is extended to playback data-plane paths: decode-thread DSP updates and output sink worker config updates now emit the same `host.instance.config_update` notify payloads for applied/recreate/rejected/failed outcomes.
 34. Runtime update outcome visibility is now user-readable in Settings runtime debug: Flutter parses `host.instance.config_update` payloads into structured lines (`capability/type -> status, generation, detail`) instead of raw JSON blobs.
 35. Audio runtime notify emission has been consolidated into a shared engine helper, and recreate-failure branches in query/output/DSP update paths now emit explicit `failed` status events to keep HotApply/Recreate telemetry normalized.
+36. `stellatune-plugin-sdk` export surface has started modularization: former monolithic `export.rs` is split into `export/{core,minimal,plugin_macro}.rs` with `export/mod.rs` as thin entry, reducing file-level coupling while keeping macro behavior unchanged.
+37. `export/plugin_macro.rs` has been further split by capability into helper macro files (`plugin_macro/{decoder_modules,dsp_modules,source_modules,lyrics_modules,output_modules}.rs`), and the main macro file now keeps a concise orchestration skeleton.
+38. `export/plugin_macro` non-capability macro body has also been split by responsibility (`capability_index` / `decoder_dispatch` / `instance_factories` / `module_entry`), so capability registration, decoder scoring dispatch, instance factory routing, and module entry wiring are isolated for readability and maintenance.
+39. Audio control-path readability refactor continues: `engine/control` now splits `command` / `internal` / `engine_ctrl` / `tick` / `runtime_query` / `output_sink` / `preload` concerns into dedicated files; large `match` branches are routed to focused helper functions. Internal preload-ready path replaced `too_many_arguments` callsite with a dedicated args struct to avoid broad lint suppression.
+40. Wildcard import policy is now wired through workspace lint inheritance (`[lints] workspace = true` in member crates): implementation code defaults to deny `clippy::wildcard_imports`, while intentional exceptions are explicitly documented via local `allow` (API re-export facades, generated files, macro templates, and minimal test-only cases).
+41. Test-module wildcard cleanup progressed: `stellatune-plugins` (`service`/`runtime::update`/`events`) and `stellatune-mixer` (`layout`/`mixer`/`matrix`) tests now use explicit imports instead of `use super::*`.
+42. Audio control wildcard cleanup rounds 2-8 completed: `engine/control` module tree is now wildcard-free (`use super::*` removed), with explicit imports across `preload/output_sink/tick/engine_ctrl/runtime_query`, `commands/*`, and `internal/*`.
 
 ## 3. High-Level Model
 
@@ -535,6 +542,9 @@ V2 must be implemented with long-term readability/maintainability as a hard requ
 5. Introduce shared utility modules only for truly shared concerns (avoid "god util" files).
 6. Keep naming consistent across crates (`api`, `sdk`, `runtime`, `capability`, `instance`, `update`, `lifecycle`).
 7. Every unsafe block should live close to its invariant explanation and not be hidden in unrelated files.
+8. Default rule: avoid `use xxx::*` wildcard imports in implementation code.
+9. Exceptions: wildcard imports are acceptable only when explicit imports would materially harm readability/maintainability (e.g., dense local orchestration modules), and such exceptions must use a local lint allow with a short reason comment.
+10. Public API re-export surfaces may continue using `pub use ...::*` when it is the intentional crate-facing design.
 
 Suggested decomposition (illustrative):
 
@@ -581,7 +591,7 @@ Current: host/plugin entry symbols and ABI structs/constants are converged to ma
 9. `DONE` Remove/avoid broad `unsafe impl Sync` on runtime containers.
 Current: legacy broad `unsafe impl Sync` containers were removed with V1 container deletion; V2 instance wrappers remain `Send`-only.
 10. `IN_PROGRESS` Enforce modular file layout and readability constraints during migration.
-Current: runtime code is split by concerns; shared runtime update notify logic is extracted into engine-level helper module, and ongoing refactor should continue tightening file/module boundaries.
+Current: runtime code is split by concerns; shared runtime update notify logic is extracted into engine-level helper module; SDK export layer has been split from monolithic `export.rs` into focused modules (`core`/`minimal`/`plugin_macro`); `plugin_macro` internals are now split both by capability (`decoder/dsp/source/lyrics/output`) and by orchestration responsibility (`capability_index`/`decoder_dispatch`/`instance_factories`/`module_entry`). Audio `engine/control` has been further decomposed (`command`/`internal`/`engine_ctrl`/`tick`/`runtime_query`/`output_sink`/`preload`) and hot paths now route large `match` branches to per-branch helpers; wildcard import policy is now enforced through workspace lint inheritance with local, reasoned exceptions limited to API facade re-exports, generated files, macro templates, and minimal test-only cases.
 11. `DONE` Implement unified HotApply/Recreate orchestration.
 Current: runtime update coordinator + capability wrappers expose structured per-instance update outcomes; audio control-thread query-instance owner path, active output sink worker path, decode-thread DSP chain path, and library metadata decoder worker path perform `HotApply/Recreate`; runtime notify visibility is normalized across applied/requires_recreate/recreated/rejected/failed, including recreate-failure branches.
 
