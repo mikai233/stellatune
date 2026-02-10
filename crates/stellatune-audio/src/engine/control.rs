@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::thread::{self, JoinHandle};
@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 use arc_swap::ArcSwapOption;
 use crossbeam_channel::{Receiver, Sender};
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use stellatune_core::{
     Command, Event, PlayerState, PluginRuntimeEvent, TrackPlayability, TrackRef,
@@ -16,8 +16,9 @@ use stellatune_plugins::runtime::CapabilityKind;
 
 use crate::engine::config::{
     BUFFER_HIGH_WATERMARK_MS, BUFFER_HIGH_WATERMARK_MS_EXCLUSIVE, BUFFER_LOW_WATERMARK_MS,
-    BUFFER_LOW_WATERMARK_MS_EXCLUSIVE, CONTROL_TICK_MS, SEEK_TRACK_FADE_WAIT_POLL_MS,
-    SEEK_TRACK_FADE_WAIT_TIMEOUT_MS, UNDERRUN_LOG_INTERVAL,
+    BUFFER_LOW_WATERMARK_MS_EXCLUSIVE, BUFFER_RESUME_STABLE_TICKS, CONTROL_TICK_MS,
+    TRANSITION_FADE_RAMP_MS_SEEK, TRANSITION_FADE_RAMP_MS_TRACK_SWITCH,
+    TRANSITION_FADE_WAIT_EXTRA_MS, TRANSITION_FADE_WAIT_POLL_MS, UNDERRUN_LOG_INTERVAL,
 };
 use crate::engine::decode::decoder::assess_track_playability;
 use crate::engine::event_hub::EventHub;
@@ -60,12 +61,14 @@ use tick::{
 
 #[cfg(debug_assertions)]
 const DEBUG_PRELOAD_LOG_EVERY: u64 = 24;
+#[cfg(debug_assertions)]
+const DEBUG_SWITCH_LOG_EVERY: u64 = 20;
 const TRACK_REF_TOKEN_PREFIX: &str = "stref-json:";
 const PLUGIN_SINK_FALLBACK_SAMPLE_RATE: u32 = 48_000;
 const PLUGIN_SINK_FALLBACK_CHANNELS: u16 = 2;
 const PLUGIN_SINK_DEFAULT_CHUNK_FRAMES: u32 = 256;
-const PLUGIN_SINK_MIN_LOW_WATERMARK_MS: i64 = 2;
-const PLUGIN_SINK_MIN_HIGH_WATERMARK_MS: i64 = 4;
+const PLUGIN_SINK_MIN_LOW_WATERMARK_MS: i64 = 8;
+const PLUGIN_SINK_MIN_HIGH_WATERMARK_MS: i64 = 16;
 type SharedTrackInfo = Arc<ArcSwapOption<stellatune_core::TrackDecodeInfo>>;
 
 fn with_runtime_service<T>(
@@ -146,6 +149,7 @@ struct OpenOutputSinkWorkerArgs<'a> {
     volume: Arc<AtomicU32>,
     transition_gain: Arc<AtomicU32>,
     transition_target_gain: Arc<AtomicU32>,
+    transition_ramp_ms: Arc<AtomicU32>,
     internal_tx: &'a Sender<InternalMsg>,
 }
 
@@ -179,9 +183,23 @@ struct CachedOutputSinkInstance {
     instance: stellatune_plugins::OutputSinkInstance,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SessionStopMode {
+    TearDownSink,
+    KeepSink,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DisruptFadeKind {
+    TrackSwitch,
+    Seek,
+}
+
 mod debug_metrics {
     #[cfg(debug_assertions)]
     use super::DEBUG_PRELOAD_LOG_EVERY;
+    #[cfg(debug_assertions)]
+    use super::DEBUG_SWITCH_LOG_EVERY;
     #[cfg(debug_assertions)]
     use std::sync::atomic::{AtomicU64, Ordering};
     #[cfg(debug_assertions)]
@@ -197,6 +215,18 @@ mod debug_metrics {
     static PRELOAD_TASK_TOTAL_MS: AtomicU64 = AtomicU64::new(0);
     #[cfg(debug_assertions)]
     static PRELOAD_TASK_MAX_MS: AtomicU64 = AtomicU64::new(0);
+    #[cfg(debug_assertions)]
+    static SWITCH_COMPLETIONS: AtomicU64 = AtomicU64::new(0);
+    #[cfg(debug_assertions)]
+    static SWITCH_LATENCY_TOTAL_MS: AtomicU64 = AtomicU64::new(0);
+    #[cfg(debug_assertions)]
+    static SWITCH_LATENCY_MAX_MS: AtomicU64 = AtomicU64::new(0);
+    #[cfg(debug_assertions)]
+    static OUTPUT_SINK_RECREATES: AtomicU64 = AtomicU64::new(0);
+    #[cfg(debug_assertions)]
+    static OUTPUT_SAMPLE_RATE_CHANGES: AtomicU64 = AtomicU64::new(0);
+    #[cfg(debug_assertions)]
+    static LAST_OUTPUT_SAMPLE_RATE: AtomicU64 = AtomicU64::new(0);
 
     #[cfg(debug_assertions)]
     fn update_max(max: &AtomicU64, value: u64) {
@@ -253,6 +283,63 @@ mod debug_metrics {
 
     #[cfg(not(debug_assertions))]
     pub(crate) fn maybe_log_preload_stats() {}
+
+    #[cfg(debug_assertions)]
+    fn maybe_log_track_switch_stats(completed: u64) {
+        if completed == 0 || !completed.is_multiple_of(DEBUG_SWITCH_LOG_EVERY) {
+            return;
+        }
+        let avg_switch_latency_ms =
+            SWITCH_LATENCY_TOTAL_MS.load(Ordering::Relaxed) as f64 / completed as f64;
+        let sink_recreates = OUTPUT_SINK_RECREATES.load(Ordering::Relaxed);
+        let output_sample_rate_changes = OUTPUT_SAMPLE_RATE_CHANGES.load(Ordering::Relaxed);
+        let sink_recreates_per_100 = sink_recreates as f64 * 100.0 / completed as f64;
+        let output_rate_changes_per_100 =
+            output_sample_rate_changes as f64 * 100.0 / completed as f64;
+        debug!(
+            completed,
+            avg_switch_latency_ms,
+            max_switch_latency_ms = SWITCH_LATENCY_MAX_MS.load(Ordering::Relaxed),
+            sink_recreates,
+            sink_recreates_per_100,
+            output_sample_rate_changes,
+            output_rate_changes_per_100,
+            "track switch stats"
+        );
+    }
+
+    #[cfg(debug_assertions)]
+    pub(crate) fn note_track_switch_latency(elapsed_ms: u64) {
+        let completed = SWITCH_COMPLETIONS.fetch_add(1, Ordering::Relaxed) + 1;
+        SWITCH_LATENCY_TOTAL_MS.fetch_add(elapsed_ms, Ordering::Relaxed);
+        update_max(&SWITCH_LATENCY_MAX_MS, elapsed_ms);
+        maybe_log_track_switch_stats(completed);
+    }
+
+    #[cfg(not(debug_assertions))]
+    pub(crate) fn note_track_switch_latency(_elapsed_ms: u64) {}
+
+    #[cfg(debug_assertions)]
+    pub(crate) fn note_output_sink_recreate() {
+        OUTPUT_SINK_RECREATES.fetch_add(1, Ordering::Relaxed);
+    }
+
+    #[cfg(not(debug_assertions))]
+    pub(crate) fn note_output_sink_recreate() {}
+
+    #[cfg(debug_assertions)]
+    pub(crate) fn note_output_sink_sample_rate(sample_rate: u32) {
+        if sample_rate == 0 {
+            return;
+        }
+        let prev = LAST_OUTPUT_SAMPLE_RATE.swap(sample_rate as u64, Ordering::Relaxed);
+        if prev != 0 && prev != sample_rate as u64 {
+            OUTPUT_SAMPLE_RATE_CHANGES.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    #[cfg(not(debug_assertions))]
+    pub(crate) fn note_output_sink_sample_rate(_sample_rate: u32) {}
 }
 
 /// Handle used by higher layers (e.g. FFI) to drive the player.
@@ -485,10 +572,17 @@ impl EngineHandle {
             .collect::<Vec<_>>();
         let blocked = verdicts.iter().filter(|v| !v.playable).count();
         if blocked > 0 {
-            let reasons = verdicts
+            let mut reason_counts: BTreeMap<&str, usize> = BTreeMap::new();
+            for reason in verdicts
                 .iter()
                 .filter(|v| !v.playable)
                 .map(|v| v.reason.as_deref().unwrap_or("unknown"))
+            {
+                *reason_counts.entry(reason).or_insert(0) += 1;
+            }
+            let reasons = reason_counts
+                .into_iter()
+                .map(|(reason, count)| format!("{reason}x{count}"))
                 .collect::<Vec<_>>()
                 .join(",");
             debug!(
@@ -619,6 +713,7 @@ pub fn start_engine() -> EngineHandle {
     let _join: JoinHandle<()> = thread::Builder::new()
         .name("stellatune-control".to_string())
         .spawn(move || {
+            let _rt_guard = stellatune_output::enable_realtime_audio_thread();
             run_control_loop(
                 ControlLoopChannels {
                     cmd_rx,
@@ -659,6 +754,7 @@ struct EngineState {
     output_spec_prewarm_inflight: bool,
     output_spec_token: u64,
     pending_session_start: bool,
+    buffering_ready_streak: u8,
     desired_dsp_chain: Vec<DspChainEntry>,
     lfe_mode: stellatune_core::LfeMode,
     selected_backend: stellatune_core::AudioBackend,
@@ -679,6 +775,30 @@ struct EngineState {
     source_instances: HashMap<RuntimeInstanceSlotKey, CachedSourceInstance>,
     lyrics_instances: HashMap<RuntimeInstanceSlotKey, CachedLyricsInstance>,
     output_sink_instances: HashMap<RuntimeInstanceSlotKey, CachedOutputSinkInstance>,
+    switch_timing_seq: u64,
+    manual_switch_timing: Option<ManualSwitchTiming>,
+    seek_position_guard: Option<SeekPositionGuard>,
+    position_session_id: u64,
+}
+
+#[derive(Debug, Clone)]
+struct ManualSwitchTiming {
+    id: u64,
+    from_track: Option<String>,
+    to_track: String,
+    began_at: Instant,
+    fade_done_at: Option<Instant>,
+    stop_done_at: Option<Instant>,
+    committed_at: Option<Instant>,
+    play_requested_at: Option<Instant>,
+    session_ready_at: Option<Instant>,
+}
+
+#[derive(Debug, Clone)]
+struct SeekPositionGuard {
+    target_ms: i64,
+    origin_ms: i64,
+    requested_at: Instant,
 }
 
 struct PreloadWorker {
@@ -726,6 +846,7 @@ impl EngineState {
             output_spec_prewarm_inflight: false,
             output_spec_token: 0,
             pending_session_start: false,
+            buffering_ready_streak: 0,
             desired_dsp_chain: Vec::new(),
             lfe_mode: stellatune_core::LfeMode::default(),
             selected_backend: stellatune_core::AudioBackend::Shared,
@@ -746,6 +867,10 @@ impl EngineState {
             source_instances: HashMap::new(),
             lyrics_instances: HashMap::new(),
             output_sink_instances: HashMap::new(),
+            switch_timing_seq: 0,
+            manual_switch_timing: None,
+            seek_position_guard: None,
+            position_session_id: 0,
         }
     }
 }
@@ -765,10 +890,7 @@ fn run_control_loop(channels: ControlLoopChannels, deps: ControlLoopDeps) {
 
     info!("control thread started");
     let mut state = EngineState::new();
-    state.decode_worker = Some(start_decode_worker(
-        Arc::clone(&events),
-        internal_tx.clone(),
-    ));
+    state.decode_worker = Some(start_decode_worker(internal_tx.clone()));
     state.preload_worker = Some(start_preload_worker(internal_tx.clone()));
     let tick = crossbeam_channel::tick(Duration::from_millis(CONTROL_TICK_MS));
 
@@ -858,23 +980,81 @@ fn parse_output_sink_route(
     })
 }
 
-fn maybe_fade_out_before_disrupt(state: &EngineState) {
-    if !state.seek_track_fade || state.player_state != PlayerState::Playing {
+fn maybe_fade_out_before_disrupt(state: &EngineState, kind: DisruptFadeKind) {
+    if !state.seek_track_fade {
+        maybe_reset_output_sink_after_disrupt(state);
         return;
     }
     let Some(session) = state.session.as_ref() else {
+        maybe_reset_output_sink_after_disrupt(state);
         return;
     };
+    let pending_audio = if state.desired_output_sink_route.is_some() {
+        state
+            .output_sink_worker
+            .as_ref()
+            .map(|worker| worker.pending_samples())
+            .unwrap_or(0)
+            > 0
+    } else {
+        session.buffered_samples.load(Ordering::Relaxed) > 0
+    };
+    let playback_active = state.wants_playback
+        && matches!(
+            state.player_state,
+            PlayerState::Playing | PlayerState::Buffering
+        );
+    let should_apply = match kind {
+        DisruptFadeKind::TrackSwitch => playback_active && pending_audio,
+        DisruptFadeKind::Seek => playback_active,
+    };
+    if !should_apply {
+        maybe_reset_output_sink_after_disrupt(state);
+        return;
+    }
+    let ramp_ms = match kind {
+        DisruptFadeKind::TrackSwitch => TRANSITION_FADE_RAMP_MS_TRACK_SWITCH,
+        DisruptFadeKind::Seek => TRANSITION_FADE_RAMP_MS_SEEK,
+    };
+    session
+        .transition_ramp_ms
+        .store(ramp_ms as u32, Ordering::Relaxed);
     session
         .transition_target_gain
         .store(0.0f32.to_bits(), Ordering::Relaxed);
+    let should_wait = match kind {
+        DisruptFadeKind::TrackSwitch => pending_audio,
+        DisruptFadeKind::Seek => {
+            if state.player_state == PlayerState::Playing {
+                // In active playback, we should wait for fade-down even if queue estimation is low.
+                true
+            } else {
+                pending_audio
+            }
+        }
+    };
+    if !should_wait {
+        return;
+    }
+    let wait_timeout_ms = ramp_ms.saturating_add(TRANSITION_FADE_WAIT_EXTRA_MS);
     let started = Instant::now();
-    while started.elapsed().as_millis() < SEEK_TRACK_FADE_WAIT_TIMEOUT_MS as u128 {
+    while started.elapsed().as_millis() < wait_timeout_ms as u128 {
         let current = f32::from_bits(session.transition_gain.load(Ordering::Relaxed));
         if current <= 0.05 {
             break;
         }
-        thread::sleep(Duration::from_millis(SEEK_TRACK_FADE_WAIT_POLL_MS));
+        thread::sleep(Duration::from_millis(TRANSITION_FADE_WAIT_POLL_MS));
+    }
+    maybe_reset_output_sink_after_disrupt(state);
+}
+
+fn maybe_reset_output_sink_after_disrupt(state: &EngineState) {
+    let Some(worker) = state.output_sink_worker.as_ref() else {
+        return;
+    };
+    // Use sink-level reset ABI. This clears plugin-internal buffers.
+    if let Err(e) = worker.reset_for_disrupt() {
+        debug!("output sink disrupt reset skipped: {e}");
     }
 }
 
@@ -894,8 +1074,30 @@ fn set_state(state: &mut EngineState, events: &Arc<EventHub>, new_state: PlayerS
     if state.player_state == new_state {
         return;
     }
+    state.buffering_ready_streak = 0;
     state.player_state = new_state;
     events.emit(Event::StateChanged { state: new_state });
+}
+
+fn next_position_session_id(state: &mut EngineState) -> u64 {
+    state.position_session_id = state.position_session_id.wrapping_add(1);
+    if state.position_session_id == 0 {
+        state.position_session_id = 1;
+    }
+    state.position_session_id
+}
+
+fn emit_position_event(state: &EngineState, events: &Arc<EventHub>) {
+    let path = state
+        .current_track
+        .as_ref()
+        .map(|token| event_path_from_engine_token(token))
+        .unwrap_or_default();
+    events.emit(Event::Position {
+        ms: state.position_ms,
+        path,
+        session_id: state.position_session_id,
+    });
 }
 
 fn apply_dsp_chain(state: &mut EngineState) -> Result<(), String> {
@@ -923,11 +1125,17 @@ fn apply_dsp_chain(state: &mut EngineState) -> Result<(), String> {
     Ok(())
 }
 
-fn stop_decode_session(state: &mut EngineState, track_info: &SharedTrackInfo) {
+fn stop_decode_session(
+    state: &mut EngineState,
+    track_info: &SharedTrackInfo,
+    mode: SessionStopMode,
+) {
     track_info.store(None);
 
     let Some(session) = state.session.take() else {
-        shutdown_output_sink_worker(state);
+        if mode == SessionStopMode::TearDownSink {
+            shutdown_output_sink_worker(state);
+        }
         return;
     };
 
@@ -935,7 +1143,9 @@ fn stop_decode_session(state: &mut EngineState, track_info: &SharedTrackInfo) {
         tx: None,
         output_sink_chunk_frames: 0,
     });
-    shutdown_output_sink_worker(state);
+    if mode == SessionStopMode::TearDownSink {
+        shutdown_output_sink_worker(state);
+    }
 
     let buffered_samples = session.buffered_samples.load(Ordering::Relaxed);
     session.output_enabled.store(false, Ordering::Release);
@@ -964,6 +1174,28 @@ fn shutdown_decode_worker(state: &mut EngineState) {
     }
 }
 
+fn decode_worker_unavailable_error_message(reason: &str) -> String {
+    format!("decode worker unavailable: {reason}")
+}
+
+fn is_decode_worker_unavailable_error(message: &str) -> bool {
+    message.starts_with("decode worker unavailable")
+        || message == "decoder thread exited unexpectedly"
+}
+
+fn ensure_decode_worker(state: &mut EngineState, internal_tx: &Sender<InternalMsg>) {
+    if state.decode_worker.is_none() {
+        state.decode_worker = Some(start_decode_worker(internal_tx.clone()));
+        warn!("decode worker missing; recreated");
+    }
+}
+
+fn restart_decode_worker(state: &mut EngineState, internal_tx: &Sender<InternalMsg>, reason: &str) {
+    shutdown_decode_worker(state);
+    state.decode_worker = Some(start_decode_worker(internal_tx.clone()));
+    warn!(reason, "decode worker restarted after unavailable error");
+}
+
 fn shutdown_preload_worker(state: &mut EngineState) {
     let Some(worker) = state.preload_worker.take() else {
         return;
@@ -980,6 +1212,6 @@ fn drop_output_pipeline(state: &mut EngineState) {
 }
 
 fn stop_all_audio(state: &mut EngineState, track_info: &SharedTrackInfo) {
-    stop_decode_session(state, track_info);
+    stop_decode_session(state, track_info, SessionStopMode::TearDownSink);
     drop_output_pipeline(state);
 }

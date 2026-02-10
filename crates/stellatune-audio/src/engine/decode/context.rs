@@ -1,5 +1,4 @@
 use super::decoder;
-use crate::engine::event_hub::EventHub;
 use crate::engine::messages::{DecodeCtrl, InternalMsg, OutputSinkTx};
 use crate::ring_buffer::RingBufferProducer;
 use crossbeam_channel::{Receiver, Sender};
@@ -35,7 +34,6 @@ pub(crate) struct DecodeContext<'a> {
     pub(crate) output_sink_tx: &'a mut Option<OutputSinkTx>,
     pub(crate) output_sink_chunk_frames: &'a mut u32,
     pub(crate) output_sink_only: bool,
-    pub(crate) events: &'a EventHub,
     pub(crate) ctrl_rx: &'a Receiver<DecodeCtrl>,
     pub(crate) internal_tx: &'a Sender<InternalMsg>,
 }

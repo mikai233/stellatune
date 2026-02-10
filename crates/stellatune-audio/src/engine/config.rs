@@ -13,9 +13,12 @@ pub(crate) const BUFFER_HIGH_WATERMARK_MS_EXCLUSIVE: i64 = 400;
 pub(crate) const BUFFER_PREFILL_CAP_MS: i64 = BUFFER_HIGH_WATERMARK_MS + 50;
 pub(crate) const BUFFER_PREFILL_CAP_MS_EXCLUSIVE: i64 = BUFFER_HIGH_WATERMARK_MS_EXCLUSIVE + 50;
 pub(crate) const UNDERRUN_LOG_INTERVAL: Duration = Duration::from_secs(1);
-pub(crate) const SEEK_TRACK_FADE_RAMP_MS: u64 = 80;
-pub(crate) const SEEK_TRACK_FADE_WAIT_TIMEOUT_MS: u64 = 140;
-pub(crate) const SEEK_TRACK_FADE_WAIT_POLL_MS: u64 = 2;
+pub(crate) const TRANSITION_FADE_RAMP_MS_TRACK_SWITCH: u64 = 80;
+pub(crate) const TRANSITION_FADE_RAMP_MS_SEEK: u64 = 180;
+pub(crate) const TRANSITION_FADE_WAIT_EXTRA_MS: u64 = 80;
+pub(crate) const TRANSITION_FADE_WAIT_POLL_MS: u64 = 2;
+// Require several consecutive control ticks above resume condition before un-gating output.
+pub(crate) const BUFFER_RESUME_STABLE_TICKS: u8 = 2;
 // When a plugin output sink returns 0 accepted frames, retry with a short sleep.
 pub(crate) const OUTPUT_SINK_WRITE_RETRY_SLEEP_MS: u64 = 2;
 // Upper bound for continuous 0-frame accepts before treating the sink as stalled.

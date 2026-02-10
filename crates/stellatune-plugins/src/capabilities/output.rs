@@ -2,6 +2,7 @@ use anyhow::{Result, anyhow};
 use stellatune_plugin_api::{StAudioSpec, StStr};
 use stellatune_plugin_api::{
     StConfigUpdatePlan, StOutputSinkInstanceRef, StOutputSinkNegotiatedSpec,
+    StOutputSinkRuntimeStatus,
 };
 
 use super::common::{
@@ -101,6 +102,19 @@ impl OutputSinkInstance {
         Ok(out_frames_accepted)
     }
 
+    pub fn query_status(&mut self) -> Result<StOutputSinkRuntimeStatus> {
+        let _call = self.ctx.begin_call();
+        let mut out = StOutputSinkRuntimeStatus {
+            queued_samples: 0,
+            running: 0,
+            reserved0: 0,
+            reserved1: 0,
+        };
+        let status = unsafe { ((*self.vtable).query_status)(self.handle, &mut out) };
+        status_to_result("Output query_status", status, self.ctx.plugin_free)?;
+        Ok(out)
+    }
+
     pub fn flush(&mut self) -> Result<()> {
         let Some(flush) = (unsafe { (*self.vtable).flush }) else {
             return Ok(());
@@ -108,6 +122,12 @@ impl OutputSinkInstance {
         let _call = self.ctx.begin_call();
         let status = (flush)(self.handle);
         status_to_result("Output flush", status, self.ctx.plugin_free)
+    }
+
+    pub fn reset(&mut self) -> Result<()> {
+        let _call = self.ctx.begin_call();
+        let status = unsafe { ((*self.vtable).reset)(self.handle) };
+        status_to_result("Output reset", status, self.ctx.plugin_free)
     }
 
     pub fn close(&mut self) {

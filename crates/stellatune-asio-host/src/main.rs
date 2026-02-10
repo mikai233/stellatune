@@ -1,5 +1,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::thread::JoinHandle;
+use std::time::Duration;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use stellatune_asio_proto::{
@@ -222,6 +224,8 @@ fn get_device_caps(device_id: &str) -> Result<DeviceCaps, String> {
 
 struct StreamState {
     running: Arc<AtomicBool>,
+    metrics: Arc<UnderrunMetrics>,
+    metrics_join: Option<JoinHandle<()>>,
     _stream: cpal::Stream,
 }
 
@@ -253,6 +257,12 @@ impl StreamState {
         ring.reset();
 
         let running = Arc::new(AtomicBool::new(false));
+        let metrics = Arc::new(UnderrunMetrics::default());
+        let metrics_join = Some(start_underrun_reporter(
+            Arc::clone(&metrics),
+            spec.sample_rate,
+            spec.channels,
+        ));
 
         let cfg = cpal::StreamConfig {
             channels: spec.channels,
@@ -286,6 +296,7 @@ impl StreamState {
                 let ring = SharedRingMapped::open(std::path::Path::new(&ring_path))
                     .map_err(|e| format!("failed to open shared ring: {e}"))?;
                 let running_cb = Arc::clone(&running);
+                let metrics_cb = Arc::clone(&metrics);
                 #[cfg(windows)]
                 let mut mmcss_guard: Option<MmcssGuard> = None;
                 dev.build_output_stream(
@@ -295,7 +306,7 @@ impl StreamState {
                         if mmcss_guard.is_none() {
                             mmcss_guard = enable_mmcss_pro_audio();
                         }
-                        fill_shm_f32(out, &ring, &running_cb)
+                        fill_shm_f32(out, &ring, &running_cb, &metrics_cb)
                     },
                     err_fn,
                     None,
@@ -307,6 +318,7 @@ impl StreamState {
                 let ring = SharedRingMapped::open(std::path::Path::new(&ring_path))
                     .map_err(|e| format!("failed to open shared ring: {e}"))?;
                 let running_cb = Arc::clone(&running);
+                let metrics_cb = Arc::clone(&metrics);
                 #[cfg(windows)]
                 let mut mmcss_guard: Option<MmcssGuard> = None;
                 dev.build_output_stream(
@@ -316,7 +328,7 @@ impl StreamState {
                         if mmcss_guard.is_none() {
                             mmcss_guard = enable_mmcss_pro_audio();
                         }
-                        fill_shm_i16(out, &ring, &running_cb, &mut tmp)
+                        fill_shm_i16(out, &ring, &running_cb, &metrics_cb, &mut tmp)
                     },
                     err_fn,
                     None,
@@ -328,6 +340,7 @@ impl StreamState {
                 let ring = SharedRingMapped::open(std::path::Path::new(&ring_path))
                     .map_err(|e| format!("failed to open shared ring: {e}"))?;
                 let running_cb = Arc::clone(&running);
+                let metrics_cb = Arc::clone(&metrics);
                 #[cfg(windows)]
                 let mut mmcss_guard: Option<MmcssGuard> = None;
                 dev.build_output_stream(
@@ -337,7 +350,7 @@ impl StreamState {
                         if mmcss_guard.is_none() {
                             mmcss_guard = enable_mmcss_pro_audio();
                         }
-                        fill_shm_i32(out, &ring, &running_cb, &mut tmp)
+                        fill_shm_i32(out, &ring, &running_cb, &metrics_cb, &mut tmp)
                     },
                     err_fn,
                     None,
@@ -349,6 +362,7 @@ impl StreamState {
                 let ring = SharedRingMapped::open(std::path::Path::new(&ring_path))
                     .map_err(|e| format!("failed to open shared ring: {e}"))?;
                 let running_cb = Arc::clone(&running);
+                let metrics_cb = Arc::clone(&metrics);
                 #[cfg(windows)]
                 let mut mmcss_guard: Option<MmcssGuard> = None;
                 dev.build_output_stream(
@@ -358,7 +372,7 @@ impl StreamState {
                         if mmcss_guard.is_none() {
                             mmcss_guard = enable_mmcss_pro_audio();
                         }
-                        fill_shm_u16(out, &ring, &running_cb, &mut tmp)
+                        fill_shm_u16(out, &ring, &running_cb, &metrics_cb, &mut tmp)
                     },
                     err_fn,
                     None,
@@ -370,6 +384,8 @@ impl StreamState {
 
         Ok(Self {
             running,
+            metrics,
+            metrics_join,
             _stream: stream,
         })
     }
@@ -380,12 +396,139 @@ impl StreamState {
     }
 }
 
-fn fill_shm_f32(out: &mut [f32], ring: &SharedRingMapped, running: &Arc<AtomicBool>) {
+impl Drop for StreamState {
+    fn drop(&mut self) {
+        self.running.store(false, Ordering::Release);
+        self.metrics.stop.store(true, Ordering::Release);
+        if let Some(join) = self.metrics_join.take() {
+            let _ = join.join();
+        }
+    }
+}
+
+#[derive(Default)]
+struct UnderrunMetrics {
+    underrun_callbacks: std::sync::atomic::AtomicU64,
+    underrun_samples: std::sync::atomic::AtomicU64,
+    delivered_samples: std::sync::atomic::AtomicU64,
+    max_shortfall_samples: std::sync::atomic::AtomicU64,
+    stop: AtomicBool,
+}
+
+impl UnderrunMetrics {
+    fn note_underrun_samples(&self, shortfall_samples: usize) {
+        if shortfall_samples == 0 {
+            return;
+        }
+        self.underrun_callbacks.fetch_add(1, Ordering::Relaxed);
+        self.underrun_samples
+            .fetch_add(shortfall_samples as u64, Ordering::Relaxed);
+        let value = shortfall_samples as u64;
+        let mut cur = self.max_shortfall_samples.load(Ordering::Relaxed);
+        while value > cur {
+            match self.max_shortfall_samples.compare_exchange(
+                cur,
+                value,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => break,
+                Err(v) => cur = v,
+            }
+        }
+    }
+}
+
+fn start_underrun_reporter(
+    metrics: Arc<UnderrunMetrics>,
+    sample_rate: u32,
+    channels: u16,
+) -> JoinHandle<()> {
+    std::thread::Builder::new()
+        .name("stellatune-asio-underrun".to_string())
+        .spawn(move || {
+            let mut last_callbacks = 0u64;
+            let mut last_samples = 0u64;
+            let mut last_delivered = 0u64;
+            while !metrics.stop.load(Ordering::Acquire) {
+                std::thread::sleep(Duration::from_secs(1));
+                let callbacks = metrics.underrun_callbacks.load(Ordering::Relaxed);
+                let samples = metrics.underrun_samples.load(Ordering::Relaxed);
+                let delivered = metrics.delivered_samples.load(Ordering::Relaxed);
+                if callbacks <= last_callbacks {
+                    continue;
+                }
+                let delta_callbacks = callbacks - last_callbacks;
+                let delta_samples = samples.saturating_sub(last_samples);
+                let delta_delivered = delivered.saturating_sub(last_delivered);
+                last_callbacks = callbacks;
+                last_samples = samples;
+                last_delivered = delivered;
+
+                // Suppress pause/idle spam: if no actual audio samples were delivered
+                // in this interval, underrun callbacks are expected and not actionable.
+                if delta_delivered == 0 {
+                    continue;
+                }
+
+                let frames = delta_samples / channels.max(1) as u64;
+                let delta_ms = if sample_rate > 0 {
+                    (frames.saturating_mul(1000)) / sample_rate as u64
+                } else {
+                    0
+                };
+                let max_shortfall_samples = metrics.max_shortfall_samples.load(Ordering::Relaxed);
+                let max_frames = max_shortfall_samples / channels.max(1) as u64;
+                let max_shortfall_ms = if sample_rate > 0 {
+                    (max_frames.saturating_mul(1000)) / sample_rate as u64
+                } else {
+                    0
+                };
+
+                eprintln!(
+                    "asio underrun stats: +{} callbacks +{} samples (~{}ms) delivered_samples={} total_callbacks={} total_samples={} max_shortfall_samples={} (~{}ms)",
+                    delta_callbacks,
+                    delta_samples,
+                    delta_ms,
+                    delta_delivered,
+                    callbacks,
+                    samples,
+                    max_shortfall_samples,
+                    max_shortfall_ms
+                );
+            }
+        })
+        .expect("failed to spawn stellatune-asio-underrun thread")
+}
+
+fn read_from_ring_with_underrun(
+    ring: &SharedRingMapped,
+    out: &mut [f32],
+    metrics: &Arc<UnderrunMetrics>,
+) -> usize {
+    let n = ring.read_samples(out);
+    if n > 0 {
+        metrics
+            .delivered_samples
+            .fetch_add(n as u64, Ordering::Relaxed);
+    }
+    if n < out.len() {
+        metrics.note_underrun_samples(out.len() - n);
+    }
+    n
+}
+
+fn fill_shm_f32(
+    out: &mut [f32],
+    ring: &SharedRingMapped,
+    running: &Arc<AtomicBool>,
+    metrics: &Arc<UnderrunMetrics>,
+) {
     if !running.load(Ordering::Acquire) {
         out.fill(0.0);
         return;
     }
-    let n = ring.read_samples(out);
+    let n = read_from_ring_with_underrun(ring, out, metrics);
     if n < out.len() {
         out[n..].fill(0.0);
     }
@@ -401,6 +544,7 @@ fn fill_shm_i16(
     out: &mut [i16],
     ring: &SharedRingMapped,
     running: &Arc<AtomicBool>,
+    metrics: &Arc<UnderrunMetrics>,
     tmp: &mut Vec<f32>,
 ) {
     if !running.load(Ordering::Acquire) {
@@ -408,7 +552,7 @@ fn fill_shm_i16(
         return;
     }
     ensure_tmp(tmp, out.len());
-    let n = ring.read_samples(&mut tmp[..out.len()]);
+    let n = read_from_ring_with_underrun(ring, &mut tmp[..out.len()], metrics);
     if n < out.len() {
         tmp[n..out.len()].fill(0.0);
     }
@@ -422,6 +566,7 @@ fn fill_shm_i32(
     out: &mut [i32],
     ring: &SharedRingMapped,
     running: &Arc<AtomicBool>,
+    metrics: &Arc<UnderrunMetrics>,
     tmp: &mut Vec<f32>,
 ) {
     if !running.load(Ordering::Acquire) {
@@ -429,7 +574,7 @@ fn fill_shm_i32(
         return;
     }
     ensure_tmp(tmp, out.len());
-    let n = ring.read_samples(&mut tmp[..out.len()]);
+    let n = read_from_ring_with_underrun(ring, &mut tmp[..out.len()], metrics);
     if n < out.len() {
         tmp[n..out.len()].fill(0.0);
     }
@@ -443,6 +588,7 @@ fn fill_shm_u16(
     out: &mut [u16],
     ring: &SharedRingMapped,
     running: &Arc<AtomicBool>,
+    metrics: &Arc<UnderrunMetrics>,
     tmp: &mut Vec<f32>,
 ) {
     if !running.load(Ordering::Acquire) {
@@ -450,7 +596,7 @@ fn fill_shm_u16(
         return;
     }
     ensure_tmp(tmp, out.len());
-    let n = ring.read_samples(&mut tmp[..out.len()]);
+    let n = read_from_ring_with_underrun(ring, &mut tmp[..out.len()], metrics);
     if n < out.len() {
         tmp[n..out.len()].fill(0.0);
     }

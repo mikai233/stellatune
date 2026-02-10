@@ -8,6 +8,15 @@ pub type StOutputSinkNegotiatedSpec = crate::StOutputSinkNegotiatedSpec;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StOutputSinkRuntimeStatus {
+    pub queued_samples: u32,
+    pub running: u8,
+    pub reserved0: u8,
+    pub reserved1: u16,
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StOutputSinkInstanceRef {
     pub handle: *mut c_void,
     pub vtable: *const StOutputSinkInstanceVTable,
@@ -35,7 +44,10 @@ pub struct StOutputSinkInstanceVTable {
         samples: *const f32,
         out_frames_accepted: *mut u32,
     ) -> StStatus,
+    pub query_status:
+        extern "C" fn(handle: *mut c_void, out_status: *mut StOutputSinkRuntimeStatus) -> StStatus,
     pub flush: Option<extern "C" fn(handle: *mut c_void) -> StStatus>,
+    pub reset: extern "C" fn(handle: *mut c_void) -> StStatus,
     pub close: extern "C" fn(handle: *mut c_void),
 
     pub plan_config_update_json_utf8: Option<

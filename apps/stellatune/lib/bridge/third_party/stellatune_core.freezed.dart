@@ -20,7 +20,7 @@ mixin _$Event {
   @optionalTypeArgs
   TResult when<TResult extends Object?>({
     required TResult Function(PlayerState state) stateChanged,
-    required TResult Function(int ms) position,
+    required TResult Function(int ms, String path, BigInt sessionId) position,
     required TResult Function(String path) trackChanged,
     required TResult Function(String path) playbackEnded,
     required TResult Function(double volume) volumeChanged,
@@ -31,7 +31,7 @@ mixin _$Event {
   @optionalTypeArgs
   TResult? whenOrNull<TResult extends Object?>({
     TResult? Function(PlayerState state)? stateChanged,
-    TResult? Function(int ms)? position,
+    TResult? Function(int ms, String path, BigInt sessionId)? position,
     TResult? Function(String path)? trackChanged,
     TResult? Function(String path)? playbackEnded,
     TResult? Function(double volume)? volumeChanged,
@@ -42,7 +42,7 @@ mixin _$Event {
   @optionalTypeArgs
   TResult maybeWhen<TResult extends Object?>({
     TResult Function(PlayerState state)? stateChanged,
-    TResult Function(int ms)? position,
+    TResult Function(int ms, String path, BigInt sessionId)? position,
     TResult Function(String path)? trackChanged,
     TResult Function(String path)? playbackEnded,
     TResult Function(double volume)? volumeChanged,
@@ -182,7 +182,7 @@ class _$Event_StateChangedImpl extends Event_StateChanged {
   @optionalTypeArgs
   TResult when<TResult extends Object?>({
     required TResult Function(PlayerState state) stateChanged,
-    required TResult Function(int ms) position,
+    required TResult Function(int ms, String path, BigInt sessionId) position,
     required TResult Function(String path) trackChanged,
     required TResult Function(String path) playbackEnded,
     required TResult Function(double volume) volumeChanged,
@@ -197,7 +197,7 @@ class _$Event_StateChangedImpl extends Event_StateChanged {
   @optionalTypeArgs
   TResult? whenOrNull<TResult extends Object?>({
     TResult? Function(PlayerState state)? stateChanged,
-    TResult? Function(int ms)? position,
+    TResult? Function(int ms, String path, BigInt sessionId)? position,
     TResult? Function(String path)? trackChanged,
     TResult? Function(String path)? playbackEnded,
     TResult? Function(double volume)? volumeChanged,
@@ -212,7 +212,7 @@ class _$Event_StateChangedImpl extends Event_StateChanged {
   @optionalTypeArgs
   TResult maybeWhen<TResult extends Object?>({
     TResult Function(PlayerState state)? stateChanged,
-    TResult Function(int ms)? position,
+    TResult Function(int ms, String path, BigInt sessionId)? position,
     TResult Function(String path)? trackChanged,
     TResult Function(String path)? playbackEnded,
     TResult Function(double volume)? volumeChanged,
@@ -299,7 +299,7 @@ abstract class _$$Event_PositionImplCopyWith<$Res> {
     $Res Function(_$Event_PositionImpl) then,
   ) = __$$Event_PositionImplCopyWithImpl<$Res>;
   @useResult
-  $Res call({int ms});
+  $Res call({int ms, String path, BigInt sessionId});
 }
 
 /// @nodoc
@@ -315,13 +315,25 @@ class __$$Event_PositionImplCopyWithImpl<$Res>
   /// with the given fields replaced by the non-null parameter values.
   @pragma('vm:prefer-inline')
   @override
-  $Res call({Object? ms = null}) {
+  $Res call({
+    Object? ms = null,
+    Object? path = null,
+    Object? sessionId = null,
+  }) {
     return _then(
       _$Event_PositionImpl(
         ms: null == ms
             ? _value.ms
             : ms // ignore: cast_nullable_to_non_nullable
                   as int,
+        path: null == path
+            ? _value.path
+            : path // ignore: cast_nullable_to_non_nullable
+                  as String,
+        sessionId: null == sessionId
+            ? _value.sessionId
+            : sessionId // ignore: cast_nullable_to_non_nullable
+                  as BigInt,
       ),
     );
   }
@@ -330,14 +342,22 @@ class __$$Event_PositionImplCopyWithImpl<$Res>
 /// @nodoc
 
 class _$Event_PositionImpl extends Event_Position {
-  const _$Event_PositionImpl({required this.ms}) : super._();
+  const _$Event_PositionImpl({
+    required this.ms,
+    required this.path,
+    required this.sessionId,
+  }) : super._();
 
   @override
   final int ms;
+  @override
+  final String path;
+  @override
+  final BigInt sessionId;
 
   @override
   String toString() {
-    return 'Event.position(ms: $ms)';
+    return 'Event.position(ms: $ms, path: $path, sessionId: $sessionId)';
   }
 
   @override
@@ -345,11 +365,14 @@ class _$Event_PositionImpl extends Event_Position {
     return identical(this, other) ||
         (other.runtimeType == runtimeType &&
             other is _$Event_PositionImpl &&
-            (identical(other.ms, ms) || other.ms == ms));
+            (identical(other.ms, ms) || other.ms == ms) &&
+            (identical(other.path, path) || other.path == path) &&
+            (identical(other.sessionId, sessionId) ||
+                other.sessionId == sessionId));
   }
 
   @override
-  int get hashCode => Object.hash(runtimeType, ms);
+  int get hashCode => Object.hash(runtimeType, ms, path, sessionId);
 
   /// Create a copy of Event
   /// with the given fields replaced by the non-null parameter values.
@@ -366,7 +389,7 @@ class _$Event_PositionImpl extends Event_Position {
   @optionalTypeArgs
   TResult when<TResult extends Object?>({
     required TResult Function(PlayerState state) stateChanged,
-    required TResult Function(int ms) position,
+    required TResult Function(int ms, String path, BigInt sessionId) position,
     required TResult Function(String path) trackChanged,
     required TResult Function(String path) playbackEnded,
     required TResult Function(double volume) volumeChanged,
@@ -374,14 +397,14 @@ class _$Event_PositionImpl extends Event_Position {
     required TResult Function(String message) log,
     required TResult Function(List<AudioDevice> devices) outputDevicesChanged,
   }) {
-    return position(ms);
+    return position(ms, path, sessionId);
   }
 
   @override
   @optionalTypeArgs
   TResult? whenOrNull<TResult extends Object?>({
     TResult? Function(PlayerState state)? stateChanged,
-    TResult? Function(int ms)? position,
+    TResult? Function(int ms, String path, BigInt sessionId)? position,
     TResult? Function(String path)? trackChanged,
     TResult? Function(String path)? playbackEnded,
     TResult? Function(double volume)? volumeChanged,
@@ -389,14 +412,14 @@ class _$Event_PositionImpl extends Event_Position {
     TResult? Function(String message)? log,
     TResult? Function(List<AudioDevice> devices)? outputDevicesChanged,
   }) {
-    return position?.call(ms);
+    return position?.call(ms, path, sessionId);
   }
 
   @override
   @optionalTypeArgs
   TResult maybeWhen<TResult extends Object?>({
     TResult Function(PlayerState state)? stateChanged,
-    TResult Function(int ms)? position,
+    TResult Function(int ms, String path, BigInt sessionId)? position,
     TResult Function(String path)? trackChanged,
     TResult Function(String path)? playbackEnded,
     TResult Function(double volume)? volumeChanged,
@@ -406,7 +429,7 @@ class _$Event_PositionImpl extends Event_Position {
     required TResult orElse(),
   }) {
     if (position != null) {
-      return position(ms);
+      return position(ms, path, sessionId);
     }
     return orElse();
   }
@@ -463,10 +486,16 @@ class _$Event_PositionImpl extends Event_Position {
 }
 
 abstract class Event_Position extends Event {
-  const factory Event_Position({required final int ms}) = _$Event_PositionImpl;
+  const factory Event_Position({
+    required final int ms,
+    required final String path,
+    required final BigInt sessionId,
+  }) = _$Event_PositionImpl;
   const Event_Position._() : super._();
 
   int get ms;
+  String get path;
+  BigInt get sessionId;
 
   /// Create a copy of Event
   /// with the given fields replaced by the non-null parameter values.
@@ -549,7 +578,7 @@ class _$Event_TrackChangedImpl extends Event_TrackChanged {
   @optionalTypeArgs
   TResult when<TResult extends Object?>({
     required TResult Function(PlayerState state) stateChanged,
-    required TResult Function(int ms) position,
+    required TResult Function(int ms, String path, BigInt sessionId) position,
     required TResult Function(String path) trackChanged,
     required TResult Function(String path) playbackEnded,
     required TResult Function(double volume) volumeChanged,
@@ -564,7 +593,7 @@ class _$Event_TrackChangedImpl extends Event_TrackChanged {
   @optionalTypeArgs
   TResult? whenOrNull<TResult extends Object?>({
     TResult? Function(PlayerState state)? stateChanged,
-    TResult? Function(int ms)? position,
+    TResult? Function(int ms, String path, BigInt sessionId)? position,
     TResult? Function(String path)? trackChanged,
     TResult? Function(String path)? playbackEnded,
     TResult? Function(double volume)? volumeChanged,
@@ -579,7 +608,7 @@ class _$Event_TrackChangedImpl extends Event_TrackChanged {
   @optionalTypeArgs
   TResult maybeWhen<TResult extends Object?>({
     TResult Function(PlayerState state)? stateChanged,
-    TResult Function(int ms)? position,
+    TResult Function(int ms, String path, BigInt sessionId)? position,
     TResult Function(String path)? trackChanged,
     TResult Function(String path)? playbackEnded,
     TResult Function(double volume)? volumeChanged,
@@ -733,7 +762,7 @@ class _$Event_PlaybackEndedImpl extends Event_PlaybackEnded {
   @optionalTypeArgs
   TResult when<TResult extends Object?>({
     required TResult Function(PlayerState state) stateChanged,
-    required TResult Function(int ms) position,
+    required TResult Function(int ms, String path, BigInt sessionId) position,
     required TResult Function(String path) trackChanged,
     required TResult Function(String path) playbackEnded,
     required TResult Function(double volume) volumeChanged,
@@ -748,7 +777,7 @@ class _$Event_PlaybackEndedImpl extends Event_PlaybackEnded {
   @optionalTypeArgs
   TResult? whenOrNull<TResult extends Object?>({
     TResult? Function(PlayerState state)? stateChanged,
-    TResult? Function(int ms)? position,
+    TResult? Function(int ms, String path, BigInt sessionId)? position,
     TResult? Function(String path)? trackChanged,
     TResult? Function(String path)? playbackEnded,
     TResult? Function(double volume)? volumeChanged,
@@ -763,7 +792,7 @@ class _$Event_PlaybackEndedImpl extends Event_PlaybackEnded {
   @optionalTypeArgs
   TResult maybeWhen<TResult extends Object?>({
     TResult Function(PlayerState state)? stateChanged,
-    TResult Function(int ms)? position,
+    TResult Function(int ms, String path, BigInt sessionId)? position,
     TResult Function(String path)? trackChanged,
     TResult Function(String path)? playbackEnded,
     TResult Function(double volume)? volumeChanged,
@@ -917,7 +946,7 @@ class _$Event_VolumeChangedImpl extends Event_VolumeChanged {
   @optionalTypeArgs
   TResult when<TResult extends Object?>({
     required TResult Function(PlayerState state) stateChanged,
-    required TResult Function(int ms) position,
+    required TResult Function(int ms, String path, BigInt sessionId) position,
     required TResult Function(String path) trackChanged,
     required TResult Function(String path) playbackEnded,
     required TResult Function(double volume) volumeChanged,
@@ -932,7 +961,7 @@ class _$Event_VolumeChangedImpl extends Event_VolumeChanged {
   @optionalTypeArgs
   TResult? whenOrNull<TResult extends Object?>({
     TResult? Function(PlayerState state)? stateChanged,
-    TResult? Function(int ms)? position,
+    TResult? Function(int ms, String path, BigInt sessionId)? position,
     TResult? Function(String path)? trackChanged,
     TResult? Function(String path)? playbackEnded,
     TResult? Function(double volume)? volumeChanged,
@@ -947,7 +976,7 @@ class _$Event_VolumeChangedImpl extends Event_VolumeChanged {
   @optionalTypeArgs
   TResult maybeWhen<TResult extends Object?>({
     TResult Function(PlayerState state)? stateChanged,
-    TResult Function(int ms)? position,
+    TResult Function(int ms, String path, BigInt sessionId)? position,
     TResult Function(String path)? trackChanged,
     TResult Function(String path)? playbackEnded,
     TResult Function(double volume)? volumeChanged,
@@ -1098,7 +1127,7 @@ class _$Event_ErrorImpl extends Event_Error {
   @optionalTypeArgs
   TResult when<TResult extends Object?>({
     required TResult Function(PlayerState state) stateChanged,
-    required TResult Function(int ms) position,
+    required TResult Function(int ms, String path, BigInt sessionId) position,
     required TResult Function(String path) trackChanged,
     required TResult Function(String path) playbackEnded,
     required TResult Function(double volume) volumeChanged,
@@ -1113,7 +1142,7 @@ class _$Event_ErrorImpl extends Event_Error {
   @optionalTypeArgs
   TResult? whenOrNull<TResult extends Object?>({
     TResult? Function(PlayerState state)? stateChanged,
-    TResult? Function(int ms)? position,
+    TResult? Function(int ms, String path, BigInt sessionId)? position,
     TResult? Function(String path)? trackChanged,
     TResult? Function(String path)? playbackEnded,
     TResult? Function(double volume)? volumeChanged,
@@ -1128,7 +1157,7 @@ class _$Event_ErrorImpl extends Event_Error {
   @optionalTypeArgs
   TResult maybeWhen<TResult extends Object?>({
     TResult Function(PlayerState state)? stateChanged,
-    TResult Function(int ms)? position,
+    TResult Function(int ms, String path, BigInt sessionId)? position,
     TResult Function(String path)? trackChanged,
     TResult Function(String path)? playbackEnded,
     TResult Function(double volume)? volumeChanged,
@@ -1279,7 +1308,7 @@ class _$Event_LogImpl extends Event_Log {
   @optionalTypeArgs
   TResult when<TResult extends Object?>({
     required TResult Function(PlayerState state) stateChanged,
-    required TResult Function(int ms) position,
+    required TResult Function(int ms, String path, BigInt sessionId) position,
     required TResult Function(String path) trackChanged,
     required TResult Function(String path) playbackEnded,
     required TResult Function(double volume) volumeChanged,
@@ -1294,7 +1323,7 @@ class _$Event_LogImpl extends Event_Log {
   @optionalTypeArgs
   TResult? whenOrNull<TResult extends Object?>({
     TResult? Function(PlayerState state)? stateChanged,
-    TResult? Function(int ms)? position,
+    TResult? Function(int ms, String path, BigInt sessionId)? position,
     TResult? Function(String path)? trackChanged,
     TResult? Function(String path)? playbackEnded,
     TResult? Function(double volume)? volumeChanged,
@@ -1309,7 +1338,7 @@ class _$Event_LogImpl extends Event_Log {
   @optionalTypeArgs
   TResult maybeWhen<TResult extends Object?>({
     TResult Function(PlayerState state)? stateChanged,
-    TResult Function(int ms)? position,
+    TResult Function(int ms, String path, BigInt sessionId)? position,
     TResult Function(String path)? trackChanged,
     TResult Function(String path)? playbackEnded,
     TResult Function(double volume)? volumeChanged,
@@ -1471,7 +1500,7 @@ class _$Event_OutputDevicesChangedImpl extends Event_OutputDevicesChanged {
   @optionalTypeArgs
   TResult when<TResult extends Object?>({
     required TResult Function(PlayerState state) stateChanged,
-    required TResult Function(int ms) position,
+    required TResult Function(int ms, String path, BigInt sessionId) position,
     required TResult Function(String path) trackChanged,
     required TResult Function(String path) playbackEnded,
     required TResult Function(double volume) volumeChanged,
@@ -1486,7 +1515,7 @@ class _$Event_OutputDevicesChangedImpl extends Event_OutputDevicesChanged {
   @optionalTypeArgs
   TResult? whenOrNull<TResult extends Object?>({
     TResult? Function(PlayerState state)? stateChanged,
-    TResult? Function(int ms)? position,
+    TResult? Function(int ms, String path, BigInt sessionId)? position,
     TResult? Function(String path)? trackChanged,
     TResult? Function(String path)? playbackEnded,
     TResult? Function(double volume)? volumeChanged,
@@ -1501,7 +1530,7 @@ class _$Event_OutputDevicesChangedImpl extends Event_OutputDevicesChanged {
   @optionalTypeArgs
   TResult maybeWhen<TResult extends Object?>({
     TResult Function(PlayerState state)? stateChanged,
-    TResult Function(int ms)? position,
+    TResult Function(int ms, String path, BigInt sessionId)? position,
     TResult Function(String path)? trackChanged,
     TResult Function(String path)? playbackEnded,
     TResult Function(double volume)? volumeChanged,

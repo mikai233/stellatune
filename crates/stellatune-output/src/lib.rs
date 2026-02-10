@@ -65,6 +65,28 @@ mod wasapi_exclusive;
 #[cfg(windows)]
 pub(crate) mod mmcss;
 
+/// Best-effort realtime hint for audio-critical worker threads.
+///
+/// On Windows this enables MMCSS "Pro Audio" for the current thread and keeps
+/// it active for the guard lifetime. On other platforms it is a no-op.
+pub struct RealtimeThreadGuard {
+    #[cfg(windows)]
+    _mmcss: Option<mmcss::MmcssGuard>,
+}
+
+pub fn enable_realtime_audio_thread() -> RealtimeThreadGuard {
+    #[cfg(windows)]
+    {
+        RealtimeThreadGuard {
+            _mmcss: mmcss::enable_mmcss_pro_audio(),
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        RealtimeThreadGuard {}
+    }
+}
+
 pub enum OutputHandle {
     Shared {
         _stream: cpal::Stream,

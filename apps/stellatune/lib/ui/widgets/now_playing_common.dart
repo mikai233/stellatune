@@ -80,7 +80,8 @@ class NowPlayingCover extends StatelessWidget {
           height: 48,
           fit: BoxFit.cover,
           gaplessPlayback: true,
-          errorBuilder: (context, error, stackTrace) => _buildCoverByRef(placeholder),
+          errorBuilder: (context, error, stackTrace) =>
+              _buildCoverByRef(placeholder),
         ),
       ),
     );
@@ -240,16 +241,17 @@ class _NowPlayingProgressBarState extends State<NowPlayingProgressBar>
   @override
   void didUpdateWidget(covariant NowPlayingProgressBar oldWidget) {
     super.didUpdateWidget(oldWidget);
-    final wasPlaying =
-        oldWidget.playerState == PlayerState.playing ||
-        oldWidget.playerState == PlayerState.buffering;
-    final isPlaying =
-        widget.playerState == PlayerState.playing ||
-        widget.playerState == PlayerState.buffering;
+    final wasPlaying = oldWidget.playerState == PlayerState.playing;
+    final isPlaying = widget.playerState == PlayerState.playing;
 
     final durationChanged = oldWidget.durationMs != widget.durationMs;
     final posChanged = oldWidget.positionMs != widget.positionMs;
     final enabledChanged = oldWidget.enabled != widget.enabled;
+    final likelyTrackSwitch =
+        posChanged &&
+        oldWidget.positionMs > 1500 &&
+        widget.positionMs <= 400 &&
+        !(_dragging);
 
     final now = DateTime.now();
     final durationMs = widget.durationMs ?? 0;
@@ -274,7 +276,7 @@ class _NowPlayingProgressBarState extends State<NowPlayingProgressBar>
       return pendingClose;
     }();
 
-    if (widget.playerState == PlayerState.stopped) {
+    if (widget.playerState == PlayerState.stopped || likelyTrackSwitch) {
       _pendingSeekMs = null;
       _pendingSeekAt = null;
       _pendingSeekFromMs = null;
@@ -319,9 +321,7 @@ class _NowPlayingProgressBarState extends State<NowPlayingProgressBar>
       final pAt = _pendingSeekAt;
       final pFrom = _pendingSeekFromMs;
       if (p != null && pAt != null && pFrom != null && !shouldAcceptPosUpdate) {
-        if (d > 0 &&
-            (widget.playerState == PlayerState.playing ||
-                widget.playerState == PlayerState.buffering)) {
+        if (d > 0 && widget.playerState == PlayerState.playing) {
           final elapsed = now.difference(pAt).inMilliseconds;
           return (p + elapsed).clamp(0, d);
         }
@@ -335,9 +335,7 @@ class _NowPlayingProgressBarState extends State<NowPlayingProgressBar>
         wasPlaying != isPlaying ||
         (posChanged && shouldAcceptPosUpdate)) {
       _basePosMs = effectivePosMsForBase;
-      if (durationMs > 0 &&
-          (widget.playerState == PlayerState.playing ||
-              widget.playerState == PlayerState.buffering)) {
+      if (durationMs > 0 && widget.playerState == PlayerState.playing) {
         // Preserve visual continuity even if the backend reports a slightly earlier
         // position (common right after seek or due to coarse position updates).
         final deltaMs = prevPredictedMs - _basePosMs;
@@ -373,8 +371,7 @@ class _NowPlayingProgressBarState extends State<NowPlayingProgressBar>
     final d = widget.durationMs;
     if (_dragging) return false;
     if (!widget.enabled || d == null || d <= 0) return false;
-    return widget.playerState == PlayerState.playing ||
-        widget.playerState == PlayerState.buffering;
+    return widget.playerState == PlayerState.playing;
   }
 
   void _syncTicker() {
@@ -405,8 +402,7 @@ class _NowPlayingProgressBarState extends State<NowPlayingProgressBar>
           }
           return (widget.positionMs - pendingMs).abs() <= 600;
         }())) {
-      if (widget.playerState == PlayerState.playing ||
-          widget.playerState == PlayerState.buffering) {
+      if (widget.playerState == PlayerState.playing) {
         final elapsed = DateTime.now().difference(pendingAt).inMilliseconds;
         return ((pendingMs + elapsed) / d).clamp(0.0, 1.0);
       }

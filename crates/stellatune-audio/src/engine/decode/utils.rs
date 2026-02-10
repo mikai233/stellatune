@@ -86,6 +86,11 @@ pub(crate) fn write_pending(ctx: &mut DecodeContext) -> bool {
         if !*ctx.playing {
             break;
         }
+        // Control handlers (e.g. RefreshDecoder) may clear/replace out_pending.
+        // Re-validate offset after handling controls before slicing.
+        if offset >= ctx.out_pending.len() {
+            break;
+        }
 
         let written = if ctx.output_sink_only {
             let Some(tx) = ctx.output_sink_tx.as_ref() else {
@@ -129,7 +134,17 @@ pub(crate) fn write_pending(ctx: &mut DecodeContext) -> bool {
     }
 
     if offset > 0 {
-        ctx.out_pending.drain(..offset);
+        let drain_to = offset.min(ctx.out_pending.len());
+        if drain_to < offset {
+            warn!(
+                offset,
+                out_pending_len = ctx.out_pending.len(),
+                "write_pending offset exceeded out_pending after control mutation"
+            );
+        }
+        if drain_to > 0 {
+            ctx.out_pending.drain(..drain_to);
+        }
     }
 
     false

@@ -11,7 +11,6 @@ use stellatune_core::TrackDecodeInfo;
 use stellatune_mixer::{ChannelLayout, ChannelMixer};
 
 use crate::engine::config::RESAMPLE_CHUNK_FRAMES;
-use crate::engine::event_hub::EventHub;
 use crate::engine::messages::{
     DecodeCtrl, DecodeWorkerState, InternalMsg, OutputSinkTx, RuntimeDspChainEntry,
 };
@@ -47,7 +46,6 @@ type DecodeSetupState = (
 
 pub(crate) struct DecodeThreadArgs {
     pub(crate) path: String,
-    pub(crate) events: Arc<EventHub>,
     pub(crate) internal_tx: Sender<InternalMsg>,
     pub(crate) preopened: Option<(Box<EngineDecoder>, TrackDecodeInfo)>,
     pub(crate) ctrl_rx: Receiver<DecodeCtrl>,
@@ -59,7 +57,6 @@ pub(crate) struct DecodeThreadArgs {
 pub(crate) fn decode_thread(args: DecodeThreadArgs) {
     let DecodeThreadArgs {
         path,
-        events,
         internal_tx,
         preopened,
         ctrl_rx,
@@ -252,7 +249,6 @@ pub(crate) fn decode_thread(args: DecodeThreadArgs) {
             output_sink_tx: &mut output_sink_tx,
             output_sink_chunk_frames: &mut output_sink_chunk_frames,
             output_sink_only,
-            events: &events,
             ctrl_rx: &ctrl_rx,
             internal_tx: &internal_tx,
         };
@@ -487,8 +483,10 @@ fn emit_position(ctx: &mut DecodeContext) {
         let ms = ctx.base_ms.saturating_add(
             ((played_frames.saturating_mul(1000)) / ctx.target_sample_rate as u64) as i64,
         );
-        ctx.events.emit(stellatune_core::Event::Position { ms });
-        let _ = ctx.internal_tx.try_send(InternalMsg::Position(ms));
+        let _ = ctx.internal_tx.try_send(InternalMsg::Position {
+            path: ctx.path.to_string(),
+            ms,
+        });
         *ctx.last_emit = Instant::now();
     }
 }

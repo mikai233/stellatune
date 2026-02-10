@@ -14,8 +14,8 @@ use stellatune_plugin_sdk::update::ConfigUpdatable;
 use stellatune_plugin_sdk::{
     OutputSink, OutputSinkDescriptor as LegacyOutputSinkDescriptor, ST_OUTPUT_NEGOTIATE_CHANGED_CH,
     ST_OUTPUT_NEGOTIATE_CHANGED_SR, ST_OUTPUT_NEGOTIATE_EXACT, SdkError, SdkResult, StAudioSpec,
-    StLogLevel, StOutputSinkNegotiatedSpec, export_plugin, host_log, resolve_runtime_path,
-    sidecar_command,
+    StLogLevel, StOutputSinkNegotiatedSpec, StOutputSinkRuntimeStatus, export_plugin, host_log,
+    resolve_runtime_path, sidecar_command,
 };
 
 const CONFIG_SCHEMA_JSON: &str = r#"{
@@ -30,13 +30,63 @@ const CONFIG_SCHEMA_JSON: &str = r#"{
       "default": []
     },
     "buffer_size_frames": { "type": ["integer", "null"], "minimum": 16 },
+    "sample_rate_mode": {
+      "type": "string",
+      "enum": ["fixed_target", "match_track"],
+      "default": "fixed_target",
+      "title": "Sample Rate Mode",
+      "description": "fixed_target: keep one output sample rate (best for lessgap). match_track: follow each track sample rate."
+    },
+    "fixed_target_sample_rate": {
+      "type": ["integer", "null"],
+      "minimum": 8000,
+      "title": "Fixed Target Sample Rate",
+      "description": "Used when sample_rate_mode=fixed_target. null means device default sample rate."
+    },
     "ring_capacity_ms": { "type": "integer", "minimum": 20, "default": 250 },
-    "preferred_chunk_frames": { "type": "integer", "minimum": 0, "default": 256 },
+    "start_prefill_ms": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 0,
+      "title": "Start Prefill (ms)",
+      "description": "ASIO sidecar stream starts only after this much audio is buffered in shared ring. 0 means auto by Latency Profile."
+    },
+    "preferred_chunk_frames": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 0,
+      "title": "Preferred Chunk Frames",
+      "description": "0 means auto-tune by sample rate (recommended). >0 uses fixed chunk size."
+    },
+    "latency_profile": {
+      "type": "string",
+      "enum": ["aggressive", "balanced", "conservative"],
+      "default": "balanced",
+      "title": "Latency Profile",
+      "description": "Controls auto chunk size and auto prefill threshold when manual overrides are 0."
+    },
     "flush_timeout_ms": { "type": "integer", "minimum": 1, "default": 400 }
   }
 }"#;
 
 const FLUSH_POLL_INTERVAL_MS: u64 = 2;
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum AsioSampleRateMode {
+    #[default]
+    FixedTarget,
+    MatchTrack,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum AsioLatencyProfile {
+    Aggressive,
+    #[default]
+    Balanced,
+    Conservative,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -44,8 +94,12 @@ pub struct AsioOutputConfig {
     pub sidecar_path: Option<String>,
     pub sidecar_args: Vec<String>,
     pub buffer_size_frames: Option<u32>,
+    pub sample_rate_mode: AsioSampleRateMode,
+    pub fixed_target_sample_rate: Option<u32>,
     pub ring_capacity_ms: u32,
+    pub start_prefill_ms: u32,
     pub preferred_chunk_frames: u32,
+    pub latency_profile: AsioLatencyProfile,
     pub flush_timeout_ms: u64,
 }
 
@@ -55,8 +109,12 @@ impl Default for AsioOutputConfig {
             sidecar_path: None,
             sidecar_args: Vec::new(),
             buffer_size_frames: None,
+            sample_rate_mode: AsioSampleRateMode::FixedTarget,
+            fixed_target_sample_rate: None,
             ring_capacity_ms: 250,
-            preferred_chunk_frames: 256,
+            start_prefill_ms: 0,
+            preferred_chunk_frames: 0,
+            latency_profile: AsioLatencyProfile::Balanced,
             flush_timeout_ms: 400,
         }
     }
@@ -73,6 +131,9 @@ pub struct AsioOutputSink {
     ring: SharedRingMapped,
     channels: u16,
     flush_timeout_ms: u64,
+    started: bool,
+    start_prefill_samples: usize,
+    prefill_started_at: Instant,
     ring_path: PathBuf,
 }
 
@@ -81,6 +142,38 @@ impl Drop for AsioOutputSink {
         let _ = self.client.request_ok(Request::Stop);
         let _ = self.client.request_ok(Request::Close);
         let _ = std::fs::remove_file(&self.ring_path);
+    }
+}
+
+impl AsioOutputSink {
+    fn maybe_start_sidecar(&mut self) -> SdkResult<()> {
+        if self.started {
+            return Ok(());
+        }
+        let buffered = self.ring.available_to_read();
+        if buffered < self.start_prefill_samples {
+            return Ok(());
+        }
+        self.client.request_ok(Request::Start)?;
+        self.started = true;
+        let prefill_elapsed_ms = self.prefill_started_at.elapsed().as_millis() as u64;
+        host_log(
+            StLogLevel::Debug,
+            &format!(
+                "asio sidecar stream started after prefill: buffered_samples={} threshold_samples={} prefill_elapsed_ms={}",
+                buffered, self.start_prefill_samples, prefill_elapsed_ms
+            ),
+        );
+        Ok(())
+    }
+
+    fn reset_for_disrupt(&mut self) -> SdkResult<()> {
+        // Clear all pending samples in the shared ring so no stale audio from the previous
+        // track can leak after switch/seek. Keep stream running to avoid expensive restart
+        // latency and start-edge clicks.
+        self.ring.reset();
+        self.prefill_started_at = Instant::now();
+        Ok(())
     }
 }
 
@@ -101,10 +194,22 @@ impl OutputSink for AsioOutputSink {
         }
 
         let accepted_samples = self.ring.write_samples(samples);
+        self.maybe_start_sidecar()?;
         Ok((accepted_samples / channels_usize) as u32)
     }
 
     fn flush(&mut self) -> SdkResult<()> {
+        if !self.started && self.ring.available_to_read() > 0 {
+            self.client.request_ok(Request::Start)?;
+            self.started = true;
+            let prefill_elapsed_ms = self.prefill_started_at.elapsed().as_millis() as u64;
+            host_log(
+                StLogLevel::Debug,
+                &format!(
+                    "asio sidecar stream started on flush: prefill_elapsed_ms={prefill_elapsed_ms}"
+                ),
+            );
+        }
         let timeout = Duration::from_millis(self.flush_timeout_ms.max(1));
         let start = Instant::now();
         while self.ring.available_to_read() > 0 {
@@ -165,8 +270,21 @@ impl LegacyOutputSinkDescriptor for AsioOutputSink {
         let desired_sr = desired_spec.sample_rate.max(1);
         let desired_ch = desired_spec.channels.max(1);
 
-        let sample_rate = choose_sample_rate(desired_sr, &caps);
+        let sample_rate = choose_sample_rate(desired_sr, &caps, config);
         let channels = choose_channels(desired_ch, &caps);
+        host_log(
+            StLogLevel::Debug,
+            &format!(
+                "asio negotiate mode={:?} latency={:?} desired={}Hz/{}ch chosen={}Hz/{}ch chunk={}f",
+                config.sample_rate_mode,
+                config.latency_profile,
+                desired_sr,
+                desired_ch,
+                sample_rate,
+                channels,
+                preferred_chunk_frames(sample_rate, config)
+            ),
+        );
 
         let mut flags = 0u32;
         if sample_rate != desired_sr {
@@ -185,7 +303,7 @@ impl LegacyOutputSinkDescriptor for AsioOutputSink {
                 channels,
                 reserved: 0,
             },
-            preferred_chunk_frames: config.preferred_chunk_frames,
+            preferred_chunk_frames: preferred_chunk_frames(sample_rate, config),
             flags,
             reserved: 0,
         })
@@ -221,17 +339,14 @@ impl LegacyOutputSinkDescriptor for AsioOutputSink {
             return Err(e);
         }
 
-        if let Err(e) = client.request_ok(Request::Start) {
-            let _ = client.request_ok(Request::Close);
-            let _ = std::fs::remove_file(&ring_path);
-            return Err(e);
-        }
-
         Ok(Self {
             client,
             ring,
             channels: spec.channels,
             flush_timeout_ms: config.flush_timeout_ms.max(1),
+            started: false,
+            start_prefill_samples: startup_prefill_samples(&spec, config),
+            prefill_started_at: Instant::now(),
             ring_path,
         })
     }
@@ -289,12 +404,34 @@ impl OutputSinkInstance for AsioOutputSinkInstance {
         <AsioOutputSink as OutputSink>::write_interleaved_f32(sink, channels, samples)
     }
 
+    fn query_status(&mut self) -> SdkResult<StOutputSinkRuntimeStatus> {
+        let sink = self
+            .opened
+            .as_ref()
+            .ok_or_else(|| SdkError::msg("output sink is not open"))?;
+        let queued_samples = sink.ring.available_to_read().min(u32::MAX as usize) as u32;
+        Ok(StOutputSinkRuntimeStatus {
+            queued_samples,
+            running: u8::from(sink.started),
+            reserved0: 0,
+            reserved1: 0,
+        })
+    }
+
     fn flush(&mut self) -> SdkResult<()> {
         let sink = self
             .opened
             .as_mut()
             .ok_or_else(|| SdkError::msg("output sink is not open"))?;
         <AsioOutputSink as OutputSink>::flush(sink)
+    }
+
+    fn reset(&mut self) -> SdkResult<()> {
+        let sink = self
+            .opened
+            .as_mut()
+            .ok_or_else(|| SdkError::msg("output sink is not open"))?;
+        sink.reset_for_disrupt()
     }
 
     fn close(&mut self) -> SdkResult<()> {
@@ -463,12 +600,81 @@ fn build_sidecar_command(config: &AsioOutputConfig) -> SdkResult<Command> {
     )))
 }
 
-fn choose_sample_rate(desired: u32, caps: &DeviceCaps) -> u32 {
-    choose_nearest_u32(
-        desired.max(1),
-        &caps.supported_sample_rates,
-        caps.default_spec.sample_rate.max(1),
-    )
+fn choose_sample_rate(desired: u32, caps: &DeviceCaps, config: &AsioOutputConfig) -> u32 {
+    let default_sr = caps.default_spec.sample_rate.max(1);
+    match config.sample_rate_mode {
+        AsioSampleRateMode::FixedTarget => match config.fixed_target_sample_rate {
+            // For explicit fixed target, prioritize deterministic output rate.
+            Some(rate) => {
+                let rate = rate.max(1);
+                if !caps.supported_sample_rates.is_empty()
+                    && !caps.supported_sample_rates.contains(&rate)
+                {
+                    host_log(
+                        StLogLevel::Warn,
+                        &format!(
+                            "asio fixed_target {}Hz not present in advertised caps, forcing exact target anyway",
+                            rate
+                        ),
+                    );
+                }
+                rate
+            }
+            // Null means device/OS default output sample rate.
+            None => default_sr,
+        },
+        AsioSampleRateMode::MatchTrack => {
+            let request = desired.max(1);
+            choose_nearest_u32(request, &caps.supported_sample_rates, default_sr)
+        }
+    }
+}
+
+fn startup_prefill_samples(spec: &AudioSpec, config: &AsioOutputConfig) -> usize {
+    let channels = spec.channels.max(1) as usize;
+    let sr = spec.sample_rate.max(1) as u64;
+    let prefill_ms = effective_start_prefill_ms(config) as u64;
+    let prefill_samples = sr
+        .saturating_mul(channels as u64)
+        .saturating_mul(prefill_ms)
+        / 1000;
+    let min_frames = config
+        .buffer_size_frames
+        .unwrap_or(preferred_chunk_frames(spec.sample_rate, config).max(128))
+        .max(1) as u64;
+    let min_samples = min_frames.saturating_mul(channels as u64);
+    prefill_samples.max(min_samples).min(usize::MAX as u64) as usize
+}
+
+fn preferred_chunk_frames(sample_rate: u32, config: &AsioOutputConfig) -> u32 {
+    if config.preferred_chunk_frames > 0 {
+        return config.preferred_chunk_frames.max(1);
+    }
+    auto_preferred_chunk_frames(sample_rate, config)
+}
+
+fn auto_preferred_chunk_frames(sample_rate: u32, config: &AsioOutputConfig) -> u32 {
+    // Keep chunk duration near ~2.7ms across sample rates.
+    // 48k -> 128, 96k -> 256, 192k -> 512.
+    let target = (sample_rate.max(1) / 375).max(64);
+    let base = target.next_power_of_two().clamp(64, 1024);
+    let scaled = match config.latency_profile {
+        AsioLatencyProfile::Aggressive => base,
+        AsioLatencyProfile::Balanced => base.saturating_mul(2),
+        AsioLatencyProfile::Conservative => base.saturating_mul(4),
+    };
+    scaled.clamp(64, 4096)
+}
+
+fn effective_start_prefill_ms(config: &AsioOutputConfig) -> u32 {
+    if config.start_prefill_ms > 0 {
+        return config.start_prefill_ms;
+    }
+    match config.latency_profile {
+        AsioLatencyProfile::Aggressive => 15,
+        AsioLatencyProfile::Balanced => 30,
+        AsioLatencyProfile::Conservative => 60,
+    }
 }
 
 fn choose_channels(desired: u16, caps: &DeviceCaps) -> u16 {

@@ -38,7 +38,7 @@ impl DecodeWorkerState {
 
 pub(crate) enum OutputSinkWrite {
     Samples(Vec<f32>),
-    Shutdown,
+    Shutdown { drain: bool },
 }
 
 #[derive(Clone)]
@@ -162,7 +162,10 @@ pub(crate) enum InternalMsg {
     Eof,
     Error(String),
     OutputError(String),
-    Position(i64),
+    Position {
+        path: String,
+        ms: i64,
+    },
     OutputSpecReady {
         spec: OutputSpec,
         took_ms: u64,

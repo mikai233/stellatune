@@ -45,6 +45,8 @@ pub struct Decoder {
     decoder: Box<dyn SymphoniaDecoder>,
     track_id: u32,
     spec: TrackSpec,
+    encoder_delay_frames: u32,
+    encoder_padding_frames: u32,
     sample_buf: Option<SampleBuffer<f32>>,
     pending: Vec<f32>,
 }
@@ -119,6 +121,8 @@ impl Decoder {
                 sample_rate,
                 channels,
             },
+            encoder_delay_frames: params.delay.unwrap_or(0),
+            encoder_padding_frames: params.padding.unwrap_or(0),
             sample_buf: None,
             pending: Vec::new(),
         })
@@ -126,6 +130,14 @@ impl Decoder {
 
     pub fn spec(&self) -> TrackSpec {
         self.spec
+    }
+
+    pub fn encoder_delay_frames(&self) -> u32 {
+        self.encoder_delay_frames
+    }
+
+    pub fn encoder_padding_frames(&self) -> u32 {
+        self.encoder_padding_frames
     }
 
     pub fn seek_ms(&mut self, position_ms: u64) -> Result<(), DecodeError> {

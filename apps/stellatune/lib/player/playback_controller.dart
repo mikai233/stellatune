@@ -35,6 +35,8 @@ class PlaybackController extends Notifier<PlaybackState> {
   int? _dlnaLastReportedDlnaVolume;
   bool _dlnaVolumeUnsupported = false;
   String? _lastPreloadedNextTrackKey;
+  String? _activePositionPath;
+  BigInt? _activePositionSessionId;
 
   @override
   PlaybackState build() {
@@ -51,6 +53,8 @@ class PlaybackController extends Notifier<PlaybackState> {
     _dlnaSuppressAutoNextUntil = null;
     _dlnaLastPlayStartedAt = null;
     _lastPreloadedNextTrackKey = null;
+    _activePositionPath = null;
+    _activePositionSessionId = null;
 
     final bridge = ref.read(playerBridgeProvider);
     _sub = bridge.events().listen(
@@ -188,7 +192,7 @@ class PlaybackController extends Notifier<PlaybackState> {
 
     final bridge = ref.read(playerBridgeProvider);
     try {
-      await bridge.loadTrackRef(track);
+      await bridge.switchTrackRef(track, lazy: true);
       if (pos > 0) {
         await bridge.seekMs(pos);
       }
@@ -1009,9 +1013,9 @@ class PlaybackController extends Notifier<PlaybackState> {
     }
 
     final bridge = ref.read(playerBridgeProvider);
-    await bridge.loadTrackRef(item.track);
+    state = state.copyWith(playerState: PlayerState.buffering, lastError: null);
+    await bridge.switchTrackRef(item.track, lazy: false);
     unawaited(_updateTrackInfo());
-    await bridge.play();
     return true;
   }
 
@@ -1021,7 +1025,22 @@ class PlaybackController extends Notifier<PlaybackState> {
       stateChanged: (s) {
         state = state.copyWith(playerState: s);
       },
-      position: (ms) {
+      position: (ms, path, sessionId) {
+        final currentPath = state.currentPath;
+        if (path.isNotEmpty && currentPath != null && path != currentPath) {
+          return;
+        }
+        if (_activePositionPath == null || _activePositionPath != path) {
+          _activePositionPath = path;
+          _activePositionSessionId = sessionId;
+        } else if (_activePositionSessionId != null &&
+            sessionId != _activePositionSessionId) {
+          if (sessionId > _activePositionSessionId!) {
+            _activePositionSessionId = sessionId;
+          } else {
+            return;
+          }
+        }
         state = state.copyWith(positionMs: ms);
         final track = _resolveCurrentTrackForResume();
         if (track != null) {
@@ -1029,7 +1048,9 @@ class PlaybackController extends Notifier<PlaybackState> {
         }
       },
       trackChanged: (path) {
-        state = state.copyWith(currentPath: path);
+        _activePositionPath = path;
+        _activePositionSessionId = null;
+        state = state.copyWith(currentPath: path, positionMs: 0);
         unawaited(
           _persistResumeNow(
             track: _resolveCurrentTrackForResume() ?? _localTrackRef(path),

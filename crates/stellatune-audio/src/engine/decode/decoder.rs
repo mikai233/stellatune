@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
@@ -14,6 +14,7 @@ use stellatune_plugin_api::{
 use stellatune_plugins::runtime::CapabilityKind as RuntimeCapabilityKind;
 
 const TRACK_REF_TOKEN_PREFIX: &str = "stref-json:";
+const GAPLESS_ENTRY_DECLICK_MS: usize = 2;
 
 #[derive(Debug, Deserialize)]
 struct SourceStreamLocator {
@@ -182,11 +183,143 @@ static LOCAL_FILE_IO_VTABLE: StIoVTable = StIoVTable {
     size: Some(local_io_size),
 };
 
+#[derive(Debug, Clone, Copy, Default)]
+struct GaplessTrimSpec {
+    head_frames: u32,
+    tail_frames: u32,
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct GaplessTrimState {
+    initial_head_samples: usize,
+    head_samples_remaining: usize,
+    tail_hold_samples: usize,
+    tail_buffer: VecDeque<f32>,
+    pending_output: VecDeque<f32>,
+    eof_reached: bool,
+    channels: usize,
+    entry_ramp_total_frames: usize,
+    entry_ramp_applied_frames: usize,
+    entry_ramp_active: bool,
+}
+
+impl GaplessTrimState {
+    fn new(spec: GaplessTrimSpec, channels: usize, sample_rate: u32) -> Self {
+        let channels = channels.max(1);
+        let initial_head_samples = (spec.head_frames as usize).saturating_mul(channels);
+        let tail_hold_samples = (spec.tail_frames as usize).saturating_mul(channels);
+        let entry_ramp_total_frames = ((sample_rate.max(1) as usize) * GAPLESS_ENTRY_DECLICK_MS)
+            .saturating_div(1000)
+            .max(1);
+        let entry_ramp_active = initial_head_samples > 0;
+        Self {
+            initial_head_samples,
+            head_samples_remaining: initial_head_samples,
+            tail_hold_samples,
+            tail_buffer: VecDeque::new(),
+            pending_output: VecDeque::new(),
+            eof_reached: false,
+            channels,
+            entry_ramp_total_frames,
+            entry_ramp_applied_frames: 0,
+            entry_ramp_active,
+        }
+    }
+
+    fn reset_for_seek(&mut self, position_ms: u64) {
+        self.pending_output.clear();
+        self.tail_buffer.clear();
+        self.eof_reached = false;
+        self.entry_ramp_applied_frames = 0;
+        self.head_samples_remaining = if position_ms == 0 {
+            self.entry_ramp_active = self.initial_head_samples > 0;
+            self.initial_head_samples
+        } else {
+            self.entry_ramp_active = false;
+            0
+        };
+    }
+
+    fn apply_entry_ramp_in_place(&mut self, samples: &mut [f32]) {
+        if !self.entry_ramp_active || samples.is_empty() {
+            return;
+        }
+        let channels = self.channels.max(1);
+        let frames = samples.len() / channels;
+        if frames == 0 {
+            return;
+        }
+        let remaining = self
+            .entry_ramp_total_frames
+            .saturating_sub(self.entry_ramp_applied_frames);
+        if remaining == 0 {
+            self.entry_ramp_active = false;
+            return;
+        }
+        let apply_frames = remaining.min(frames);
+        for frame in 0..apply_frames {
+            let progress_frame = self.entry_ramp_applied_frames + frame + 1;
+            let t = (progress_frame as f32 / self.entry_ramp_total_frames as f32).clamp(0.0, 1.0);
+            let gain = t.sqrt();
+            let base = frame * channels;
+            for ch in 0..channels {
+                samples[base + ch] *= gain;
+            }
+        }
+        self.entry_ramp_applied_frames =
+            self.entry_ramp_applied_frames.saturating_add(apply_frames);
+        if self.entry_ramp_applied_frames >= self.entry_ramp_total_frames {
+            self.entry_ramp_active = false;
+        }
+    }
+
+    fn push_decoded_samples(&mut self, mut samples: Vec<f32>) {
+        if self.head_samples_remaining > 0 {
+            let trim = self.head_samples_remaining.min(samples.len());
+            if trim == samples.len() {
+                samples.clear();
+            } else if trim > 0 {
+                samples = samples.split_off(trim);
+            }
+            self.head_samples_remaining = self.head_samples_remaining.saturating_sub(trim);
+        }
+        if samples.is_empty() {
+            return;
+        }
+        self.apply_entry_ramp_in_place(&mut samples);
+
+        if self.tail_hold_samples == 0 {
+            self.pending_output.extend(samples);
+            return;
+        }
+
+        self.tail_buffer.extend(samples);
+        let releasable = self
+            .tail_buffer
+            .len()
+            .saturating_sub(self.tail_hold_samples);
+        if releasable > 0 {
+            self.pending_output
+                .extend(self.tail_buffer.drain(..releasable));
+        }
+    }
+
+    fn on_eof(&mut self) {
+        self.eof_reached = true;
+        // Holdback region is exactly the gapless tail trim.
+        self.tail_buffer.clear();
+    }
+}
+
 pub(crate) enum EngineDecoder {
-    Builtin(Decoder),
+    Builtin {
+        dec: Decoder,
+        gapless: GaplessTrimState,
+    },
     Plugin {
         dec: stellatune_plugins::DecoderInstance,
         spec: TrackSpec,
+        gapless: GaplessTrimState,
         _io_owner: DecoderIoOwner,
     },
 }
@@ -194,21 +327,29 @@ pub(crate) enum EngineDecoder {
 impl EngineDecoder {
     pub fn spec(&self) -> TrackSpec {
         match self {
-            Self::Builtin(d) => d.spec(),
+            Self::Builtin { dec, .. } => dec.spec(),
             Self::Plugin { spec, .. } => *spec,
         }
     }
 
     pub fn seek_ms(&mut self, position_ms: u64) -> Result<(), String> {
         match self {
-            Self::Builtin(d) => d.seek_ms(position_ms).map_err(|e| e.to_string()),
-            Self::Plugin { dec, .. } => dec.seek_ms(position_ms).map_err(|e| e.to_string()),
+            Self::Builtin { dec, gapless } => {
+                dec.seek_ms(position_ms).map_err(|e| e.to_string())?;
+                gapless.reset_for_seek(position_ms);
+                Ok(())
+            }
+            Self::Plugin { dec, gapless, .. } => {
+                dec.seek_ms(position_ms).map_err(|e| e.to_string())?;
+                gapless.reset_for_seek(position_ms);
+                Ok(())
+            }
         }
     }
 
-    pub fn next_block(&mut self, frames: usize) -> Result<Option<Vec<f32>>, String> {
+    fn raw_next_block(&mut self, frames: usize) -> Result<Option<Vec<f32>>, String> {
         match self {
-            Self::Builtin(d) => d.next_block(frames).map_err(|e| e.to_string()),
+            Self::Builtin { dec, .. } => dec.next_block(frames).map_err(|e| e.to_string()),
             Self::Plugin { dec, .. } => {
                 let (samples, _frames_read, eof) = dec
                     .read_interleaved_f32(frames as u32)
@@ -222,6 +363,45 @@ impl EngineDecoder {
                 Ok(Some(samples))
             }
         }
+    }
+
+    fn gapless_state_mut(&mut self) -> &mut GaplessTrimState {
+        match self {
+            Self::Builtin { gapless, .. } => gapless,
+            Self::Plugin { gapless, .. } => gapless,
+        }
+    }
+
+    pub fn next_block(&mut self, frames: usize) -> Result<Option<Vec<f32>>, String> {
+        let channels = self.spec().channels.max(1) as usize;
+        let want_samples = frames.saturating_mul(channels).max(channels);
+
+        loop {
+            let need_more = {
+                let gapless = self.gapless_state_mut();
+                gapless.pending_output.len() < want_samples && !gapless.eof_reached
+            };
+            if !need_more {
+                break;
+            }
+            match self.raw_next_block(frames)? {
+                Some(samples) => self.gapless_state_mut().push_decoded_samples(samples),
+                None => self.gapless_state_mut().on_eof(),
+            }
+        }
+
+        let gapless = self.gapless_state_mut();
+        if gapless.pending_output.is_empty() {
+            if gapless.eof_reached {
+                return Ok(None);
+            }
+            return Err("decoder produced no samples without eof".to_string());
+        }
+
+        let take = want_samples.min(gapless.pending_output.len());
+        let mut out = Vec::with_capacity(take);
+        out.extend(gapless.pending_output.drain(..take));
+        Ok(Some(out))
     }
 }
 
@@ -256,7 +436,7 @@ fn build_plugin_track_info(
     plugin_id: &str,
     decoder_type_id: &str,
     fallback_metadata: Option<serde_json::Value>,
-) -> Result<TrackDecodeInfo, String> {
+) -> Result<(TrackDecodeInfo, GaplessTrimSpec), String> {
     let info = dec.get_info().map_err(|e| e.to_string())?;
     if info.spec.sample_rate == 0 {
         return Err("plugin decoder returned sample_rate=0".to_string());
@@ -298,7 +478,11 @@ fn build_plugin_track_info(
     };
     out.set_metadata(metadata.as_ref())
         .map_err(|e| format!("failed to serialize decoder metadata: {e}"))?;
-    Ok(out)
+    let gapless = GaplessTrimSpec {
+        head_frames: info.encoder_delay_frames,
+        tail_frames: info.encoder_padding_frames,
+    };
+    Ok((out, gapless))
 }
 
 fn normalize_ext_hint(raw: &str) -> String {
@@ -418,6 +602,7 @@ fn try_open_decoder_for_local_path(
     Option<(
         stellatune_plugins::DecoderInstance,
         TrackDecodeInfo,
+        GaplessTrimSpec,
         DecoderIoOwner,
     )>,
     String,
@@ -466,13 +651,13 @@ fn try_open_decoder_for_local_path(
             io_owner.io_handle_ptr(),
         ) {
             Ok(()) => {
-                let info = build_plugin_track_info(
+                let (info, gapless) = build_plugin_track_info(
                     &mut dec,
                     &candidate.plugin_id,
                     &candidate.type_id,
                     None,
                 )?;
-                return Ok(Some((dec, info, io_owner)));
+                return Ok(Some((dec, info, gapless, io_owner)));
             }
             Err(e) => {
                 last_err = Some(format!(
@@ -499,6 +684,7 @@ fn try_open_decoder_for_source_stream(
     Option<(
         stellatune_plugins::DecoderInstance,
         TrackDecodeInfo,
+        GaplessTrimSpec,
         DecoderIoOwner,
     )>,
     String,
@@ -583,7 +769,7 @@ fn try_open_decoder_for_source_stream(
 
         match dec.open_with_io(path_hint, ext_hint, stream.io_vtable, stream.io_handle) {
             Ok(()) => {
-                let info = build_plugin_track_info(
+                let (info, gapless) = build_plugin_track_info(
                     &mut dec,
                     &candidate.plugin_id,
                     &candidate.type_id,
@@ -593,7 +779,7 @@ fn try_open_decoder_for_source_stream(
                     source: source_inst,
                     io_handle_addr: stream.io_handle as usize,
                 };
-                return Ok(Some((dec, info, io_owner)));
+                return Ok(Some((dec, info, gapless, io_owner)));
             }
             Err(e) => {
                 source_inst.close_stream(stream.io_handle);
@@ -718,8 +904,16 @@ pub(crate) fn open_engine_decoder(
                 Ok(d) => {
                     let spec = d.spec();
                     let info = build_builtin_track_info(spec);
+                    let gapless = GaplessTrimState::new(
+                        GaplessTrimSpec {
+                            head_frames: d.encoder_delay_frames(),
+                            tail_frames: d.encoder_padding_frames(),
+                        },
+                        spec.channels as usize,
+                        spec.sample_rate,
+                    );
                     debug!(path, "using built-in decoder for local track");
-                    return Ok((Box::new(EngineDecoder::Builtin(d)), info));
+                    return Ok((Box::new(EngineDecoder::Builtin { dec: d, gapless }), info));
                 }
                 Err(e) => {
                     debug!("built-in decoder open failed, trying plugin decoders: {e}");
@@ -728,7 +922,7 @@ pub(crate) fn open_engine_decoder(
         }
 
         match try_open_decoder_for_local_path(path, &ext_hint) {
-            Ok(Some((dec, info, io_owner))) => {
+            Ok(Some((dec, info, gapless_spec, io_owner))) => {
                 return Ok((
                     Box::new(EngineDecoder::Plugin {
                         spec: TrackSpec {
@@ -736,6 +930,11 @@ pub(crate) fn open_engine_decoder(
                             channels: info.channels,
                         },
                         dec,
+                        gapless: GaplessTrimState::new(
+                            gapless_spec,
+                            info.channels as usize,
+                            info.sample_rate,
+                        ),
                         _io_owner: io_owner,
                     }),
                     info,
@@ -750,7 +949,15 @@ pub(crate) fn open_engine_decoder(
         let d = Decoder::open(path).map_err(|e| format!("failed to open decoder: {e}"))?;
         let spec = d.spec();
         let info = build_builtin_track_info(spec);
-        return Ok((Box::new(EngineDecoder::Builtin(d)), info));
+        let gapless = GaplessTrimState::new(
+            GaplessTrimSpec {
+                head_frames: d.encoder_delay_frames(),
+                tail_frames: d.encoder_padding_frames(),
+            },
+            spec.channels as usize,
+            spec.sample_rate,
+        );
+        return Ok((Box::new(EngineDecoder::Builtin { dec: d, gapless }), info));
     }
 
     // Plugin-backed source track.
@@ -764,7 +971,7 @@ pub(crate) fn open_engine_decoder(
     };
 
     match try_open_decoder_for_source_stream(&source, &path_hint, &ext_hint) {
-        Ok(Some((dec, info, io_owner))) => {
+        Ok(Some((dec, info, gapless_spec, io_owner))) => {
             return Ok((
                 Box::new(EngineDecoder::Plugin {
                     spec: TrackSpec {
@@ -772,6 +979,11 @@ pub(crate) fn open_engine_decoder(
                         channels: info.channels,
                     },
                     dec,
+                    gapless: GaplessTrimState::new(
+                        gapless_spec,
+                        info.channels as usize,
+                        info.sample_rate,
+                    ),
                     _io_owner: io_owner,
                 }),
                 info,

@@ -78,11 +78,9 @@ pub struct TrackPlayability {
 #[flutter_rust_bridge::frb(non_opaque)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Command {
-    LoadTrack {
-        path: String,
-    },
-    LoadTrackRef {
+    SwitchTrackRef {
         track: TrackRef,
+        lazy: bool,
     },
     Play,
     Pause,
@@ -232,14 +230,32 @@ impl OutputSinkRoute {
 #[flutter_rust_bridge::frb(non_opaque)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Event {
-    StateChanged { state: PlayerState },
-    Position { ms: i64 },
-    TrackChanged { path: String },
-    PlaybackEnded { path: String },
-    VolumeChanged { volume: f32 },
-    Error { message: String },
-    Log { message: String },
-    OutputDevicesChanged { devices: Vec<AudioDevice> },
+    StateChanged {
+        state: PlayerState,
+    },
+    Position {
+        ms: i64,
+        path: String,
+        session_id: u64,
+    },
+    TrackChanged {
+        path: String,
+    },
+    PlaybackEnded {
+        path: String,
+    },
+    VolumeChanged {
+        volume: f32,
+    },
+    Error {
+        message: String,
+    },
+    Log {
+        message: String,
+    },
+    OutputDevicesChanged {
+        devices: Vec<AudioDevice>,
+    },
 }
 
 #[flutter_rust_bridge::frb(non_opaque)]

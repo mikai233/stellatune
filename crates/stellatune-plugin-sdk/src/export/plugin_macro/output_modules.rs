@@ -123,12 +123,40 @@ macro_rules! __st_export_output_modules {
                     }
                 }
 
+                extern "C" fn query_status(
+                    handle: *mut core::ffi::c_void,
+                    out_status: *mut stellatune_plugin_api::StOutputSinkRuntimeStatus,
+                ) -> $crate::StStatus {
+                    if handle.is_null() || out_status.is_null() {
+                        return $crate::status_err_msg($crate::ST_ERR_INVALID_ARG, "null handle/out_status");
+                    }
+                    let boxed = unsafe { &mut *(handle as *mut $crate::instance::OutputSinkBox<SinkImpl>) };
+                    match <SinkImpl as $crate::instance::OutputSinkInstance>::query_status(&mut boxed.inner) {
+                        Ok(status) => {
+                            unsafe { *out_status = status; }
+                            $crate::status_ok()
+                        }
+                        Err(e) => $crate::status_err_msg($crate::ST_ERR_IO, e),
+                    }
+                }
+
                 extern "C" fn flush(handle: *mut core::ffi::c_void) -> $crate::StStatus {
                     if handle.is_null() {
                         return $crate::status_err_msg($crate::ST_ERR_INVALID_ARG, "null handle");
                     }
                     let boxed = unsafe { &mut *(handle as *mut $crate::instance::OutputSinkBox<SinkImpl>) };
                     match <SinkImpl as $crate::instance::OutputSinkInstance>::flush(&mut boxed.inner) {
+                        Ok(()) => $crate::status_ok(),
+                        Err(e) => $crate::status_err_msg($crate::ST_ERR_IO, e),
+                    }
+                }
+
+                extern "C" fn reset(handle: *mut core::ffi::c_void) -> $crate::StStatus {
+                    if handle.is_null() {
+                        return $crate::status_err_msg($crate::ST_ERR_INVALID_ARG, "null handle");
+                    }
+                    let boxed = unsafe { &mut *(handle as *mut $crate::instance::OutputSinkBox<SinkImpl>) };
+                    match <SinkImpl as $crate::instance::OutputSinkInstance>::reset(&mut boxed.inner) {
                         Ok(()) => $crate::status_ok(),
                         Err(e) => $crate::status_err_msg($crate::ST_ERR_IO, e),
                     }
@@ -234,7 +262,9 @@ macro_rules! __st_export_output_modules {
                         negotiate_spec,
                         open,
                         write_interleaved_f32,
+                        query_status,
                         flush: Some(flush),
+                        reset,
                         close,
                         plan_config_update_json_utf8: Some(plan_config_update_json_utf8),
                         apply_config_update_json_utf8: Some(apply_config_update_json_utf8),

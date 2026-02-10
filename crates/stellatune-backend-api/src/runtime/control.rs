@@ -20,9 +20,7 @@ pub(super) fn control_wait_kind(request: &PluginControlRequest) -> ControlWaitKi
             }
             PlayerControlCommand::SeekMs => ControlWaitKind::PlayerPosition,
             PlayerControlCommand::SetVolume => ControlWaitKind::PlayerVolume,
-            PlayerControlCommand::LoadTrack | PlayerControlCommand::LoadTrackRef => {
-                ControlWaitKind::PlayerTrackChanged
-            }
+            PlayerControlCommand::SwitchTrackRef => ControlWaitKind::PlayerTrackChanged,
             PlayerControlCommand::RefreshDevices => ControlWaitKind::PlayerDevicesChanged,
             _ => ControlWaitKind::Immediate,
         },

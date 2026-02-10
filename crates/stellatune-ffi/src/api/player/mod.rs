@@ -32,12 +32,8 @@ pub fn create_player() -> RustOpaque<Player> {
     RustOpaque::new(Player::new())
 }
 
-pub fn load(player: RustOpaque<Player>, path: String) {
-    player.service.load(path);
-}
-
-pub fn load_track_ref(player: RustOpaque<Player>, track: TrackRef) {
-    player.service.load_track_ref(track);
+pub fn switch_track_ref(player: RustOpaque<Player>, track: TrackRef, lazy: bool) {
+    player.service.switch_track_ref(track, lazy);
 }
 
 pub fn play(player: RustOpaque<Player>) {

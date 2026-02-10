@@ -13,7 +13,7 @@ use super::{
     DecodeCtrl, EngineState, InternalMsg, OUTPUT_SINK_QUEUE_CAP_MESSAGES, OpenOutputSinkWorkerArgs,
     OutputSinkWorker, OutputSinkWorkerSpec, PLUGIN_SINK_DEFAULT_CHUNK_FRAMES,
     PLUGIN_SINK_FALLBACK_CHANNELS, PLUGIN_SINK_FALLBACK_SAMPLE_RATE,
-    PLUGIN_SINK_MIN_HIGH_WATERMARK_MS, PLUGIN_SINK_MIN_LOW_WATERMARK_MS,
+    PLUGIN_SINK_MIN_HIGH_WATERMARK_MS, PLUGIN_SINK_MIN_LOW_WATERMARK_MS, debug_metrics,
     runtime_active_capability_generation, with_runtime_service,
 };
 
@@ -133,6 +133,7 @@ pub(super) fn open_output_sink_worker(
         volume: args.volume,
         transition_gain: args.transition_gain,
         transition_target_gain: args.transition_target_gain,
+        transition_ramp_ms: args.transition_ramp_ms,
         internal_tx: args.internal_tx.clone(),
     }))
 }
@@ -150,6 +151,7 @@ pub(super) fn sync_output_sink_with_active_session(
     let channels = session.out_channels;
     let transition_gain = Arc::clone(&session.transition_gain);
     let transition_target_gain = Arc::clone(&session.transition_target_gain);
+    let transition_ramp_ms = Arc::clone(&session.transition_ramp_ms);
     let desired_route = state.desired_output_sink_route.clone();
     let Some(route) = desired_route else {
         let _ = ctrl_tx.send(DecodeCtrl::SetOutputSinkTx {
@@ -159,6 +161,8 @@ pub(super) fn sync_output_sink_with_active_session(
         shutdown_output_sink_worker(state);
         return Ok(());
     };
+    debug_metrics::note_output_sink_sample_rate(sample_rate);
+    let had_active_worker = state.output_sink_worker.is_some();
     let desired_spec = OutputSinkWorkerSpec {
         route: route.clone(),
         sample_rate,
@@ -212,6 +216,9 @@ pub(super) fn sync_output_sink_with_active_session(
         output_sink_chunk_frames: 0,
     });
     shutdown_output_sink_worker(state);
+    if had_active_worker {
+        debug_metrics::note_output_sink_recreate();
+    }
 
     let worker = open_output_sink_worker(OpenOutputSinkWorkerArgs {
         route: &route,
@@ -220,6 +227,7 @@ pub(super) fn sync_output_sink_with_active_session(
         volume: Arc::clone(&state.volume_atomic),
         transition_gain,
         transition_target_gain,
+        transition_ramp_ms,
         internal_tx,
     })?;
     let tx = worker.sender();
@@ -237,5 +245,6 @@ pub(super) fn shutdown_output_sink_worker(state: &mut EngineState) {
     let Some(worker) = state.output_sink_worker.take() else {
         return;
     };
-    worker.shutdown();
+    // Track switching should not block on sink drain/flush.
+    worker.shutdown(false);
 }

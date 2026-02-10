@@ -1,9 +1,10 @@
 use std::sync::atomic::Ordering;
 
 use super::{
-    CommandCtx, DecodeCtrl, Event, PlayerState, drop_output_pipeline, ensure_output_spec_prewarm,
-    force_transition_gain_unity, output_backend_for_selected, parse_output_sink_route, set_state,
-    stop_decode_session, sync_output_sink_with_active_session, ui_volume_to_gain,
+    CommandCtx, DecodeCtrl, Event, PlayerState, SessionStopMode, drop_output_pipeline,
+    ensure_output_spec_prewarm, force_transition_gain_unity, output_backend_for_selected,
+    parse_output_sink_route, set_state, stop_decode_session, sync_output_sink_with_active_session,
+    ui_volume_to_gain,
 };
 
 pub(super) fn on_set_volume(ctx: &mut CommandCtx<'_>, volume: f32) {
@@ -35,7 +36,7 @@ pub(super) fn on_set_output_device(
     ctx.state.output_spec_token = ctx.state.output_spec_token.wrapping_add(1);
     ensure_output_spec_prewarm(ctx.state, ctx.internal_tx);
     if ctx.state.session.is_some() {
-        stop_decode_session(ctx.state, ctx.track_info);
+        stop_decode_session(ctx.state, ctx.track_info, SessionStopMode::TearDownSink);
     }
     drop_output_pipeline(ctx.state);
     if ctx.state.wants_playback {
@@ -60,7 +61,7 @@ pub(super) fn on_set_output_options(
         ctx.state.match_track_sample_rate = match_track_sample_rate;
         ctx.state.gapless_playback = gapless_playback;
         if ctx.state.session.is_some() {
-            stop_decode_session(ctx.state, ctx.track_info);
+            stop_decode_session(ctx.state, ctx.track_info, SessionStopMode::TearDownSink);
             if ctx.state.wants_playback {
                 ctx.state.pending_session_start = true;
             }
@@ -93,7 +94,7 @@ pub(super) fn on_set_output_sink_route(
         ensure_output_spec_prewarm(ctx.state, ctx.internal_tx);
         let resume_playback = ctx.state.wants_playback;
         if ctx.state.session.is_some() {
-            stop_decode_session(ctx.state, ctx.track_info);
+            stop_decode_session(ctx.state, ctx.track_info, SessionStopMode::TearDownSink);
             drop_output_pipeline(ctx.state);
         }
         if resume_playback {
@@ -117,7 +118,7 @@ pub(super) fn on_clear_output_sink_route(ctx: &mut CommandCtx<'_>) {
         ensure_output_spec_prewarm(ctx.state, ctx.internal_tx);
         let resume_playback = ctx.state.wants_playback;
         if ctx.state.session.is_some() {
-            stop_decode_session(ctx.state, ctx.track_info);
+            stop_decode_session(ctx.state, ctx.track_info, SessionStopMode::TearDownSink);
             drop_output_pipeline(ctx.state);
         }
         if resume_playback {

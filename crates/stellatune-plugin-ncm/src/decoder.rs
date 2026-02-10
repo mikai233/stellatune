@@ -45,6 +45,8 @@ struct SymphoniaBackend {
     metadata: Option<serde_json::Value>,
     duration_ms: Option<u64>,
     seekable: bool,
+    encoder_delay_frames: u32,
+    encoder_padding_frames: u32,
 }
 
 impl NcmDecoder {
@@ -199,6 +201,8 @@ impl NcmDecoder {
                 metadata,
                 duration_ms,
                 seekable: true,
+                encoder_delay_frames: params.delay.unwrap_or(0),
+                encoder_padding_frames: params.padding.unwrap_or(0),
             }),
         })
     }
@@ -210,6 +214,8 @@ impl SymphoniaBackend {
             spec: self.spec,
             duration_ms: self.duration_ms,
             seekable: self.seekable,
+            encoder_delay_frames: self.encoder_delay_frames,
+            encoder_padding_frames: self.encoder_padding_frames,
         }
     }
 
@@ -428,6 +434,8 @@ impl DecoderInstance for NcmDecoderInstance {
                     reserved: 0,
                 },
                 duration_ms: 0,
+                encoder_delay_frames: 0,
+                encoder_padding_frames: 0,
                 flags: 0,
                 reserved: 0,
             },

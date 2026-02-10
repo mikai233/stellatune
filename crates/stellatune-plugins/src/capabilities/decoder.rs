@@ -63,6 +63,8 @@ impl DecoderInstance {
                 reserved: 0,
             },
             duration_ms: 0,
+            encoder_delay_frames: 0,
+            encoder_padding_frames: 0,
             flags: 0,
             reserved: 0,
         };

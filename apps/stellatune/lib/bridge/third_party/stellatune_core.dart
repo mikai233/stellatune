@@ -246,7 +246,11 @@ sealed class Event with _$Event {
 
   const factory Event.stateChanged({required PlayerState state}) =
       Event_StateChanged;
-  const factory Event.position({required PlatformInt64 ms}) = Event_Position;
+  const factory Event.position({
+    required PlatformInt64 ms,
+    required String path,
+    required BigInt sessionId,
+  }) = Event_Position;
   const factory Event.trackChanged({required String path}) = Event_TrackChanged;
   const factory Event.playbackEnded({required String path}) =
       Event_PlaybackEnded;

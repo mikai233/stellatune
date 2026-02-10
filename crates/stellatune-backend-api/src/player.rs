@@ -57,14 +57,9 @@ impl PlayerService {
         self.lyrics.subscribe_events()
     }
 
-    pub fn load(&self, path: String) {
-        self.engine.send_command(Command::LoadTrackRef {
-            track: TrackRef::for_local_path(path),
-        });
-    }
-
-    pub fn load_track_ref(&self, track: TrackRef) {
-        self.engine.send_command(Command::LoadTrackRef { track });
+    pub fn switch_track_ref(&self, track: TrackRef, lazy: bool) {
+        self.engine
+            .send_command(Command::SwitchTrackRef { track, lazy });
     }
 
     pub fn play(&self) {

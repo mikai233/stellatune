@@ -21,7 +21,7 @@ pub use source::*;
 
 // Single in-development ABI version (early-stage project).
 // Note: this ABI may change in place during early development.
-pub const STELLATUNE_PLUGIN_API_VERSION: u32 = 5;
+pub const STELLATUNE_PLUGIN_API_VERSION: u32 = 8;
 pub const STELLATUNE_PLUGIN_ENTRY_SYMBOL: &str = "stellatune_plugin_entry";
 
 // Status codes (non-exhaustive). Plugins may use other non-zero codes, but the SDK uses these.
@@ -146,6 +146,10 @@ pub struct StDecoderInfo {
     pub spec: StAudioSpec,
     /// Only valid when `flags & ST_DECODER_INFO_FLAG_HAS_DURATION != 0`.
     pub duration_ms: u64,
+    /// Leading decoded frames that should be skipped for gapless playback.
+    pub encoder_delay_frames: u32,
+    /// Trailing decoded frames that should be skipped for gapless playback.
+    pub encoder_padding_frames: u32,
     pub flags: u32,
     pub reserved: u32,
 }

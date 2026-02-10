@@ -13,11 +13,11 @@ use stellatune_plugins::runtime::InstanceUpdateResult;
 
 use crate::engine::config::{
     BUFFER_PREFILL_CAP_MS, BUFFER_PREFILL_CAP_MS_EXCLUSIVE, OUTPUT_SINK_WRITE_RETRY_SLEEP_MS,
-    OUTPUT_SINK_WRITE_STALL_TIMEOUT_MS, RING_BUFFER_CAPACITY_MS, SEEK_TRACK_FADE_RAMP_MS,
+    OUTPUT_SINK_WRITE_STALL_TIMEOUT_MS, RING_BUFFER_CAPACITY_MS,
+    TRANSITION_FADE_RAMP_MS_TRACK_SWITCH,
 };
 use crate::engine::decode::decoder::EngineDecoder;
 use crate::engine::decode::{DecodeThreadArgs, decode_thread};
-use crate::engine::event_hub::EventHub;
 use crate::engine::messages::{
     DecodeCtrl, DecodeWorkerState, InternalMsg, OutputSinkTx, OutputSinkWrite, PredecodedChunk,
 };
@@ -25,7 +25,7 @@ use crate::engine::update_events::emit_config_update_runtime_event;
 use crate::ring_buffer::{RingBufferConsumer, RingBufferProducer, new_ring_buffer};
 
 const OUTPUT_CONSUMER_CHUNK_SAMPLES: usize = 1024;
-pub(crate) const OUTPUT_SINK_QUEUE_CAP_MESSAGES: usize = 8;
+pub(crate) const OUTPUT_SINK_QUEUE_CAP_MESSAGES: usize = 16;
 #[cfg(debug_assertions)]
 const DEBUG_SESSION_LOG_EVERY: u64 = 12;
 #[cfg(debug_assertions)]
@@ -183,6 +183,7 @@ pub(crate) struct OutputPipeline {
     pub(crate) underrun_callbacks: Arc<AtomicU64>,
     pub(crate) transition_gain: Arc<AtomicU32>,
     pub(crate) transition_target_gain: Arc<AtomicU32>,
+    pub(crate) transition_ramp_ms: Arc<AtomicU32>,
     pub(crate) backend: stellatune_output::AudioBackend,
     pub(crate) device_id: Option<String>,
     pub(crate) device_output_enabled: bool,
@@ -197,6 +198,7 @@ pub(crate) struct PlaybackSession {
     pub(crate) underrun_callbacks: Arc<AtomicU64>,
     pub(crate) transition_gain: Arc<AtomicU32>,
     pub(crate) transition_target_gain: Arc<AtomicU32>,
+    pub(crate) transition_ramp_ms: Arc<AtomicU32>,
     pub(crate) out_sample_rate: u32,
     pub(crate) out_channels: u16,
     pub(crate) track_info: TrackDecodeInfo,
@@ -206,6 +208,7 @@ pub(crate) struct OutputSinkWorker {
     tx: Sender<OutputSinkWrite>,
     ctrl_tx: Sender<OutputSinkControl>,
     pending_samples: Arc<AtomicUsize>,
+    sink_runtime_queued_samples: Arc<AtomicUsize>,
     join: JoinHandle<()>,
 }
 
@@ -220,6 +223,7 @@ pub(crate) struct OutputSinkWorkerStartArgs {
     pub(crate) volume: Arc<AtomicU32>,
     pub(crate) transition_gain: Arc<AtomicU32>,
     pub(crate) transition_target_gain: Arc<AtomicU32>,
+    pub(crate) transition_ramp_ms: Arc<AtomicU32>,
     pub(crate) internal_tx: Sender<InternalMsg>,
 }
 
@@ -228,13 +232,23 @@ enum OutputSinkControl {
         config_json: String,
         resp_tx: Sender<Result<(), String>>,
     },
+    ResetForDisrupt {
+        resp_tx: Sender<Result<(), String>>,
+    },
 }
 
 struct MasterGainProcessor {
     volume: Arc<AtomicU32>,
     transition_gain: Arc<AtomicU32>,
     transition_target_gain: Arc<AtomicU32>,
+    transition_ramp_ms: Arc<AtomicU32>,
     transition_current: f32,
+    transition_from: f32,
+    transition_to: f32,
+    transition_progress: f32,
+    sample_rate: u32,
+    last_ramp_ms: u32,
+    last_target_gain: f32,
     transition_step: f32,
 }
 
@@ -243,29 +257,58 @@ impl MasterGainProcessor {
         volume: Arc<AtomicU32>,
         transition_gain: Arc<AtomicU32>,
         transition_target_gain: Arc<AtomicU32>,
+        transition_ramp_ms: Arc<AtomicU32>,
         sample_rate: u32,
     ) -> Self {
         let transition_current =
             f32::from_bits(transition_gain.load(Ordering::Relaxed)).clamp(0.0, 1.0);
-        let transition_step = (1.0
-            / ((sample_rate as f32 * SEEK_TRACK_FADE_RAMP_MS as f32) / 1000.0).max(1.0))
-        .min(1.0);
+        let transition_target =
+            f32::from_bits(transition_target_gain.load(Ordering::Relaxed)).clamp(0.0, 1.0);
+        let ramp_ms = transition_ramp_ms.load(Ordering::Relaxed).max(1);
+        let transition_step = calc_transition_step(sample_rate, ramp_ms);
         Self {
             volume,
             transition_gain,
             transition_target_gain,
+            transition_ramp_ms,
             transition_current,
+            transition_from: transition_current,
+            transition_to: transition_target,
+            transition_progress: if (transition_current - transition_target).abs() <= f32::EPSILON {
+                1.0
+            } else {
+                0.0
+            },
+            sample_rate,
+            last_ramp_ms: ramp_ms,
+            last_target_gain: transition_target,
             transition_step,
         }
     }
 
     fn next_transition_gain(&mut self) -> f32 {
+        let ramp_ms = self.transition_ramp_ms.load(Ordering::Relaxed).max(1);
+        if ramp_ms != self.last_ramp_ms {
+            self.last_ramp_ms = ramp_ms;
+            self.transition_step = calc_transition_step(self.sample_rate, ramp_ms);
+        }
         let target =
             f32::from_bits(self.transition_target_gain.load(Ordering::Relaxed)).clamp(0.0, 1.0);
-        if self.transition_current < target {
-            self.transition_current = (self.transition_current + self.transition_step).min(target);
-        } else if self.transition_current > target {
-            self.transition_current = (self.transition_current - self.transition_step).max(target);
+        if (target - self.last_target_gain).abs() > f32::EPSILON {
+            self.transition_from = self.transition_current;
+            self.transition_to = target;
+            self.transition_progress = 0.0;
+            self.last_target_gain = target;
+        }
+        if self.transition_progress < 1.0 {
+            self.transition_progress = (self.transition_progress + self.transition_step).min(1.0);
+            self.transition_current = transition_gain_interpolate(
+                self.transition_from,
+                self.transition_to,
+                self.transition_progress,
+            );
+        } else {
+            self.transition_current = self.transition_to;
         }
         self.transition_gain
             .store(self.transition_current.to_bits(), Ordering::Relaxed);
@@ -285,6 +328,22 @@ impl MasterGainProcessor {
     }
 }
 
+fn calc_transition_step(sample_rate: u32, ramp_ms: u32) -> f32 {
+    let sample_rate = sample_rate.max(1) as f32;
+    let ramp_ms = ramp_ms.max(1) as f32;
+    (1.0 / ((sample_rate * ramp_ms) / 1000.0).max(1.0)).min(1.0)
+}
+
+fn transition_gain_interpolate(from: f32, to: f32, t: f32) -> f32 {
+    let from = from.clamp(0.0, 1.0);
+    let to = to.clamp(0.0, 1.0);
+    let t = t.clamp(0.0, 1.0);
+    let from_power = from * from;
+    let to_power = to * to;
+    let power = from_power + (to_power - from_power) * t;
+    power.max(0.0).sqrt().clamp(0.0, 1.0)
+}
+
 impl OutputSinkWorker {
     pub(crate) fn start(args: OutputSinkWorkerStartArgs) -> Self {
         let OutputSinkWorkerStartArgs {
@@ -298,6 +357,7 @@ impl OutputSinkWorker {
             volume,
             transition_gain,
             transition_target_gain,
+            transition_ramp_ms,
             internal_tx,
         } = args;
         let (tx, rx) =
@@ -305,14 +365,18 @@ impl OutputSinkWorker {
         let (ctrl_tx, ctrl_rx) = crossbeam_channel::unbounded::<OutputSinkControl>();
         let pending_samples = Arc::new(AtomicUsize::new(0));
         let pending_samples_for_thread = Arc::clone(&pending_samples);
+        let sink_runtime_queued_samples = Arc::new(AtomicUsize::new(0));
+        let sink_runtime_queued_samples_for_thread = Arc::clone(&sink_runtime_queued_samples);
         let join = std::thread::Builder::new()
             .name("stellatune-output-sink".to_string())
             .spawn(move || {
+                let _rt_guard = stellatune_output::enable_realtime_audio_thread();
                 let mut current_config_json = config_json;
                 let mut master_gain = MasterGainProcessor::new(
                     volume,
                     transition_gain,
                     transition_target_gain,
+                    transition_ramp_ms,
                     sample_rate,
                 );
                 loop {
@@ -432,6 +496,45 @@ impl OutputSinkWorker {
                                         }
                                     }
                                 }
+                                OutputSinkControl::ResetForDisrupt { resp_tx } => {
+                                    let mut dropped_samples = 0usize;
+                                    while let Ok(pending_msg) = rx.try_recv() {
+                                        match pending_msg {
+                                            OutputSinkWrite::Samples(samples) => {
+                                                dropped_samples = dropped_samples
+                                                    .saturating_add(samples.len());
+                                            }
+                                            OutputSinkWrite::Shutdown { drain } => {
+                                                if drain {
+                                                    let _ = sink.flush();
+                                                }
+                                                sink.close();
+                                                let _ = resp_tx.send(Ok(()));
+                                                return;
+                                            }
+                                        }
+                                    }
+                                    if dropped_samples > 0 {
+                                        let _ = pending_samples_for_thread.fetch_update(
+                                            Ordering::Relaxed,
+                                            Ordering::Relaxed,
+                                            |current| Some(current.saturating_sub(dropped_samples)),
+                                        );
+                                    }
+
+                                    if let Err(e) = sink.reset() {
+                                        let _ = resp_tx.send(Err(format!(
+                                            "output sink reset_for_disrupt failed: {e}"
+                                        )));
+                                        continue;
+                                    }
+                                    if let Ok(status) = sink.query_status() {
+                                        sink_runtime_queued_samples_for_thread
+                                            .store(status.queued_samples as usize, Ordering::Release);
+                                    }
+
+                                    let _ = resp_tx.send(Ok(()));
+                                }
                             }
                         }
                         recv(rx) -> msg => {
@@ -457,14 +560,20 @@ impl OutputSinkWorker {
                                         )));
                                         break;
                                     }
+                                    if let Ok(status) = sink.query_status() {
+                                        sink_runtime_queued_samples_for_thread
+                                            .store(status.queued_samples as usize, Ordering::Release);
+                                    }
                                     let _ = pending_samples_for_thread.fetch_update(
                                         Ordering::Relaxed,
                                         Ordering::Relaxed,
                                         |current| Some(current.saturating_sub(queued)),
                                     );
                                 }
-                                OutputSinkWrite::Shutdown => {
-                                    let _ = sink.flush();
+                                OutputSinkWrite::Shutdown { drain } => {
+                                    if drain {
+                                        let _ = sink.flush();
+                                    }
                                     sink.close();
                                     break;
                                 }
@@ -478,6 +587,7 @@ impl OutputSinkWorker {
             tx,
             ctrl_tx,
             pending_samples,
+            sink_runtime_queued_samples,
             join,
         }
     }
@@ -488,6 +598,10 @@ impl OutputSinkWorker {
 
     pub(crate) fn pending_samples(&self) -> usize {
         self.pending_samples.load(Ordering::Relaxed)
+    }
+
+    pub(crate) fn sink_runtime_queued_samples(&self) -> usize {
+        self.sink_runtime_queued_samples.load(Ordering::Acquire)
     }
 
     pub(crate) fn apply_config_json(&self, config_json: String) -> Result<(), String> {
@@ -503,8 +617,18 @@ impl OutputSinkWorker {
             .map_err(|_| "output sink worker dropped config update response".to_string())?
     }
 
-    pub(crate) fn shutdown(self) {
-        let _ = self.tx.send(OutputSinkWrite::Shutdown);
+    pub(crate) fn reset_for_disrupt(&self) -> Result<(), String> {
+        let (resp_tx, resp_rx) = crossbeam_channel::bounded(1);
+        self.ctrl_tx
+            .send(OutputSinkControl::ResetForDisrupt { resp_tx })
+            .map_err(|_| "output sink worker exited".to_string())?;
+        resp_rx
+            .recv()
+            .map_err(|_| "output sink worker dropped disrupt reset response".to_string())?
+    }
+
+    pub(crate) fn shutdown(self, drain: bool) {
+        let _ = self.tx.send(OutputSinkWrite::Shutdown { drain });
         let _ = self.join.join();
     }
 }
@@ -646,10 +770,7 @@ impl DecodeWorker {
     }
 }
 
-pub(crate) fn start_decode_worker(
-    events: Arc<EventHub>,
-    internal_tx: Sender<InternalMsg>,
-) -> DecodeWorker {
+pub(crate) fn start_decode_worker(internal_tx: Sender<InternalMsg>) -> DecodeWorker {
     debug_metrics::note_worker_start();
     let runtime_state = Arc::new(AtomicU8::new(DecodeWorkerState::Idle as u8));
     let promoted_preload = Arc::new(Mutex::new(None));
@@ -660,8 +781,8 @@ pub(crate) fn start_decode_worker(
     let join = std::thread::Builder::new()
         .name("stellatune-decode".to_string())
         .spawn(move || {
+            let _rt_guard = stellatune_output::enable_realtime_audio_thread();
             run_decode_worker(
-                events,
                 internal_tx,
                 ctrl_rx,
                 prepare_rx,
@@ -680,7 +801,6 @@ pub(crate) fn start_decode_worker(
 }
 
 fn run_decode_worker(
-    events: Arc<EventHub>,
     internal_tx: Sender<InternalMsg>,
     ctrl_rx: Receiver<DecodeCtrl>,
     prepare_rx: Receiver<DecodePrepareMsg>,
@@ -742,7 +862,6 @@ fn run_decode_worker(
 
         decode_thread(DecodeThreadArgs {
             path: prepare.path,
-            events: Arc::clone(&events),
             internal_tx: internal_tx.clone(),
             preopened,
             ctrl_rx: ctrl_rx.clone(),
@@ -810,6 +929,7 @@ fn create_output_pipeline(
     let underrun_callbacks = Arc::new(AtomicU64::new(0));
     let transition_gain = Arc::new(AtomicU32::new(1.0f32.to_bits()));
     let transition_target_gain = Arc::new(AtomicU32::new(1.0f32.to_bits()));
+    let transition_ramp_ms = Arc::new(AtomicU32::new(TRANSITION_FADE_RAMP_MS_TRACK_SWITCH as u32));
 
     let output = if device_output_enabled {
         let output_consumer = GatedConsumer {
@@ -819,6 +939,7 @@ fn create_output_pipeline(
                 volume,
                 Arc::clone(&transition_gain),
                 Arc::clone(&transition_target_gain),
+                Arc::clone(&transition_ramp_ms),
                 out_spec.sample_rate,
             ),
             buffered_samples: Arc::clone(&buffered_samples),
@@ -826,6 +947,7 @@ fn create_output_pipeline(
             scratch: vec![0.0; OUTPUT_CONSUMER_CHUNK_SAMPLES],
             scratch_len: 0,
             scratch_cursor: 0,
+            last_enabled: false,
         };
 
         let output = OutputHandle::start(
@@ -854,6 +976,7 @@ fn create_output_pipeline(
         underrun_callbacks,
         transition_gain,
         transition_target_gain,
+        transition_ramp_ms,
         backend,
         device_id,
         device_output_enabled,
@@ -979,6 +1102,10 @@ pub(crate) fn start_session(args: StartSessionArgs<'_>) -> Result<PlaybackSessio
     if let Ok(mut producer) = pipeline.producer.lock() {
         producer.clear();
     }
+    // Session switch can reuse the same output pipeline. Reset runtime-facing state so
+    // control tick never observes stale buffered samples and accidentally opens the gate early.
+    pipeline.output_enabled.store(false, Ordering::Release);
+    pipeline.buffered_samples.store(0, Ordering::Relaxed);
 
     decode_worker
         .prepare_tx
@@ -998,7 +1125,10 @@ pub(crate) fn start_session(args: StartSessionArgs<'_>) -> Result<PlaybackSessio
             output_sink_only,
             spec_tx,
         }))
-        .map_err(|_| "decode worker unavailable".to_string())?;
+        .map_err(|_| {
+            "decode worker unavailable: prepare channel disconnected (worker thread exited)"
+                .to_string()
+        })?;
 
     let t_after_prepare = Instant::now();
     let track_info = match spec_rx.recv() {
@@ -1026,6 +1156,7 @@ pub(crate) fn start_session(args: StartSessionArgs<'_>) -> Result<PlaybackSessio
         underrun_callbacks: Arc::clone(&pipeline.underrun_callbacks),
         transition_gain: Arc::clone(&pipeline.transition_gain),
         transition_target_gain: Arc::clone(&pipeline.transition_target_gain),
+        transition_ramp_ms: Arc::clone(&pipeline.transition_ramp_ms),
         out_sample_rate: pipeline.out_sample_rate,
         out_channels: pipeline.out_channels,
         track_info,
@@ -1041,12 +1172,34 @@ struct GatedConsumer {
     scratch: Vec<f32>,
     scratch_len: usize,
     scratch_cursor: usize,
+    last_enabled: bool,
 }
 
 impl stellatune_output::SampleConsumer for GatedConsumer {
     fn pop_sample(&mut self) -> Option<f32> {
-        if !self.enabled.load(Ordering::Acquire) {
+        let enabled = self.enabled.load(Ordering::Acquire);
+        if !enabled {
+            if self.last_enabled {
+                let staged = self.scratch_len.saturating_sub(self.scratch_cursor);
+                if staged > 0 {
+                    debug!(
+                        staged_samples = staged,
+                        scratch_len = self.scratch_len,
+                        scratch_cursor = self.scratch_cursor,
+                        "output gate closed: dropping staged samples"
+                    );
+                } else {
+                    debug!("output gate closed");
+                }
+                self.scratch_len = 0;
+                self.scratch_cursor = 0;
+                self.last_enabled = false;
+            }
             return None;
+        }
+        if !self.last_enabled {
+            debug!("output gate opened");
+            self.last_enabled = true;
         }
 
         if self.scratch_cursor >= self.scratch_len {

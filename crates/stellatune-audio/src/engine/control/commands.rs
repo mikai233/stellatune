@@ -4,12 +4,11 @@ use crossbeam_channel::Sender;
 
 use super::{
     Command, DecodeCtrl, EngineState, Event, EventHub, InternalMsg, PlayerState, PluginEventHub,
-    SharedTrackInfo, StartSessionArgs, apply_dsp_chain, debug_metrics, drop_output_pipeline,
-    enqueue_preload_task, ensure_output_spec_prewarm, force_transition_gain_unity, handle_tick,
-    maybe_fade_out_before_disrupt, output_backend_for_selected, parse_output_sink_route,
-    resolve_output_spec_and_sink_chunk, set_state, start_session, stop_all_audio,
-    stop_decode_session, sync_output_sink_with_active_session, track_ref_to_engine_token,
-    track_ref_to_event_path,
+    SessionStopMode, SharedTrackInfo, debug_metrics, drop_output_pipeline, enqueue_preload_task,
+    ensure_output_spec_prewarm, force_transition_gain_unity, handle_tick,
+    maybe_fade_out_before_disrupt, output_backend_for_selected, parse_output_sink_route, set_state,
+    stop_all_audio, stop_decode_session, sync_output_sink_with_active_session,
+    track_ref_to_engine_token, track_ref_to_event_path,
 };
 
 mod lifecycle;
@@ -22,7 +21,7 @@ use output::{
     on_clear_output_sink_route, on_refresh_devices, on_set_lfe_mode, on_set_output_device,
     on_set_output_options, on_set_output_sink_route, on_set_volume,
 };
-use playback::{on_load_track, on_load_track_ref, on_pause, on_play, on_seek_ms, on_stop};
+use playback::{on_pause, on_play, on_seek_ms, on_stop, on_switch_track_ref};
 use preload::{on_preload_track, on_preload_track_ref};
 
 struct CommandCtx<'a> {
@@ -50,8 +49,7 @@ pub(super) fn handle_command(
     };
 
     match cmd {
-        Command::LoadTrack { path } => on_load_track(&mut ctx, path),
-        Command::LoadTrackRef { track } => on_load_track_ref(&mut ctx, track),
+        Command::SwitchTrackRef { track, lazy } => on_switch_track_ref(&mut ctx, track, lazy),
         Command::Play => on_play(&mut ctx),
         Command::Pause => on_pause(&mut ctx),
         Command::SeekMs { position_ms } => on_seek_ms(&mut ctx, position_ms),

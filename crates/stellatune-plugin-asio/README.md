@@ -70,8 +70,12 @@ the sidecar automatically.
   "sidecar_path": null,
   "sidecar_args": [],
   "buffer_size_frames": null,
+  "sample_rate_mode": "fixed_target",
+  "fixed_target_sample_rate": null,
   "ring_capacity_ms": 250,
-  "preferred_chunk_frames": 256,
+  "start_prefill_ms": 0,
+  "preferred_chunk_frames": 0,
+  "latency_profile": "balanced",
   "flush_timeout_ms": 400
 }
 ```
@@ -80,8 +84,17 @@ Field notes:
 
 - `sidecar_path`: absolute path or runtime-root-relative path.
 - `buffer_size_frames`: passed to sidecar `Open` request.
+- `sample_rate_mode`:
+  - `fixed_target`: keep one negotiated output sample rate (recommended for lessgap).
+  - `match_track`: follow each track sample rate (may cause more reopen/re-negotiate events).
+- `fixed_target_sample_rate`: used in `fixed_target` mode. When explicitly set, plugin forces this exact output rate (does not auto-fallback to nearest caps rate). `null` means device default sample rate.
 - `ring_capacity_ms`: shared ring capacity in milliseconds.
-- `preferred_chunk_frames`: host write chunk hint via negotiation.
+- `latency_profile`: ASIO buffering aggressiveness preset:
+  - `aggressive`: lower latency, higher underrun risk.
+  - `balanced`: middle ground.
+  - `conservative`: higher latency, better startup/switch stability.
+- `start_prefill_ms`: sidecar stream start prefill threshold. `0` means auto by `latency_profile` (`aggressive`=15ms, `balanced`=30ms, `conservative`=60ms).
+- `preferred_chunk_frames`: host write chunk hint via negotiation. `0` means auto by sample rate and `latency_profile` (base: 48k->128, 96k->256, 192k->512; then `aggressive` x1, `balanced` x2, `conservative` x4). `>0` uses fixed chunk size.
 - `flush_timeout_ms`: best-effort flush wait timeout before close.
 
 ## Limitations

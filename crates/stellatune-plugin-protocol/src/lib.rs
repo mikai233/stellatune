@@ -208,11 +208,10 @@ impl LibraryListPlaylistTracksQuery {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "command", rename_all = "snake_case")]
 pub enum PlayerControl {
-    LoadTrack {
-        path: String,
-    },
-    LoadTrackRef {
+    SwitchTrackRef {
         track: TrackRef,
+        #[serde(default)]
+        lazy: bool,
     },
     Play,
     Pause,
@@ -255,12 +254,12 @@ pub enum PlayerControl {
 }
 
 impl PlayerControl {
-    pub fn load_track(path: impl Into<String>) -> Self {
-        Self::LoadTrack { path: path.into() }
+    pub fn switch_track_ref(track: TrackRef) -> Self {
+        Self::SwitchTrackRef { track, lazy: false }
     }
 
-    pub fn load_track_ref(track: TrackRef) -> Self {
-        Self::LoadTrackRef { track }
+    pub fn switch_track_ref_lazy(track: TrackRef) -> Self {
+        Self::SwitchTrackRef { track, lazy: true }
     }
 
     pub fn play() -> Self {
@@ -346,8 +345,7 @@ impl PlayerControl {
 
     pub fn command(&self) -> PlayerControlCommand {
         match self {
-            Self::LoadTrack { .. } => PlayerControlCommand::LoadTrack,
-            Self::LoadTrackRef { .. } => PlayerControlCommand::LoadTrackRef,
+            Self::SwitchTrackRef { .. } => PlayerControlCommand::SwitchTrackRef,
             Self::Play => PlayerControlCommand::Play,
             Self::Pause => PlayerControlCommand::Pause,
             Self::Stop => PlayerControlCommand::Stop,
@@ -367,9 +365,9 @@ impl PlayerControl {
 
     pub fn to_command(&self) -> Command {
         match self {
-            Self::LoadTrack { path } => Command::LoadTrack { path: path.clone() },
-            Self::LoadTrackRef { track } => Command::LoadTrackRef {
+            Self::SwitchTrackRef { track, lazy } => Command::SwitchTrackRef {
                 track: track.clone(),
+                lazy: *lazy,
             },
             Self::Play => Command::Play,
             Self::Pause => Command::Pause,

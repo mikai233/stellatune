@@ -12,20 +12,21 @@ use super::types::{ControlWaitKind, PendingControlFinish};
 
 #[test]
 fn parse_plugin_control_request_supports_extended_commands() {
-    let load_track_ref = serde_json::json!({
+    let switch_track_ref = serde_json::json!({
         "scope": "player",
-        "command": "load_track_ref",
+        "command": "switch_track_ref",
         "track": {
             "source_id": "local",
             "track_id": "a.flac",
             "locator": "C:/music/a.flac"
-        }
+        },
+        "lazy": false
     });
-    let req: PluginControlRequest = serde_json::from_value(load_track_ref).expect("parse");
+    let req: PluginControlRequest = serde_json::from_value(switch_track_ref).expect("parse");
     assert!(matches!(
         req,
         PluginControlRequest::Player {
-            control: stellatune_plugin_protocol::PlayerControl::LoadTrackRef { .. },
+            control: stellatune_plugin_protocol::PlayerControl::SwitchTrackRef { .. },
             ..
         }
     ));

@@ -43,6 +43,8 @@ pub struct DecoderInfo {
     pub spec: StAudioSpec,
     pub duration_ms: Option<u64>,
     pub seekable: bool,
+    pub encoder_delay_frames: u32,
+    pub encoder_padding_frames: u32,
 }
 
 impl DecoderInfo {
@@ -59,6 +61,8 @@ impl DecoderInfo {
         StDecoderInfo {
             spec: self.spec,
             duration_ms,
+            encoder_delay_frames: self.encoder_delay_frames,
+            encoder_padding_frames: self.encoder_padding_frames,
             flags,
             reserved: 0,
         }

@@ -3,9 +3,9 @@ use std::sync::Arc;
 use crossbeam_channel::Sender;
 
 use super::{
-    EngineState, Event, EventHub, InternalMsg, PlayerState, SharedTrackInfo, debug_metrics,
-    drop_output_pipeline, ensure_output_spec_prewarm, event_path_from_engine_token, set_state,
-    stop_all_audio, stop_decode_session,
+    EngineState, Event, EventHub, InternalMsg, PlayerState, SessionStopMode, SharedTrackInfo,
+    debug_metrics, drop_output_pipeline, ensure_output_spec_prewarm, event_path_from_engine_token,
+    set_state, stop_all_audio, stop_decode_session,
 };
 
 mod errors;
@@ -41,7 +41,7 @@ pub(super) fn handle_internal(
         InternalMsg::Eof => on_eof(&mut ctx),
         InternalMsg::Error(message) => on_error(&mut ctx, message),
         InternalMsg::OutputError(message) => on_output_error(&mut ctx, message),
-        InternalMsg::Position(ms) => on_position(&mut ctx, ms),
+        InternalMsg::Position { path, ms } => on_position(&mut ctx, path, ms),
         InternalMsg::OutputSpecReady {
             spec,
             took_ms,

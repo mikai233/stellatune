@@ -1,5 +1,5 @@
 use serde::{Serialize, de::DeserializeOwned};
-use stellatune_plugin_api::StOutputSinkNegotiatedSpec;
+use stellatune_plugin_api::{StOutputSinkNegotiatedSpec, StOutputSinkRuntimeStatus};
 
 use crate::{SdkError, SdkResult, StAudioSpec, StDecoderInfo, StIoVTable, StSeekWhence};
 
@@ -260,7 +260,20 @@ pub trait OutputSinkInstance: Send + ConfigUpdatable + 'static {
     /// Writes interleaved f32 samples and returns accepted frame count.
     fn write_interleaved_f32(&mut self, channels: u16, samples: &[f32]) -> SdkResult<u32>;
 
+    fn query_status(&mut self) -> SdkResult<StOutputSinkRuntimeStatus> {
+        Ok(StOutputSinkRuntimeStatus {
+            queued_samples: 0,
+            running: 0,
+            reserved0: 0,
+            reserved1: 0,
+        })
+    }
+
     fn flush(&mut self) -> SdkResult<()> {
+        Ok(())
+    }
+
+    fn reset(&mut self) -> SdkResult<()> {
         Ok(())
     }
 

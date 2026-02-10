@@ -66,9 +66,8 @@ class PlayerBridge {
   Stream<PluginRuntimeEvent> pluginRuntimeEvents() =>
       _pluginRuntimeEventBroadcast ??= pluginRuntimeEventsGlobal();
 
-  Future<void> load(String path) => api.load(player: player, path: path);
-  Future<void> loadTrackRef(TrackRef track) =>
-      api.loadTrackRef(player: player, track: track);
+  Future<void> switchTrackRef(TrackRef track, {required bool lazy}) =>
+      api.switchTrackRef(player: player, track: track, lazy: lazy);
 
   Future<void> play() => api.play(player: player);
   Future<void> pause() => api.pause(player: player);

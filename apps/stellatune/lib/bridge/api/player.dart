@@ -12,14 +12,15 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 Future<Player> createPlayer() =>
     StellatuneApi.instance.api.crateApiPlayerCreatePlayer();
 
-Future<void> load({required Player player, required String path}) =>
-    StellatuneApi.instance.api.crateApiPlayerLoad(player: player, path: path);
-
-Future<void> loadTrackRef({required Player player, required TrackRef track}) =>
-    StellatuneApi.instance.api.crateApiPlayerLoadTrackRef(
-      player: player,
-      track: track,
-    );
+Future<void> switchTrackRef({
+  required Player player,
+  required TrackRef track,
+  required bool lazy,
+}) => StellatuneApi.instance.api.crateApiPlayerSwitchTrackRef(
+  player: player,
+  track: track,
+  lazy: lazy,
+);
 
 Future<void> play({required Player player}) =>
     StellatuneApi.instance.api.crateApiPlayerPlay(player: player);

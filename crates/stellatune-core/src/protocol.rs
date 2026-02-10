@@ -83,8 +83,7 @@ impl ControlScope {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PlayerControlCommand {
-    LoadTrack,
-    LoadTrackRef,
+    SwitchTrackRef,
     Play,
     Pause,
     Stop,
@@ -104,8 +103,7 @@ pub enum PlayerControlCommand {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ControlCommand {
-    LoadTrack,
-    LoadTrackRef,
+    SwitchTrackRef,
     Play,
     Pause,
     Stop,
@@ -149,8 +147,7 @@ impl ControlCommand {
     #[flutter_rust_bridge::frb(ignore)]
     pub const fn as_str(self) -> &'static str {
         match self {
-            Self::LoadTrack => "load_track",
-            Self::LoadTrackRef => "load_track_ref",
+            Self::SwitchTrackRef => "switch_track_ref",
             Self::Play => "play",
             Self::Pause => "pause",
             Self::Stop => "stop",
@@ -195,8 +192,7 @@ impl ControlCommand {
 impl From<PlayerControlCommand> for ControlCommand {
     fn from(value: PlayerControlCommand) -> Self {
         match value {
-            PlayerControlCommand::LoadTrack => Self::LoadTrack,
-            PlayerControlCommand::LoadTrackRef => Self::LoadTrackRef,
+            PlayerControlCommand::SwitchTrackRef => Self::SwitchTrackRef,
             PlayerControlCommand::Play => Self::Play,
             PlayerControlCommand::Pause => Self::Pause,
             PlayerControlCommand::Stop => Self::Stop,
@@ -250,8 +246,7 @@ impl PlayerControlCommand {
     #[flutter_rust_bridge::frb(ignore)]
     pub const fn as_str(self) -> &'static str {
         match self {
-            Self::LoadTrack => "load_track",
-            Self::LoadTrackRef => "load_track_ref",
+            Self::SwitchTrackRef => "switch_track_ref",
             Self::Play => "play",
             Self::Pause => "pause",
             Self::Stop => "stop",
@@ -272,8 +267,7 @@ impl PlayerControlCommand {
     #[flutter_rust_bridge::frb(ignore)]
     pub fn from_str(v: &str) -> Option<Self> {
         match v {
-            "load_track" => Some(Self::LoadTrack),
-            "load_track_ref" => Some(Self::LoadTrackRef),
+            "switch_track_ref" => Some(Self::SwitchTrackRef),
             "play" => Some(Self::Play),
             "pause" => Some(Self::Pause),
             "stop" => Some(Self::Stop),

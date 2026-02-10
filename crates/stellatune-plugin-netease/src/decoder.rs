@@ -51,6 +51,8 @@ pub struct StreamDecoder {
     duration_ms: Option<u64>,
     metadata: Option<Value>,
     seekable: bool,
+    encoder_delay_frames: u32,
+    encoder_padding_frames: u32,
 }
 
 impl Decoder for StreamDecoder {
@@ -61,6 +63,8 @@ impl Decoder for StreamDecoder {
             spec: self.spec,
             duration_ms: self.duration_ms,
             seekable: self.seekable,
+            encoder_delay_frames: self.encoder_delay_frames,
+            encoder_padding_frames: self.encoder_padding_frames,
         }
     }
 
@@ -265,6 +269,8 @@ impl LegacyDecoderDescriptor for StreamDecoder {
             duration_ms,
             metadata,
             seekable,
+            encoder_delay_frames: params.delay.unwrap_or(0),
+            encoder_padding_frames: params.padding.unwrap_or(0),
         })
     }
 }
@@ -299,6 +305,8 @@ impl DecoderInstance for StreamDecoderInstance {
                     reserved: 0,
                 },
                 duration_ms: 0,
+                encoder_delay_frames: 0,
+                encoder_padding_frames: 0,
                 flags: 0,
                 reserved: 0,
             },
