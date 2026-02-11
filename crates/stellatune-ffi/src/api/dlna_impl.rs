@@ -796,7 +796,7 @@ async fn register_track(path: String) -> String {
 
 fn new_token() -> String {
     use rand::distr::Alphanumeric;
-    use rand::{Rng, rng};
+    use rand::{RngExt, rng};
     rng()
         .sample_iter(&Alphanumeric)
         .take(24)
