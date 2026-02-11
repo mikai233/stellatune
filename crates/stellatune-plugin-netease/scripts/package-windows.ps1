@@ -61,7 +61,7 @@ if (-not (Test-Path $SidecarRoot)) {
 }
 
 if ([string]::IsNullOrWhiteSpace($OutDir)) {
-    $OutDir = Join-Path $CargoTargetDir "plugins"
+    $OutDir = Join-Path $RepoRoot "plugins"
 }
 $OutDir = (New-Item -ItemType Directory -Force -Path $OutDir).FullName
 
@@ -138,6 +138,7 @@ try {
     Write-Host "Package ready:"
     Write-Host "  $zipPath"
     Write-Host ""
+    Write-Host "Install this zip from StellaTune Settings -> Plugins -> Install."
 }
 finally {
     Pop-Location
