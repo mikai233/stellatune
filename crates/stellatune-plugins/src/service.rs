@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Result, anyhow};
 use stellatune_plugin_api::{STELLATUNE_PLUGIN_API_VERSION, StHostVTable};
@@ -22,7 +22,7 @@ use crate::runtime::{
 use super::capability_registry::CapabilityRegistry;
 use super::load::{
     LoadedModuleCandidate, LoadedPluginModule, RuntimeLoadReport, RuntimePluginInfo,
-    load_discovered_plugin,
+    cleanup_stale_shadow_libraries, load_discovered_plugin,
 };
 use super::{
     ActivationReport, CapabilityDescriptorInput, CapabilityDescriptorRecord, CapabilityId,
@@ -108,6 +108,9 @@ fn plugin_runtime_metrics() -> &'static PluginRuntimeMetrics {
 fn total_draining_generations(slots: &HashMap<String, PluginSlotState>) -> usize {
     slots.values().map(|slot| slot.draining.len()).sum()
 }
+
+const SHADOW_CLEANUP_GRACE_PERIOD: Duration = Duration::ZERO;
+const SHADOW_CLEANUP_MAX_DELETIONS_PER_RUN: usize = 200;
 
 #[derive(Debug)]
 struct PluginGenerationEntry {
@@ -674,6 +677,9 @@ impl PluginRuntimeService {
                 modules.remove(plugin_id);
             }
         }
+        if !out.is_empty() {
+            self.cleanup_shadow_copies_best_effort("collect_ready_for_unload");
+        }
         out
     }
 
@@ -682,6 +688,7 @@ impl PluginRuntimeService {
         dir: impl AsRef<Path>,
         disabled_ids: &HashSet<String>,
     ) -> Result<RuntimeLoadReport> {
+        self.cleanup_shadow_copies_best_effort("load_dir_additive_filtered:begin");
         let dir = dir.as_ref();
         let mut report = RuntimeLoadReport::default();
         for discovered in manifest::discover_plugins(dir)? {
@@ -702,6 +709,7 @@ impl PluginRuntimeService {
                     .push(e.context(format!("while loading plugin `{}`", discovered.manifest.id))),
             }
         }
+        self.cleanup_shadow_copies_best_effort("load_dir_additive_filtered:end");
         Ok(report)
     }
 
@@ -710,6 +718,7 @@ impl PluginRuntimeService {
         dir: impl AsRef<Path>,
         disabled_ids: &HashSet<String>,
     ) -> Result<RuntimeLoadReport> {
+        self.cleanup_shadow_copies_best_effort("reload_dir_filtered:begin");
         let dir = dir.as_ref();
         let mut report = RuntimeLoadReport::default();
         let mut discovered_ids = HashSet::<String>::new();
@@ -741,6 +750,7 @@ impl PluginRuntimeService {
                 report.unloaded_generations += self.collect_ready_for_unload(&plugin_id).len();
             }
         }
+        self.cleanup_shadow_copies_best_effort("reload_dir_filtered:end");
         Ok(report)
     }
 
@@ -750,7 +760,26 @@ impl PluginRuntimeService {
             report.deactivated.push(plugin_id.to_string());
         }
         report.unloaded_generations += self.collect_ready_for_unload(plugin_id).len();
+        self.cleanup_shadow_copies_best_effort("unload_plugin:end");
         report
+    }
+
+    pub fn shutdown_and_cleanup(&self) -> RuntimeLoadReport {
+        let mut report = RuntimeLoadReport::default();
+        let mut plugin_ids = self.active_plugin_ids();
+        plugin_ids.sort();
+        for plugin_id in plugin_ids {
+            if self.deactivate_plugin(&plugin_id).is_some() {
+                report.deactivated.push(plugin_id.clone());
+            }
+            report.unloaded_generations += self.collect_ready_for_unload(&plugin_id).len();
+        }
+        self.cleanup_shadow_copies_best_effort("shutdown_and_cleanup");
+        report
+    }
+
+    pub fn cleanup_shadow_copies_now(&self) {
+        self.cleanup_shadow_copies_best_effort("cleanup_shadow_copies_now");
     }
 
     fn instance_ctx(
@@ -868,6 +897,50 @@ impl PluginRuntimeService {
                     loaded,
                 });
         }
+    }
+
+    fn collect_protected_shadow_paths(&self) -> HashSet<std::path::PathBuf> {
+        let mut out = HashSet::new();
+        let Ok(modules) = self.modules.read() else {
+            return out;
+        };
+        for slot in modules.values() {
+            if let Some(active) = slot.active.as_ref() {
+                out.insert(active.loaded._shadow_library_path.clone());
+            }
+            for draining in &slot.draining {
+                out.insert(draining.loaded._shadow_library_path.clone());
+            }
+        }
+        out
+    }
+
+    fn cleanup_shadow_copies_best_effort(&self, reason: &str) {
+        let protected = self.collect_protected_shadow_paths();
+        let report = cleanup_stale_shadow_libraries(
+            &protected,
+            SHADOW_CLEANUP_GRACE_PERIOD,
+            SHADOW_CLEANUP_MAX_DELETIONS_PER_RUN,
+        );
+        if report.scanned == 0
+            && report.deleted == 0
+            && report.failed == 0
+            && report.skipped_active == 0
+            && report.skipped_recent_current_process == 0
+            && report.skipped_unrecognized == 0
+        {
+            return;
+        }
+        tracing::debug!(
+            reason,
+            plugin_shadow_scanned = report.scanned,
+            plugin_shadow_deleted = report.deleted,
+            plugin_shadow_failed = report.failed,
+            plugin_shadow_skipped_active = report.skipped_active,
+            plugin_shadow_skipped_recent_current_process = report.skipped_recent_current_process,
+            plugin_shadow_skipped_unrecognized = report.skipped_unrecognized,
+            "plugin shadow cleanup completed"
+        );
     }
 }
 

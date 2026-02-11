@@ -30,13 +30,11 @@ class AppBootstrapResult {
 class _BootstrapPaths {
   const _BootstrapPaths({
     required this.dbPath,
-    required this.pluginDir,
     required this.coverDir,
     required this.lyricsDbPath,
   });
 
   final String dbPath;
-  final String pluginDir;
   final String coverDir;
   final String lyricsDbPath;
 }
@@ -93,12 +91,6 @@ Future<AppBootstrapResult> bootstrapApp() async {
     disabledPluginIds: settings.disabledPluginIds.toList(),
   );
 
-  await _reloadPlugins(
-    bridge: bridge,
-    library: library,
-    pluginDir: paths.pluginDir,
-    disabledPluginIds: settings.disabledPluginIds.toList(),
-  );
   await _applyPersistedOutputSettings(bridge: bridge, settings: settings);
   await _setupLyricsCacheDb(bridge: bridge, lyricsDbPath: paths.lyricsDbPath);
 
@@ -148,7 +140,6 @@ Future<_BootstrapPaths> _resolvePaths() async {
   final baseDir = p.dirname(dbPath);
   return _BootstrapPaths(
     dbPath: dbPath,
-    pluginDir: pluginDir,
     coverDir: p.join(baseDir, 'covers'),
     lyricsDbPath: p.join(baseDir, 'lyrics_cache.sqlite'),
   );
@@ -294,26 +285,5 @@ Future<void> _setupLyricsCacheDb({
     await bridge.lyricsSetCacheDbPath(lyricsDbPath);
   } catch (e, s) {
     logger.e('failed to setup lyrics cache db', error: e, stackTrace: s);
-  }
-}
-
-Future<void> _reloadPlugins({
-  required PlayerBridge bridge,
-  required LibraryBridge library,
-  required String pluginDir,
-  required List<String> disabledPluginIds,
-}) async {
-  // Best-effort: app should still start even if plugin scan/reload fails.
-  try {
-    await bridge.pluginsReloadWithDisabled(
-      dir: pluginDir,
-      disabledIds: disabledPluginIds,
-    );
-  } catch (e, s) {
-    logger.e(
-      'failed to reload plugins during bootstrap',
-      error: e,
-      stackTrace: s,
-    );
   }
 }

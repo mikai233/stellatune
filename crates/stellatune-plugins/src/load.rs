@@ -1,6 +1,7 @@
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, anyhow};
 use libloading::{Library, Symbol};
@@ -50,6 +51,16 @@ pub(crate) struct LoadedModuleCandidate {
     pub(crate) library_path: PathBuf,
     pub(crate) capabilities: Vec<CapabilityDescriptorInput>,
     pub(crate) loaded_module: LoadedPluginModule,
+}
+
+#[derive(Debug, Default, Clone)]
+pub(crate) struct ShadowCleanupReport {
+    pub scanned: usize,
+    pub deleted: usize,
+    pub failed: usize,
+    pub skipped_active: usize,
+    pub skipped_recent_current_process: usize,
+    pub skipped_unrecognized: usize,
 }
 
 pub(crate) fn load_discovered_plugin(
@@ -182,8 +193,6 @@ pub(crate) fn load_discovered_plugin(
 }
 
 fn make_shadow_library_copy(source_library: &Path, plugin_id: &str) -> Result<PathBuf> {
-    static SHADOW_COPY_SEQ: AtomicU64 = AtomicU64::new(0);
-
     let file_name = source_library
         .file_name()
         .ok_or_else(|| anyhow!("invalid plugin library path: {}", source_library.display()))?;
@@ -194,25 +203,7 @@ fn make_shadow_library_copy(source_library: &Path, plugin_id: &str) -> Result<Pa
     let seq = SHADOW_COPY_SEQ.fetch_add(1, Ordering::Relaxed) + 1;
     let pid = std::process::id();
 
-    let mut safe_plugin_id = plugin_id.trim().to_string();
-    if safe_plugin_id.is_empty() {
-        safe_plugin_id = "unknown-plugin".to_string();
-    }
-    safe_plugin_id = safe_plugin_id
-        .chars()
-        .map(|ch| {
-            if ch.is_ascii_alphanumeric() || ch == '.' || ch == '-' || ch == '_' {
-                ch
-            } else {
-                '_'
-            }
-        })
-        .collect();
-
-    let shadow_dir = std::env::temp_dir()
-        .join("stellatune")
-        .join("plugin-shadow")
-        .join(safe_plugin_id);
+    let shadow_dir = shadow_root_dir().join(sanitize_plugin_id(plugin_id));
     std::fs::create_dir_all(&shadow_dir)
         .with_context(|| format!("create shadow plugin dir {}", shadow_dir.display()))?;
 
@@ -226,4 +217,237 @@ fn make_shadow_library_copy(source_library: &Path, plugin_id: &str) -> Result<Pa
         )
     })?;
     Ok(shadow_path)
+}
+
+static SHADOW_COPY_SEQ: AtomicU64 = AtomicU64::new(0);
+
+fn shadow_root_dir() -> PathBuf {
+    std::env::temp_dir()
+        .join("stellatune")
+        .join("plugin-shadow")
+}
+
+fn sanitize_plugin_id(plugin_id: &str) -> String {
+    let mut safe_plugin_id = plugin_id.trim().to_string();
+    if safe_plugin_id.is_empty() {
+        safe_plugin_id = "unknown-plugin".to_string();
+    }
+    safe_plugin_id
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '.' || ch == '-' || ch == '_' {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ShadowFileKey {
+    stamp_ms: u64,
+    pid: u32,
+    seq: u64,
+}
+
+fn parse_shadow_file_key(file_name: &str) -> Option<ShadowFileKey> {
+    let mut parts = file_name.splitn(4, '-');
+    let stamp_ms = parts.next()?.parse().ok()?;
+    let pid = parts.next()?.parse().ok()?;
+    let seq = parts.next()?.parse().ok()?;
+    let suffix = parts.next()?;
+    if suffix.is_empty() {
+        return None;
+    }
+    Some(ShadowFileKey { stamp_ms, pid, seq })
+}
+
+pub(crate) fn cleanup_stale_shadow_libraries(
+    protected_paths: &HashSet<PathBuf>,
+    grace_period: Duration,
+    max_deletions: usize,
+) -> ShadowCleanupReport {
+    cleanup_stale_shadow_libraries_in_dir(
+        &shadow_root_dir(),
+        protected_paths,
+        grace_period,
+        max_deletions,
+    )
+}
+
+fn cleanup_stale_shadow_libraries_in_dir(
+    root: &Path,
+    protected_paths: &HashSet<PathBuf>,
+    grace_period: Duration,
+    max_deletions: usize,
+) -> ShadowCleanupReport {
+    let mut report = ShadowCleanupReport::default();
+    let now = SystemTime::now();
+    let current_pid = std::process::id();
+
+    let Ok(plugin_dirs) = std::fs::read_dir(root) else {
+        return report;
+    };
+
+    for plugin_dir in plugin_dirs.flatten() {
+        let plugin_dir_path = plugin_dir.path();
+        let Ok(file_type) = plugin_dir.file_type() else {
+            continue;
+        };
+        if !file_type.is_dir() {
+            continue;
+        }
+
+        let Ok(files) = std::fs::read_dir(&plugin_dir_path) else {
+            continue;
+        };
+        for file in files.flatten() {
+            if report.deleted >= max_deletions {
+                return report;
+            }
+
+            let path = file.path();
+            let Ok(ft) = file.file_type() else {
+                continue;
+            };
+            if !ft.is_file() {
+                continue;
+            }
+            report.scanned = report.scanned.saturating_add(1);
+
+            if protected_paths.contains(&path) {
+                report.skipped_active = report.skipped_active.saturating_add(1);
+                continue;
+            }
+
+            let Some(file_name) = path.file_name().and_then(|s| s.to_str()) else {
+                report.skipped_unrecognized = report.skipped_unrecognized.saturating_add(1);
+                continue;
+            };
+            let Some(key) = parse_shadow_file_key(file_name) else {
+                report.skipped_unrecognized = report.skipped_unrecognized.saturating_add(1);
+                continue;
+            };
+
+            let age = file
+                .metadata()
+                .ok()
+                .and_then(|m| m.modified().ok())
+                .and_then(|modified| now.duration_since(modified).ok())
+                .unwrap_or_default();
+            let _ = (key.stamp_ms, key.seq);
+            if key.pid == current_pid && age < grace_period {
+                report.skipped_recent_current_process =
+                    report.skipped_recent_current_process.saturating_add(1);
+                continue;
+            }
+
+            match std::fs::remove_file(&path) {
+                Ok(_) => {
+                    report.deleted = report.deleted.saturating_add(1);
+                }
+                Err(_) => {
+                    report.failed = report.failed.saturating_add(1);
+                }
+            }
+        }
+
+        let _ = std::fs::remove_dir(&plugin_dir_path);
+    }
+
+    report
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{cleanup_stale_shadow_libraries_in_dir, parse_shadow_file_key, sanitize_plugin_id};
+    use std::collections::HashSet;
+    use std::path::{Path, PathBuf};
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+    fn unique_temp_dir(suffix: &str) -> PathBuf {
+        let ts = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        std::env::temp_dir().join(format!(
+            "stellatune-shadow-cleanup-test-{}-{ts}-{suffix}",
+            std::process::id()
+        ))
+    }
+
+    fn build_shadow_file_name(pid: u32, seq: u64, base: &str) -> String {
+        format!("{}-{pid}-{seq}-{base}", 1_700_000_000_000_u64)
+    }
+
+    fn touch(path: &Path) {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).expect("create parent dir");
+        }
+        std::fs::write(path, b"x").expect("write temp file");
+    }
+
+    #[test]
+    fn sanitize_plugin_id_replaces_invalid_chars() {
+        assert_eq!(sanitize_plugin_id(" dev/plug in "), "dev_plug_in");
+        assert_eq!(sanitize_plugin_id(""), "unknown-plugin");
+    }
+
+    #[test]
+    fn parse_shadow_file_key_requires_expected_prefix() {
+        assert!(parse_shadow_file_key("1700-123-1-a.dll").is_some());
+        assert!(parse_shadow_file_key("a-123-1-a.dll").is_none());
+        assert!(parse_shadow_file_key("1700-123-a-a.dll").is_none());
+        assert!(parse_shadow_file_key("1700-123-1-").is_none());
+    }
+
+    #[test]
+    fn cleanup_deletes_stale_and_keeps_active() {
+        let root = unique_temp_dir("deletes-stale");
+        let plugin_dir = root.join("dev.test.plugin");
+        let active_path = plugin_dir.join(build_shadow_file_name(std::process::id(), 1, "a.dll"));
+        let stale_current = plugin_dir.join(build_shadow_file_name(std::process::id(), 2, "b.dll"));
+        let stale_other = plugin_dir.join(build_shadow_file_name(999_999, 3, "c.dll"));
+        let unknown_name = plugin_dir.join("not-a-shadow-name.dll");
+        touch(&active_path);
+        touch(&stale_current);
+        touch(&stale_other);
+        touch(&unknown_name);
+
+        let protected = HashSet::from([active_path.clone()]);
+        let report = cleanup_stale_shadow_libraries_in_dir(&root, &protected, Duration::ZERO, 1000);
+
+        assert_eq!(report.deleted, 2);
+        assert_eq!(report.skipped_active, 1);
+        assert_eq!(report.skipped_unrecognized, 1);
+        assert!(active_path.exists());
+        assert!(!stale_current.exists());
+        assert!(!stale_other.exists());
+        assert!(unknown_name.exists());
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn cleanup_respects_grace_period_for_current_process() {
+        let root = unique_temp_dir("grace");
+        let plugin_dir = root.join("dev.test.plugin");
+        let current = plugin_dir.join(build_shadow_file_name(std::process::id(), 7, "x.dll"));
+        touch(&current);
+
+        let protected = HashSet::<PathBuf>::new();
+        let report = cleanup_stale_shadow_libraries_in_dir(
+            &root,
+            &protected,
+            Duration::from_secs(3600),
+            1000,
+        );
+
+        assert_eq!(report.deleted, 0);
+        assert_eq!(report.skipped_recent_current_process, 1);
+        assert!(current.exists());
+
+        let _ = std::fs::remove_dir_all(root);
+    }
 }

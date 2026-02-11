@@ -134,4 +134,15 @@ pub fn runtime_prepare_hot_restart() {
 
 pub fn runtime_shutdown() {
     shared_runtime_host().shutdown();
+    if let Ok(service) = shared_plugin_runtime().lock() {
+        let report = service.shutdown_and_cleanup();
+        tracing::info!(
+            deactivated = report.deactivated.len(),
+            unloaded_generations = report.unloaded_generations,
+            errors = report.errors.len(),
+            "plugin runtime shutdown cleanup attempted"
+        );
+    } else {
+        tracing::warn!("plugin runtime shutdown cleanup skipped: runtime mutex poisoned");
+    }
 }
