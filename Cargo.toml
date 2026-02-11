@@ -65,7 +65,7 @@ sqlx = { version = "0.8.6", default-features = false, features = [
   "macros",
 ] }
 walkdir = "2.5.0"
-cpal = "0.17.1"
+cpal = "0.17.2"
 symphonia = { version = "0.5.4", default-features = false, features = [
   "mp3",
   "flac",
