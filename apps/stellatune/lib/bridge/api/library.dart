@@ -9,13 +9,8 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `new`
 
-Future<Library> createLibrary({
-  required String dbPath,
-  required List<String> disabledPluginIds,
-}) => StellatuneApi.instance.api.crateApiLibraryCreateLibrary(
-  dbPath: dbPath,
-  disabledPluginIds: disabledPluginIds,
-);
+Future<Library> createLibrary({required String dbPath}) =>
+    StellatuneApi.instance.api.crateApiLibraryCreateLibrary(dbPath: dbPath);
 
 Future<void> libraryAddRoot({
   required Library library_,
@@ -217,16 +212,35 @@ Future<void> librarySetTrackLiked({
 Stream<LibraryEvent> libraryEvents({required Library library_}) =>
     StellatuneApi.instance.api.crateApiLibraryLibraryEvents(library_: library_);
 
-Future<void> libraryPluginsReloadWithDisabled({
+Future<void> libraryPluginDisable({
+  required Library library_,
+  required String pluginId,
+}) => StellatuneApi.instance.api.crateApiLibraryLibraryPluginDisable(
+  library_: library_,
+  pluginId: pluginId,
+);
+
+Future<void> libraryPluginEnable({
+  required Library library_,
+  required String pluginId,
+}) => StellatuneApi.instance.api.crateApiLibraryLibraryPluginEnable(
+  library_: library_,
+  pluginId: pluginId,
+);
+
+Future<void> libraryPluginsReloadFromState({
   required Library library_,
   required String dir,
-  required List<String> disabledIds,
-}) =>
-    StellatuneApi.instance.api.crateApiLibraryLibraryPluginsReloadWithDisabled(
-      library_: library_,
-      dir: dir,
-      disabledIds: disabledIds,
-    );
+}) => StellatuneApi.instance.api.crateApiLibraryLibraryPluginsReloadFromState(
+  library_: library_,
+  dir: dir,
+);
+
+Future<List<String>> libraryListDisabledPluginIds({
+  required Library library_,
+}) => StellatuneApi.instance.api.crateApiLibraryLibraryListDisabledPluginIds(
+  library_: library_,
+);
 
 // Rust type: RustOpaqueMoi<Library>
 abstract class Library implements RustOpaqueInterface {}

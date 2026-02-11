@@ -1,4 +1,4 @@
-mod db;
+pub(crate) mod db;
 mod fts;
 mod metadata;
 mod paths;
@@ -22,17 +22,6 @@ use self::metadata::clear_metadata_decoder_cache;
 use self::paths::{is_drive_root, normalize_path_str, parent_dir_norm};
 use self::watch::{WatchCtrl, spawn_watch_task};
 
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-use std::collections::HashSet;
-
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-use arc_swap::ArcSwap;
-
-pub(crate) type DisabledPluginIds = std::sync::Arc<ArcSwap<HashSet<String>>>;
-
-#[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
-pub(crate) type DisabledPluginIds = ();
-
 #[derive(Debug, FromRow)]
 struct PlaylistLiteRow {
     id: i64,
@@ -47,7 +36,6 @@ pub(crate) struct WorkerDeps {
     events: std::sync::Arc<EventHub>,
     cover_dir: PathBuf,
     plugins_dir: PathBuf,
-    disabled_plugin_ids: DisabledPluginIds,
 }
 
 impl WorkerDeps {
@@ -55,7 +43,6 @@ impl WorkerDeps {
         db_path: &Path,
         events: std::sync::Arc<EventHub>,
         plugins_dir: PathBuf,
-        disabled_plugin_ids: DisabledPluginIds,
     ) -> Result<Self> {
         let pool = db::init_db(db_path).await?;
 
@@ -71,9 +58,13 @@ impl WorkerDeps {
         {
             if plugins_dir.exists() {
                 clear_metadata_decoder_cache();
-                let disabled = disabled_plugin_ids.load_full();
+                let disabled = db::list_disabled_plugin_ids(&pool)
+                    .await
+                    .unwrap_or_default();
                 match stellatune_plugins::shared_runtime_service().lock() {
-                    Ok(service) => match service.reload_dir_filtered(&plugins_dir, disabled.as_ref())
+                    Ok(service) => {
+                        service.set_disabled_plugin_ids(disabled);
+                        match service.reload_dir_from_state(&plugins_dir)
                     {
                         Ok(v2) => events.emit(LibraryEvent::Log {
                             message: format!(
@@ -87,7 +78,8 @@ impl WorkerDeps {
                         Err(e) => events.emit(LibraryEvent::Log {
                             message: format!("library plugin runtime v2 reload failed: {e:#}"),
                         }),
-                    },
+                    }
+                    }
                     Err(_) => events.emit(LibraryEvent::Log {
                         message: "library plugin runtime v2 reload skipped: runtime mutex poisoned"
                             .to_string(),
@@ -101,7 +93,6 @@ impl WorkerDeps {
             events,
             cover_dir,
             plugins_dir,
-            disabled_plugin_ids,
         })
     }
 }
@@ -112,7 +103,6 @@ pub(crate) struct LibraryWorker {
     cover_dir: PathBuf,
     watch_ctrl: mpsc::UnboundedSender<WatchCtrl>,
     plugins_dir: PathBuf,
-    disabled_plugin_ids: DisabledPluginIds,
 }
 
 impl LibraryWorker {
@@ -128,20 +118,22 @@ impl LibraryWorker {
             cover_dir: deps.cover_dir,
             watch_ctrl,
             plugins_dir: deps.plugins_dir,
-            disabled_plugin_ids: deps.disabled_plugin_ids,
         }
     }
 
-    fn refresh_plugins_best_effort(&self) {
+    async fn refresh_plugins_best_effort(&self) {
         #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
         {
             if !self.plugins_dir.exists() {
                 return;
             }
             clear_metadata_decoder_cache();
-            let disabled = self.disabled_plugin_ids.load_full().as_ref().clone();
+            let disabled = db::list_disabled_plugin_ids(&self.pool)
+                .await
+                .unwrap_or_default();
             if let Ok(service) = stellatune_plugins::shared_runtime_service().lock() {
-                let _ = service.reload_dir_filtered(&self.plugins_dir, &disabled);
+                service.set_disabled_plugin_ids(disabled);
+                let _ = service.reload_dir_from_state(&self.plugins_dir);
             }
         }
     }
@@ -1069,7 +1061,7 @@ impl LibraryWorker {
     }
 
     async fn scan_all(&self, force: bool) -> Result<()> {
-        self.refresh_plugins_best_effort();
+        self.refresh_plugins_best_effort().await;
         scan::scan_all(&self.pool, &self.events, &self.cover_dir, force).await
     }
 

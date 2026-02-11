@@ -49,9 +49,9 @@ use preload::{
     track_ref_to_engine_token, track_ref_to_event_path,
 };
 use runtime_query::{
-    clear_runtime_query_instance_cache, lyrics_fetch_json_via_runtime,
-    lyrics_search_json_via_runtime, output_sink_list_targets_json_via_runtime,
-    source_list_items_json_via_runtime,
+    clear_runtime_query_instance_cache, clear_runtime_query_instance_cache_for_plugin,
+    lyrics_fetch_json_via_runtime, lyrics_search_json_via_runtime,
+    output_sink_list_targets_json_via_runtime, source_list_items_json_via_runtime,
 };
 use tick::{
     ensure_output_spec_prewarm, handle_tick, output_backend_for_selected, publish_player_tick_event,
@@ -382,10 +382,14 @@ impl EngineHandle {
         let _ = self.engine_ctrl_tx.send(EngineCtrl::ReloadPlugins { dir });
     }
 
-    pub fn reload_plugins_with_disabled(&self, dir: String, disabled_ids: Vec<String>) {
-        let _ = self
-            .engine_ctrl_tx
-            .send(EngineCtrl::ReloadPluginsWithDisabled { dir, disabled_ids });
+    pub fn quiesce_plugin_usage(&self, plugin_id: String) -> Result<(), String> {
+        let (resp_tx, resp_rx) = crossbeam_channel::bounded(1);
+        self.engine_ctrl_tx
+            .send(EngineCtrl::QuiescePluginUsage { plugin_id, resp_tx })
+            .map_err(|_| "control thread exited".to_string())?;
+        resp_rx
+            .recv()
+            .map_err(|_| "control thread dropped quiesce response".to_string())?
     }
 
     pub fn set_lfe_mode(&self, mode: stellatune_core::LfeMode) {
@@ -902,7 +906,7 @@ fn run_control_loop(channels: ControlLoopChannels, deps: ControlLoopDeps) {
             }
             recv(engine_ctrl_rx) -> msg => {
                 let Ok(msg) = msg else { break };
-                handle_engine_ctrl(msg, &mut state, &events, &internal_tx);
+                handle_engine_ctrl(msg, &mut state, &events, &internal_tx, &track_info);
             }
             recv(internal_rx) -> msg => {
                 let Ok(msg) = msg else { break };

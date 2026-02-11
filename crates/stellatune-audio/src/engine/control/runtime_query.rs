@@ -15,6 +15,39 @@ pub(super) fn clear_runtime_query_instance_cache(state: &mut EngineState) {
     state.output_sink_negotiation_cache = None;
 }
 
+pub(super) fn clear_runtime_query_instance_cache_for_plugin(
+    state: &mut EngineState,
+    plugin_id: &str,
+) -> (usize, usize, usize) {
+    let source_before = state.source_instances.len();
+    state
+        .source_instances
+        .retain(|k, _| k.plugin_id.as_str() != plugin_id);
+    let source_removed = source_before.saturating_sub(state.source_instances.len());
+
+    let lyrics_before = state.lyrics_instances.len();
+    state
+        .lyrics_instances
+        .retain(|k, _| k.plugin_id.as_str() != plugin_id);
+    let lyrics_removed = lyrics_before.saturating_sub(state.lyrics_instances.len());
+
+    let output_sink_before = state.output_sink_instances.len();
+    state
+        .output_sink_instances
+        .retain(|k, _| k.plugin_id.as_str() != plugin_id);
+    let output_sink_removed = output_sink_before.saturating_sub(state.output_sink_instances.len());
+
+    if state
+        .output_sink_negotiation_cache
+        .as_ref()
+        .is_some_and(|cache| cache.route.plugin_id == plugin_id)
+    {
+        state.output_sink_negotiation_cache = None;
+    }
+
+    (source_removed, lyrics_removed, output_sink_removed)
+}
+
 pub(super) fn apply_or_recreate_source_instance(
     plugin_id: &str,
     type_id: &str,

@@ -45,7 +45,6 @@ class SettingsStore extends Notifier<SettingsStore> {
   static const _keyResumeArtist = 'resume_artist';
   static const _keyResumeAlbum = 'resume_album';
   static const _keyResumeDurationMs = 'resume_duration_ms';
-  static const _keyDisabledPlugins = 'disabled_plugins';
   static const _keySelectedBackend = 'selected_backend';
   static const _keySelectedDeviceId = 'selected_device_id';
   static const _keyMatchTrackSampleRate = 'match_track_sample_rate';
@@ -169,38 +168,6 @@ class SettingsStore extends Notifier<SettingsStore> {
     await _box.delete(_keyResumeArtist);
     await _box.delete(_keyResumeAlbum);
     await _box.delete(_keyResumeDurationMs);
-  }
-
-  Set<String> get disabledPluginIds {
-    final raw = _box.get(_keyDisabledPlugins, defaultValue: '[]');
-    final text = raw is String ? raw : '[]';
-    try {
-      final decoded = jsonDecode(text);
-      if (decoded is! List) return <String>{};
-      return decoded
-          .whereType<String>()
-          .map((s) => s.trim())
-          .where((s) => s.isNotEmpty)
-          .toSet();
-    } catch (e, s) {
-      logger.w('failed to parse disabled plugin ids', error: e, stackTrace: s);
-      return <String>{};
-    }
-  }
-
-  Future<void> setPluginEnabled({
-    required String pluginId,
-    required bool enabled,
-  }) async {
-    final id = pluginId.trim();
-    if (id.isEmpty) return;
-    final disabled = disabledPluginIds;
-    if (enabled) {
-      disabled.remove(id);
-    } else {
-      disabled.add(id);
-    }
-    await _box.put(_keyDisabledPlugins, jsonEncode(disabled.toList()));
   }
 
   AudioBackend get selectedBackend {

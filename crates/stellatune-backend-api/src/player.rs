@@ -244,12 +244,6 @@ impl PlayerService {
         self.runtime.engine().reload_plugins(dir);
     }
 
-    pub fn plugins_reload_with_disabled(&self, dir: String, disabled_ids: Vec<String>) {
-        self.runtime
-            .engine()
-            .reload_plugins_with_disabled(dir, disabled_ids);
-    }
-
     pub fn refresh_devices(&self) {
         self.runtime.engine().send_command(Command::RefreshDevices);
     }

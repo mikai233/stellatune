@@ -146,12 +146,12 @@ pub(crate) enum EngineCtrl {
         config_json: String,
         resp_tx: Sender<Result<String, String>>,
     },
+    QuiescePluginUsage {
+        plugin_id: String,
+        resp_tx: Sender<Result<(), String>>,
+    },
     ReloadPlugins {
         dir: String,
-    },
-    ReloadPluginsWithDisabled {
-        dir: String,
-        disabled_ids: Vec<String>,
     },
     SetLfeMode {
         mode: stellatune_core::LfeMode,

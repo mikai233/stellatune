@@ -13,7 +13,6 @@ impl BackendSessionOptions {
         Self {
             library: Some(LibrarySessionOptions {
                 db_path: db_path.into(),
-                disabled_plugin_ids: Vec::new(),
             }),
         }
     }
@@ -22,7 +21,6 @@ impl BackendSessionOptions {
 #[derive(Debug, Clone)]
 pub struct LibrarySessionOptions {
     pub db_path: String,
-    pub disabled_plugin_ids: Vec<String>,
 }
 
 pub struct BackendSession {
@@ -41,7 +39,7 @@ impl BackendSession {
     pub fn from_options(options: BackendSessionOptions) -> Result<Self> {
         let player = PlayerService::new();
         let library = match options.library {
-            Some(opts) => Some(LibraryService::new(opts.db_path, opts.disabled_plugin_ids)?),
+            Some(opts) => Some(LibraryService::new(opts.db_path)?),
             None => None,
         };
         Ok(Self { player, library })
@@ -64,7 +62,7 @@ impl BackendSession {
     }
 
     pub fn attach_library(&mut self, options: LibrarySessionOptions) -> Result<&LibraryService> {
-        let service = LibraryService::new(options.db_path, options.disabled_plugin_ids)?;
+        let service = LibraryService::new(options.db_path)?;
         self.library = Some(service);
         Ok(self.library.as_ref().expect("library just initialized"))
     }

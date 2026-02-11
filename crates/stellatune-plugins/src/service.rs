@@ -177,6 +177,7 @@ pub struct PluginRuntimeService {
     host: StHostVTable,
     slots: RwLock<HashMap<String, PluginSlotState>>,
     modules: RwLock<HashMap<String, PluginModuleSlotState>>,
+    disabled_plugin_ids: RwLock<HashSet<String>>,
     lifecycle: Arc<LifecycleStore>,
     capabilities: Arc<CapabilityRegistry>,
     instances: Arc<InstanceRegistry>,
@@ -190,6 +191,7 @@ impl PluginRuntimeService {
             host,
             slots: RwLock::new(HashMap::new()),
             modules: RwLock::new(HashMap::new()),
+            disabled_plugin_ids: RwLock::new(HashSet::new()),
             lifecycle: Arc::new(LifecycleStore::default()),
             capabilities: Arc::new(CapabilityRegistry::default()),
             instances: Arc::new(InstanceRegistry::default()),
@@ -204,6 +206,33 @@ impl PluginRuntimeService {
 
     pub fn updates(&self) -> &InstanceUpdateCoordinator {
         &self.updates
+    }
+
+    pub fn set_disabled_plugin_ids(&self, disabled_ids: HashSet<String>) {
+        if let Ok(mut state) = self.disabled_plugin_ids.write() {
+            *state = disabled_ids;
+        }
+    }
+
+    pub fn set_plugin_enabled(&self, plugin_id: &str, enabled: bool) {
+        let plugin_id = plugin_id.trim();
+        if plugin_id.is_empty() {
+            return;
+        }
+        if let Ok(mut state) = self.disabled_plugin_ids.write() {
+            if enabled {
+                state.remove(plugin_id);
+            } else {
+                state.insert(plugin_id.to_string());
+            }
+        }
+    }
+
+    pub fn disabled_plugin_ids(&self) -> HashSet<String> {
+        self.disabled_plugin_ids
+            .read()
+            .map(|v| v.clone())
+            .unwrap_or_default()
     }
 
     pub fn list_active_plugins(&self) -> Vec<RuntimePluginInfo> {
@@ -339,6 +368,7 @@ impl PluginRuntimeService {
         type_id: &str,
         config_json: &str,
     ) -> Result<DecoderInstance> {
+        self.ensure_plugin_enabled(plugin_id)?;
         let capability = self
             .resolve_active_capability(plugin_id, CapabilityKind::Decoder, type_id)
             .ok_or_else(|| anyhow!("decoder capability not found: {plugin_id}::{type_id}"))?;
@@ -419,6 +449,7 @@ impl PluginRuntimeService {
         channels: u16,
         config_json: &str,
     ) -> Result<DspInstance> {
+        self.ensure_plugin_enabled(plugin_id)?;
         let capability = self
             .resolve_active_capability(plugin_id, CapabilityKind::Dsp, type_id)
             .ok_or_else(|| anyhow!("dsp capability not found: {plugin_id}::{type_id}"))?;
@@ -458,6 +489,7 @@ impl PluginRuntimeService {
         type_id: &str,
         config_json: &str,
     ) -> Result<SourceCatalogInstance> {
+        self.ensure_plugin_enabled(plugin_id)?;
         let capability = self
             .resolve_active_capability(plugin_id, CapabilityKind::SourceCatalog, type_id)
             .ok_or_else(|| anyhow!("source capability not found: {plugin_id}::{type_id}"))?;
@@ -497,6 +529,7 @@ impl PluginRuntimeService {
         type_id: &str,
         config_json: &str,
     ) -> Result<LyricsProviderInstance> {
+        self.ensure_plugin_enabled(plugin_id)?;
         let capability = self
             .resolve_active_capability(plugin_id, CapabilityKind::LyricsProvider, type_id)
             .ok_or_else(|| anyhow!("lyrics capability not found: {plugin_id}::{type_id}"))?;
@@ -536,6 +569,7 @@ impl PluginRuntimeService {
         type_id: &str,
         config_json: &str,
     ) -> Result<OutputSinkInstance> {
+        self.ensure_plugin_enabled(plugin_id)?;
         let capability = self
             .resolve_active_capability(plugin_id, CapabilityKind::OutputSink, type_id)
             .ok_or_else(|| anyhow!("output capability not found: {plugin_id}::{type_id}"))?;
@@ -688,8 +722,14 @@ impl PluginRuntimeService {
         dir: impl AsRef<Path>,
         disabled_ids: &HashSet<String>,
     ) -> Result<RuntimeLoadReport> {
+        self.set_disabled_plugin_ids(disabled_ids.clone());
+        self.load_dir_additive_from_state(dir)
+    }
+
+    pub fn load_dir_additive_from_state(&self, dir: impl AsRef<Path>) -> Result<RuntimeLoadReport> {
         self.cleanup_shadow_copies_best_effort("load_dir_additive_filtered:begin");
         let dir = dir.as_ref();
+        let disabled_ids = self.disabled_plugin_ids();
         let mut report = RuntimeLoadReport::default();
         for discovered in manifest::discover_plugins(dir)? {
             if disabled_ids.contains(&discovered.manifest.id) {
@@ -718,8 +758,14 @@ impl PluginRuntimeService {
         dir: impl AsRef<Path>,
         disabled_ids: &HashSet<String>,
     ) -> Result<RuntimeLoadReport> {
+        self.set_disabled_plugin_ids(disabled_ids.clone());
+        self.reload_dir_from_state(dir)
+    }
+
+    pub fn reload_dir_from_state(&self, dir: impl AsRef<Path>) -> Result<RuntimeLoadReport> {
         self.cleanup_shadow_copies_best_effort("reload_dir_filtered:begin");
         let dir = dir.as_ref();
+        let disabled_ids = self.disabled_plugin_ids();
         let mut report = RuntimeLoadReport::default();
         let mut discovered_ids = HashSet::<String>::new();
         for discovered in manifest::discover_plugins(dir)? {
@@ -897,6 +943,20 @@ impl PluginRuntimeService {
                     loaded,
                 });
         }
+    }
+
+    fn ensure_plugin_enabled(&self, plugin_id: &str) -> Result<()> {
+        if self.is_plugin_disabled(plugin_id) {
+            return Err(anyhow!("plugin disabled: {plugin_id}"));
+        }
+        Ok(())
+    }
+
+    fn is_plugin_disabled(&self, plugin_id: &str) -> bool {
+        self.disabled_plugin_ids
+            .read()
+            .map(|state| state.contains(plugin_id))
+            .unwrap_or(false)
     }
 
     fn collect_protected_shadow_paths(&self) -> HashSet<std::path::PathBuf> {

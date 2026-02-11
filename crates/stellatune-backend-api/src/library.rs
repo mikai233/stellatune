@@ -14,12 +14,12 @@ pub struct LibraryService {
 }
 
 impl LibraryService {
-    pub fn new(db_path: String, disabled_plugin_ids: Vec<String>) -> Result<Self> {
+    pub fn new(db_path: String) -> Result<Self> {
         static NEXT_ID: AtomicU64 = AtomicU64::new(1);
         let instance_id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
         init_tracing();
         tracing::info!(instance_id, "creating library: {}", db_path);
-        let handle = start_library(db_path, disabled_plugin_ids)?;
+        let handle = start_library(db_path)?;
         register_plugin_runtime_library(handle.clone());
         Ok(Self {
             instance_id,
@@ -179,8 +179,41 @@ impl LibraryService {
             .send_command(LibraryCommand::SetTrackLiked { track_id, liked });
     }
 
-    pub fn plugins_reload_with_disabled(&self, dir: String, disabled_ids: Vec<String>) {
-        self.handle.plugins_reload_with_disabled(dir, disabled_ids);
+    pub async fn plugin_disable(&self, plugin_id: String) -> Result<()> {
+        let report = crate::runtime::plugin_runtime_disable(&self.handle, plugin_id, 3_000).await?;
+        if report.timed_out {
+            return Err(anyhow::anyhow!(
+                "plugin disable timed out: remaining_draining_generations={}",
+                report.remaining_draining_generations
+            ));
+        }
+        if !report.errors.is_empty() {
+            return Err(anyhow::anyhow!(
+                "plugin disable finished with errors: {}",
+                report.errors.join("; ")
+            ));
+        }
+        Ok(())
+    }
+
+    pub async fn plugin_enable(&self, plugin_id: String) -> Result<()> {
+        let report = crate::runtime::plugin_runtime_enable(&self.handle, plugin_id).await?;
+        tracing::debug!(
+            plugin_id = report.plugin_id,
+            phase = report.phase,
+            "plugin_enable_done"
+        );
+        Ok(())
+    }
+
+    pub async fn plugins_reload_from_state(&self, dir: String) -> Result<()> {
+        let report = crate::runtime::plugin_runtime_reload_from_state(&self.handle, dir).await?;
+        tracing::debug!(phase = report.phase, "plugin_reload_from_state_done");
+        Ok(())
+    }
+
+    pub async fn list_disabled_plugin_ids(&self) -> Result<Vec<String>> {
+        self.handle.list_disabled_plugin_ids().await
     }
 }
 

@@ -12,17 +12,14 @@ pub struct Library {
 }
 
 impl Library {
-    fn new(db_path: String, disabled_plugin_ids: Vec<String>) -> Result<Self> {
-        let service = LibraryService::new(db_path, disabled_plugin_ids)?;
+    fn new(db_path: String) -> Result<Self> {
+        let service = LibraryService::new(db_path)?;
         Ok(Self { service })
     }
 }
 
-pub fn create_library(
-    db_path: String,
-    disabled_plugin_ids: Vec<String>,
-) -> Result<RustOpaque<Library>> {
-    Ok(RustOpaque::new(Library::new(db_path, disabled_plugin_ids)?))
+pub fn create_library(db_path: String) -> Result<RustOpaque<Library>> {
+    Ok(RustOpaque::new(Library::new(db_path)?))
 }
 
 pub fn library_add_root(library: RustOpaque<Library>, path: String) {
@@ -181,12 +178,21 @@ pub fn library_events(library: RustOpaque<Library>, sink: StreamSink<LibraryEven
     Ok(())
 }
 
-pub fn library_plugins_reload_with_disabled(
+pub async fn library_plugin_disable(library: RustOpaque<Library>, plugin_id: String) -> Result<()> {
+    library.service.plugin_disable(plugin_id).await
+}
+
+pub async fn library_plugin_enable(library: RustOpaque<Library>, plugin_id: String) -> Result<()> {
+    library.service.plugin_enable(plugin_id).await
+}
+
+pub async fn library_plugins_reload_from_state(
     library: RustOpaque<Library>,
     dir: String,
-    disabled_ids: Vec<String>,
-) {
-    library
-        .service
-        .plugins_reload_with_disabled(dir, disabled_ids);
+) -> Result<()> {
+    library.service.plugins_reload_from_state(dir).await
+}
+
+pub async fn library_list_disabled_plugin_ids(library: RustOpaque<Library>) -> Result<Vec<String>> {
+    library.service.list_disabled_plugin_ids().await
 }

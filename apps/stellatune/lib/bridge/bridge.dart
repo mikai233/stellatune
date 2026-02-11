@@ -182,15 +182,6 @@ class PlayerBridge {
   Future<void> pluginsReload(String dir) =>
       api.pluginsReload(player: player, dir: dir);
 
-  Future<void> pluginsReloadWithDisabled({
-    required String dir,
-    required List<String> disabledIds,
-  }) => api.pluginsReloadWithDisabled(
-    player: player,
-    dir: dir,
-    disabledIds: disabledIds,
-  );
-
   Future<String> pluginsInstallFromFile({
     required String dir,
     required String artifactPath,
@@ -281,14 +272,8 @@ class LibraryBridge {
   final api.Library library;
   Stream<LibraryEvent>? _eventBroadcast;
 
-  static Future<LibraryBridge> create({
-    required String dbPath,
-    List<String> disabledPluginIds = const [],
-  }) async {
-    final library = await api.createLibrary(
-      dbPath: dbPath,
-      disabledPluginIds: disabledPluginIds,
-    );
+  static Future<LibraryBridge> create({required String dbPath}) async {
+    final library = await api.createLibrary(dbPath: dbPath);
     return LibraryBridge._(library);
   }
 
@@ -418,14 +403,17 @@ class LibraryBridge {
   Future<void> setTrackLiked({required int trackId, required bool liked}) => api
       .librarySetTrackLiked(library_: library, trackId: trackId, liked: liked);
 
-  Future<void> pluginsReloadWithDisabled({
-    required String dir,
-    required List<String> disabledIds,
-  }) => api.libraryPluginsReloadWithDisabled(
-    library_: library,
-    dir: dir,
-    disabledIds: disabledIds,
-  );
+  Future<void> pluginDisable({required String pluginId}) =>
+      api.libraryPluginDisable(library_: library, pluginId: pluginId);
+
+  Future<void> pluginEnable({required String pluginId}) =>
+      api.libraryPluginEnable(library_: library, pluginId: pluginId);
+
+  Future<void> pluginsReloadFromState({required String dir}) =>
+      api.libraryPluginsReloadFromState(library_: library, dir: dir);
+
+  Future<List<String>> listDisabledPluginIds() =>
+      api.libraryListDisabledPluginIds(library_: library);
 }
 
 class DlnaBridge {

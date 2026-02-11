@@ -8,6 +8,35 @@ use tracing::debug;
 use super::paths::{normalize_path_str, parent_dir_norm};
 
 pub(super) async fn init_db(db_path: &Path) -> Result<SqlitePool> {
+    let pool = connect_pool(db_path).await?;
+
+    ensure_fts5(&pool).await?;
+
+    sqlx::migrate!("./migrations")
+        .run(&pool)
+        .await
+        .context("failed to run migrations")?;
+
+    backfill_norm_paths(&pool).await?;
+
+    debug!("sqlite ready: {}", db_path.display());
+    Ok(pool)
+}
+
+pub(crate) async fn open_state_db_pool(db_path: &Path) -> Result<SqlitePool> {
+    let pool = connect_pool(db_path).await?;
+
+    ensure_fts5(&pool).await?;
+
+    sqlx::migrate!("./migrations")
+        .run(&pool)
+        .await
+        .context("failed to run migrations")?;
+
+    Ok(pool)
+}
+
+async fn connect_pool(db_path: &Path) -> Result<SqlitePool> {
     let mut opts = SqliteConnectOptions::new()
         .filename(db_path)
         .create_if_missing(true)
@@ -24,18 +53,80 @@ pub(super) async fn init_db(db_path: &Path) -> Result<SqlitePool> {
         .connect_with(opts)
         .await
         .context("failed to connect sqlite")?;
-
-    ensure_fts5(&pool).await?;
-
-    sqlx::migrate!("./migrations")
-        .run(&pool)
-        .await
-        .context("failed to run migrations")?;
-
-    backfill_norm_paths(&pool).await?;
-
-    debug!("sqlite ready: {}", db_path.display());
     Ok(pool)
+}
+
+pub(crate) async fn list_disabled_plugin_ids(
+    pool: &SqlitePool,
+) -> Result<std::collections::HashSet<String>> {
+    let rows = sqlx::query_scalar::<_, String>(
+        r#"
+        SELECT plugin_id
+        FROM plugin_state
+        WHERE enabled = 0
+        "#,
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let disabled = rows
+        .into_iter()
+        .map(|id| id.trim().to_string())
+        .filter(|id| !id.is_empty())
+        .collect();
+
+    Ok(disabled)
+}
+
+pub(crate) async fn replace_disabled_plugin_ids(
+    pool: &SqlitePool,
+    disabled_ids: &std::collections::HashSet<String>,
+) -> Result<()> {
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0);
+
+    let mut tx = pool.begin().await?;
+
+    sqlx::query(
+        r#"
+        UPDATE plugin_state
+        SET enabled = 1,
+            disable_in_progress = 0,
+            updated_at_ms = ?1
+        "#,
+    )
+    .bind(now_ms)
+    .execute(&mut *tx)
+    .await?;
+
+    for plugin_id in disabled_ids {
+        sqlx::query(
+            r#"
+            INSERT INTO plugin_state(
+                plugin_id,
+                enabled,
+                install_state,
+                disable_in_progress,
+                last_error,
+                updated_at_ms
+            )
+            VALUES (?1, 0, 'installed', 0, NULL, ?2)
+            ON CONFLICT(plugin_id) DO UPDATE SET
+                enabled = 0,
+                disable_in_progress = 0,
+                updated_at_ms = excluded.updated_at_ms
+            "#,
+        )
+        .bind(plugin_id)
+        .bind(now_ms)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    tx.commit().await?;
+    Ok(())
 }
 
 async fn backfill_norm_paths(pool: &SqlitePool) -> Result<()> {

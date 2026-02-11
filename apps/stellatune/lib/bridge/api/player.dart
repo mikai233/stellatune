@@ -212,16 +212,6 @@ Future<void> pluginsReload({required Player player, required String dir}) =>
       dir: dir,
     );
 
-Future<void> pluginsReloadWithDisabled({
-  required Player player,
-  required String dir,
-  required List<String> disabledIds,
-}) => StellatuneApi.instance.api.crateApiPlayerPluginsReloadWithDisabled(
-  player: player,
-  dir: dir,
-  disabledIds: disabledIds,
-);
-
 Future<String> pluginsInstallFromFile({
   required String pluginsDir,
   required String artifactPath,

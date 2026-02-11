@@ -7,6 +7,13 @@ use std::{
     path::PathBuf,
 };
 
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+use anyhow::{Result, anyhow};
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+use std::time::{Duration, Instant};
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+use tokio::time::sleep;
+
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::time::LocalTime;
 
@@ -145,4 +152,204 @@ pub fn runtime_shutdown() {
     } else {
         tracing::warn!("plugin runtime shutdown cleanup skipped: runtime mutex poisoned");
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct DisableReport {
+    pub plugin_id: String,
+    pub phase: &'static str,
+    pub deactivated_generation: Option<u64>,
+    pub unloaded_generations: usize,
+    pub remaining_draining_generations: usize,
+    pub timed_out: bool,
+    pub errors: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct EnableReport {
+    pub plugin_id: String,
+    pub phase: &'static str,
+}
+
+#[derive(Debug, Clone)]
+pub struct ReloadReport {
+    pub phase: &'static str,
+}
+
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+const DEFAULT_PLUGIN_DISABLE_TIMEOUT_MS: u64 = 3_000;
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+const PLUGIN_DISABLE_POLL_INTERVAL_MS: u64 = 20;
+
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+pub async fn plugin_runtime_disable(
+    library: &stellatune_library::LibraryHandle,
+    plugin_id: String,
+    timeout_ms: u64,
+) -> Result<DisableReport> {
+    let plugin_id = plugin_id.trim().to_string();
+    if plugin_id.is_empty() {
+        return Err(anyhow!("plugin_id is empty"));
+    }
+
+    let timeout_ms = if timeout_ms == 0 {
+        DEFAULT_PLUGIN_DISABLE_TIMEOUT_MS
+    } else {
+        timeout_ms
+    };
+    let started_at = Instant::now();
+    let mut report = DisableReport {
+        plugin_id: plugin_id.clone(),
+        phase: "freeze",
+        deactivated_generation: None,
+        unloaded_generations: 0,
+        remaining_draining_generations: 0,
+        timed_out: false,
+        errors: Vec::new(),
+    };
+
+    tracing::info!(plugin_id, timeout_ms, "plugin_disable_begin");
+
+    tracing::debug!(plugin_id, phase = report.phase, "plugin_disable_phase");
+    library.plugin_set_enabled(plugin_id.clone(), false).await?;
+
+    report.phase = "quiesce";
+    tracing::debug!(plugin_id, phase = report.phase, "plugin_disable_phase");
+    if let Err(err) = shared_runtime_host()
+        .engine()
+        .quiesce_plugin_usage(plugin_id.clone())
+    {
+        report.errors.push(err);
+    }
+
+    report.phase = "deactivate";
+    tracing::debug!(plugin_id, phase = report.phase, "plugin_disable_phase");
+    match shared_plugin_runtime().lock() {
+        Ok(service) => {
+            report.deactivated_generation = service.deactivate_plugin(&plugin_id).map(|v| v.0);
+        }
+        Err(_) => report
+            .errors
+            .push("plugin runtime v2 mutex poisoned".to_string()),
+    }
+
+    report.phase = "collect";
+    tracing::debug!(plugin_id, phase = report.phase, "plugin_disable_phase");
+    let deadline = Instant::now() + Duration::from_millis(timeout_ms);
+    loop {
+        let done = match shared_plugin_runtime().lock() {
+            Ok(service) => {
+                report.unloaded_generations += service.collect_ready_for_unload(&plugin_id).len();
+                report.remaining_draining_generations = service
+                    .slot_snapshot(&plugin_id)
+                    .map(|slot| slot.draining.len())
+                    .unwrap_or(0);
+                report.remaining_draining_generations == 0
+            }
+            Err(_) => {
+                report
+                    .errors
+                    .push("plugin runtime v2 mutex poisoned during collect".to_string());
+                true
+            }
+        };
+
+        if done {
+            break;
+        }
+        if Instant::now() >= deadline {
+            report.timed_out = true;
+            tracing::warn!(
+                plugin_id,
+                remaining_draining_generations = report.remaining_draining_generations,
+                "plugin_disable_timeout"
+            );
+            break;
+        }
+        sleep(Duration::from_millis(PLUGIN_DISABLE_POLL_INTERVAL_MS)).await;
+    }
+
+    report.phase = "cleanup";
+    tracing::debug!(plugin_id, phase = report.phase, "plugin_disable_phase");
+    if let Ok(service) = shared_plugin_runtime().lock() {
+        service.cleanup_shadow_copies_now();
+    } else {
+        report
+            .errors
+            .push("plugin runtime v2 mutex poisoned during cleanup".to_string());
+    }
+
+    report.phase = "completed";
+    tracing::info!(
+        plugin_id,
+        elapsed_ms = started_at.elapsed().as_millis() as u64,
+        deactivated_generation = report.deactivated_generation,
+        unloaded_generations = report.unloaded_generations,
+        remaining_draining_generations = report.remaining_draining_generations,
+        timed_out = report.timed_out,
+        errors = report.errors.len(),
+        "plugin_disable_end"
+    );
+    Ok(report)
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+pub async fn plugin_runtime_disable(
+    _library: &stellatune_library::LibraryHandle,
+    plugin_id: String,
+    _timeout_ms: u64,
+) -> anyhow::Result<DisableReport> {
+    Ok(DisableReport {
+        plugin_id,
+        phase: "completed",
+        deactivated_generation: None,
+        unloaded_generations: 0,
+        remaining_draining_generations: 0,
+        timed_out: false,
+        errors: Vec::new(),
+    })
+}
+
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+pub async fn plugin_runtime_enable(
+    library: &stellatune_library::LibraryHandle,
+    plugin_id: String,
+) -> Result<EnableReport> {
+    let plugin_id = plugin_id.trim().to_string();
+    if plugin_id.is_empty() {
+        return Err(anyhow!("plugin_id is empty"));
+    }
+    library.plugin_set_enabled(plugin_id.clone(), true).await?;
+    Ok(EnableReport {
+        plugin_id,
+        phase: "completed",
+    })
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+pub async fn plugin_runtime_enable(
+    _library: &stellatune_library::LibraryHandle,
+    plugin_id: String,
+) -> anyhow::Result<EnableReport> {
+    Ok(EnableReport {
+        plugin_id,
+        phase: "completed",
+    })
+}
+
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+pub async fn plugin_runtime_reload_from_state(
+    library: &stellatune_library::LibraryHandle,
+    dir: String,
+) -> Result<ReloadReport> {
+    library.plugins_reload_from_state(dir).await;
+    Ok(ReloadReport { phase: "completed" })
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+pub async fn plugin_runtime_reload_from_state(
+    _library: &stellatune_library::LibraryHandle,
+    _dir: String,
+) -> anyhow::Result<ReloadReport> {
+    Ok(ReloadReport { phase: "completed" })
 }

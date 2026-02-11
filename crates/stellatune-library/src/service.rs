@@ -9,20 +9,17 @@ use tracing::{error, info};
 
 use stellatune_core::{LibraryCommand, LibraryEvent};
 
-use crate::worker::{DisabledPluginIds, LibraryWorker, WorkerDeps, clear_plugin_worker_caches};
+use crate::worker::{LibraryWorker, WorkerDeps, clear_plugin_worker_caches};
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 use std::collections::HashSet;
-
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-use arc_swap::ArcSwap;
 
 #[derive(Clone)]
 pub struct LibraryHandle {
     cmd_tx: Sender<LibraryCommand>,
     events: Arc<EventHub>,
     plugins_dir: PathBuf,
-    disabled_plugin_ids: DisabledPluginIds,
+    db_path: PathBuf,
 }
 
 impl LibraryHandle {
@@ -34,7 +31,50 @@ impl LibraryHandle {
         self.events.subscribe()
     }
 
-    pub fn plugins_reload_with_disabled(&self, dir: String, disabled_ids: Vec<String>) {
+    #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+    pub async fn plugin_set_enabled(&self, plugin_id: String, enabled: bool) -> Result<()> {
+        let plugin_id = plugin_id.trim().to_string();
+        if plugin_id.is_empty() {
+            return Ok(());
+        }
+
+        let mut disabled = load_disabled_plugin_ids(&self.db_path).await?;
+        if enabled {
+            disabled.remove(&plugin_id);
+        } else {
+            disabled.insert(plugin_id.clone());
+        }
+        persist_disabled_plugin_ids(&self.db_path, &disabled).await?;
+
+        if let Ok(service) = stellatune_plugins::shared_runtime_service().lock() {
+            service.set_plugin_enabled(&plugin_id, enabled);
+        }
+
+        Ok(())
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+    pub async fn plugin_set_enabled(&self, plugin_id: String, enabled: bool) -> Result<()> {
+        let _ = (plugin_id, enabled);
+        Ok(())
+    }
+
+    #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+    pub async fn list_disabled_plugin_ids(&self) -> Result<Vec<String>> {
+        let mut out = load_disabled_plugin_ids(&self.db_path)
+            .await?
+            .into_iter()
+            .collect::<Vec<_>>();
+        out.sort();
+        Ok(out)
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+    pub async fn list_disabled_plugin_ids(&self) -> Result<Vec<String>> {
+        Ok(Vec::new())
+    }
+
+    pub async fn plugins_reload_from_state(&self, dir: String) {
         #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
         {
             let dir = if dir.trim().is_empty() {
@@ -42,50 +82,52 @@ impl LibraryHandle {
             } else {
                 PathBuf::from(dir)
             };
-
-            let disabled = disabled_ids
-                .into_iter()
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect::<HashSet<_>>();
-
-            self.disabled_plugin_ids.store(Arc::new(disabled.clone()));
-
             if !dir.exists() {
                 return;
             }
 
             clear_plugin_worker_caches();
-            match stellatune_plugins::shared_runtime_service().lock() {
-                Ok(service) => match service.reload_dir_filtered(&dir, &disabled) {
-                    Ok(v2) => self.events.emit(LibraryEvent::Log {
-                        message: format!(
-                            "library plugin runtime v2 reload: loaded={} deactivated={} errors={} unloaded_generations={}",
-                            v2.loaded.len(),
-                            v2.deactivated.len(),
-                            v2.errors.len(),
-                            v2.unloaded_generations
-                        ),
-                    }),
-                    Err(e) => self.events.emit(LibraryEvent::Log {
-                        message: format!("library plugin runtime v2 reload failed: {e:#}"),
+            match load_disabled_plugin_ids(&self.db_path).await {
+                Ok(disabled) => match stellatune_plugins::shared_runtime_service().lock() {
+                    Ok(service) => {
+                        service.set_disabled_plugin_ids(disabled);
+                        match service.reload_dir_from_state(&dir) {
+                            Ok(v2) => self.events.emit(LibraryEvent::Log {
+                                message: format!(
+                                    "library plugin runtime v2 reload(from_state): loaded={} deactivated={} errors={} unloaded_generations={}",
+                                    v2.loaded.len(),
+                                    v2.deactivated.len(),
+                                    v2.errors.len(),
+                                    v2.unloaded_generations
+                                ),
+                            }),
+                            Err(e) => self.events.emit(LibraryEvent::Log {
+                                message: format!(
+                                    "library plugin runtime v2 reload(from_state) failed: {e:#}"
+                                ),
+                            }),
+                        }
+                    }
+                    Err(_) => self.events.emit(LibraryEvent::Log {
+                        message:
+                            "library plugin runtime v2 reload(from_state) skipped: runtime mutex poisoned"
+                                .to_string(),
                     }),
                 },
-                Err(_) => self.events.emit(LibraryEvent::Log {
-                    message: "library plugin runtime v2 reload skipped: runtime mutex poisoned"
-                        .to_string(),
+                Err(e) => self.events.emit(LibraryEvent::Log {
+                    message: format!("load plugin_state disabled ids failed: {e:#}"),
                 }),
             }
         }
 
         #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
         {
-            let _ = (dir, disabled_ids);
+            let _ = dir;
         }
     }
 }
 
-pub fn start_library(db_path: String, disabled_plugin_ids: Vec<String>) -> Result<LibraryHandle> {
+pub fn start_library(db_path: String) -> Result<LibraryHandle> {
     let (cmd_tx, cmd_rx) = crossbeam_channel::unbounded::<LibraryCommand>();
     let events = Arc::new(EventHub::new());
     let thread_events = Arc::clone(&events);
@@ -95,34 +137,20 @@ pub fn start_library(db_path: String, disabled_plugin_ids: Vec<String>) -> Resul
         .parent()
         .unwrap_or_else(|| Path::new("."))
         .join("plugins");
-
-    #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-    let disabled_plugin_ids = disabled_plugin_ids
-        .into_iter()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .collect::<HashSet<_>>();
-
-    #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-    let disabled_plugin_ids: DisabledPluginIds =
-        Arc::new(ArcSwap::from_pointee(disabled_plugin_ids));
-
-    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
-    let disabled_plugin_ids: DisabledPluginIds = ();
+    let db_path = PathBuf::from(db_path);
 
     let plugins_dir_thread = plugins_dir.clone();
-    let disabled_plugin_ids_thread = disabled_plugin_ids.clone();
+    let db_path_thread = db_path.clone();
 
     thread::Builder::new()
         .name("stellatune-library".to_string())
         .spawn(move || {
             if let Err(e) = library_thread_main(
-                db_path,
+                db_path_thread,
                 cmd_rx,
                 thread_events,
                 init_tx,
                 plugins_dir_thread,
-                disabled_plugin_ids_thread,
             ) {
                 error!("library thread exited with error: {e:?}");
             }
@@ -135,17 +163,16 @@ pub fn start_library(db_path: String, disabled_plugin_ids: Vec<String>) -> Resul
         cmd_tx,
         events,
         plugins_dir,
-        disabled_plugin_ids,
+        db_path,
     })
 }
 
 fn library_thread_main(
-    db_path: String,
+    db_path: PathBuf,
     cmd_rx: Receiver<LibraryCommand>,
     events: Arc<EventHub>,
     init_tx: Sender<Result<()>>,
     plugins_dir: PathBuf,
-    disabled_plugin_ids: DisabledPluginIds,
 ) -> Result<()> {
     info!("library thread started");
 
@@ -169,20 +196,12 @@ fn library_thread_main(
             }
         });
 
-        let db_path = PathBuf::from(db_path);
         if let Err(e) = ensure_parent_dir(&db_path) {
             let _ = init_tx.send(Err(e));
             return Ok::<_, anyhow::Error>(());
         }
 
-        let deps = match WorkerDeps::new(
-            &db_path,
-            Arc::clone(&events),
-            plugins_dir,
-            disabled_plugin_ids,
-        )
-        .await
-        {
+        let deps = match WorkerDeps::new(&db_path, Arc::clone(&events), plugins_dir).await {
             Ok(v) => v,
             Err(e) => {
                 let _ = init_tx.send(Err(e));
@@ -245,4 +264,20 @@ impl EventHub {
             subs.retain(|tx| tx.send(event.clone()).is_ok());
         }
     }
+}
+
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+async fn persist_disabled_plugin_ids(db_path: &Path, disabled: &HashSet<String>) -> Result<()> {
+    let pool = crate::worker::db::open_state_db_pool(db_path).await?;
+    crate::worker::db::replace_disabled_plugin_ids(&pool, disabled).await?;
+    pool.close().await;
+    Ok(())
+}
+
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+async fn load_disabled_plugin_ids(db_path: &Path) -> Result<HashSet<String>> {
+    let pool = crate::worker::db::open_state_db_pool(db_path).await?;
+    let out = crate::worker::db::list_disabled_plugin_ids(&pool).await?;
+    pool.close().await;
+    Ok(out)
 }

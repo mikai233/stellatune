@@ -246,16 +246,6 @@ pub fn plugins_reload(player: RustOpaque<Player>, dir: String) {
     player.service.plugins_reload(dir);
 }
 
-pub fn plugins_reload_with_disabled(
-    player: RustOpaque<Player>,
-    dir: String,
-    disabled_ids: Vec<String>,
-) {
-    player
-        .service
-        .plugins_reload_with_disabled(dir, disabled_ids);
-}
-
 pub async fn plugins_install_from_file(
     plugins_dir: String,
     artifact_path: String,

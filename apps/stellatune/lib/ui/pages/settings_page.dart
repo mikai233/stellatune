@@ -58,6 +58,7 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
   Future<List<OutputSinkTypeDescriptor>>? _outputSinkTypesFuture;
   Future<List<SourceCatalogTypeDescriptor>>? _sourceTypesFuture;
   Future<List<_InstalledPlugin>>? _installedPluginsFuture;
+  Future<Set<String>>? _disabledPluginIdsFuture;
   String? _pluginDir;
   late final OutputSettingsUiSession _outputUiSession;
 
@@ -103,6 +104,8 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
   final Map<String, String> _outputSinkConfigDrafts = <String, String>{};
   Set<String> _cachedLoadedPluginIds = <String>{};
   bool _cachedLoadedPluginIdsReady = false;
+  Set<String> _cachedDisabledPluginIds = <String>{};
+  bool _cachedDisabledPluginIdsReady = false;
   List<OutputSinkTypeDescriptor> _cachedOutputSinkTypes = const [];
   bool _cachedOutputSinkTypesReady = false;
   List<SourceCatalogTypeDescriptor> _cachedSourceTypes = const [];
@@ -300,21 +303,25 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
 
   void _refresh() {
     final bridge = ref.read(playerBridgeProvider);
+    final library = ref.read(libraryBridgeProvider);
     _pluginsFuture = bridge.pluginsList();
     _outputSinkTypesFuture = null;
     _cachedOutputSinkTypes = const [];
     _cachedOutputSinkTypesReady = false;
     _sourceTypesFuture = bridge.sourceListTypes();
     _installedPluginsFuture = _listInstalledPlugins();
+    _disabledPluginIdsFuture = _listDisabledPluginIds(library);
   }
 
   void _refreshPluginRuntimeState() {
     final bridge = ref.read(playerBridgeProvider);
+    final library = ref.read(libraryBridgeProvider);
     _pluginsFuture = bridge.pluginsList();
     _outputSinkTypesFuture = null;
     _cachedOutputSinkTypes = const [];
     _cachedOutputSinkTypesReady = false;
     _sourceTypesFuture = bridge.sourceListTypes();
+    _disabledPluginIdsFuture = _listDisabledPluginIds(library);
   }
 
   Future<void> _ensurePluginDir() async {
@@ -367,6 +374,11 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
     }
     out.sort((a, b) => (a.nameOrDir).compareTo(b.nameOrDir));
     return out;
+  }
+
+  Future<Set<String>> _listDisabledPluginIds(LibraryBridge library) async {
+    final ids = await library.listDisabledPluginIds();
+    return ids.map((id) => id.trim()).where((id) => id.isNotEmpty).toSet();
   }
 
   String _pluginLibExtForPlatform() {
@@ -472,12 +484,10 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
 
   Future<void> _reloadPluginsWithCurrentDisabled() async {
     await _ensurePluginDir();
-    final bridge = ref.read(playerBridgeProvider);
-    final disabledIds = ref.read(settingsStoreProvider).disabledPluginIds;
-    await bridge.pluginsReloadWithDisabled(
-      dir: _pluginDir!,
-      disabledIds: disabledIds.toList(),
-    );
+    final player = ref.read(playerBridgeProvider);
+    final library = ref.read(libraryBridgeProvider);
+    await library.pluginsReloadFromState(dir: _pluginDir!);
+    await player.pluginsReload(_pluginDir!);
   }
 
   Future<void> _setPluginEnabled({
@@ -486,25 +496,17 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
   }) async {
     final id = plugin.id?.trim();
     if (id == null || id.isEmpty) return;
-    final settings = ref.read(settingsStoreProvider);
+    final library = ref.read(libraryBridgeProvider);
     if (!enabled) {
       await _shutdownNeteaseSidecarResident(onlyForPluginId: id, silent: true);
     }
-    await settings.setPluginEnabled(pluginId: id, enabled: enabled);
-    await _reloadPluginsWithCurrentDisabled();
-    if (!enabled) {
-      final route = settings.outputSinkRoute;
-      if (route != null && route.pluginId == id) {
-        final bridge = ref.read(playerBridgeProvider);
-        await bridge.clearOutputSinkRoute();
-        await settings.clearOutputSinkRoute();
-        await bridge.setOutputDevice(
-          backend: settings.selectedBackend,
-          deviceId: settings.selectedDeviceId,
-        );
-        unawaited(bridge.refreshDevices());
-      }
+    if (enabled) {
+      await library.pluginEnable(pluginId: id);
     } else {
+      await library.pluginDisable(pluginId: id);
+    }
+    await _reloadPluginsWithCurrentDisabled();
+    if (enabled) {
       unawaited(
         _ensureNeteaseSidecarResident(onlyForPluginId: id, silent: true),
       );
@@ -528,9 +530,7 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
       await ref
           .read(playerBridgeProvider)
           .pluginsUninstallById(dir: _pluginDir!, pluginId: plugin.id!);
-      await ref
-          .read(settingsStoreProvider)
-          .setPluginEnabled(pluginId: plugin.id!, enabled: true);
+      await ref.read(libraryBridgeProvider).pluginEnable(pluginId: plugin.id!);
     } else {
       await Directory(plugin.dirPath).delete(recursive: true);
     }
@@ -566,11 +566,7 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
         dir: pluginDir,
         artifactPath: srcPath,
       );
-      final disabledIds = ref.read(settingsStoreProvider).disabledPluginIds;
-      await bridge.pluginsReloadWithDisabled(
-        dir: pluginDir,
-        disabledIds: disabledIds.toList(),
-      );
+      await _reloadPluginsWithCurrentDisabled();
       unawaited(
         _ensureNeteaseSidecarResident(
           onlyForPluginId: installedPluginId,
@@ -2085,125 +2081,154 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
                       return Text(l10n.settingsNoPlugins);
                     }
 
-                    final disabled = ref
-                        .read(settingsStoreProvider)
-                        .disabledPluginIds;
-
-                    return FutureBuilder<List<PluginDescriptor>>(
-                      future: _pluginsFuture,
-                      builder: (context, loadedSnap) {
-                        final loadedData = loadedSnap.data;
-                        if (loadedData != null) {
-                          _cachedLoadedPluginIds = loadedData
-                              .map((p) => p.id)
-                              .toSet();
-                          _cachedLoadedPluginIdsReady = true;
-                        } else if (loadedSnap.connectionState ==
+                    return FutureBuilder<Set<String>>(
+                      future: _disabledPluginIdsFuture,
+                      builder: (context, disabledSnap) {
+                        final disabledData = disabledSnap.data;
+                        if (disabledData != null) {
+                          _cachedDisabledPluginIds = disabledData;
+                          _cachedDisabledPluginIdsReady = true;
+                        } else if (disabledSnap.connectionState ==
                             ConnectionState.done) {
-                          _cachedLoadedPluginIds = <String>{};
-                          _cachedLoadedPluginIdsReady = true;
+                          _cachedDisabledPluginIds = <String>{};
+                          _cachedDisabledPluginIdsReady = true;
                         }
-                        final loadedKnown = _cachedLoadedPluginIdsReady;
-                        final loadedIds = _cachedLoadedPluginIds;
+                        final disabled = _cachedDisabledPluginIdsReady
+                            ? _cachedDisabledPluginIds
+                            : <String>{};
 
-                        return FutureBuilder<List<SourceCatalogTypeDescriptor>>(
-                          future: _sourceTypesFuture,
-                          builder: (context, sourceSnap) {
-                            final sourceData = sourceSnap.data;
-                            if (sourceData != null) {
-                              _cachedSourceTypes = sourceData;
-                              _cachedSourceTypesReady = true;
-                            } else if (sourceSnap.connectionState ==
+                        return FutureBuilder<List<PluginDescriptor>>(
+                          future: _pluginsFuture,
+                          builder: (context, loadedSnap) {
+                            final loadedData = loadedSnap.data;
+                            if (loadedData != null) {
+                              _cachedLoadedPluginIds = loadedData
+                                  .map((p) => p.id)
+                                  .toSet();
+                              _cachedLoadedPluginIdsReady = true;
+                            } else if (loadedSnap.connectionState ==
                                 ConnectionState.done) {
-                              _cachedSourceTypes = const [];
-                              _cachedSourceTypesReady = true;
+                              _cachedLoadedPluginIds = <String>{};
+                              _cachedLoadedPluginIdsReady = true;
                             }
-                            final sourceTypes =
-                                sourceData ??
-                                (_cachedSourceTypesReady
-                                    ? _cachedSourceTypes
-                                    : const <SourceCatalogTypeDescriptor>[]);
-                            final sourceByPlugin =
-                                <String, List<SourceCatalogTypeDescriptor>>{};
-                            for (final t in sourceTypes) {
-                              sourceByPlugin
-                                  .putIfAbsent(
-                                    t.pluginId,
-                                    () => <SourceCatalogTypeDescriptor>[],
-                                  )
-                                  .add(t);
-                            }
-                            final outputTypes = _cachedOutputSinkTypesReady
-                                ? _cachedOutputSinkTypes
-                                : const <OutputSinkTypeDescriptor>[];
-                            final outputByPlugin =
-                                <String, List<OutputSinkTypeDescriptor>>{};
-                            for (final t in outputTypes) {
-                              outputByPlugin
-                                  .putIfAbsent(
-                                    t.pluginId,
-                                    () => <OutputSinkTypeDescriptor>[],
-                                  )
-                                  .add(t);
-                            }
+                            final loadedKnown = _cachedLoadedPluginIdsReady;
+                            final loadedIds = _cachedLoadedPluginIds;
 
-                            return Column(
-                              children: [
-                                for (final p in items)
-                                  _PluginTile(
-                                    plugin: p,
-                                    isDisabled: p.id != null
-                                        ? disabled.contains(p.id)
-                                        : false,
-                                    isLoaded: p.id != null
-                                        ? loadedIds.contains(p.id)
-                                        : false,
-                                    loadedKnown: loadedKnown,
-                                    pluginSourceTypes: p.id == null
-                                        ? const []
-                                        : (sourceByPlugin[p.id] ?? const []),
-                                    pluginOutputSinkTypes: p.id == null
-                                        ? const []
-                                        : (outputByPlugin[p.id] ?? const []),
-                                    onToggleEnabled: (v) => _setPluginEnabled(
-                                      plugin: p,
-                                      enabled: v,
-                                    ),
-                                    onUninstall: () => _uninstallPlugin(p),
-                                    sourceConfigForType: _sourceConfigForType,
-                                    outputSinkConfigForType:
-                                        _outputSinkConfigForType,
-                                    onSourceConfigChanged: (t, json) =>
-                                        _sourceConfigDrafts[_sourceTypeKey(t)] =
-                                            json,
-                                    onOutputSinkConfigChanged: (t, json) {
-                                      final key = _outputSinkTypeKey(t);
-                                      _outputSinkConfigDrafts[key] = json;
-                                      if (_selectedOutputSinkTypeKey == key) {
-                                        _outputSinkConfigController.text = json;
-                                        _outputSinkConfigApplyDebounce
-                                            ?.cancel();
-                                        _outputSinkConfigApplyDebounce = Timer(
-                                          const Duration(milliseconds: 350),
-                                          () async {
-                                            if (!mounted) return;
-                                            try {
-                                              await _loadOutputSinkTargets();
-                                              await _applyOutputSinkRoute();
-                                            } catch (e, s) {
-                                              logger.e(
-                                                'failed to apply output sink route in debounce',
-                                                error: e,
-                                                stackTrace: s,
-                                              );
-                                            }
-                                          },
-                                        );
-                                      }
-                                    },
-                                    onSaveSourceConfig: _saveSourceConfig,
-                                  ),
-                              ],
+                            return FutureBuilder<
+                              List<SourceCatalogTypeDescriptor>
+                            >(
+                              future: _sourceTypesFuture,
+                              builder: (context, sourceSnap) {
+                                final sourceData = sourceSnap.data;
+                                if (sourceData != null) {
+                                  _cachedSourceTypes = sourceData;
+                                  _cachedSourceTypesReady = true;
+                                } else if (sourceSnap.connectionState ==
+                                    ConnectionState.done) {
+                                  _cachedSourceTypes = const [];
+                                  _cachedSourceTypesReady = true;
+                                }
+                                final sourceTypes =
+                                    sourceData ??
+                                    (_cachedSourceTypesReady
+                                        ? _cachedSourceTypes
+                                        : const <
+                                            SourceCatalogTypeDescriptor
+                                          >[]);
+                                final sourceByPlugin =
+                                    <
+                                      String,
+                                      List<SourceCatalogTypeDescriptor>
+                                    >{};
+                                for (final t in sourceTypes) {
+                                  sourceByPlugin
+                                      .putIfAbsent(
+                                        t.pluginId,
+                                        () => <SourceCatalogTypeDescriptor>[],
+                                      )
+                                      .add(t);
+                                }
+                                final outputTypes = _cachedOutputSinkTypesReady
+                                    ? _cachedOutputSinkTypes
+                                    : const <OutputSinkTypeDescriptor>[];
+                                final outputByPlugin =
+                                    <String, List<OutputSinkTypeDescriptor>>{};
+                                for (final t in outputTypes) {
+                                  outputByPlugin
+                                      .putIfAbsent(
+                                        t.pluginId,
+                                        () => <OutputSinkTypeDescriptor>[],
+                                      )
+                                      .add(t);
+                                }
+
+                                return Column(
+                                  children: [
+                                    for (final p in items)
+                                      _PluginTile(
+                                        plugin: p,
+                                        isDisabled: p.id != null
+                                            ? disabled.contains(p.id)
+                                            : false,
+                                        isLoaded: p.id != null
+                                            ? loadedIds.contains(p.id)
+                                            : false,
+                                        loadedKnown: loadedKnown,
+                                        pluginSourceTypes: p.id == null
+                                            ? const []
+                                            : (sourceByPlugin[p.id] ??
+                                                  const []),
+                                        pluginOutputSinkTypes: p.id == null
+                                            ? const []
+                                            : (outputByPlugin[p.id] ??
+                                                  const []),
+                                        onToggleEnabled: (v) =>
+                                            _setPluginEnabled(
+                                              plugin: p,
+                                              enabled: v,
+                                            ),
+                                        onUninstall: () => _uninstallPlugin(p),
+                                        sourceConfigForType:
+                                            _sourceConfigForType,
+                                        outputSinkConfigForType:
+                                            _outputSinkConfigForType,
+                                        onSourceConfigChanged: (t, json) =>
+                                            _sourceConfigDrafts[_sourceTypeKey(
+                                                  t,
+                                                )] =
+                                                json,
+                                        onOutputSinkConfigChanged: (t, json) {
+                                          final key = _outputSinkTypeKey(t);
+                                          _outputSinkConfigDrafts[key] = json;
+                                          if (_selectedOutputSinkTypeKey ==
+                                              key) {
+                                            _outputSinkConfigController.text =
+                                                json;
+                                            _outputSinkConfigApplyDebounce
+                                                ?.cancel();
+                                            _outputSinkConfigApplyDebounce = Timer(
+                                              const Duration(milliseconds: 350),
+                                              () async {
+                                                if (!mounted) return;
+                                                try {
+                                                  await _loadOutputSinkTargets();
+                                                  await _applyOutputSinkRoute();
+                                                } catch (e, s) {
+                                                  logger.e(
+                                                    'failed to apply output sink route in debounce',
+                                                    error: e,
+                                                    stackTrace: s,
+                                                  );
+                                                }
+                                              },
+                                            );
+                                          }
+                                        },
+                                        onSaveSourceConfig: _saveSourceConfig,
+                                      ),
+                                  ],
+                                );
+                              },
                             );
                           },
                         );

@@ -86,10 +86,7 @@ Future<AppBootstrapResult> bootstrapApp() async {
   final settings = SettingsStore();
   final paths = await _resolvePaths();
 
-  final library = await LibraryBridge.create(
-    dbPath: paths.dbPath,
-    disabledPluginIds: settings.disabledPluginIds.toList(),
-  );
+  final library = await LibraryBridge.create(dbPath: paths.dbPath);
 
   await _applyPersistedOutputSettings(bridge: bridge, settings: settings);
   await _setupLyricsCacheDb(bridge: bridge, lyricsDbPath: paths.lyricsDbPath);
