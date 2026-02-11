@@ -206,12 +206,6 @@ Future<void> dspSetChain({
 Future<TrackDecodeInfo?> currentTrackInfo({required Player player}) =>
     StellatuneApi.instance.api.crateApiPlayerCurrentTrackInfo(player: player);
 
-Future<void> pluginsReload({required Player player, required String dir}) =>
-    StellatuneApi.instance.api.crateApiPlayerPluginsReload(
-      player: player,
-      dir: dir,
-    );
-
 Future<String> pluginsInstallFromFile({
   required String pluginsDir,
   required String artifactPath,

@@ -186,11 +186,12 @@ pub async fn library_plugin_enable(library: RustOpaque<Library>, plugin_id: Stri
     library.service.plugin_enable(plugin_id).await
 }
 
-pub async fn library_plugins_reload_from_state(
-    library: RustOpaque<Library>,
-    dir: String,
-) -> Result<()> {
-    library.service.plugins_reload_from_state(dir).await
+pub async fn library_plugin_apply_state(library: RustOpaque<Library>) -> Result<()> {
+    library.service.plugin_apply_state().await
+}
+
+pub fn library_plugin_apply_state_status_json(library: RustOpaque<Library>) -> String {
+    library.service.plugin_apply_state_status_json()
 }
 
 pub async fn library_list_disabled_plugin_ids(library: RustOpaque<Library>) -> Result<Vec<String>> {

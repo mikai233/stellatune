@@ -164,11 +164,10 @@ impl PlayerService {
             .map_err(|e| anyhow::anyhow!("invalid source config_json: {e}"))?;
         let _request = serde_json::from_str::<serde_json::Value>(&request_json)
             .map_err(|e| anyhow::anyhow!("invalid source request_json: {e}"))?;
-        let payload = with_runtime_service(|service| {
-            let mut inst =
-                service.create_source_catalog_instance(&plugin_id, &type_id, &config_json)?;
-            inst.list_items_json(&request_json)
+        let mut inst = with_runtime_service(|service| {
+            service.create_source_catalog_instance(&plugin_id, &type_id, &config_json)
         })?;
+        let payload = inst.list_items_json(&request_json)?;
         normalize_json_payload("source list response", payload)
     }
 
@@ -180,17 +179,16 @@ impl PlayerService {
     ) -> Result<String> {
         let _query = serde_json::from_str::<serde_json::Value>(&query_json)
             .map_err(|e| anyhow::anyhow!("invalid lyrics query_json: {e}"))?;
-        let payload = with_runtime_service(|service| {
+        let mut inst = with_runtime_service(|service| {
             let config_json = capability_default_config_json(
                 service,
                 &plugin_id,
                 CapabilityKind::LyricsProvider,
                 &type_id,
             )?;
-            let mut inst =
-                service.create_lyrics_provider_instance(&plugin_id, &type_id, &config_json)?;
-            inst.search_json(&query_json)
+            service.create_lyrics_provider_instance(&plugin_id, &type_id, &config_json)
         })?;
+        let payload = inst.search_json(&query_json)?;
         normalize_json_payload("lyrics search response", payload)
     }
 
@@ -202,17 +200,16 @@ impl PlayerService {
     ) -> Result<String> {
         let _track = serde_json::from_str::<serde_json::Value>(&track_json)
             .map_err(|e| anyhow::anyhow!("invalid lyrics track_json: {e}"))?;
-        let payload = with_runtime_service(|service| {
+        let mut inst = with_runtime_service(|service| {
             let config_json = capability_default_config_json(
                 service,
                 &plugin_id,
                 CapabilityKind::LyricsProvider,
                 &type_id,
             )?;
-            let mut inst =
-                service.create_lyrics_provider_instance(&plugin_id, &type_id, &config_json)?;
-            inst.fetch_json(&track_json)
+            service.create_lyrics_provider_instance(&plugin_id, &type_id, &config_json)
         })?;
+        let payload = inst.fetch_json(&track_json)?;
         normalize_json_payload("lyrics fetch response", payload)
     }
 
@@ -224,11 +221,10 @@ impl PlayerService {
     ) -> Result<String> {
         let _config = serde_json::from_str::<serde_json::Value>(&config_json)
             .map_err(|e| anyhow::anyhow!("invalid output sink config_json: {e}"))?;
-        let payload = with_runtime_service(|service| {
-            let mut inst =
-                service.create_output_sink_instance(&plugin_id, &type_id, &config_json)?;
-            inst.list_targets_json()
+        let mut inst = with_runtime_service(|service| {
+            service.create_output_sink_instance(&plugin_id, &type_id, &config_json)
         })?;
+        let payload = inst.list_targets_json()?;
         normalize_json_payload("output sink targets", payload)
     }
 
@@ -238,10 +234,6 @@ impl PlayerService {
 
     pub fn current_track_info(&self) -> Option<TrackDecodeInfo> {
         self.runtime.engine().current_track_info()
-    }
-
-    pub fn plugins_reload(&self, dir: String) {
-        self.runtime.engine().reload_plugins(dir);
     }
 
     pub fn refresh_devices(&self) {

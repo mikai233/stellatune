@@ -242,10 +242,6 @@ pub fn current_track_info(player: RustOpaque<Player>) -> Option<TrackDecodeInfo>
     player.service.current_track_info()
 }
 
-pub fn plugins_reload(player: RustOpaque<Player>, dir: String) {
-    player.service.plugins_reload(dir);
-}
-
 pub async fn plugins_install_from_file(
     plugins_dir: String,
     artifact_path: String,

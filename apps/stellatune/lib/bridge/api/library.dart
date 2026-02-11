@@ -228,13 +228,15 @@ Future<void> libraryPluginEnable({
   pluginId: pluginId,
 );
 
-Future<void> libraryPluginsReloadFromState({
-  required Library library_,
-  required String dir,
-}) => StellatuneApi.instance.api.crateApiLibraryLibraryPluginsReloadFromState(
-  library_: library_,
-  dir: dir,
-);
+Future<void> libraryPluginApplyState({required Library library_}) =>
+    StellatuneApi.instance.api.crateApiLibraryLibraryPluginApplyState(
+      library_: library_,
+    );
+
+Future<String> libraryPluginApplyStateStatusJson({required Library library_}) =>
+    StellatuneApi.instance.api.crateApiLibraryLibraryPluginApplyStateStatusJson(
+      library_: library_,
+    );
 
 Future<List<String>> libraryListDisabledPluginIds({
   required Library library_,

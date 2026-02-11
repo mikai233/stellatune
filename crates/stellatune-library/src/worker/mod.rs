@@ -1123,11 +1123,3 @@ impl LibraryWorker {
         Ok(())
     }
 }
-
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-pub(crate) fn clear_plugin_worker_caches() {
-    clear_metadata_decoder_cache();
-}
-
-#[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
-pub(crate) fn clear_plugin_worker_caches() {}

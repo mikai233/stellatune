@@ -9,7 +9,7 @@ use tracing::{error, info};
 
 use stellatune_core::{LibraryCommand, LibraryEvent};
 
-use crate::worker::{LibraryWorker, WorkerDeps, clear_plugin_worker_caches};
+use crate::worker::{LibraryWorker, WorkerDeps};
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 use std::collections::HashSet;
@@ -29,6 +29,10 @@ impl LibraryHandle {
 
     pub fn subscribe_events(&self) -> Receiver<LibraryEvent> {
         self.events.subscribe()
+    }
+
+    pub fn plugins_dir_path(&self) -> &Path {
+        &self.plugins_dir
     }
 
     #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
@@ -72,58 +76,6 @@ impl LibraryHandle {
     #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
     pub async fn list_disabled_plugin_ids(&self) -> Result<Vec<String>> {
         Ok(Vec::new())
-    }
-
-    pub async fn plugins_reload_from_state(&self, dir: String) {
-        #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-        {
-            let dir = if dir.trim().is_empty() {
-                self.plugins_dir.clone()
-            } else {
-                PathBuf::from(dir)
-            };
-            if !dir.exists() {
-                return;
-            }
-
-            clear_plugin_worker_caches();
-            match load_disabled_plugin_ids(&self.db_path).await {
-                Ok(disabled) => match stellatune_plugins::shared_runtime_service().lock() {
-                    Ok(service) => {
-                        service.set_disabled_plugin_ids(disabled);
-                        match service.reload_dir_from_state(&dir) {
-                            Ok(v2) => self.events.emit(LibraryEvent::Log {
-                                message: format!(
-                                    "library plugin runtime v2 reload(from_state): loaded={} deactivated={} errors={} unloaded_generations={}",
-                                    v2.loaded.len(),
-                                    v2.deactivated.len(),
-                                    v2.errors.len(),
-                                    v2.unloaded_generations
-                                ),
-                            }),
-                            Err(e) => self.events.emit(LibraryEvent::Log {
-                                message: format!(
-                                    "library plugin runtime v2 reload(from_state) failed: {e:#}"
-                                ),
-                            }),
-                        }
-                    }
-                    Err(_) => self.events.emit(LibraryEvent::Log {
-                        message:
-                            "library plugin runtime v2 reload(from_state) skipped: runtime mutex poisoned"
-                                .to_string(),
-                    }),
-                },
-                Err(e) => self.events.emit(LibraryEvent::Log {
-                    message: format!("load plugin_state disabled ids failed: {e:#}"),
-                }),
-            }
-        }
-
-        #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
-        {
-            let _ = dir;
-        }
     }
 }
 

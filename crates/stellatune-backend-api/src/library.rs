@@ -206,10 +206,33 @@ impl LibraryService {
         Ok(())
     }
 
-    pub async fn plugins_reload_from_state(&self, dir: String) -> Result<()> {
-        let report = crate::runtime::plugin_runtime_reload_from_state(&self.handle, dir).await?;
-        tracing::debug!(phase = report.phase, "plugin_reload_from_state_done");
+    pub async fn plugin_apply_state(&self) -> Result<()> {
+        let report = crate::runtime::plugin_runtime_apply_state(&self.handle).await?;
+        tracing::debug!(
+            phase = report.phase,
+            loaded = report.loaded,
+            deactivated = report.deactivated,
+            unloaded_generations = report.unloaded_generations,
+            plan_actions_total = report.plan_actions_total,
+            plan_load_new = report.plan_load_new,
+            plan_reload_changed = report.plan_reload_changed,
+            plan_deactivate = report.plan_deactivate,
+            plan_ms = report.plan_ms,
+            execute_ms = report.execute_ms,
+            total_ms = report.total_ms,
+            coalesced_requests = report.coalesced_requests,
+            execution_loops = report.execution_loops,
+            errors = report.errors.len(),
+            "plugin_apply_state_done"
+        );
+        for err in report.errors {
+            tracing::warn!(error = %err, "plugin_apply_state_error");
+        }
         Ok(())
+    }
+
+    pub fn plugin_apply_state_status_json(&self) -> String {
+        crate::runtime::plugin_runtime_apply_state_status_json()
     }
 
     pub async fn list_disabled_plugin_ids(&self) -> Result<Vec<String>> {

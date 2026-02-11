@@ -5,7 +5,7 @@ use crossbeam_channel::Sender;
 use super::{
     EngineState, Event, EventHub, InternalMsg, PlayerState, SessionStopMode, SharedTrackInfo,
     debug_metrics, drop_output_pipeline, ensure_output_spec_prewarm, event_path_from_engine_token,
-    set_state, stop_all_audio, stop_decode_session,
+    on_plugin_reload_finished, set_state, stop_all_audio, stop_decode_session,
 };
 
 mod errors;
@@ -79,5 +79,8 @@ pub(super) fn handle_internal(
             took_ms,
             token,
         } => on_preload_failed(&mut ctx, path, position_ms, message, took_ms, token),
+        InternalMsg::PluginsReloadFinished { summary } => {
+            on_plugin_reload_finished(ctx.state, ctx.events, ctx.internal_tx, summary)
+        }
     }
 }

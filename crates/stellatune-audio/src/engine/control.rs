@@ -37,7 +37,7 @@ mod runtime_query;
 mod tick;
 
 use commands::handle_command;
-use engine_ctrl::handle_engine_ctrl;
+use engine_ctrl::{handle_engine_ctrl, on_plugin_reload_finished};
 use internal::handle_internal;
 use output_sink::{
     output_sink_queue_watermarks_ms, output_spec_for_plugin_sink,
@@ -772,6 +772,8 @@ struct EngineState {
     source_instances: HashMap<RuntimeInstanceSlotKey, CachedSourceInstance>,
     lyrics_instances: HashMap<RuntimeInstanceSlotKey, CachedLyricsInstance>,
     output_sink_instances: HashMap<RuntimeInstanceSlotKey, CachedOutputSinkInstance>,
+    plugin_reload_inflight: bool,
+    pending_plugin_reload_dir: Option<String>,
     switch_timing_seq: u64,
     manual_switch_timing: Option<ManualSwitchTiming>,
     seek_position_guard: Option<SeekPositionGuard>,
@@ -864,6 +866,8 @@ impl EngineState {
             source_instances: HashMap::new(),
             lyrics_instances: HashMap::new(),
             output_sink_instances: HashMap::new(),
+            plugin_reload_inflight: false,
+            pending_plugin_reload_dir: None,
             switch_timing_seq: 0,
             manual_switch_timing: None,
             seek_position_guard: None,

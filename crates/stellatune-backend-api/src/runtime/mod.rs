@@ -1,6 +1,4 @@
-use std::sync::OnceLock;
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::{
     fs::OpenOptions,
     io::{self, Write},
@@ -20,6 +18,7 @@ use tracing_subscriber::fmt::time::LocalTime;
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 use stellatune_plugins::SharedPluginRuntimeService;
 
+mod apply_state;
 mod bus;
 mod control;
 mod host;
@@ -78,7 +77,8 @@ fn open_tracing_log_file() -> Option<Arc<Mutex<std::fs::File>>> {
     }
     let file = OpenOptions::new()
         .create(true)
-        .append(true)
+        .write(true)
+        .truncate(true)
         .open(path)
         .ok()?;
     Some(Arc::new(Mutex::new(file)))
@@ -172,8 +172,52 @@ pub struct EnableReport {
 }
 
 #[derive(Debug, Clone)]
-pub struct ReloadReport {
+pub struct ApplyStateReport {
     pub phase: &'static str,
+    pub loaded: usize,
+    pub deactivated: usize,
+    pub unloaded_generations: usize,
+    pub errors: Vec<String>,
+    pub plan_discovered: usize,
+    pub plan_disabled: usize,
+    pub plan_actions_total: usize,
+    pub plan_load_new: usize,
+    pub plan_reload_changed: usize,
+    pub plan_deactivate: usize,
+    pub plan_ms: u64,
+    pub execute_ms: u64,
+    pub total_ms: u64,
+    pub action_outcomes: Vec<String>,
+    pub coalesced_requests: u64,
+    pub execution_loops: u64,
+}
+
+impl ApplyStateReport {
+    pub(crate) fn empty_completed() -> Self {
+        Self {
+            phase: "completed",
+            loaded: 0,
+            deactivated: 0,
+            unloaded_generations: 0,
+            errors: Vec::new(),
+            plan_discovered: 0,
+            plan_disabled: 0,
+            plan_actions_total: 0,
+            plan_load_new: 0,
+            plan_reload_changed: 0,
+            plan_deactivate: 0,
+            plan_ms: 0,
+            execute_ms: 0,
+            total_ms: 0,
+            action_outcomes: Vec::new(),
+            coalesced_requests: 0,
+            execution_loops: 0,
+        }
+    }
+}
+
+pub fn plugin_runtime_apply_state_status_json() -> String {
+    apply_state::status_json()
 }
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
@@ -338,18 +382,71 @@ pub async fn plugin_runtime_enable(
 }
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-pub async fn plugin_runtime_reload_from_state(
+pub async fn plugin_runtime_apply_state(
     library: &stellatune_library::LibraryHandle,
-    dir: String,
-) -> Result<ReloadReport> {
-    library.plugins_reload_from_state(dir).await;
-    Ok(ReloadReport { phase: "completed" })
+) -> Result<ApplyStateReport> {
+    let result = apply_state::run_coalesced(|| async {
+        let plugins_dir = library.plugins_dir_path().to_path_buf();
+        let disabled_ids = library
+            .list_disabled_plugin_ids()
+            .await?
+            .into_iter()
+            .map(|id| id.trim().to_string())
+            .filter(|id| !id.is_empty())
+            .collect::<std::collections::HashSet<_>>();
+
+        let report = match shared_plugin_runtime().lock() {
+            Ok(service) => {
+                service.set_disabled_plugin_ids(disabled_ids);
+                service.reload_dir_detailed_from_state(&plugins_dir)?
+            }
+            Err(_) => return Err(anyhow!("plugin runtime v2 mutex poisoned")),
+        };
+        let errors = report
+            .load_report
+            .errors
+            .into_iter()
+            .map(|err| format!("{err:#}"))
+            .collect();
+        Ok(ApplyStateReport {
+            phase: "completed",
+            loaded: report.load_report.loaded.len(),
+            deactivated: report.load_report.deactivated.len(),
+            unloaded_generations: report.load_report.unloaded_generations,
+            errors,
+            plan_discovered: report.plan.discovered,
+            plan_disabled: report.plan.disabled,
+            plan_actions_total: report.plan.actions_total,
+            plan_load_new: report.plan.load_new,
+            plan_reload_changed: report.plan.reload_changed,
+            plan_deactivate: report.plan.deactivate,
+            plan_ms: report.plan_ms,
+            execute_ms: report.execute_ms,
+            total_ms: report.total_ms,
+            action_outcomes: report
+                .actions
+                .into_iter()
+                .map(|item| format!("{}:{}:{}", item.action, item.plugin_id, item.outcome))
+                .collect(),
+            coalesced_requests: 0,
+            execution_loops: 0,
+        })
+    })
+    .await?;
+    let mut report = result.report;
+    report.coalesced_requests = result.coalesced_requests;
+    report.execution_loops = result.execution_loops;
+    Ok(report)
 }
 
 #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
-pub async fn plugin_runtime_reload_from_state(
+pub async fn plugin_runtime_apply_state(
     _library: &stellatune_library::LibraryHandle,
-    _dir: String,
-) -> anyhow::Result<ReloadReport> {
-    Ok(ReloadReport { phase: "completed" })
+) -> anyhow::Result<ApplyStateReport> {
+    let result =
+        apply_state::run_coalesced(|| async { Ok(ApplyStateReport::empty_completed()) }).await?;
+    let mut report = result.report;
+    report.coalesced_requests = result.coalesced_requests;
+    report.execution_loops = result.execution_loops;
+    Ok(report)
 }

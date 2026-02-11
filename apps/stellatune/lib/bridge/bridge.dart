@@ -179,9 +179,6 @@ class PlayerBridge {
   Future<TrackDecodeInfo?> currentTrackInfo() =>
       api.currentTrackInfo(player: player);
 
-  Future<void> pluginsReload(String dir) =>
-      api.pluginsReload(player: player, dir: dir);
-
   Future<String> pluginsInstallFromFile({
     required String dir,
     required String artifactPath,
@@ -409,8 +406,11 @@ class LibraryBridge {
   Future<void> pluginEnable({required String pluginId}) =>
       api.libraryPluginEnable(library_: library, pluginId: pluginId);
 
-  Future<void> pluginsReloadFromState({required String dir}) =>
-      api.libraryPluginsReloadFromState(library_: library, dir: dir);
+  Future<void> pluginApplyState() =>
+      api.libraryPluginApplyState(library_: library);
+
+  Future<String> pluginApplyStateStatusJson() =>
+      api.libraryPluginApplyStateStatusJson(library_: library);
 
   Future<List<String>> listDisabledPluginIds() =>
       api.libraryListDisabledPluginIds(library_: library);

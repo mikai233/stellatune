@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Result, anyhow};
 use stellatune_plugin_api::{STELLATUNE_PLUGIN_API_VERSION, StHostVTable};
@@ -142,7 +142,55 @@ impl PluginSlotState {
 struct LoadedPluginGeneration {
     generation: GenerationId,
     plugin_name: String,
+    source_fingerprint: SourceLibraryFingerprint,
     loaded: LoadedPluginModule,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SourceLibraryFingerprint {
+    library_path: PathBuf,
+    file_size: u64,
+    modified_unix_ms: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SyncMode {
+    Additive,
+    Reconcile,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum PluginSyncAction {
+    LoadNew { plugin_id: String },
+    ReloadChanged { plugin_id: String },
+    DeactivateMissingOrDisabled { plugin_id: String },
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct RuntimeSyncPlanSummary {
+    pub discovered: usize,
+    pub disabled: usize,
+    pub actions_total: usize,
+    pub load_new: usize,
+    pub reload_changed: usize,
+    pub deactivate: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct RuntimeSyncActionOutcome {
+    pub action: String,
+    pub plugin_id: String,
+    pub outcome: String,
+}
+
+#[derive(Debug, Default)]
+pub struct RuntimeSyncReport {
+    pub load_report: RuntimeLoadReport,
+    pub plan: RuntimeSyncPlanSummary,
+    pub actions: Vec<RuntimeSyncActionOutcome>,
+    pub plan_ms: u64,
+    pub execute_ms: u64,
+    pub total_ms: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -727,30 +775,8 @@ impl PluginRuntimeService {
     }
 
     pub fn load_dir_additive_from_state(&self, dir: impl AsRef<Path>) -> Result<RuntimeLoadReport> {
-        self.cleanup_shadow_copies_best_effort("load_dir_additive_filtered:begin");
-        let dir = dir.as_ref();
-        let disabled_ids = self.disabled_plugin_ids();
-        let mut report = RuntimeLoadReport::default();
-        for discovered in manifest::discover_plugins(dir)? {
-            if disabled_ids.contains(&discovered.manifest.id) {
-                continue;
-            }
-            if self.active_generation(&discovered.manifest.id).is_some() {
-                continue;
-            }
-            match load_discovered_plugin(&discovered, &self.host) {
-                Ok(candidate) => {
-                    let activated = self.activate_loaded_candidate(candidate);
-                    report.unloaded_generations += activated.unloaded_generations;
-                    report.loaded.push(activated.info);
-                }
-                Err(e) => report
-                    .errors
-                    .push(e.context(format!("while loading plugin `{}`", discovered.manifest.id))),
-            }
-        }
-        self.cleanup_shadow_copies_best_effort("load_dir_additive_filtered:end");
-        Ok(report)
+        self.sync_dir_from_state_report(dir, SyncMode::Additive)
+            .map(|report| report.load_report)
     }
 
     pub fn reload_dir_filtered(
@@ -763,41 +789,15 @@ impl PluginRuntimeService {
     }
 
     pub fn reload_dir_from_state(&self, dir: impl AsRef<Path>) -> Result<RuntimeLoadReport> {
-        self.cleanup_shadow_copies_best_effort("reload_dir_filtered:begin");
-        let dir = dir.as_ref();
-        let disabled_ids = self.disabled_plugin_ids();
-        let mut report = RuntimeLoadReport::default();
-        let mut discovered_ids = HashSet::<String>::new();
-        for discovered in manifest::discover_plugins(dir)? {
-            discovered_ids.insert(discovered.manifest.id.clone());
-            if disabled_ids.contains(&discovered.manifest.id) {
-                continue;
-            }
-            match load_discovered_plugin(&discovered, &self.host) {
-                Ok(candidate) => {
-                    let activated = self.activate_loaded_candidate(candidate);
-                    report.unloaded_generations += activated.unloaded_generations;
-                    report.loaded.push(activated.info);
-                }
-                Err(e) => report.errors.push(e.context(format!(
-                    "while reloading plugin `{}`",
-                    discovered.manifest.id
-                ))),
-            }
-        }
+        self.sync_dir_from_state_report(dir, SyncMode::Reconcile)
+            .map(|report| report.load_report)
+    }
 
-        let mut active_plugin_ids = self.active_plugin_ids();
-        active_plugin_ids.sort();
-        for plugin_id in active_plugin_ids {
-            if disabled_ids.contains(&plugin_id) || !discovered_ids.contains(&plugin_id) {
-                if self.deactivate_plugin(&plugin_id).is_some() {
-                    report.deactivated.push(plugin_id.clone());
-                }
-                report.unloaded_generations += self.collect_ready_for_unload(&plugin_id).len();
-            }
-        }
-        self.cleanup_shadow_copies_best_effort("reload_dir_filtered:end");
-        Ok(report)
+    pub fn reload_dir_detailed_from_state(
+        &self,
+        dir: impl AsRef<Path>,
+    ) -> Result<RuntimeSyncReport> {
+        self.sync_dir_from_state_report(dir, SyncMode::Reconcile)
     }
 
     pub fn unload_plugin(&self, plugin_id: &str) -> RuntimeLoadReport {
@@ -901,6 +901,235 @@ impl PluginRuntimeService {
         best_exact.or(best_wildcard)
     }
 
+    fn sync_dir_from_state_report(
+        &self,
+        dir: impl AsRef<Path>,
+        mode: SyncMode,
+    ) -> Result<RuntimeSyncReport> {
+        let total_started = Instant::now();
+        let (begin_reason, end_reason) = match mode {
+            SyncMode::Additive => (
+                "sync_dir_from_state_additive:begin",
+                "sync_dir_from_state_additive:end",
+            ),
+            SyncMode::Reconcile => (
+                "sync_dir_from_state_reconcile:begin",
+                "sync_dir_from_state_reconcile:end",
+            ),
+        };
+        self.cleanup_shadow_copies_best_effort(begin_reason);
+
+        let dir = dir.as_ref();
+        let plan_started = Instant::now();
+        let disabled_ids = self.disabled_plugin_ids();
+        let discovered_plugins = manifest::discover_plugins(dir)?;
+        let plan = self.plan_sync_actions(&discovered_plugins, &disabled_ids, mode);
+        let mut plan_summary = RuntimeSyncPlanSummary {
+            discovered: discovered_plugins.len(),
+            disabled: disabled_ids.len(),
+            actions_total: plan.len(),
+            ..RuntimeSyncPlanSummary::default()
+        };
+        for action in &plan {
+            match action {
+                PluginSyncAction::LoadNew { .. } => plan_summary.load_new += 1,
+                PluginSyncAction::ReloadChanged { .. } => plan_summary.reload_changed += 1,
+                PluginSyncAction::DeactivateMissingOrDisabled { .. } => {
+                    plan_summary.deactivate += 1
+                }
+            }
+        }
+        let plan_ms = plan_started.elapsed().as_millis() as u64;
+        tracing::debug!(
+            mode = ?mode,
+            discovered = plan_summary.discovered,
+            disabled = plan_summary.disabled,
+            actions = plan_summary.actions_total,
+            load_new = plan_summary.load_new,
+            reload_changed = plan_summary.reload_changed,
+            deactivate = plan_summary.deactivate,
+            "plugin sync plan prepared"
+        );
+        let discovered_by_id = discovered_plugins
+            .iter()
+            .map(|plugin| (plugin.manifest.id.clone(), plugin))
+            .collect::<HashMap<_, _>>();
+
+        let execute_started = Instant::now();
+        let mut report = RuntimeLoadReport::default();
+        let mut action_outcomes = Vec::new();
+        for action in plan {
+            match action {
+                PluginSyncAction::LoadNew { plugin_id } => {
+                    let Some(discovered) = discovered_by_id.get(&plugin_id) else {
+                        report.errors.push(anyhow!(
+                            "planner inconsistency: missing discovered plugin `{plugin_id}`"
+                        ));
+                        action_outcomes.push(RuntimeSyncActionOutcome {
+                            action: "load_new".to_string(),
+                            plugin_id,
+                            outcome: "planner_missing_discovered".to_string(),
+                        });
+                        continue;
+                    };
+                    match load_discovered_plugin(discovered, &self.host) {
+                        Ok(candidate) => {
+                            let activated = self.activate_loaded_candidate(candidate);
+                            report.unloaded_generations += activated.unloaded_generations;
+                            report.loaded.push(activated.info);
+                            action_outcomes.push(RuntimeSyncActionOutcome {
+                                action: "load_new".to_string(),
+                                plugin_id,
+                                outcome: "loaded".to_string(),
+                            });
+                        }
+                        Err(error) => {
+                            report
+                                .errors
+                                .push(error.context(format!("while loading plugin `{plugin_id}`")));
+                            action_outcomes.push(RuntimeSyncActionOutcome {
+                                action: "load_new".to_string(),
+                                plugin_id,
+                                outcome: "error".to_string(),
+                            });
+                        }
+                    }
+                }
+                PluginSyncAction::ReloadChanged { plugin_id } => {
+                    let Some(discovered) = discovered_by_id.get(&plugin_id) else {
+                        report.errors.push(anyhow!(
+                            "planner inconsistency: missing discovered plugin `{plugin_id}`"
+                        ));
+                        action_outcomes.push(RuntimeSyncActionOutcome {
+                            action: "reload_changed".to_string(),
+                            plugin_id,
+                            outcome: "planner_missing_discovered".to_string(),
+                        });
+                        continue;
+                    };
+                    match load_discovered_plugin(discovered, &self.host) {
+                        Ok(candidate) => {
+                            let activated = self.activate_loaded_candidate(candidate);
+                            report.unloaded_generations += activated.unloaded_generations;
+                            report.loaded.push(activated.info);
+                            action_outcomes.push(RuntimeSyncActionOutcome {
+                                action: "reload_changed".to_string(),
+                                plugin_id,
+                                outcome: "reloaded".to_string(),
+                            });
+                        }
+                        Err(error) => {
+                            report.errors.push(
+                                error.context(format!(
+                                    "while reloading changed plugin `{plugin_id}`"
+                                )),
+                            );
+                            action_outcomes.push(RuntimeSyncActionOutcome {
+                                action: "reload_changed".to_string(),
+                                plugin_id,
+                                outcome: "error".to_string(),
+                            });
+                        }
+                    }
+                }
+                PluginSyncAction::DeactivateMissingOrDisabled { plugin_id } => {
+                    if self.deactivate_plugin(&plugin_id).is_some() {
+                        report.deactivated.push(plugin_id.clone());
+                        action_outcomes.push(RuntimeSyncActionOutcome {
+                            action: "deactivate".to_string(),
+                            plugin_id: plugin_id.clone(),
+                            outcome: "deactivated".to_string(),
+                        });
+                    } else {
+                        action_outcomes.push(RuntimeSyncActionOutcome {
+                            action: "deactivate".to_string(),
+                            plugin_id: plugin_id.clone(),
+                            outcome: "already_inactive".to_string(),
+                        });
+                    }
+                    report.unloaded_generations += self.collect_ready_for_unload(&plugin_id).len();
+                }
+            }
+        }
+        let execute_ms = execute_started.elapsed().as_millis() as u64;
+
+        self.cleanup_shadow_copies_best_effort(end_reason);
+        let total_ms = total_started.elapsed().as_millis() as u64;
+        Ok(RuntimeSyncReport {
+            load_report: report,
+            plan: plan_summary,
+            actions: action_outcomes,
+            plan_ms,
+            execute_ms,
+            total_ms,
+        })
+    }
+
+    fn plan_sync_actions(
+        &self,
+        discovered_plugins: &[manifest::DiscoveredPlugin],
+        disabled_ids: &HashSet<String>,
+        mode: SyncMode,
+    ) -> Vec<PluginSyncAction> {
+        let discovered_ids = discovered_plugins
+            .iter()
+            .map(|plugin| plugin.manifest.id.clone())
+            .collect::<HashSet<_>>();
+        let active_ids = self.active_plugin_ids().into_iter().collect::<HashSet<_>>();
+
+        let mut actions = Vec::new();
+        for plugin in discovered_plugins {
+            let plugin_id = plugin.manifest.id.trim();
+            if plugin_id.is_empty() {
+                continue;
+            }
+            let plugin_id = plugin_id.to_string();
+            if disabled_ids.contains(&plugin_id) {
+                if matches!(mode, SyncMode::Reconcile) && active_ids.contains(&plugin_id) {
+                    actions.push(PluginSyncAction::DeactivateMissingOrDisabled { plugin_id });
+                }
+                continue;
+            }
+
+            match mode {
+                SyncMode::Additive => {
+                    if !active_ids.contains(&plugin_id) {
+                        actions.push(PluginSyncAction::LoadNew { plugin_id });
+                    }
+                }
+                SyncMode::Reconcile => {
+                    if !active_ids.contains(&plugin_id) {
+                        actions.push(PluginSyncAction::LoadNew { plugin_id });
+                        continue;
+                    }
+                    let next_fingerprint = source_fingerprint_for_path(&plugin.library_path);
+                    let active_fingerprint = self.active_source_fingerprint(&plugin_id);
+                    if active_fingerprint != Some(next_fingerprint) {
+                        actions.push(PluginSyncAction::ReloadChanged { plugin_id });
+                    }
+                }
+            }
+        }
+
+        if matches!(mode, SyncMode::Reconcile) {
+            for plugin_id in active_ids {
+                if disabled_ids.contains(&plugin_id) || !discovered_ids.contains(&plugin_id) {
+                    actions.push(PluginSyncAction::DeactivateMissingOrDisabled { plugin_id });
+                }
+            }
+        }
+
+        actions
+    }
+
+    fn active_source_fingerprint(&self, plugin_id: &str) -> Option<SourceLibraryFingerprint> {
+        let modules = self.modules.read().ok()?;
+        let slot = modules.get(plugin_id)?;
+        slot.active
+            .as_ref()
+            .map(|active| active.source_fingerprint.clone())
+    }
+
     fn activate_loaded_candidate(&self, candidate: LoadedModuleCandidate) -> ActivatedLoad {
         let activation = self.activate_generation(
             &candidate.plugin_id,
@@ -933,6 +1162,7 @@ impl PluginRuntimeService {
         plugin_name: String,
         loaded: LoadedPluginModule,
     ) {
+        let source_fingerprint = source_fingerprint_for_path(&loaded.library_path);
         if let Ok(mut modules) = self.modules.write() {
             modules
                 .entry(plugin_id.to_string())
@@ -940,6 +1170,7 @@ impl PluginRuntimeService {
                 .activate(LoadedPluginGeneration {
                     generation,
                     plugin_name,
+                    source_fingerprint,
                     loaded,
                 });
         }
@@ -1033,6 +1264,25 @@ fn now_unix_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0)
+}
+
+fn source_fingerprint_for_path(path: &Path) -> SourceLibraryFingerprint {
+    let mut file_size = 0;
+    let mut modified_unix_ms = 0;
+    if let Ok(meta) = std::fs::metadata(path) {
+        file_size = meta.len();
+        if let Ok(modified) = meta.modified() {
+            modified_unix_ms = modified
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0);
+        }
+    }
+    SourceLibraryFingerprint {
+        library_path: path.to_path_buf(),
+        file_size,
+        modified_unix_ms,
+    }
 }
 
 fn normalize_ext_hint(raw: impl AsRef<str>) -> String {

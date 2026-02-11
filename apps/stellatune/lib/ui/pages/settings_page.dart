@@ -482,14 +482,6 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
     ).showSnackBar(SnackBar(content: Text(l10n.settingsSourceConfigSaved)));
   }
 
-  Future<void> _reloadPluginsWithCurrentDisabled() async {
-    await _ensurePluginDir();
-    final player = ref.read(playerBridgeProvider);
-    final library = ref.read(libraryBridgeProvider);
-    await library.pluginsReloadFromState(dir: _pluginDir!);
-    await player.pluginsReload(_pluginDir!);
-  }
-
   Future<void> _setPluginEnabled({
     required _InstalledPlugin plugin,
     required bool enabled,
@@ -505,7 +497,7 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
     } else {
       await library.pluginDisable(pluginId: id);
     }
-    await _reloadPluginsWithCurrentDisabled();
+    await library.pluginApplyState();
     if (enabled) {
       unawaited(
         _ensureNeteaseSidecarResident(onlyForPluginId: id, silent: true),
@@ -519,6 +511,7 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
 
   Future<void> _uninstallPlugin(_InstalledPlugin plugin) async {
     await _ensurePluginDir();
+    final library = ref.read(libraryBridgeProvider);
     final pluginId = plugin.id?.trim();
     if (pluginId != null && pluginId.isNotEmpty) {
       await _shutdownNeteaseSidecarResident(
@@ -530,11 +523,11 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
       await ref
           .read(playerBridgeProvider)
           .pluginsUninstallById(dir: _pluginDir!, pluginId: plugin.id!);
-      await ref.read(libraryBridgeProvider).pluginEnable(pluginId: plugin.id!);
+      await library.pluginEnable(pluginId: plugin.id!);
     } else {
       await Directory(plugin.dirPath).delete(recursive: true);
     }
-    await _reloadPluginsWithCurrentDisabled();
+    await library.pluginApplyState();
     if (!mounted) return;
     setState(_refresh);
     ScaffoldMessenger.of(context).showSnackBar(
@@ -549,12 +542,22 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
     await _ensurePluginDir();
     final pluginDir = _pluginDir!;
 
-    final picked = await FilePicker.platform.pickFiles(
-      dialogTitle: l10n.settingsInstallPluginPickFolder,
-      type: FileType.custom,
-      allowMultiple: false,
-      allowedExtensions: ['zip', _pluginLibExtForPlatform()],
-    );
+    FilePickerResult? picked;
+    try {
+      picked = await FilePicker.platform.pickFiles(
+        dialogTitle: l10n.settingsInstallPluginPickFolder,
+        type: FileType.custom,
+        allowMultiple: false,
+        allowedExtensions: ['zip', _pluginLibExtForPlatform()],
+      );
+    } catch (e, s) {
+      logger.e('failed to open plugin artifact picker', error: e, stackTrace: s);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(l10n.settingsPluginInstallFailed(e.toString()))),
+      );
+      return;
+    }
     final files = picked?.files;
     if (files == null || files.isEmpty) return;
     final srcPath = files.first.path?.trim();
@@ -562,11 +565,12 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
 
     try {
       final bridge = ref.read(playerBridgeProvider);
+      final library = ref.read(libraryBridgeProvider);
       final installedPluginId = await bridge.pluginsInstallFromFile(
         dir: pluginDir,
         artifactPath: srcPath,
       );
-      await _reloadPluginsWithCurrentDisabled();
+      await library.pluginApplyState();
       unawaited(
         _ensureNeteaseSidecarResident(
           onlyForPluginId: installedPluginId,

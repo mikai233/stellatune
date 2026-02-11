@@ -158,6 +158,18 @@ pub(crate) enum EngineCtrl {
     },
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct PluginReloadSummary {
+    pub(crate) dir: String,
+    pub(crate) prev_count: usize,
+    pub(crate) loaded_ids: Vec<String>,
+    pub(crate) loaded_count: usize,
+    pub(crate) deactivated_count: usize,
+    pub(crate) unloaded_generations: usize,
+    pub(crate) load_errors: Vec<String>,
+    pub(crate) fatal_error: Option<String>,
+}
+
 pub(crate) enum InternalMsg {
     Eof,
     Error(String),
@@ -191,5 +203,8 @@ pub(crate) enum InternalMsg {
         message: String,
         took_ms: u64,
         token: u64,
+    },
+    PluginsReloadFinished {
+        summary: PluginReloadSummary,
     },
 }

@@ -1,5 +1,7 @@
 use std::sync::Arc;
+use std::thread;
 
+use crate::engine::messages::PluginReloadSummary;
 use crossbeam_channel::Sender;
 
 use super::{
@@ -258,61 +260,133 @@ fn handle_reload_plugins(
     state.requested_preload_path = None;
     state.requested_preload_position_ms = 0;
     clear_runtime_query_instance_cache(state);
-    let prev_count = match stellatune_plugins::shared_runtime_service().lock() {
-        Ok(service) => service.active_plugin_ids().len(),
-        Err(_) => {
-            events.emit(Event::Error {
-                message: "plugin runtime v2 mutex poisoned".to_string(),
-            });
-            return;
-        }
-    };
-    let runtime_report = match stellatune_plugins::shared_runtime_service().lock() {
-        Ok(service) => service
-            .reload_dir_from_state(&dir)
-            .map_err(|e| e.to_string()),
-        Err(_) => Err("plugin runtime v2 mutex poisoned".to_string()),
-    };
-    match runtime_report {
-        Ok(v2) => {
-            let loaded_ids = v2
-                .loaded
-                .iter()
-                .map(|p| p.id.as_str())
-                .collect::<Vec<_>>()
-                .join(", ");
-            events.emit(Event::Log {
-                message: format!(
-                    "plugins reloaded from {}: previous={} loaded={} deactivated={} errors={} unloaded_generations={} [{}]",
-                    dir,
-                    prev_count,
-                    v2.loaded.len(),
-                    v2.deactivated.len(),
-                    v2.errors.len(),
-                    v2.unloaded_generations,
-                    loaded_ids
-                ),
-            });
-            for err in v2.errors {
-                events.emit(Event::Log {
-                    message: format!("plugin load error: {err:#}"),
-                });
-            }
+    if state.plugin_reload_inflight {
+        state.pending_plugin_reload_dir = Some(dir.clone());
+        events.emit(Event::Log {
+            message: format!("plugin reload queued while in-flight: dir={dir}"),
+        });
+        return;
+    }
+    state.plugin_reload_inflight = true;
+    if let Err(message) = spawn_plugin_reload_task(internal_tx.clone(), dir.clone()) {
+        state.plugin_reload_inflight = false;
+        events.emit(Event::Error { message });
+    }
+}
 
-            if state.session.is_some()
-                && let Err(message) = sync_output_sink_with_active_session(state, internal_tx)
-            {
+pub(super) fn on_plugin_reload_finished(
+    state: &mut EngineState,
+    events: &Arc<EventHub>,
+    internal_tx: &Sender<InternalMsg>,
+    summary: PluginReloadSummary,
+) {
+    state.plugin_reload_inflight = false;
+
+    if let Some(err) = summary.fatal_error {
+        events.emit(Event::Error {
+            message: format!("plugin runtime v2 reload failed: {err}"),
+        });
+    } else {
+        let loaded_ids = summary.loaded_ids.join(", ");
+        events.emit(Event::Log {
+            message: format!(
+                "plugins reloaded from {}: previous={} loaded={} deactivated={} errors={} unloaded_generations={} [{}]",
+                summary.dir,
+                summary.prev_count,
+                summary.loaded_count,
+                summary.deactivated_count,
+                summary.load_errors.len(),
+                summary.unloaded_generations,
+                loaded_ids
+            ),
+        });
+        for err in summary.load_errors {
+            events.emit(Event::Log {
+                message: format!("plugin load error: {err}"),
+            });
+        }
+
+        if state.session.is_some()
+            && let Err(message) = sync_output_sink_with_active_session(state, internal_tx)
+        {
+            events.emit(Event::Error { message });
+        }
+        if let Some(ctrl_tx) = state.session.as_ref().map(|s| s.ctrl_tx.clone()) {
+            let _ = ctrl_tx.send(DecodeCtrl::RefreshDecoder);
+            if let Err(message) = apply_dsp_chain(state) {
                 events.emit(Event::Error { message });
             }
-            if let Some(ctrl_tx) = state.session.as_ref().map(|s| s.ctrl_tx.clone()) {
-                let _ = ctrl_tx.send(DecodeCtrl::RefreshDecoder);
-                if let Err(message) = apply_dsp_chain(state) {
-                    events.emit(Event::Error { message });
-                }
-            }
         }
-        Err(err) => events.emit(Event::Error {
-            message: format!("plugin runtime v2 reload failed: {err}"),
-        }),
     }
+
+    if let Some(next_dir) = state.pending_plugin_reload_dir.take() {
+        state.plugin_reload_inflight = true;
+        events.emit(Event::Log {
+            message: format!("running queued plugin reload: dir={next_dir}"),
+        });
+        if let Err(message) = spawn_plugin_reload_task(internal_tx.clone(), next_dir) {
+            state.plugin_reload_inflight = false;
+            events.emit(Event::Error { message });
+        }
+    }
+}
+
+fn spawn_plugin_reload_task(internal_tx: Sender<InternalMsg>, dir: String) -> Result<(), String> {
+    let thread_name = "stellatune-plugin-reload".to_string();
+    thread::Builder::new()
+        .name(thread_name.clone())
+        .spawn(move || {
+            let summary = match stellatune_plugins::shared_runtime_service().lock() {
+                Ok(service) => {
+                    let prev_count = service.active_plugin_ids().len();
+                    match service.reload_dir_from_state(&dir) {
+                        Ok(v2) => {
+                            let loaded_count = v2.loaded.len();
+                            let deactivated_count = v2.deactivated.len();
+                            let unloaded_generations = v2.unloaded_generations;
+                            let loaded_ids =
+                                v2.loaded.into_iter().map(|plugin| plugin.id).collect();
+                            let load_errors = v2
+                                .errors
+                                .into_iter()
+                                .map(|err| format!("{err:#}"))
+                                .collect();
+                            PluginReloadSummary {
+                                dir,
+                                prev_count,
+                                loaded_ids,
+                                loaded_count,
+                                deactivated_count,
+                                unloaded_generations,
+                                load_errors,
+                                fatal_error: None,
+                            }
+                        }
+                        Err(err) => PluginReloadSummary {
+                            dir,
+                            prev_count,
+                            loaded_ids: Vec::new(),
+                            loaded_count: 0,
+                            deactivated_count: 0,
+                            unloaded_generations: 0,
+                            load_errors: Vec::new(),
+                            fatal_error: Some(err.to_string()),
+                        },
+                    }
+                }
+                Err(_) => PluginReloadSummary {
+                    dir,
+                    prev_count: 0,
+                    loaded_ids: Vec::new(),
+                    loaded_count: 0,
+                    deactivated_count: 0,
+                    unloaded_generations: 0,
+                    load_errors: Vec::new(),
+                    fatal_error: Some("plugin runtime v2 mutex poisoned".to_string()),
+                },
+            };
+            let _ = internal_tx.send(InternalMsg::PluginsReloadFinished { summary });
+        })
+        .map(|_| ())
+        .map_err(|e| format!("{thread_name} spawn failed: {e}"))
 }
