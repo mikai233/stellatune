@@ -16,7 +16,7 @@
   },
   "dependencies": {
     "NeteaseCloudMusicApi": "4.28.1",
-    "express": "^4.21.2"
+    "express": "^5.2.1"
   },
   "devDependencies": {
     "pkg": "^5.8.1"
