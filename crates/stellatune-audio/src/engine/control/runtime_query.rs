@@ -12,6 +12,7 @@ pub(super) fn clear_runtime_query_instance_cache(state: &mut EngineState) {
     state.source_instances.clear();
     state.lyrics_instances.clear();
     state.output_sink_instances.clear();
+    state.output_sink_negotiation_cache = None;
 }
 
 pub(super) fn apply_or_recreate_source_instance(

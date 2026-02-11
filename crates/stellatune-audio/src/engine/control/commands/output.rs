@@ -32,6 +32,7 @@ pub(super) fn on_set_output_device(
     ctx.state.selected_backend = backend;
     ctx.state.selected_device_id = device_id;
     ctx.state.cached_output_spec = None;
+    ctx.state.output_sink_negotiation_cache = None;
     ctx.state.output_spec_prewarm_inflight = false;
     ctx.state.output_spec_token = ctx.state.output_spec_token.wrapping_add(1);
     ensure_output_spec_prewarm(ctx.state, ctx.internal_tx);
@@ -88,6 +89,7 @@ pub(super) fn on_set_output_sink_route(
     ctx.state.desired_output_sink_route = Some(parsed_route);
     if mode_changed || route_changed {
         ctx.state.output_sink_chunk_frames = 0;
+        ctx.state.output_sink_negotiation_cache = None;
         ctx.state.cached_output_spec = None;
         ctx.state.output_spec_prewarm_inflight = false;
         ctx.state.output_spec_token = ctx.state.output_spec_token.wrapping_add(1);
@@ -111,6 +113,7 @@ pub(super) fn on_clear_output_sink_route(ctx: &mut CommandCtx<'_>) {
     let mode_changed = ctx.state.desired_output_sink_route.is_some();
     ctx.state.desired_output_sink_route = None;
     ctx.state.output_sink_chunk_frames = 0;
+    ctx.state.output_sink_negotiation_cache = None;
     if mode_changed {
         ctx.state.cached_output_spec = None;
         ctx.state.output_spec_prewarm_inflight = false;

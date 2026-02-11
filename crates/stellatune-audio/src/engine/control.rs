@@ -12,6 +12,7 @@ use stellatune_core::{
     Command, Event, PlayerState, PluginRuntimeEvent, TrackPlayability, TrackRef,
 };
 use stellatune_output::OutputSpec;
+use stellatune_plugin_api::StOutputSinkNegotiatedSpec;
 use stellatune_plugins::runtime::CapabilityKind;
 
 use crate::engine::config::{
@@ -140,6 +141,13 @@ struct OutputSinkWorkerSpec {
     channels: u16,
     chunk_frames: u32,
     generation: u64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct OutputSinkNegotiationCache {
+    route: OutputSinkRouteSpec,
+    desired_spec: OutputSpec,
+    negotiated: StOutputSinkNegotiatedSpec,
 }
 
 struct OpenOutputSinkWorkerArgs<'a> {
@@ -764,6 +772,7 @@ struct EngineState {
     seek_track_fade: bool,
     desired_output_sink_route: Option<OutputSinkRouteSpec>,
     output_sink_chunk_frames: u32,
+    output_sink_negotiation_cache: Option<OutputSinkNegotiationCache>,
     output_sink_worker: Option<OutputSinkWorker>,
     output_sink_worker_spec: Option<OutputSinkWorkerSpec>,
     output_pipeline: Option<OutputPipeline>,
@@ -856,6 +865,7 @@ impl EngineState {
             seek_track_fade: true,
             desired_output_sink_route: None,
             output_sink_chunk_frames: 0,
+            output_sink_negotiation_cache: None,
             output_sink_worker: None,
             output_sink_worker_spec: None,
             output_pipeline: None,

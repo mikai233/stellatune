@@ -10,12 +10,14 @@ use stellatune_plugins::runtime::CapabilityKind;
 use crate::engine::session::OutputSinkWorkerStartArgs;
 
 use super::{
-    DecodeCtrl, EngineState, InternalMsg, OUTPUT_SINK_QUEUE_CAP_MESSAGES, OpenOutputSinkWorkerArgs,
-    OutputSinkWorker, OutputSinkWorkerSpec, PLUGIN_SINK_DEFAULT_CHUNK_FRAMES,
-    PLUGIN_SINK_FALLBACK_CHANNELS, PLUGIN_SINK_FALLBACK_SAMPLE_RATE,
-    PLUGIN_SINK_MIN_HIGH_WATERMARK_MS, PLUGIN_SINK_MIN_LOW_WATERMARK_MS, debug_metrics,
+    CachedOutputSinkInstance, DecodeCtrl, EngineState, InternalMsg, OUTPUT_SINK_QUEUE_CAP_MESSAGES,
+    OpenOutputSinkWorkerArgs, OutputSinkNegotiationCache, OutputSinkWorker, OutputSinkWorkerSpec,
+    PLUGIN_SINK_DEFAULT_CHUNK_FRAMES, PLUGIN_SINK_FALLBACK_CHANNELS,
+    PLUGIN_SINK_FALLBACK_SAMPLE_RATE, PLUGIN_SINK_MIN_HIGH_WATERMARK_MS,
+    PLUGIN_SINK_MIN_LOW_WATERMARK_MS, RuntimeInstanceSlotKey, debug_metrics,
     runtime_active_capability_generation, with_runtime_service,
 };
+use crate::engine::control::runtime_query::apply_or_recreate_output_sink_instance;
 
 pub(super) fn output_spec_for_plugin_sink(state: &EngineState) -> OutputSpec {
     let start_at_ms = state.position_ms.max(0) as u64;
@@ -55,22 +57,49 @@ pub(super) fn output_sink_queue_watermarks_ms(sample_rate: u32, chunk_frames: u3
 }
 
 pub(super) fn negotiate_output_sink_spec(
-    state: &EngineState,
+    state: &mut EngineState,
     desired_spec: OutputSpec,
 ) -> Result<StOutputSinkNegotiatedSpec, String> {
     let route = state
         .desired_output_sink_route
-        .as_ref()
+        .clone()
         .ok_or_else(|| "output sink route not configured".to_string())?;
     let config_json = serde_json::to_string(&route.config)
         .map_err(|e| format!("invalid output sink config json: {e}"))?;
     let target_json = serde_json::to_string(&route.target)
         .map_err(|e| format!("invalid output sink target json: {e}"))?;
-    with_runtime_service(|service| {
-        let mut sink = service
-            .create_output_sink_instance(&route.plugin_id, &route.type_id, &config_json)
-            .map_err(|e| format!("output sink create failed: {e}"))?;
-        sink.negotiate_spec(
+
+    let key = RuntimeInstanceSlotKey::new(&route.plugin_id, &route.type_id);
+    if !state.output_sink_instances.contains_key(&key) {
+        let created = with_runtime_service(|service| {
+            service
+                .create_output_sink_instance(&route.plugin_id, &route.type_id, &config_json)
+                .map_err(|e| format!("output sink create failed: {e}"))
+        })?;
+        state.output_sink_instances.insert(
+            key.clone(),
+            CachedOutputSinkInstance {
+                config_json: config_json.clone(),
+                instance: created,
+            },
+        );
+    }
+
+    let entry = state
+        .output_sink_instances
+        .get_mut(&key)
+        .ok_or_else(|| "output sink instance cache insertion failed".to_string())?;
+    if entry.config_json != config_json {
+        apply_or_recreate_output_sink_instance(
+            &route.plugin_id,
+            &route.type_id,
+            entry,
+            &config_json,
+        )?;
+    }
+    entry
+        .instance
+        .negotiate_spec(
             &target_json,
             StAudioSpec {
                 sample_rate: desired_spec.sample_rate.max(1),
@@ -79,7 +108,6 @@ pub(super) fn negotiate_output_sink_spec(
             },
         )
         .map_err(|e| format!("output sink negotiate failed: {e}"))
-    })
 }
 
 pub(super) fn resolve_output_spec_and_sink_chunk(
@@ -88,12 +116,35 @@ pub(super) fn resolve_output_spec_and_sink_chunk(
 ) -> Result<OutputSpec, String> {
     if state.desired_output_sink_route.is_none() {
         state.output_sink_chunk_frames = 0;
+        state.output_sink_negotiation_cache = None;
         return Ok(non_sink_out_spec);
     }
 
     state.output_sink_chunk_frames = 0;
     let desired_spec = output_spec_for_plugin_sink(state);
+    if let (Some(route), Some(cached)) = (
+        state.desired_output_sink_route.as_ref(),
+        state.output_sink_negotiation_cache.as_ref(),
+    ) && cached.route == *route
+        && cached.desired_spec == desired_spec
+    {
+        state.output_sink_chunk_frames = cached.negotiated.preferred_chunk_frames;
+        return Ok(OutputSpec {
+            sample_rate: cached.negotiated.spec.sample_rate.max(1),
+            channels: cached.negotiated.spec.channels.max(1),
+        });
+    }
+
     let negotiated = negotiate_output_sink_spec(state, desired_spec)?;
+    let route = state
+        .desired_output_sink_route
+        .clone()
+        .ok_or_else(|| "output sink route not configured".to_string())?;
+    state.output_sink_negotiation_cache = Some(OutputSinkNegotiationCache {
+        route,
+        desired_spec,
+        negotiated,
+    });
     state.output_sink_chunk_frames = negotiated.preferred_chunk_frames;
     Ok(OutputSpec {
         sample_rate: negotiated.spec.sample_rate.max(1),
