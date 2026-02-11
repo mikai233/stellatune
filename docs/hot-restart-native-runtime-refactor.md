@@ -261,8 +261,8 @@ All must pass:
 - [x] Introduce client registry + stale-client eviction
 - [x] Introduce plugin-local ASIO sidecar lease manager
 - [x] Remove old ad-hoc per-instance sidecar ownership assumptions
-- [ ] Add runtime/sidecar/generation metrics and logs
-- [ ] Add restart stress integration test plan and scripts
+- [x] Add runtime/sidecar/generation metrics and logs
+- [x] Add restart stress integration test plan and scripts
 - [x] Delete obsolete lifecycle code paths
 
 ## 12. Phase A Progress
@@ -271,7 +271,7 @@ All must pass:
 - [x] A2. Move `start_engine()` + `register_plugin_runtime_engine(...)` into singleton init path (2026-02-11)
 - [x] A3. Refactor `PlayerService` from owning `EngineHandle` to referencing shared `RuntimeHost` (2026-02-11)
 - [x] A4. Build verification: `cargo check` passes for workspace after refactor (2026-02-11)
-- [ ] A5. Hot Restart stress verification (create-player count no longer implies engine-thread growth)
+- [x] A5. Hot Restart stress verification completed (`Iterations=50`, no runtime-host/ring/process growth; `MaxRuntimeHostInitsTotal=1`) (2026-02-11)
 
 ## 13. Phase B Progress
 
@@ -288,15 +288,41 @@ All must pass:
 - [x] C2. Implement plugin-local sidecar lease manager and migrate ASIO sink paths (2026-02-11)
 - [x] C3. Integrate generic lifecycle-triggered cleanup hooks (no host plugin special-case): define ABI cleanup semantics (`reset`/`close`/`destroy`), enforce host `close -> destroy` for output sinks, add `runtime_shutdown`, and wire app exit path to call it before process exit (2026-02-11)
 - [x] C3.1 SDK encapsulation: output sink exported `destroy` now does best-effort `close` before drop, so ABI cleanup semantic is enforced even if host skips explicit `close` (2026-02-11)
-- [ ] C4. Run Hot Restart stress verification and record metrics
+- [x] C4. Run Hot Restart stress verification and record metrics (`target/hot-restart-stress/20260211-151420/summary.json`) (2026-02-11)
 
 ## 15. Phase D Progress
 
 - [x] D1. Remove legacy per-player plugin runtime event subscription path at FFI boundary; retain runtime-global stream only (`plugin_runtime_events_global`) (2026-02-11)
 - [x] D2. Remove dead audio-layer plugin runtime event hub bridge (`stellatune-audio::PluginEventHub`) and runtime bus forwarding path to engine-local hub (2026-02-11)
+- [x] D3. Add singleton-runtime observability metrics/log fields: `runtime_host_inits_total`, `player_clients_active`, `asio_sidecar_spawns_total`, `asio_sidecar_running`, `plugin_generations_draining`; include explicit stale-client eviction warning on hot-restart prepare (2026-02-11)
 
 ## 16. Out of Scope (This Refactor)
 
 1. cross-process plugin sandboxing
 2. mobile/web lifecycle unification
 3. non-ASIO backend optimization unrelated to lifecycle correctness
+
+## 17. Stress Run Script
+
+Use the Windows stress script to collect Hot Restart trend data and gate C4/A5:
+
+```powershell
+pwsh tools/hot-restart-stress/run-windows.ps1 `
+  -Iterations 50 `
+  -RestartIntervalMs 4000
+```
+
+Outputs are written under `target/hot-restart-stress/<timestamp>/`:
+
+1. `flutter-run.log`: full run log (used for `Lost Connection` and metric field extraction)
+2. `samples.csv`: per-iteration process/ring-file samples
+3. `summary.json` and `summary.md`: condensed gate inputs
+
+Current status:
+
+1. script and summary artifacts are in place
+2. script parser was hardened for ANSI logs + delayed flush (parse from copied artifact + retry window)
+3. smoke verification (`Iterations=1/3`) now reports non-zero host/client metrics (`MaxRuntimeHostInitsTotal=1`, `MaxPlayerClientsActive=1`) and no ring/process growth trend in sampled runs
+4. plugin/generation metrics are observable when app bootstrap is clean (`MaxPluginGenerationsDraining=1` in smoke run)
+5. run precondition: ensure no stale `stellatune.exe` is alive before stress run, otherwise app bootstrap may fail with `settings.lock` conflicts and skew results
+6. full stress run executed: `Iterations=50`, `LostConnectionCount=0`, `MaxRuntimeHostInitsTotal=1`, `MaxPlayerClientsActive=1`, `MaxAsioHostProcessCount=0`, `MaxRingFileCount=0`, `MaxPluginGenerationsDraining=2` (`target/hot-restart-stress/20260211-151420/summary.json`)

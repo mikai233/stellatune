@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::io::{BufReader, BufWriter};
 use std::path::Path;
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 use stellatune_asio_proto::{
@@ -119,6 +120,39 @@ static SHARED_SIDECAR_MANAGER: OnceLock<Mutex<SidecarManagerState>> = OnceLock::
 const SIDECAR_SIGNATURE_FIELD_SEP: &str = "\u{1e}";
 const SIDECAR_SIGNATURE_ARG_SEP: &str = "\u{1f}";
 
+struct SidecarMetrics {
+    asio_sidecar_spawns_total: AtomicU64,
+    asio_sidecar_running: AtomicU64,
+}
+
+impl SidecarMetrics {
+    fn new() -> Self {
+        Self {
+            asio_sidecar_spawns_total: AtomicU64::new(0),
+            asio_sidecar_running: AtomicU64::new(0),
+        }
+    }
+
+    fn set_running(&self, running: usize) -> u64 {
+        let running = running as u64;
+        self.asio_sidecar_running.store(running, Ordering::Relaxed);
+        running
+    }
+}
+
+fn sidecar_metrics() -> &'static SidecarMetrics {
+    static METRICS: OnceLock<SidecarMetrics> = OnceLock::new();
+    METRICS.get_or_init(SidecarMetrics::new)
+}
+
+fn sidecar_running_entries(state: &SidecarManagerState) -> usize {
+    state
+        .entries
+        .values()
+        .filter(|entry| entry.client.is_some())
+        .count()
+}
+
 fn sidecar_manager_state() -> &'static Mutex<SidecarManagerState> {
     SHARED_SIDECAR_MANAGER.get_or_init(|| Mutex::new(SidecarManagerState::default()))
 }
@@ -183,16 +217,31 @@ pub(crate) fn acquire_sidecar_lease(config: &AsioOutputConfig) -> SdkResult<Side
         let mut guard = sidecar_manager_state()
             .lock()
             .map_err(|_| SdkError::msg("ASIO sidecar manager mutex poisoned"))?;
-        let entry = guard.entries.entry(signature.clone()).or_default();
-        if entry.client.is_none() {
-            entry.client = Some(AsioHostClient::spawn(config)?);
-        }
-        entry.lease_count = entry.lease_count.saturating_add(1);
+        let (lease_count, spawned) = {
+            let entry = guard.entries.entry(signature.clone()).or_default();
+            let mut spawned = false;
+            if entry.client.is_none() {
+                entry.client = Some(AsioHostClient::spawn(config)?);
+                spawned = true;
+            }
+            entry.lease_count = entry.lease_count.saturating_add(1);
+            (entry.lease_count, spawned)
+        };
+        let metrics = sidecar_metrics();
+        let spawns_total = if spawned {
+            metrics
+                .asio_sidecar_spawns_total
+                .fetch_add(1, Ordering::Relaxed)
+                + 1
+        } else {
+            metrics.asio_sidecar_spawns_total.load(Ordering::Relaxed)
+        };
+        let running = metrics.set_running(sidecar_running_entries(&guard));
         host_log(
             StLogLevel::Debug,
             &format!(
-                "asio sidecar lease acquired: signature={} leases={}",
-                signature_log, entry.lease_count
+                "asio sidecar lease acquired: signature={} leases={} asio_sidecar_spawns_total={} asio_sidecar_running={}",
+                signature_log, lease_count, spawns_total, running
             ),
         );
     }
@@ -207,35 +256,48 @@ fn release_sidecar_lease_impl(signature: &str) -> SdkResult<()> {
     let mut guard = sidecar_manager_state()
         .lock()
         .map_err(|_| SdkError::msg("ASIO sidecar manager mutex poisoned"))?;
-    let Some(entry) = guard.entries.get_mut(signature) else {
-        return Ok(());
+    let lease_count = {
+        let Some(entry) = guard.entries.get_mut(signature) else {
+            return Ok(());
+        };
+
+        if entry.lease_count == 0 {
+            return Ok(());
+        }
+
+        entry.lease_count -= 1;
+        entry.lease_count
     };
-
-    if entry.lease_count == 0 {
-        return Ok(());
-    }
-
-    entry.lease_count -= 1;
+    let running_before_drop = sidecar_metrics().set_running(sidecar_running_entries(&guard));
     host_log(
         StLogLevel::Debug,
         &format!(
-            "asio sidecar lease released: signature={} leases={}",
-            signature_log, entry.lease_count
+            "asio sidecar lease released: signature={} leases={} asio_sidecar_running={}",
+            signature_log, lease_count, running_before_drop
         ),
     );
 
-    if entry.lease_count > 0 {
+    if lease_count > 0 {
         return Ok(());
     }
 
-    if let Some(client) = entry.client.as_mut() {
-        let _ = client.request_ok(Request::Stop);
+    if let Some(entry) = guard.entries.get_mut(signature) {
+        if let Some(client) = entry.client.as_mut() {
+            let _ = client.request_ok(Request::Stop);
+        }
+        entry.client = None;
     }
-    entry.client = None;
     guard.entries.remove(signature);
+    let running_after_drop = sidecar_metrics().set_running(sidecar_running_entries(&guard));
+    let spawns_total = sidecar_metrics()
+        .asio_sidecar_spawns_total
+        .load(Ordering::Relaxed);
     host_log(
         StLogLevel::Debug,
-        &format!("asio sidecar entry removed: signature={signature_log}"),
+        &format!(
+            "asio sidecar entry removed: signature={} asio_sidecar_spawns_total={} asio_sidecar_running={}",
+            signature_log, spawns_total, running_after_drop
+        ),
     );
     Ok(())
 }

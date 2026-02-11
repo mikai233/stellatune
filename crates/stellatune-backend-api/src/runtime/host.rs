@@ -16,6 +16,30 @@ pub struct RuntimeHost {
     clients: Mutex<HashMap<u64, RuntimeClientEntry>>,
 }
 
+struct RuntimeHostMetrics {
+    runtime_host_inits_total: AtomicU64,
+    player_clients_active: AtomicU64,
+}
+
+impl RuntimeHostMetrics {
+    fn new() -> Self {
+        Self {
+            runtime_host_inits_total: AtomicU64::new(0),
+            player_clients_active: AtomicU64::new(0),
+        }
+    }
+
+    fn set_player_clients_active(&self, active_clients: usize) {
+        self.player_clients_active
+            .store(active_clients as u64, Ordering::Relaxed);
+    }
+}
+
+fn runtime_host_metrics() -> &'static RuntimeHostMetrics {
+    static METRICS: OnceLock<RuntimeHostMetrics> = OnceLock::new();
+    METRICS.get_or_init(RuntimeHostMetrics::new)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct RuntimeClientId {
     generation: u64,
@@ -43,10 +67,22 @@ impl RuntimeHost {
 
         init_tracing();
         let host_id = NEXT_HOST_ID.fetch_add(1, Ordering::Relaxed);
+        let inits_total = runtime_host_metrics()
+            .runtime_host_inits_total
+            .fetch_add(1, Ordering::Relaxed)
+            + 1;
         tracing::info!(host_id, "initializing runtime host");
 
         let engine = start_engine();
         register_plugin_runtime_engine(engine.clone());
+
+        runtime_host_metrics().set_player_clients_active(0);
+        tracing::info!(
+            runtime_host_id = host_id,
+            runtime_host_inits_total = inits_total,
+            player_clients_active = 0_u64,
+            "runtime host metrics initialized"
+        );
 
         Self {
             host_id,
@@ -83,11 +119,13 @@ impl RuntimeHost {
             );
             clients.len()
         };
+        runtime_host_metrics().set_player_clients_active(active_clients);
         tracing::info!(
             runtime_host_id = self.host_id,
             client_id = client_id.id,
             generation = client_id.generation,
             active_clients,
+            player_clients_active = active_clients as u64,
             "runtime client attached"
         );
         client_id
@@ -106,6 +144,7 @@ impl RuntimeHost {
                 .unwrap_or(0);
             (removed.is_some(), clients.len(), attached_for_ms)
         };
+        runtime_host_metrics().set_player_clients_active(active_clients);
         if removed {
             tracing::info!(
                 runtime_host_id = self.host_id,
@@ -113,6 +152,7 @@ impl RuntimeHost {
                 generation = client_id.generation,
                 active_clients,
                 attached_for_ms,
+                player_clients_active = active_clients as u64,
                 "runtime client detached"
             );
         } else if client_id.generation < self.client_generation.load(Ordering::Relaxed) {
@@ -121,6 +161,7 @@ impl RuntimeHost {
                 client_id = client_id.id,
                 generation = client_id.generation,
                 active_clients,
+                player_clients_active = active_clients as u64,
                 "runtime client detach ignored; already evicted by generation rollover"
             );
         } else {
@@ -129,6 +170,7 @@ impl RuntimeHost {
                 client_id = client_id.id,
                 generation = client_id.generation,
                 active_clients,
+                player_clients_active = active_clients as u64,
                 "runtime client detach ignored; client not found"
             );
         }
@@ -149,12 +191,24 @@ impl RuntimeHost {
             clients.clear();
             count
         };
+        runtime_host_metrics().set_player_clients_active(0);
         self.engine.send_command(Command::Stop);
         self.engine.send_command(Command::ClearOutputSinkRoute);
+        if evicted_clients > 0 {
+            tracing::warn!(
+                runtime_host_id = self.host_id,
+                evicted_clients,
+                generation = next_generation,
+                player_clients_active = 0_u64,
+                "runtime host prepared for hot restart; stale clients evicted"
+            );
+            return;
+        }
         tracing::info!(
             runtime_host_id = self.host_id,
             evicted_clients,
             generation = next_generation,
+            player_clients_active = 0_u64,
             "runtime host prepared for hot restart"
         );
     }
@@ -171,5 +225,9 @@ impl RuntimeHost {
 
 pub fn shared_runtime_host() -> Arc<RuntimeHost> {
     static HOST: OnceLock<Arc<RuntimeHost>> = OnceLock::new();
+    if let Some(host) = HOST.get() {
+        tracing::debug!(runtime_host_id = host.host_id(), "reusing runtime host");
+        return Arc::clone(host);
+    }
     Arc::clone(HOST.get_or_init(|| Arc::new(RuntimeHost::new())))
 }

@@ -81,6 +81,34 @@ fn close_and_destroy_raw_output_sink_instance(raw: &mut StOutputSinkInstanceRef)
     raw.vtable = core::ptr::null();
 }
 
+struct PluginRuntimeMetrics {
+    plugin_generations_draining: AtomicU64,
+}
+
+impl PluginRuntimeMetrics {
+    fn new() -> Self {
+        Self {
+            plugin_generations_draining: AtomicU64::new(0),
+        }
+    }
+
+    fn set_draining(&self, draining: usize) -> u64 {
+        let draining = draining as u64;
+        self.plugin_generations_draining
+            .store(draining, Ordering::Relaxed);
+        draining
+    }
+}
+
+fn plugin_runtime_metrics() -> &'static PluginRuntimeMetrics {
+    static METRICS: OnceLock<PluginRuntimeMetrics> = OnceLock::new();
+    METRICS.get_or_init(PluginRuntimeMetrics::new)
+}
+
+fn total_draining_generations(slots: &HashMap<String, PluginSlotState>) -> usize {
+    slots.values().map(|slot| slot.draining.len()).sum()
+}
+
 #[derive(Debug)]
 struct PluginGenerationEntry {
     info: PluginGenerationInfo,
@@ -234,6 +262,14 @@ impl PluginRuntimeService {
                 .entry(plugin_id.to_string())
                 .or_default()
                 .activate(Arc::clone(&generation));
+            let draining_total =
+                plugin_runtime_metrics().set_draining(total_draining_generations(&slots));
+            tracing::debug!(
+                plugin_id,
+                plugin_generation = generation_id.0,
+                plugin_generations_draining = draining_total,
+                "plugin generation activated"
+            );
         }
 
         let registered =
@@ -570,6 +606,14 @@ impl PluginRuntimeService {
             && let Some(slot) = slots.get_mut(plugin_id)
         {
             slot.deactivate();
+            let draining_total =
+                plugin_runtime_metrics().set_draining(total_draining_generations(&slots));
+            tracing::debug!(
+                plugin_id,
+                deactivated_generation = generation.id().0,
+                plugin_generations_draining = draining_total,
+                "plugin generation deactivated"
+            );
         }
         if let Ok(mut modules) = self.modules.write()
             && let Some(slot) = modules.get_mut(plugin_id)
@@ -605,6 +649,14 @@ impl PluginRuntimeService {
             let ready_ids: std::collections::HashSet<GenerationId> =
                 ready.iter().map(|g| g.id()).collect();
             slot.draining.retain(|g| !ready_ids.contains(&g.info.id));
+            let draining_total =
+                plugin_runtime_metrics().set_draining(total_draining_generations(&slots));
+            tracing::debug!(
+                plugin_id,
+                unloaded_generations = ready_ids.len(),
+                plugin_generations_draining = draining_total,
+                "plugin draining generations updated after unload collection"
+            );
         }
 
         let mut out = Vec::with_capacity(ready.len());
