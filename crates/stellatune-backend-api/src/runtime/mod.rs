@@ -15,6 +15,7 @@ use stellatune_plugins::SharedPluginRuntimeService;
 
 mod bus;
 mod control;
+mod host;
 mod router;
 #[cfg(all(
     test,
@@ -22,6 +23,7 @@ mod router;
 ))]
 mod tests;
 mod types;
+pub use host::{RuntimeClientId, RuntimeHost, shared_runtime_host};
 
 #[derive(Clone)]
 struct TeeWriter {
@@ -124,4 +126,12 @@ pub fn register_plugin_runtime_library(library: stellatune_library::LibraryHandl
 pub fn subscribe_plugin_runtime_events_global()
 -> crossbeam_channel::Receiver<stellatune_core::PluginRuntimeEvent> {
     router::subscribe_plugin_runtime_events_global()
+}
+
+pub fn runtime_prepare_hot_restart() {
+    shared_runtime_host().prepare_hot_restart();
+}
+
+pub fn runtime_shutdown() {
+    shared_runtime_host().shutdown();
 }

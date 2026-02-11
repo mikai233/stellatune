@@ -61,7 +61,7 @@ if (-not (Test-Path $SidecarRoot)) {
 }
 
 if ([string]::IsNullOrWhiteSpace($OutDir)) {
-    $OutDir = Join-Path $RepoRoot "plugins"
+    $OutDir = Join-Path $CargoTargetDir "plugins"
 }
 $OutDir = (New-Item -ItemType Directory -Force -Path $OutDir).FullName
 

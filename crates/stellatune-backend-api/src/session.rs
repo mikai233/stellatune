@@ -1,10 +1,7 @@
 use anyhow::Result;
-use crossbeam_channel::Receiver;
 
 use crate::library::LibraryService;
 use crate::player::PlayerService;
-
-use stellatune_core::PluginRuntimeEvent;
 
 #[derive(Debug, Clone, Default)]
 pub struct BackendSessionOptions {
@@ -74,10 +71,6 @@ impl BackendSession {
 
     pub fn detach_library(&mut self) {
         self.library = None;
-    }
-
-    pub fn subscribe_plugin_runtime_events(&self) -> Receiver<PluginRuntimeEvent> {
-        self.player.subscribe_plugin_runtime_events()
     }
 }
 

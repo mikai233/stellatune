@@ -13,8 +13,7 @@ Plugin runtime events are moved as JSON strings.
 
 In Rust/Flutter, this is exposed as `PluginRuntimeEvent` with typed `kind` (`PluginRuntimeKind`).
 
-Flutter can subscribe via:
-- `plugin_runtime_events(player, ...)` (legacy shape)
+Flutter subscribes via:
 - `plugin_runtime_events_global(...)` (no `Player` handle required)
 
 Plugin SDK (`stellatune-plugin-sdk`) now also provides typed helpers:

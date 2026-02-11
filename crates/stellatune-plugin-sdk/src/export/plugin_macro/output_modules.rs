@@ -253,7 +253,12 @@ macro_rules! __st_export_output_modules {
                     if handle.is_null() {
                         return;
                     }
-                    unsafe { drop(Box::from_raw(handle as *mut $crate::instance::OutputSinkBox<SinkImpl>)); }
+                    let mut boxed = unsafe {
+                        Box::from_raw(handle as *mut $crate::instance::OutputSinkBox<SinkImpl>)
+                    };
+                    // Keep ABI cleanup semantic robust: destroy performs a best-effort close.
+                    let _ = <SinkImpl as $crate::instance::OutputSinkInstance>::close(&mut boxed.inner);
+                    drop(boxed);
                 }
 
                 pub static VTABLE: stellatune_plugin_api::StOutputSinkInstanceVTable =

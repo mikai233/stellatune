@@ -45,11 +45,7 @@ fn plugin_runtime_router() -> &'static std::sync::Arc<PluginRuntimeRouter> {
                     let runtime_events = stellatune_plugins::drain_shared_runtime_events(128);
 
                     for event in runtime_events {
-                        emit_runtime_event(
-                            router_thread.runtime_hub.as_ref(),
-                            engine.as_ref(),
-                            event.clone(),
-                        );
+                        emit_runtime_event(router_thread.runtime_hub.as_ref(), event.clone());
                         if event.kind == PluginRuntimeKind::Control {
                             let (request, route_result) =
                                 match event.payload::<PluginControlRequest>() {
@@ -84,11 +80,7 @@ fn plugin_runtime_router() -> &'static std::sync::Arc<PluginRuntimeRouter> {
                                 payload_json: "{}".to_string(),
                             });
 
-                            emit_runtime_event(
-                                router_thread.runtime_hub.as_ref(),
-                                engine.as_ref(),
-                                runtime_event,
-                            );
+                            emit_runtime_event(router_thread.runtime_hub.as_ref(), runtime_event);
 
                             match route_result {
                                 Ok(()) => {
@@ -110,7 +102,6 @@ fn plugin_runtime_router() -> &'static std::sync::Arc<PluginRuntimeRouter> {
                                     if wait == ControlWaitKind::Immediate {
                                         emit_control_finished(
                                             router_thread.runtime_hub.as_ref(),
-                                            engine.as_ref(),
                                             ControlFinishedArgs {
                                                 plugin_id: &event.plugin_id,
                                                 request_id,
@@ -149,7 +140,6 @@ fn plugin_runtime_router() -> &'static std::sync::Arc<PluginRuntimeRouter> {
                                         request.as_ref().map(PluginControlRequest::control_command);
                                     emit_control_finished(
                                         router_thread.runtime_hub.as_ref(),
-                                        engine.as_ref(),
                                         ControlFinishedArgs {
                                             plugin_id: &event.plugin_id,
                                             request_id,
@@ -174,7 +164,6 @@ fn plugin_runtime_router() -> &'static std::sync::Arc<PluginRuntimeRouter> {
                         for done in done {
                             emit_control_finished(
                                 router_thread.runtime_hub.as_ref(),
-                                engine.as_ref(),
                                 ControlFinishedArgs {
                                     plugin_id: &done.plugin_id,
                                     request_id: done.request_id,
@@ -197,7 +186,6 @@ fn plugin_runtime_router() -> &'static std::sync::Arc<PluginRuntimeRouter> {
                         for done in done {
                             emit_control_finished(
                                 router_thread.runtime_hub.as_ref(),
-                                engine.as_ref(),
                                 ControlFinishedArgs {
                                     plugin_id: &done.plugin_id,
                                     request_id: done.request_id,
@@ -213,7 +201,6 @@ fn plugin_runtime_router() -> &'static std::sync::Arc<PluginRuntimeRouter> {
                     {
                         emit_control_finished(
                             router_thread.runtime_hub.as_ref(),
-                            engine.as_ref(),
                             ControlFinishedArgs {
                                 plugin_id: &timed_out.plugin_id,
                                 request_id: timed_out.request_id,

@@ -12,9 +12,9 @@ use stellatune_output::output_spec_for_device;
 use super::{
     BUFFER_HIGH_WATERMARK_MS, BUFFER_HIGH_WATERMARK_MS_EXCLUSIVE, BUFFER_LOW_WATERMARK_MS,
     BUFFER_LOW_WATERMARK_MS_EXCLUSIVE, BUFFER_RESUME_STABLE_TICKS, DecodeCtrl, EngineState,
-    EventHub, InternalMsg, PluginEventHub, SharedTrackInfo, StartSessionArgs,
-    UNDERRUN_LOG_INTERVAL, apply_dsp_chain, debug_metrics, decode_worker_unavailable_error_message,
-    ensure_decode_worker, force_transition_gain_unity, is_decode_worker_unavailable_error,
+    EventHub, InternalMsg, SharedTrackInfo, StartSessionArgs, UNDERRUN_LOG_INTERVAL,
+    apply_dsp_chain, debug_metrics, decode_worker_unavailable_error_message, ensure_decode_worker,
+    force_transition_gain_unity, is_decode_worker_unavailable_error,
     output_sink_queue_watermarks_ms, output_spec_for_plugin_sink,
     resolve_output_spec_and_sink_chunk, restart_decode_worker, set_state, start_session,
     sync_output_sink_with_active_session,
@@ -97,7 +97,6 @@ pub(super) fn publish_player_tick_event(state: &EngineState) {
 pub(super) fn handle_tick(
     state: &mut EngineState,
     events: &Arc<EventHub>,
-    _plugin_events: &Arc<PluginEventHub>,
     internal_tx: &Sender<InternalMsg>,
     track_info: &SharedTrackInfo,
 ) {

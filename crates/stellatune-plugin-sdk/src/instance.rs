@@ -273,10 +273,17 @@ pub trait OutputSinkInstance: Send + ConfigUpdatable + 'static {
         Ok(())
     }
 
+    /// Disruptive reset for route/track switches while keeping instance alive.
+    /// Should be lightweight and idempotent.
     fn reset(&mut self) -> SdkResult<()> {
         Ok(())
     }
 
+    /// Deterministic cleanup boundary.
+    ///
+    /// Must release runtime-owned external resources (e.g. sidecar/ring/OS handles) for the
+    /// current open session, but keep instance reusable for a later `open_json`.
+    /// Host may call this multiple times.
     fn close(&mut self) -> SdkResult<()> {
         Ok(())
     }

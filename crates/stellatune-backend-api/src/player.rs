@@ -6,23 +6,21 @@ use crossbeam_channel::Receiver;
 use stellatune_plugin_protocol::PluginMetadata;
 
 use crate::lyrics_service::LyricsService;
-use crate::runtime::{
-    init_tracing, register_plugin_runtime_engine, shared_plugin_runtime,
-    subscribe_plugin_runtime_events_global,
-};
+use crate::runtime::{RuntimeClientId, RuntimeHost, shared_plugin_runtime, shared_runtime_host};
 
-use stellatune_audio::{EngineHandle, start_engine};
+use stellatune_audio::EngineHandle;
 use stellatune_core::{
     AudioBackend, Command, DspChainItem, DspTypeDescriptor, Event, LyricsDoc, LyricsEvent,
     LyricsProviderTypeDescriptor, LyricsQuery, LyricsSearchCandidate, OutputSinkRoute,
-    OutputSinkTypeDescriptor, PluginDescriptor, PluginRuntimeEvent, SourceCatalogTypeDescriptor,
-    TrackDecodeInfo, TrackPlayability, TrackRef,
+    OutputSinkTypeDescriptor, PluginDescriptor, SourceCatalogTypeDescriptor, TrackDecodeInfo,
+    TrackPlayability, TrackRef,
 };
 use stellatune_plugins::runtime::CapabilityKind;
 
 pub struct PlayerService {
     instance_id: u64,
-    engine: EngineHandle,
+    client_id: RuntimeClientId,
+    runtime: Arc<RuntimeHost>,
     lyrics: Arc<LyricsService>,
 }
 
@@ -30,27 +28,29 @@ impl PlayerService {
     pub fn new() -> Self {
         static NEXT_ID: AtomicU64 = AtomicU64::new(1);
         let instance_id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
-        init_tracing();
-        tracing::info!(instance_id, "creating player");
-        let engine = start_engine();
-        register_plugin_runtime_engine(engine.clone());
+        let runtime = shared_runtime_host();
+        let client_id = runtime.attach_client();
+        tracing::info!(
+            instance_id,
+            runtime_client_id = client_id.as_u64(),
+            runtime_host_id = runtime.host_id(),
+            runtime_active_clients = runtime.active_client_count(),
+            "creating player service"
+        );
         Self {
             instance_id,
-            engine,
+            client_id,
+            runtime,
             lyrics: LyricsService::new(),
         }
     }
 
     pub fn engine(&self) -> &EngineHandle {
-        &self.engine
+        self.runtime.engine()
     }
 
     pub fn subscribe_events(&self) -> Receiver<Event> {
-        self.engine.subscribe_events()
-    }
-
-    pub fn subscribe_plugin_runtime_events(&self) -> Receiver<PluginRuntimeEvent> {
-        subscribe_plugin_runtime_events_global()
+        self.runtime.engine().subscribe_events()
     }
 
     pub fn subscribe_lyrics_events(&self) -> Receiver<LyricsEvent> {
@@ -58,28 +58,33 @@ impl PlayerService {
     }
 
     pub fn switch_track_ref(&self, track: TrackRef, lazy: bool) {
-        self.engine
+        self.runtime
+            .engine()
             .send_command(Command::SwitchTrackRef { track, lazy });
     }
 
     pub fn play(&self) {
-        self.engine.send_command(Command::Play);
+        self.runtime.engine().send_command(Command::Play);
     }
 
     pub fn pause(&self) {
-        self.engine.send_command(Command::Pause);
+        self.runtime.engine().send_command(Command::Pause);
     }
 
     pub fn seek_ms(&self, position_ms: u64) {
-        self.engine.send_command(Command::SeekMs { position_ms });
+        self.runtime
+            .engine()
+            .send_command(Command::SeekMs { position_ms });
     }
 
     pub fn set_volume(&self, volume: f32) {
-        self.engine.send_command(Command::SetVolume { volume });
+        self.runtime
+            .engine()
+            .send_command(Command::SetVolume { volume });
     }
 
     pub fn stop(&self) {
-        self.engine.send_command(Command::Stop);
+        self.runtime.engine().send_command(Command::Stop);
     }
 
     pub fn lyrics_prepare(&self, query: LyricsQuery) -> Result<()> {
@@ -126,7 +131,8 @@ impl PlayerService {
         plugin_id: Option<String>,
         event_json: String,
     ) -> Result<()> {
-        self.engine
+        self.runtime
+            .engine()
             .plugin_publish_event_json(plugin_id, event_json)
             .map_err(|e| anyhow::anyhow!(e))
     }
@@ -227,27 +233,30 @@ impl PlayerService {
     }
 
     pub fn dsp_set_chain(&self, chain: Vec<DspChainItem>) {
-        self.engine.set_dsp_chain(chain);
+        self.runtime.engine().set_dsp_chain(chain);
     }
 
     pub fn current_track_info(&self) -> Option<TrackDecodeInfo> {
-        self.engine.current_track_info()
+        self.runtime.engine().current_track_info()
     }
 
     pub fn plugins_reload(&self, dir: String) {
-        self.engine.reload_plugins(dir);
+        self.runtime.engine().reload_plugins(dir);
     }
 
     pub fn plugins_reload_with_disabled(&self, dir: String, disabled_ids: Vec<String>) {
-        self.engine.reload_plugins_with_disabled(dir, disabled_ids);
+        self.runtime
+            .engine()
+            .reload_plugins_with_disabled(dir, disabled_ids);
     }
 
     pub fn refresh_devices(&self) {
-        self.engine.send_command(Command::RefreshDevices);
+        self.runtime.engine().send_command(Command::RefreshDevices);
     }
 
     pub fn set_output_device(&self, backend: AudioBackend, device_id: Option<String>) {
-        self.engine
+        self.runtime
+            .engine()
             .send_command(Command::SetOutputDevice { backend, device_id });
     }
 
@@ -257,36 +266,44 @@ impl PlayerService {
         gapless_playback: bool,
         seek_track_fade: bool,
     ) {
-        self.engine.send_command(Command::SetOutputOptions {
-            match_track_sample_rate,
-            gapless_playback,
-            seek_track_fade,
-        });
+        self.runtime
+            .engine()
+            .send_command(Command::SetOutputOptions {
+                match_track_sample_rate,
+                gapless_playback,
+                seek_track_fade,
+            });
     }
 
     pub fn set_output_sink_route(&self, route: OutputSinkRoute) {
-        self.engine
+        self.runtime
+            .engine()
             .send_command(Command::SetOutputSinkRoute { route });
     }
 
     pub fn clear_output_sink_route(&self) {
-        self.engine.send_command(Command::ClearOutputSinkRoute);
+        self.runtime
+            .engine()
+            .send_command(Command::ClearOutputSinkRoute);
     }
 
     pub fn preload_track(&self, path: String, position_ms: u64) {
-        self.engine.send_command(Command::PreloadTrackRef {
-            track: TrackRef::for_local_path(path),
-            position_ms,
-        });
+        self.runtime
+            .engine()
+            .send_command(Command::PreloadTrackRef {
+                track: TrackRef::for_local_path(path),
+                position_ms,
+            });
     }
 
     pub fn preload_track_ref(&self, track: TrackRef, position_ms: u64) {
-        self.engine
+        self.runtime
+            .engine()
             .send_command(Command::PreloadTrackRef { track, position_ms });
     }
 
     pub fn can_play_track_refs(&self, tracks: Vec<TrackRef>) -> Vec<TrackPlayability> {
-        self.engine.can_play_track_refs(tracks)
+        self.runtime.engine().can_play_track_refs(tracks)
     }
 }
 
@@ -298,6 +315,7 @@ impl Default for PlayerService {
 
 impl Drop for PlayerService {
     fn drop(&mut self) {
+        self.runtime.detach_client(self.client_id);
         tracing::info!(instance_id = self.instance_id, "dropping player");
     }
 }

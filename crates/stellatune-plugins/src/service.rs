@@ -33,6 +33,54 @@ use super::{
     SourceCatalogInstance, ststr_from_str,
 };
 
+fn destroy_raw_decoder_instance(raw: &mut StDecoderInstanceRef) {
+    if raw.handle.is_null() || raw.vtable.is_null() {
+        return;
+    }
+    unsafe { ((*raw.vtable).destroy)(raw.handle) };
+    raw.handle = core::ptr::null_mut();
+    raw.vtable = core::ptr::null();
+}
+
+fn destroy_raw_dsp_instance(raw: &mut StDspInstanceRef) {
+    if raw.handle.is_null() || raw.vtable.is_null() {
+        return;
+    }
+    unsafe { ((*raw.vtable).destroy)(raw.handle) };
+    raw.handle = core::ptr::null_mut();
+    raw.vtable = core::ptr::null();
+}
+
+fn destroy_raw_source_catalog_instance(raw: &mut StSourceCatalogInstanceRef) {
+    if raw.handle.is_null() || raw.vtable.is_null() {
+        return;
+    }
+    unsafe { ((*raw.vtable).destroy)(raw.handle) };
+    raw.handle = core::ptr::null_mut();
+    raw.vtable = core::ptr::null();
+}
+
+fn destroy_raw_lyrics_provider_instance(raw: &mut StLyricsProviderInstanceRef) {
+    if raw.handle.is_null() || raw.vtable.is_null() {
+        return;
+    }
+    unsafe { ((*raw.vtable).destroy)(raw.handle) };
+    raw.handle = core::ptr::null_mut();
+    raw.vtable = core::ptr::null();
+}
+
+fn close_and_destroy_raw_output_sink_instance(raw: &mut StOutputSinkInstanceRef) {
+    if raw.handle.is_null() || raw.vtable.is_null() {
+        return;
+    }
+    unsafe {
+        ((*raw.vtable).close)(raw.handle);
+        ((*raw.vtable).destroy)(raw.handle);
+    };
+    raw.handle = core::ptr::null_mut();
+    raw.vtable = core::ptr::null();
+}
+
 #[derive(Debug)]
 struct PluginGenerationEntry {
     info: PluginGenerationInfo,
@@ -279,9 +327,7 @@ impl PluginRuntimeService {
         let instance_id = self
             .register_instance_for_capability(capability.id)
             .inspect_err(|_| {
-                if !raw.handle.is_null() && !raw.vtable.is_null() {
-                    unsafe { ((*raw.vtable).destroy)(raw.handle) };
-                }
+                destroy_raw_decoder_instance(&mut raw);
             })?;
         let ctx = self.instance_ctx(instance_id, plugin_free)?;
         DecoderInstance::from_ffi(ctx, raw)
@@ -361,9 +407,7 @@ impl PluginRuntimeService {
         let instance_id = self
             .register_instance_for_capability(capability.id)
             .inspect_err(|_| {
-                if !raw.handle.is_null() && !raw.vtable.is_null() {
-                    unsafe { ((*raw.vtable).destroy)(raw.handle) };
-                }
+                destroy_raw_dsp_instance(&mut raw);
             })?;
         let ctx = self.instance_ctx(instance_id, plugin_free)?;
         DspInstance::from_ffi(ctx, raw)
@@ -402,9 +446,7 @@ impl PluginRuntimeService {
         let instance_id = self
             .register_instance_for_capability(capability.id)
             .inspect_err(|_| {
-                if !raw.handle.is_null() && !raw.vtable.is_null() {
-                    unsafe { ((*raw.vtable).destroy)(raw.handle) };
-                }
+                destroy_raw_source_catalog_instance(&mut raw);
             })?;
         let ctx = self.instance_ctx(instance_id, plugin_free)?;
         SourceCatalogInstance::from_ffi(ctx, raw)
@@ -443,9 +485,7 @@ impl PluginRuntimeService {
         let instance_id = self
             .register_instance_for_capability(capability.id)
             .inspect_err(|_| {
-                if !raw.handle.is_null() && !raw.vtable.is_null() {
-                    unsafe { ((*raw.vtable).destroy)(raw.handle) };
-                }
+                destroy_raw_lyrics_provider_instance(&mut raw);
             })?;
         let ctx = self.instance_ctx(instance_id, plugin_free)?;
         LyricsProviderInstance::from_ffi(ctx, raw)
@@ -484,9 +524,7 @@ impl PluginRuntimeService {
         let instance_id = self
             .register_instance_for_capability(capability.id)
             .inspect_err(|_| {
-                if !raw.handle.is_null() && !raw.vtable.is_null() {
-                    unsafe { ((*raw.vtable).destroy)(raw.handle) };
-                }
+                close_and_destroy_raw_output_sink_instance(&mut raw);
             })?;
         let ctx = self.instance_ctx(instance_id, plugin_free)?;
         OutputSinkInstance::from_ffi(ctx, raw)

@@ -12,6 +12,9 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 Future<Player> createPlayer() =>
     StellatuneApi.instance.api.crateApiPlayerCreatePlayer();
 
+Future<void> disposePlayer({required Player player}) =>
+    StellatuneApi.instance.api.crateApiPlayerDisposePlayer(player: player);
+
 Future<void> switchTrackRef({
   required Player player,
   required TrackRef track,
@@ -45,11 +48,6 @@ Future<void> stop({required Player player}) =>
 
 Stream<Event> events({required Player player}) =>
     StellatuneApi.instance.api.crateApiPlayerEvents(player: player);
-
-Stream<PluginRuntimeEvent> pluginRuntimeEvents({required Player player}) =>
-    StellatuneApi.instance.api.crateApiPlayerPluginRuntimeEvents(
-      player: player,
-    );
 
 Stream<PluginRuntimeEvent> pluginRuntimeEventsGlobal() =>
     StellatuneApi.instance.api.crateApiPlayerPluginRuntimeEventsGlobal();

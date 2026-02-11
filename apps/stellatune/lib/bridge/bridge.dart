@@ -47,6 +47,7 @@ class PlayerBridge {
   PlayerBridge._(this.player);
 
   final api.Player player;
+  bool _disposed = false;
   Stream<Event>? _eventBroadcast;
   Stream<LyricsEvent>? _lyricsEventBroadcast;
   Stream<PluginRuntimeEvent>? _pluginRuntimeEventBroadcast;
@@ -54,6 +55,12 @@ class PlayerBridge {
   static Future<PlayerBridge> create() async {
     final player = await api.createPlayer();
     return PlayerBridge._(player);
+  }
+
+  Future<void> dispose() async {
+    if (_disposed) return;
+    _disposed = true;
+    await api.disposePlayer(player: player);
   }
 
   Stream<Event> events() =>

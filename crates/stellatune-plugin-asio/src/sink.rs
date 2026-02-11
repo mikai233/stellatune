@@ -5,7 +5,7 @@ use stellatune_asio_proto::shm::SharedRingMapped;
 use stellatune_asio_proto::{AudioSpec, Request};
 use stellatune_plugin_sdk::{OutputSink, SdkError, SdkResult, StAudioSpec, StLogLevel, host_log};
 
-use crate::client::sidecar_request_ok;
+use crate::client::{SidecarLease, acquire_sidecar_lease, sidecar_request_ok};
 use crate::config::{AsioOutputConfig, startup_prefill_samples};
 use crate::ring::create_ring;
 
@@ -13,6 +13,7 @@ const FLUSH_POLL_INTERVAL_MS: u64 = 2;
 
 pub struct AsioOutputSink {
     config: AsioOutputConfig,
+    _lease: SidecarLease,
     ring: SharedRingMapped,
     channels: u16,
     flush_timeout_ms: u64,
@@ -24,7 +25,6 @@ pub struct AsioOutputSink {
 
 impl Drop for AsioOutputSink {
     fn drop(&mut self) {
-        let _ = sidecar_request_ok(&self.config, Request::Stop);
         let _ = std::fs::remove_file(&self.ring_path);
     }
 }
@@ -35,6 +35,7 @@ impl AsioOutputSink {
         config: &AsioOutputConfig,
         target_id: String,
     ) -> SdkResult<Self> {
+        let lease = acquire_sidecar_lease(config)?;
         let spec = AudioSpec {
             sample_rate: spec.sample_rate.max(1),
             channels: spec.channels.max(1),
@@ -58,6 +59,7 @@ impl AsioOutputSink {
 
         Ok(Self {
             config: config.clone(),
+            _lease: lease,
             ring,
             channels: spec.channels,
             flush_timeout_ms: config.flush_timeout_ms.max(1),

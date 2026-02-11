@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
@@ -7,6 +8,7 @@ class TrayService with TrayListener {
   static final TrayService instance = TrayService._();
 
   bool _initialized = false;
+  Future<void> Function()? onExitRequested;
 
   Future<void> init() async {
     if (_initialized) return;
@@ -70,7 +72,11 @@ class TrayService with TrayListener {
     if (menuItem.key == 'restore') {
       _restoreWindow();
     } else if (menuItem.key == 'exit') {
-      exit(0);
+      final callback = onExitRequested;
+      if (callback == null) {
+        exit(0);
+      }
+      unawaited(callback());
     }
   }
 

@@ -47,7 +47,14 @@ pub struct StOutputSinkInstanceVTable {
     pub query_status:
         extern "C" fn(handle: *mut c_void, out_status: *mut StOutputSinkRuntimeStatus) -> StStatus,
     pub flush: Option<extern "C" fn(handle: *mut c_void) -> StStatus>,
+    /// Disruptive reset for live routing changes.
+    /// Must be fast and avoid heavy teardown. Host may call this multiple times.
     pub reset: extern "C" fn(handle: *mut c_void) -> StStatus,
+    /// Deterministic runtime cleanup boundary.
+    ///
+    /// Host calls this when the sink route/session is being closed. Plugins must release
+    /// runtime-owned external resources here (sidecar sessions, ring mappings, file/socket handles).
+    /// The instance remains allocated and may be reopened later.
     pub close: extern "C" fn(handle: *mut c_void),
 
     pub plan_config_update_json_utf8: Option<
@@ -64,5 +71,9 @@ pub struct StOutputSinkInstanceVTable {
     pub import_state_json_utf8:
         Option<extern "C" fn(handle: *mut c_void, state_json_utf8: StStr) -> StStatus>,
 
+    /// Final destruction boundary.
+    ///
+    /// Host should call `close` before `destroy` for output sinks. `destroy` must still be safe
+    /// if `close` was not called, and must release all remaining resources.
     pub destroy: extern "C" fn(handle: *mut c_void),
 }

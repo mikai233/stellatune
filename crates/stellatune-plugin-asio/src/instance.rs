@@ -5,9 +5,7 @@ use stellatune_plugin_sdk::{
     StOutputSinkRuntimeStatus,
 };
 
-use crate::client::{
-    ensure_shared_sidecar_client, ensure_windows, sidecar_get_device_caps, sidecar_list_devices,
-};
+use crate::client::{ensure_windows, sidecar_get_device_caps, sidecar_list_devices};
 use crate::config::{AsioOutputConfig, AsioOutputTarget, build_negotiated_spec};
 use crate::sink::AsioOutputSink;
 
@@ -33,7 +31,6 @@ impl AsioOutputSinkInstance {
 
 pub(crate) fn create_instance(config: AsioOutputConfig) -> SdkResult<AsioOutputSinkInstance> {
     ensure_windows()?;
-    ensure_shared_sidecar_client(&config)?;
     Ok(AsioOutputSinkInstance {
         config,
         opened: None,
@@ -137,7 +134,10 @@ impl OutputSinkInstance for AsioOutputSinkInstance {
     }
 
     fn close(&mut self) -> SdkResult<()> {
+        // Cleanup semantic: closing an output sink instance must deterministically release
+        // runtime-owned external resources (ring mapping + sidecar lease via sink drop).
         self.opened = None;
+        self.invalidate_negotiate_cache();
         Ok(())
     }
 }

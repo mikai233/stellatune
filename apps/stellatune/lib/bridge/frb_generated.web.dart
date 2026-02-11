@@ -9,6 +9,7 @@
 import 'api/dlna.dart';
 import 'api/library.dart';
 import 'api/player.dart';
+import 'api/runtime.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'frb_generated.dart';

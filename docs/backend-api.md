@@ -47,13 +47,10 @@ fn main() -> Result<()> {
 
 ```rust
 use anyhow::Result;
-use stellatune_backend_api::app::BackendApp;
+use stellatune_backend_api::runtime::subscribe_plugin_runtime_events_global;
 
 fn main() -> Result<()> {
-    let app = BackendApp::new();
-    let session = app.create_default_session()?;
-
-    let rx = session.subscribe_plugin_runtime_events();
+    let rx = subscribe_plugin_runtime_events_global();
     for ev in rx.iter() {
         println!("plugin={} kind={:?}", ev.plugin_id, ev.kind);
     }

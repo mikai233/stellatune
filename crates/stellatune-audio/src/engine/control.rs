@@ -8,9 +8,7 @@ use arc_swap::ArcSwapOption;
 use crossbeam_channel::{Receiver, Sender};
 use tracing::{debug, info, warn};
 
-use stellatune_core::{
-    Command, Event, PlayerState, PluginRuntimeEvent, TrackPlayability, TrackRef,
-};
+use stellatune_core::{Command, Event, PlayerState, TrackPlayability, TrackRef};
 use stellatune_output::OutputSpec;
 use stellatune_plugin_api::StOutputSinkNegotiatedSpec;
 use stellatune_plugins::runtime::CapabilityKind;
@@ -24,7 +22,6 @@ use crate::engine::config::{
 use crate::engine::decode::decoder::assess_track_playability;
 use crate::engine::event_hub::EventHub;
 use crate::engine::messages::{DecodeCtrl, EngineCtrl, InternalMsg, RuntimeDspChainEntry};
-use crate::engine::plugin_event_hub::PluginEventHub;
 use crate::engine::session::{
     DecodeWorker, OUTPUT_SINK_QUEUE_CAP_MESSAGES, OutputPipeline, OutputSinkWorker,
     PlaybackSession, StartSessionArgs, start_decode_worker, start_session,
@@ -356,7 +353,6 @@ pub struct EngineHandle {
     cmd_tx: Sender<Command>,
     engine_ctrl_tx: Sender<EngineCtrl>,
     events: Arc<EventHub>,
-    plugin_events: Arc<PluginEventHub>,
     track_info: SharedTrackInfo,
 }
 
@@ -398,14 +394,6 @@ impl EngineHandle {
 
     pub fn subscribe_events(&self) -> Receiver<Event> {
         self.events.subscribe()
-    }
-
-    pub fn subscribe_plugin_runtime_events(&self) -> Receiver<PluginRuntimeEvent> {
-        self.plugin_events.subscribe()
-    }
-
-    pub fn emit_plugin_runtime_event(&self, event: PluginRuntimeEvent) {
-        self.plugin_events.emit(event);
     }
 
     pub fn plugin_publish_event_json(
@@ -712,8 +700,6 @@ pub fn start_engine() -> EngineHandle {
 
     let events = Arc::new(EventHub::new());
     let thread_events = Arc::clone(&events);
-    let plugin_events = Arc::new(PluginEventHub::new());
-    let thread_plugin_events = Arc::clone(&plugin_events);
 
     let track_info: SharedTrackInfo = Arc::new(ArcSwapOption::new(None));
 
@@ -731,7 +717,6 @@ pub fn start_engine() -> EngineHandle {
                 },
                 ControlLoopDeps {
                     events: thread_events,
-                    plugin_events: thread_plugin_events,
                     track_info: track_info_for_thread,
                 },
             )
@@ -742,7 +727,6 @@ pub fn start_engine() -> EngineHandle {
         cmd_tx,
         engine_ctrl_tx,
         events,
-        plugin_events,
         track_info,
     }
 }
@@ -824,7 +808,6 @@ struct ControlLoopChannels {
 
 struct ControlLoopDeps {
     events: Arc<EventHub>,
-    plugin_events: Arc<PluginEventHub>,
     track_info: SharedTrackInfo,
 }
 
@@ -892,11 +875,7 @@ fn run_control_loop(channels: ControlLoopChannels, deps: ControlLoopDeps) {
         internal_rx,
         internal_tx,
     } = channels;
-    let ControlLoopDeps {
-        events,
-        plugin_events,
-        track_info,
-    } = deps;
+    let ControlLoopDeps { events, track_info } = deps;
 
     info!("control thread started");
     let mut state = EngineState::new();
@@ -915,7 +894,6 @@ fn run_control_loop(channels: ControlLoopChannels, deps: ControlLoopDeps) {
                     cmd,
                     &mut state,
                     &events,
-                    &plugin_events,
                     &internal_tx,
                     &track_info,
                 ) {
@@ -935,7 +913,6 @@ fn run_control_loop(channels: ControlLoopChannels, deps: ControlLoopDeps) {
                 handle_tick(
                     &mut state,
                     &events,
-                    &plugin_events,
                     &internal_tx,
                     &track_info,
                 );

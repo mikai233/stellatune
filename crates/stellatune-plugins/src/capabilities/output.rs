@@ -135,6 +135,13 @@ impl OutputSinkInstance {
         unsafe { ((*self.vtable).close)(self.handle) };
     }
 
+    fn close_before_destroy(&mut self) {
+        if self.handle.is_null() || self.vtable.is_null() {
+            return;
+        }
+        self.close();
+    }
+
     pub fn plan_config_update_json(&self, new_config_json: &str) -> Result<ConfigUpdatePlan> {
         let Some(plan_fn) = (unsafe { (*self.vtable).plan_config_update_json_utf8 }) else {
             return Ok(ConfigUpdatePlan {
@@ -231,6 +238,7 @@ impl OutputSinkInstance {
 impl Drop for OutputSinkInstance {
     fn drop(&mut self) {
         if !self.handle.is_null() && !self.vtable.is_null() {
+            self.close_before_destroy();
             let _call = self.ctx.begin_call();
             unsafe { ((*self.vtable).destroy)(self.handle) };
             self.handle = core::ptr::null_mut();

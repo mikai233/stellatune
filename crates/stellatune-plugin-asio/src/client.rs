@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::io::{BufReader, BufWriter};
 use std::path::Path;
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
@@ -6,7 +7,9 @@ use std::sync::{Mutex, OnceLock};
 use stellatune_asio_proto::{
     DeviceCaps, DeviceInfo, PROTOCOL_VERSION, Request, Response, read_frame, write_frame,
 };
-use stellatune_plugin_sdk::{SdkError, SdkResult, resolve_runtime_path, sidecar_command};
+use stellatune_plugin_sdk::{
+    SdkError, SdkResult, StLogLevel, host_log, resolve_runtime_path, sidecar_command,
+};
 
 use crate::config::AsioOutputConfig;
 
@@ -102,76 +105,202 @@ impl AsioHostClient {
 }
 
 #[derive(Default)]
-struct SharedSidecarClientState {
-    signature: Option<String>,
+struct SidecarEntry {
+    lease_count: usize,
     client: Option<AsioHostClient>,
 }
 
-static SHARED_SIDECAR_CLIENT: OnceLock<Mutex<SharedSidecarClientState>> = OnceLock::new();
+#[derive(Default)]
+struct SidecarManagerState {
+    entries: HashMap<String, SidecarEntry>,
+}
 
-fn shared_sidecar_client_state() -> &'static Mutex<SharedSidecarClientState> {
-    SHARED_SIDECAR_CLIENT.get_or_init(|| Mutex::new(SharedSidecarClientState::default()))
+static SHARED_SIDECAR_MANAGER: OnceLock<Mutex<SidecarManagerState>> = OnceLock::new();
+const SIDECAR_SIGNATURE_FIELD_SEP: &str = "\u{1e}";
+const SIDECAR_SIGNATURE_ARG_SEP: &str = "\u{1f}";
+
+fn sidecar_manager_state() -> &'static Mutex<SidecarManagerState> {
+    SHARED_SIDECAR_MANAGER.get_or_init(|| Mutex::new(SidecarManagerState::default()))
+}
+
+pub(crate) struct SidecarLease {
+    signature: String,
+    released: bool,
+}
+
+impl SidecarLease {
+    pub(crate) fn release(&mut self) -> SdkResult<()> {
+        if self.released {
+            return Ok(());
+        }
+        release_sidecar_lease_impl(&self.signature)?;
+        self.released = true;
+        Ok(())
+    }
+}
+
+impl Drop for SidecarLease {
+    fn drop(&mut self) {
+        let _ = self.release();
+    }
 }
 
 fn sidecar_client_signature(config: &AsioOutputConfig) -> String {
     let path = config.sidecar_path.as_deref().unwrap_or_default();
-    let args = config.sidecar_args.join("\u{1f}");
-    format!("path={path}\u{1e}args={args}")
+    let args = config.sidecar_args.join(SIDECAR_SIGNATURE_ARG_SEP);
+    format!("path={path}{SIDECAR_SIGNATURE_FIELD_SEP}args={args}")
 }
 
-pub(crate) fn ensure_shared_sidecar_client(config: &AsioOutputConfig) -> SdkResult<()> {
-    with_shared_sidecar_client(config, |_| Ok(()))
+fn sidecar_signature_for_log(signature: &str) -> String {
+    let mut path = "";
+    let mut args: Vec<&str> = Vec::new();
+
+    for part in signature.split('\u{1e}') {
+        if let Some(value) = part.strip_prefix("path=") {
+            path = value;
+            continue;
+        }
+        if let Some(value) = part.strip_prefix("args=") {
+            if !value.is_empty() {
+                args = value.split('\u{1f}').collect();
+            }
+            continue;
+        }
+    }
+
+    let args_text = args
+        .iter()
+        .map(|arg| format!("{arg:?}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("path={path:?} args=[{args_text}]")
 }
 
-fn with_shared_sidecar_client<T>(
+pub(crate) fn acquire_sidecar_lease(config: &AsioOutputConfig) -> SdkResult<SidecarLease> {
+    let signature = sidecar_client_signature(config);
+    let signature_log = sidecar_signature_for_log(&signature);
+    {
+        let mut guard = sidecar_manager_state()
+            .lock()
+            .map_err(|_| SdkError::msg("ASIO sidecar manager mutex poisoned"))?;
+        let entry = guard.entries.entry(signature.clone()).or_default();
+        if entry.client.is_none() {
+            entry.client = Some(AsioHostClient::spawn(config)?);
+        }
+        entry.lease_count = entry.lease_count.saturating_add(1);
+        host_log(
+            StLogLevel::Debug,
+            &format!(
+                "asio sidecar lease acquired: signature={} leases={}",
+                signature_log, entry.lease_count
+            ),
+        );
+    }
+    Ok(SidecarLease {
+        signature,
+        released: false,
+    })
+}
+
+fn release_sidecar_lease_impl(signature: &str) -> SdkResult<()> {
+    let signature_log = sidecar_signature_for_log(signature);
+    let mut guard = sidecar_manager_state()
+        .lock()
+        .map_err(|_| SdkError::msg("ASIO sidecar manager mutex poisoned"))?;
+    let Some(entry) = guard.entries.get_mut(signature) else {
+        return Ok(());
+    };
+
+    if entry.lease_count == 0 {
+        return Ok(());
+    }
+
+    entry.lease_count -= 1;
+    host_log(
+        StLogLevel::Debug,
+        &format!(
+            "asio sidecar lease released: signature={} leases={}",
+            signature_log, entry.lease_count
+        ),
+    );
+
+    if entry.lease_count > 0 {
+        return Ok(());
+    }
+
+    if let Some(client) = entry.client.as_mut() {
+        let _ = client.request_ok(Request::Stop);
+    }
+    entry.client = None;
+    guard.entries.remove(signature);
+    host_log(
+        StLogLevel::Debug,
+        &format!("asio sidecar entry removed: signature={signature_log}"),
+    );
+    Ok(())
+}
+
+fn with_sidecar_client<T>(
     config: &AsioOutputConfig,
     mut f: impl FnMut(&mut AsioHostClient) -> SdkResult<T>,
 ) -> SdkResult<T> {
-    let mut guard = shared_sidecar_client_state()
-        .lock()
-        .map_err(|_| SdkError::msg("ASIO shared sidecar mutex poisoned"))?;
     let signature = sidecar_client_signature(config);
-    if guard.signature.as_deref() != Some(signature.as_str()) {
-        guard.client = None;
-        guard.signature = Some(signature);
+    let mut guard = sidecar_manager_state()
+        .lock()
+        .map_err(|_| SdkError::msg("ASIO sidecar manager mutex poisoned"))?;
+
+    if let Some(entry) = guard.entries.get_mut(&signature) {
+        if entry.client.is_none() {
+            entry.client = Some(AsioHostClient::spawn(config)?);
+        }
+        let first_result = {
+            let client = entry
+                .client
+                .as_mut()
+                .ok_or_else(|| SdkError::msg("failed to initialize leased ASIO sidecar client"))?;
+            f(client)
+        };
+        return match first_result {
+            Ok(v) => Ok(v),
+            Err(e) if is_retryable_pipe_error(&e) => {
+                entry.client = Some(AsioHostClient::spawn(config)?);
+                let client = entry.client.as_mut().ok_or_else(|| {
+                    SdkError::msg("failed to reinitialize leased ASIO sidecar client")
+                })?;
+                f(client)
+            }
+            Err(e) => Err(e),
+        };
     }
-    if guard.client.is_none() {
-        guard.client = Some(AsioHostClient::spawn(config)?);
-    }
-    let first_result = {
-        let client = guard
-            .client
-            .as_mut()
-            .ok_or_else(|| SdkError::msg("failed to initialize shared ASIO sidecar client"))?;
-        f(client)
-    };
+
+    // No active leases for this signature. Use a temporary sidecar client
+    // for metadata queries and drop it immediately after this call.
+    drop(guard);
+    let mut client = AsioHostClient::spawn(config)?;
+    let first_result = f(&mut client);
     match first_result {
         Ok(v) => Ok(v),
         Err(e) if is_retryable_pipe_error(&e) => {
-            // Sidecar might have exited unexpectedly; recreate once and retry.
-            guard.client = Some(AsioHostClient::spawn(config)?);
-            let client = guard.client.as_mut().ok_or_else(|| {
-                SdkError::msg("failed to reinitialize shared ASIO sidecar client")
-            })?;
-            f(client)
+            client = AsioHostClient::spawn(config)?;
+            f(&mut client)
         }
         Err(e) => Err(e),
     }
 }
 
 pub(crate) fn sidecar_request_ok(config: &AsioOutputConfig, req: Request) -> SdkResult<()> {
-    with_shared_sidecar_client(config, |client| client.request_ok(req.clone()))
+    with_sidecar_client(config, |client| client.request_ok(req.clone()))
 }
 
 pub(crate) fn sidecar_list_devices(config: &AsioOutputConfig) -> SdkResult<Vec<DeviceInfo>> {
-    with_shared_sidecar_client(config, |client| client.list_devices())
+    with_sidecar_client(config, |client| client.list_devices())
 }
 
 pub(crate) fn sidecar_get_device_caps(
     config: &AsioOutputConfig,
     device_id: &str,
 ) -> SdkResult<DeviceCaps> {
-    with_shared_sidecar_client(config, |client| client.get_device_caps(device_id))
+    with_sidecar_client(config, |client| client.get_device_caps(device_id))
 }
 
 fn is_retryable_pipe_error(err: &SdkError) -> bool {

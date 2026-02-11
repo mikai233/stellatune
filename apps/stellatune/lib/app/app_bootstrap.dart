@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import 'package:stellatune/app/plugin_paths.dart';
 import 'package:stellatune/app/settings_store.dart';
+import 'package:stellatune/bridge/api/runtime.dart' as runtime_api;
 import 'package:stellatune/bridge/bridge.dart';
 import 'package:stellatune/library/library_paths.dart';
 import 'package:stellatune/platform/rust_runtime.dart';
@@ -40,6 +41,8 @@ class _BootstrapPaths {
   final String lyricsDbPath;
 }
 
+bool _isExitInProgress = false;
+
 Future<void> initializeDesktopWindowIfNeeded() async {
   if (!(Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
     return;
@@ -63,15 +66,16 @@ Future<void> initializeDesktopWindowIfNeeded() async {
 }
 
 class WindowCloseHandler extends WindowListener {
-  WindowCloseHandler(this.settings);
+  WindowCloseHandler(this.settings, this.bridge);
   final SettingsStore settings;
+  final PlayerBridge bridge;
 
   @override
   void onWindowClose() async {
     if (settings.closeToTray) {
       await windowManager.hide();
     } else {
-      exit(0);
+      await _exitApp(bridge);
     }
   }
 }
@@ -99,7 +103,8 @@ Future<AppBootstrapResult> bootstrapApp() async {
   await _setupLyricsCacheDb(bridge: bridge, lyricsDbPath: paths.lyricsDbPath);
 
   if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
-    windowManager.addListener(WindowCloseHandler(settings));
+    TrayService.instance.onExitRequested = () => _exitApp(bridge);
+    windowManager.addListener(WindowCloseHandler(settings, bridge));
   }
 
   return AppBootstrapResult(
@@ -108,6 +113,31 @@ Future<AppBootstrapResult> bootstrapApp() async {
     settings: settings,
     coverDir: paths.coverDir,
   );
+}
+
+Future<void> _exitApp(PlayerBridge bridge) async {
+  if (_isExitInProgress) return;
+  _isExitInProgress = true;
+  try {
+    await bridge.dispose();
+  } catch (e, s) {
+    logger.w(
+      'failed to dispose player bridge before exit',
+      error: e,
+      stackTrace: s,
+    );
+  }
+  try {
+    await runtime_api.shutdown();
+  } catch (e, s) {
+    logger.w(
+      'failed to request runtime shutdown before exit',
+      error: e,
+      stackTrace: s,
+    );
+  } finally {
+    exit(0);
+  }
 }
 
 Future<_BootstrapPaths> _resolvePaths() async {

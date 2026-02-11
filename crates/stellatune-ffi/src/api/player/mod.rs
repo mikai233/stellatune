@@ -32,6 +32,10 @@ pub fn create_player() -> RustOpaque<Player> {
     RustOpaque::new(Player::new())
 }
 
+pub fn dispose_player(player: RustOpaque<Player>) {
+    drop(player);
+}
+
 pub fn switch_track_ref(player: RustOpaque<Player>, track: TrackRef, lazy: bool) {
     player.service.switch_track_ref(track, lazy);
 }
@@ -70,29 +74,6 @@ pub fn events(player: RustOpaque<Player>, sink: StreamSink<Event>) -> Result<()>
             }
         })
         .map_err(|e| anyhow::anyhow!("failed to spawn stellatune-events thread: {e}"))?;
-
-    Ok(())
-}
-
-pub fn plugin_runtime_events(
-    player: RustOpaque<Player>,
-    sink: StreamSink<PluginRuntimeEvent>,
-) -> Result<()> {
-    let rx = player.service.subscribe_plugin_runtime_events();
-
-    thread::Builder::new()
-        .name("stellatune-plugin-runtime-events".to_string())
-        .spawn(move || {
-            for event in rx.iter() {
-                if sink.add(event).is_err() {
-                    debug!("plugin_runtime_events stream sink closed");
-                    break;
-                }
-            }
-        })
-        .map_err(|e| {
-            anyhow::anyhow!("failed to spawn stellatune-plugin-runtime-events thread: {e}")
-        })?;
 
     Ok(())
 }

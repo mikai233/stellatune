@@ -120,13 +120,7 @@ pub(super) fn on_switch_track_ref(ctx: &mut CommandCtx<'_>, track: TrackRef, laz
         ctx.state.pending_session_start = true;
         set_state(ctx.state, ctx.events, PlayerState::Buffering);
         ensure_output_spec_prewarm(ctx.state, ctx.internal_tx);
-        handle_tick(
-            ctx.state,
-            ctx.events,
-            ctx.plugin_events,
-            ctx.internal_tx,
-            ctx.track_info,
-        );
+        handle_tick(ctx.state, ctx.events, ctx.internal_tx, ctx.track_info);
     }
 }
 
@@ -152,13 +146,7 @@ pub(super) fn on_play(ctx: &mut CommandCtx<'_>) {
         ctx.state.pending_session_start = true;
         set_state(ctx.state, ctx.events, PlayerState::Buffering);
         ensure_output_spec_prewarm(ctx.state, ctx.internal_tx);
-        handle_tick(
-            ctx.state,
-            ctx.events,
-            ctx.plugin_events,
-            ctx.internal_tx,
-            ctx.track_info,
-        );
+        handle_tick(ctx.state, ctx.events, ctx.internal_tx, ctx.track_info);
         return;
     }
 
@@ -169,13 +157,7 @@ pub(super) fn on_play(ctx: &mut CommandCtx<'_>) {
     }
 
     set_state(ctx.state, ctx.events, PlayerState::Buffering);
-    handle_tick(
-        ctx.state,
-        ctx.events,
-        ctx.plugin_events,
-        ctx.internal_tx,
-        ctx.track_info,
-    );
+    handle_tick(ctx.state, ctx.events, ctx.internal_tx, ctx.track_info);
 }
 
 pub(super) fn on_pause(ctx: &mut CommandCtx<'_>) {
@@ -225,13 +207,7 @@ pub(super) fn on_seek_ms(ctx: &mut CommandCtx<'_>, position_ms: u64) {
     {
         set_state(ctx.state, ctx.events, PlayerState::Buffering);
         ctx.state.play_request_started_at = Some(Instant::now());
-        handle_tick(
-            ctx.state,
-            ctx.events,
-            ctx.plugin_events,
-            ctx.internal_tx,
-            ctx.track_info,
-        );
+        handle_tick(ctx.state, ctx.events, ctx.internal_tx, ctx.track_info);
     }
 }
 

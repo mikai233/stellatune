@@ -113,15 +113,8 @@ pub(super) fn build_control_finished_event_json(
 }
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-pub(super) fn emit_runtime_event(
-    hub: &PluginRuntimeEventHub,
-    engine: Option<&stellatune_audio::EngineHandle>,
-    event: PluginRuntimeEvent,
-) {
-    hub.emit(event.clone());
-    if let Some(engine) = engine {
-        engine.emit_plugin_runtime_event(event);
-    }
+pub(super) fn emit_runtime_event(hub: &PluginRuntimeEventHub, event: PluginRuntimeEvent) {
+    hub.emit(event);
 }
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
@@ -134,11 +127,7 @@ pub(super) struct ControlFinishedArgs<'a> {
 }
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-pub(super) fn emit_control_finished(
-    hub: &PluginRuntimeEventHub,
-    engine: Option<&stellatune_audio::EngineHandle>,
-    args: ControlFinishedArgs<'_>,
-) {
+pub(super) fn emit_control_finished(hub: &PluginRuntimeEventHub, args: ControlFinishedArgs<'_>) {
     let payload =
         build_control_finished_payload(args.request_id, args.scope, args.command, args.error);
     let payload_json = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string());
@@ -153,7 +142,7 @@ pub(super) fn emit_control_finished(
         kind: PluginRuntimeKind::ControlFinished,
         payload_json: "{}".to_string(),
     });
-    emit_runtime_event(hub, engine, event);
+    emit_runtime_event(hub, event);
 }
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
