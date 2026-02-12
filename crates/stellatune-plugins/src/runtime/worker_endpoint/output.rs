@@ -15,7 +15,7 @@ use super::{OutputSinkInstanceFactory, OutputSinkWorkerEndpoint};
 impl OutputSinkInstanceFactory {
     pub fn create_instance(&self, config_json: &str) -> Result<OutputSinkInstance> {
         let lease = acquire_active_lease(&self.runtime, &self.plugin_id)?;
-        let Some(create) = lease.loaded._module.create_output_sink_instance else {
+        let Some(create) = lease.loaded.module.create_output_sink_instance else {
             return Err(anyhow!(
                 "plugin `{}` does not provide output sink factory",
                 self.plugin_id
@@ -33,7 +33,7 @@ impl OutputSinkInstanceFactory {
             ststr_from_str(config_json),
             &mut raw,
         );
-        let plugin_free = lease.loaded._module.plugin_free;
+        let plugin_free = lease.loaded.module.plugin_free;
         status_to_result("create_output_sink_instance", status, plugin_free)?;
 
         let ctx = new_instance_runtime_ctx(&self.instances, &self.updates, lease, plugin_free);

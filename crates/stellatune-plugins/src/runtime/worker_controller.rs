@@ -25,18 +25,18 @@ pub enum WorkerApplyPendingOutcome {
 pub enum WorkerConfigUpdateOutcome {
     DeferredNoInstance,
     Applied {
-        generation: u64,
+        revision: u64,
     },
     RequiresRecreate {
-        generation: u64,
+        revision: u64,
         reason: Option<String>,
     },
     Rejected {
-        generation: u64,
+        revision: u64,
         reason: String,
     },
     Failed {
-        generation: u64,
+        revision: u64,
         error: String,
     },
 }
@@ -131,25 +131,25 @@ impl<F: WorkerInstanceFactory> WorkerInstanceController<F> {
 
         let result = instance.apply_config_update_json(&new_config_json)?;
         let outcome = match result {
-            InstanceUpdateResult::Applied { generation, .. } => {
+            InstanceUpdateResult::Applied { revision, .. } => {
                 self.current_config_json = Some(new_config_json);
                 self.pending_recreate = false;
-                WorkerConfigUpdateOutcome::Applied { generation }
+                WorkerConfigUpdateOutcome::Applied { revision }
             }
             InstanceUpdateResult::RequiresRecreate {
-                generation, reason, ..
+                revision, reason, ..
             } => {
                 self.pending_recreate = true;
-                WorkerConfigUpdateOutcome::RequiresRecreate { generation, reason }
+                WorkerConfigUpdateOutcome::RequiresRecreate { revision, reason }
             }
             InstanceUpdateResult::Rejected {
-                generation, reason, ..
-            } => WorkerConfigUpdateOutcome::Rejected { generation, reason },
+                revision, reason, ..
+            } => WorkerConfigUpdateOutcome::Rejected { revision, reason },
             InstanceUpdateResult::Failed {
-                generation, error, ..
+                revision, error, ..
             } => {
                 self.pending_recreate = true;
-                WorkerConfigUpdateOutcome::Failed { generation, error }
+                WorkerConfigUpdateOutcome::Failed { revision, error }
             }
         };
         Ok(outcome)

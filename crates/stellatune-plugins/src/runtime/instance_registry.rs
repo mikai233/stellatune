@@ -3,15 +3,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct InstanceId(pub u64);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CapabilityKind {
-    Decoder,
-    Dsp,
-    SourceCatalog,
-    LyricsProvider,
-    OutputSink,
-}
-
 #[derive(Debug, Default)]
 pub struct InstanceRegistry {
     next_id: AtomicU64,

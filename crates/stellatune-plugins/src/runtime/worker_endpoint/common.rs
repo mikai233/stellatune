@@ -66,7 +66,7 @@ pub(super) fn new_instance_runtime_ctx(
     let instance_id = instances.register();
     InstanceRuntimeCtx {
         instance_id,
-        _module_lease: lease,
+        module_lease: lease,
         updates: Arc::clone(updates),
         plugin_free,
     }

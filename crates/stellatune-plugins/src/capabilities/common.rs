@@ -20,7 +20,9 @@ pub struct ConfigUpdatePlan {
 #[derive(Clone)]
 pub struct InstanceRuntimeCtx {
     pub instance_id: InstanceId,
-    pub(crate) _module_lease: Arc<ModuleLease>,
+    // Keep the module lease alive for the full instance lifetime.
+    #[allow(dead_code)]
+    pub(crate) module_lease: Arc<ModuleLease>,
     pub updates: Arc<InstanceUpdateCoordinator>,
     pub plugin_free: PluginFreeFn,
 }

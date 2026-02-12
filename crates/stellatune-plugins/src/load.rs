@@ -34,11 +34,16 @@ pub struct RuntimeLoadReport {
 pub(crate) struct LoadedPluginModule {
     pub(crate) root_dir: PathBuf,
     pub(crate) library_path: PathBuf,
-    pub(crate) _shadow_library_path: PathBuf,
-    pub(crate) _module: StPluginModule,
-    pub(crate) _lib: Library,
-    pub(crate) _host_vtable: Box<StHostVTable>,
-    pub(crate) _host_ctx: Box<PluginHostCtx>,
+    pub(crate) shadow_library_path: PathBuf,
+    pub(crate) module: StPluginModule,
+    // Keep dynamic library loaded while any lease references this module.
+    #[allow(dead_code)]
+    pub(crate) library: Library,
+    // Keep host callback table/context alive for plugin-owned pointers.
+    #[allow(dead_code)]
+    pub(crate) host_vtable: Box<StHostVTable>,
+    #[allow(dead_code)]
+    pub(crate) host_ctx: Box<PluginHostCtx>,
 }
 
 pub(crate) struct LoadedModuleCandidate {
@@ -176,11 +181,11 @@ pub(crate) fn load_discovered_plugin(
         loaded_module: LoadedPluginModule {
             root_dir: discovered.root_dir.clone(),
             library_path: discovered.library_path.clone(),
-            _shadow_library_path: shadow_library_path,
-            _module: module,
-            _lib: lib,
-            _host_vtable: host_vtable,
-            _host_ctx: host_ctx,
+            shadow_library_path,
+            module,
+            library: lib,
+            host_vtable,
+            host_ctx,
         },
     })
 }

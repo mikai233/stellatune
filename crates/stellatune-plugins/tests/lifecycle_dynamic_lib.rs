@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Mutex, OnceLock};
@@ -6,7 +5,7 @@ use std::time::Duration;
 
 use serde_json::Value;
 use stellatune_plugins::install_plugin_from_artifact;
-use stellatune_plugins::runtime::handle::{PluginRuntimeHandle, shared_runtime_service};
+use stellatune_plugins::runtime::handle::PluginRuntimeHandle;
 
 struct FixtureArtifacts {
     v1: PathBuf,
@@ -23,8 +22,7 @@ fn lifecycle_reload_disable_and_gc_with_dynamic_plugins() {
         .lock()
         .expect("test mutex poisoned");
 
-    let runtime = shared_runtime_service();
-    reset_runtime(&runtime);
+    let runtime = PluginRuntimeHandle::new_with_default_host();
 
     let temp = tempfile::tempdir().expect("create temp dir");
     let plugins_dir = temp.path().join("plugins");
@@ -90,7 +88,8 @@ fn lifecycle_reload_disable_and_gc_with_dynamic_plugins() {
     let _ = runtime.collect_retired_module_leases_by_refcount();
     runtime.cleanup_shadow_copies_now();
 
-    reset_runtime(&runtime);
+    let _ = runtime.shutdown_and_cleanup();
+    runtime.cleanup_shadow_copies_now();
 }
 
 fn decoder_build_label(
@@ -186,18 +185,4 @@ fn find_file_recursive(root: &Path, file_name: &str) -> Option<PathBuf> {
         }
     }
     None
-}
-
-fn reset_runtime(runtime: &PluginRuntimeHandle) {
-    runtime.set_disabled_plugin_ids(HashSet::new());
-
-    let mut active = runtime.active_plugin_ids();
-    active.sort();
-    for plugin_id in active {
-        runtime.set_plugin_enabled(&plugin_id, true);
-        let _ = runtime.unload_plugin(&plugin_id);
-    }
-
-    let _ = runtime.collect_retired_module_leases_by_refcount();
-    runtime.cleanup_shadow_copies_now();
 }

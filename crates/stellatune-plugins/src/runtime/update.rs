@@ -13,7 +13,7 @@ pub enum InstanceUpdateDecision {
 pub struct InstanceUpdateRequest {
     pub instance_id: InstanceId,
     pub config_json: String,
-    pub requested_generation: u64,
+    pub requested_revision: u64,
     pub decision: InstanceUpdateDecision,
     pub reason: Option<String>,
 }
@@ -22,33 +22,33 @@ pub struct InstanceUpdateRequest {
 pub enum InstanceUpdateResult {
     Applied {
         instance_id: InstanceId,
-        generation: u64,
+        revision: u64,
     },
     RequiresRecreate {
         instance_id: InstanceId,
-        generation: u64,
+        revision: u64,
         reason: Option<String>,
     },
     Rejected {
         instance_id: InstanceId,
-        generation: u64,
+        revision: u64,
         reason: String,
     },
     Failed {
         instance_id: InstanceId,
-        generation: u64,
+        revision: u64,
         error: String,
     },
 }
 
 #[derive(Debug, Default)]
 pub struct InstanceUpdateCoordinator {
-    next_generation: AtomicU64,
+    next_revision: AtomicU64,
 }
 
 impl InstanceUpdateCoordinator {
-    pub fn next_generation(&self) -> u64 {
-        self.next_generation.fetch_add(1, Ordering::Relaxed) + 1
+    pub fn next_revision(&self) -> u64 {
+        self.next_revision.fetch_add(1, Ordering::Relaxed) + 1
     }
 
     pub fn begin(
@@ -61,7 +61,7 @@ impl InstanceUpdateCoordinator {
         InstanceUpdateRequest {
             instance_id,
             config_json,
-            requested_generation: self.next_generation(),
+            requested_revision: self.next_revision(),
             decision,
             reason,
         }
@@ -70,7 +70,7 @@ impl InstanceUpdateCoordinator {
     pub fn finish_applied(&self, req: &InstanceUpdateRequest) -> InstanceUpdateResult {
         InstanceUpdateResult::Applied {
             instance_id: req.instance_id,
-            generation: req.requested_generation,
+            revision: req.requested_revision,
         }
     }
 
@@ -81,7 +81,7 @@ impl InstanceUpdateCoordinator {
     ) -> InstanceUpdateResult {
         InstanceUpdateResult::RequiresRecreate {
             instance_id: req.instance_id,
-            generation: req.requested_generation,
+            revision: req.requested_revision,
             reason,
         }
     }
@@ -93,7 +93,7 @@ impl InstanceUpdateCoordinator {
     ) -> InstanceUpdateResult {
         InstanceUpdateResult::Rejected {
             instance_id: req.instance_id,
-            generation: req.requested_generation,
+            revision: req.requested_revision,
             reason,
         }
     }
@@ -105,7 +105,7 @@ impl InstanceUpdateCoordinator {
     ) -> InstanceUpdateResult {
         InstanceUpdateResult::Failed {
             instance_id: req.instance_id,
-            generation: req.requested_generation,
+            revision: req.requested_revision,
             error,
         }
     }

@@ -23,22 +23,22 @@ impl WorkerConfigurableInstance for MockInstance {
                 self.config = new_config_json.to_string();
                 Ok(InstanceUpdateResult::Applied {
                     instance_id: InstanceId(1),
-                    generation: 1,
+                    revision: 1,
                 })
             }
             "recreate" => Ok(InstanceUpdateResult::RequiresRecreate {
                 instance_id: InstanceId(1),
-                generation: 2,
+                revision: 2,
                 reason: Some("topology changed".to_string()),
             }),
             "reject" => Ok(InstanceUpdateResult::Rejected {
                 instance_id: InstanceId(1),
-                generation: 3,
+                revision: 3,
                 reason: "unsupported".to_string(),
             }),
             "failed" => Ok(InstanceUpdateResult::Failed {
                 instance_id: InstanceId(1),
-                generation: 4,
+                revision: 4,
                 error: "apply failed".to_string(),
             }),
             other => Err(anyhow!("unknown update config: {other}")),
@@ -75,10 +75,7 @@ fn controller_hot_apply_updates_current_config() {
     let outcome = ctrl
         .apply_config_update("hot")
         .expect("hot apply must work");
-    assert_eq!(
-        outcome,
-        WorkerConfigUpdateOutcome::Applied { generation: 1 }
-    );
+    assert_eq!(outcome, WorkerConfigUpdateOutcome::Applied { revision: 1 });
     assert_eq!(ctrl.current_config_json(), Some("hot"));
     assert!(!ctrl.has_pending_recreate());
 }
@@ -93,7 +90,7 @@ fn controller_requires_recreate_then_recreates() {
     assert_eq!(
         outcome,
         WorkerConfigUpdateOutcome::RequiresRecreate {
-            generation: 2,
+            revision: 2,
             reason: Some("topology changed".to_string())
         }
     );
@@ -112,7 +109,7 @@ fn controller_reject_keeps_running_instance() {
     assert_eq!(
         outcome,
         WorkerConfigUpdateOutcome::Rejected {
-            generation: 3,
+            revision: 3,
             reason: "unsupported".to_string()
         }
     );

@@ -147,6 +147,6 @@ impl Drop for LyricsProviderInstance {
     }
 }
 
-// SAFETY: Instances are moved into worker-owned threads and must be used from one
-// owner thread at a time. Runtime call sites enforce thread ownership checks.
+// SAFETY: The worker model requires moving instances across thread boundaries and
+// using each instance from exactly one worker thread at a time.
 unsafe impl Send for LyricsProviderInstance {}

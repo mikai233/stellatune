@@ -97,19 +97,13 @@ impl PluginRuntimeService {
             let Some(current) = slot.current.as_ref() else {
                 continue;
             };
-            let metadata_json = current.metadata_json.clone();
             let mut info = RuntimePluginInfo {
                 id: plugin_id.clone(),
                 name: plugin_id.clone(),
-                metadata_json: metadata_json.clone(),
+                metadata_json: current.metadata_json.clone(),
                 root_dir: None,
                 library_path: None,
             };
-            if let Ok(metadata) =
-                serde_json::from_str::<stellatune_plugin_protocol::PluginMetadata>(&metadata_json)
-            {
-                info.name = metadata.name;
-            }
             info.name = current.plugin_name.clone();
             info.root_dir = Some(current.loaded.root_dir.clone());
             info.library_path = Some(current.loaded.library_path.clone());
@@ -568,10 +562,10 @@ impl PluginRuntimeService {
         let mut out = HashSet::new();
         for slot in self.modules.values() {
             if let Some(current) = slot.current.as_ref() {
-                out.insert(current.loaded._shadow_library_path.clone());
+                out.insert(current.loaded.shadow_library_path.clone());
             }
             for retired in &slot.retired {
-                out.insert(retired.loaded._shadow_library_path.clone());
+                out.insert(retired.loaded.shadow_library_path.clone());
             }
         }
         out

@@ -1,7 +1,7 @@
 use super::{InstanceId, InstanceUpdateCoordinator, InstanceUpdateDecision, InstanceUpdateResult};
 
 #[test]
-fn coordinator_assigns_monotonic_generation() {
+fn coordinator_assigns_monotonic_revision() {
     let updates = InstanceUpdateCoordinator::default();
     let id = InstanceId(42);
     let req1 = updates.begin(
@@ -16,13 +16,13 @@ fn coordinator_assigns_monotonic_generation() {
         InstanceUpdateDecision::HotApply,
         None,
     );
-    assert!(req2.requested_generation > req1.requested_generation);
+    assert!(req2.requested_revision > req1.requested_revision);
     let result = updates.finish_applied(&req2);
     assert_eq!(
         result,
         InstanceUpdateResult::Applied {
             instance_id: id,
-            generation: req2.requested_generation
+            revision: req2.requested_revision
         }
     );
 }
@@ -42,7 +42,7 @@ fn coordinator_marks_recreate_and_rejected() {
         recreate,
         InstanceUpdateResult::RequiresRecreate {
             instance_id: id,
-            generation: req.requested_generation,
+            revision: req.requested_revision,
             reason: Some("resource topology changed".to_string())
         }
     );
@@ -58,7 +58,7 @@ fn coordinator_marks_recreate_and_rejected() {
         rejected,
         InstanceUpdateResult::Rejected {
             instance_id: id,
-            generation: req2.requested_generation,
+            revision: req2.requested_revision,
             reason: "unsupported fields".to_string()
         }
     );

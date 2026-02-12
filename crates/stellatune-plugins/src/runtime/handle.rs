@@ -21,6 +21,14 @@ pub struct PluginRuntimeHandle {
 }
 
 impl PluginRuntimeHandle {
+    pub fn new(host: StHostVTable) -> Self {
+        Self::spawn(host)
+    }
+
+    pub fn new_with_default_host() -> Self {
+        Self::spawn(default_host_vtable())
+    }
+
     pub(crate) fn spawn(host: StHostVTable) -> Self {
         let (tx, rx) = crossbeam_channel::unbounded::<RuntimeActorTask>();
         thread::Builder::new()
@@ -51,7 +59,7 @@ impl PluginRuntimeHandle {
             .ok_or_else(|| anyhow!("plugin runtime actor unavailable"))
     }
 
-    pub fn register_worker_control_sender(
+    pub(crate) fn register_worker_control_sender(
         &self,
         plugin_id: &str,
         sender: Sender<WorkerControlMessage>,
@@ -64,12 +72,6 @@ impl PluginRuntimeHandle {
             state.register_worker_control_sender(plugin_id, sender);
         })
         .is_some()
-    }
-
-    pub fn subscribe_worker_control(&self, plugin_id: &str) -> Receiver<WorkerControlMessage> {
-        let (tx, rx) = crossbeam_channel::unbounded();
-        let _ = self.register_worker_control_sender(plugin_id, tx);
-        rx
     }
 
     pub fn subscribe_backend_control_requests(&self) -> Receiver<BackendControlRequest> {

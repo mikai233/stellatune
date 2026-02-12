@@ -16,7 +16,7 @@ fn plugin_acquire_release_cleans_plugin_queue_state() {
 }
 
 #[test]
-fn plugin_refcount_keeps_queue_until_last_generation_drops() {
+fn plugin_refcount_keeps_queue_until_last_lease_drops() {
     let bus = PluginEventBus::new(16);
     bus.acquire_plugin("dev.test.plugin");
     bus.acquire_plugin("dev.test.plugin");

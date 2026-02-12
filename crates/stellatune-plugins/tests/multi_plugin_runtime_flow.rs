@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Mutex, OnceLock};
@@ -9,7 +8,7 @@ use anyhow::Result;
 use crossbeam_channel::{Receiver, Sender};
 use serde_json::Value;
 use stellatune_plugins::install_plugin_from_artifact;
-use stellatune_plugins::runtime::handle::{PluginRuntimeHandle, shared_runtime_service};
+use stellatune_plugins::runtime::handle::PluginRuntimeHandle;
 use stellatune_plugins::runtime::worker_controller::WorkerConfigUpdateOutcome;
 use stellatune_plugins::runtime::worker_endpoint::DecoderWorkerEndpoint;
 
@@ -79,8 +78,7 @@ fn multi_plugin_workers_reload_disable_hot_apply_external_flow() {
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
 
-    let runtime = shared_runtime_service();
-    reset_runtime(&runtime);
+    let runtime = PluginRuntimeHandle::new_with_default_host();
 
     let temp = tempfile::tempdir().expect("create temp dir");
     let plugins_dir = temp.path().join("plugins");
@@ -181,7 +179,8 @@ fn multi_plugin_workers_reload_disable_hot_apply_external_flow() {
     beta_worker.stop();
 
     runtime.set_plugin_enabled(&beta_installed.id, true);
-    reset_runtime(&runtime);
+    let _ = runtime.shutdown_and_cleanup();
+    runtime.cleanup_shadow_copies_now();
 }
 
 #[test]
@@ -191,8 +190,7 @@ fn multi_plugin_disable_and_hot_apply_are_isolated_between_workers() {
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
 
-    let runtime = shared_runtime_service();
-    reset_runtime(&runtime);
+    let runtime = PluginRuntimeHandle::new_with_default_host();
 
     let temp = tempfile::tempdir().expect("create temp dir");
     let plugins_dir = temp.path().join("plugins");
@@ -284,7 +282,8 @@ fn multi_plugin_disable_and_hot_apply_are_isolated_between_workers() {
     beta_worker.stop();
 
     runtime.set_plugin_enabled(&alpha_installed.id, true);
-    reset_runtime(&runtime);
+    let _ = runtime.shutdown_and_cleanup();
+    runtime.cleanup_shadow_copies_now();
 }
 
 #[test]
@@ -294,8 +293,7 @@ fn multi_plugin_reload_disable_hot_apply_stress_rounds() {
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
 
-    let runtime = shared_runtime_service();
-    reset_runtime(&runtime);
+    let runtime = PluginRuntimeHandle::new_with_default_host();
 
     let temp = tempfile::tempdir().expect("create temp dir");
     let plugins_dir = temp.path().join("plugins");
@@ -422,7 +420,8 @@ fn multi_plugin_reload_disable_hot_apply_stress_rounds() {
 
     alpha_worker.stop();
     beta_worker.stop();
-    reset_runtime(&runtime);
+    let _ = runtime.shutdown_and_cleanup();
+    runtime.cleanup_shadow_copies_now();
 }
 
 fn spawn_decoder_worker(
@@ -597,18 +596,4 @@ fn find_file_recursive(root: &Path, file_name: &str) -> Option<PathBuf> {
         }
     }
     None
-}
-
-fn reset_runtime(runtime: &PluginRuntimeHandle) {
-    runtime.set_disabled_plugin_ids(HashSet::new());
-
-    let mut active = runtime.active_plugin_ids();
-    active.sort();
-    for plugin_id in active {
-        runtime.set_plugin_enabled(&plugin_id, true);
-        let _ = runtime.unload_plugin(&plugin_id);
-    }
-
-    let _ = runtime.collect_retired_module_leases_by_refcount();
-    runtime.cleanup_shadow_copies_now();
 }
