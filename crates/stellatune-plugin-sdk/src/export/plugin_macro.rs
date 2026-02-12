@@ -52,11 +52,13 @@ macro_rules! export_plugin {
         }
 
         extern "C" fn __st_plugin_metadata_json_utf8() -> $crate::StStr {
-            let s = __st_plugin_metadata_json();
-            $crate::StStr {
-                ptr: s.as_ptr(),
-                len: s.len(),
-            }
+            $crate::ffi_guard::guard_with_default("__st_plugin_metadata_json_utf8", $crate::StStr::empty(), || {
+                let s = __st_plugin_metadata_json();
+                $crate::StStr {
+                    ptr: s.as_ptr(),
+                    len: s.len(),
+                }
+            })
         }
 
         $crate::__st_export_decoder_modules!($( $dec_mod => $dec_ty ),*);

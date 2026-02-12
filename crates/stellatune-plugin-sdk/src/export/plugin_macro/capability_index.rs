@@ -20,44 +20,48 @@ macro_rules! __st_export_capability_index {
             + __ST_SINK_COUNT;
 
         extern "C" fn __st_capability_count() -> usize {
-            __ST_CAPABILITY_COUNT
+            $crate::ffi_guard::guard_with_default("__st_capability_count", 0, || {
+                __ST_CAPABILITY_COUNT
+            })
         }
 
         extern "C" fn __st_capability_get(
             index: usize,
         ) -> *const stellatune_plugin_api::StCapabilityDescriptor {
-            let mut i = 0usize;
-            $(
-                if index == i {
-                    return &$dec_mod::CAP_DESC as *const _;
-                }
-                i += 1;
-            )*
-            $(
-                if index == i {
-                    return &$dsp_mod::CAP_DESC as *const _;
-                }
-                i += 1;
-            )*
-            $(
-                if index == i {
-                    return &$source_mod::CAP_DESC as *const _;
-                }
-                i += 1;
-            )*
-            $(
-                if index == i {
-                    return &$lyrics_mod::CAP_DESC as *const _;
-                }
-                i += 1;
-            )*
-            $(
-                if index == i {
-                    return &$sink_mod::CAP_DESC as *const _;
-                }
-                i += 1;
-            )*
-            core::ptr::null()
+            $crate::ffi_guard::guard_with_default("__st_capability_get", core::ptr::null(), || {
+                let mut i = 0usize;
+                $(
+                    if index == i {
+                        return &$dec_mod::CAP_DESC as *const _;
+                    }
+                    i += 1;
+                )*
+                $(
+                    if index == i {
+                        return &$dsp_mod::CAP_DESC as *const _;
+                    }
+                    i += 1;
+                )*
+                $(
+                    if index == i {
+                        return &$source_mod::CAP_DESC as *const _;
+                    }
+                    i += 1;
+                )*
+                $(
+                    if index == i {
+                        return &$lyrics_mod::CAP_DESC as *const _;
+                    }
+                    i += 1;
+                )*
+                $(
+                    if index == i {
+                        return &$sink_mod::CAP_DESC as *const _;
+                    }
+                    i += 1;
+                )*
+                core::ptr::null()
+            })
         }
     };
 }

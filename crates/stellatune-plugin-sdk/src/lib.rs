@@ -12,6 +12,8 @@ mod codec;
 mod control;
 mod errors;
 pub mod export;
+#[doc(hidden)]
+pub mod ffi_guard;
 mod ffi_utils;
 mod host;
 pub mod instance;

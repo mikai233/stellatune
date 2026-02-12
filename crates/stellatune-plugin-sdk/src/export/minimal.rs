@@ -54,8 +54,10 @@ macro_rules! export_plugin_minimal {
         pub unsafe extern "C" fn stellatune_plugin_entry(
             host: *const stellatune_plugin_api::StHostVTable,
         ) -> *const stellatune_plugin_api::StPluginModule {
-            unsafe { $crate::export::__set_host_vtable(host) };
-            &__ST_PLUGIN_MODULE
+            $crate::ffi_guard::guard_with_default("stellatune_plugin_entry", core::ptr::null(), || {
+                unsafe { $crate::export::__set_host_vtable(host) };
+                &__ST_PLUGIN_MODULE as *const stellatune_plugin_api::StPluginModule
+            })
         }
     };
 }

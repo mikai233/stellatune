@@ -24,15 +24,17 @@ pub fn status_err(code: i32) -> StStatus {
 }
 
 pub extern "C" fn plugin_free(ptr: *mut c_void, len: usize, align: usize) {
-    if ptr.is_null() || len == 0 {
-        return;
-    }
-    let align = align.max(1);
-    // Safety: allocated by `alloc_utf8_bytes` with the same layout.
-    unsafe {
-        let layout = std::alloc::Layout::from_size_align_unchecked(len, align);
-        std::alloc::dealloc(ptr as *mut u8, layout);
-    }
+    crate::ffi_guard::guard_void("plugin_free", || {
+        if ptr.is_null() || len == 0 {
+            return;
+        }
+        let align = align.max(1);
+        // Safety: allocated by `alloc_utf8_bytes` with the same layout.
+        unsafe {
+            let layout = std::alloc::Layout::from_size_align_unchecked(len, align);
+            std::alloc::dealloc(ptr as *mut u8, layout);
+        }
+    });
 }
 
 pub fn alloc_utf8_bytes(s: &str) -> StStr {

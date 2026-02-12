@@ -26,21 +26,23 @@ macro_rules! __st_export_lyrics_modules {
                     query_json_utf8: $crate::StStr,
                     out_json_utf8: *mut $crate::StStr,
                 ) -> $crate::StStatus {
-                    if handle.is_null() || out_json_utf8.is_null() {
-                        return $crate::status_err_msg($crate::ST_ERR_INVALID_ARG, "null handle/out_json_utf8");
-                    }
-                    let query_json = match unsafe { $crate::ststr_to_str(&query_json_utf8) } {
-                        Ok(v) => v,
-                        Err(e) => return $crate::status_err_msg($crate::ST_ERR_INVALID_ARG, e),
-                    };
-                    let boxed = unsafe { &mut *(handle as *mut $crate::instance::LyricsProviderBox<LyricsImpl>) };
-                    match <LyricsImpl as $crate::instance::LyricsProviderInstance>::search_json(&mut boxed.inner, query_json) {
-                        Ok(json) => {
-                            unsafe { *out_json_utf8 = $crate::alloc_utf8_bytes(&json); }
-                            $crate::status_ok()
+                    $crate::ffi_guard::guard_status("search_json_utf8", || {
+                        if handle.is_null() || out_json_utf8.is_null() {
+                            return $crate::status_err_msg($crate::ST_ERR_INVALID_ARG, "null handle/out_json_utf8");
                         }
-                        Err(e) => $crate::status_err_msg($crate::ST_ERR_INTERNAL, e),
-                    }
+                        let query_json = match unsafe { $crate::ststr_to_str(&query_json_utf8) } {
+                            Ok(v) => v,
+                            Err(e) => return $crate::status_err_msg($crate::ST_ERR_INVALID_ARG, e),
+                        };
+                        let boxed = unsafe { &mut *(handle as *mut $crate::instance::LyricsProviderBox<LyricsImpl>) };
+                        match <LyricsImpl as $crate::instance::LyricsProviderInstance>::search_json(&mut boxed.inner, query_json) {
+                            Ok(json) => {
+                                unsafe { *out_json_utf8 = $crate::alloc_utf8_bytes(&json); }
+                                $crate::status_ok()
+                            }
+                            Err(e) => $crate::status_err_msg($crate::ST_ERR_INTERNAL, e),
+                        }
+                    })
                 }
 
                 extern "C" fn fetch_json_utf8(
@@ -48,21 +50,23 @@ macro_rules! __st_export_lyrics_modules {
                     track_json_utf8: $crate::StStr,
                     out_json_utf8: *mut $crate::StStr,
                 ) -> $crate::StStatus {
-                    if handle.is_null() || out_json_utf8.is_null() {
-                        return $crate::status_err_msg($crate::ST_ERR_INVALID_ARG, "null handle/out_json_utf8");
-                    }
-                    let track_json = match unsafe { $crate::ststr_to_str(&track_json_utf8) } {
-                        Ok(v) => v,
-                        Err(e) => return $crate::status_err_msg($crate::ST_ERR_INVALID_ARG, e),
-                    };
-                    let boxed = unsafe { &mut *(handle as *mut $crate::instance::LyricsProviderBox<LyricsImpl>) };
-                    match <LyricsImpl as $crate::instance::LyricsProviderInstance>::fetch_json(&mut boxed.inner, track_json) {
-                        Ok(json) => {
-                            unsafe { *out_json_utf8 = $crate::alloc_utf8_bytes(&json); }
-                            $crate::status_ok()
+                    $crate::ffi_guard::guard_status("fetch_json_utf8", || {
+                        if handle.is_null() || out_json_utf8.is_null() {
+                            return $crate::status_err_msg($crate::ST_ERR_INVALID_ARG, "null handle/out_json_utf8");
                         }
-                        Err(e) => $crate::status_err_msg($crate::ST_ERR_INTERNAL, e),
-                    }
+                        let track_json = match unsafe { $crate::ststr_to_str(&track_json_utf8) } {
+                            Ok(v) => v,
+                            Err(e) => return $crate::status_err_msg($crate::ST_ERR_INVALID_ARG, e),
+                        };
+                        let boxed = unsafe { &mut *(handle as *mut $crate::instance::LyricsProviderBox<LyricsImpl>) };
+                        match <LyricsImpl as $crate::instance::LyricsProviderInstance>::fetch_json(&mut boxed.inner, track_json) {
+                            Ok(json) => {
+                                unsafe { *out_json_utf8 = $crate::alloc_utf8_bytes(&json); }
+                                $crate::status_ok()
+                            }
+                            Err(e) => $crate::status_err_msg($crate::ST_ERR_INTERNAL, e),
+                        }
+                    })
                 }
 
                 extern "C" fn plan_config_update_json_utf8(
@@ -70,85 +74,95 @@ macro_rules! __st_export_lyrics_modules {
                     new_config_json_utf8: $crate::StStr,
                     out_plan: *mut stellatune_plugin_api::StConfigUpdatePlan,
                 ) -> $crate::StStatus {
-                    if handle.is_null() || out_plan.is_null() {
-                        return $crate::status_err_msg($crate::ST_ERR_INVALID_ARG, "null handle/out_plan");
-                    }
-                    let new_json = match unsafe { $crate::ststr_to_str(&new_config_json_utf8) } {
-                        Ok(v) => v,
-                        Err(e) => return $crate::status_err_msg($crate::ST_ERR_INVALID_ARG, e),
-                    };
-                    let boxed = unsafe { &mut *(handle as *mut $crate::instance::LyricsProviderBox<LyricsImpl>) };
-                    match <LyricsImpl as $crate::update::ConfigUpdatable>::plan_config_update_json(&boxed.inner, new_json) {
-                        Ok(plan) => match unsafe { $crate::update::write_plan_to_ffi(out_plan, plan) } {
-                            Ok(()) => $crate::status_ok(),
+                    $crate::ffi_guard::guard_status("plan_config_update_json_utf8", || {
+                        if handle.is_null() || out_plan.is_null() {
+                            return $crate::status_err_msg($crate::ST_ERR_INVALID_ARG, "null handle/out_plan");
+                        }
+                        let new_json = match unsafe { $crate::ststr_to_str(&new_config_json_utf8) } {
+                            Ok(v) => v,
+                            Err(e) => return $crate::status_err_msg($crate::ST_ERR_INVALID_ARG, e),
+                        };
+                        let boxed = unsafe { &mut *(handle as *mut $crate::instance::LyricsProviderBox<LyricsImpl>) };
+                        match <LyricsImpl as $crate::update::ConfigUpdatable>::plan_config_update_json(&boxed.inner, new_json) {
+                            Ok(plan) => match unsafe { $crate::update::write_plan_to_ffi(out_plan, plan) } {
+                                Ok(()) => $crate::status_ok(),
+                                Err(e) => $crate::status_err_msg($crate::ST_ERR_INTERNAL, e),
+                            },
                             Err(e) => $crate::status_err_msg($crate::ST_ERR_INTERNAL, e),
-                        },
-                        Err(e) => $crate::status_err_msg($crate::ST_ERR_INTERNAL, e),
-                    }
+                        }
+                    })
                 }
 
                 extern "C" fn apply_config_update_json_utf8(
                     handle: *mut core::ffi::c_void,
                     new_config_json_utf8: $crate::StStr,
                 ) -> $crate::StStatus {
-                    if handle.is_null() {
-                        return $crate::status_err_msg($crate::ST_ERR_INVALID_ARG, "null handle");
-                    }
-                    let new_json = match unsafe { $crate::ststr_to_str(&new_config_json_utf8) } {
-                        Ok(v) => v,
-                        Err(e) => return $crate::status_err_msg($crate::ST_ERR_INVALID_ARG, e),
-                    };
-                    let boxed = unsafe { &mut *(handle as *mut $crate::instance::LyricsProviderBox<LyricsImpl>) };
-                    match <LyricsImpl as $crate::update::ConfigUpdatable>::apply_config_update_json(&mut boxed.inner, new_json) {
-                        Ok(()) => $crate::status_ok(),
-                        Err(e) => $crate::status_err_msg($crate::ST_ERR_INTERNAL, e),
-                    }
+                    $crate::ffi_guard::guard_status("apply_config_update_json_utf8", || {
+                        if handle.is_null() {
+                            return $crate::status_err_msg($crate::ST_ERR_INVALID_ARG, "null handle");
+                        }
+                        let new_json = match unsafe { $crate::ststr_to_str(&new_config_json_utf8) } {
+                            Ok(v) => v,
+                            Err(e) => return $crate::status_err_msg($crate::ST_ERR_INVALID_ARG, e),
+                        };
+                        let boxed = unsafe { &mut *(handle as *mut $crate::instance::LyricsProviderBox<LyricsImpl>) };
+                        match <LyricsImpl as $crate::update::ConfigUpdatable>::apply_config_update_json(&mut boxed.inner, new_json) {
+                            Ok(()) => $crate::status_ok(),
+                            Err(e) => $crate::status_err_msg($crate::ST_ERR_INTERNAL, e),
+                        }
+                    })
                 }
 
                 extern "C" fn export_state_json_utf8(
                     handle: *mut core::ffi::c_void,
                     out_json_utf8: *mut $crate::StStr,
                 ) -> $crate::StStatus {
-                    if handle.is_null() || out_json_utf8.is_null() {
-                        return $crate::status_err_msg($crate::ST_ERR_INVALID_ARG, "null handle/out_json_utf8");
-                    }
-                    let boxed = unsafe { &mut *(handle as *mut $crate::instance::LyricsProviderBox<LyricsImpl>) };
-                    match <LyricsImpl as $crate::update::ConfigUpdatable>::export_state_json(&boxed.inner) {
-                        Ok(Some(json)) => {
-                            unsafe { *out_json_utf8 = $crate::alloc_utf8_bytes(&json); }
-                            $crate::status_ok()
+                    $crate::ffi_guard::guard_status("export_state_json_utf8", || {
+                        if handle.is_null() || out_json_utf8.is_null() {
+                            return $crate::status_err_msg($crate::ST_ERR_INVALID_ARG, "null handle/out_json_utf8");
                         }
-                        Ok(None) => {
-                            unsafe { *out_json_utf8 = $crate::StStr::empty(); }
-                            $crate::status_ok()
+                        let boxed = unsafe { &mut *(handle as *mut $crate::instance::LyricsProviderBox<LyricsImpl>) };
+                        match <LyricsImpl as $crate::update::ConfigUpdatable>::export_state_json(&boxed.inner) {
+                            Ok(Some(json)) => {
+                                unsafe { *out_json_utf8 = $crate::alloc_utf8_bytes(&json); }
+                                $crate::status_ok()
+                            }
+                            Ok(None) => {
+                                unsafe { *out_json_utf8 = $crate::StStr::empty(); }
+                                $crate::status_ok()
+                            }
+                            Err(e) => $crate::status_err_msg($crate::ST_ERR_INTERNAL, e),
                         }
-                        Err(e) => $crate::status_err_msg($crate::ST_ERR_INTERNAL, e),
-                    }
+                    })
                 }
 
                 extern "C" fn import_state_json_utf8(
                     handle: *mut core::ffi::c_void,
                     state_json_utf8: $crate::StStr,
                 ) -> $crate::StStatus {
-                    if handle.is_null() {
-                        return $crate::status_err_msg($crate::ST_ERR_INVALID_ARG, "null handle");
-                    }
-                    let state_json = match unsafe { $crate::ststr_to_str(&state_json_utf8) } {
-                        Ok(v) => v,
-                        Err(e) => return $crate::status_err_msg($crate::ST_ERR_INVALID_ARG, e),
-                    };
-                    let boxed = unsafe { &mut *(handle as *mut $crate::instance::LyricsProviderBox<LyricsImpl>) };
-                    match <LyricsImpl as $crate::update::ConfigUpdatable>::import_state_json(&mut boxed.inner, state_json) {
-                        Ok(()) => $crate::status_ok(),
-                        Err(e) => $crate::status_err_msg($crate::ST_ERR_INTERNAL, e),
-                    }
+                    $crate::ffi_guard::guard_status("import_state_json_utf8", || {
+                        if handle.is_null() {
+                            return $crate::status_err_msg($crate::ST_ERR_INVALID_ARG, "null handle");
+                        }
+                        let state_json = match unsafe { $crate::ststr_to_str(&state_json_utf8) } {
+                            Ok(v) => v,
+                            Err(e) => return $crate::status_err_msg($crate::ST_ERR_INVALID_ARG, e),
+                        };
+                        let boxed = unsafe { &mut *(handle as *mut $crate::instance::LyricsProviderBox<LyricsImpl>) };
+                        match <LyricsImpl as $crate::update::ConfigUpdatable>::import_state_json(&mut boxed.inner, state_json) {
+                            Ok(()) => $crate::status_ok(),
+                            Err(e) => $crate::status_err_msg($crate::ST_ERR_INTERNAL, e),
+                        }
+                    })
                 }
 
                 extern "C" fn destroy(handle: *mut core::ffi::c_void) {
-                    if handle.is_null() {
-                        return;
-                    }
-                    unsafe { drop(Box::from_raw(handle as *mut $crate::instance::LyricsProviderBox<LyricsImpl>)); }
+                    $crate::ffi_guard::guard_void("destroy", || {
+                        if handle.is_null() {
+                            return;
+                        }
+                        unsafe { drop(Box::from_raw(handle as *mut $crate::instance::LyricsProviderBox<LyricsImpl>)); }
+                    });
                 }
 
                 pub static VTABLE: stellatune_plugin_api::StLyricsProviderInstanceVTable =
@@ -166,32 +180,34 @@ macro_rules! __st_export_lyrics_modules {
                     config_json_utf8: $crate::StStr,
                     out_instance: *mut stellatune_plugin_api::StLyricsProviderInstanceRef,
                 ) -> $crate::StStatus {
-                    if out_instance.is_null() {
-                        return $crate::status_err_msg($crate::ST_ERR_INVALID_ARG, "null out_instance");
-                    }
-                    let json = match unsafe { $crate::ststr_to_str(&config_json_utf8) } {
-                        Ok(s) => s,
-                        Err(e) => return $crate::status_err_msg($crate::ST_ERR_INVALID_ARG, e),
-                    };
-                    let config = match $crate::__private::serde_json::from_str::<<$lyrics_ty as $crate::instance::LyricsProviderDescriptor>::Config>(json) {
-                        Ok(v) => v,
-                        Err(e) => return $crate::status_err_msg($crate::ST_ERR_INVALID_ARG, e.to_string()),
-                    };
-                    match <$lyrics_ty as $crate::instance::LyricsProviderDescriptor>::create(config) {
-                        Ok(instance) => {
-                            let boxed = Box::new($crate::instance::LyricsProviderBox { inner: instance });
-                            unsafe {
-                                *out_instance = stellatune_plugin_api::StLyricsProviderInstanceRef {
-                                    handle: Box::into_raw(boxed) as *mut core::ffi::c_void,
-                                    vtable: &VTABLE as *const _,
-                                    reserved0: 0,
-                                    reserved1: 0,
-                                };
-                            }
-                            $crate::status_ok()
+                    $crate::ffi_guard::guard_status("create_instance", || {
+                        if out_instance.is_null() {
+                            return $crate::status_err_msg($crate::ST_ERR_INVALID_ARG, "null out_instance");
                         }
-                        Err(e) => $crate::status_err_msg($crate::ST_ERR_INTERNAL, e),
-                    }
+                        let json = match unsafe { $crate::ststr_to_str(&config_json_utf8) } {
+                            Ok(s) => s,
+                            Err(e) => return $crate::status_err_msg($crate::ST_ERR_INVALID_ARG, e),
+                        };
+                        let config = match $crate::__private::serde_json::from_str::<<$lyrics_ty as $crate::instance::LyricsProviderDescriptor>::Config>(json) {
+                            Ok(v) => v,
+                            Err(e) => return $crate::status_err_msg($crate::ST_ERR_INVALID_ARG, e.to_string()),
+                        };
+                        match <$lyrics_ty as $crate::instance::LyricsProviderDescriptor>::create(config) {
+                            Ok(instance) => {
+                                let boxed = Box::new($crate::instance::LyricsProviderBox { inner: instance });
+                                unsafe {
+                                    *out_instance = stellatune_plugin_api::StLyricsProviderInstanceRef {
+                                        handle: Box::into_raw(boxed) as *mut core::ffi::c_void,
+                                        vtable: &VTABLE as *const _,
+                                        reserved0: 0,
+                                        reserved1: 0,
+                                    };
+                                }
+                                $crate::status_ok()
+                            }
+                            Err(e) => $crate::status_err_msg($crate::ST_ERR_INTERNAL, e),
+                        }
+                    })
                 }
             }
         )*

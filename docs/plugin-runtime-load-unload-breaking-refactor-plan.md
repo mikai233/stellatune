@@ -178,6 +178,7 @@ Scope: **Breaking change only**. No backward compatibility layer, no dual-path r
 19. 全仓 `cargo check` + 局部 `dart analyze` 通过。
 20. 调整 `stellatune-backend-api::PlayerService` 查询锁粒度：`source_list_items_json / lyrics_provider_search_json / lyrics_provider_fetch_json / output_sink_list_targets_json` 不再在 `with_runtime_service` 临界区内执行插件实例调用，仅在锁内创建实例；减少慢查询（如 sidecar 健康检查）对全局 runtime 锁的占用时间。
 21. Flutter 设置页安装流程增加 `FilePicker` 显式异常捕获与错误提示，避免“安装弹窗打不开”时静默失败，便于区分平台通道异常与业务状态问题。
+22. 为 `stellatune-plugin-sdk` 的 OutputSink FFI 导出层增加 `catch_unwind` 防护（`output_modules`）：将插件 panic 转为 `StStatus` 错误并记录 panic + backtrace，避免 panic 穿越 `extern "C"` 直接触发进程级 abort（针对 `Lost connection to device` 的 ASIO 路径排查加固）。
 
 本轮未完成（下一阶段）：
 

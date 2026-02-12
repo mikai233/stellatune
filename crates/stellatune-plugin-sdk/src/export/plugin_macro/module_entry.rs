@@ -29,8 +29,14 @@ macro_rules! __st_export_module_entry {
         pub unsafe extern "C" fn stellatune_plugin_entry(
             host: *const stellatune_plugin_api::StHostVTable,
         ) -> *const stellatune_plugin_api::StPluginModule {
-            unsafe { $crate::export::__set_host_vtable(host) };
-            &__ST_PLUGIN_MODULE_FULL
+            $crate::ffi_guard::guard_with_default(
+                "stellatune_plugin_entry",
+                core::ptr::null(),
+                || {
+                    unsafe { $crate::export::__set_host_vtable(host) };
+                    &__ST_PLUGIN_MODULE_FULL as *const stellatune_plugin_api::StPluginModule
+                },
+            )
         }
     };
 }
