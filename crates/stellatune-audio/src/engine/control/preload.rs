@@ -70,7 +70,6 @@ pub(super) fn handle_preload_task(
                     let _ = internal_tx.send(InternalMsg::PreloadReady {
                         path: path.clone(),
                         position_ms,
-                        decoder,
                         track_info: track_info.clone(),
                         chunk: PredecodedChunk {
                             samples,

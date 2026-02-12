@@ -6,7 +6,6 @@ use crossbeam_channel::{Sender, TrySendError};
 use stellatune_core::TrackDecodeInfo;
 use stellatune_output::OutputSpec;
 
-use crate::engine::decode::decoder::EngineDecoder;
 use crate::ring_buffer::RingBufferProducer;
 
 pub(crate) struct PredecodedChunk {
@@ -160,6 +159,7 @@ pub(crate) enum EngineCtrl {
 
 #[derive(Debug, Clone)]
 pub(crate) struct PluginReloadSummary {
+    pub(crate) request_id: u64,
     pub(crate) dir: String,
     pub(crate) prev_count: usize,
     pub(crate) loaded_ids: Vec<String>,
@@ -191,7 +191,6 @@ pub(crate) enum InternalMsg {
     PreloadReady {
         path: String,
         position_ms: u64,
-        decoder: Box<EngineDecoder>,
         track_info: TrackDecodeInfo,
         chunk: PredecodedChunk,
         took_ms: u64,
@@ -203,8 +202,5 @@ pub(crate) enum InternalMsg {
         message: String,
         took_ms: u64,
         token: u64,
-    },
-    PluginsReloadFinished {
-        summary: PluginReloadSummary,
     },
 }

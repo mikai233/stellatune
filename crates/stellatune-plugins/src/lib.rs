@@ -1,7 +1,6 @@
 #![allow(clippy::wildcard_imports)] // Intentional wildcard usage (API facade, macro template, or generated code).
 
 mod capabilities;
-mod capability_registry;
 mod events;
 mod load;
 mod manifest;

@@ -61,28 +61,20 @@ impl WorkerDeps {
                 let disabled = db::list_disabled_plugin_ids(&pool)
                     .await
                     .unwrap_or_default();
-                match stellatune_plugins::shared_runtime_service().lock() {
-                    Ok(service) => {
-                        service.set_disabled_plugin_ids(disabled);
-                        match service.reload_dir_from_state(&plugins_dir)
-                    {
-                        Ok(v2) => events.emit(LibraryEvent::Log {
-                            message: format!(
-                                "library plugin runtime v2 reload: loaded={} deactivated={} errors={} unloaded_generations={}",
-                                v2.loaded.len(),
-                                v2.deactivated.len(),
-                                v2.errors.len(),
-                                v2.unloaded_generations
-                            ),
-                        }),
-                        Err(e) => events.emit(LibraryEvent::Log {
-                            message: format!("library plugin runtime v2 reload failed: {e:#}"),
-                        }),
-                    }
-                    }
-                    Err(_) => events.emit(LibraryEvent::Log {
-                        message: "library plugin runtime v2 reload skipped: runtime mutex poisoned"
-                            .to_string(),
+                let service = stellatune_plugins::shared_runtime_service();
+                service.set_disabled_plugin_ids(disabled);
+                match service.reload_dir_from_state(&plugins_dir) {
+                    Ok(v2) => events.emit(LibraryEvent::Log {
+                        message: format!(
+                            "library plugin runtime v2 reload: loaded={} deactivated={} errors={} unloaded_generations={}",
+                            v2.loaded.len(),
+                            v2.deactivated.len(),
+                            v2.errors.len(),
+                            v2.unloaded_generations
+                        ),
+                    }),
+                    Err(e) => events.emit(LibraryEvent::Log {
+                        message: format!("library plugin runtime v2 reload failed: {e:#}"),
                     }),
                 }
             }
@@ -131,10 +123,9 @@ impl LibraryWorker {
             let disabled = db::list_disabled_plugin_ids(&self.pool)
                 .await
                 .unwrap_or_default();
-            if let Ok(service) = stellatune_plugins::shared_runtime_service().lock() {
-                service.set_disabled_plugin_ids(disabled);
-                let _ = service.reload_dir_from_state(&self.plugins_dir);
-            }
+            let service = stellatune_plugins::shared_runtime_service();
+            service.set_disabled_plugin_ids(disabled);
+            let _ = service.reload_dir_from_state(&self.plugins_dir);
         }
     }
 

@@ -1,6 +1,5 @@
-use std::collections::HashMap;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
 
 use super::instance_registry::InstanceId;
 
@@ -46,8 +45,6 @@ pub enum InstanceUpdateResult {
 #[derive(Debug, Default)]
 pub struct InstanceUpdateCoordinator {
     next_generation: AtomicU64,
-    in_flight: Mutex<HashMap<InstanceId, InstanceUpdateRequest>>,
-    last_result: Mutex<HashMap<InstanceId, InstanceUpdateResult>>,
 }
 
 impl InstanceUpdateCoordinator {
@@ -62,27 +59,20 @@ impl InstanceUpdateCoordinator {
         decision: InstanceUpdateDecision,
         reason: Option<String>,
     ) -> InstanceUpdateRequest {
-        let req = InstanceUpdateRequest {
+        InstanceUpdateRequest {
             instance_id,
             config_json,
             requested_generation: self.next_generation(),
             decision,
             reason,
-        };
-        if let Ok(mut q) = self.in_flight.lock() {
-            q.insert(instance_id, req.clone());
         }
-        req
     }
 
     pub fn finish_applied(&self, req: &InstanceUpdateRequest) -> InstanceUpdateResult {
-        self.finish_with_result(
-            req.instance_id,
-            InstanceUpdateResult::Applied {
-                instance_id: req.instance_id,
-                generation: req.requested_generation,
-            },
-        )
+        InstanceUpdateResult::Applied {
+            instance_id: req.instance_id,
+            generation: req.requested_generation,
+        }
     }
 
     pub fn finish_requires_recreate(
@@ -90,14 +80,11 @@ impl InstanceUpdateCoordinator {
         req: &InstanceUpdateRequest,
         reason: Option<String>,
     ) -> InstanceUpdateResult {
-        self.finish_with_result(
-            req.instance_id,
-            InstanceUpdateResult::RequiresRecreate {
-                instance_id: req.instance_id,
-                generation: req.requested_generation,
-                reason,
-            },
-        )
+        InstanceUpdateResult::RequiresRecreate {
+            instance_id: req.instance_id,
+            generation: req.requested_generation,
+            reason,
+        }
     }
 
     pub fn finish_rejected(
@@ -105,14 +92,11 @@ impl InstanceUpdateCoordinator {
         req: &InstanceUpdateRequest,
         reason: String,
     ) -> InstanceUpdateResult {
-        self.finish_with_result(
-            req.instance_id,
-            InstanceUpdateResult::Rejected {
-                instance_id: req.instance_id,
-                generation: req.requested_generation,
-                reason,
-            },
-        )
+        InstanceUpdateResult::Rejected {
+            instance_id: req.instance_id,
+            generation: req.requested_generation,
+            reason,
+        }
     }
 
     pub fn finish_failed(
@@ -120,54 +104,14 @@ impl InstanceUpdateCoordinator {
         req: &InstanceUpdateRequest,
         error: String,
     ) -> InstanceUpdateResult {
-        self.finish_with_result(
-            req.instance_id,
-            InstanceUpdateResult::Failed {
-                instance_id: req.instance_id,
-                generation: req.requested_generation,
-                error,
-            },
-        )
-    }
-
-    pub fn complete(&self, instance_id: InstanceId) {
-        if let Ok(mut q) = self.in_flight.lock() {
-            q.remove(&instance_id);
+        InstanceUpdateResult::Failed {
+            instance_id: req.instance_id,
+            generation: req.requested_generation,
+            error,
         }
     }
 
-    pub fn pending_for_instance(&self, instance_id: InstanceId) -> Option<InstanceUpdateRequest> {
-        let q = self.in_flight.lock().ok()?;
-        q.get(&instance_id).cloned()
-    }
-
-    pub fn last_result_for_instance(
-        &self,
-        instance_id: InstanceId,
-    ) -> Option<InstanceUpdateResult> {
-        let map = self.last_result.lock().ok()?;
-        map.get(&instance_id).cloned()
-    }
-
-    pub fn clear_last_result(&self, instance_id: InstanceId) {
-        if let Ok(mut map) = self.last_result.lock() {
-            map.remove(&instance_id);
-        }
-    }
-
-    fn finish_with_result(
-        &self,
-        instance_id: InstanceId,
-        result: InstanceUpdateResult,
-    ) -> InstanceUpdateResult {
-        if let Ok(mut q) = self.in_flight.lock() {
-            q.remove(&instance_id);
-        }
-        if let Ok(mut map) = self.last_result.lock() {
-            map.insert(instance_id, result.clone());
-        }
-        result
-    }
+    pub fn complete(&self, _instance_id: InstanceId) {}
 }
 
 pub trait InstanceUpdateActor: Send + Sync + 'static {
@@ -215,26 +159,30 @@ mod tests {
     };
 
     #[test]
-    fn coordinator_tracks_pending_and_last_result() {
+    fn coordinator_assigns_monotonic_generation() {
         let updates = InstanceUpdateCoordinator::default();
         let id = InstanceId(42);
-        let req = updates.begin(
+        let req1 = updates.begin(
             id,
             "{\"gain\":1.0}".to_string(),
             InstanceUpdateDecision::HotApply,
             None,
         );
-        assert!(updates.pending_for_instance(id).is_some());
-        let result = updates.finish_applied(&req);
+        let req2 = updates.begin(
+            id,
+            "{\"gain\":2.0}".to_string(),
+            InstanceUpdateDecision::HotApply,
+            None,
+        );
+        assert!(req2.requested_generation > req1.requested_generation);
+        let result = updates.finish_applied(&req2);
         assert_eq!(
             result,
             InstanceUpdateResult::Applied {
                 instance_id: id,
-                generation: req.requested_generation
+                generation: req2.requested_generation
             }
         );
-        assert!(updates.pending_for_instance(id).is_none());
-        assert_eq!(updates.last_result_for_instance(id), Some(result));
     }
 
     #[test]

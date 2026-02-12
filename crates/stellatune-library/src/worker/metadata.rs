@@ -197,11 +197,7 @@ pub(super) fn clear_metadata_decoder_cache() {
 fn create_plugin_metadata_decoder(
     candidate: &DecoderCandidate,
 ) -> Result<stellatune_plugins::DecoderInstance> {
-    let shared = stellatune_plugins::shared_runtime_service();
-    let service = shared
-        .lock()
-        .map_err(|_| anyhow::anyhow!("runtime service mutex poisoned"))?;
-    service
+    stellatune_plugins::shared_runtime_service()
         .create_decoder_instance(
             &candidate.plugin_id,
             &candidate.type_id,
@@ -430,10 +426,7 @@ fn decoder_candidates_for_ext(ext: &str) -> Vec<DecoderCandidate> {
     if normalized.is_empty() {
         return Vec::new();
     }
-    let shared = stellatune_plugins::shared_runtime_service();
-    let Ok(service) = shared.lock() else {
-        return Vec::new();
-    };
+    let service = stellatune_plugins::shared_runtime_service();
     let mut out = Vec::new();
     for candidate in service.decoder_candidates_for_ext(&normalized) {
         let Some(cap) = service.resolve_active_capability(

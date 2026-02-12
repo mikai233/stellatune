@@ -1,16 +1,13 @@
 use std::collections::HashSet;
 
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 
 fn main() -> Result<()> {
     let plugin_dir = std::env::args()
         .nth(1)
         .unwrap_or_else(|| "plugins".to_string());
 
-    let shared = stellatune_plugins::shared_runtime_service();
-    let service = shared
-        .lock()
-        .map_err(|_| anyhow!("plugin runtime mutex poisoned"))?;
+    let service = stellatune_plugins::shared_runtime_service();
 
     let report = service.reload_dir_filtered(&plugin_dir, &HashSet::new())?;
     if !report.errors.is_empty() {

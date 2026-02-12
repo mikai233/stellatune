@@ -1,5 +1,5 @@
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct GenerationId(pub u64);
@@ -93,90 +93,5 @@ impl GenerationGuard {
 
     pub fn can_unload_now(&self) -> bool {
         self.live_instances() == 0 && self.inflight_calls() == 0
-    }
-}
-
-#[derive(Debug, Default)]
-pub struct PluginSlotLifecycle {
-    active: Option<Arc<GenerationGuard>>,
-    draining: Vec<Arc<GenerationGuard>>,
-}
-
-impl PluginSlotLifecycle {
-    pub fn active(&self) -> Option<Arc<GenerationGuard>> {
-        self.active.as_ref().map(Arc::clone)
-    }
-
-    pub fn activate_new_generation(&mut self, next: Arc<GenerationGuard>) {
-        if let Some(cur) = self.active.take() {
-            cur.mark_draining();
-            self.draining.push(cur);
-        }
-        self.active = Some(next);
-    }
-
-    pub fn deactivate_active(&mut self) -> Option<Arc<GenerationGuard>> {
-        let cur = self.active.take()?;
-        cur.mark_draining();
-        self.draining.push(Arc::clone(&cur));
-        Some(cur)
-    }
-
-    pub fn draining(&self) -> &[Arc<GenerationGuard>] {
-        &self.draining
-    }
-
-    /// Remove and return generations ready for unload.
-    pub fn collect_ready_for_unload(&mut self) -> Vec<Arc<GenerationGuard>> {
-        let mut ready = Vec::new();
-        let mut i = 0usize;
-        while i < self.draining.len() {
-            if self.draining[i].can_unload_now() {
-                let g = self.draining.swap_remove(i);
-                g.mark_unloaded();
-                ready.push(g);
-            } else {
-                i += 1;
-            }
-        }
-        ready
-    }
-}
-
-#[derive(Debug, Default)]
-pub struct LifecycleStore {
-    inner: Mutex<std::collections::HashMap<String, PluginSlotLifecycle>>,
-}
-
-impl LifecycleStore {
-    pub fn activate_generation(&self, plugin_id: &str, generation: Arc<GenerationGuard>) {
-        if let Ok(mut map) = self.inner.lock() {
-            map.entry(plugin_id.to_string())
-                .or_default()
-                .activate_new_generation(generation);
-        }
-    }
-
-    pub fn active_generation(&self, plugin_id: &str) -> Option<Arc<GenerationGuard>> {
-        let map = self.inner.lock().ok()?;
-        map.get(plugin_id).and_then(PluginSlotLifecycle::active)
-    }
-
-    pub fn deactivate_plugin(&self, plugin_id: &str) -> Option<Arc<GenerationGuard>> {
-        let Ok(mut map) = self.inner.lock() else {
-            return None;
-        };
-        map.get_mut(plugin_id)
-            .and_then(PluginSlotLifecycle::deactivate_active)
-    }
-
-    pub fn collect_ready_for_unload(&self, plugin_id: &str) -> Vec<Arc<GenerationGuard>> {
-        let Ok(mut map) = self.inner.lock() else {
-            return Vec::new();
-        };
-        let Some(slot) = map.get_mut(plugin_id) else {
-            return Vec::new();
-        };
-        slot.collect_ready_for_unload()
     }
 }

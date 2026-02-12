@@ -16,83 +16,39 @@ pub enum CapabilityKind {
     OutputSink,
 }
 
-#[derive(Debug)]
-pub struct InstanceRecord {
-    pub id: InstanceId,
-    pub plugin_id: String,
-    pub capability_type_id: String,
-    pub kind: CapabilityKind,
-    pub generation: Arc<GenerationGuard>,
-}
-
 #[derive(Debug, Default)]
 pub struct InstanceRegistry {
     next_id: AtomicU64,
-    inner: Mutex<HashMap<InstanceId, InstanceRecord>>,
+    inner: Mutex<HashMap<InstanceId, Arc<GenerationGuard>>>,
 }
 
 impl InstanceRegistry {
-    pub fn register(
-        &self,
-        plugin_id: String,
-        capability_type_id: String,
-        kind: CapabilityKind,
-        generation: Arc<GenerationGuard>,
-    ) -> InstanceId {
+    pub fn register(&self, generation: Arc<GenerationGuard>) -> InstanceId {
         let id = InstanceId(
             self.next_id
                 .fetch_add(1, Ordering::Relaxed)
                 .saturating_add(1),
         );
         generation.inc_instance();
-        let record = InstanceRecord {
-            id,
-            plugin_id,
-            capability_type_id,
-            kind,
-            generation,
-        };
         if let Ok(mut map) = self.inner.lock() {
-            map.insert(id, record);
+            map.insert(id, generation);
         }
         id
     }
 
-    pub fn get(&self, id: InstanceId) -> Option<InstanceRecordView> {
+    pub fn generation_of(&self, id: InstanceId) -> Option<Arc<GenerationGuard>> {
         let map = self.inner.lock().ok()?;
-        let r = map.get(&id)?;
-        Some(InstanceRecordView {
-            id: r.id,
-            plugin_id: r.plugin_id.clone(),
-            capability_type_id: r.capability_type_id.clone(),
-            kind: r.kind,
-            generation: Arc::clone(&r.generation),
-        })
+        map.get(&id).map(Arc::clone)
     }
 
-    pub fn remove(&self, id: InstanceId) -> Option<InstanceRecord> {
-        let mut map = self.inner.lock().ok()?;
-        let record = map.remove(&id)?;
-        record.generation.dec_instance();
-        Some(record)
-    }
-
-    pub fn list_ids_for_plugin(&self, plugin_id: &str) -> Vec<InstanceId> {
-        let Ok(map) = self.inner.lock() else {
-            return Vec::new();
+    pub fn remove(&self, id: InstanceId) -> bool {
+        let Ok(mut map) = self.inner.lock() else {
+            return false;
         };
-        map.values()
-            .filter(|r| r.plugin_id == plugin_id)
-            .map(|r| r.id)
-            .collect()
+        let Some(generation) = map.remove(&id) else {
+            return false;
+        };
+        generation.dec_instance();
+        true
     }
-}
-
-#[derive(Debug, Clone)]
-pub struct InstanceRecordView {
-    pub id: InstanceId,
-    pub plugin_id: String,
-    pub capability_type_id: String,
-    pub kind: CapabilityKind,
-    pub generation: Arc<GenerationGuard>,
 }

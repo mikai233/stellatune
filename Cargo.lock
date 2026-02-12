@@ -3296,6 +3296,7 @@ name = "stellatune-plugins"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "crossbeam-channel",
  "flate2",
  "libloading",
  "rawzip",

@@ -1,4 +1,7 @@
 use std::sync::Arc;
+#[cfg(not(debug_assertions))]
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use anyhow::{Result, anyhow};
 use stellatune_plugin_api::{StConfigUpdateMode, StConfigUpdatePlan};
@@ -23,12 +26,14 @@ pub struct InstanceRuntimeCtx {
     pub instance_id: InstanceId,
     pub instances: Arc<InstanceRegistry>,
     pub generation: Arc<GenerationGuard>,
+    pub owner: Arc<InstanceCallOwner>,
     pub updates: Arc<InstanceUpdateCoordinator>,
     pub plugin_free: PluginFreeFn,
 }
 
 impl InstanceRuntimeCtx {
     pub fn begin_call(&self) -> GenerationCallGuard {
+        self.owner.assert_current_thread(self.instance_id);
         GenerationCallGuard::enter(&self.generation)
     }
 
@@ -36,6 +41,72 @@ impl InstanceRuntimeCtx {
         let _ = self.instances.remove(self.instance_id);
         self.updates.complete(self.instance_id);
     }
+}
+
+pub struct InstanceCallOwner {
+    owner_thread_token: AtomicUsize,
+    #[cfg(not(debug_assertions))]
+    mismatch_logged: AtomicBool,
+}
+
+impl InstanceCallOwner {
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self::default())
+    }
+
+    pub fn assert_current_thread(&self, instance_id: InstanceId) {
+        let caller = current_thread_token();
+        let mut owner = self.owner_thread_token.load(Ordering::Acquire);
+        if owner == 0 {
+            owner = self
+                .owner_thread_token
+                .compare_exchange(0, caller, Ordering::AcqRel, Ordering::Acquire)
+                .unwrap_or_else(|existing| existing);
+            if owner == 0 {
+                owner = caller;
+            }
+        }
+        if owner == caller {
+            return;
+        }
+
+        #[cfg(debug_assertions)]
+        {
+            panic!(
+                "instance {} called from non-owner thread (owner_token={}, caller_token={})",
+                instance_id.0, owner, caller
+            );
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            if !self.mismatch_logged.swap(true, Ordering::AcqRel) {
+                tracing::error!(
+                    instance_id = instance_id.0,
+                    owner_thread_token = owner,
+                    caller_thread_token = caller,
+                    "plugin instance called from non-owner thread"
+                );
+            }
+        }
+    }
+}
+
+impl Default for InstanceCallOwner {
+    fn default() -> Self {
+        Self {
+            owner_thread_token: AtomicUsize::new(0),
+            #[cfg(not(debug_assertions))]
+            mismatch_logged: AtomicBool::new(false),
+        }
+    }
+}
+
+thread_local! {
+    static THREAD_TOKEN: u8 = const { 0 };
+}
+
+fn current_thread_token() -> usize {
+    THREAD_TOKEN.with(|token| token as *const u8 as usize)
 }
 
 pub struct GenerationCallGuard {

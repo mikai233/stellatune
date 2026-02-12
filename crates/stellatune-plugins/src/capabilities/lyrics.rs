@@ -1,3 +1,6 @@
+use std::marker::PhantomData;
+use std::rc::Rc;
+
 use anyhow::{Result, anyhow};
 use stellatune_plugin_api::StStr;
 use stellatune_plugin_api::{StConfigUpdatePlan, StLyricsProviderInstanceRef};
@@ -11,9 +14,8 @@ pub struct LyricsProviderInstance {
     ctx: InstanceRuntimeCtx,
     handle: *mut core::ffi::c_void,
     vtable: *const stellatune_plugin_api::StLyricsProviderInstanceVTable,
+    _not_send_sync: PhantomData<Rc<()>>,
 }
-
-unsafe impl Send for LyricsProviderInstance {}
 
 impl LyricsProviderInstance {
     pub fn from_ffi(ctx: InstanceRuntimeCtx, raw: StLyricsProviderInstanceRef) -> Result<Self> {
@@ -26,6 +28,7 @@ impl LyricsProviderInstance {
             ctx,
             handle: raw.handle,
             vtable: raw.vtable,
+            _not_send_sync: PhantomData,
         })
     }
 

@@ -136,40 +136,34 @@ pub fn subscribe_plugin_runtime_events_global()
 }
 
 fn cleanup_plugin_runtime_for_restart(reason: &'static str) {
-    if let Ok(service) = shared_plugin_runtime().lock() {
-        let mut plugin_ids = service.active_plugin_ids();
-        plugin_ids.sort();
-        let report = service.shutdown_and_cleanup();
-        let remaining_draining_generations: usize = plugin_ids
-            .iter()
-            .filter_map(|plugin_id| service.slot_snapshot(plugin_id))
-            .map(|slot| slot.draining.len())
-            .sum();
+    let service = shared_plugin_runtime();
+    let mut plugin_ids = service.active_plugin_ids();
+    plugin_ids.sort();
+    let report = service.shutdown_and_cleanup();
+    let remaining_draining_generations: usize = plugin_ids
+        .iter()
+        .filter_map(|plugin_id| service.slot_snapshot(plugin_id))
+        .map(|slot| slot.draining.len())
+        .sum();
 
-        if remaining_draining_generations == 0 && report.errors.is_empty() {
-            tracing::info!(
-                reason,
-                active_plugins_before_cleanup = plugin_ids.len(),
-                deactivated = report.deactivated.len(),
-                unloaded_generations = report.unloaded_generations,
-                errors = report.errors.len(),
-                "plugin runtime cleanup attempted"
-            );
-        } else {
-            tracing::warn!(
-                reason,
-                active_plugins_before_cleanup = plugin_ids.len(),
-                deactivated = report.deactivated.len(),
-                unloaded_generations = report.unloaded_generations,
-                remaining_draining_generations,
-                errors = report.errors.len(),
-                "plugin runtime cleanup attempted with leftovers"
-            );
-        }
+    if remaining_draining_generations == 0 && report.errors.is_empty() {
+        tracing::info!(
+            reason,
+            active_plugins_before_cleanup = plugin_ids.len(),
+            deactivated = report.deactivated.len(),
+            unloaded_generations = report.unloaded_generations,
+            errors = report.errors.len(),
+            "plugin runtime cleanup attempted"
+        );
     } else {
         tracing::warn!(
             reason,
-            "plugin runtime cleanup skipped: runtime mutex poisoned"
+            active_plugins_before_cleanup = plugin_ids.len(),
+            deactivated = report.deactivated.len(),
+            unloaded_generations = report.unloaded_generations,
+            remaining_draining_generations,
+            errors = report.errors.len(),
+            "plugin runtime cleanup attempted with leftovers"
         );
     }
 }
@@ -295,35 +289,19 @@ pub async fn plugin_runtime_disable(
 
     report.phase = "deactivate";
     tracing::debug!(plugin_id, phase = report.phase, "plugin_disable_phase");
-    match shared_plugin_runtime().lock() {
-        Ok(service) => {
-            report.deactivated_generation = service.deactivate_plugin(&plugin_id).map(|v| v.0);
-        }
-        Err(_) => report
-            .errors
-            .push("plugin runtime v2 mutex poisoned".to_string()),
-    }
+    let service = shared_plugin_runtime();
+    report.deactivated_generation = service.deactivate_plugin(&plugin_id).map(|v| v.0);
 
     report.phase = "collect";
     tracing::debug!(plugin_id, phase = report.phase, "plugin_disable_phase");
     let deadline = Instant::now() + Duration::from_millis(timeout_ms);
     loop {
-        let done = match shared_plugin_runtime().lock() {
-            Ok(service) => {
-                report.unloaded_generations += service.collect_ready_for_unload(&plugin_id).len();
-                report.remaining_draining_generations = service
-                    .slot_snapshot(&plugin_id)
-                    .map(|slot| slot.draining.len())
-                    .unwrap_or(0);
-                report.remaining_draining_generations == 0
-            }
-            Err(_) => {
-                report
-                    .errors
-                    .push("plugin runtime v2 mutex poisoned during collect".to_string());
-                true
-            }
-        };
+        report.unloaded_generations += service.collect_ready_for_unload(&plugin_id).len();
+        report.remaining_draining_generations = service
+            .slot_snapshot(&plugin_id)
+            .map(|slot| slot.draining.len())
+            .unwrap_or(0);
+        let done = report.remaining_draining_generations == 0;
 
         if done {
             break;
@@ -342,13 +320,7 @@ pub async fn plugin_runtime_disable(
 
     report.phase = "cleanup";
     tracing::debug!(plugin_id, phase = report.phase, "plugin_disable_phase");
-    if let Ok(service) = shared_plugin_runtime().lock() {
-        service.cleanup_shadow_copies_now();
-    } else {
-        report
-            .errors
-            .push("plugin runtime v2 mutex poisoned during cleanup".to_string());
-    }
+    service.cleanup_shadow_copies_now();
 
     report.phase = "completed";
     tracing::info!(
@@ -422,13 +394,9 @@ pub async fn plugin_runtime_apply_state(
             .filter(|id| !id.is_empty())
             .collect::<std::collections::HashSet<_>>();
 
-        let report = match shared_plugin_runtime().lock() {
-            Ok(service) => {
-                service.set_disabled_plugin_ids(disabled_ids);
-                service.reload_dir_detailed_from_state(&plugins_dir)?
-            }
-            Err(_) => return Err(anyhow!("plugin runtime v2 mutex poisoned")),
-        };
+        let service = shared_plugin_runtime();
+        service.set_disabled_plugin_ids(disabled_ids);
+        let report = service.reload_dir_detailed_from_state(&plugins_dir)?;
         let errors = report
             .load_report
             .errors

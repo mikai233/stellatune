@@ -1,9 +1,6 @@
 use crate::runtime::{CapabilityKind, GenerationId};
 use stellatune_plugin_api::{StCapabilityDescriptor, StCapabilityKind};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct CapabilityId(pub u64);
-
 #[derive(Debug, Clone)]
 pub struct CapabilityDescriptorInput {
     pub kind: CapabilityKind,
@@ -15,7 +12,6 @@ pub struct CapabilityDescriptorInput {
 
 #[derive(Debug, Clone)]
 pub struct CapabilityDescriptorRecord {
-    pub id: CapabilityId,
     pub plugin_id: String,
     pub generation: GenerationId,
     pub kind: CapabilityKind,

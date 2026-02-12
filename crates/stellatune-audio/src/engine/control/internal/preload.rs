@@ -2,7 +2,6 @@ use tracing::debug;
 
 use stellatune_core::TrackDecodeInfo;
 
-use crate::engine::decode::decoder::EngineDecoder;
 use crate::engine::messages::PredecodedChunk;
 use crate::engine::session::PromotedPreload;
 
@@ -11,7 +10,6 @@ use super::{InternalCtx, debug_metrics};
 pub(super) struct PreloadReadyArgs {
     pub(super) path: String,
     pub(super) position_ms: u64,
-    pub(super) decoder: Box<EngineDecoder>,
     pub(super) track_info: TrackDecodeInfo,
     pub(super) chunk: PredecodedChunk,
     pub(super) took_ms: u64,
@@ -22,7 +20,6 @@ pub(super) fn on_preload_ready(ctx: &mut InternalCtx<'_>, args: PreloadReadyArgs
     let PreloadReadyArgs {
         path,
         position_ms,
-        decoder,
         track_info,
         chunk,
         took_ms,
@@ -43,7 +40,6 @@ pub(super) fn on_preload_ready(ctx: &mut InternalCtx<'_>, args: PreloadReadyArgs
         worker.promote_preload(PromotedPreload {
             path: path.clone(),
             position_ms,
-            decoder,
             track_info,
             chunk,
         });

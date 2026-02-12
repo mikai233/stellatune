@@ -63,11 +63,7 @@ fn create_dsp_instance(
     target_sample_rate: u32,
     target_channels: u16,
 ) -> Result<DspInstance, String> {
-    let shared = stellatune_plugins::shared_runtime_service();
-    let service = shared
-        .lock()
-        .map_err(|_| "plugin runtime v2 mutex poisoned".to_string())?;
-    service
+    stellatune_plugins::shared_runtime_service()
         .create_dsp_instance(
             &spec.plugin_id,
             &spec.type_id,

@@ -27,10 +27,7 @@ pub fn plugins_uninstall_by_id(plugins_dir: String, plugin_id: String) -> Result
 }
 
 fn ensure_plugin_runtime_unloaded_for_uninstall(plugin_id: &str) -> Result<()> {
-    let shared = shared_plugin_runtime();
-    let service = shared
-        .lock()
-        .map_err(|_| anyhow!("plugin runtime v2 mutex poisoned"))?;
+    let service = shared_plugin_runtime();
 
     let _ = service.unload_plugin(plugin_id);
     let Some(slot) = service.slot_snapshot(plugin_id) else {

@@ -9,14 +9,14 @@ use tracing::{debug, warn};
 use stellatune_core::TrackDecodeInfo;
 use stellatune_output::{OutputError, OutputHandle, OutputSpec};
 use stellatune_plugin_api::StAudioSpec;
-use stellatune_plugins::runtime::InstanceUpdateResult;
+use stellatune_plugins::PluginRuntimeEvent;
+use stellatune_plugins::runtime::{CapabilityKind as RuntimeCapabilityKind, InstanceUpdateResult};
 
 use crate::engine::config::{
     BUFFER_PREFILL_CAP_MS, BUFFER_PREFILL_CAP_MS_EXCLUSIVE, OUTPUT_SINK_WRITE_RETRY_SLEEP_MS,
     OUTPUT_SINK_WRITE_STALL_TIMEOUT_MS, RING_BUFFER_CAPACITY_MS,
     TRANSITION_FADE_RAMP_MS_TRACK_SWITCH,
 };
-use crate::engine::decode::decoder::EngineDecoder;
 use crate::engine::decode::{DecodeThreadArgs, decode_thread};
 use crate::engine::messages::{
     DecodeCtrl, DecodeWorkerState, InternalMsg, OutputSinkTx, OutputSinkWrite, PredecodedChunk,
@@ -26,6 +26,8 @@ use crate::ring_buffer::{RingBufferConsumer, RingBufferProducer, new_ring_buffer
 
 const OUTPUT_CONSUMER_CHUNK_SAMPLES: usize = 1024;
 pub(crate) const OUTPUT_SINK_QUEUE_CAP_MESSAGES: usize = 16;
+const PLUGIN_RUNTIME_OWNER_AUDIO_DECODE: &str = "audio.decode";
+const PLUGIN_RUNTIME_OWNER_AUDIO_OUTPUT_SINK: &str = "audio.output_sink";
 #[cfg(debug_assertions)]
 const DEBUG_SESSION_LOG_EVERY: u64 = 12;
 #[cfg(debug_assertions)]
@@ -213,7 +215,6 @@ pub(crate) struct OutputSinkWorker {
 }
 
 pub(crate) struct OutputSinkWorkerStartArgs {
-    pub(crate) sink: stellatune_plugins::OutputSinkInstance,
     pub(crate) plugin_id: String,
     pub(crate) type_id: String,
     pub(crate) target_json: String,
@@ -345,9 +346,8 @@ fn transition_gain_interpolate(from: f32, to: f32, t: f32) -> f32 {
 }
 
 impl OutputSinkWorker {
-    pub(crate) fn start(args: OutputSinkWorkerStartArgs) -> Self {
+    pub(crate) fn start(args: OutputSinkWorkerStartArgs) -> Result<Self, String> {
         let OutputSinkWorkerStartArgs {
-            mut sink,
             plugin_id,
             type_id,
             target_json,
@@ -363,14 +363,34 @@ impl OutputSinkWorker {
         let (tx, rx) =
             crossbeam_channel::bounded::<OutputSinkWrite>(OUTPUT_SINK_QUEUE_CAP_MESSAGES);
         let (ctrl_tx, ctrl_rx) = crossbeam_channel::unbounded::<OutputSinkControl>();
+        let plugin_runtime_events = stellatune_plugins::shared_runtime_service()
+            .subscribe_owner_runtime_events(PLUGIN_RUNTIME_OWNER_AUDIO_OUTPUT_SINK);
         let pending_samples = Arc::new(AtomicUsize::new(0));
         let pending_samples_for_thread = Arc::clone(&pending_samples);
         let sink_runtime_queued_samples = Arc::new(AtomicUsize::new(0));
         let sink_runtime_queued_samples_for_thread = Arc::clone(&sink_runtime_queued_samples);
+        let (startup_tx, startup_rx) = crossbeam_channel::bounded::<Result<(), String>>(1);
         let join = std::thread::Builder::new()
             .name("stellatune-output-sink".to_string())
             .spawn(move || {
                 let _rt_guard = stellatune_output::enable_realtime_audio_thread();
+                let mut sink = match create_output_sink_instance_and_open(
+                    &plugin_id,
+                    &type_id,
+                    &config_json,
+                    &target_json,
+                    sample_rate,
+                    channels,
+                ) {
+                    Ok(sink) => {
+                        let _ = startup_tx.send(Ok(()));
+                        sink
+                    }
+                    Err(err) => {
+                        let _ = startup_tx.send(Err(err));
+                        return;
+                    }
+                };
                 let mut current_config_json = config_json;
                 let mut master_gain = MasterGainProcessor::new(
                     volume,
@@ -579,17 +599,104 @@ impl OutputSinkWorker {
                                 }
                             }
                         }
+                        recv(plugin_runtime_events) -> msg => {
+                            let Ok(event) = msg else {
+                                break;
+                            };
+                            match event {
+                                PluginRuntimeEvent::PluginsReloaded { .. } => {
+                                    let generation = active_output_sink_generation(&plugin_id, &type_id);
+                                    match recreate_output_sink_instance(
+                                        &plugin_id,
+                                        &type_id,
+                                        &current_config_json,
+                                        &target_json,
+                                        sample_rate,
+                                        channels,
+                                        &mut sink,
+                                    ) {
+                                        Ok(next) => {
+                                            let _ = sink.flush();
+                                            sink.close();
+                                            sink = next;
+                                            emit_config_update_runtime_event(
+                                                &plugin_id,
+                                                "output_sink",
+                                                &type_id,
+                                                "recreated",
+                                                generation,
+                                                Some("runtime_event:plugins_reloaded"),
+                                            );
+                                            if let Ok(status) = sink.query_status() {
+                                                sink_runtime_queued_samples_for_thread
+                                                    .store(status.queued_samples as usize, Ordering::Release);
+                                            }
+                                        }
+                                        Err(e) => {
+                                            emit_config_update_runtime_event(
+                                                &plugin_id,
+                                                "output_sink",
+                                                &type_id,
+                                                "failed",
+                                                generation,
+                                                Some(&e),
+                                            );
+                                            let _ = internal_tx.try_send(InternalMsg::OutputError(format!(
+                                                "plugin sink recreate on runtime reload failed: {e}"
+                                            )));
+                                            break;
+                                        }
+                                    }
+                                }
+                                PluginRuntimeEvent::PluginUnloaded { plugin_id: unloaded_plugin_id, .. } => {
+                                    if unloaded_plugin_id == plugin_id {
+                                        let _ = internal_tx.try_send(InternalMsg::OutputError(format!(
+                                            "plugin sink plugin unloaded: {}::{}",
+                                            plugin_id, type_id
+                                        )));
+                                        break;
+                                    }
+                                }
+                                PluginRuntimeEvent::PluginEnabledChanged { plugin_id: changed_plugin_id, enabled } => {
+                                    if changed_plugin_id == plugin_id && !enabled {
+                                        let _ = internal_tx.try_send(InternalMsg::OutputError(format!(
+                                            "plugin sink plugin disabled: {}::{}",
+                                            plugin_id, type_id
+                                        )));
+                                        break;
+                                    }
+                                }
+                                PluginRuntimeEvent::RuntimeShutdown { .. } => {
+                                    let _ = internal_tx.try_send(InternalMsg::OutputError(
+                                        "plugin runtime shutdown while output sink worker running".to_string()
+                                    ));
+                                    break;
+                                }
+                                _ => {}
+                            }
+                        }
                     }
                 }
             })
             .expect("failed to spawn stellatune-output-sink thread");
-        Self {
+        match startup_rx.recv() {
+            Ok(Ok(())) => {}
+            Ok(Err(err)) => {
+                let _ = join.join();
+                return Err(err);
+            }
+            Err(_) => {
+                let _ = join.join();
+                return Err("output sink worker startup channel closed".to_string());
+            }
+        }
+        Ok(Self {
             tx,
             ctrl_tx,
             pending_samples,
             sink_runtime_queued_samples,
             join,
-        }
+        })
     }
 
     pub(crate) fn sender(&self) -> OutputSinkTx {
@@ -633,6 +740,13 @@ impl OutputSinkWorker {
     }
 }
 
+fn active_output_sink_generation(plugin_id: &str, type_id: &str) -> u64 {
+    stellatune_plugins::shared_runtime_service()
+        .resolve_active_capability(plugin_id, RuntimeCapabilityKind::OutputSink, type_id)
+        .map(|cap| cap.generation.0)
+        .unwrap_or(0)
+}
+
 fn recreate_output_sink_instance(
     plugin_id: &str,
     type_id: &str,
@@ -642,19 +756,32 @@ fn recreate_output_sink_instance(
     channels: u16,
     current: &mut stellatune_plugins::OutputSinkInstance,
 ) -> Result<stellatune_plugins::OutputSinkInstance, String> {
-    let mut next = {
-        let shared = stellatune_plugins::shared_runtime_service();
-        let service = shared
-            .lock()
-            .map_err(|_| "plugin runtime v2 mutex poisoned".to_string())?;
-        service
-            .create_output_sink_instance(plugin_id, type_id, config_json)
-            .map_err(|e| format!("create_output_sink_instance failed: {e}"))?
-    };
+    let mut next = create_output_sink_instance_and_open(
+        plugin_id,
+        type_id,
+        config_json,
+        target_json,
+        sample_rate,
+        channels,
+    )?;
     if let Ok(Some(state_json)) = current.export_state_json() {
         let _ = next.import_state_json(&state_json);
     }
-    next.open(
+    Ok(next)
+}
+
+fn create_output_sink_instance_and_open(
+    plugin_id: &str,
+    type_id: &str,
+    config_json: &str,
+    target_json: &str,
+    sample_rate: u32,
+    channels: u16,
+) -> Result<stellatune_plugins::OutputSinkInstance, String> {
+    let mut sink = stellatune_plugins::shared_runtime_service()
+        .create_output_sink_instance(plugin_id, type_id, config_json)
+        .map_err(|e| format!("create_output_sink_instance failed: {e}"))?;
+    sink.open(
         target_json,
         StAudioSpec {
             sample_rate: sample_rate.max(1),
@@ -663,7 +790,7 @@ fn recreate_output_sink_instance(
         },
     )
     .map_err(|e| format!("output sink reopen failed: {e}"))?;
-    Ok(next)
+    Ok(sink)
 }
 
 fn write_all_frames(
@@ -703,7 +830,6 @@ fn write_all_frames(
 pub(crate) struct PromotedPreload {
     pub(crate) path: String,
     pub(crate) position_ms: u64,
-    pub(crate) decoder: Box<EngineDecoder>,
     pub(crate) track_info: TrackDecodeInfo,
     pub(crate) chunk: PredecodedChunk,
 }
@@ -777,6 +903,8 @@ pub(crate) fn start_decode_worker(internal_tx: Sender<InternalMsg>) -> DecodeWor
     let promoted_preload_for_thread = Arc::clone(&promoted_preload);
     let (ctrl_tx, ctrl_rx) = crossbeam_channel::unbounded::<DecodeCtrl>();
     let (prepare_tx, prepare_rx) = crossbeam_channel::unbounded::<DecodePrepareMsg>();
+    let plugin_runtime_events = stellatune_plugins::shared_runtime_service()
+        .subscribe_owner_runtime_events(PLUGIN_RUNTIME_OWNER_AUDIO_DECODE);
 
     let join = std::thread::Builder::new()
         .name("stellatune-decode".to_string())
@@ -786,6 +914,7 @@ pub(crate) fn start_decode_worker(internal_tx: Sender<InternalMsg>) -> DecodeWor
                 internal_tx,
                 ctrl_rx,
                 prepare_rx,
+                plugin_runtime_events,
                 Arc::clone(&runtime_state),
                 Arc::clone(&promoted_preload_for_thread),
             )
@@ -804,6 +933,7 @@ fn run_decode_worker(
     internal_tx: Sender<InternalMsg>,
     ctrl_rx: Receiver<DecodeCtrl>,
     prepare_rx: Receiver<DecodePrepareMsg>,
+    plugin_runtime_events: Receiver<stellatune_plugins::PluginRuntimeEvent>,
     runtime_state: Arc<AtomicU8>,
     promoted_preload: Arc<Mutex<Option<PromotedPreload>>>,
 ) {
@@ -828,12 +958,9 @@ fn run_decode_worker(
 
         let promoted =
             take_matching_promoted_preload(&promoted_preload, &prepare.path, prepare.start_at_ms);
-        let (preopened, predecoded) = match promoted {
-            Some(promoted) => (
-                Some((promoted.decoder, promoted.track_info)),
-                Some(promoted.chunk),
-            ),
-            None => (None, None),
+        let predecoded = match promoted {
+            Some(promoted) => Some(promoted.chunk),
+            None => None,
         };
 
         let (setup_tx, setup_rx) = crossbeam_channel::bounded::<DecodeCtrl>(1);
@@ -863,8 +990,8 @@ fn run_decode_worker(
         decode_thread(DecodeThreadArgs {
             path: prepare.path,
             internal_tx: internal_tx.clone(),
-            preopened,
             ctrl_rx: ctrl_rx.clone(),
+            plugin_runtime_events: plugin_runtime_events.clone(),
             setup_rx,
             spec_tx: prepare.spec_tx,
             runtime_state: Arc::clone(&runtime_state),

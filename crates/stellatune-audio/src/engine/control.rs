@@ -37,7 +37,7 @@ mod runtime_query;
 mod tick;
 
 use commands::handle_command;
-use engine_ctrl::{handle_engine_ctrl, on_plugin_reload_finished};
+use engine_ctrl::{handle_engine_ctrl, handle_plugin_runtime_actor_event};
 use internal::handle_internal;
 use output_sink::{
     output_sink_queue_watermarks_ms, output_spec_for_plugin_sink,
@@ -67,15 +67,13 @@ const PLUGIN_SINK_FALLBACK_CHANNELS: u16 = 2;
 const PLUGIN_SINK_DEFAULT_CHUNK_FRAMES: u32 = 256;
 const PLUGIN_SINK_MIN_LOW_WATERMARK_MS: i64 = 8;
 const PLUGIN_SINK_MIN_HIGH_WATERMARK_MS: i64 = 16;
+pub(super) const PLUGIN_RUNTIME_OWNER_AUDIO_CONTROL: &str = "audio.control";
 type SharedTrackInfo = Arc<ArcSwapOption<stellatune_core::TrackDecodeInfo>>;
 
 fn with_runtime_service<T>(
-    f: impl FnOnce(&stellatune_plugins::PluginRuntimeService) -> Result<T, String>,
+    f: impl FnOnce(&stellatune_plugins::SharedPluginRuntimeService) -> Result<T, String>,
 ) -> Result<T, String> {
-    let shared = stellatune_plugins::shared_runtime_service();
-    let service = shared
-        .lock()
-        .map_err(|_| "plugin runtime v2 mutex poisoned".to_string())?;
+    let service = stellatune_plugins::shared_runtime_service();
     f(&service)
 }
 
@@ -854,6 +852,8 @@ pub fn start_engine() -> EngineHandle {
     let thread_events = Arc::clone(&events);
 
     let track_info: SharedTrackInfo = Arc::new(ArcSwapOption::new(None));
+    let plugin_runtime_events = stellatune_plugins::shared_runtime_service()
+        .subscribe_owner_runtime_events(PLUGIN_RUNTIME_OWNER_AUDIO_CONTROL);
 
     let track_info_for_thread = Arc::clone(&track_info);
     let _join: JoinHandle<()> = thread::Builder::new()
@@ -866,6 +866,7 @@ pub fn start_engine() -> EngineHandle {
                     engine_ctrl_rx,
                     internal_rx,
                     internal_tx,
+                    plugin_runtime_events,
                 },
                 ControlLoopDeps {
                     events: thread_events,
@@ -921,6 +922,7 @@ struct EngineState {
     lyrics_instances: HashMap<RuntimeInstanceSlotKey, CachedLyricsInstance>,
     output_sink_instances: HashMap<RuntimeInstanceSlotKey, CachedOutputSinkInstance>,
     plugin_reload_inflight: bool,
+    plugin_reload_request_id: Option<u64>,
     pending_plugin_reload_dir: Option<String>,
     switch_timing_seq: u64,
     manual_switch_timing: Option<ManualSwitchTiming>,
@@ -958,6 +960,7 @@ struct ControlLoopChannels {
     engine_ctrl_rx: Receiver<EngineCtrl>,
     internal_rx: Receiver<InternalMsg>,
     internal_tx: Sender<InternalMsg>,
+    plugin_runtime_events: Receiver<stellatune_plugins::PluginRuntimeEvent>,
 }
 
 struct ControlLoopDeps {
@@ -1015,6 +1018,7 @@ impl EngineState {
             lyrics_instances: HashMap::new(),
             output_sink_instances: HashMap::new(),
             plugin_reload_inflight: false,
+            plugin_reload_request_id: None,
             pending_plugin_reload_dir: None,
             switch_timing_seq: 0,
             manual_switch_timing: None,
@@ -1030,6 +1034,7 @@ fn run_control_loop(channels: ControlLoopChannels, deps: ControlLoopDeps) {
         engine_ctrl_rx,
         internal_rx,
         internal_tx,
+        plugin_runtime_events,
     } = channels;
     let ControlLoopDeps { events, track_info } = deps;
 
@@ -1074,6 +1079,10 @@ fn run_control_loop(channels: ControlLoopChannels, deps: ControlLoopDeps) {
             recv(internal_rx) -> msg => {
                 let Ok(msg) = msg else { break };
                 handle_internal(msg, &mut state, &events, &internal_tx, &track_info);
+            }
+            recv(plugin_runtime_events) -> msg => {
+                let Ok(msg) = msg else { break };
+                handle_plugin_runtime_actor_event(&mut state, &events, &internal_tx, msg);
             }
             recv(tick) -> _ => {
                 publish_player_tick_event(&state);

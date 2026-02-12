@@ -1,8 +1,9 @@
 use std::thread;
 use std::time::Duration;
 
-use crossbeam_channel::TrySendError;
+use crossbeam_channel::{TryRecvError, TrySendError};
 use stellatune_mixer::ChannelMixer;
+use stellatune_plugins::PluginRuntimeEvent;
 use stellatune_plugins::runtime::CapabilityKind as RuntimeCapabilityKind;
 use tracing::warn;
 
@@ -38,6 +39,14 @@ pub(crate) fn skip_frames_by_decoding(
 pub(crate) fn write_pending(ctx: &mut DecodeContext) -> bool {
     let mut offset = 0usize;
     while offset < ctx.out_pending.len() {
+        loop {
+            match ctx.plugin_runtime_events.try_recv() {
+                Ok(event) => handle_plugin_runtime_event_during_write(ctx, event),
+                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Disconnected) => break,
+            }
+        }
+
         while let Ok(ctrl) = ctx.ctrl_rx.try_recv() {
             match ctrl {
                 DecodeCtrl::SetDspChain { chain } => {
@@ -150,12 +159,20 @@ pub(crate) fn write_pending(ctx: &mut DecodeContext) -> bool {
     false
 }
 
+fn handle_plugin_runtime_event_during_write(ctx: &mut DecodeContext, event: PluginRuntimeEvent) {
+    if !matches!(
+        event,
+        PluginRuntimeEvent::PluginsReloaded { .. } | PluginRuntimeEvent::PluginUnloaded { .. }
+    ) {
+        return;
+    }
+    if let Err(e) = refresh_decoder(ctx) {
+        warn!("decoder refresh on plugin runtime event failed: {e}");
+    }
+}
+
 fn active_decoder_generation(plugin_id: &str, type_id: &str) -> u64 {
-    let shared = stellatune_plugins::shared_runtime_service();
-    let Ok(service) = shared.lock() else {
-        return 0;
-    };
-    service
+    stellatune_plugins::shared_runtime_service()
         .resolve_active_capability(plugin_id, RuntimeCapabilityKind::Decoder, type_id)
         .map(|cap| cap.generation.0)
         .unwrap_or(0)

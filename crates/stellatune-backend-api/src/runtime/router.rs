@@ -9,6 +9,7 @@ use stellatune_core::{
     PluginRuntimeKind,
 };
 use stellatune_plugin_protocol::PluginControlRequest;
+use stellatune_plugins::PluginRuntimeEvent as PluginRuntimeActorEvent;
 
 use super::bus::{
     ControlFinishedArgs, broadcast_host_event_json, build_control_result_payload,
@@ -23,6 +24,182 @@ use super::types::{
 };
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+fn actor_event_to_runtime_event(event: PluginRuntimeActorEvent) -> PluginRuntimeEvent {
+    let (plugin_id, payload_json) = match event {
+        PluginRuntimeActorEvent::CommandCompleted {
+            request_id,
+            owner,
+            outcome,
+        } => {
+            let payload = match outcome {
+                stellatune_plugins::PluginRuntimeCommandOutcome::SetPluginEnabled {
+                    plugin_id,
+                    enabled,
+                } => (
+                    plugin_id.clone(),
+                    serde_json::json!({
+                        "topic": "host.runtime.actor",
+                        "event": "command_completed",
+                        "request_id": request_id,
+                        "owner": owner,
+                        "command": "set_plugin_enabled",
+                        "plugin_id": plugin_id,
+                        "enabled": enabled
+                    }),
+                ),
+                stellatune_plugins::PluginRuntimeCommandOutcome::ReloadDirFromState {
+                    dir,
+                    prev_count,
+                    loaded_ids,
+                    loaded_count,
+                    deactivated_count,
+                    unloaded_generations,
+                    load_errors,
+                    fatal_error,
+                } => (
+                    "host.runtime".to_string(),
+                    serde_json::json!({
+                        "topic": "host.runtime.actor",
+                        "event": "command_completed",
+                        "request_id": request_id,
+                        "owner": owner,
+                        "command": "reload_dir_from_state",
+                        "dir": dir,
+                        "prev_count": prev_count,
+                        "loaded_ids": loaded_ids,
+                        "loaded_count": loaded_count,
+                        "deactivated_count": deactivated_count,
+                        "unloaded_generations": unloaded_generations,
+                        "load_errors": load_errors,
+                        "fatal_error": fatal_error
+                    }),
+                ),
+                stellatune_plugins::PluginRuntimeCommandOutcome::UnloadPlugin {
+                    plugin_id,
+                    deactivated,
+                    unloaded_generations,
+                    remaining_draining_generations,
+                    errors,
+                } => (
+                    plugin_id.clone(),
+                    serde_json::json!({
+                        "topic": "host.runtime.actor",
+                        "event": "command_completed",
+                        "request_id": request_id,
+                        "owner": owner,
+                        "command": "unload_plugin",
+                        "plugin_id": plugin_id,
+                        "deactivated": deactivated,
+                        "unloaded_generations": unloaded_generations,
+                        "remaining_draining_generations": remaining_draining_generations,
+                        "errors": errors
+                    }),
+                ),
+                stellatune_plugins::PluginRuntimeCommandOutcome::ShutdownAndCleanup {
+                    deactivated_count,
+                    unloaded_generations,
+                    errors,
+                } => (
+                    "host.runtime".to_string(),
+                    serde_json::json!({
+                        "topic": "host.runtime.actor",
+                        "event": "command_completed",
+                        "request_id": request_id,
+                        "owner": owner,
+                        "command": "shutdown_and_cleanup",
+                        "deactivated_count": deactivated_count,
+                        "unloaded_generations": unloaded_generations,
+                        "errors": errors
+                    }),
+                ),
+            };
+            (payload.0, payload.1.to_string())
+        }
+        PluginRuntimeActorEvent::PluginEnabledChanged { plugin_id, enabled } => (
+            plugin_id,
+            serde_json::json!({
+                "topic": "host.runtime.actor",
+                "event": "plugin_enabled_changed",
+                "enabled": enabled
+            })
+            .to_string(),
+        ),
+        PluginRuntimeActorEvent::PluginsReloaded {
+            dir,
+            loaded,
+            deactivated,
+            unloaded_generations,
+            errors,
+        } => (
+            "host.runtime".to_string(),
+            serde_json::json!({
+                "topic": "host.runtime.actor",
+                "event": "plugins_reloaded",
+                "dir": dir,
+                "loaded": loaded,
+                "deactivated": deactivated,
+                "unloaded_generations": unloaded_generations,
+                "errors": errors
+            })
+            .to_string(),
+        ),
+        PluginRuntimeActorEvent::PluginUnloaded {
+            plugin_id,
+            deactivated,
+            unloaded_generations,
+            remaining_draining_generations,
+        } => (
+            plugin_id,
+            serde_json::json!({
+                "topic": "host.runtime.actor",
+                "event": "plugin_unloaded",
+                "deactivated": deactivated,
+                "unloaded_generations": unloaded_generations,
+                "remaining_draining_generations": remaining_draining_generations
+            })
+            .to_string(),
+        ),
+        PluginRuntimeActorEvent::RuntimeShutdown {
+            deactivated,
+            unloaded_generations,
+            errors,
+        } => (
+            "host.runtime".to_string(),
+            serde_json::json!({
+                "topic": "host.runtime.actor",
+                "event": "runtime_shutdown",
+                "deactivated": deactivated,
+                "unloaded_generations": unloaded_generations,
+                "errors": errors
+            })
+            .to_string(),
+        ),
+    };
+
+    PluginRuntimeEvent {
+        plugin_id,
+        kind: PluginRuntimeKind::Notify,
+        payload_json,
+    }
+}
+
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+fn drain_actor_events(
+    rx: &crossbeam_channel::Receiver<PluginRuntimeActorEvent>,
+    max: usize,
+) -> Vec<PluginRuntimeActorEvent> {
+    let mut out = Vec::new();
+    for _ in 0..max {
+        match rx.try_recv() {
+            Ok(event) => out.push(event),
+            Err(crossbeam_channel::TryRecvError::Empty) => break,
+            Err(crossbeam_channel::TryRecvError::Disconnected) => break,
+        }
+    }
+    out
+}
+
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 fn plugin_runtime_router() -> &'static std::sync::Arc<PluginRuntimeRouter> {
     static ROUTER: OnceLock<std::sync::Arc<PluginRuntimeRouter>> = OnceLock::new();
     ROUTER.get_or_init(|| {
@@ -34,6 +211,7 @@ fn plugin_runtime_router() -> &'static std::sync::Arc<PluginRuntimeRouter> {
             runtime_hub: std::sync::Arc::new(PluginRuntimeEventHub::new()),
         });
         let router_thread = std::sync::Arc::clone(&router);
+        let actor_events = stellatune_plugins::shared_runtime_service().subscribe_runtime_events();
         if let Err(e) = thread::Builder::new()
             .name("stellatune-plugin-runtime-router".to_string())
             .spawn(move || {
@@ -151,6 +329,11 @@ fn plugin_runtime_router() -> &'static std::sync::Arc<PluginRuntimeRouter> {
                                 }
                             }
                         }
+                    }
+
+                    for actor_event in drain_actor_events(&actor_events, 128) {
+                        let runtime_event = actor_event_to_runtime_event(actor_event);
+                        emit_runtime_event(router_thread.runtime_hub.as_ref(), runtime_event);
                     }
 
                     for event in drain_router_receiver(&router_thread.player_events, 128) {

@@ -1,3 +1,6 @@
+use std::marker::PhantomData;
+use std::rc::Rc;
+
 use anyhow::{Result, anyhow};
 use stellatune_plugin_api::{StConfigUpdatePlan, StSourceCatalogInstanceRef};
 use stellatune_plugin_api::{StIoVTable, StStr};
@@ -11,9 +14,8 @@ pub struct SourceCatalogInstance {
     ctx: InstanceRuntimeCtx,
     handle: *mut core::ffi::c_void,
     vtable: *const stellatune_plugin_api::StSourceCatalogInstanceVTable,
+    _not_send_sync: PhantomData<Rc<()>>,
 }
-
-unsafe impl Send for SourceCatalogInstance {}
 
 #[derive(Debug, Clone, Copy)]
 pub struct SourceOpenStreamResult {
@@ -32,6 +34,7 @@ impl SourceCatalogInstance {
             ctx,
             handle: raw.handle,
             vtable: raw.vtable,
+            _not_send_sync: PhantomData,
         })
     }
 

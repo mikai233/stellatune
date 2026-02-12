@@ -2,10 +2,12 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, OnceLock, RwLock};
+use std::sync::{Arc, OnceLock};
+use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Result, anyhow};
+use crossbeam_channel::{Receiver, Sender};
 use stellatune_plugin_api::{STELLATUNE_PLUGIN_API_VERSION, StHostVTable};
 use stellatune_plugin_api::{
     StDecoderInstanceRef, StDspInstanceRef, StLyricsProviderInstanceRef, StOutputSinkInstanceRef,
@@ -15,18 +17,17 @@ use stellatune_plugin_api::{StLogLevel, StStr};
 
 use crate::manifest;
 use crate::runtime::{
-    CapabilityKind, GenerationGuard, GenerationId, InstanceId, InstanceRegistry,
-    InstanceUpdateCoordinator, LifecycleStore,
+    CapabilityKind, GenerationGuard, GenerationId, GenerationState, InstanceId, InstanceRegistry,
+    InstanceUpdateCoordinator,
 };
 
-use super::capability_registry::CapabilityRegistry;
 use super::load::{
     LoadedModuleCandidate, LoadedPluginModule, RuntimeLoadReport, RuntimePluginInfo,
     cleanup_stale_shadow_libraries, load_discovered_plugin,
 };
 use super::{
-    ActivationReport, CapabilityDescriptorInput, CapabilityDescriptorRecord, CapabilityId,
-    PluginGenerationInfo, PluginSlotSnapshot,
+    ActivationReport, CapabilityDescriptorInput, CapabilityDescriptorRecord, PluginGenerationInfo,
+    PluginSlotSnapshot,
 };
 use super::{
     DecoderInstance, DspInstance, InstanceRuntimeCtx, LyricsProviderInstance, OutputSinkInstance,
@@ -81,6 +82,227 @@ fn close_and_destroy_raw_output_sink_instance(raw: &mut StOutputSinkInstanceRef)
     raw.vtable = core::ptr::null();
 }
 
+impl PreparedCreateContext {
+    fn ensure_generation_active(&self) -> Result<()> {
+        if self.generation.state() == GenerationState::Active {
+            return Ok(());
+        }
+        Err(anyhow!(
+            "instance creation rejected: {}::{:?}::{} is no longer active",
+            self.plugin_id,
+            self.kind,
+            self.type_id
+        ))
+    }
+
+    fn alloc_instance_ctx(
+        &self,
+        plugin_free: super::PluginFreeFn,
+    ) -> (InstanceId, InstanceRuntimeCtx) {
+        let instance_id = self.instances.register(Arc::clone(&self.generation));
+        (
+            instance_id,
+            InstanceRuntimeCtx {
+                instance_id,
+                instances: Arc::clone(&self.instances),
+                generation: Arc::clone(&self.generation),
+                owner: super::InstanceCallOwner::new(),
+                updates: Arc::clone(&self.updates),
+                plugin_free,
+            },
+        )
+    }
+}
+
+fn create_decoder_instance_from_context(
+    prepared: PreparedCreateContext,
+    config_json: &str,
+) -> Result<DecoderInstance> {
+    prepared.ensure_generation_active()?;
+    let Some(create) = prepared.module.loaded._module.create_decoder_instance else {
+        return Err(anyhow!(
+            "plugin `{}` does not provide decoder factory",
+            prepared.plugin_id
+        ));
+    };
+    let mut raw = StDecoderInstanceRef {
+        handle: core::ptr::null_mut(),
+        vtable: core::ptr::null(),
+        reserved0: 0,
+        reserved1: 0,
+    };
+    let status = (create)(
+        ststr_from_str(&prepared.type_id),
+        ststr_from_str(config_json),
+        &mut raw,
+    );
+    let plugin_free = prepared.module.loaded._module.plugin_free;
+    super::status_to_result("create_decoder_instance", status, plugin_free)?;
+    let (instance_id, ctx) = prepared.alloc_instance_ctx(plugin_free);
+    match DecoderInstance::from_ffi(ctx, raw) {
+        Ok(instance) => Ok(instance),
+        Err(err) => {
+            destroy_raw_decoder_instance(&mut raw);
+            let _ = prepared.instances.remove(instance_id);
+            Err(err)
+        }
+    }
+}
+
+fn create_dsp_instance_from_context(
+    prepared: PreparedCreateContext,
+    sample_rate: u32,
+    channels: u16,
+    config_json: &str,
+) -> Result<DspInstance> {
+    prepared.ensure_generation_active()?;
+    let Some(create) = prepared.module.loaded._module.create_dsp_instance else {
+        return Err(anyhow!(
+            "plugin `{}` does not provide dsp factory",
+            prepared.plugin_id
+        ));
+    };
+    let mut raw = StDspInstanceRef {
+        handle: core::ptr::null_mut(),
+        vtable: core::ptr::null(),
+        reserved0: 0,
+        reserved1: 0,
+    };
+    let status = (create)(
+        ststr_from_str(&prepared.type_id),
+        sample_rate,
+        channels,
+        ststr_from_str(config_json),
+        &mut raw,
+    );
+    let plugin_free = prepared.module.loaded._module.plugin_free;
+    super::status_to_result("create_dsp_instance", status, plugin_free)?;
+    let (instance_id, ctx) = prepared.alloc_instance_ctx(plugin_free);
+    match DspInstance::from_ffi(ctx, raw) {
+        Ok(instance) => Ok(instance),
+        Err(err) => {
+            destroy_raw_dsp_instance(&mut raw);
+            let _ = prepared.instances.remove(instance_id);
+            Err(err)
+        }
+    }
+}
+
+fn create_source_catalog_instance_from_context(
+    prepared: PreparedCreateContext,
+    config_json: &str,
+) -> Result<SourceCatalogInstance> {
+    prepared.ensure_generation_active()?;
+    let Some(create) = prepared
+        .module
+        .loaded
+        ._module
+        .create_source_catalog_instance
+    else {
+        return Err(anyhow!(
+            "plugin `{}` does not provide source catalog factory",
+            prepared.plugin_id
+        ));
+    };
+    let mut raw = StSourceCatalogInstanceRef {
+        handle: core::ptr::null_mut(),
+        vtable: core::ptr::null(),
+        reserved0: 0,
+        reserved1: 0,
+    };
+    let status = (create)(
+        ststr_from_str(&prepared.type_id),
+        ststr_from_str(config_json),
+        &mut raw,
+    );
+    let plugin_free = prepared.module.loaded._module.plugin_free;
+    super::status_to_result("create_source_catalog_instance", status, plugin_free)?;
+    let (instance_id, ctx) = prepared.alloc_instance_ctx(plugin_free);
+    match SourceCatalogInstance::from_ffi(ctx, raw) {
+        Ok(instance) => Ok(instance),
+        Err(err) => {
+            destroy_raw_source_catalog_instance(&mut raw);
+            let _ = prepared.instances.remove(instance_id);
+            Err(err)
+        }
+    }
+}
+
+fn create_lyrics_provider_instance_from_context(
+    prepared: PreparedCreateContext,
+    config_json: &str,
+) -> Result<LyricsProviderInstance> {
+    prepared.ensure_generation_active()?;
+    let Some(create) = prepared
+        .module
+        .loaded
+        ._module
+        .create_lyrics_provider_instance
+    else {
+        return Err(anyhow!(
+            "plugin `{}` does not provide lyrics provider factory",
+            prepared.plugin_id
+        ));
+    };
+    let mut raw = StLyricsProviderInstanceRef {
+        handle: core::ptr::null_mut(),
+        vtable: core::ptr::null(),
+        reserved0: 0,
+        reserved1: 0,
+    };
+    let status = (create)(
+        ststr_from_str(&prepared.type_id),
+        ststr_from_str(config_json),
+        &mut raw,
+    );
+    let plugin_free = prepared.module.loaded._module.plugin_free;
+    super::status_to_result("create_lyrics_provider_instance", status, plugin_free)?;
+    let (instance_id, ctx) = prepared.alloc_instance_ctx(plugin_free);
+    match LyricsProviderInstance::from_ffi(ctx, raw) {
+        Ok(instance) => Ok(instance),
+        Err(err) => {
+            destroy_raw_lyrics_provider_instance(&mut raw);
+            let _ = prepared.instances.remove(instance_id);
+            Err(err)
+        }
+    }
+}
+
+fn create_output_sink_instance_from_context(
+    prepared: PreparedCreateContext,
+    config_json: &str,
+) -> Result<OutputSinkInstance> {
+    prepared.ensure_generation_active()?;
+    let Some(create) = prepared.module.loaded._module.create_output_sink_instance else {
+        return Err(anyhow!(
+            "plugin `{}` does not provide output sink factory",
+            prepared.plugin_id
+        ));
+    };
+    let mut raw = StOutputSinkInstanceRef {
+        handle: core::ptr::null_mut(),
+        vtable: core::ptr::null(),
+        reserved0: 0,
+        reserved1: 0,
+    };
+    let status = (create)(
+        ststr_from_str(&prepared.type_id),
+        ststr_from_str(config_json),
+        &mut raw,
+    );
+    let plugin_free = prepared.module.loaded._module.plugin_free;
+    super::status_to_result("create_output_sink_instance", status, plugin_free)?;
+    let (instance_id, ctx) = prepared.alloc_instance_ctx(plugin_free);
+    match OutputSinkInstance::from_ffi(ctx, raw) {
+        Ok(instance) => Ok(instance),
+        Err(err) => {
+            close_and_destroy_raw_output_sink_instance(&mut raw);
+            let _ = prepared.instances.remove(instance_id);
+            Err(err)
+        }
+    }
+}
+
 struct PluginRuntimeMetrics {
     plugin_generations_draining: AtomicU64,
 }
@@ -109,13 +331,33 @@ fn total_draining_generations(slots: &HashMap<String, PluginSlotState>) -> usize
     slots.values().map(|slot| slot.draining.len()).sum()
 }
 
+fn capability_records_for_generation(
+    plugin_id: &str,
+    generation: GenerationId,
+    inputs: Vec<CapabilityDescriptorInput>,
+) -> Vec<CapabilityDescriptorRecord> {
+    inputs
+        .into_iter()
+        .map(|input| CapabilityDescriptorRecord {
+            plugin_id: plugin_id.to_string(),
+            generation,
+            kind: input.kind,
+            type_id: input.type_id,
+            display_name: input.display_name,
+            config_schema_json: input.config_schema_json,
+            default_config_json: input.default_config_json,
+        })
+        .collect()
+}
+
 const SHADOW_CLEANUP_GRACE_PERIOD: Duration = Duration::ZERO;
 const SHADOW_CLEANUP_MAX_DELETIONS_PER_RUN: usize = 200;
 
 #[derive(Debug)]
 struct PluginGenerationEntry {
     info: PluginGenerationInfo,
-    _guard: Arc<GenerationGuard>,
+    guard: Arc<GenerationGuard>,
+    capabilities: Vec<CapabilityDescriptorRecord>,
 }
 
 #[derive(Debug, Default)]
@@ -127,15 +369,32 @@ struct PluginSlotState {
 impl PluginSlotState {
     fn activate(&mut self, next: Arc<PluginGenerationEntry>) {
         if let Some(cur) = self.active.take() {
+            cur.guard.mark_draining();
             self.draining.push(cur);
         }
         self.active = Some(next);
     }
 
-    fn deactivate(&mut self) {
-        if let Some(cur) = self.active.take() {
-            self.draining.push(cur);
+    fn deactivate(&mut self) -> Option<Arc<PluginGenerationEntry>> {
+        let cur = self.active.take()?;
+        cur.guard.mark_draining();
+        self.draining.push(Arc::clone(&cur));
+        Some(cur)
+    }
+
+    fn collect_ready_for_unload(&mut self) -> Vec<Arc<PluginGenerationEntry>> {
+        let mut ready = Vec::new();
+        let mut i = 0usize;
+        while i < self.draining.len() {
+            if self.draining[i].guard.can_unload_now() {
+                let generation = self.draining.swap_remove(i);
+                generation.guard.mark_unloaded();
+                ready.push(generation);
+            } else {
+                i += 1;
+            }
         }
+        ready
     }
 }
 
@@ -144,6 +403,17 @@ struct LoadedPluginGeneration {
     plugin_name: String,
     source_fingerprint: SourceLibraryFingerprint,
     loaded: LoadedPluginModule,
+}
+
+#[derive(Clone)]
+struct PreparedCreateContext {
+    plugin_id: String,
+    type_id: String,
+    kind: CapabilityKind,
+    module: Arc<LoadedPluginGeneration>,
+    generation: Arc<GenerationGuard>,
+    instances: Arc<InstanceRegistry>,
+    updates: Arc<InstanceUpdateCoordinator>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -223,28 +493,24 @@ impl PluginModuleSlotState {
 
 pub struct PluginRuntimeService {
     host: StHostVTable,
-    slots: RwLock<HashMap<String, PluginSlotState>>,
-    modules: RwLock<HashMap<String, PluginModuleSlotState>>,
-    disabled_plugin_ids: RwLock<HashSet<String>>,
-    lifecycle: Arc<LifecycleStore>,
-    capabilities: Arc<CapabilityRegistry>,
+    slots: HashMap<String, PluginSlotState>,
+    modules: HashMap<String, PluginModuleSlotState>,
+    disabled_plugin_ids: HashSet<String>,
     instances: Arc<InstanceRegistry>,
     updates: Arc<InstanceUpdateCoordinator>,
-    next_generation: AtomicU64,
+    next_generation: u64,
 }
 
 impl PluginRuntimeService {
     pub fn new(host: StHostVTable) -> Self {
         Self {
             host,
-            slots: RwLock::new(HashMap::new()),
-            modules: RwLock::new(HashMap::new()),
-            disabled_plugin_ids: RwLock::new(HashSet::new()),
-            lifecycle: Arc::new(LifecycleStore::default()),
-            capabilities: Arc::new(CapabilityRegistry::default()),
+            slots: HashMap::new(),
+            modules: HashMap::new(),
+            disabled_plugin_ids: HashSet::new(),
             instances: Arc::new(InstanceRegistry::default()),
             updates: Arc::new(InstanceUpdateCoordinator::default()),
-            next_generation: AtomicU64::new(0),
+            next_generation: 0,
         }
     }
 
@@ -256,37 +522,29 @@ impl PluginRuntimeService {
         &self.updates
     }
 
-    pub fn set_disabled_plugin_ids(&self, disabled_ids: HashSet<String>) {
-        if let Ok(mut state) = self.disabled_plugin_ids.write() {
-            *state = disabled_ids;
-        }
+    pub fn set_disabled_plugin_ids(&mut self, disabled_ids: HashSet<String>) {
+        self.disabled_plugin_ids = disabled_ids;
     }
 
-    pub fn set_plugin_enabled(&self, plugin_id: &str, enabled: bool) {
+    pub fn set_plugin_enabled(&mut self, plugin_id: &str, enabled: bool) {
         let plugin_id = plugin_id.trim();
         if plugin_id.is_empty() {
             return;
         }
-        if let Ok(mut state) = self.disabled_plugin_ids.write() {
-            if enabled {
-                state.remove(plugin_id);
-            } else {
-                state.insert(plugin_id.to_string());
-            }
+        if enabled {
+            self.disabled_plugin_ids.remove(plugin_id);
+        } else {
+            self.disabled_plugin_ids.insert(plugin_id.to_string());
         }
     }
 
     pub fn disabled_plugin_ids(&self) -> HashSet<String> {
-        self.disabled_plugin_ids
-            .read()
-            .map(|v| v.clone())
-            .unwrap_or_default()
+        self.disabled_plugin_ids.clone()
     }
 
     pub fn list_active_plugins(&self) -> Vec<RuntimePluginInfo> {
         let mut plugin_ids = self.active_plugin_ids();
         plugin_ids.sort();
-        let modules = self.modules.read().ok();
         let mut out = Vec::with_capacity(plugin_ids.len());
         for plugin_id in plugin_ids {
             let Some(generation) = self.active_generation(&plugin_id) else {
@@ -305,8 +563,7 @@ impl PluginRuntimeService {
                 info.name = metadata.name;
             }
 
-            if let Some(modules) = modules.as_ref()
-                && let Some(slot) = modules.get(&plugin_id)
+            if let Some(slot) = self.modules.get(&plugin_id)
                 && let Some(active) = slot.active.as_ref()
             {
                 info.name = active.plugin_name.clone();
@@ -319,15 +576,16 @@ impl PluginRuntimeService {
     }
 
     pub fn activate_generation(
-        &self,
+        &mut self,
         plugin_id: &str,
         metadata_json: String,
         capabilities: Vec<CapabilityDescriptorInput>,
     ) -> ActivationReport {
-        let generation_id = GenerationId(self.next_generation.fetch_add(1, Ordering::Relaxed) + 1);
+        self.next_generation = self.next_generation.saturating_add(1);
+        let generation_id = GenerationId(self.next_generation);
         let guard = GenerationGuard::new_active(generation_id);
-        self.lifecycle
-            .activate_generation(plugin_id, Arc::clone(&guard));
+        let capabilities =
+            capability_records_for_generation(plugin_id, generation_id, capabilities);
 
         let generation = Arc::new(PluginGenerationEntry {
             info: PluginGenerationInfo {
@@ -335,36 +593,31 @@ impl PluginRuntimeService {
                 metadata_json,
                 activated_at_unix_ms: now_unix_ms(),
             },
-            _guard: guard,
+            guard,
+            capabilities,
         });
-        if let Ok(mut slots) = self.slots.write() {
-            slots
-                .entry(plugin_id.to_string())
-                .or_default()
-                .activate(Arc::clone(&generation));
-            let draining_total =
-                plugin_runtime_metrics().set_draining(total_draining_generations(&slots));
-            tracing::debug!(
-                plugin_id,
-                plugin_generation = generation_id.0,
-                plugin_generations_draining = draining_total,
-                "plugin generation activated"
-            );
-        }
+        self.slots
+            .entry(plugin_id.to_string())
+            .or_default()
+            .activate(Arc::clone(&generation));
+        let draining_total =
+            plugin_runtime_metrics().set_draining(total_draining_generations(&self.slots));
+        tracing::debug!(
+            plugin_id,
+            plugin_generation = generation_id.0,
+            plugin_generations_draining = draining_total,
+            "plugin generation activated"
+        );
 
-        let registered =
-            self.capabilities
-                .register_generation(plugin_id, generation_id, capabilities);
         ActivationReport {
             plugin_id: plugin_id.to_string(),
             generation: generation.info.clone(),
-            capabilities: registered,
+            capabilities: generation.capabilities.clone(),
         }
     }
 
     pub fn active_generation(&self, plugin_id: &str) -> Option<PluginGenerationInfo> {
-        let slots = self.slots.read().ok()?;
-        slots
+        self.slots
             .get(plugin_id)?
             .active
             .as_ref()
@@ -372,8 +625,7 @@ impl PluginRuntimeService {
     }
 
     pub fn slot_snapshot(&self, plugin_id: &str) -> Option<PluginSlotSnapshot> {
-        let slots = self.slots.read().ok()?;
-        let slot = slots.get(plugin_id)?;
+        let slot = self.slots.get(plugin_id)?;
         Some(PluginSlotSnapshot {
             plugin_id: plugin_id.to_string(),
             active: slot.active.as_ref().map(|g| g.info.clone()),
@@ -382,10 +634,7 @@ impl PluginRuntimeService {
     }
 
     pub fn active_plugin_ids(&self) -> Vec<String> {
-        let Ok(slots) = self.slots.read() else {
-            return Vec::new();
-        };
-        slots
+        self.slots
             .iter()
             .filter(|(_, slot)| slot.active.is_some())
             .map(|(plugin_id, _)| plugin_id.clone())
@@ -393,11 +642,11 @@ impl PluginRuntimeService {
     }
 
     pub fn list_active_capabilities(&self, plugin_id: &str) -> Vec<CapabilityDescriptorRecord> {
-        let generation = self.active_generation(plugin_id).map(|g| g.id);
-        let Some(generation) = generation else {
-            return Vec::new();
-        };
-        self.capabilities.list_for_generation(plugin_id, generation)
+        self.slots
+            .get(plugin_id)
+            .and_then(|slot| slot.active.as_ref())
+            .map(|generation| generation.capabilities.clone())
+            .unwrap_or_default()
     }
 
     pub fn resolve_active_capability(
@@ -406,8 +655,49 @@ impl PluginRuntimeService {
         kind: CapabilityKind,
         type_id: &str,
     ) -> Option<CapabilityDescriptorRecord> {
-        let generation = self.active_generation(plugin_id).map(|g| g.id)?;
-        self.capabilities.find(plugin_id, generation, kind, type_id)
+        let generation = self.slots.get(plugin_id)?.active.as_ref()?;
+        generation
+            .capabilities
+            .iter()
+            .find(|cap| cap.kind == kind && cap.type_id == type_id)
+            .cloned()
+    }
+
+    fn prepare_create_context(
+        &self,
+        plugin_id: &str,
+        kind: CapabilityKind,
+        type_id: &str,
+    ) -> Result<PreparedCreateContext> {
+        self.ensure_plugin_enabled(plugin_id)?;
+        let capability = self
+            .resolve_active_capability(plugin_id, kind, type_id)
+            .ok_or_else(|| anyhow!("capability not found: {plugin_id}::{kind:?}::{type_id}"))?;
+        let module = self
+            .active_loaded_module(plugin_id, capability.generation)
+            .ok_or_else(|| anyhow!("active loaded module not found for plugin `{plugin_id}`"))?;
+        let active_generation = self
+            .slots
+            .get(plugin_id)
+            .and_then(|slot| slot.active.as_ref().map(Arc::clone))
+            .ok_or_else(|| anyhow!("plugin `{plugin_id}` has no active generation"))?;
+        if active_generation.info.id != capability.generation {
+            return Err(anyhow!(
+                "capability `{}` belongs to draining generation {:?}, active is {:?}",
+                capability.type_id,
+                capability.generation,
+                active_generation.info.id
+            ));
+        }
+        Ok(PreparedCreateContext {
+            plugin_id: capability.plugin_id,
+            type_id: capability.type_id,
+            kind: capability.kind,
+            module,
+            generation: Arc::clone(&active_generation.guard),
+            instances: Arc::clone(&self.instances),
+            updates: Arc::clone(&self.updates),
+        })
     }
 
     pub fn create_decoder_instance(
@@ -416,38 +706,8 @@ impl PluginRuntimeService {
         type_id: &str,
         config_json: &str,
     ) -> Result<DecoderInstance> {
-        self.ensure_plugin_enabled(plugin_id)?;
-        let capability = self
-            .resolve_active_capability(plugin_id, CapabilityKind::Decoder, type_id)
-            .ok_or_else(|| anyhow!("decoder capability not found: {plugin_id}::{type_id}"))?;
-        let module = self
-            .active_loaded_module(plugin_id, capability.generation)
-            .ok_or_else(|| anyhow!("active loaded module not found for plugin `{plugin_id}`"))?;
-        let Some(create) = module.loaded._module.create_decoder_instance else {
-            return Err(anyhow!(
-                "plugin `{plugin_id}` does not provide decoder factory"
-            ));
-        };
-        let mut raw = StDecoderInstanceRef {
-            handle: core::ptr::null_mut(),
-            vtable: core::ptr::null(),
-            reserved0: 0,
-            reserved1: 0,
-        };
-        let status = (create)(
-            ststr_from_str(type_id),
-            ststr_from_str(config_json),
-            &mut raw,
-        );
-        let plugin_free = module.loaded._module.plugin_free;
-        super::status_to_result("create_decoder_instance", status, plugin_free)?;
-        let instance_id = self
-            .register_instance_for_capability(capability.id)
-            .inspect_err(|_| {
-                destroy_raw_decoder_instance(&mut raw);
-            })?;
-        let ctx = self.instance_ctx(instance_id, plugin_free)?;
-        DecoderInstance::from_ffi(ctx, raw)
+        let prepared = self.prepare_create_context(plugin_id, CapabilityKind::Decoder, type_id)?;
+        create_decoder_instance_from_context(prepared, config_json)
     }
 
     pub fn decoder_candidates_for_ext(&self, ext_hint: &str) -> Vec<DecoderCandidateScore> {
@@ -497,38 +757,8 @@ impl PluginRuntimeService {
         channels: u16,
         config_json: &str,
     ) -> Result<DspInstance> {
-        self.ensure_plugin_enabled(plugin_id)?;
-        let capability = self
-            .resolve_active_capability(plugin_id, CapabilityKind::Dsp, type_id)
-            .ok_or_else(|| anyhow!("dsp capability not found: {plugin_id}::{type_id}"))?;
-        let module = self
-            .active_loaded_module(plugin_id, capability.generation)
-            .ok_or_else(|| anyhow!("active loaded module not found for plugin `{plugin_id}`"))?;
-        let Some(create) = module.loaded._module.create_dsp_instance else {
-            return Err(anyhow!("plugin `{plugin_id}` does not provide dsp factory"));
-        };
-        let mut raw = StDspInstanceRef {
-            handle: core::ptr::null_mut(),
-            vtable: core::ptr::null(),
-            reserved0: 0,
-            reserved1: 0,
-        };
-        let status = (create)(
-            ststr_from_str(type_id),
-            sample_rate,
-            channels,
-            ststr_from_str(config_json),
-            &mut raw,
-        );
-        let plugin_free = module.loaded._module.plugin_free;
-        super::status_to_result("create_dsp_instance", status, plugin_free)?;
-        let instance_id = self
-            .register_instance_for_capability(capability.id)
-            .inspect_err(|_| {
-                destroy_raw_dsp_instance(&mut raw);
-            })?;
-        let ctx = self.instance_ctx(instance_id, plugin_free)?;
-        DspInstance::from_ffi(ctx, raw)
+        let prepared = self.prepare_create_context(plugin_id, CapabilityKind::Dsp, type_id)?;
+        create_dsp_instance_from_context(prepared, sample_rate, channels, config_json)
     }
 
     pub fn create_source_catalog_instance(
@@ -537,38 +767,9 @@ impl PluginRuntimeService {
         type_id: &str,
         config_json: &str,
     ) -> Result<SourceCatalogInstance> {
-        self.ensure_plugin_enabled(plugin_id)?;
-        let capability = self
-            .resolve_active_capability(plugin_id, CapabilityKind::SourceCatalog, type_id)
-            .ok_or_else(|| anyhow!("source capability not found: {plugin_id}::{type_id}"))?;
-        let module = self
-            .active_loaded_module(plugin_id, capability.generation)
-            .ok_or_else(|| anyhow!("active loaded module not found for plugin `{plugin_id}`"))?;
-        let Some(create) = module.loaded._module.create_source_catalog_instance else {
-            return Err(anyhow!(
-                "plugin `{plugin_id}` does not provide source catalog factory"
-            ));
-        };
-        let mut raw = StSourceCatalogInstanceRef {
-            handle: core::ptr::null_mut(),
-            vtable: core::ptr::null(),
-            reserved0: 0,
-            reserved1: 0,
-        };
-        let status = (create)(
-            ststr_from_str(type_id),
-            ststr_from_str(config_json),
-            &mut raw,
-        );
-        let plugin_free = module.loaded._module.plugin_free;
-        super::status_to_result("create_source_catalog_instance", status, plugin_free)?;
-        let instance_id = self
-            .register_instance_for_capability(capability.id)
-            .inspect_err(|_| {
-                destroy_raw_source_catalog_instance(&mut raw);
-            })?;
-        let ctx = self.instance_ctx(instance_id, plugin_free)?;
-        SourceCatalogInstance::from_ffi(ctx, raw)
+        let prepared =
+            self.prepare_create_context(plugin_id, CapabilityKind::SourceCatalog, type_id)?;
+        create_source_catalog_instance_from_context(prepared, config_json)
     }
 
     pub fn create_lyrics_provider_instance(
@@ -577,38 +778,9 @@ impl PluginRuntimeService {
         type_id: &str,
         config_json: &str,
     ) -> Result<LyricsProviderInstance> {
-        self.ensure_plugin_enabled(plugin_id)?;
-        let capability = self
-            .resolve_active_capability(plugin_id, CapabilityKind::LyricsProvider, type_id)
-            .ok_or_else(|| anyhow!("lyrics capability not found: {plugin_id}::{type_id}"))?;
-        let module = self
-            .active_loaded_module(plugin_id, capability.generation)
-            .ok_or_else(|| anyhow!("active loaded module not found for plugin `{plugin_id}`"))?;
-        let Some(create) = module.loaded._module.create_lyrics_provider_instance else {
-            return Err(anyhow!(
-                "plugin `{plugin_id}` does not provide lyrics provider factory"
-            ));
-        };
-        let mut raw = StLyricsProviderInstanceRef {
-            handle: core::ptr::null_mut(),
-            vtable: core::ptr::null(),
-            reserved0: 0,
-            reserved1: 0,
-        };
-        let status = (create)(
-            ststr_from_str(type_id),
-            ststr_from_str(config_json),
-            &mut raw,
-        );
-        let plugin_free = module.loaded._module.plugin_free;
-        super::status_to_result("create_lyrics_provider_instance", status, plugin_free)?;
-        let instance_id = self
-            .register_instance_for_capability(capability.id)
-            .inspect_err(|_| {
-                destroy_raw_lyrics_provider_instance(&mut raw);
-            })?;
-        let ctx = self.instance_ctx(instance_id, plugin_free)?;
-        LyricsProviderInstance::from_ffi(ctx, raw)
+        let prepared =
+            self.prepare_create_context(plugin_id, CapabilityKind::LyricsProvider, type_id)?;
+        create_lyrics_provider_instance_from_context(prepared, config_json)
     }
 
     pub fn create_output_sink_instance(
@@ -617,147 +789,125 @@ impl PluginRuntimeService {
         type_id: &str,
         config_json: &str,
     ) -> Result<OutputSinkInstance> {
-        self.ensure_plugin_enabled(plugin_id)?;
-        let capability = self
-            .resolve_active_capability(plugin_id, CapabilityKind::OutputSink, type_id)
-            .ok_or_else(|| anyhow!("output capability not found: {plugin_id}::{type_id}"))?;
-        let module = self
-            .active_loaded_module(plugin_id, capability.generation)
-            .ok_or_else(|| anyhow!("active loaded module not found for plugin `{plugin_id}`"))?;
-        let Some(create) = module.loaded._module.create_output_sink_instance else {
-            return Err(anyhow!(
-                "plugin `{plugin_id}` does not provide output sink factory"
-            ));
-        };
-        let mut raw = StOutputSinkInstanceRef {
-            handle: core::ptr::null_mut(),
-            vtable: core::ptr::null(),
-            reserved0: 0,
-            reserved1: 0,
-        };
-        let status = (create)(
-            ststr_from_str(type_id),
-            ststr_from_str(config_json),
-            &mut raw,
-        );
-        let plugin_free = module.loaded._module.plugin_free;
-        super::status_to_result("create_output_sink_instance", status, plugin_free)?;
-        let instance_id = self
-            .register_instance_for_capability(capability.id)
-            .inspect_err(|_| {
-                close_and_destroy_raw_output_sink_instance(&mut raw);
-            })?;
-        let ctx = self.instance_ctx(instance_id, plugin_free)?;
-        OutputSinkInstance::from_ffi(ctx, raw)
+        let prepared =
+            self.prepare_create_context(plugin_id, CapabilityKind::OutputSink, type_id)?;
+        create_output_sink_instance_from_context(prepared, config_json)
     }
 
     pub fn register_instance_for_capability(
         &self,
-        capability_id: CapabilityId,
+        capability: &CapabilityDescriptorRecord,
     ) -> Result<InstanceId> {
-        let capability = self
-            .capabilities
-            .get(capability_id)
-            .ok_or_else(|| anyhow!("unknown capability id {}", capability_id.0))?;
-
-        let active_guard = self
-            .lifecycle
-            .active_generation(&capability.plugin_id)
-            .ok_or_else(|| anyhow!("plugin `{}` has no active generation", capability.plugin_id))?;
-        if active_guard.id() != capability.generation {
+        let active_generation = self
+            .slots
+            .get(&capability.plugin_id)
+            .and_then(|slot| {
+                slot.active.as_ref().and_then(|generation| {
+                    if generation.capabilities.iter().any(|entry| {
+                        entry.generation == capability.generation
+                            && entry.kind == capability.kind
+                            && entry.type_id == capability.type_id
+                    }) {
+                        Some(Arc::clone(generation))
+                    } else {
+                        None
+                    }
+                })
+            })
+            .ok_or_else(|| {
+                anyhow!(
+                    "active capability not found: {}::{:?}::{}",
+                    capability.plugin_id,
+                    capability.kind,
+                    capability.type_id
+                )
+            })?;
+        if active_generation.info.id != capability.generation {
             return Err(anyhow!(
                 "capability `{}` belongs to draining generation {:?}, active is {:?}",
                 capability.type_id,
                 capability.generation,
-                active_guard.id()
+                active_generation.info.id
             ));
         }
 
-        Ok(self.instances.register(
-            capability.plugin_id,
-            capability.type_id,
-            capability.kind,
-            active_guard,
-        ))
+        Ok(self
+            .instances
+            .register(Arc::clone(&active_generation.guard)))
     }
 
     pub fn unregister_instance(&self, instance_id: InstanceId) {
         let _ = self.instances.remove(instance_id);
     }
 
-    pub fn deactivate_plugin(&self, plugin_id: &str) -> Option<GenerationId> {
-        let generation = self.lifecycle.deactivate_plugin(plugin_id)?;
-        if let Ok(mut slots) = self.slots.write()
-            && let Some(slot) = slots.get_mut(plugin_id)
-        {
-            slot.deactivate();
-            let draining_total =
-                plugin_runtime_metrics().set_draining(total_draining_generations(&slots));
-            tracing::debug!(
-                plugin_id,
-                deactivated_generation = generation.id().0,
-                plugin_generations_draining = draining_total,
-                "plugin generation deactivated"
-            );
-        }
-        if let Ok(mut modules) = self.modules.write()
-            && let Some(slot) = modules.get_mut(plugin_id)
-        {
+    pub fn deactivate_plugin(&mut self, plugin_id: &str) -> Option<GenerationId> {
+        let generation_id = {
+            let slot = self.slots.get_mut(plugin_id)?;
+            let generation = slot.deactivate()?;
+            generation.info.id
+        };
+        let draining_total =
+            plugin_runtime_metrics().set_draining(total_draining_generations(&self.slots));
+        tracing::debug!(
+            plugin_id,
+            deactivated_generation = generation_id.0,
+            plugin_generations_draining = draining_total,
+            "plugin generation deactivated"
+        );
+
+        if let Some(slot) = self.modules.get_mut(plugin_id) {
             slot.deactivate();
         }
-        Some(generation.id())
+        Some(generation_id)
     }
 
     pub fn begin_instance_call(&self, instance_id: InstanceId) -> Result<InstanceCallGuard> {
-        let record = self
+        let generation = self
             .instances
-            .get(instance_id)
+            .generation_of(instance_id)
             .ok_or_else(|| anyhow!("unknown instance id {}", instance_id.0))?;
-        record.generation.inc_inflight_call();
-        Ok(InstanceCallGuard {
-            generation: record.generation,
-        })
+        generation.inc_inflight_call();
+        Ok(InstanceCallGuard { generation })
     }
 
     /// Mark and collect generations that are now safe to unload.
-    ///
-    /// This removes capability descriptors for those generations.
-    pub fn collect_ready_for_unload(&self, plugin_id: &str) -> Vec<GenerationId> {
-        let ready = self.lifecycle.collect_ready_for_unload(plugin_id);
-        if ready.is_empty() {
-            return Vec::new();
+    pub fn collect_ready_for_unload(&mut self, plugin_id: &str) -> Vec<GenerationId> {
+        let (ready, ready_len, remove_slot) = {
+            let Some(slot) = self.slots.get_mut(plugin_id) else {
+                return Vec::new();
+            };
+            let ready = slot.collect_ready_for_unload();
+            if ready.is_empty() {
+                return Vec::new();
+            }
+            let ready_len = ready.len();
+            let remove_slot = slot.active.is_none() && slot.draining.is_empty();
+            (ready, ready_len, remove_slot)
+        };
+        if remove_slot {
+            self.slots.remove(plugin_id);
         }
-
-        if let Ok(mut slots) = self.slots.write()
-            && let Some(slot) = slots.get_mut(plugin_id)
-        {
-            let ready_ids: std::collections::HashSet<GenerationId> =
-                ready.iter().map(|g| g.id()).collect();
-            slot.draining.retain(|g| !ready_ids.contains(&g.info.id));
-            let draining_total =
-                plugin_runtime_metrics().set_draining(total_draining_generations(&slots));
-            tracing::debug!(
-                plugin_id,
-                unloaded_generations = ready_ids.len(),
-                plugin_generations_draining = draining_total,
-                "plugin draining generations updated after unload collection"
-            );
-        }
+        let draining_total =
+            plugin_runtime_metrics().set_draining(total_draining_generations(&self.slots));
+        tracing::debug!(
+            plugin_id,
+            unloaded_generations = ready_len,
+            plugin_generations_draining = draining_total,
+            "plugin draining generations updated after unload collection"
+        );
 
         let mut out = Vec::with_capacity(ready.len());
         for generation in ready {
-            let gid = generation.id();
-            self.capabilities.remove_generation(plugin_id, gid);
-            out.push(gid);
+            out.push(generation.info.id);
         }
-        if let Ok(mut modules) = self.modules.write()
-            && let Some(slot) = modules.get_mut(plugin_id)
-        {
+        let mut remove_module_slot = false;
+        if let Some(slot) = self.modules.get_mut(plugin_id) {
             let ready_ids: std::collections::HashSet<GenerationId> = out.iter().copied().collect();
             slot.draining.retain(|g| !ready_ids.contains(&g.generation));
-            if slot.active.is_none() && slot.draining.is_empty() {
-                modules.remove(plugin_id);
-            }
+            remove_module_slot = slot.active.is_none() && slot.draining.is_empty();
+        }
+        if remove_module_slot {
+            self.modules.remove(plugin_id);
         }
         if !out.is_empty() {
             self.cleanup_shadow_copies_best_effort("collect_ready_for_unload");
@@ -766,7 +916,7 @@ impl PluginRuntimeService {
     }
 
     pub fn load_dir_additive_filtered(
-        &self,
+        &mut self,
         dir: impl AsRef<Path>,
         disabled_ids: &HashSet<String>,
     ) -> Result<RuntimeLoadReport> {
@@ -774,13 +924,16 @@ impl PluginRuntimeService {
         self.load_dir_additive_from_state(dir)
     }
 
-    pub fn load_dir_additive_from_state(&self, dir: impl AsRef<Path>) -> Result<RuntimeLoadReport> {
+    pub fn load_dir_additive_from_state(
+        &mut self,
+        dir: impl AsRef<Path>,
+    ) -> Result<RuntimeLoadReport> {
         self.sync_dir_from_state_report(dir, SyncMode::Additive)
             .map(|report| report.load_report)
     }
 
     pub fn reload_dir_filtered(
-        &self,
+        &mut self,
         dir: impl AsRef<Path>,
         disabled_ids: &HashSet<String>,
     ) -> Result<RuntimeLoadReport> {
@@ -788,19 +941,19 @@ impl PluginRuntimeService {
         self.reload_dir_from_state(dir)
     }
 
-    pub fn reload_dir_from_state(&self, dir: impl AsRef<Path>) -> Result<RuntimeLoadReport> {
+    pub fn reload_dir_from_state(&mut self, dir: impl AsRef<Path>) -> Result<RuntimeLoadReport> {
         self.sync_dir_from_state_report(dir, SyncMode::Reconcile)
             .map(|report| report.load_report)
     }
 
     pub fn reload_dir_detailed_from_state(
-        &self,
+        &mut self,
         dir: impl AsRef<Path>,
     ) -> Result<RuntimeSyncReport> {
         self.sync_dir_from_state_report(dir, SyncMode::Reconcile)
     }
 
-    pub fn unload_plugin(&self, plugin_id: &str) -> RuntimeLoadReport {
+    pub fn unload_plugin(&mut self, plugin_id: &str) -> RuntimeLoadReport {
         let mut report = RuntimeLoadReport::default();
         if self.deactivate_plugin(plugin_id).is_some() {
             report.deactivated.push(plugin_id.to_string());
@@ -810,7 +963,7 @@ impl PluginRuntimeService {
         report
     }
 
-    pub fn shutdown_and_cleanup(&self) -> RuntimeLoadReport {
+    pub fn shutdown_and_cleanup(&mut self) -> RuntimeLoadReport {
         let mut report = RuntimeLoadReport::default();
         let mut plugin_ids = self.active_plugin_ids();
         plugin_ids.sort();
@@ -828,31 +981,12 @@ impl PluginRuntimeService {
         self.cleanup_shadow_copies_best_effort("cleanup_shadow_copies_now");
     }
 
-    fn instance_ctx(
-        &self,
-        instance_id: InstanceId,
-        plugin_free: super::PluginFreeFn,
-    ) -> Result<InstanceRuntimeCtx> {
-        let record = self
-            .instances
-            .get(instance_id)
-            .ok_or_else(|| anyhow!("unknown instance id {}", instance_id.0))?;
-        Ok(InstanceRuntimeCtx {
-            instance_id,
-            instances: Arc::clone(&self.instances),
-            generation: record.generation,
-            updates: Arc::clone(&self.updates),
-            plugin_free,
-        })
-    }
-
     fn active_loaded_module(
         &self,
         plugin_id: &str,
         generation: GenerationId,
     ) -> Option<Arc<LoadedPluginGeneration>> {
-        let modules = self.modules.read().ok()?;
-        let slot = modules.get(plugin_id)?;
+        let slot = self.modules.get(plugin_id)?;
         if let Some(active) = slot.active.as_ref()
             && active.generation == generation
         {
@@ -902,7 +1036,7 @@ impl PluginRuntimeService {
     }
 
     fn sync_dir_from_state_report(
-        &self,
+        &mut self,
         dir: impl AsRef<Path>,
         mode: SyncMode,
     ) -> Result<RuntimeSyncReport> {
@@ -1123,14 +1257,13 @@ impl PluginRuntimeService {
     }
 
     fn active_source_fingerprint(&self, plugin_id: &str) -> Option<SourceLibraryFingerprint> {
-        let modules = self.modules.read().ok()?;
-        let slot = modules.get(plugin_id)?;
+        let slot = self.modules.get(plugin_id)?;
         slot.active
             .as_ref()
             .map(|active| active.source_fingerprint.clone())
     }
 
-    fn activate_loaded_candidate(&self, candidate: LoadedModuleCandidate) -> ActivatedLoad {
+    fn activate_loaded_candidate(&mut self, candidate: LoadedModuleCandidate) -> ActivatedLoad {
         let activation = self.activate_generation(
             &candidate.plugin_id,
             candidate.metadata_json.clone(),
@@ -1156,24 +1289,22 @@ impl PluginRuntimeService {
     }
 
     fn activate_loaded_module(
-        &self,
+        &mut self,
         plugin_id: &str,
         generation: GenerationId,
         plugin_name: String,
         loaded: LoadedPluginModule,
     ) {
         let source_fingerprint = source_fingerprint_for_path(&loaded.library_path);
-        if let Ok(mut modules) = self.modules.write() {
-            modules
-                .entry(plugin_id.to_string())
-                .or_default()
-                .activate(LoadedPluginGeneration {
-                    generation,
-                    plugin_name,
-                    source_fingerprint,
-                    loaded,
-                });
-        }
+        self.modules
+            .entry(plugin_id.to_string())
+            .or_default()
+            .activate(LoadedPluginGeneration {
+                generation,
+                plugin_name,
+                source_fingerprint,
+                loaded,
+            });
     }
 
     fn ensure_plugin_enabled(&self, plugin_id: &str) -> Result<()> {
@@ -1184,18 +1315,12 @@ impl PluginRuntimeService {
     }
 
     fn is_plugin_disabled(&self, plugin_id: &str) -> bool {
-        self.disabled_plugin_ids
-            .read()
-            .map(|state| state.contains(plugin_id))
-            .unwrap_or(false)
+        self.disabled_plugin_ids.contains(plugin_id)
     }
 
     fn collect_protected_shadow_paths(&self) -> HashSet<std::path::PathBuf> {
         let mut out = HashSet::new();
-        let Ok(modules) = self.modules.read() else {
-            return out;
-        };
-        for slot in modules.values() {
+        for slot in self.modules.values() {
             if let Some(active) = slot.active.as_ref() {
                 out.insert(active.loaded._shadow_library_path.clone());
             }
@@ -1235,12 +1360,655 @@ impl PluginRuntimeService {
     }
 }
 
-pub type SharedPluginRuntimeService = Arc<Mutex<PluginRuntimeService>>;
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PluginRuntimeCommand {
+    SetPluginEnabled { plugin_id: String, enabled: bool },
+    ReloadDirFromState { dir: String },
+    UnloadPlugin { plugin_id: String },
+    ShutdownAndCleanup,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PluginRuntimeCommandOutcome {
+    SetPluginEnabled {
+        plugin_id: String,
+        enabled: bool,
+    },
+    ReloadDirFromState {
+        dir: String,
+        prev_count: usize,
+        loaded_ids: Vec<String>,
+        loaded_count: usize,
+        deactivated_count: usize,
+        unloaded_generations: usize,
+        load_errors: Vec<String>,
+        fatal_error: Option<String>,
+    },
+    UnloadPlugin {
+        plugin_id: String,
+        deactivated: bool,
+        unloaded_generations: usize,
+        remaining_draining_generations: usize,
+        errors: Vec<String>,
+    },
+    ShutdownAndCleanup {
+        deactivated_count: usize,
+        unloaded_generations: usize,
+        errors: Vec<String>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PluginRuntimeEvent {
+    CommandCompleted {
+        request_id: u64,
+        owner: Option<String>,
+        outcome: PluginRuntimeCommandOutcome,
+    },
+    PluginEnabledChanged {
+        plugin_id: String,
+        enabled: bool,
+    },
+    PluginsReloaded {
+        dir: Option<String>,
+        loaded: usize,
+        deactivated: usize,
+        unloaded_generations: usize,
+        errors: usize,
+    },
+    PluginUnloaded {
+        plugin_id: String,
+        deactivated: bool,
+        unloaded_generations: usize,
+        remaining_draining_generations: usize,
+    },
+    RuntimeShutdown {
+        deactivated: usize,
+        unloaded_generations: usize,
+        errors: usize,
+    },
+}
+
+type RuntimeActorTask = Box<dyn FnOnce(&mut RuntimeActorState) + Send + 'static>;
+
+struct RuntimeActorState {
+    service: PluginRuntimeService,
+    subscribers: Vec<Sender<PluginRuntimeEvent>>,
+    owner_subscribers: HashMap<String, Vec<Sender<PluginRuntimeEvent>>>,
+}
+
+impl RuntimeActorState {
+    fn new(host: StHostVTable) -> Self {
+        Self {
+            service: PluginRuntimeService::new(host),
+            subscribers: Vec::new(),
+            owner_subscribers: HashMap::new(),
+        }
+    }
+
+    fn emit_global(&mut self, event: PluginRuntimeEvent) {
+        self.subscribers.retain(|tx| tx.send(event.clone()).is_ok());
+    }
+
+    fn emit_to_owner(&mut self, owner: &str, event: PluginRuntimeEvent) {
+        let mut should_remove = false;
+        if let Some(subscribers) = self.owner_subscribers.get_mut(owner) {
+            subscribers.retain(|tx| tx.send(event.clone()).is_ok());
+            should_remove = subscribers.is_empty();
+        }
+        if should_remove {
+            self.owner_subscribers.remove(owner);
+        }
+    }
+
+    fn emit_to_all_owners(&mut self, event: PluginRuntimeEvent) {
+        let mut empty_owners = Vec::new();
+        for (owner, subscribers) in &mut self.owner_subscribers {
+            subscribers.retain(|tx| tx.send(event.clone()).is_ok());
+            if subscribers.is_empty() {
+                empty_owners.push(owner.clone());
+            }
+        }
+        for owner in empty_owners {
+            self.owner_subscribers.remove(&owner);
+        }
+    }
+
+    fn emit(&mut self, event: PluginRuntimeEvent) {
+        self.emit_global(event.clone());
+        self.emit_to_all_owners(event);
+    }
+
+    fn emit_command_completed(
+        &mut self,
+        owner: Option<&str>,
+        request_id: u64,
+        outcome: PluginRuntimeCommandOutcome,
+    ) {
+        let event = PluginRuntimeEvent::CommandCompleted {
+            request_id,
+            owner: owner.map(str::to_string),
+            outcome,
+        };
+        self.emit_global(event.clone());
+        if let Some(owner) = owner {
+            self.emit_to_owner(owner, event);
+        } else {
+            self.emit_to_all_owners(event);
+        }
+    }
+
+    fn execute_command(&mut self, command: PluginRuntimeCommand) -> PluginRuntimeCommandOutcome {
+        match command {
+            PluginRuntimeCommand::SetPluginEnabled { plugin_id, enabled } => {
+                self.service.set_plugin_enabled(&plugin_id, enabled);
+                self.emit(PluginRuntimeEvent::PluginEnabledChanged {
+                    plugin_id: plugin_id.clone(),
+                    enabled,
+                });
+                PluginRuntimeCommandOutcome::SetPluginEnabled { plugin_id, enabled }
+            }
+            PluginRuntimeCommand::ReloadDirFromState { dir } => {
+                let prev_count = self.service.active_plugin_ids().len();
+                match self.service.reload_dir_from_state(&dir) {
+                    Ok(report) => {
+                        let loaded_ids = report
+                            .loaded
+                            .iter()
+                            .map(|plugin| plugin.id.clone())
+                            .collect();
+                        let loaded_count = report.loaded.len();
+                        let deactivated_count = report.deactivated.len();
+                        let unloaded_generations = report.unloaded_generations;
+                        let load_errors = report
+                            .errors
+                            .iter()
+                            .map(|err| format!("{err:#}"))
+                            .collect::<Vec<_>>();
+                        self.emit(PluginRuntimeEvent::PluginsReloaded {
+                            dir: Some(dir.clone()),
+                            loaded: loaded_count,
+                            deactivated: deactivated_count,
+                            unloaded_generations,
+                            errors: load_errors.len(),
+                        });
+                        PluginRuntimeCommandOutcome::ReloadDirFromState {
+                            dir,
+                            prev_count,
+                            loaded_ids,
+                            loaded_count,
+                            deactivated_count,
+                            unloaded_generations,
+                            load_errors,
+                            fatal_error: None,
+                        }
+                    }
+                    Err(err) => PluginRuntimeCommandOutcome::ReloadDirFromState {
+                        dir,
+                        prev_count,
+                        loaded_ids: Vec::new(),
+                        loaded_count: 0,
+                        deactivated_count: 0,
+                        unloaded_generations: 0,
+                        load_errors: Vec::new(),
+                        fatal_error: Some(err.to_string()),
+                    },
+                }
+            }
+            PluginRuntimeCommand::UnloadPlugin { plugin_id } => {
+                let report = self.service.unload_plugin(&plugin_id);
+                let remaining = self
+                    .service
+                    .slot_snapshot(&plugin_id)
+                    .map(|slot| slot.draining.len())
+                    .unwrap_or(0);
+                let errors = report
+                    .errors
+                    .iter()
+                    .map(|err| format!("{err:#}"))
+                    .collect::<Vec<_>>();
+                self.emit(PluginRuntimeEvent::PluginUnloaded {
+                    plugin_id: plugin_id.clone(),
+                    deactivated: !report.deactivated.is_empty(),
+                    unloaded_generations: report.unloaded_generations,
+                    remaining_draining_generations: remaining,
+                });
+                PluginRuntimeCommandOutcome::UnloadPlugin {
+                    plugin_id,
+                    deactivated: !report.deactivated.is_empty(),
+                    unloaded_generations: report.unloaded_generations,
+                    remaining_draining_generations: remaining,
+                    errors,
+                }
+            }
+            PluginRuntimeCommand::ShutdownAndCleanup => {
+                let report = self.service.shutdown_and_cleanup();
+                let errors = report
+                    .errors
+                    .iter()
+                    .map(|err| format!("{err:#}"))
+                    .collect::<Vec<_>>();
+                self.emit(PluginRuntimeEvent::RuntimeShutdown {
+                    deactivated: report.deactivated.len(),
+                    unloaded_generations: report.unloaded_generations,
+                    errors: errors.len(),
+                });
+                PluginRuntimeCommandOutcome::ShutdownAndCleanup {
+                    deactivated_count: report.deactivated.len(),
+                    unloaded_generations: report.unloaded_generations,
+                    errors,
+                }
+            }
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct PluginRuntimeHandle {
+    tx: Sender<RuntimeActorTask>,
+    next_request_id: Arc<AtomicU64>,
+}
+
+impl PluginRuntimeHandle {
+    fn spawn(host: StHostVTable) -> Self {
+        let (tx, rx) = crossbeam_channel::unbounded::<RuntimeActorTask>();
+        thread::Builder::new()
+            .name("stellatune-plugin-runtime".to_string())
+            .spawn(move || run_plugin_runtime_actor(rx, host))
+            .expect("failed to spawn plugin runtime actor");
+        Self {
+            tx,
+            next_request_id: Arc::new(AtomicU64::new(1)),
+        }
+    }
+
+    fn exec_value<R: Send + 'static>(
+        &self,
+        f: impl FnOnce(&mut RuntimeActorState) -> R + Send + 'static,
+    ) -> Option<R> {
+        let (resp_tx, resp_rx) = crossbeam_channel::bounded(1);
+        let task: RuntimeActorTask = Box::new(move |state| {
+            let out = f(state);
+            let _ = resp_tx.send(out);
+        });
+        self.tx.send(task).ok()?;
+        resp_rx.recv().ok()
+    }
+
+    fn exec_result<R: Send + 'static>(
+        &self,
+        f: impl FnOnce(&mut RuntimeActorState) -> R + Send + 'static,
+    ) -> Result<R> {
+        self.exec_value(f)
+            .ok_or_else(|| anyhow!("plugin runtime actor unavailable"))
+    }
+
+    pub fn register_runtime_event_sender(&self, sender: Sender<PluginRuntimeEvent>) -> bool {
+        self.exec_value(move |state| {
+            state.subscribers.push(sender);
+        })
+        .is_some()
+    }
+
+    pub fn register_owner_runtime_event_sender(
+        &self,
+        owner: &str,
+        sender: Sender<PluginRuntimeEvent>,
+    ) -> bool {
+        let owner = owner.trim().to_string();
+        if owner.is_empty() {
+            return false;
+        }
+        self.exec_value(move |state| {
+            state
+                .owner_subscribers
+                .entry(owner)
+                .or_default()
+                .push(sender);
+        })
+        .is_some()
+    }
+
+    pub fn subscribe_runtime_events(&self) -> Receiver<PluginRuntimeEvent> {
+        let (tx, rx) = crossbeam_channel::unbounded();
+        let _ = self.register_runtime_event_sender(tx);
+        rx
+    }
+
+    pub fn subscribe_owner_runtime_events(&self, owner: &str) -> Receiver<PluginRuntimeEvent> {
+        let (tx, rx) = crossbeam_channel::unbounded();
+        let _ = self.register_owner_runtime_event_sender(owner, tx);
+        rx
+    }
+
+    pub fn send_command(
+        &self,
+        owner: Option<String>,
+        command: PluginRuntimeCommand,
+    ) -> Result<u64> {
+        let request_id = self.next_request_id.fetch_add(1, Ordering::Relaxed);
+        let owner = owner.and_then(|value| {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        });
+        let task: RuntimeActorTask = Box::new(move |state| {
+            let outcome = state.execute_command(command);
+            state.emit_command_completed(owner.as_deref(), request_id, outcome);
+        });
+        self.tx
+            .send(task)
+            .map_err(|_| anyhow!("plugin runtime actor unavailable"))?;
+        Ok(request_id)
+    }
+
+    pub fn set_disabled_plugin_ids(&self, disabled_ids: HashSet<String>) {
+        let _ = self.exec_value(move |state| {
+            state.service.set_disabled_plugin_ids(disabled_ids);
+        });
+    }
+
+    pub fn set_plugin_enabled(&self, plugin_id: &str, enabled: bool) {
+        let plugin_id = plugin_id.trim().to_string();
+        if plugin_id.is_empty() {
+            return;
+        }
+        let _ = self.exec_value(move |state| {
+            state.service.set_plugin_enabled(&plugin_id, enabled);
+            state.emit(PluginRuntimeEvent::PluginEnabledChanged { plugin_id, enabled });
+        });
+    }
+
+    pub fn disabled_plugin_ids(&self) -> HashSet<String> {
+        self.exec_value(|state| state.service.disabled_plugin_ids())
+            .unwrap_or_default()
+    }
+
+    pub fn list_active_plugins(&self) -> Vec<RuntimePluginInfo> {
+        self.exec_value(|state| state.service.list_active_plugins())
+            .unwrap_or_default()
+    }
+
+    pub fn active_generation(&self, plugin_id: &str) -> Option<PluginGenerationInfo> {
+        let plugin_id = plugin_id.to_string();
+        self.exec_value(move |state| state.service.active_generation(&plugin_id))
+            .flatten()
+    }
+
+    pub fn slot_snapshot(&self, plugin_id: &str) -> Option<PluginSlotSnapshot> {
+        let plugin_id = plugin_id.to_string();
+        self.exec_value(move |state| state.service.slot_snapshot(&plugin_id))
+            .flatten()
+    }
+
+    pub fn active_plugin_ids(&self) -> Vec<String> {
+        self.exec_value(|state| state.service.active_plugin_ids())
+            .unwrap_or_default()
+    }
+
+    pub fn list_active_capabilities(&self, plugin_id: &str) -> Vec<CapabilityDescriptorRecord> {
+        let plugin_id = plugin_id.to_string();
+        self.exec_value(move |state| state.service.list_active_capabilities(&plugin_id))
+            .unwrap_or_default()
+    }
+
+    pub fn resolve_active_capability(
+        &self,
+        plugin_id: &str,
+        kind: CapabilityKind,
+        type_id: &str,
+    ) -> Option<CapabilityDescriptorRecord> {
+        let plugin_id = plugin_id.to_string();
+        let type_id = type_id.to_string();
+        self.exec_value(move |state| {
+            state
+                .service
+                .resolve_active_capability(&plugin_id, kind, &type_id)
+        })
+        .flatten()
+    }
+
+    pub fn create_decoder_instance(
+        &self,
+        plugin_id: &str,
+        type_id: &str,
+        config_json: &str,
+    ) -> Result<DecoderInstance> {
+        let plugin_id = plugin_id.to_string();
+        let type_id = type_id.to_string();
+        let prepared = self.exec_result(move |state| {
+            state
+                .service
+                .prepare_create_context(&plugin_id, CapabilityKind::Decoder, &type_id)
+        })??;
+        create_decoder_instance_from_context(prepared, config_json)
+    }
+
+    pub fn decoder_candidates_for_ext(&self, ext_hint: &str) -> Vec<DecoderCandidateScore> {
+        let ext_hint = ext_hint.to_string();
+        self.exec_value(move |state| state.service.decoder_candidates_for_ext(&ext_hint))
+            .unwrap_or_default()
+    }
+
+    pub fn create_dsp_instance(
+        &self,
+        plugin_id: &str,
+        type_id: &str,
+        sample_rate: u32,
+        channels: u16,
+        config_json: &str,
+    ) -> Result<DspInstance> {
+        let plugin_id = plugin_id.to_string();
+        let type_id = type_id.to_string();
+        let prepared = self.exec_result(move |state| {
+            state
+                .service
+                .prepare_create_context(&plugin_id, CapabilityKind::Dsp, &type_id)
+        })??;
+        create_dsp_instance_from_context(prepared, sample_rate, channels, config_json)
+    }
+
+    pub fn create_source_catalog_instance(
+        &self,
+        plugin_id: &str,
+        type_id: &str,
+        config_json: &str,
+    ) -> Result<SourceCatalogInstance> {
+        let plugin_id = plugin_id.to_string();
+        let type_id = type_id.to_string();
+        let prepared = self.exec_result(move |state| {
+            state.service.prepare_create_context(
+                &plugin_id,
+                CapabilityKind::SourceCatalog,
+                &type_id,
+            )
+        })??;
+        create_source_catalog_instance_from_context(prepared, config_json)
+    }
+
+    pub fn create_lyrics_provider_instance(
+        &self,
+        plugin_id: &str,
+        type_id: &str,
+        config_json: &str,
+    ) -> Result<LyricsProviderInstance> {
+        let plugin_id = plugin_id.to_string();
+        let type_id = type_id.to_string();
+        let prepared = self.exec_result(move |state| {
+            state.service.prepare_create_context(
+                &plugin_id,
+                CapabilityKind::LyricsProvider,
+                &type_id,
+            )
+        })??;
+        create_lyrics_provider_instance_from_context(prepared, config_json)
+    }
+
+    pub fn create_output_sink_instance(
+        &self,
+        plugin_id: &str,
+        type_id: &str,
+        config_json: &str,
+    ) -> Result<OutputSinkInstance> {
+        let plugin_id = plugin_id.to_string();
+        let type_id = type_id.to_string();
+        let prepared = self.exec_result(move |state| {
+            state
+                .service
+                .prepare_create_context(&plugin_id, CapabilityKind::OutputSink, &type_id)
+        })??;
+        create_output_sink_instance_from_context(prepared, config_json)
+    }
+
+    pub fn deactivate_plugin(&self, plugin_id: &str) -> Option<GenerationId> {
+        let plugin_id = plugin_id.to_string();
+        self.exec_value(move |state| state.service.deactivate_plugin(&plugin_id))
+            .flatten()
+    }
+
+    pub fn collect_ready_for_unload(&self, plugin_id: &str) -> Vec<GenerationId> {
+        let plugin_id = plugin_id.to_string();
+        self.exec_value(move |state| state.service.collect_ready_for_unload(&plugin_id))
+            .unwrap_or_default()
+    }
+
+    pub fn load_dir_additive_from_state(&self, dir: impl AsRef<Path>) -> Result<RuntimeLoadReport> {
+        let dir = dir.as_ref().to_path_buf();
+        self.exec_result(move |state| state.service.load_dir_additive_from_state(&dir))?
+    }
+
+    pub fn load_dir_additive_filtered(
+        &self,
+        dir: impl AsRef<Path>,
+        disabled_ids: &HashSet<String>,
+    ) -> Result<RuntimeLoadReport> {
+        let dir = dir.as_ref().to_path_buf();
+        let disabled_ids = disabled_ids.clone();
+        self.exec_result(move |state| {
+            state
+                .service
+                .load_dir_additive_filtered(&dir, &disabled_ids)
+        })?
+    }
+
+    pub fn reload_dir_filtered(
+        &self,
+        dir: impl AsRef<Path>,
+        disabled_ids: &HashSet<String>,
+    ) -> Result<RuntimeLoadReport> {
+        let dir_path = dir.as_ref().to_path_buf();
+        let disabled_ids = disabled_ids.clone();
+        let dir_for_event = dir_path.to_string_lossy().to_string();
+        self.exec_result(move |state| {
+            let report = state.service.reload_dir_filtered(&dir_path, &disabled_ids);
+            if let Ok(success) = &report {
+                state.emit(PluginRuntimeEvent::PluginsReloaded {
+                    dir: Some(dir_for_event),
+                    loaded: success.loaded.len(),
+                    deactivated: success.deactivated.len(),
+                    unloaded_generations: success.unloaded_generations,
+                    errors: success.errors.len(),
+                });
+            }
+            report
+        })?
+    }
+
+    pub fn reload_dir_from_state(&self, dir: impl AsRef<Path>) -> Result<RuntimeLoadReport> {
+        let dir_path = dir.as_ref().to_path_buf();
+        let dir_for_event = dir_path.to_string_lossy().to_string();
+        self.exec_result(move |state| {
+            let report = state.service.reload_dir_from_state(&dir_path);
+            if let Ok(success) = &report {
+                state.emit(PluginRuntimeEvent::PluginsReloaded {
+                    dir: Some(dir_for_event),
+                    loaded: success.loaded.len(),
+                    deactivated: success.deactivated.len(),
+                    unloaded_generations: success.unloaded_generations,
+                    errors: success.errors.len(),
+                });
+            }
+            report
+        })?
+    }
+
+    pub fn reload_dir_detailed_from_state(
+        &self,
+        dir: impl AsRef<Path>,
+    ) -> Result<RuntimeSyncReport> {
+        let dir_path = dir.as_ref().to_path_buf();
+        let dir_for_event = dir_path.to_string_lossy().to_string();
+        self.exec_result(move |state| {
+            let report = state.service.reload_dir_detailed_from_state(&dir_path);
+            if let Ok(success) = &report {
+                state.emit(PluginRuntimeEvent::PluginsReloaded {
+                    dir: Some(dir_for_event),
+                    loaded: success.load_report.loaded.len(),
+                    deactivated: success.load_report.deactivated.len(),
+                    unloaded_generations: success.load_report.unloaded_generations,
+                    errors: success.load_report.errors.len(),
+                });
+            }
+            report
+        })?
+    }
+
+    pub fn unload_plugin(&self, plugin_id: &str) -> RuntimeLoadReport {
+        let plugin_id = plugin_id.to_string();
+        self.exec_value(move |state| {
+            let report = state.service.unload_plugin(&plugin_id);
+            let remaining = state
+                .service
+                .slot_snapshot(&plugin_id)
+                .map(|slot| slot.draining.len())
+                .unwrap_or(0);
+            state.emit(PluginRuntimeEvent::PluginUnloaded {
+                plugin_id,
+                deactivated: !report.deactivated.is_empty(),
+                unloaded_generations: report.unloaded_generations,
+                remaining_draining_generations: remaining,
+            });
+            report
+        })
+        .unwrap_or_default()
+    }
+
+    pub fn shutdown_and_cleanup(&self) -> RuntimeLoadReport {
+        self.exec_value(|state| {
+            let report = state.service.shutdown_and_cleanup();
+            state.emit(PluginRuntimeEvent::RuntimeShutdown {
+                deactivated: report.deactivated.len(),
+                unloaded_generations: report.unloaded_generations,
+                errors: report.errors.len(),
+            });
+            report
+        })
+        .unwrap_or_default()
+    }
+
+    pub fn cleanup_shadow_copies_now(&self) {
+        let _ = self.exec_value(|state| {
+            state.service.cleanup_shadow_copies_now();
+        });
+    }
+}
+
+fn run_plugin_runtime_actor(rx: Receiver<RuntimeActorTask>, host: StHostVTable) {
+    let mut state = RuntimeActorState::new(host);
+    while let Ok(task) = rx.recv() {
+        task(&mut state);
+    }
+}
+
+pub type SharedPluginRuntimeService = PluginRuntimeHandle;
 
 pub fn shared_runtime_service() -> SharedPluginRuntimeService {
     static SHARED: OnceLock<SharedPluginRuntimeService> = OnceLock::new();
     SHARED
-        .get_or_init(|| Arc::new(Mutex::new(PluginRuntimeService::new(default_host_vtable()))))
+        .get_or_init(|| PluginRuntimeHandle::spawn(default_host_vtable()))
         .clone()
 }
 
@@ -1348,7 +2116,7 @@ mod tests {
 
     #[test]
     fn activate_and_resolve_active_capability() {
-        let svc = PluginRuntimeService::new(test_host());
+        let mut svc = PluginRuntimeService::new(test_host());
         let report = svc.activate_generation(
             "dev.test.plugin",
             "{}".to_string(),
@@ -1358,19 +2126,20 @@ mod tests {
         let got = svc
             .resolve_active_capability("dev.test.plugin", CapabilityKind::Decoder, "decoder.a")
             .expect("resolve active capability");
-        assert_eq!(got.id, report.capabilities[0].id);
+        assert_eq!(got.generation, report.capabilities[0].generation);
+        assert_eq!(got.type_id, report.capabilities[0].type_id);
     }
 
     #[test]
     fn draining_generation_not_unloadable_with_live_instance() {
-        let svc = PluginRuntimeService::new(test_host());
+        let mut svc = PluginRuntimeService::new(test_host());
         let g1 = svc.activate_generation(
             "dev.test.plugin",
             "{}".to_string(),
             vec![cap(CapabilityKind::Dsp, "dsp.a")],
         );
         let inst = svc
-            .register_instance_for_capability(g1.capabilities[0].id)
+            .register_instance_for_capability(&g1.capabilities[0])
             .expect("register instance");
 
         let _g2 = svc.activate_generation(
@@ -1389,14 +2158,14 @@ mod tests {
 
     #[test]
     fn inflight_call_blocks_unload_until_guard_dropped() {
-        let svc = PluginRuntimeService::new(test_host());
+        let mut svc = PluginRuntimeService::new(test_host());
         let g1 = svc.activate_generation(
             "dev.test.plugin",
             "{}".to_string(),
             vec![cap(CapabilityKind::OutputSink, "sink.a")],
         );
         let inst = svc
-            .register_instance_for_capability(g1.capabilities[0].id)
+            .register_instance_for_capability(&g1.capabilities[0])
             .expect("register instance");
 
         let call = svc.begin_instance_call(inst).expect("begin call");
@@ -1416,7 +2185,7 @@ mod tests {
 
     #[test]
     fn deactivate_moves_active_to_draining() {
-        let svc = PluginRuntimeService::new(test_host());
+        let mut svc = PluginRuntimeService::new(test_host());
         let g1 = svc.activate_generation(
             "dev.test.plugin",
             "{}".to_string(),

@@ -4,8 +4,9 @@ use std::sync::atomic::{AtomicU8, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crossbeam_channel::{Receiver, Sender};
-use tracing::debug;
+use crossbeam_channel::{Receiver, Sender, TryRecvError};
+use stellatune_plugins::PluginRuntimeEvent;
+use tracing::{debug, warn};
 
 use stellatune_core::TrackDecodeInfo;
 use stellatune_mixer::{ChannelLayout, ChannelMixer};
@@ -47,8 +48,8 @@ type DecodeSetupState = (
 pub(crate) struct DecodeThreadArgs {
     pub(crate) path: String,
     pub(crate) internal_tx: Sender<InternalMsg>,
-    pub(crate) preopened: Option<(Box<EngineDecoder>, TrackDecodeInfo)>,
     pub(crate) ctrl_rx: Receiver<DecodeCtrl>,
+    pub(crate) plugin_runtime_events: Receiver<PluginRuntimeEvent>,
     pub(crate) setup_rx: Receiver<DecodeCtrl>,
     pub(crate) spec_tx: Sender<Result<TrackDecodeInfo, String>>,
     pub(crate) runtime_state: Arc<AtomicU8>,
@@ -58,29 +59,23 @@ pub(crate) fn decode_thread(args: DecodeThreadArgs) {
     let DecodeThreadArgs {
         path,
         internal_tx,
-        preopened,
         ctrl_rx,
+        plugin_runtime_events,
         setup_rx,
         spec_tx,
         runtime_state,
     } = args;
 
+    let t_open = Instant::now();
     let (mut decoder, info): (Box<EngineDecoder>, TrackDecodeInfo) =
-        if let Some((decoder, info)) = preopened {
-            debug!("decoder open reused preloaded instance");
-            (decoder, info)
-        } else {
-            let t_open = Instant::now();
-            let (decoder, info) = match open_engine_decoder(&path) {
-                Ok(v) => v,
-                Err(e) => {
-                    let _ = spec_tx.send(Err(e));
-                    return;
-                }
-            };
-            debug!("decoder open took {}ms", t_open.elapsed().as_millis());
-            (decoder, info)
+        match open_engine_decoder(&path) {
+            Ok(v) => v,
+            Err(e) => {
+                let _ = spec_tx.send(Err(e));
+                return;
+            }
         };
+    debug!("decoder open took {}ms", t_open.elapsed().as_millis());
 
     let spec = decoder.spec();
     let _ = spec_tx.send(Ok(info));
@@ -132,6 +127,11 @@ pub(crate) fn decode_thread(args: DecodeThreadArgs) {
             recv(ctrl_rx) -> msg => {
                 let Ok(msg) = msg else { return };
                 if matches!(msg, DecodeCtrl::Stop) {
+                    return;
+                }
+            }
+            recv(plugin_runtime_events) -> msg => {
+                if msg.is_err() {
                     return;
                 }
             }
@@ -250,6 +250,7 @@ pub(crate) fn decode_thread(args: DecodeThreadArgs) {
             output_sink_chunk_frames: &mut output_sink_chunk_frames,
             output_sink_only,
             ctrl_rx: &ctrl_rx,
+            plugin_runtime_events: &plugin_runtime_events,
             internal_tx: &internal_tx,
         };
 
@@ -374,55 +375,85 @@ fn perform_seek(target_ms: i64, ctx: &mut DecodeContext) -> Result<(), String> {
 }
 
 fn handle_paused_controls(ctx: &mut DecodeContext, runtime_state: &Arc<AtomicU8>) -> bool {
-    match ctx.ctrl_rx.recv() {
-        Ok(DecodeCtrl::Play) => {
-            *ctx.playing = true;
-            *ctx.last_emit = Instant::now();
-            set_decode_worker_state(runtime_state, DecodeWorkerState::Playing, "play");
-        }
-        Ok(DecodeCtrl::Pause) => {
-            set_decode_worker_state(runtime_state, DecodeWorkerState::Paused, "pause");
-        }
-        Ok(DecodeCtrl::SetDspChain { chain }) => {
-            if let Err(e) = sync_dsp_chain(ctx, chain) {
-                let _ = ctx.internal_tx.send(InternalMsg::Error(e));
+    crossbeam_channel::select! {
+        recv(ctx.ctrl_rx) -> msg => {
+            match msg {
+                Ok(DecodeCtrl::Play) => {
+                    *ctx.playing = true;
+                    *ctx.last_emit = Instant::now();
+                    set_decode_worker_state(runtime_state, DecodeWorkerState::Playing, "play");
+                }
+                Ok(DecodeCtrl::Pause) => {
+                    set_decode_worker_state(runtime_state, DecodeWorkerState::Paused, "pause");
+                }
+                Ok(DecodeCtrl::SetDspChain { chain }) => {
+                    if let Err(e) = sync_dsp_chain(ctx, chain) {
+                        let _ = ctx.internal_tx.send(InternalMsg::Error(e));
+                    }
+                }
+                Ok(DecodeCtrl::RefreshDecoder) => {
+                    if let Err(e) = refresh_decoder(ctx) {
+                        debug!("decoder refresh failed: {e}");
+                    }
+                }
+                Ok(DecodeCtrl::SeekMs { position_ms }) => {
+                    if let Err(e) = perform_seek(position_ms, ctx) {
+                        let _ = ctx.internal_tx.send(InternalMsg::Error(e));
+                    }
+                }
+                Ok(DecodeCtrl::SetLfeMode { mode }) => {
+                    *ctx.lfe_mode = core_lfe_to_mixer(mode);
+                    *ctx.channel_mixer = ChannelMixer::new(
+                        ChannelLayout::from_count(ctx.in_channels as u16),
+                        ChannelLayout::from_count(ctx.out_channels as u16),
+                        *ctx.lfe_mode,
+                    );
+                }
+                Ok(DecodeCtrl::SetOutputSinkTx {
+                    tx,
+                    output_sink_chunk_frames,
+                }) => {
+                    *ctx.output_sink_tx = tx;
+                    *ctx.output_sink_chunk_frames = output_sink_chunk_frames;
+                }
+                Ok(DecodeCtrl::Stop) | Err(_) => {
+                    set_decode_worker_state(runtime_state, DecodeWorkerState::Idle, "stop");
+                    return true;
+                }
+                _ => {}
             }
         }
-        Ok(DecodeCtrl::RefreshDecoder) => {
-            if let Err(e) = refresh_decoder(ctx) {
-                debug!("decoder refresh failed: {e}");
+        recv(ctx.plugin_runtime_events) -> msg => {
+            match msg {
+                Ok(event) => {
+                    handle_plugin_runtime_event(ctx, event);
+                }
+                Err(_) => {
+                    set_decode_worker_state(runtime_state, DecodeWorkerState::Idle, "plugin runtime disconnected");
+                    return true;
+                }
             }
         }
-        Ok(DecodeCtrl::SeekMs { position_ms }) => {
-            if let Err(e) = perform_seek(position_ms, ctx) {
-                let _ = ctx.internal_tx.send(InternalMsg::Error(e));
-            }
-        }
-        Ok(DecodeCtrl::SetLfeMode { mode }) => {
-            *ctx.lfe_mode = core_lfe_to_mixer(mode);
-            *ctx.channel_mixer = ChannelMixer::new(
-                ChannelLayout::from_count(ctx.in_channels as u16),
-                ChannelLayout::from_count(ctx.out_channels as u16),
-                *ctx.lfe_mode,
-            );
-        }
-        Ok(DecodeCtrl::SetOutputSinkTx {
-            tx,
-            output_sink_chunk_frames,
-        }) => {
-            *ctx.output_sink_tx = tx;
-            *ctx.output_sink_chunk_frames = output_sink_chunk_frames;
-        }
-        Ok(DecodeCtrl::Stop) | Err(_) => {
-            set_decode_worker_state(runtime_state, DecodeWorkerState::Idle, "stop");
-            return true;
-        }
-        _ => {}
     }
     false
 }
 
 fn handle_playing_controls(ctx: &mut DecodeContext, runtime_state: &Arc<AtomicU8>) -> bool {
+    loop {
+        match ctx.plugin_runtime_events.try_recv() {
+            Ok(event) => handle_plugin_runtime_event(ctx, event),
+            Err(TryRecvError::Empty) => break,
+            Err(TryRecvError::Disconnected) => {
+                set_decode_worker_state(
+                    runtime_state,
+                    DecodeWorkerState::Idle,
+                    "plugin runtime disconnected",
+                );
+                return true;
+            }
+        }
+    }
+
     while let Ok(ctrl) = ctx.ctrl_rx.try_recv() {
         match ctrl {
             DecodeCtrl::SetLfeMode { mode } => {
@@ -470,6 +501,18 @@ fn handle_playing_controls(ctx: &mut DecodeContext, runtime_state: &Arc<AtomicU8
         }
     }
     false
+}
+
+fn handle_plugin_runtime_event(ctx: &mut DecodeContext, event: PluginRuntimeEvent) {
+    if !matches!(
+        event,
+        PluginRuntimeEvent::PluginsReloaded { .. } | PluginRuntimeEvent::PluginUnloaded { .. }
+    ) {
+        return;
+    }
+    if let Err(e) = refresh_decoder(ctx) {
+        warn!("decoder refresh on plugin runtime event failed: {e}");
+    }
 }
 
 fn emit_position(ctx: &mut DecodeContext) {

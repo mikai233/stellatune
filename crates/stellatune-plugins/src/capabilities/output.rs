@@ -1,3 +1,6 @@
+use std::marker::PhantomData;
+use std::rc::Rc;
+
 use anyhow::{Result, anyhow};
 use stellatune_plugin_api::{StAudioSpec, StStr};
 use stellatune_plugin_api::{
@@ -14,9 +17,8 @@ pub struct OutputSinkInstance {
     ctx: InstanceRuntimeCtx,
     handle: *mut core::ffi::c_void,
     vtable: *const stellatune_plugin_api::StOutputSinkInstanceVTable,
+    _not_send_sync: PhantomData<Rc<()>>,
 }
-
-unsafe impl Send for OutputSinkInstance {}
 
 impl OutputSinkInstance {
     pub fn from_ffi(ctx: InstanceRuntimeCtx, raw: StOutputSinkInstanceRef) -> Result<Self> {
@@ -27,6 +29,7 @@ impl OutputSinkInstance {
             ctx,
             handle: raw.handle,
             vtable: raw.vtable,
+            _not_send_sync: PhantomData,
         })
     }
 

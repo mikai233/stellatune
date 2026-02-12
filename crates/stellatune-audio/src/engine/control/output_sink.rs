@@ -159,22 +159,7 @@ pub(super) fn open_output_sink_worker(
         .map_err(|e| format!("invalid output sink config json: {e}"))?;
     let target_json = serde_json::to_string(&args.route.target)
         .map_err(|e| format!("invalid output sink target json: {e}"))?;
-    let mut sink = with_runtime_service(|service| {
-        service
-            .create_output_sink_instance(&args.route.plugin_id, &args.route.type_id, &config_json)
-            .map_err(|e| format!("output sink create failed: {e}"))
-    })?;
-    sink.open(
-        &target_json,
-        StAudioSpec {
-            sample_rate: args.sample_rate,
-            channels: args.channels,
-            reserved: 0,
-        },
-    )
-    .map_err(|e| format!("output sink open failed: {e}"))?;
-    Ok(OutputSinkWorker::start(OutputSinkWorkerStartArgs {
-        sink,
+    OutputSinkWorker::start(OutputSinkWorkerStartArgs {
         plugin_id: args.route.plugin_id.clone(),
         type_id: args.route.type_id.clone(),
         target_json,
@@ -186,7 +171,7 @@ pub(super) fn open_output_sink_worker(
         transition_target_gain: args.transition_target_gain,
         transition_ramp_ms: args.transition_ramp_ms,
         internal_tx: args.internal_tx.clone(),
-    }))
+    })
 }
 
 pub(super) fn sync_output_sink_with_active_session(

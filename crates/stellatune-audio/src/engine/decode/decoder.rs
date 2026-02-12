@@ -502,10 +502,7 @@ fn runtime_scored_decoder_candidates(ext_hint: &str) -> Vec<DecoderCandidate> {
     if ext.is_empty() {
         return Vec::new();
     }
-    let shared = stellatune_plugins::shared_runtime_service();
-    let Ok(service) = shared.lock() else {
-        return Vec::new();
-    };
+    let service = stellatune_plugins::shared_runtime_service();
     let mut out = Vec::new();
     let mut seen = HashSet::new();
     for candidate in service.decoder_candidates_for_ext(&ext) {
@@ -529,10 +526,7 @@ fn runtime_scored_decoder_candidates(ext_hint: &str) -> Vec<DecoderCandidate> {
 }
 
 fn runtime_all_decoder_candidates() -> Vec<DecoderCandidate> {
-    let shared = stellatune_plugins::shared_runtime_service();
-    let Ok(service) = shared.lock() else {
-        return Vec::new();
-    };
+    let service = stellatune_plugins::shared_runtime_service();
     let mut plugin_ids = service.active_plugin_ids();
     plugin_ids.sort();
     let mut out = Vec::new();
@@ -560,10 +554,7 @@ fn select_decoder_candidates(
 ) -> Result<Vec<DecoderCandidate>, String> {
     match (decoder_plugin_id, decoder_type_id) {
         (Some(plugin_id), Some(type_id)) => {
-            let shared = stellatune_plugins::shared_runtime_service();
-            let service = shared
-                .lock()
-                .map_err(|_| "runtime service mutex poisoned".to_string())?;
+            let service = stellatune_plugins::shared_runtime_service();
             let cap = service
                 .resolve_active_capability(plugin_id, RuntimeCapabilityKind::Decoder, type_id)
                 .ok_or_else(|| {
@@ -614,24 +605,17 @@ fn try_open_decoder_for_local_path(
 
     let mut last_err: Option<String> = None;
     for candidate in candidates {
-        let shared = stellatune_plugins::shared_runtime_service();
-        let mut dec = match shared.lock() {
-            Ok(service) => match service.create_decoder_instance(
-                &candidate.plugin_id,
-                &candidate.type_id,
-                &candidate.default_config_json,
-            ) {
-                Ok(v) => v,
-                Err(e) => {
-                    last_err = Some(format!(
-                        "create_decoder_instance failed for {}::{}: {e:#}",
-                        candidate.plugin_id, candidate.type_id
-                    ));
-                    continue;
-                }
-            },
-            Err(_) => {
-                last_err = Some("runtime service mutex poisoned".to_string());
+        let mut dec = match stellatune_plugins::shared_runtime_service().create_decoder_instance(
+            &candidate.plugin_id,
+            &candidate.type_id,
+            &candidate.default_config_json,
+        ) {
+            Ok(v) => v,
+            Err(e) => {
+                last_err = Some(format!(
+                    "create_decoder_instance failed for {}::{}: {e:#}",
+                    candidate.plugin_id, candidate.type_id
+                ));
                 continue;
             }
         };
@@ -704,44 +688,31 @@ fn try_open_decoder_for_source_stream(
     let track_json = serde_json::to_string(&source.track)
         .map_err(|e| format!("invalid source track json: {e}"))?;
 
-    let shared = stellatune_plugins::shared_runtime_service();
-    let mut source_inst = match shared.lock() {
-        Ok(service) => match service.create_source_catalog_instance(
-            &source.plugin_id,
-            &source.type_id,
-            &config_json,
-        ) {
-            Ok(v) => v,
-            Err(e) => {
-                return Err(format!(
-                    "create_source_catalog_instance failed for {}::{}: {e:#}",
-                    source.plugin_id, source.type_id
-                ));
-            }
-        },
-        Err(_) => return Err("runtime service mutex poisoned".to_string()),
+    let mut source_inst = match stellatune_plugins::shared_runtime_service()
+        .create_source_catalog_instance(&source.plugin_id, &source.type_id, &config_json)
+    {
+        Ok(v) => v,
+        Err(e) => {
+            return Err(format!(
+                "create_source_catalog_instance failed for {}::{}: {e:#}",
+                source.plugin_id, source.type_id
+            ));
+        }
     };
 
     let mut last_err: Option<String> = None;
     for candidate in candidates {
-        let shared = stellatune_plugins::shared_runtime_service();
-        let mut dec = match shared.lock() {
-            Ok(service) => match service.create_decoder_instance(
-                &candidate.plugin_id,
-                &candidate.type_id,
-                &candidate.default_config_json,
-            ) {
-                Ok(v) => v,
-                Err(e) => {
-                    last_err = Some(format!(
-                        "create_decoder_instance failed for {}::{}: {e:#}",
-                        candidate.plugin_id, candidate.type_id
-                    ));
-                    continue;
-                }
-            },
-            Err(_) => {
-                last_err = Some("runtime service mutex poisoned".to_string());
+        let mut dec = match stellatune_plugins::shared_runtime_service().create_decoder_instance(
+            &candidate.plugin_id,
+            &candidate.type_id,
+            &candidate.default_config_json,
+        ) {
+            Ok(v) => v,
+            Err(e) => {
+                last_err = Some(format!(
+                    "create_decoder_instance failed for {}::{}: {e:#}",
+                    candidate.plugin_id, candidate.type_id
+                ));
                 continue;
             }
         };
@@ -800,11 +771,7 @@ fn try_open_decoder_for_source_stream(
 }
 
 fn runtime_has_source_catalog(plugin_id: &str, type_id: &str) -> bool {
-    let shared = stellatune_plugins::shared_runtime_service();
-    let Ok(service) = shared.lock() else {
-        return false;
-    };
-    service
+    stellatune_plugins::shared_runtime_service()
         .resolve_active_capability(plugin_id, RuntimeCapabilityKind::SourceCatalog, type_id)
         .is_some()
 }

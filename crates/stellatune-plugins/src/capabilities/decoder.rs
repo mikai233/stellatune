@@ -1,3 +1,6 @@
+use std::marker::PhantomData;
+use std::rc::Rc;
+
 use anyhow::{Result, anyhow};
 use stellatune_plugin_api::{StConfigUpdatePlan, StDecoderInstanceRef, StDecoderOpenArgs};
 use stellatune_plugin_api::{StDecoderInfo, StIoVTable, StStr};
@@ -11,9 +14,8 @@ pub struct DecoderInstance {
     ctx: InstanceRuntimeCtx,
     handle: *mut core::ffi::c_void,
     vtable: *const stellatune_plugin_api::StDecoderInstanceVTable,
+    _not_send_sync: PhantomData<Rc<()>>,
 }
-
-unsafe impl Send for DecoderInstance {}
 
 impl DecoderInstance {
     pub fn from_ffi(ctx: InstanceRuntimeCtx, raw: StDecoderInstanceRef) -> Result<Self> {
@@ -24,6 +26,7 @@ impl DecoderInstance {
             ctx,
             handle: raw.handle,
             vtable: raw.vtable,
+            _not_send_sync: PhantomData,
         })
     }
 
