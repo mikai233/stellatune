@@ -1,14 +1,16 @@
 #![allow(clippy::wildcard_imports)] // Intentional wildcard usage (API facade, macro template, or generated code).
 
-//! Runtime scaffolding.
+//! Runtime scaffolding for plugin control-plane lifecycle.
 //!
-//! During migration this module hosts generation lifecycle, instance registry,
-//! and config update orchestration for the new plugin execution model.
+//! This module owns actor/handle/model/lease management, while instance data-plane
+//! execution is expected to live in business-side worker threads.
 
+pub mod actor;
+pub mod backend_control;
+pub mod handle;
 pub mod instance_registry;
-pub mod lifecycle;
+pub mod model;
+pub mod registry;
 pub mod update;
-
-pub use instance_registry::*;
-pub use lifecycle::*;
-pub use update::*;
+pub mod worker_controller;
+pub mod worker_endpoint;

@@ -1,17 +1,20 @@
 #![allow(clippy::wildcard_imports)] // Intentional wildcard usage (API facade, macro template, or generated code).
 
-mod capabilities;
+pub mod capabilities;
 mod events;
 mod load;
 mod manifest;
 pub mod runtime;
 mod service;
-mod types;
 mod util;
 
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::manifest::{
+    PluginInstallReceipt, PluginInstallState, PluginManifest, UninstallPendingMarker,
+    pending_marker_path_for_plugin_root, write_receipt, write_uninstall_pending_marker,
+};
 use anyhow::{Context, Result, anyhow};
 use libloading::{Library, Symbol};
 use serde::Serialize;
@@ -21,20 +24,6 @@ use stellatune_plugin_api::{
 use stellatune_plugin_api::{StLogLevel, StStr};
 use stellatune_plugin_protocol::PluginMetadata;
 use tracing::{info, warn};
-
-pub use capabilities::*;
-pub use events::*;
-pub use load::*;
-pub use service::*;
-pub use types::*;
-
-pub use manifest::{
-    DiscoveredPlugin, INSTALL_RECEIPT_FILE_NAME, PluginInstallReceipt, PluginInstallState,
-    PluginManifest, UNINSTALL_PENDING_MARKER_FILE_NAME, UninstallPendingMarker,
-    discover_pending_uninstalls, discover_plugins, pending_marker_path_for_plugin_root,
-    read_receipt, read_uninstall_pending_marker, receipt_path_for_plugin_root, write_receipt,
-    write_uninstall_pending_marker,
-};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct InstalledPluginInfo {

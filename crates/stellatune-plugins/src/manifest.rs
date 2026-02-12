@@ -32,7 +32,6 @@ pub struct UninstallPendingMarker {
 #[derive(Debug, Clone)]
 pub struct PendingUninstallPlugin {
     pub root_dir: PathBuf,
-    pub marker_path: PathBuf,
     pub marker: UninstallPendingMarker,
     pub receipt: Option<PluginInstallReceipt>,
 }
@@ -69,7 +68,6 @@ pub struct PluginInstallReceipt {
 #[derive(Debug, Clone)]
 pub struct DiscoveredPlugin {
     pub root_dir: PathBuf,
-    pub receipt_path: PathBuf,
     pub manifest: PluginManifest,
     pub library_path: PathBuf,
 }
@@ -138,7 +136,6 @@ pub fn discover_pending_uninstalls(dir: impl AsRef<Path>) -> Result<Vec<PendingU
         let receipt = read_receipt(&receipt_path).ok();
         out.push(PendingUninstallPlugin {
             root_dir,
-            marker_path,
             marker,
             receipt,
         });
@@ -225,7 +222,6 @@ pub fn discover_plugins(dir: impl AsRef<Path>) -> Result<Vec<DiscoveredPlugin>> 
         out.push(DiscoveredPlugin {
             library_path: root_dir.join(&receipt.library_rel_path),
             root_dir,
-            receipt_path,
             manifest: receipt.manifest,
         });
     }

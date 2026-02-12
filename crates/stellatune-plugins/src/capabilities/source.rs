@@ -1,6 +1,3 @@
-use std::marker::PhantomData;
-use std::rc::Rc;
-
 use anyhow::{Result, anyhow};
 use stellatune_plugin_api::{StConfigUpdatePlan, StSourceCatalogInstanceRef};
 use stellatune_plugin_api::{StIoVTable, StStr};
@@ -14,7 +11,6 @@ pub struct SourceCatalogInstance {
     ctx: InstanceRuntimeCtx,
     handle: *mut core::ffi::c_void,
     vtable: *const stellatune_plugin_api::StSourceCatalogInstanceVTable,
-    _not_send_sync: PhantomData<Rc<()>>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -34,16 +30,14 @@ impl SourceCatalogInstance {
             ctx,
             handle: raw.handle,
             vtable: raw.vtable,
-            _not_send_sync: PhantomData,
         })
     }
 
-    pub fn instance_id(&self) -> crate::runtime::InstanceId {
+    pub fn instance_id(&self) -> crate::runtime::instance_registry::InstanceId {
         self.ctx.instance_id
     }
 
     pub fn list_items_json(&mut self, request_json: &str) -> Result<String> {
-        let _call = self.ctx.begin_call();
         let mut out = StStr::empty();
         let status = unsafe {
             ((*self.vtable).list_items_json_utf8)(
@@ -60,7 +54,6 @@ impl SourceCatalogInstance {
         &mut self,
         track_json: &str,
     ) -> Result<(SourceOpenStreamResult, Option<String>)> {
-        let _call = self.ctx.begin_call();
         let mut out_io_vtable: *const StIoVTable = core::ptr::null();
         let mut out_io_handle: *mut core::ffi::c_void = core::ptr::null_mut();
         let mut out_meta = StStr::empty();
@@ -93,7 +86,6 @@ impl SourceCatalogInstance {
         if io_handle.is_null() {
             return;
         }
-        let _call = self.ctx.begin_call();
         unsafe { ((*self.vtable).close_stream)(self.handle, io_handle) };
     }
 
@@ -104,7 +96,6 @@ impl SourceCatalogInstance {
                 reason: Some("plugin does not implement plan_config_update".to_string()),
             });
         };
-        let _call = self.ctx.begin_call();
         let mut out = StConfigUpdatePlan {
             mode: stellatune_plugin_api::StConfigUpdateMode::Reject,
             reason_utf8: StStr::empty(),
@@ -121,7 +112,7 @@ impl SourceCatalogInstance {
     pub fn apply_config_update_json(
         &mut self,
         new_config_json: &str,
-    ) -> Result<crate::runtime::InstanceUpdateResult> {
+    ) -> Result<crate::runtime::update::InstanceUpdateResult> {
         let plan = self.plan_config_update_json(new_config_json)?;
         let decision = decision_from_plan(&plan);
         let req = self.ctx.updates.begin(
@@ -131,14 +122,13 @@ impl SourceCatalogInstance {
             plan.reason.clone(),
         );
         match decision {
-            crate::runtime::InstanceUpdateDecision::HotApply => {
+            crate::runtime::update::InstanceUpdateDecision::HotApply => {
                 let Some(apply_fn) = (unsafe { (*self.vtable).apply_config_update_json_utf8 })
                 else {
                     let msg = "source apply_config_update not supported".to_string();
                     let _ = self.ctx.updates.finish_failed(&req, msg.clone());
                     return Err(anyhow!(msg));
                 };
-                let _call = self.ctx.begin_call();
                 let status = (apply_fn)(self.handle, ststr_from_str(&req.config_json));
                 match status_to_result(
                     "Source apply_config_update_json",
@@ -152,10 +142,10 @@ impl SourceCatalogInstance {
                     }
                 }
             }
-            crate::runtime::InstanceUpdateDecision::Recreate => {
+            crate::runtime::update::InstanceUpdateDecision::Recreate => {
                 Ok(self.ctx.updates.finish_requires_recreate(&req, plan.reason))
             }
-            crate::runtime::InstanceUpdateDecision::Reject => {
+            crate::runtime::update::InstanceUpdateDecision::Reject => {
                 let reason = plan
                     .reason
                     .unwrap_or_else(|| "source rejected config update".to_string());
@@ -168,7 +158,6 @@ impl SourceCatalogInstance {
         let Some(export_fn) = (unsafe { (*self.vtable).export_state_json_utf8 }) else {
             return Ok(None);
         };
-        let _call = self.ctx.begin_call();
         let mut out = StStr::empty();
         let status = (export_fn)(self.handle, &mut out);
         status_to_result("Source export_state_json", status, self.ctx.plugin_free)?;
@@ -184,7 +173,6 @@ impl SourceCatalogInstance {
         let Some(import_fn) = (unsafe { (*self.vtable).import_state_json_utf8 }) else {
             return Err(anyhow!("source import_state_json not supported"));
         };
-        let _call = self.ctx.begin_call();
         let status = (import_fn)(self.handle, ststr_from_str(state_json));
         status_to_result("Source import_state_json", status, self.ctx.plugin_free)
     }
@@ -193,10 +181,12 @@ impl SourceCatalogInstance {
 impl Drop for SourceCatalogInstance {
     fn drop(&mut self) {
         if !self.handle.is_null() && !self.vtable.is_null() {
-            let _call = self.ctx.begin_call();
             unsafe { ((*self.vtable).destroy)(self.handle) };
             self.handle = core::ptr::null_mut();
         }
-        self.ctx.unregister();
     }
 }
+
+// SAFETY: Instances are moved into worker-owned threads and must be used from one
+// owner thread at a time. Runtime call sites enforce thread ownership checks.
+unsafe impl Send for SourceCatalogInstance {}

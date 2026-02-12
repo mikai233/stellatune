@@ -1,6 +1,3 @@
-use std::marker::PhantomData;
-use std::rc::Rc;
-
 use anyhow::{Result, anyhow};
 use stellatune_plugin_api::StStr;
 use stellatune_plugin_api::{StConfigUpdatePlan, StLyricsProviderInstanceRef};
@@ -14,7 +11,6 @@ pub struct LyricsProviderInstance {
     ctx: InstanceRuntimeCtx,
     handle: *mut core::ffi::c_void,
     vtable: *const stellatune_plugin_api::StLyricsProviderInstanceVTable,
-    _not_send_sync: PhantomData<Rc<()>>,
 }
 
 impl LyricsProviderInstance {
@@ -28,16 +24,14 @@ impl LyricsProviderInstance {
             ctx,
             handle: raw.handle,
             vtable: raw.vtable,
-            _not_send_sync: PhantomData,
         })
     }
 
-    pub fn instance_id(&self) -> crate::runtime::InstanceId {
+    pub fn instance_id(&self) -> crate::runtime::instance_registry::InstanceId {
         self.ctx.instance_id
     }
 
     pub fn search_json(&mut self, query_json: &str) -> Result<String> {
-        let _call = self.ctx.begin_call();
         let mut out = StStr::empty();
         let status = unsafe {
             ((*self.vtable).search_json_utf8)(self.handle, ststr_from_str(query_json), &mut out)
@@ -47,7 +41,6 @@ impl LyricsProviderInstance {
     }
 
     pub fn fetch_json(&mut self, track_json: &str) -> Result<String> {
-        let _call = self.ctx.begin_call();
         let mut out = StStr::empty();
         let status = unsafe {
             ((*self.vtable).fetch_json_utf8)(self.handle, ststr_from_str(track_json), &mut out)
@@ -63,7 +56,6 @@ impl LyricsProviderInstance {
                 reason: Some("plugin does not implement plan_config_update".to_string()),
             });
         };
-        let _call = self.ctx.begin_call();
         let mut out = StConfigUpdatePlan {
             mode: stellatune_plugin_api::StConfigUpdateMode::Reject,
             reason_utf8: StStr::empty(),
@@ -80,7 +72,7 @@ impl LyricsProviderInstance {
     pub fn apply_config_update_json(
         &mut self,
         new_config_json: &str,
-    ) -> Result<crate::runtime::InstanceUpdateResult> {
+    ) -> Result<crate::runtime::update::InstanceUpdateResult> {
         let plan = self.plan_config_update_json(new_config_json)?;
         let decision = decision_from_plan(&plan);
         let req = self.ctx.updates.begin(
@@ -90,14 +82,13 @@ impl LyricsProviderInstance {
             plan.reason.clone(),
         );
         match decision {
-            crate::runtime::InstanceUpdateDecision::HotApply => {
+            crate::runtime::update::InstanceUpdateDecision::HotApply => {
                 let Some(apply_fn) = (unsafe { (*self.vtable).apply_config_update_json_utf8 })
                 else {
                     let msg = "lyrics apply_config_update not supported".to_string();
                     let _ = self.ctx.updates.finish_failed(&req, msg.clone());
                     return Err(anyhow!(msg));
                 };
-                let _call = self.ctx.begin_call();
                 let status = (apply_fn)(self.handle, ststr_from_str(&req.config_json));
                 match status_to_result(
                     "Lyrics apply_config_update_json",
@@ -111,10 +102,10 @@ impl LyricsProviderInstance {
                     }
                 }
             }
-            crate::runtime::InstanceUpdateDecision::Recreate => {
+            crate::runtime::update::InstanceUpdateDecision::Recreate => {
                 Ok(self.ctx.updates.finish_requires_recreate(&req, plan.reason))
             }
-            crate::runtime::InstanceUpdateDecision::Reject => {
+            crate::runtime::update::InstanceUpdateDecision::Reject => {
                 let reason = plan
                     .reason
                     .unwrap_or_else(|| "lyrics rejected config update".to_string());
@@ -127,7 +118,6 @@ impl LyricsProviderInstance {
         let Some(export_fn) = (unsafe { (*self.vtable).export_state_json_utf8 }) else {
             return Ok(None);
         };
-        let _call = self.ctx.begin_call();
         let mut out = StStr::empty();
         let status = (export_fn)(self.handle, &mut out);
         status_to_result("Lyrics export_state_json", status, self.ctx.plugin_free)?;
@@ -143,7 +133,6 @@ impl LyricsProviderInstance {
         let Some(import_fn) = (unsafe { (*self.vtable).import_state_json_utf8 }) else {
             return Err(anyhow!("lyrics import_state_json not supported"));
         };
-        let _call = self.ctx.begin_call();
         let status = (import_fn)(self.handle, ststr_from_str(state_json));
         status_to_result("Lyrics import_state_json", status, self.ctx.plugin_free)
     }
@@ -152,10 +141,12 @@ impl LyricsProviderInstance {
 impl Drop for LyricsProviderInstance {
     fn drop(&mut self) {
         if !self.handle.is_null() && !self.vtable.is_null() {
-            let _call = self.ctx.begin_call();
             unsafe { ((*self.vtable).destroy)(self.handle) };
             self.handle = core::ptr::null_mut();
         }
-        self.ctx.unregister();
     }
 }
+
+// SAFETY: Instances are moved into worker-owned threads and must be used from one
+// owner thread at a time. Runtime call sites enforce thread ownership checks.
+unsafe impl Send for LyricsProviderInstance {}

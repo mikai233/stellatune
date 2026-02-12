@@ -7,7 +7,7 @@ fn main() -> Result<()> {
         .nth(1)
         .unwrap_or_else(|| "plugins".to_string());
 
-    let service = stellatune_plugins::shared_runtime_service();
+    let service = stellatune_plugins::runtime::handle::shared_runtime_service();
 
     let report = service.reload_dir_filtered(&plugin_dir, &HashSet::new())?;
     if !report.errors.is_empty() {

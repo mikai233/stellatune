@@ -1,6 +1,3 @@
-use std::marker::PhantomData;
-use std::rc::Rc;
-
 use anyhow::{Result, anyhow};
 use stellatune_plugin_api::{StConfigUpdatePlan, StDecoderInstanceRef, StDecoderOpenArgs};
 use stellatune_plugin_api::{StDecoderInfo, StIoVTable, StStr};
@@ -14,7 +11,6 @@ pub struct DecoderInstance {
     ctx: InstanceRuntimeCtx,
     handle: *mut core::ffi::c_void,
     vtable: *const stellatune_plugin_api::StDecoderInstanceVTable,
-    _not_send_sync: PhantomData<Rc<()>>,
 }
 
 impl DecoderInstance {
@@ -26,11 +22,10 @@ impl DecoderInstance {
             ctx,
             handle: raw.handle,
             vtable: raw.vtable,
-            _not_send_sync: PhantomData,
         })
     }
 
-    pub fn instance_id(&self) -> crate::runtime::InstanceId {
+    pub fn instance_id(&self) -> crate::runtime::instance_registry::InstanceId {
         self.ctx.instance_id
     }
 
@@ -52,13 +47,11 @@ impl DecoderInstance {
             io_vtable,
             io_handle,
         };
-        let _call = self.ctx.begin_call();
         let status = unsafe { ((*self.vtable).open)(self.handle, args) };
         status_to_result("Decoder open_with_io", status, self.ctx.plugin_free)
     }
 
     pub fn get_info(&self) -> Result<StDecoderInfo> {
-        let _call = self.ctx.begin_call();
         let mut out = StDecoderInfo {
             spec: stellatune_plugin_api::StAudioSpec {
                 sample_rate: 0,
@@ -80,7 +73,6 @@ impl DecoderInstance {
         let Some(get) = (unsafe { (*self.vtable).get_metadata_json_utf8 }) else {
             return Ok(None);
         };
-        let _call = self.ctx.begin_call();
         let mut out = StStr::empty();
         let status = (get)(self.handle, &mut out);
         status_to_result("Decoder get_metadata_json", status, self.ctx.plugin_free)?;
@@ -98,7 +90,6 @@ impl DecoderInstance {
         let mut out = vec![0.0f32; (frames as usize).saturating_mul(channels)];
         let mut frames_read = 0u32;
         let mut eof = false;
-        let _call = self.ctx.begin_call();
         let status = unsafe {
             ((*self.vtable).read_interleaved_f32)(
                 self.handle,
@@ -117,7 +108,6 @@ impl DecoderInstance {
         let Some(seek) = (unsafe { (*self.vtable).seek_ms }) else {
             return Err(anyhow!("decoder seek not supported"));
         };
-        let _call = self.ctx.begin_call();
         let status = (seek)(self.handle, position_ms);
         status_to_result("Decoder seek_ms", status, self.ctx.plugin_free)
     }
@@ -129,7 +119,6 @@ impl DecoderInstance {
                 reason: Some("plugin does not implement plan_config_update".to_string()),
             });
         };
-        let _call = self.ctx.begin_call();
         let mut out = StConfigUpdatePlan {
             mode: stellatune_plugin_api::StConfigUpdateMode::Reject,
             reason_utf8: StStr::empty(),
@@ -146,7 +135,7 @@ impl DecoderInstance {
     pub fn apply_config_update_json(
         &mut self,
         new_config_json: &str,
-    ) -> Result<crate::runtime::InstanceUpdateResult> {
+    ) -> Result<crate::runtime::update::InstanceUpdateResult> {
         let plan = self.plan_config_update_json(new_config_json)?;
         let decision = decision_from_plan(&plan);
         let req = self.ctx.updates.begin(
@@ -156,14 +145,13 @@ impl DecoderInstance {
             plan.reason.clone(),
         );
         match decision {
-            crate::runtime::InstanceUpdateDecision::HotApply => {
+            crate::runtime::update::InstanceUpdateDecision::HotApply => {
                 let Some(apply_fn) = (unsafe { (*self.vtable).apply_config_update_json_utf8 })
                 else {
                     let msg = "decoder apply_config_update not supported".to_string();
                     let _ = self.ctx.updates.finish_failed(&req, msg.clone());
                     return Err(anyhow!(msg));
                 };
-                let _call = self.ctx.begin_call();
                 let status = (apply_fn)(self.handle, ststr_from_str(&req.config_json));
                 match status_to_result(
                     "Decoder apply_config_update_json",
@@ -177,10 +165,10 @@ impl DecoderInstance {
                     }
                 }
             }
-            crate::runtime::InstanceUpdateDecision::Recreate => {
+            crate::runtime::update::InstanceUpdateDecision::Recreate => {
                 Ok(self.ctx.updates.finish_requires_recreate(&req, plan.reason))
             }
-            crate::runtime::InstanceUpdateDecision::Reject => {
+            crate::runtime::update::InstanceUpdateDecision::Reject => {
                 let reason = plan
                     .reason
                     .unwrap_or_else(|| "decoder rejected config update".to_string());
@@ -193,7 +181,6 @@ impl DecoderInstance {
         let Some(export_fn) = (unsafe { (*self.vtable).export_state_json_utf8 }) else {
             return Ok(None);
         };
-        let _call = self.ctx.begin_call();
         let mut out = StStr::empty();
         let status = (export_fn)(self.handle, &mut out);
         status_to_result("Decoder export_state_json", status, self.ctx.plugin_free)?;
@@ -209,7 +196,6 @@ impl DecoderInstance {
         let Some(import_fn) = (unsafe { (*self.vtable).import_state_json_utf8 }) else {
             return Err(anyhow!("decoder import_state_json not supported"));
         };
-        let _call = self.ctx.begin_call();
         let status = (import_fn)(self.handle, ststr_from_str(state_json));
         status_to_result("Decoder import_state_json", status, self.ctx.plugin_free)
     }
@@ -218,10 +204,12 @@ impl DecoderInstance {
 impl Drop for DecoderInstance {
     fn drop(&mut self) {
         if !self.handle.is_null() && !self.vtable.is_null() {
-            let _call = self.ctx.begin_call();
             unsafe { ((*self.vtable).destroy)(self.handle) };
             self.handle = core::ptr::null_mut();
         }
-        self.ctx.unregister();
     }
 }
+
+// SAFETY: Instances are moved into worker-owned threads and must be used from one
+// owner thread at a time. Runtime call sites enforce thread ownership checks.
+unsafe impl Send for DecoderInstance {}
