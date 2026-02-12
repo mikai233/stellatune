@@ -258,9 +258,6 @@ sealed class Event with _$Event {
       Event_VolumeChanged;
   const factory Event.error({required String message}) = Event_Error;
   const factory Event.log({required String message}) = Event_Log;
-  const factory Event.outputDevicesChanged({
-    required List<AudioDevice> devices,
-  }) = Event_OutputDevicesChanged;
 }
 
 enum LfeMode {

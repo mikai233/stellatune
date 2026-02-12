@@ -21,7 +21,7 @@ use stellatune_plugins::SharedPluginRuntimeService;
 mod apply_state;
 mod bus;
 mod control;
-mod host;
+mod engine;
 mod router;
 #[cfg(all(
     test,
@@ -29,7 +29,7 @@ mod router;
 ))]
 mod tests;
 mod types;
-pub use host::{RuntimeClientId, RuntimeHost, shared_runtime_host};
+pub use engine::shared_runtime_engine;
 
 #[derive(Clone)]
 struct TeeWriter {
@@ -135,23 +135,53 @@ pub fn subscribe_plugin_runtime_events_global()
     router::subscribe_plugin_runtime_events_global()
 }
 
+fn cleanup_plugin_runtime_for_restart(reason: &'static str) {
+    if let Ok(service) = shared_plugin_runtime().lock() {
+        let mut plugin_ids = service.active_plugin_ids();
+        plugin_ids.sort();
+        let report = service.shutdown_and_cleanup();
+        let remaining_draining_generations: usize = plugin_ids
+            .iter()
+            .filter_map(|plugin_id| service.slot_snapshot(plugin_id))
+            .map(|slot| slot.draining.len())
+            .sum();
+
+        if remaining_draining_generations == 0 && report.errors.is_empty() {
+            tracing::info!(
+                reason,
+                active_plugins_before_cleanup = plugin_ids.len(),
+                deactivated = report.deactivated.len(),
+                unloaded_generations = report.unloaded_generations,
+                errors = report.errors.len(),
+                "plugin runtime cleanup attempted"
+            );
+        } else {
+            tracing::warn!(
+                reason,
+                active_plugins_before_cleanup = plugin_ids.len(),
+                deactivated = report.deactivated.len(),
+                unloaded_generations = report.unloaded_generations,
+                remaining_draining_generations,
+                errors = report.errors.len(),
+                "plugin runtime cleanup attempted with leftovers"
+            );
+        }
+    } else {
+        tracing::warn!(
+            reason,
+            "plugin runtime cleanup skipped: runtime mutex poisoned"
+        );
+    }
+}
+
 pub fn runtime_prepare_hot_restart() {
-    shared_runtime_host().prepare_hot_restart();
+    engine::runtime_prepare_hot_restart();
+    cleanup_plugin_runtime_for_restart("prepare_hot_restart");
 }
 
 pub fn runtime_shutdown() {
-    shared_runtime_host().shutdown();
-    if let Ok(service) = shared_plugin_runtime().lock() {
-        let report = service.shutdown_and_cleanup();
-        tracing::info!(
-            deactivated = report.deactivated.len(),
-            unloaded_generations = report.unloaded_generations,
-            errors = report.errors.len(),
-            "plugin runtime shutdown cleanup attempted"
-        );
-    } else {
-        tracing::warn!("plugin runtime shutdown cleanup skipped: runtime mutex poisoned");
-    }
+    engine::runtime_shutdown();
+    cleanup_plugin_runtime_for_restart("shutdown");
 }
 
 #[derive(Debug, Clone)]
@@ -259,10 +289,7 @@ pub async fn plugin_runtime_disable(
 
     report.phase = "quiesce";
     tracing::debug!(plugin_id, phase = report.phase, "plugin_disable_phase");
-    if let Err(err) = shared_runtime_host()
-        .engine()
-        .quiesce_plugin_usage(plugin_id.clone())
-    {
+    if let Err(err) = shared_runtime_engine().quiesce_plugin_usage(plugin_id.clone()) {
         report.errors.push(err);
     }
 

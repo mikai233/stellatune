@@ -233,7 +233,7 @@ Future<void> _applyPersistedOutputSettings({
       await bridge.refreshDevices();
     } catch (e, s) {
       logger.w('failed to refresh output devices', error: e, stackTrace: s);
-      // Non-fatal. Device refresh stream update is best-effort.
+      // Non-fatal. Device probing is best-effort during bootstrap.
     }
   } catch (e, s) {
     logger.e(

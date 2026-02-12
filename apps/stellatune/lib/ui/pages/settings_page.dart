@@ -93,6 +93,7 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
   bool _neteaseAuthBusy = false;
   bool _neteaseAuthAutoPolling = false;
   Timer? _neteaseAuthPollTimer;
+  Future<void>? _ensureNeteaseSidecarInFlight;
   String? _neteaseAuthMessage;
   String? _neteaseQrKey;
   String? _neteaseQrUrl;
@@ -549,9 +550,14 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
         type: FileType.custom,
         allowMultiple: false,
         allowedExtensions: ['zip', _pluginLibExtForPlatform()],
+        lockParentWindow: true,
       );
     } catch (e, s) {
-      logger.e('failed to open plugin artifact picker', error: e, stackTrace: s);
+      logger.e(
+        'failed to open plugin artifact picker',
+        error: e,
+        stackTrace: s,
+      );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(l10n.settingsPluginInstallFailed(e.toString()))),
@@ -559,9 +565,21 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
       return;
     }
     final files = picked?.files;
-    if (files == null || files.isEmpty) return;
+    if (files == null || files.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('No plugin file selected.')));
+      return;
+    }
     final srcPath = files.first.path?.trim();
-    if (srcPath == null || srcPath.isEmpty) return;
+    if (srcPath == null || srcPath.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Selected file path is empty.')),
+      );
+      return;
+    }
 
     try {
       final bridge = ref.read(playerBridgeProvider);
@@ -774,29 +792,49 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
     String? onlyForPluginId,
     bool silent = true,
   }) async {
-    try {
-      final sourceType = await _resolveNeteaseSourceType();
-      if (sourceType == null) return;
-      final expected = onlyForPluginId?.trim() ?? '';
-      if (expected.isNotEmpty && sourceType.pluginId.trim() != expected) {
-        return;
+    final inFlight = _ensureNeteaseSidecarInFlight;
+    if (inFlight != null) {
+      await inFlight;
+      return;
+    }
+
+    final task = () async {
+      try {
+        final sourceType = await _resolveNeteaseSourceType();
+        if (sourceType == null) return;
+        final expected = onlyForPluginId?.trim() ?? '';
+        if (expected.isNotEmpty && sourceType.pluginId.trim() != expected) {
+          return;
+        }
+        final bridge = ref.read(playerBridgeProvider);
+        final config = _decodeJsonObjectOrEmpty(
+          _sourceConfigForType(sourceType),
+        );
+        await bridge.sourceListItemsJson(
+          pluginId: sourceType.pluginId,
+          typeId: sourceType.typeId,
+          configJson: jsonEncode(config),
+          requestJson: jsonEncode(<String, Object?>{
+            'action': 'ensure_sidecar',
+          }),
+        );
+      } catch (e, s) {
+        logger.w(
+          'failed to ensure netease sidecar resident',
+          error: e,
+          stackTrace: s,
+        );
+        if (!silent && mounted) {
+          setState(() => _neteaseAuthMessage = 'Sidecar 启动失败: $e');
+        }
       }
-      final bridge = ref.read(playerBridgeProvider);
-      final config = _decodeJsonObjectOrEmpty(_sourceConfigForType(sourceType));
-      await bridge.sourceListItemsJson(
-        pluginId: sourceType.pluginId,
-        typeId: sourceType.typeId,
-        configJson: jsonEncode(config),
-        requestJson: jsonEncode(<String, Object?>{'action': 'ensure_sidecar'}),
-      );
-    } catch (e, s) {
-      logger.w(
-        'failed to ensure netease sidecar resident',
-        error: e,
-        stackTrace: s,
-      );
-      if (!silent && mounted) {
-        setState(() => _neteaseAuthMessage = 'Sidecar 启动失败: $e');
+    }();
+    _ensureNeteaseSidecarInFlight = task;
+    try {
+      await task;
+    } finally {
+      if (identical(_ensureNeteaseSidecarInFlight, task)) {
+        _ensureNeteaseSidecarInFlight = null;
       }
     }
   }
@@ -1817,9 +1855,12 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
                           );
                         } finally {
                           try {
-                            await ref
-                                .read(playerBridgeProvider)
-                                .refreshDevices();
+                            final refreshedDevices = await ref.refresh(
+                              audioDevicesProvider.future,
+                            );
+                            logger.d(
+                              'refreshed devices after backend change: ${refreshedDevices.length}',
+                            );
                           } catch (e, s) {
                             logger.w(
                               'failed to refresh devices after backend change',

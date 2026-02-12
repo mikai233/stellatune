@@ -26,9 +26,6 @@ abstract class StellatuneApiApiImplPlatform
   CrossPlatformFinalizerArg get rust_arc_decrement_strong_count_LibraryPtr =>
       wire._rust_arc_decrement_strong_count_RustOpaque_LibraryPtr;
 
-  CrossPlatformFinalizerArg get rust_arc_decrement_strong_count_PlayerPtr =>
-      wire._rust_arc_decrement_strong_count_RustOpaque_PlayerPtr;
-
   CrossPlatformFinalizerArg
   get rust_arc_decrement_strong_count_RequestIdPtr => wire
       ._rust_arc_decrement_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRequestIdPtr;
@@ -50,9 +47,6 @@ abstract class StellatuneApiApiImplPlatform
 
   @protected
   Library dco_decode_RustOpaque_Library(dynamic raw);
-
-  @protected
-  Player dco_decode_RustOpaque_Player(dynamic raw);
 
   @protected
   RequestId
@@ -323,9 +317,6 @@ abstract class StellatuneApiApiImplPlatform
 
   @protected
   Library sse_decode_RustOpaque_Library(SseDeserializer deserializer);
-
-  @protected
-  Player sse_decode_RustOpaque_Player(SseDeserializer deserializer);
 
   @protected
   RequestId
@@ -639,9 +630,6 @@ abstract class StellatuneApiApiImplPlatform
 
   @protected
   void sse_encode_RustOpaque_Library(Library self, SseSerializer serializer);
-
-  @protected
-  void sse_encode_RustOpaque_Player(Player self, SseSerializer serializer);
 
   @protected
   void
@@ -1054,34 +1042,6 @@ class StellatuneApiWire implements BaseWire {
       );
   late final _rust_arc_decrement_strong_count_RustOpaque_Library =
       _rust_arc_decrement_strong_count_RustOpaque_LibraryPtr
-          .asFunction<void Function(ffi.Pointer<ffi.Void>)>();
-
-  void rust_arc_increment_strong_count_RustOpaque_Player(
-    ffi.Pointer<ffi.Void> ptr,
-  ) {
-    return _rust_arc_increment_strong_count_RustOpaque_Player(ptr);
-  }
-
-  late final _rust_arc_increment_strong_count_RustOpaque_PlayerPtr =
-      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Pointer<ffi.Void>)>>(
-        'frbgen_stellatune_rust_arc_increment_strong_count_RustOpaque_Player',
-      );
-  late final _rust_arc_increment_strong_count_RustOpaque_Player =
-      _rust_arc_increment_strong_count_RustOpaque_PlayerPtr
-          .asFunction<void Function(ffi.Pointer<ffi.Void>)>();
-
-  void rust_arc_decrement_strong_count_RustOpaque_Player(
-    ffi.Pointer<ffi.Void> ptr,
-  ) {
-    return _rust_arc_decrement_strong_count_RustOpaque_Player(ptr);
-  }
-
-  late final _rust_arc_decrement_strong_count_RustOpaque_PlayerPtr =
-      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Pointer<ffi.Void>)>>(
-        'frbgen_stellatune_rust_arc_decrement_strong_count_RustOpaque_Player',
-      );
-  late final _rust_arc_decrement_strong_count_RustOpaque_Player =
-      _rust_arc_decrement_strong_count_RustOpaque_PlayerPtr
           .asFunction<void Function(ffi.Pointer<ffi.Void>)>();
 
   void

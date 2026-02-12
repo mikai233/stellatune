@@ -8,8 +8,8 @@ use super::bus::{
     drain_finished_by_player_event, drain_timed_out_pending,
 };
 use super::control::control_wait_kind;
-use super::shared_runtime_host;
 use super::types::{ControlWaitKind, PendingControlFinish};
+use super::{runtime_prepare_hot_restart, shared_runtime_engine};
 
 #[test]
 fn parse_plugin_control_request_supports_extended_commands() {
@@ -154,27 +154,9 @@ fn timeout_drains_pending_control() {
 }
 
 #[test]
-fn runtime_host_hot_restart_evicts_stale_clients() {
-    let host = shared_runtime_host();
-    host.prepare_hot_restart();
-    assert_eq!(host.active_client_count(), 0);
-
-    let client_before_restart = host.attach_client();
-    assert_eq!(host.active_client_count(), 1);
-
-    host.prepare_hot_restart();
-    assert_eq!(host.active_client_count(), 0);
-
-    // Old-generation handles can still be dropped safely after eviction.
-    host.detach_client(client_before_restart);
-    assert_eq!(host.active_client_count(), 0);
-
-    let client_after_restart = host.attach_client();
-    assert_eq!(host.active_client_count(), 1);
-    assert!(
-        client_after_restart.generation() > client_before_restart.generation(),
-        "new client should belong to a newer runtime generation"
-    );
-    host.detach_client(client_after_restart);
-    assert_eq!(host.active_client_count(), 0);
+fn runtime_prepare_hot_restart_keeps_engine_available() {
+    let engine = shared_runtime_engine();
+    runtime_prepare_hot_restart();
+    // Shared engine should remain available after hot-restart preparation.
+    let _ = engine.current_track_info();
 }

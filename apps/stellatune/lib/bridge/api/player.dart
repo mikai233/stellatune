@@ -7,152 +7,100 @@ import '../frb_generated.dart';
 import '../third_party/stellatune_core.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `new`
+// These functions are ignored because they are not marked as `pub`: `engine`, `lyrics`, `normalize_json_payload`, `shared_player_context`
+// These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `PlayerContext`
 
-Future<Player> createPlayer() =>
-    StellatuneApi.instance.api.crateApiPlayerCreatePlayer();
-
-Future<void> disposePlayer({required Player player}) =>
-    StellatuneApi.instance.api.crateApiPlayerDisposePlayer(player: player);
-
-Future<void> switchTrackRef({
-  required Player player,
-  required TrackRef track,
-  required bool lazy,
-}) => StellatuneApi.instance.api.crateApiPlayerSwitchTrackRef(
-  player: player,
-  track: track,
-  lazy: lazy,
-);
-
-Future<void> play({required Player player}) =>
-    StellatuneApi.instance.api.crateApiPlayerPlay(player: player);
-
-Future<void> pause({required Player player}) =>
-    StellatuneApi.instance.api.crateApiPlayerPause(player: player);
-
-Future<void> seekMs({required Player player, required BigInt positionMs}) =>
-    StellatuneApi.instance.api.crateApiPlayerSeekMs(
-      player: player,
-      positionMs: positionMs,
+Future<void> switchTrackRef({required TrackRef track, required bool lazy}) =>
+    StellatuneApi.instance.api.crateApiPlayerSwitchTrackRef(
+      track: track,
+      lazy: lazy,
     );
 
-Future<void> setVolume({required Player player, required double volume}) =>
-    StellatuneApi.instance.api.crateApiPlayerSetVolume(
-      player: player,
-      volume: volume,
-    );
+Future<void> play() => StellatuneApi.instance.api.crateApiPlayerPlay();
 
-Future<void> stop({required Player player}) =>
-    StellatuneApi.instance.api.crateApiPlayerStop(player: player);
+Future<void> pause() => StellatuneApi.instance.api.crateApiPlayerPause();
 
-Stream<Event> events({required Player player}) =>
-    StellatuneApi.instance.api.crateApiPlayerEvents(player: player);
+Future<void> seekMs({required BigInt positionMs}) =>
+    StellatuneApi.instance.api.crateApiPlayerSeekMs(positionMs: positionMs);
+
+Future<void> setVolume({required double volume}) =>
+    StellatuneApi.instance.api.crateApiPlayerSetVolume(volume: volume);
+
+Future<void> stop() => StellatuneApi.instance.api.crateApiPlayerStop();
+
+Stream<Event> events() => StellatuneApi.instance.api.crateApiPlayerEvents();
 
 Stream<PluginRuntimeEvent> pluginRuntimeEventsGlobal() =>
     StellatuneApi.instance.api.crateApiPlayerPluginRuntimeEventsGlobal();
 
-Future<void> lyricsPrepare({
-  required Player player,
-  required LyricsQuery query,
-}) => StellatuneApi.instance.api.crateApiPlayerLyricsPrepare(
-  player: player,
-  query: query,
-);
+Future<void> lyricsPrepare({required LyricsQuery query}) =>
+    StellatuneApi.instance.api.crateApiPlayerLyricsPrepare(query: query);
 
-Future<void> lyricsPrefetch({
-  required Player player,
-  required LyricsQuery query,
-}) => StellatuneApi.instance.api.crateApiPlayerLyricsPrefetch(
-  player: player,
-  query: query,
-);
+Future<void> lyricsPrefetch({required LyricsQuery query}) =>
+    StellatuneApi.instance.api.crateApiPlayerLyricsPrefetch(query: query);
 
 Future<List<LyricsSearchCandidate>> lyricsSearchCandidates({
-  required Player player,
   required LyricsQuery query,
 }) => StellatuneApi.instance.api.crateApiPlayerLyricsSearchCandidates(
-  player: player,
   query: query,
 );
 
 Future<void> lyricsApplyCandidate({
-  required Player player,
   required String trackKey,
   required LyricsDoc doc,
 }) => StellatuneApi.instance.api.crateApiPlayerLyricsApplyCandidate(
-  player: player,
   trackKey: trackKey,
   doc: doc,
 );
 
-Future<void> lyricsSetCacheDbPath({
-  required Player player,
-  required String dbPath,
-}) => StellatuneApi.instance.api.crateApiPlayerLyricsSetCacheDbPath(
-  player: player,
-  dbPath: dbPath,
-);
-
-Future<void> lyricsClearCache({required Player player}) =>
-    StellatuneApi.instance.api.crateApiPlayerLyricsClearCache(player: player);
-
-Future<void> lyricsRefreshCurrent({required Player player}) => StellatuneApi
+Future<void> lyricsSetCacheDbPath({required String dbPath}) => StellatuneApi
     .instance
     .api
-    .crateApiPlayerLyricsRefreshCurrent(player: player);
+    .crateApiPlayerLyricsSetCacheDbPath(dbPath: dbPath);
 
-Future<void> lyricsSetPositionMs({
-  required Player player,
-  required BigInt positionMs,
-}) => StellatuneApi.instance.api.crateApiPlayerLyricsSetPositionMs(
-  player: player,
-  positionMs: positionMs,
-);
+Future<void> lyricsClearCache() =>
+    StellatuneApi.instance.api.crateApiPlayerLyricsClearCache();
 
-Stream<LyricsEvent> lyricsEvents({required Player player}) =>
-    StellatuneApi.instance.api.crateApiPlayerLyricsEvents(player: player);
+Future<void> lyricsRefreshCurrent() =>
+    StellatuneApi.instance.api.crateApiPlayerLyricsRefreshCurrent();
 
-Future<List<PluginDescriptor>> pluginsList({required Player player}) =>
-    StellatuneApi.instance.api.crateApiPlayerPluginsList(player: player);
+Future<void> lyricsSetPositionMs({required BigInt positionMs}) => StellatuneApi
+    .instance
+    .api
+    .crateApiPlayerLyricsSetPositionMs(positionMs: positionMs);
+
+Stream<LyricsEvent> lyricsEvents() =>
+    StellatuneApi.instance.api.crateApiPlayerLyricsEvents();
+
+Future<List<PluginDescriptor>> pluginsList() =>
+    StellatuneApi.instance.api.crateApiPlayerPluginsList();
 
 Future<void> pluginPublishEventJson({
-  required Player player,
   String? pluginId,
   required String eventJson,
 }) => StellatuneApi.instance.api.crateApiPlayerPluginPublishEventJson(
-  player: player,
   pluginId: pluginId,
   eventJson: eventJson,
 );
 
-Future<List<DspTypeDescriptor>> dspListTypes({required Player player}) =>
-    StellatuneApi.instance.api.crateApiPlayerDspListTypes(player: player);
+Future<List<DspTypeDescriptor>> dspListTypes() =>
+    StellatuneApi.instance.api.crateApiPlayerDspListTypes();
 
-Future<List<SourceCatalogTypeDescriptor>> sourceListTypes({
-  required Player player,
-}) => StellatuneApi.instance.api.crateApiPlayerSourceListTypes(player: player);
+Future<List<SourceCatalogTypeDescriptor>> sourceListTypes() =>
+    StellatuneApi.instance.api.crateApiPlayerSourceListTypes();
 
-Future<List<LyricsProviderTypeDescriptor>> lyricsProviderListTypes({
-  required Player player,
-}) => StellatuneApi.instance.api.crateApiPlayerLyricsProviderListTypes(
-  player: player,
-);
+Future<List<LyricsProviderTypeDescriptor>> lyricsProviderListTypes() =>
+    StellatuneApi.instance.api.crateApiPlayerLyricsProviderListTypes();
 
-Future<List<OutputSinkTypeDescriptor>> outputSinkListTypes({
-  required Player player,
-}) => StellatuneApi.instance.api.crateApiPlayerOutputSinkListTypes(
-  player: player,
-);
+Future<List<OutputSinkTypeDescriptor>> outputSinkListTypes() =>
+    StellatuneApi.instance.api.crateApiPlayerOutputSinkListTypes();
 
 Future<String> sourceListItemsJson({
-  required Player player,
   required String pluginId,
   required String typeId,
   required String configJson,
   required String requestJson,
 }) => StellatuneApi.instance.api.crateApiPlayerSourceListItemsJson(
-  player: player,
   pluginId: pluginId,
   typeId: typeId,
   configJson: configJson,
@@ -160,51 +108,40 @@ Future<String> sourceListItemsJson({
 );
 
 Future<String> lyricsProviderSearchJson({
-  required Player player,
   required String pluginId,
   required String typeId,
   required String queryJson,
 }) => StellatuneApi.instance.api.crateApiPlayerLyricsProviderSearchJson(
-  player: player,
   pluginId: pluginId,
   typeId: typeId,
   queryJson: queryJson,
 );
 
 Future<String> lyricsProviderFetchJson({
-  required Player player,
   required String pluginId,
   required String typeId,
   required String trackJson,
 }) => StellatuneApi.instance.api.crateApiPlayerLyricsProviderFetchJson(
-  player: player,
   pluginId: pluginId,
   typeId: typeId,
   trackJson: trackJson,
 );
 
 Future<String> outputSinkListTargetsJson({
-  required Player player,
   required String pluginId,
   required String typeId,
   required String configJson,
 }) => StellatuneApi.instance.api.crateApiPlayerOutputSinkListTargetsJson(
-  player: player,
   pluginId: pluginId,
   typeId: typeId,
   configJson: configJson,
 );
 
-Future<void> dspSetChain({
-  required Player player,
-  required List<DspChainItem> chain,
-}) => StellatuneApi.instance.api.crateApiPlayerDspSetChain(
-  player: player,
-  chain: chain,
-);
+Future<void> dspSetChain({required List<DspChainItem> chain}) =>
+    StellatuneApi.instance.api.crateApiPlayerDspSetChain(chain: chain);
 
-Future<TrackDecodeInfo?> currentTrackInfo({required Player player}) =>
-    StellatuneApi.instance.api.crateApiPlayerCurrentTrackInfo(player: player);
+Future<TrackDecodeInfo?> currentTrackInfo() =>
+    StellatuneApi.instance.api.crateApiPlayerCurrentTrackInfo();
 
 Future<String> pluginsInstallFromFile({
   required String pluginsDir,
@@ -227,71 +164,47 @@ Future<void> pluginsUninstallById({
   pluginId: pluginId,
 );
 
-Future<void> refreshDevices({required Player player}) =>
-    StellatuneApi.instance.api.crateApiPlayerRefreshDevices(player: player);
+Future<List<AudioDevice>> refreshDevices() =>
+    StellatuneApi.instance.api.crateApiPlayerRefreshDevices();
 
 Future<void> setOutputDevice({
-  required Player player,
   required AudioBackend backend,
   String? deviceId,
 }) => StellatuneApi.instance.api.crateApiPlayerSetOutputDevice(
-  player: player,
   backend: backend,
   deviceId: deviceId,
 );
 
 Future<void> setOutputOptions({
-  required Player player,
   required bool matchTrackSampleRate,
   required bool gaplessPlayback,
   required bool seekTrackFade,
 }) => StellatuneApi.instance.api.crateApiPlayerSetOutputOptions(
-  player: player,
   matchTrackSampleRate: matchTrackSampleRate,
   gaplessPlayback: gaplessPlayback,
   seekTrackFade: seekTrackFade,
 );
 
-Future<void> setOutputSinkRoute({
-  required Player player,
-  required OutputSinkRoute route,
-}) => StellatuneApi.instance.api.crateApiPlayerSetOutputSinkRoute(
-  player: player,
-  route: route,
-);
+Future<void> setOutputSinkRoute({required OutputSinkRoute route}) =>
+    StellatuneApi.instance.api.crateApiPlayerSetOutputSinkRoute(route: route);
 
-Future<void> clearOutputSinkRoute({required Player player}) => StellatuneApi
-    .instance
-    .api
-    .crateApiPlayerClearOutputSinkRoute(player: player);
+Future<void> clearOutputSinkRoute() =>
+    StellatuneApi.instance.api.crateApiPlayerClearOutputSinkRoute();
 
-Future<void> preloadTrack({
-  required Player player,
-  required String path,
-  required BigInt positionMs,
-}) => StellatuneApi.instance.api.crateApiPlayerPreloadTrack(
-  player: player,
-  path: path,
-  positionMs: positionMs,
-);
+Future<void> preloadTrack({required String path, required BigInt positionMs}) =>
+    StellatuneApi.instance.api.crateApiPlayerPreloadTrack(
+      path: path,
+      positionMs: positionMs,
+    );
 
 Future<void> preloadTrackRef({
-  required Player player,
   required TrackRef track,
   required BigInt positionMs,
 }) => StellatuneApi.instance.api.crateApiPlayerPreloadTrackRef(
-  player: player,
   track: track,
   positionMs: positionMs,
 );
 
 Future<List<TrackPlayability>> canPlayTrackRefs({
-  required Player player,
   required List<TrackRef> tracks,
-}) => StellatuneApi.instance.api.crateApiPlayerCanPlayTrackRefs(
-  player: player,
-  tracks: tracks,
-);
-
-// Rust type: RustOpaqueMoi<Player>
-abstract class Player implements RustOpaqueInterface {}
+}) => StellatuneApi.instance.api.crateApiPlayerCanPlayTrackRefs(tracks: tracks);

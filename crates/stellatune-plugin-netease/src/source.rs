@@ -20,6 +20,47 @@ use stellatune_plugin_sdk::{
 const DEFAULT_SIDECAR_BASE_URL: &str = "http://127.0.0.1:46321";
 const DEFAULT_REQUEST_TIMEOUT_MS: u64 = 8_000;
 const DEFAULT_LEVEL: &str = "standard";
+const SIDECAR_READY_TIMEOUT_SECS: u64 = 10;
+const SIDECAR_HEALTH_TIMEOUT_MS: u64 = 1_200;
+const SIDECAR_START_RETRY_BASE_COOLDOWN_MS: u64 = 2_000;
+const SIDECAR_START_RETRY_MAX_COOLDOWN_MS: u64 = 30_000;
+
+static SIDECAR_START_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+static SIDECAR_START_STATE: OnceLock<Mutex<SidecarStartState>> = OnceLock::new();
+
+#[derive(Debug, Default)]
+struct SidecarStartState {
+    consecutive_failures: u32,
+    last_failure_at: Option<Instant>,
+}
+
+impl SidecarStartState {
+    fn mark_success(&mut self) {
+        self.consecutive_failures = 0;
+        self.last_failure_at = None;
+    }
+
+    fn mark_failure(&mut self) {
+        self.consecutive_failures = self.consecutive_failures.saturating_add(1);
+        self.last_failure_at = Some(Instant::now());
+    }
+
+    fn current_cooldown(&self) -> Duration {
+        let exp = self.consecutive_failures.saturating_sub(1).min(4u32);
+        let factor = 1u64.checked_shl(exp).unwrap_or(u64::MAX);
+        let cooldown_ms = SIDECAR_START_RETRY_BASE_COOLDOWN_MS
+            .saturating_mul(factor)
+            .min(SIDECAR_START_RETRY_MAX_COOLDOWN_MS);
+        Duration::from_millis(cooldown_ms)
+    }
+
+    fn remaining_cooldown(&self) -> Option<Duration> {
+        let failed_at = self.last_failure_at?;
+        let cooldown = self.current_cooldown();
+        let elapsed = failed_at.elapsed();
+        (elapsed < cooldown).then(|| cooldown - elapsed)
+    }
+}
 
 const CONFIG_SCHEMA_JSON: &str = r#"{
   "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -640,10 +681,37 @@ fn sidecar_get_json<T: DeserializeOwned>(
 
 fn sidecar_client(config: &NeteaseSourceConfig) -> SdkResult<reqwest::blocking::Client> {
     let timeout_ms = config.request_timeout_ms.max(500);
+    sidecar_client_with_timeout(timeout_ms)
+}
+
+fn sidecar_health_client(config: &NeteaseSourceConfig) -> SdkResult<reqwest::blocking::Client> {
+    let timeout_ms = config
+        .request_timeout_ms
+        .max(500)
+        .min(SIDECAR_HEALTH_TIMEOUT_MS);
+    sidecar_client_with_timeout(timeout_ms)
+}
+
+fn sidecar_client_with_timeout(timeout_ms: u64) -> SdkResult<reqwest::blocking::Client> {
     reqwest::blocking::Client::builder()
         .timeout(Duration::from_millis(timeout_ms))
         .build()
-        .map_err(|e| SdkError::msg(format!("create sidecar client failed: {e}")))
+        .map_err(|e| {
+            SdkError::msg(format!(
+                "create sidecar client failed (timeout_ms={timeout_ms}): {e}"
+            ))
+        })
+}
+
+fn reset_sidecar_start_state_if_needed() {
+    let Some(state_lock) = SIDECAR_START_STATE.get() else {
+        return;
+    };
+    if let Ok(mut state) = state_lock.lock()
+        && state.consecutive_failures != 0
+    {
+        state.mark_success();
+    }
 }
 
 fn shutdown_sidecar(config: &NeteaseSourceConfig) -> SdkResult<()> {
@@ -684,6 +752,7 @@ fn ensure_sidecar_running(config: &NeteaseSourceConfig) -> SdkResult<()> {
 
     match sidecar_health_result(config) {
         Ok(true) => {
+            reset_sidecar_start_state_if_needed();
             host_log(StLogLevel::Debug, "netease sidecar already healthy");
             return Ok(());
         }
@@ -701,14 +770,14 @@ fn ensure_sidecar_running(config: &NeteaseSourceConfig) -> SdkResult<()> {
         }
     }
 
-    static START_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    let lock = START_LOCK.get_or_init(|| Mutex::new(()));
+    let lock = SIDECAR_START_LOCK.get_or_init(|| Mutex::new(()));
     let _guard = lock
         .lock()
         .map_err(|_| SdkError::msg("sidecar start mutex poisoned"))?;
 
     match sidecar_health_result(config) {
         Ok(true) => {
+            reset_sidecar_start_state_if_needed();
             host_log(
                 StLogLevel::Debug,
                 "netease sidecar became healthy while waiting start lock",
@@ -724,12 +793,61 @@ fn ensure_sidecar_running(config: &NeteaseSourceConfig) -> SdkResult<()> {
         }
     }
 
-    spawn_sidecar_process(config)?;
-    wait_sidecar_ready(config)
+    let state_lock = SIDECAR_START_STATE.get_or_init(|| Mutex::new(SidecarStartState::default()));
+    {
+        let state = state_lock
+            .lock()
+            .map_err(|_| SdkError::msg("sidecar start state mutex poisoned"))?;
+        if let Some(remaining) = state.remaining_cooldown() {
+            let remaining_ms = remaining.as_millis();
+            host_log(
+                StLogLevel::Warn,
+                &format!(
+                    "netease sidecar start throttled consecutive_failures={} cooldown_remaining_ms={remaining_ms}",
+                    state.consecutive_failures
+                ),
+            );
+            return Err(SdkError::msg(format!(
+                "sidecar start throttled after repeated failures; retry after {remaining_ms} ms"
+            )));
+        }
+    }
+
+    let start_result = spawn_sidecar_process(config).and_then(|_| wait_sidecar_ready(config));
+    let mut state = state_lock
+        .lock()
+        .map_err(|_| SdkError::msg("sidecar start state mutex poisoned"))?;
+    match start_result {
+        Ok(()) => {
+            if state.consecutive_failures != 0 {
+                host_log(
+                    StLogLevel::Info,
+                    &format!(
+                        "netease sidecar recovered after {} failed starts",
+                        state.consecutive_failures
+                    ),
+                );
+            }
+            state.mark_success();
+            Ok(())
+        }
+        Err(err) => {
+            state.mark_failure();
+            let cooldown_ms = state.current_cooldown().as_millis();
+            host_log(
+                StLogLevel::Warn,
+                &format!(
+                    "netease sidecar start failed consecutive_failures={} next_retry_cooldown_ms={cooldown_ms}: {err}",
+                    state.consecutive_failures
+                ),
+            );
+            Err(err)
+        }
+    }
 }
 
 fn wait_sidecar_ready(config: &NeteaseSourceConfig) -> SdkResult<()> {
-    let deadline = Instant::now() + Duration::from_secs(6);
+    let deadline = Instant::now() + Duration::from_secs(SIDECAR_READY_TIMEOUT_SECS);
     let mut attempts: u32 = 0;
     while Instant::now() < deadline {
         attempts = attempts.saturating_add(1);
@@ -771,7 +889,7 @@ fn wait_sidecar_ready(config: &NeteaseSourceConfig) -> SdkResult<()> {
 }
 
 fn sidecar_health_result(config: &NeteaseSourceConfig) -> Result<bool, String> {
-    let client = sidecar_client(config).map_err(|e| e.to_string())?;
+    let client = sidecar_health_client(config).map_err(|e| e.to_string())?;
     let url = format!("{}/health", normalize_base_url(&config.sidecar_base_url));
     let response = client
         .get(url)

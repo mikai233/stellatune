@@ -348,9 +348,27 @@ mod debug_metrics {
 }
 
 /// Handle used by higher layers (e.g. FFI) to drive the player.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum CommandResponse {
+    Ack,
+    OutputDevices {
+        devices: Vec<stellatune_core::AudioDevice>,
+    },
+}
+
+enum CommandReplyTx {
+    Blocking(Sender<Result<CommandResponse, String>>),
+    Async(tokio::sync::oneshot::Sender<Result<CommandResponse, String>>),
+}
+
+struct CommandMessage {
+    command: Command,
+    resp_tx: Option<CommandReplyTx>,
+}
+
 #[derive(Clone)]
 pub struct EngineHandle {
-    cmd_tx: Sender<Command>,
+    cmd_tx: Sender<CommandMessage>,
     engine_ctrl_tx: Sender<EngineCtrl>,
     events: Arc<EventHub>,
     track_info: SharedTrackInfo,
@@ -370,8 +388,138 @@ impl EngineHandle {
             .map_err(|_| "control thread dropped query response".to_string())?
     }
 
-    pub fn send_command(&self, cmd: Command) {
-        let _ = self.cmd_tx.send(cmd);
+    async fn send_command_async(&self, cmd: Command) -> Result<CommandResponse, String> {
+        let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
+        self.cmd_tx
+            .send(CommandMessage {
+                command: cmd,
+                resp_tx: Some(CommandReplyTx::Async(resp_tx)),
+            })
+            .map_err(|_| "control thread exited".to_string())?;
+        resp_rx
+            .await
+            .map_err(|_| "control thread dropped command response".to_string())?
+    }
+
+    fn send_command_blocking_inner(&self, cmd: Command) -> Result<CommandResponse, String> {
+        let (resp_tx, resp_rx) = crossbeam_channel::bounded(1);
+        self.cmd_tx
+            .send(CommandMessage {
+                command: cmd,
+                resp_tx: Some(CommandReplyTx::Blocking(resp_tx)),
+            })
+            .map_err(|_| "control thread exited".to_string())?;
+        resp_rx
+            .recv()
+            .map_err(|_| "control thread dropped command response".to_string())?
+    }
+
+    pub fn dispatch_command_blocking(&self, cmd: Command) -> Result<(), String> {
+        self.send_command_blocking_inner(cmd).map(|_| ())
+    }
+
+    fn expect_ack(resp: CommandResponse) -> Result<(), String> {
+        match resp {
+            CommandResponse::Ack => Ok(()),
+            CommandResponse::OutputDevices { .. } => {
+                Err("unexpected command response payload".to_string())
+            }
+        }
+    }
+
+    pub async fn switch_track_ref_async(&self, track: TrackRef, lazy: bool) -> Result<(), String> {
+        Self::expect_ack(
+            self.send_command_async(Command::SwitchTrackRef { track, lazy })
+                .await?,
+        )
+    }
+
+    pub async fn play_async(&self) -> Result<(), String> {
+        Self::expect_ack(self.send_command_async(Command::Play).await?)
+    }
+
+    pub async fn pause_async(&self) -> Result<(), String> {
+        Self::expect_ack(self.send_command_async(Command::Pause).await?)
+    }
+
+    pub async fn seek_ms_async(&self, position_ms: u64) -> Result<(), String> {
+        Self::expect_ack(
+            self.send_command_async(Command::SeekMs { position_ms })
+                .await?,
+        )
+    }
+
+    pub async fn set_volume_async(&self, volume: f32) -> Result<(), String> {
+        Self::expect_ack(
+            self.send_command_async(Command::SetVolume { volume })
+                .await?,
+        )
+    }
+
+    pub async fn stop_async(&self) -> Result<(), String> {
+        Self::expect_ack(self.send_command_async(Command::Stop).await?)
+    }
+
+    pub async fn set_output_device_async(
+        &self,
+        backend: stellatune_core::AudioBackend,
+        device_id: Option<String>,
+    ) -> Result<(), String> {
+        Self::expect_ack(
+            self.send_command_async(Command::SetOutputDevice { backend, device_id })
+                .await?,
+        )
+    }
+
+    pub async fn set_output_options_async(
+        &self,
+        match_track_sample_rate: bool,
+        gapless_playback: bool,
+        seek_track_fade: bool,
+    ) -> Result<(), String> {
+        Self::expect_ack(
+            self.send_command_async(Command::SetOutputOptions {
+                match_track_sample_rate,
+                gapless_playback,
+                seek_track_fade,
+            })
+            .await?,
+        )
+    }
+
+    pub async fn set_output_sink_route_async(
+        &self,
+        route: stellatune_core::OutputSinkRoute,
+    ) -> Result<(), String> {
+        Self::expect_ack(
+            self.send_command_async(Command::SetOutputSinkRoute { route })
+                .await?,
+        )
+    }
+
+    pub async fn clear_output_sink_route_async(&self) -> Result<(), String> {
+        Self::expect_ack(
+            self.send_command_async(Command::ClearOutputSinkRoute)
+                .await?,
+        )
+    }
+
+    pub async fn preload_track_ref_async(
+        &self,
+        track: TrackRef,
+        position_ms: u64,
+    ) -> Result<(), String> {
+        Self::expect_ack(
+            self.send_command_async(Command::PreloadTrackRef { track, position_ms })
+                .await?,
+        )
+    }
+
+    pub async fn refresh_devices_async(&self) -> Result<Vec<stellatune_core::AudioDevice>, String> {
+        match self.send_command_async(Command::RefreshDevices).await? {
+            CommandResponse::OutputDevices { devices } => Ok(devices),
+            CommandResponse::Ack => Err("unexpected command response payload".to_string()),
+        }
     }
 
     pub fn set_dsp_chain(&self, chain: Vec<stellatune_core::DspChainItem>) {
@@ -806,7 +954,7 @@ struct PreloadWorker {
 }
 
 struct ControlLoopChannels {
-    cmd_rx: Receiver<Command>,
+    cmd_rx: Receiver<CommandMessage>,
     engine_ctrl_rx: Receiver<EngineCtrl>,
     internal_rx: Receiver<InternalMsg>,
     internal_tx: Sender<InternalMsg>,
@@ -898,13 +1046,24 @@ fn run_control_loop(channels: ControlLoopChannels, deps: ControlLoopDeps) {
         crossbeam_channel::select! {
             recv(cmd_rx) -> msg => {
                 let Ok(cmd) = msg else { break };
-                if handle_command(
-                    cmd,
+                let result = handle_command(
+                    cmd.command,
                     &mut state,
                     &events,
                     &internal_tx,
                     &track_info,
-                ) {
+                );
+                if let Some(resp_tx) = cmd.resp_tx {
+                    match resp_tx {
+                        CommandReplyTx::Blocking(tx) => {
+                            let _ = tx.send(result.response);
+                        }
+                        CommandReplyTx::Async(tx) => {
+                            let _ = tx.send(result.response);
+                        }
+                    }
+                }
+                if result.should_shutdown {
                     break;
                 }
             }

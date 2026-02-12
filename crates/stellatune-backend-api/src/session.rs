@@ -1,7 +1,10 @@
 use anyhow::Result;
 
 use crate::library::LibraryService;
-use crate::player::PlayerService;
+use crate::lyrics_service::LyricsService;
+use crate::runtime::shared_runtime_engine;
+use std::sync::Arc;
+use stellatune_audio::EngineHandle;
 
 #[derive(Debug, Clone, Default)]
 pub struct BackendSessionOptions {
@@ -24,29 +27,40 @@ pub struct LibrarySessionOptions {
 }
 
 pub struct BackendSession {
-    player: PlayerService,
+    player: Arc<EngineHandle>,
+    lyrics: Arc<LyricsService>,
     library: Option<LibraryService>,
 }
 
 impl BackendSession {
     pub fn new() -> Self {
         Self {
-            player: PlayerService::new(),
+            player: shared_runtime_engine(),
+            lyrics: LyricsService::new(),
             library: None,
         }
     }
 
     pub fn from_options(options: BackendSessionOptions) -> Result<Self> {
-        let player = PlayerService::new();
+        let player = shared_runtime_engine();
+        let lyrics = LyricsService::new();
         let library = match options.library {
             Some(opts) => Some(LibraryService::new(opts.db_path)?),
             None => None,
         };
-        Ok(Self { player, library })
+        Ok(Self {
+            player,
+            lyrics,
+            library,
+        })
     }
 
-    pub fn player(&self) -> &PlayerService {
+    pub fn player(&self) -> &Arc<EngineHandle> {
         &self.player
+    }
+
+    pub fn lyrics(&self) -> &Arc<LyricsService> {
+        &self.lyrics
     }
 
     pub fn library(&self) -> Option<&LibraryService> {

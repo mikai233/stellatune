@@ -3122,6 +3122,7 @@ dependencies = [
  "stellatune-plugin-api",
  "stellatune-plugins",
  "thiserror 2.0.18",
+ "tokio",
  "tracing",
 ]
 
@@ -3184,6 +3185,7 @@ dependencies = [
  "roxmltree",
  "serde_json",
  "socket2",
+ "stellatune-audio",
  "stellatune-backend-api",
  "stellatune-core",
  "stellatune-plugin-protocol",

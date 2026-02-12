@@ -20,16 +20,7 @@ final settingsStoreProvider = NotifierProvider<SettingsStore, SettingsStore>(
   SettingsStore.new,
 );
 
-final audioDevicesProvider = StreamProvider<List<AudioDevice>>((ref) async* {
+final audioDevicesProvider = FutureProvider<List<AudioDevice>>((ref) async {
   final bridge = ref.watch(playerBridgeProvider);
-  yield* bridge
-      .events()
-      .asyncMap((event) async {
-        return event.maybeWhen(
-          outputDevicesChanged: (devices) => devices,
-          orElse: () => null,
-        );
-      })
-      .where((devices) => devices != null)
-      .cast<List<AudioDevice>>();
+  return bridge.refreshDevices();
 });

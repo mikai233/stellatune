@@ -3,8 +3,8 @@ use std::sync::Arc;
 use crossbeam_channel::Sender;
 
 use super::{
-    Command, DecodeCtrl, EngineState, Event, EventHub, InternalMsg, PlayerState, SessionStopMode,
-    SharedTrackInfo, debug_metrics, drop_output_pipeline, enqueue_preload_task,
+    Command, CommandResponse, DecodeCtrl, EngineState, Event, EventHub, InternalMsg, PlayerState,
+    SessionStopMode, SharedTrackInfo, debug_metrics, drop_output_pipeline, enqueue_preload_task,
     ensure_output_spec_prewarm, force_transition_gain_unity, handle_tick,
     maybe_fade_out_before_disrupt, output_backend_for_selected, parse_output_sink_route, set_state,
     stop_all_audio, stop_decode_session, sync_output_sink_with_active_session,
@@ -31,13 +31,18 @@ struct CommandCtx<'a> {
     track_info: &'a SharedTrackInfo,
 }
 
+pub(super) struct CommandHandleResult {
+    pub(super) should_shutdown: bool,
+    pub(super) response: Result<CommandResponse, String>,
+}
+
 pub(super) fn handle_command(
     cmd: Command,
     state: &mut EngineState,
     events: &Arc<EventHub>,
     internal_tx: &Sender<InternalMsg>,
     track_info: &SharedTrackInfo,
-) -> bool {
+) -> CommandHandleResult {
     let mut ctx = CommandCtx {
         state,
         events,
@@ -45,16 +50,24 @@ pub(super) fn handle_command(
         track_info,
     };
 
-    match cmd {
-        Command::SwitchTrackRef { track, lazy } => on_switch_track_ref(&mut ctx, track, lazy),
-        Command::Play => on_play(&mut ctx),
-        Command::Pause => on_pause(&mut ctx),
-        Command::SeekMs { position_ms } => on_seek_ms(&mut ctx, position_ms),
-        Command::SetVolume { volume } => on_set_volume(&mut ctx, volume),
-        Command::SetLfeMode { mode } => on_set_lfe_mode(&mut ctx, mode),
-        Command::Stop => on_stop(&mut ctx),
+    let response = match cmd {
+        Command::SwitchTrackRef { track, lazy } => {
+            on_switch_track_ref(&mut ctx, track, lazy).map(|_| CommandResponse::Ack)
+        }
+        Command::Play => on_play(&mut ctx).map(|_| CommandResponse::Ack),
+        Command::Pause => on_pause(&mut ctx).map(|_| CommandResponse::Ack),
+        Command::SeekMs { position_ms } => {
+            on_seek_ms(&mut ctx, position_ms).map(|_| CommandResponse::Ack)
+        }
+        Command::SetVolume { volume } => {
+            on_set_volume(&mut ctx, volume).map(|_| CommandResponse::Ack)
+        }
+        Command::SetLfeMode { mode } => {
+            on_set_lfe_mode(&mut ctx, mode).map(|_| CommandResponse::Ack)
+        }
+        Command::Stop => on_stop(&mut ctx).map(|_| CommandResponse::Ack),
         Command::SetOutputDevice { backend, device_id } => {
-            on_set_output_device(&mut ctx, backend, device_id)
+            on_set_output_device(&mut ctx, backend, device_id).map(|_| CommandResponse::Ack)
         }
         Command::SetOutputOptions {
             match_track_sample_rate,
@@ -65,20 +78,42 @@ pub(super) fn handle_command(
             match_track_sample_rate,
             gapless_playback,
             seek_track_fade,
-        ),
-        Command::SetOutputSinkRoute { route } => on_set_output_sink_route(&mut ctx, route),
-        Command::ClearOutputSinkRoute => on_clear_output_sink_route(&mut ctx),
+        )
+        .map(|_| CommandResponse::Ack),
+        Command::SetOutputSinkRoute { route } => {
+            on_set_output_sink_route(&mut ctx, route).map(|_| CommandResponse::Ack)
+        }
+        Command::ClearOutputSinkRoute => {
+            on_clear_output_sink_route(&mut ctx).map(|_| CommandResponse::Ack)
+        }
         Command::PreloadTrack { path, position_ms } => {
-            on_preload_track(&mut ctx, path, position_ms)
+            on_preload_track(&mut ctx, path, position_ms).map(|_| CommandResponse::Ack)
         }
         Command::PreloadTrackRef { track, position_ms } => {
-            on_preload_track_ref(&mut ctx, track, position_ms)
+            on_preload_track_ref(&mut ctx, track, position_ms).map(|_| CommandResponse::Ack)
         }
-        Command::RefreshDevices => on_refresh_devices(&mut ctx),
-        Command::Shutdown => return on_shutdown(&mut ctx),
+        Command::RefreshDevices => {
+            on_refresh_devices(&mut ctx).map(|devices| CommandResponse::OutputDevices { devices })
+        }
+        Command::Shutdown => {
+            on_shutdown(&mut ctx);
+            return CommandHandleResult {
+                should_shutdown: true,
+                response: Ok(CommandResponse::Ack),
+            };
+        }
+    };
+
+    if let Err(message) = &response {
+        events.emit(Event::Error {
+            message: message.clone(),
+        });
     }
 
-    false
+    CommandHandleResult {
+        should_shutdown: false,
+        response,
+    }
 }
 
 fn ui_volume_to_gain(ui: f32) -> f32 {

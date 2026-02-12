@@ -7,7 +7,7 @@ use super::{
     ui_volume_to_gain,
 };
 
-pub(super) fn on_set_volume(ctx: &mut CommandCtx<'_>, volume: f32) {
+pub(super) fn on_set_volume(ctx: &mut CommandCtx<'_>, volume: f32) -> Result<(), String> {
     let ui = volume.clamp(0.0, 1.0);
     let gain = ui_volume_to_gain(ui);
     ctx.state.volume = ui;
@@ -15,20 +15,25 @@ pub(super) fn on_set_volume(ctx: &mut CommandCtx<'_>, volume: f32) {
         .volume_atomic
         .store(gain.to_bits(), Ordering::Relaxed);
     ctx.events.emit(Event::VolumeChanged { volume: ui });
+    Ok(())
 }
 
-pub(super) fn on_set_lfe_mode(ctx: &mut CommandCtx<'_>, mode: stellatune_core::LfeMode) {
+pub(super) fn on_set_lfe_mode(
+    ctx: &mut CommandCtx<'_>,
+    mode: stellatune_core::LfeMode,
+) -> Result<(), String> {
     ctx.state.lfe_mode = mode;
     if let Some(session) = ctx.state.session.as_ref() {
         let _ = session.ctrl_tx.send(DecodeCtrl::SetLfeMode { mode });
     }
+    Ok(())
 }
 
 pub(super) fn on_set_output_device(
     ctx: &mut CommandCtx<'_>,
     backend: stellatune_core::AudioBackend,
     device_id: Option<String>,
-) {
+) -> Result<(), String> {
     ctx.state.selected_backend = backend;
     ctx.state.selected_device_id = device_id;
     ctx.state.cached_output_spec = None;
@@ -43,6 +48,7 @@ pub(super) fn on_set_output_device(
     if ctx.state.wants_playback {
         ctx.state.pending_session_start = true;
     }
+    Ok(())
 }
 
 pub(super) fn on_set_output_options(
@@ -50,7 +56,7 @@ pub(super) fn on_set_output_options(
     match_track_sample_rate: bool,
     gapless_playback: bool,
     seek_track_fade: bool,
-) {
+) -> Result<(), String> {
     if !seek_track_fade {
         force_transition_gain_unity(ctx.state.session.as_ref());
     }
@@ -71,18 +77,16 @@ pub(super) fn on_set_output_options(
             drop_output_pipeline(ctx.state);
         }
     }
+    Ok(())
 }
 
 pub(super) fn on_set_output_sink_route(
     ctx: &mut CommandCtx<'_>,
     route: stellatune_core::OutputSinkRoute,
-) {
+) -> Result<(), String> {
     let parsed_route = match parse_output_sink_route(route) {
         Ok(route) => route,
-        Err(message) => {
-            ctx.events.emit(Event::Error { message });
-            return;
-        }
+        Err(message) => return Err(message),
     };
     let mode_changed = ctx.state.desired_output_sink_route.is_none();
     let route_changed = ctx.state.desired_output_sink_route.as_ref() != Some(&parsed_route);
@@ -105,11 +109,12 @@ pub(super) fn on_set_output_sink_route(
         }
     }
     if let Err(message) = sync_output_sink_with_active_session(ctx.state, ctx.internal_tx) {
-        ctx.events.emit(Event::Error { message });
+        return Err(message);
     }
+    Ok(())
 }
 
-pub(super) fn on_clear_output_sink_route(ctx: &mut CommandCtx<'_>) {
+pub(super) fn on_clear_output_sink_route(ctx: &mut CommandCtx<'_>) -> Result<(), String> {
     let mode_changed = ctx.state.desired_output_sink_route.is_some();
     ctx.state.desired_output_sink_route = None;
     ctx.state.output_sink_chunk_frames = 0;
@@ -130,24 +135,30 @@ pub(super) fn on_clear_output_sink_route(ctx: &mut CommandCtx<'_>) {
         }
     }
     if let Err(message) = sync_output_sink_with_active_session(ctx.state, ctx.internal_tx) {
-        ctx.events.emit(Event::Error { message });
+        return Err(message);
     }
+    Ok(())
 }
 
-pub(super) fn on_refresh_devices(ctx: &mut CommandCtx<'_>) {
+pub(super) fn on_refresh_devices(
+    ctx: &mut CommandCtx<'_>,
+) -> Result<Vec<stellatune_core::AudioDevice>, String> {
     let selected_backend = output_backend_for_selected(ctx.state.selected_backend);
-    let devices = stellatune_output::list_host_devices(Some(selected_backend))
-        .into_iter()
-        .map(|d| stellatune_core::AudioDevice {
-            backend: match d.backend {
-                stellatune_output::AudioBackend::Shared => stellatune_core::AudioBackend::Shared,
-                stellatune_output::AudioBackend::WasapiExclusive => {
-                    stellatune_core::AudioBackend::WasapiExclusive
-                }
-            },
-            id: d.id,
-            name: d.name,
-        })
-        .collect();
-    ctx.events.emit(Event::OutputDevicesChanged { devices });
+    let devices: Vec<stellatune_core::AudioDevice> =
+        stellatune_output::list_host_devices(Some(selected_backend))
+            .into_iter()
+            .map(|d| stellatune_core::AudioDevice {
+                backend: match d.backend {
+                    stellatune_output::AudioBackend::Shared => {
+                        stellatune_core::AudioBackend::Shared
+                    }
+                    stellatune_output::AudioBackend::WasapiExclusive => {
+                        stellatune_core::AudioBackend::WasapiExclusive
+                    }
+                },
+                id: d.id,
+                name: d.name,
+            })
+            .collect();
+    Ok(devices)
 }

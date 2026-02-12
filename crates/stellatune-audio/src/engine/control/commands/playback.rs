@@ -12,18 +12,12 @@ use super::{
     stop_decode_session, track_ref_to_engine_token, track_ref_to_event_path,
 };
 
-pub(super) fn on_load_track_ref(ctx: &mut CommandCtx<'_>, track: TrackRef) {
+pub(super) fn on_load_track_ref(ctx: &mut CommandCtx<'_>, track: TrackRef) -> Result<(), String> {
     let Some(path) = track_ref_to_engine_token(&track) else {
-        ctx.events.emit(Event::Error {
-            message: "track locator is empty".to_string(),
-        });
-        return;
+        return Err("track locator is empty".to_string());
     };
     let Some(event_path) = track_ref_to_event_path(&track) else {
-        ctx.events.emit(Event::Error {
-            message: "track locator is empty".to_string(),
-        });
-        return;
+        return Err("track locator is empty".to_string());
     };
 
     let switch_id = ctx.state.switch_timing_seq;
@@ -95,17 +89,19 @@ pub(super) fn on_load_track_ref(ctx: &mut CommandCtx<'_>, track: TrackRef) {
         track = event_path.as_str(),
         "manual track switch(ref) committed"
     );
+    Ok(())
 }
 
-pub(super) fn on_switch_track_ref(ctx: &mut CommandCtx<'_>, track: TrackRef, lazy: bool) {
+pub(super) fn on_switch_track_ref(
+    ctx: &mut CommandCtx<'_>,
+    track: TrackRef,
+    lazy: bool,
+) -> Result<(), String> {
     if track_ref_to_engine_token(&track).is_none() || track_ref_to_event_path(&track).is_none() {
-        ctx.events.emit(Event::Error {
-            message: "track locator is empty".to_string(),
-        });
-        return;
+        return Err("track locator is empty".to_string());
     }
 
-    on_load_track_ref(ctx, track);
+    on_load_track_ref(ctx, track)?;
     if !lazy {
         let requested_at = Instant::now();
         if let Some(path) = ctx.state.current_track.as_deref()
@@ -122,14 +118,12 @@ pub(super) fn on_switch_track_ref(ctx: &mut CommandCtx<'_>, track: TrackRef, laz
         ensure_output_spec_prewarm(ctx.state, ctx.internal_tx);
         handle_tick(ctx.state, ctx.events, ctx.internal_tx, ctx.track_info);
     }
+    Ok(())
 }
 
-pub(super) fn on_play(ctx: &mut CommandCtx<'_>) {
+pub(super) fn on_play(ctx: &mut CommandCtx<'_>) -> Result<(), String> {
     let Some(path) = ctx.state.current_track.clone() else {
-        ctx.events.emit(Event::Error {
-            message: "no track loaded".to_string(),
-        });
-        return;
+        return Err("no track loaded".to_string());
     };
 
     let requested_at = Instant::now();
@@ -147,7 +141,7 @@ pub(super) fn on_play(ctx: &mut CommandCtx<'_>) {
         set_state(ctx.state, ctx.events, PlayerState::Buffering);
         ensure_output_spec_prewarm(ctx.state, ctx.internal_tx);
         handle_tick(ctx.state, ctx.events, ctx.internal_tx, ctx.track_info);
-        return;
+        return Ok(());
     }
 
     if let Some(session) = ctx.state.session.as_ref() {
@@ -158,9 +152,10 @@ pub(super) fn on_play(ctx: &mut CommandCtx<'_>) {
 
     set_state(ctx.state, ctx.events, PlayerState::Buffering);
     handle_tick(ctx.state, ctx.events, ctx.internal_tx, ctx.track_info);
+    Ok(())
 }
 
-pub(super) fn on_pause(ctx: &mut CommandCtx<'_>) {
+pub(super) fn on_pause(ctx: &mut CommandCtx<'_>) -> Result<(), String> {
     if let Some(session) = ctx.state.session.as_ref() {
         maybe_fade_out_before_disrupt(ctx.state, DisruptFadeKind::TrackSwitch);
         session.output_enabled.store(false, Ordering::Release);
@@ -170,14 +165,12 @@ pub(super) fn on_pause(ctx: &mut CommandCtx<'_>) {
     ctx.state.play_request_started_at = None;
     ctx.state.pending_session_start = false;
     set_state(ctx.state, ctx.events, PlayerState::Paused);
+    Ok(())
 }
 
-pub(super) fn on_seek_ms(ctx: &mut CommandCtx<'_>, position_ms: u64) {
+pub(super) fn on_seek_ms(ctx: &mut CommandCtx<'_>, position_ms: u64) -> Result<(), String> {
     let Some(_path) = ctx.state.current_track.clone() else {
-        ctx.events.emit(Event::Error {
-            message: "no track loaded".to_string(),
-        });
-        return;
+        return Err("no track loaded".to_string());
     };
 
     maybe_fade_out_before_disrupt(ctx.state, DisruptFadeKind::Seek);
@@ -209,9 +202,10 @@ pub(super) fn on_seek_ms(ctx: &mut CommandCtx<'_>, position_ms: u64) {
         ctx.state.play_request_started_at = Some(Instant::now());
         handle_tick(ctx.state, ctx.events, ctx.internal_tx, ctx.track_info);
     }
+    Ok(())
 }
 
-pub(super) fn on_stop(ctx: &mut CommandCtx<'_>) {
+pub(super) fn on_stop(ctx: &mut CommandCtx<'_>) -> Result<(), String> {
     stop_decode_session(ctx.state, ctx.track_info, SessionStopMode::TearDownSink);
     ctx.state.position_ms = 0;
     ctx.state.wants_playback = false;
@@ -221,4 +215,5 @@ pub(super) fn on_stop(ctx: &mut CommandCtx<'_>) {
     super::super::next_position_session_id(ctx.state);
     super::super::emit_position_event(ctx.state, ctx.events);
     set_state(ctx.state, ctx.events, PlayerState::Stopped);
+    Ok(())
 }

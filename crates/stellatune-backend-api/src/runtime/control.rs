@@ -21,7 +21,7 @@ pub(super) fn control_wait_kind(request: &PluginControlRequest) -> ControlWaitKi
             PlayerControlCommand::SeekMs => ControlWaitKind::PlayerPosition,
             PlayerControlCommand::SetVolume => ControlWaitKind::PlayerVolume,
             PlayerControlCommand::SwitchTrackRef => ControlWaitKind::PlayerTrackChanged,
-            PlayerControlCommand::RefreshDevices => ControlWaitKind::PlayerDevicesChanged,
+            PlayerControlCommand::RefreshDevices => ControlWaitKind::Immediate,
             _ => ControlWaitKind::Immediate,
         },
         PluginControlRequest::Library { control, .. } => match control.command() {
@@ -63,7 +63,6 @@ pub(super) fn is_wait_satisfied_by_player(wait: ControlWaitKind, event: &Event) 
         (ControlWaitKind::PlayerPosition, Event::Position { .. }) => true,
         (ControlWaitKind::PlayerVolume, Event::VolumeChanged { .. }) => true,
         (ControlWaitKind::PlayerTrackChanged, Event::TrackChanged { .. }) => true,
-        (ControlWaitKind::PlayerDevicesChanged, Event::OutputDevicesChanged { .. }) => true,
         _ => false,
     }
 }
@@ -117,8 +116,7 @@ pub(super) fn route_plugin_control_request(
             let Some(engine) = engine else {
                 return Err("player unavailable".to_string());
             };
-            engine.send_command(control.to_command());
-            Ok(())
+            engine.dispatch_command_blocking(control.to_command())
         }
         PluginControlRequest::Library { control, .. } => {
             let Some(library) = library else {

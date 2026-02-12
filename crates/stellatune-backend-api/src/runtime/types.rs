@@ -57,7 +57,6 @@ pub(super) enum ControlWaitKind {
     PlayerPosition,
     PlayerVolume,
     PlayerTrackChanged,
-    PlayerDevicesChanged,
     LibraryRoots,
     LibraryFolders,
     LibraryExcludedFolders,

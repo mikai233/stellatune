@@ -253,9 +253,6 @@ pub enum Event {
     Log {
         message: String,
     },
-    OutputDevicesChanged {
-        devices: Vec<AudioDevice>,
-    },
 }
 
 #[flutter_rust_bridge::frb(non_opaque)]

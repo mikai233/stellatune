@@ -81,7 +81,7 @@ enum FetchWorkerResult {
     Finished(Result<Option<LyricsDoc>>),
 }
 
-pub(crate) struct LyricsService {
+pub struct LyricsService {
     hub: LyricsEventHub,
     state: Mutex<LyricsState>,
     client: reqwest::Client,
@@ -92,7 +92,7 @@ pub(crate) struct LyricsService {
 }
 
 impl LyricsService {
-    pub(crate) fn new() -> Arc<Self> {
+    pub fn new() -> Arc<Self> {
         Arc::new(Self {
             hub: LyricsEventHub::default(),
             state: Mutex::new(LyricsState::default()),
@@ -107,11 +107,11 @@ impl LyricsService {
         })
     }
 
-    pub(crate) fn subscribe_events(&self) -> Receiver<LyricsEvent> {
+    pub fn subscribe_events(&self) -> Receiver<LyricsEvent> {
         self.hub.subscribe()
     }
 
-    pub(crate) fn set_cache_db_path(&self, db_path: String) -> Result<()> {
+    pub async fn set_cache_db_path(&self, db_path: String) -> Result<()> {
         let db_path = db_path.trim();
         if db_path.is_empty() {
             return Err(anyhow!("lyrics cache db path is empty"));
@@ -122,17 +122,13 @@ impl LyricsService {
                 .with_context(|| format!("failed to create lyrics db dir: {}", parent.display()))?;
         }
 
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .context("failed to create lyrics sqlite runtime")?;
-        runtime.block_on(Self::init_cache_db(&path))?;
+        Self::init_cache_db(&path).await?;
 
         self.cache_db_path.store(Some(Arc::new(path)));
         Ok(())
     }
 
-    pub(crate) fn clear_cache(&self) -> Result<()> {
+    pub async fn clear_cache(&self) -> Result<()> {
         let current_track_key = {
             let mut state = self.state.lock().expect("lyrics state mutex poisoned");
             state.cache.clear();
@@ -142,18 +138,11 @@ impl LyricsService {
         };
 
         if let Some(db_path) = self.cache_db_path() {
-            let runtime = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .context("failed to create lyrics sqlite runtime")?;
-            runtime.block_on(async {
-                let mut conn = Self::open_cache_db(&db_path).await?;
-                sqlx::query("DELETE FROM lyrics_cache")
-                    .execute(&mut conn)
-                    .await
-                    .context("clear lyrics cache table failed")?;
-                Ok::<_, anyhow::Error>(())
-            })?;
+            let mut conn = Self::open_cache_db(&db_path).await?;
+            sqlx::query("DELETE FROM lyrics_cache")
+                .execute(&mut conn)
+                .await
+                .context("clear lyrics cache table failed")?;
         }
 
         if let Some(track_key) = current_track_key {
@@ -162,7 +151,7 @@ impl LyricsService {
         Ok(())
     }
 
-    pub(crate) async fn search_candidates(
+    pub async fn search_candidates(
         &self,
         query: LyricsQuery,
     ) -> Result<Vec<LyricsSearchCandidate>> {
@@ -198,7 +187,7 @@ impl LyricsService {
         Ok(out)
     }
 
-    pub(crate) fn apply_candidate(&self, track_key: String, mut doc: LyricsDoc) -> Result<()> {
+    pub fn apply_candidate(&self, track_key: String, mut doc: LyricsDoc) -> Result<()> {
         let track_key = track_key.trim().to_string();
         if track_key.is_empty() {
             return Ok(());
@@ -226,7 +215,7 @@ impl LyricsService {
         Ok(())
     }
 
-    pub(crate) fn prefetch(self: &Arc<Self>, query: LyricsQuery) -> Result<()> {
+    pub fn prefetch(self: &Arc<Self>, query: LyricsQuery) -> Result<()> {
         let query = normalize_query(query);
         if query.track_key.is_empty() || query.title.is_empty() {
             return Ok(());
@@ -271,7 +260,7 @@ impl LyricsService {
         Ok(())
     }
 
-    pub(crate) fn prepare(self: &Arc<Self>, query: LyricsQuery) -> Result<()> {
+    pub fn prepare(self: &Arc<Self>, query: LyricsQuery) -> Result<()> {
         let query = normalize_query(query);
         // Switching tracks should stop any in-flight request for the previous track.
         self.cancel_active_fetch();
@@ -346,7 +335,7 @@ impl LyricsService {
         Ok(())
     }
 
-    pub(crate) fn refresh_current(self: &Arc<Self>) -> Result<()> {
+    pub fn refresh_current(self: &Arc<Self>) -> Result<()> {
         let query = self
             .state
             .lock()
@@ -359,7 +348,7 @@ impl LyricsService {
         Ok(())
     }
 
-    pub(crate) fn set_position_ms(&self, position_ms: u64) {
+    pub fn set_position_ms(&self, position_ms: u64) {
         let to_emit = {
             let mut state = self.state.lock().expect("lyrics state mutex poisoned");
             let track_key = match state.current_track_key.clone() {

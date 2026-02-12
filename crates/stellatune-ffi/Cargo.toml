@@ -32,6 +32,7 @@ socket2 = "0.6"
 serde_json.workspace = true
 
 stellatune-backend-api.workspace = true
+stellatune-audio.workspace = true
 stellatune-core.workspace = true
 stellatune-plugin-protocol.workspace = true
 

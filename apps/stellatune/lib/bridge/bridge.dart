@@ -9,6 +9,7 @@ export 'frb_generated.dart' show StellatuneApi;
 export 'third_party/stellatune_core.dart'
     show
         Event,
+        EventPatterns,
         AudioBackend,
         AudioDevice,
         TrackRef,
@@ -19,12 +20,14 @@ export 'third_party/stellatune_core.dart'
         PluginDescriptor,
         PlayerState,
         LibraryEvent,
+        LibraryEventPatterns,
         PlaylistLite,
         TrackDecodeInfo,
         TrackPlayability,
         TrackLite,
         LyricsQuery,
         LyricsEvent,
+        LyricsEventPatterns,
         PluginRuntimeEvent,
         LyricsDoc,
         LyricLine,
@@ -44,85 +47,66 @@ Stream<PluginRuntimeEvent> pluginRuntimeEventsGlobal() =>
 ///
 /// Keeps UI code clean and hides generated `api.dart` / `third_party/*` details.
 class PlayerBridge {
-  PlayerBridge._(this.player);
+  PlayerBridge._();
 
-  final api.Player player;
-  bool _disposed = false;
   Stream<Event>? _eventBroadcast;
   Stream<LyricsEvent>? _lyricsEventBroadcast;
   Stream<PluginRuntimeEvent>? _pluginRuntimeEventBroadcast;
 
-  static Future<PlayerBridge> create() async {
-    final player = await api.createPlayer();
-    return PlayerBridge._(player);
-  }
+  static Future<PlayerBridge> create() async => PlayerBridge._();
 
-  Future<void> dispose() async {
-    if (_disposed) return;
-    _disposed = true;
-    await api.disposePlayer(player: player);
-  }
+  Future<void> dispose() async {}
 
-  Stream<Event> events() =>
-      _eventBroadcast ??= api.events(player: player).asBroadcastStream();
+  Stream<Event> events() => _eventBroadcast ??= api.events().asBroadcastStream();
 
-  Stream<LyricsEvent> lyricsEvents() => _lyricsEventBroadcast ??= api
-      .lyricsEvents(player: player)
-      .asBroadcastStream();
+  Stream<LyricsEvent> lyricsEvents() =>
+      _lyricsEventBroadcast ??= api.lyricsEvents().asBroadcastStream();
 
   Stream<PluginRuntimeEvent> pluginRuntimeEvents() =>
       _pluginRuntimeEventBroadcast ??= pluginRuntimeEventsGlobal();
 
   Future<void> switchTrackRef(TrackRef track, {required bool lazy}) =>
-      api.switchTrackRef(player: player, track: track, lazy: lazy);
+      api.switchTrackRef(track: track, lazy: lazy);
 
-  Future<void> play() => api.play(player: player);
-  Future<void> pause() => api.pause(player: player);
+  Future<void> play() => api.play();
+  Future<void> pause() => api.pause();
   Future<void> seekMs(int positionMs) =>
-      api.seekMs(player: player, positionMs: BigInt.from(positionMs));
-  Future<void> setVolume(double volume) =>
-      api.setVolume(player: player, volume: volume);
-  Future<void> stop() => api.stop(player: player);
+      api.seekMs(positionMs: BigInt.from(positionMs));
+  Future<void> setVolume(double volume) => api.setVolume(volume: volume);
+  Future<void> stop() => api.stop();
 
-  Future<void> lyricsPrepare(LyricsQuery query) =>
-      api.lyricsPrepare(player: player, query: query);
+  Future<void> lyricsPrepare(LyricsQuery query) => api.lyricsPrepare(query: query);
 
-  Future<void> lyricsPrefetch(LyricsQuery query) =>
-      api.lyricsPrefetch(player: player, query: query);
+  Future<void> lyricsPrefetch(LyricsQuery query) => api.lyricsPrefetch(query: query);
 
   Future<List<LyricsSearchCandidate>> lyricsSearchCandidates(
     LyricsQuery query,
-  ) => api.lyricsSearchCandidates(player: player, query: query);
+  ) => api.lyricsSearchCandidates(query: query);
 
   Future<void> lyricsApplyCandidate({
     required String trackKey,
     required LyricsDoc doc,
-  }) => api.lyricsApplyCandidate(player: player, trackKey: trackKey, doc: doc);
+  }) => api.lyricsApplyCandidate(trackKey: trackKey, doc: doc);
 
   Future<void> lyricsSetCacheDbPath(String dbPath) =>
-      api.lyricsSetCacheDbPath(player: player, dbPath: dbPath);
+      api.lyricsSetCacheDbPath(dbPath: dbPath);
 
-  Future<void> lyricsClearCache() => api.lyricsClearCache(player: player);
+  Future<void> lyricsClearCache() => api.lyricsClearCache();
 
-  Future<void> lyricsRefreshCurrent() =>
-      api.lyricsRefreshCurrent(player: player);
+  Future<void> lyricsRefreshCurrent() => api.lyricsRefreshCurrent();
 
   Future<void> lyricsSetPositionMs(int positionMs) => api.lyricsSetPositionMs(
-    player: player,
     positionMs: BigInt.from(positionMs),
   );
 
-  Future<List<PluginDescriptor>> pluginsList() =>
-      api.pluginsList(player: player);
+  Future<List<PluginDescriptor>> pluginsList() => api.pluginsList();
 
-  Future<List<SourceCatalogTypeDescriptor>> sourceListTypes() =>
-      api.sourceListTypes(player: player);
+  Future<List<SourceCatalogTypeDescriptor>> sourceListTypes() => api.sourceListTypes();
 
   Future<List<LyricsProviderTypeDescriptor>> lyricsProviderListTypes() =>
-      api.lyricsProviderListTypes(player: player);
+      api.lyricsProviderListTypes();
 
-  Future<List<OutputSinkTypeDescriptor>> outputSinkListTypes() =>
-      api.outputSinkListTypes(player: player);
+  Future<List<OutputSinkTypeDescriptor>> outputSinkListTypes() => api.outputSinkListTypes();
 
   Future<String> sourceListItemsJson({
     required String pluginId,
@@ -130,7 +114,6 @@ class PlayerBridge {
     required String configJson,
     required String requestJson,
   }) => api.sourceListItemsJson(
-    player: player,
     pluginId: pluginId,
     typeId: typeId,
     configJson: configJson,
@@ -142,7 +125,6 @@ class PlayerBridge {
     required String typeId,
     required String queryJson,
   }) => api.lyricsProviderSearchJson(
-    player: player,
     pluginId: pluginId,
     typeId: typeId,
     queryJson: queryJson,
@@ -153,7 +135,6 @@ class PlayerBridge {
     required String typeId,
     required String trackJson,
   }) => api.lyricsProviderFetchJson(
-    player: player,
     pluginId: pluginId,
     typeId: typeId,
     trackJson: trackJson,
@@ -164,20 +145,17 @@ class PlayerBridge {
     required String typeId,
     required String configJson,
   }) => api.outputSinkListTargetsJson(
-    player: player,
     pluginId: pluginId,
     typeId: typeId,
     configJson: configJson,
   );
 
   Future<void> setOutputSinkRoute(OutputSinkRoute route) =>
-      api.setOutputSinkRoute(player: player, route: route);
+      api.setOutputSinkRoute(route: route);
 
-  Future<void> clearOutputSinkRoute() =>
-      api.clearOutputSinkRoute(player: player);
+  Future<void> clearOutputSinkRoute() => api.clearOutputSinkRoute();
 
-  Future<TrackDecodeInfo?> currentTrackInfo() =>
-      api.currentTrackInfo(player: player);
+  Future<TrackDecodeInfo?> currentTrackInfo() => api.currentTrackInfo();
 
   Future<String> pluginsInstallFromFile({
     required String dir,
@@ -196,25 +174,22 @@ class PlayerBridge {
     String? pluginId,
     required String eventJson,
   }) => api.pluginPublishEventJson(
-    player: player,
     pluginId: pluginId,
     eventJson: eventJson,
   );
 
-  Future<void> refreshDevices() => api.refreshDevices(player: player);
+  Future<List<AudioDevice>> refreshDevices() => api.refreshDevices();
 
   Future<void> setOutputDevice({
     required AudioBackend backend,
     String? deviceId,
-  }) =>
-      api.setOutputDevice(player: player, backend: backend, deviceId: deviceId);
+  }) => api.setOutputDevice(backend: backend, deviceId: deviceId);
 
   Future<void> setOutputOptions({
     required bool matchTrackSampleRate,
     required bool gaplessPlayback,
     required bool seekTrackFade,
   }) => api.setOutputOptions(
-    player: player,
     matchTrackSampleRate: matchTrackSampleRate,
     gaplessPlayback: gaplessPlayback,
     seekTrackFade: seekTrackFade,
@@ -222,20 +197,18 @@ class PlayerBridge {
 
   Future<void> preloadTrack(String path, {int positionMs = 0}) =>
       api.preloadTrack(
-        player: player,
         path: path,
         positionMs: BigInt.from(positionMs),
       );
 
   Future<void> preloadTrackRef(TrackRef track, {int positionMs = 0}) =>
       api.preloadTrackRef(
-        player: player,
         track: track,
         positionMs: BigInt.from(positionMs),
       );
 
   Future<List<TrackPlayability>> canPlayTrackRefs(List<TrackRef> tracks) =>
-      api.canPlayTrackRefs(player: player, tracks: tracks);
+      api.canPlayTrackRefs(tracks: tracks);
 }
 
 TrackRef buildPluginSourceTrackRef({
