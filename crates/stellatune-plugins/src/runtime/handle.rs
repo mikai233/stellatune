@@ -12,6 +12,9 @@ use crate::runtime::actor::{
     RuntimeActorState, RuntimeActorTask, WorkerControlMessage, run_plugin_runtime_actor,
 };
 use crate::runtime::backend_control::BackendControlRequest;
+use crate::runtime::introspection::{
+    CapabilityDescriptor, CapabilityKind, DecoderCandidate, PluginLeaseInfo, PluginLeaseState,
+};
 use crate::runtime::model::{ModuleLease, ModuleLeaseRef, RuntimeSyncReport};
 use crate::service::default_host_vtable;
 
@@ -130,6 +133,42 @@ impl PluginRuntimeHandle {
         let plugin_id = plugin_id.to_string();
         self.exec_value(move |state| state.service.current_module_lease_ref(&plugin_id))
             .flatten()
+    }
+
+    pub fn current_plugin_lease_info(&self, plugin_id: &str) -> Option<PluginLeaseInfo> {
+        let plugin_id = plugin_id.to_string();
+        self.exec_value(move |state| state.service.current_plugin_lease_info(&plugin_id))
+            .flatten()
+    }
+
+    pub fn plugin_lease_state(&self, plugin_id: &str) -> Option<PluginLeaseState> {
+        let plugin_id = plugin_id.to_string();
+        self.exec_value(move |state| state.service.plugin_lease_state(&plugin_id))
+            .flatten()
+    }
+
+    pub fn list_capabilities(&self, plugin_id: &str) -> Vec<CapabilityDescriptor> {
+        let plugin_id = plugin_id.to_string();
+        self.exec_value(move |state| state.service.list_capabilities(&plugin_id))
+            .unwrap_or_default()
+    }
+
+    pub fn find_capability(
+        &self,
+        plugin_id: &str,
+        kind: CapabilityKind,
+        type_id: &str,
+    ) -> Option<CapabilityDescriptor> {
+        let plugin_id = plugin_id.to_string();
+        let type_id = type_id.to_string();
+        self.exec_value(move |state| state.service.find_capability(&plugin_id, kind, &type_id))
+            .flatten()
+    }
+
+    pub fn list_decoder_candidates_for_ext(&self, ext: &str) -> Vec<DecoderCandidate> {
+        let ext = ext.to_string();
+        self.exec_value(move |state| state.service.list_decoder_candidates_for_ext(&ext))
+            .unwrap_or_default()
     }
 
     pub(crate) fn acquire_current_module_lease(&self, plugin_id: &str) -> Option<Arc<ModuleLease>> {

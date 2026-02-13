@@ -2453,6 +2453,7 @@ class _PluginTileState extends State<_PluginTile> {
     final looksBusy =
         lower.contains('still in use') ||
         lower.contains('draining generation') ||
+        lower.contains('retired lease') ||
         lower.contains('busy');
     if (looksBusy) {
       if (isZh) {

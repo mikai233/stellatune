@@ -1,6 +1,7 @@
 use std::sync::OnceLock;
-use std::thread;
 
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+use std::thread;
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 use std::time::Instant;
 
@@ -8,8 +9,13 @@ use stellatune_core::{
     HostEventTopic, HostLibraryEventEnvelope, HostPlayerEventEnvelope, PluginRuntimeEvent,
     PluginRuntimeKind,
 };
+
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+use crossbeam_channel::TryRecvError;
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 use stellatune_plugin_protocol::PluginControlRequest;
-use stellatune_plugins::PluginRuntimeEvent as PluginRuntimeActorEvent;
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+use stellatune_plugins::runtime::backend_control::{BackendControlRequest, BackendControlResponse};
 
 use super::bus::{
     ControlFinishedArgs, broadcast_host_event_json, build_control_result_payload,
@@ -24,179 +30,141 @@ use super::types::{
 };
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-fn actor_event_to_runtime_event(event: PluginRuntimeActorEvent) -> PluginRuntimeEvent {
-    let (plugin_id, payload_json) = match event {
-        PluginRuntimeActorEvent::CommandCompleted {
-            request_id,
-            owner,
-            outcome,
-        } => {
-            let payload = match outcome {
-                stellatune_plugins::PluginRuntimeCommandOutcome::SetPluginEnabled {
-                    plugin_id,
-                    enabled,
-                } => (
-                    plugin_id.clone(),
-                    serde_json::json!({
-                        "topic": "host.runtime.actor",
-                        "event": "command_completed",
-                        "request_id": request_id,
-                        "owner": owner,
-                        "command": "set_plugin_enabled",
-                        "plugin_id": plugin_id,
-                        "enabled": enabled
-                    }),
-                ),
-                stellatune_plugins::PluginRuntimeCommandOutcome::ReloadDirFromState {
-                    dir,
-                    prev_count,
-                    loaded_ids,
-                    loaded_count,
-                    deactivated_count,
-                    unloaded_generations,
-                    load_errors,
-                    fatal_error,
-                } => (
-                    "host.runtime".to_string(),
-                    serde_json::json!({
-                        "topic": "host.runtime.actor",
-                        "event": "command_completed",
-                        "request_id": request_id,
-                        "owner": owner,
-                        "command": "reload_dir_from_state",
-                        "dir": dir,
-                        "prev_count": prev_count,
-                        "loaded_ids": loaded_ids,
-                        "loaded_count": loaded_count,
-                        "deactivated_count": deactivated_count,
-                        "unloaded_generations": unloaded_generations,
-                        "load_errors": load_errors,
-                        "fatal_error": fatal_error
-                    }),
-                ),
-                stellatune_plugins::PluginRuntimeCommandOutcome::UnloadPlugin {
-                    plugin_id,
-                    deactivated,
-                    unloaded_generations,
-                    remaining_draining_generations,
-                    errors,
-                } => (
-                    plugin_id.clone(),
-                    serde_json::json!({
-                        "topic": "host.runtime.actor",
-                        "event": "command_completed",
-                        "request_id": request_id,
-                        "owner": owner,
-                        "command": "unload_plugin",
-                        "plugin_id": plugin_id,
-                        "deactivated": deactivated,
-                        "unloaded_generations": unloaded_generations,
-                        "remaining_draining_generations": remaining_draining_generations,
-                        "errors": errors
-                    }),
-                ),
-                stellatune_plugins::PluginRuntimeCommandOutcome::ShutdownAndCleanup {
-                    deactivated_count,
-                    unloaded_generations,
-                    errors,
-                } => (
-                    "host.runtime".to_string(),
-                    serde_json::json!({
-                        "topic": "host.runtime.actor",
-                        "event": "command_completed",
-                        "request_id": request_id,
-                        "owner": owner,
-                        "command": "shutdown_and_cleanup",
-                        "deactivated_count": deactivated_count,
-                        "unloaded_generations": unloaded_generations,
-                        "errors": errors
-                    }),
-                ),
-            };
-            (payload.0, payload.1.to_string())
-        }
-        PluginRuntimeActorEvent::PluginEnabledChanged { plugin_id, enabled } => (
-            plugin_id,
-            serde_json::json!({
-                "topic": "host.runtime.actor",
-                "event": "plugin_enabled_changed",
-                "enabled": enabled
-            })
-            .to_string(),
-        ),
-        PluginRuntimeActorEvent::PluginsReloaded {
-            dir,
-            loaded,
-            deactivated,
-            unloaded_generations,
-            errors,
-        } => (
-            "host.runtime".to_string(),
-            serde_json::json!({
-                "topic": "host.runtime.actor",
-                "event": "plugins_reloaded",
-                "dir": dir,
-                "loaded": loaded,
-                "deactivated": deactivated,
-                "unloaded_generations": unloaded_generations,
-                "errors": errors
-            })
-            .to_string(),
-        ),
-        PluginRuntimeActorEvent::PluginUnloaded {
-            plugin_id,
-            deactivated,
-            unloaded_generations,
-            remaining_draining_generations,
-        } => (
-            plugin_id,
-            serde_json::json!({
-                "topic": "host.runtime.actor",
-                "event": "plugin_unloaded",
-                "deactivated": deactivated,
-                "unloaded_generations": unloaded_generations,
-                "remaining_draining_generations": remaining_draining_generations
-            })
-            .to_string(),
-        ),
-        PluginRuntimeActorEvent::RuntimeShutdown {
-            deactivated,
-            unloaded_generations,
-            errors,
-        } => (
-            "host.runtime".to_string(),
-            serde_json::json!({
-                "topic": "host.runtime.actor",
-                "event": "runtime_shutdown",
-                "deactivated": deactivated,
-                "unloaded_generations": unloaded_generations,
-                "errors": errors
-            })
-            .to_string(),
-        ),
-    };
-
-    PluginRuntimeEvent {
-        plugin_id,
-        kind: PluginRuntimeKind::Notify,
-        payload_json,
-    }
-}
-
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-fn drain_actor_events(
-    rx: &crossbeam_channel::Receiver<PluginRuntimeActorEvent>,
+fn drain_backend_control_requests(
+    rx: &crossbeam_channel::Receiver<BackendControlRequest>,
     max: usize,
-) -> Vec<PluginRuntimeActorEvent> {
+) -> Vec<BackendControlRequest> {
     let mut out = Vec::new();
     for _ in 0..max {
         match rx.try_recv() {
-            Ok(event) => out.push(event),
-            Err(crossbeam_channel::TryRecvError::Empty) => break,
-            Err(crossbeam_channel::TryRecvError::Disconnected) => break,
+            Ok(request) => out.push(request),
+            Err(TryRecvError::Empty) => break,
+            Err(TryRecvError::Disconnected) => break,
         }
     }
     out
+}
+
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+fn handle_backend_control_request(
+    router: &PluginRuntimeRouter,
+    pending_finishes: &mut Vec<PendingControlFinish>,
+    request: BackendControlRequest,
+    engine: Option<&stellatune_audio::EngineHandle>,
+    library: Option<&stellatune_library::LibraryHandle>,
+) {
+    let parsed_request = match serde_json::from_str::<PluginControlRequest>(&request.request_json) {
+        Ok(parsed) => Some(parsed),
+        Err(err) => {
+            let error = format!("invalid json: {err}");
+            let _ = request
+                .response_tx
+                .send(BackendControlResponse::error(-1, error));
+            None
+        }
+    };
+
+    let route_result = match parsed_request.as_ref() {
+        Some(parsed) => route_plugin_control_request(parsed, engine, library),
+        None => Err("invalid control request json".to_string()),
+    };
+
+    let payload = build_control_result_payload(
+        parsed_request.as_ref(),
+        route_result.as_ref().err().map(String::as_str),
+    );
+    let response_json = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string());
+
+    let response = match &route_result {
+        Ok(()) => BackendControlResponse::ok(response_json.clone()),
+        Err(err) => BackendControlResponse::error(-1, err.clone()),
+    };
+    let _ = request.response_tx.send(response);
+
+    push_plugin_host_event_json(&request.plugin_id, response_json);
+
+    let runtime_event = PluginRuntimeEvent::from_payload(
+        request.plugin_id.clone(),
+        PluginRuntimeKind::ControlResult,
+        &payload,
+    )
+    .unwrap_or_else(|_| PluginRuntimeEvent {
+        plugin_id: request.plugin_id.clone(),
+        kind: PluginRuntimeKind::ControlResult,
+        payload_json: "{}".to_string(),
+    });
+    emit_runtime_event(router.runtime_hub.as_ref(), runtime_event);
+
+    match route_result {
+        Ok(()) => {
+            let request_id = parsed_request
+                .as_ref()
+                .and_then(PluginControlRequest::request_id)
+                .cloned();
+            let scope = parsed_request
+                .as_ref()
+                .map(PluginControlRequest::scope)
+                .unwrap_or(stellatune_core::ControlScope::Player);
+            let command = parsed_request
+                .as_ref()
+                .map(PluginControlRequest::control_command);
+            let wait = parsed_request
+                .as_ref()
+                .map(control_wait_kind)
+                .unwrap_or(ControlWaitKind::Immediate);
+
+            if wait == ControlWaitKind::Immediate {
+                emit_control_finished(
+                    router.runtime_hub.as_ref(),
+                    ControlFinishedArgs {
+                        plugin_id: &request.plugin_id,
+                        request_id,
+                        scope,
+                        command,
+                        error: None,
+                    },
+                );
+            } else {
+                pending_finishes.push(PendingControlFinish {
+                    plugin_id: request.plugin_id,
+                    request_id,
+                    scope,
+                    command,
+                    wait,
+                    deadline: Instant::now() + CONTROL_FINISH_TIMEOUT,
+                });
+            }
+        }
+        Err(err) => {
+            tracing::warn!(
+                plugin_id = %request.plugin_id,
+                payload = %request.request_json,
+                error = %err,
+                "failed to route plugin control"
+            );
+            let request_id = parsed_request
+                .as_ref()
+                .and_then(PluginControlRequest::request_id)
+                .cloned();
+            let scope = parsed_request
+                .as_ref()
+                .map(PluginControlRequest::scope)
+                .unwrap_or(stellatune_core::ControlScope::Player);
+            let command = parsed_request
+                .as_ref()
+                .map(PluginControlRequest::control_command);
+            emit_control_finished(
+                router.runtime_hub.as_ref(),
+                ControlFinishedArgs {
+                    plugin_id: &request.plugin_id,
+                    request_id,
+                    scope,
+                    command,
+                    error: Some(&err),
+                },
+            );
+        }
+    }
 }
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
@@ -211,7 +179,9 @@ fn plugin_runtime_router() -> &'static std::sync::Arc<PluginRuntimeRouter> {
             runtime_hub: std::sync::Arc::new(PluginRuntimeEventHub::new()),
         });
         let router_thread = std::sync::Arc::clone(&router);
-        let actor_events = stellatune_plugins::shared_runtime_service().subscribe_runtime_events();
+        let control_rx = stellatune_plugins::runtime::handle::shared_runtime_service()
+            .subscribe_backend_control_requests();
+
         if let Err(e) = thread::Builder::new()
             .name("stellatune-plugin-runtime-router".to_string())
             .spawn(move || {
@@ -220,120 +190,14 @@ fn plugin_runtime_router() -> &'static std::sync::Arc<PluginRuntimeRouter> {
                     let engine = router_thread.engine.lock().ok().and_then(|g| g.clone());
                     let library = router_thread.library.lock().ok().and_then(|g| g.clone());
 
-                    let runtime_events = stellatune_plugins::drain_shared_runtime_events(128);
-
-                    for event in runtime_events {
-                        emit_runtime_event(router_thread.runtime_hub.as_ref(), event.clone());
-                        if event.kind == PluginRuntimeKind::Control {
-                            let (request, route_result) =
-                                match event.payload::<PluginControlRequest>() {
-                                    Ok(request) => {
-                                        let result = route_plugin_control_request(
-                                            &request,
-                                            engine.as_ref(),
-                                            library.as_ref(),
-                                        );
-                                        (Some(request), result)
-                                    }
-                                    Err(err) => (None, Err(format!("invalid json: {err}"))),
-                                };
-
-                            let payload = build_control_result_payload(
-                                request.as_ref(),
-                                route_result.as_ref().err().map(String::as_str),
-                            );
-                            let response_json = serde_json::to_string(&payload)
-                                .unwrap_or_else(|_| "{}".to_string());
-
-                            push_plugin_host_event_json(&event.plugin_id, response_json.clone());
-
-                            let runtime_event = PluginRuntimeEvent::from_payload(
-                                event.plugin_id.clone(),
-                                PluginRuntimeKind::ControlResult,
-                                &payload,
-                            )
-                            .unwrap_or_else(|_| PluginRuntimeEvent {
-                                plugin_id: event.plugin_id.clone(),
-                                kind: PluginRuntimeKind::ControlResult,
-                                payload_json: "{}".to_string(),
-                            });
-
-                            emit_runtime_event(router_thread.runtime_hub.as_ref(), runtime_event);
-
-                            match route_result {
-                                Ok(()) => {
-                                    let request_id = request
-                                        .as_ref()
-                                        .and_then(PluginControlRequest::request_id)
-                                        .cloned();
-                                    let scope = request
-                                        .as_ref()
-                                        .map(PluginControlRequest::scope)
-                                        .unwrap_or(stellatune_core::ControlScope::Player);
-                                    let command =
-                                        request.as_ref().map(PluginControlRequest::control_command);
-                                    let wait = request
-                                        .as_ref()
-                                        .map(control_wait_kind)
-                                        .unwrap_or(ControlWaitKind::Immediate);
-
-                                    if wait == ControlWaitKind::Immediate {
-                                        emit_control_finished(
-                                            router_thread.runtime_hub.as_ref(),
-                                            ControlFinishedArgs {
-                                                plugin_id: &event.plugin_id,
-                                                request_id,
-                                                scope,
-                                                command,
-                                                error: None,
-                                            },
-                                        );
-                                    } else {
-                                        pending_finishes.push(PendingControlFinish {
-                                            plugin_id: event.plugin_id.clone(),
-                                            request_id,
-                                            scope,
-                                            command,
-                                            wait,
-                                            deadline: Instant::now() + CONTROL_FINISH_TIMEOUT,
-                                        });
-                                    }
-                                }
-                                Err(err) => {
-                                    tracing::warn!(
-                                        plugin_id = %event.plugin_id,
-                                        payload = %event.payload_json,
-                                        error = %err,
-                                        "failed to route plugin control"
-                                    );
-                                    let request_id = request
-                                        .as_ref()
-                                        .and_then(PluginControlRequest::request_id)
-                                        .cloned();
-                                    let scope = request
-                                        .as_ref()
-                                        .map(PluginControlRequest::scope)
-                                        .unwrap_or(stellatune_core::ControlScope::Player);
-                                    let command =
-                                        request.as_ref().map(PluginControlRequest::control_command);
-                                    emit_control_finished(
-                                        router_thread.runtime_hub.as_ref(),
-                                        ControlFinishedArgs {
-                                            plugin_id: &event.plugin_id,
-                                            request_id,
-                                            scope,
-                                            command,
-                                            error: Some(&err),
-                                        },
-                                    );
-                                }
-                            }
-                        }
-                    }
-
-                    for actor_event in drain_actor_events(&actor_events, 128) {
-                        let runtime_event = actor_event_to_runtime_event(actor_event);
-                        emit_runtime_event(router_thread.runtime_hub.as_ref(), runtime_event);
+                    for request in drain_backend_control_requests(&control_rx, 128) {
+                        handle_backend_control_request(
+                            router_thread.as_ref(),
+                            &mut pending_finishes,
+                            request,
+                            engine.as_ref(),
+                            library.as_ref(),
+                        );
                     }
 
                     for event in drain_router_receiver(&router_thread.player_events, 128) {
@@ -400,6 +264,7 @@ fn plugin_runtime_router() -> &'static std::sync::Arc<PluginRuntimeRouter> {
         {
             tracing::error!("failed to spawn stellatune-plugin-runtime-router: {e}");
         }
+
         router
     })
 }

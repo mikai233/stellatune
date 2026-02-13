@@ -1,3 +1,4 @@
+use crossbeam_channel::Receiver;
 use std::collections::{HashSet, VecDeque};
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
@@ -11,7 +12,10 @@ use stellatune_plugin_api::{
     ST_DECODER_INFO_FLAG_HAS_DURATION, ST_ERR_INVALID_ARG, ST_ERR_IO, StIoVTable, StSeekWhence,
     StStatus, StStr,
 };
-use stellatune_plugins::runtime::CapabilityKind as RuntimeCapabilityKind;
+use stellatune_plugins::runtime::actor::WorkerControlMessage;
+use stellatune_plugins::runtime::introspection::CapabilityKind as RuntimeCapabilityKind;
+use stellatune_plugins::runtime::worker_controller::WorkerApplyPendingOutcome;
+use stellatune_plugins::runtime::worker_endpoint::DecoderWorkerController;
 
 const TRACK_REF_TOKEN_PREFIX: &str = "stref-json:";
 const GAPLESS_ENTRY_DECLICK_MS: usize = 2;
@@ -39,7 +43,7 @@ pub(crate) struct LocalFileIoHandle {
 pub(crate) enum DecoderIoOwner {
     Local(Box<LocalFileIoHandle>),
     Source {
-        source: stellatune_plugins::SourceCatalogInstance,
+        source: stellatune_plugins::capabilities::source::SourceCatalogInstance,
         io_handle_addr: usize,
     },
 }
@@ -317,9 +321,10 @@ pub(crate) enum EngineDecoder {
         gapless: GaplessTrimState,
     },
     Plugin {
-        dec: stellatune_plugins::DecoderInstance,
+        controller: DecoderWorkerController,
         spec: TrackSpec,
         gapless: GaplessTrimState,
+        control_rx: Receiver<WorkerControlMessage>,
         _io_owner: DecoderIoOwner,
     },
 }
@@ -339,7 +344,14 @@ impl EngineDecoder {
                 gapless.reset_for_seek(position_ms);
                 Ok(())
             }
-            Self::Plugin { dec, gapless, .. } => {
+            Self::Plugin {
+                controller,
+                gapless,
+                ..
+            } => {
+                let dec = controller
+                    .instance_mut()
+                    .ok_or_else(|| "plugin decoder instance unavailable".to_string())?;
                 dec.seek_ms(position_ms).map_err(|e| e.to_string())?;
                 gapless.reset_for_seek(position_ms);
                 Ok(())
@@ -350,7 +362,10 @@ impl EngineDecoder {
     fn raw_next_block(&mut self, frames: usize) -> Result<Option<Vec<f32>>, String> {
         match self {
             Self::Builtin { dec, .. } => dec.next_block(frames).map_err(|e| e.to_string()),
-            Self::Plugin { dec, .. } => {
+            Self::Plugin { controller, .. } => {
+                let dec = controller
+                    .instance_mut()
+                    .ok_or_else(|| "plugin decoder instance unavailable".to_string())?;
                 let (samples, _frames_read, eof) = dec
                     .read_interleaved_f32(frames as u32)
                     .map_err(|e| e.to_string())?;
@@ -403,6 +418,22 @@ impl EngineDecoder {
         out.extend(gapless.pending_output.drain(..take));
         Ok(Some(out))
     }
+
+    pub fn has_pending_runtime_recreate(&mut self) -> bool {
+        let Self::Plugin {
+            controller,
+            control_rx,
+            ..
+        } = self
+        else {
+            return false;
+        };
+
+        while let Ok(msg) = control_rx.try_recv() {
+            controller.on_control_message(msg);
+        }
+        controller.has_pending_recreate() || controller.has_pending_destroy()
+    }
 }
 
 fn decode_engine_track_token(token: &str) -> Result<stellatune_core::TrackRef, String> {
@@ -431,8 +462,41 @@ struct DecoderCandidate {
     default_config_json: String,
 }
 
+fn create_decoder_controller(
+    plugin_id: &str,
+    type_id: &str,
+    config_json: &str,
+) -> Result<(DecoderWorkerController, Receiver<WorkerControlMessage>), String> {
+    let endpoint = stellatune_plugins::runtime::handle::shared_runtime_service()
+        .bind_decoder_worker_endpoint(plugin_id, type_id)
+        .map_err(|e| e.to_string())?;
+    let (mut controller, control_rx) = endpoint.into_controller(config_json.to_string());
+    match controller.apply_pending().map_err(|e| e.to_string())? {
+        WorkerApplyPendingOutcome::Created | WorkerApplyPendingOutcome::Recreated => {
+            Ok((controller, control_rx))
+        }
+        WorkerApplyPendingOutcome::Destroyed | WorkerApplyPendingOutcome::Idle => {
+            Err("decoder worker controller did not create instance".to_string())
+        }
+    }
+}
+
+fn create_source_catalog_instance(
+    plugin_id: &str,
+    type_id: &str,
+    config_json: &str,
+) -> Result<stellatune_plugins::capabilities::source::SourceCatalogInstance, String> {
+    let endpoint = stellatune_plugins::runtime::handle::shared_runtime_service()
+        .bind_source_catalog_worker_endpoint(plugin_id, type_id)
+        .map_err(|e| e.to_string())?;
+    endpoint
+        .factory
+        .create_instance(config_json)
+        .map_err(|e| e.to_string())
+}
+
 fn build_plugin_track_info(
-    dec: &mut stellatune_plugins::DecoderInstance,
+    dec: &mut stellatune_plugins::capabilities::decoder::DecoderInstance,
     plugin_id: &str,
     decoder_type_id: &str,
     fallback_metadata: Option<serde_json::Value>,
@@ -502,14 +566,14 @@ fn runtime_scored_decoder_candidates(ext_hint: &str) -> Vec<DecoderCandidate> {
     if ext.is_empty() {
         return Vec::new();
     }
-    let service = stellatune_plugins::shared_runtime_service();
+    let service = stellatune_plugins::runtime::handle::shared_runtime_service();
     let mut out = Vec::new();
     let mut seen = HashSet::new();
-    for candidate in service.decoder_candidates_for_ext(&ext) {
+    for candidate in service.list_decoder_candidates_for_ext(&ext) {
         if !seen.insert((candidate.plugin_id.clone(), candidate.type_id.clone())) {
             continue;
         }
-        let Some(cap) = service.resolve_active_capability(
+        let Some(cap) = service.find_capability(
             &candidate.plugin_id,
             RuntimeCapabilityKind::Decoder,
             &candidate.type_id,
@@ -526,12 +590,12 @@ fn runtime_scored_decoder_candidates(ext_hint: &str) -> Vec<DecoderCandidate> {
 }
 
 fn runtime_all_decoder_candidates() -> Vec<DecoderCandidate> {
-    let service = stellatune_plugins::shared_runtime_service();
+    let service = stellatune_plugins::runtime::handle::shared_runtime_service();
     let mut plugin_ids = service.active_plugin_ids();
     plugin_ids.sort();
     let mut out = Vec::new();
     for plugin_id in plugin_ids {
-        let mut caps = service.list_active_capabilities(&plugin_id);
+        let mut caps = service.list_capabilities(&plugin_id);
         caps.sort_by(|a, b| a.type_id.cmp(&b.type_id));
         for cap in caps {
             if cap.kind != RuntimeCapabilityKind::Decoder {
@@ -554,9 +618,9 @@ fn select_decoder_candidates(
 ) -> Result<Vec<DecoderCandidate>, String> {
     match (decoder_plugin_id, decoder_type_id) {
         (Some(plugin_id), Some(type_id)) => {
-            let service = stellatune_plugins::shared_runtime_service();
+            let service = stellatune_plugins::runtime::handle::shared_runtime_service();
             let cap = service
-                .resolve_active_capability(plugin_id, RuntimeCapabilityKind::Decoder, type_id)
+                .find_capability(plugin_id, RuntimeCapabilityKind::Decoder, type_id)
                 .ok_or_else(|| {
                     format!(
                         "decoder not found for source track: plugin_id={} type_id={}",
@@ -591,10 +655,11 @@ fn try_open_decoder_for_local_path(
     ext_hint: &str,
 ) -> Result<
     Option<(
-        stellatune_plugins::DecoderInstance,
+        DecoderWorkerController,
         TrackDecodeInfo,
         GaplessTrimSpec,
         DecoderIoOwner,
+        Receiver<WorkerControlMessage>,
     )>,
     String,
 > {
@@ -605,7 +670,7 @@ fn try_open_decoder_for_local_path(
 
     let mut last_err: Option<String> = None;
     for candidate in candidates {
-        let mut dec = match stellatune_plugins::shared_runtime_service().create_decoder_instance(
+        let (mut controller, control_rx) = match create_decoder_controller(
             &candidate.plugin_id,
             &candidate.type_id,
             &candidate.default_config_json,
@@ -628,6 +693,11 @@ fn try_open_decoder_for_local_path(
             }
         };
 
+        let Some(dec) = controller.instance_mut() else {
+            last_err = Some("decoder controller missing instance".to_string());
+            continue;
+        };
+
         match dec.open_with_io(
             path,
             ext_hint,
@@ -635,13 +705,9 @@ fn try_open_decoder_for_local_path(
             io_owner.io_handle_ptr(),
         ) {
             Ok(()) => {
-                let (info, gapless) = build_plugin_track_info(
-                    &mut dec,
-                    &candidate.plugin_id,
-                    &candidate.type_id,
-                    None,
-                )?;
-                return Ok(Some((dec, info, gapless, io_owner)));
+                let (info, gapless) =
+                    build_plugin_track_info(dec, &candidate.plugin_id, &candidate.type_id, None)?;
+                return Ok(Some((controller, info, gapless, io_owner, control_rx)));
             }
             Err(e) => {
                 last_err = Some(format!(
@@ -666,10 +732,11 @@ fn try_open_decoder_for_source_stream(
     ext_hint: &str,
 ) -> Result<
     Option<(
-        stellatune_plugins::DecoderInstance,
+        DecoderWorkerController,
         TrackDecodeInfo,
         GaplessTrimSpec,
         DecoderIoOwner,
+        Receiver<WorkerControlMessage>,
     )>,
     String,
 > {
@@ -688,21 +755,20 @@ fn try_open_decoder_for_source_stream(
     let track_json = serde_json::to_string(&source.track)
         .map_err(|e| format!("invalid source track json: {e}"))?;
 
-    let mut source_inst = match stellatune_plugins::shared_runtime_service()
-        .create_source_catalog_instance(&source.plugin_id, &source.type_id, &config_json)
-    {
-        Ok(v) => v,
-        Err(e) => {
-            return Err(format!(
-                "create_source_catalog_instance failed for {}::{}: {e:#}",
-                source.plugin_id, source.type_id
-            ));
-        }
-    };
+    let mut source_inst =
+        match create_source_catalog_instance(&source.plugin_id, &source.type_id, &config_json) {
+            Ok(v) => v,
+            Err(e) => {
+                return Err(format!(
+                    "create_source_catalog_instance failed for {}::{}: {e:#}",
+                    source.plugin_id, source.type_id
+                ));
+            }
+        };
 
     let mut last_err: Option<String> = None;
     for candidate in candidates {
-        let mut dec = match stellatune_plugins::shared_runtime_service().create_decoder_instance(
+        let (mut controller, control_rx) = match create_decoder_controller(
             &candidate.plugin_id,
             &candidate.type_id,
             &candidate.default_config_json,
@@ -715,6 +781,11 @@ fn try_open_decoder_for_source_stream(
                 ));
                 continue;
             }
+        };
+
+        let Some(dec) = controller.instance_mut() else {
+            last_err = Some("decoder controller missing instance".to_string());
+            continue;
         };
 
         let (stream, source_metadata_json) = match source_inst.open_stream(&track_json) {
@@ -741,7 +812,7 @@ fn try_open_decoder_for_source_stream(
         match dec.open_with_io(path_hint, ext_hint, stream.io_vtable, stream.io_handle) {
             Ok(()) => {
                 let (info, gapless) = build_plugin_track_info(
-                    &mut dec,
+                    dec,
                     &candidate.plugin_id,
                     &candidate.type_id,
                     source_metadata,
@@ -750,7 +821,7 @@ fn try_open_decoder_for_source_stream(
                     source: source_inst,
                     io_handle_addr: stream.io_handle as usize,
                 };
-                return Ok(Some((dec, info, gapless, io_owner)));
+                return Ok(Some((controller, info, gapless, io_owner, control_rx)));
             }
             Err(e) => {
                 source_inst.close_stream(stream.io_handle);
@@ -771,8 +842,8 @@ fn try_open_decoder_for_source_stream(
 }
 
 fn runtime_has_source_catalog(plugin_id: &str, type_id: &str) -> bool {
-    stellatune_plugins::shared_runtime_service()
-        .resolve_active_capability(plugin_id, RuntimeCapabilityKind::SourceCatalog, type_id)
+    stellatune_plugins::runtime::handle::shared_runtime_service()
+        .find_capability(plugin_id, RuntimeCapabilityKind::SourceCatalog, type_id)
         .is_some()
 }
 
@@ -889,19 +960,20 @@ pub(crate) fn open_engine_decoder(
         }
 
         match try_open_decoder_for_local_path(path, &ext_hint) {
-            Ok(Some((dec, info, gapless_spec, io_owner))) => {
+            Ok(Some((controller, info, gapless_spec, io_owner, control_rx))) => {
                 return Ok((
                     Box::new(EngineDecoder::Plugin {
                         spec: TrackSpec {
                             sample_rate: info.sample_rate,
                             channels: info.channels,
                         },
-                        dec,
+                        controller,
                         gapless: GaplessTrimState::new(
                             gapless_spec,
                             info.channels as usize,
                             info.sample_rate,
                         ),
+                        control_rx,
                         _io_owner: io_owner,
                     }),
                     info,
@@ -938,19 +1010,20 @@ pub(crate) fn open_engine_decoder(
     };
 
     match try_open_decoder_for_source_stream(&source, &path_hint, &ext_hint) {
-        Ok(Some((dec, info, gapless_spec, io_owner))) => {
+        Ok(Some((controller, info, gapless_spec, io_owner, control_rx))) => {
             return Ok((
                 Box::new(EngineDecoder::Plugin {
                     spec: TrackSpec {
                         sample_rate: info.sample_rate,
                         channels: info.channels,
                     },
-                    dec,
+                    controller,
                     gapless: GaplessTrimState::new(
                         gapless_spec,
                         info.channels as usize,
                         info.sample_rate,
                     ),
+                    control_rx,
                     _io_owner: io_owner,
                 }),
                 info,

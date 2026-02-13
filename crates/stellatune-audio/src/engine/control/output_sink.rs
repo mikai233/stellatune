@@ -5,7 +5,7 @@ use tracing::warn;
 
 use stellatune_output::OutputSpec;
 use stellatune_plugin_api::{StAudioSpec, StOutputSinkNegotiatedSpec};
-use stellatune_plugins::runtime::CapabilityKind;
+use stellatune_plugins::runtime::worker_controller::WorkerApplyPendingOutcome;
 
 use crate::engine::session::OutputSinkWorkerStartArgs;
 
@@ -14,10 +14,33 @@ use super::{
     OpenOutputSinkWorkerArgs, OutputSinkNegotiationCache, OutputSinkWorker, OutputSinkWorkerSpec,
     PLUGIN_SINK_DEFAULT_CHUNK_FRAMES, PLUGIN_SINK_FALLBACK_CHANNELS,
     PLUGIN_SINK_FALLBACK_SAMPLE_RATE, PLUGIN_SINK_MIN_HIGH_WATERMARK_MS,
-    PLUGIN_SINK_MIN_LOW_WATERMARK_MS, RuntimeInstanceSlotKey, debug_metrics,
-    runtime_active_capability_generation, with_runtime_service,
+    PLUGIN_SINK_MIN_LOW_WATERMARK_MS, RuntimeInstanceSlotKey, debug_metrics, with_runtime_service,
 };
 use crate::engine::control::runtime_query::apply_or_recreate_output_sink_instance;
+
+fn create_output_sink_cached_instance(
+    service: &stellatune_plugins::runtime::handle::SharedPluginRuntimeService,
+    plugin_id: &str,
+    type_id: &str,
+    config_json: &str,
+) -> Result<CachedOutputSinkInstance, String> {
+    let endpoint = service
+        .bind_output_sink_worker_endpoint(plugin_id, type_id)
+        .map_err(|e| e.to_string())?;
+    let (mut controller, control_rx) = endpoint.into_controller(config_json.to_string());
+    match controller.apply_pending().map_err(|e| e.to_string())? {
+        WorkerApplyPendingOutcome::Created | WorkerApplyPendingOutcome::Recreated => {
+            Ok(CachedOutputSinkInstance {
+                config_json: config_json.to_string(),
+                controller,
+                control_rx,
+            })
+        }
+        WorkerApplyPendingOutcome::Destroyed | WorkerApplyPendingOutcome::Idle => Err(format!(
+            "output sink controller did not create instance for {plugin_id}::{type_id}"
+        )),
+    }
+}
 
 pub(super) fn output_spec_for_plugin_sink(state: &EngineState) -> OutputSpec {
     let start_at_ms = state.position_ms.max(0) as u64;
@@ -72,33 +95,29 @@ pub(super) fn negotiate_output_sink_spec(
     let key = RuntimeInstanceSlotKey::new(&route.plugin_id, &route.type_id);
     if !state.output_sink_instances.contains_key(&key) {
         let created = with_runtime_service(|service| {
-            service
-                .create_output_sink_instance(&route.plugin_id, &route.type_id, &config_json)
-                .map_err(|e| format!("output sink create failed: {e}"))
+            create_output_sink_cached_instance(
+                service,
+                &route.plugin_id,
+                &route.type_id,
+                &config_json,
+            )
+            .map_err(|e| format!("output sink create failed: {e}"))
         })?;
-        state.output_sink_instances.insert(
-            key.clone(),
-            CachedOutputSinkInstance {
-                config_json: config_json.clone(),
-                instance: created,
-            },
-        );
+        state.output_sink_instances.insert(key.clone(), created);
     }
 
     let entry = state
         .output_sink_instances
         .get_mut(&key)
         .ok_or_else(|| "output sink instance cache insertion failed".to_string())?;
-    if entry.config_json != config_json {
-        apply_or_recreate_output_sink_instance(
-            &route.plugin_id,
-            &route.type_id,
-            entry,
-            &config_json,
-        )?;
-    }
-    entry
-        .instance
+    apply_or_recreate_output_sink_instance(&route.plugin_id, &route.type_id, entry, &config_json)?;
+    let instance = entry.controller.instance_mut().ok_or_else(|| {
+        format!(
+            "output sink instance unavailable for {}::{}",
+            route.plugin_id, route.type_id
+        )
+    })?;
+    instance
         .negotiate_spec(
             &target_json,
             StAudioSpec {
@@ -204,11 +223,6 @@ pub(super) fn sync_output_sink_with_active_session(
         sample_rate,
         channels,
         chunk_frames: state.output_sink_chunk_frames,
-        generation: runtime_active_capability_generation(
-            &route.plugin_id,
-            CapabilityKind::OutputSink,
-            &route.type_id,
-        )?,
     };
     if let (Some(worker), Some(active_spec)) = (
         state.output_sink_worker.as_ref(),
@@ -226,8 +240,7 @@ pub(super) fn sync_output_sink_with_active_session(
             && active_spec.route.type_id == desired_spec.route.type_id
             && active_spec.route.target == desired_spec.route.target
             && active_spec.sample_rate == desired_spec.sample_rate
-            && active_spec.channels == desired_spec.channels
-            && active_spec.generation == desired_spec.generation;
+            && active_spec.channels == desired_spec.channels;
         if same_runtime_identity {
             let config_json = serde_json::to_string(&desired_spec.route.config)
                 .map_err(|e| format!("invalid output sink config json: {e}"))?;

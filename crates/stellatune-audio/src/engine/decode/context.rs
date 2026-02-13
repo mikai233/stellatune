@@ -6,7 +6,6 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use stellatune_mixer::ChannelMixer;
-use stellatune_plugins::PluginRuntimeEvent;
 
 use super::dsp::ActiveDspNode;
 
@@ -36,6 +35,5 @@ pub(crate) struct DecodeContext<'a> {
     pub(crate) output_sink_chunk_frames: &'a mut u32,
     pub(crate) output_sink_only: bool,
     pub(crate) ctrl_rx: &'a Receiver<DecodeCtrl>,
-    pub(crate) plugin_runtime_events: &'a Receiver<PluginRuntimeEvent>,
     pub(crate) internal_tx: &'a Sender<InternalMsg>,
 }

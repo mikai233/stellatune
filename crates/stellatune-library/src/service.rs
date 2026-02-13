@@ -50,7 +50,8 @@ impl LibraryHandle {
         }
         persist_disabled_plugin_ids(&self.db_path, &disabled).await?;
 
-        stellatune_plugins::shared_runtime_service().set_plugin_enabled(&plugin_id, enabled);
+        stellatune_plugins::runtime::handle::shared_runtime_service()
+            .set_plugin_enabled(&plugin_id, enabled);
 
         Ok(())
     }

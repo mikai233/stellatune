@@ -91,7 +91,8 @@ pub(super) fn publish_player_tick_event(state: &EngineState) {
         Err(_) => return,
     };
 
-    stellatune_plugins::broadcast_shared_host_event_json(&event_json);
+    stellatune_plugins::runtime::handle::shared_runtime_service()
+        .broadcast_host_event_json(&event_json);
 }
 
 pub(super) fn handle_tick(

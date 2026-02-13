@@ -22,6 +22,7 @@ pub(crate) fn emit_config_update_runtime_event(
         );
     }
     if let Ok(payload_json) = serde_json::to_string(&payload) {
-        stellatune_plugins::push_shared_runtime_notify_json(plugin_id, &payload_json);
+        stellatune_plugins::runtime::handle::shared_runtime_service()
+            .push_host_event_json(plugin_id, &payload_json);
     }
 }

@@ -47,12 +47,14 @@ pub(super) fn drain_router_receiver<T>(
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 pub(super) fn push_plugin_host_event_json(plugin_id: &str, event_json: String) {
-    stellatune_plugins::push_shared_host_event_json(plugin_id, &event_json);
+    stellatune_plugins::runtime::handle::shared_runtime_service()
+        .push_host_event_json(plugin_id, &event_json);
 }
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 pub(super) fn broadcast_host_event_json(event_json: String) {
-    stellatune_plugins::broadcast_shared_host_event_json(&event_json);
+    stellatune_plugins::runtime::handle::shared_runtime_service()
+        .broadcast_host_event_json(&event_json);
 }
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]

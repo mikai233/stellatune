@@ -1,15 +1,14 @@
 use std::thread;
 use std::time::Duration;
 
-use crossbeam_channel::{TryRecvError, TrySendError};
+use crossbeam_channel::TrySendError;
 use stellatune_mixer::ChannelMixer;
-use stellatune_plugins::PluginRuntimeEvent;
-use stellatune_plugins::runtime::CapabilityKind as RuntimeCapabilityKind;
+use stellatune_plugins::runtime::introspection::CapabilityKind as RuntimeCapabilityKind;
 use tracing::warn;
 
 use super::context::DecodeContext;
 use super::decoder::{EngineDecoder, open_engine_decoder};
-use super::dsp::apply_or_recreate_dsp_chain;
+use super::dsp::{apply_or_recreate_dsp_chain, apply_runtime_control_updates};
 use super::resampler::create_resampler_if_needed;
 use crate::engine::config::OUTPUT_SINK_WRITE_RETRY_SLEEP_MS;
 use crate::engine::messages::{DecodeCtrl, InternalMsg};
@@ -39,12 +38,23 @@ pub(crate) fn skip_frames_by_decoding(
 pub(crate) fn write_pending(ctx: &mut DecodeContext) -> bool {
     let mut offset = 0usize;
     while offset < ctx.out_pending.len() {
-        loop {
-            match ctx.plugin_runtime_events.try_recv() {
-                Ok(event) => handle_plugin_runtime_event_during_write(ctx, event),
-                Err(TryRecvError::Empty) => break,
-                Err(TryRecvError::Disconnected) => break,
-            }
+        if ctx.decoder.has_pending_runtime_recreate()
+            && let Err(e) = refresh_decoder(ctx)
+        {
+            warn!("decoder refresh on worker control failed: {e}");
+            let _ = ctx.internal_tx.send(InternalMsg::Error(e));
+            *ctx.playing = false;
+            return false;
+        }
+        if let Err(e) = apply_runtime_control_updates(
+            ctx.dsp_chain,
+            ctx.in_channels,
+            ctx.target_sample_rate,
+            ctx.out_channels as u16,
+        ) {
+            let _ = ctx.internal_tx.send(InternalMsg::Error(e));
+            *ctx.playing = false;
+            return false;
         }
 
         while let Ok(ctrl) = ctx.ctrl_rx.try_recv() {
@@ -83,11 +93,6 @@ pub(crate) fn write_pending(ctx: &mut DecodeContext) -> bool {
                     *ctx.output_sink_tx = tx;
                     *ctx.output_sink_chunk_frames = output_sink_chunk_frames;
                 }
-                DecodeCtrl::RefreshDecoder => {
-                    if let Err(e) = refresh_decoder(ctx) {
-                        warn!("decoder refresh failed: {e}");
-                    }
-                }
                 DecodeCtrl::Stop => return true,
                 _ => {}
             }
@@ -95,7 +100,7 @@ pub(crate) fn write_pending(ctx: &mut DecodeContext) -> bool {
         if !*ctx.playing {
             break;
         }
-        // Control handlers (e.g. RefreshDecoder) may clear/replace out_pending.
+        // Control handlers may clear/replace out_pending.
         // Re-validate offset after handling controls before slicing.
         if offset >= ctx.out_pending.len() {
             break;
@@ -159,22 +164,10 @@ pub(crate) fn write_pending(ctx: &mut DecodeContext) -> bool {
     false
 }
 
-fn handle_plugin_runtime_event_during_write(ctx: &mut DecodeContext, event: PluginRuntimeEvent) {
-    if !matches!(
-        event,
-        PluginRuntimeEvent::PluginsReloaded { .. } | PluginRuntimeEvent::PluginUnloaded { .. }
-    ) {
-        return;
-    }
-    if let Err(e) = refresh_decoder(ctx) {
-        warn!("decoder refresh on plugin runtime event failed: {e}");
-    }
-}
-
 fn active_decoder_generation(plugin_id: &str, type_id: &str) -> u64 {
-    stellatune_plugins::shared_runtime_service()
-        .resolve_active_capability(plugin_id, RuntimeCapabilityKind::Decoder, type_id)
-        .map(|cap| cap.generation.0)
+    stellatune_plugins::runtime::handle::shared_runtime_service()
+        .find_capability(plugin_id, RuntimeCapabilityKind::Decoder, type_id)
+        .map(|cap| cap.lease_id)
         .unwrap_or(0)
 }
 

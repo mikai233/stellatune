@@ -9,8 +9,11 @@ use tracing::{debug, warn};
 use stellatune_core::TrackDecodeInfo;
 use stellatune_output::{OutputError, OutputHandle, OutputSpec};
 use stellatune_plugin_api::StAudioSpec;
-use stellatune_plugins::PluginRuntimeEvent;
-use stellatune_plugins::runtime::{CapabilityKind as RuntimeCapabilityKind, InstanceUpdateResult};
+use stellatune_plugins::runtime::actor::WorkerControlMessage;
+use stellatune_plugins::runtime::worker_controller::{
+    WorkerApplyPendingOutcome, WorkerConfigUpdateOutcome,
+};
+use stellatune_plugins::runtime::worker_endpoint::OutputSinkWorkerController;
 
 use crate::engine::config::{
     BUFFER_PREFILL_CAP_MS, BUFFER_PREFILL_CAP_MS_EXCLUSIVE, OUTPUT_SINK_WRITE_RETRY_SLEEP_MS,
@@ -26,8 +29,6 @@ use crate::ring_buffer::{RingBufferConsumer, RingBufferProducer, new_ring_buffer
 
 const OUTPUT_CONSUMER_CHUNK_SAMPLES: usize = 1024;
 pub(crate) const OUTPUT_SINK_QUEUE_CAP_MESSAGES: usize = 16;
-const PLUGIN_RUNTIME_OWNER_AUDIO_DECODE: &str = "audio.decode";
-const PLUGIN_RUNTIME_OWNER_AUDIO_OUTPUT_SINK: &str = "audio.output_sink";
 #[cfg(debug_assertions)]
 const DEBUG_SESSION_LOG_EVERY: u64 = 12;
 #[cfg(debug_assertions)]
@@ -363,8 +364,6 @@ impl OutputSinkWorker {
         let (tx, rx) =
             crossbeam_channel::bounded::<OutputSinkWrite>(OUTPUT_SINK_QUEUE_CAP_MESSAGES);
         let (ctrl_tx, ctrl_rx) = crossbeam_channel::unbounded::<OutputSinkControl>();
-        let plugin_runtime_events = stellatune_plugins::shared_runtime_service()
-            .subscribe_owner_runtime_events(PLUGIN_RUNTIME_OWNER_AUDIO_OUTPUT_SINK);
         let pending_samples = Arc::new(AtomicUsize::new(0));
         let pending_samples_for_thread = Arc::clone(&pending_samples);
         let sink_runtime_queued_samples = Arc::new(AtomicUsize::new(0));
@@ -374,7 +373,7 @@ impl OutputSinkWorker {
             .name("stellatune-output-sink".to_string())
             .spawn(move || {
                 let _rt_guard = stellatune_output::enable_realtime_audio_thread();
-                let mut sink = match create_output_sink_instance_and_open(
+                let (mut controller, worker_control_rx) = match create_output_sink_controller_and_open(
                     &plugin_id,
                     &type_id,
                     &config_json,
@@ -411,10 +410,7 @@ impl OutputSinkWorker {
                                         let _ = resp_tx.send(Ok(()));
                                         continue;
                                     }
-                                    let update_result = sink
-                                        .apply_config_update_json(&config_json)
-                                        .map_err(|e| e.to_string());
-                                    let update_outcome = match update_result {
+                                    let update_outcome = match controller.apply_config_update(config_json.clone()) {
                                         Ok(v) => v,
                                         Err(e) => {
                                             let _ = resp_tx.send(Err(format!(
@@ -425,7 +421,7 @@ impl OutputSinkWorker {
                                     };
 
                                     match update_outcome {
-                                        InstanceUpdateResult::Applied { generation, .. } => {
+                                        WorkerConfigUpdateOutcome::Applied { revision: generation } => {
                                             emit_config_update_runtime_event(
                                                 &plugin_id,
                                                 "output_sink",
@@ -437,7 +433,7 @@ impl OutputSinkWorker {
                                             current_config_json = config_json;
                                             let _ = resp_tx.send(Ok(()));
                                         }
-                                        InstanceUpdateResult::RequiresRecreate { generation, reason, .. } => {
+                                        WorkerConfigUpdateOutcome::RequiresRecreate { revision: generation, reason } => {
                                             emit_config_update_runtime_event(
                                                 &plugin_id,
                                                 "output_sink",
@@ -449,16 +445,12 @@ impl OutputSinkWorker {
                                             match recreate_output_sink_instance(
                                                 &plugin_id,
                                                 &type_id,
-                                                &config_json,
                                                 &target_json,
                                                 sample_rate,
                                                 channels,
-                                                &mut sink,
+                                                &mut controller,
                                             ) {
-                                                Ok(next) => {
-                                                    let _ = sink.flush();
-                                                    sink.close();
-                                                    sink = next;
+                                                Ok(()) => {
                                                     current_config_json = config_json;
                                                     emit_config_update_runtime_event(
                                                         &plugin_id,
@@ -488,7 +480,52 @@ impl OutputSinkWorker {
                                                 }
                                             }
                                         }
-                                        InstanceUpdateResult::Rejected { generation, reason, .. } => {
+                                        WorkerConfigUpdateOutcome::DeferredNoInstance => {
+                                            let generation = current_plugin_lease_id(&plugin_id);
+                                            emit_config_update_runtime_event(
+                                                &plugin_id,
+                                                "output_sink",
+                                                &type_id,
+                                                "requires_recreate",
+                                                generation,
+                                                Some("deferred_no_instance"),
+                                            );
+                                            match recreate_output_sink_instance(
+                                                &plugin_id,
+                                                &type_id,
+                                                &target_json,
+                                                sample_rate,
+                                                channels,
+                                                &mut controller,
+                                            ) {
+                                                Ok(()) => {
+                                                    current_config_json = config_json;
+                                                    emit_config_update_runtime_event(
+                                                        &plugin_id,
+                                                        "output_sink",
+                                                        &type_id,
+                                                        "recreated",
+                                                        generation,
+                                                        Some("deferred_no_instance"),
+                                                    );
+                                                    let _ = resp_tx.send(Ok(()));
+                                                }
+                                                Err(e) => {
+                                                    emit_config_update_runtime_event(
+                                                        &plugin_id,
+                                                        "output_sink",
+                                                        &type_id,
+                                                        "failed",
+                                                        generation,
+                                                        Some(&e),
+                                                    );
+                                                    let _ = resp_tx.send(Err(format!(
+                                                        "output sink recreate failed: {e}"
+                                                    )));
+                                                }
+                                            }
+                                        }
+                                        WorkerConfigUpdateOutcome::Rejected { revision: generation, reason } => {
                                             emit_config_update_runtime_event(
                                                 &plugin_id,
                                                 "output_sink",
@@ -501,7 +538,7 @@ impl OutputSinkWorker {
                                                 "output sink config update rejected: {reason}"
                                             )));
                                         }
-                                        InstanceUpdateResult::Failed { generation, error, .. } => {
+                                        WorkerConfigUpdateOutcome::Failed { revision: generation, error } => {
                                             emit_config_update_runtime_event(
                                                 &plugin_id,
                                                 "output_sink",
@@ -525,10 +562,12 @@ impl OutputSinkWorker {
                                                     .saturating_add(samples.len());
                                             }
                                             OutputSinkWrite::Shutdown { drain } => {
-                                                if drain {
-                                                    let _ = sink.flush();
+                                                if let Some(sink) = controller.instance_mut() {
+                                                    if drain {
+                                                        let _ = sink.flush();
+                                                    }
+                                                    sink.close();
                                                 }
-                                                sink.close();
                                                 let _ = resp_tx.send(Ok(()));
                                                 return;
                                             }
@@ -542,6 +581,13 @@ impl OutputSinkWorker {
                                         );
                                     }
 
+                                    let Some(sink) = controller.instance_mut() else {
+                                        let _ = resp_tx.send(Err(
+                                            "output sink reset_for_disrupt failed: instance missing"
+                                                .to_string(),
+                                        ));
+                                        continue;
+                                    };
                                     if let Err(e) = sink.reset() {
                                         let _ = resp_tx.send(Err(format!(
                                             "output sink reset_for_disrupt failed: {e}"
@@ -557,6 +603,59 @@ impl OutputSinkWorker {
                                 }
                             }
                         }
+                        recv(worker_control_rx) -> msg => {
+                            let Ok(msg) = msg else {
+                                break;
+                            };
+                            controller.on_control_message(msg);
+
+                            if controller.has_pending_destroy() {
+                                let _ = internal_tx.try_send(InternalMsg::OutputError(format!(
+                                    "plugin sink destroyed by runtime control: {}::{}",
+                                    plugin_id, type_id
+                                )));
+                                break;
+                            }
+
+                            if !controller.has_pending_recreate() {
+                                continue;
+                            }
+
+                            let generation = current_plugin_lease_id(&plugin_id);
+                            match recreate_output_sink_instance(
+                                &plugin_id,
+                                &type_id,
+                                &target_json,
+                                sample_rate,
+                                channels,
+                                &mut controller,
+                            ) {
+                                Ok(()) => {
+                                    emit_config_update_runtime_event(
+                                        &plugin_id,
+                                        "output_sink",
+                                        &type_id,
+                                        "recreated",
+                                        generation,
+                                        Some("worker_control:recreate"),
+                                    );
+                                }
+                                Err(e) => {
+                                    emit_config_update_runtime_event(
+                                        &plugin_id,
+                                        "output_sink",
+                                        &type_id,
+                                        "failed",
+                                        generation,
+                                        Some(&e),
+                                    );
+                                    let _ = internal_tx.try_send(InternalMsg::OutputError(format!(
+                                        "plugin sink recreate by runtime control failed: {e}"
+                                    )));
+                                    break;
+                                }
+                            }
+                        }
                         recv(rx) -> msg => {
                             let Ok(msg) = msg else {
                                 break;
@@ -568,7 +667,18 @@ impl OutputSinkWorker {
                                         continue;
                                     }
                                     master_gain.apply_in_place(&mut samples);
-                                    if let Err(e) = write_all_frames(&mut sink, channels, &samples) {
+                                    let Some(sink) = controller.instance_mut() else {
+                                        let _ = pending_samples_for_thread.fetch_update(
+                                            Ordering::Relaxed,
+                                            Ordering::Relaxed,
+                                            |current| Some(current.saturating_sub(queued)),
+                                        );
+                                        let _ = internal_tx.try_send(InternalMsg::OutputError(
+                                            "plugin sink instance missing".to_string(),
+                                        ));
+                                        break;
+                                    };
+                                    if let Err(e) = write_all_frames(sink, channels, &samples) {
                                         let _ = pending_samples_for_thread.fetch_update(
                                             Ordering::Relaxed,
                                             Ordering::Relaxed,
@@ -591,88 +701,14 @@ impl OutputSinkWorker {
                                     );
                                 }
                                 OutputSinkWrite::Shutdown { drain } => {
-                                    if drain {
-                                        let _ = sink.flush();
-                                    }
-                                    sink.close();
-                                    break;
-                                }
-                            }
-                        }
-                        recv(plugin_runtime_events) -> msg => {
-                            let Ok(event) = msg else {
-                                break;
-                            };
-                            match event {
-                                PluginRuntimeEvent::PluginsReloaded { .. } => {
-                                    let generation = active_output_sink_generation(&plugin_id, &type_id);
-                                    match recreate_output_sink_instance(
-                                        &plugin_id,
-                                        &type_id,
-                                        &current_config_json,
-                                        &target_json,
-                                        sample_rate,
-                                        channels,
-                                        &mut sink,
-                                    ) {
-                                        Ok(next) => {
+                                    if let Some(sink) = controller.instance_mut() {
+                                        if drain {
                                             let _ = sink.flush();
-                                            sink.close();
-                                            sink = next;
-                                            emit_config_update_runtime_event(
-                                                &plugin_id,
-                                                "output_sink",
-                                                &type_id,
-                                                "recreated",
-                                                generation,
-                                                Some("runtime_event:plugins_reloaded"),
-                                            );
-                                            if let Ok(status) = sink.query_status() {
-                                                sink_runtime_queued_samples_for_thread
-                                                    .store(status.queued_samples as usize, Ordering::Release);
-                                            }
                                         }
-                                        Err(e) => {
-                                            emit_config_update_runtime_event(
-                                                &plugin_id,
-                                                "output_sink",
-                                                &type_id,
-                                                "failed",
-                                                generation,
-                                                Some(&e),
-                                            );
-                                            let _ = internal_tx.try_send(InternalMsg::OutputError(format!(
-                                                "plugin sink recreate on runtime reload failed: {e}"
-                                            )));
-                                            break;
-                                        }
+                                        sink.close();
                                     }
-                                }
-                                PluginRuntimeEvent::PluginUnloaded { plugin_id: unloaded_plugin_id, .. } => {
-                                    if unloaded_plugin_id == plugin_id {
-                                        let _ = internal_tx.try_send(InternalMsg::OutputError(format!(
-                                            "plugin sink plugin unloaded: {}::{}",
-                                            plugin_id, type_id
-                                        )));
-                                        break;
-                                    }
-                                }
-                                PluginRuntimeEvent::PluginEnabledChanged { plugin_id: changed_plugin_id, enabled } => {
-                                    if changed_plugin_id == plugin_id && !enabled {
-                                        let _ = internal_tx.try_send(InternalMsg::OutputError(format!(
-                                            "plugin sink plugin disabled: {}::{}",
-                                            plugin_id, type_id
-                                        )));
-                                        break;
-                                    }
-                                }
-                                PluginRuntimeEvent::RuntimeShutdown { .. } => {
-                                    let _ = internal_tx.try_send(InternalMsg::OutputError(
-                                        "plugin runtime shutdown while output sink worker running".to_string()
-                                    ));
                                     break;
                                 }
-                                _ => {}
                             }
                         }
                     }
@@ -740,47 +776,33 @@ impl OutputSinkWorker {
     }
 }
 
-fn active_output_sink_generation(plugin_id: &str, type_id: &str) -> u64 {
-    stellatune_plugins::shared_runtime_service()
-        .resolve_active_capability(plugin_id, RuntimeCapabilityKind::OutputSink, type_id)
-        .map(|cap| cap.generation.0)
-        .unwrap_or(0)
-}
-
 fn recreate_output_sink_instance(
     plugin_id: &str,
     type_id: &str,
-    config_json: &str,
     target_json: &str,
     sample_rate: u32,
     channels: u16,
-    current: &mut stellatune_plugins::OutputSinkInstance,
-) -> Result<stellatune_plugins::OutputSinkInstance, String> {
-    let mut next = create_output_sink_instance_and_open(
-        plugin_id,
-        type_id,
-        config_json,
-        target_json,
-        sample_rate,
-        channels,
-    )?;
-    if let Ok(Some(state_json)) = current.export_state_json() {
-        let _ = next.import_state_json(&state_json);
+    controller: &mut OutputSinkWorkerController,
+) -> Result<(), String> {
+    let state_json = controller
+        .instance()
+        .and_then(|instance| instance.export_state_json().ok().flatten());
+    controller.request_recreate();
+    match controller.apply_pending().map_err(|e| e.to_string())? {
+        WorkerApplyPendingOutcome::Created | WorkerApplyPendingOutcome::Recreated => {}
+        WorkerApplyPendingOutcome::Destroyed | WorkerApplyPendingOutcome::Idle => {
+            return Err(format!(
+                "output sink recreate failed for {}::{}: controller has no instance",
+                plugin_id, type_id
+            ));
+        }
     }
-    Ok(next)
-}
-
-fn create_output_sink_instance_and_open(
-    plugin_id: &str,
-    type_id: &str,
-    config_json: &str,
-    target_json: &str,
-    sample_rate: u32,
-    channels: u16,
-) -> Result<stellatune_plugins::OutputSinkInstance, String> {
-    let mut sink = stellatune_plugins::shared_runtime_service()
-        .create_output_sink_instance(plugin_id, type_id, config_json)
-        .map_err(|e| format!("create_output_sink_instance failed: {e}"))?;
+    let Some(sink) = controller.instance_mut() else {
+        return Err(format!(
+            "output sink recreate failed for {}::{}: controller has no instance",
+            plugin_id, type_id
+        ));
+    };
     sink.open(
         target_json,
         StAudioSpec {
@@ -790,11 +812,60 @@ fn create_output_sink_instance_and_open(
         },
     )
     .map_err(|e| format!("output sink reopen failed: {e}"))?;
-    Ok(sink)
+    if let Some(state_json) = state_json {
+        let _ = sink.import_state_json(&state_json);
+    }
+    Ok(())
+}
+
+fn create_output_sink_controller_and_open(
+    plugin_id: &str,
+    type_id: &str,
+    config_json: &str,
+    target_json: &str,
+    sample_rate: u32,
+    channels: u16,
+) -> Result<(OutputSinkWorkerController, Receiver<WorkerControlMessage>), String> {
+    let endpoint = stellatune_plugins::runtime::handle::shared_runtime_service()
+        .bind_output_sink_worker_endpoint(plugin_id, type_id)
+        .map_err(|e| format!("bind_output_sink_worker_endpoint failed: {e}"))?;
+    let (mut controller, control_rx) = endpoint.into_controller(config_json.to_string());
+    match controller.apply_pending().map_err(|e| e.to_string())? {
+        WorkerApplyPendingOutcome::Created | WorkerApplyPendingOutcome::Recreated => {}
+        WorkerApplyPendingOutcome::Destroyed | WorkerApplyPendingOutcome::Idle => {
+            return Err(format!(
+                "create_output_sink_instance failed for {}::{}: controller has no instance",
+                plugin_id, type_id
+            ));
+        }
+    }
+    let Some(sink) = controller.instance_mut() else {
+        return Err(format!(
+            "create_output_sink_instance failed for {}::{}: controller has no instance",
+            plugin_id, type_id
+        ));
+    };
+    sink.open(
+        target_json,
+        StAudioSpec {
+            sample_rate: sample_rate.max(1),
+            channels: channels.max(1),
+            reserved: 0,
+        },
+    )
+    .map_err(|e| format!("output sink reopen failed: {e}"))?;
+    Ok((controller, control_rx))
+}
+
+fn current_plugin_lease_id(plugin_id: &str) -> u64 {
+    stellatune_plugins::runtime::handle::shared_runtime_service()
+        .current_plugin_lease_info(plugin_id)
+        .map(|v| v.lease_id)
+        .unwrap_or(0)
 }
 
 fn write_all_frames(
-    sink: &mut stellatune_plugins::OutputSinkInstance,
+    sink: &mut stellatune_plugins::capabilities::output::OutputSinkInstance,
     channels: u16,
     samples: &[f32],
 ) -> Result<(), String> {
@@ -903,8 +974,6 @@ pub(crate) fn start_decode_worker(internal_tx: Sender<InternalMsg>) -> DecodeWor
     let promoted_preload_for_thread = Arc::clone(&promoted_preload);
     let (ctrl_tx, ctrl_rx) = crossbeam_channel::unbounded::<DecodeCtrl>();
     let (prepare_tx, prepare_rx) = crossbeam_channel::unbounded::<DecodePrepareMsg>();
-    let plugin_runtime_events = stellatune_plugins::shared_runtime_service()
-        .subscribe_owner_runtime_events(PLUGIN_RUNTIME_OWNER_AUDIO_DECODE);
 
     let join = std::thread::Builder::new()
         .name("stellatune-decode".to_string())
@@ -914,7 +983,6 @@ pub(crate) fn start_decode_worker(internal_tx: Sender<InternalMsg>) -> DecodeWor
                 internal_tx,
                 ctrl_rx,
                 prepare_rx,
-                plugin_runtime_events,
                 Arc::clone(&runtime_state),
                 Arc::clone(&promoted_preload_for_thread),
             )
@@ -933,7 +1001,6 @@ fn run_decode_worker(
     internal_tx: Sender<InternalMsg>,
     ctrl_rx: Receiver<DecodeCtrl>,
     prepare_rx: Receiver<DecodePrepareMsg>,
-    plugin_runtime_events: Receiver<stellatune_plugins::PluginRuntimeEvent>,
     runtime_state: Arc<AtomicU8>,
     promoted_preload: Arc<Mutex<Option<PromotedPreload>>>,
 ) {
@@ -991,7 +1058,6 @@ fn run_decode_worker(
             path: prepare.path,
             internal_tx: internal_tx.clone(),
             ctrl_rx: ctrl_rx.clone(),
-            plugin_runtime_events: plugin_runtime_events.clone(),
             setup_rx,
             spec_tx: prepare.spec_tx,
             runtime_state: Arc::clone(&runtime_state),

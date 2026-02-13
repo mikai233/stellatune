@@ -6,12 +6,15 @@ use std::time::{Duration, Instant, UNIX_EPOCH};
 
 use anyhow::{Result, anyhow};
 use crossbeam_channel::Receiver;
-use stellatune_plugin_api::{STELLATUNE_PLUGIN_API_VERSION, StHostVTable};
-use stellatune_plugin_api::{StLogLevel, StStr};
+use stellatune_plugin_api::StLogLevel;
+use stellatune_plugin_api::{STELLATUNE_PLUGIN_API_VERSION, StHostVTable, StPluginModule, StStr};
 
 use crate::events::{PluginEventBus, new_runtime_event_bus};
 use crate::manifest;
 use crate::runtime::backend_control::BackendControlRequest;
+use crate::runtime::introspection::{
+    CapabilityDescriptor, CapabilityKind, DecoderCandidate, PluginLeaseInfo, PluginLeaseState,
+};
 use crate::runtime::model::{
     ModuleLease, ModuleLeaseRef, PluginSyncAction, RuntimeSyncActionOutcome,
     RuntimeSyncPlanSummary, RuntimeSyncReport, SourceLibraryFingerprint, SyncMode,
@@ -25,6 +28,10 @@ use super::load::{
 
 const SHADOW_CLEANUP_GRACE_PERIOD: Duration = Duration::ZERO;
 const SHADOW_CLEANUP_MAX_DELETIONS_PER_RUN: usize = 200;
+
+fn lease_id_of(lease: &Arc<ModuleLease>) -> u64 {
+    Arc::as_ptr(lease) as usize as u64
+}
 
 pub struct PluginRuntimeService {
     host: StHostVTable,
@@ -116,6 +123,121 @@ impl PluginRuntimeService {
         let slot = self.modules.get(plugin_id)?;
         let lease = slot.current.as_ref()?;
         Some(ModuleLeaseRef::from_arc(lease))
+    }
+
+    pub fn current_plugin_lease_info(&self, plugin_id: &str) -> Option<PluginLeaseInfo> {
+        let slot = self.modules.get(plugin_id)?;
+        let lease = slot.current.as_ref()?;
+        Some(PluginLeaseInfo {
+            lease_id: lease_id_of(lease),
+            metadata_json: lease.metadata_json.clone(),
+        })
+    }
+
+    pub fn plugin_lease_state(&self, plugin_id: &str) -> Option<PluginLeaseState> {
+        let slot = self.modules.get(plugin_id)?;
+        let current = slot.current.as_ref().map(|lease| PluginLeaseInfo {
+            lease_id: lease_id_of(lease),
+            metadata_json: lease.metadata_json.clone(),
+        });
+        let retired_lease_ids = slot.retired.iter().map(lease_id_of).collect::<Vec<_>>();
+        Some(PluginLeaseState {
+            current,
+            retired_lease_ids,
+        })
+    }
+
+    pub fn list_capabilities(&self, plugin_id: &str) -> Vec<CapabilityDescriptor> {
+        let Some(slot) = self.modules.get(plugin_id) else {
+            return Vec::new();
+        };
+        let Some(lease) = slot.current.as_ref() else {
+            return Vec::new();
+        };
+        let lease_id = lease_id_of(lease);
+        let mut out = Vec::new();
+        let cap_count = (lease.loaded.module.capability_count)();
+        for index in 0..cap_count {
+            let desc_ptr = (lease.loaded.module.capability_get)(index);
+            if desc_ptr.is_null() {
+                continue;
+            }
+            let descriptor = unsafe { *desc_ptr };
+            let type_id = unsafe { crate::util::ststr_to_string_lossy(descriptor.type_id_utf8) };
+            if type_id.is_empty() {
+                continue;
+            }
+            out.push(CapabilityDescriptor {
+                lease_id,
+                kind: CapabilityKind::from_st(descriptor.kind),
+                type_id,
+                display_name: unsafe {
+                    crate::util::ststr_to_string_lossy(descriptor.display_name_utf8)
+                },
+                config_schema_json: unsafe {
+                    crate::util::ststr_to_string_lossy(descriptor.config_schema_json_utf8)
+                },
+                default_config_json: unsafe {
+                    crate::util::ststr_to_string_lossy(descriptor.default_config_json_utf8)
+                },
+            });
+        }
+        out
+    }
+
+    pub fn find_capability(
+        &self,
+        plugin_id: &str,
+        kind: CapabilityKind,
+        type_id: &str,
+    ) -> Option<CapabilityDescriptor> {
+        self.list_capabilities(plugin_id)
+            .into_iter()
+            .find(|capability| capability.kind == kind && capability.type_id == type_id)
+    }
+
+    pub fn list_decoder_candidates_for_ext(&self, ext: &str) -> Vec<DecoderCandidate> {
+        let ext = ext.trim().trim_start_matches('.').to_ascii_lowercase();
+        if ext.is_empty() {
+            return Vec::new();
+        }
+
+        let mut out = Vec::new();
+        let mut plugin_ids = self.active_plugin_ids();
+        plugin_ids.sort();
+        for plugin_id in plugin_ids {
+            let Some(slot) = self.modules.get(&plugin_id) else {
+                continue;
+            };
+            let Some(lease) = slot.current.as_ref() else {
+                continue;
+            };
+            for capability in self.list_capabilities(&plugin_id) {
+                if capability.kind != CapabilityKind::Decoder {
+                    continue;
+                }
+                let score = decoder_ext_score(
+                    &lease.loaded.module,
+                    capability.type_id.as_str(),
+                    ext.as_str(),
+                );
+                if score == 0 {
+                    continue;
+                }
+                out.push(DecoderCandidate {
+                    plugin_id: plugin_id.clone(),
+                    type_id: capability.type_id,
+                    score,
+                });
+            }
+        }
+        out.sort_by(|a, b| {
+            b.score
+                .cmp(&a.score)
+                .then_with(|| a.plugin_id.cmp(&b.plugin_id))
+                .then_with(|| a.type_id.cmp(&b.type_id))
+        });
+        out
     }
 
     pub(crate) fn acquire_current_module_lease(&self, plugin_id: &str) -> Option<Arc<ModuleLease>> {
@@ -603,6 +725,44 @@ impl PluginRuntimeService {
 struct ActivatedLoad {
     info: RuntimePluginInfo,
     reclaimed_leases: usize,
+}
+
+fn ststr_from_str(s: &str) -> StStr {
+    StStr {
+        ptr: s.as_ptr(),
+        len: s.len(),
+    }
+}
+
+fn decoder_ext_score(module: &StPluginModule, type_id: &str, ext: &str) -> u16 {
+    let Some(count_fn) = module.decoder_ext_score_count else {
+        return 1;
+    };
+    let Some(get_fn) = module.decoder_ext_score_get else {
+        return 1;
+    };
+
+    let type_id_st = ststr_from_str(type_id);
+    let count = (count_fn)(type_id_st);
+    let mut exact = 0u16;
+    let mut wildcard = 0u16;
+    for index in 0..count {
+        let score_ptr = (get_fn)(type_id_st, index);
+        if score_ptr.is_null() {
+            continue;
+        }
+        let item = unsafe { *score_ptr };
+        let rule = unsafe { crate::util::ststr_to_string_lossy(item.ext_utf8) };
+        let rule = rule.trim().trim_start_matches('.').to_ascii_lowercase();
+        if rule == "*" {
+            wildcard = wildcard.max(item.score);
+            continue;
+        }
+        if rule == ext {
+            exact = exact.max(item.score);
+        }
+    }
+    if exact > 0 { exact } else { wildcard }
 }
 
 fn source_fingerprint_for_path(path: &Path) -> SourceLibraryFingerprint {

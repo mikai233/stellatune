@@ -61,16 +61,16 @@ impl WorkerDeps {
                 let disabled = db::list_disabled_plugin_ids(&pool)
                     .await
                     .unwrap_or_default();
-                let service = stellatune_plugins::shared_runtime_service();
+                let service = stellatune_plugins::runtime::handle::shared_runtime_service();
                 service.set_disabled_plugin_ids(disabled);
                 match service.reload_dir_from_state(&plugins_dir) {
                     Ok(v2) => events.emit(LibraryEvent::Log {
                         message: format!(
-                            "library plugin runtime v2 reload: loaded={} deactivated={} errors={} unloaded_generations={}",
+                            "library plugin runtime v2 reload: loaded={} deactivated={} errors={} reclaimed_leases={}",
                             v2.loaded.len(),
                             v2.deactivated.len(),
                             v2.errors.len(),
-                            v2.unloaded_generations
+                            v2.reclaimed_leases
                         ),
                     }),
                     Err(e) => events.emit(LibraryEvent::Log {
@@ -123,7 +123,7 @@ impl LibraryWorker {
             let disabled = db::list_disabled_plugin_ids(&self.pool)
                 .await
                 .unwrap_or_default();
-            let service = stellatune_plugins::shared_runtime_service();
+            let service = stellatune_plugins::runtime::handle::shared_runtime_service();
             service.set_disabled_plugin_ids(disabled);
             let _ = service.reload_dir_from_state(&self.plugins_dir);
         }

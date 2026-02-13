@@ -183,8 +183,8 @@ impl LibraryService {
         let report = crate::runtime::plugin_runtime_disable(&self.handle, plugin_id, 3_000).await?;
         if report.timed_out {
             return Err(anyhow::anyhow!(
-                "plugin disable timed out: remaining_draining_generations={}",
-                report.remaining_draining_generations
+                "plugin disable timed out: remaining_retired_leases={}",
+                report.remaining_retired_leases
             ));
         }
         if !report.errors.is_empty() {
@@ -212,7 +212,7 @@ impl LibraryService {
             phase = report.phase,
             loaded = report.loaded,
             deactivated = report.deactivated,
-            unloaded_generations = report.unloaded_generations,
+            reclaimed_leases = report.reclaimed_leases,
             plan_actions_total = report.plan_actions_total,
             plan_load_new = report.plan_load_new,
             plan_reload_changed = report.plan_reload_changed,

@@ -2,12 +2,10 @@ use std::sync::Arc;
 
 use crate::engine::messages::PluginReloadSummary;
 use crossbeam_channel::Sender;
-use stellatune_plugins::{PluginRuntimeCommand, PluginRuntimeCommandOutcome, PluginRuntimeEvent};
 
 use super::{
-    DecodeCtrl, EngineCtrl, EngineState, Event, EventHub, InternalMsg,
-    PLUGIN_RUNTIME_OWNER_AUDIO_CONTROL, PlayerState, SessionStopMode, SharedTrackInfo,
-    apply_dsp_chain, clear_runtime_query_instance_cache,
+    DecodeCtrl, EngineCtrl, EngineState, Event, EventHub, InternalMsg, PlayerState,
+    SessionStopMode, SharedTrackInfo, apply_dsp_chain, clear_runtime_query_instance_cache,
     clear_runtime_query_instance_cache_for_plugin, drop_output_pipeline, emit_position_event,
     lyrics_fetch_json_via_runtime, lyrics_search_json_via_runtime, next_position_session_id,
     output_sink_list_targets_json_via_runtime, parse_dsp_chain, set_state,
@@ -72,58 +70,10 @@ pub(super) fn handle_engine_ctrl(
             );
         }
         EngineCtrl::ReloadPlugins { dir } => {
-            on_engine_ctrl_reload_plugins(state, events, dir);
+            on_engine_ctrl_reload_plugins(state, events, internal_tx, dir);
         }
         EngineCtrl::SetLfeMode { mode } => on_engine_ctrl_set_lfe_mode(state, mode),
     }
-}
-
-pub(super) fn handle_plugin_runtime_actor_event(
-    state: &mut EngineState,
-    events: &Arc<EventHub>,
-    internal_tx: &Sender<InternalMsg>,
-    event: PluginRuntimeEvent,
-) {
-    let PluginRuntimeEvent::CommandCompleted {
-        request_id,
-        owner,
-        outcome,
-    } = event
-    else {
-        return;
-    };
-    if owner.as_deref() != Some(PLUGIN_RUNTIME_OWNER_AUDIO_CONTROL) {
-        return;
-    }
-    let PluginRuntimeCommandOutcome::ReloadDirFromState {
-        dir,
-        prev_count,
-        loaded_ids,
-        loaded_count,
-        deactivated_count,
-        unloaded_generations,
-        load_errors,
-        fatal_error,
-    } = outcome
-    else {
-        return;
-    };
-    on_plugin_reload_finished(
-        state,
-        events,
-        internal_tx,
-        PluginReloadSummary {
-            request_id,
-            dir,
-            prev_count,
-            loaded_ids,
-            loaded_count,
-            deactivated_count,
-            unloaded_generations,
-            load_errors,
-            fatal_error,
-        },
-    );
 }
 
 fn on_engine_ctrl_set_dsp_chain(
@@ -202,8 +152,13 @@ fn on_engine_ctrl_output_sink_list_targets_json(
     ));
 }
 
-fn on_engine_ctrl_reload_plugins(state: &mut EngineState, events: &Arc<EventHub>, dir: String) {
-    handle_reload_plugins(state, events, dir);
+fn on_engine_ctrl_reload_plugins(
+    state: &mut EngineState,
+    events: &Arc<EventHub>,
+    internal_tx: &Sender<InternalMsg>,
+    dir: String,
+) {
+    handle_reload_plugins(state, events, internal_tx, dir);
 }
 
 fn on_engine_ctrl_set_lfe_mode(state: &mut EngineState, mode: stellatune_core::LfeMode) {
@@ -288,7 +243,12 @@ fn quiesce_plugin_usage(
     Ok(())
 }
 
-fn handle_reload_plugins(state: &mut EngineState, events: &Arc<EventHub>, dir: String) {
+fn handle_reload_plugins(
+    state: &mut EngineState,
+    events: &Arc<EventHub>,
+    internal_tx: &Sender<InternalMsg>,
+    dir: String,
+) {
     events.emit(Event::Log {
         message: format!("plugin reload requested: dir={} source=runtime_state", dir),
     });
@@ -299,43 +259,44 @@ fn handle_reload_plugins(state: &mut EngineState, events: &Arc<EventHub>, dir: S
     state.requested_preload_path = None;
     state.requested_preload_position_ms = 0;
     clear_runtime_query_instance_cache(state);
-    if state.plugin_reload_inflight {
-        state.pending_plugin_reload_dir = Some(dir.clone());
-        events.emit(Event::Log {
-            message: format!("plugin reload queued while in-flight: dir={dir}"),
-        });
-        return;
-    }
-    state.plugin_reload_inflight = true;
-    match send_reload_command(&dir) {
-        Ok(request_id) => {
-            state.plugin_reload_request_id = Some(request_id);
-            events.emit(Event::Log {
-                message: format!(
-                    "plugin reload command submitted: dir={dir} request_id={request_id}"
-                ),
-            });
-        }
-        Err(message) => {
-            state.plugin_reload_request_id = None;
-            state.plugin_reload_inflight = false;
-            events.emit(Event::Error {
-                message: format!("plugin reload command rejected: {message}"),
-            });
-        }
-    }
-}
-
-fn send_reload_command(dir: &str) -> Result<u64, String> {
-    let service = stellatune_plugins::shared_runtime_service();
-    service
-        .send_command(
-            Some(PLUGIN_RUNTIME_OWNER_AUDIO_CONTROL.to_string()),
-            PluginRuntimeCommand::ReloadDirFromState {
-                dir: dir.to_string(),
+    let service = stellatune_plugins::runtime::handle::shared_runtime_service();
+    let prev_count = service.active_plugin_ids().len();
+    match service.reload_dir_from_state(&dir) {
+        Ok(report) => on_plugin_reload_finished(
+            state,
+            events,
+            internal_tx,
+            PluginReloadSummary {
+                dir,
+                prev_count,
+                loaded_ids: report
+                    .loaded
+                    .iter()
+                    .map(|plugin| plugin.id.clone())
+                    .collect(),
+                loaded_count: report.loaded.len(),
+                deactivated_count: report.deactivated.len(),
+                unloaded_generations: report.reclaimed_leases,
+                load_errors: report.errors.iter().map(ToString::to_string).collect(),
+                fatal_error: None,
             },
-        )
-        .map_err(|err| err.to_string())
+        ),
+        Err(error) => on_plugin_reload_finished(
+            state,
+            events,
+            internal_tx,
+            PluginReloadSummary {
+                dir,
+                prev_count,
+                loaded_ids: Vec::new(),
+                loaded_count: 0,
+                deactivated_count: 0,
+                unloaded_generations: 0,
+                load_errors: Vec::new(),
+                fatal_error: Some(error.to_string()),
+            },
+        ),
+    }
 }
 
 pub(super) fn on_plugin_reload_finished(
@@ -344,28 +305,6 @@ pub(super) fn on_plugin_reload_finished(
     internal_tx: &Sender<InternalMsg>,
     summary: PluginReloadSummary,
 ) {
-    let Some(expected_request_id) = state.plugin_reload_request_id else {
-        events.emit(Event::Log {
-            message: format!(
-                "ignoring plugin reload completion without in-flight request: request_id={}",
-                summary.request_id
-            ),
-        });
-        return;
-    };
-    if summary.request_id != expected_request_id {
-        events.emit(Event::Log {
-            message: format!(
-                "ignoring stale plugin reload completion: request_id={} expected={expected_request_id}",
-                summary.request_id
-            ),
-        });
-        return;
-    }
-
-    state.plugin_reload_request_id = None;
-    state.plugin_reload_inflight = false;
-
     if let Some(err) = summary.fatal_error {
         events.emit(Event::Error {
             message: format!("plugin runtime v2 reload failed: {err}"),
@@ -374,9 +313,8 @@ pub(super) fn on_plugin_reload_finished(
         let loaded_ids = summary.loaded_ids.join(", ");
         events.emit(Event::Log {
             message: format!(
-                "plugins reloaded from {}: request_id={} previous={} loaded={} deactivated={} errors={} unloaded_generations={} [{}]",
+                "plugins reloaded from {}: previous={} loaded={} deactivated={} errors={} reclaimed_leases={} [{}]",
                 summary.dir,
-                summary.request_id,
                 summary.prev_count,
                 summary.loaded_count,
                 summary.deactivated_count,
@@ -396,35 +334,10 @@ pub(super) fn on_plugin_reload_finished(
         {
             events.emit(Event::Error { message });
         }
-        if let Some(ctrl_tx) = state.session.as_ref().map(|s| s.ctrl_tx.clone()) {
-            let _ = ctrl_tx.send(DecodeCtrl::RefreshDecoder);
-            if let Err(message) = apply_dsp_chain(state) {
-                events.emit(Event::Error { message });
-            }
-        }
-    }
-
-    if let Some(next_dir) = state.pending_plugin_reload_dir.take() {
-        state.plugin_reload_inflight = true;
-        events.emit(Event::Log {
-            message: format!("running queued plugin reload: dir={next_dir}"),
-        });
-        match send_reload_command(&next_dir) {
-            Ok(request_id) => {
-                state.plugin_reload_request_id = Some(request_id);
-                events.emit(Event::Log {
-                    message: format!(
-                        "plugin reload command submitted: dir={next_dir} request_id={request_id}"
-                    ),
-                });
-            }
-            Err(message) => {
-                state.plugin_reload_inflight = false;
-                state.plugin_reload_request_id = None;
-                events.emit(Event::Error {
-                    message: format!("plugin reload command rejected: {message}"),
-                });
-            }
+        if state.session.is_some()
+            && let Err(message) = apply_dsp_chain(state)
+        {
+            events.emit(Event::Error { message });
         }
     }
 }

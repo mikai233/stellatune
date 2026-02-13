@@ -105,7 +105,6 @@ pub(crate) enum DecodeCtrl {
         tx: Option<OutputSinkTx>,
         output_sink_chunk_frames: u32,
     },
-    RefreshDecoder,
     Stop,
 }
 
@@ -159,7 +158,6 @@ pub(crate) enum EngineCtrl {
 
 #[derive(Debug, Clone)]
 pub(crate) struct PluginReloadSummary {
-    pub(crate) request_id: u64,
     pub(crate) dir: String,
     pub(crate) prev_count: usize,
     pub(crate) loaded_ids: Vec<String>,

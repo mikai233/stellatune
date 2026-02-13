@@ -6,11 +6,17 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use base64::Engine;
+use crossbeam_channel::Receiver;
 use stellatune_plugin_api::{
     ST_DECODER_INFO_FLAG_HAS_DURATION, ST_ERR_INVALID_ARG, ST_ERR_IO, StIoVTable, StSeekWhence,
     StStatus, StStr,
 };
-use stellatune_plugins::runtime::{CapabilityKind as RuntimeCapabilityKind, InstanceUpdateResult};
+use stellatune_plugins::runtime::actor::WorkerControlMessage;
+use stellatune_plugins::runtime::introspection::CapabilityKind as RuntimeCapabilityKind;
+use stellatune_plugins::runtime::worker_controller::{
+    WorkerApplyPendingOutcome, WorkerConfigUpdateOutcome,
+};
+use stellatune_plugins::runtime::worker_endpoint::DecoderWorkerController;
 use symphonia::core::formats::FormatOptions;
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::{Limit, MetadataOptions, StandardTagKey, StandardVisualKey, Value};
@@ -171,7 +177,8 @@ static LOCAL_FILE_IO_VTABLE: StIoVTable = StIoVTable {
 struct CachedMetadataDecoder {
     generation: u64,
     config_json: String,
-    decoder: stellatune_plugins::DecoderInstance,
+    controller: DecoderWorkerController,
+    control_rx: Receiver<WorkerControlMessage>,
     last_used_at: Instant,
 }
 
@@ -196,20 +203,37 @@ pub(super) fn clear_metadata_decoder_cache() {
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 fn create_plugin_metadata_decoder(
     candidate: &DecoderCandidate,
-) -> Result<stellatune_plugins::DecoderInstance> {
-    stellatune_plugins::shared_runtime_service()
-        .create_decoder_instance(
-            &candidate.plugin_id,
-            &candidate.type_id,
-            &candidate.default_config_json,
-        )
+) -> Result<(DecoderWorkerController, Receiver<WorkerControlMessage>)> {
+    let runtime = stellatune_plugins::runtime::handle::shared_runtime_service();
+    let endpoint = runtime
+        .bind_decoder_worker_endpoint(&candidate.plugin_id, &candidate.type_id)
         .map_err(|e| {
             anyhow::anyhow!(
-                "create_decoder_instance failed for {}::{}: {e:#}",
+                "bind_decoder_worker_endpoint failed for {}::{}: {e:#}",
                 candidate.plugin_id,
                 candidate.type_id
             )
-        })
+        })?;
+    let (mut controller, control_rx) =
+        endpoint.into_controller(candidate.default_config_json.clone());
+    match controller.apply_pending().map_err(|e| {
+        anyhow::anyhow!(
+            "decoder controller apply_pending failed for {}::{}: {e:#}",
+            candidate.plugin_id,
+            candidate.type_id
+        )
+    })? {
+        WorkerApplyPendingOutcome::Created | WorkerApplyPendingOutcome::Recreated => {
+            Ok((controller, control_rx))
+        }
+        WorkerApplyPendingOutcome::Destroyed | WorkerApplyPendingOutcome::Idle => {
+            Err(anyhow::anyhow!(
+                "decoder controller did not create instance for {}::{}",
+                candidate.plugin_id,
+                candidate.type_id
+            ))
+        }
+    }
 }
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
@@ -237,10 +261,73 @@ fn refresh_cached_metadata_decoder(
     entry: &mut CachedMetadataDecoder,
     candidate: &DecoderCandidate,
 ) -> Result<()> {
-    if entry.generation != candidate.generation {
-        entry.decoder = create_plugin_metadata_decoder(candidate)?;
+    while let Ok(message) = entry.control_rx.try_recv() {
+        entry.controller.on_control_message(message);
+    }
+
+    if entry.controller.has_pending_destroy() {
+        match entry.controller.apply_pending().map_err(|e| {
+            anyhow::anyhow!(
+                "decoder destroy apply_pending failed for {}::{}: {e:#}",
+                candidate.plugin_id,
+                candidate.type_id
+            )
+        })? {
+            WorkerApplyPendingOutcome::Destroyed | WorkerApplyPendingOutcome::Idle => {
+                return Err(anyhow::anyhow!(
+                    "decoder instance destroyed by runtime control for {}::{}",
+                    candidate.plugin_id,
+                    candidate.type_id
+                ));
+            }
+            WorkerApplyPendingOutcome::Created | WorkerApplyPendingOutcome::Recreated => {}
+        }
+    }
+
+    let recreate_instance = |entry: &mut CachedMetadataDecoder| -> Result<()> {
+        let state_json = entry
+            .controller
+            .instance()
+            .and_then(|instance| instance.export_state_json().ok().flatten());
+
+        entry.controller.request_recreate();
+        match entry.controller.apply_pending().map_err(|e| {
+            anyhow::anyhow!(
+                "decoder recreate apply_pending failed for {}::{}: {e:#}",
+                candidate.plugin_id,
+                candidate.type_id
+            )
+        })? {
+            WorkerApplyPendingOutcome::Created | WorkerApplyPendingOutcome::Recreated => {}
+            WorkerApplyPendingOutcome::Destroyed | WorkerApplyPendingOutcome::Idle => {
+                return Err(anyhow::anyhow!(
+                    "decoder recreate did not produce instance for {}::{}",
+                    candidate.plugin_id,
+                    candidate.type_id
+                ));
+            }
+        }
+
+        if let Some(state_json) = state_json
+            && let Some(instance) = entry.controller.instance_mut()
+        {
+            let _ = instance.import_state_json(&state_json);
+        }
+
         entry.generation = candidate.generation;
         entry.config_json = candidate.default_config_json.clone();
+        Ok(())
+    };
+
+    if entry.controller.has_pending_recreate() {
+        recreate_instance(entry)?;
+    }
+    if entry.controller.instance().is_none() {
+        recreate_instance(entry)?;
+    }
+
+    if entry.generation != candidate.generation {
+        recreate_instance(entry)?;
         return Ok(());
     }
 
@@ -249,46 +336,32 @@ fn refresh_cached_metadata_decoder(
     }
 
     let update_outcome = match entry
-        .decoder
-        .apply_config_update_json(&candidate.default_config_json)
+        .controller
+        .apply_config_update(candidate.default_config_json.clone())
     {
         Ok(outcome) => outcome,
         Err(_) => {
-            let mut next = create_plugin_metadata_decoder(candidate)?;
-            if let Ok(Some(state_json)) = entry.decoder.export_state_json() {
-                let _ = next.import_state_json(&state_json);
-            }
-            entry.decoder = next;
-            entry.generation = candidate.generation;
-            entry.config_json = candidate.default_config_json.clone();
+            recreate_instance(entry)?;
             return Ok(());
         }
     };
 
     match update_outcome {
-        InstanceUpdateResult::Applied { .. } => {
+        WorkerConfigUpdateOutcome::Applied { .. } => {
             entry.config_json = candidate.default_config_json.clone();
             Ok(())
         }
-        InstanceUpdateResult::RequiresRecreate { .. }
-        | InstanceUpdateResult::Rejected { .. }
-        | InstanceUpdateResult::Failed { .. } => {
-            let mut next = create_plugin_metadata_decoder(candidate)?;
-            if let Ok(Some(state_json)) = entry.decoder.export_state_json() {
-                let _ = next.import_state_json(&state_json);
-            }
-            entry.decoder = next;
-            entry.generation = candidate.generation;
-            entry.config_json = candidate.default_config_json.clone();
-            Ok(())
-        }
+        WorkerConfigUpdateOutcome::DeferredNoInstance
+        | WorkerConfigUpdateOutcome::RequiresRecreate { .. }
+        | WorkerConfigUpdateOutcome::Rejected { .. }
+        | WorkerConfigUpdateOutcome::Failed { .. } => recreate_instance(entry),
     }
 }
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 fn with_cached_metadata_decoder<T>(
     candidate: &DecoderCandidate,
-    f: impl FnOnce(&mut stellatune_plugins::DecoderInstance) -> Result<T>,
+    f: impl FnOnce(&mut stellatune_plugins::capabilities::decoder::DecoderInstance) -> Result<T>,
 ) -> Result<T> {
     METADATA_DECODER_CACHE.with_borrow_mut(|cache| {
         let now = Instant::now();
@@ -297,21 +370,30 @@ fn with_cached_metadata_decoder<T>(
         let key = (candidate.plugin_id.clone(), candidate.type_id.clone());
         let mut entry = match cache.remove(&key) {
             Some(entry) => entry,
-            None => CachedMetadataDecoder {
-                generation: candidate.generation,
-                config_json: candidate.default_config_json.clone(),
-                decoder: create_plugin_metadata_decoder(candidate)?,
-                last_used_at: now,
-            },
+            None => {
+                let (controller, control_rx) = create_plugin_metadata_decoder(candidate)?;
+                CachedMetadataDecoder {
+                    generation: candidate.generation,
+                    config_json: candidate.default_config_json.clone(),
+                    controller,
+                    control_rx,
+                    last_used_at: now,
+                }
+            }
         };
 
-        if entry.generation != candidate.generation
-            || entry.config_json != candidate.default_config_json
-        {
-            refresh_cached_metadata_decoder(&mut entry, candidate)?;
-        }
+        refresh_cached_metadata_decoder(&mut entry, candidate)?;
 
-        let result = f(&mut entry.decoder);
+        let result = {
+            let decoder = entry.controller.instance_mut().ok_or_else(|| {
+                anyhow::anyhow!(
+                    "decoder instance unavailable for {}::{}",
+                    candidate.plugin_id,
+                    candidate.type_id
+                )
+            })?;
+            f(decoder)
+        };
         entry.last_used_at = Instant::now();
         cache.insert(key, entry);
         prune_metadata_decoder_cache(cache, Instant::now());
@@ -426,10 +508,10 @@ fn decoder_candidates_for_ext(ext: &str) -> Vec<DecoderCandidate> {
     if normalized.is_empty() {
         return Vec::new();
     }
-    let service = stellatune_plugins::shared_runtime_service();
+    let service = stellatune_plugins::runtime::handle::shared_runtime_service();
     let mut out = Vec::new();
-    for candidate in service.decoder_candidates_for_ext(&normalized) {
-        let Some(cap) = service.resolve_active_capability(
+    for candidate in service.list_decoder_candidates_for_ext(&normalized) {
+        let Some(cap) = service.find_capability(
             &candidate.plugin_id,
             RuntimeCapabilityKind::Decoder,
             &candidate.type_id,
@@ -441,7 +523,7 @@ fn decoder_candidates_for_ext(ext: &str) -> Vec<DecoderCandidate> {
             type_id: candidate.type_id,
             default_config_json: cap.default_config_json,
             score: candidate.score,
-            generation: cap.generation.0,
+            generation: cap.lease_id,
         });
     }
     out

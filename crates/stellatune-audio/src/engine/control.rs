@@ -11,7 +11,13 @@ use tracing::{debug, info, warn};
 use stellatune_core::{Command, Event, PlayerState, TrackPlayability, TrackRef};
 use stellatune_output::OutputSpec;
 use stellatune_plugin_api::StOutputSinkNegotiatedSpec;
-use stellatune_plugins::runtime::CapabilityKind;
+use stellatune_plugins::runtime::introspection::CapabilityKind;
+use stellatune_plugins::runtime::{
+    actor::WorkerControlMessage,
+    worker_endpoint::{
+        LyricsProviderWorkerController, OutputSinkWorkerController, SourceCatalogWorkerController,
+    },
+};
 
 use crate::engine::config::{
     BUFFER_HIGH_WATERMARK_MS, BUFFER_HIGH_WATERMARK_MS_EXCLUSIVE, BUFFER_LOW_WATERMARK_MS,
@@ -37,7 +43,7 @@ mod runtime_query;
 mod tick;
 
 use commands::handle_command;
-use engine_ctrl::{handle_engine_ctrl, handle_plugin_runtime_actor_event};
+use engine_ctrl::handle_engine_ctrl;
 use internal::handle_internal;
 use output_sink::{
     output_sink_queue_watermarks_ms, output_spec_for_plugin_sink,
@@ -67,13 +73,14 @@ const PLUGIN_SINK_FALLBACK_CHANNELS: u16 = 2;
 const PLUGIN_SINK_DEFAULT_CHUNK_FRAMES: u32 = 256;
 const PLUGIN_SINK_MIN_LOW_WATERMARK_MS: i64 = 8;
 const PLUGIN_SINK_MIN_HIGH_WATERMARK_MS: i64 = 16;
-pub(super) const PLUGIN_RUNTIME_OWNER_AUDIO_CONTROL: &str = "audio.control";
 type SharedTrackInfo = Arc<ArcSwapOption<stellatune_core::TrackDecodeInfo>>;
 
 fn with_runtime_service<T>(
-    f: impl FnOnce(&stellatune_plugins::SharedPluginRuntimeService) -> Result<T, String>,
+    f: impl FnOnce(
+        &stellatune_plugins::runtime::handle::SharedPluginRuntimeService,
+    ) -> Result<T, String>,
 ) -> Result<T, String> {
-    let service = stellatune_plugins::shared_runtime_service();
+    let service = stellatune_plugins::runtime::handle::shared_runtime_service();
     f(&service)
 }
 
@@ -84,21 +91,8 @@ fn runtime_default_config_json(
 ) -> Result<String, String> {
     with_runtime_service(|service| {
         service
-            .resolve_active_capability(plugin_id, kind, type_id)
+            .find_capability(plugin_id, kind, type_id)
             .map(|c| c.default_config_json)
-            .ok_or_else(|| format!("capability not found: {plugin_id}::{type_id}"))
-    })
-}
-
-fn runtime_active_capability_generation(
-    plugin_id: &str,
-    kind: CapabilityKind,
-    type_id: &str,
-) -> Result<u64, String> {
-    with_runtime_service(|service| {
-        service
-            .resolve_active_capability(plugin_id, kind, type_id)
-            .map(|c| c.generation.0)
             .ok_or_else(|| format!("capability not found: {plugin_id}::{type_id}"))
     })
 }
@@ -135,7 +129,6 @@ struct OutputSinkWorkerSpec {
     sample_rate: u32,
     channels: u16,
     chunk_frames: u32,
-    generation: u64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -173,17 +166,20 @@ impl RuntimeInstanceSlotKey {
 
 struct CachedSourceInstance {
     config_json: String,
-    instance: stellatune_plugins::SourceCatalogInstance,
+    controller: SourceCatalogWorkerController,
+    control_rx: Receiver<WorkerControlMessage>,
 }
 
 struct CachedLyricsInstance {
     config_json: String,
-    instance: stellatune_plugins::LyricsProviderInstance,
+    controller: LyricsProviderWorkerController,
+    control_rx: Receiver<WorkerControlMessage>,
 }
 
 struct CachedOutputSinkInstance {
     config_json: String,
-    instance: stellatune_plugins::OutputSinkInstance,
+    controller: OutputSinkWorkerController,
+    control_rx: Receiver<WorkerControlMessage>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -553,14 +549,16 @@ impl EngineHandle {
     ) -> Result<(), String> {
         match plugin_id {
             Some(plugin_id) => with_runtime_service(|service| {
-                if service.active_generation(&plugin_id).is_none() {
+                if service.current_plugin_lease_info(&plugin_id).is_none() {
                     return Err(format!("plugin not found: {plugin_id}"));
                 }
-                stellatune_plugins::push_shared_host_event_json(&plugin_id, &event_json);
+                stellatune_plugins::runtime::handle::shared_runtime_service()
+                    .push_host_event_json(&plugin_id, &event_json);
                 Ok(())
             }),
             None => {
-                stellatune_plugins::broadcast_shared_host_event_json(&event_json);
+                stellatune_plugins::runtime::handle::shared_runtime_service()
+                    .broadcast_host_event_json(&event_json);
                 Ok(())
             }
         }
@@ -572,7 +570,7 @@ impl EngineHandle {
             plugin_ids.sort();
             let mut out = Vec::with_capacity(plugin_ids.len());
             for plugin_id in plugin_ids {
-                let Some(generation) = service.active_generation(&plugin_id) else {
+                let Some(generation) = service.current_plugin_lease_info(&plugin_id) else {
                     continue;
                 };
                 out.push(stellatune_core::PluginDescriptor {
@@ -591,12 +589,12 @@ impl EngineHandle {
             plugin_ids.sort();
             let mut out = Vec::new();
             for plugin_id in plugin_ids {
-                let Some(generation) = service.active_generation(&plugin_id) else {
+                let Some(generation) = service.current_plugin_lease_info(&plugin_id) else {
                     continue;
                 };
                 let plugin_name =
                     plugin_name_from_metadata_json(&plugin_id, &generation.metadata_json);
-                let mut capabilities = service.list_active_capabilities(&plugin_id);
+                let mut capabilities = service.list_capabilities(&plugin_id);
                 capabilities.sort_by(|a, b| a.type_id.cmp(&b.type_id));
                 for capability in capabilities {
                     if capability.kind != CapabilityKind::Dsp {
@@ -623,12 +621,12 @@ impl EngineHandle {
             plugin_ids.sort();
             let mut out = Vec::new();
             for plugin_id in plugin_ids {
-                let Some(generation) = service.active_generation(&plugin_id) else {
+                let Some(generation) = service.current_plugin_lease_info(&plugin_id) else {
                     continue;
                 };
                 let plugin_name =
                     plugin_name_from_metadata_json(&plugin_id, &generation.metadata_json);
-                let mut capabilities = service.list_active_capabilities(&plugin_id);
+                let mut capabilities = service.list_capabilities(&plugin_id);
                 capabilities.sort_by(|a, b| a.type_id.cmp(&b.type_id));
                 for capability in capabilities {
                     if capability.kind != CapabilityKind::SourceCatalog {
@@ -655,12 +653,12 @@ impl EngineHandle {
             plugin_ids.sort();
             let mut out = Vec::new();
             for plugin_id in plugin_ids {
-                let Some(generation) = service.active_generation(&plugin_id) else {
+                let Some(generation) = service.current_plugin_lease_info(&plugin_id) else {
                     continue;
                 };
                 let plugin_name =
                     plugin_name_from_metadata_json(&plugin_id, &generation.metadata_json);
-                let mut capabilities = service.list_active_capabilities(&plugin_id);
+                let mut capabilities = service.list_capabilities(&plugin_id);
                 capabilities.sort_by(|a, b| a.type_id.cmp(&b.type_id));
                 for capability in capabilities {
                     if capability.kind != CapabilityKind::LyricsProvider {
@@ -685,12 +683,12 @@ impl EngineHandle {
             plugin_ids.sort();
             let mut out = Vec::new();
             for plugin_id in plugin_ids {
-                let Some(generation) = service.active_generation(&plugin_id) else {
+                let Some(generation) = service.current_plugin_lease_info(&plugin_id) else {
                     continue;
                 };
                 let plugin_name =
                     plugin_name_from_metadata_json(&plugin_id, &generation.metadata_json);
-                let mut capabilities = service.list_active_capabilities(&plugin_id);
+                let mut capabilities = service.list_capabilities(&plugin_id);
                 capabilities.sort_by(|a, b| a.type_id.cmp(&b.type_id));
                 for capability in capabilities {
                     if capability.kind != CapabilityKind::OutputSink {
@@ -852,9 +850,6 @@ pub fn start_engine() -> EngineHandle {
     let thread_events = Arc::clone(&events);
 
     let track_info: SharedTrackInfo = Arc::new(ArcSwapOption::new(None));
-    let plugin_runtime_events = stellatune_plugins::shared_runtime_service()
-        .subscribe_owner_runtime_events(PLUGIN_RUNTIME_OWNER_AUDIO_CONTROL);
-
     let track_info_for_thread = Arc::clone(&track_info);
     let _join: JoinHandle<()> = thread::Builder::new()
         .name("stellatune-control".to_string())
@@ -866,7 +861,6 @@ pub fn start_engine() -> EngineHandle {
                     engine_ctrl_rx,
                     internal_rx,
                     internal_tx,
-                    plugin_runtime_events,
                 },
                 ControlLoopDeps {
                     events: thread_events,
@@ -921,9 +915,6 @@ struct EngineState {
     source_instances: HashMap<RuntimeInstanceSlotKey, CachedSourceInstance>,
     lyrics_instances: HashMap<RuntimeInstanceSlotKey, CachedLyricsInstance>,
     output_sink_instances: HashMap<RuntimeInstanceSlotKey, CachedOutputSinkInstance>,
-    plugin_reload_inflight: bool,
-    plugin_reload_request_id: Option<u64>,
-    pending_plugin_reload_dir: Option<String>,
     switch_timing_seq: u64,
     manual_switch_timing: Option<ManualSwitchTiming>,
     seek_position_guard: Option<SeekPositionGuard>,
@@ -960,7 +951,6 @@ struct ControlLoopChannels {
     engine_ctrl_rx: Receiver<EngineCtrl>,
     internal_rx: Receiver<InternalMsg>,
     internal_tx: Sender<InternalMsg>,
-    plugin_runtime_events: Receiver<stellatune_plugins::PluginRuntimeEvent>,
 }
 
 struct ControlLoopDeps {
@@ -1017,9 +1007,6 @@ impl EngineState {
             source_instances: HashMap::new(),
             lyrics_instances: HashMap::new(),
             output_sink_instances: HashMap::new(),
-            plugin_reload_inflight: false,
-            plugin_reload_request_id: None,
-            pending_plugin_reload_dir: None,
             switch_timing_seq: 0,
             manual_switch_timing: None,
             seek_position_guard: None,
@@ -1034,7 +1021,6 @@ fn run_control_loop(channels: ControlLoopChannels, deps: ControlLoopDeps) {
         engine_ctrl_rx,
         internal_rx,
         internal_tx,
-        plugin_runtime_events,
     } = channels;
     let ControlLoopDeps { events, track_info } = deps;
 
@@ -1079,10 +1065,6 @@ fn run_control_loop(channels: ControlLoopChannels, deps: ControlLoopDeps) {
             recv(internal_rx) -> msg => {
                 let Ok(msg) = msg else { break };
                 handle_internal(msg, &mut state, &events, &internal_tx, &track_info);
-            }
-            recv(plugin_runtime_events) -> msg => {
-                let Ok(msg) = msg else { break };
-                handle_plugin_runtime_actor_event(&mut state, &events, &internal_tx, msg);
             }
             recv(tick) -> _ => {
                 publish_player_tick_event(&state);

@@ -16,7 +16,7 @@ use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::time::LocalTime;
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-use stellatune_plugins::SharedPluginRuntimeService;
+use stellatune_plugins::runtime::handle::SharedPluginRuntimeService;
 
 mod apply_state;
 mod bus;
@@ -92,7 +92,7 @@ pub type SharedPluginRuntime = ();
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 pub fn shared_plugin_runtime() -> SharedPluginRuntime {
-    stellatune_plugins::shared_runtime_service()
+    stellatune_plugins::runtime::handle::shared_runtime_service()
 }
 
 #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
@@ -140,18 +140,18 @@ fn cleanup_plugin_runtime_for_restart(reason: &'static str) {
     let mut plugin_ids = service.active_plugin_ids();
     plugin_ids.sort();
     let report = service.shutdown_and_cleanup();
-    let remaining_draining_generations: usize = plugin_ids
+    let remaining_retired_leases: usize = plugin_ids
         .iter()
-        .filter_map(|plugin_id| service.slot_snapshot(plugin_id))
-        .map(|slot| slot.draining.len())
+        .filter_map(|plugin_id| service.plugin_lease_state(plugin_id))
+        .map(|state| state.retired_lease_ids.len())
         .sum();
 
-    if remaining_draining_generations == 0 && report.errors.is_empty() {
+    if remaining_retired_leases == 0 && report.errors.is_empty() {
         tracing::info!(
             reason,
             active_plugins_before_cleanup = plugin_ids.len(),
             deactivated = report.deactivated.len(),
-            unloaded_generations = report.unloaded_generations,
+            reclaimed_leases = report.reclaimed_leases,
             errors = report.errors.len(),
             "plugin runtime cleanup attempted"
         );
@@ -160,8 +160,8 @@ fn cleanup_plugin_runtime_for_restart(reason: &'static str) {
             reason,
             active_plugins_before_cleanup = plugin_ids.len(),
             deactivated = report.deactivated.len(),
-            unloaded_generations = report.unloaded_generations,
-            remaining_draining_generations,
+            reclaimed_leases = report.reclaimed_leases,
+            remaining_retired_leases,
             errors = report.errors.len(),
             "plugin runtime cleanup attempted with leftovers"
         );
@@ -182,9 +182,9 @@ pub fn runtime_shutdown() {
 pub struct DisableReport {
     pub plugin_id: String,
     pub phase: &'static str,
-    pub deactivated_generation: Option<u64>,
-    pub unloaded_generations: usize,
-    pub remaining_draining_generations: usize,
+    pub deactivated_lease_id: Option<u64>,
+    pub reclaimed_leases: usize,
+    pub remaining_retired_leases: usize,
     pub timed_out: bool,
     pub errors: Vec<String>,
 }
@@ -200,7 +200,7 @@ pub struct ApplyStateReport {
     pub phase: &'static str,
     pub loaded: usize,
     pub deactivated: usize,
-    pub unloaded_generations: usize,
+    pub reclaimed_leases: usize,
     pub errors: Vec<String>,
     pub plan_discovered: usize,
     pub plan_disabled: usize,
@@ -222,7 +222,7 @@ impl ApplyStateReport {
             phase: "completed",
             loaded: 0,
             deactivated: 0,
-            unloaded_generations: 0,
+            reclaimed_leases: 0,
             errors: Vec::new(),
             plan_discovered: 0,
             plan_disabled: 0,
@@ -269,9 +269,9 @@ pub async fn plugin_runtime_disable(
     let mut report = DisableReport {
         plugin_id: plugin_id.clone(),
         phase: "freeze",
-        deactivated_generation: None,
-        unloaded_generations: 0,
-        remaining_draining_generations: 0,
+        deactivated_lease_id: None,
+        reclaimed_leases: 0,
+        remaining_retired_leases: 0,
         timed_out: false,
         errors: Vec::new(),
     };
@@ -290,18 +290,32 @@ pub async fn plugin_runtime_disable(
     report.phase = "deactivate";
     tracing::debug!(plugin_id, phase = report.phase, "plugin_disable_phase");
     let service = shared_plugin_runtime();
-    report.deactivated_generation = service.deactivate_plugin(&plugin_id).map(|v| v.0);
+    report.deactivated_lease_id = service
+        .current_plugin_lease_info(&plugin_id)
+        .map(|v| v.lease_id);
+    let unload_report = service.unload_plugin(&plugin_id);
+    report.reclaimed_leases = report
+        .reclaimed_leases
+        .saturating_add(unload_report.reclaimed_leases);
+    report.errors.extend(
+        unload_report
+            .errors
+            .into_iter()
+            .map(|err| format!("{err:#}")),
+    );
 
     report.phase = "collect";
     tracing::debug!(plugin_id, phase = report.phase, "plugin_disable_phase");
     let deadline = Instant::now() + Duration::from_millis(timeout_ms);
     loop {
-        report.unloaded_generations += service.collect_ready_for_unload(&plugin_id).len();
-        report.remaining_draining_generations = service
-            .slot_snapshot(&plugin_id)
-            .map(|slot| slot.draining.len())
+        report.reclaimed_leases = report
+            .reclaimed_leases
+            .saturating_add(service.collect_retired_module_leases_by_refcount());
+        report.remaining_retired_leases = service
+            .plugin_lease_state(&plugin_id)
+            .map(|state| state.retired_lease_ids.len())
             .unwrap_or(0);
-        let done = report.remaining_draining_generations == 0;
+        let done = report.remaining_retired_leases == 0;
 
         if done {
             break;
@@ -310,7 +324,7 @@ pub async fn plugin_runtime_disable(
             report.timed_out = true;
             tracing::warn!(
                 plugin_id,
-                remaining_draining_generations = report.remaining_draining_generations,
+                remaining_retired_leases = report.remaining_retired_leases,
                 "plugin_disable_timeout"
             );
             break;
@@ -326,9 +340,9 @@ pub async fn plugin_runtime_disable(
     tracing::info!(
         plugin_id,
         elapsed_ms = started_at.elapsed().as_millis() as u64,
-        deactivated_generation = report.deactivated_generation,
-        unloaded_generations = report.unloaded_generations,
-        remaining_draining_generations = report.remaining_draining_generations,
+        deactivated_lease_id = report.deactivated_lease_id,
+        reclaimed_leases = report.reclaimed_leases,
+        remaining_retired_leases = report.remaining_retired_leases,
         timed_out = report.timed_out,
         errors = report.errors.len(),
         "plugin_disable_end"
@@ -345,9 +359,9 @@ pub async fn plugin_runtime_disable(
     Ok(DisableReport {
         plugin_id,
         phase: "completed",
-        deactivated_generation: None,
-        unloaded_generations: 0,
-        remaining_draining_generations: 0,
+        deactivated_lease_id: None,
+        reclaimed_leases: 0,
+        remaining_retired_leases: 0,
         timed_out: false,
         errors: Vec::new(),
     })
@@ -407,7 +421,7 @@ pub async fn plugin_runtime_apply_state(
             phase: "completed",
             loaded: report.load_report.loaded.len(),
             deactivated: report.load_report.deactivated.len(),
-            unloaded_generations: report.load_report.unloaded_generations,
+            reclaimed_leases: report.load_report.reclaimed_leases,
             errors,
             plan_discovered: report.plan.discovered,
             plan_disabled: report.plan.disabled,
