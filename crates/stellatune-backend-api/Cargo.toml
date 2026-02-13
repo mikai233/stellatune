@@ -6,7 +6,6 @@ license.workspace = true
 
 [dependencies]
 anyhow.workspace = true
-crossbeam-channel.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
@@ -22,6 +21,7 @@ stellatune-core.workspace = true
 stellatune-library.workspace = true
 stellatune-plugin-protocol.workspace = true
 stellatune-plugins.workspace = true
+stellatune-runtime.workspace = true
 
 [lints]
 workspace = true

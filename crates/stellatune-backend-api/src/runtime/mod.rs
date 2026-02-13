@@ -98,6 +98,35 @@ pub fn shared_plugin_runtime() -> SharedPluginRuntime {
 #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
 pub fn shared_plugin_runtime() -> SharedPluginRuntime {}
 
+fn install_panic_hook() {
+    static PANIC_HOOK_INIT: OnceLock<()> = OnceLock::new();
+    PANIC_HOOK_INIT.get_or_init(|| {
+        let previous_hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |panic_info| {
+            let location = panic_info
+                .location()
+                .map(|loc| format!("{}:{}:{}", loc.file(), loc.line(), loc.column()))
+                .unwrap_or_else(|| "<unknown>".to_string());
+            let payload = if let Some(message) = panic_info.payload().downcast_ref::<&str>() {
+                (*message).to_string()
+            } else if let Some(message) = panic_info.payload().downcast_ref::<String>() {
+                message.clone()
+            } else {
+                "<non-string panic payload>".to_string()
+            };
+            let backtrace = std::backtrace::Backtrace::force_capture();
+            tracing::error!(
+                target: "stellatune::panic",
+                %location,
+                %payload,
+                backtrace = %backtrace,
+                "unhandled panic"
+            );
+            previous_hook(panic_info);
+        }));
+    });
+}
+
 pub fn init_tracing() {
     static INIT: OnceLock<()> = OnceLock::new();
     INIT.get_or_init(|| {
@@ -119,6 +148,7 @@ pub fn init_tracing() {
             .with_writer(writer)
             .try_init()
             .ok();
+        install_panic_hook();
     });
 }
 
@@ -131,7 +161,7 @@ pub fn register_plugin_runtime_library(library: stellatune_library::LibraryHandl
 }
 
 pub fn subscribe_plugin_runtime_events_global()
--> crossbeam_channel::Receiver<stellatune_core::PluginRuntimeEvent> {
+-> tokio::sync::broadcast::Receiver<stellatune_core::PluginRuntimeEvent> {
     router::subscribe_plugin_runtime_events_global()
 }
 
@@ -168,13 +198,13 @@ fn cleanup_plugin_runtime_for_restart(reason: &'static str) {
     }
 }
 
-pub fn runtime_prepare_hot_restart() {
-    engine::runtime_prepare_hot_restart();
+pub async fn runtime_prepare_hot_restart() {
+    engine::runtime_prepare_hot_restart().await;
     cleanup_plugin_runtime_for_restart("prepare_hot_restart");
 }
 
-pub fn runtime_shutdown() {
-    engine::runtime_shutdown();
+pub async fn runtime_shutdown() {
+    engine::runtime_shutdown().await;
     cleanup_plugin_runtime_for_restart("shutdown");
 }
 
@@ -283,7 +313,10 @@ pub async fn plugin_runtime_disable(
 
     report.phase = "quiesce";
     tracing::debug!(plugin_id, phase = report.phase, "plugin_disable_phase");
-    if let Err(err) = shared_runtime_engine().quiesce_plugin_usage(plugin_id.clone()) {
+    if let Err(err) = shared_runtime_engine()
+        .quiesce_plugin_usage(plugin_id.clone())
+        .await
+    {
         report.errors.push(err);
     }
 
@@ -409,8 +442,10 @@ pub async fn plugin_runtime_apply_state(
             .collect::<std::collections::HashSet<_>>();
 
         let service = shared_plugin_runtime();
-        service.set_disabled_plugin_ids(disabled_ids);
-        let report = service.reload_dir_detailed_from_state(&plugins_dir)?;
+        service.set_disabled_plugin_ids_async(disabled_ids).await;
+        let report = service
+            .reload_dir_detailed_from_state_async(&plugins_dir)
+            .await?;
         let errors = report
             .load_report
             .errors

@@ -106,7 +106,7 @@ pub(super) fn is_wait_satisfied_by_library(wait: ControlWaitKind, event: &Librar
 }
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-pub(super) fn route_plugin_control_request(
+pub(super) async fn route_plugin_control_request(
     request: &PluginControlRequest,
     engine: Option<&stellatune_audio::EngineHandle>,
     library: Option<&stellatune_library::LibraryHandle>,
@@ -116,14 +116,13 @@ pub(super) fn route_plugin_control_request(
             let Some(engine) = engine else {
                 return Err("player unavailable".to_string());
             };
-            engine.dispatch_command_blocking(control.to_command())
+            engine.dispatch_command(control.to_command()).await
         }
         PluginControlRequest::Library { control, .. } => {
             let Some(library) = library else {
                 return Err("library unavailable".to_string());
             };
-            library.send_command(control.to_command());
-            Ok(())
+            library.send_command(control.to_command()).await
         }
     }
 }

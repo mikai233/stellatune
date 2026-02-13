@@ -156,7 +156,11 @@ fn timeout_drains_pending_control() {
 #[test]
 fn runtime_prepare_hot_restart_keeps_engine_available() {
     let engine = shared_runtime_engine();
-    runtime_prepare_hot_restart();
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("build test runtime");
+    rt.block_on(runtime_prepare_hot_restart());
     // Shared engine should remain available after hot-restart preparation.
     let _ = engine.current_track_info();
 }

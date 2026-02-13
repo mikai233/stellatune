@@ -3132,7 +3132,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "arc-swap",
- "crossbeam-channel",
  "reqwest",
  "serde_json",
  "sqlx",
@@ -3141,6 +3140,7 @@ dependencies = [
  "stellatune-library",
  "stellatune-plugin-protocol",
  "stellatune-plugins",
+ "stellatune-runtime",
  "tokio",
  "tokio-util",
  "tracing",
@@ -3175,7 +3175,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
- "crossbeam-channel",
  "flutter_rust_bridge",
  "get_if_addrs",
  "local-ip-address",
@@ -3189,6 +3188,7 @@ dependencies = [
  "stellatune-backend-api",
  "stellatune-core",
  "stellatune-plugin-protocol",
+ "stellatune-runtime",
  "tokio",
  "tokio-util",
  "tracing",
@@ -3210,6 +3210,7 @@ dependencies = [
  "stellatune-core",
  "stellatune-plugin-api",
  "stellatune-plugins",
+ "stellatune-runtime",
  "symphonia",
  "tokio",
  "tracing",
@@ -3296,6 +3297,7 @@ name = "stellatune-plugins"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "arc-swap",
  "crossbeam-channel",
  "flate2",
  "libloading",
@@ -3306,9 +3308,18 @@ dependencies = [
  "stellatune-decode",
  "stellatune-plugin-api",
  "stellatune-plugin-protocol",
+ "stellatune-runtime",
  "tempfile",
+ "tokio",
  "tracing",
  "walkdir",
+]
+
+[[package]]
+name = "stellatune-runtime"
+version = "0.1.0"
+dependencies = [
+ "tokio",
 ]
 
 [[package]]

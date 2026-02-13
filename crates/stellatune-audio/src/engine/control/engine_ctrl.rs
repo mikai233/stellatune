@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::engine::messages::PluginReloadSummary;
-use crossbeam_channel::Sender;
+use tokio::sync::oneshot::Sender as OneshotSender;
 
 use super::{
     DecodeCtrl, EngineCtrl, EngineState, Event, EventHub, InternalMsg, PlayerState,
@@ -16,7 +16,7 @@ pub(super) fn handle_engine_ctrl(
     msg: EngineCtrl,
     state: &mut EngineState,
     events: &Arc<EventHub>,
-    internal_tx: &Sender<InternalMsg>,
+    internal_tx: &crossbeam_channel::Sender<InternalMsg>,
     track_info: &SharedTrackInfo,
 ) {
     match msg {
@@ -102,7 +102,7 @@ fn on_engine_ctrl_source_list_items_json(
     type_id: String,
     config_json: String,
     request_json: String,
-    resp_tx: Sender<Result<String, String>>,
+    resp_tx: OneshotSender<Result<String, String>>,
 ) {
     let _ = resp_tx.send(source_list_items_json_via_runtime(
         state,
@@ -118,7 +118,7 @@ fn on_engine_ctrl_lyrics_search_json(
     plugin_id: String,
     type_id: String,
     query_json: String,
-    resp_tx: Sender<Result<String, String>>,
+    resp_tx: OneshotSender<Result<String, String>>,
 ) {
     let _ = resp_tx.send(lyrics_search_json_via_runtime(
         state, &plugin_id, &type_id, query_json,
@@ -130,7 +130,7 @@ fn on_engine_ctrl_lyrics_fetch_json(
     plugin_id: String,
     type_id: String,
     track_json: String,
-    resp_tx: Sender<Result<String, String>>,
+    resp_tx: OneshotSender<Result<String, String>>,
 ) {
     let _ = resp_tx.send(lyrics_fetch_json_via_runtime(
         state, &plugin_id, &type_id, track_json,
@@ -142,7 +142,7 @@ fn on_engine_ctrl_output_sink_list_targets_json(
     plugin_id: String,
     type_id: String,
     config_json: String,
-    resp_tx: Sender<Result<String, String>>,
+    resp_tx: OneshotSender<Result<String, String>>,
 ) {
     let _ = resp_tx.send(output_sink_list_targets_json_via_runtime(
         state,
@@ -155,7 +155,7 @@ fn on_engine_ctrl_output_sink_list_targets_json(
 fn on_engine_ctrl_reload_plugins(
     state: &mut EngineState,
     events: &Arc<EventHub>,
-    internal_tx: &Sender<InternalMsg>,
+    internal_tx: &crossbeam_channel::Sender<InternalMsg>,
     dir: String,
 ) {
     handle_reload_plugins(state, events, internal_tx, dir);
@@ -171,10 +171,10 @@ fn on_engine_ctrl_set_lfe_mode(state: &mut EngineState, mode: stellatune_core::L
 fn on_engine_ctrl_quiesce_plugin_usage(
     state: &mut EngineState,
     events: &Arc<EventHub>,
-    internal_tx: &Sender<InternalMsg>,
+    internal_tx: &crossbeam_channel::Sender<InternalMsg>,
     track_info: &SharedTrackInfo,
     plugin_id: String,
-    resp_tx: Sender<Result<(), String>>,
+    resp_tx: OneshotSender<Result<(), String>>,
 ) {
     let result = quiesce_plugin_usage(state, events, internal_tx, track_info, &plugin_id);
     let _ = resp_tx.send(result);
@@ -183,7 +183,7 @@ fn on_engine_ctrl_quiesce_plugin_usage(
 fn quiesce_plugin_usage(
     state: &mut EngineState,
     events: &Arc<EventHub>,
-    internal_tx: &Sender<InternalMsg>,
+    internal_tx: &crossbeam_channel::Sender<InternalMsg>,
     track_info: &SharedTrackInfo,
     plugin_id: &str,
 ) -> Result<(), String> {
@@ -246,7 +246,7 @@ fn quiesce_plugin_usage(
 fn handle_reload_plugins(
     state: &mut EngineState,
     events: &Arc<EventHub>,
-    internal_tx: &Sender<InternalMsg>,
+    internal_tx: &crossbeam_channel::Sender<InternalMsg>,
     dir: String,
 ) {
     events.emit(Event::Log {
@@ -302,7 +302,7 @@ fn handle_reload_plugins(
 pub(super) fn on_plugin_reload_finished(
     state: &mut EngineState,
     events: &Arc<EventHub>,
-    internal_tx: &Sender<InternalMsg>,
+    internal_tx: &crossbeam_channel::Sender<InternalMsg>,
     summary: PluginReloadSummary,
 ) {
     if let Some(err) = summary.fatal_error {

@@ -14,7 +14,6 @@ frb = ["stellatune-plugin-protocol/frb"]
 
 [dependencies]
 anyhow.workspace = true
-crossbeam-channel.workspace = true
 flutter_rust_bridge.workspace = true
 tokio.workspace = true
 tracing.workspace = true
@@ -35,6 +34,7 @@ stellatune-backend-api.workspace = true
 stellatune-audio.workspace = true
 stellatune-core.workspace = true
 stellatune-plugin-protocol.workspace = true
+stellatune-runtime.workspace = true
 
 [lints]
 workspace = true

@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
-use crossbeam_channel::{Receiver, Sender};
+use crossbeam_channel::Sender;
 use stellatune_plugin_api::StHostVTable;
+use tokio::sync::mpsc;
 
 use crate::service::PluginRuntimeService;
 
@@ -93,9 +94,12 @@ impl RuntimeActorState {
     }
 }
 
-pub(crate) fn run_plugin_runtime_actor(rx: Receiver<RuntimeActorTask>, host: StHostVTable) {
+pub(crate) async fn run_plugin_runtime_actor(
+    mut rx: mpsc::UnboundedReceiver<RuntimeActorTask>,
+    host: StHostVTable,
+) {
     let mut state = RuntimeActorState::new(host);
-    while let Ok(task) = rx.recv() {
+    while let Some(task) = rx.recv().await {
         task(&mut state);
     }
 }

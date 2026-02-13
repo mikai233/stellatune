@@ -1,13 +1,12 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::thread;
 
 use anyhow::{Context, Result};
-use crossbeam_channel::{Receiver, Sender};
-use tokio::sync::mpsc;
+use tokio::sync::{broadcast, mpsc, oneshot};
 use tracing::{error, info};
 
 use stellatune_core::{LibraryCommand, LibraryEvent};
+use stellatune_runtime as global_runtime;
 
 use crate::worker::{LibraryWorker, WorkerDeps};
 
@@ -16,18 +15,21 @@ use std::collections::HashSet;
 
 #[derive(Clone)]
 pub struct LibraryHandle {
-    cmd_tx: Sender<LibraryCommand>,
+    cmd_tx: mpsc::Sender<LibraryCommand>,
     events: Arc<EventHub>,
     plugins_dir: PathBuf,
     db_path: PathBuf,
 }
 
 impl LibraryHandle {
-    pub fn send_command(&self, cmd: LibraryCommand) {
-        let _ = self.cmd_tx.send(cmd);
+    pub async fn send_command(&self, cmd: LibraryCommand) -> std::result::Result<(), String> {
+        self.cmd_tx
+            .send(cmd)
+            .await
+            .map_err(|_| "library command channel closed".to_string())
     }
 
-    pub fn subscribe_events(&self) -> Receiver<LibraryEvent> {
+    pub fn subscribe_events(&self) -> broadcast::Receiver<LibraryEvent> {
         self.events.subscribe()
     }
 
@@ -78,11 +80,11 @@ impl LibraryHandle {
     }
 }
 
-pub fn start_library(db_path: String) -> Result<LibraryHandle> {
-    let (cmd_tx, cmd_rx) = crossbeam_channel::unbounded::<LibraryCommand>();
+pub async fn start_library(db_path: String) -> Result<LibraryHandle> {
+    let (cmd_tx, cmd_rx) = mpsc::channel::<LibraryCommand>(256);
     let events = Arc::new(EventHub::new());
     let thread_events = Arc::clone(&events);
-    let (init_tx, init_rx) = crossbeam_channel::bounded::<Result<()>>(1);
+    let (init_tx, init_rx) = oneshot::channel::<Result<()>>();
 
     let plugins_dir = PathBuf::from(&db_path)
         .parent()
@@ -93,22 +95,22 @@ pub fn start_library(db_path: String) -> Result<LibraryHandle> {
     let plugins_dir_thread = plugins_dir.clone();
     let db_path_thread = db_path.clone();
 
-    thread::Builder::new()
-        .name("stellatune-library".to_string())
-        .spawn(move || {
-            if let Err(e) = library_thread_main(
-                db_path_thread,
-                cmd_rx,
-                thread_events,
-                init_tx,
-                plugins_dir_thread,
-            ) {
-                error!("library thread exited with error: {e:?}");
-            }
-        })
-        .context("failed to spawn stellatune-library thread")?;
+    global_runtime::spawn(async move {
+        if let Err(e) = library_task_main(
+            db_path_thread,
+            cmd_rx,
+            thread_events,
+            init_tx,
+            plugins_dir_thread,
+        )
+        .await
+        {
+            error!("library task exited with error: {e:?}");
+        }
+    });
 
-    init_rx.recv().context("library init channel closed")??;
+    let init = init_rx.await.context("library init channel closed")?;
+    init?;
 
     Ok(LibraryHandle {
         cmd_tx,
@@ -118,66 +120,44 @@ pub fn start_library(db_path: String) -> Result<LibraryHandle> {
     })
 }
 
-fn library_thread_main(
+async fn library_task_main(
     db_path: PathBuf,
-    cmd_rx: Receiver<LibraryCommand>,
+    mut cmd_rx: mpsc::Receiver<LibraryCommand>,
     events: Arc<EventHub>,
-    init_tx: Sender<Result<()>>,
+    init_tx: oneshot::Sender<Result<()>>,
     plugins_dir: PathBuf,
 ) -> Result<()> {
-    info!("library thread started");
+    info!("library task started");
 
-    let rt = tokio::runtime::Builder::new_multi_thread()
-        .worker_threads(2)
-        .enable_time()
-        .enable_io()
-        .thread_name("stellatune-library-rt")
-        .build()
-        .context("failed to build tokio runtime")?;
+    if let Err(e) = ensure_parent_dir(&db_path) {
+        let _ = init_tx.send(Err(e));
+        return Ok(());
+    }
 
-    rt.block_on(async move {
-        let (cmd_async_tx, mut cmd_async_rx) = mpsc::unbounded_channel::<LibraryCommand>();
-
-        // Bridge crossbeam -> tokio so external callers don't depend on tokio.
-        tokio::task::spawn_blocking(move || {
-            for cmd in cmd_rx.iter() {
-                if cmd_async_tx.send(cmd).is_err() {
-                    break;
-                }
-            }
-        });
-
-        if let Err(e) = ensure_parent_dir(&db_path) {
+    let deps = match WorkerDeps::new(&db_path, Arc::clone(&events), plugins_dir).await {
+        Ok(v) => v,
+        Err(e) => {
             let _ = init_tx.send(Err(e));
-            return Ok::<_, anyhow::Error>(());
+            return Ok(());
         }
+    };
+    let _ = init_tx.send(Ok(()));
 
-        let deps = match WorkerDeps::new(&db_path, Arc::clone(&events), plugins_dir).await {
-            Ok(v) => v,
-            Err(e) => {
-                let _ = init_tx.send(Err(e));
-                return Ok::<_, anyhow::Error>(());
-            }
-        };
-        let _ = init_tx.send(Ok(()));
+    let mut worker = LibraryWorker::new(deps);
 
-        let mut worker = LibraryWorker::new(deps);
-
-        while let Some(cmd) = cmd_async_rx.recv().await {
-            let is_shutdown = matches!(cmd, LibraryCommand::Shutdown);
-            if let Err(e) = worker.handle_command(cmd).await {
-                events.emit(LibraryEvent::Error {
-                    message: format!("{e:#}"),
-                });
-            }
-            if is_shutdown {
-                break;
-            }
+    while let Some(cmd) = cmd_rx.recv().await {
+        let is_shutdown = matches!(cmd, LibraryCommand::Shutdown);
+        if let Err(e) = worker.handle_command(cmd).await {
+            events.emit(LibraryEvent::Error {
+                message: format!("{e:#}"),
+            });
         }
+        if is_shutdown {
+            break;
+        }
+    }
 
-        info!("library thread exiting");
-        Ok::<_, anyhow::Error>(())
-    })?;
+    info!("library task exiting");
 
     Ok(())
 }
@@ -192,28 +172,21 @@ fn ensure_parent_dir(path: &Path) -> Result<()> {
 }
 
 pub(crate) struct EventHub {
-    subscribers: std::sync::Mutex<Vec<Sender<LibraryEvent>>>,
+    tx: broadcast::Sender<LibraryEvent>,
 }
 
 impl EventHub {
     pub(crate) fn new() -> Self {
-        Self {
-            subscribers: std::sync::Mutex::new(Vec::new()),
-        }
+        let (tx, _rx) = broadcast::channel(1024);
+        Self { tx }
     }
 
-    pub(crate) fn subscribe(&self) -> Receiver<LibraryEvent> {
-        let (tx, rx) = crossbeam_channel::unbounded();
-        if let Ok(mut subs) = self.subscribers.lock() {
-            subs.push(tx);
-        }
-        rx
+    pub(crate) fn subscribe(&self) -> broadcast::Receiver<LibraryEvent> {
+        self.tx.subscribe()
     }
 
     pub(crate) fn emit(&self, event: LibraryEvent) {
-        if let Ok(mut subs) = self.subscribers.lock() {
-            subs.retain(|tx| tx.send(event.clone()).is_ok());
-        }
+        let _ = self.tx.send(event);
     }
 }
 

@@ -2,9 +2,11 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
 use anyhow::{Result, anyhow};
+use arc_swap::ArcSwap;
 use crossbeam_channel::Receiver;
 use stellatune_plugin_api::StLogLevel;
 use stellatune_plugin_api::{STELLATUNE_PLUGIN_API_VERSION, StHostVTable, StPluginModule, StStr};
@@ -38,6 +40,8 @@ pub struct PluginRuntimeService {
     event_bus: PluginEventBus,
     modules: HashMap<String, PluginModuleLeaseSlotState>,
     disabled_plugin_ids: HashSet<String>,
+    introspection_cache: ArcSwap<RuntimeIntrospectionCache>,
+    introspection_cache_dirty: AtomicBool,
 }
 
 impl PluginRuntimeService {
@@ -47,6 +51,8 @@ impl PluginRuntimeService {
             event_bus: new_runtime_event_bus(),
             modules: HashMap::new(),
             disabled_plugin_ids: HashSet::new(),
+            introspection_cache: ArcSwap::from_pointee(RuntimeIntrospectionCache::default()),
+            introspection_cache_dirty: AtomicBool::new(false),
         }
     }
 
@@ -148,41 +154,13 @@ impl PluginRuntimeService {
     }
 
     pub fn list_capabilities(&self, plugin_id: &str) -> Vec<CapabilityDescriptor> {
-        let Some(slot) = self.modules.get(plugin_id) else {
-            return Vec::new();
-        };
-        let Some(lease) = slot.current.as_ref() else {
-            return Vec::new();
-        };
-        let lease_id = lease_id_of(lease);
-        let mut out = Vec::new();
-        let cap_count = (lease.loaded.module.capability_count)();
-        for index in 0..cap_count {
-            let desc_ptr = (lease.loaded.module.capability_get)(index);
-            if desc_ptr.is_null() {
-                continue;
-            }
-            let descriptor = unsafe { *desc_ptr };
-            let type_id = unsafe { crate::util::ststr_to_string_lossy(descriptor.type_id_utf8) };
-            if type_id.is_empty() {
-                continue;
-            }
-            out.push(CapabilityDescriptor {
-                lease_id,
-                kind: CapabilityKind::from_st(descriptor.kind),
-                type_id,
-                display_name: unsafe {
-                    crate::util::ststr_to_string_lossy(descriptor.display_name_utf8)
-                },
-                config_schema_json: unsafe {
-                    crate::util::ststr_to_string_lossy(descriptor.config_schema_json_utf8)
-                },
-                default_config_json: unsafe {
-                    crate::util::ststr_to_string_lossy(descriptor.default_config_json_utf8)
-                },
-            });
-        }
-        out
+        self.maybe_refresh_introspection_cache();
+        let cache = self.introspection_cache.load();
+        cache
+            .capabilities_by_plugin
+            .get(plugin_id)
+            .cloned()
+            .unwrap_or_default()
     }
 
     pub fn find_capability(
@@ -191,9 +169,14 @@ impl PluginRuntimeService {
         kind: CapabilityKind,
         type_id: &str,
     ) -> Option<CapabilityDescriptor> {
-        self.list_capabilities(plugin_id)
-            .into_iter()
-            .find(|capability| capability.kind == kind && capability.type_id == type_id)
+        self.maybe_refresh_introspection_cache();
+        let cache = self.introspection_cache.load();
+        cache
+            .capability_index
+            .get(plugin_id)
+            .and_then(|by_kind| by_kind.get(&kind))
+            .and_then(|by_type| by_type.get(type_id))
+            .cloned()
     }
 
     pub fn list_decoder_candidates_for_ext(&self, ext: &str) -> Vec<DecoderCandidate> {
@@ -201,43 +184,13 @@ impl PluginRuntimeService {
         if ext.is_empty() {
             return Vec::new();
         }
-
-        let mut out = Vec::new();
-        let mut plugin_ids = self.active_plugin_ids();
-        plugin_ids.sort();
-        for plugin_id in plugin_ids {
-            let Some(slot) = self.modules.get(&plugin_id) else {
-                continue;
-            };
-            let Some(lease) = slot.current.as_ref() else {
-                continue;
-            };
-            for capability in self.list_capabilities(&plugin_id) {
-                if capability.kind != CapabilityKind::Decoder {
-                    continue;
-                }
-                let score = decoder_ext_score(
-                    &lease.loaded.module,
-                    capability.type_id.as_str(),
-                    ext.as_str(),
-                );
-                if score == 0 {
-                    continue;
-                }
-                out.push(DecoderCandidate {
-                    plugin_id: plugin_id.clone(),
-                    type_id: capability.type_id,
-                    score,
-                });
-            }
-        }
-        out.sort_by(|a, b| {
-            b.score
-                .cmp(&a.score)
-                .then_with(|| a.plugin_id.cmp(&b.plugin_id))
-                .then_with(|| a.type_id.cmp(&b.type_id))
-        });
-        out
+        self.maybe_refresh_introspection_cache();
+        let cache = self.introspection_cache.load();
+        cache
+            .decoder_candidates_by_ext
+            .get(ext.as_str())
+            .cloned()
+            .unwrap_or_else(|| cache.decoder_candidates_wildcard.clone())
     }
 
     pub(crate) fn acquire_current_module_lease(&self, plugin_id: &str) -> Option<Arc<ModuleLease>> {
@@ -267,6 +220,7 @@ impl PluginRuntimeService {
             return false;
         }
         tracing::debug!(plugin_id, "plugin lease deactivated");
+        self.mark_introspection_cache_dirty();
         true
     }
 
@@ -348,6 +302,7 @@ impl PluginRuntimeService {
         report.reclaimed_leases += self.gc_plugin_retired_leases(plugin_id);
         let _ = self.collect_retired_module_leases_by_refcount();
         self.cleanup_shadow_copies_best_effort("unload_plugin:end");
+        self.maybe_refresh_introspection_cache();
         report
     }
 
@@ -363,6 +318,7 @@ impl PluginRuntimeService {
         }
         let _ = self.collect_retired_module_leases_by_refcount();
         self.cleanup_shadow_copies_best_effort("shutdown_and_cleanup");
+        self.maybe_refresh_introspection_cache();
         report
     }
 
@@ -549,6 +505,7 @@ impl PluginRuntimeService {
 
         let _ = self.collect_retired_module_leases_by_refcount();
         self.cleanup_shadow_copies_best_effort(end_reason);
+        self.maybe_refresh_introspection_cache();
         let total_ms = total_started.elapsed().as_millis() as u64;
         Ok(RuntimeSyncReport {
             load_report: report,
@@ -662,6 +619,20 @@ impl PluginRuntimeService {
                 source_fingerprint,
                 loaded,
             });
+        self.mark_introspection_cache_dirty();
+    }
+
+    fn mark_introspection_cache_dirty(&self) {
+        self.introspection_cache_dirty
+            .store(true, Ordering::Release);
+    }
+
+    fn maybe_refresh_introspection_cache(&self) {
+        if !self.introspection_cache_dirty.swap(false, Ordering::AcqRel) {
+            return;
+        }
+        let cache = RuntimeIntrospectionCache::build(&self.modules);
+        self.introspection_cache.store(Arc::new(cache));
     }
 
     fn reclaim_retired_module_leases_by_refcount(&mut self, plugin_id: &str) -> usize {
@@ -727,25 +698,157 @@ struct ActivatedLoad {
     reclaimed_leases: usize,
 }
 
-fn ststr_from_str(s: &str) -> StStr {
-    StStr {
-        ptr: s.as_ptr(),
-        len: s.len(),
+#[derive(Debug, Default)]
+struct RuntimeIntrospectionCache {
+    capabilities_by_plugin: HashMap<String, Vec<CapabilityDescriptor>>,
+    capability_index:
+        HashMap<String, HashMap<CapabilityKind, HashMap<String, CapabilityDescriptor>>>,
+    decoder_candidates_by_ext: HashMap<String, Vec<DecoderCandidate>>,
+    decoder_candidates_wildcard: Vec<DecoderCandidate>,
+}
+
+#[derive(Debug, Default)]
+struct DecoderScoreRules {
+    exact_by_ext: HashMap<String, u16>,
+    wildcard: u16,
+}
+
+impl RuntimeIntrospectionCache {
+    fn build(modules: &HashMap<String, PluginModuleLeaseSlotState>) -> Self {
+        let mut capabilities_by_plugin: HashMap<String, Vec<CapabilityDescriptor>> = HashMap::new();
+        let mut capability_index: HashMap<
+            String,
+            HashMap<CapabilityKind, HashMap<String, CapabilityDescriptor>>,
+        > = HashMap::new();
+        let mut decoder_exact_candidates_by_ext: HashMap<String, Vec<DecoderCandidate>> =
+            HashMap::new();
+        let mut decoder_candidates_wildcard: Vec<DecoderCandidate> = Vec::new();
+
+        let mut plugin_ids = modules.keys().cloned().collect::<Vec<_>>();
+        plugin_ids.sort();
+        for plugin_id in plugin_ids {
+            let Some(slot) = modules.get(&plugin_id) else {
+                continue;
+            };
+            let Some(lease) = slot.current.as_ref() else {
+                continue;
+            };
+
+            let capabilities = collect_capabilities_from_lease(lease);
+            for capability in &capabilities {
+                capability_index
+                    .entry(plugin_id.clone())
+                    .or_default()
+                    .entry(capability.kind)
+                    .or_default()
+                    .insert(capability.type_id.clone(), capability.clone());
+
+                if capability.kind != CapabilityKind::Decoder {
+                    continue;
+                }
+
+                let rules = decoder_score_rules_for_capability(
+                    &lease.loaded.module,
+                    capability.type_id.as_str(),
+                );
+                for (ext, score) in rules.exact_by_ext {
+                    decoder_exact_candidates_by_ext
+                        .entry(ext)
+                        .or_default()
+                        .push(DecoderCandidate {
+                            plugin_id: plugin_id.clone(),
+                            type_id: capability.type_id.clone(),
+                            score,
+                        });
+                }
+                if rules.wildcard > 0 {
+                    decoder_candidates_wildcard.push(DecoderCandidate {
+                        plugin_id: plugin_id.clone(),
+                        type_id: capability.type_id.clone(),
+                        score: rules.wildcard,
+                    });
+                }
+            }
+
+            capabilities_by_plugin.insert(plugin_id, capabilities);
+        }
+
+        sort_decoder_candidates(&mut decoder_candidates_wildcard);
+
+        let mut decoder_candidates_by_ext = HashMap::new();
+        for (ext, exact_candidates) in decoder_exact_candidates_by_ext {
+            let mut merged = exact_candidates;
+            for wildcard in &decoder_candidates_wildcard {
+                let already_covered = merged.iter().any(|item| {
+                    item.plugin_id == wildcard.plugin_id && item.type_id == wildcard.type_id
+                });
+                if already_covered {
+                    continue;
+                }
+                merged.push(wildcard.clone());
+            }
+            sort_decoder_candidates(&mut merged);
+            decoder_candidates_by_ext.insert(ext, merged);
+        }
+
+        Self {
+            capabilities_by_plugin,
+            capability_index,
+            decoder_candidates_by_ext,
+            decoder_candidates_wildcard,
+        }
     }
 }
 
-fn decoder_ext_score(module: &StPluginModule, type_id: &str, ext: &str) -> u16 {
+fn collect_capabilities_from_lease(lease: &Arc<ModuleLease>) -> Vec<CapabilityDescriptor> {
+    let lease_id = lease_id_of(lease);
+    let mut out = Vec::new();
+    let cap_count = (lease.loaded.module.capability_count)();
+    for index in 0..cap_count {
+        let desc_ptr = (lease.loaded.module.capability_get)(index);
+        if desc_ptr.is_null() {
+            continue;
+        }
+        let descriptor = unsafe { *desc_ptr };
+        let type_id = unsafe { crate::util::ststr_to_string_lossy(descriptor.type_id_utf8) };
+        if type_id.is_empty() {
+            continue;
+        }
+        out.push(CapabilityDescriptor {
+            lease_id,
+            kind: CapabilityKind::from_st(descriptor.kind),
+            type_id,
+            display_name: unsafe {
+                crate::util::ststr_to_string_lossy(descriptor.display_name_utf8)
+            },
+            config_schema_json: unsafe {
+                crate::util::ststr_to_string_lossy(descriptor.config_schema_json_utf8)
+            },
+            default_config_json: unsafe {
+                crate::util::ststr_to_string_lossy(descriptor.default_config_json_utf8)
+            },
+        });
+    }
+    out
+}
+
+fn decoder_score_rules_for_capability(module: &StPluginModule, type_id: &str) -> DecoderScoreRules {
     let Some(count_fn) = module.decoder_ext_score_count else {
-        return 1;
+        return DecoderScoreRules {
+            exact_by_ext: HashMap::new(),
+            wildcard: 1,
+        };
     };
     let Some(get_fn) = module.decoder_ext_score_get else {
-        return 1;
+        return DecoderScoreRules {
+            exact_by_ext: HashMap::new(),
+            wildcard: 1,
+        };
     };
 
     let type_id_st = ststr_from_str(type_id);
     let count = (count_fn)(type_id_st);
-    let mut exact = 0u16;
-    let mut wildcard = 0u16;
+    let mut rules = DecoderScoreRules::default();
     for index in 0..count {
         let score_ptr = (get_fn)(type_id_st, index);
         if score_ptr.is_null() {
@@ -755,14 +858,35 @@ fn decoder_ext_score(module: &StPluginModule, type_id: &str, ext: &str) -> u16 {
         let rule = unsafe { crate::util::ststr_to_string_lossy(item.ext_utf8) };
         let rule = rule.trim().trim_start_matches('.').to_ascii_lowercase();
         if rule == "*" {
-            wildcard = wildcard.max(item.score);
+            rules.wildcard = rules.wildcard.max(item.score);
             continue;
         }
-        if rule == ext {
-            exact = exact.max(item.score);
+        if rule.is_empty() {
+            continue;
         }
+        rules
+            .exact_by_ext
+            .entry(rule)
+            .and_modify(|score| *score = (*score).max(item.score))
+            .or_insert(item.score);
     }
-    if exact > 0 { exact } else { wildcard }
+    rules
+}
+
+fn sort_decoder_candidates(candidates: &mut [DecoderCandidate]) {
+    candidates.sort_by(|a, b| {
+        b.score
+            .cmp(&a.score)
+            .then_with(|| a.plugin_id.cmp(&b.plugin_id))
+            .then_with(|| a.type_id.cmp(&b.type_id))
+    });
+}
+
+fn ststr_from_str(s: &str) -> StStr {
+    StStr {
+        ptr: s.as_ptr(),
+        len: s.len(),
+    }
 }
 
 fn source_fingerprint_for_path(path: &Path) -> SourceLibraryFingerprint {

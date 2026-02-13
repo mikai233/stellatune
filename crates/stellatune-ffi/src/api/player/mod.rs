@@ -1,8 +1,8 @@
 use std::sync::{Arc, OnceLock};
-use std::thread;
 
 use crate::frb_generated::StreamSink;
 use anyhow::{Result, anyhow};
+use stellatune_runtime as global_runtime;
 use tracing::debug;
 
 use stellatune_audio::EngineHandle;
@@ -43,89 +43,95 @@ fn lyrics() -> Arc<LyricsService> {
 
 pub async fn switch_track_ref(track: TrackRef, lazy: bool) -> Result<()> {
     engine()
-        .switch_track_ref_async(track, lazy)
+        .switch_track_ref(track, lazy)
         .await
         .map_err(anyhow::Error::msg)
 }
 
 pub async fn play() -> Result<()> {
-    engine().play_async().await.map_err(anyhow::Error::msg)
+    engine().play().await.map_err(anyhow::Error::msg)
 }
 
 pub async fn pause() -> Result<()> {
-    engine().pause_async().await.map_err(anyhow::Error::msg)
+    engine().pause().await.map_err(anyhow::Error::msg)
 }
 
 pub async fn seek_ms(position_ms: u64) -> Result<()> {
     engine()
-        .seek_ms_async(position_ms)
+        .seek_ms(position_ms)
         .await
         .map_err(anyhow::Error::msg)
 }
 
 pub async fn set_volume(volume: f32) -> Result<()> {
     engine()
-        .set_volume_async(volume)
+        .set_volume(volume)
         .await
         .map_err(anyhow::Error::msg)
 }
 
 pub async fn stop() -> Result<()> {
-    engine().stop_async().await.map_err(anyhow::Error::msg)
+    engine().stop().await.map_err(anyhow::Error::msg)
 }
 
 pub fn events(sink: StreamSink<Event>) -> Result<()> {
-    let rx = engine().subscribe_events();
-
-    thread::Builder::new()
-        .name("stellatune-events".to_string())
-        .spawn(move || {
-            for event in rx.iter() {
-                if sink.add(event).is_err() {
-                    debug!("events stream sink closed");
-                    break;
+    let mut rx = engine().subscribe_events();
+    global_runtime::spawn(async move {
+        loop {
+            match rx.recv().await {
+                Ok(event) => {
+                    if sink.add(event).is_err() {
+                        debug!("events stream sink closed");
+                        break;
+                    }
                 }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                    debug!(skipped, "events lagged");
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
             }
-        })
-        .map_err(|e| anyhow!("failed to spawn stellatune-events thread: {e}"))?;
+        }
+    });
 
     Ok(())
 }
 
 pub fn plugin_runtime_events_global(sink: StreamSink<PluginRuntimeEvent>) -> Result<()> {
-    let rx = stellatune_backend_api::runtime::subscribe_plugin_runtime_events_global();
-
-    thread::Builder::new()
-        .name("stellatune-plugin-runtime-events-global".to_string())
-        .spawn(move || {
-            for event in rx.iter() {
-                if sink.add(event).is_err() {
-                    debug!("plugin_runtime_events_global stream sink closed");
-                    break;
+    let mut rx = stellatune_backend_api::runtime::subscribe_plugin_runtime_events_global();
+    global_runtime::spawn(async move {
+        loop {
+            match rx.recv().await {
+                Ok(event) => {
+                    if sink.add(event).is_err() {
+                        debug!("plugin_runtime_events_global stream sink closed");
+                        break;
+                    }
                 }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                    debug!(skipped, "plugin_runtime_events_global lagged");
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
             }
-        })
-        .map_err(|e| {
-            anyhow!("failed to spawn stellatune-plugin-runtime-events-global thread: {e}")
-        })?;
+        }
+    });
 
     Ok(())
 }
 
-pub fn lyrics_prepare(query: LyricsQuery) -> Result<()> {
-    lyrics().prepare(query)
+pub async fn lyrics_prepare(query: LyricsQuery) -> Result<()> {
+    lyrics().prepare(query).await
 }
 
-pub fn lyrics_prefetch(query: LyricsQuery) -> Result<()> {
-    lyrics().prefetch(query)
+pub async fn lyrics_prefetch(query: LyricsQuery) -> Result<()> {
+    lyrics().prefetch(query).await
 }
 
 pub async fn lyrics_search_candidates(query: LyricsQuery) -> Result<Vec<LyricsSearchCandidate>> {
     lyrics().search_candidates(query).await
 }
 
-pub fn lyrics_apply_candidate(track_key: String, doc: LyricsDoc) -> Result<()> {
-    lyrics().apply_candidate(track_key, doc)
+pub async fn lyrics_apply_candidate(track_key: String, doc: LyricsDoc) -> Result<()> {
+    lyrics().apply_candidate(track_key, doc).await
 }
 
 pub async fn lyrics_set_cache_db_path(db_path: String) -> Result<()> {
@@ -136,8 +142,8 @@ pub async fn lyrics_clear_cache() -> Result<()> {
     lyrics().clear_cache().await
 }
 
-pub fn lyrics_refresh_current() -> Result<()> {
-    lyrics().refresh_current()
+pub async fn lyrics_refresh_current() -> Result<()> {
+    lyrics().refresh_current().await
 }
 
 pub fn lyrics_set_position_ms(position_ms: u64) {
@@ -145,25 +151,29 @@ pub fn lyrics_set_position_ms(position_ms: u64) {
 }
 
 pub fn lyrics_events(sink: StreamSink<LyricsEvent>) -> Result<()> {
-    let rx = lyrics().subscribe_events();
-
-    thread::Builder::new()
-        .name("stellatune-lyrics-events".to_string())
-        .spawn(move || {
-            for event in rx.iter() {
-                if sink.add(event).is_err() {
-                    debug!("lyrics_events stream sink closed");
-                    break;
+    let mut rx = lyrics().subscribe_events();
+    global_runtime::spawn(async move {
+        loop {
+            match rx.recv().await {
+                Ok(event) => {
+                    if sink.add(event).is_err() {
+                        debug!("lyrics_events stream sink closed");
+                        break;
+                    }
                 }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                    debug!(skipped, "lyrics_events lagged");
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
             }
-        })
-        .map_err(|e| anyhow!("failed to spawn stellatune-lyrics-events thread: {e}"))?;
+        }
+    });
 
     Ok(())
 }
 
-pub fn plugins_list() -> Vec<PluginDescriptor> {
-    engine().list_plugins()
+pub async fn plugins_list() -> Vec<PluginDescriptor> {
+    engine().list_plugins().await
 }
 
 pub fn plugin_publish_event_json(plugin_id: Option<String>, event_json: String) -> Result<()> {
@@ -172,23 +182,23 @@ pub fn plugin_publish_event_json(plugin_id: Option<String>, event_json: String) 
         .map_err(anyhow::Error::msg)
 }
 
-pub fn dsp_list_types() -> Vec<DspTypeDescriptor> {
-    engine().list_dsp_types()
+pub async fn dsp_list_types() -> Vec<DspTypeDescriptor> {
+    engine().list_dsp_types().await
 }
 
-pub fn source_list_types() -> Vec<SourceCatalogTypeDescriptor> {
-    engine().list_source_catalog_types()
+pub async fn source_list_types() -> Vec<SourceCatalogTypeDescriptor> {
+    engine().list_source_catalog_types().await
 }
 
-pub fn lyrics_provider_list_types() -> Vec<LyricsProviderTypeDescriptor> {
-    engine().list_lyrics_provider_types()
+pub async fn lyrics_provider_list_types() -> Vec<LyricsProviderTypeDescriptor> {
+    engine().list_lyrics_provider_types().await
 }
 
-pub fn output_sink_list_types() -> Vec<OutputSinkTypeDescriptor> {
-    engine().list_output_sink_types()
+pub async fn output_sink_list_types() -> Vec<OutputSinkTypeDescriptor> {
+    engine().list_output_sink_types().await
 }
 
-pub fn source_list_items_json(
+pub async fn source_list_items_json(
     plugin_id: String,
     type_id: String,
     config_json: String,
@@ -202,11 +212,12 @@ pub fn source_list_items_json(
         .source_list_items::<serde_json::Value, serde_json::Value, serde_json::Value>(
             &plugin_id, &type_id, &config, &request,
         )
+        .await
         .map_err(anyhow::Error::msg)?;
     normalize_json_payload("source list response", payload)
 }
 
-pub fn lyrics_provider_search_json(
+pub async fn lyrics_provider_search_json(
     plugin_id: String,
     type_id: String,
     query_json: String,
@@ -217,11 +228,12 @@ pub fn lyrics_provider_search_json(
         .lyrics_provider_search::<serde_json::Value, serde_json::Value>(
             &plugin_id, &type_id, &query,
         )
+        .await
         .map_err(anyhow::Error::msg)?;
     normalize_json_payload("lyrics search response", payload)
 }
 
-pub fn lyrics_provider_fetch_json(
+pub async fn lyrics_provider_fetch_json(
     plugin_id: String,
     type_id: String,
     track_json: String,
@@ -230,11 +242,12 @@ pub fn lyrics_provider_fetch_json(
         .map_err(|e| anyhow!("invalid lyrics track_json: {e}"))?;
     let payload = engine()
         .lyrics_provider_fetch::<serde_json::Value, serde_json::Value>(&plugin_id, &type_id, &track)
+        .await
         .map_err(anyhow::Error::msg)?;
     normalize_json_payload("lyrics fetch response", payload)
 }
 
-pub fn output_sink_list_targets_json(
+pub async fn output_sink_list_targets_json(
     plugin_id: String,
     type_id: String,
     config_json: String,
@@ -245,6 +258,7 @@ pub fn output_sink_list_targets_json(
         .output_sink_list_targets::<serde_json::Value, serde_json::Value>(
             &plugin_id, &type_id, &config,
         )
+        .await
         .map_err(anyhow::Error::msg)?;
     normalize_json_payload("output sink targets", payload)
 }
@@ -281,15 +295,12 @@ pub async fn plugins_uninstall_by_id(plugins_dir: String, plugin_id: String) -> 
 }
 
 pub async fn refresh_devices() -> Result<Vec<AudioDevice>> {
-    engine()
-        .refresh_devices_async()
-        .await
-        .map_err(anyhow::Error::msg)
+    engine().refresh_devices().await.map_err(anyhow::Error::msg)
 }
 
 pub async fn set_output_device(backend: AudioBackend, device_id: Option<String>) -> Result<()> {
     engine()
-        .set_output_device_async(backend, device_id)
+        .set_output_device(backend, device_id)
         .await
         .map_err(anyhow::Error::msg)
 }
@@ -300,35 +311,35 @@ pub async fn set_output_options(
     seek_track_fade: bool,
 ) -> Result<()> {
     engine()
-        .set_output_options_async(match_track_sample_rate, gapless_playback, seek_track_fade)
+        .set_output_options(match_track_sample_rate, gapless_playback, seek_track_fade)
         .await
         .map_err(anyhow::Error::msg)
 }
 
 pub async fn set_output_sink_route(route: OutputSinkRoute) -> Result<()> {
     engine()
-        .set_output_sink_route_async(route)
+        .set_output_sink_route(route)
         .await
         .map_err(anyhow::Error::msg)
 }
 
 pub async fn clear_output_sink_route() -> Result<()> {
     engine()
-        .clear_output_sink_route_async()
+        .clear_output_sink_route()
         .await
         .map_err(anyhow::Error::msg)
 }
 
 pub async fn preload_track(path: String, position_ms: u64) -> Result<()> {
     engine()
-        .preload_track_ref_async(TrackRef::for_local_path(path), position_ms)
+        .preload_track_ref(TrackRef::for_local_path(path), position_ms)
         .await
         .map_err(anyhow::Error::msg)
 }
 
 pub async fn preload_track_ref(track: TrackRef, position_ms: u64) -> Result<()> {
     engine()
-        .preload_track_ref_async(track, position_ms)
+        .preload_track_ref(track, position_ms)
         .await
         .map_err(anyhow::Error::msg)
 }

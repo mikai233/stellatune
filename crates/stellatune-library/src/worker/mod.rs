@@ -8,10 +8,12 @@ mod watch;
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use anyhow::{Context, Result};
 use sqlx::{FromRow, QueryBuilder, SqlitePool};
 use tokio::sync::mpsc;
+use tokio::time::timeout;
 
 use stellatune_core::{LibraryCommand, LibraryEvent, PlaylistLite, TrackLite};
 
@@ -57,26 +59,54 @@ impl WorkerDeps {
         #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
         {
             if plugins_dir.exists() {
+                tracing::info!(
+                    plugins_dir = %plugins_dir.display(),
+                    "library plugin bootstrap begin"
+                );
                 clear_metadata_decoder_cache();
                 let disabled = db::list_disabled_plugin_ids(&pool)
                     .await
                     .unwrap_or_default();
                 let service = stellatune_plugins::runtime::handle::shared_runtime_service();
-                service.set_disabled_plugin_ids(disabled);
-                match service.reload_dir_from_state(&plugins_dir) {
-                    Ok(v2) => events.emit(LibraryEvent::Log {
-                        message: format!(
-                            "library plugin runtime v2 reload: loaded={} deactivated={} errors={} reclaimed_leases={}",
-                            v2.loaded.len(),
-                            v2.deactivated.len(),
-                            v2.errors.len(),
-                            v2.reclaimed_leases
-                        ),
-                    }),
-                    Err(e) => events.emit(LibraryEvent::Log {
-                        message: format!("library plugin runtime v2 reload failed: {e:#}"),
-                    }),
+                service.set_disabled_plugin_ids_async(disabled).await;
+                match timeout(
+                    Duration::from_secs(8),
+                    service.reload_dir_from_state_async(&plugins_dir),
+                )
+                .await
+                {
+                    Ok(Ok(v2)) => {
+                        tracing::info!(
+                            loaded = v2.loaded.len(),
+                            deactivated = v2.deactivated.len(),
+                            errors = v2.errors.len(),
+                            reclaimed_leases = v2.reclaimed_leases,
+                            "library plugin bootstrap reload completed"
+                        );
+                        events.emit(LibraryEvent::Log {
+                            message: format!(
+                                "library plugin runtime v2 reload: loaded={} deactivated={} errors={} reclaimed_leases={}",
+                                v2.loaded.len(),
+                                v2.deactivated.len(),
+                                v2.errors.len(),
+                                v2.reclaimed_leases
+                            ),
+                        });
+                    }
+                    Ok(Err(e)) => {
+                        tracing::warn!(error = %format!("{e:#}"), "library plugin bootstrap reload failed");
+                        events.emit(LibraryEvent::Log {
+                            message: format!("library plugin runtime v2 reload failed: {e:#}"),
+                        });
+                    }
+                    Err(_) => {
+                        tracing::warn!("library plugin bootstrap reload timed out (8s)");
+                        events.emit(LibraryEvent::Log {
+                            message: "library plugin runtime v2 reload timed out (8s)".to_string(),
+                        });
+                    }
                 }
+                tracing::info!("library plugin bootstrap end");
             }
         }
 
@@ -124,8 +154,12 @@ impl LibraryWorker {
                 .await
                 .unwrap_or_default();
             let service = stellatune_plugins::runtime::handle::shared_runtime_service();
-            service.set_disabled_plugin_ids(disabled);
-            let _ = service.reload_dir_from_state(&self.plugins_dir);
+            service.set_disabled_plugin_ids_async(disabled).await;
+            let _ = timeout(
+                Duration::from_secs(8),
+                service.reload_dir_from_state_async(&self.plugins_dir),
+            )
+            .await;
         }
     }
 

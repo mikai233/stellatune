@@ -1,7 +1,7 @@
 use std::sync::OnceLock;
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-use std::thread;
+use std::time::Duration;
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 use std::time::Instant;
 
@@ -11,42 +11,25 @@ use stellatune_core::{
 };
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-use crossbeam_channel::TryRecvError;
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 use stellatune_plugin_protocol::PluginControlRequest;
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 use stellatune_plugins::runtime::backend_control::{BackendControlRequest, BackendControlResponse};
 
 use super::bus::{
     ControlFinishedArgs, broadcast_host_event_json, build_control_result_payload,
-    drain_finished_by_library_event, drain_finished_by_player_event, drain_router_receiver,
-    drain_timed_out_pending, emit_control_finished, emit_runtime_event,
-    push_plugin_host_event_json,
+    drain_finished_by_library_event, drain_finished_by_player_event, drain_timed_out_pending,
+    emit_control_finished, emit_runtime_event, push_plugin_host_event_json,
 };
 use super::control::{control_wait_kind, route_plugin_control_request};
 use super::types::{
     CONTROL_FINISH_TIMEOUT, ControlWaitKind, PendingControlFinish, PluginRuntimeEventHub,
-    PluginRuntimeRouter,
+    PluginRuntimeRouter, RouterInbound,
 };
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+use stellatune_runtime as global_runtime;
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-fn drain_backend_control_requests(
-    rx: &crossbeam_channel::Receiver<BackendControlRequest>,
-    max: usize,
-) -> Vec<BackendControlRequest> {
-    let mut out = Vec::new();
-    for _ in 0..max {
-        match rx.try_recv() {
-            Ok(request) => out.push(request),
-            Err(TryRecvError::Empty) => break,
-            Err(TryRecvError::Disconnected) => break,
-        }
-    }
-    out
-}
-
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-fn handle_backend_control_request(
+async fn handle_backend_control_request(
     router: &PluginRuntimeRouter,
     pending_finishes: &mut Vec<PendingControlFinish>,
     request: BackendControlRequest,
@@ -65,7 +48,7 @@ fn handle_backend_control_request(
     };
 
     let route_result = match parsed_request.as_ref() {
-        Some(parsed) => route_plugin_control_request(parsed, engine, library),
+        Some(parsed) => route_plugin_control_request(parsed, engine, library).await,
         None => Err("invalid control request json".to_string()),
     };
 
@@ -171,99 +154,122 @@ fn handle_backend_control_request(
 fn plugin_runtime_router() -> &'static std::sync::Arc<PluginRuntimeRouter> {
     static ROUTER: OnceLock<std::sync::Arc<PluginRuntimeRouter>> = OnceLock::new();
     ROUTER.get_or_init(|| {
+        let (inbound_tx, mut inbound_rx) = tokio::sync::mpsc::unbounded_channel::<RouterInbound>();
         let router = std::sync::Arc::new(PluginRuntimeRouter {
             engine: std::sync::Mutex::new(None),
             library: std::sync::Mutex::new(None),
-            player_events: std::sync::Mutex::new(None),
-            library_events: std::sync::Mutex::new(None),
+            inbound_tx: inbound_tx.clone(),
+            player_event_generation: std::sync::atomic::AtomicU64::new(0),
+            library_event_generation: std::sync::atomic::AtomicU64::new(0),
             runtime_hub: std::sync::Arc::new(PluginRuntimeEventHub::new()),
         });
         let router_thread = std::sync::Arc::clone(&router);
         let control_rx = stellatune_plugins::runtime::handle::shared_runtime_service()
             .subscribe_backend_control_requests();
 
-        if let Err(e) = thread::Builder::new()
-            .name("stellatune-plugin-runtime-router".to_string())
+        let inbound_tx_control = inbound_tx.clone();
+        std::thread::Builder::new()
+            .name("stellatune-plugin-control-bridge".to_string())
             .spawn(move || {
-                let mut pending_finishes: Vec<PendingControlFinish> = Vec::new();
-                loop {
-                    let engine = router_thread.engine.lock().ok().and_then(|g| g.clone());
-                    let library = router_thread.library.lock().ok().and_then(|g| g.clone());
-
-                    for request in drain_backend_control_requests(&control_rx, 128) {
-                        handle_backend_control_request(
-                            router_thread.as_ref(),
-                            &mut pending_finishes,
-                            request,
-                            engine.as_ref(),
-                            library.as_ref(),
-                        );
-                    }
-
-                    for event in drain_router_receiver(&router_thread.player_events, 128) {
-                        let done = drain_finished_by_player_event(&mut pending_finishes, &event);
-                        if let Ok(payload_json) = serde_json::to_string(&HostPlayerEventEnvelope {
-                            topic: HostEventTopic::PlayerEvent,
-                            event,
-                        }) {
-                            broadcast_host_event_json(payload_json);
-                        }
-                        for done in done {
-                            emit_control_finished(
-                                router_thread.runtime_hub.as_ref(),
-                                ControlFinishedArgs {
-                                    plugin_id: &done.plugin_id,
-                                    request_id: done.request_id,
-                                    scope: done.scope,
-                                    command: done.command,
-                                    error: None,
-                                },
-                            );
-                        }
-                    }
-
-                    for event in drain_router_receiver(&router_thread.library_events, 128) {
-                        let done = drain_finished_by_library_event(&mut pending_finishes, &event);
-                        if let Ok(payload_json) = serde_json::to_string(&HostLibraryEventEnvelope {
-                            topic: HostEventTopic::LibraryEvent,
-                            event,
-                        }) {
-                            broadcast_host_event_json(payload_json);
-                        }
-                        for done in done {
-                            emit_control_finished(
-                                router_thread.runtime_hub.as_ref(),
-                                ControlFinishedArgs {
-                                    plugin_id: &done.plugin_id,
-                                    request_id: done.request_id,
-                                    scope: done.scope,
-                                    command: done.command,
-                                    error: None,
-                                },
-                            );
-                        }
-                    }
-
-                    for timed_out in drain_timed_out_pending(&mut pending_finishes, Instant::now())
+                for request in control_rx.iter() {
+                    if inbound_tx_control
+                        .send(RouterInbound::BackendControl(request))
+                        .is_err()
                     {
-                        emit_control_finished(
-                            router_thread.runtime_hub.as_ref(),
-                            ControlFinishedArgs {
-                                plugin_id: &timed_out.plugin_id,
-                                request_id: timed_out.request_id,
-                                scope: timed_out.scope,
-                                command: timed_out.command,
-                                error: Some("control finish timeout"),
-                            },
-                        );
+                        break;
                     }
-
-                    thread::sleep(std::time::Duration::from_millis(10));
                 }
             })
-        {
-            tracing::error!("failed to spawn stellatune-plugin-runtime-router: {e}");
-        }
+            .expect("failed to spawn plugin control bridge thread");
+
+        global_runtime::spawn(async move {
+            let mut pending_finishes: Vec<PendingControlFinish> = Vec::new();
+            let mut timeout_tick = tokio::time::interval(Duration::from_millis(20));
+            loop {
+                tokio::select! {
+                    Some(message) = inbound_rx.recv() => {
+                        match message {
+                            RouterInbound::BackendControl(request) => {
+                                let engine = router_thread.engine.lock().ok().and_then(|g| g.clone());
+                                let library = router_thread.library.lock().ok().and_then(|g| g.clone());
+                                handle_backend_control_request(
+                                    router_thread.as_ref(),
+                                    &mut pending_finishes,
+                                    request,
+                                    engine.as_ref(),
+                                    library.as_ref(),
+                                )
+                                .await;
+                            }
+                            RouterInbound::PlayerEvent { generation, event } => {
+                                let current = router_thread.player_event_generation.load(std::sync::atomic::Ordering::Relaxed);
+                                if generation != current {
+                                    continue;
+                                }
+                                let done = drain_finished_by_player_event(&mut pending_finishes, &event);
+                                if let Ok(payload_json) = serde_json::to_string(&HostPlayerEventEnvelope {
+                                    topic: HostEventTopic::PlayerEvent,
+                                    event,
+                                }) {
+                                    broadcast_host_event_json(payload_json);
+                                }
+                                for done in done {
+                                    emit_control_finished(
+                                        router_thread.runtime_hub.as_ref(),
+                                        ControlFinishedArgs {
+                                            plugin_id: &done.plugin_id,
+                                            request_id: done.request_id,
+                                            scope: done.scope,
+                                            command: done.command,
+                                            error: None,
+                                        },
+                                    );
+                                }
+                            }
+                            RouterInbound::LibraryEvent { generation, event } => {
+                                let current = router_thread.library_event_generation.load(std::sync::atomic::Ordering::Relaxed);
+                                if generation != current {
+                                    continue;
+                                }
+                                let done = drain_finished_by_library_event(&mut pending_finishes, &event);
+                                if let Ok(payload_json) = serde_json::to_string(&HostLibraryEventEnvelope {
+                                    topic: HostEventTopic::LibraryEvent,
+                                    event,
+                                }) {
+                                    broadcast_host_event_json(payload_json);
+                                }
+                                for done in done {
+                                    emit_control_finished(
+                                        router_thread.runtime_hub.as_ref(),
+                                        ControlFinishedArgs {
+                                            plugin_id: &done.plugin_id,
+                                            request_id: done.request_id,
+                                            scope: done.scope,
+                                            command: done.command,
+                                            error: None,
+                                        },
+                                    );
+                                }
+                            }
+                        }
+                    }
+                    _ = timeout_tick.tick() => {
+                        for timed_out in drain_timed_out_pending(&mut pending_finishes, Instant::now()) {
+                            emit_control_finished(
+                                router_thread.runtime_hub.as_ref(),
+                                ControlFinishedArgs {
+                                    plugin_id: &timed_out.plugin_id,
+                                    request_id: timed_out.request_id,
+                                    scope: timed_out.scope,
+                                    command: timed_out.command,
+                                    error: Some("control finish timeout"),
+                                },
+                            );
+                        }
+                    }
+                }
+            }
+        });
 
         router
     })
@@ -272,25 +278,61 @@ fn plugin_runtime_router() -> &'static std::sync::Arc<PluginRuntimeRouter> {
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 pub fn register_plugin_runtime_engine(engine: stellatune_audio::EngineHandle) {
     let router = plugin_runtime_router();
-    let player_rx = engine.subscribe_events();
+    let mut player_rx = engine.subscribe_events();
     if let Ok(mut slot) = router.engine.lock() {
         *slot = Some(engine);
     }
-    if let Ok(mut slot) = router.player_events.lock() {
-        *slot = Some(player_rx);
-    }
+    let generation = router
+        .player_event_generation
+        .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        + 1;
+    let tx = router.inbound_tx.clone();
+    global_runtime::spawn(async move {
+        loop {
+            match player_rx.recv().await {
+                Ok(event) => {
+                    if tx
+                        .send(RouterInbound::PlayerEvent { generation, event })
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    });
 }
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 pub fn register_plugin_runtime_library(library: stellatune_library::LibraryHandle) {
     let router = plugin_runtime_router();
-    let library_rx = library.subscribe_events();
+    let mut library_rx = library.subscribe_events();
     if let Ok(mut slot) = router.library.lock() {
         *slot = Some(library);
     }
-    if let Ok(mut slot) = router.library_events.lock() {
-        *slot = Some(library_rx);
-    }
+    let generation = router
+        .library_event_generation
+        .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        + 1;
+    let tx = router.inbound_tx.clone();
+    global_runtime::spawn(async move {
+        loop {
+            match library_rx.recv().await {
+                Ok(event) => {
+                    if tx
+                        .send(RouterInbound::LibraryEvent { generation, event })
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    });
 }
 
 #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
@@ -300,12 +342,14 @@ pub fn register_plugin_runtime_engine(_engine: stellatune_audio::EngineHandle) {
 pub fn register_plugin_runtime_library(_library: stellatune_library::LibraryHandle) {}
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-pub fn subscribe_plugin_runtime_events_global() -> crossbeam_channel::Receiver<PluginRuntimeEvent> {
+pub fn subscribe_plugin_runtime_events_global()
+-> tokio::sync::broadcast::Receiver<PluginRuntimeEvent> {
     plugin_runtime_router().runtime_hub.subscribe()
 }
 
 #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
-pub fn subscribe_plugin_runtime_events_global() -> crossbeam_channel::Receiver<PluginRuntimeEvent> {
-    let (_tx, rx) = crossbeam_channel::unbounded();
+pub fn subscribe_plugin_runtime_events_global()
+-> tokio::sync::broadcast::Receiver<PluginRuntimeEvent> {
+    let (_tx, rx) = tokio::sync::broadcast::channel(1);
     rx
 }

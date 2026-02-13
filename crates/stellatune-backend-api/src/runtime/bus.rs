@@ -1,9 +1,6 @@
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 use std::time::Instant;
 
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-use crossbeam_channel::{Receiver as CbReceiver, TryRecvError};
-
 use stellatune_core::{
     ControlCommand, ControlScope, Event, HostControlFinishedPayload, HostControlResultPayload,
     HostEventTopic, LibraryEvent, PluginRuntimeEvent, PluginRuntimeKind,
@@ -14,36 +11,6 @@ use super::control::{
     control_scope_from_request, is_wait_satisfied_by_library, is_wait_satisfied_by_player,
 };
 use super::types::{PendingControlFinish, PluginRuntimeEventHub};
-
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-pub(super) fn drain_router_receiver<T>(
-    slot: &std::sync::Mutex<Option<CbReceiver<T>>>,
-    max: usize,
-) -> Vec<T> {
-    let mut out = Vec::new();
-    let mut disconnected = false;
-
-    if let Ok(mut guard) = slot.lock() {
-        let Some(rx) = guard.as_ref() else {
-            return out;
-        };
-        for _ in 0..max {
-            match rx.try_recv() {
-                Ok(item) => out.push(item),
-                Err(TryRecvError::Empty) => break,
-                Err(TryRecvError::Disconnected) => {
-                    disconnected = true;
-                    break;
-                }
-            }
-        }
-        if disconnected {
-            *guard = None;
-        }
-    }
-
-    out
-}
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 pub(super) fn push_plugin_host_event_json(plugin_id: &str, event_json: String) {

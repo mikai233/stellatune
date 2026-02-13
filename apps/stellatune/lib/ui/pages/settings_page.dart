@@ -54,6 +54,8 @@ class _InstalledPlugin {
 }
 
 class SettingsPageState extends ConsumerState<SettingsPage> {
+  static const Duration _bridgeQueryTimeout = Duration(seconds: 8);
+
   Future<List<PluginDescriptor>>? _pluginsFuture;
   Future<List<OutputSinkTypeDescriptor>>? _outputSinkTypesFuture;
   Future<List<SourceCatalogTypeDescriptor>>? _sourceTypesFuture;
@@ -305,11 +307,11 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
   void _refresh() {
     final bridge = ref.read(playerBridgeProvider);
     final library = ref.read(libraryBridgeProvider);
-    _pluginsFuture = bridge.pluginsList();
+    _pluginsFuture = _listLoadedPlugins(bridge);
     _outputSinkTypesFuture = null;
     _cachedOutputSinkTypes = const [];
     _cachedOutputSinkTypesReady = false;
-    _sourceTypesFuture = bridge.sourceListTypes();
+    _sourceTypesFuture = _listSourceTypes(bridge);
     _installedPluginsFuture = _listInstalledPlugins();
     _disabledPluginIdsFuture = _listDisabledPluginIds(library);
   }
@@ -317,12 +319,38 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
   void _refreshPluginRuntimeState() {
     final bridge = ref.read(playerBridgeProvider);
     final library = ref.read(libraryBridgeProvider);
-    _pluginsFuture = bridge.pluginsList();
+    _pluginsFuture = _listLoadedPlugins(bridge);
     _outputSinkTypesFuture = null;
     _cachedOutputSinkTypes = const [];
     _cachedOutputSinkTypesReady = false;
-    _sourceTypesFuture = bridge.sourceListTypes();
+    _sourceTypesFuture = _listSourceTypes(bridge);
     _disabledPluginIdsFuture = _listDisabledPluginIds(library);
+  }
+
+  Future<List<PluginDescriptor>> _listLoadedPlugins(PlayerBridge bridge) async {
+    try {
+      return await bridge.pluginsList().timeout(_bridgeQueryTimeout);
+    } on TimeoutException catch (e, s) {
+      logger.w('pluginsList timed out', error: e, stackTrace: s);
+      return const <PluginDescriptor>[];
+    } catch (e, s) {
+      logger.w('pluginsList failed', error: e, stackTrace: s);
+      return const <PluginDescriptor>[];
+    }
+  }
+
+  Future<List<SourceCatalogTypeDescriptor>> _listSourceTypes(
+    PlayerBridge bridge,
+  ) async {
+    try {
+      return await bridge.sourceListTypes().timeout(_bridgeQueryTimeout);
+    } on TimeoutException catch (e, s) {
+      logger.w('sourceListTypes timed out', error: e, stackTrace: s);
+      return const <SourceCatalogTypeDescriptor>[];
+    } catch (e, s) {
+      logger.w('sourceListTypes failed', error: e, stackTrace: s);
+      return const <SourceCatalogTypeDescriptor>[];
+    }
   }
 
   Future<void> _ensurePluginDir() async {
@@ -1339,8 +1367,8 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final bridge = ref.read(playerBridgeProvider);
-    _pluginsFuture ??= bridge.pluginsList();
-    _sourceTypesFuture ??= bridge.sourceListTypes();
+    _pluginsFuture ??= _listLoadedPlugins(bridge);
+    _sourceTypesFuture ??= _listSourceTypes(bridge);
     _outputSinkTypesFuture ??= bridge.outputSinkListTypes();
     _installedPluginsFuture ??= _listInstalledPlugins();
 

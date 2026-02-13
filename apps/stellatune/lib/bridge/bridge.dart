@@ -57,7 +57,8 @@ class PlayerBridge {
 
   Future<void> dispose() async {}
 
-  Stream<Event> events() => _eventBroadcast ??= api.events().asBroadcastStream();
+  Stream<Event> events() =>
+      _eventBroadcast ??= api.events().asBroadcastStream();
 
   Stream<LyricsEvent> lyricsEvents() =>
       _lyricsEventBroadcast ??= api.lyricsEvents().asBroadcastStream();
@@ -75,9 +76,11 @@ class PlayerBridge {
   Future<void> setVolume(double volume) => api.setVolume(volume: volume);
   Future<void> stop() => api.stop();
 
-  Future<void> lyricsPrepare(LyricsQuery query) => api.lyricsPrepare(query: query);
+  Future<void> lyricsPrepare(LyricsQuery query) =>
+      api.lyricsPrepare(query: query);
 
-  Future<void> lyricsPrefetch(LyricsQuery query) => api.lyricsPrefetch(query: query);
+  Future<void> lyricsPrefetch(LyricsQuery query) =>
+      api.lyricsPrefetch(query: query);
 
   Future<List<LyricsSearchCandidate>> lyricsSearchCandidates(
     LyricsQuery query,
@@ -95,18 +98,19 @@ class PlayerBridge {
 
   Future<void> lyricsRefreshCurrent() => api.lyricsRefreshCurrent();
 
-  Future<void> lyricsSetPositionMs(int positionMs) => api.lyricsSetPositionMs(
-    positionMs: BigInt.from(positionMs),
-  );
+  Future<void> lyricsSetPositionMs(int positionMs) =>
+      api.lyricsSetPositionMs(positionMs: BigInt.from(positionMs));
 
   Future<List<PluginDescriptor>> pluginsList() => api.pluginsList();
 
-  Future<List<SourceCatalogTypeDescriptor>> sourceListTypes() => api.sourceListTypes();
+  Future<List<SourceCatalogTypeDescriptor>> sourceListTypes() =>
+      api.sourceListTypes();
 
   Future<List<LyricsProviderTypeDescriptor>> lyricsProviderListTypes() =>
       api.lyricsProviderListTypes();
 
-  Future<List<OutputSinkTypeDescriptor>> outputSinkListTypes() => api.outputSinkListTypes();
+  Future<List<OutputSinkTypeDescriptor>> outputSinkListTypes() =>
+      api.outputSinkListTypes();
 
   Future<String> sourceListItemsJson({
     required String pluginId,
@@ -173,10 +177,7 @@ class PlayerBridge {
   Future<void> pluginPublishEventJson({
     String? pluginId,
     required String eventJson,
-  }) => api.pluginPublishEventJson(
-    pluginId: pluginId,
-    eventJson: eventJson,
-  );
+  }) => api.pluginPublishEventJson(pluginId: pluginId, eventJson: eventJson);
 
   Future<List<AudioDevice>> refreshDevices() => api.refreshDevices();
 
@@ -196,16 +197,10 @@ class PlayerBridge {
   );
 
   Future<void> preloadTrack(String path, {int positionMs = 0}) =>
-      api.preloadTrack(
-        path: path,
-        positionMs: BigInt.from(positionMs),
-      );
+      api.preloadTrack(path: path, positionMs: BigInt.from(positionMs));
 
   Future<void> preloadTrackRef(TrackRef track, {int positionMs = 0}) =>
-      api.preloadTrackRef(
-        track: track,
-        positionMs: BigInt.from(positionMs),
-      );
+      api.preloadTrackRef(track: track, positionMs: BigInt.from(positionMs));
 
   Future<List<TrackPlayability>> canPlayTrackRefs(List<TrackRef> tracks) =>
       api.canPlayTrackRefs(tracks: tracks);

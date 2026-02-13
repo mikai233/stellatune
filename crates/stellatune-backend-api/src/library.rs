@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use anyhow::Result;
-use crossbeam_channel::Receiver;
+use tokio::sync::broadcast;
 
 use crate::runtime::{init_tracing, register_plugin_runtime_library};
 
@@ -14,12 +14,12 @@ pub struct LibraryService {
 }
 
 impl LibraryService {
-    pub fn new(db_path: String) -> Result<Self> {
+    pub async fn new(db_path: String) -> Result<Self> {
         static NEXT_ID: AtomicU64 = AtomicU64::new(1);
         let instance_id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
         init_tracing();
         tracing::info!(instance_id, "creating library: {}", db_path);
-        let handle = start_library(db_path)?;
+        let handle = start_library(db_path).await?;
         register_plugin_runtime_library(handle.clone());
         Ok(Self {
             instance_id,
@@ -31,152 +31,174 @@ impl LibraryService {
         &self.handle
     }
 
-    pub fn subscribe_events(&self) -> Receiver<LibraryEvent> {
+    pub fn subscribe_events(&self) -> broadcast::Receiver<LibraryEvent> {
         self.handle.subscribe_events()
     }
 
-    pub fn add_root(&self, path: String) {
-        self.handle.send_command(LibraryCommand::AddRoot { path });
-    }
-
-    pub fn remove_root(&self, path: String) {
+    async fn dispatch(&self, cmd: LibraryCommand) -> Result<()> {
         self.handle
-            .send_command(LibraryCommand::RemoveRoot { path });
+            .send_command(cmd)
+            .await
+            .map_err(anyhow::Error::msg)
     }
 
-    pub fn delete_folder(&self, path: String) {
-        self.handle
-            .send_command(LibraryCommand::DeleteFolder { path });
+    pub async fn add_root(&self, path: String) -> Result<()> {
+        self.dispatch(LibraryCommand::AddRoot { path }).await
     }
 
-    pub fn restore_folder(&self, path: String) {
-        self.handle
-            .send_command(LibraryCommand::RestoreFolder { path });
+    pub async fn remove_root(&self, path: String) -> Result<()> {
+        self.dispatch(LibraryCommand::RemoveRoot { path }).await
     }
 
-    pub fn list_excluded_folders(&self) {
-        self.handle
-            .send_command(LibraryCommand::ListExcludedFolders);
+    pub async fn delete_folder(&self, path: String) -> Result<()> {
+        self.dispatch(LibraryCommand::DeleteFolder { path }).await
     }
 
-    pub fn scan_all(&self) {
-        self.handle.send_command(LibraryCommand::ScanAll);
+    pub async fn restore_folder(&self, path: String) -> Result<()> {
+        self.dispatch(LibraryCommand::RestoreFolder { path }).await
     }
 
-    pub fn scan_all_force(&self) {
-        self.handle.send_command(LibraryCommand::ScanAllForce);
+    pub async fn list_excluded_folders(&self) -> Result<()> {
+        self.dispatch(LibraryCommand::ListExcludedFolders).await
     }
 
-    pub fn list_roots(&self) {
-        self.handle.send_command(LibraryCommand::ListRoots);
+    pub async fn scan_all(&self) -> Result<()> {
+        self.dispatch(LibraryCommand::ScanAll).await
     }
 
-    pub fn list_folders(&self) {
-        self.handle.send_command(LibraryCommand::ListFolders);
+    pub async fn scan_all_force(&self) -> Result<()> {
+        self.dispatch(LibraryCommand::ScanAllForce).await
     }
 
-    pub fn list_tracks(
+    pub async fn list_roots(&self) -> Result<()> {
+        self.dispatch(LibraryCommand::ListRoots).await
+    }
+
+    pub async fn list_folders(&self) -> Result<()> {
+        self.dispatch(LibraryCommand::ListFolders).await
+    }
+
+    pub async fn list_tracks(
         &self,
         folder: String,
         recursive: bool,
         query: String,
         limit: i64,
         offset: i64,
-    ) {
-        self.handle.send_command(LibraryCommand::ListTracks {
+    ) -> Result<()> {
+        self.dispatch(LibraryCommand::ListTracks {
             folder,
             recursive,
             query,
             limit,
             offset,
-        });
+        })
+        .await
     }
 
-    pub fn search(&self, query: String, limit: i64, offset: i64) {
-        self.handle.send_command(LibraryCommand::Search {
+    pub async fn search(&self, query: String, limit: i64, offset: i64) -> Result<()> {
+        self.dispatch(LibraryCommand::Search {
             query,
             limit,
             offset,
-        });
+        })
+        .await
     }
 
-    pub fn list_playlists(&self) {
-        self.handle.send_command(LibraryCommand::ListPlaylists);
+    pub async fn list_playlists(&self) -> Result<()> {
+        self.dispatch(LibraryCommand::ListPlaylists).await
     }
 
-    pub fn create_playlist(&self, name: String) {
-        self.handle
-            .send_command(LibraryCommand::CreatePlaylist { name });
+    pub async fn create_playlist(&self, name: String) -> Result<()> {
+        self.dispatch(LibraryCommand::CreatePlaylist { name }).await
     }
 
-    pub fn rename_playlist(&self, id: i64, name: String) {
-        self.handle
-            .send_command(LibraryCommand::RenamePlaylist { id, name });
+    pub async fn rename_playlist(&self, id: i64, name: String) -> Result<()> {
+        self.dispatch(LibraryCommand::RenamePlaylist { id, name })
+            .await
     }
 
-    pub fn delete_playlist(&self, id: i64) {
-        self.handle
-            .send_command(LibraryCommand::DeletePlaylist { id });
+    pub async fn delete_playlist(&self, id: i64) -> Result<()> {
+        self.dispatch(LibraryCommand::DeletePlaylist { id }).await
     }
 
-    pub fn list_playlist_tracks(&self, playlist_id: i64, query: String, limit: i64, offset: i64) {
-        self.handle
-            .send_command(LibraryCommand::ListPlaylistTracks {
-                playlist_id,
-                query,
-                limit,
-                offset,
-            });
+    pub async fn list_playlist_tracks(
+        &self,
+        playlist_id: i64,
+        query: String,
+        limit: i64,
+        offset: i64,
+    ) -> Result<()> {
+        self.dispatch(LibraryCommand::ListPlaylistTracks {
+            playlist_id,
+            query,
+            limit,
+            offset,
+        })
+        .await
     }
 
-    pub fn add_track_to_playlist(&self, playlist_id: i64, track_id: i64) {
-        self.handle
-            .send_command(LibraryCommand::AddTrackToPlaylist {
-                playlist_id,
-                track_id,
-            });
+    pub async fn add_track_to_playlist(&self, playlist_id: i64, track_id: i64) -> Result<()> {
+        self.dispatch(LibraryCommand::AddTrackToPlaylist {
+            playlist_id,
+            track_id,
+        })
+        .await
     }
 
-    pub fn add_tracks_to_playlist(&self, playlist_id: i64, track_ids: Vec<i64>) {
-        self.handle
-            .send_command(LibraryCommand::AddTracksToPlaylist {
-                playlist_id,
-                track_ids,
-            });
+    pub async fn add_tracks_to_playlist(
+        &self,
+        playlist_id: i64,
+        track_ids: Vec<i64>,
+    ) -> Result<()> {
+        self.dispatch(LibraryCommand::AddTracksToPlaylist {
+            playlist_id,
+            track_ids,
+        })
+        .await
     }
 
-    pub fn remove_track_from_playlist(&self, playlist_id: i64, track_id: i64) {
-        self.handle
-            .send_command(LibraryCommand::RemoveTrackFromPlaylist {
-                playlist_id,
-                track_id,
-            });
+    pub async fn remove_track_from_playlist(&self, playlist_id: i64, track_id: i64) -> Result<()> {
+        self.dispatch(LibraryCommand::RemoveTrackFromPlaylist {
+            playlist_id,
+            track_id,
+        })
+        .await
     }
 
-    pub fn remove_tracks_from_playlist(&self, playlist_id: i64, track_ids: Vec<i64>) {
-        self.handle
-            .send_command(LibraryCommand::RemoveTracksFromPlaylist {
-                playlist_id,
-                track_ids,
-            });
+    pub async fn remove_tracks_from_playlist(
+        &self,
+        playlist_id: i64,
+        track_ids: Vec<i64>,
+    ) -> Result<()> {
+        self.dispatch(LibraryCommand::RemoveTracksFromPlaylist {
+            playlist_id,
+            track_ids,
+        })
+        .await
     }
 
-    pub fn move_track_in_playlist(&self, playlist_id: i64, track_id: i64, new_index: i64) {
-        self.handle
-            .send_command(LibraryCommand::MoveTrackInPlaylist {
-                playlist_id,
-                track_id,
-                new_index,
-            });
+    pub async fn move_track_in_playlist(
+        &self,
+        playlist_id: i64,
+        track_id: i64,
+        new_index: i64,
+    ) -> Result<()> {
+        self.dispatch(LibraryCommand::MoveTrackInPlaylist {
+            playlist_id,
+            track_id,
+            new_index,
+        })
+        .await
     }
 
-    pub fn list_liked_track_ids(&self) {
-        self.handle.send_command(LibraryCommand::ListLikedTrackIds);
+    pub async fn list_liked_track_ids(&self) -> Result<()> {
+        self.dispatch(LibraryCommand::ListLikedTrackIds).await
     }
 
-    pub fn set_track_liked(&self, track_id: i64, liked: bool) {
-        self.handle
-            .send_command(LibraryCommand::SetTrackLiked { track_id, liked });
+    pub async fn set_track_liked(&self, track_id: i64, liked: bool) -> Result<()> {
+        self.dispatch(LibraryCommand::SetTrackLiked { track_id, liked })
+            .await
     }
 
     pub async fn plugin_disable(&self, plugin_id: String) -> Result<()> {

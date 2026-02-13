@@ -49,25 +49,25 @@ pub fn shared_runtime_engine() -> Arc<EngineHandle> {
     Arc::clone(ENGINE.get_or_init(new_runtime_engine))
 }
 
-pub fn runtime_prepare_hot_restart() {
+pub async fn runtime_prepare_hot_restart() {
     let engine = shared_runtime_engine();
-    if let Err(err) = engine.dispatch_command_blocking(Command::Stop) {
+    if let Err(err) = engine.dispatch_command(Command::Stop).await {
         tracing::warn!("runtime_prepare_hot_restart stop failed: {err}");
     }
-    if let Err(err) = engine.dispatch_command_blocking(Command::ClearOutputSinkRoute) {
+    if let Err(err) = engine.dispatch_command(Command::ClearOutputSinkRoute).await {
         tracing::warn!("runtime_prepare_hot_restart clear route failed: {err}");
     }
 }
 
-pub fn runtime_shutdown() {
+pub async fn runtime_shutdown() {
     let engine = shared_runtime_engine();
-    if let Err(err) = engine.dispatch_command_blocking(Command::Stop) {
+    if let Err(err) = engine.dispatch_command(Command::Stop).await {
         tracing::warn!("runtime_shutdown stop failed: {err}");
     }
-    if let Err(err) = engine.dispatch_command_blocking(Command::ClearOutputSinkRoute) {
+    if let Err(err) = engine.dispatch_command(Command::ClearOutputSinkRoute).await {
         tracing::warn!("runtime_shutdown clear route failed: {err}");
     }
-    if let Err(err) = engine.dispatch_command_blocking(Command::Shutdown) {
+    if let Err(err) = engine.dispatch_command(Command::Shutdown).await {
         tracing::warn!("runtime_shutdown command failed: {err}");
     }
 }

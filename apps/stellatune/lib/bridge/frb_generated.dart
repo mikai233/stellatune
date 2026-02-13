@@ -1402,7 +1402,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: null,
+          decodeErrorData: sse_decode_AnyhowException,
         ),
         constMeta: kCrateApiLibraryLibraryAddRootConstMeta,
         argValues: [library_, path],
@@ -1439,7 +1439,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: null,
+          decodeErrorData: sse_decode_AnyhowException,
         ),
         constMeta: kCrateApiLibraryLibraryAddTrackToPlaylistConstMeta,
         argValues: [library_, playlistId, trackId],
@@ -1476,7 +1476,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: null,
+          decodeErrorData: sse_decode_AnyhowException,
         ),
         constMeta: kCrateApiLibraryLibraryAddTracksToPlaylistConstMeta,
         argValues: [library_, playlistId, trackIds],
@@ -1511,7 +1511,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: null,
+          decodeErrorData: sse_decode_AnyhowException,
         ),
         constMeta: kCrateApiLibraryLibraryCreatePlaylistConstMeta,
         argValues: [library_, name],
@@ -1546,7 +1546,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: null,
+          decodeErrorData: sse_decode_AnyhowException,
         ),
         constMeta: kCrateApiLibraryLibraryDeleteFolderConstMeta,
         argValues: [library_, path],
@@ -1581,7 +1581,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: null,
+          decodeErrorData: sse_decode_AnyhowException,
         ),
         constMeta: kCrateApiLibraryLibraryDeletePlaylistConstMeta,
         argValues: [library_, id],
@@ -1685,7 +1685,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: null,
+          decodeErrorData: sse_decode_AnyhowException,
         ),
         constMeta: kCrateApiLibraryLibraryListExcludedFoldersConstMeta,
         argValues: [library_],
@@ -1716,7 +1716,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: null,
+          decodeErrorData: sse_decode_AnyhowException,
         ),
         constMeta: kCrateApiLibraryLibraryListFoldersConstMeta,
         argValues: [library_],
@@ -1749,7 +1749,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: null,
+          decodeErrorData: sse_decode_AnyhowException,
         ),
         constMeta: kCrateApiLibraryLibraryListLikedTrackIdsConstMeta,
         argValues: [library_],
@@ -1790,7 +1790,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: null,
+          decodeErrorData: sse_decode_AnyhowException,
         ),
         constMeta: kCrateApiLibraryLibraryListPlaylistTracksConstMeta,
         argValues: [library_, playlistId, query, limit, offset],
@@ -1823,7 +1823,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: null,
+          decodeErrorData: sse_decode_AnyhowException,
         ),
         constMeta: kCrateApiLibraryLibraryListPlaylistsConstMeta,
         argValues: [library_],
@@ -1854,7 +1854,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: null,
+          decodeErrorData: sse_decode_AnyhowException,
         ),
         constMeta: kCrateApiLibraryLibraryListRootsConstMeta,
         argValues: [library_],
@@ -1897,7 +1897,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: null,
+          decodeErrorData: sse_decode_AnyhowException,
         ),
         constMeta: kCrateApiLibraryLibraryListTracksConstMeta,
         argValues: [library_, folder, recursive, query, limit, offset],
@@ -1943,7 +1943,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: null,
+          decodeErrorData: sse_decode_AnyhowException,
         ),
         constMeta: kCrateApiLibraryLibraryMoveTrackInPlaylistConstMeta,
         argValues: [library_, playlistId, trackId, newIndex],
@@ -2115,7 +2115,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: null,
+          decodeErrorData: sse_decode_AnyhowException,
         ),
         constMeta: kCrateApiLibraryLibraryRemoveRootConstMeta,
         argValues: [library_, path],
@@ -2152,7 +2152,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: null,
+          decodeErrorData: sse_decode_AnyhowException,
         ),
         constMeta: kCrateApiLibraryLibraryRemoveTrackFromPlaylistConstMeta,
         argValues: [library_, playlistId, trackId],
@@ -2189,7 +2189,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: null,
+          decodeErrorData: sse_decode_AnyhowException,
         ),
         constMeta: kCrateApiLibraryLibraryRemoveTracksFromPlaylistConstMeta,
         argValues: [library_, playlistId, trackIds],
@@ -2226,7 +2226,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: null,
+          decodeErrorData: sse_decode_AnyhowException,
         ),
         constMeta: kCrateApiLibraryLibraryRenamePlaylistConstMeta,
         argValues: [library_, id, name],
@@ -2261,7 +2261,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: null,
+          decodeErrorData: sse_decode_AnyhowException,
         ),
         constMeta: kCrateApiLibraryLibraryRestoreFolderConstMeta,
         argValues: [library_, path],
@@ -2292,7 +2292,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: null,
+          decodeErrorData: sse_decode_AnyhowException,
         ),
         constMeta: kCrateApiLibraryLibraryScanAllConstMeta,
         argValues: [library_],
@@ -2323,7 +2323,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: null,
+          decodeErrorData: sse_decode_AnyhowException,
         ),
         constMeta: kCrateApiLibraryLibraryScanAllForceConstMeta,
         argValues: [library_],
@@ -2362,7 +2362,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: null,
+          decodeErrorData: sse_decode_AnyhowException,
         ),
         constMeta: kCrateApiLibraryLibrarySearchConstMeta,
         argValues: [library_, query, limit, offset],
@@ -2399,7 +2399,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: null,
+          decodeErrorData: sse_decode_AnyhowException,
         ),
         constMeta: kCrateApiLibraryLibrarySetTrackLikedConstMeta,
         argValues: [library_, trackId, liked],

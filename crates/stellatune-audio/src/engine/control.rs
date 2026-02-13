@@ -6,6 +6,8 @@ use std::time::{Duration, Instant};
 
 use arc_swap::ArcSwapOption;
 use crossbeam_channel::{Receiver, Sender};
+use tokio::sync::broadcast;
+use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
 
 use stellatune_core::{Command, Event, PlayerState, TrackPlayability, TrackRef};
@@ -350,35 +352,30 @@ pub(crate) enum CommandResponse {
     },
 }
 
-enum CommandReplyTx {
-    Blocking(Sender<Result<CommandResponse, String>>),
-    Async(tokio::sync::oneshot::Sender<Result<CommandResponse, String>>),
-}
-
 struct CommandMessage {
     command: Command,
-    resp_tx: Option<CommandReplyTx>,
+    resp_tx: Option<tokio::sync::oneshot::Sender<Result<CommandResponse, String>>>,
 }
 
 #[derive(Clone)]
 pub struct EngineHandle {
-    cmd_tx: Sender<CommandMessage>,
-    engine_ctrl_tx: Sender<EngineCtrl>,
+    cmd_tx: mpsc::UnboundedSender<CommandMessage>,
+    engine_ctrl_tx: mpsc::UnboundedSender<EngineCtrl>,
     events: Arc<EventHub>,
     track_info: SharedTrackInfo,
 }
 
 impl EngineHandle {
-    fn send_engine_query_request(
+    async fn send_engine_query_request(
         &self,
-        build: impl FnOnce(Sender<Result<String, String>>) -> EngineCtrl,
+        build: impl FnOnce(tokio::sync::oneshot::Sender<Result<String, String>>) -> EngineCtrl,
     ) -> Result<String, String> {
-        let (resp_tx, resp_rx) = crossbeam_channel::bounded(1);
+        let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
         self.engine_ctrl_tx
             .send(build(resp_tx))
             .map_err(|_| "control thread exited".to_string())?;
         resp_rx
-            .recv()
+            .await
             .map_err(|_| "control thread dropped query response".to_string())?
     }
 
@@ -387,7 +384,7 @@ impl EngineHandle {
         self.cmd_tx
             .send(CommandMessage {
                 command: cmd,
-                resp_tx: Some(CommandReplyTx::Async(resp_tx)),
+                resp_tx: Some(resp_tx),
             })
             .map_err(|_| "control thread exited".to_string())?;
         resp_rx
@@ -395,21 +392,8 @@ impl EngineHandle {
             .map_err(|_| "control thread dropped command response".to_string())?
     }
 
-    fn send_command_blocking_inner(&self, cmd: Command) -> Result<CommandResponse, String> {
-        let (resp_tx, resp_rx) = crossbeam_channel::bounded(1);
-        self.cmd_tx
-            .send(CommandMessage {
-                command: cmd,
-                resp_tx: Some(CommandReplyTx::Blocking(resp_tx)),
-            })
-            .map_err(|_| "control thread exited".to_string())?;
-        resp_rx
-            .recv()
-            .map_err(|_| "control thread dropped command response".to_string())?
-    }
-
-    pub fn dispatch_command_blocking(&self, cmd: Command) -> Result<(), String> {
-        self.send_command_blocking_inner(cmd).map(|_| ())
+    pub async fn dispatch_command(&self, cmd: Command) -> Result<(), String> {
+        Self::expect_ack(self.send_command_async(cmd).await?)
     }
 
     fn expect_ack(resp: CommandResponse) -> Result<(), String> {
@@ -421,40 +405,40 @@ impl EngineHandle {
         }
     }
 
-    pub async fn switch_track_ref_async(&self, track: TrackRef, lazy: bool) -> Result<(), String> {
+    pub async fn switch_track_ref(&self, track: TrackRef, lazy: bool) -> Result<(), String> {
         Self::expect_ack(
             self.send_command_async(Command::SwitchTrackRef { track, lazy })
                 .await?,
         )
     }
 
-    pub async fn play_async(&self) -> Result<(), String> {
+    pub async fn play(&self) -> Result<(), String> {
         Self::expect_ack(self.send_command_async(Command::Play).await?)
     }
 
-    pub async fn pause_async(&self) -> Result<(), String> {
+    pub async fn pause(&self) -> Result<(), String> {
         Self::expect_ack(self.send_command_async(Command::Pause).await?)
     }
 
-    pub async fn seek_ms_async(&self, position_ms: u64) -> Result<(), String> {
+    pub async fn seek_ms(&self, position_ms: u64) -> Result<(), String> {
         Self::expect_ack(
             self.send_command_async(Command::SeekMs { position_ms })
                 .await?,
         )
     }
 
-    pub async fn set_volume_async(&self, volume: f32) -> Result<(), String> {
+    pub async fn set_volume(&self, volume: f32) -> Result<(), String> {
         Self::expect_ack(
             self.send_command_async(Command::SetVolume { volume })
                 .await?,
         )
     }
 
-    pub async fn stop_async(&self) -> Result<(), String> {
+    pub async fn stop(&self) -> Result<(), String> {
         Self::expect_ack(self.send_command_async(Command::Stop).await?)
     }
 
-    pub async fn set_output_device_async(
+    pub async fn set_output_device(
         &self,
         backend: stellatune_core::AudioBackend,
         device_id: Option<String>,
@@ -465,7 +449,7 @@ impl EngineHandle {
         )
     }
 
-    pub async fn set_output_options_async(
+    pub async fn set_output_options(
         &self,
         match_track_sample_rate: bool,
         gapless_playback: bool,
@@ -481,7 +465,7 @@ impl EngineHandle {
         )
     }
 
-    pub async fn set_output_sink_route_async(
+    pub async fn set_output_sink_route(
         &self,
         route: stellatune_core::OutputSinkRoute,
     ) -> Result<(), String> {
@@ -491,25 +475,21 @@ impl EngineHandle {
         )
     }
 
-    pub async fn clear_output_sink_route_async(&self) -> Result<(), String> {
+    pub async fn clear_output_sink_route(&self) -> Result<(), String> {
         Self::expect_ack(
             self.send_command_async(Command::ClearOutputSinkRoute)
                 .await?,
         )
     }
 
-    pub async fn preload_track_ref_async(
-        &self,
-        track: TrackRef,
-        position_ms: u64,
-    ) -> Result<(), String> {
+    pub async fn preload_track_ref(&self, track: TrackRef, position_ms: u64) -> Result<(), String> {
         Self::expect_ack(
             self.send_command_async(Command::PreloadTrackRef { track, position_ms })
                 .await?,
         )
     }
 
-    pub async fn refresh_devices_async(&self) -> Result<Vec<stellatune_core::AudioDevice>, String> {
+    pub async fn refresh_devices(&self) -> Result<Vec<stellatune_core::AudioDevice>, String> {
         match self.send_command_async(Command::RefreshDevices).await? {
             CommandResponse::OutputDevices { devices } => Ok(devices),
             CommandResponse::Ack => Err("unexpected command response payload".to_string()),
@@ -524,13 +504,13 @@ impl EngineHandle {
         let _ = self.engine_ctrl_tx.send(EngineCtrl::ReloadPlugins { dir });
     }
 
-    pub fn quiesce_plugin_usage(&self, plugin_id: String) -> Result<(), String> {
-        let (resp_tx, resp_rx) = crossbeam_channel::bounded(1);
+    pub async fn quiesce_plugin_usage(&self, plugin_id: String) -> Result<(), String> {
+        let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
         self.engine_ctrl_tx
             .send(EngineCtrl::QuiescePluginUsage { plugin_id, resp_tx })
             .map_err(|_| "control thread exited".to_string())?;
         resp_rx
-            .recv()
+            .await
             .map_err(|_| "control thread dropped quiesce response".to_string())?
     }
 
@@ -538,7 +518,7 @@ impl EngineHandle {
         let _ = self.engine_ctrl_tx.send(EngineCtrl::SetLfeMode { mode });
     }
 
-    pub fn subscribe_events(&self) -> Receiver<Event> {
+    pub fn subscribe_events(&self) -> broadcast::Receiver<Event> {
         self.events.subscribe()
     }
 
@@ -564,149 +544,148 @@ impl EngineHandle {
         }
     }
 
-    pub fn list_plugins(&self) -> Vec<stellatune_core::PluginDescriptor> {
-        with_runtime_service(|service| {
-            let mut plugin_ids = service.active_plugin_ids();
-            plugin_ids.sort();
-            let mut out = Vec::with_capacity(plugin_ids.len());
-            for plugin_id in plugin_ids {
-                let Some(generation) = service.current_plugin_lease_info(&plugin_id) else {
+    pub async fn list_plugins(&self) -> Vec<stellatune_core::PluginDescriptor> {
+        let started = Instant::now();
+        let service = stellatune_plugins::runtime::handle::shared_runtime_service();
+        let mut plugin_ids = service.active_plugin_ids_async().await;
+        plugin_ids.sort();
+        let mut out = Vec::with_capacity(plugin_ids.len());
+        for plugin_id in plugin_ids {
+            let Some(generation) = service.current_plugin_lease_info_async(&plugin_id).await else {
+                continue;
+            };
+            out.push(stellatune_core::PluginDescriptor {
+                id: plugin_id.clone(),
+                name: plugin_name_from_metadata_json(&plugin_id, &generation.metadata_json),
+            });
+        }
+        let elapsed = started.elapsed();
+        if elapsed > Duration::from_millis(150) {
+            warn!(
+                elapsed_ms = elapsed.as_millis() as u64,
+                plugin_count = out.len(),
+                "list_plugins completed slowly"
+            );
+        }
+        out
+    }
+
+    pub async fn list_dsp_types(&self) -> Vec<stellatune_core::DspTypeDescriptor> {
+        let service = stellatune_plugins::runtime::handle::shared_runtime_service();
+        let mut plugin_ids = service.active_plugin_ids_async().await;
+        plugin_ids.sort();
+        let mut out = Vec::new();
+        for plugin_id in plugin_ids {
+            let Some(generation) = service.current_plugin_lease_info_async(&plugin_id).await else {
+                continue;
+            };
+            let plugin_name = plugin_name_from_metadata_json(&plugin_id, &generation.metadata_json);
+            let mut capabilities = service.list_capabilities_async(&plugin_id).await;
+            capabilities.sort_by(|a, b| a.type_id.cmp(&b.type_id));
+            for capability in capabilities {
+                if capability.kind != CapabilityKind::Dsp {
                     continue;
-                };
-                out.push(stellatune_core::PluginDescriptor {
-                    id: plugin_id.clone(),
-                    name: plugin_name_from_metadata_json(&plugin_id, &generation.metadata_json),
+                }
+                out.push(stellatune_core::DspTypeDescriptor {
+                    plugin_id: plugin_id.clone(),
+                    plugin_name: plugin_name.clone(),
+                    type_id: capability.type_id,
+                    display_name: capability.display_name,
+                    config_schema_json: capability.config_schema_json,
+                    default_config_json: capability.default_config_json,
                 });
             }
-            Ok(out)
-        })
-        .unwrap_or_default()
+        }
+        out
     }
 
-    pub fn list_dsp_types(&self) -> Vec<stellatune_core::DspTypeDescriptor> {
-        with_runtime_service(|service| {
-            let mut plugin_ids = service.active_plugin_ids();
-            plugin_ids.sort();
-            let mut out = Vec::new();
-            for plugin_id in plugin_ids {
-                let Some(generation) = service.current_plugin_lease_info(&plugin_id) else {
+    pub async fn list_source_catalog_types(
+        &self,
+    ) -> Vec<stellatune_core::SourceCatalogTypeDescriptor> {
+        let service = stellatune_plugins::runtime::handle::shared_runtime_service();
+        let mut plugin_ids = service.active_plugin_ids_async().await;
+        plugin_ids.sort();
+        let mut out = Vec::new();
+        for plugin_id in plugin_ids {
+            let Some(generation) = service.current_plugin_lease_info_async(&plugin_id).await else {
+                continue;
+            };
+            let plugin_name = plugin_name_from_metadata_json(&plugin_id, &generation.metadata_json);
+            let mut capabilities = service.list_capabilities_async(&plugin_id).await;
+            capabilities.sort_by(|a, b| a.type_id.cmp(&b.type_id));
+            for capability in capabilities {
+                if capability.kind != CapabilityKind::SourceCatalog {
                     continue;
-                };
-                let plugin_name =
-                    plugin_name_from_metadata_json(&plugin_id, &generation.metadata_json);
-                let mut capabilities = service.list_capabilities(&plugin_id);
-                capabilities.sort_by(|a, b| a.type_id.cmp(&b.type_id));
-                for capability in capabilities {
-                    if capability.kind != CapabilityKind::Dsp {
-                        continue;
-                    }
-                    out.push(stellatune_core::DspTypeDescriptor {
-                        plugin_id: plugin_id.clone(),
-                        plugin_name: plugin_name.clone(),
-                        type_id: capability.type_id,
-                        display_name: capability.display_name,
-                        config_schema_json: capability.config_schema_json,
-                        default_config_json: capability.default_config_json,
-                    });
                 }
+                out.push(stellatune_core::SourceCatalogTypeDescriptor {
+                    plugin_id: plugin_id.clone(),
+                    plugin_name: plugin_name.clone(),
+                    type_id: capability.type_id,
+                    display_name: capability.display_name,
+                    config_schema_json: capability.config_schema_json,
+                    default_config_json: capability.default_config_json,
+                });
             }
-            Ok(out)
-        })
-        .unwrap_or_default()
+        }
+        out
     }
 
-    pub fn list_source_catalog_types(&self) -> Vec<stellatune_core::SourceCatalogTypeDescriptor> {
-        with_runtime_service(|service| {
-            let mut plugin_ids = service.active_plugin_ids();
-            plugin_ids.sort();
-            let mut out = Vec::new();
-            for plugin_id in plugin_ids {
-                let Some(generation) = service.current_plugin_lease_info(&plugin_id) else {
+    pub async fn list_lyrics_provider_types(
+        &self,
+    ) -> Vec<stellatune_core::LyricsProviderTypeDescriptor> {
+        let service = stellatune_plugins::runtime::handle::shared_runtime_service();
+        let mut plugin_ids = service.active_plugin_ids_async().await;
+        plugin_ids.sort();
+        let mut out = Vec::new();
+        for plugin_id in plugin_ids {
+            let Some(generation) = service.current_plugin_lease_info_async(&plugin_id).await else {
+                continue;
+            };
+            let plugin_name = plugin_name_from_metadata_json(&plugin_id, &generation.metadata_json);
+            let mut capabilities = service.list_capabilities_async(&plugin_id).await;
+            capabilities.sort_by(|a, b| a.type_id.cmp(&b.type_id));
+            for capability in capabilities {
+                if capability.kind != CapabilityKind::LyricsProvider {
                     continue;
-                };
-                let plugin_name =
-                    plugin_name_from_metadata_json(&plugin_id, &generation.metadata_json);
-                let mut capabilities = service.list_capabilities(&plugin_id);
-                capabilities.sort_by(|a, b| a.type_id.cmp(&b.type_id));
-                for capability in capabilities {
-                    if capability.kind != CapabilityKind::SourceCatalog {
-                        continue;
-                    }
-                    out.push(stellatune_core::SourceCatalogTypeDescriptor {
-                        plugin_id: plugin_id.clone(),
-                        plugin_name: plugin_name.clone(),
-                        type_id: capability.type_id,
-                        display_name: capability.display_name,
-                        config_schema_json: capability.config_schema_json,
-                        default_config_json: capability.default_config_json,
-                    });
                 }
+                out.push(stellatune_core::LyricsProviderTypeDescriptor {
+                    plugin_id: plugin_id.clone(),
+                    plugin_name: plugin_name.clone(),
+                    type_id: capability.type_id,
+                    display_name: capability.display_name,
+                });
             }
-            Ok(out)
-        })
-        .unwrap_or_default()
+        }
+        out
     }
 
-    pub fn list_lyrics_provider_types(&self) -> Vec<stellatune_core::LyricsProviderTypeDescriptor> {
-        with_runtime_service(|service| {
-            let mut plugin_ids = service.active_plugin_ids();
-            plugin_ids.sort();
-            let mut out = Vec::new();
-            for plugin_id in plugin_ids {
-                let Some(generation) = service.current_plugin_lease_info(&plugin_id) else {
+    pub async fn list_output_sink_types(&self) -> Vec<stellatune_core::OutputSinkTypeDescriptor> {
+        let service = stellatune_plugins::runtime::handle::shared_runtime_service();
+        let mut plugin_ids = service.active_plugin_ids_async().await;
+        plugin_ids.sort();
+        let mut out = Vec::new();
+        for plugin_id in plugin_ids {
+            let Some(generation) = service.current_plugin_lease_info_async(&plugin_id).await else {
+                continue;
+            };
+            let plugin_name = plugin_name_from_metadata_json(&plugin_id, &generation.metadata_json);
+            let mut capabilities = service.list_capabilities_async(&plugin_id).await;
+            capabilities.sort_by(|a, b| a.type_id.cmp(&b.type_id));
+            for capability in capabilities {
+                if capability.kind != CapabilityKind::OutputSink {
                     continue;
-                };
-                let plugin_name =
-                    plugin_name_from_metadata_json(&plugin_id, &generation.metadata_json);
-                let mut capabilities = service.list_capabilities(&plugin_id);
-                capabilities.sort_by(|a, b| a.type_id.cmp(&b.type_id));
-                for capability in capabilities {
-                    if capability.kind != CapabilityKind::LyricsProvider {
-                        continue;
-                    }
-                    out.push(stellatune_core::LyricsProviderTypeDescriptor {
-                        plugin_id: plugin_id.clone(),
-                        plugin_name: plugin_name.clone(),
-                        type_id: capability.type_id,
-                        display_name: capability.display_name,
-                    });
                 }
+                out.push(stellatune_core::OutputSinkTypeDescriptor {
+                    plugin_id: plugin_id.clone(),
+                    plugin_name: plugin_name.clone(),
+                    type_id: capability.type_id,
+                    display_name: capability.display_name,
+                    config_schema_json: capability.config_schema_json,
+                    default_config_json: capability.default_config_json,
+                });
             }
-            Ok(out)
-        })
-        .unwrap_or_default()
-    }
-
-    pub fn list_output_sink_types(&self) -> Vec<stellatune_core::OutputSinkTypeDescriptor> {
-        with_runtime_service(|service| {
-            let mut plugin_ids = service.active_plugin_ids();
-            plugin_ids.sort();
-            let mut out = Vec::new();
-            for plugin_id in plugin_ids {
-                let Some(generation) = service.current_plugin_lease_info(&plugin_id) else {
-                    continue;
-                };
-                let plugin_name =
-                    plugin_name_from_metadata_json(&plugin_id, &generation.metadata_json);
-                let mut capabilities = service.list_capabilities(&plugin_id);
-                capabilities.sort_by(|a, b| a.type_id.cmp(&b.type_id));
-                for capability in capabilities {
-                    if capability.kind != CapabilityKind::OutputSink {
-                        continue;
-                    }
-                    out.push(stellatune_core::OutputSinkTypeDescriptor {
-                        plugin_id: plugin_id.clone(),
-                        plugin_name: plugin_name.clone(),
-                        type_id: capability.type_id,
-                        display_name: capability.display_name,
-                        config_schema_json: capability.config_schema_json,
-                        default_config_json: capability.default_config_json,
-                    });
-                }
-            }
-            Ok(out)
-        })
-        .unwrap_or_default()
+        }
+        out
     }
 
     pub fn can_play_track_refs(&self, tracks: Vec<TrackRef>) -> Vec<TrackPlayability> {
@@ -739,7 +718,7 @@ impl EngineHandle {
         verdicts
     }
 
-    pub fn source_list_items<C, R, Items>(
+    pub async fn source_list_items<C, R, Items>(
         &self,
         plugin_id: &str,
         type_id: &str,
@@ -755,19 +734,20 @@ impl EngineHandle {
             .map_err(|e| format!("failed to serialize source config: {e}"))?;
         let request_json = serde_json::to_string(request)
             .map_err(|e| format!("failed to serialize source request: {e}"))?;
-        let payload =
-            self.send_engine_query_request(|resp_tx| EngineCtrl::SourceListItemsJson {
+        let payload = self
+            .send_engine_query_request(|resp_tx| EngineCtrl::SourceListItemsJson {
                 plugin_id: plugin_id.to_string(),
                 type_id: type_id.to_string(),
                 config_json,
                 request_json,
                 resp_tx,
-            })?;
+            })
+            .await?;
         serde_json::from_str::<Items>(&payload)
             .map_err(|e| format!("failed to deserialize source response: {e}"))
     }
 
-    pub fn lyrics_provider_search<Q, Resp>(
+    pub async fn lyrics_provider_search<Q, Resp>(
         &self,
         plugin_id: &str,
         type_id: &str,
@@ -779,17 +759,19 @@ impl EngineHandle {
     {
         let query_json = serde_json::to_string(query)
             .map_err(|e| format!("failed to serialize lyrics query: {e}"))?;
-        let payload = self.send_engine_query_request(|resp_tx| EngineCtrl::LyricsSearchJson {
-            plugin_id: plugin_id.to_string(),
-            type_id: type_id.to_string(),
-            query_json,
-            resp_tx,
-        })?;
+        let payload = self
+            .send_engine_query_request(|resp_tx| EngineCtrl::LyricsSearchJson {
+                plugin_id: plugin_id.to_string(),
+                type_id: type_id.to_string(),
+                query_json,
+                resp_tx,
+            })
+            .await?;
         serde_json::from_str::<Resp>(&payload)
             .map_err(|e| format!("failed to deserialize lyrics search response: {e}"))
     }
 
-    pub fn lyrics_provider_fetch<T, Resp>(
+    pub async fn lyrics_provider_fetch<T, Resp>(
         &self,
         plugin_id: &str,
         type_id: &str,
@@ -801,17 +783,19 @@ impl EngineHandle {
     {
         let track_json = serde_json::to_string(track)
             .map_err(|e| format!("failed to serialize lyrics track: {e}"))?;
-        let payload = self.send_engine_query_request(|resp_tx| EngineCtrl::LyricsFetchJson {
-            plugin_id: plugin_id.to_string(),
-            type_id: type_id.to_string(),
-            track_json,
-            resp_tx,
-        })?;
+        let payload = self
+            .send_engine_query_request(|resp_tx| EngineCtrl::LyricsFetchJson {
+                plugin_id: plugin_id.to_string(),
+                type_id: type_id.to_string(),
+                track_json,
+                resp_tx,
+            })
+            .await?;
         serde_json::from_str::<Resp>(&payload)
             .map_err(|e| format!("failed to deserialize lyrics fetch response: {e}"))
     }
 
-    pub fn output_sink_list_targets<C, Targets>(
+    pub async fn output_sink_list_targets<C, Targets>(
         &self,
         plugin_id: &str,
         type_id: &str,
@@ -823,13 +807,14 @@ impl EngineHandle {
     {
         let config_json = serde_json::to_string(config)
             .map_err(|e| format!("failed to serialize output sink config: {e}"))?;
-        let payload =
-            self.send_engine_query_request(|resp_tx| EngineCtrl::OutputSinkListTargetsJson {
+        let payload = self
+            .send_engine_query_request(|resp_tx| EngineCtrl::OutputSinkListTargetsJson {
                 plugin_id: plugin_id.to_string(),
                 type_id: type_id.to_string(),
                 config_json,
                 resp_tx,
-            })?;
+            })
+            .await?;
         serde_json::from_str::<Targets>(&payload)
             .map_err(|e| format!("failed to deserialize output sink targets: {e}"))
     }
@@ -842,12 +827,36 @@ impl EngineHandle {
 }
 
 pub fn start_engine() -> EngineHandle {
-    let (cmd_tx, cmd_rx) = crossbeam_channel::unbounded();
-    let (engine_ctrl_tx, engine_ctrl_rx) = crossbeam_channel::unbounded();
+    let (cmd_tx_cb, cmd_rx) = crossbeam_channel::unbounded();
+    let (engine_ctrl_tx_cb, engine_ctrl_rx) = crossbeam_channel::unbounded();
     let (internal_tx, internal_rx) = crossbeam_channel::unbounded();
+    let (cmd_tx, mut cmd_rx_async) = mpsc::unbounded_channel::<CommandMessage>();
+    let (engine_ctrl_tx, mut engine_ctrl_rx_async) = mpsc::unbounded_channel::<EngineCtrl>();
 
     let events = Arc::new(EventHub::new());
     let thread_events = Arc::clone(&events);
+
+    let _cmd_bridge_join: JoinHandle<()> = thread::Builder::new()
+        .name("stellatune-cmd-bridge".to_string())
+        .spawn(move || {
+            while let Some(msg) = cmd_rx_async.blocking_recv() {
+                if cmd_tx_cb.send(msg).is_err() {
+                    break;
+                }
+            }
+        })
+        .expect("failed to spawn stellatune-cmd-bridge thread");
+
+    let _engine_ctrl_bridge_join: JoinHandle<()> = thread::Builder::new()
+        .name("stellatune-engine-ctrl-bridge".to_string())
+        .spawn(move || {
+            while let Some(msg) = engine_ctrl_rx_async.blocking_recv() {
+                if engine_ctrl_tx_cb.send(msg).is_err() {
+                    break;
+                }
+            }
+        })
+        .expect("failed to spawn stellatune-engine-ctrl-bridge thread");
 
     let track_info: SharedTrackInfo = Arc::new(ArcSwapOption::new(None));
     let track_info_for_thread = Arc::clone(&track_info);
@@ -1045,14 +1054,7 @@ fn run_control_loop(channels: ControlLoopChannels, deps: ControlLoopDeps) {
                     &track_info,
                 );
                 if let Some(resp_tx) = cmd.resp_tx {
-                    match resp_tx {
-                        CommandReplyTx::Blocking(tx) => {
-                            let _ = tx.send(result.response);
-                        }
-                        CommandReplyTx::Async(tx) => {
-                            let _ = tx.send(result.response);
-                        }
-                    }
+                    let _ = resp_tx.send(result.response);
                 }
                 if result.should_shutdown {
                     break;

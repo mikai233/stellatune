@@ -41,11 +41,11 @@ impl BackendSession {
         }
     }
 
-    pub fn from_options(options: BackendSessionOptions) -> Result<Self> {
+    pub async fn from_options(options: BackendSessionOptions) -> Result<Self> {
         let player = shared_runtime_engine();
         let lyrics = LyricsService::new();
         let library = match options.library {
-            Some(opts) => Some(LibraryService::new(opts.db_path)?),
+            Some(opts) => Some(LibraryService::new(opts.db_path).await?),
             None => None,
         };
         Ok(Self {
@@ -75,8 +75,11 @@ impl BackendSession {
         self.library.is_some()
     }
 
-    pub fn attach_library(&mut self, options: LibrarySessionOptions) -> Result<&LibraryService> {
-        let service = LibraryService::new(options.db_path)?;
+    pub async fn attach_library(
+        &mut self,
+        options: LibrarySessionOptions,
+    ) -> Result<&LibraryService> {
+        let service = LibraryService::new(options.db_path).await?;
         self.library = Some(service);
         Ok(self.library.as_ref().expect("library just initialized"))
     }

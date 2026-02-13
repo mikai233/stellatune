@@ -18,6 +18,7 @@ members = [
   "crates/stellatune-plugin-ncm",
   "crates/stellatune-plugin-sdk",
   "crates/stellatune-plugins",
+  "crates/stellatune-runtime",
 ]
 exclude = ["crates/stellatune-asio-host"]
 
@@ -45,6 +46,7 @@ stellatune-plugin-protocol = { path = "crates/stellatune-plugin-protocol" }
 stellatune-plugins = { path = "crates/stellatune-plugins" }
 stellatune-plugin-sdk = { path = "crates/stellatune-plugin-sdk" }
 stellatune-mixer = { path = "crates/stellatune-mixer" }
+stellatune-runtime = { path = "crates/stellatune-runtime" }
 
 anyhow = "1.0.101"
 crossbeam-channel = "0.5.15"
