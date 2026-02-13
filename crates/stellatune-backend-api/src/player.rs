@@ -29,8 +29,8 @@ pub fn plugins_uninstall_by_id(plugins_dir: String, plugin_id: String) -> Result
 fn ensure_plugin_runtime_unloaded_for_uninstall(plugin_id: &str) -> Result<()> {
     let service = shared_plugin_runtime();
 
-    let _ = service.unload_plugin(plugin_id);
-    let Some(state) = service.plugin_lease_state(plugin_id) else {
+    let _ = stellatune_runtime::block_on(service.unload_plugin(plugin_id));
+    let Some(state) = stellatune_runtime::block_on(service.plugin_lease_state(plugin_id)) else {
         return Ok(());
     };
     if !state.retired_lease_ids.is_empty() {

@@ -109,7 +109,9 @@ impl PluginEventBus {
         }
     }
 
-    pub(crate) fn subscribe_control_requests(&self) -> mpsc::UnboundedReceiver<BackendControlRequest> {
+    pub(crate) fn subscribe_control_requests(
+        &self,
+    ) -> mpsc::UnboundedReceiver<BackendControlRequest> {
         let (tx, rx) = mpsc::unbounded_channel();
         self.register_control_request_sender(tx);
         rx

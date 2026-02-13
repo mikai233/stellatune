@@ -13,15 +13,17 @@ use super::control::{
 use super::types::{PendingControlFinish, PluginRuntimeEventHub};
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-pub(super) fn push_plugin_host_event_json(plugin_id: &str, event_json: String) {
+pub(super) async fn push_plugin_host_event_json(plugin_id: &str, event_json: String) {
     stellatune_plugins::runtime::handle::shared_runtime_service()
-        .push_host_event_json(plugin_id, &event_json);
+        .push_host_event_json(plugin_id, &event_json)
+        .await;
 }
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-pub(super) fn broadcast_host_event_json(event_json: String) {
+pub(super) async fn broadcast_host_event_json(event_json: String) {
     stellatune_plugins::runtime::handle::shared_runtime_service()
-        .broadcast_host_event_json(&event_json);
+        .broadcast_host_event_json(&event_json)
+        .await;
 }
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
@@ -96,11 +98,14 @@ pub(super) struct ControlFinishedArgs<'a> {
 }
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-pub(super) fn emit_control_finished(hub: &PluginRuntimeEventHub, args: ControlFinishedArgs<'_>) {
+pub(super) async fn emit_control_finished(
+    hub: &PluginRuntimeEventHub,
+    args: ControlFinishedArgs<'_>,
+) {
     let payload =
         build_control_finished_payload(args.request_id, args.scope, args.command, args.error);
     let payload_json = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string());
-    push_plugin_host_event_json(args.plugin_id, payload_json);
+    push_plugin_host_event_json(args.plugin_id, payload_json).await;
     let event = PluginRuntimeEvent::from_payload(
         args.plugin_id.to_string(),
         PluginRuntimeKind::ControlFinished,

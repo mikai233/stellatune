@@ -15,7 +15,7 @@ use stellatune_output::OutputSpec;
 use stellatune_plugin_api::StOutputSinkNegotiatedSpec;
 use stellatune_plugins::runtime::introspection::CapabilityKind;
 use stellatune_plugins::runtime::{
-    actor::WorkerControlMessage,
+    messages::WorkerControlMessage,
     worker_endpoint::{
         LyricsProviderWorkerController, OutputSinkWorkerController, SourceCatalogWorkerController,
     },
@@ -61,9 +61,7 @@ use runtime_query::{
     lyrics_fetch_json_via_runtime, lyrics_search_json_via_runtime,
     output_sink_list_targets_json_via_runtime, source_list_items_json_via_runtime,
 };
-use tick::{
-    ensure_output_spec_prewarm, handle_tick, output_backend_for_selected, publish_player_tick_event,
-};
+use tick::{ensure_output_spec_prewarm, handle_tick, output_backend_for_selected};
 
 #[cfg(debug_assertions)]
 const DEBUG_PRELOAD_LOG_EVERY: u64 = 24;
@@ -92,8 +90,7 @@ fn runtime_default_config_json(
     type_id: &str,
 ) -> Result<String, String> {
     with_runtime_service(|service| {
-        service
-            .find_capability(plugin_id, kind, type_id)
+        stellatune_runtime::block_on(service.find_capability(plugin_id, kind, type_id))
             .map(|c| c.default_config_json)
             .ok_or_else(|| format!("capability not found: {plugin_id}::{type_id}"))
     })
@@ -529,16 +526,22 @@ impl EngineHandle {
     ) -> Result<(), String> {
         match plugin_id {
             Some(plugin_id) => with_runtime_service(|service| {
-                if service.current_plugin_lease_info(&plugin_id).is_none() {
+                if stellatune_runtime::block_on(service.current_plugin_lease_info(&plugin_id))
+                    .is_none()
+                {
                     return Err(format!("plugin not found: {plugin_id}"));
                 }
-                stellatune_plugins::runtime::handle::shared_runtime_service()
-                    .push_host_event_json(&plugin_id, &event_json);
+                stellatune_runtime::block_on(
+                    stellatune_plugins::runtime::handle::shared_runtime_service()
+                        .push_host_event_json(&plugin_id, &event_json),
+                );
                 Ok(())
             }),
             None => {
-                stellatune_plugins::runtime::handle::shared_runtime_service()
-                    .broadcast_host_event_json(&event_json);
+                stellatune_runtime::block_on(
+                    stellatune_plugins::runtime::handle::shared_runtime_service()
+                        .broadcast_host_event_json(&event_json),
+                );
                 Ok(())
             }
         }
@@ -547,11 +550,11 @@ impl EngineHandle {
     pub async fn list_plugins(&self) -> Vec<stellatune_core::PluginDescriptor> {
         let started = Instant::now();
         let service = stellatune_plugins::runtime::handle::shared_runtime_service();
-        let mut plugin_ids = service.active_plugin_ids_async().await;
+        let mut plugin_ids = service.active_plugin_ids().await;
         plugin_ids.sort();
         let mut out = Vec::with_capacity(plugin_ids.len());
         for plugin_id in plugin_ids {
-            let Some(generation) = service.current_plugin_lease_info_async(&plugin_id).await else {
+            let Some(generation) = service.current_plugin_lease_info(&plugin_id).await else {
                 continue;
             };
             out.push(stellatune_core::PluginDescriptor {
@@ -572,15 +575,15 @@ impl EngineHandle {
 
     pub async fn list_dsp_types(&self) -> Vec<stellatune_core::DspTypeDescriptor> {
         let service = stellatune_plugins::runtime::handle::shared_runtime_service();
-        let mut plugin_ids = service.active_plugin_ids_async().await;
+        let mut plugin_ids = service.active_plugin_ids().await;
         plugin_ids.sort();
         let mut out = Vec::new();
         for plugin_id in plugin_ids {
-            let Some(generation) = service.current_plugin_lease_info_async(&plugin_id).await else {
+            let Some(generation) = service.current_plugin_lease_info(&plugin_id).await else {
                 continue;
             };
             let plugin_name = plugin_name_from_metadata_json(&plugin_id, &generation.metadata_json);
-            let mut capabilities = service.list_capabilities_async(&plugin_id).await;
+            let mut capabilities = service.list_capabilities(&plugin_id).await;
             capabilities.sort_by(|a, b| a.type_id.cmp(&b.type_id));
             for capability in capabilities {
                 if capability.kind != CapabilityKind::Dsp {
@@ -603,15 +606,15 @@ impl EngineHandle {
         &self,
     ) -> Vec<stellatune_core::SourceCatalogTypeDescriptor> {
         let service = stellatune_plugins::runtime::handle::shared_runtime_service();
-        let mut plugin_ids = service.active_plugin_ids_async().await;
+        let mut plugin_ids = service.active_plugin_ids().await;
         plugin_ids.sort();
         let mut out = Vec::new();
         for plugin_id in plugin_ids {
-            let Some(generation) = service.current_plugin_lease_info_async(&plugin_id).await else {
+            let Some(generation) = service.current_plugin_lease_info(&plugin_id).await else {
                 continue;
             };
             let plugin_name = plugin_name_from_metadata_json(&plugin_id, &generation.metadata_json);
-            let mut capabilities = service.list_capabilities_async(&plugin_id).await;
+            let mut capabilities = service.list_capabilities(&plugin_id).await;
             capabilities.sort_by(|a, b| a.type_id.cmp(&b.type_id));
             for capability in capabilities {
                 if capability.kind != CapabilityKind::SourceCatalog {
@@ -634,15 +637,15 @@ impl EngineHandle {
         &self,
     ) -> Vec<stellatune_core::LyricsProviderTypeDescriptor> {
         let service = stellatune_plugins::runtime::handle::shared_runtime_service();
-        let mut plugin_ids = service.active_plugin_ids_async().await;
+        let mut plugin_ids = service.active_plugin_ids().await;
         plugin_ids.sort();
         let mut out = Vec::new();
         for plugin_id in plugin_ids {
-            let Some(generation) = service.current_plugin_lease_info_async(&plugin_id).await else {
+            let Some(generation) = service.current_plugin_lease_info(&plugin_id).await else {
                 continue;
             };
             let plugin_name = plugin_name_from_metadata_json(&plugin_id, &generation.metadata_json);
-            let mut capabilities = service.list_capabilities_async(&plugin_id).await;
+            let mut capabilities = service.list_capabilities(&plugin_id).await;
             capabilities.sort_by(|a, b| a.type_id.cmp(&b.type_id));
             for capability in capabilities {
                 if capability.kind != CapabilityKind::LyricsProvider {
@@ -661,15 +664,15 @@ impl EngineHandle {
 
     pub async fn list_output_sink_types(&self) -> Vec<stellatune_core::OutputSinkTypeDescriptor> {
         let service = stellatune_plugins::runtime::handle::shared_runtime_service();
-        let mut plugin_ids = service.active_plugin_ids_async().await;
+        let mut plugin_ids = service.active_plugin_ids().await;
         plugin_ids.sort();
         let mut out = Vec::new();
         for plugin_id in plugin_ids {
-            let Some(generation) = service.current_plugin_lease_info_async(&plugin_id).await else {
+            let Some(generation) = service.current_plugin_lease_info(&plugin_id).await else {
                 continue;
             };
             let plugin_name = plugin_name_from_metadata_json(&plugin_id, &generation.metadata_json);
-            let mut capabilities = service.list_capabilities_async(&plugin_id).await;
+            let mut capabilities = service.list_capabilities(&plugin_id).await;
             capabilities.sort_by(|a, b| a.type_id.cmp(&b.type_id));
             for capability in capabilities {
                 if capability.kind != CapabilityKind::OutputSink {
@@ -1045,7 +1048,6 @@ fn run_control_loop(channels: ControlLoopChannels, deps: ControlLoopDeps) {
                 handle_internal(msg, &mut state, &events, &internal_tx, &track_info);
             }
             recv(tick) -> _ => {
-                publish_player_tick_event(&state);
                 handle_tick(
                     &mut state,
                     &events,

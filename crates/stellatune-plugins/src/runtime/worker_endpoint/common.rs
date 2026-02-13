@@ -4,9 +4,9 @@ use anyhow::{Result, anyhow};
 use crossbeam_channel::Receiver;
 
 use crate::capabilities::common::{InstanceRuntimeCtx, PluginFreeFn};
-use crate::runtime::actor::WorkerControlMessage;
 use crate::runtime::handle::PluginRuntimeHandle;
 use crate::runtime::instance_registry::InstanceRegistry;
+use crate::runtime::messages::WorkerControlMessage;
 use crate::runtime::model::ModuleLease;
 use crate::runtime::update::InstanceUpdateCoordinator;
 
@@ -30,7 +30,8 @@ pub(super) fn subscribe_worker_control(
     plugin_id: &str,
 ) -> Result<Receiver<WorkerControlMessage>> {
     let (control_tx, control_rx) = crossbeam_channel::unbounded();
-    if !runtime.register_worker_control_sender(plugin_id, control_tx) {
+    if !stellatune_runtime::block_on(runtime.register_worker_control_sender(plugin_id, control_tx))
+    {
         return Err(anyhow!("plugin runtime actor unavailable"));
     }
     Ok(control_rx)
@@ -40,14 +41,12 @@ pub(super) fn acquire_active_lease(
     runtime: &PluginRuntimeHandle,
     plugin_id: &str,
 ) -> Result<Arc<ModuleLease>> {
-    runtime
-        .acquire_current_module_lease(plugin_id)
-        .ok_or_else(|| {
-            anyhow!(
-                "plugin `{}` has no active lease (disabled, unloaded, or unavailable)",
-                plugin_id
-            )
-        })
+    stellatune_runtime::block_on(runtime.acquire_current_module_lease(plugin_id)).ok_or_else(|| {
+        anyhow!(
+            "plugin `{}` has no active lease (disabled, unloaded, or unavailable)",
+            plugin_id
+        )
+    })
 }
 
 pub(super) fn new_factory_state() -> (Arc<InstanceRegistry>, Arc<InstanceUpdateCoordinator>) {

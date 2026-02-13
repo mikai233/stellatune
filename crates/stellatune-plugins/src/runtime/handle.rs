@@ -1,97 +1,35 @@
 use std::collections::HashSet;
 use std::path::Path;
 use std::sync::{Arc, OnceLock};
+use std::thread;
 use std::time::{Duration, Instant};
 
 use anyhow::{Result, anyhow};
+use arc_swap::ArcSwap;
 use crossbeam_channel::Sender;
 use stellatune_plugin_api::StHostVTable;
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, warn};
 
 use crate::load::{RuntimeLoadReport, RuntimePluginInfo};
-use crate::runtime::actor::{
-    RuntimeActorState, RuntimeActorTask, WorkerControlMessage, run_plugin_runtime_actor,
-};
+use crate::runtime::actor::run_plugin_runtime_actor;
 use crate::runtime::backend_control::BackendControlRequest;
 use crate::runtime::introspection::{
     CapabilityDescriptor, CapabilityKind, DecoderCandidate, PluginLeaseInfo, PluginLeaseState,
+    RuntimeIntrospectionReadCache,
 };
+use crate::runtime::messages::{RuntimeActorMessage, WorkerControlMessage};
 use crate::runtime::model::{ModuleLease, ModuleLeaseRef, RuntimeSyncReport};
 use crate::service::default_host_vtable;
-use stellatune_runtime as global_runtime;
 
 const QUERY_TIMEOUT: Duration = Duration::from_secs(6);
+const IO_TIMEOUT: Duration = Duration::from_secs(60);
 const SLOW_QUERY_LOG_THRESHOLD: Duration = Duration::from_millis(150);
 
 #[derive(Clone)]
 pub struct PluginRuntimeHandle {
-    tx: mpsc::UnboundedSender<RuntimeActorTask>,
-}
-
-fn load_dir_additive_from_state_blocking(
-    state: &mut RuntimeActorState,
-    dir: &Path,
-) -> Result<RuntimeLoadReport> {
-    tokio::task::block_in_place(|| state.service.load_dir_additive_from_state(dir))
-}
-
-fn load_dir_additive_filtered_blocking(
-    state: &mut RuntimeActorState,
-    dir: &Path,
-    disabled_ids: &HashSet<String>,
-) -> Result<RuntimeLoadReport> {
-    tokio::task::block_in_place(|| state.service.load_dir_additive_filtered(dir, disabled_ids))
-}
-
-fn reload_dir_filtered_blocking(
-    state: &mut RuntimeActorState,
-    dir: &Path,
-    disabled_ids: &HashSet<String>,
-) -> Result<RuntimeLoadReport> {
-    let report =
-        tokio::task::block_in_place(|| state.service.reload_dir_filtered(dir, disabled_ids));
-    if let Ok(success) = &report {
-        for plugin in &success.loaded {
-            state.emit_worker_recreate(&plugin.id, "plugin lease swapped");
-        }
-        for plugin_id in &success.deactivated {
-            state.emit_worker_destroy(plugin_id, "plugin deactivated");
-        }
-    }
-    report
-}
-
-fn reload_dir_from_state_blocking(
-    state: &mut RuntimeActorState,
-    dir: &Path,
-) -> Result<RuntimeLoadReport> {
-    let report = tokio::task::block_in_place(|| state.service.reload_dir_from_state(dir));
-    if let Ok(success) = &report {
-        for plugin in &success.loaded {
-            state.emit_worker_recreate(&plugin.id, "plugin lease swapped");
-        }
-        for plugin_id in &success.deactivated {
-            state.emit_worker_destroy(plugin_id, "plugin deactivated");
-        }
-    }
-    report
-}
-
-fn reload_dir_detailed_from_state_blocking(
-    state: &mut RuntimeActorState,
-    dir: &Path,
-) -> Result<RuntimeSyncReport> {
-    let report = tokio::task::block_in_place(|| state.service.reload_dir_detailed_from_state(dir));
-    if let Ok(success) = &report {
-        for plugin in &success.load_report.loaded {
-            state.emit_worker_recreate(&plugin.id, "plugin lease swapped");
-        }
-        for plugin_id in &success.load_report.deactivated {
-            state.emit_worker_destroy(plugin_id, "plugin deactivated");
-        }
-    }
-    report
+    tx: crossbeam_channel::Sender<RuntimeActorMessage>,
+    introspection_cache: Arc<ArcSwap<RuntimeIntrospectionReadCache>>,
 }
 
 impl PluginRuntimeHandle {
@@ -104,85 +42,43 @@ impl PluginRuntimeHandle {
     }
 
     pub(crate) fn spawn(host: StHostVTable) -> Self {
-        let (tx, rx) = mpsc::unbounded_channel::<RuntimeActorTask>();
-        global_runtime::spawn(async move {
-            run_plugin_runtime_actor(rx, host).await;
-        });
-        Self { tx }
-    }
-
-    fn exec_value<R: Send + 'static>(
-        &self,
-        f: impl FnOnce(&mut RuntimeActorState) -> R + Send + 'static,
-    ) -> Option<R> {
-        let (resp_tx, resp_rx) = std::sync::mpsc::sync_channel(1);
-        let task: RuntimeActorTask = Box::new(move |state| {
-            let out = f(state);
-            let _ = resp_tx.send(out);
-        });
-        self.tx.send(task).ok()?;
-        resp_rx.recv().ok()
-    }
-
-    fn exec_value_quick<R: Send + 'static>(
-        &self,
-        op: &'static str,
-        f: impl FnOnce(&mut RuntimeActorState) -> R + Send + 'static,
-    ) -> Option<R> {
-        let started = Instant::now();
-        let (resp_tx, resp_rx) = std::sync::mpsc::sync_channel(1);
-        let task: RuntimeActorTask = Box::new(move |state| {
-            let out = f(state);
-            let _ = resp_tx.send(out);
-        });
-        self.tx.send(task).ok()?;
-        match resp_rx.recv_timeout(QUERY_TIMEOUT) {
-            Ok(value) => {
-                let elapsed = started.elapsed();
-                if elapsed >= SLOW_QUERY_LOG_THRESHOLD {
-                    debug!(
-                        op,
-                        elapsed_ms = elapsed.as_millis() as u64,
-                        "plugin runtime query completed slowly"
-                    );
-                }
-                Some(value)
-            }
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                warn!(
-                    op,
-                    timeout_ms = QUERY_TIMEOUT.as_millis() as u64,
-                    "plugin runtime query timed out"
-                );
-                None
-            }
-            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                warn!(op, "plugin runtime query response channel disconnected");
-                None
-            }
+        let (tx, rx) = crossbeam_channel::unbounded::<RuntimeActorMessage>();
+        let introspection_cache = Arc::new(ArcSwap::from_pointee(
+            RuntimeIntrospectionReadCache::default(),
+        ));
+        let actor_introspection_cache = Arc::clone(&introspection_cache);
+        let _actor_join = thread::Builder::new()
+            .name("stellatune-plugin-runtime-actor".to_string())
+            .spawn(move || {
+                run_plugin_runtime_actor(rx, host, actor_introspection_cache);
+            })
+            .expect("failed to spawn plugin runtime actor thread");
+        Self {
+            tx,
+            introspection_cache,
         }
     }
 
-    async fn exec_value_quick_async<R: Send + 'static>(
+    async fn send<T: Send + 'static>(
         &self,
         op: &'static str,
-        f: impl FnOnce(&mut RuntimeActorState) -> R + Send + 'static,
-    ) -> Option<R> {
+        timeout: Duration,
+        build: impl FnOnce(oneshot::Sender<T>) -> RuntimeActorMessage,
+    ) -> Option<T> {
         let started = Instant::now();
         let (resp_tx, resp_rx) = oneshot::channel();
-        let task: RuntimeActorTask = Box::new(move |state| {
-            let out = f(state);
-            let _ = resp_tx.send(out);
-        });
-        self.tx.send(task).ok()?;
-        match tokio::time::timeout(QUERY_TIMEOUT, resp_rx).await {
+        if self.tx.send(build(resp_tx)).is_err() {
+            warn!(op, "plugin runtime actor request channel disconnected");
+            return None;
+        }
+        match tokio::time::timeout(timeout, resp_rx).await {
             Ok(Ok(value)) => {
                 let elapsed = started.elapsed();
                 if elapsed >= SLOW_QUERY_LOG_THRESHOLD {
                     debug!(
                         op,
                         elapsed_ms = elapsed.as_millis() as u64,
-                        "plugin runtime async query completed slowly"
+                        "plugin runtime query completed slowly"
                     );
                 }
                 Some(value)
@@ -197,7 +93,7 @@ impl PluginRuntimeHandle {
             Err(_) => {
                 warn!(
                     op,
-                    timeout_ms = QUERY_TIMEOUT.as_millis() as u64,
+                    timeout_ms = timeout.as_millis() as u64,
                     "plugin runtime async query timed out"
                 );
                 None
@@ -205,37 +101,22 @@ impl PluginRuntimeHandle {
         }
     }
 
-    async fn exec_value_async<R: Send + 'static>(
-        &self,
-        f: impl FnOnce(&mut RuntimeActorState) -> R + Send + 'static,
-    ) -> Option<R> {
-        let (resp_tx, resp_rx) = oneshot::channel();
-        let task: RuntimeActorTask = Box::new(move |state| {
-            let out = f(state);
-            let _ = resp_tx.send(out);
-        });
-        self.tx.send(task).ok()?;
-        resp_rx.await.ok()
+    async fn recv_result<T>(
+        rx: oneshot::Receiver<anyhow::Result<T>>,
+        op: &'static str,
+        timeout: Duration,
+    ) -> Result<T> {
+        match tokio::time::timeout(timeout, rx).await {
+            Ok(Ok(result)) => result,
+            Ok(Err(_)) => Err(anyhow!("plugin runtime actor dropped response: {op}")),
+            Err(_) => Err(anyhow!(
+                "plugin runtime actor response timed out: {op} ({timeout_ms}ms)",
+                timeout_ms = timeout.as_millis() as u64
+            )),
+        }
     }
 
-    fn exec_result<R: Send + 'static>(
-        &self,
-        f: impl FnOnce(&mut RuntimeActorState) -> R + Send + 'static,
-    ) -> Result<R> {
-        self.exec_value(f)
-            .ok_or_else(|| anyhow!("plugin runtime actor unavailable"))
-    }
-
-    async fn exec_result_async<R: Send + 'static>(
-        &self,
-        f: impl FnOnce(&mut RuntimeActorState) -> R + Send + 'static,
-    ) -> Result<R> {
-        self.exec_value_async(f)
-            .await
-            .ok_or_else(|| anyhow!("plugin runtime actor unavailable"))
-    }
-
-    pub(crate) fn register_worker_control_sender(
+    pub(crate) async fn register_worker_control_sender(
         &self,
         plugin_id: &str,
         sender: Sender<WorkerControlMessage>,
@@ -244,299 +125,281 @@ impl PluginRuntimeHandle {
         if plugin_id.is_empty() {
             return false;
         }
-        self.exec_value(move |state| {
-            state.register_worker_control_sender(plugin_id, sender);
+        self.send(
+            "register_worker_control_sender",
+            QUERY_TIMEOUT,
+            move |resp_tx| RuntimeActorMessage::RegisterWorkerControlSender {
+                plugin_id,
+                sender,
+                resp_tx,
+            },
+        )
+        .await
+        .unwrap_or(false)
+    }
+
+    pub async fn subscribe_backend_control_requests(
+        &self,
+    ) -> mpsc::UnboundedReceiver<BackendControlRequest> {
+        self.send(
+            "subscribe_backend_control_requests",
+            QUERY_TIMEOUT,
+            |resp_tx| RuntimeActorMessage::SubscribeBackendControlRequests { resp_tx },
+        )
+        .await
+        .unwrap_or_else(|| {
+            let (_tx, rx) = mpsc::unbounded_channel();
+            rx
         })
-        .is_some()
     }
 
-    pub fn subscribe_backend_control_requests(&self) -> mpsc::UnboundedReceiver<BackendControlRequest> {
-        self.exec_value(|state| state.service.subscribe_backend_control_requests())
-            .unwrap_or_else(|| {
-                let (_tx, rx) = mpsc::unbounded_channel();
-                rx
-            })
-    }
-
-    pub fn set_disabled_plugin_ids(&self, disabled_ids: HashSet<String>) {
-        let _ = self.exec_value(move |state| {
-            state.service.set_disabled_plugin_ids(disabled_ids);
-        });
-    }
-
-    pub async fn set_disabled_plugin_ids_async(&self, disabled_ids: HashSet<String>) {
+    pub async fn set_disabled_plugin_ids(&self, disabled_ids: HashSet<String>) {
         let _ = self
-            .exec_value_async(move |state| {
-                state.service.set_disabled_plugin_ids(disabled_ids);
+            .send("set_disabled_plugin_ids", QUERY_TIMEOUT, move |resp_tx| {
+                RuntimeActorMessage::SetDisabledPluginIds {
+                    disabled_ids,
+                    resp_tx,
+                }
             })
             .await;
     }
 
-    pub fn push_host_event_json(&self, plugin_id: &str, event_json: &str) {
+    pub async fn push_host_event_json(&self, plugin_id: &str, event_json: &str) {
         let plugin_id = plugin_id.to_string();
         let event_json = event_json.to_string();
-        let _ = self.exec_value(move |state| {
-            state.service.push_host_event_json(&plugin_id, &event_json);
-        });
+        let _ = self
+            .send("push_host_event_json", QUERY_TIMEOUT, move |resp_tx| {
+                RuntimeActorMessage::PushHostEventJson {
+                    plugin_id,
+                    event_json,
+                    resp_tx,
+                }
+            })
+            .await;
     }
 
-    pub fn broadcast_host_event_json(&self, event_json: &str) {
+    pub async fn broadcast_host_event_json(&self, event_json: &str) {
         let event_json = event_json.to_string();
-        let _ = self.exec_value(move |state| {
-            state.service.broadcast_host_event_json(&event_json);
-        });
+        let _ = self
+            .send("broadcast_host_event_json", QUERY_TIMEOUT, move |resp_tx| {
+                RuntimeActorMessage::BroadcastHostEventJson {
+                    event_json,
+                    resp_tx,
+                }
+            })
+            .await;
     }
 
-    pub fn set_plugin_enabled(&self, plugin_id: &str, enabled: bool) {
+    pub async fn set_plugin_enabled(&self, plugin_id: &str, enabled: bool) {
         let plugin_id = plugin_id.trim().to_string();
         if plugin_id.is_empty() {
             return;
         }
-        let _ = self.exec_value(move |state| {
-            state.service.set_plugin_enabled(&plugin_id, enabled);
-            if !enabled {
-                state.emit_worker_destroy(&plugin_id, "plugin disabled");
-            }
-        });
+        let _ = self
+            .send("set_plugin_enabled", QUERY_TIMEOUT, move |resp_tx| {
+                RuntimeActorMessage::SetPluginEnabled {
+                    plugin_id,
+                    enabled,
+                    resp_tx,
+                }
+            })
+            .await;
     }
 
-    pub fn disabled_plugin_ids(&self) -> HashSet<String> {
-        self.exec_value_quick("disabled_plugin_ids", |state| {
-            state.service.disabled_plugin_ids()
-        })
-        .unwrap_or_default()
-    }
-
-    pub fn list_active_plugins(&self) -> Vec<RuntimePluginInfo> {
-        self.exec_value_quick("list_active_plugins", |state| {
-            state.service.list_active_plugins()
-        })
-        .unwrap_or_default()
-    }
-
-    pub fn current_module_lease_ref(&self, plugin_id: &str) -> Option<ModuleLeaseRef> {
-        let plugin_id = plugin_id.to_string();
-        self.exec_value_quick("current_module_lease_ref", move |state| {
-            state.service.current_module_lease_ref(&plugin_id)
-        })
-        .flatten()
-    }
-
-    pub fn current_plugin_lease_info(&self, plugin_id: &str) -> Option<PluginLeaseInfo> {
-        let plugin_id = plugin_id.to_string();
-        self.exec_value_quick("current_plugin_lease_info", move |state| {
-            state.service.current_plugin_lease_info(&plugin_id)
-        })
-        .flatten()
-    }
-
-    pub async fn current_plugin_lease_info_async(
-        &self,
-        plugin_id: &str,
-    ) -> Option<PluginLeaseInfo> {
-        let plugin_id = plugin_id.to_string();
-        self.exec_value_quick_async("current_plugin_lease_info_async", move |state| {
-            state.service.current_plugin_lease_info(&plugin_id)
-        })
-        .await
-        .flatten()
-    }
-
-    pub fn plugin_lease_state(&self, plugin_id: &str) -> Option<PluginLeaseState> {
-        let plugin_id = plugin_id.to_string();
-        self.exec_value_quick("plugin_lease_state", move |state| {
-            state.service.plugin_lease_state(&plugin_id)
-        })
-        .flatten()
-    }
-
-    pub fn list_capabilities(&self, plugin_id: &str) -> Vec<CapabilityDescriptor> {
-        let plugin_id = plugin_id.to_string();
-        self.exec_value_quick("list_capabilities", move |state| {
-            state.service.list_capabilities(&plugin_id)
-        })
-        .unwrap_or_default()
-    }
-
-    pub async fn list_capabilities_async(&self, plugin_id: &str) -> Vec<CapabilityDescriptor> {
-        let plugin_id = plugin_id.to_string();
-        self.exec_value_quick_async("list_capabilities_async", move |state| {
-            state.service.list_capabilities(&plugin_id)
+    pub async fn disabled_plugin_ids(&self) -> HashSet<String> {
+        self.send("disabled_plugin_ids", QUERY_TIMEOUT, |resp_tx| {
+            RuntimeActorMessage::DisabledPluginIds { resp_tx }
         })
         .await
         .unwrap_or_default()
     }
 
-    pub fn find_capability(
+    pub async fn list_active_plugins(&self) -> Vec<RuntimePluginInfo> {
+        self.send("list_active_plugins", QUERY_TIMEOUT, |resp_tx| {
+            RuntimeActorMessage::ListActivePlugins { resp_tx }
+        })
+        .await
+        .unwrap_or_default()
+    }
+
+    pub async fn current_module_lease_ref(&self, plugin_id: &str) -> Option<ModuleLeaseRef> {
+        let plugin_id = plugin_id.to_string();
+        self.send("current_module_lease_ref", QUERY_TIMEOUT, move |resp_tx| {
+            RuntimeActorMessage::CurrentModuleLeaseRef { plugin_id, resp_tx }
+        })
+        .await
+        .flatten()
+    }
+
+    pub async fn current_plugin_lease_info(&self, plugin_id: &str) -> Option<PluginLeaseInfo> {
+        let plugin_id = plugin_id.to_string();
+        self.send("current_plugin_lease_info", QUERY_TIMEOUT, move |resp_tx| {
+            RuntimeActorMessage::CurrentPluginLeaseInfo { plugin_id, resp_tx }
+        })
+        .await
+        .flatten()
+    }
+
+    pub async fn plugin_lease_state(&self, plugin_id: &str) -> Option<PluginLeaseState> {
+        let plugin_id = plugin_id.to_string();
+        self.send("plugin_lease_state", QUERY_TIMEOUT, move |resp_tx| {
+            RuntimeActorMessage::PluginLeaseState { plugin_id, resp_tx }
+        })
+        .await
+        .flatten()
+    }
+
+    pub async fn list_capabilities(&self, plugin_id: &str) -> Vec<CapabilityDescriptor> {
+        self.introspection_cache.load().list_capabilities(plugin_id)
+    }
+
+    pub async fn find_capability(
         &self,
         plugin_id: &str,
         kind: CapabilityKind,
         type_id: &str,
     ) -> Option<CapabilityDescriptor> {
+        self.introspection_cache
+            .load()
+            .find_capability(plugin_id, kind, type_id)
+    }
+
+    pub async fn list_decoder_candidates_for_ext(&self, ext: &str) -> Vec<DecoderCandidate> {
+        self.introspection_cache
+            .load()
+            .list_decoder_candidates_for_ext(ext)
+    }
+
+    pub(crate) async fn acquire_current_module_lease(
+        &self,
+        plugin_id: &str,
+    ) -> Option<Arc<ModuleLease>> {
         let plugin_id = plugin_id.to_string();
-        let type_id = type_id.to_string();
-        self.exec_value_quick("find_capability", move |state| {
-            state.service.find_capability(&plugin_id, kind, &type_id)
-        })
+        self.send(
+            "acquire_current_module_lease",
+            QUERY_TIMEOUT,
+            move |resp_tx| RuntimeActorMessage::AcquireCurrentModuleLease { plugin_id, resp_tx },
+        )
+        .await
         .flatten()
     }
 
-    pub fn list_decoder_candidates_for_ext(&self, ext: &str) -> Vec<DecoderCandidate> {
-        let ext = ext.to_string();
-        self.exec_value_quick("list_decoder_candidates_for_ext", move |state| {
-            state.service.list_decoder_candidates_for_ext(&ext)
-        })
-        .unwrap_or_default()
-    }
-
-    pub(crate) fn acquire_current_module_lease(&self, plugin_id: &str) -> Option<Arc<ModuleLease>> {
-        let plugin_id = plugin_id.to_string();
-        self.exec_value_quick("acquire_current_module_lease", move |state| {
-            state.service.acquire_current_module_lease(&plugin_id)
-        })
-        .flatten()
-    }
-
-    pub fn active_plugin_ids(&self) -> Vec<String> {
-        self.exec_value_quick("active_plugin_ids", |state| {
-            state.service.active_plugin_ids()
-        })
-        .unwrap_or_default()
-    }
-
-    pub async fn active_plugin_ids_async(&self) -> Vec<String> {
-        self.exec_value_quick_async("active_plugin_ids_async", |state| {
-            state.service.active_plugin_ids()
+    pub async fn active_plugin_ids(&self) -> Vec<String> {
+        self.send("active_plugin_ids", QUERY_TIMEOUT, |resp_tx| {
+            RuntimeActorMessage::ActivePluginIds { resp_tx }
         })
         .await
         .unwrap_or_default()
     }
 
-    pub fn load_dir_additive_from_state(&self, dir: impl AsRef<Path>) -> Result<RuntimeLoadReport> {
-        let dir = dir.as_ref().to_path_buf();
-        self.exec_result(move |state| load_dir_additive_from_state_blocking(state, &dir))?
-    }
-
-    pub async fn load_dir_additive_from_state_async(
+    pub async fn load_dir_additive_from_state(
         &self,
         dir: impl AsRef<Path>,
     ) -> Result<RuntimeLoadReport> {
         let dir = dir.as_ref().to_path_buf();
-        self.exec_result_async(move |state| load_dir_additive_from_state_blocking(state, &dir))
-            .await?
+        let (resp_tx, resp_rx) = oneshot::channel();
+        self.tx
+            .send(RuntimeActorMessage::LoadDirAdditiveFromState { dir, resp_tx })
+            .map_err(|_| anyhow!("plugin runtime actor unavailable"))?;
+        Self::recv_result(resp_rx, "load_dir_additive_from_state", IO_TIMEOUT).await
     }
 
-    pub fn load_dir_additive_filtered(
+    pub async fn load_dir_additive_filtered(
         &self,
         dir: impl AsRef<Path>,
         disabled_ids: &HashSet<String>,
     ) -> Result<RuntimeLoadReport> {
         let dir = dir.as_ref().to_path_buf();
         let disabled_ids = disabled_ids.clone();
-        self.exec_result(move |state| {
-            load_dir_additive_filtered_blocking(state, &dir, &disabled_ids)
-        })?
+        let (resp_tx, resp_rx) = oneshot::channel();
+        self.tx
+            .send(RuntimeActorMessage::LoadDirAdditiveFiltered {
+                dir,
+                disabled_ids,
+                resp_tx,
+            })
+            .map_err(|_| anyhow!("plugin runtime actor unavailable"))?;
+        Self::recv_result(resp_rx, "load_dir_additive_filtered", IO_TIMEOUT).await
     }
 
-    pub async fn load_dir_additive_filtered_async(
-        &self,
-        dir: impl AsRef<Path>,
-        disabled_ids: &HashSet<String>,
-    ) -> Result<RuntimeLoadReport> {
-        let dir = dir.as_ref().to_path_buf();
-        let disabled_ids = disabled_ids.clone();
-        self.exec_result_async(move |state| {
-            load_dir_additive_filtered_blocking(state, &dir, &disabled_ids)
-        })
-        .await?
-    }
-
-    pub fn reload_dir_filtered(
+    pub async fn reload_dir_filtered(
         &self,
         dir: impl AsRef<Path>,
         disabled_ids: &HashSet<String>,
     ) -> Result<RuntimeLoadReport> {
         let dir_path = dir.as_ref().to_path_buf();
         let disabled_ids = disabled_ids.clone();
-        self.exec_result(move |state| {
-            reload_dir_filtered_blocking(state, &dir_path, &disabled_ids)
-        })?
+        let (resp_tx, resp_rx) = oneshot::channel();
+        self.tx
+            .send(RuntimeActorMessage::ReloadDirFiltered {
+                dir: dir_path,
+                disabled_ids,
+                resp_tx,
+            })
+            .map_err(|_| anyhow!("plugin runtime actor unavailable"))?;
+        Self::recv_result(resp_rx, "reload_dir_filtered", IO_TIMEOUT).await
     }
 
-    pub async fn reload_dir_filtered_async(
-        &self,
-        dir: impl AsRef<Path>,
-        disabled_ids: &HashSet<String>,
-    ) -> Result<RuntimeLoadReport> {
+    pub async fn reload_dir_from_state(&self, dir: impl AsRef<Path>) -> Result<RuntimeLoadReport> {
         let dir_path = dir.as_ref().to_path_buf();
-        let disabled_ids = disabled_ids.clone();
-        self.exec_result_async(move |state| {
-            reload_dir_filtered_blocking(state, &dir_path, &disabled_ids)
-        })
-        .await?
+        let (resp_tx, resp_rx) = oneshot::channel();
+        self.tx
+            .send(RuntimeActorMessage::ReloadDirFromState {
+                dir: dir_path,
+                resp_tx,
+            })
+            .map_err(|_| anyhow!("plugin runtime actor unavailable"))?;
+        Self::recv_result(resp_rx, "reload_dir_from_state", IO_TIMEOUT).await
     }
 
-    pub fn reload_dir_from_state(&self, dir: impl AsRef<Path>) -> Result<RuntimeLoadReport> {
-        let dir_path = dir.as_ref().to_path_buf();
-        self.exec_result(move |state| reload_dir_from_state_blocking(state, &dir_path))?
-    }
-
-    pub async fn reload_dir_from_state_async(
-        &self,
-        dir: impl AsRef<Path>,
-    ) -> Result<RuntimeLoadReport> {
-        let dir_path = dir.as_ref().to_path_buf();
-        self.exec_result_async(move |state| reload_dir_from_state_blocking(state, &dir_path))
-            .await?
-    }
-
-    pub fn reload_dir_detailed_from_state(
+    pub async fn reload_dir_detailed_from_state(
         &self,
         dir: impl AsRef<Path>,
     ) -> Result<RuntimeSyncReport> {
         let dir_path = dir.as_ref().to_path_buf();
-        self.exec_result(move |state| reload_dir_detailed_from_state_blocking(state, &dir_path))?
+        let (resp_tx, resp_rx) = oneshot::channel();
+        self.tx
+            .send(RuntimeActorMessage::ReloadDirDetailedFromState {
+                dir: dir_path,
+                resp_tx,
+            })
+            .map_err(|_| anyhow!("plugin runtime actor unavailable"))?;
+        Self::recv_result(resp_rx, "reload_dir_detailed_from_state", IO_TIMEOUT).await
     }
 
-    pub async fn reload_dir_detailed_from_state_async(
-        &self,
-        dir: impl AsRef<Path>,
-    ) -> Result<RuntimeSyncReport> {
-        let dir_path = dir.as_ref().to_path_buf();
-        self.exec_result_async(move |state| {
-            reload_dir_detailed_from_state_blocking(state, &dir_path)
-        })
-        .await?
-    }
-
-    pub fn unload_plugin(&self, plugin_id: &str) -> RuntimeLoadReport {
+    pub async fn unload_plugin(&self, plugin_id: &str) -> RuntimeLoadReport {
         let plugin_id = plugin_id.to_string();
-        self.exec_value(move |state| {
-            let report = state.service.unload_plugin(&plugin_id);
-            state.emit_worker_destroy(&plugin_id, "plugin unloaded");
-            report
+        self.send("unload_plugin", IO_TIMEOUT, move |resp_tx| {
+            RuntimeActorMessage::UnloadPlugin { plugin_id, resp_tx }
         })
+        .await
         .unwrap_or_default()
     }
 
-    pub fn shutdown_and_cleanup(&self) -> RuntimeLoadReport {
-        self.exec_value(|state| {
-            let report = state.service.shutdown_and_cleanup();
-            state.emit_worker_destroy_all("plugin runtime shutdown");
-            report
+    pub async fn shutdown_and_cleanup(&self) -> RuntimeLoadReport {
+        self.send("shutdown_and_cleanup", IO_TIMEOUT, |resp_tx| {
+            RuntimeActorMessage::ShutdownAndCleanup { resp_tx }
         })
+        .await
         .unwrap_or_default()
     }
 
-    pub fn cleanup_shadow_copies_now(&self) {
-        let _ = self.exec_value(|state| {
-            state.service.cleanup_shadow_copies_now();
-        });
+    pub async fn cleanup_shadow_copies_now(&self) {
+        let _ = self
+            .send("cleanup_shadow_copies_now", IO_TIMEOUT, |resp_tx| {
+                RuntimeActorMessage::CleanupShadowCopiesNow { resp_tx }
+            })
+            .await;
     }
 
-    pub fn collect_retired_module_leases_by_refcount(&self) -> usize {
-        self.exec_value(|state| state.service.collect_retired_module_leases_by_refcount())
-            .unwrap_or(0)
+    pub async fn collect_retired_module_leases_by_refcount(&self) -> usize {
+        self.send(
+            "collect_retired_module_leases_by_refcount",
+            IO_TIMEOUT,
+            |resp_tx| RuntimeActorMessage::CollectRetiredModuleLeasesByRefcount { resp_tx },
+        )
+        .await
+        .unwrap_or(0)
     }
 }
 

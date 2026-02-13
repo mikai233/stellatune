@@ -22,3 +22,13 @@ where
 {
     runtime().spawn(future)
 }
+
+pub fn block_on<F: Future>(future: F) -> F::Output {
+    if let Ok(handle) = tokio::runtime::Handle::try_current() {
+        // Support nested calls from code that is already running inside a Tokio context.
+        // This avoids "Cannot start a runtime from within a runtime" panics.
+        tokio::task::block_in_place(|| handle.block_on(future))
+    } else {
+        runtime().block_on(future)
+    }
+}

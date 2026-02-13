@@ -1,6 +1,6 @@
 use anyhow::Result;
 
-use crate::runtime::actor::WorkerControlMessage;
+use crate::runtime::messages::WorkerControlMessage;
 use crate::runtime::update::InstanceUpdateResult;
 
 pub trait WorkerConfigurableInstance {

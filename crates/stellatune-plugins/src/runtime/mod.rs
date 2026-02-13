@@ -10,6 +10,7 @@ pub mod backend_control;
 pub mod handle;
 pub mod instance_registry;
 pub mod introspection;
+pub mod messages;
 pub mod model;
 pub mod registry;
 pub mod update;

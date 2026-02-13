@@ -1,7 +1,7 @@
 use anyhow::{Result, anyhow};
 
-use crate::runtime::actor::WorkerControlMessage;
 use crate::runtime::instance_registry::InstanceId;
+use crate::runtime::messages::WorkerControlMessage;
 use crate::runtime::update::InstanceUpdateResult;
 use crate::runtime::worker_controller::{
     WorkerApplyPendingOutcome, WorkerConfigUpdateOutcome, WorkerConfigurableInstance,

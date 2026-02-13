@@ -68,10 +68,10 @@ impl WorkerDeps {
                     .await
                     .unwrap_or_default();
                 let service = stellatune_plugins::runtime::handle::shared_runtime_service();
-                service.set_disabled_plugin_ids_async(disabled).await;
+                service.set_disabled_plugin_ids(disabled).await;
                 match timeout(
                     Duration::from_secs(8),
-                    service.reload_dir_from_state_async(&plugins_dir),
+                    service.reload_dir_from_state(&plugins_dir),
                 )
                 .await
                 {
@@ -154,10 +154,10 @@ impl LibraryWorker {
                 .await
                 .unwrap_or_default();
             let service = stellatune_plugins::runtime::handle::shared_runtime_service();
-            service.set_disabled_plugin_ids_async(disabled).await;
+            service.set_disabled_plugin_ids(disabled).await;
             let _ = timeout(
                 Duration::from_secs(8),
-                service.reload_dir_from_state_async(&self.plugins_dir),
+                service.reload_dir_from_state(&self.plugins_dir),
             )
             .await;
         }

@@ -6,8 +6,8 @@ use std::time::Duration;
 use std::time::Instant;
 
 use stellatune_core::{
-    HostEventTopic, HostLibraryEventEnvelope, HostPlayerEventEnvelope, PluginRuntimeEvent,
-    PluginRuntimeKind,
+    Event, HostEventTopic, HostLibraryEventEnvelope, HostPlayerEventEnvelope, LibraryEvent,
+    PluginRuntimeEvent, PluginRuntimeKind,
 };
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
@@ -27,6 +27,16 @@ use super::types::{
 };
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 use stellatune_runtime as global_runtime;
+
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+fn should_broadcast_player_event(event: &Event) -> bool {
+    !matches!(event, Event::Position { .. } | Event::Log { .. })
+}
+
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+fn should_broadcast_library_event(event: &LibraryEvent) -> bool {
+    !matches!(event, LibraryEvent::Log { .. })
+}
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 async fn handle_backend_control_request(
@@ -64,7 +74,7 @@ async fn handle_backend_control_request(
     };
     let _ = request.response_tx.send(response);
 
-    push_plugin_host_event_json(&request.plugin_id, response_json);
+    push_plugin_host_event_json(&request.plugin_id, response_json).await;
 
     let runtime_event = PluginRuntimeEvent::from_payload(
         request.plugin_id.clone(),
@@ -106,7 +116,8 @@ async fn handle_backend_control_request(
                         command,
                         error: None,
                     },
-                );
+                )
+                .await;
             } else {
                 pending_finishes.push(PendingControlFinish {
                     plugin_id: request.plugin_id,
@@ -145,7 +156,8 @@ async fn handle_backend_control_request(
                     command,
                     error: Some(&err),
                 },
-            );
+            )
+            .await;
         }
     }
 }
@@ -164,10 +176,11 @@ fn plugin_runtime_router() -> &'static std::sync::Arc<PluginRuntimeRouter> {
             runtime_hub: std::sync::Arc::new(PluginRuntimeEventHub::new()),
         });
         let router_thread = std::sync::Arc::clone(&router);
-        let mut control_rx = stellatune_plugins::runtime::handle::shared_runtime_service()
-            .subscribe_backend_control_requests();
 
         global_runtime::spawn(async move {
+            let mut control_rx = stellatune_plugins::runtime::handle::shared_runtime_service()
+                .subscribe_backend_control_requests()
+                .await;
             let mut pending_finishes: Vec<PendingControlFinish> = Vec::new();
             let mut timeout_tick = tokio::time::interval(Duration::from_millis(20));
             loop {
@@ -192,11 +205,13 @@ fn plugin_runtime_router() -> &'static std::sync::Arc<PluginRuntimeRouter> {
                                     continue;
                                 }
                                 let done = drain_finished_by_player_event(&mut pending_finishes, &event);
-                                if let Ok(payload_json) = serde_json::to_string(&HostPlayerEventEnvelope {
-                                    topic: HostEventTopic::PlayerEvent,
-                                    event,
-                                }) {
-                                    broadcast_host_event_json(payload_json);
+                                if should_broadcast_player_event(&event) {
+                                    if let Ok(payload_json) = serde_json::to_string(&HostPlayerEventEnvelope {
+                                        topic: HostEventTopic::PlayerEvent,
+                                        event,
+                                    }) {
+                                        broadcast_host_event_json(payload_json).await;
+                                    }
                                 }
                                 for done in done {
                                     emit_control_finished(
@@ -208,7 +223,8 @@ fn plugin_runtime_router() -> &'static std::sync::Arc<PluginRuntimeRouter> {
                                             command: done.command,
                                             error: None,
                                         },
-                                    );
+                                    )
+                                    .await;
                                 }
                             }
                             RouterInbound::LibraryEvent { generation, event } => {
@@ -217,11 +233,13 @@ fn plugin_runtime_router() -> &'static std::sync::Arc<PluginRuntimeRouter> {
                                     continue;
                                 }
                                 let done = drain_finished_by_library_event(&mut pending_finishes, &event);
-                                if let Ok(payload_json) = serde_json::to_string(&HostLibraryEventEnvelope {
-                                    topic: HostEventTopic::LibraryEvent,
-                                    event,
-                                }) {
-                                    broadcast_host_event_json(payload_json);
+                                if should_broadcast_library_event(&event) {
+                                    if let Ok(payload_json) = serde_json::to_string(&HostLibraryEventEnvelope {
+                                        topic: HostEventTopic::LibraryEvent,
+                                        event,
+                                    }) {
+                                        broadcast_host_event_json(payload_json).await;
+                                    }
                                 }
                                 for done in done {
                                     emit_control_finished(
@@ -233,7 +251,8 @@ fn plugin_runtime_router() -> &'static std::sync::Arc<PluginRuntimeRouter> {
                                             command: done.command,
                                             error: None,
                                         },
-                                    );
+                                    )
+                                    .await;
                                 }
                             }
                         }
@@ -249,7 +268,8 @@ fn plugin_runtime_router() -> &'static std::sync::Arc<PluginRuntimeRouter> {
                                     command: timed_out.command,
                                     error: Some("control finish timeout"),
                                 },
-                            );
+                            )
+                            .await;
                         }
                     }
                 }

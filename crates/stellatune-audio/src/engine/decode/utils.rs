@@ -165,10 +165,15 @@ pub(crate) fn write_pending(ctx: &mut DecodeContext) -> bool {
 }
 
 fn active_decoder_generation(plugin_id: &str, type_id: &str) -> u64 {
-    stellatune_plugins::runtime::handle::shared_runtime_service()
-        .find_capability(plugin_id, RuntimeCapabilityKind::Decoder, type_id)
-        .map(|cap| cap.lease_id)
-        .unwrap_or(0)
+    stellatune_runtime::block_on(
+        stellatune_plugins::runtime::handle::shared_runtime_service().find_capability(
+            plugin_id,
+            RuntimeCapabilityKind::Decoder,
+            type_id,
+        ),
+    )
+    .map(|cap| cap.lease_id)
+    .unwrap_or(0)
 }
 
 fn current_playback_position_ms(ctx: &DecodeContext) -> i64 {

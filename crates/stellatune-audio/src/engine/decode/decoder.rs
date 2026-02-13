@@ -12,8 +12,8 @@ use stellatune_plugin_api::{
     ST_DECODER_INFO_FLAG_HAS_DURATION, ST_ERR_INVALID_ARG, ST_ERR_IO, StIoVTable, StSeekWhence,
     StStatus, StStr,
 };
-use stellatune_plugins::runtime::actor::WorkerControlMessage;
 use stellatune_plugins::runtime::introspection::CapabilityKind as RuntimeCapabilityKind;
+use stellatune_plugins::runtime::messages::WorkerControlMessage;
 use stellatune_plugins::runtime::worker_controller::WorkerApplyPendingOutcome;
 use stellatune_plugins::runtime::worker_endpoint::DecoderWorkerController;
 
@@ -467,9 +467,11 @@ fn create_decoder_controller(
     type_id: &str,
     config_json: &str,
 ) -> Result<(DecoderWorkerController, Receiver<WorkerControlMessage>), String> {
-    let endpoint = stellatune_plugins::runtime::handle::shared_runtime_service()
-        .bind_decoder_worker_endpoint(plugin_id, type_id)
-        .map_err(|e| e.to_string())?;
+    let endpoint = stellatune_runtime::block_on(
+        stellatune_plugins::runtime::handle::shared_runtime_service()
+            .bind_decoder_worker_endpoint(plugin_id, type_id),
+    )
+    .map_err(|e| e.to_string())?;
     let (mut controller, control_rx) = endpoint.into_controller(config_json.to_string());
     match controller.apply_pending().map_err(|e| e.to_string())? {
         WorkerApplyPendingOutcome::Created | WorkerApplyPendingOutcome::Recreated => {
@@ -486,9 +488,11 @@ fn create_source_catalog_instance(
     type_id: &str,
     config_json: &str,
 ) -> Result<stellatune_plugins::capabilities::source::SourceCatalogInstance, String> {
-    let endpoint = stellatune_plugins::runtime::handle::shared_runtime_service()
-        .bind_source_catalog_worker_endpoint(plugin_id, type_id)
-        .map_err(|e| e.to_string())?;
+    let endpoint = stellatune_runtime::block_on(
+        stellatune_plugins::runtime::handle::shared_runtime_service()
+            .bind_source_catalog_worker_endpoint(plugin_id, type_id),
+    )
+    .map_err(|e| e.to_string())?;
     endpoint
         .factory
         .create_instance(config_json)
@@ -569,15 +573,15 @@ fn runtime_scored_decoder_candidates(ext_hint: &str) -> Vec<DecoderCandidate> {
     let service = stellatune_plugins::runtime::handle::shared_runtime_service();
     let mut out = Vec::new();
     let mut seen = HashSet::new();
-    for candidate in service.list_decoder_candidates_for_ext(&ext) {
+    for candidate in stellatune_runtime::block_on(service.list_decoder_candidates_for_ext(&ext)) {
         if !seen.insert((candidate.plugin_id.clone(), candidate.type_id.clone())) {
             continue;
         }
-        let Some(cap) = service.find_capability(
+        let Some(cap) = stellatune_runtime::block_on(service.find_capability(
             &candidate.plugin_id,
             RuntimeCapabilityKind::Decoder,
             &candidate.type_id,
-        ) else {
+        )) else {
             continue;
         };
         out.push(DecoderCandidate {
@@ -591,11 +595,11 @@ fn runtime_scored_decoder_candidates(ext_hint: &str) -> Vec<DecoderCandidate> {
 
 fn runtime_all_decoder_candidates() -> Vec<DecoderCandidate> {
     let service = stellatune_plugins::runtime::handle::shared_runtime_service();
-    let mut plugin_ids = service.active_plugin_ids();
+    let mut plugin_ids = stellatune_runtime::block_on(service.active_plugin_ids());
     plugin_ids.sort();
     let mut out = Vec::new();
     for plugin_id in plugin_ids {
-        let mut caps = service.list_capabilities(&plugin_id);
+        let mut caps = stellatune_runtime::block_on(service.list_capabilities(&plugin_id));
         caps.sort_by(|a, b| a.type_id.cmp(&b.type_id));
         for cap in caps {
             if cap.kind != RuntimeCapabilityKind::Decoder {
@@ -619,14 +623,17 @@ fn select_decoder_candidates(
     match (decoder_plugin_id, decoder_type_id) {
         (Some(plugin_id), Some(type_id)) => {
             let service = stellatune_plugins::runtime::handle::shared_runtime_service();
-            let cap = service
-                .find_capability(plugin_id, RuntimeCapabilityKind::Decoder, type_id)
-                .ok_or_else(|| {
-                    format!(
-                        "decoder not found for source track: plugin_id={} type_id={}",
-                        plugin_id, type_id
-                    )
-                })?;
+            let cap = stellatune_runtime::block_on(service.find_capability(
+                plugin_id,
+                RuntimeCapabilityKind::Decoder,
+                type_id,
+            ))
+            .ok_or_else(|| {
+                format!(
+                    "decoder not found for source track: plugin_id={} type_id={}",
+                    plugin_id, type_id
+                )
+            })?;
             Ok(vec![DecoderCandidate {
                 plugin_id: plugin_id.to_string(),
                 type_id: type_id.to_string(),
@@ -842,9 +849,14 @@ fn try_open_decoder_for_source_stream(
 }
 
 fn runtime_has_source_catalog(plugin_id: &str, type_id: &str) -> bool {
-    stellatune_plugins::runtime::handle::shared_runtime_service()
-        .find_capability(plugin_id, RuntimeCapabilityKind::SourceCatalog, type_id)
-        .is_some()
+    stellatune_runtime::block_on(
+        stellatune_plugins::runtime::handle::shared_runtime_service().find_capability(
+            plugin_id,
+            RuntimeCapabilityKind::SourceCatalog,
+            type_id,
+        ),
+    )
+    .is_some()
 }
 
 pub(crate) fn assess_track_playability(track: &TrackRef) -> TrackPlayability {

@@ -260,8 +260,8 @@ fn handle_reload_plugins(
     state.requested_preload_position_ms = 0;
     clear_runtime_query_instance_cache(state);
     let service = stellatune_plugins::runtime::handle::shared_runtime_service();
-    let prev_count = service.active_plugin_ids().len();
-    match service.reload_dir_from_state(&dir) {
+    let prev_count = stellatune_runtime::block_on(service.active_plugin_ids()).len();
+    match stellatune_runtime::block_on(service.reload_dir_from_state(&dir)) {
         Ok(report) => on_plugin_reload_finished(
             state,
             events,

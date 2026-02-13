@@ -2,7 +2,7 @@ use crate::engine::messages::RuntimeDspChainEntry;
 use crate::engine::update_events::emit_config_update_runtime_event;
 use crossbeam_channel::Receiver;
 use stellatune_plugins::capabilities::dsp::DspInstance;
-use stellatune_plugins::runtime::actor::WorkerControlMessage;
+use stellatune_plugins::runtime::messages::WorkerControlMessage;
 use stellatune_plugins::runtime::worker_controller::{
     WorkerApplyPendingOutcome, WorkerConfigUpdateOutcome,
 };
@@ -70,14 +70,15 @@ fn create_dsp_controller(
     target_sample_rate: u32,
     target_channels: u16,
 ) -> Result<(DspWorkerController, Receiver<WorkerControlMessage>), String> {
-    let endpoint = stellatune_plugins::runtime::handle::shared_runtime_service()
-        .bind_dsp_worker_endpoint(
+    let endpoint = stellatune_runtime::block_on(
+        stellatune_plugins::runtime::handle::shared_runtime_service().bind_dsp_worker_endpoint(
             &spec.plugin_id,
             &spec.type_id,
             target_sample_rate,
             target_channels,
-        )
-        .map_err(|e| e.to_string())?;
+        ),
+    )
+    .map_err(|e| e.to_string())?;
     let (mut controller, control_rx) = endpoint.into_controller(spec.config_json.clone());
     match controller.apply_pending().map_err(|e| {
         format!(

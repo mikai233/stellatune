@@ -11,8 +11,8 @@ use stellatune_plugin_api::{
     ST_DECODER_INFO_FLAG_HAS_DURATION, ST_ERR_INVALID_ARG, ST_ERR_IO, StIoVTable, StSeekWhence,
     StStatus, StStr,
 };
-use stellatune_plugins::runtime::actor::WorkerControlMessage;
 use stellatune_plugins::runtime::introspection::CapabilityKind as RuntimeCapabilityKind;
+use stellatune_plugins::runtime::messages::WorkerControlMessage;
 use stellatune_plugins::runtime::worker_controller::{
     WorkerApplyPendingOutcome, WorkerConfigUpdateOutcome,
 };
@@ -205,15 +205,16 @@ fn create_plugin_metadata_decoder(
     candidate: &DecoderCandidate,
 ) -> Result<(DecoderWorkerController, Receiver<WorkerControlMessage>)> {
     let runtime = stellatune_plugins::runtime::handle::shared_runtime_service();
-    let endpoint = runtime
-        .bind_decoder_worker_endpoint(&candidate.plugin_id, &candidate.type_id)
-        .map_err(|e| {
-            anyhow::anyhow!(
-                "bind_decoder_worker_endpoint failed for {}::{}: {e:#}",
-                candidate.plugin_id,
-                candidate.type_id
-            )
-        })?;
+    let endpoint = stellatune_runtime::block_on(
+        runtime.bind_decoder_worker_endpoint(&candidate.plugin_id, &candidate.type_id),
+    )
+    .map_err(|e| {
+        anyhow::anyhow!(
+            "bind_decoder_worker_endpoint failed for {}::{}: {e:#}",
+            candidate.plugin_id,
+            candidate.type_id
+        )
+    })?;
     let (mut controller, control_rx) =
         endpoint.into_controller(candidate.default_config_json.clone());
     match controller.apply_pending().map_err(|e| {
@@ -510,12 +511,14 @@ fn decoder_candidates_for_ext(ext: &str) -> Vec<DecoderCandidate> {
     }
     let service = stellatune_plugins::runtime::handle::shared_runtime_service();
     let mut out = Vec::new();
-    for candidate in service.list_decoder_candidates_for_ext(&normalized) {
-        let Some(cap) = service.find_capability(
+    for candidate in
+        stellatune_runtime::block_on(service.list_decoder_candidates_for_ext(&normalized))
+    {
+        let Some(cap) = stellatune_runtime::block_on(service.find_capability(
             &candidate.plugin_id,
             RuntimeCapabilityKind::Decoder,
             &candidate.type_id,
-        ) else {
+        )) else {
             continue;
         };
         out.push(DecoderCandidate {

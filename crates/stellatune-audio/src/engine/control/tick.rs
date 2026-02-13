@@ -5,7 +5,7 @@ use std::time::Instant;
 use crossbeam_channel::Sender;
 use tracing::{debug, trace};
 
-use stellatune_core::{Event, HostEventTopic, HostPlayerTickPayload, PlayerState};
+use stellatune_core::{Event, PlayerState};
 use stellatune_output::output_spec_for_device;
 use stellatune_runtime as global_runtime;
 
@@ -46,8 +46,8 @@ pub(super) fn ensure_output_spec_prewarm(
     let tx = internal_tx.clone();
     global_runtime::spawn(async move {
         let t0 = Instant::now();
-        let result = tokio::task::spawn_blocking(move || output_spec_for_device(backend, device_id))
-            .await;
+        let result =
+            tokio::task::spawn_blocking(move || output_spec_for_device(backend, device_id)).await;
         match result {
             Ok(Ok(spec)) => {
                 let _ = tx.send(InternalMsg::OutputSpecReady {
@@ -83,22 +83,6 @@ pub(super) fn output_backend_for_selected(
             stellatune_output::AudioBackend::WasapiExclusive
         }
     }
-}
-
-pub(super) fn publish_player_tick_event(state: &EngineState) {
-    let event_json = match serde_json::to_string(&HostPlayerTickPayload {
-        topic: HostEventTopic::PlayerTick,
-        state: state.player_state,
-        position_ms: state.position_ms,
-        track: state.current_track.clone(),
-        wants_playback: state.wants_playback,
-    }) {
-        Ok(v) => v,
-        Err(_) => return,
-    };
-
-    stellatune_plugins::runtime::handle::shared_runtime_service()
-        .broadcast_host_event_json(&event_json);
 }
 
 pub(super) fn handle_tick(

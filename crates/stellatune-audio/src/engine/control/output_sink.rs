@@ -24,9 +24,9 @@ fn create_output_sink_cached_instance(
     type_id: &str,
     config_json: &str,
 ) -> Result<CachedOutputSinkInstance, String> {
-    let endpoint = service
-        .bind_output_sink_worker_endpoint(plugin_id, type_id)
-        .map_err(|e| e.to_string())?;
+    let endpoint =
+        stellatune_runtime::block_on(service.bind_output_sink_worker_endpoint(plugin_id, type_id))
+            .map_err(|e| e.to_string())?;
     let (mut controller, control_rx) = endpoint.into_controller(config_json.to_string());
     match controller.apply_pending().map_err(|e| e.to_string())? {
         WorkerApplyPendingOutcome::Created | WorkerApplyPendingOutcome::Recreated => {

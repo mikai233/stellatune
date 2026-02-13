@@ -17,9 +17,10 @@ fn create_source_catalog_cached_instance(
     type_id: &str,
     config_json: &str,
 ) -> Result<CachedSourceInstance, String> {
-    let endpoint = service
-        .bind_source_catalog_worker_endpoint(plugin_id, type_id)
-        .map_err(|e| e.to_string())?;
+    let endpoint = stellatune_runtime::block_on(
+        service.bind_source_catalog_worker_endpoint(plugin_id, type_id),
+    )
+    .map_err(|e| e.to_string())?;
     let (mut controller, control_rx) = endpoint.into_controller(config_json.to_string());
     match controller.apply_pending().map_err(|e| e.to_string())? {
         WorkerApplyPendingOutcome::Created | WorkerApplyPendingOutcome::Recreated => {
@@ -41,9 +42,10 @@ fn create_lyrics_provider_cached_instance(
     type_id: &str,
     config_json: &str,
 ) -> Result<CachedLyricsInstance, String> {
-    let endpoint = service
-        .bind_lyrics_provider_worker_endpoint(plugin_id, type_id)
-        .map_err(|e| e.to_string())?;
+    let endpoint = stellatune_runtime::block_on(
+        service.bind_lyrics_provider_worker_endpoint(plugin_id, type_id),
+    )
+    .map_err(|e| e.to_string())?;
     let (mut controller, control_rx) = endpoint.into_controller(config_json.to_string());
     match controller.apply_pending().map_err(|e| e.to_string())? {
         WorkerApplyPendingOutcome::Created | WorkerApplyPendingOutcome::Recreated => {
@@ -65,9 +67,9 @@ fn create_output_sink_cached_instance(
     type_id: &str,
     config_json: &str,
 ) -> Result<CachedOutputSinkInstance, String> {
-    let endpoint = service
-        .bind_output_sink_worker_endpoint(plugin_id, type_id)
-        .map_err(|e| e.to_string())?;
+    let endpoint =
+        stellatune_runtime::block_on(service.bind_output_sink_worker_endpoint(plugin_id, type_id))
+            .map_err(|e| e.to_string())?;
     let (mut controller, control_rx) = endpoint.into_controller(config_json.to_string());
     match controller.apply_pending().map_err(|e| e.to_string())? {
         WorkerApplyPendingOutcome::Created | WorkerApplyPendingOutcome::Recreated => {
@@ -187,9 +189,11 @@ fn sync_source_runtime_control(
             format!("source destroy apply_pending failed for {plugin_id}::{type_id}: {e}")
         })? {
             WorkerApplyPendingOutcome::Destroyed | WorkerApplyPendingOutcome::Idle => {
-                return Err(format!(
-                    "source instance destroyed by runtime control for {plugin_id}::{type_id}"
-                ));
+                debug!(
+                    plugin_id,
+                    type_id,
+                    "source instance destroyed by runtime control; will recreate on demand"
+                );
             }
             WorkerApplyPendingOutcome::Created | WorkerApplyPendingOutcome::Recreated => {}
         }
@@ -220,9 +224,11 @@ fn sync_lyrics_runtime_control(
             format!("lyrics destroy apply_pending failed for {plugin_id}::{type_id}: {e}")
         })? {
             WorkerApplyPendingOutcome::Destroyed | WorkerApplyPendingOutcome::Idle => {
-                return Err(format!(
-                    "lyrics instance destroyed by runtime control for {plugin_id}::{type_id}"
-                ));
+                debug!(
+                    plugin_id,
+                    type_id,
+                    "lyrics instance destroyed by runtime control; will recreate on demand"
+                );
             }
             WorkerApplyPendingOutcome::Created | WorkerApplyPendingOutcome::Recreated => {}
         }
@@ -253,9 +259,11 @@ fn sync_output_sink_runtime_control(
             format!("output sink destroy apply_pending failed for {plugin_id}::{type_id}: {e}")
         })? {
             WorkerApplyPendingOutcome::Destroyed | WorkerApplyPendingOutcome::Idle => {
-                return Err(format!(
-                    "output sink instance destroyed by runtime control for {plugin_id}::{type_id}"
-                ));
+                debug!(
+                    plugin_id,
+                    type_id,
+                    "output sink instance destroyed by runtime control; will recreate on demand"
+                );
             }
             WorkerApplyPendingOutcome::Created | WorkerApplyPendingOutcome::Recreated => {}
         }

@@ -165,16 +165,18 @@ pub fn subscribe_plugin_runtime_events_global()
     router::subscribe_plugin_runtime_events_global()
 }
 
-fn cleanup_plugin_runtime_for_restart(reason: &'static str) {
+async fn cleanup_plugin_runtime_for_restart(reason: &'static str) {
     let service = shared_plugin_runtime();
-    let mut plugin_ids = service.active_plugin_ids();
+    let mut plugin_ids = service.active_plugin_ids().await;
     plugin_ids.sort();
-    let report = service.shutdown_and_cleanup();
-    let remaining_retired_leases: usize = plugin_ids
-        .iter()
-        .filter_map(|plugin_id| service.plugin_lease_state(plugin_id))
-        .map(|state| state.retired_lease_ids.len())
-        .sum();
+    let report = service.shutdown_and_cleanup().await;
+    let mut remaining_retired_leases: usize = 0;
+    for plugin_id in &plugin_ids {
+        if let Some(state) = service.plugin_lease_state(plugin_id).await {
+            remaining_retired_leases =
+                remaining_retired_leases.saturating_add(state.retired_lease_ids.len());
+        }
+    }
 
     if remaining_retired_leases == 0 && report.errors.is_empty() {
         tracing::info!(
@@ -200,12 +202,12 @@ fn cleanup_plugin_runtime_for_restart(reason: &'static str) {
 
 pub async fn runtime_prepare_hot_restart() {
     engine::runtime_prepare_hot_restart().await;
-    cleanup_plugin_runtime_for_restart("prepare_hot_restart");
+    cleanup_plugin_runtime_for_restart("prepare_hot_restart").await;
 }
 
 pub async fn runtime_shutdown() {
     engine::runtime_shutdown().await;
-    cleanup_plugin_runtime_for_restart("shutdown");
+    cleanup_plugin_runtime_for_restart("shutdown").await;
 }
 
 #[derive(Debug, Clone)]
@@ -325,8 +327,9 @@ pub async fn plugin_runtime_disable(
     let service = shared_plugin_runtime();
     report.deactivated_lease_id = service
         .current_plugin_lease_info(&plugin_id)
+        .await
         .map(|v| v.lease_id);
-    let unload_report = service.unload_plugin(&plugin_id);
+    let unload_report = service.unload_plugin(&plugin_id).await;
     report.reclaimed_leases = report
         .reclaimed_leases
         .saturating_add(unload_report.reclaimed_leases);
@@ -343,9 +346,10 @@ pub async fn plugin_runtime_disable(
     loop {
         report.reclaimed_leases = report
             .reclaimed_leases
-            .saturating_add(service.collect_retired_module_leases_by_refcount());
+            .saturating_add(service.collect_retired_module_leases_by_refcount().await);
         report.remaining_retired_leases = service
             .plugin_lease_state(&plugin_id)
+            .await
             .map(|state| state.retired_lease_ids.len())
             .unwrap_or(0);
         let done = report.remaining_retired_leases == 0;
@@ -367,7 +371,7 @@ pub async fn plugin_runtime_disable(
 
     report.phase = "cleanup";
     tracing::debug!(plugin_id, phase = report.phase, "plugin_disable_phase");
-    service.cleanup_shadow_copies_now();
+    service.cleanup_shadow_copies_now().await;
 
     report.phase = "completed";
     tracing::info!(
@@ -442,10 +446,8 @@ pub async fn plugin_runtime_apply_state(
             .collect::<std::collections::HashSet<_>>();
 
         let service = shared_plugin_runtime();
-        service.set_disabled_plugin_ids_async(disabled_ids).await;
-        let report = service
-            .reload_dir_detailed_from_state_async(&plugins_dir)
-            .await?;
+        service.set_disabled_plugin_ids(disabled_ids).await;
+        let report = service.reload_dir_detailed_from_state(&plugins_dir).await?;
         let errors = report
             .load_report
             .errors

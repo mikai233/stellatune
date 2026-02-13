@@ -2,9 +2,9 @@ use std::sync::Arc;
 
 use crossbeam_channel::Receiver;
 
-use crate::runtime::actor::WorkerControlMessage;
 use crate::runtime::handle::PluginRuntimeHandle;
 use crate::runtime::instance_registry::InstanceRegistry;
+use crate::runtime::messages::WorkerControlMessage;
 use crate::runtime::update::InstanceUpdateCoordinator;
 use crate::runtime::worker_controller::WorkerInstanceController;
 

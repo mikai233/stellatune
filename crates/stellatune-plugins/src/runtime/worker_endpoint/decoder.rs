@@ -48,7 +48,7 @@ impl DecoderInstanceFactory {
 }
 
 impl PluginRuntimeHandle {
-    pub fn bind_decoder_worker_endpoint(
+    pub async fn bind_decoder_worker_endpoint(
         &self,
         plugin_id: &str,
         type_id: &str,

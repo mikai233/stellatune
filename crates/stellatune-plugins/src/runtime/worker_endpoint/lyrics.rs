@@ -48,7 +48,7 @@ impl LyricsProviderInstanceFactory {
 }
 
 impl PluginRuntimeHandle {
-    pub fn bind_lyrics_provider_worker_endpoint(
+    pub async fn bind_lyrics_provider_worker_endpoint(
         &self,
         plugin_id: &str,
         type_id: &str,

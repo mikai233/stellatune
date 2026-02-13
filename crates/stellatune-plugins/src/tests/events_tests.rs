@@ -1,5 +1,7 @@
 use std::thread;
 
+use stellatune_runtime as global_runtime;
+
 use super::PluginEventBus;
 use crate::runtime::backend_control::BackendControlResponse;
 
@@ -38,9 +40,10 @@ fn plugin_refcount_keeps_queue_until_last_lease_drops() {
 #[test]
 fn control_request_roundtrip() {
     let bus = PluginEventBus::new(16);
-    let rx = bus.subscribe_control_requests();
+    let mut rx = bus.subscribe_control_requests();
     let worker = thread::spawn(move || {
-        let request = rx.recv().expect("must receive request");
+        let request =
+            global_runtime::block_on(async { rx.recv().await }).expect("must receive request");
         assert_eq!(request.plugin_id, "dev.test.plugin");
         let _ = request
             .response_tx

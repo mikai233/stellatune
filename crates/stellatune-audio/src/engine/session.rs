@@ -9,7 +9,7 @@ use tracing::{debug, warn};
 use stellatune_core::TrackDecodeInfo;
 use stellatune_output::{OutputError, OutputHandle, OutputSpec};
 use stellatune_plugin_api::StAudioSpec;
-use stellatune_plugins::runtime::actor::WorkerControlMessage;
+use stellatune_plugins::runtime::messages::WorkerControlMessage;
 use stellatune_plugins::runtime::worker_controller::{
     WorkerApplyPendingOutcome, WorkerConfigUpdateOutcome,
 };
@@ -826,9 +826,11 @@ fn create_output_sink_controller_and_open(
     sample_rate: u32,
     channels: u16,
 ) -> Result<(OutputSinkWorkerController, Receiver<WorkerControlMessage>), String> {
-    let endpoint = stellatune_plugins::runtime::handle::shared_runtime_service()
-        .bind_output_sink_worker_endpoint(plugin_id, type_id)
-        .map_err(|e| format!("bind_output_sink_worker_endpoint failed: {e}"))?;
+    let endpoint = stellatune_runtime::block_on(
+        stellatune_plugins::runtime::handle::shared_runtime_service()
+            .bind_output_sink_worker_endpoint(plugin_id, type_id),
+    )
+    .map_err(|e| format!("bind_output_sink_worker_endpoint failed: {e}"))?;
     let (mut controller, control_rx) = endpoint.into_controller(config_json.to_string());
     match controller.apply_pending().map_err(|e| e.to_string())? {
         WorkerApplyPendingOutcome::Created | WorkerApplyPendingOutcome::Recreated => {}
@@ -858,10 +860,12 @@ fn create_output_sink_controller_and_open(
 }
 
 fn current_plugin_lease_id(plugin_id: &str) -> u64 {
-    stellatune_plugins::runtime::handle::shared_runtime_service()
-        .current_plugin_lease_info(plugin_id)
-        .map(|v| v.lease_id)
-        .unwrap_or(0)
+    stellatune_runtime::block_on(
+        stellatune_plugins::runtime::handle::shared_runtime_service()
+            .current_plugin_lease_info(plugin_id),
+    )
+    .map(|v| v.lease_id)
+    .unwrap_or(0)
 }
 
 fn write_all_frames(
