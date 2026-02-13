@@ -5,10 +5,10 @@ use crossbeam_channel::Sender;
 use super::{
     Command, CommandResponse, DecodeCtrl, EngineState, Event, EventHub, InternalMsg, PlayerState,
     SessionStopMode, SharedTrackInfo, debug_metrics, drop_output_pipeline, enqueue_preload_task,
-    ensure_output_spec_prewarm, force_transition_gain_unity, handle_tick,
-    maybe_fade_out_before_disrupt, output_backend_for_selected, parse_output_sink_route, set_state,
-    stop_all_audio, stop_decode_session, sync_output_sink_with_active_session,
-    track_ref_to_engine_token, track_ref_to_event_path,
+    ensure_output_spec_prewarm, flush_pending_plugin_disables, force_transition_gain_unity,
+    handle_tick, maybe_fade_out_before_disrupt, output_backend_for_selected,
+    parse_output_sink_route, set_state, stop_all_audio, stop_decode_session,
+    sync_output_sink_with_active_session, track_ref_to_engine_token, track_ref_to_event_path,
 };
 
 mod lifecycle;

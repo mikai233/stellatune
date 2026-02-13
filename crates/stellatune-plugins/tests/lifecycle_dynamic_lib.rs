@@ -15,8 +15,8 @@ struct FixtureArtifacts {
 static TEST_MUTEX: OnceLock<Mutex<()>> = OnceLock::new();
 static FIXTURES: OnceLock<FixtureArtifacts> = OnceLock::new();
 
-#[test]
-fn lifecycle_reload_disable_and_gc_with_dynamic_plugins() {
+#[tokio::test(flavor = "multi_thread")]
+async fn lifecycle_reload_disable_and_gc_with_dynamic_plugins() {
     let _guard = TEST_MUTEX
         .get_or_init(|| Mutex::new(()))
         .lock()
@@ -34,10 +34,12 @@ fn lifecycle_reload_disable_and_gc_with_dynamic_plugins() {
 
     runtime
         .reload_dir_from_state(&plugins_dir)
+        .await
         .expect("load plugin from state");
 
     let endpoint = runtime
         .bind_decoder_worker_endpoint(&installed.id, "noop")
+        .await
         .expect("bind decoder worker endpoint");
 
     let old_instance = endpoint
@@ -51,6 +53,7 @@ fn lifecycle_reload_disable_and_gc_with_dynamic_plugins() {
 
     runtime
         .reload_dir_from_state(&plugins_dir)
+        .await
         .expect("reload plugin after dll change");
 
     let new_instance = endpoint
@@ -60,12 +63,12 @@ fn lifecycle_reload_disable_and_gc_with_dynamic_plugins() {
     assert_eq!(decoder_build_label(&new_instance), "v2");
 
     assert_eq!(
-        runtime.collect_retired_module_leases_by_refcount(),
+        runtime.collect_retired_module_leases_by_refcount().await,
         0,
         "old lease must stay alive while old instance still exists"
     );
 
-    runtime.set_plugin_enabled(&installed.id, false);
+    runtime.set_plugin_enabled(&installed.id, false).await;
     let disabled_err = match endpoint.factory.create_instance("{}") {
         Ok(_) => panic!("disabled plugin must reject new instance creation"),
         Err(err) => err,
@@ -76,20 +79,20 @@ fn lifecycle_reload_disable_and_gc_with_dynamic_plugins() {
     );
 
     drop(old_instance);
-    let reclaimed = runtime.collect_retired_module_leases_by_refcount();
+    let reclaimed = runtime.collect_retired_module_leases_by_refcount().await;
     assert!(
         reclaimed >= 1,
         "expected old lease to be reclaimed after last old instance drop"
     );
 
     drop(new_instance);
-    runtime.set_plugin_enabled(&installed.id, true);
-    let _ = runtime.unload_plugin(&installed.id);
-    let _ = runtime.collect_retired_module_leases_by_refcount();
-    runtime.cleanup_shadow_copies_now();
+    runtime.set_plugin_enabled(&installed.id, true).await;
+    let _ = runtime.unload_plugin(&installed.id).await;
+    let _ = runtime.collect_retired_module_leases_by_refcount().await;
+    runtime.cleanup_shadow_copies_now().await;
 
-    let _ = runtime.shutdown_and_cleanup();
-    runtime.cleanup_shadow_copies_now();
+    let _ = runtime.shutdown_and_cleanup().await;
+    runtime.cleanup_shadow_copies_now().await;
 }
 
 fn decoder_build_label(

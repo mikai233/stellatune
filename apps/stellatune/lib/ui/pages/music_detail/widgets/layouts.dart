@@ -118,9 +118,7 @@ class WideLayout extends StatelessWidget {
                             duration: const Duration(milliseconds: 550),
                             crossFade: false,
                             child: CoverImage(
-                              key: ValueKey(
-                                'cover-$trackIdentityKey',
-                              ),
+                              key: ValueKey('cover-$trackIdentityKey'),
                               coverDir: coverDir,
                               trackId: trackId,
                               cover: cover,
@@ -313,9 +311,7 @@ class NarrowLayout extends StatelessWidget {
                 duration: const Duration(milliseconds: 550),
                 crossFade: false,
                 child: CoverImage(
-                  key: ValueKey(
-                    'cover-$trackIdentityKey',
-                  ),
+                  key: ValueKey('cover-$trackIdentityKey'),
                   coverDir: coverDir,
                   trackId: trackId,
                   cover: cover,

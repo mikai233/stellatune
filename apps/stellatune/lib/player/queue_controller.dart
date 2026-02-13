@@ -12,6 +12,11 @@ final queueControllerProvider = NotifierProvider<QueueController, QueueState>(
 class QueueController extends Notifier<QueueState> {
   final Random _random = Random();
 
+  int _orderPosFor(List<int> order, int currentIndex) {
+    final pos = order.indexOf(currentIndex);
+    return pos >= 0 ? pos : 0;
+  }
+
   @override
   QueueState build() {
     final settings = ref.read(settingsStoreProvider);
@@ -58,7 +63,7 @@ class QueueController extends Notifier<QueueState> {
       items: List.of(items),
       currentIndex: idx,
       order: order,
-      orderPos: 0,
+      orderPos: _orderPosFor(order, idx),
       source: source,
     );
     unawaited(ref.read(settingsStoreProvider).setQueueSource(source));
@@ -75,7 +80,7 @@ class QueueController extends Notifier<QueueState> {
     final merged = [...state.items, ...items];
     final currentIndex = state.currentIndex ?? 0;
 
-    // Rebuild order to include new items while keeping the current item at the front.
+    // Rebuild order after enqueue while preserving the currently selected item.
     final order = buildOrder(
       length: merged.length,
       startIndex: currentIndex.clamp(0, merged.length - 1),
@@ -86,7 +91,7 @@ class QueueController extends Notifier<QueueState> {
     state = state.copyWith(
       items: merged,
       order: order,
-      orderPos: 0,
+      orderPos: _orderPosFor(order, currentIndex),
       currentIndex: currentIndex,
     );
   }
@@ -99,7 +104,11 @@ class QueueController extends Notifier<QueueState> {
       shuffle: state.shuffle,
       random: _random,
     );
-    state = state.copyWith(currentIndex: index, order: order, orderPos: 0);
+    state = state.copyWith(
+      currentIndex: index,
+      order: order,
+      orderPos: _orderPosFor(order, index),
+    );
   }
 
   QueueItem? next({bool fromAuto = false}) {
@@ -149,7 +158,7 @@ class QueueController extends Notifier<QueueState> {
       return state.currentItem;
     }
 
-    if (state.repeatMode == RepeatMode.all && state.order.isNotEmpty) {
+    if (state.order.isNotEmpty) {
       final newPos = state.order.length - 1;
       final newIndex = state.order[newPos];
       state = state.copyWith(currentIndex: newIndex, orderPos: newPos);
@@ -173,7 +182,11 @@ class QueueController extends Notifier<QueueState> {
       shuffle: shuffle,
       random: _random,
     );
-    state = state.copyWith(shuffle: shuffle, order: order, orderPos: 0);
+    state = state.copyWith(
+      shuffle: shuffle,
+      order: order,
+      orderPos: _orderPosFor(order, currentIndex),
+    );
   }
 
   void cyclePlayMode() {
@@ -216,7 +229,7 @@ class QueueController extends Notifier<QueueState> {
       shuffle: desiredShuffle,
       repeatMode: desiredRepeat,
       order: order,
-      orderPos: 0,
+      orderPos: _orderPosFor(order, currentIndex),
     );
   }
 
@@ -236,5 +249,77 @@ class QueueController extends Notifier<QueueState> {
       source: null,
     );
     unawaited(ref.read(settingsStoreProvider).setQueueSource(null));
+  }
+
+  int removeIndices(Set<int> indices) {
+    if (indices.isEmpty || state.items.isEmpty) return 0;
+
+    final valid = indices
+        .where((i) => i >= 0 && i < state.items.length)
+        .toSet();
+    if (valid.isEmpty) return 0;
+
+    final oldItems = state.items;
+    final oldCurrent = state.currentIndex ?? -1;
+    final oldCurrentItem = state.currentItem;
+
+    final nextItems = <QueueItem>[
+      for (var i = 0; i < oldItems.length; i++)
+        if (!valid.contains(i)) oldItems[i],
+    ];
+
+    final removed = oldItems.length - nextItems.length;
+    if (removed <= 0) return 0;
+
+    if (nextItems.isEmpty) {
+      state = const QueueState.empty().copyWith(
+        shuffle: state.shuffle,
+        repeatMode: state.repeatMode,
+        source: null,
+      );
+      unawaited(ref.read(settingsStoreProvider).setQueueSource(null));
+      return removed;
+    }
+
+    var nextCurrent = -1;
+    if (oldCurrentItem != null) {
+      final keepKey = oldCurrentItem.stableTrackKey;
+      nextCurrent = nextItems.indexWhere((it) => it.stableTrackKey == keepKey);
+    }
+    if (nextCurrent < 0) {
+      for (var i = oldCurrent + 1; i < oldItems.length; i++) {
+        if (!valid.contains(i)) {
+          final key = oldItems[i].stableTrackKey;
+          nextCurrent = nextItems.indexWhere((it) => it.stableTrackKey == key);
+          if (nextCurrent >= 0) break;
+        }
+      }
+    }
+    if (nextCurrent < 0) {
+      for (var i = oldCurrent - 1; i >= 0; i--) {
+        if (!valid.contains(i)) {
+          final key = oldItems[i].stableTrackKey;
+          nextCurrent = nextItems.indexWhere((it) => it.stableTrackKey == key);
+          if (nextCurrent >= 0) break;
+        }
+      }
+    }
+    if (nextCurrent < 0) {
+      nextCurrent = 0;
+    }
+
+    final order = buildOrder(
+      length: nextItems.length,
+      startIndex: nextCurrent,
+      shuffle: state.shuffle,
+      random: _random,
+    );
+    state = state.copyWith(
+      items: nextItems,
+      currentIndex: nextCurrent,
+      order: order,
+      orderPos: _orderPosFor(order, nextCurrent),
+    );
+    return removed;
   }
 }

@@ -157,9 +157,6 @@ impl RuntimeActorState {
                 resp_tx,
             } => {
                 self.service.set_plugin_enabled(&plugin_id, enabled);
-                if !enabled {
-                    self.emit_worker_destroy(&plugin_id, "plugin disabled");
-                }
                 let _ = resp_tx.send(());
             }
             RuntimeActorMessage::DisabledPluginIds { resp_tx } => {
@@ -244,11 +241,20 @@ impl RuntimeActorState {
             }
         }
         if should_refresh_introspection_cache {
+            let refresh_started = Instant::now();
             self.refresh_introspection_cache_snapshot();
+            let refresh_elapsed = refresh_started.elapsed();
+            if refresh_elapsed.as_millis() > 50 {
+                debug!(
+                    elapsed_ms = refresh_elapsed.as_millis() as u64,
+                    "introspection cache refresh was slow"
+                );
+            }
         }
+        let total_elapsed = started.elapsed();
         debug!(
             message = msg,
-            elapsed_ms = started.elapsed().as_millis() as u64,
+            elapsed_ms = total_elapsed.as_millis() as u64,
             "plugin runtime actor handled message"
         );
     }

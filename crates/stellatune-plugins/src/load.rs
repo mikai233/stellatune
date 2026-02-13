@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, anyhow};
 use libloading::{Library, Symbol};
@@ -9,6 +9,8 @@ use stellatune_plugin_api::{
     STELLATUNE_PLUGIN_API_VERSION, StHostVTable, StPluginEntry, StPluginModule,
 };
 use stellatune_plugin_protocol::PluginMetadata;
+
+use tracing::debug;
 
 use crate::manifest::DiscoveredPlugin;
 
@@ -89,6 +91,7 @@ pub(crate) fn load_discovered_plugin(
     let shadow_library_path =
         make_shadow_library_copy(&discovered.library_path, &discovered.manifest.id)?;
 
+    let load_started = Instant::now();
     // SAFETY: Loading and calling foreign plugin entrypoint is inherently unsafe.
     let lib = unsafe { Library::new(&shadow_library_path) }.with_context(|| {
         format!(
@@ -97,6 +100,14 @@ pub(crate) fn load_discovered_plugin(
             discovered.library_path.display(),
         )
     })?;
+    let load_elapsed = load_started.elapsed();
+    if load_elapsed.as_millis() > 100 {
+        debug!(
+            plugin_id = discovered.manifest.id,
+            elapsed_ms = load_elapsed.as_millis() as u64,
+            "plugin library loaded slowly"
+        );
+    }
 
     let entry_symbol = discovered.manifest.entry_symbol();
     // SAFETY: Symbol type matches ABI contract; validated by plugin load checks.
@@ -118,7 +129,16 @@ pub(crate) fn load_discovered_plugin(
     );
 
     // SAFETY: Plugin entrypoint is trusted by ABI contract. Null and version checked below.
+    let entry_started = Instant::now();
     let module_ptr = unsafe { (entry)(host_vtable.as_ref() as *const StHostVTable) };
+    let entry_elapsed = entry_started.elapsed();
+    if entry_elapsed.as_millis() > 50 {
+        debug!(
+            plugin_id = discovered.manifest.id,
+            elapsed_ms = entry_elapsed.as_millis() as u64,
+            "plugin entrypoint executed slowly"
+        );
+    }
     if module_ptr.is_null() {
         return Err(anyhow!(
             "plugin `{}` returned null module pointer",

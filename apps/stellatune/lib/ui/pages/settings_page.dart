@@ -527,6 +527,11 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
       await library.pluginDisable(pluginId: id);
     }
     await library.pluginApplyState();
+    if (!enabled) {
+      await ref
+          .read(playbackControllerProvider.notifier)
+          .removeUnplayableQueuedItemsDueToDisabledPlugins(pluginId: id);
+    }
     if (enabled) {
       unawaited(
         _ensureNeteaseSidecarResident(onlyForPluginId: id, silent: true),

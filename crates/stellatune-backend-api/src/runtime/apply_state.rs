@@ -1,9 +1,11 @@
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Instant;
 
 use anyhow::Result;
 use serde_json::json;
 use tokio::sync::Mutex;
+use tracing::debug;
 
 use super::ApplyStateReport;
 
@@ -170,6 +172,7 @@ where
     F: FnMut() -> Fut,
     Fut: std::future::Future<Output = Result<ApplyStateReport>>,
 {
+    let started = Instant::now();
     coordinator().request();
     let _guard = coordinator().exec_lock.lock().await;
     let mut coalesced_requests = 0_u64;
@@ -181,6 +184,14 @@ where
             let mut report = coordinator().last_report();
             report.coalesced_requests = coalesced_requests;
             report.execution_loops = execution_loops;
+            let total_elapsed = started.elapsed();
+            if total_elapsed.as_millis() > 200 {
+                debug!(
+                    elapsed_ms = total_elapsed.as_millis() as u64,
+                    loops = execution_loops,
+                    "apply state coalesced completed slowly (satisfied by other)"
+                );
+            }
             return Ok(CoalescedApplyResult {
                 report,
                 coalesced_requests,
@@ -190,13 +201,30 @@ where
 
         coordinator().mark_applying(target_request_id);
         execution_loops = execution_loops.saturating_add(1);
+        let loop_started = Instant::now();
         let result = run_once().await;
+        let loop_elapsed = loop_started.elapsed();
+        if loop_elapsed.as_millis() > 100 {
+            debug!(
+                loop_index = execution_loops,
+                elapsed_ms = loop_elapsed.as_millis() as u64,
+                "apply state loop iteration was slow"
+            );
+        }
         coordinator().mark_finished(target_request_id, &result);
         let latest = coordinator().latest_requested();
         if latest <= target_request_id {
             let mut report = result?;
             report.coalesced_requests = coalesced_requests;
             report.execution_loops = execution_loops;
+            let total_elapsed = started.elapsed();
+            if total_elapsed.as_millis() > 200 {
+                debug!(
+                    elapsed_ms = total_elapsed.as_millis() as u64,
+                    loops = execution_loops,
+                    "apply state coalesced completed slowly"
+                );
+            }
             return Ok(CoalescedApplyResult {
                 report,
                 coalesced_requests,

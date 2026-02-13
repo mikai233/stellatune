@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::thread::{self, JoinHandle};
@@ -501,14 +501,14 @@ impl EngineHandle {
         let _ = self.engine_ctrl_tx.send(EngineCtrl::ReloadPlugins { dir });
     }
 
-    pub async fn quiesce_plugin_usage(&self, plugin_id: String) -> Result<(), String> {
+    pub async fn schedule_plugin_disable(&self, plugin_id: String) -> Result<bool, String> {
         let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
         self.engine_ctrl_tx
-            .send(EngineCtrl::QuiescePluginUsage { plugin_id, resp_tx })
+            .send(EngineCtrl::SchedulePluginDisable { plugin_id, resp_tx })
             .map_err(|_| "control thread exited".to_string())?;
         resp_rx
             .await
-            .map_err(|_| "control thread dropped quiesce response".to_string())?
+            .map_err(|_| "control thread dropped schedule-disable response".to_string())?
     }
 
     pub fn set_lfe_mode(&self, mode: stellatune_core::LfeMode) {
@@ -903,6 +903,7 @@ struct EngineState {
     source_instances: HashMap<RuntimeInstanceSlotKey, CachedSourceInstance>,
     lyrics_instances: HashMap<RuntimeInstanceSlotKey, CachedLyricsInstance>,
     output_sink_instances: HashMap<RuntimeInstanceSlotKey, CachedOutputSinkInstance>,
+    pending_disable_plugins: HashSet<String>,
     switch_timing_seq: u64,
     manual_switch_timing: Option<ManualSwitchTiming>,
     seek_position_guard: Option<SeekPositionGuard>,
@@ -995,6 +996,7 @@ impl EngineState {
             source_instances: HashMap::new(),
             lyrics_instances: HashMap::new(),
             output_sink_instances: HashMap::new(),
+            pending_disable_plugins: HashSet::new(),
             switch_timing_seq: 0,
             manual_switch_timing: None,
             seek_position_guard: None,
@@ -1248,6 +1250,106 @@ fn apply_dsp_chain(state: &mut EngineState) -> Result<(), String> {
 
     let _ = session.ctrl_tx.send(DecodeCtrl::SetDspChain { chain });
     Ok(())
+}
+
+fn flush_pending_plugin_disables(
+    state: &mut EngineState,
+    events: &Arc<EventHub>,
+) -> Result<usize, String> {
+    if state.pending_disable_plugins.is_empty() {
+        return Ok(0);
+    }
+    if state.session.is_some() {
+        return Ok(0);
+    }
+
+    let service = stellatune_plugins::runtime::handle::shared_runtime_service();
+    let mut pending = std::mem::take(&mut state.pending_disable_plugins)
+        .into_iter()
+        .collect::<Vec<_>>();
+    pending.sort();
+
+    let mut flushed = 0usize;
+    let mut reclaimed_total = 0usize;
+    let mut errors = Vec::new();
+
+    for plugin_id in pending {
+        let mut cleared_output_route = false;
+        if state
+            .desired_output_sink_route
+            .as_ref()
+            .is_some_and(|route| route.plugin_id == plugin_id)
+        {
+            state.desired_output_sink_route = None;
+            state.output_sink_chunk_frames = 0;
+            state.output_sink_negotiation_cache = None;
+            state.cached_output_spec = None;
+            state.output_spec_prewarm_inflight = false;
+            state.output_spec_token = state.output_spec_token.wrapping_add(1);
+            drop_output_pipeline(state);
+            shutdown_output_sink_worker(state);
+            cleared_output_route = true;
+        }
+
+        let dsp_before = state.desired_dsp_chain.len();
+        state
+            .desired_dsp_chain
+            .retain(|item| item.plugin_id.as_str() != plugin_id.as_str());
+        let dsp_removed = dsp_before.saturating_sub(state.desired_dsp_chain.len());
+
+        let (source_removed, lyrics_removed, output_sink_removed) =
+            clear_runtime_query_instance_cache_for_plugin(state, &plugin_id);
+
+        let unload_report = stellatune_runtime::block_on(service.unload_plugin(&plugin_id));
+        let unload_errors = unload_report
+            .errors
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>();
+        let unloaded_reclaimed = unload_report.reclaimed_leases;
+        let collected_reclaimed =
+            stellatune_runtime::block_on(service.collect_retired_module_leases_by_refcount());
+        reclaimed_total = reclaimed_total
+            .saturating_add(unloaded_reclaimed)
+            .saturating_add(collected_reclaimed);
+
+        if unload_errors.is_empty() {
+            flushed = flushed.saturating_add(1);
+            events.emit(Event::Log {
+                message: format!(
+                    "plugin disable flushed: plugin_id={} cleared_output_route={} dsp_entries_removed={} source_instances_removed={} lyrics_instances_removed={} output_sink_instances_removed={} reclaimed_leases={}",
+                    plugin_id,
+                    cleared_output_route,
+                    dsp_removed,
+                    source_removed,
+                    lyrics_removed,
+                    output_sink_removed,
+                    unloaded_reclaimed.saturating_add(collected_reclaimed),
+                ),
+            });
+        } else {
+            state.pending_disable_plugins.insert(plugin_id.clone());
+            errors.push(format!(
+                "flush disable for plugin `{plugin_id}` failed: {}",
+                unload_errors.join(", ")
+            ));
+        }
+    }
+
+    if flushed > 0 {
+        stellatune_runtime::block_on(service.cleanup_shadow_copies_now());
+    }
+    if !errors.is_empty() {
+        return Err(errors.join("; "));
+    }
+
+    events.emit(Event::Log {
+        message: format!(
+            "plugin disable flush completed: flushed={} reclaimed_leases_total={}",
+            flushed, reclaimed_total
+        ),
+    });
+    Ok(flushed)
 }
 
 fn stop_decode_session(

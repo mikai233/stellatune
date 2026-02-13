@@ -8,9 +8,7 @@ use std::{
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 use anyhow::{Result, anyhow};
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-use std::time::{Duration, Instant};
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-use tokio::time::sleep;
+use std::time::Instant;
 
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::time::LocalTime;
@@ -277,26 +275,16 @@ pub fn plugin_runtime_apply_state_status_json() -> String {
 }
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-const DEFAULT_PLUGIN_DISABLE_TIMEOUT_MS: u64 = 3_000;
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-const PLUGIN_DISABLE_POLL_INTERVAL_MS: u64 = 20;
-
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 pub async fn plugin_runtime_disable(
     library: &stellatune_library::LibraryHandle,
     plugin_id: String,
-    timeout_ms: u64,
+    _timeout_ms: u64,
 ) -> Result<DisableReport> {
     let plugin_id = plugin_id.trim().to_string();
     if plugin_id.is_empty() {
         return Err(anyhow!("plugin_id is empty"));
     }
 
-    let timeout_ms = if timeout_ms == 0 {
-        DEFAULT_PLUGIN_DISABLE_TIMEOUT_MS
-    } else {
-        timeout_ms
-    };
     let started_at = Instant::now();
     let mut report = DisableReport {
         plugin_id: plugin_id.clone(),
@@ -308,70 +296,28 @@ pub async fn plugin_runtime_disable(
         errors: Vec::new(),
     };
 
-    tracing::info!(plugin_id, timeout_ms, "plugin_disable_begin");
+    tracing::info!(plugin_id, "plugin_disable_begin");
 
     tracing::debug!(plugin_id, phase = report.phase, "plugin_disable_phase");
     library.plugin_set_enabled(plugin_id.clone(), false).await?;
 
-    report.phase = "quiesce";
+    report.phase = "schedule";
     tracing::debug!(plugin_id, phase = report.phase, "plugin_disable_phase");
-    if let Err(err) = shared_runtime_engine()
-        .quiesce_plugin_usage(plugin_id.clone())
+    match shared_runtime_engine()
+        .schedule_plugin_disable(plugin_id.clone())
         .await
     {
-        report.errors.push(err);
-    }
-
-    report.phase = "deactivate";
-    tracing::debug!(plugin_id, phase = report.phase, "plugin_disable_phase");
-    let service = shared_plugin_runtime();
-    report.deactivated_lease_id = service
-        .current_plugin_lease_info(&plugin_id)
-        .await
-        .map(|v| v.lease_id);
-    let unload_report = service.unload_plugin(&plugin_id).await;
-    report.reclaimed_leases = report
-        .reclaimed_leases
-        .saturating_add(unload_report.reclaimed_leases);
-    report.errors.extend(
-        unload_report
-            .errors
-            .into_iter()
-            .map(|err| format!("{err:#}")),
-    );
-
-    report.phase = "collect";
-    tracing::debug!(plugin_id, phase = report.phase, "plugin_disable_phase");
-    let deadline = Instant::now() + Duration::from_millis(timeout_ms);
-    loop {
-        report.reclaimed_leases = report
-            .reclaimed_leases
-            .saturating_add(service.collect_retired_module_leases_by_refcount().await);
-        report.remaining_retired_leases = service
-            .plugin_lease_state(&plugin_id)
-            .await
-            .map(|state| state.retired_lease_ids.len())
-            .unwrap_or(0);
-        let done = report.remaining_retired_leases == 0;
-
-        if done {
-            break;
+        Ok(deferred) => {
+            if deferred {
+                report.phase = "deferred";
+            }
         }
-        if Instant::now() >= deadline {
-            report.timed_out = true;
-            tracing::warn!(
-                plugin_id,
-                remaining_retired_leases = report.remaining_retired_leases,
-                "plugin_disable_timeout"
-            );
-            break;
-        }
-        sleep(Duration::from_millis(PLUGIN_DISABLE_POLL_INTERVAL_MS)).await;
+        Err(err) => report.errors.push(err),
     }
 
     report.phase = "cleanup";
     tracing::debug!(plugin_id, phase = report.phase, "plugin_disable_phase");
-    service.cleanup_shadow_copies_now().await;
+    shared_plugin_runtime().cleanup_shadow_copies_now().await;
 
     report.phase = "completed";
     tracing::info!(

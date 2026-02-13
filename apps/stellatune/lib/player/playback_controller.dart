@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -17,6 +18,10 @@ final playbackControllerProvider =
 
 class PlaybackController extends Notifier<PlaybackState> {
   static const DlnaBridge _dlna = DlnaBridge();
+  static const Set<String> _disabledPluginPruneReasons = {
+    'source_catalog_unavailable',
+    'source_decoder_unavailable',
+  };
 
   StreamSubscription<Event>? _sub;
   Timer? _volumePersistDebounce;
@@ -946,6 +951,55 @@ class PlaybackController extends Notifier<PlaybackState> {
   TrackRef _localTrackRef(String path) =>
       TrackRef(sourceId: 'local', trackId: path, locator: path);
 
+  Set<String> _trackPluginIds(TrackRef track) {
+    final out = <String>{};
+    if (track.sourceId.trim().toLowerCase() == 'local') {
+      return out;
+    }
+    final locator = track.locator.trim();
+    if (locator.isEmpty) {
+      return out;
+    }
+    try {
+      final decoded = jsonDecode(locator);
+      if (decoded is! Map) {
+        return out;
+      }
+      final pluginId = (decoded['plugin_id'] as Object?)?.toString().trim();
+      if (pluginId != null && pluginId.isNotEmpty) {
+        out.add(pluginId);
+      }
+      final decoderPluginId = (decoded['decoder_plugin_id'] as Object?)
+          ?.toString()
+          .trim();
+      if (decoderPluginId != null && decoderPluginId.isNotEmpty) {
+        out.add(decoderPluginId);
+      }
+    } catch (_) {
+      // Ignore non-JSON locator payloads.
+    }
+    return out;
+  }
+
+  bool _isDisabledPluginPruneReason(String? reasonCode) {
+    final code = reasonCode?.trim() ?? '';
+    return _disabledPluginPruneReasons.contains(code);
+  }
+
+  Future<Set<String>> _loadDisabledPluginIdSet() async {
+    try {
+      final disabled = await ref
+          .read(libraryBridgeProvider)
+          .listDisabledPluginIds();
+      return disabled.map((v) => v.trim()).where((v) => v.isNotEmpty).toSet();
+    } catch (e, st) {
+      ref
+          .read(loggerProvider)
+          .w('failed to load disabled plugin ids', error: e, stackTrace: st);
+      return const <String>{};
+    }
+  }
+
   Future<String?> _playabilityBlockReason(TrackRef track) async {
     try {
       final result = await ref.read(playerBridgeProvider).canPlayTrackRefs([
@@ -971,11 +1025,124 @@ class PlaybackController extends Notifier<PlaybackState> {
     }
   }
 
+  Future<bool> _removeCurrentQueueItemIfDisabledPluginBlocked(
+    QueueItem item,
+    String blockedReason,
+  ) async {
+    if (!_isDisabledPluginPruneReason(blockedReason)) {
+      return false;
+    }
+    final pluginIds = _trackPluginIds(item.track);
+    if (pluginIds.isEmpty) {
+      return false;
+    }
+    final disabledPluginIds = await _loadDisabledPluginIdSet();
+    if (disabledPluginIds.isEmpty ||
+        !pluginIds.any(disabledPluginIds.contains)) {
+      return false;
+    }
+
+    final queue = ref.read(queueControllerProvider);
+    final currentIndex = queue.currentIndex;
+    if (currentIndex == null ||
+        currentIndex < 0 ||
+        currentIndex >= queue.items.length) {
+      return false;
+    }
+    if (queue.items[currentIndex].stableTrackKey != item.stableTrackKey) {
+      return false;
+    }
+    final removed = ref.read(queueControllerProvider.notifier).removeIndices({
+      currentIndex,
+    });
+    if (removed > 0) {
+      ref
+          .read(loggerProvider)
+          .i(
+            'queue item pruned after plugin disable: '
+            '${item.track.sourceId}:${item.track.trackId}',
+          );
+      return true;
+    }
+    return false;
+  }
+
+  Future<int> removeUnplayableQueuedItemsDueToDisabledPlugins({
+    String? pluginId,
+  }) async {
+    final queue = ref.read(queueControllerProvider);
+    if (queue.items.isEmpty) return 0;
+
+    final targetPluginId = pluginId?.trim();
+    final disabledPluginIds =
+        targetPluginId != null && targetPluginId.isNotEmpty
+        ? <String>{targetPluginId}
+        : await _loadDisabledPluginIdSet();
+    if (disabledPluginIds.isEmpty) return 0;
+
+    final candidateIndexes = <int>[];
+    final candidateTracks = <TrackRef>[];
+    for (var i = 0; i < queue.items.length; i++) {
+      if (i == queue.currentIndex) {
+        continue;
+      }
+      final item = queue.items[i];
+      final pluginIds = _trackPluginIds(item.track);
+      if (pluginIds.isEmpty || !pluginIds.any(disabledPluginIds.contains)) {
+        continue;
+      }
+      candidateIndexes.add(i);
+      candidateTracks.add(item.track);
+    }
+    if (candidateTracks.isEmpty) return 0;
+
+    try {
+      final verdicts = await ref
+          .read(playerBridgeProvider)
+          .canPlayTrackRefs(candidateTracks);
+      final removeIndexes = <int>{};
+      final count = verdicts.length < candidateIndexes.length
+          ? verdicts.length
+          : candidateIndexes.length;
+      for (var i = 0; i < count; i++) {
+        final verdict = verdicts[i];
+        if (verdict.playable) {
+          continue;
+        }
+        if (!_isDisabledPluginPruneReason(verdict.reason)) {
+          continue;
+        }
+        removeIndexes.add(candidateIndexes[i]);
+      }
+      if (removeIndexes.isEmpty) return 0;
+
+      final removed = ref
+          .read(queueControllerProvider.notifier)
+          .removeIndices(removeIndexes);
+      if (removed > 0) {
+        ref
+            .read(loggerProvider)
+            .i('queue pruned after plugin disable: removed=$removed');
+      }
+      return removed;
+    } catch (e, st) {
+      ref
+          .read(loggerProvider)
+          .w(
+            'failed to prune queue for disabled plugins',
+            error: e,
+            stackTrace: st,
+          );
+      return 0;
+    }
+  }
+
   Future<bool> _loadAndPlayQueueItem(QueueItem item) async {
     final path = item.path;
     state = state.copyWith(lastError: null, lastLog: '');
     final blockedReason = await _playabilityBlockReason(item.track);
     if (blockedReason != null) {
+      await _removeCurrentQueueItemIfDisabledPluginBlocked(item, blockedReason);
       state = state.copyWith(lastError: encodePlayabilityError(blockedReason));
       return false;
     }

@@ -71,8 +71,8 @@ impl DecoderWorkerHandle {
 static TEST_MUTEX: OnceLock<Mutex<()>> = OnceLock::new();
 static FIXTURES: OnceLock<FixtureArtifacts> = OnceLock::new();
 
-#[test]
-fn multi_plugin_workers_reload_disable_hot_apply_external_flow() {
+#[tokio::test(flavor = "multi_thread")]
+async fn multi_plugin_workers_reload_disable_hot_apply_external_flow() {
     let _guard = TEST_MUTEX
         .get_or_init(|| Mutex::new(()))
         .lock()
@@ -92,13 +92,16 @@ fn multi_plugin_workers_reload_disable_hot_apply_external_flow() {
 
     runtime
         .reload_dir_from_state(&plugins_dir)
+        .await
         .expect("initial reload from state");
 
     let alpha_endpoint = runtime
         .bind_decoder_worker_endpoint(&alpha_installed.id, "hot")
+        .await
         .expect("bind alpha worker endpoint");
     let beta_endpoint = runtime
         .bind_decoder_worker_endpoint(&beta_installed.id, "hot")
+        .await
         .expect("bind beta worker endpoint");
 
     let alpha_worker = spawn_decoder_worker(alpha_endpoint, r#"{"gain":1}"#);
@@ -142,6 +145,7 @@ fn multi_plugin_workers_reload_disable_hot_apply_external_flow() {
 
     runtime
         .reload_dir_from_state(&plugins_dir)
+        .await
         .expect("reload after alpha dll changed");
 
     let alpha_reloaded = wait_for_snapshot(
@@ -152,15 +156,15 @@ fn multi_plugin_workers_reload_disable_hot_apply_external_flow() {
     );
     assert!(alpha_reloaded.beats.unwrap_or(0) > 0);
 
-    runtime.set_plugin_enabled(&beta_installed.id, false);
+    runtime.set_plugin_enabled(&beta_installed.id, false).await;
 
-    let beta_destroyed = wait_for_snapshot(
+    let beta_still_running = wait_for_snapshot(
         &beta_worker,
         Duration::from_secs(4),
-        |s| !s.has_instance,
-        "beta worker should destroy instance when plugin disabled",
+        |s| s.has_instance && s.gain == Some(20),
+        "beta worker should keep existing instance after plugin disabled",
     );
-    assert!(!beta_destroyed.has_instance);
+    assert!(beta_still_running.has_instance);
 
     let alpha_still_running = alpha_worker.snapshot();
     assert!(alpha_still_running.has_instance);
@@ -168,6 +172,7 @@ fn multi_plugin_workers_reload_disable_hot_apply_external_flow() {
 
     let beta_factory_only = runtime
         .bind_decoder_worker_endpoint(&beta_installed.id, "hot")
+        .await
         .expect("bind beta endpoint for direct-create check");
     let beta_create_err = match beta_factory_only.factory.create_instance(r#"{"gain":11}"#) {
         Ok(_) => panic!("disabled beta should reject create_instance"),
@@ -178,13 +183,13 @@ fn multi_plugin_workers_reload_disable_hot_apply_external_flow() {
     alpha_worker.stop();
     beta_worker.stop();
 
-    runtime.set_plugin_enabled(&beta_installed.id, true);
-    let _ = runtime.shutdown_and_cleanup();
-    runtime.cleanup_shadow_copies_now();
+    runtime.set_plugin_enabled(&beta_installed.id, true).await;
+    let _ = runtime.shutdown_and_cleanup().await;
+    runtime.cleanup_shadow_copies_now().await;
 }
 
-#[test]
-fn multi_plugin_disable_and_hot_apply_are_isolated_between_workers() {
+#[tokio::test(flavor = "multi_thread")]
+async fn multi_plugin_disable_and_hot_apply_are_isolated_between_workers() {
     let _guard = TEST_MUTEX
         .get_or_init(|| Mutex::new(()))
         .lock()
@@ -204,13 +209,16 @@ fn multi_plugin_disable_and_hot_apply_are_isolated_between_workers() {
 
     runtime
         .reload_dir_from_state(&plugins_dir)
+        .await
         .expect("initial reload from state");
 
     let alpha_endpoint = runtime
         .bind_decoder_worker_endpoint(&alpha_installed.id, "hot")
+        .await
         .expect("bind alpha worker endpoint");
     let beta_endpoint = runtime
         .bind_decoder_worker_endpoint(&beta_installed.id, "hot")
+        .await
         .expect("bind beta worker endpoint");
 
     let alpha_worker = spawn_decoder_worker(alpha_endpoint, r#"{"gain":2}"#);
@@ -244,15 +252,15 @@ fn multi_plugin_disable_and_hot_apply_are_isolated_between_workers() {
         WorkerConfigUpdateOutcome::Applied { .. }
     ));
 
-    runtime.set_plugin_enabled(&alpha_installed.id, false);
+    runtime.set_plugin_enabled(&alpha_installed.id, false).await;
 
-    let alpha_destroyed = wait_for_snapshot(
+    let alpha_still_running = wait_for_snapshot(
         &alpha_worker,
         Duration::from_secs(4),
-        |s| !s.has_instance,
-        "alpha should be destroyed after disable",
+        |s| s.has_instance && s.gain == Some(3),
+        "alpha should keep existing instance after disable",
     );
-    assert!(!alpha_destroyed.has_instance);
+    assert!(alpha_still_running.has_instance);
 
     let beta_still = wait_for_snapshot(
         &beta_worker,
@@ -281,13 +289,13 @@ fn multi_plugin_disable_and_hot_apply_are_isolated_between_workers() {
     alpha_worker.stop();
     beta_worker.stop();
 
-    runtime.set_plugin_enabled(&alpha_installed.id, true);
-    let _ = runtime.shutdown_and_cleanup();
-    runtime.cleanup_shadow_copies_now();
+    runtime.set_plugin_enabled(&alpha_installed.id, true).await;
+    let _ = runtime.shutdown_and_cleanup().await;
+    runtime.cleanup_shadow_copies_now().await;
 }
 
-#[test]
-fn multi_plugin_reload_disable_hot_apply_stress_rounds() {
+#[tokio::test(flavor = "multi_thread")]
+async fn multi_plugin_reload_disable_hot_apply_stress_rounds() {
     let _guard = TEST_MUTEX
         .get_or_init(|| Mutex::new(()))
         .lock()
@@ -307,13 +315,16 @@ fn multi_plugin_reload_disable_hot_apply_stress_rounds() {
 
     runtime
         .reload_dir_from_state(&plugins_dir)
+        .await
         .expect("initial reload from state");
 
     let alpha_endpoint = runtime
         .bind_decoder_worker_endpoint(&alpha_installed.id, "hot")
+        .await
         .expect("bind alpha worker endpoint");
     let beta_endpoint = runtime
         .bind_decoder_worker_endpoint(&beta_installed.id, "hot")
+        .await
         .expect("bind beta worker endpoint");
 
     let alpha_worker = spawn_decoder_worker(alpha_endpoint, r#"{"gain":1}"#);
@@ -376,6 +387,7 @@ fn multi_plugin_reload_disable_hot_apply_stress_rounds() {
 
         runtime
             .reload_dir_from_state(&plugins_dir)
+            .await
             .expect("reload after alpha dll swap");
 
         let _ = wait_for_snapshot(
@@ -389,15 +401,15 @@ fn multi_plugin_reload_disable_hot_apply_stress_rounds() {
             "alpha should recreate with swapped build and keep desired gain",
         );
 
-        runtime.set_plugin_enabled(&beta_installed.id, false);
+        runtime.set_plugin_enabled(&beta_installed.id, false).await;
         let _ = wait_for_snapshot(
             &beta_worker,
             Duration::from_secs(4),
-            |s| !s.has_instance,
-            "beta should destroy on disable",
+            |s| s.has_instance && s.gain == Some(beta_gain),
+            "beta should keep existing instance on disable",
         );
 
-        runtime.set_plugin_enabled(&beta_installed.id, true);
+        runtime.set_plugin_enabled(&beta_installed.id, true).await;
         let beta_reactivate = beta_worker
             .hot_apply(&format!(r#"{{"gain":{beta_gain}}}"#))
             .expect("beta reactivation hot apply should return");
@@ -415,13 +427,13 @@ fn multi_plugin_reload_disable_hot_apply_stress_rounds() {
             "beta should be recreated after re-enable + demand",
         );
 
-        let _ = runtime.collect_retired_module_leases_by_refcount();
+        let _ = runtime.collect_retired_module_leases_by_refcount().await;
     }
 
     alpha_worker.stop();
     beta_worker.stop();
-    let _ = runtime.shutdown_and_cleanup();
-    runtime.cleanup_shadow_copies_now();
+    let _ = runtime.shutdown_and_cleanup().await;
+    runtime.cleanup_shadow_copies_now().await;
 }
 
 fn spawn_decoder_worker(

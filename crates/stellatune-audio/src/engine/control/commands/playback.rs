@@ -8,8 +8,9 @@ use stellatune_core::TrackRef;
 
 use super::{
     CommandCtx, DecodeCtrl, Event, PlayerState, SessionStopMode, ensure_output_spec_prewarm,
-    force_transition_gain_unity, handle_tick, maybe_fade_out_before_disrupt, set_state,
-    stop_decode_session, track_ref_to_engine_token, track_ref_to_event_path,
+    flush_pending_plugin_disables, force_transition_gain_unity, handle_tick,
+    maybe_fade_out_before_disrupt, set_state, stop_decode_session, track_ref_to_engine_token,
+    track_ref_to_event_path,
 };
 
 pub(super) fn on_load_track_ref(ctx: &mut CommandCtx<'_>, track: TrackRef) -> Result<(), String> {
@@ -63,6 +64,9 @@ pub(super) fn on_load_track_ref(ctx: &mut CommandCtx<'_>, track: TrackRef) -> Re
         timing.fade_done_at = Some(Instant::now());
     }
     stop_decode_session(ctx.state, ctx.track_info, SessionStopMode::KeepSink);
+    if let Err(message) = flush_pending_plugin_disables(ctx.state, ctx.events) {
+        ctx.events.emit(Event::Error { message });
+    }
     if let Some(timing) = ctx.state.manual_switch_timing.as_mut() {
         timing.stop_done_at = Some(Instant::now());
     }

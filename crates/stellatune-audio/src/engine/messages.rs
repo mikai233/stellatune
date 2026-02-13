@@ -144,9 +144,9 @@ pub(crate) enum EngineCtrl {
         config_json: String,
         resp_tx: tokio::sync::oneshot::Sender<Result<String, String>>,
     },
-    QuiescePluginUsage {
+    SchedulePluginDisable {
         plugin_id: String,
-        resp_tx: tokio::sync::oneshot::Sender<Result<(), String>>,
+        resp_tx: tokio::sync::oneshot::Sender<Result<bool, String>>,
     },
     ReloadPlugins {
         dir: String,
