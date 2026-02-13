@@ -315,10 +315,6 @@ pub async fn plugin_runtime_disable(
         Err(err) => report.errors.push(err),
     }
 
-    report.phase = "cleanup";
-    tracing::debug!(plugin_id, phase = report.phase, "plugin_disable_phase");
-    shared_plugin_runtime().cleanup_shadow_copies_now().await;
-
     report.phase = "completed";
     tracing::info!(
         plugin_id,

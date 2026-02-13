@@ -1307,11 +1307,7 @@ fn flush_pending_plugin_disables(
             .map(ToString::to_string)
             .collect::<Vec<_>>();
         let unloaded_reclaimed = unload_report.reclaimed_leases;
-        let collected_reclaimed =
-            stellatune_runtime::block_on(service.collect_retired_module_leases_by_refcount());
-        reclaimed_total = reclaimed_total
-            .saturating_add(unloaded_reclaimed)
-            .saturating_add(collected_reclaimed);
+        reclaimed_total = reclaimed_total.saturating_add(unloaded_reclaimed);
 
         if unload_errors.is_empty() {
             flushed = flushed.saturating_add(1);
@@ -1324,7 +1320,7 @@ fn flush_pending_plugin_disables(
                     source_removed,
                     lyrics_removed,
                     output_sink_removed,
-                    unloaded_reclaimed.saturating_add(collected_reclaimed),
+                    unloaded_reclaimed,
                 ),
             });
         } else {
@@ -1336,9 +1332,6 @@ fn flush_pending_plugin_disables(
         }
     }
 
-    if flushed > 0 {
-        stellatune_runtime::block_on(service.cleanup_shadow_copies_now());
-    }
     if !errors.is_empty() {
         return Err(errors.join("; "));
     }
