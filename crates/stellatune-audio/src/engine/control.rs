@@ -359,8 +359,8 @@ struct CommandMessage {
 
 #[derive(Clone)]
 pub struct EngineHandle {
-    cmd_tx: mpsc::UnboundedSender<CommandMessage>,
-    engine_ctrl_tx: mpsc::UnboundedSender<EngineCtrl>,
+    cmd_tx: Sender<CommandMessage>,
+    engine_ctrl_tx: Sender<EngineCtrl>,
     events: Arc<EventHub>,
     track_info: SharedTrackInfo,
 }
@@ -827,36 +827,12 @@ impl EngineHandle {
 }
 
 pub fn start_engine() -> EngineHandle {
-    let (cmd_tx_cb, cmd_rx) = crossbeam_channel::unbounded();
-    let (engine_ctrl_tx_cb, engine_ctrl_rx) = crossbeam_channel::unbounded();
+    let (cmd_tx, cmd_rx) = crossbeam_channel::unbounded();
+    let (engine_ctrl_tx, engine_ctrl_rx) = crossbeam_channel::unbounded();
     let (internal_tx, internal_rx) = crossbeam_channel::unbounded();
-    let (cmd_tx, mut cmd_rx_async) = mpsc::unbounded_channel::<CommandMessage>();
-    let (engine_ctrl_tx, mut engine_ctrl_rx_async) = mpsc::unbounded_channel::<EngineCtrl>();
 
     let events = Arc::new(EventHub::new());
     let thread_events = Arc::clone(&events);
-
-    let _cmd_bridge_join: JoinHandle<()> = thread::Builder::new()
-        .name("stellatune-cmd-bridge".to_string())
-        .spawn(move || {
-            while let Some(msg) = cmd_rx_async.blocking_recv() {
-                if cmd_tx_cb.send(msg).is_err() {
-                    break;
-                }
-            }
-        })
-        .expect("failed to spawn stellatune-cmd-bridge thread");
-
-    let _engine_ctrl_bridge_join: JoinHandle<()> = thread::Builder::new()
-        .name("stellatune-engine-ctrl-bridge".to_string())
-        .spawn(move || {
-            while let Some(msg) = engine_ctrl_rx_async.blocking_recv() {
-                if engine_ctrl_tx_cb.send(msg).is_err() {
-                    break;
-                }
-            }
-        })
-        .expect("failed to spawn stellatune-engine-ctrl-bridge thread");
 
     let track_info: SharedTrackInfo = Arc::new(ArcSwapOption::new(None));
     let track_info_for_thread = Arc::clone(&track_info);
@@ -951,8 +927,8 @@ struct SeekPositionGuard {
 }
 
 struct PreloadWorker {
-    tx: Sender<PreloadJob>,
-    join: JoinHandle<()>,
+    tx: mpsc::UnboundedSender<PreloadJob>,
+    join: tokio::task::JoinHandle<()>,
 }
 
 struct ControlLoopChannels {
@@ -1348,7 +1324,9 @@ fn shutdown_preload_worker(state: &mut EngineState) {
         return;
     };
     let _ = worker.tx.send(PreloadJob::Shutdown);
-    let _ = worker.join.join();
+    if !worker.join.is_finished() {
+        worker.join.abort();
+    }
     debug!("preload worker stopped");
 }
 

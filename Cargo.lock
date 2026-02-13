@@ -3121,6 +3121,7 @@ dependencies = [
  "stellatune-output",
  "stellatune-plugin-api",
  "stellatune-plugins",
+ "stellatune-runtime",
  "thiserror 2.0.18",
  "tokio",
  "tracing",

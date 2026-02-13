@@ -3,11 +3,12 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use crossbeam_channel::{Receiver, RecvTimeoutError, Sender};
+use crossbeam_channel::RecvTimeoutError;
 use stellatune_plugin_api::StHostVTable;
 use stellatune_plugin_api::{
     ST_ERR_INTERNAL, ST_ERR_INVALID_ARG, ST_ERR_UNSUPPORTED, StStatus, StStr,
 };
+use tokio::sync::mpsc;
 
 use crate::runtime::backend_control::{BackendControlRequest, BackendControlResponse};
 
@@ -25,7 +26,7 @@ enum ControlDispatchError {
 struct PluginEventBusState {
     host_to_plugin: HashMap<String, VecDeque<String>>,
     plugin_ref_counts: HashMap<String, usize>,
-    control_request_senders: Vec<Sender<BackendControlRequest>>,
+    control_request_senders: Vec<mpsc::UnboundedSender<BackendControlRequest>>,
 }
 
 #[derive(Debug, Clone)]
@@ -99,14 +100,17 @@ impl PluginEventBus {
             .and_then(|queue| queue.pop_front())
     }
 
-    pub(crate) fn register_control_request_sender(&self, sender: Sender<BackendControlRequest>) {
+    pub(crate) fn register_control_request_sender(
+        &self,
+        sender: mpsc::UnboundedSender<BackendControlRequest>,
+    ) {
         if let Ok(mut state) = self.inner.lock() {
             state.control_request_senders.push(sender);
         }
     }
 
-    pub(crate) fn subscribe_control_requests(&self) -> Receiver<BackendControlRequest> {
-        let (tx, rx) = crossbeam_channel::unbounded();
+    pub(crate) fn subscribe_control_requests(&self) -> mpsc::UnboundedReceiver<BackendControlRequest> {
+        let (tx, rx) = mpsc::unbounded_channel();
         self.register_control_request_sender(tx);
         rx
     }

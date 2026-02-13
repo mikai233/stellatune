@@ -728,7 +728,7 @@ async fn ensure_http_server(
         base_url
     );
 
-    tokio::spawn(async move {
+    stellatune_runtime::spawn(async move {
         if let Err(e) = axum::serve(listener, app).await {
             tracing::error!("dlna http server exited: {e:#}");
         }

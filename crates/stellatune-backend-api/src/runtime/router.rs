@@ -164,43 +164,28 @@ fn plugin_runtime_router() -> &'static std::sync::Arc<PluginRuntimeRouter> {
             runtime_hub: std::sync::Arc::new(PluginRuntimeEventHub::new()),
         });
         let router_thread = std::sync::Arc::clone(&router);
-        let control_rx = stellatune_plugins::runtime::handle::shared_runtime_service()
+        let mut control_rx = stellatune_plugins::runtime::handle::shared_runtime_service()
             .subscribe_backend_control_requests();
-
-        let inbound_tx_control = inbound_tx.clone();
-        std::thread::Builder::new()
-            .name("stellatune-plugin-control-bridge".to_string())
-            .spawn(move || {
-                for request in control_rx.iter() {
-                    if inbound_tx_control
-                        .send(RouterInbound::BackendControl(request))
-                        .is_err()
-                    {
-                        break;
-                    }
-                }
-            })
-            .expect("failed to spawn plugin control bridge thread");
 
         global_runtime::spawn(async move {
             let mut pending_finishes: Vec<PendingControlFinish> = Vec::new();
             let mut timeout_tick = tokio::time::interval(Duration::from_millis(20));
             loop {
                 tokio::select! {
+                    Some(request) = control_rx.recv() => {
+                        let engine = router_thread.engine.lock().ok().and_then(|g| g.clone());
+                        let library = router_thread.library.lock().ok().and_then(|g| g.clone());
+                        handle_backend_control_request(
+                            router_thread.as_ref(),
+                            &mut pending_finishes,
+                            request,
+                            engine.as_ref(),
+                            library.as_ref(),
+                        )
+                        .await;
+                    }
                     Some(message) = inbound_rx.recv() => {
                         match message {
-                            RouterInbound::BackendControl(request) => {
-                                let engine = router_thread.engine.lock().ok().and_then(|g| g.clone());
-                                let library = router_thread.library.lock().ok().and_then(|g| g.clone());
-                                handle_backend_control_request(
-                                    router_thread.as_ref(),
-                                    &mut pending_finishes,
-                                    request,
-                                    engine.as_ref(),
-                                    library.as_ref(),
-                                )
-                                .await;
-                            }
                             RouterInbound::PlayerEvent { generation, event } => {
                                 let current = router_thread.player_event_generation.load(std::sync::atomic::Ordering::Relaxed);
                                 if generation != current {

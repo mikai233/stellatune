@@ -86,7 +86,7 @@ pub(super) fn spawn_watch_task(
 ) -> mpsc::UnboundedSender<WatchCtrl> {
     let (ctrl_tx, mut ctrl_rx) = mpsc::unbounded_channel::<WatchCtrl>();
 
-    tokio::spawn(async move {
+    stellatune_runtime::spawn(async move {
         let (fs_tx, mut fs_rx) = mpsc::unbounded_channel::<notify::Result<notify::Event>>();
 
         let mut watcher = match notify::recommended_watcher(move |res| {

@@ -8,15 +8,12 @@ use std::time::{Duration, Instant};
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 use stellatune_plugin_protocol::RequestId;
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-use stellatune_plugins::runtime::backend_control::BackendControlRequest;
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 use tokio::sync::{broadcast, mpsc};
 
 use stellatune_core::{ControlCommand, ControlScope, Event, LibraryEvent, PluginRuntimeEvent};
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 pub(super) enum RouterInbound {
-    BackendControl(BackendControlRequest),
     PlayerEvent {
         generation: u64,
         event: Event,

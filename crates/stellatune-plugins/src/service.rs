@@ -7,7 +7,7 @@ use std::time::{Duration, Instant, UNIX_EPOCH};
 
 use anyhow::{Result, anyhow};
 use arc_swap::ArcSwap;
-use crossbeam_channel::Receiver;
+use tokio::sync::mpsc;
 use stellatune_plugin_api::StLogLevel;
 use stellatune_plugin_api::{STELLATUNE_PLUGIN_API_VERSION, StHostVTable, StPluginModule, StStr};
 
@@ -75,7 +75,7 @@ impl PluginRuntimeService {
         }
     }
 
-    pub fn subscribe_backend_control_requests(&self) -> Receiver<BackendControlRequest> {
+    pub fn subscribe_backend_control_requests(&self) -> mpsc::UnboundedReceiver<BackendControlRequest> {
         self.event_bus.subscribe_control_requests()
     }
 

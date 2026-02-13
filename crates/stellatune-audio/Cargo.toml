@@ -23,6 +23,7 @@ stellatune-mixer.workspace = true
 stellatune-output.workspace = true
 stellatune-plugin-api.workspace = true
 stellatune-plugins.workspace = true
+stellatune-runtime.workspace = true
 
 [lints]
 workspace = true

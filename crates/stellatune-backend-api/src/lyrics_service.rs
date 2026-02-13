@@ -213,7 +213,7 @@ impl LyricsService {
             return Ok(());
         }
 
-        if let Some(doc) = load_local_lrc_doc(&query.track_key) {
+        if let Some(doc) = load_local_lrc_doc_async(query.track_key.clone()).await {
             self.state
                 .lock()
                 .expect("lyrics state mutex poisoned")
@@ -257,7 +257,7 @@ impl LyricsService {
             return Ok(());
         }
 
-        if let Some(doc) = load_local_lrc_doc(&query.track_key) {
+        if let Some(doc) = load_local_lrc_doc_async(query.track_key.clone()).await {
             {
                 let mut state = self.state.lock().expect("lyrics state mutex poisoned");
                 state.current_track_key = Some(query.track_key.clone());
@@ -926,7 +926,17 @@ fn unix_now_ms() -> i64 {
     }
 }
 
-fn load_local_lrc_doc(track_key: &str) -> Option<LyricsDoc> {
+async fn load_local_lrc_doc_async(track_key: String) -> Option<LyricsDoc> {
+    match tokio::task::spawn_blocking(move || load_local_lrc_doc_blocking(&track_key)).await {
+        Ok(doc) => doc,
+        Err(err) => {
+            tracing::warn!("load local lrc task failed: {err}");
+            None
+        }
+    }
+}
+
+fn load_local_lrc_doc_blocking(track_key: &str) -> Option<LyricsDoc> {
     let track_path = Path::new(track_key);
     if !track_path.exists() || !track_path.is_file() {
         return None;

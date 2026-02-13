@@ -4,7 +4,7 @@ use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 use anyhow::{Result, anyhow};
-use crossbeam_channel::{Receiver, Sender};
+use crossbeam_channel::Sender;
 use stellatune_plugin_api::StHostVTable;
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, warn};
@@ -250,10 +250,10 @@ impl PluginRuntimeHandle {
         .is_some()
     }
 
-    pub fn subscribe_backend_control_requests(&self) -> Receiver<BackendControlRequest> {
+    pub fn subscribe_backend_control_requests(&self) -> mpsc::UnboundedReceiver<BackendControlRequest> {
         self.exec_value(|state| state.service.subscribe_backend_control_requests())
             .unwrap_or_else(|| {
-                let (_tx, rx) = crossbeam_channel::unbounded();
+                let (_tx, rx) = mpsc::unbounded_channel();
                 rx
             })
     }

@@ -1,6 +1,5 @@
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
-use std::thread;
 use std::time::Instant;
 
 use crossbeam_channel::Sender;
@@ -8,6 +7,7 @@ use tracing::{debug, trace};
 
 use stellatune_core::{Event, HostEventTopic, HostPlayerTickPayload, PlayerState};
 use stellatune_output::output_spec_for_device;
+use stellatune_runtime as global_runtime;
 
 use super::{
     BUFFER_HIGH_WATERMARK_MS, BUFFER_HIGH_WATERMARK_MS_EXCLUSIVE, BUFFER_LOW_WATERMARK_MS,
@@ -44,28 +44,34 @@ pub(super) fn ensure_output_spec_prewarm(
     let backend = output_backend_for_selected(state.selected_backend);
     let device_id = state.selected_device_id.clone();
     let tx = internal_tx.clone();
-    thread::Builder::new()
-        .name("stellatune-output-spec".to_string())
-        .spawn(move || {
-            let t0 = Instant::now();
-            match output_spec_for_device(backend, device_id) {
-                Ok(spec) => {
-                    let _ = tx.send(InternalMsg::OutputSpecReady {
-                        spec,
-                        took_ms: t0.elapsed().as_millis() as u64,
-                        token,
-                    });
-                }
-                Err(e) => {
-                    let _ = tx.send(InternalMsg::OutputSpecFailed {
-                        message: e.to_string(),
-                        took_ms: t0.elapsed().as_millis() as u64,
-                        token,
-                    });
-                }
+    global_runtime::spawn(async move {
+        let t0 = Instant::now();
+        let result = tokio::task::spawn_blocking(move || output_spec_for_device(backend, device_id))
+            .await;
+        match result {
+            Ok(Ok(spec)) => {
+                let _ = tx.send(InternalMsg::OutputSpecReady {
+                    spec,
+                    took_ms: t0.elapsed().as_millis() as u64,
+                    token,
+                });
             }
-        })
-        .expect("failed to spawn stellatune-output-spec thread");
+            Ok(Err(e)) => {
+                let _ = tx.send(InternalMsg::OutputSpecFailed {
+                    message: e.to_string(),
+                    took_ms: t0.elapsed().as_millis() as u64,
+                    token,
+                });
+            }
+            Err(join_err) => {
+                let _ = tx.send(InternalMsg::OutputSpecFailed {
+                    message: format!("output spec prewarm task join failed: {join_err}"),
+                    took_ms: t0.elapsed().as_millis() as u64,
+                    token,
+                });
+            }
+        }
+    });
 }
 
 pub(super) fn output_backend_for_selected(

@@ -1071,7 +1071,7 @@ impl LibraryWorker {
         let pool = self.pool.clone();
         let events = std::sync::Arc::clone(&self.events);
         let cover_dir = self.cover_dir.clone();
-        tokio::spawn(async move {
+        stellatune_runtime::spawn(async move {
             match scan::scan_folder_into_db(pool, &events, &cover_dir, &folder).await {
                 Ok(true) => events.emit(LibraryEvent::Changed),
                 Ok(false) => {}

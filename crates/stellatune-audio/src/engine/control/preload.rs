@@ -1,30 +1,37 @@
-use std::thread;
 use std::time::Instant;
 
 use crossbeam_channel::Sender;
+use tokio::sync::mpsc;
 
 use crate::engine::decode::decoder::open_engine_decoder;
 use crate::engine::messages::{InternalMsg, PredecodedChunk};
+use stellatune_runtime as global_runtime;
 
 use super::{EngineState, PreloadJob, PreloadWorker, TRACK_REF_TOKEN_PREFIX};
 
 pub(super) fn start_preload_worker(internal_tx: Sender<InternalMsg>) -> PreloadWorker {
-    let (tx, rx) = crossbeam_channel::unbounded::<PreloadJob>();
-    let join = thread::Builder::new()
-        .name("stellatune-preload-next".to_string())
-        .spawn(move || {
-            while let Ok(job) = rx.recv() {
-                match job {
-                    PreloadJob::Task {
-                        path,
-                        position_ms,
-                        token,
-                    } => handle_preload_task(path, position_ms, token, &internal_tx),
-                    PreloadJob::Shutdown => break,
+    let (tx, mut rx) = mpsc::unbounded_channel::<PreloadJob>();
+    let join = global_runtime::spawn(async move {
+        while let Some(job) = rx.recv().await {
+            match job {
+                PreloadJob::Task {
+                    path,
+                    position_ms,
+                    token,
+                } => {
+                    let internal_tx = internal_tx.clone();
+                    if let Err(join_err) = tokio::task::spawn_blocking(move || {
+                        handle_preload_task(path, position_ms, token, &internal_tx)
+                    })
+                    .await
+                    {
+                        tracing::warn!("preload task join failed: {join_err}");
+                    }
                 }
+                PreloadJob::Shutdown => break,
             }
-        })
-        .expect("failed to spawn stellatune-preload-next thread");
+        }
+    });
     PreloadWorker { tx, join }
 }
 
