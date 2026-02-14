@@ -7,7 +7,7 @@ use super::{
     sync_source_runtime_control, with_runtime_service,
 };
 
-pub(super) struct SourceOwnerActor {
+pub(crate) struct SourceOwnerActor {
     pub(super) slot: RuntimeInstanceSlotKey,
     pub(super) frozen: bool,
     pub(super) current: Option<SourceCatalogLease>,

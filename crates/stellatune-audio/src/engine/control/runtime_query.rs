@@ -1,27 +1,30 @@
-use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 use tokio::sync::oneshot::Sender as OneshotSender;
 use tracing::debug;
-use tracing::warn;
 
 use stellatune_plugins::runtime::introspection::CapabilityKind;
 use stellatune_plugins::runtime::worker_controller::{
     WorkerApplyPendingOutcome, WorkerConfigUpdateOutcome,
 };
 
-use self::lyrics_owner_actor::LyricsOwnerActor;
 use self::lyrics_owner_actor::handlers::fetch::LyricsFetchMessage;
-use self::lyrics_owner_actor::handlers::freeze::LyricsFreezeMessage;
 use self::lyrics_owner_actor::handlers::search::LyricsSearchMessage;
-use self::lyrics_owner_actor::handlers::shutdown::LyricsShutdownMessage;
-use self::source_owner_actor::SourceOwnerActor;
+use self::output_sink_owner_actor::handlers::list_targets::OutputSinkListTargetsMessage;
+use self::runtime_owner_registry_actor::handlers::clear_all::ClearAllRuntimeOwnersMessage;
+use self::runtime_owner_registry_actor::handlers::clear_for_plugin::ClearRuntimeOwnersForPluginMessage;
+use self::runtime_owner_registry_actor::handlers::commit_source_open_stream::CommitSourceOpenStreamMessage;
+use self::runtime_owner_registry_actor::handlers::ensure_lyrics_owner_task::EnsureLyricsOwnerTaskMessage;
+use self::runtime_owner_registry_actor::handlers::ensure_output_sink_owner_task::EnsureOutputSinkOwnerTaskMessage;
+use self::runtime_owner_registry_actor::handlers::ensure_source_owner_task::EnsureSourceOwnerTaskMessage;
+use self::runtime_owner_registry_actor::handlers::finalize_source_close_stream::FinalizeSourceCloseStreamMessage;
+use self::runtime_owner_registry_actor::handlers::prepare_source_close_stream::PrepareSourceCloseStreamMessage;
+use self::runtime_owner_registry_actor::handlers::prepare_source_open_stream::PrepareSourceOpenStreamMessage;
+use self::runtime_owner_registry_actor::handlers::rollback_source_open_stream::RollbackSourceOpenStreamMessage;
+use self::runtime_owner_registry_actor::{SourceCloseTarget, shared_runtime_owner_registry_actor};
 use self::source_owner_actor::handlers::close_stream::SourceCloseStreamMessage;
-use self::source_owner_actor::handlers::freeze::SourceFreezeMessage;
 use self::source_owner_actor::handlers::list_items::SourceListItemsMessage;
 use self::source_owner_actor::handlers::open_stream::SourceOpenStreamMessage;
-use self::source_owner_actor::handlers::shutdown::SourceShutdownMessage;
 use super::{
     CachedLyricsInstance, CachedOutputSinkInstance, CachedSourceInstance, EngineState,
     RuntimeInstanceSlotKey, emit_config_update_runtime_event, runtime_default_config_json,
@@ -32,6 +35,8 @@ const OWNER_WORKER_CLEAR_TIMEOUT: Duration = Duration::from_millis(500);
 const OWNER_WORKER_STREAM_TIMEOUT: Duration = Duration::from_secs(5);
 
 mod lyrics_owner_actor;
+mod output_sink_owner_actor;
+mod runtime_owner_registry_actor;
 mod source_owner_actor;
 
 #[derive(Debug, Clone)]
@@ -312,337 +317,22 @@ fn sync_output_sink_runtime_control(
 }
 
 fn clear_runtime_owner_worker_cache() {
-    let (source_freeze_refs, source_shutdown_refs, lyrics_freeze_refs, lyrics_shutdown_refs) = {
-        let mut registry = lock_runtime_owner_registry();
-
-        let source_freeze_refs: Vec<_> = registry
-            .source_tasks
-            .iter()
-            .filter_map(|(_, handle)| {
-                if handle.frozen {
-                    None
-                } else {
-                    Some(handle.actor_ref.clone())
-                }
-            })
-            .collect();
-        for handle in registry.source_tasks.values_mut() {
-            handle.frozen = true;
-        }
-
-        let removable_source_slots: Vec<_> = registry
-            .source_tasks
-            .iter()
-            .filter_map(|(slot, handle)| {
-                if handle.active_streams == 0 {
-                    Some(slot.clone())
-                } else {
-                    None
-                }
-            })
-            .collect();
-        let source_shutdown_refs: Vec<_> = removable_source_slots
-            .iter()
-            .filter_map(|slot| registry.source_tasks.remove(slot).map(|h| h.actor_ref))
-            .collect();
-        registry
-            .source_stream_slots
-            .retain(|_, slot| !removable_source_slots.iter().any(|s| s == slot));
-
-        let lyrics_freeze_refs: Vec<_> = registry
-            .lyrics_tasks
-            .iter()
-            .filter_map(|(_, handle)| {
-                if handle.frozen {
-                    None
-                } else {
-                    Some(handle.actor_ref.clone())
-                }
-            })
-            .collect();
-        for handle in registry.lyrics_tasks.values_mut() {
-            handle.frozen = true;
-        }
-
-        let lyrics_slots: Vec<_> = registry.lyrics_tasks.keys().cloned().collect();
-        let lyrics_shutdown_refs: Vec<_> = lyrics_slots
-            .iter()
-            .filter_map(|slot| registry.lyrics_tasks.remove(slot).map(|h| h.actor_ref))
-            .collect();
-        (
-            source_freeze_refs,
-            source_shutdown_refs,
-            lyrics_freeze_refs,
-            lyrics_shutdown_refs,
-        )
-    };
-
-    for actor_ref in source_freeze_refs {
-        send_source_task_freeze(actor_ref);
-    }
-    for actor_ref in source_shutdown_refs {
-        send_source_task_shutdown(actor_ref);
-    }
-    for actor_ref in lyrics_freeze_refs {
-        send_lyrics_task_freeze(actor_ref);
-    }
-    for actor_ref in lyrics_shutdown_refs {
-        send_lyrics_task_shutdown(actor_ref);
-    }
+    let actor_ref = shared_runtime_owner_registry_actor();
+    let _ = stellatune_runtime::block_on(
+        actor_ref.call(ClearAllRuntimeOwnersMessage, OWNER_WORKER_CLEAR_TIMEOUT),
+    );
 }
 
 fn clear_runtime_owner_worker_cache_for_plugin(plugin_id: &str) -> (usize, usize, usize) {
-    let (
-        source_removed,
-        lyrics_removed,
-        source_freeze_refs,
-        source_shutdown_refs,
-        lyrics_freeze_refs,
-        lyrics_shutdown_refs,
-    ) = {
-        let mut registry = lock_runtime_owner_registry();
-
-        let source_freeze_refs: Vec<_> = registry
-            .source_tasks
-            .iter()
-            .filter_map(|(slot, handle)| {
-                if slot.plugin_id.as_str() == plugin_id && !handle.frozen {
-                    Some(handle.actor_ref.clone())
-                } else {
-                    None
-                }
-            })
-            .collect();
-        for (slot, handle) in &mut registry.source_tasks {
-            if slot.plugin_id.as_str() == plugin_id {
-                handle.frozen = true;
-            }
-        }
-
-        let removable_source_slots: Vec<_> = registry
-            .source_tasks
-            .iter()
-            .filter_map(|(slot, handle)| {
-                if slot.plugin_id.as_str() == plugin_id && handle.active_streams == 0 {
-                    Some(slot.clone())
-                } else {
-                    None
-                }
-            })
-            .collect();
-        let source_shutdown_refs: Vec<_> = removable_source_slots
-            .iter()
-            .filter_map(|slot| registry.source_tasks.remove(slot).map(|h| h.actor_ref))
-            .collect();
-        registry
-            .source_stream_slots
-            .retain(|_, slot| !removable_source_slots.iter().any(|s| s == slot));
-
-        let lyrics_freeze_refs: Vec<_> = registry
-            .lyrics_tasks
-            .iter()
-            .filter_map(|(slot, handle)| {
-                if slot.plugin_id.as_str() == plugin_id && !handle.frozen {
-                    Some(handle.actor_ref.clone())
-                } else {
-                    None
-                }
-            })
-            .collect();
-        for (slot, handle) in &mut registry.lyrics_tasks {
-            if slot.plugin_id.as_str() == plugin_id {
-                handle.frozen = true;
-            }
-        }
-
-        let removable_lyrics_slots: Vec<_> = registry
-            .lyrics_tasks
-            .keys()
-            .filter(|slot| slot.plugin_id.as_str() == plugin_id)
-            .cloned()
-            .collect();
-        let lyrics_shutdown_refs: Vec<_> = removable_lyrics_slots
-            .iter()
-            .filter_map(|slot| registry.lyrics_tasks.remove(slot).map(|h| h.actor_ref))
-            .collect();
-
-        (
-            removable_source_slots.len(),
-            removable_lyrics_slots.len(),
-            source_freeze_refs,
-            source_shutdown_refs,
-            lyrics_freeze_refs,
-            lyrics_shutdown_refs,
-        )
-    };
-
-    for actor_ref in source_freeze_refs {
-        send_source_task_freeze(actor_ref);
-    }
-    for actor_ref in source_shutdown_refs {
-        send_source_task_shutdown(actor_ref);
-    }
-    for actor_ref in lyrics_freeze_refs {
-        send_lyrics_task_freeze(actor_ref);
-    }
-    for actor_ref in lyrics_shutdown_refs {
-        send_lyrics_task_shutdown(actor_ref);
-    }
-
-    (source_removed, lyrics_removed, 0)
-}
-
-struct SourceOwnerTaskHandle {
-    actor_ref: stellatune_runtime::tokio_actor::ActorRef<SourceOwnerActor>,
-    active_streams: usize,
-    frozen: bool,
-}
-
-struct LyricsOwnerTaskHandle {
-    actor_ref: stellatune_runtime::tokio_actor::ActorRef<LyricsOwnerActor>,
-    frozen: bool,
-}
-
-struct RuntimeOwnerRegistry {
-    source_tasks: HashMap<RuntimeInstanceSlotKey, SourceOwnerTaskHandle>,
-    lyrics_tasks: HashMap<RuntimeInstanceSlotKey, LyricsOwnerTaskHandle>,
-    source_stream_slots: HashMap<u64, RuntimeInstanceSlotKey>,
-    next_source_stream_id: u64,
-}
-
-impl RuntimeOwnerRegistry {
-    fn new() -> Self {
-        Self {
-            source_tasks: HashMap::new(),
-            lyrics_tasks: HashMap::new(),
-            source_stream_slots: HashMap::new(),
-            next_source_stream_id: 1,
-        }
-    }
-
-    fn next_stream_id(&mut self) -> u64 {
-        let mut id = self.next_source_stream_id;
-        if id == 0 {
-            id = 1;
-        }
-        self.next_source_stream_id = id.wrapping_add(1);
-        id
-    }
-}
-
-fn runtime_owner_registry() -> &'static Mutex<RuntimeOwnerRegistry> {
-    static REGISTRY: OnceLock<Mutex<RuntimeOwnerRegistry>> = OnceLock::new();
-    REGISTRY.get_or_init(|| Mutex::new(RuntimeOwnerRegistry::new()))
-}
-
-fn lock_runtime_owner_registry() -> std::sync::MutexGuard<'static, RuntimeOwnerRegistry> {
-    runtime_owner_registry()
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-}
-
-fn ensure_source_owner_task_locked(
-    registry: &mut RuntimeOwnerRegistry,
-    slot: &RuntimeInstanceSlotKey,
-) -> stellatune_runtime::tokio_actor::ActorRef<SourceOwnerActor> {
-    if let Some(handle) = registry.source_tasks.get(slot)
-        && !handle.actor_ref.is_closed()
-    {
-        return handle.actor_ref.clone();
-    }
-
-    let plugin_id = slot.plugin_id.clone();
-    let type_id = slot.type_id.clone();
-    let active_streams = registry
-        .source_tasks
-        .get(slot)
-        .map(|h| h.active_streams)
-        .unwrap_or(0);
-    let (actor_ref, _join) =
-        stellatune_runtime::tokio_actor::spawn_actor(SourceOwnerActor::new(plugin_id, type_id));
-    registry.source_tasks.insert(
-        slot.clone(),
-        SourceOwnerTaskHandle {
-            actor_ref: actor_ref.clone(),
-            active_streams,
-            frozen: false,
+    let actor_ref = shared_runtime_owner_registry_actor();
+    match stellatune_runtime::block_on(actor_ref.call(
+        ClearRuntimeOwnersForPluginMessage {
+            plugin_id: plugin_id.to_string(),
         },
-    );
-    actor_ref
-}
-
-fn ensure_lyrics_owner_task_locked(
-    registry: &mut RuntimeOwnerRegistry,
-    slot: &RuntimeInstanceSlotKey,
-) -> stellatune_runtime::tokio_actor::ActorRef<LyricsOwnerActor> {
-    if let Some(handle) = registry.lyrics_tasks.get(slot)
-        && !handle.actor_ref.is_closed()
-    {
-        return handle.actor_ref.clone();
-    }
-    let plugin_id = slot.plugin_id.clone();
-    let type_id = slot.type_id.clone();
-    let (actor_ref, _join) =
-        stellatune_runtime::tokio_actor::spawn_actor(LyricsOwnerActor::new(plugin_id, type_id));
-    registry.lyrics_tasks.insert(
-        slot.clone(),
-        LyricsOwnerTaskHandle {
-            actor_ref: actor_ref.clone(),
-            frozen: false,
-        },
-    );
-    actor_ref
-}
-
-fn send_source_task_shutdown(
-    actor_ref: stellatune_runtime::tokio_actor::ActorRef<SourceOwnerActor>,
-) {
-    match stellatune_runtime::block_on(
-        actor_ref.call(SourceShutdownMessage, OWNER_WORKER_CLEAR_TIMEOUT),
-    ) {
-        Ok(()) => {}
-        Err(stellatune_runtime::tokio_actor::CallError::Timeout) => {
-            warn!("source owner task shutdown timeout");
-        }
-        Err(_) => {}
-    }
-}
-
-fn send_lyrics_task_shutdown(
-    actor_ref: stellatune_runtime::tokio_actor::ActorRef<LyricsOwnerActor>,
-) {
-    match stellatune_runtime::block_on(
-        actor_ref.call(LyricsShutdownMessage, OWNER_WORKER_CLEAR_TIMEOUT),
-    ) {
-        Ok(()) => {}
-        Err(stellatune_runtime::tokio_actor::CallError::Timeout) => {
-            warn!("lyrics owner task shutdown timeout");
-        }
-        Err(_) => {}
-    }
-}
-
-fn send_source_task_freeze(actor_ref: stellatune_runtime::tokio_actor::ActorRef<SourceOwnerActor>) {
-    match stellatune_runtime::block_on(
-        actor_ref.call(SourceFreezeMessage, OWNER_WORKER_CLEAR_TIMEOUT),
-    ) {
-        Ok(()) => {}
-        Err(stellatune_runtime::tokio_actor::CallError::Timeout) => {
-            warn!("source owner task freeze timeout");
-        }
-        Err(_) => {}
-    }
-}
-
-fn send_lyrics_task_freeze(actor_ref: stellatune_runtime::tokio_actor::ActorRef<LyricsOwnerActor>) {
-    match stellatune_runtime::block_on(
-        actor_ref.call(LyricsFreezeMessage, OWNER_WORKER_CLEAR_TIMEOUT),
-    ) {
-        Ok(()) => {}
-        Err(stellatune_runtime::tokio_actor::CallError::Timeout) => {
-            warn!("lyrics owner task freeze timeout");
-        }
-        Err(_) => {}
+        OWNER_WORKER_CLEAR_TIMEOUT,
+    )) {
+        Ok(result) => result,
+        Err(_) => (0, 0, 0),
     }
 }
 
@@ -654,9 +344,16 @@ pub(super) fn source_list_items_json_via_runtime_async(
     resp_tx: OneshotSender<Result<String, String>>,
 ) {
     let slot = RuntimeInstanceSlotKey::new(&plugin_id, &type_id);
-    let actor_ref = {
-        let mut registry = lock_runtime_owner_registry();
-        ensure_source_owner_task_locked(&mut registry, &slot)
+    let registry_actor_ref = shared_runtime_owner_registry_actor();
+    let actor_ref = match stellatune_runtime::block_on(registry_actor_ref.call(
+        EnsureSourceOwnerTaskMessage { slot },
+        OWNER_WORKER_CLEAR_TIMEOUT,
+    )) {
+        Ok(actor_ref) => actor_ref,
+        Err(_) => {
+            let _ = resp_tx.send(Err("runtime source owner registry unavailable".to_string()));
+            return;
+        }
     };
     let _ = stellatune_runtime::spawn(async move {
         let result = match actor_ref
@@ -694,9 +391,16 @@ pub(super) fn lyrics_search_json_via_runtime_async(
             }
         };
     let slot = RuntimeInstanceSlotKey::new(&plugin_id, &type_id);
-    let actor_ref = {
-        let mut registry = lock_runtime_owner_registry();
-        ensure_lyrics_owner_task_locked(&mut registry, &slot)
+    let registry_actor_ref = shared_runtime_owner_registry_actor();
+    let actor_ref = match stellatune_runtime::block_on(registry_actor_ref.call(
+        EnsureLyricsOwnerTaskMessage { slot },
+        OWNER_WORKER_CLEAR_TIMEOUT,
+    )) {
+        Ok(actor_ref) => actor_ref,
+        Err(_) => {
+            let _ = resp_tx.send(Err("runtime lyrics owner registry unavailable".to_string()));
+            return;
+        }
     };
     let _ = stellatune_runtime::spawn(async move {
         let result = match actor_ref
@@ -734,9 +438,16 @@ pub(super) fn lyrics_fetch_json_via_runtime_async(
             }
         };
     let slot = RuntimeInstanceSlotKey::new(&plugin_id, &type_id);
-    let actor_ref = {
-        let mut registry = lock_runtime_owner_registry();
-        ensure_lyrics_owner_task_locked(&mut registry, &slot)
+    let registry_actor_ref = shared_runtime_owner_registry_actor();
+    let actor_ref = match stellatune_runtime::block_on(registry_actor_ref.call(
+        EnsureLyricsOwnerTaskMessage { slot },
+        OWNER_WORKER_CLEAR_TIMEOUT,
+    )) {
+        Ok(actor_ref) => actor_ref,
+        Err(_) => {
+            let _ = resp_tx.send(Err("runtime lyrics owner registry unavailable".to_string()));
+            return;
+        }
     };
     let _ = stellatune_runtime::spawn(async move {
         let result = match actor_ref
@@ -766,21 +477,21 @@ pub(crate) fn source_open_stream_via_runtime_blocking(
     track_json: String,
 ) -> Result<RuntimeSourceStreamLease, String> {
     let slot = RuntimeInstanceSlotKey::new(plugin_id, type_id);
-    let (actor_ref, stream_id) = {
-        let mut registry = lock_runtime_owner_registry();
-        let actor_ref = ensure_source_owner_task_locked(&mut registry, &slot);
-        if let Some(handle) = registry.source_tasks.get_mut(&slot) {
-            handle.active_streams = handle.active_streams.saturating_add(1);
-        }
-        let stream_id = registry.next_stream_id();
-        (actor_ref, stream_id)
+    let registry_actor_ref = shared_runtime_owner_registry_actor();
+    let (actor_ref, stream_id) = match stellatune_runtime::block_on(registry_actor_ref.call(
+        PrepareSourceOpenStreamMessage { slot: slot.clone() },
+        OWNER_WORKER_CLEAR_TIMEOUT,
+    )) {
+        Ok(v) => v,
+        Err(_) => return Err("runtime source owner registry unavailable".to_string()),
     };
 
     let rollback_active = || {
-        let mut registry = lock_runtime_owner_registry();
-        if let Some(handle) = registry.source_tasks.get_mut(&slot) {
-            handle.active_streams = handle.active_streams.saturating_sub(1);
-        }
+        let registry_actor_ref = shared_runtime_owner_registry_actor();
+        let _ = stellatune_runtime::block_on(registry_actor_ref.call(
+            RollbackSourceOpenStreamMessage { slot: slot.clone() },
+            OWNER_WORKER_CLEAR_TIMEOUT,
+        ));
     };
 
     match stellatune_runtime::block_on(actor_ref.call(
@@ -792,8 +503,14 @@ pub(crate) fn source_open_stream_via_runtime_blocking(
         OWNER_WORKER_STREAM_TIMEOUT,
     )) {
         Ok(Ok(lease)) => {
-            let mut registry = lock_runtime_owner_registry();
-            registry.source_stream_slots.insert(lease.stream_id, slot);
+            let registry_actor_ref = shared_runtime_owner_registry_actor();
+            let _ = stellatune_runtime::block_on(registry_actor_ref.call(
+                CommitSourceOpenStreamMessage {
+                    stream_id: lease.stream_id,
+                    slot,
+                },
+                OWNER_WORKER_CLEAR_TIMEOUT,
+            ));
             Ok(lease)
         }
         Ok(Err(e)) => {
@@ -816,15 +533,17 @@ pub(crate) fn source_open_stream_via_runtime_blocking(
 }
 
 pub(crate) fn source_close_stream_via_runtime_blocking(stream_id: u64) -> Result<(), String> {
-    let (slot, actor_ref) = {
-        let registry = lock_runtime_owner_registry();
-        let Some(slot) = registry.source_stream_slots.get(&stream_id).cloned() else {
-            return Ok(());
-        };
-        let Some(handle) = registry.source_tasks.get(&slot) else {
+    let registry_actor_ref = shared_runtime_owner_registry_actor();
+    let (slot, actor_ref) = match stellatune_runtime::block_on(registry_actor_ref.call(
+        PrepareSourceCloseStreamMessage { stream_id },
+        OWNER_WORKER_CLEAR_TIMEOUT,
+    )) {
+        Ok(SourceCloseTarget::MissingStream) => return Ok(()),
+        Ok(SourceCloseTarget::MissingTask) => {
             return Err("runtime source owner task missing for close_stream".to_string());
-        };
-        (slot, handle.actor_ref.clone())
+        }
+        Ok(SourceCloseTarget::Ready { slot, actor_ref }) => (slot, actor_ref),
+        Err(_) => return Err("runtime source owner registry unavailable".to_string()),
     };
 
     let result = match stellatune_runtime::block_on(actor_ref.call(
@@ -836,45 +555,20 @@ pub(crate) fn source_close_stream_via_runtime_blocking(stream_id: u64) -> Result
             return Err("runtime source owner task close_stream timeout".to_string());
         }
         Err(_) => {
-            let mut shutdown_ref: Option<
-                stellatune_runtime::tokio_actor::ActorRef<SourceOwnerActor>,
-            > = None;
-            let mut registry = lock_runtime_owner_registry();
-            registry.source_stream_slots.remove(&stream_id);
-            if let Some(handle) = registry.source_tasks.get_mut(&slot) {
-                handle.active_streams = handle.active_streams.saturating_sub(1);
-                if handle.active_streams == 0 && handle.frozen {
-                    shutdown_ref = Some(handle.actor_ref.clone());
-                }
-            }
-            if shutdown_ref.is_some() {
-                registry.source_tasks.remove(&slot);
-            }
-            drop(registry);
-            if let Some(actor_ref) = shutdown_ref {
-                send_source_task_shutdown(actor_ref);
-            }
+            let registry_actor_ref = shared_runtime_owner_registry_actor();
+            let _ = stellatune_runtime::block_on(registry_actor_ref.call(
+                FinalizeSourceCloseStreamMessage { slot, stream_id },
+                OWNER_WORKER_CLEAR_TIMEOUT,
+            ));
             return Err("runtime source owner task unavailable".to_string());
         }
     };
 
-    let mut shutdown_ref: Option<stellatune_runtime::tokio_actor::ActorRef<SourceOwnerActor>> =
-        None;
-    let mut registry = lock_runtime_owner_registry();
-    registry.source_stream_slots.remove(&stream_id);
-    if let Some(handle) = registry.source_tasks.get_mut(&slot) {
-        handle.active_streams = handle.active_streams.saturating_sub(1);
-        if handle.active_streams == 0 && handle.frozen {
-            shutdown_ref = Some(handle.actor_ref.clone());
-        }
-    }
-    if shutdown_ref.is_some() {
-        registry.source_tasks.remove(&slot);
-    }
-    drop(registry);
-    if let Some(actor_ref) = shutdown_ref {
-        send_source_task_shutdown(actor_ref);
-    }
+    let registry_actor_ref = shared_runtime_owner_registry_actor();
+    let _ = stellatune_runtime::block_on(registry_actor_ref.call(
+        FinalizeSourceCloseStreamMessage { slot, stream_id },
+        OWNER_WORKER_CLEAR_TIMEOUT,
+    ));
     result
 }
 
@@ -885,29 +579,30 @@ pub(super) fn clear_runtime_query_instance_cache(state: &mut EngineState) {
 }
 
 pub(super) fn output_sink_list_targets_json_via_runtime(
-    state: &mut EngineState,
+    _state: &mut EngineState,
     plugin_id: &str,
     type_id: &str,
     config_json: String,
 ) -> Result<String, String> {
-    let key = RuntimeInstanceSlotKey::new(plugin_id, type_id);
-    if !state.output_sink_instances.contains_key(&key) {
-        let created = with_runtime_service(|service| {
-            create_output_sink_cached_instance(service, plugin_id, type_id, &config_json)
-        })?;
-        state.output_sink_instances.insert(key.clone(), created);
+    let slot = RuntimeInstanceSlotKey::new(plugin_id, type_id);
+    let registry_actor_ref = shared_runtime_owner_registry_actor();
+    let actor_ref = match stellatune_runtime::block_on(registry_actor_ref.call(
+        EnsureOutputSinkOwnerTaskMessage { slot },
+        OWNER_WORKER_CLEAR_TIMEOUT,
+    )) {
+        Ok(actor_ref) => actor_ref,
+        Err(_) => return Err("runtime output sink owner registry unavailable".to_string()),
+    };
+    match stellatune_runtime::block_on(actor_ref.call(
+        OutputSinkListTargetsMessage { config_json },
+        OWNER_WORKER_STREAM_TIMEOUT,
+    )) {
+        Ok(result) => result,
+        Err(stellatune_runtime::tokio_actor::CallError::Timeout) => {
+            Err("runtime output sink owner task list_targets timeout".to_string())
+        }
+        Err(_) => Err("runtime output sink owner task unavailable".to_string()),
     }
-    let entry = state
-        .output_sink_instances
-        .get_mut(&key)
-        .ok_or_else(|| "output sink instance cache insertion failed".to_string())?;
-    apply_or_recreate_output_sink_instance(plugin_id, type_id, entry, &config_json)?;
-
-    let instance = entry
-        .controller
-        .instance_mut()
-        .ok_or_else(|| format!("output sink instance unavailable for {plugin_id}::{type_id}"))?;
-    instance.list_targets_json().map_err(|e| e.to_string())
 }
 
 pub(super) fn clear_runtime_query_instance_cache_for_plugin(
