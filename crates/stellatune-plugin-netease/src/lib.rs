@@ -3,7 +3,6 @@ mod source;
 
 use decoder::StreamDecoderInstance;
 use source::NeteaseSourceCatalogInstance;
-use stellatune_plugin_sdk::instance::DecoderInstance;
 
 stellatune_plugin_sdk::export_plugin! {
     id: "dev.stellatune.source.netease",

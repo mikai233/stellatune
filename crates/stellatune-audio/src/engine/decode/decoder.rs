@@ -5,6 +5,9 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 use tracing::debug;
 
+use crate::engine::control::{
+    source_close_stream_via_runtime_blocking, source_open_stream_via_runtime_blocking,
+};
 use serde::Deserialize;
 use stellatune_core::{TrackDecodeInfo, TrackPlayability, TrackRef};
 use stellatune_decode::{Decoder, TrackSpec, supports_path};
@@ -43,7 +46,8 @@ pub(crate) struct LocalFileIoHandle {
 pub(crate) enum DecoderIoOwner {
     Local(Box<LocalFileIoHandle>),
     Source {
-        source: stellatune_plugins::capabilities::source::SourceCatalogInstance,
+        stream_id: u64,
+        lease_id: u64,
         io_handle_addr: usize,
     },
 }
@@ -73,13 +77,16 @@ impl DecoderIoOwner {
 impl Drop for DecoderIoOwner {
     fn drop(&mut self) {
         if let Self::Source {
-            source,
+            stream_id,
+            lease_id,
             io_handle_addr,
         } = self
             && *io_handle_addr != 0
         {
-            source.close_stream(*io_handle_addr as *mut core::ffi::c_void);
+            let _ = source_close_stream_via_runtime_blocking(*stream_id);
             *io_handle_addr = 0;
+            *stream_id = 0;
+            *lease_id = 0;
         }
     }
 }
@@ -483,22 +490,6 @@ fn create_decoder_controller(
     }
 }
 
-fn create_source_catalog_instance(
-    plugin_id: &str,
-    type_id: &str,
-    config_json: &str,
-) -> Result<stellatune_plugins::capabilities::source::SourceCatalogInstance, String> {
-    let endpoint = stellatune_runtime::block_on(
-        stellatune_plugins::runtime::handle::shared_runtime_service()
-            .bind_source_catalog_worker_endpoint(plugin_id, type_id),
-    )
-    .map_err(|e| e.to_string())?;
-    endpoint
-        .factory
-        .create_instance(config_json)
-        .map_err(|e| e.to_string())
-}
-
 fn build_plugin_track_info(
     dec: &mut stellatune_plugins::capabilities::decoder::DecoderInstance,
     plugin_id: &str,
@@ -762,17 +753,6 @@ fn try_open_decoder_for_source_stream(
     let track_json = serde_json::to_string(&source.track)
         .map_err(|e| format!("invalid source track json: {e}"))?;
 
-    let mut source_inst =
-        match create_source_catalog_instance(&source.plugin_id, &source.type_id, &config_json) {
-            Ok(v) => v,
-            Err(e) => {
-                return Err(format!(
-                    "create_source_catalog_instance failed for {}::{}: {e:#}",
-                    source.plugin_id, source.type_id
-                ));
-            }
-        };
-
     let mut last_err: Option<String> = None;
     for candidate in candidates {
         let (mut controller, control_rx) = match create_decoder_controller(
@@ -795,28 +775,39 @@ fn try_open_decoder_for_source_stream(
             continue;
         };
 
-        let (stream, source_metadata_json) = match source_inst.open_stream(&track_json) {
+        let lease = match source_open_stream_via_runtime_blocking(
+            &source.plugin_id,
+            &source.type_id,
+            config_json.clone(),
+            track_json.clone(),
+        ) {
             Ok(v) => v,
             Err(e) => {
                 last_err = Some(format!("source open_stream failed: {e:#}"));
                 continue;
             }
         };
-        let source_metadata = source_metadata_json.and_then(|raw| {
-            match serde_json::from_str::<serde_json::Value>(&raw) {
-                Ok(v) => Some(v),
-                Err(e) => {
-                    debug!(
-                        plugin_id = source.plugin_id,
-                        type_id = source.type_id,
-                        "source metadata json invalid: {e}"
-                    );
-                    None
+        let source_metadata =
+            lease.source_metadata_json.and_then(|raw| {
+                match serde_json::from_str::<serde_json::Value>(&raw) {
+                    Ok(v) => Some(v),
+                    Err(e) => {
+                        debug!(
+                            plugin_id = source.plugin_id,
+                            type_id = source.type_id,
+                            "source metadata json invalid: {e}"
+                        );
+                        None
+                    }
                 }
-            }
-        });
+            });
 
-        match dec.open_with_io(path_hint, ext_hint, stream.io_vtable, stream.io_handle) {
+        match dec.open_with_io(
+            path_hint,
+            ext_hint,
+            lease.io_vtable_addr as *const StIoVTable,
+            lease.io_handle_addr as *mut core::ffi::c_void,
+        ) {
             Ok(()) => {
                 let (info, gapless) = build_plugin_track_info(
                     dec,
@@ -825,13 +816,14 @@ fn try_open_decoder_for_source_stream(
                     source_metadata,
                 )?;
                 let io_owner = DecoderIoOwner::Source {
-                    source: source_inst,
-                    io_handle_addr: stream.io_handle as usize,
+                    stream_id: lease.stream_id,
+                    lease_id: lease.lease_id,
+                    io_handle_addr: lease.io_handle_addr,
                 };
                 return Ok(Some((controller, info, gapless, io_owner, control_rx)));
             }
             Err(e) => {
-                source_inst.close_stream(stream.io_handle);
+                let _ = source_close_stream_via_runtime_blocking(lease.stream_id);
                 last_err = Some(format!(
                     "decoder open_with_io failed for {}::{}: {e:#}",
                     candidate.plugin_id, candidate.type_id

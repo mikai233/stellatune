@@ -58,8 +58,11 @@ use preload::{
 };
 use runtime_query::{
     clear_runtime_query_instance_cache, clear_runtime_query_instance_cache_for_plugin,
-    lyrics_fetch_json_via_runtime, lyrics_search_json_via_runtime,
-    output_sink_list_targets_json_via_runtime, source_list_items_json_via_runtime,
+    lyrics_fetch_json_via_runtime_async, lyrics_search_json_via_runtime_async,
+    output_sink_list_targets_json_via_runtime, source_list_items_json_via_runtime_async,
+};
+pub(crate) use runtime_query::{
+    source_close_stream_via_runtime_blocking, source_open_stream_via_runtime_blocking,
 };
 use tick::{ensure_output_spec_prewarm, handle_tick, output_backend_for_selected};
 
@@ -73,6 +76,7 @@ const PLUGIN_SINK_FALLBACK_CHANNELS: u16 = 2;
 const PLUGIN_SINK_DEFAULT_CHUNK_FRAMES: u32 = 256;
 const PLUGIN_SINK_MIN_LOW_WATERMARK_MS: i64 = 8;
 const PLUGIN_SINK_MIN_HIGH_WATERMARK_MS: i64 = 16;
+const ENGINE_QUERY_TIMEOUT: Duration = Duration::from_secs(12);
 type SharedTrackInfo = Arc<ArcSwapOption<stellatune_core::TrackDecodeInfo>>;
 
 fn with_runtime_service<T>(
@@ -164,7 +168,6 @@ impl RuntimeInstanceSlotKey {
 }
 
 struct CachedSourceInstance {
-    config_json: String,
     controller: SourceCatalogWorkerController,
     control_rx: Receiver<WorkerControlMessage>,
 }
@@ -371,8 +374,9 @@ impl EngineHandle {
         self.engine_ctrl_tx
             .send(build(resp_tx))
             .map_err(|_| "control thread exited".to_string())?;
-        resp_rx
+        tokio::time::timeout(ENGINE_QUERY_TIMEOUT, resp_rx)
             .await
+            .map_err(|_| "engine query timed out".to_string())?
             .map_err(|_| "control thread dropped query response".to_string())?
     }
 
@@ -900,8 +904,6 @@ struct EngineState {
     preload_token: u64,
     requested_preload_path: Option<String>,
     requested_preload_position_ms: u64,
-    source_instances: HashMap<RuntimeInstanceSlotKey, CachedSourceInstance>,
-    lyrics_instances: HashMap<RuntimeInstanceSlotKey, CachedLyricsInstance>,
     output_sink_instances: HashMap<RuntimeInstanceSlotKey, CachedOutputSinkInstance>,
     pending_disable_plugins: HashSet<String>,
     switch_timing_seq: u64,
@@ -993,8 +995,6 @@ impl EngineState {
             preload_token: 0,
             requested_preload_path: None,
             requested_preload_position_ms: 0,
-            source_instances: HashMap::new(),
-            lyrics_instances: HashMap::new(),
             output_sink_instances: HashMap::new(),
             pending_disable_plugins: HashSet::new(),
             switch_timing_seq: 0,

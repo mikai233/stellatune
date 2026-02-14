@@ -7,8 +7,8 @@ fn test_host() -> StHostVTable {
         log_utf8: None,
         get_runtime_root_utf8: None,
         emit_event_json_utf8: None,
-        poll_host_event_json_utf8: None,
-        send_control_json_utf8: None,
+        begin_poll_host_event_json_utf8: None,
+        begin_send_control_json_utf8: None,
         free_host_str_utf8: None,
     }
 }

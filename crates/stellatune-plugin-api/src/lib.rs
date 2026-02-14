@@ -3,6 +3,7 @@
 
 use core::ffi::c_void;
 
+mod async_ops;
 mod common;
 mod decoder;
 mod dsp;
@@ -11,6 +12,7 @@ mod module;
 mod output;
 mod source;
 
+pub use async_ops::*;
 pub use common::{StCapabilityKind, StConfigUpdateMode, StConfigUpdatePlan};
 pub use decoder::*;
 pub use dsp::*;
@@ -21,7 +23,7 @@ pub use source::*;
 
 // Single in-development ABI version (early-stage project).
 // Note: this ABI may change in place during early development.
-pub const STELLATUNE_PLUGIN_API_VERSION: u32 = 8;
+pub const STELLATUNE_PLUGIN_API_VERSION: u32 = 11;
 pub const STELLATUNE_PLUGIN_ENTRY_SYMBOL: &str = "stellatune_plugin_entry";
 
 // Status codes (non-exhaustive). Plugins may use other non-zero codes, but the SDK uses these.

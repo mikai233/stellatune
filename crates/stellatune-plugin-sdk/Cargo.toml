@@ -10,6 +10,8 @@ stellatune-plugin-protocol.workspace = true
 stellatune-core.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+tokio.workspace = true
+async-trait = "0.1"
 
 
 [lints]

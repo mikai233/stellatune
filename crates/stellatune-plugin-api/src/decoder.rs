@@ -1,8 +1,6 @@
 use core::ffi::c_void;
 
-use crate::{StDecoderInfo, StIoVTable, StStatus, StStr};
-
-use super::StConfigUpdatePlan;
+use crate::{StConfigUpdatePlan, StDecoderInfo, StIoVTable, StStatus, StStr};
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -45,7 +43,7 @@ pub struct StDecoderInstanceVTable {
     pub open: extern "C" fn(handle: *mut c_void, args: StDecoderOpenArgs) -> StStatus,
     pub get_info: extern "C" fn(handle: *mut c_void, out_info: *mut StDecoderInfo) -> StStatus,
     pub get_metadata_json_utf8:
-        Option<extern "C" fn(handle: *mut c_void, out_json: *mut StStr) -> StStatus>,
+        Option<extern "C" fn(handle: *mut c_void, out_json_utf8: *mut StStr) -> StStatus>,
     pub read_interleaved_f32: extern "C" fn(
         handle: *mut c_void,
         frames: u32,

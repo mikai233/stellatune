@@ -1,13 +1,17 @@
 #![allow(clippy::wildcard_imports)] // Intentional wildcard usage (API facade, macro template, or generated code).
 
+pub use async_trait::async_trait;
 pub use stellatune_plugin_api::*;
 pub use stellatune_plugin_protocol as protocol;
 
 #[doc(hidden)]
 pub mod __private {
     pub use serde_json;
+    pub use tokio;
 }
 
+#[doc(hidden)]
+pub mod async_task;
 mod codec;
 mod control;
 mod errors;

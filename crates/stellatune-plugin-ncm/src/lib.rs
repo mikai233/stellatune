@@ -4,7 +4,6 @@ mod io;
 mod tags;
 
 use decoder::NcmDecoderInstance;
-use stellatune_plugin_sdk::instance::DecoderInstance;
 
 stellatune_plugin_sdk::export_plugin! {
   id: "dev.stellatune.decoder.ncm",

@@ -6,7 +6,8 @@ use std::time::Duration;
 use crossbeam_channel::RecvTimeoutError;
 use stellatune_plugin_api::StHostVTable;
 use stellatune_plugin_api::{
-    ST_ERR_INTERNAL, ST_ERR_INVALID_ARG, ST_ERR_UNSUPPORTED, StStatus, StStr,
+    ST_ERR_INTERNAL, ST_ERR_INVALID_ARG, ST_ERR_UNSUPPORTED, StAsyncOpState, StJsonOpRef,
+    StJsonOpVTable, StOpNotifier, StStatus, StStr,
 };
 use tokio::sync::mpsc;
 
@@ -200,21 +201,23 @@ extern "C" fn plugin_host_runtime_root(user_data: *mut core::ffi::c_void) -> StS
 
 extern "C" fn plugin_host_poll_event_json(
     user_data: *mut core::ffi::c_void,
-    out_event_json_utf8: *mut StStr,
+    out_op: *mut StJsonOpRef,
 ) -> StStatus {
-    if user_data.is_null() || out_event_json_utf8.is_null() {
+    if user_data.is_null() || out_op.is_null() {
         return StStatus {
             code: ST_ERR_INVALID_ARG,
             message: StStr::empty(),
         };
     }
     let ctx = unsafe { &*(user_data as *const PluginHostCtx) };
-    let out = match ctx.event_bus.poll_host_event(&ctx.plugin_id) {
-        Some(event_json) => alloc_host_owned_ststr(&event_json),
-        None => StStr::empty(),
-    };
+    let op = HostJsonOp::ready(ctx.event_bus.poll_host_event(&ctx.plugin_id));
     unsafe {
-        *out_event_json_utf8 = out;
+        *out_op = StJsonOpRef {
+            handle: Box::into_raw(Box::new(op)) as *mut core::ffi::c_void,
+            vtable: &HOST_JSON_OP_VTABLE as *const StJsonOpVTable,
+            reserved0: 0,
+            reserved1: 0,
+        };
     }
     StStatus::ok()
 }
@@ -222,9 +225,9 @@ extern "C" fn plugin_host_poll_event_json(
 extern "C" fn plugin_host_send_control_json(
     user_data: *mut core::ffi::c_void,
     request_json_utf8: StStr,
-    out_response_json_utf8: *mut StStr,
+    out_op: *mut StJsonOpRef,
 ) -> StStatus {
-    if user_data.is_null() || out_response_json_utf8.is_null() {
+    if user_data.is_null() || out_op.is_null() {
         return StStatus {
             code: ST_ERR_INVALID_ARG,
             message: StStr::empty(),
@@ -258,11 +261,173 @@ extern "C" fn plugin_host_send_control_json(
         );
     }
 
+    let op = HostJsonOp::ready(Some(response.response_json));
     unsafe {
-        *out_response_json_utf8 = alloc_host_owned_ststr(&response.response_json);
+        *out_op = StJsonOpRef {
+            handle: Box::into_raw(Box::new(op)) as *mut core::ffi::c_void,
+            vtable: &HOST_JSON_OP_VTABLE as *const StJsonOpVTable,
+            reserved0: 0,
+            reserved1: 0,
+        };
     }
     StStatus::ok()
 }
+
+#[derive(Debug)]
+struct HostJsonOpInner {
+    state: StAsyncOpState,
+    payload: Option<String>,
+    taken: bool,
+    notifier: Option<StOpNotifier>,
+}
+
+#[derive(Debug)]
+struct HostJsonOp {
+    inner: Mutex<HostJsonOpInner>,
+}
+
+impl HostJsonOp {
+    fn ready(payload: Option<String>) -> Self {
+        Self {
+            inner: Mutex::new(HostJsonOpInner {
+                state: StAsyncOpState::Ready,
+                payload,
+                taken: false,
+                notifier: None,
+            }),
+        }
+    }
+
+    fn notify(notifier: Option<StOpNotifier>) {
+        let Some(notifier) = notifier else {
+            return;
+        };
+        let Some(cb) = notifier.notify else {
+            return;
+        };
+        cb(notifier.user_data);
+    }
+}
+
+extern "C" fn host_json_op_poll(
+    handle: *mut core::ffi::c_void,
+    out_state: *mut StAsyncOpState,
+) -> StStatus {
+    if handle.is_null() || out_state.is_null() {
+        return status_error(ST_ERR_INVALID_ARG, "null handle/out_state");
+    }
+    let op = unsafe { &*(handle as *mut HostJsonOp) };
+    let Ok(inner) = op.inner.lock() else {
+        return status_error(ST_ERR_INTERNAL, "host json op lock poisoned");
+    };
+    unsafe {
+        *out_state = inner.state;
+    }
+    StStatus::ok()
+}
+
+extern "C" fn host_json_op_wait(
+    handle: *mut core::ffi::c_void,
+    _timeout_ms: u32,
+    out_state: *mut StAsyncOpState,
+) -> StStatus {
+    host_json_op_poll(handle, out_state)
+}
+
+extern "C" fn host_json_op_cancel(handle: *mut core::ffi::c_void) -> StStatus {
+    if handle.is_null() {
+        return status_error(ST_ERR_INVALID_ARG, "null handle");
+    }
+    let op = unsafe { &*(handle as *mut HostJsonOp) };
+    let notifier = {
+        let Ok(mut inner) = op.inner.lock() else {
+            return status_error(ST_ERR_INTERNAL, "host json op lock poisoned");
+        };
+        inner.state = StAsyncOpState::Cancelled;
+        inner.notifier
+    };
+    HostJsonOp::notify(notifier);
+    StStatus::ok()
+}
+
+extern "C" fn host_json_op_set_notifier(
+    handle: *mut core::ffi::c_void,
+    notifier: StOpNotifier,
+) -> StStatus {
+    if handle.is_null() {
+        return status_error(ST_ERR_INVALID_ARG, "null handle");
+    }
+    let op = unsafe { &*(handle as *mut HostJsonOp) };
+    let (should_notify, notifier_copy) = {
+        let Ok(mut inner) = op.inner.lock() else {
+            return status_error(ST_ERR_INTERNAL, "host json op lock poisoned");
+        };
+        inner.notifier = Some(notifier);
+        (inner.state != StAsyncOpState::Pending, inner.notifier)
+    };
+    if should_notify {
+        HostJsonOp::notify(notifier_copy);
+    }
+    StStatus::ok()
+}
+
+extern "C" fn host_json_op_take_json_utf8(
+    handle: *mut core::ffi::c_void,
+    out_json_utf8: *mut StStr,
+) -> StStatus {
+    if handle.is_null() || out_json_utf8.is_null() {
+        return status_error(ST_ERR_INVALID_ARG, "null handle/out_json_utf8");
+    }
+    let op = unsafe { &*(handle as *mut HostJsonOp) };
+    let payload = {
+        let Ok(mut inner) = op.inner.lock() else {
+            return status_error(ST_ERR_INTERNAL, "host json op lock poisoned");
+        };
+        match inner.state {
+            StAsyncOpState::Pending => {
+                return status_error(ST_ERR_INTERNAL, "host json op still pending");
+            }
+            StAsyncOpState::Cancelled => {
+                return status_error(ST_ERR_INTERNAL, "host json op cancelled");
+            }
+            StAsyncOpState::Failed => {
+                return status_error(ST_ERR_INTERNAL, "host json op failed");
+            }
+            StAsyncOpState::Ready => {}
+        }
+        if inner.taken {
+            return status_error(ST_ERR_INVALID_ARG, "host json op result already taken");
+        }
+        inner.taken = true;
+        inner.payload.take()
+    };
+    let out = payload
+        .as_deref()
+        .map(alloc_host_owned_ststr)
+        .unwrap_or_else(StStr::empty);
+    unsafe {
+        *out_json_utf8 = out;
+    }
+    StStatus::ok()
+}
+
+extern "C" fn host_json_op_destroy(handle: *mut core::ffi::c_void) {
+    if handle.is_null() {
+        return;
+    }
+    unsafe {
+        drop(Box::from_raw(handle as *mut HostJsonOp));
+    }
+}
+
+static HOST_JSON_OP_VTABLE: StJsonOpVTable = StJsonOpVTable {
+    poll: host_json_op_poll,
+    wait: host_json_op_wait,
+    cancel: host_json_op_cancel,
+    set_notifier: host_json_op_set_notifier,
+    take_json_utf8: host_json_op_take_json_utf8,
+    destroy: host_json_op_destroy,
+};
 
 extern "C" fn plugin_host_free_str(_user_data: *mut core::ffi::c_void, s: StStr) {
     free_host_owned_ststr(s);
@@ -321,8 +486,8 @@ pub(crate) fn build_plugin_host_vtable(
     host_vtable.user_data = (&mut *host_ctx) as *mut PluginHostCtx as *mut core::ffi::c_void;
     host_vtable.get_runtime_root_utf8 = Some(plugin_host_runtime_root);
     host_vtable.emit_event_json_utf8 = None;
-    host_vtable.poll_host_event_json_utf8 = Some(plugin_host_poll_event_json);
-    host_vtable.send_control_json_utf8 = Some(plugin_host_send_control_json);
+    host_vtable.begin_poll_host_event_json_utf8 = Some(plugin_host_poll_event_json);
+    host_vtable.begin_send_control_json_utf8 = Some(plugin_host_send_control_json);
     host_vtable.free_host_str_utf8 = Some(plugin_host_free_str);
     (host_vtable, host_ctx)
 }

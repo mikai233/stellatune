@@ -1,8 +1,6 @@
 use core::ffi::c_void;
 
-use crate::{StAudioSpec, StStatus, StStr};
-
-use super::StConfigUpdatePlan;
+use crate::{StAudioSpec, StConfigUpdatePlan, StStatus, StStr};
 
 pub type StOutputSinkNegotiatedSpec = crate::StOutputSinkNegotiatedSpec;
 

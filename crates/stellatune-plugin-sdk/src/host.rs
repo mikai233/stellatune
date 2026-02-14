@@ -5,7 +5,9 @@ use std::process::{Child, Command};
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use stellatune_plugin_api::{STELLATUNE_PLUGIN_API_VERSION, StHostVTable};
+use stellatune_plugin_api::{
+    STELLATUNE_PLUGIN_API_VERSION, StAsyncOpState, StHostVTable, StJsonOpRef,
+};
 
 use crate::{SdkError, SdkResult, StLogLevel, StStatus, StStr, ststr_to_str};
 
@@ -108,12 +110,18 @@ impl HostContext {
     }
 
     pub(crate) fn poll_event_json(self) -> SdkResult<Option<String>> {
-        let cb = unsafe { (*self.vtable).poll_host_event_json_utf8 }.ok_or(
-            SdkError::HostCallbackUnavailable("poll_host_event_json_utf8"),
+        let cb = unsafe { (*self.vtable).begin_poll_host_event_json_utf8 }.ok_or(
+            SdkError::HostCallbackUnavailable("begin_poll_host_event_json_utf8"),
         )?;
-        let mut out = StStr::empty();
-        let status = cb(self.user_data(), &mut out as *mut StStr);
-        self.status_to_result("poll_host_event_json_utf8", status)?;
+        let mut op = StJsonOpRef {
+            handle: core::ptr::null_mut(),
+            vtable: core::ptr::null(),
+            reserved0: 0,
+            reserved1: 0,
+        };
+        let status = cb(self.user_data(), &mut op as *mut StJsonOpRef);
+        self.status_to_result("begin_poll_host_event_json_utf8", status)?;
+        let out = self.wait_host_json_op("begin_poll_host_event_json_utf8", op)?;
         if out.ptr.is_null() || out.len == 0 {
             return Ok(None);
         }
@@ -121,16 +129,58 @@ impl HostContext {
     }
 
     pub(crate) fn send_control_json(self, request_json: &str) -> SdkResult<String> {
-        let cb = unsafe { (*self.vtable).send_control_json_utf8 }
-            .ok_or(SdkError::HostCallbackUnavailable("send_control_json_utf8"))?;
+        let cb = unsafe { (*self.vtable).begin_send_control_json_utf8 }.ok_or(
+            SdkError::HostCallbackUnavailable("begin_send_control_json_utf8"),
+        )?;
         let in_json = StStr {
             ptr: request_json.as_ptr(),
             len: request_json.len(),
         };
-        let mut out = StStr::empty();
-        let status = cb(self.user_data(), in_json, &mut out as *mut StStr);
-        self.status_to_result("send_control_json_utf8", status)?;
+        let mut op = StJsonOpRef {
+            handle: core::ptr::null_mut(),
+            vtable: core::ptr::null(),
+            reserved0: 0,
+            reserved1: 0,
+        };
+        let status = cb(self.user_data(), in_json, &mut op as *mut StJsonOpRef);
+        self.status_to_result("begin_send_control_json_utf8", status)?;
+        let out = self.wait_host_json_op("begin_send_control_json_utf8", op)?;
         Ok(self.take_owned_string(out))
+    }
+
+    fn wait_host_json_op(self, what: &'static str, op: StJsonOpRef) -> SdkResult<StStr> {
+        if op.handle.is_null() || op.vtable.is_null() {
+            return Err(SdkError::HostOperationFailed {
+                operation: what,
+                code: crate::ST_ERR_INTERNAL,
+                message: Some("host returned invalid async op".to_string()),
+            });
+        }
+        let vtable = unsafe { &*op.vtable };
+        struct HostOpGuard {
+            handle: *mut c_void,
+            destroy: extern "C" fn(handle: *mut c_void),
+        }
+        impl Drop for HostOpGuard {
+            fn drop(&mut self) {
+                (self.destroy)(self.handle);
+            }
+        }
+        let _guard = HostOpGuard {
+            handle: op.handle,
+            destroy: vtable.destroy,
+        };
+
+        let mut state = StAsyncOpState::Pending;
+        while state == StAsyncOpState::Pending {
+            let status = (vtable.wait)(op.handle, 5000, &mut state as *mut StAsyncOpState);
+            self.status_to_result(what, status)?;
+        }
+
+        let mut out = StStr::empty();
+        let status = (vtable.take_json_utf8)(op.handle, &mut out as *mut StStr);
+        self.status_to_result(what, status)?;
+        Ok(out)
     }
 
     pub fn resolve_runtime_path(self, relative: impl AsRef<Path>) -> Option<PathBuf> {

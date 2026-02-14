@@ -5,9 +5,10 @@ use tokio::sync::oneshot::Sender as OneshotSender;
 
 use super::{
     DecodeCtrl, EngineCtrl, EngineState, Event, EventHub, InternalMsg, SharedTrackInfo,
-    apply_dsp_chain, clear_runtime_query_instance_cache, lyrics_fetch_json_via_runtime,
-    lyrics_search_json_via_runtime, output_sink_list_targets_json_via_runtime, parse_dsp_chain,
-    source_list_items_json_via_runtime, sync_output_sink_with_active_session,
+    apply_dsp_chain, clear_runtime_query_instance_cache, lyrics_fetch_json_via_runtime_async,
+    lyrics_search_json_via_runtime_async, output_sink_list_targets_json_via_runtime,
+    parse_dsp_chain, source_list_items_json_via_runtime_async,
+    sync_output_sink_with_active_session,
 };
 
 pub(super) fn handle_engine_ctrl(
@@ -26,7 +27,6 @@ pub(super) fn handle_engine_ctrl(
             request_json,
             resp_tx,
         } => on_engine_ctrl_source_list_items_json(
-            state,
             plugin_id,
             type_id,
             config_json,
@@ -38,13 +38,13 @@ pub(super) fn handle_engine_ctrl(
             type_id,
             query_json,
             resp_tx,
-        } => on_engine_ctrl_lyrics_search_json(state, plugin_id, type_id, query_json, resp_tx),
+        } => on_engine_ctrl_lyrics_search_json(plugin_id, type_id, query_json, resp_tx),
         EngineCtrl::LyricsFetchJson {
             plugin_id,
             type_id,
             track_json,
             resp_tx,
-        } => on_engine_ctrl_lyrics_fetch_json(state, plugin_id, type_id, track_json, resp_tx),
+        } => on_engine_ctrl_lyrics_fetch_json(plugin_id, type_id, track_json, resp_tx),
         EngineCtrl::OutputSinkListTargetsJson {
             plugin_id,
             type_id,
@@ -88,44 +88,37 @@ fn on_engine_ctrl_set_dsp_chain(
 }
 
 fn on_engine_ctrl_source_list_items_json(
-    state: &mut EngineState,
     plugin_id: String,
     type_id: String,
     config_json: String,
     request_json: String,
     resp_tx: OneshotSender<Result<String, String>>,
 ) {
-    let _ = resp_tx.send(source_list_items_json_via_runtime(
-        state,
-        &plugin_id,
-        &type_id,
+    source_list_items_json_via_runtime_async(
+        plugin_id,
+        type_id,
         config_json,
         request_json,
-    ));
+        resp_tx,
+    );
 }
 
 fn on_engine_ctrl_lyrics_search_json(
-    state: &mut EngineState,
     plugin_id: String,
     type_id: String,
     query_json: String,
     resp_tx: OneshotSender<Result<String, String>>,
 ) {
-    let _ = resp_tx.send(lyrics_search_json_via_runtime(
-        state, &plugin_id, &type_id, query_json,
-    ));
+    lyrics_search_json_via_runtime_async(plugin_id, type_id, query_json, resp_tx);
 }
 
 fn on_engine_ctrl_lyrics_fetch_json(
-    state: &mut EngineState,
     plugin_id: String,
     type_id: String,
     track_json: String,
     resp_tx: OneshotSender<Result<String, String>>,
 ) {
-    let _ = resp_tx.send(lyrics_fetch_json_via_runtime(
-        state, &plugin_id, &type_id, track_json,
-    ));
+    lyrics_fetch_json_via_runtime_async(plugin_id, type_id, track_json, resp_tx);
 }
 
 fn on_engine_ctrl_output_sink_list_targets_json(

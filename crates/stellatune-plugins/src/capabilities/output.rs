@@ -1,8 +1,7 @@
 use anyhow::{Result, anyhow};
-use stellatune_plugin_api::{StAudioSpec, StStr};
 use stellatune_plugin_api::{
-    StConfigUpdatePlan, StOutputSinkInstanceRef, StOutputSinkNegotiatedSpec,
-    StOutputSinkRuntimeStatus,
+    StAudioSpec, StConfigUpdatePlan, StOutputSinkInstanceRef, StOutputSinkNegotiatedSpec,
+    StOutputSinkRuntimeStatus, StStr,
 };
 
 use super::common::{

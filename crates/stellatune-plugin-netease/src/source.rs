@@ -12,10 +12,9 @@ use stellatune_plugin_sdk::instance::{
 };
 use stellatune_plugin_sdk::update::ConfigUpdatable;
 use stellatune_plugin_sdk::{
-    SdkError, SdkResult, SourceCatalogDescriptor as LegacySourceCatalogDescriptor,
-    SourceOpenResult as LegacySourceOpenResult, SourceStream as LegacySourceStream, StLogLevel,
-    StSeekWhence, host_log, resolve_runtime_path, sidecar_command,
+    SdkError, SdkResult, StLogLevel, StSeekWhence, host_log, resolve_runtime_path, sidecar_command,
 };
+use tokio::time::sleep;
 
 const DEFAULT_SIDECAR_BASE_URL: &str = "http://127.0.0.1:46321";
 const DEFAULT_REQUEST_TIMEOUT_MS: u64 = 8_000;
@@ -24,8 +23,10 @@ const SIDECAR_READY_TIMEOUT_SECS: u64 = 10;
 const SIDECAR_HEALTH_TIMEOUT_MS: u64 = 1_200;
 const SIDECAR_START_RETRY_BASE_COOLDOWN_MS: u64 = 2_000;
 const SIDECAR_START_RETRY_MAX_COOLDOWN_MS: u64 = 30_000;
+const SOURCE_TYPE_ID: &str = "netease";
+const SOURCE_DISPLAY_NAME: &str = "Netease Cloud Music";
 
-static SIDECAR_START_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+static SIDECAR_START_LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
 static SIDECAR_START_STATE: OnceLock<Mutex<SidecarStartState>> = OnceLock::new();
 
 #[derive(Debug, Default)]
@@ -224,113 +225,6 @@ pub struct SidecarCoverRef {
     pub mime: Option<String>,
 }
 
-pub struct NeteaseSourceCatalog;
-
-impl LegacySourceCatalogDescriptor for NeteaseSourceCatalog {
-    type Stream = BytesSourceStream;
-    type Config = NeteaseSourceConfig;
-    type ListRequest = NeteaseListRequest;
-    type ListItem = NeteaseListItem;
-    type Track = NeteaseTrack;
-    type TrackMeta = NeteaseTrackMeta;
-
-    const TYPE_ID: &'static str = "netease";
-    const DISPLAY_NAME: &'static str = "Netease Cloud Music";
-    const CONFIG_SCHEMA_JSON: &'static str = CONFIG_SCHEMA_JSON;
-
-    fn default_config() -> Self::Config {
-        NeteaseSourceConfig::default()
-    }
-
-    fn list_items(
-        config: &Self::Config,
-        request: &Self::ListRequest,
-    ) -> SdkResult<Vec<Self::ListItem>> {
-        if request.action.trim().eq_ignore_ascii_case("list_playlists") {
-            return fetch_playlist_items(config, request);
-        }
-
-        let items = fetch_song_items(config, request)?;
-        let level = normalize_level(request.level.as_deref(), config);
-        Ok(items
-            .into_iter()
-            .map(|item| {
-                let song_id = item.song_id;
-                let title = item
-                    .title
-                    .clone()
-                    .filter(|v| !v.trim().is_empty())
-                    .unwrap_or_else(|| format!("Song {song_id}"));
-                let ext_hint = normalize_ext_hint(item.ext_hint.as_deref());
-                let path_hint = format!("netease:{song_id}.{ext_hint}");
-                let track = NeteaseTrack {
-                    song_id,
-                    level: item.level.unwrap_or_else(|| level.clone()),
-                    stream_url: item.stream_url,
-                    ext_hint: Some(ext_hint.clone()),
-                    cover: item.cover.clone(),
-                    title: item.title.clone(),
-                    artist: item.artist.clone(),
-                    album: item.album.clone(),
-                    duration_ms: item.duration_ms,
-                };
-                NeteaseListItem {
-                    kind: "track".to_string(),
-                    item_id: song_id.to_string(),
-                    source_id: "netease".to_string(),
-                    source_label: Some(Self::DISPLAY_NAME.to_string()),
-                    track_id: Some(song_id.to_string()),
-                    playlist_id: None,
-                    title,
-                    subtitle: None,
-                    artist: item.artist,
-                    album: item.album,
-                    duration_ms: item.duration_ms,
-                    track_count: None,
-                    cover: item.cover,
-                    ext_hint: Some(ext_hint),
-                    path_hint: Some(path_hint),
-                    playlist_ref: None,
-                    track: Some(track),
-                }
-            })
-            .collect())
-    }
-
-    fn open_stream(
-        config: &Self::Config,
-        track: &Self::Track,
-    ) -> SdkResult<LegacySourceOpenResult<Self::Stream, Self::TrackMeta>> {
-        ensure_sidecar_running(config)?;
-        let resolved = resolve_stream_url(config, track)?;
-        let bytes = download_audio_bytes(config, &resolved.url)?;
-        let ext_hint = guess_ext_hint(&resolved.url, resolved.ext_hint.as_deref())
-            .or_else(|| track.ext_hint.clone())
-            .unwrap_or_else(|| "mp3".to_string());
-
-        let source = BytesSourceStream::new(bytes);
-        let meta = NeteaseTrackMeta {
-            song_id: track.song_id,
-            title: track.title.clone(),
-            artist: track.artist.clone(),
-            album: track.album.clone(),
-            duration_ms: track.duration_ms,
-            level: track.level.clone(),
-            stream_url: Some(resolved.url.clone()),
-        };
-
-        host_log(
-            StLogLevel::Debug,
-            &format!(
-                "netease open_stream song_id={} level={} ext_hint={}",
-                track.song_id, track.level, ext_hint
-            ),
-        );
-
-        Ok(LegacySourceOpenResult::new(source).with_track_meta(meta))
-    }
-}
-
 pub struct NeteaseSourceCatalogInstance {
     config: NeteaseSourceConfig,
 }
@@ -346,11 +240,9 @@ impl SourceCatalogDescriptor for NeteaseSourceCatalogInstance {
     type Config = NeteaseSourceConfig;
     type Instance = NeteaseSourceCatalogInstance;
 
-    const TYPE_ID: &'static str = <NeteaseSourceCatalog as LegacySourceCatalogDescriptor>::TYPE_ID;
-    const DISPLAY_NAME: &'static str =
-        <NeteaseSourceCatalog as LegacySourceCatalogDescriptor>::DISPLAY_NAME;
-    const CONFIG_SCHEMA_JSON: &'static str =
-        <NeteaseSourceCatalog as LegacySourceCatalogDescriptor>::CONFIG_SCHEMA_JSON;
+    const TYPE_ID: &'static str = SOURCE_TYPE_ID;
+    const DISPLAY_NAME: &'static str = SOURCE_DISPLAY_NAME;
+    const CONFIG_SCHEMA_JSON: &'static str = CONFIG_SCHEMA_JSON;
 
     fn default_config() -> Self::Config {
         NeteaseSourceConfig::default()
@@ -361,32 +253,112 @@ impl SourceCatalogDescriptor for NeteaseSourceCatalogInstance {
     }
 }
 
+#[stellatune_plugin_sdk::async_trait]
 impl SourceCatalogInstance for NeteaseSourceCatalogInstance {
     type Stream = BytesSourceStream;
 
-    fn list_items_json(&mut self, request_json: &str) -> SdkResult<String> {
+    async fn list_items_json(&mut self, request_json: &str) -> SdkResult<String> {
         let request: NeteaseListRequest =
             serde_json::from_str(request_json).map_err(SdkError::from)?;
-        let items = <NeteaseSourceCatalog as LegacySourceCatalogDescriptor>::list_items(
-            &self.config,
-            &request,
-        )?;
+        let items = list_items_async(&self.config, &request).await?;
         serde_json::to_string(&items).map_err(SdkError::from)
     }
 
-    fn open_stream_json(&mut self, track_json: &str) -> SdkResult<SourceOpenResult<Self::Stream>> {
+    async fn open_stream_json(
+        &mut self,
+        track_json: &str,
+    ) -> SdkResult<SourceOpenResult<Self::Stream>> {
         let track: NeteaseTrack = serde_json::from_str(track_json).map_err(SdkError::from)?;
-        let opened = <NeteaseSourceCatalog as LegacySourceCatalogDescriptor>::open_stream(
-            &self.config,
-            &track,
-        )?;
-        let mut out = SourceOpenResult::new(opened.stream);
-        if let Some(track_meta) = opened.track_meta {
-            let raw = serde_json::to_string(&track_meta).map_err(SdkError::from)?;
-            out = out.with_track_meta_json(raw);
-        }
-        Ok(out)
+        let (stream, track_meta) = open_stream_async(&self.config, &track).await?;
+        let raw = serde_json::to_string(&track_meta).map_err(SdkError::from)?;
+        Ok(SourceOpenResult::new(stream).with_track_meta_json(raw))
     }
+}
+
+async fn list_items_async(
+    config: &NeteaseSourceConfig,
+    request: &NeteaseListRequest,
+) -> SdkResult<Vec<NeteaseListItem>> {
+    if request.action.trim().eq_ignore_ascii_case("list_playlists") {
+        return fetch_playlist_items(config, request).await;
+    }
+
+    let items = fetch_song_items(config, request).await?;
+    let level = normalize_level(request.level.as_deref(), config);
+    Ok(items
+        .into_iter()
+        .map(|item| {
+            let song_id = item.song_id;
+            let title = item
+                .title
+                .clone()
+                .filter(|v| !v.trim().is_empty())
+                .unwrap_or_else(|| format!("Song {song_id}"));
+            let ext_hint = normalize_ext_hint(item.ext_hint.as_deref());
+            let path_hint = format!("netease:{song_id}.{ext_hint}");
+            let track = NeteaseTrack {
+                song_id,
+                level: item.level.unwrap_or_else(|| level.clone()),
+                stream_url: item.stream_url,
+                ext_hint: Some(ext_hint.clone()),
+                cover: item.cover.clone(),
+                title: item.title.clone(),
+                artist: item.artist.clone(),
+                album: item.album.clone(),
+                duration_ms: item.duration_ms,
+            };
+            NeteaseListItem {
+                kind: "track".to_string(),
+                item_id: song_id.to_string(),
+                source_id: SOURCE_TYPE_ID.to_string(),
+                source_label: Some(SOURCE_DISPLAY_NAME.to_string()),
+                track_id: Some(song_id.to_string()),
+                playlist_id: None,
+                title,
+                subtitle: None,
+                artist: item.artist,
+                album: item.album,
+                duration_ms: item.duration_ms,
+                track_count: None,
+                cover: item.cover,
+                ext_hint: Some(ext_hint),
+                path_hint: Some(path_hint),
+                playlist_ref: None,
+                track: Some(track),
+            }
+        })
+        .collect())
+}
+
+async fn open_stream_async(
+    config: &NeteaseSourceConfig,
+    track: &NeteaseTrack,
+) -> SdkResult<(BytesSourceStream, NeteaseTrackMeta)> {
+    ensure_sidecar_running(config).await?;
+    let resolved = resolve_stream_url(config, track).await?;
+    let bytes = download_audio_bytes(config, &resolved.url).await?;
+    let ext_hint = guess_ext_hint(&resolved.url, resolved.ext_hint.as_deref())
+        .or_else(|| track.ext_hint.clone())
+        .unwrap_or_else(|| "mp3".to_string());
+
+    host_log(
+        StLogLevel::Debug,
+        &format!(
+            "netease open_stream song_id={} level={} ext_hint={}",
+            track.song_id, track.level, ext_hint
+        ),
+    );
+
+    let track_meta = NeteaseTrackMeta {
+        song_id: track.song_id,
+        title: track.title.clone(),
+        artist: track.artist.clone(),
+        album: track.album.clone(),
+        duration_ms: track.duration_ms,
+        level: track.level.clone(),
+        stream_url: Some(resolved.url),
+    };
+    Ok((BytesSourceStream::new(bytes), track_meta))
 }
 
 pub struct BytesSourceStream {
@@ -398,38 +370,6 @@ impl BytesSourceStream {
         Self {
             cursor: Cursor::new(bytes),
         }
-    }
-}
-
-impl LegacySourceStream for BytesSourceStream {
-    const SUPPORTS_SEEK: bool = true;
-    const SUPPORTS_TELL: bool = true;
-    const SUPPORTS_SIZE: bool = true;
-
-    fn read(&mut self, out: &mut [u8]) -> SdkResult<usize> {
-        self.cursor.read(out).map_err(SdkError::from)
-    }
-
-    fn seek(&mut self, offset: i64, whence: StSeekWhence) -> SdkResult<u64> {
-        let next = match whence {
-            StSeekWhence::Start => {
-                if offset < 0 {
-                    return Err(SdkError::invalid_arg("seek before start"));
-                }
-                SeekFrom::Start(offset as u64)
-            }
-            StSeekWhence::Current => SeekFrom::Current(offset),
-            StSeekWhence::End => SeekFrom::End(offset),
-        };
-        self.cursor.seek(next).map_err(SdkError::from)
-    }
-
-    fn tell(&mut self) -> SdkResult<u64> {
-        Ok(self.cursor.position())
-    }
-
-    fn size(&mut self) -> SdkResult<u64> {
-        Ok(self.cursor.get_ref().len() as u64)
     }
 }
 
@@ -465,7 +405,7 @@ impl SourceStream for BytesSourceStream {
     }
 }
 
-fn fetch_song_items(
+async fn fetch_song_items(
     config: &NeteaseSourceConfig,
     request: &NeteaseListRequest,
 ) -> SdkResult<Vec<SidecarSongItem>> {
@@ -474,11 +414,11 @@ fn fetch_song_items(
 
     match request.action.trim().to_ascii_lowercase().as_str() {
         "ensure_sidecar" => {
-            ensure_sidecar_running(config)?;
+            ensure_sidecar_running(config).await?;
             Ok(Vec::new())
         }
         "shutdown_sidecar" => {
-            shutdown_sidecar(config)?;
+            shutdown_sidecar(config).await?;
             Ok(Vec::new())
         }
         "playlist_tracks" => {
@@ -491,7 +431,7 @@ fn fetch_song_items(
                 ("level", normalize_level(request.level.as_deref(), config)),
             ];
             let response: SidecarSongListResponse =
-                sidecar_get_json(config, "/v1/playlist/tracks", &params)?;
+                sidecar_get_json(config, "/v1/playlist/tracks", &params).await?;
             Ok(response.items)
         }
         _ => {
@@ -506,17 +446,17 @@ fn fetch_song_items(
                 ("level", normalize_level(request.level.as_deref(), config)),
             ];
             let response: SidecarSongListResponse =
-                sidecar_get_json(config, "/v1/search", &params)?;
+                sidecar_get_json(config, "/v1/search", &params).await?;
             Ok(response.items)
         }
     }
 }
 
-fn fetch_playlist_items(
+async fn fetch_playlist_items(
     config: &NeteaseSourceConfig,
     request: &NeteaseListRequest,
 ) -> SdkResult<Vec<NeteaseListItem>> {
-    ensure_sidecar_running(config)?;
+    ensure_sidecar_running(config).await?;
     let limit = request.limit.clamp(1, 200);
     let offset = request.offset;
     host_log(
@@ -529,12 +469,10 @@ fn fetch_playlist_items(
     let params = vec![
         ("limit", limit.to_string()),
         ("offset", offset.to_string()),
-        (
-            "source_label",
-            NeteaseSourceCatalog::DISPLAY_NAME.to_string(),
-        ),
+        ("source_label", SOURCE_DISPLAY_NAME.to_string()),
     ];
-    let response: SidecarPlaylistListResponse = sidecar_get_json(config, "/v1/playlists", &params)?;
+    let response: SidecarPlaylistListResponse =
+        sidecar_get_json(config, "/v1/playlists", &params).await?;
     let count = response.items.len();
     host_log(
         StLogLevel::Info,
@@ -602,7 +540,7 @@ fn value_to_u64(value: &Value) -> Option<u64> {
     value.as_str().and_then(|s| s.trim().parse::<u64>().ok())
 }
 
-fn resolve_stream_url(
+async fn resolve_stream_url(
     config: &NeteaseSourceConfig,
     track: &NeteaseTrack,
 ) -> SdkResult<SidecarSongUrlResponse> {
@@ -619,20 +557,25 @@ fn resolve_stream_url(
         ("song_id", track.song_id.to_string()),
         ("level", normalize_level(Some(&track.level), config)),
     ];
-    sidecar_get_json(config, "/v1/song/url", &params)
+    sidecar_get_json(config, "/v1/song/url", &params).await
 }
 
-fn download_audio_bytes(config: &NeteaseSourceConfig, stream_url: &str) -> SdkResult<Vec<u8>> {
+async fn download_audio_bytes(
+    config: &NeteaseSourceConfig,
+    stream_url: &str,
+) -> SdkResult<Vec<u8>> {
     let client = sidecar_client(config)?;
     let response = client
         .get(stream_url)
         .send()
+        .await
         .map_err(|e| SdkError::msg(format!("download stream failed: {e}")))?;
     let response = response
         .error_for_status()
         .map_err(|e| SdkError::msg(format!("stream http status error: {e}")))?;
     let bytes = response
         .bytes()
+        .await
         .map_err(|e| SdkError::msg(format!("stream read failed: {e}")))?;
     if bytes.is_empty() {
         return Err(SdkError::msg("empty stream payload"));
@@ -640,12 +583,12 @@ fn download_audio_bytes(config: &NeteaseSourceConfig, stream_url: &str) -> SdkRe
     Ok(bytes.to_vec())
 }
 
-fn sidecar_get_json<T: DeserializeOwned>(
+async fn sidecar_get_json<T: DeserializeOwned>(
     config: &NeteaseSourceConfig,
     path: &str,
     params: &[(&str, String)],
 ) -> SdkResult<T> {
-    ensure_sidecar_running(config)?;
+    ensure_sidecar_running(config).await?;
     let base_url = normalize_base_url(&config.sidecar_base_url);
     let full_url = format!("{base_url}{path}");
     host_log(
@@ -656,13 +599,18 @@ fn sidecar_get_json<T: DeserializeOwned>(
         ),
     );
     let client = sidecar_client(config)?;
-    let response = client.get(&full_url).query(params).send().map_err(|e| {
-        host_log(
-            StLogLevel::Warn,
-            &format!("netease sidecar request failed path={path}: {e}"),
-        );
-        SdkError::msg(format!("sidecar request failed: {e}"))
-    })?;
+    let response = client
+        .get(&full_url)
+        .query(params)
+        .send()
+        .await
+        .map_err(|e| {
+            host_log(
+                StLogLevel::Warn,
+                &format!("netease sidecar request failed path={path}: {e}"),
+            );
+            SdkError::msg(format!("sidecar request failed: {e}"))
+        })?;
     let response = response.error_for_status().map_err(|e| {
         host_log(
             StLogLevel::Warn,
@@ -670,7 +618,7 @@ fn sidecar_get_json<T: DeserializeOwned>(
         );
         SdkError::msg(format!("sidecar status error: {e}"))
     })?;
-    response.json::<T>().map_err(|e| {
+    response.json::<T>().await.map_err(|e| {
         host_log(
             StLogLevel::Warn,
             &format!("netease sidecar json decode failed path={path}: {e}"),
@@ -679,12 +627,12 @@ fn sidecar_get_json<T: DeserializeOwned>(
     })
 }
 
-fn sidecar_client(config: &NeteaseSourceConfig) -> SdkResult<reqwest::blocking::Client> {
+fn sidecar_client(config: &NeteaseSourceConfig) -> SdkResult<reqwest::Client> {
     let timeout_ms = config.request_timeout_ms.max(500);
     sidecar_client_with_timeout(timeout_ms)
 }
 
-fn sidecar_health_client(config: &NeteaseSourceConfig) -> SdkResult<reqwest::blocking::Client> {
+fn sidecar_health_client(config: &NeteaseSourceConfig) -> SdkResult<reqwest::Client> {
     let timeout_ms = config
         .request_timeout_ms
         .max(500)
@@ -692,8 +640,8 @@ fn sidecar_health_client(config: &NeteaseSourceConfig) -> SdkResult<reqwest::blo
     sidecar_client_with_timeout(timeout_ms)
 }
 
-fn sidecar_client_with_timeout(timeout_ms: u64) -> SdkResult<reqwest::blocking::Client> {
-    reqwest::blocking::Client::builder()
+fn sidecar_client_with_timeout(timeout_ms: u64) -> SdkResult<reqwest::Client> {
+    reqwest::Client::builder()
         .timeout(Duration::from_millis(timeout_ms))
         .build()
         .map_err(|e| {
@@ -714,11 +662,11 @@ fn reset_sidecar_start_state_if_needed() {
     }
 }
 
-fn shutdown_sidecar(config: &NeteaseSourceConfig) -> SdkResult<()> {
+async fn shutdown_sidecar(config: &NeteaseSourceConfig) -> SdkResult<()> {
     let base_url = normalize_base_url(&config.sidecar_base_url);
     let full_url = format!("{base_url}/v1/admin/shutdown");
     let client = sidecar_client(config)?;
-    match client.get(&full_url).send() {
+    match client.get(&full_url).send().await {
         Ok(response) => {
             if let Err(e) = response.error_for_status_ref() {
                 host_log(
@@ -740,7 +688,7 @@ fn shutdown_sidecar(config: &NeteaseSourceConfig) -> SdkResult<()> {
     }
 }
 
-fn ensure_sidecar_running(config: &NeteaseSourceConfig) -> SdkResult<()> {
+async fn ensure_sidecar_running(config: &NeteaseSourceConfig) -> SdkResult<()> {
     let base_url = normalize_base_url(&config.sidecar_base_url);
     host_log(
         StLogLevel::Debug,
@@ -750,7 +698,7 @@ fn ensure_sidecar_running(config: &NeteaseSourceConfig) -> SdkResult<()> {
         ),
     );
 
-    match sidecar_health_result(config) {
+    match sidecar_health_result(config).await {
         Ok(true) => {
             reset_sidecar_start_state_if_needed();
             host_log(StLogLevel::Debug, "netease sidecar already healthy");
@@ -770,12 +718,10 @@ fn ensure_sidecar_running(config: &NeteaseSourceConfig) -> SdkResult<()> {
         }
     }
 
-    let lock = SIDECAR_START_LOCK.get_or_init(|| Mutex::new(()));
-    let _guard = lock
-        .lock()
-        .map_err(|_| SdkError::msg("sidecar start mutex poisoned"))?;
+    let lock = SIDECAR_START_LOCK.get_or_init(|| tokio::sync::Mutex::new(()));
+    let _guard = lock.lock().await;
 
-    match sidecar_health_result(config) {
+    match sidecar_health_result(config).await {
         Ok(true) => {
             reset_sidecar_start_state_if_needed();
             host_log(
@@ -813,7 +759,10 @@ fn ensure_sidecar_running(config: &NeteaseSourceConfig) -> SdkResult<()> {
         }
     }
 
-    let start_result = spawn_sidecar_process(config).and_then(|_| wait_sidecar_ready(config));
+    let start_result = match spawn_sidecar_process(config).await {
+        Ok(()) => wait_sidecar_ready(config).await,
+        Err(err) => Err(err),
+    };
     let mut state = state_lock
         .lock()
         .map_err(|_| SdkError::msg("sidecar start state mutex poisoned"))?;
@@ -846,12 +795,12 @@ fn ensure_sidecar_running(config: &NeteaseSourceConfig) -> SdkResult<()> {
     }
 }
 
-fn wait_sidecar_ready(config: &NeteaseSourceConfig) -> SdkResult<()> {
+async fn wait_sidecar_ready(config: &NeteaseSourceConfig) -> SdkResult<()> {
     let deadline = Instant::now() + Duration::from_secs(SIDECAR_READY_TIMEOUT_SECS);
     let mut attempts: u32 = 0;
     while Instant::now() < deadline {
         attempts = attempts.saturating_add(1);
-        match sidecar_health_result(config) {
+        match sidecar_health_result(config).await {
             Ok(true) => {
                 host_log(
                     StLogLevel::Info,
@@ -876,7 +825,7 @@ fn wait_sidecar_ready(config: &NeteaseSourceConfig) -> SdkResult<()> {
                 }
             }
         }
-        std::thread::sleep(Duration::from_millis(150));
+        sleep(Duration::from_millis(150)).await;
     }
     let base_url = normalize_base_url(&config.sidecar_base_url);
     host_log(
@@ -888,23 +837,25 @@ fn wait_sidecar_ready(config: &NeteaseSourceConfig) -> SdkResult<()> {
     Err(SdkError::msg("sidecar did not become ready in time"))
 }
 
-fn sidecar_health_result(config: &NeteaseSourceConfig) -> Result<bool, String> {
+async fn sidecar_health_result(config: &NeteaseSourceConfig) -> Result<bool, String> {
     let client = sidecar_health_client(config).map_err(|e| e.to_string())?;
     let url = format!("{}/health", normalize_base_url(&config.sidecar_base_url));
     let response = client
         .get(url)
         .send()
+        .await
         .map_err(|e| format!("request failed: {e}"))?;
     let response = response
         .error_for_status()
         .map_err(|e| format!("status error: {e}"))?;
     response
         .json::<SidecarHealthResponse>()
+        .await
         .map(|v| v.ok)
         .map_err(|e| format!("json decode failed: {e}"))
 }
 
-fn spawn_sidecar_process(config: &NeteaseSourceConfig) -> SdkResult<()> {
+async fn spawn_sidecar_process(config: &NeteaseSourceConfig) -> SdkResult<()> {
     let mut cmd = build_sidecar_command(config)?;
     let owner_pid = std::process::id();
     cmd.args(&config.sidecar_args);
@@ -924,7 +875,7 @@ fn spawn_sidecar_process(config: &NeteaseSourceConfig) -> SdkResult<()> {
         ),
     );
 
-    std::thread::sleep(Duration::from_millis(200));
+    sleep(Duration::from_millis(200)).await;
     match child.try_wait() {
         Ok(Some(status)) => {
             host_log(

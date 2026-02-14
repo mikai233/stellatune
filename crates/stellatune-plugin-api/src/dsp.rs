@@ -1,8 +1,6 @@
 use core::ffi::c_void;
 
-use crate::{StStatus, StStr};
-
-use super::StConfigUpdatePlan;
+use crate::{StConfigUpdatePlan, StStatus, StStr};
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
