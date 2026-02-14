@@ -15,7 +15,7 @@
     "node": ">=18"
   },
   "dependencies": {
-    "NeteaseCloudMusicApi": "4.28.1",
+    "NeteaseCloudMusicApi": "4.29.0",
     "express": "^5.2.1"
   },
   "devDependencies": {
