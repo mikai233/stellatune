@@ -232,50 +232,42 @@ TrackRef buildPluginSourceTrackRef({
 }
 
 class LibraryBridge {
-  LibraryBridge._(this.library);
-
-  final api.Library library;
+  LibraryBridge._();
   Stream<LibraryEvent>? _eventBroadcast;
 
   static Future<LibraryBridge> create({required String dbPath}) async {
-    final library = await api.createLibrary(dbPath: dbPath);
-    return LibraryBridge._(library);
+    await api.createLibrary(dbPath: dbPath);
+    return LibraryBridge._();
   }
 
-  Stream<LibraryEvent> events() => _eventBroadcast ??= api
-      .libraryEvents(library_: library)
-      .asBroadcastStream();
+  Stream<LibraryEvent> events() =>
+      _eventBroadcast ??= api.libraryEvents().asBroadcastStream();
 
-  Future<void> addRoot(String path) =>
-      api.libraryAddRoot(library_: library, path: path);
+  Future<void> addRoot(String path) => api.libraryAddRoot(path: path);
 
-  Future<void> removeRoot(String path) =>
-      api.libraryRemoveRoot(library_: library, path: path);
+  Future<void> removeRoot(String path) => api.libraryRemoveRoot(path: path);
 
-  Future<void> deleteFolder(String path) =>
-      api.libraryDeleteFolder(library_: library, path: path);
+  Future<void> deleteFolder(String path) => api.libraryDeleteFolder(path: path);
 
   Future<void> restoreFolder(String path) =>
-      api.libraryRestoreFolder(library_: library, path: path);
+      api.libraryRestoreFolder(path: path);
 
-  Future<void> listExcludedFolders() =>
-      api.libraryListExcludedFolders(library_: library);
+  Future<List<String>> listExcludedFolders() => api.libraryListExcludedFolders();
 
-  Future<void> scanAll() => api.libraryScanAll(library_: library);
-  Future<void> scanAllForce() => api.libraryScanAllForce(library_: library);
+  Future<void> scanAll() => api.libraryScanAll();
+  Future<void> scanAllForce() => api.libraryScanAllForce();
 
-  Future<void> listRoots() => api.libraryListRoots(library_: library);
+  Future<List<String>> listRoots() => api.libraryListRoots();
 
-  Future<void> listFolders() => api.libraryListFolders(library_: library);
+  Future<List<String>> listFolders() => api.libraryListFolders();
 
-  Future<void> listTracks({
+  Future<List<TrackLite>> listTracks({
     required String folder,
     required bool recursive,
     required String query,
     int limit = 5000,
     int offset = 0,
   }) => api.libraryListTracks(
-    library_: library,
     folder: folder,
     recursive: recursive,
     query: query,
@@ -283,32 +275,26 @@ class LibraryBridge {
     offset: offset,
   );
 
-  Future<void> search(String query, {int limit = 200, int offset = 0}) =>
-      api.librarySearch(
-        library_: library,
-        query: query,
-        limit: limit,
-        offset: offset,
-      );
+  Future<List<TrackLite>> search(String query, {int limit = 200, int offset = 0}) =>
+      api.librarySearch(query: query, limit: limit, offset: offset);
 
-  Future<void> listPlaylists() => api.libraryListPlaylists(library_: library);
+  Future<List<PlaylistLite>> listPlaylists() => api.libraryListPlaylists();
 
   Future<void> createPlaylist(String name) =>
-      api.libraryCreatePlaylist(library_: library, name: name);
+      api.libraryCreatePlaylist(name: name);
 
   Future<void> renamePlaylist({required int id, required String name}) =>
-      api.libraryRenamePlaylist(library_: library, id: id, name: name);
+      api.libraryRenamePlaylist(id: id, name: name);
 
   Future<void> deletePlaylist({required int id}) =>
-      api.libraryDeletePlaylist(library_: library, id: id);
+      api.libraryDeletePlaylist(id: id);
 
-  Future<void> listPlaylistTracks({
+  Future<List<TrackLite>> listPlaylistTracks({
     required int playlistId,
     required String query,
     int limit = 5000,
     int offset = 0,
   }) => api.libraryListPlaylistTracks(
-    library_: library,
     playlistId: playlistId,
     query: query,
     limit: limit,
@@ -318,17 +304,12 @@ class LibraryBridge {
   Future<void> addTrackToPlaylist({
     required int playlistId,
     required int trackId,
-  }) => api.libraryAddTrackToPlaylist(
-    library_: library,
-    playlistId: playlistId,
-    trackId: trackId,
-  );
+  }) => api.libraryAddTrackToPlaylist(playlistId: playlistId, trackId: trackId);
 
   Future<void> addTracksToPlaylist({
     required int playlistId,
     required List<int> trackIds,
   }) => api.libraryAddTracksToPlaylist(
-    library_: library,
     playlistId: playlistId,
     trackIds: frb.Int64List.fromList(trackIds),
   );
@@ -337,7 +318,6 @@ class LibraryBridge {
     required int playlistId,
     required int trackId,
   }) => api.libraryRemoveTrackFromPlaylist(
-    library_: library,
     playlistId: playlistId,
     trackId: trackId,
   );
@@ -346,7 +326,6 @@ class LibraryBridge {
     required int playlistId,
     required List<int> trackIds,
   }) => api.libraryRemoveTracksFromPlaylist(
-    library_: library,
     playlistId: playlistId,
     trackIds: frb.Int64List.fromList(trackIds),
   );
@@ -356,32 +335,30 @@ class LibraryBridge {
     required int trackId,
     required int newIndex,
   }) => api.libraryMoveTrackInPlaylist(
-    library_: library,
     playlistId: playlistId,
     trackId: trackId,
     newIndex: newIndex,
   );
 
-  Future<void> listLikedTrackIds() =>
-      api.libraryListLikedTrackIds(library_: library);
+  Future<List<int>> listLikedTrackIds() async =>
+      (await api.libraryListLikedTrackIds()).map((v) => v.toInt()).toList();
 
-  Future<void> setTrackLiked({required int trackId, required bool liked}) => api
-      .librarySetTrackLiked(library_: library, trackId: trackId, liked: liked);
+  Future<void> setTrackLiked({required int trackId, required bool liked}) =>
+      api.librarySetTrackLiked(trackId: trackId, liked: liked);
 
   Future<void> pluginDisable({required String pluginId}) =>
-      api.libraryPluginDisable(library_: library, pluginId: pluginId);
+      api.libraryPluginDisable(pluginId: pluginId);
 
   Future<void> pluginEnable({required String pluginId}) =>
-      api.libraryPluginEnable(library_: library, pluginId: pluginId);
+      api.libraryPluginEnable(pluginId: pluginId);
 
-  Future<void> pluginApplyState() =>
-      api.libraryPluginApplyState(library_: library);
+  Future<void> pluginApplyState() => api.libraryPluginApplyState();
 
   Future<String> pluginApplyStateStatusJson() =>
-      api.libraryPluginApplyStateStatusJson(library_: library);
+      api.libraryPluginApplyStateStatusJson();
 
   Future<List<String>> listDisabledPluginIds() =>
-      api.libraryListDisabledPluginIds(library_: library);
+      api.libraryListDisabledPluginIds();
 }
 
 class DlnaBridge {

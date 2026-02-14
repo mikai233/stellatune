@@ -23,9 +23,6 @@ abstract class StellatuneApiApiImplPlatform
     required super.portManager,
   });
 
-  CrossPlatformFinalizerArg get rust_arc_decrement_strong_count_LibraryPtr =>
-      wire._rust_arc_decrement_strong_count_RustOpaque_LibraryPtr;
-
   CrossPlatformFinalizerArg
   get rust_arc_decrement_strong_count_RequestIdPtr => wire
       ._rust_arc_decrement_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRequestIdPtr;
@@ -44,9 +41,6 @@ abstract class StellatuneApiApiImplPlatform
   dco_decode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRequestId(
     dynamic raw,
   );
-
-  @protected
-  Library dco_decode_RustOpaque_Library(dynamic raw);
 
   @protected
   RequestId
@@ -314,9 +308,6 @@ abstract class StellatuneApiApiImplPlatform
   sse_decode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRequestId(
     SseDeserializer deserializer,
   );
-
-  @protected
-  Library sse_decode_RustOpaque_Library(SseDeserializer deserializer);
 
   @protected
   RequestId
@@ -627,9 +618,6 @@ abstract class StellatuneApiApiImplPlatform
     RequestId self,
     SseSerializer serializer,
   );
-
-  @protected
-  void sse_encode_RustOpaque_Library(Library self, SseSerializer serializer);
 
   @protected
   void
@@ -1015,34 +1003,6 @@ class StellatuneApiWire implements BaseWire {
   /// The symbols are looked up in [dynamicLibrary].
   StellatuneApiWire(ffi.DynamicLibrary dynamicLibrary)
     : _lookup = dynamicLibrary.lookup;
-
-  void rust_arc_increment_strong_count_RustOpaque_Library(
-    ffi.Pointer<ffi.Void> ptr,
-  ) {
-    return _rust_arc_increment_strong_count_RustOpaque_Library(ptr);
-  }
-
-  late final _rust_arc_increment_strong_count_RustOpaque_LibraryPtr =
-      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Pointer<ffi.Void>)>>(
-        'frbgen_stellatune_rust_arc_increment_strong_count_RustOpaque_Library',
-      );
-  late final _rust_arc_increment_strong_count_RustOpaque_Library =
-      _rust_arc_increment_strong_count_RustOpaque_LibraryPtr
-          .asFunction<void Function(ffi.Pointer<ffi.Void>)>();
-
-  void rust_arc_decrement_strong_count_RustOpaque_Library(
-    ffi.Pointer<ffi.Void> ptr,
-  ) {
-    return _rust_arc_decrement_strong_count_RustOpaque_Library(ptr);
-  }
-
-  late final _rust_arc_decrement_strong_count_RustOpaque_LibraryPtr =
-      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Pointer<ffi.Void>)>>(
-        'frbgen_stellatune_rust_arc_decrement_strong_count_RustOpaque_Library',
-      );
-  late final _rust_arc_decrement_strong_count_RustOpaque_Library =
-      _rust_arc_decrement_strong_count_RustOpaque_LibraryPtr
-          .asFunction<void Function(ffi.Pointer<ffi.Void>)>();
 
   void
   rust_arc_increment_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRequestId(

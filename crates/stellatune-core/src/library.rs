@@ -102,22 +102,7 @@ pub enum LibraryCommand {
 #[flutter_rust_bridge::frb(non_opaque)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum LibraryEvent {
-    Roots {
-        paths: Vec<String>,
-    },
-    Folders {
-        paths: Vec<String>,
-    },
-    ExcludedFolders {
-        paths: Vec<String>,
-    },
     Changed,
-    Tracks {
-        folder: String,
-        recursive: bool,
-        query: String,
-        items: Vec<TrackLite>,
-    },
     ScanProgress {
         scanned: i64,
         updated: i64,
@@ -130,21 +115,6 @@ pub enum LibraryEvent {
         updated: i64,
         skipped: i64,
         errors: i64,
-    },
-    SearchResult {
-        query: String,
-        items: Vec<TrackLite>,
-    },
-    Playlists {
-        items: Vec<PlaylistLite>,
-    },
-    PlaylistTracks {
-        playlist_id: i64,
-        query: String,
-        items: Vec<TrackLite>,
-    },
-    LikedTrackIds {
-        track_ids: Vec<i64>,
     },
     Error {
         message: String,

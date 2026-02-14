@@ -340,9 +340,6 @@ mod debug_metrics {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum CommandResponse {
     Ack,
-    OutputDevices {
-        devices: Vec<stellatune_core::AudioDevice>,
-    },
 }
 
 #[derive(Clone)]
@@ -354,6 +351,18 @@ pub struct EngineHandle {
 }
 
 impl EngineHandle {
+    fn map_control_call_error(err: stellatune_runtime::thread_actor::CallError) -> String {
+        match err {
+            stellatune_runtime::thread_actor::CallError::MailboxClosed
+            | stellatune_runtime::thread_actor::CallError::ActorStopped => {
+                "control thread exited".to_string()
+            }
+            stellatune_runtime::thread_actor::CallError::Timeout => {
+                "control command timed out".to_string()
+            }
+        }
+    }
+
     async fn send_engine_query_request(
         &self,
         build: impl FnOnce(tokio::sync::oneshot::Sender<Result<String, String>>) -> EngineCtrl,
@@ -375,61 +384,104 @@ impl EngineHandle {
                 ENGINE_QUERY_TIMEOUT,
             )
             .await
-            .map_err(|err| match err {
-                stellatune_runtime::thread_actor::CallError::MailboxClosed
-                | stellatune_runtime::thread_actor::CallError::ActorStopped => {
-                    "control thread exited".to_string()
-                }
-                stellatune_runtime::thread_actor::CallError::Timeout => {
-                    "control command timed out".to_string()
-                }
-            })?
+            .map_err(Self::map_control_call_error)?
     }
 
     pub async fn dispatch_command(&self, cmd: Command) -> Result<(), String> {
-        Self::expect_ack(self.send_command_async(cmd).await?)
-    }
-
-    fn expect_ack(resp: CommandResponse) -> Result<(), String> {
-        match resp {
-            CommandResponse::Ack => Ok(()),
-            CommandResponse::OutputDevices { .. } => {
-                Err("unexpected command response payload".to_string())
+        match cmd {
+            Command::SwitchTrackRef { track, lazy } => self.switch_track_ref(track, lazy).await,
+            Command::Play => self.play().await,
+            Command::Pause => self.pause().await,
+            Command::SeekMs { position_ms } => self.seek_ms(position_ms).await,
+            Command::Stop => self.stop().await,
+            Command::SetVolume { volume } => self.set_volume(volume).await,
+            Command::SetOutputDevice { backend, device_id } => {
+                self.set_output_device(backend, device_id).await
             }
+            Command::SetOutputOptions {
+                match_track_sample_rate,
+                gapless_playback,
+                seek_track_fade,
+            } => {
+                self.set_output_options(match_track_sample_rate, gapless_playback, seek_track_fade)
+                    .await
+            }
+            Command::SetOutputSinkRoute { route } => self.set_output_sink_route(route).await,
+            Command::ClearOutputSinkRoute => self.clear_output_sink_route().await,
+            Command::PreloadTrack { path, position_ms } => {
+                self.preload_track(path, position_ms).await
+            }
+            Command::PreloadTrackRef { track, position_ms } => {
+                self.preload_track_ref(track, position_ms).await
+            }
+            Command::RefreshDevices => self.refresh_devices().await.map(|_| ()),
+            Command::Shutdown => self.shutdown().await,
+            _ => Self::expect_ack(self.send_command_async(cmd).await?),
         }
     }
 
+    fn expect_ack(_resp: CommandResponse) -> Result<(), String> {
+        Ok(())
+    }
+
     pub async fn switch_track_ref(&self, track: TrackRef, lazy: bool) -> Result<(), String> {
-        Self::expect_ack(
-            self.send_command_async(Command::SwitchTrackRef { track, lazy })
-                .await?,
-        )
+        self.actor_ref
+            .call_async(
+                control_actor::handlers::command::messages::SwitchTrackRefMessage { track, lazy },
+                ENGINE_QUERY_TIMEOUT,
+            )
+            .await
+            .map_err(Self::map_control_call_error)?
     }
 
     pub async fn play(&self) -> Result<(), String> {
-        Self::expect_ack(self.send_command_async(Command::Play).await?)
+        self.actor_ref
+            .call_async(
+                control_actor::handlers::command::messages::PlayMessage,
+                ENGINE_QUERY_TIMEOUT,
+            )
+            .await
+            .map_err(Self::map_control_call_error)?
     }
 
     pub async fn pause(&self) -> Result<(), String> {
-        Self::expect_ack(self.send_command_async(Command::Pause).await?)
+        self.actor_ref
+            .call_async(
+                control_actor::handlers::command::messages::PauseMessage,
+                ENGINE_QUERY_TIMEOUT,
+            )
+            .await
+            .map_err(Self::map_control_call_error)?
     }
 
     pub async fn seek_ms(&self, position_ms: u64) -> Result<(), String> {
-        Self::expect_ack(
-            self.send_command_async(Command::SeekMs { position_ms })
-                .await?,
-        )
+        self.actor_ref
+            .call_async(
+                control_actor::handlers::command::messages::SeekMsMessage { position_ms },
+                ENGINE_QUERY_TIMEOUT,
+            )
+            .await
+            .map_err(Self::map_control_call_error)?
     }
 
     pub async fn set_volume(&self, volume: f32) -> Result<(), String> {
-        Self::expect_ack(
-            self.send_command_async(Command::SetVolume { volume })
-                .await?,
-        )
+        self.actor_ref
+            .call_async(
+                control_actor::handlers::command::messages::SetVolumeMessage { volume },
+                ENGINE_QUERY_TIMEOUT,
+            )
+            .await
+            .map_err(Self::map_control_call_error)?
     }
 
     pub async fn stop(&self) -> Result<(), String> {
-        Self::expect_ack(self.send_command_async(Command::Stop).await?)
+        self.actor_ref
+            .call_async(
+                control_actor::handlers::command::messages::StopMessage,
+                ENGINE_QUERY_TIMEOUT,
+            )
+            .await
+            .map_err(Self::map_control_call_error)?
     }
 
     pub async fn set_output_device(
@@ -437,10 +489,16 @@ impl EngineHandle {
         backend: stellatune_core::AudioBackend,
         device_id: Option<String>,
     ) -> Result<(), String> {
-        Self::expect_ack(
-            self.send_command_async(Command::SetOutputDevice { backend, device_id })
-                .await?,
-        )
+        self.actor_ref
+            .call_async(
+                control_actor::handlers::command::messages::SetOutputDeviceMessage {
+                    backend,
+                    device_id,
+                },
+                ENGINE_QUERY_TIMEOUT,
+            )
+            .await
+            .map_err(Self::map_control_call_error)?
     }
 
     pub async fn set_output_options(
@@ -449,45 +507,87 @@ impl EngineHandle {
         gapless_playback: bool,
         seek_track_fade: bool,
     ) -> Result<(), String> {
-        Self::expect_ack(
-            self.send_command_async(Command::SetOutputOptions {
-                match_track_sample_rate,
-                gapless_playback,
-                seek_track_fade,
-            })
-            .await?,
-        )
+        self.actor_ref
+            .call_async(
+                control_actor::handlers::command::messages::SetOutputOptionsMessage {
+                    match_track_sample_rate,
+                    gapless_playback,
+                    seek_track_fade,
+                },
+                ENGINE_QUERY_TIMEOUT,
+            )
+            .await
+            .map_err(Self::map_control_call_error)?
     }
 
     pub async fn set_output_sink_route(
         &self,
         route: stellatune_core::OutputSinkRoute,
     ) -> Result<(), String> {
-        Self::expect_ack(
-            self.send_command_async(Command::SetOutputSinkRoute { route })
-                .await?,
-        )
+        self.actor_ref
+            .call_async(
+                control_actor::handlers::command::messages::SetOutputSinkRouteMessage { route },
+                ENGINE_QUERY_TIMEOUT,
+            )
+            .await
+            .map_err(Self::map_control_call_error)?
     }
 
     pub async fn clear_output_sink_route(&self) -> Result<(), String> {
-        Self::expect_ack(
-            self.send_command_async(Command::ClearOutputSinkRoute)
-                .await?,
-        )
+        self.actor_ref
+            .call_async(
+                control_actor::handlers::command::messages::ClearOutputSinkRouteMessage,
+                ENGINE_QUERY_TIMEOUT,
+            )
+            .await
+            .map_err(Self::map_control_call_error)?
+    }
+
+    async fn preload_track(&self, path: String, position_ms: u64) -> Result<(), String> {
+        self.actor_ref
+            .call_async(
+                control_actor::handlers::command::messages::PreloadTrackMessage {
+                    path,
+                    position_ms,
+                },
+                ENGINE_QUERY_TIMEOUT,
+            )
+            .await
+            .map_err(Self::map_control_call_error)?
     }
 
     pub async fn preload_track_ref(&self, track: TrackRef, position_ms: u64) -> Result<(), String> {
-        Self::expect_ack(
-            self.send_command_async(Command::PreloadTrackRef { track, position_ms })
-                .await?,
-        )
+        self.actor_ref
+            .call_async(
+                control_actor::handlers::command::messages::PreloadTrackRefMessage {
+                    track,
+                    position_ms,
+                },
+                ENGINE_QUERY_TIMEOUT,
+            )
+            .await
+            .map_err(Self::map_control_call_error)?
     }
 
     pub async fn refresh_devices(&self) -> Result<Vec<stellatune_core::AudioDevice>, String> {
-        match self.send_command_async(Command::RefreshDevices).await? {
-            CommandResponse::OutputDevices { devices } => Ok(devices),
-            CommandResponse::Ack => Err("unexpected command response payload".to_string()),
-        }
+        self.actor_ref
+            .call_async(
+                control_actor::handlers::command::messages::RefreshDevicesMessage,
+                ENGINE_QUERY_TIMEOUT,
+            )
+            .await
+            .map_err(Self::map_control_call_error)?
+    }
+
+    async fn shutdown(&self) -> Result<(), String> {
+        self.actor_ref
+            .call_async(
+                control_actor::handlers::command::messages::ShutdownMessage,
+                ENGINE_QUERY_TIMEOUT,
+            )
+            .await
+            .map_err(Self::map_control_call_error)??;
+        Ok(())
     }
 
     pub fn set_dsp_chain(&self, chain: Vec<stellatune_core::DspChainItem>) {

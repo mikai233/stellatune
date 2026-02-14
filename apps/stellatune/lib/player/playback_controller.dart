@@ -234,93 +234,36 @@ class PlaybackController extends Notifier<PlaybackState> {
     );
 
     final bridge = ref.read(libraryBridgeProvider);
-    final completer = Completer<List<QueueItem>?>();
-
-    StreamSubscription? sub;
-    sub = bridge.events().listen((event) {
-      if (completer.isCompleted) return;
-      event.maybeWhen(
-        tracks: (folder, recursive, query, items) {
-          final isFolderMatch =
-              source.type == QueueSourceType.folder &&
-              source.folderPath == folder &&
-              source.includeSubfolders == recursive;
-          final isAllMatch =
-              source.type == QueueSourceType.all &&
-              folder.isEmpty &&
-              recursive == true;
-
-          if ((isFolderMatch || isAllMatch) && query.isEmpty) {
-            logger.d('restore queue: received ${items.length} tracks');
-            completer.complete(
-              items
-                  .map(
-                    (t) => QueueItem(
-                      track: _localTrackRef(t.path),
-                      id: t.id.toInt() >= 0 ? t.id.toInt() : null,
-                      title: t.title,
-                      artist: t.artist,
-                      album: t.album,
-                      durationMs: t.durationMs?.toInt(),
-                    ),
-                  )
-                  .toList(),
-            );
-          }
-        },
-        playlistTracks: (playlistId, query, items) {
-          if (source.type == QueueSourceType.playlist &&
-              source.playlistId == playlistId &&
-              query.isEmpty) {
-            logger.d('restore queue: received ${items.length} playlist tracks');
-            completer.complete(
-              items
-                  .map(
-                    (t) => QueueItem(
-                      track: _localTrackRef(t.path),
-                      id: t.id.toInt() >= 0 ? t.id.toInt() : null,
-                      title: t.title,
-                      artist: t.artist,
-                      album: t.album,
-                      durationMs: t.durationMs?.toInt(),
-                    ),
-                  )
-                  .toList(),
-            );
-          }
-        },
-        error: (msg) {
-          logger.e('restore queue error event: $msg');
-          if (!completer.isCompleted) completer.complete(null);
-        },
-        orElse: () {},
-      );
-    });
 
     try {
-      if (source.type == QueueSourceType.folder) {
-        await bridge.listTracks(
-          folder: source.folderPath ?? '',
-          recursive: source.includeSubfolders,
-          query: '',
-        );
-      } else if (source.type == QueueSourceType.playlist) {
-        await bridge.listPlaylistTracks(
-          playlistId: source.playlistId ?? 0,
-          query: '',
-        );
-      } else if (source.type == QueueSourceType.all) {
-        await bridge.listTracks(folder: '', recursive: true, query: '');
-      }
+      final tracks = source.type == QueueSourceType.folder
+          ? await bridge.listTracks(
+              folder: source.folderPath ?? '',
+              recursive: source.includeSubfolders,
+              query: '',
+            )
+          : source.type == QueueSourceType.playlist
+          ? await bridge.listPlaylistTracks(
+              playlistId: source.playlistId ?? 0,
+              query: '',
+            )
+          : await bridge.listTracks(folder: '', recursive: true, query: '');
+      logger.d('restore queue: fetched ${tracks.length} tracks');
 
-      final items = await completer.future.timeout(
-        const Duration(seconds: 10),
-        onTimeout: () {
-          logger.w('restore queue timed out waiting for events');
-          return null;
-        },
-      );
-      if (items == null || items.isEmpty) {
+      final items = tracks
+          .map(
+            (t) => QueueItem(
+              track: _localTrackRef(t.path),
+              id: t.id.toInt() >= 0 ? t.id.toInt() : null,
+              title: t.title,
+              artist: t.artist,
+              album: t.album,
+              durationMs: t.durationMs?.toInt(),
+            ),
+          )
+          .toList();
+
+      if (items.isEmpty) {
         logger.d('restore queue failed: no items');
         return false;
       }
@@ -350,8 +293,6 @@ class PlaybackController extends Notifier<PlaybackState> {
     } catch (e) {
       logger.e('restore queue failed with exception', error: e);
       return false;
-    } finally {
-      unawaited(sub.cancel());
     }
   }
 

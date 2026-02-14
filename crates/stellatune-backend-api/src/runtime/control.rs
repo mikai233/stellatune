@@ -25,14 +25,14 @@ pub(super) fn control_wait_kind(request: &PluginControlRequest) -> ControlWaitKi
             _ => ControlWaitKind::Immediate,
         },
         PluginControlRequest::Library { control, .. } => match control.command() {
-            LibraryControlCommand::ListRoots => ControlWaitKind::LibraryRoots,
-            LibraryControlCommand::ListFolders => ControlWaitKind::LibraryFolders,
-            LibraryControlCommand::ListExcludedFolders => ControlWaitKind::LibraryExcludedFolders,
-            LibraryControlCommand::ListTracks => ControlWaitKind::LibraryTracks,
-            LibraryControlCommand::Search => ControlWaitKind::LibrarySearchResult,
-            LibraryControlCommand::ListPlaylists => ControlWaitKind::LibraryPlaylists,
-            LibraryControlCommand::ListPlaylistTracks => ControlWaitKind::LibraryPlaylistTracks,
-            LibraryControlCommand::ListLikedTrackIds => ControlWaitKind::LibraryLikedTrackIds,
+            LibraryControlCommand::ListRoots
+            | LibraryControlCommand::ListFolders
+            | LibraryControlCommand::ListExcludedFolders
+            | LibraryControlCommand::ListTracks
+            | LibraryControlCommand::Search
+            | LibraryControlCommand::ListPlaylists
+            | LibraryControlCommand::ListPlaylistTracks
+            | LibraryControlCommand::ListLikedTrackIds => ControlWaitKind::Immediate,
             LibraryControlCommand::ScanAll | LibraryControlCommand::ScanAllForce => {
                 ControlWaitKind::LibraryScanFinished
             }
@@ -71,37 +71,10 @@ pub(super) fn is_wait_satisfied_by_player(wait: ControlWaitKind, event: &Event) 
 pub(super) fn is_wait_satisfied_by_library(wait: ControlWaitKind, event: &LibraryEvent) -> bool {
     matches!(
         (wait, event),
-        (ControlWaitKind::LibraryRoots, LibraryEvent::Roots { .. })
-            | (
-                ControlWaitKind::LibraryFolders,
-                LibraryEvent::Folders { .. }
-            )
-            | (
-                ControlWaitKind::LibraryExcludedFolders,
-                LibraryEvent::ExcludedFolders { .. }
-            )
-            | (ControlWaitKind::LibraryTracks, LibraryEvent::Tracks { .. })
-            | (
-                ControlWaitKind::LibrarySearchResult,
-                LibraryEvent::SearchResult { .. }
-            )
-            | (
-                ControlWaitKind::LibraryPlaylists,
-                LibraryEvent::Playlists { .. }
-            )
-            | (
-                ControlWaitKind::LibraryPlaylistTracks,
-                LibraryEvent::PlaylistTracks { .. }
-            )
-            | (
-                ControlWaitKind::LibraryLikedTrackIds,
-                LibraryEvent::LikedTrackIds { .. }
-            )
-            | (
-                ControlWaitKind::LibraryScanFinished,
-                LibraryEvent::ScanFinished { .. }
-            )
-            | (ControlWaitKind::LibraryChanged, LibraryEvent::Changed)
+        (
+            ControlWaitKind::LibraryScanFinished,
+            LibraryEvent::ScanFinished { .. }
+        ) | (ControlWaitKind::LibraryChanged, LibraryEvent::Changed)
     )
 }
 

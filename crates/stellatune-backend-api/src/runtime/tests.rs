@@ -89,10 +89,7 @@ fn control_wait_kind_maps_common_commands() {
         "command": "search"
     }))
     .expect("parse");
-    assert_eq!(
-        control_wait_kind(&search),
-        ControlWaitKind::LibrarySearchResult
-    );
+    assert_eq!(control_wait_kind(&search), ControlWaitKind::Immediate);
 }
 
 #[test]

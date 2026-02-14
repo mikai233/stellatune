@@ -5,7 +5,7 @@ use tokio::sync::broadcast;
 
 use crate::runtime::{init_tracing, register_plugin_runtime_library};
 
-use stellatune_core::{LibraryCommand, LibraryEvent};
+use stellatune_core::{LibraryCommand, LibraryEvent, PlaylistLite, TrackLite};
 use stellatune_library::{LibraryHandle, start_library};
 
 pub struct LibraryService {
@@ -58,8 +58,8 @@ impl LibraryService {
         self.dispatch(LibraryCommand::RestoreFolder { path }).await
     }
 
-    pub async fn list_excluded_folders(&self) -> Result<()> {
-        self.dispatch(LibraryCommand::ListExcludedFolders).await
+    pub async fn list_excluded_folders(&self) -> Result<Vec<String>> {
+        self.handle.list_excluded_folders().await
     }
 
     pub async fn scan_all(&self) -> Result<()> {
@@ -70,12 +70,12 @@ impl LibraryService {
         self.dispatch(LibraryCommand::ScanAllForce).await
     }
 
-    pub async fn list_roots(&self) -> Result<()> {
-        self.dispatch(LibraryCommand::ListRoots).await
+    pub async fn list_roots(&self) -> Result<Vec<String>> {
+        self.handle.list_roots().await
     }
 
-    pub async fn list_folders(&self) -> Result<()> {
-        self.dispatch(LibraryCommand::ListFolders).await
+    pub async fn list_folders(&self) -> Result<Vec<String>> {
+        self.handle.list_folders().await
     }
 
     pub async fn list_tracks(
@@ -85,28 +85,18 @@ impl LibraryService {
         query: String,
         limit: i64,
         offset: i64,
-    ) -> Result<()> {
-        self.dispatch(LibraryCommand::ListTracks {
-            folder,
-            recursive,
-            query,
-            limit,
-            offset,
-        })
-        .await
+    ) -> Result<Vec<TrackLite>> {
+        self.handle
+            .list_tracks(folder, recursive, query, limit, offset)
+            .await
     }
 
-    pub async fn search(&self, query: String, limit: i64, offset: i64) -> Result<()> {
-        self.dispatch(LibraryCommand::Search {
-            query,
-            limit,
-            offset,
-        })
-        .await
+    pub async fn search(&self, query: String, limit: i64, offset: i64) -> Result<Vec<TrackLite>> {
+        self.handle.search(query, limit, offset).await
     }
 
-    pub async fn list_playlists(&self) -> Result<()> {
-        self.dispatch(LibraryCommand::ListPlaylists).await
+    pub async fn list_playlists(&self) -> Result<Vec<PlaylistLite>> {
+        self.handle.list_playlists().await
     }
 
     pub async fn create_playlist(&self, name: String) -> Result<()> {
@@ -128,14 +118,10 @@ impl LibraryService {
         query: String,
         limit: i64,
         offset: i64,
-    ) -> Result<()> {
-        self.dispatch(LibraryCommand::ListPlaylistTracks {
-            playlist_id,
-            query,
-            limit,
-            offset,
-        })
-        .await
+    ) -> Result<Vec<TrackLite>> {
+        self.handle
+            .list_playlist_tracks(playlist_id, query, limit, offset)
+            .await
     }
 
     pub async fn add_track_to_playlist(&self, playlist_id: i64, track_id: i64) -> Result<()> {
@@ -192,8 +178,8 @@ impl LibraryService {
         .await
     }
 
-    pub async fn list_liked_track_ids(&self) -> Result<()> {
-        self.dispatch(LibraryCommand::ListLikedTrackIds).await
+    pub async fn list_liked_track_ids(&self) -> Result<Vec<i64>> {
+        self.handle.list_liked_track_ids().await
     }
 
     pub async fn set_track_liked(&self, track_id: i64, liked: bool) -> Result<()> {

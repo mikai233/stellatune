@@ -169,9 +169,18 @@ impl LibraryWorker {
             LibraryCommand::RemoveRoot { path } => self.remove_root(path).await,
             LibraryCommand::DeleteFolder { path } => self.delete_folder(path).await,
             LibraryCommand::RestoreFolder { path } => self.restore_folder(path).await,
-            LibraryCommand::ListExcludedFolders => self.list_excluded_folders().await,
-            LibraryCommand::ListRoots => self.list_roots().await,
-            LibraryCommand::ListFolders => self.list_folders().await,
+            LibraryCommand::ListExcludedFolders => {
+                let _ = self.list_excluded_folders().await?;
+                Ok(())
+            }
+            LibraryCommand::ListRoots => {
+                let _ = self.list_roots().await?;
+                Ok(())
+            }
+            LibraryCommand::ListFolders => {
+                let _ = self.list_folders().await?;
+                Ok(())
+            }
             LibraryCommand::ListTracks {
                 folder,
                 recursive,
@@ -179,8 +188,10 @@ impl LibraryWorker {
                 limit,
                 offset,
             } => {
-                self.list_tracks(folder, recursive, query, limit, offset)
-                    .await
+                let _ = self
+                    .list_tracks(folder, recursive, query, limit, offset)
+                    .await?;
+                Ok(())
             }
             LibraryCommand::ScanAll => self.scan_all(false).await,
             LibraryCommand::ScanAllForce => self.scan_all(true).await,
@@ -188,8 +199,14 @@ impl LibraryWorker {
                 query,
                 limit,
                 offset,
-            } => self.search(query, limit, offset).await,
-            LibraryCommand::ListPlaylists => self.list_playlists().await,
+            } => {
+                let _ = self.search(query, limit, offset).await?;
+                Ok(())
+            }
+            LibraryCommand::ListPlaylists => {
+                let _ = self.list_playlists().await?;
+                Ok(())
+            }
             LibraryCommand::CreatePlaylist { name } => self.create_playlist(name).await,
             LibraryCommand::RenamePlaylist { id, name } => self.rename_playlist(id, name).await,
             LibraryCommand::DeletePlaylist { id } => self.delete_playlist(id).await,
@@ -199,8 +216,10 @@ impl LibraryWorker {
                 limit,
                 offset,
             } => {
-                self.list_playlist_tracks(playlist_id, query, limit, offset)
-                    .await
+                let _ = self
+                    .list_playlist_tracks(playlist_id, query, limit, offset)
+                    .await?;
+                Ok(())
             }
             LibraryCommand::AddTrackToPlaylist {
                 playlist_id,
@@ -229,7 +248,10 @@ impl LibraryWorker {
                 self.move_track_in_playlist(playlist_id, track_id, new_index)
                     .await
             }
-            LibraryCommand::ListLikedTrackIds => self.list_liked_track_ids().await,
+            LibraryCommand::ListLikedTrackIds => {
+                let _ = self.list_liked_track_ids().await?;
+                Ok(())
+            }
             LibraryCommand::SetTrackLiked { track_id, liked } => {
                 self.set_track_liked(track_id, liked).await
             }
@@ -237,7 +259,7 @@ impl LibraryWorker {
         }
     }
 
-    async fn list_roots(&self) -> Result<()> {
+    pub(crate) async fn list_roots(&self) -> Result<Vec<String>> {
         let roots_raw: Vec<String> = sqlx::query_scalar!(
             r#"
             SELECT path
@@ -254,11 +276,10 @@ impl LibraryWorker {
             .map(|p| normalize_path_str(&p))
             .filter(|p| !p.is_empty())
             .collect::<Vec<_>>();
-        self.events.emit(LibraryEvent::Roots { paths: roots });
-        Ok(())
+        Ok(roots)
     }
 
-    async fn list_folders(&self) -> Result<()> {
+    pub(crate) async fn list_folders(&self) -> Result<Vec<String>> {
         // Distinct directories with at least one track.
         let mut dirs: Vec<String> = sqlx::query_scalar!(
             r#"
@@ -304,13 +325,10 @@ impl LibraryWorker {
             }
         }
 
-        self.events.emit(LibraryEvent::Folders {
-            paths: set.into_iter().collect(),
-        });
-        Ok(())
+        Ok(set.into_iter().collect())
     }
 
-    async fn list_excluded_folders(&self) -> Result<()> {
+    pub(crate) async fn list_excluded_folders(&self) -> Result<Vec<String>> {
         let rows: Vec<String> = sqlx::query_scalar(
             r#"
             SELECT path
@@ -327,18 +345,17 @@ impl LibraryWorker {
             .filter(|p| !p.is_empty())
             .collect::<Vec<_>>();
 
-        self.events.emit(LibraryEvent::ExcludedFolders { paths });
-        Ok(())
+        Ok(paths)
     }
 
-    async fn list_tracks(
+    pub(crate) async fn list_tracks(
         &self,
         folder: String,
         recursive: bool,
         query: String,
         limit: i64,
         offset: i64,
-    ) -> Result<()> {
+    ) -> Result<Vec<TrackLite>> {
         let folder = normalize_path_str(&folder);
         let query = query.trim().to_string();
         let limit = limit.clamp(1, 5000);
@@ -470,16 +487,10 @@ impl LibraryWorker {
             })
             .collect::<Vec<_>>();
 
-        self.events.emit(LibraryEvent::Tracks {
-            folder,
-            recursive,
-            query,
-            items,
-        });
-        Ok(())
+        Ok(items)
     }
 
-    async fn list_playlists(&self) -> Result<()> {
+    pub(crate) async fn list_playlists(&self) -> Result<Vec<PlaylistLite>> {
         let rows = sqlx::query_as::<_, PlaylistLiteRow>(
             r#"
             SELECT
@@ -517,8 +528,7 @@ impl LibraryWorker {
             })
             .collect::<Vec<_>>();
 
-        self.events.emit(LibraryEvent::Playlists { items });
-        Ok(())
+        Ok(items)
     }
 
     async fn create_playlist(&self, name: String) -> Result<()> {
@@ -582,23 +592,17 @@ impl LibraryWorker {
         Ok(())
     }
 
-    async fn list_playlist_tracks(
+    pub(crate) async fn list_playlist_tracks(
         &self,
         playlist_id: i64,
         query: String,
         limit: i64,
         offset: i64,
-    ) -> Result<()> {
-        if playlist_id <= 0 {
-            self.events.emit(LibraryEvent::PlaylistTracks {
-                playlist_id,
-                query: query.trim().to_string(),
-                items: Vec::new(),
-            });
-            return Ok(());
-        }
-
+    ) -> Result<Vec<TrackLite>> {
         let query = query.trim().to_string();
+        if playlist_id <= 0 {
+            return Ok(Vec::new());
+        }
         let limit = limit.clamp(1, 5000);
         let offset = offset.max(0);
 
@@ -653,12 +657,7 @@ impl LibraryWorker {
             })
             .collect::<Vec<_>>();
 
-        self.events.emit(LibraryEvent::PlaylistTracks {
-            playlist_id,
-            query,
-            items,
-        });
-        Ok(())
+        Ok(items)
     }
 
     async fn add_track_to_playlist(&self, playlist_id: i64, track_id: i64) -> Result<()> {
@@ -846,7 +845,7 @@ impl LibraryWorker {
         Ok(())
     }
 
-    async fn list_liked_track_ids(&self) -> Result<()> {
+    pub(crate) async fn list_liked_track_ids(&self) -> Result<Vec<i64>> {
         let liked_id = self.liked_playlist_id().await?;
         let track_ids = if let Some(playlist_id) = liked_id {
             sqlx::query_scalar::<_, i64>(
@@ -862,8 +861,7 @@ impl LibraryWorker {
         } else {
             Vec::new()
         };
-        self.events.emit(LibraryEvent::LikedTrackIds { track_ids });
-        Ok(())
+        Ok(track_ids)
     }
 
     async fn set_track_liked(&self, track_id: i64, liked: bool) -> Result<()> {
@@ -973,7 +971,7 @@ impl LibraryWorker {
         self.events.emit(LibraryEvent::Log {
             message: format!("added scan root: {}", path),
         });
-        self.list_roots().await?;
+        self.events.emit(LibraryEvent::Changed);
         request_watch_refresh(&self.watch_ctrl);
         Ok(())
     }
@@ -989,7 +987,7 @@ impl LibraryWorker {
         self.events.emit(LibraryEvent::Log {
             message: format!("disabled scan root: {}", path),
         });
-        self.list_roots().await?;
+        self.events.emit(LibraryEvent::Changed);
         request_watch_refresh(&self.watch_ctrl);
         Ok(())
     }
@@ -1041,9 +1039,6 @@ impl LibraryWorker {
         self.events.emit(LibraryEvent::Log {
             message: format!("deleted folder: {folder} ({deleted} tracks)"),
         });
-        self.list_roots().await?;
-        self.list_folders().await?;
-        self.list_excluded_folders().await?;
         request_watch_refresh(&self.watch_ctrl);
         self.events.emit(LibraryEvent::Changed);
         Ok(())
@@ -1063,7 +1058,6 @@ impl LibraryWorker {
         self.events.emit(LibraryEvent::Log {
             message: format!("restored folder: {folder}"),
         });
-        self.list_excluded_folders().await?;
         request_watch_refresh(&self.watch_ctrl);
 
         // Re-import existing files immediately (async) so users don't have to
@@ -1090,7 +1084,12 @@ impl LibraryWorker {
         scan::scan_all(&self.pool, &self.events, &self.cover_dir, force).await
     }
 
-    async fn search(&self, query: String, limit: i64, offset: i64) -> Result<()> {
+    pub(crate) async fn search(
+        &self,
+        query: String,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<TrackLite>> {
         let query = query.trim().to_string();
         let limit = limit.clamp(1, 200);
         let offset = offset.max(0);
@@ -1143,8 +1142,6 @@ impl LibraryWorker {
             })
             .collect::<Vec<_>>();
 
-        self.events
-            .emit(LibraryEvent::SearchResult { query, items });
-        Ok(())
+        Ok(items)
     }
 }

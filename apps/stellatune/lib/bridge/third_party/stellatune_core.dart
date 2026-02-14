@@ -272,19 +272,7 @@ enum LfeMode {
 sealed class LibraryEvent with _$LibraryEvent {
   const LibraryEvent._();
 
-  const factory LibraryEvent.roots({required List<String> paths}) =
-      LibraryEvent_Roots;
-  const factory LibraryEvent.folders({required List<String> paths}) =
-      LibraryEvent_Folders;
-  const factory LibraryEvent.excludedFolders({required List<String> paths}) =
-      LibraryEvent_ExcludedFolders;
   const factory LibraryEvent.changed() = LibraryEvent_Changed;
-  const factory LibraryEvent.tracks({
-    required String folder,
-    required bool recursive,
-    required String query,
-    required List<TrackLite> items,
-  }) = LibraryEvent_Tracks;
   const factory LibraryEvent.scanProgress({
     required PlatformInt64 scanned,
     required PlatformInt64 updated,
@@ -298,19 +286,6 @@ sealed class LibraryEvent with _$LibraryEvent {
     required PlatformInt64 skipped,
     required PlatformInt64 errors,
   }) = LibraryEvent_ScanFinished;
-  const factory LibraryEvent.searchResult({
-    required String query,
-    required List<TrackLite> items,
-  }) = LibraryEvent_SearchResult;
-  const factory LibraryEvent.playlists({required List<PlaylistLite> items}) =
-      LibraryEvent_Playlists;
-  const factory LibraryEvent.playlistTracks({
-    required PlatformInt64 playlistId,
-    required String query,
-    required List<TrackLite> items,
-  }) = LibraryEvent_PlaylistTracks;
-  const factory LibraryEvent.likedTrackIds({required Int64List trackIds}) =
-      LibraryEvent_LikedTrackIds;
   const factory LibraryEvent.error({required String message}) =
       LibraryEvent_Error;
   const factory LibraryEvent.log({required String message}) = LibraryEvent_Log;

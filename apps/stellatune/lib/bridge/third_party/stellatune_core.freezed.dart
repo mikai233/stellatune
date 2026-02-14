@@ -711,21 +711,13 @@ extension LibraryEventPatterns on LibraryEvent {
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeMap<TResult extends Object?>({TResult Function( LibraryEvent_Roots value)?  roots,TResult Function( LibraryEvent_Folders value)?  folders,TResult Function( LibraryEvent_ExcludedFolders value)?  excludedFolders,TResult Function( LibraryEvent_Changed value)?  changed,TResult Function( LibraryEvent_Tracks value)?  tracks,TResult Function( LibraryEvent_ScanProgress value)?  scanProgress,TResult Function( LibraryEvent_ScanFinished value)?  scanFinished,TResult Function( LibraryEvent_SearchResult value)?  searchResult,TResult Function( LibraryEvent_Playlists value)?  playlists,TResult Function( LibraryEvent_PlaylistTracks value)?  playlistTracks,TResult Function( LibraryEvent_LikedTrackIds value)?  likedTrackIds,TResult Function( LibraryEvent_Error value)?  error,TResult Function( LibraryEvent_Log value)?  log,required TResult orElse(),}){
+@optionalTypeArgs TResult maybeMap<TResult extends Object?>({TResult Function( LibraryEvent_Changed value)?  changed,TResult Function( LibraryEvent_ScanProgress value)?  scanProgress,TResult Function( LibraryEvent_ScanFinished value)?  scanFinished,TResult Function( LibraryEvent_Error value)?  error,TResult Function( LibraryEvent_Log value)?  log,required TResult orElse(),}){
 final _that = this;
 switch (_that) {
-case LibraryEvent_Roots() when roots != null:
-return roots(_that);case LibraryEvent_Folders() when folders != null:
-return folders(_that);case LibraryEvent_ExcludedFolders() when excludedFolders != null:
-return excludedFolders(_that);case LibraryEvent_Changed() when changed != null:
-return changed(_that);case LibraryEvent_Tracks() when tracks != null:
-return tracks(_that);case LibraryEvent_ScanProgress() when scanProgress != null:
+case LibraryEvent_Changed() when changed != null:
+return changed(_that);case LibraryEvent_ScanProgress() when scanProgress != null:
 return scanProgress(_that);case LibraryEvent_ScanFinished() when scanFinished != null:
-return scanFinished(_that);case LibraryEvent_SearchResult() when searchResult != null:
-return searchResult(_that);case LibraryEvent_Playlists() when playlists != null:
-return playlists(_that);case LibraryEvent_PlaylistTracks() when playlistTracks != null:
-return playlistTracks(_that);case LibraryEvent_LikedTrackIds() when likedTrackIds != null:
-return likedTrackIds(_that);case LibraryEvent_Error() when error != null:
+return scanFinished(_that);case LibraryEvent_Error() when error != null:
 return error(_that);case LibraryEvent_Log() when log != null:
 return log(_that);case _:
   return orElse();
@@ -745,21 +737,13 @@ return log(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult map<TResult extends Object?>({required TResult Function( LibraryEvent_Roots value)  roots,required TResult Function( LibraryEvent_Folders value)  folders,required TResult Function( LibraryEvent_ExcludedFolders value)  excludedFolders,required TResult Function( LibraryEvent_Changed value)  changed,required TResult Function( LibraryEvent_Tracks value)  tracks,required TResult Function( LibraryEvent_ScanProgress value)  scanProgress,required TResult Function( LibraryEvent_ScanFinished value)  scanFinished,required TResult Function( LibraryEvent_SearchResult value)  searchResult,required TResult Function( LibraryEvent_Playlists value)  playlists,required TResult Function( LibraryEvent_PlaylistTracks value)  playlistTracks,required TResult Function( LibraryEvent_LikedTrackIds value)  likedTrackIds,required TResult Function( LibraryEvent_Error value)  error,required TResult Function( LibraryEvent_Log value)  log,}){
+@optionalTypeArgs TResult map<TResult extends Object?>({required TResult Function( LibraryEvent_Changed value)  changed,required TResult Function( LibraryEvent_ScanProgress value)  scanProgress,required TResult Function( LibraryEvent_ScanFinished value)  scanFinished,required TResult Function( LibraryEvent_Error value)  error,required TResult Function( LibraryEvent_Log value)  log,}){
 final _that = this;
 switch (_that) {
-case LibraryEvent_Roots():
-return roots(_that);case LibraryEvent_Folders():
-return folders(_that);case LibraryEvent_ExcludedFolders():
-return excludedFolders(_that);case LibraryEvent_Changed():
-return changed(_that);case LibraryEvent_Tracks():
-return tracks(_that);case LibraryEvent_ScanProgress():
+case LibraryEvent_Changed():
+return changed(_that);case LibraryEvent_ScanProgress():
 return scanProgress(_that);case LibraryEvent_ScanFinished():
-return scanFinished(_that);case LibraryEvent_SearchResult():
-return searchResult(_that);case LibraryEvent_Playlists():
-return playlists(_that);case LibraryEvent_PlaylistTracks():
-return playlistTracks(_that);case LibraryEvent_LikedTrackIds():
-return likedTrackIds(_that);case LibraryEvent_Error():
+return scanFinished(_that);case LibraryEvent_Error():
 return error(_that);case LibraryEvent_Log():
 return log(_that);}
 }
@@ -775,21 +759,13 @@ return log(_that);}
 /// }
 /// ```
 
-@optionalTypeArgs TResult? mapOrNull<TResult extends Object?>({TResult? Function( LibraryEvent_Roots value)?  roots,TResult? Function( LibraryEvent_Folders value)?  folders,TResult? Function( LibraryEvent_ExcludedFolders value)?  excludedFolders,TResult? Function( LibraryEvent_Changed value)?  changed,TResult? Function( LibraryEvent_Tracks value)?  tracks,TResult? Function( LibraryEvent_ScanProgress value)?  scanProgress,TResult? Function( LibraryEvent_ScanFinished value)?  scanFinished,TResult? Function( LibraryEvent_SearchResult value)?  searchResult,TResult? Function( LibraryEvent_Playlists value)?  playlists,TResult? Function( LibraryEvent_PlaylistTracks value)?  playlistTracks,TResult? Function( LibraryEvent_LikedTrackIds value)?  likedTrackIds,TResult? Function( LibraryEvent_Error value)?  error,TResult? Function( LibraryEvent_Log value)?  log,}){
+@optionalTypeArgs TResult? mapOrNull<TResult extends Object?>({TResult? Function( LibraryEvent_Changed value)?  changed,TResult? Function( LibraryEvent_ScanProgress value)?  scanProgress,TResult? Function( LibraryEvent_ScanFinished value)?  scanFinished,TResult? Function( LibraryEvent_Error value)?  error,TResult? Function( LibraryEvent_Log value)?  log,}){
 final _that = this;
 switch (_that) {
-case LibraryEvent_Roots() when roots != null:
-return roots(_that);case LibraryEvent_Folders() when folders != null:
-return folders(_that);case LibraryEvent_ExcludedFolders() when excludedFolders != null:
-return excludedFolders(_that);case LibraryEvent_Changed() when changed != null:
-return changed(_that);case LibraryEvent_Tracks() when tracks != null:
-return tracks(_that);case LibraryEvent_ScanProgress() when scanProgress != null:
+case LibraryEvent_Changed() when changed != null:
+return changed(_that);case LibraryEvent_ScanProgress() when scanProgress != null:
 return scanProgress(_that);case LibraryEvent_ScanFinished() when scanFinished != null:
-return scanFinished(_that);case LibraryEvent_SearchResult() when searchResult != null:
-return searchResult(_that);case LibraryEvent_Playlists() when playlists != null:
-return playlists(_that);case LibraryEvent_PlaylistTracks() when playlistTracks != null:
-return playlistTracks(_that);case LibraryEvent_LikedTrackIds() when likedTrackIds != null:
-return likedTrackIds(_that);case LibraryEvent_Error() when error != null:
+return scanFinished(_that);case LibraryEvent_Error() when error != null:
 return error(_that);case LibraryEvent_Log() when log != null:
 return log(_that);case _:
   return null;
@@ -808,20 +784,12 @@ return log(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function( List<String> paths)?  roots,TResult Function( List<String> paths)?  folders,TResult Function( List<String> paths)?  excludedFolders,TResult Function()?  changed,TResult Function( String folder,  bool recursive,  String query,  List<TrackLite> items)?  tracks,TResult Function( PlatformInt64 scanned,  PlatformInt64 updated,  PlatformInt64 skipped,  PlatformInt64 errors)?  scanProgress,TResult Function( PlatformInt64 durationMs,  PlatformInt64 scanned,  PlatformInt64 updated,  PlatformInt64 skipped,  PlatformInt64 errors)?  scanFinished,TResult Function( String query,  List<TrackLite> items)?  searchResult,TResult Function( List<PlaylistLite> items)?  playlists,TResult Function( PlatformInt64 playlistId,  String query,  List<TrackLite> items)?  playlistTracks,TResult Function( Int64List trackIds)?  likedTrackIds,TResult Function( String message)?  error,TResult Function( String message)?  log,required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function()?  changed,TResult Function( PlatformInt64 scanned,  PlatformInt64 updated,  PlatformInt64 skipped,  PlatformInt64 errors)?  scanProgress,TResult Function( PlatformInt64 durationMs,  PlatformInt64 scanned,  PlatformInt64 updated,  PlatformInt64 skipped,  PlatformInt64 errors)?  scanFinished,TResult Function( String message)?  error,TResult Function( String message)?  log,required TResult orElse(),}) {final _that = this;
 switch (_that) {
-case LibraryEvent_Roots() when roots != null:
-return roots(_that.paths);case LibraryEvent_Folders() when folders != null:
-return folders(_that.paths);case LibraryEvent_ExcludedFolders() when excludedFolders != null:
-return excludedFolders(_that.paths);case LibraryEvent_Changed() when changed != null:
-return changed();case LibraryEvent_Tracks() when tracks != null:
-return tracks(_that.folder,_that.recursive,_that.query,_that.items);case LibraryEvent_ScanProgress() when scanProgress != null:
+case LibraryEvent_Changed() when changed != null:
+return changed();case LibraryEvent_ScanProgress() when scanProgress != null:
 return scanProgress(_that.scanned,_that.updated,_that.skipped,_that.errors);case LibraryEvent_ScanFinished() when scanFinished != null:
-return scanFinished(_that.durationMs,_that.scanned,_that.updated,_that.skipped,_that.errors);case LibraryEvent_SearchResult() when searchResult != null:
-return searchResult(_that.query,_that.items);case LibraryEvent_Playlists() when playlists != null:
-return playlists(_that.items);case LibraryEvent_PlaylistTracks() when playlistTracks != null:
-return playlistTracks(_that.playlistId,_that.query,_that.items);case LibraryEvent_LikedTrackIds() when likedTrackIds != null:
-return likedTrackIds(_that.trackIds);case LibraryEvent_Error() when error != null:
+return scanFinished(_that.durationMs,_that.scanned,_that.updated,_that.skipped,_that.errors);case LibraryEvent_Error() when error != null:
 return error(_that.message);case LibraryEvent_Log() when log != null:
 return log(_that.message);case _:
   return orElse();
@@ -841,20 +809,12 @@ return log(_that.message);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function( List<String> paths)  roots,required TResult Function( List<String> paths)  folders,required TResult Function( List<String> paths)  excludedFolders,required TResult Function()  changed,required TResult Function( String folder,  bool recursive,  String query,  List<TrackLite> items)  tracks,required TResult Function( PlatformInt64 scanned,  PlatformInt64 updated,  PlatformInt64 skipped,  PlatformInt64 errors)  scanProgress,required TResult Function( PlatformInt64 durationMs,  PlatformInt64 scanned,  PlatformInt64 updated,  PlatformInt64 skipped,  PlatformInt64 errors)  scanFinished,required TResult Function( String query,  List<TrackLite> items)  searchResult,required TResult Function( List<PlaylistLite> items)  playlists,required TResult Function( PlatformInt64 playlistId,  String query,  List<TrackLite> items)  playlistTracks,required TResult Function( Int64List trackIds)  likedTrackIds,required TResult Function( String message)  error,required TResult Function( String message)  log,}) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function()  changed,required TResult Function( PlatformInt64 scanned,  PlatformInt64 updated,  PlatformInt64 skipped,  PlatformInt64 errors)  scanProgress,required TResult Function( PlatformInt64 durationMs,  PlatformInt64 scanned,  PlatformInt64 updated,  PlatformInt64 skipped,  PlatformInt64 errors)  scanFinished,required TResult Function( String message)  error,required TResult Function( String message)  log,}) {final _that = this;
 switch (_that) {
-case LibraryEvent_Roots():
-return roots(_that.paths);case LibraryEvent_Folders():
-return folders(_that.paths);case LibraryEvent_ExcludedFolders():
-return excludedFolders(_that.paths);case LibraryEvent_Changed():
-return changed();case LibraryEvent_Tracks():
-return tracks(_that.folder,_that.recursive,_that.query,_that.items);case LibraryEvent_ScanProgress():
+case LibraryEvent_Changed():
+return changed();case LibraryEvent_ScanProgress():
 return scanProgress(_that.scanned,_that.updated,_that.skipped,_that.errors);case LibraryEvent_ScanFinished():
-return scanFinished(_that.durationMs,_that.scanned,_that.updated,_that.skipped,_that.errors);case LibraryEvent_SearchResult():
-return searchResult(_that.query,_that.items);case LibraryEvent_Playlists():
-return playlists(_that.items);case LibraryEvent_PlaylistTracks():
-return playlistTracks(_that.playlistId,_that.query,_that.items);case LibraryEvent_LikedTrackIds():
-return likedTrackIds(_that.trackIds);case LibraryEvent_Error():
+return scanFinished(_that.durationMs,_that.scanned,_that.updated,_that.skipped,_that.errors);case LibraryEvent_Error():
 return error(_that.message);case LibraryEvent_Log():
 return log(_that.message);}
 }
@@ -870,242 +830,18 @@ return log(_that.message);}
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function( List<String> paths)?  roots,TResult? Function( List<String> paths)?  folders,TResult? Function( List<String> paths)?  excludedFolders,TResult? Function()?  changed,TResult? Function( String folder,  bool recursive,  String query,  List<TrackLite> items)?  tracks,TResult? Function( PlatformInt64 scanned,  PlatformInt64 updated,  PlatformInt64 skipped,  PlatformInt64 errors)?  scanProgress,TResult? Function( PlatformInt64 durationMs,  PlatformInt64 scanned,  PlatformInt64 updated,  PlatformInt64 skipped,  PlatformInt64 errors)?  scanFinished,TResult? Function( String query,  List<TrackLite> items)?  searchResult,TResult? Function( List<PlaylistLite> items)?  playlists,TResult? Function( PlatformInt64 playlistId,  String query,  List<TrackLite> items)?  playlistTracks,TResult? Function( Int64List trackIds)?  likedTrackIds,TResult? Function( String message)?  error,TResult? Function( String message)?  log,}) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function()?  changed,TResult? Function( PlatformInt64 scanned,  PlatformInt64 updated,  PlatformInt64 skipped,  PlatformInt64 errors)?  scanProgress,TResult? Function( PlatformInt64 durationMs,  PlatformInt64 scanned,  PlatformInt64 updated,  PlatformInt64 skipped,  PlatformInt64 errors)?  scanFinished,TResult? Function( String message)?  error,TResult? Function( String message)?  log,}) {final _that = this;
 switch (_that) {
-case LibraryEvent_Roots() when roots != null:
-return roots(_that.paths);case LibraryEvent_Folders() when folders != null:
-return folders(_that.paths);case LibraryEvent_ExcludedFolders() when excludedFolders != null:
-return excludedFolders(_that.paths);case LibraryEvent_Changed() when changed != null:
-return changed();case LibraryEvent_Tracks() when tracks != null:
-return tracks(_that.folder,_that.recursive,_that.query,_that.items);case LibraryEvent_ScanProgress() when scanProgress != null:
+case LibraryEvent_Changed() when changed != null:
+return changed();case LibraryEvent_ScanProgress() when scanProgress != null:
 return scanProgress(_that.scanned,_that.updated,_that.skipped,_that.errors);case LibraryEvent_ScanFinished() when scanFinished != null:
-return scanFinished(_that.durationMs,_that.scanned,_that.updated,_that.skipped,_that.errors);case LibraryEvent_SearchResult() when searchResult != null:
-return searchResult(_that.query,_that.items);case LibraryEvent_Playlists() when playlists != null:
-return playlists(_that.items);case LibraryEvent_PlaylistTracks() when playlistTracks != null:
-return playlistTracks(_that.playlistId,_that.query,_that.items);case LibraryEvent_LikedTrackIds() when likedTrackIds != null:
-return likedTrackIds(_that.trackIds);case LibraryEvent_Error() when error != null:
+return scanFinished(_that.durationMs,_that.scanned,_that.updated,_that.skipped,_that.errors);case LibraryEvent_Error() when error != null:
 return error(_that.message);case LibraryEvent_Log() when log != null:
 return log(_that.message);case _:
   return null;
 
 }
 }
-
-}
-
-/// @nodoc
-
-
-class LibraryEvent_Roots extends LibraryEvent {
-  const LibraryEvent_Roots({required final  List<String> paths}): _paths = paths,super._();
-  
-
- final  List<String> _paths;
- List<String> get paths {
-  if (_paths is EqualUnmodifiableListView) return _paths;
-  // ignore: implicit_dynamic_type
-  return EqualUnmodifiableListView(_paths);
-}
-
-
-/// Create a copy of LibraryEvent
-/// with the given fields replaced by the non-null parameter values.
-@JsonKey(includeFromJson: false, includeToJson: false)
-@pragma('vm:prefer-inline')
-$LibraryEvent_RootsCopyWith<LibraryEvent_Roots> get copyWith => _$LibraryEvent_RootsCopyWithImpl<LibraryEvent_Roots>(this, _$identity);
-
-
-
-@override
-bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is LibraryEvent_Roots&&const DeepCollectionEquality().equals(other._paths, _paths));
-}
-
-
-@override
-int get hashCode => Object.hash(runtimeType,const DeepCollectionEquality().hash(_paths));
-
-@override
-String toString() {
-  return 'LibraryEvent.roots(paths: $paths)';
-}
-
-
-}
-
-/// @nodoc
-abstract mixin class $LibraryEvent_RootsCopyWith<$Res> implements $LibraryEventCopyWith<$Res> {
-  factory $LibraryEvent_RootsCopyWith(LibraryEvent_Roots value, $Res Function(LibraryEvent_Roots) _then) = _$LibraryEvent_RootsCopyWithImpl;
-@useResult
-$Res call({
- List<String> paths
-});
-
-
-
-
-}
-/// @nodoc
-class _$LibraryEvent_RootsCopyWithImpl<$Res>
-    implements $LibraryEvent_RootsCopyWith<$Res> {
-  _$LibraryEvent_RootsCopyWithImpl(this._self, this._then);
-
-  final LibraryEvent_Roots _self;
-  final $Res Function(LibraryEvent_Roots) _then;
-
-/// Create a copy of LibraryEvent
-/// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') $Res call({Object? paths = null,}) {
-  return _then(LibraryEvent_Roots(
-paths: null == paths ? _self._paths : paths // ignore: cast_nullable_to_non_nullable
-as List<String>,
-  ));
-}
-
-
-}
-
-/// @nodoc
-
-
-class LibraryEvent_Folders extends LibraryEvent {
-  const LibraryEvent_Folders({required final  List<String> paths}): _paths = paths,super._();
-  
-
- final  List<String> _paths;
- List<String> get paths {
-  if (_paths is EqualUnmodifiableListView) return _paths;
-  // ignore: implicit_dynamic_type
-  return EqualUnmodifiableListView(_paths);
-}
-
-
-/// Create a copy of LibraryEvent
-/// with the given fields replaced by the non-null parameter values.
-@JsonKey(includeFromJson: false, includeToJson: false)
-@pragma('vm:prefer-inline')
-$LibraryEvent_FoldersCopyWith<LibraryEvent_Folders> get copyWith => _$LibraryEvent_FoldersCopyWithImpl<LibraryEvent_Folders>(this, _$identity);
-
-
-
-@override
-bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is LibraryEvent_Folders&&const DeepCollectionEquality().equals(other._paths, _paths));
-}
-
-
-@override
-int get hashCode => Object.hash(runtimeType,const DeepCollectionEquality().hash(_paths));
-
-@override
-String toString() {
-  return 'LibraryEvent.folders(paths: $paths)';
-}
-
-
-}
-
-/// @nodoc
-abstract mixin class $LibraryEvent_FoldersCopyWith<$Res> implements $LibraryEventCopyWith<$Res> {
-  factory $LibraryEvent_FoldersCopyWith(LibraryEvent_Folders value, $Res Function(LibraryEvent_Folders) _then) = _$LibraryEvent_FoldersCopyWithImpl;
-@useResult
-$Res call({
- List<String> paths
-});
-
-
-
-
-}
-/// @nodoc
-class _$LibraryEvent_FoldersCopyWithImpl<$Res>
-    implements $LibraryEvent_FoldersCopyWith<$Res> {
-  _$LibraryEvent_FoldersCopyWithImpl(this._self, this._then);
-
-  final LibraryEvent_Folders _self;
-  final $Res Function(LibraryEvent_Folders) _then;
-
-/// Create a copy of LibraryEvent
-/// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') $Res call({Object? paths = null,}) {
-  return _then(LibraryEvent_Folders(
-paths: null == paths ? _self._paths : paths // ignore: cast_nullable_to_non_nullable
-as List<String>,
-  ));
-}
-
-
-}
-
-/// @nodoc
-
-
-class LibraryEvent_ExcludedFolders extends LibraryEvent {
-  const LibraryEvent_ExcludedFolders({required final  List<String> paths}): _paths = paths,super._();
-  
-
- final  List<String> _paths;
- List<String> get paths {
-  if (_paths is EqualUnmodifiableListView) return _paths;
-  // ignore: implicit_dynamic_type
-  return EqualUnmodifiableListView(_paths);
-}
-
-
-/// Create a copy of LibraryEvent
-/// with the given fields replaced by the non-null parameter values.
-@JsonKey(includeFromJson: false, includeToJson: false)
-@pragma('vm:prefer-inline')
-$LibraryEvent_ExcludedFoldersCopyWith<LibraryEvent_ExcludedFolders> get copyWith => _$LibraryEvent_ExcludedFoldersCopyWithImpl<LibraryEvent_ExcludedFolders>(this, _$identity);
-
-
-
-@override
-bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is LibraryEvent_ExcludedFolders&&const DeepCollectionEquality().equals(other._paths, _paths));
-}
-
-
-@override
-int get hashCode => Object.hash(runtimeType,const DeepCollectionEquality().hash(_paths));
-
-@override
-String toString() {
-  return 'LibraryEvent.excludedFolders(paths: $paths)';
-}
-
-
-}
-
-/// @nodoc
-abstract mixin class $LibraryEvent_ExcludedFoldersCopyWith<$Res> implements $LibraryEventCopyWith<$Res> {
-  factory $LibraryEvent_ExcludedFoldersCopyWith(LibraryEvent_ExcludedFolders value, $Res Function(LibraryEvent_ExcludedFolders) _then) = _$LibraryEvent_ExcludedFoldersCopyWithImpl;
-@useResult
-$Res call({
- List<String> paths
-});
-
-
-
-
-}
-/// @nodoc
-class _$LibraryEvent_ExcludedFoldersCopyWithImpl<$Res>
-    implements $LibraryEvent_ExcludedFoldersCopyWith<$Res> {
-  _$LibraryEvent_ExcludedFoldersCopyWithImpl(this._self, this._then);
-
-  final LibraryEvent_ExcludedFolders _self;
-  final $Res Function(LibraryEvent_ExcludedFolders) _then;
-
-/// Create a copy of LibraryEvent
-/// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') $Res call({Object? paths = null,}) {
-  return _then(LibraryEvent_ExcludedFolders(
-paths: null == paths ? _self._paths : paths // ignore: cast_nullable_to_non_nullable
-as List<String>,
-  ));
-}
-
 
 }
 
@@ -1140,84 +876,6 @@ String toString() {
 
 
 
-
-/// @nodoc
-
-
-class LibraryEvent_Tracks extends LibraryEvent {
-  const LibraryEvent_Tracks({required this.folder, required this.recursive, required this.query, required final  List<TrackLite> items}): _items = items,super._();
-  
-
- final  String folder;
- final  bool recursive;
- final  String query;
- final  List<TrackLite> _items;
- List<TrackLite> get items {
-  if (_items is EqualUnmodifiableListView) return _items;
-  // ignore: implicit_dynamic_type
-  return EqualUnmodifiableListView(_items);
-}
-
-
-/// Create a copy of LibraryEvent
-/// with the given fields replaced by the non-null parameter values.
-@JsonKey(includeFromJson: false, includeToJson: false)
-@pragma('vm:prefer-inline')
-$LibraryEvent_TracksCopyWith<LibraryEvent_Tracks> get copyWith => _$LibraryEvent_TracksCopyWithImpl<LibraryEvent_Tracks>(this, _$identity);
-
-
-
-@override
-bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is LibraryEvent_Tracks&&(identical(other.folder, folder) || other.folder == folder)&&(identical(other.recursive, recursive) || other.recursive == recursive)&&(identical(other.query, query) || other.query == query)&&const DeepCollectionEquality().equals(other._items, _items));
-}
-
-
-@override
-int get hashCode => Object.hash(runtimeType,folder,recursive,query,const DeepCollectionEquality().hash(_items));
-
-@override
-String toString() {
-  return 'LibraryEvent.tracks(folder: $folder, recursive: $recursive, query: $query, items: $items)';
-}
-
-
-}
-
-/// @nodoc
-abstract mixin class $LibraryEvent_TracksCopyWith<$Res> implements $LibraryEventCopyWith<$Res> {
-  factory $LibraryEvent_TracksCopyWith(LibraryEvent_Tracks value, $Res Function(LibraryEvent_Tracks) _then) = _$LibraryEvent_TracksCopyWithImpl;
-@useResult
-$Res call({
- String folder, bool recursive, String query, List<TrackLite> items
-});
-
-
-
-
-}
-/// @nodoc
-class _$LibraryEvent_TracksCopyWithImpl<$Res>
-    implements $LibraryEvent_TracksCopyWith<$Res> {
-  _$LibraryEvent_TracksCopyWithImpl(this._self, this._then);
-
-  final LibraryEvent_Tracks _self;
-  final $Res Function(LibraryEvent_Tracks) _then;
-
-/// Create a copy of LibraryEvent
-/// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') $Res call({Object? folder = null,Object? recursive = null,Object? query = null,Object? items = null,}) {
-  return _then(LibraryEvent_Tracks(
-folder: null == folder ? _self.folder : folder // ignore: cast_nullable_to_non_nullable
-as String,recursive: null == recursive ? _self.recursive : recursive // ignore: cast_nullable_to_non_nullable
-as bool,query: null == query ? _self.query : query // ignore: cast_nullable_to_non_nullable
-as String,items: null == items ? _self._items : items // ignore: cast_nullable_to_non_nullable
-as List<TrackLite>,
-  ));
-}
-
-
-}
 
 /// @nodoc
 
@@ -1359,294 +1017,6 @@ as PlatformInt64,updated: null == updated ? _self.updated : updated // ignore: c
 as PlatformInt64,skipped: null == skipped ? _self.skipped : skipped // ignore: cast_nullable_to_non_nullable
 as PlatformInt64,errors: null == errors ? _self.errors : errors // ignore: cast_nullable_to_non_nullable
 as PlatformInt64,
-  ));
-}
-
-
-}
-
-/// @nodoc
-
-
-class LibraryEvent_SearchResult extends LibraryEvent {
-  const LibraryEvent_SearchResult({required this.query, required final  List<TrackLite> items}): _items = items,super._();
-  
-
- final  String query;
- final  List<TrackLite> _items;
- List<TrackLite> get items {
-  if (_items is EqualUnmodifiableListView) return _items;
-  // ignore: implicit_dynamic_type
-  return EqualUnmodifiableListView(_items);
-}
-
-
-/// Create a copy of LibraryEvent
-/// with the given fields replaced by the non-null parameter values.
-@JsonKey(includeFromJson: false, includeToJson: false)
-@pragma('vm:prefer-inline')
-$LibraryEvent_SearchResultCopyWith<LibraryEvent_SearchResult> get copyWith => _$LibraryEvent_SearchResultCopyWithImpl<LibraryEvent_SearchResult>(this, _$identity);
-
-
-
-@override
-bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is LibraryEvent_SearchResult&&(identical(other.query, query) || other.query == query)&&const DeepCollectionEquality().equals(other._items, _items));
-}
-
-
-@override
-int get hashCode => Object.hash(runtimeType,query,const DeepCollectionEquality().hash(_items));
-
-@override
-String toString() {
-  return 'LibraryEvent.searchResult(query: $query, items: $items)';
-}
-
-
-}
-
-/// @nodoc
-abstract mixin class $LibraryEvent_SearchResultCopyWith<$Res> implements $LibraryEventCopyWith<$Res> {
-  factory $LibraryEvent_SearchResultCopyWith(LibraryEvent_SearchResult value, $Res Function(LibraryEvent_SearchResult) _then) = _$LibraryEvent_SearchResultCopyWithImpl;
-@useResult
-$Res call({
- String query, List<TrackLite> items
-});
-
-
-
-
-}
-/// @nodoc
-class _$LibraryEvent_SearchResultCopyWithImpl<$Res>
-    implements $LibraryEvent_SearchResultCopyWith<$Res> {
-  _$LibraryEvent_SearchResultCopyWithImpl(this._self, this._then);
-
-  final LibraryEvent_SearchResult _self;
-  final $Res Function(LibraryEvent_SearchResult) _then;
-
-/// Create a copy of LibraryEvent
-/// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') $Res call({Object? query = null,Object? items = null,}) {
-  return _then(LibraryEvent_SearchResult(
-query: null == query ? _self.query : query // ignore: cast_nullable_to_non_nullable
-as String,items: null == items ? _self._items : items // ignore: cast_nullable_to_non_nullable
-as List<TrackLite>,
-  ));
-}
-
-
-}
-
-/// @nodoc
-
-
-class LibraryEvent_Playlists extends LibraryEvent {
-  const LibraryEvent_Playlists({required final  List<PlaylistLite> items}): _items = items,super._();
-  
-
- final  List<PlaylistLite> _items;
- List<PlaylistLite> get items {
-  if (_items is EqualUnmodifiableListView) return _items;
-  // ignore: implicit_dynamic_type
-  return EqualUnmodifiableListView(_items);
-}
-
-
-/// Create a copy of LibraryEvent
-/// with the given fields replaced by the non-null parameter values.
-@JsonKey(includeFromJson: false, includeToJson: false)
-@pragma('vm:prefer-inline')
-$LibraryEvent_PlaylistsCopyWith<LibraryEvent_Playlists> get copyWith => _$LibraryEvent_PlaylistsCopyWithImpl<LibraryEvent_Playlists>(this, _$identity);
-
-
-
-@override
-bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is LibraryEvent_Playlists&&const DeepCollectionEquality().equals(other._items, _items));
-}
-
-
-@override
-int get hashCode => Object.hash(runtimeType,const DeepCollectionEquality().hash(_items));
-
-@override
-String toString() {
-  return 'LibraryEvent.playlists(items: $items)';
-}
-
-
-}
-
-/// @nodoc
-abstract mixin class $LibraryEvent_PlaylistsCopyWith<$Res> implements $LibraryEventCopyWith<$Res> {
-  factory $LibraryEvent_PlaylistsCopyWith(LibraryEvent_Playlists value, $Res Function(LibraryEvent_Playlists) _then) = _$LibraryEvent_PlaylistsCopyWithImpl;
-@useResult
-$Res call({
- List<PlaylistLite> items
-});
-
-
-
-
-}
-/// @nodoc
-class _$LibraryEvent_PlaylistsCopyWithImpl<$Res>
-    implements $LibraryEvent_PlaylistsCopyWith<$Res> {
-  _$LibraryEvent_PlaylistsCopyWithImpl(this._self, this._then);
-
-  final LibraryEvent_Playlists _self;
-  final $Res Function(LibraryEvent_Playlists) _then;
-
-/// Create a copy of LibraryEvent
-/// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') $Res call({Object? items = null,}) {
-  return _then(LibraryEvent_Playlists(
-items: null == items ? _self._items : items // ignore: cast_nullable_to_non_nullable
-as List<PlaylistLite>,
-  ));
-}
-
-
-}
-
-/// @nodoc
-
-
-class LibraryEvent_PlaylistTracks extends LibraryEvent {
-  const LibraryEvent_PlaylistTracks({required this.playlistId, required this.query, required final  List<TrackLite> items}): _items = items,super._();
-  
-
- final  PlatformInt64 playlistId;
- final  String query;
- final  List<TrackLite> _items;
- List<TrackLite> get items {
-  if (_items is EqualUnmodifiableListView) return _items;
-  // ignore: implicit_dynamic_type
-  return EqualUnmodifiableListView(_items);
-}
-
-
-/// Create a copy of LibraryEvent
-/// with the given fields replaced by the non-null parameter values.
-@JsonKey(includeFromJson: false, includeToJson: false)
-@pragma('vm:prefer-inline')
-$LibraryEvent_PlaylistTracksCopyWith<LibraryEvent_PlaylistTracks> get copyWith => _$LibraryEvent_PlaylistTracksCopyWithImpl<LibraryEvent_PlaylistTracks>(this, _$identity);
-
-
-
-@override
-bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is LibraryEvent_PlaylistTracks&&(identical(other.playlistId, playlistId) || other.playlistId == playlistId)&&(identical(other.query, query) || other.query == query)&&const DeepCollectionEquality().equals(other._items, _items));
-}
-
-
-@override
-int get hashCode => Object.hash(runtimeType,playlistId,query,const DeepCollectionEquality().hash(_items));
-
-@override
-String toString() {
-  return 'LibraryEvent.playlistTracks(playlistId: $playlistId, query: $query, items: $items)';
-}
-
-
-}
-
-/// @nodoc
-abstract mixin class $LibraryEvent_PlaylistTracksCopyWith<$Res> implements $LibraryEventCopyWith<$Res> {
-  factory $LibraryEvent_PlaylistTracksCopyWith(LibraryEvent_PlaylistTracks value, $Res Function(LibraryEvent_PlaylistTracks) _then) = _$LibraryEvent_PlaylistTracksCopyWithImpl;
-@useResult
-$Res call({
- PlatformInt64 playlistId, String query, List<TrackLite> items
-});
-
-
-
-
-}
-/// @nodoc
-class _$LibraryEvent_PlaylistTracksCopyWithImpl<$Res>
-    implements $LibraryEvent_PlaylistTracksCopyWith<$Res> {
-  _$LibraryEvent_PlaylistTracksCopyWithImpl(this._self, this._then);
-
-  final LibraryEvent_PlaylistTracks _self;
-  final $Res Function(LibraryEvent_PlaylistTracks) _then;
-
-/// Create a copy of LibraryEvent
-/// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') $Res call({Object? playlistId = null,Object? query = null,Object? items = null,}) {
-  return _then(LibraryEvent_PlaylistTracks(
-playlistId: null == playlistId ? _self.playlistId : playlistId // ignore: cast_nullable_to_non_nullable
-as PlatformInt64,query: null == query ? _self.query : query // ignore: cast_nullable_to_non_nullable
-as String,items: null == items ? _self._items : items // ignore: cast_nullable_to_non_nullable
-as List<TrackLite>,
-  ));
-}
-
-
-}
-
-/// @nodoc
-
-
-class LibraryEvent_LikedTrackIds extends LibraryEvent {
-  const LibraryEvent_LikedTrackIds({required this.trackIds}): super._();
-  
-
- final  Int64List trackIds;
-
-/// Create a copy of LibraryEvent
-/// with the given fields replaced by the non-null parameter values.
-@JsonKey(includeFromJson: false, includeToJson: false)
-@pragma('vm:prefer-inline')
-$LibraryEvent_LikedTrackIdsCopyWith<LibraryEvent_LikedTrackIds> get copyWith => _$LibraryEvent_LikedTrackIdsCopyWithImpl<LibraryEvent_LikedTrackIds>(this, _$identity);
-
-
-
-@override
-bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is LibraryEvent_LikedTrackIds&&const DeepCollectionEquality().equals(other.trackIds, trackIds));
-}
-
-
-@override
-int get hashCode => Object.hash(runtimeType,const DeepCollectionEquality().hash(trackIds));
-
-@override
-String toString() {
-  return 'LibraryEvent.likedTrackIds(trackIds: $trackIds)';
-}
-
-
-}
-
-/// @nodoc
-abstract mixin class $LibraryEvent_LikedTrackIdsCopyWith<$Res> implements $LibraryEventCopyWith<$Res> {
-  factory $LibraryEvent_LikedTrackIdsCopyWith(LibraryEvent_LikedTrackIds value, $Res Function(LibraryEvent_LikedTrackIds) _then) = _$LibraryEvent_LikedTrackIdsCopyWithImpl;
-@useResult
-$Res call({
- Int64List trackIds
-});
-
-
-
-
-}
-/// @nodoc
-class _$LibraryEvent_LikedTrackIdsCopyWithImpl<$Res>
-    implements $LibraryEvent_LikedTrackIdsCopyWith<$Res> {
-  _$LibraryEvent_LikedTrackIdsCopyWithImpl(this._self, this._then);
-
-  final LibraryEvent_LikedTrackIds _self;
-  final $Res Function(LibraryEvent_LikedTrackIds) _then;
-
-/// Create a copy of LibraryEvent
-/// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') $Res call({Object? trackIds = null,}) {
-  return _then(LibraryEvent_LikedTrackIds(
-trackIds: null == trackIds ? _self.trackIds : trackIds // ignore: cast_nullable_to_non_nullable
-as Int64List,
   ));
 }
 

@@ -1,11 +1,12 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use tokio::sync::broadcast;
 use tracing::info;
 
-use stellatune_core::{LibraryCommand, LibraryEvent};
+use stellatune_core::{LibraryCommand, LibraryEvent, PlaylistLite, TrackLite};
 use stellatune_runtime::tokio_actor::ActorRef;
 
 use crate::worker::{LibraryWorker, WorkerDeps};
@@ -14,6 +15,11 @@ mod service_actor;
 
 use self::service_actor::LibraryServiceActor;
 use self::service_actor::handlers::command::LibraryCommandMessage;
+use self::service_actor::handlers::query::{
+    ListExcludedFoldersMessage, ListFoldersMessage, ListLikedTrackIdsMessage,
+    ListPlaylistTracksMessage, ListPlaylistsMessage, ListRootsMessage, ListTracksMessage,
+    SearchTracksMessage,
+};
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 use std::collections::HashSet;
@@ -27,6 +33,8 @@ pub struct LibraryHandle {
 }
 
 impl LibraryHandle {
+    const QUERY_TIMEOUT: Duration = Duration::from_secs(15);
+
     pub async fn send_command(&self, cmd: LibraryCommand) -> std::result::Result<(), String> {
         self.actor_ref
             .cast(LibraryCommandMessage { command: cmd })
@@ -39,6 +47,115 @@ impl LibraryHandle {
 
     pub fn plugins_dir_path(&self) -> &Path {
         &self.plugins_dir
+    }
+
+    pub async fn list_roots(&self) -> Result<Vec<String>> {
+        let result = self
+            .actor_ref
+            .call(ListRootsMessage, Self::QUERY_TIMEOUT)
+            .await
+            .map_err(map_call_error)?;
+        result.map_err(|e| anyhow!(e))
+    }
+
+    pub async fn list_folders(&self) -> Result<Vec<String>> {
+        let result = self
+            .actor_ref
+            .call(ListFoldersMessage, Self::QUERY_TIMEOUT)
+            .await
+            .map_err(map_call_error)?;
+        result.map_err(|e| anyhow!(e))
+    }
+
+    pub async fn list_excluded_folders(&self) -> Result<Vec<String>> {
+        let result = self
+            .actor_ref
+            .call(ListExcludedFoldersMessage, Self::QUERY_TIMEOUT)
+            .await
+            .map_err(map_call_error)?;
+        result.map_err(|e| anyhow!(e))
+    }
+
+    pub async fn list_tracks(
+        &self,
+        folder: String,
+        recursive: bool,
+        query: String,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<TrackLite>> {
+        let result = self
+            .actor_ref
+            .call(
+                ListTracksMessage {
+                    folder,
+                    recursive,
+                    query,
+                    limit,
+                    offset,
+                },
+                Self::QUERY_TIMEOUT,
+            )
+            .await
+            .map_err(map_call_error)?;
+        result.map_err(|e| anyhow!(e))
+    }
+
+    pub async fn search(&self, query: String, limit: i64, offset: i64) -> Result<Vec<TrackLite>> {
+        let result = self
+            .actor_ref
+            .call(
+                SearchTracksMessage {
+                    query,
+                    limit,
+                    offset,
+                },
+                Self::QUERY_TIMEOUT,
+            )
+            .await
+            .map_err(map_call_error)?;
+        result.map_err(|e| anyhow!(e))
+    }
+
+    pub async fn list_playlists(&self) -> Result<Vec<PlaylistLite>> {
+        let result = self
+            .actor_ref
+            .call(ListPlaylistsMessage, Self::QUERY_TIMEOUT)
+            .await
+            .map_err(map_call_error)?;
+        result.map_err(|e| anyhow!(e))
+    }
+
+    pub async fn list_playlist_tracks(
+        &self,
+        playlist_id: i64,
+        query: String,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<TrackLite>> {
+        let result = self
+            .actor_ref
+            .call(
+                ListPlaylistTracksMessage {
+                    playlist_id,
+                    query,
+                    limit,
+                    offset,
+                },
+                Self::QUERY_TIMEOUT,
+            )
+            .await
+            .map_err(map_call_error)?;
+        result.map_err(|e| anyhow!(e))
+    }
+
+    pub async fn list_liked_track_ids(&self) -> Result<Vec<i64>> {
+        let result = self
+            .actor_ref
+            .call(ListLikedTrackIdsMessage, Self::QUERY_TIMEOUT)
+            .await
+            .map_err(map_call_error)?;
+        result.map_err(|e| anyhow!(e))
     }
 
     #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
@@ -82,6 +199,15 @@ impl LibraryHandle {
     #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
     pub async fn list_disabled_plugin_ids(&self) -> Result<Vec<String>> {
         Ok(Vec::new())
+    }
+}
+
+fn map_call_error(err: stellatune_runtime::tokio_actor::CallError) -> anyhow::Error {
+    match err {
+        stellatune_runtime::tokio_actor::CallError::Timeout => {
+            anyhow!("library query timed out")
+        }
+        _ => anyhow!("library actor unavailable"),
     }
 }
 
