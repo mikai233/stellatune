@@ -913,6 +913,16 @@ fn build_sidecar_command(config: &NeteaseSourceConfig) -> SdkResult<Command> {
                 &format!("netease sidecar uses explicit absolute path: {sidecar_path}"),
             );
             let mut cmd = Command::new(sidecar_path);
+
+            #[cfg(windows)]
+            {
+                use std::os::windows::process::CommandExt;
+                const CREATE_NO_WINDOW: u32 = 0x08000000;
+                if !cfg!(debug_assertions) {
+                    cmd.creation_flags(CREATE_NO_WINDOW);
+                }
+            }
+
             if let Some(root) = resolve_runtime_path(".") {
                 cmd.current_dir(root);
             }

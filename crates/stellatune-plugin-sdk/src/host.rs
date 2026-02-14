@@ -204,6 +204,16 @@ impl HostContext {
         })?;
         let program = root.join(relative_program.as_ref());
         let mut cmd = Command::new(program);
+
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            if !cfg!(debug_assertions) {
+                cmd.creation_flags(CREATE_NO_WINDOW);
+            }
+        }
+
         cmd.current_dir(root);
         Ok(cmd)
     }
