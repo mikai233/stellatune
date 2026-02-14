@@ -1,0 +1,24 @@
+use anyhow::Result;
+use stellatune_core::LyricsQuery;
+use stellatune_runtime::tokio_actor::{ActorContext, Handler, Message};
+
+use super::super::LyricsServiceActor;
+
+pub(in super::super) struct PrefetchMessage {
+    pub(in super::super) query: LyricsQuery,
+}
+
+impl Message for PrefetchMessage {
+    type Response = Result<()>;
+}
+
+#[async_trait::async_trait]
+impl Handler<PrefetchMessage> for LyricsServiceActor {
+    async fn handle(
+        &mut self,
+        message: PrefetchMessage,
+        _ctx: &mut ActorContext<Self>,
+    ) -> Result<()> {
+        self.core.prefetch(message.query).await
+    }
+}

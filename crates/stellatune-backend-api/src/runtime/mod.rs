@@ -21,6 +21,8 @@ mod bus;
 mod control;
 mod engine;
 mod router;
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+mod router_actor;
 #[cfg(all(
     test,
     any(target_os = "windows", target_os = "linux", target_os = "macos")

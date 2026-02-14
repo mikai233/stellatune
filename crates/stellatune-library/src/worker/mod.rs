@@ -12,17 +12,17 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use sqlx::{FromRow, QueryBuilder, SqlitePool};
-use tokio::sync::mpsc;
 use tokio::time::timeout;
 
 use stellatune_core::{LibraryCommand, LibraryEvent, PlaylistLite, TrackLite};
+use stellatune_runtime::tokio_actor::ActorRef;
 
 use crate::service::EventHub;
 
 use self::fts::build_fts_query;
 use self::metadata::clear_metadata_decoder_cache;
 use self::paths::{is_drive_root, normalize_path_str, parent_dir_norm};
-use self::watch::{WatchCtrl, spawn_watch_task};
+use self::watch::{WatchTaskActor, request_watch_refresh, spawn_watch_task};
 
 #[derive(Debug, FromRow)]
 struct PlaylistLiteRow {
@@ -123,7 +123,7 @@ pub(crate) struct LibraryWorker {
     pool: SqlitePool,
     events: std::sync::Arc<EventHub>,
     cover_dir: PathBuf,
-    watch_ctrl: mpsc::UnboundedSender<WatchCtrl>,
+    watch_ctrl: ActorRef<WatchTaskActor>,
     plugins_dir: PathBuf,
 }
 
@@ -974,7 +974,7 @@ impl LibraryWorker {
             message: format!("added scan root: {}", path),
         });
         self.list_roots().await?;
-        let _ = self.watch_ctrl.send(WatchCtrl::Refresh);
+        request_watch_refresh(&self.watch_ctrl);
         Ok(())
     }
 
@@ -990,7 +990,7 @@ impl LibraryWorker {
             message: format!("disabled scan root: {}", path),
         });
         self.list_roots().await?;
-        let _ = self.watch_ctrl.send(WatchCtrl::Refresh);
+        request_watch_refresh(&self.watch_ctrl);
         Ok(())
     }
 
@@ -1044,7 +1044,7 @@ impl LibraryWorker {
         self.list_roots().await?;
         self.list_folders().await?;
         self.list_excluded_folders().await?;
-        let _ = self.watch_ctrl.send(WatchCtrl::Refresh);
+        request_watch_refresh(&self.watch_ctrl);
         self.events.emit(LibraryEvent::Changed);
         Ok(())
     }
@@ -1064,7 +1064,7 @@ impl LibraryWorker {
             message: format!("restored folder: {folder}"),
         });
         self.list_excluded_folders().await?;
-        let _ = self.watch_ctrl.send(WatchCtrl::Refresh);
+        request_watch_refresh(&self.watch_ctrl);
 
         // Re-import existing files immediately (async) so users don't have to
         // wait for the next filesystem change event.

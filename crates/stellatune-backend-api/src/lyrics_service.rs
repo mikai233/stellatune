@@ -11,9 +11,21 @@ use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode};
 use sqlx::{Connection, Row, SqliteConnection};
 use stellatune_core::{LyricLine, LyricsDoc, LyricsEvent, LyricsQuery, LyricsSearchCandidate};
 use stellatune_runtime as global_runtime;
+use stellatune_runtime::tokio_actor::ActorRef;
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 use url::Url;
+
+mod handlers;
+
+use self::handlers::apply_candidate::ApplyCandidateMessage;
+use self::handlers::clear_cache::ClearCacheMessage;
+use self::handlers::prefetch::PrefetchMessage;
+use self::handlers::prepare::PrepareMessage;
+use self::handlers::refresh_current::RefreshCurrentMessage;
+use self::handlers::search_candidates::SearchCandidatesMessage;
+use self::handlers::set_cache_db_path::SetCacheDbPathMessage;
+use self::handlers::set_position_ms::SetPositionMsMessage;
 
 struct LyricsEventHub {
     tx: broadcast::Sender<LyricsEvent>,
@@ -55,6 +67,7 @@ const SOURCE_COOLDOWN_MS: i64 = 5 * 60 * 1_000;
 const SOURCE_FAILURE_THRESHOLD: u32 = 3;
 const SOURCE_LRCLIB: &str = "lrclib";
 const SOURCE_LYRICS_OVH: &str = "lyrics_ovh";
+const LYRICS_ACTOR_CALL_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Default)]
 struct HttpRateState {
@@ -73,7 +86,7 @@ struct ActiveFetchState {
     token: Option<CancellationToken>,
 }
 
-pub struct LyricsService {
+struct LyricsServiceCore {
     hub: LyricsEventHub,
     state: Mutex<LyricsState>,
     client: reqwest::Client,
@@ -83,9 +96,119 @@ pub struct LyricsService {
     active_fetch: Mutex<ActiveFetchState>,
 }
 
+struct LyricsServiceActor {
+    core: Arc<LyricsServiceCore>,
+}
+
+pub struct LyricsService {
+    core: Arc<LyricsServiceCore>,
+    actor_ref: ActorRef<LyricsServiceActor>,
+}
+
 impl LyricsService {
     pub fn new() -> Arc<Self> {
-        Arc::new(Self {
+        let core = Arc::new(LyricsServiceCore::new());
+        let (actor_ref, _join) = stellatune_runtime::tokio_actor::spawn_actor(LyricsServiceActor {
+            core: Arc::clone(&core),
+        });
+        Arc::new(Self { core, actor_ref })
+    }
+
+    pub fn subscribe_events(&self) -> broadcast::Receiver<LyricsEvent> {
+        self.core.subscribe_events()
+    }
+
+    pub async fn set_cache_db_path(&self, db_path: String) -> Result<()> {
+        match self
+            .actor_ref
+            .call(SetCacheDbPathMessage { db_path }, LYRICS_ACTOR_CALL_TIMEOUT)
+            .await
+        {
+            Ok(result) => result,
+            Err(err) => Err(anyhow!("lyrics actor unavailable: {err:?}")),
+        }
+    }
+
+    pub async fn clear_cache(&self) -> Result<()> {
+        match self
+            .actor_ref
+            .call(ClearCacheMessage, LYRICS_ACTOR_CALL_TIMEOUT)
+            .await
+        {
+            Ok(result) => result,
+            Err(err) => Err(anyhow!("lyrics actor unavailable: {err:?}")),
+        }
+    }
+
+    pub async fn search_candidates(
+        &self,
+        query: LyricsQuery,
+    ) -> Result<Vec<LyricsSearchCandidate>> {
+        match self
+            .actor_ref
+            .call(SearchCandidatesMessage { query }, LYRICS_ACTOR_CALL_TIMEOUT)
+            .await
+        {
+            Ok(result) => result,
+            Err(err) => Err(anyhow!("lyrics actor unavailable: {err:?}")),
+        }
+    }
+
+    pub async fn apply_candidate(&self, track_key: String, doc: LyricsDoc) -> Result<()> {
+        match self
+            .actor_ref
+            .call(
+                ApplyCandidateMessage { track_key, doc },
+                LYRICS_ACTOR_CALL_TIMEOUT,
+            )
+            .await
+        {
+            Ok(result) => result,
+            Err(err) => Err(anyhow!("lyrics actor unavailable: {err:?}")),
+        }
+    }
+
+    pub async fn prefetch(self: &Arc<Self>, query: LyricsQuery) -> Result<()> {
+        match self
+            .actor_ref
+            .call(PrefetchMessage { query }, LYRICS_ACTOR_CALL_TIMEOUT)
+            .await
+        {
+            Ok(result) => result,
+            Err(err) => Err(anyhow!("lyrics actor unavailable: {err:?}")),
+        }
+    }
+
+    pub async fn prepare(self: &Arc<Self>, query: LyricsQuery) -> Result<()> {
+        match self
+            .actor_ref
+            .call(PrepareMessage { query }, LYRICS_ACTOR_CALL_TIMEOUT)
+            .await
+        {
+            Ok(result) => result,
+            Err(err) => Err(anyhow!("lyrics actor unavailable: {err:?}")),
+        }
+    }
+
+    pub async fn refresh_current(self: &Arc<Self>) -> Result<()> {
+        match self
+            .actor_ref
+            .call(RefreshCurrentMessage, LYRICS_ACTOR_CALL_TIMEOUT)
+            .await
+        {
+            Ok(result) => result,
+            Err(err) => Err(anyhow!("lyrics actor unavailable: {err:?}")),
+        }
+    }
+
+    pub fn set_position_ms(&self, position_ms: u64) {
+        let _ = self.actor_ref.cast(SetPositionMsMessage { position_ms });
+    }
+}
+
+impl LyricsServiceCore {
+    fn new() -> Self {
+        Self {
             hub: LyricsEventHub::default(),
             state: Mutex::new(LyricsState::default()),
             client: reqwest::Client::builder()
@@ -96,7 +219,7 @@ impl LyricsService {
             http_rate: Mutex::new(HttpRateState::default()),
             source_health: Mutex::new(HashMap::new()),
             active_fetch: Mutex::new(ActiveFetchState::default()),
-        })
+        }
     }
 
     pub fn subscribe_events(&self) -> broadcast::Receiver<LyricsEvent> {

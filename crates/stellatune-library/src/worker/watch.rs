@@ -7,8 +7,10 @@ use anyhow::{Context, Result};
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use sqlx::SqlitePool;
 use tokio::sync::mpsc;
+use tokio::time::Instant;
 
 use stellatune_core::LibraryEvent;
+use stellatune_runtime::tokio_actor::ActorRef;
 
 use crate::service::EventHub;
 
@@ -21,9 +23,24 @@ use super::tracks::{
     upsert_track_by_path_norm,
 };
 
-#[derive(Debug, Clone, Copy)]
-pub(super) enum WatchCtrl {
-    Refresh,
+pub(super) mod handlers;
+
+use self::handlers::fs_event::WatchFsEventMessage;
+use self::handlers::refresh::WatchRefreshMessage;
+use self::handlers::tick::WatchTickMessage;
+
+const WATCH_DEBOUNCE_MS: u64 = 750;
+const WATCH_TICK_MS: u64 = 100;
+
+pub(super) struct WatchTaskActor {
+    pool: SqlitePool,
+    events: Arc<EventHub>,
+    cover_dir: PathBuf,
+    watcher: Option<RecommendedWatcher>,
+    watched: HashSet<String>,
+    excluded: Vec<String>,
+    dirty: HashSet<String>,
+    debounce_deadline: Option<Instant>,
 }
 
 async fn refresh_watch_state(
@@ -83,89 +100,61 @@ pub(super) fn spawn_watch_task(
     pool: SqlitePool,
     events: Arc<EventHub>,
     cover_dir: PathBuf,
-) -> mpsc::UnboundedSender<WatchCtrl> {
-    let (ctrl_tx, mut ctrl_rx) = mpsc::unbounded_channel::<WatchCtrl>();
-
-    stellatune_runtime::spawn(async move {
-        let (fs_tx, mut fs_rx) = mpsc::unbounded_channel::<notify::Result<notify::Event>>();
-
-        let mut watcher = match notify::recommended_watcher(move |res| {
-            let _ = fs_tx.send(res);
-        }) {
-            Ok(w) => w,
-            Err(e) => {
-                events.emit(LibraryEvent::Log {
-                    message: format!("fs watcher init failed: {e}"),
-                });
-                return;
-            }
-        };
-
-        let mut watched = HashSet::<String>::new();
-        let mut excluded = Vec::<String>::new();
-        let mut dirty = HashSet::<String>::new();
-        let mut debounce: Option<tokio::time::Instant> = None;
-
-        if let Err(e) = refresh_watch_state(&pool, &mut watcher, &mut watched, &mut excluded).await
-        {
+) -> ActorRef<WatchTaskActor> {
+    let (fs_tx, mut fs_rx) = mpsc::unbounded_channel::<notify::Result<notify::Event>>();
+    let watcher = match notify::recommended_watcher(move |res| {
+        let _ = fs_tx.send(res);
+    }) {
+        Ok(w) => Some(w),
+        Err(err) => {
             events.emit(LibraryEvent::Log {
-                message: format!("fs watcher refresh failed: {e:#}"),
+                message: format!("fs watcher init failed: {err}"),
             });
+            None
         }
+    };
 
+    let has_watcher = watcher.is_some();
+    let (actor_ref, _join) = stellatune_runtime::tokio_actor::spawn_actor(WatchTaskActor {
+        pool,
+        events: Arc::clone(&events),
+        cover_dir,
+        watcher,
+        watched: HashSet::new(),
+        excluded: Vec::new(),
+        dirty: HashSet::new(),
+        debounce_deadline: None,
+    });
+
+    let _ = actor_ref.cast(WatchRefreshMessage);
+
+    if has_watcher {
+        let fs_actor_ref = actor_ref.clone();
+        stellatune_runtime::spawn(async move {
+            while let Some(result) = fs_rx.recv().await {
+                if fs_actor_ref.cast(WatchFsEventMessage { result }).is_err() {
+                    break;
+                }
+            }
+        });
+    }
+
+    let tick_actor_ref = actor_ref.clone();
+    stellatune_runtime::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_millis(WATCH_TICK_MS));
         loop {
-            let sleep = async {
-                if let Some(t) = debounce {
-                    tokio::time::sleep_until(t).await;
-                } else {
-                    tokio::time::sleep(Duration::from_secs(3600)).await;
-                }
-            };
-
-            tokio::select! {
-                Some(ctrl) = ctrl_rx.recv() => {
-                    match ctrl {
-                        WatchCtrl::Refresh => {
-                            if let Err(e) = refresh_watch_state(&pool, &mut watcher, &mut watched, &mut excluded).await {
-                                events.emit(LibraryEvent::Log {
-                                    message: format!("fs watcher refresh failed: {e:#}"),
-                                });
-                            }
-                        }
-                    }
-                }
-                Some(res) = fs_rx.recv() => {
-                    let ev = match res {
-                        Ok(v) => v,
-                        Err(_) => continue,
-                    };
-                    for p in ev.paths {
-                        let raw = p.to_string_lossy().to_string();
-                        if !raw.trim().is_empty() {
-                            dirty.insert(raw);
-                        }
-                    }
-                    debounce = Some(tokio::time::Instant::now() + Duration::from_millis(750));
-                }
-                _ = sleep => {
-                    if dirty.is_empty() {
-                        debounce = None;
-                        continue;
-                    }
-                    let batch = dirty.drain().collect::<Vec<_>>();
-                    debounce = None;
-
-                    match apply_fs_changes(&pool, &events, &cover_dir, &excluded, batch).await {
-                        Ok(true) => events.emit(LibraryEvent::Changed),
-                        Ok(false) => {}
-                        Err(e) => events.emit(LibraryEvent::Log { message: format!("fs sync error: {e:#}") }),
-                    }
-                }
+            interval.tick().await;
+            if tick_actor_ref.cast(WatchTickMessage).is_err() {
+                break;
             }
         }
     });
 
-    ctrl_tx
+    actor_ref
+}
+
+pub(super) fn request_watch_refresh(actor_ref: &ActorRef<WatchTaskActor>) {
+    let _ = actor_ref.cast(WatchRefreshMessage);
 }
 
 fn is_audio_ext(ext: &str) -> bool {

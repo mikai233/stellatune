@@ -3143,6 +3143,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "arc-swap",
+ "async-trait",
  "reqwest",
  "serde_json",
  "sqlx",
@@ -3212,6 +3213,7 @@ name = "stellatune-library"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "base64 0.22.1",
  "crossbeam-channel",
  "notify",

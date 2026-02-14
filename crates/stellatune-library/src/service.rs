@@ -2,20 +2,25 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use tokio::sync::{broadcast, mpsc, oneshot};
-use tracing::{error, info};
+use tokio::sync::broadcast;
+use tracing::info;
 
 use stellatune_core::{LibraryCommand, LibraryEvent};
-use stellatune_runtime as global_runtime;
+use stellatune_runtime::tokio_actor::ActorRef;
 
 use crate::worker::{LibraryWorker, WorkerDeps};
+
+mod service_actor;
+
+use self::service_actor::LibraryServiceActor;
+use self::service_actor::handlers::command::LibraryCommandMessage;
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 use std::collections::HashSet;
 
 #[derive(Clone)]
 pub struct LibraryHandle {
-    cmd_tx: mpsc::Sender<LibraryCommand>,
+    actor_ref: ActorRef<LibraryServiceActor>,
     events: Arc<EventHub>,
     plugins_dir: PathBuf,
     db_path: PathBuf,
@@ -23,9 +28,8 @@ pub struct LibraryHandle {
 
 impl LibraryHandle {
     pub async fn send_command(&self, cmd: LibraryCommand) -> std::result::Result<(), String> {
-        self.cmd_tx
-            .send(cmd)
-            .await
+        self.actor_ref
+            .cast(LibraryCommandMessage { command: cmd })
             .map_err(|_| "library command channel closed".to_string())
     }
 
@@ -82,10 +86,7 @@ impl LibraryHandle {
 }
 
 pub async fn start_library(db_path: String) -> Result<LibraryHandle> {
-    let (cmd_tx, cmd_rx) = mpsc::channel::<LibraryCommand>(256);
     let events = Arc::new(EventHub::new());
-    let thread_events = Arc::clone(&events);
-    let (init_tx, init_rx) = oneshot::channel::<Result<()>>();
 
     let plugins_dir = PathBuf::from(&db_path)
         .parent()
@@ -93,74 +94,20 @@ pub async fn start_library(db_path: String) -> Result<LibraryHandle> {
         .join("plugins");
     let db_path = PathBuf::from(db_path);
 
-    let plugins_dir_thread = plugins_dir.clone();
-    let db_path_thread = db_path.clone();
-
-    global_runtime::spawn(async move {
-        if let Err(e) = library_task_main(
-            db_path_thread,
-            cmd_rx,
-            thread_events,
-            init_tx,
-            plugins_dir_thread,
-        )
-        .await
-        {
-            error!("library task exited with error: {e:?}");
-        }
-    });
-
-    let init = init_rx.await.context("library init channel closed")?;
-    init?;
+    ensure_parent_dir(&db_path)?;
+    let deps = WorkerDeps::new(&db_path, Arc::clone(&events), plugins_dir.clone()).await?;
+    let worker = LibraryWorker::new(deps);
+    let (actor_ref, _join) = stellatune_runtime::tokio_actor::spawn_actor(
+        LibraryServiceActor::new(worker, Arc::clone(&events)),
+    );
+    info!("library actor started");
 
     Ok(LibraryHandle {
-        cmd_tx,
+        actor_ref,
         events,
         plugins_dir,
         db_path,
     })
-}
-
-async fn library_task_main(
-    db_path: PathBuf,
-    mut cmd_rx: mpsc::Receiver<LibraryCommand>,
-    events: Arc<EventHub>,
-    init_tx: oneshot::Sender<Result<()>>,
-    plugins_dir: PathBuf,
-) -> Result<()> {
-    info!("library task started");
-
-    if let Err(e) = ensure_parent_dir(&db_path) {
-        let _ = init_tx.send(Err(e));
-        return Ok(());
-    }
-
-    let deps = match WorkerDeps::new(&db_path, Arc::clone(&events), plugins_dir).await {
-        Ok(v) => v,
-        Err(e) => {
-            let _ = init_tx.send(Err(e));
-            return Ok(());
-        }
-    };
-    let _ = init_tx.send(Ok(()));
-
-    let mut worker = LibraryWorker::new(deps);
-
-    while let Some(cmd) = cmd_rx.recv().await {
-        let is_shutdown = matches!(cmd, LibraryCommand::Shutdown);
-        if let Err(e) = worker.handle_command(cmd).await {
-            events.emit(LibraryEvent::Error {
-                message: format!("{e:#}"),
-            });
-        }
-        if is_shutdown {
-            break;
-        }
-    }
-
-    info!("library task exiting");
-
-    Ok(())
 }
 
 fn ensure_parent_dir(path: &Path) -> Result<()> {

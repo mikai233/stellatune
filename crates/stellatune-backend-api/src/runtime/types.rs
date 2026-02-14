@@ -14,6 +14,12 @@ use stellatune_core::{ControlCommand, ControlScope, Event, LibraryEvent, PluginR
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 pub(super) enum RouterInbound {
+    SetEngine {
+        engine: stellatune_audio::EngineHandle,
+    },
+    SetLibrary {
+        library: stellatune_library::LibraryHandle,
+    },
     PlayerEvent {
         generation: u64,
         event: Event,
@@ -26,8 +32,6 @@ pub(super) enum RouterInbound {
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 pub(super) struct PluginRuntimeRouter {
-    pub(super) engine: std::sync::Mutex<Option<stellatune_audio::EngineHandle>>,
-    pub(super) library: std::sync::Mutex<Option<stellatune_library::LibraryHandle>>,
     pub(super) inbound_tx: mpsc::UnboundedSender<RouterInbound>,
     pub(super) player_event_generation: AtomicU64,
     pub(super) library_event_generation: AtomicU64,

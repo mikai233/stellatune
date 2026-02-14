@@ -1,0 +1,23 @@
+use anyhow::Result;
+use stellatune_runtime::tokio_actor::{ActorContext, Handler, Message};
+
+use super::super::LyricsServiceActor;
+
+pub(in super::super) struct SetCacheDbPathMessage {
+    pub(in super::super) db_path: String,
+}
+
+impl Message for SetCacheDbPathMessage {
+    type Response = Result<()>;
+}
+
+#[async_trait::async_trait]
+impl Handler<SetCacheDbPathMessage> for LyricsServiceActor {
+    async fn handle(
+        &mut self,
+        message: SetCacheDbPathMessage,
+        _ctx: &mut ActorContext<Self>,
+    ) -> Result<()> {
+        self.core.set_cache_db_path(message.db_path).await
+    }
+}
