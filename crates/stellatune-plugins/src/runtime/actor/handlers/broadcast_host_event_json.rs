@@ -11,11 +11,7 @@ impl Message for BroadcastHostEventJsonMessage {
 }
 
 impl Handler<BroadcastHostEventJsonMessage> for PluginRuntimeActor {
-    fn handle(
-        &mut self,
-        message: BroadcastHostEventJsonMessage,
-        _ctx: &mut ActorContext<Self>,
-    ) -> () {
+    fn handle(&mut self, message: BroadcastHostEventJsonMessage, _ctx: &mut ActorContext<Self>) {
         if message.event_json.is_empty() {
             return;
         }

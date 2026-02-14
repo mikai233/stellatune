@@ -18,7 +18,7 @@ impl Message for PreloadEnqueueMessage {
 }
 
 impl Handler<PreloadEnqueueMessage> for PreloadActor {
-    fn handle(&mut self, message: PreloadEnqueueMessage, _ctx: &mut ActorContext<Self>) -> () {
+    fn handle(&mut self, message: PreloadEnqueueMessage, _ctx: &mut ActorContext<Self>) {
         let internal_tx = self.internal_tx.clone();
         let path = message.path;
         let position_ms = message.position_ms;

@@ -84,10 +84,7 @@ pub(super) fn on_set_output_sink_route(
     ctx: &mut CommandCtx<'_>,
     route: stellatune_core::OutputSinkRoute,
 ) -> Result<(), String> {
-    let parsed_route = match parse_output_sink_route(route) {
-        Ok(route) => route,
-        Err(message) => return Err(message),
-    };
+    let parsed_route = parse_output_sink_route(route)?;
     let mode_changed = ctx.state.desired_output_sink_route.is_none();
     let route_changed = ctx.state.desired_output_sink_route.as_ref() != Some(&parsed_route);
     ctx.state.desired_output_sink_route = Some(parsed_route);
@@ -108,9 +105,7 @@ pub(super) fn on_set_output_sink_route(
             set_state(ctx.state, ctx.events, PlayerState::Buffering);
         }
     }
-    if let Err(message) = sync_output_sink_with_active_session(ctx.state, ctx.internal_tx) {
-        return Err(message);
-    }
+    sync_output_sink_with_active_session(ctx.state, ctx.internal_tx)?;
     Ok(())
 }
 
@@ -134,9 +129,7 @@ pub(super) fn on_clear_output_sink_route(ctx: &mut CommandCtx<'_>) -> Result<(),
             set_state(ctx.state, ctx.events, PlayerState::Buffering);
         }
     }
-    if let Err(message) = sync_output_sink_with_active_session(ctx.state, ctx.internal_tx) {
-        return Err(message);
-    }
+    sync_output_sink_with_active_session(ctx.state, ctx.internal_tx)?;
     Ok(())
 }
 

@@ -355,7 +355,8 @@ impl SourceCatalogInstance {
                 "source list_items operation timed out",
             )
             .await?;
-        let result = match state {
+
+        match state {
             StAsyncOpState::Ready => op.take_json_utf8(self.ctx.plugin_free),
             StAsyncOpState::Cancelled => Err(anyhow!("source list_items operation cancelled")),
             StAsyncOpState::Failed => {
@@ -363,8 +364,7 @@ impl SourceCatalogInstance {
                 Err(anyhow!("source list_items operation failed"))
             }
             StAsyncOpState::Pending => Err(anyhow!("source list_items operation still pending")),
-        };
-        result
+        }
     }
 
     fn begin_open_stream_op(&mut self, track_json: &str) -> Result<SourceOpenStreamOpOwned> {
@@ -398,7 +398,8 @@ impl SourceCatalogInstance {
                 "source open_stream operation timed out",
             )
             .await?;
-        let result = match state {
+
+        match state {
             StAsyncOpState::Ready => {
                 let (out_io_vtable, out_io_handle, out_meta) =
                     op.take_stream(self.ctx.plugin_free)?;
@@ -418,22 +419,20 @@ impl SourceCatalogInstance {
             }
             StAsyncOpState::Cancelled => Err(anyhow!("source open_stream operation cancelled")),
             StAsyncOpState::Failed => {
-                match op.take_stream(self.ctx.plugin_free) {
-                    Ok((_out_io_vtable, out_io_handle, out_meta)) => {
-                        if !out_meta.ptr.is_null() && out_meta.len != 0 {
-                            let _ = take_plugin_string(out_meta, self.ctx.plugin_free);
-                        }
-                        if !out_io_handle.is_null() {
-                            self.close_stream(out_io_handle);
-                        }
+                if let Ok((_out_io_vtable, out_io_handle, out_meta)) =
+                    op.take_stream(self.ctx.plugin_free)
+                {
+                    if !out_meta.ptr.is_null() && out_meta.len != 0 {
+                        let _ = take_plugin_string(out_meta, self.ctx.plugin_free);
                     }
-                    Err(_) => {}
+                    if !out_io_handle.is_null() {
+                        self.close_stream(out_io_handle);
+                    }
                 }
                 Err(anyhow!("source open_stream operation failed"))
             }
             StAsyncOpState::Pending => Err(anyhow!("source open_stream operation still pending")),
-        };
-        result
+        }
     }
 
     pub fn close_stream(&mut self, io_handle: *mut core::ffi::c_void) {

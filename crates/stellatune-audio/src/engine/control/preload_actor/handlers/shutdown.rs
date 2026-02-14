@@ -9,7 +9,7 @@ impl Message for PreloadShutdownMessage {
 }
 
 impl Handler<PreloadShutdownMessage> for PreloadActor {
-    fn handle(&mut self, _message: PreloadShutdownMessage, ctx: &mut ActorContext<Self>) -> () {
+    fn handle(&mut self, _message: PreloadShutdownMessage, ctx: &mut ActorContext<Self>) {
         ctx.stop();
     }
 }

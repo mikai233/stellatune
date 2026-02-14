@@ -635,8 +635,7 @@ fn sidecar_client(config: &NeteaseSourceConfig) -> SdkResult<reqwest::Client> {
 fn sidecar_health_client(config: &NeteaseSourceConfig) -> SdkResult<reqwest::Client> {
     let timeout_ms = config
         .request_timeout_ms
-        .max(500)
-        .min(SIDECAR_HEALTH_TIMEOUT_MS);
+        .clamp(500, SIDECAR_HEALTH_TIMEOUT_MS);
     sidecar_client_with_timeout(timeout_ms)
 }
 

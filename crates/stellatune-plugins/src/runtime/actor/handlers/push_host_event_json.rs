@@ -12,7 +12,7 @@ impl Message for PushHostEventJsonMessage {
 }
 
 impl Handler<PushHostEventJsonMessage> for PluginRuntimeActor {
-    fn handle(&mut self, message: PushHostEventJsonMessage, _ctx: &mut ActorContext<Self>) -> () {
+    fn handle(&mut self, message: PushHostEventJsonMessage, _ctx: &mut ActorContext<Self>) {
         let plugin_id = message.plugin_id.trim();
         if plugin_id.is_empty() || message.event_json.is_empty() {
             return;

@@ -325,15 +325,13 @@ fn clear_runtime_owner_worker_cache() {
 
 fn clear_runtime_owner_worker_cache_for_plugin(plugin_id: &str) -> (usize, usize, usize) {
     let actor_ref = shared_runtime_owner_registry_actor();
-    match stellatune_runtime::block_on(actor_ref.call(
+    stellatune_runtime::block_on(actor_ref.call(
         ClearRuntimeOwnersForPluginMessage {
             plugin_id: plugin_id.to_string(),
         },
         OWNER_WORKER_CLEAR_TIMEOUT,
-    )) {
-        Ok(result) => result,
-        Err(_) => (0, 0, 0),
-    }
+    ))
+    .unwrap_or_default()
 }
 
 pub(super) fn source_list_items_json_via_runtime_async(
@@ -355,7 +353,7 @@ pub(super) fn source_list_items_json_via_runtime_async(
             return;
         }
     };
-    let _ = stellatune_runtime::spawn(async move {
+    std::mem::drop(stellatune_runtime::spawn(async move {
         let result = match actor_ref
             .call(
                 SourceListItemsMessage {
@@ -373,7 +371,7 @@ pub(super) fn source_list_items_json_via_runtime_async(
             Err(_) => Err("runtime source owner task unavailable".to_string()),
         };
         let _ = resp_tx.send(result);
-    });
+    }));
 }
 
 pub(super) fn lyrics_search_json_via_runtime_async(
@@ -402,7 +400,7 @@ pub(super) fn lyrics_search_json_via_runtime_async(
             return;
         }
     };
-    let _ = stellatune_runtime::spawn(async move {
+    std::mem::drop(stellatune_runtime::spawn(async move {
         let result = match actor_ref
             .call(
                 LyricsSearchMessage {
@@ -420,7 +418,7 @@ pub(super) fn lyrics_search_json_via_runtime_async(
             Err(_) => Err("runtime lyrics owner task unavailable".to_string()),
         };
         let _ = resp_tx.send(result);
-    });
+    }));
 }
 
 pub(super) fn lyrics_fetch_json_via_runtime_async(
@@ -449,7 +447,7 @@ pub(super) fn lyrics_fetch_json_via_runtime_async(
             return;
         }
     };
-    let _ = stellatune_runtime::spawn(async move {
+    std::mem::drop(stellatune_runtime::spawn(async move {
         let result = match actor_ref
             .call(
                 LyricsFetchMessage {
@@ -467,7 +465,7 @@ pub(super) fn lyrics_fetch_json_via_runtime_async(
             Err(_) => Err("runtime lyrics owner task unavailable".to_string()),
         };
         let _ = resp_tx.send(result);
-    });
+    }));
 }
 
 pub(crate) fn source_open_stream_via_runtime_blocking(

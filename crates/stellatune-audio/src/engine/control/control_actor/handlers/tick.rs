@@ -24,7 +24,7 @@ impl Message for ControlTickMessage {
 }
 
 impl Handler<ControlTickMessage> for ControlActor {
-    fn handle(&mut self, _message: ControlTickMessage, _ctx: &mut ActorContext<Self>) -> () {
+    fn handle(&mut self, _message: ControlTickMessage, _ctx: &mut ActorContext<Self>) {
         // If we are waiting for an output spec (prewarm) and have no active session, start the
         // session as soon as the spec becomes available.
         if self.state.session.is_none()

@@ -12,7 +12,7 @@ impl Message for SetPluginEnabledMessage {
 }
 
 impl Handler<SetPluginEnabledMessage> for PluginRuntimeActor {
-    fn handle(&mut self, message: SetPluginEnabledMessage, _ctx: &mut ActorContext<Self>) -> () {
+    fn handle(&mut self, message: SetPluginEnabledMessage, _ctx: &mut ActorContext<Self>) {
         let plugin_id = message.plugin_id.trim();
         if plugin_id.is_empty() {
             return;

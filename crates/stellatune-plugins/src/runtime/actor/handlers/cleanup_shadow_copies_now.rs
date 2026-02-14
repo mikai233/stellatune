@@ -9,11 +9,7 @@ impl Message for CleanupShadowCopiesNowMessage {
 }
 
 impl Handler<CleanupShadowCopiesNowMessage> for PluginRuntimeActor {
-    fn handle(
-        &mut self,
-        _message: CleanupShadowCopiesNowMessage,
-        _ctx: &mut ActorContext<Self>,
-    ) -> () {
+    fn handle(&mut self, _message: CleanupShadowCopiesNowMessage, _ctx: &mut ActorContext<Self>) {
         self.cleanup_shadow_copies_best_effort("cleanup_shadow_copies_now");
     }
 }

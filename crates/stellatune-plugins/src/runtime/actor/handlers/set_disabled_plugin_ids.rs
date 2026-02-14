@@ -13,11 +13,7 @@ impl Message for SetDisabledPluginIdsMessage {
 }
 
 impl Handler<SetDisabledPluginIdsMessage> for PluginRuntimeActor {
-    fn handle(
-        &mut self,
-        message: SetDisabledPluginIdsMessage,
-        _ctx: &mut ActorContext<Self>,
-    ) -> () {
+    fn handle(&mut self, message: SetDisabledPluginIdsMessage, _ctx: &mut ActorContext<Self>) {
         self.disabled_plugin_ids = message.disabled_ids;
     }
 }

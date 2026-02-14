@@ -23,7 +23,7 @@ impl Message for ControlEngineCtrlMessage {
 }
 
 impl Handler<ControlEngineCtrlMessage> for ControlActor {
-    fn handle(&mut self, message: ControlEngineCtrlMessage, _ctx: &mut ActorContext<Self>) -> () {
+    fn handle(&mut self, message: ControlEngineCtrlMessage, _ctx: &mut ActorContext<Self>) {
         match message.message {
             EngineCtrl::SetDspChain { chain } => {
                 on_engine_ctrl_set_dsp_chain(&mut self.state, &self.events, chain);

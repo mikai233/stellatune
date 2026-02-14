@@ -28,7 +28,7 @@ impl Message for ControlInternalMessage {
 }
 
 impl Handler<ControlInternalMessage> for ControlActor {
-    fn handle(&mut self, message: ControlInternalMessage, _ctx: &mut ActorContext<Self>) -> () {
+    fn handle(&mut self, message: ControlInternalMessage, _ctx: &mut ActorContext<Self>) {
         let mut internal_ctx = InternalCtx {
             state: &mut self.state,
             events: &self.events,

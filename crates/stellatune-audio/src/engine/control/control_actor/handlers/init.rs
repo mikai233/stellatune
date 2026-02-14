@@ -17,7 +17,7 @@ impl Message for ControlInitMessage {
 }
 
 impl Handler<ControlInitMessage> for ControlActor {
-    fn handle(&mut self, _message: ControlInitMessage, _ctx: &mut ActorContext<Self>) -> () {
+    fn handle(&mut self, _message: ControlInitMessage, _ctx: &mut ActorContext<Self>) {
         CONTROL_RT_GUARD.with(|guard| {
             if guard.borrow().is_none() {
                 *guard.borrow_mut() = Some(stellatune_output::enable_realtime_audio_thread());
