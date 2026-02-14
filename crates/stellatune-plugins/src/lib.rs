@@ -5,7 +5,6 @@ mod events;
 mod load;
 mod manifest;
 pub mod runtime;
-mod service;
 mod util;
 
 use std::path::{Path, PathBuf};

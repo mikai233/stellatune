@@ -2,17 +2,13 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use super::PluginRuntimeService;
+use super::PluginRuntimeActor;
 use crate::load::cleanup_stale_shadow_libraries;
 
 const SHADOW_CLEANUP_GRACE_PERIOD: Duration = Duration::ZERO;
 const SHADOW_CLEANUP_MAX_DELETIONS_PER_RUN: usize = 200;
 
-impl PluginRuntimeService {
-    pub fn cleanup_shadow_copies_now(&self) {
-        self.cleanup_shadow_copies_best_effort("cleanup_shadow_copies_now");
-    }
-
+impl PluginRuntimeActor {
     fn collect_protected_shadow_paths(&self) -> HashSet<PathBuf> {
         let mut out = HashSet::new();
         for slot in self.modules.values() {

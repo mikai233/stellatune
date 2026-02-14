@@ -14,7 +14,7 @@ use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::time::LocalTime;
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-use stellatune_plugins::runtime::handle::SharedPluginRuntimeService;
+use stellatune_plugins::runtime::handle::SharedPluginRuntimeHandle;
 
 mod apply_state;
 mod bus;
@@ -83,7 +83,7 @@ fn open_tracing_log_file() -> Option<Arc<Mutex<std::fs::File>>> {
 }
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-pub type SharedPluginRuntime = SharedPluginRuntimeService;
+pub type SharedPluginRuntime = SharedPluginRuntimeHandle;
 
 #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
 pub type SharedPluginRuntime = ();

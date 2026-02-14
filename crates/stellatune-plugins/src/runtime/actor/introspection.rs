@@ -10,12 +10,12 @@ use crate::runtime::introspection::{
 use crate::runtime::model::ModuleLease;
 use crate::runtime::registry::PluginModuleLeaseSlotState;
 
-use super::{PluginRuntimeService, lease_id_of};
+use super::{PluginRuntimeActor, lease_id_of};
 
-impl PluginRuntimeService {
+impl PluginRuntimeActor {
     pub(crate) fn introspection_cache_snapshot(&self) -> Arc<RuntimeIntrospectionReadCache> {
         self.maybe_refresh_introspection_cache();
-        self.introspection_cache.load_full()
+        self.introspection_cache_local.load_full()
     }
 
     pub(super) fn mark_introspection_cache_dirty(&self) {
@@ -28,11 +28,9 @@ impl PluginRuntimeService {
             return;
         }
         let cache = RuntimeIntrospectionReadCache::build(&self.modules);
-        self.introspection_cache.store(Arc::new(cache));
+        self.introspection_cache_local.store(Arc::new(cache));
     }
 }
-
-pub(super) type RuntimeIntrospectionCache = RuntimeIntrospectionReadCache;
 
 #[derive(Debug, Default)]
 struct DecoderScoreRules {

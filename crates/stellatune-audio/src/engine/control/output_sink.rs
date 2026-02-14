@@ -19,7 +19,7 @@ use super::{
 use crate::engine::control::runtime_query::apply_or_recreate_output_sink_instance;
 
 fn create_output_sink_cached_instance(
-    service: &stellatune_plugins::runtime::handle::SharedPluginRuntimeService,
+    service: &stellatune_plugins::runtime::handle::SharedPluginRuntimeHandle,
     plugin_id: &str,
     type_id: &str,
     config_json: &str,

@@ -4,6 +4,9 @@ use std::sync::OnceLock;
 use tokio::runtime::{Builder, Runtime};
 use tokio::task::JoinHandle;
 
+pub mod thread_actor;
+pub mod tokio_actor;
+
 fn runtime() -> &'static Runtime {
     static RUNTIME: OnceLock<Runtime> = OnceLock::new();
     RUNTIME.get_or_init(|| {

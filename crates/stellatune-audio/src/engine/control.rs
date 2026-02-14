@@ -80,9 +80,7 @@ const ENGINE_QUERY_TIMEOUT: Duration = Duration::from_secs(12);
 type SharedTrackInfo = Arc<ArcSwapOption<stellatune_core::TrackDecodeInfo>>;
 
 fn with_runtime_service<T>(
-    f: impl FnOnce(
-        &stellatune_plugins::runtime::handle::SharedPluginRuntimeService,
-    ) -> Result<T, String>,
+    f: impl FnOnce(&stellatune_plugins::runtime::handle::SharedPluginRuntimeHandle) -> Result<T, String>,
 ) -> Result<T, String> {
     let service = stellatune_plugins::runtime::handle::shared_runtime_service();
     f(&service)

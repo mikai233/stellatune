@@ -10,19 +10,19 @@ use crate::runtime::model::{
     RuntimeSyncReport, SourceLibraryFingerprint, SyncMode,
 };
 
-use super::PluginRuntimeService;
+use super::PluginRuntimeActor;
 use crate::load::{
     LoadedModuleCandidate, LoadedPluginModule, RuntimeLoadReport, RuntimePluginInfo,
     load_discovered_plugin,
 };
 
-impl PluginRuntimeService {
+impl PluginRuntimeActor {
     pub fn load_dir_additive_filtered(
         &mut self,
         dir: impl AsRef<Path>,
         disabled_ids: &HashSet<String>,
     ) -> Result<RuntimeLoadReport> {
-        self.set_disabled_plugin_ids(disabled_ids.clone());
+        self.disabled_plugin_ids = disabled_ids.clone();
         self.load_dir_additive_from_state(dir)
     }
 
@@ -39,7 +39,7 @@ impl PluginRuntimeService {
         dir: impl AsRef<Path>,
         disabled_ids: &HashSet<String>,
     ) -> Result<RuntimeLoadReport> {
-        self.set_disabled_plugin_ids(disabled_ids.clone());
+        self.disabled_plugin_ids = disabled_ids.clone();
         self.reload_dir_from_state(dir)
     }
 
@@ -69,7 +69,12 @@ impl PluginRuntimeService {
 
     pub fn shutdown_and_cleanup(&mut self) -> RuntimeLoadReport {
         let mut report = RuntimeLoadReport::default();
-        let mut plugin_ids = self.active_plugin_ids();
+        let mut plugin_ids = self
+            .modules
+            .iter()
+            .filter(|(_, slot)| slot.current.is_some())
+            .map(|(plugin_id, _)| plugin_id.clone())
+            .collect::<Vec<_>>();
         plugin_ids.sort();
         for plugin_id in plugin_ids {
             if self.disable_plugin_slot(&plugin_id) {
@@ -174,7 +179,7 @@ impl PluginRuntimeService {
 
         let dir = dir.as_ref();
         let plan_started = Instant::now();
-        let disabled_ids = self.disabled_plugin_ids();
+        let disabled_ids = self.disabled_plugin_ids.clone();
         let discovered_plugins = manifest::discover_plugins(dir)?;
         let plan = self.plan_sync_actions(&discovered_plugins, &disabled_ids, mode);
         let mut plan_summary = RuntimeSyncPlanSummary {
@@ -330,7 +335,12 @@ impl PluginRuntimeService {
             .iter()
             .map(|plugin| plugin.manifest.id.clone())
             .collect::<HashSet<_>>();
-        let active_ids = self.active_plugin_ids().into_iter().collect::<HashSet<_>>();
+        let active_ids = self
+            .modules
+            .iter()
+            .filter(|(_, slot)| slot.current.is_some())
+            .map(|(plugin_id, _)| plugin_id.clone())
+            .collect::<HashSet<_>>();
 
         let mut actions = Vec::new();
         for plugin in discovered_plugins {
