@@ -6,8 +6,8 @@ use stellatune_runtime::tokio_actor::{ActorContext, Handler, Message};
 
 use super::super::{WATCH_DEBOUNCE_MS, WatchTaskActor};
 
-pub(in super::super) struct WatchFsEventMessage {
-    pub(in super::super) result: notify::Result<notify::Event>,
+pub(crate) struct WatchFsEventMessage {
+    pub(crate) result: notify::Result<notify::Event>,
 }
 
 impl Message for WatchFsEventMessage {

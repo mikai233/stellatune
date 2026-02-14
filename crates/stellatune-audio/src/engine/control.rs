@@ -1,14 +1,13 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::thread::{self, JoinHandle};
+use std::thread;
 use std::time::{Duration, Instant};
 
 use arc_swap::ArcSwapOption;
 use crossbeam_channel::{Receiver, Sender};
 use tokio::sync::broadcast;
-use tokio::sync::mpsc;
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 
 use stellatune_core::{Command, Event, PlayerState, TrackPlayability, TrackRef};
 use stellatune_output::OutputSpec;
@@ -36,17 +35,13 @@ use crate::engine::session::{
 };
 use crate::engine::update_events::emit_config_update_runtime_event;
 
-mod commands;
-mod engine_ctrl;
-mod internal;
+mod control_actor;
 mod output_sink;
 mod preload;
+mod preload_actor;
 mod runtime_query;
 mod tick;
 
-use commands::handle_command;
-use engine_ctrl::handle_engine_ctrl;
-use internal::handle_internal;
 use output_sink::{
     output_sink_queue_watermarks_ms, output_spec_for_plugin_sink,
     resolve_output_spec_and_sink_chunk, shutdown_output_sink_worker,
@@ -64,7 +59,7 @@ use runtime_query::{
 pub(crate) use runtime_query::{
     source_close_stream_via_runtime_blocking, source_open_stream_via_runtime_blocking,
 };
-use tick::{ensure_output_spec_prewarm, handle_tick, output_backend_for_selected};
+use tick::{ensure_output_spec_prewarm, output_backend_for_selected};
 
 #[cfg(debug_assertions)]
 const DEBUG_PRELOAD_LOG_EVERY: u64 = 24;
@@ -350,14 +345,9 @@ pub(crate) enum CommandResponse {
     },
 }
 
-struct CommandMessage {
-    command: Command,
-    resp_tx: Option<tokio::sync::oneshot::Sender<Result<CommandResponse, String>>>,
-}
-
 #[derive(Clone)]
 pub struct EngineHandle {
-    cmd_tx: Sender<CommandMessage>,
+    actor_ref: stellatune_runtime::thread_actor::ActorRef<control_actor::ControlActor>,
     engine_ctrl_tx: Sender<EngineCtrl>,
     events: Arc<EventHub>,
     track_info: SharedTrackInfo,
@@ -379,16 +369,21 @@ impl EngineHandle {
     }
 
     async fn send_command_async(&self, cmd: Command) -> Result<CommandResponse, String> {
-        let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
-        self.cmd_tx
-            .send(CommandMessage {
-                command: cmd,
-                resp_tx: Some(resp_tx),
-            })
-            .map_err(|_| "control thread exited".to_string())?;
-        resp_rx
+        self.actor_ref
+            .call_async(
+                control_actor::handlers::command::ControlCommandMessage { command: cmd },
+                ENGINE_QUERY_TIMEOUT,
+            )
             .await
-            .map_err(|_| "control thread dropped command response".to_string())?
+            .map_err(|err| match err {
+                stellatune_runtime::thread_actor::CallError::MailboxClosed
+                | stellatune_runtime::thread_actor::CallError::ActorStopped => {
+                    "control thread exited".to_string()
+                }
+                stellatune_runtime::thread_actor::CallError::Timeout => {
+                    "control command timed out".to_string()
+                }
+            })?
     }
 
     pub async fn dispatch_command(&self, cmd: Command) -> Result<(), String> {
@@ -832,36 +827,73 @@ impl EngineHandle {
 }
 
 pub fn start_engine() -> EngineHandle {
-    let (cmd_tx, cmd_rx) = crossbeam_channel::unbounded();
     let (engine_ctrl_tx, engine_ctrl_rx) = crossbeam_channel::unbounded();
     let (internal_tx, internal_rx) = crossbeam_channel::unbounded();
 
     let events = Arc::new(EventHub::new());
-    let thread_events = Arc::clone(&events);
-
     let track_info: SharedTrackInfo = Arc::new(ArcSwapOption::new(None));
-    let track_info_for_thread = Arc::clone(&track_info);
-    let _join: JoinHandle<()> = thread::Builder::new()
-        .name("stellatune-control".to_string())
+    let mut state = EngineState::new();
+    state.decode_worker = Some(start_decode_worker(internal_tx.clone()));
+    state.preload_worker = Some(start_preload_worker(internal_tx.clone()));
+    ensure_output_spec_prewarm(&mut state, &internal_tx);
+
+    let (actor_ref, _actor_join) = stellatune_runtime::thread_actor::spawn_actor_named(
+        control_actor::ControlActor::new(
+            state,
+            Arc::clone(&events),
+            Arc::clone(&track_info),
+            internal_tx.clone(),
+        ),
+        "stellatune-control",
+    )
+    .expect("failed to spawn stellatune-control thread");
+    actor_ref
+        .call(
+            control_actor::handlers::init::ControlInitMessage,
+            Duration::from_millis(500),
+        )
+        .expect("failed to initialize control actor");
+
+    let dispatch_actor_ref = actor_ref.clone();
+    let _dispatch_join = thread::Builder::new()
+        .name("stellatune-control-dispatch".to_string())
         .spawn(move || {
-            let _rt_guard = stellatune_output::enable_realtime_audio_thread();
-            run_control_loop(
-                ControlLoopChannels {
-                    cmd_rx,
-                    engine_ctrl_rx,
-                    internal_rx,
-                    internal_tx,
-                },
-                ControlLoopDeps {
-                    events: thread_events,
-                    track_info: track_info_for_thread,
-                },
-            )
+            let tick_rx = crossbeam_channel::tick(Duration::from_millis(CONTROL_TICK_MS));
+            loop {
+                crossbeam_channel::select! {
+                    recv(engine_ctrl_rx) -> msg => {
+                        let Ok(message) = msg else { break };
+                        if dispatch_actor_ref
+                            .cast(control_actor::handlers::engine_ctrl::ControlEngineCtrlMessage { message })
+                            .is_err()
+                        {
+                            break;
+                        }
+                    }
+                    recv(internal_rx) -> msg => {
+                        let Ok(message) = msg else { break };
+                        if dispatch_actor_ref
+                            .cast(control_actor::handlers::internal::ControlInternalMessage { message })
+                            .is_err()
+                        {
+                            break;
+                        }
+                    }
+                    recv(tick_rx) -> _ => {
+                        if dispatch_actor_ref
+                            .cast(control_actor::handlers::tick::ControlTickMessage)
+                            .is_err()
+                        {
+                            break;
+                        }
+                    }
+                }
+            }
         })
-        .expect("failed to spawn stellatune-control thread");
+        .expect("failed to spawn control dispatch thread");
 
     EngineHandle {
-        cmd_tx,
+        actor_ref,
         engine_ctrl_tx,
         events,
         track_info,
@@ -931,29 +963,8 @@ struct SeekPositionGuard {
 }
 
 struct PreloadWorker {
-    tx: mpsc::UnboundedSender<PreloadJob>,
-    join: tokio::task::JoinHandle<()>,
-}
-
-struct ControlLoopChannels {
-    cmd_rx: Receiver<CommandMessage>,
-    engine_ctrl_rx: Receiver<EngineCtrl>,
-    internal_rx: Receiver<InternalMsg>,
-    internal_tx: Sender<InternalMsg>,
-}
-
-struct ControlLoopDeps {
-    events: Arc<EventHub>,
-    track_info: SharedTrackInfo,
-}
-
-enum PreloadJob {
-    Task {
-        path: String,
-        position_ms: u64,
-        token: u64,
-    },
-    Shutdown,
+    actor_ref: stellatune_runtime::thread_actor::ActorRef<preload_actor::PreloadActor>,
+    join: std::thread::JoinHandle<()>,
 }
 
 impl EngineState {
@@ -1001,70 +1012,6 @@ impl EngineState {
             position_session_id: 0,
         }
     }
-}
-
-fn run_control_loop(channels: ControlLoopChannels, deps: ControlLoopDeps) {
-    let ControlLoopChannels {
-        cmd_rx,
-        engine_ctrl_rx,
-        internal_rx,
-        internal_tx,
-    } = channels;
-    let ControlLoopDeps { events, track_info } = deps;
-
-    info!("control thread started");
-    let mut state = EngineState::new();
-    state.decode_worker = Some(start_decode_worker(internal_tx.clone()));
-    state.preload_worker = Some(start_preload_worker(internal_tx.clone()));
-    let tick = crossbeam_channel::tick(Duration::from_millis(CONTROL_TICK_MS));
-
-    // Prewarm output spec in the background so the first Play doesn't pay the WASAPI/COM setup cost.
-    ensure_output_spec_prewarm(&mut state, &internal_tx);
-
-    loop {
-        crossbeam_channel::select! {
-            recv(cmd_rx) -> msg => {
-                let Ok(cmd) = msg else { break };
-                let result = handle_command(
-                    cmd.command,
-                    &mut state,
-                    &events,
-                    &internal_tx,
-                    &track_info,
-                );
-                if let Some(resp_tx) = cmd.resp_tx {
-                    let _ = resp_tx.send(result.response);
-                }
-                if result.should_shutdown {
-                    break;
-                }
-            }
-            recv(engine_ctrl_rx) -> msg => {
-                let Ok(msg) = msg else { break };
-                handle_engine_ctrl(msg, &mut state, &events, &internal_tx, &track_info);
-            }
-            recv(internal_rx) -> msg => {
-                let Ok(msg) = msg else { break };
-                handle_internal(msg, &mut state, &events, &internal_tx, &track_info);
-            }
-            recv(tick) -> _ => {
-                handle_tick(
-                    &mut state,
-                    &events,
-                    &internal_tx,
-                    &track_info,
-                );
-            }
-        }
-    }
-
-    stop_all_audio(&mut state, &track_info);
-    shutdown_decode_worker(&mut state);
-    shutdown_preload_worker(&mut state);
-    events.emit(Event::Log {
-        message: "control thread exited".to_string(),
-    });
-    info!("control thread exited");
 }
 
 fn parse_dsp_chain(
@@ -1418,9 +1365,21 @@ fn shutdown_preload_worker(state: &mut EngineState) {
     let Some(worker) = state.preload_worker.take() else {
         return;
     };
-    let _ = worker.tx.send(PreloadJob::Shutdown);
-    if !worker.join.is_finished() {
-        worker.join.abort();
+    match worker.actor_ref.call(
+        preload_actor::handlers::shutdown::PreloadShutdownMessage,
+        Duration::from_millis(500),
+    ) {
+        Ok(()) => {}
+        Err(stellatune_runtime::thread_actor::CallError::MailboxClosed)
+        | Err(stellatune_runtime::thread_actor::CallError::ActorStopped) => {}
+        Err(stellatune_runtime::thread_actor::CallError::Timeout) => {
+            warn!("preload worker shutdown timed out");
+        }
+    }
+    if worker.join.is_finished() {
+        let _ = worker.join.join();
+    } else {
+        warn!("preload worker thread still running after shutdown request");
     }
     debug!("preload worker stopped");
 }

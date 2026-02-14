@@ -253,8 +253,8 @@ impl LibraryService {
         Ok(())
     }
 
-    pub fn plugin_apply_state_status_json(&self) -> String {
-        crate::runtime::plugin_runtime_apply_state_status_json()
+    pub async fn plugin_apply_state_status_json(&self) -> String {
+        crate::runtime::plugin_runtime_apply_state_status_json().await
     }
 
     pub async fn list_disabled_plugin_ids(&self) -> Result<Vec<String>> {

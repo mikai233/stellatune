@@ -3,13 +3,14 @@ use std::time::Instant;
 
 use tracing::trace;
 
-use crate::engine::control::DisruptFadeKind;
 use stellatune_core::TrackRef;
 
+use super::super::tick::ControlTickMessage;
 use super::{
-    CommandCtx, DecodeCtrl, Event, PlayerState, SessionStopMode, ensure_output_spec_prewarm,
-    flush_pending_plugin_disables, force_transition_gain_unity, handle_tick,
-    maybe_fade_out_before_disrupt, set_state, stop_decode_session, track_ref_to_engine_token,
+    CommandCtx, DecodeCtrl, DisruptFadeKind, Event, ManualSwitchTiming, PlayerState,
+    SeekPositionGuard, SessionStopMode, emit_position_event, ensure_output_spec_prewarm,
+    flush_pending_plugin_disables, force_transition_gain_unity, maybe_fade_out_before_disrupt,
+    next_position_session_id, set_state, stop_decode_session, track_ref_to_engine_token,
     track_ref_to_event_path,
 };
 
@@ -23,7 +24,7 @@ pub(super) fn on_load_track_ref(ctx: &mut CommandCtx<'_>, track: TrackRef) -> Re
 
     let switch_id = ctx.state.switch_timing_seq;
     ctx.state.switch_timing_seq = ctx.state.switch_timing_seq.saturating_add(1);
-    ctx.state.manual_switch_timing = Some(super::super::ManualSwitchTiming {
+    ctx.state.manual_switch_timing = Some(ManualSwitchTiming {
         id: switch_id,
         from_track: ctx.state.current_track.clone(),
         to_track: event_path.clone(),
@@ -72,7 +73,7 @@ pub(super) fn on_load_track_ref(ctx: &mut CommandCtx<'_>, track: TrackRef) -> Re
     }
 
     ctx.state.current_track = Some(path.clone());
-    super::super::next_position_session_id(ctx.state);
+    next_position_session_id(ctx.state);
     ctx.state.position_ms = 0;
     ctx.state.wants_playback = false;
     ctx.state.pending_session_start = false;
@@ -82,7 +83,7 @@ pub(super) fn on_load_track_ref(ctx: &mut CommandCtx<'_>, track: TrackRef) -> Re
     ctx.events.emit(Event::TrackChanged {
         path: event_path.clone(),
     });
-    super::super::emit_position_event(ctx.state, ctx.events);
+    emit_position_event(ctx.state, ctx.events);
     set_state(ctx.state, ctx.events, PlayerState::Stopped);
 
     if let Some(timing) = ctx.state.manual_switch_timing.as_mut() {
@@ -120,7 +121,7 @@ pub(super) fn on_switch_track_ref(
         ctx.state.pending_session_start = true;
         set_state(ctx.state, ctx.events, PlayerState::Buffering);
         ensure_output_spec_prewarm(ctx.state, ctx.internal_tx);
-        handle_tick(ctx.state, ctx.events, ctx.internal_tx, ctx.track_info);
+        let _ = ctx.actor_ref.cast(ControlTickMessage);
     }
     Ok(())
 }
@@ -144,7 +145,7 @@ pub(super) fn on_play(ctx: &mut CommandCtx<'_>) -> Result<(), String> {
         ctx.state.pending_session_start = true;
         set_state(ctx.state, ctx.events, PlayerState::Buffering);
         ensure_output_spec_prewarm(ctx.state, ctx.internal_tx);
-        handle_tick(ctx.state, ctx.events, ctx.internal_tx, ctx.track_info);
+        let _ = ctx.actor_ref.cast(ControlTickMessage);
         return Ok(());
     }
 
@@ -155,7 +156,7 @@ pub(super) fn on_play(ctx: &mut CommandCtx<'_>) -> Result<(), String> {
     }
 
     set_state(ctx.state, ctx.events, PlayerState::Buffering);
-    handle_tick(ctx.state, ctx.events, ctx.internal_tx, ctx.track_info);
+    let _ = ctx.actor_ref.cast(ControlTickMessage);
     Ok(())
 }
 
@@ -180,14 +181,14 @@ pub(super) fn on_seek_ms(ctx: &mut CommandCtx<'_>, position_ms: u64) -> Result<(
     maybe_fade_out_before_disrupt(ctx.state, DisruptFadeKind::Seek);
     let target_ms = (position_ms as i64).max(0);
     let origin_ms = ctx.state.position_ms.max(0);
-    ctx.state.seek_position_guard = Some(super::super::SeekPositionGuard {
+    ctx.state.seek_position_guard = Some(SeekPositionGuard {
         target_ms,
         origin_ms,
         requested_at: Instant::now(),
     });
-    super::super::next_position_session_id(ctx.state);
+    next_position_session_id(ctx.state);
     ctx.state.position_ms = target_ms;
-    super::super::emit_position_event(ctx.state, ctx.events);
+    emit_position_event(ctx.state, ctx.events);
 
     if let Some(session) = ctx.state.session.as_ref() {
         session.output_enabled.store(false, Ordering::Release);
@@ -204,7 +205,7 @@ pub(super) fn on_seek_ms(ctx: &mut CommandCtx<'_>, position_ms: u64) -> Result<(
     {
         set_state(ctx.state, ctx.events, PlayerState::Buffering);
         ctx.state.play_request_started_at = Some(Instant::now());
-        handle_tick(ctx.state, ctx.events, ctx.internal_tx, ctx.track_info);
+        let _ = ctx.actor_ref.cast(ControlTickMessage);
     }
     Ok(())
 }
@@ -216,8 +217,8 @@ pub(super) fn on_stop(ctx: &mut CommandCtx<'_>) -> Result<(), String> {
     ctx.state.play_request_started_at = None;
     ctx.state.pending_session_start = false;
     ctx.state.seek_position_guard = None;
-    super::super::next_position_session_id(ctx.state);
-    super::super::emit_position_event(ctx.state, ctx.events);
+    next_position_session_id(ctx.state);
+    emit_position_event(ctx.state, ctx.events);
     set_state(ctx.state, ctx.events, PlayerState::Stopped);
     Ok(())
 }

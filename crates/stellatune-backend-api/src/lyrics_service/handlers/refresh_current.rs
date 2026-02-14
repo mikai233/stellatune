@@ -3,7 +3,7 @@ use stellatune_runtime::tokio_actor::{ActorContext, Handler, Message};
 
 use super::super::LyricsServiceActor;
 
-pub(in super::super) struct RefreshCurrentMessage;
+pub(crate) struct RefreshCurrentMessage;
 
 impl Message for RefreshCurrentMessage {
     type Response = Result<()>;

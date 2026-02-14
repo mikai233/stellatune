@@ -5,7 +5,8 @@ use stellatune_core::TrackDecodeInfo;
 use crate::engine::messages::PredecodedChunk;
 use crate::engine::session::PromotedPreload;
 
-use super::{InternalCtx, debug_metrics};
+use super::super::super::super::debug_metrics;
+use super::InternalCtx;
 
 pub(super) struct PreloadReadyArgs {
     pub(super) path: String,

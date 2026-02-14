@@ -8,31 +8,12 @@ use std::time::{Duration, Instant};
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 use stellatune_plugin_protocol::RequestId;
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::broadcast;
 
-use stellatune_core::{ControlCommand, ControlScope, Event, LibraryEvent, PluginRuntimeEvent};
-
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-pub(super) enum RouterInbound {
-    SetEngine {
-        engine: stellatune_audio::EngineHandle,
-    },
-    SetLibrary {
-        library: stellatune_library::LibraryHandle,
-    },
-    PlayerEvent {
-        generation: u64,
-        event: Event,
-    },
-    LibraryEvent {
-        generation: u64,
-        event: LibraryEvent,
-    },
-}
+use stellatune_core::{ControlCommand, ControlScope, PluginRuntimeEvent};
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 pub(super) struct PluginRuntimeRouter {
-    pub(super) inbound_tx: mpsc::UnboundedSender<RouterInbound>,
     pub(super) player_event_generation: AtomicU64,
     pub(super) library_event_generation: AtomicU64,
     pub(super) runtime_hub: Arc<PluginRuntimeEventHub>,

@@ -3,8 +3,8 @@ use stellatune_runtime::tokio_actor::{ActorContext, Handler, Message};
 
 use super::super::LyricsServiceActor;
 
-pub(in super::super) struct SetCacheDbPathMessage {
-    pub(in super::super) db_path: String,
+pub(crate) struct SetCacheDbPathMessage {
+    pub(crate) db_path: String,
 }
 
 impl Message for SetCacheDbPathMessage {

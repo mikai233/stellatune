@@ -2,7 +2,8 @@ use tracing::{debug, warn};
 
 use stellatune_output::OutputSpec;
 
-use super::{Event, InternalCtx, PlayerState, set_state};
+use super::super::super::super::{Event, PlayerState, set_state};
+use super::InternalCtx;
 
 pub(super) fn on_output_spec_ready(
     ctx: &mut InternalCtx<'_>,

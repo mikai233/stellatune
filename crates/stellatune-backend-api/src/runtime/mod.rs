@@ -272,8 +272,8 @@ impl ApplyStateReport {
     }
 }
 
-pub fn plugin_runtime_apply_state_status_json() -> String {
-    apply_state::status_json()
+pub async fn plugin_runtime_apply_state_status_json() -> String {
+    apply_state::status_json().await
 }
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]

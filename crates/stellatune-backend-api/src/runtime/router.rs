@@ -21,16 +21,20 @@ use super::router_actor::handlers::set_engine::SetEngineMessage;
 use super::router_actor::handlers::set_library::SetLibraryMessage;
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 use stellatune_runtime as global_runtime;
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+use stellatune_runtime::tokio_actor::ActorRef;
 
-use super::types::{PluginRuntimeEventHub, PluginRuntimeRouter, RouterInbound};
+use super::types::{PluginRuntimeEventHub, PluginRuntimeRouter};
+
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+static ROUTER: OnceLock<std::sync::Arc<PluginRuntimeRouter>> = OnceLock::new();
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+static ROUTER_ACTOR_REF: OnceLock<ActorRef<RuntimeRouterActor>> = OnceLock::new();
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 fn plugin_runtime_router() -> &'static std::sync::Arc<PluginRuntimeRouter> {
-    static ROUTER: OnceLock<std::sync::Arc<PluginRuntimeRouter>> = OnceLock::new();
     ROUTER.get_or_init(|| {
-        let (inbound_tx, mut inbound_rx) = tokio::sync::mpsc::unbounded_channel::<RouterInbound>();
         let router = std::sync::Arc::new(PluginRuntimeRouter {
-            inbound_tx: inbound_tx.clone(),
             player_event_generation: std::sync::atomic::AtomicU64::new(0),
             library_event_generation: std::sync::atomic::AtomicU64::new(0),
             runtime_hub: std::sync::Arc::new(PluginRuntimeEventHub::new()),
@@ -43,6 +47,7 @@ fn plugin_runtime_router() -> &'static std::sync::Arc<PluginRuntimeRouter> {
                 library: None,
                 pending_finishes: Vec::new(),
             });
+        let _ = ROUTER_ACTOR_REF.set(router_actor_ref.clone());
 
         let backend_actor_ref = router_actor_ref.clone();
         global_runtime::spawn(async move {
@@ -54,29 +59,6 @@ fn plugin_runtime_router() -> &'static std::sync::Arc<PluginRuntimeRouter> {
                     .cast(BackendControlMessage { request })
                     .is_err()
                 {
-                    break;
-                }
-            }
-        });
-
-        let inbound_actor_ref = router_actor_ref.clone();
-        global_runtime::spawn(async move {
-            while let Some(message) = inbound_rx.recv().await {
-                let send_result = match message {
-                    RouterInbound::SetEngine { engine } => {
-                        inbound_actor_ref.cast(SetEngineMessage { engine })
-                    }
-                    RouterInbound::SetLibrary { library } => {
-                        inbound_actor_ref.cast(SetLibraryMessage { library })
-                    }
-                    RouterInbound::PlayerEvent { generation, event } => {
-                        inbound_actor_ref.cast(PlayerEventMessage { generation, event })
-                    }
-                    RouterInbound::LibraryEvent { generation, event } => {
-                        inbound_actor_ref.cast(LibraryEventMessage { generation, event })
-                    }
-                };
-                if send_result.is_err() {
                     break;
                 }
             }
@@ -98,11 +80,19 @@ fn plugin_runtime_router() -> &'static std::sync::Arc<PluginRuntimeRouter> {
 }
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+fn plugin_runtime_router_actor_ref() -> &'static ActorRef<RuntimeRouterActor> {
+    let _ = plugin_runtime_router();
+    ROUTER_ACTOR_REF
+        .get()
+        .expect("runtime router actor should be initialized")
+}
+
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 pub fn register_plugin_runtime_engine(engine: stellatune_audio::EngineHandle) {
     let router = plugin_runtime_router();
+    let actor_ref = plugin_runtime_router_actor_ref().clone();
     let mut player_rx = engine.subscribe_events();
-    let tx = router.inbound_tx.clone();
-    let _ = tx.send(RouterInbound::SetEngine {
+    let _ = actor_ref.cast(SetEngineMessage {
         engine: engine.clone(),
     });
     let generation = router
@@ -113,8 +103,8 @@ pub fn register_plugin_runtime_engine(engine: stellatune_audio::EngineHandle) {
         loop {
             match player_rx.recv().await {
                 Ok(event) => {
-                    if tx
-                        .send(RouterInbound::PlayerEvent { generation, event })
+                    if actor_ref
+                        .cast(PlayerEventMessage { generation, event })
                         .is_err()
                     {
                         break;
@@ -130,9 +120,9 @@ pub fn register_plugin_runtime_engine(engine: stellatune_audio::EngineHandle) {
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 pub fn register_plugin_runtime_library(library: stellatune_library::LibraryHandle) {
     let router = plugin_runtime_router();
+    let actor_ref = plugin_runtime_router_actor_ref().clone();
     let mut library_rx = library.subscribe_events();
-    let tx = router.inbound_tx.clone();
-    let _ = tx.send(RouterInbound::SetLibrary {
+    let _ = actor_ref.cast(SetLibraryMessage {
         library: library.clone(),
     });
     let generation = router
@@ -143,8 +133,8 @@ pub fn register_plugin_runtime_library(library: stellatune_library::LibraryHandl
         loop {
             match library_rx.recv().await {
                 Ok(event) => {
-                    if tx
-                        .send(RouterInbound::LibraryEvent { generation, event })
+                    if actor_ref
+                        .cast(LibraryEventMessage { generation, event })
                         .is_err()
                     {
                         break;

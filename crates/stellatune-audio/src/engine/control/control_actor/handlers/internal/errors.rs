@@ -2,14 +2,14 @@ use std::time::Instant;
 
 use tracing::error;
 
+use super::super::super::super::{
+    Event, PlayerState, SessionStopMode, drop_output_pipeline, ensure_output_spec_prewarm,
+    event_path_from_engine_token, set_state, stop_all_audio, stop_decode_session,
+};
+use super::InternalCtx;
+
 const SEEK_POSITION_GUARD_TIMEOUT_MS: u64 = 1200;
 const SEEK_POSITION_ACCEPT_TOLERANCE_MS: i64 = 400;
-
-use super::{
-    Event, InternalCtx, PlayerState, SessionStopMode, drop_output_pipeline,
-    ensure_output_spec_prewarm, event_path_from_engine_token, set_state, stop_all_audio,
-    stop_decode_session,
-};
 
 pub(super) fn on_eof(ctx: &mut InternalCtx<'_>) {
     ctx.events.emit(Event::Log {
@@ -126,5 +126,5 @@ pub(super) fn on_position(ctx: &mut InternalCtx<'_>, path: String, ms: i64) {
         return;
     }
     ctx.state.position_ms = ms;
-    super::super::emit_position_event(ctx.state, ctx.events);
+    super::super::super::super::emit_position_event(ctx.state, ctx.events);
 }

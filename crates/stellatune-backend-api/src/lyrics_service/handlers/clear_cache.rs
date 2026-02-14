@@ -3,7 +3,7 @@ use stellatune_runtime::tokio_actor::{ActorContext, Handler, Message};
 
 use super::super::LyricsServiceActor;
 
-pub(in super::super) struct ClearCacheMessage;
+pub(crate) struct ClearCacheMessage;
 
 impl Message for ClearCacheMessage {
     type Response = Result<()>;

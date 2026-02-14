@@ -2,8 +2,8 @@ use stellatune_runtime::tokio_actor::{ActorContext, Handler, Message};
 
 use super::super::LyricsServiceActor;
 
-pub(in super::super) struct SetPositionMsMessage {
-    pub(in super::super) position_ms: u64,
+pub(crate) struct SetPositionMsMessage {
+    pub(crate) position_ms: u64,
 }
 
 impl Message for SetPositionMsMessage {

@@ -5,7 +5,7 @@ use stellatune_runtime::tokio_actor::{ActorContext, Handler, Message};
 
 use super::super::{WatchTaskActor, apply_fs_changes};
 
-pub(in super::super) struct WatchTickMessage;
+pub(crate) struct WatchTickMessage;
 
 impl Message for WatchTickMessage {
     type Response = ();

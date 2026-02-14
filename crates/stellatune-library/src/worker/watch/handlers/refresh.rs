@@ -3,7 +3,7 @@ use stellatune_runtime::tokio_actor::{ActorContext, Handler, Message};
 
 use super::super::{WatchTaskActor, refresh_watch_state};
 
-pub(in super::super) struct WatchRefreshMessage;
+pub(crate) struct WatchRefreshMessage;
 
 impl Message for WatchRefreshMessage {
     type Response = ();

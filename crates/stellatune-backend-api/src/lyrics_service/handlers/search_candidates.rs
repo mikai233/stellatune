@@ -4,8 +4,8 @@ use stellatune_runtime::tokio_actor::{ActorContext, Handler, Message};
 
 use super::super::LyricsServiceActor;
 
-pub(in super::super) struct SearchCandidatesMessage {
-    pub(in super::super) query: LyricsQuery,
+pub(crate) struct SearchCandidatesMessage {
+    pub(crate) query: LyricsQuery,
 }
 
 impl Message for SearchCandidatesMessage {

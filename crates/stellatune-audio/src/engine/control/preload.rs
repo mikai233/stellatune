@@ -1,38 +1,14 @@
-use std::time::Instant;
-
 use crossbeam_channel::Sender;
-use tokio::sync::mpsc;
 
-use crate::engine::decode::decoder::open_engine_decoder;
-use crate::engine::messages::{InternalMsg, PredecodedChunk};
-use stellatune_runtime as global_runtime;
+use crate::engine::messages::InternalMsg;
 
-use super::{EngineState, PreloadJob, PreloadWorker, TRACK_REF_TOKEN_PREFIX};
+use super::preload_actor::handlers::enqueue::PreloadEnqueueMessage;
+use super::{EngineState, PreloadWorker, TRACK_REF_TOKEN_PREFIX, preload_actor};
 
 pub(super) fn start_preload_worker(internal_tx: Sender<InternalMsg>) -> PreloadWorker {
-    let (tx, mut rx) = mpsc::unbounded_channel::<PreloadJob>();
-    let join = global_runtime::spawn(async move {
-        while let Some(job) = rx.recv().await {
-            match job {
-                PreloadJob::Task {
-                    path,
-                    position_ms,
-                    token,
-                } => {
-                    let internal_tx = internal_tx.clone();
-                    if let Err(join_err) = tokio::task::spawn_blocking(move || {
-                        handle_preload_task(path, position_ms, token, &internal_tx)
-                    })
-                    .await
-                    {
-                        tracing::warn!("preload task join failed: {join_err}");
-                    }
-                }
-                PreloadJob::Shutdown => break,
-            }
-        }
-    });
-    PreloadWorker { tx, join }
+    let (actor_ref, join) =
+        preload_actor::spawn_preload_actor(internal_tx).expect("failed to spawn preload actor");
+    PreloadWorker { actor_ref, join }
 }
 
 pub(super) fn enqueue_preload_task(
@@ -44,80 +20,11 @@ pub(super) fn enqueue_preload_task(
     let Some(worker) = state.preload_worker.as_ref() else {
         return;
     };
-    let _ = worker.tx.send(PreloadJob::Task {
+    let _ = worker.actor_ref.cast(PreloadEnqueueMessage {
         path,
         position_ms,
         token,
     });
-}
-
-pub(super) fn handle_preload_task(
-    path: String,
-    position_ms: u64,
-    token: u64,
-    internal_tx: &Sender<InternalMsg>,
-) {
-    let t0 = Instant::now();
-    match open_engine_decoder(&path) {
-        Ok((mut decoder, track_info)) => {
-            if position_ms > 0
-                && let Err(err) = decoder.seek_ms(position_ms)
-            {
-                let _ = internal_tx.send(InternalMsg::PreloadFailed {
-                    path: path.clone(),
-                    position_ms,
-                    message: err,
-                    took_ms: t0.elapsed().as_millis() as u64,
-                    token,
-                });
-                return;
-            }
-            match decoder.next_block(2048) {
-                Ok(Some(samples)) if !samples.is_empty() => {
-                    let _ = internal_tx.send(InternalMsg::PreloadReady {
-                        path: path.clone(),
-                        position_ms,
-                        track_info: track_info.clone(),
-                        chunk: PredecodedChunk {
-                            samples,
-                            sample_rate: track_info.sample_rate,
-                            channels: track_info.channels,
-                            start_at_ms: position_ms,
-                        },
-                        took_ms: t0.elapsed().as_millis() as u64,
-                        token,
-                    });
-                }
-                Ok(_) => {
-                    let _ = internal_tx.send(InternalMsg::PreloadFailed {
-                        path: path.clone(),
-                        position_ms,
-                        message: "decoder returned no preload audio".to_string(),
-                        took_ms: t0.elapsed().as_millis() as u64,
-                        token,
-                    });
-                }
-                Err(err) => {
-                    let _ = internal_tx.send(InternalMsg::PreloadFailed {
-                        path: path.clone(),
-                        position_ms,
-                        message: err,
-                        took_ms: t0.elapsed().as_millis() as u64,
-                        token,
-                    });
-                }
-            }
-        }
-        Err(err) => {
-            let _ = internal_tx.send(InternalMsg::PreloadFailed {
-                path: path.clone(),
-                position_ms,
-                message: err,
-                took_ms: t0.elapsed().as_millis() as u64,
-                token,
-            });
-        }
-    }
 }
 
 pub(super) fn engine_token_to_track_ref(token: &str) -> Option<stellatune_core::TrackRef> {

@@ -215,8 +215,8 @@ pub async fn library_plugin_apply_state(library: RustOpaque<Library>) -> Result<
     library.service.plugin_apply_state().await
 }
 
-pub fn library_plugin_apply_state_status_json(library: RustOpaque<Library>) -> String {
-    library.service.plugin_apply_state_status_json()
+pub async fn library_plugin_apply_state_status_json(library: RustOpaque<Library>) -> String {
+    library.service.plugin_apply_state_status_json().await
 }
 
 pub async fn library_list_disabled_plugin_ids(library: RustOpaque<Library>) -> Result<Vec<String>> {

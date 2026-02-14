@@ -4,9 +4,9 @@ use stellatune_runtime::tokio_actor::{ActorContext, Handler, Message};
 
 use super::super::LyricsServiceActor;
 
-pub(in super::super) struct ApplyCandidateMessage {
-    pub(in super::super) track_key: String,
-    pub(in super::super) doc: LyricsDoc,
+pub(crate) struct ApplyCandidateMessage {
+    pub(crate) track_key: String,
+    pub(crate) doc: LyricsDoc,
 }
 
 impl Message for ApplyCandidateMessage {
