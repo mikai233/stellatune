@@ -1,7 +1,9 @@
 use serde::{Serialize, de::DeserializeOwned};
 use stellatune_plugin_api::{StOutputSinkNegotiatedSpec, StOutputSinkRuntimeStatus};
 
-use crate::{SdkError, SdkResult, StAudioSpec, StDecoderInfo, StIoVTable, StSeekWhence};
+use crate::{
+    SdkError, SdkResult, StAudioSpec, StDecoderInfo, StIoVTable, StSeekWhence, async_trait,
+};
 
 use super::update::ConfigUpdatable;
 
@@ -203,12 +205,16 @@ impl<S: SourceStream> SourceOpenResult<S> {
     }
 }
 
+#[async_trait]
 pub trait SourceCatalogInstance: Send + ConfigUpdatable + 'static {
-    fn list_items_json(&mut self, request_json: &str) -> SdkResult<String>;
+    async fn list_items_json(&mut self, request_json: &str) -> SdkResult<String>;
 
-    fn open_stream_json(&mut self, track_json: &str) -> SdkResult<SourceOpenResult<Self::Stream>>;
+    async fn open_stream_json(
+        &mut self,
+        track_json: &str,
+    ) -> SdkResult<SourceOpenResult<Self::Stream>>;
 
-    fn close_stream(&mut self, _stream: &mut Self::Stream) -> SdkResult<()> {
+    async fn close_stream(&mut self, _stream: &mut Self::Stream) -> SdkResult<()> {
         Ok(())
     }
 
@@ -228,9 +234,10 @@ pub trait SourceCatalogDescriptor {
     fn create(config: Self::Config) -> SdkResult<Self::Instance>;
 }
 
+#[async_trait]
 pub trait LyricsProviderInstance: Send + ConfigUpdatable + 'static {
-    fn search_json(&mut self, query_json: &str) -> SdkResult<String>;
-    fn fetch_json(&mut self, track_json: &str) -> SdkResult<String>;
+    async fn search_json(&mut self, query_json: &str) -> SdkResult<String>;
+    async fn fetch_json(&mut self, track_json: &str) -> SdkResult<String>;
 }
 
 pub trait LyricsProviderDescriptor {
@@ -316,7 +323,7 @@ pub struct DspBox<T: DspInstance> {
 
 #[doc(hidden)]
 pub struct SourceCatalogBox<T: SourceCatalogInstance> {
-    pub inner: T,
+    pub inner: std::sync::Arc<tokio::sync::Mutex<T>>,
 }
 
 #[doc(hidden)]
@@ -326,7 +333,7 @@ pub struct SourceStreamBox<T: SourceStream> {
 
 #[doc(hidden)]
 pub struct LyricsProviderBox<T: LyricsProviderInstance> {
-    pub inner: T,
+    pub inner: std::sync::Arc<tokio::sync::Mutex<T>>,
 }
 
 #[doc(hidden)]

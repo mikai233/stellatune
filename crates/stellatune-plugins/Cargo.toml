@@ -12,17 +12,20 @@ serde_json.workspace = true
 walkdir.workspace = true
 tracing.workspace = true
 crossbeam-channel.workspace = true
+tokio.workspace = true
+arc-swap.workspace = true
 rawzip = "0.4.3"
 flate2 = "1.1.9"
 tempfile = "3.25.0"
 
 stellatune-plugin-api.workspace = true
 stellatune-plugin-protocol.workspace = true
-stellatune-core.workspace = true
+stellatune-runtime.workspace = true
 
 [dev-dependencies]
 stellatune-decode.workspace = true
 
 [lints]
 workspace = true
+
 

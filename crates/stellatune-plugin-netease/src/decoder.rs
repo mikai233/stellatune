@@ -132,20 +132,20 @@ impl Decoder for StreamDecoder {
                                 self.in_channels,
                                 out_channels,
                             );
-                        }
+                        },
                         Err(SymphoniaError::DecodeError(_)) => continue,
                         Err(SymphoniaError::ResetRequired) => {
                             self.decoder.reset();
                             continue;
-                        }
+                        },
                         Err(e) => return Err(SdkError::msg(format!("decode failed: {e}"))),
                     }
-                }
+                },
                 Err(SymphoniaError::IoError(e))
                     if e.kind() == std::io::ErrorKind::UnexpectedEof =>
                 {
                     break;
-                }
+                },
                 Err(e) => return Err(SdkError::msg(format!("read packet failed: {e}"))),
             }
         }

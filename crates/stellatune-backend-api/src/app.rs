@@ -13,12 +13,12 @@ impl BackendApp {
         Self
     }
 
-    pub fn create_session(&self, options: BackendSessionOptions) -> Result<BackendSession> {
-        BackendSession::from_options(options)
+    pub async fn create_session(&self, options: BackendSessionOptions) -> Result<BackendSession> {
+        BackendSession::from_options(options).await
     }
 
-    pub fn create_default_session(&self) -> Result<BackendSession> {
-        self.create_session(BackendSessionOptions::default())
+    pub async fn create_default_session(&self) -> Result<BackendSession> {
+        self.create_session(BackendSessionOptions::default()).await
     }
 
     pub fn plugins_install_from_file(

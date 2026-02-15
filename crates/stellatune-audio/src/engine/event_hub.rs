@@ -1,31 +1,22 @@
-use std::sync::Mutex;
+use tokio::sync::broadcast;
 
-use crossbeam_channel::{Receiver, Sender};
-
-use stellatune_core::Event;
+use crate::types::Event;
 
 pub(crate) struct EventHub {
-    subscribers: Mutex<Vec<Sender<Event>>>,
+    tx: broadcast::Sender<Event>,
 }
 
 impl EventHub {
     pub(crate) fn new() -> Self {
-        Self {
-            subscribers: Mutex::new(Vec::new()),
-        }
+        let (tx, _rx) = broadcast::channel(1024);
+        Self { tx }
     }
 
-    pub(crate) fn subscribe(&self) -> Receiver<Event> {
-        let (tx, rx) = crossbeam_channel::unbounded();
-        if let Ok(mut subs) = self.subscribers.lock() {
-            subs.push(tx);
-        }
-        rx
+    pub(crate) fn subscribe(&self) -> broadcast::Receiver<Event> {
+        self.tx.subscribe()
     }
 
     pub(crate) fn emit(&self, event: Event) {
-        if let Ok(mut subs) = self.subscribers.lock() {
-            subs.retain(|tx| tx.send(event.clone()).is_ok());
-        }
+        let _ = self.tx.send(event);
     }
 }

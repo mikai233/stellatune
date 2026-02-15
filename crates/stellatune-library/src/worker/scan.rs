@@ -1,12 +1,12 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Instant, UNIX_EPOCH};
 
 use anyhow::Result;
 use sqlx::SqlitePool;
 use walkdir::WalkDir;
 
-use stellatune_core::LibraryEvent;
+use crate::LibraryEvent;
 
 use crate::service::EventHub;
 
@@ -90,7 +90,7 @@ pub(super) async fn scan_all(
                 let mtime_ms = meta
                     .modified()
                     .ok()
-                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
                     .map(|d| d.as_millis() as i64)
                     .unwrap_or(0);
                 let size_bytes = meta.len() as i64;
@@ -148,14 +148,14 @@ pub(super) async fn scan_all(
                         message: format!("metadata error: {}: {e:#}", file.path),
                     });
                     (None, None, None, None, None)
-                }
+                },
                 Err(join_err) => {
                     errors += 1;
                     events.emit(LibraryEvent::Log {
                         message: format!("metadata task failed: {}: {join_err}", file.path),
                     });
                     (None, None, None, None, None)
-                }
+                },
             };
 
             let track_id = match upsert_track(
@@ -183,7 +183,7 @@ pub(super) async fn scan_all(
                         message: format!("upsert error: {}: {e}", file.path),
                     });
                     continue;
-                }
+                },
             };
 
             if let Some(bytes) = cover
@@ -264,49 +264,69 @@ pub(super) async fn scan_folder_into_db(
         .collect();
 
     let mut changed = false;
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<FileCandidate>(512);
+    let root_clone = root.clone();
+    let excluded_clone = excluded.clone();
+    let walker = tokio::task::spawn_blocking(move || {
+        for entry in WalkDir::new(&root_clone).follow_links(false).into_iter() {
+            let entry = match entry {
+                Ok(e) => e,
+                Err(_) => continue,
+            };
+            if !entry.file_type().is_file() {
+                continue;
+            }
 
-    for entry in WalkDir::new(&root).follow_links(false).into_iter() {
-        let entry = match entry {
-            Ok(e) => e,
-            Err(_) => continue,
-        };
-        if !entry.file_type().is_file() {
-            continue;
+            let path = entry.path().to_path_buf();
+            let path_str = path.to_string_lossy().to_string();
+            let ext = path
+                .extension()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_ascii_lowercase();
+            let supported = is_audio_ext(&ext) || has_plugin_decoder_for_path(&path);
+            if !supported {
+                continue;
+            }
+
+            let meta = match entry.metadata() {
+                Ok(m) => m,
+                Err(_) => continue,
+            };
+            let mtime_ms = meta
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                .map(|d| d.as_millis() as i64)
+                .unwrap_or(0);
+            let size_bytes = meta.len() as i64;
+
+            let path_norm = normalize_path_str(&path_str);
+            let dir_norm = parent_dir_norm(&path_norm).unwrap_or_default();
+            if !dir_norm.is_empty() && is_under_excluded(&dir_norm, &excluded_clone) {
+                continue;
+            }
+
+            if tx
+                .blocking_send(FileCandidate {
+                    path: path_str,
+                    path_norm,
+                    dir_norm,
+                    ext,
+                    mtime_ms,
+                    size_bytes,
+                })
+                .is_err()
+            {
+                break;
+            }
         }
+    });
 
-        let path = entry.path().to_path_buf();
-        let path_str = path.to_string_lossy().to_string();
-        let ext = path
-            .extension()
-            .and_then(|s| s.to_str())
-            .unwrap_or("")
-            .to_ascii_lowercase();
-        let supported = is_audio_ext(&ext) || has_plugin_decoder_for_path(&path);
-        if !supported {
-            continue;
-        }
-
-        let meta = match entry.metadata() {
-            Ok(m) => m,
-            Err(_) => continue,
-        };
-        let mtime_ms = meta
-            .modified()
-            .ok()
-            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-            .map(|d| d.as_millis() as i64)
-            .unwrap_or(0);
-        let size_bytes = meta.len() as i64;
-
-        let path_norm = normalize_path_str(&path_str);
-        let dir_norm = parent_dir_norm(&path_norm).unwrap_or_default();
-        if !dir_norm.is_empty() && is_under_excluded(&dir_norm, &excluded) {
-            continue;
-        }
-
-        if let Some(old) = select_track_fingerprint(&pool, &path_str).await?
-            && old.mtime_ms == mtime_ms
-            && old.size_bytes == size_bytes
+    while let Some(file) = rx.recv().await {
+        if let Some(old) = select_track_fingerprint(&pool, &file.path).await?
+            && old.mtime_ms == file.mtime_ms
+            && old.size_bytes == file.size_bytes
             && old.meta_scanned_ms > 0
         {
             continue;
@@ -315,7 +335,7 @@ pub(super) async fn scan_folder_into_db(
         let meta_scanned_ms = now_ms();
 
         let (title, artist, album, duration_ms, cover) = match tokio::task::spawn_blocking({
-            let p = path.clone();
+            let p = PathBuf::from(&file.path);
             move || {
                 extract_metadata_with_plugins(&p)
                     .map(|m| (m.title, m.artist, m.album, m.duration_ms, m.cover))
@@ -326,32 +346,32 @@ pub(super) async fn scan_folder_into_db(
             Ok(Ok(m)) => m,
             Ok(Err(e)) => {
                 events.emit(LibraryEvent::Log {
-                    message: format!("metadata error: {}: {e:#}", path_str),
+                    message: format!("metadata error: {}: {e:#}", file.path),
                 });
                 (None, None, None, None, None)
-            }
+            },
             Err(join_err) => {
                 events.emit(LibraryEvent::Log {
-                    message: format!("metadata task failed: {}: {join_err}", path_str),
+                    message: format!("metadata task failed: {}: {join_err}", file.path),
                 });
                 (None, None, None, None, None)
-            }
+            },
         };
 
         let track_id = upsert_track(
             &pool,
             UpsertTrackInput {
-                path: &path_str,
-                ext: &ext,
-                mtime_ms,
-                size_bytes,
+                path: &file.path,
+                ext: &file.ext,
+                mtime_ms: file.mtime_ms,
+                size_bytes: file.size_bytes,
                 title: title.as_deref(),
                 artist: artist.as_deref(),
                 album: album.as_deref(),
                 duration_ms,
                 meta_scanned_ms,
-                path_norm: &path_norm,
-                dir_norm: &dir_norm,
+                path_norm: &file.path_norm,
+                dir_norm: &file.dir_norm,
             },
         )
         .await?;
@@ -360,11 +380,17 @@ pub(super) async fn scan_folder_into_db(
             && let Err(e) = write_cover_bytes(cover_dir, track_id, &bytes)
         {
             events.emit(LibraryEvent::Log {
-                message: format!("cover write error: {}: {e}", path_str),
+                message: format!("cover write error: {}: {e}", file.path),
             });
         }
 
         changed = true;
+    }
+
+    if let Err(join_err) = walker.await {
+        events.emit(LibraryEvent::Log {
+            message: format!("walk task failed: {join_err}"),
+        });
     }
 
     Ok(changed)

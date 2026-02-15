@@ -398,6 +398,36 @@ abstract class AppLocalizations {
   /// **'Fade on play/pause/seek/track switch'**
   String get settingsSeekTrackFade;
 
+  /// No description provided for @settingsResampleQuality.
+  ///
+  /// In en, this message translates to:
+  /// **'Resampling Quality'**
+  String get settingsResampleQuality;
+
+  /// No description provided for @settingsResampleQualityFast.
+  ///
+  /// In en, this message translates to:
+  /// **'Fast (Low CPU)'**
+  String get settingsResampleQualityFast;
+
+  /// No description provided for @settingsResampleQualityBalanced.
+  ///
+  /// In en, this message translates to:
+  /// **'Balanced'**
+  String get settingsResampleQualityBalanced;
+
+  /// No description provided for @settingsResampleQualityHigh.
+  ///
+  /// In en, this message translates to:
+  /// **'High (Sinc)'**
+  String get settingsResampleQualityHigh;
+
+  /// No description provided for @settingsResampleQualityUltra.
+  ///
+  /// In en, this message translates to:
+  /// **'Ultra (Slow)'**
+  String get settingsResampleQualityUltra;
+
   /// No description provided for @settingsPluginsTitle.
   ///
   /// In en, this message translates to:

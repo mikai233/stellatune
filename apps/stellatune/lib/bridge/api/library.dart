@@ -4,80 +4,48 @@
 // ignore_for_file: invalid_use_of_internal_member, unused_import, unnecessary_import
 
 import '../frb_generated.dart';
-import '../third_party/stellatune_core.dart';
+import '../third_party/stellatune_library.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `new`
+// These functions are ignored because they are not marked as `pub`: `shared_library`
 
-Future<Library> createLibrary({required String dbPath}) =>
+Future<void> createLibrary({required String dbPath}) =>
     StellatuneApi.instance.api.crateApiLibraryCreateLibrary(dbPath: dbPath);
 
-Future<void> libraryAddRoot({
-  required Library library_,
-  required String path,
-}) => StellatuneApi.instance.api.crateApiLibraryLibraryAddRoot(
-  library_: library_,
-  path: path,
-);
+Future<void> libraryAddRoot({required String path}) =>
+    StellatuneApi.instance.api.crateApiLibraryLibraryAddRoot(path: path);
 
-Future<void> libraryRemoveRoot({
-  required Library library_,
-  required String path,
-}) => StellatuneApi.instance.api.crateApiLibraryLibraryRemoveRoot(
-  library_: library_,
-  path: path,
-);
+Future<void> libraryRemoveRoot({required String path}) =>
+    StellatuneApi.instance.api.crateApiLibraryLibraryRemoveRoot(path: path);
 
-Future<void> libraryDeleteFolder({
-  required Library library_,
-  required String path,
-}) => StellatuneApi.instance.api.crateApiLibraryLibraryDeleteFolder(
-  library_: library_,
-  path: path,
-);
+Future<void> libraryDeleteFolder({required String path}) =>
+    StellatuneApi.instance.api.crateApiLibraryLibraryDeleteFolder(path: path);
 
-Future<void> libraryRestoreFolder({
-  required Library library_,
-  required String path,
-}) => StellatuneApi.instance.api.crateApiLibraryLibraryRestoreFolder(
-  library_: library_,
-  path: path,
-);
+Future<void> libraryRestoreFolder({required String path}) =>
+    StellatuneApi.instance.api.crateApiLibraryLibraryRestoreFolder(path: path);
 
-Future<void> libraryListExcludedFolders({required Library library_}) =>
-    StellatuneApi.instance.api.crateApiLibraryLibraryListExcludedFolders(
-      library_: library_,
-    );
+Future<List<String>> libraryListExcludedFolders() =>
+    StellatuneApi.instance.api.crateApiLibraryLibraryListExcludedFolders();
 
-Future<void> libraryScanAll({required Library library_}) => StellatuneApi
-    .instance
-    .api
-    .crateApiLibraryLibraryScanAll(library_: library_);
+Future<void> libraryScanAll() =>
+    StellatuneApi.instance.api.crateApiLibraryLibraryScanAll();
 
-Future<void> libraryScanAllForce({required Library library_}) => StellatuneApi
-    .instance
-    .api
-    .crateApiLibraryLibraryScanAllForce(library_: library_);
+Future<void> libraryScanAllForce() =>
+    StellatuneApi.instance.api.crateApiLibraryLibraryScanAllForce();
 
-Future<void> libraryListRoots({required Library library_}) => StellatuneApi
-    .instance
-    .api
-    .crateApiLibraryLibraryListRoots(library_: library_);
+Future<List<String>> libraryListRoots() =>
+    StellatuneApi.instance.api.crateApiLibraryLibraryListRoots();
 
-Future<void> libraryListFolders({required Library library_}) => StellatuneApi
-    .instance
-    .api
-    .crateApiLibraryLibraryListFolders(library_: library_);
+Future<List<String>> libraryListFolders() =>
+    StellatuneApi.instance.api.crateApiLibraryLibraryListFolders();
 
-Future<void> libraryListTracks({
-  required Library library_,
+Future<List<TrackLite>> libraryListTracks({
   required String folder,
   required bool recursive,
   required String query,
   required PlatformInt64 limit,
   required PlatformInt64 offset,
 }) => StellatuneApi.instance.api.crateApiLibraryLibraryListTracks(
-  library_: library_,
   folder: folder,
   recursive: recursive,
   query: query,
@@ -85,57 +53,39 @@ Future<void> libraryListTracks({
   offset: offset,
 );
 
-Future<void> librarySearch({
-  required Library library_,
+Future<List<TrackLite>> librarySearch({
   required String query,
   required PlatformInt64 limit,
   required PlatformInt64 offset,
 }) => StellatuneApi.instance.api.crateApiLibraryLibrarySearch(
-  library_: library_,
   query: query,
   limit: limit,
   offset: offset,
 );
 
-Future<void> libraryListPlaylists({required Library library_}) => StellatuneApi
-    .instance
-    .api
-    .crateApiLibraryLibraryListPlaylists(library_: library_);
+Future<List<PlaylistLite>> libraryListPlaylists() =>
+    StellatuneApi.instance.api.crateApiLibraryLibraryListPlaylists();
 
-Future<void> libraryCreatePlaylist({
-  required Library library_,
-  required String name,
-}) => StellatuneApi.instance.api.crateApiLibraryLibraryCreatePlaylist(
-  library_: library_,
-  name: name,
-);
+Future<void> libraryCreatePlaylist({required String name}) =>
+    StellatuneApi.instance.api.crateApiLibraryLibraryCreatePlaylist(name: name);
 
 Future<void> libraryRenamePlaylist({
-  required Library library_,
   required PlatformInt64 id,
   required String name,
 }) => StellatuneApi.instance.api.crateApiLibraryLibraryRenamePlaylist(
-  library_: library_,
   id: id,
   name: name,
 );
 
-Future<void> libraryDeletePlaylist({
-  required Library library_,
-  required PlatformInt64 id,
-}) => StellatuneApi.instance.api.crateApiLibraryLibraryDeletePlaylist(
-  library_: library_,
-  id: id,
-);
+Future<void> libraryDeletePlaylist({required PlatformInt64 id}) =>
+    StellatuneApi.instance.api.crateApiLibraryLibraryDeletePlaylist(id: id);
 
-Future<void> libraryListPlaylistTracks({
-  required Library library_,
+Future<List<TrackLite>> libraryListPlaylistTracks({
   required PlatformInt64 playlistId,
   required String query,
   required PlatformInt64 limit,
   required PlatformInt64 offset,
 }) => StellatuneApi.instance.api.crateApiLibraryLibraryListPlaylistTracks(
-  library_: library_,
   playlistId: playlistId,
   query: query,
   limit: limit,
@@ -143,106 +93,76 @@ Future<void> libraryListPlaylistTracks({
 );
 
 Future<void> libraryAddTrackToPlaylist({
-  required Library library_,
   required PlatformInt64 playlistId,
   required PlatformInt64 trackId,
 }) => StellatuneApi.instance.api.crateApiLibraryLibraryAddTrackToPlaylist(
-  library_: library_,
   playlistId: playlistId,
   trackId: trackId,
 );
 
 Future<void> libraryAddTracksToPlaylist({
-  required Library library_,
   required PlatformInt64 playlistId,
   required Int64List trackIds,
 }) => StellatuneApi.instance.api.crateApiLibraryLibraryAddTracksToPlaylist(
-  library_: library_,
   playlistId: playlistId,
   trackIds: trackIds,
 );
 
 Future<void> libraryRemoveTrackFromPlaylist({
-  required Library library_,
   required PlatformInt64 playlistId,
   required PlatformInt64 trackId,
 }) => StellatuneApi.instance.api.crateApiLibraryLibraryRemoveTrackFromPlaylist(
-  library_: library_,
   playlistId: playlistId,
   trackId: trackId,
 );
 
 Future<void> libraryRemoveTracksFromPlaylist({
-  required Library library_,
   required PlatformInt64 playlistId,
   required Int64List trackIds,
 }) => StellatuneApi.instance.api.crateApiLibraryLibraryRemoveTracksFromPlaylist(
-  library_: library_,
   playlistId: playlistId,
   trackIds: trackIds,
 );
 
 Future<void> libraryMoveTrackInPlaylist({
-  required Library library_,
   required PlatformInt64 playlistId,
   required PlatformInt64 trackId,
   required PlatformInt64 newIndex,
 }) => StellatuneApi.instance.api.crateApiLibraryLibraryMoveTrackInPlaylist(
-  library_: library_,
   playlistId: playlistId,
   trackId: trackId,
   newIndex: newIndex,
 );
 
-Future<void> libraryListLikedTrackIds({required Library library_}) =>
-    StellatuneApi.instance.api.crateApiLibraryLibraryListLikedTrackIds(
-      library_: library_,
-    );
+Future<Int64List> libraryListLikedTrackIds() =>
+    StellatuneApi.instance.api.crateApiLibraryLibraryListLikedTrackIds();
 
 Future<void> librarySetTrackLiked({
-  required Library library_,
   required PlatformInt64 trackId,
   required bool liked,
 }) => StellatuneApi.instance.api.crateApiLibraryLibrarySetTrackLiked(
-  library_: library_,
   trackId: trackId,
   liked: liked,
 );
 
-Stream<LibraryEvent> libraryEvents({required Library library_}) =>
-    StellatuneApi.instance.api.crateApiLibraryLibraryEvents(library_: library_);
+Stream<LibraryEvent> libraryEvents() =>
+    StellatuneApi.instance.api.crateApiLibraryLibraryEvents();
 
-Future<void> libraryPluginDisable({
-  required Library library_,
-  required String pluginId,
-}) => StellatuneApi.instance.api.crateApiLibraryLibraryPluginDisable(
-  library_: library_,
-  pluginId: pluginId,
-);
+Future<void> libraryPluginDisable({required String pluginId}) => StellatuneApi
+    .instance
+    .api
+    .crateApiLibraryLibraryPluginDisable(pluginId: pluginId);
 
-Future<void> libraryPluginEnable({
-  required Library library_,
-  required String pluginId,
-}) => StellatuneApi.instance.api.crateApiLibraryLibraryPluginEnable(
-  library_: library_,
-  pluginId: pluginId,
-);
+Future<void> libraryPluginEnable({required String pluginId}) => StellatuneApi
+    .instance
+    .api
+    .crateApiLibraryLibraryPluginEnable(pluginId: pluginId);
 
-Future<void> libraryPluginApplyState({required Library library_}) =>
-    StellatuneApi.instance.api.crateApiLibraryLibraryPluginApplyState(
-      library_: library_,
-    );
+Future<void> libraryPluginApplyState() =>
+    StellatuneApi.instance.api.crateApiLibraryLibraryPluginApplyState();
 
-Future<String> libraryPluginApplyStateStatusJson({required Library library_}) =>
-    StellatuneApi.instance.api.crateApiLibraryLibraryPluginApplyStateStatusJson(
-      library_: library_,
-    );
+Future<String> libraryPluginApplyStateStatusJson() => StellatuneApi.instance.api
+    .crateApiLibraryLibraryPluginApplyStateStatusJson();
 
-Future<List<String>> libraryListDisabledPluginIds({
-  required Library library_,
-}) => StellatuneApi.instance.api.crateApiLibraryLibraryListDisabledPluginIds(
-  library_: library_,
-);
-
-// Rust type: RustOpaqueMoi<Library>
-abstract class Library implements RustOpaqueInterface {}
+Future<List<String>> libraryListDisabledPluginIds() =>
+    StellatuneApi.instance.api.crateApiLibraryLibraryListDisabledPluginIds();

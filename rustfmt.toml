@@ -1,0 +1,45 @@
+# ============================================
+# Stable rustfmt configuration (Rust 2024)
+# ============================================
+
+edition = "2024"
+
+# --------------------------------------------
+# Basic formatting
+# --------------------------------------------
+
+max_width = 100
+hard_tabs = false
+tab_spaces = 4
+
+# --------------------------------------------
+# Import behavior (stable-compatible subset)
+# --------------------------------------------
+
+reorder_imports = true
+reorder_modules = true
+
+# Note:
+# imports_granularity and group_imports
+# are NOT stable yet on some toolchains.
+# They require nightly.
+
+# --------------------------------------------
+# Match formatting
+# --------------------------------------------
+
+match_block_trailing_comma = true
+
+# --------------------------------------------
+# Heuristics
+# --------------------------------------------
+
+use_small_heuristics = "Default"
+
+# --------------------------------------------
+# Misc stability options
+# --------------------------------------------
+
+newline_style = "Auto"
+use_field_init_shorthand = true
+use_try_shorthand = true

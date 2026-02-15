@@ -1,12 +1,12 @@
-use std::marker::PhantomData;
-use std::rc::Rc;
-
 use anyhow::{Result, anyhow};
-use stellatune_plugin_api::{StAudioSpec, StStr};
+use std::ffi::c_void;
 use stellatune_plugin_api::{
-    StConfigUpdatePlan, StOutputSinkInstanceRef, StOutputSinkNegotiatedSpec,
-    StOutputSinkRuntimeStatus,
+    StAudioSpec, StConfigUpdateMode, StConfigUpdatePlan, StOutputSinkInstanceRef,
+    StOutputSinkInstanceVTable, StOutputSinkNegotiatedSpec, StOutputSinkRuntimeStatus, StStr,
 };
+
+use crate::runtime::instance_registry::InstanceId;
+use crate::runtime::update::{InstanceUpdateDecision, InstanceUpdateResult};
 
 use super::common::{
     ConfigUpdatePlan, InstanceRuntimeCtx, decision_from_plan, plan_from_ffi, status_to_result,
@@ -15,9 +15,8 @@ use super::common::{
 
 pub struct OutputSinkInstance {
     ctx: InstanceRuntimeCtx,
-    handle: *mut core::ffi::c_void,
-    vtable: *const stellatune_plugin_api::StOutputSinkInstanceVTable,
-    _not_send_sync: PhantomData<Rc<()>>,
+    handle: *mut c_void,
+    vtable: *const StOutputSinkInstanceVTable,
 }
 
 impl OutputSinkInstance {
@@ -29,16 +28,14 @@ impl OutputSinkInstance {
             ctx,
             handle: raw.handle,
             vtable: raw.vtable,
-            _not_send_sync: PhantomData,
         })
     }
 
-    pub fn instance_id(&self) -> crate::runtime::InstanceId {
+    pub fn instance_id(&self) -> InstanceId {
         self.ctx.instance_id
     }
 
     pub fn list_targets_json(&mut self) -> Result<String> {
-        let _call = self.ctx.begin_call();
         let mut out = StStr::empty();
         let status = unsafe { ((*self.vtable).list_targets_json_utf8)(self.handle, &mut out) };
         status_to_result("Output list_targets_json", status, self.ctx.plugin_free)?;
@@ -50,7 +47,6 @@ impl OutputSinkInstance {
         target_json: &str,
         desired_spec: StAudioSpec,
     ) -> Result<StOutputSinkNegotiatedSpec> {
-        let _call = self.ctx.begin_call();
         let mut out = StOutputSinkNegotiatedSpec {
             spec: StAudioSpec {
                 sample_rate: 0,
@@ -74,7 +70,6 @@ impl OutputSinkInstance {
     }
 
     pub fn open(&mut self, target_json: &str, spec: StAudioSpec) -> Result<()> {
-        let _call = self.ctx.begin_call();
         let status =
             unsafe { ((*self.vtable).open)(self.handle, ststr_from_str(target_json), spec) };
         status_to_result("Output open", status, self.ctx.plugin_free)
@@ -90,7 +85,6 @@ impl OutputSinkInstance {
             ));
         }
         let frames = (samples.len() / channels as usize) as u32;
-        let _call = self.ctx.begin_call();
         let mut out_frames_accepted = 0u32;
         let status = unsafe {
             ((*self.vtable).write_interleaved_f32)(
@@ -106,7 +100,6 @@ impl OutputSinkInstance {
     }
 
     pub fn query_status(&mut self) -> Result<StOutputSinkRuntimeStatus> {
-        let _call = self.ctx.begin_call();
         let mut out = StOutputSinkRuntimeStatus {
             queued_samples: 0,
             running: 0,
@@ -122,19 +115,16 @@ impl OutputSinkInstance {
         let Some(flush) = (unsafe { (*self.vtable).flush }) else {
             return Ok(());
         };
-        let _call = self.ctx.begin_call();
         let status = (flush)(self.handle);
         status_to_result("Output flush", status, self.ctx.plugin_free)
     }
 
     pub fn reset(&mut self) -> Result<()> {
-        let _call = self.ctx.begin_call();
         let status = unsafe { ((*self.vtable).reset)(self.handle) };
         status_to_result("Output reset", status, self.ctx.plugin_free)
     }
 
     pub fn close(&mut self) {
-        let _call = self.ctx.begin_call();
         unsafe { ((*self.vtable).close)(self.handle) };
     }
 
@@ -148,13 +138,12 @@ impl OutputSinkInstance {
     pub fn plan_config_update_json(&self, new_config_json: &str) -> Result<ConfigUpdatePlan> {
         let Some(plan_fn) = (unsafe { (*self.vtable).plan_config_update_json_utf8 }) else {
             return Ok(ConfigUpdatePlan {
-                mode: stellatune_plugin_api::StConfigUpdateMode::Recreate,
+                mode: StConfigUpdateMode::Recreate,
                 reason: Some("plugin does not implement plan_config_update".to_string()),
             });
         };
-        let _call = self.ctx.begin_call();
         let mut out = StConfigUpdatePlan {
-            mode: stellatune_plugin_api::StConfigUpdateMode::Reject,
+            mode: StConfigUpdateMode::Reject,
             reason_utf8: StStr::empty(),
         };
         let status = (plan_fn)(self.handle, ststr_from_str(new_config_json), &mut out);
@@ -169,7 +158,7 @@ impl OutputSinkInstance {
     pub fn apply_config_update_json(
         &mut self,
         new_config_json: &str,
-    ) -> Result<crate::runtime::InstanceUpdateResult> {
+    ) -> Result<InstanceUpdateResult> {
         let plan = self.plan_config_update_json(new_config_json)?;
         let decision = decision_from_plan(&plan);
         let req = self.ctx.updates.begin(
@@ -179,14 +168,13 @@ impl OutputSinkInstance {
             plan.reason.clone(),
         );
         match decision {
-            crate::runtime::InstanceUpdateDecision::HotApply => {
+            InstanceUpdateDecision::HotApply => {
                 let Some(apply_fn) = (unsafe { (*self.vtable).apply_config_update_json_utf8 })
                 else {
                     let msg = "output apply_config_update not supported".to_string();
                     let _ = self.ctx.updates.finish_failed(&req, msg.clone());
                     return Err(anyhow!(msg));
                 };
-                let _call = self.ctx.begin_call();
                 let status = (apply_fn)(self.handle, ststr_from_str(&req.config_json));
                 match status_to_result(
                     "Output apply_config_update_json",
@@ -197,18 +185,18 @@ impl OutputSinkInstance {
                     Err(err) => {
                         let _ = self.ctx.updates.finish_failed(&req, err.to_string());
                         Err(err)
-                    }
+                    },
                 }
-            }
-            crate::runtime::InstanceUpdateDecision::Recreate => {
+            },
+            InstanceUpdateDecision::Recreate => {
                 Ok(self.ctx.updates.finish_requires_recreate(&req, plan.reason))
-            }
-            crate::runtime::InstanceUpdateDecision::Reject => {
+            },
+            InstanceUpdateDecision::Reject => {
                 let reason = plan
                     .reason
                     .unwrap_or_else(|| "output rejected config update".to_string());
                 Ok(self.ctx.updates.finish_rejected(&req, reason))
-            }
+            },
         }
     }
 
@@ -216,7 +204,6 @@ impl OutputSinkInstance {
         let Some(export_fn) = (unsafe { (*self.vtable).export_state_json_utf8 }) else {
             return Ok(None);
         };
-        let _call = self.ctx.begin_call();
         let mut out = StStr::empty();
         let status = (export_fn)(self.handle, &mut out);
         status_to_result("Output export_state_json", status, self.ctx.plugin_free)?;
@@ -232,7 +219,6 @@ impl OutputSinkInstance {
         let Some(import_fn) = (unsafe { (*self.vtable).import_state_json_utf8 }) else {
             return Err(anyhow!("output import_state_json not supported"));
         };
-        let _call = self.ctx.begin_call();
         let status = (import_fn)(self.handle, ststr_from_str(state_json));
         status_to_result("Output import_state_json", status, self.ctx.plugin_free)
     }
@@ -242,10 +228,12 @@ impl Drop for OutputSinkInstance {
     fn drop(&mut self) {
         if !self.handle.is_null() && !self.vtable.is_null() {
             self.close_before_destroy();
-            let _call = self.ctx.begin_call();
             unsafe { ((*self.vtable).destroy)(self.handle) };
-            self.handle = core::ptr::null_mut();
+            self.handle = std::ptr::null_mut();
         }
-        self.ctx.unregister();
     }
 }
+
+// SAFETY: The worker model requires moving instances across thread boundaries and
+// using each instance from exactly one worker thread at a time.
+unsafe impl Send for OutputSinkInstance {}

@@ -6,22 +6,24 @@ license.workspace = true
 
 [dependencies]
 anyhow.workspace = true
-crossbeam-channel.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+serde.workspace = true
 serde_json.workspace = true
 sqlx.workspace = true
 arc-swap.workspace = true
+flutter_rust_bridge.workspace = true
+async-trait = "0.1.89"
 reqwest = { version = "0.12.12", default-features = false, features = ["rustls-tls", "gzip"] }
 tokio-util = { version = "0.7.13", features = ["io"] }
 url = "2.5.4"
 
 stellatune-audio.workspace = true
-stellatune-core.workspace = true
 stellatune-library.workspace = true
 stellatune-plugin-protocol.workspace = true
 stellatune-plugins.workspace = true
+stellatune-runtime.workspace = true
 
 [lints]
 workspace = true

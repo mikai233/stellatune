@@ -19,12 +19,13 @@ macro_rules! export_plugin_minimal {
         metadata_json_utf8: $metadata_json_utf8:path,
         capability_count: $capability_count:path,
         capability_get: $capability_get:path
-        $(, create_decoder_instance: $create_decoder_instance:path)?
-        $(, create_dsp_instance: $create_dsp_instance:path)?
-        $(, create_source_catalog_instance: $create_source_catalog_instance:path)?
-        $(, create_lyrics_provider_instance: $create_lyrics_provider_instance:path)?
-        $(, create_output_sink_instance: $create_output_sink_instance:path)?
-        $(, shutdown: $shutdown:path)?
+        $(, begin_create_decoder_instance: $begin_create_decoder_instance:path)?
+        $(, begin_create_dsp_instance: $begin_create_dsp_instance:path)?
+        $(, begin_create_source_catalog_instance: $begin_create_source_catalog_instance:path)?
+        $(, begin_create_lyrics_provider_instance: $begin_create_lyrics_provider_instance:path)?
+        $(, begin_create_output_sink_instance: $begin_create_output_sink_instance:path)?
+        $(, begin_quiesce: $begin_quiesce:path)?
+        $(, begin_shutdown: $begin_shutdown:path)?
         $(,)?
     ) => {
         static __ST_PLUGIN_MODULE: stellatune_plugin_api::StPluginModule =
@@ -42,12 +43,13 @@ macro_rules! export_plugin_minimal {
                 capability_get: $capability_get,
                 decoder_ext_score_count: None,
                 decoder_ext_score_get: None,
-                create_decoder_instance: $crate::__st_opt_create_cb!($($create_decoder_instance)?),
-                create_dsp_instance: $crate::__st_opt_create_cb!($($create_dsp_instance)?),
-                create_source_catalog_instance: $crate::__st_opt_create_cb!($($create_source_catalog_instance)?),
-                create_lyrics_provider_instance: $crate::__st_opt_create_cb!($($create_lyrics_provider_instance)?),
-                create_output_sink_instance: $crate::__st_opt_create_cb!($($create_output_sink_instance)?),
-                shutdown: $crate::__st_opt_create_cb!($($shutdown)?),
+                begin_create_decoder_instance: $crate::__st_opt_create_cb!($($begin_create_decoder_instance)?),
+                begin_create_dsp_instance: $crate::__st_opt_create_cb!($($begin_create_dsp_instance)?),
+                begin_create_source_catalog_instance: $crate::__st_opt_create_cb!($($begin_create_source_catalog_instance)?),
+                begin_create_lyrics_provider_instance: $crate::__st_opt_create_cb!($($begin_create_lyrics_provider_instance)?),
+                begin_create_output_sink_instance: $crate::__st_opt_create_cb!($($begin_create_output_sink_instance)?),
+                begin_quiesce: $crate::__st_opt_create_cb!($($begin_quiesce)?),
+                begin_shutdown: $crate::__st_opt_create_cb!($($begin_shutdown)?),
             };
 
         #[unsafe(no_mangle)]

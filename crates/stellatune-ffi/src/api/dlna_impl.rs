@@ -1,11 +1,15 @@
-use std::collections::HashMap;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::OnceLock;
 use std::time::Duration;
 
+use stellatune_runtime::spawn;
+
+use crate::api::dlna::{
+    DlnaHttpServerInfo, DlnaPositionInfo, DlnaRenderer, DlnaSsdpDevice, DlnaTransportInfo,
+};
 use anyhow::Result;
 use axum::Router;
 use axum::extract::{Path, State};
@@ -17,9 +21,6 @@ use mime_guess::MimeGuess;
 use mime_guess::mime;
 use roxmltree::Document;
 use socket2::{Domain, Protocol, Socket, Type};
-use stellatune_core::{
-    DlnaHttpServerInfo, DlnaPositionInfo, DlnaRenderer, DlnaSsdpDevice, DlnaTransportInfo,
-};
 use tokio::net::TcpListener;
 use tokio::net::UdpSocket;
 use tokio::sync::Mutex;
@@ -64,7 +65,7 @@ impl Dlna {
         while let Some(res) = join.join_next().await {
             match res {
                 Ok(Ok(Some(renderer))) => out.push(renderer),
-                Ok(Ok(None)) => {}
+                Ok(Ok(None)) => {},
                 Ok(Err(e)) => tracing::debug!("dlna describe failed: {e:#}"),
                 Err(e) => tracing::debug!("dlna describe task join error: {e}"),
             }
@@ -456,7 +457,7 @@ async fn ssdp_msearch_multi_iface(
                         devices.push(d);
                     }
                 }
-            }
+            },
             Ok(Err(e)) => tracing::debug!("ssdp m-search iface task failed: {e:#}"),
             Err(e) => tracing::debug!("ssdp m-search iface join failed: {e}"),
         }
@@ -523,7 +524,7 @@ ST: {st}\r\n\
                         devices.push(d);
                     }
                 }
-            }
+            },
             Ok(Err(e)) => return Err(e.into()),
             Err(_) => continue,
         }
@@ -662,7 +663,7 @@ fn parse_ssdp_response(bytes: &[u8]) -> Option<DlnaSsdpDevice> {
             "st" => st = Some(value),
             "location" => location = Some(value),
             "server" => server = Some(value),
-            _ => {}
+            _ => {},
         }
     }
 
@@ -728,7 +729,7 @@ async fn ensure_http_server(
         base_url
     );
 
-    tokio::spawn(async move {
+    spawn(async move {
         if let Err(e) = axum::serve(listener, app).await {
             tracing::error!("dlna http server exited: {e:#}");
         }
@@ -774,10 +775,10 @@ fn normalize_advertise_host(host: &str) -> Result<String> {
     Ok(h.to_string())
 }
 
-fn normalize_ipaddr(ip: std::net::IpAddr) -> String {
+fn normalize_ipaddr(ip: IpAddr) -> String {
     match ip {
-        std::net::IpAddr::V4(v4) => v4.to_string(),
-        std::net::IpAddr::V6(v6) => format!("[{}]", v6),
+        IpAddr::V4(v4) => v4.to_string(),
+        IpAddr::V6(v6) => format!("[{}]", v6),
     }
 }
 
@@ -1136,7 +1137,7 @@ async fn describe_renderer(
         Err(e) => {
             tracing::debug!("invalid dlna location url={} err={}", device.location, e);
             return Ok(None);
-        }
+        },
     };
 
     let resp = client.get(location.clone()).send().await?;
@@ -1155,7 +1156,7 @@ async fn describe_renderer(
         Err(e) => {
             tracing::debug!("dlna xml parse failed location={} err={}", location, e);
             return Ok(None);
-        }
+        },
     };
 
     let base_url = find_text(&doc, &["URLBase"])

@@ -1,12 +1,11 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use anyhow::Result;
-use crossbeam_channel::Receiver;
+use tokio::sync::broadcast;
 
-use crate::runtime::{init_tracing, register_plugin_runtime_library};
+use crate::runtime::init_tracing;
 
-use stellatune_core::{LibraryCommand, LibraryEvent};
-use stellatune_library::{LibraryHandle, start_library};
+use stellatune_library::{LibraryEvent, LibraryHandle, PlaylistLite, TrackLite, start_library};
 
 pub struct LibraryService {
     instance_id: u64,
@@ -14,13 +13,12 @@ pub struct LibraryService {
 }
 
 impl LibraryService {
-    pub fn new(db_path: String) -> Result<Self> {
+    pub async fn new(db_path: String) -> Result<Self> {
         static NEXT_ID: AtomicU64 = AtomicU64::new(1);
         let instance_id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
         init_tracing();
         tracing::info!(instance_id, "creating library: {}", db_path);
-        let handle = start_library(db_path)?;
-        register_plugin_runtime_library(handle.clone());
+        let handle = start_library(db_path).await?;
         Ok(Self {
             instance_id,
             handle,
@@ -31,160 +29,177 @@ impl LibraryService {
         &self.handle
     }
 
-    pub fn subscribe_events(&self) -> Receiver<LibraryEvent> {
+    pub fn subscribe_events(&self) -> broadcast::Receiver<LibraryEvent> {
         self.handle.subscribe_events()
     }
 
-    pub fn add_root(&self, path: String) {
-        self.handle.send_command(LibraryCommand::AddRoot { path });
+    pub async fn add_root(&self, path: String) -> Result<()> {
+        self.handle.add_root(path).await.map_err(anyhow::Error::msg)
     }
 
-    pub fn remove_root(&self, path: String) {
+    pub async fn remove_root(&self, path: String) -> Result<()> {
         self.handle
-            .send_command(LibraryCommand::RemoveRoot { path });
+            .remove_root(path)
+            .await
+            .map_err(anyhow::Error::msg)
     }
 
-    pub fn delete_folder(&self, path: String) {
+    pub async fn delete_folder(&self, path: String) -> Result<()> {
         self.handle
-            .send_command(LibraryCommand::DeleteFolder { path });
+            .delete_folder(path)
+            .await
+            .map_err(anyhow::Error::msg)
     }
 
-    pub fn restore_folder(&self, path: String) {
+    pub async fn restore_folder(&self, path: String) -> Result<()> {
         self.handle
-            .send_command(LibraryCommand::RestoreFolder { path });
+            .restore_folder(path)
+            .await
+            .map_err(anyhow::Error::msg)
     }
 
-    pub fn list_excluded_folders(&self) {
+    pub async fn list_excluded_folders(&self) -> Result<Vec<String>> {
+        self.handle.list_excluded_folders().await
+    }
+
+    pub async fn scan_all(&self) -> Result<()> {
+        self.handle.scan_all().await.map_err(anyhow::Error::msg)
+    }
+
+    pub async fn scan_all_force(&self) -> Result<()> {
         self.handle
-            .send_command(LibraryCommand::ListExcludedFolders);
+            .scan_all_force()
+            .await
+            .map_err(anyhow::Error::msg)
     }
 
-    pub fn scan_all(&self) {
-        self.handle.send_command(LibraryCommand::ScanAll);
+    pub async fn list_roots(&self) -> Result<Vec<String>> {
+        self.handle.list_roots().await
     }
 
-    pub fn scan_all_force(&self) {
-        self.handle.send_command(LibraryCommand::ScanAllForce);
+    pub async fn list_folders(&self) -> Result<Vec<String>> {
+        self.handle.list_folders().await
     }
 
-    pub fn list_roots(&self) {
-        self.handle.send_command(LibraryCommand::ListRoots);
-    }
-
-    pub fn list_folders(&self) {
-        self.handle.send_command(LibraryCommand::ListFolders);
-    }
-
-    pub fn list_tracks(
+    pub async fn list_tracks(
         &self,
         folder: String,
         recursive: bool,
         query: String,
         limit: i64,
         offset: i64,
-    ) {
-        self.handle.send_command(LibraryCommand::ListTracks {
-            folder,
-            recursive,
-            query,
-            limit,
-            offset,
-        });
-    }
-
-    pub fn search(&self, query: String, limit: i64, offset: i64) {
-        self.handle.send_command(LibraryCommand::Search {
-            query,
-            limit,
-            offset,
-        });
-    }
-
-    pub fn list_playlists(&self) {
-        self.handle.send_command(LibraryCommand::ListPlaylists);
-    }
-
-    pub fn create_playlist(&self, name: String) {
+    ) -> Result<Vec<TrackLite>> {
         self.handle
-            .send_command(LibraryCommand::CreatePlaylist { name });
+            .list_tracks(folder, recursive, query, limit, offset)
+            .await
     }
 
-    pub fn rename_playlist(&self, id: i64, name: String) {
+    pub async fn search(&self, query: String, limit: i64, offset: i64) -> Result<Vec<TrackLite>> {
+        self.handle.search(query, limit, offset).await
+    }
+
+    pub async fn list_playlists(&self) -> Result<Vec<PlaylistLite>> {
+        self.handle.list_playlists().await
+    }
+
+    pub async fn create_playlist(&self, name: String) -> Result<()> {
         self.handle
-            .send_command(LibraryCommand::RenamePlaylist { id, name });
+            .create_playlist(name)
+            .await
+            .map_err(anyhow::Error::msg)
     }
 
-    pub fn delete_playlist(&self, id: i64) {
+    pub async fn rename_playlist(&self, id: i64, name: String) -> Result<()> {
         self.handle
-            .send_command(LibraryCommand::DeletePlaylist { id });
+            .rename_playlist(id, name)
+            .await
+            .map_err(anyhow::Error::msg)
     }
 
-    pub fn list_playlist_tracks(&self, playlist_id: i64, query: String, limit: i64, offset: i64) {
+    pub async fn delete_playlist(&self, id: i64) -> Result<()> {
         self.handle
-            .send_command(LibraryCommand::ListPlaylistTracks {
-                playlist_id,
-                query,
-                limit,
-                offset,
-            });
+            .delete_playlist(id)
+            .await
+            .map_err(anyhow::Error::msg)
     }
 
-    pub fn add_track_to_playlist(&self, playlist_id: i64, track_id: i64) {
+    pub async fn list_playlist_tracks(
+        &self,
+        playlist_id: i64,
+        query: String,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<TrackLite>> {
         self.handle
-            .send_command(LibraryCommand::AddTrackToPlaylist {
-                playlist_id,
-                track_id,
-            });
+            .list_playlist_tracks(playlist_id, query, limit, offset)
+            .await
     }
 
-    pub fn add_tracks_to_playlist(&self, playlist_id: i64, track_ids: Vec<i64>) {
+    pub async fn add_track_to_playlist(&self, playlist_id: i64, track_id: i64) -> Result<()> {
         self.handle
-            .send_command(LibraryCommand::AddTracksToPlaylist {
-                playlist_id,
-                track_ids,
-            });
+            .add_track_to_playlist(playlist_id, track_id)
+            .await
+            .map_err(anyhow::Error::msg)
     }
 
-    pub fn remove_track_from_playlist(&self, playlist_id: i64, track_id: i64) {
+    pub async fn add_tracks_to_playlist(
+        &self,
+        playlist_id: i64,
+        track_ids: Vec<i64>,
+    ) -> Result<()> {
         self.handle
-            .send_command(LibraryCommand::RemoveTrackFromPlaylist {
-                playlist_id,
-                track_id,
-            });
+            .add_tracks_to_playlist(playlist_id, track_ids)
+            .await
+            .map_err(anyhow::Error::msg)
     }
 
-    pub fn remove_tracks_from_playlist(&self, playlist_id: i64, track_ids: Vec<i64>) {
+    pub async fn remove_track_from_playlist(&self, playlist_id: i64, track_id: i64) -> Result<()> {
         self.handle
-            .send_command(LibraryCommand::RemoveTracksFromPlaylist {
-                playlist_id,
-                track_ids,
-            });
+            .remove_track_from_playlist(playlist_id, track_id)
+            .await
+            .map_err(anyhow::Error::msg)
     }
 
-    pub fn move_track_in_playlist(&self, playlist_id: i64, track_id: i64, new_index: i64) {
+    pub async fn remove_tracks_from_playlist(
+        &self,
+        playlist_id: i64,
+        track_ids: Vec<i64>,
+    ) -> Result<()> {
         self.handle
-            .send_command(LibraryCommand::MoveTrackInPlaylist {
-                playlist_id,
-                track_id,
-                new_index,
-            });
+            .remove_tracks_from_playlist(playlist_id, track_ids)
+            .await
+            .map_err(anyhow::Error::msg)
     }
 
-    pub fn list_liked_track_ids(&self) {
-        self.handle.send_command(LibraryCommand::ListLikedTrackIds);
-    }
-
-    pub fn set_track_liked(&self, track_id: i64, liked: bool) {
+    pub async fn move_track_in_playlist(
+        &self,
+        playlist_id: i64,
+        track_id: i64,
+        new_index: i64,
+    ) -> Result<()> {
         self.handle
-            .send_command(LibraryCommand::SetTrackLiked { track_id, liked });
+            .move_track_in_playlist(playlist_id, track_id, new_index)
+            .await
+            .map_err(anyhow::Error::msg)
+    }
+
+    pub async fn list_liked_track_ids(&self) -> Result<Vec<i64>> {
+        self.handle.list_liked_track_ids().await
+    }
+
+    pub async fn set_track_liked(&self, track_id: i64, liked: bool) -> Result<()> {
+        self.handle
+            .set_track_liked(track_id, liked)
+            .await
+            .map_err(anyhow::Error::msg)
     }
 
     pub async fn plugin_disable(&self, plugin_id: String) -> Result<()> {
         let report = crate::runtime::plugin_runtime_disable(&self.handle, plugin_id, 3_000).await?;
         if report.timed_out {
             return Err(anyhow::anyhow!(
-                "plugin disable timed out: remaining_draining_generations={}",
-                report.remaining_draining_generations
+                "plugin disable timed out: remaining_retired_leases={}",
+                report.remaining_retired_leases
             ));
         }
         if !report.errors.is_empty() {
@@ -212,7 +227,7 @@ impl LibraryService {
             phase = report.phase,
             loaded = report.loaded,
             deactivated = report.deactivated,
-            unloaded_generations = report.unloaded_generations,
+            reclaimed_leases = report.reclaimed_leases,
             plan_actions_total = report.plan_actions_total,
             plan_load_new = report.plan_load_new,
             plan_reload_changed = report.plan_reload_changed,
@@ -231,8 +246,8 @@ impl LibraryService {
         Ok(())
     }
 
-    pub fn plugin_apply_state_status_json(&self) -> String {
-        crate::runtime::plugin_runtime_apply_state_status_json()
+    pub async fn plugin_apply_state_status_json(&self) -> String {
+        crate::runtime::plugin_runtime_apply_state_status_json().await
     }
 
     pub async fn list_disabled_plugin_ids(&self) -> Result<Vec<String>> {

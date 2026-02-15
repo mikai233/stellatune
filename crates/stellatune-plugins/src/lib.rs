@@ -1,17 +1,19 @@
 #![allow(clippy::wildcard_imports)] // Intentional wildcard usage (API facade, macro template, or generated code).
 
-mod capabilities;
+pub mod capabilities;
 mod events;
 mod load;
 mod manifest;
 pub mod runtime;
-mod service;
-mod types;
 mod util;
 
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::manifest::{
+    PluginInstallReceipt, PluginInstallState, PluginManifest, UninstallPendingMarker,
+    pending_marker_path_for_plugin_root, write_receipt, write_uninstall_pending_marker,
+};
 use anyhow::{Context, Result, anyhow};
 use libloading::{Library, Symbol};
 use serde::Serialize;
@@ -21,20 +23,6 @@ use stellatune_plugin_api::{
 use stellatune_plugin_api::{StLogLevel, StStr};
 use stellatune_plugin_protocol::PluginMetadata;
 use tracing::{info, warn};
-
-pub use capabilities::*;
-pub use events::*;
-pub use load::*;
-pub use service::*;
-pub use types::*;
-
-pub use manifest::{
-    DiscoveredPlugin, INSTALL_RECEIPT_FILE_NAME, PluginInstallReceipt, PluginInstallState,
-    PluginManifest, UNINSTALL_PENDING_MARKER_FILE_NAME, UninstallPendingMarker,
-    discover_pending_uninstalls, discover_plugins, pending_marker_path_for_plugin_root,
-    read_receipt, read_uninstall_pending_marker, receipt_path_for_plugin_root, write_receipt,
-    write_uninstall_pending_marker,
-};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct InstalledPluginInfo {
@@ -80,8 +68,8 @@ fn default_host_vtable() -> StHostVTable {
         log_utf8: Some(default_host_log),
         get_runtime_root_utf8: None,
         emit_event_json_utf8: None,
-        poll_host_event_json_utf8: None,
-        send_control_json_utf8: None,
+        begin_poll_host_event_json_utf8: None,
+        begin_send_control_json_utf8: None,
         free_host_str_utf8: None,
     }
 }
@@ -189,13 +177,13 @@ fn extract_zip_to_dir(zip_path: &Path, out_dir: &Path) -> Result<()> {
             rawzip::CompressionMethod::Store => {
                 std::io::copy(&mut &*data, &mut out)
                     .with_context(|| format!("extract {} to {}", filename, out_path.display()))?;
-            }
+            },
             rawzip::CompressionMethod::Deflate => {
                 let mut decoder = flate2::read::DeflateDecoder::new(data);
                 std::io::copy(&mut decoder, &mut out).with_context(|| {
                     format!("extract (deflate) {} to {}", filename, out_path.display())
                 })?;
-            }
+            },
             method => return Err(anyhow!("unsupported compression method: {:?}", method)),
         }
     }
@@ -337,7 +325,7 @@ pub fn install_plugin_from_artifact(
                 "no valid StellaTune plugin library found in artifact: {}",
                 artifact_path.display()
             ));
-        }
+        },
         1 => valid.pop().expect("single valid plugin"),
         _ => {
             let ids = valid
@@ -348,7 +336,7 @@ pub fn install_plugin_from_artifact(
             return Err(anyhow!(
                 "artifact contains multiple StellaTune plugins ({ids}); one artifact must contain exactly one plugin"
             ));
-        }
+        },
     };
 
     let library_rel_path = library_path
@@ -491,7 +479,7 @@ pub fn uninstall_plugin(plugins_dir: impl AsRef<Path>, plugin_id: &str) -> Resul
             continue;
         }
         match std::fs::remove_dir_all(&root) {
-            Ok(()) => {}
+            Ok(()) => {},
             Err(remove_err) => {
                 let marker_path = pending_marker_path_for_plugin_root(&root);
                 let marker = UninstallPendingMarker {
@@ -509,7 +497,7 @@ pub fn uninstall_plugin(plugins_dir: impl AsRef<Path>, plugin_id: &str) -> Resul
                     marker = %marker_path.display(),
                     "plugin uninstall deferred; will retry on next discovery"
                 );
-            }
+            },
         }
     }
 

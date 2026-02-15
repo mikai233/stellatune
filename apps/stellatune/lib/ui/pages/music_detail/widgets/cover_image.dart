@@ -74,26 +74,25 @@ class CoverImage extends StatelessWidget {
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(16),
-        child:
-            localProvider != null
-                ? Image(
-                  image: localProvider,
-                  width: size,
-                  height: size,
-                  fit: BoxFit.cover,
-                  gaplessPlayback: true,
-                  errorBuilder:
-                      (context, error, stackTrace) => _buildByCoverOrPlaceholder(
-                        cover: cover,
-                        size: size,
-                        placeholder: placeholder,
-                      ),
-                )
-                : _buildByCoverOrPlaceholder(
-                  cover: cover,
-                  size: size,
-                  placeholder: placeholder,
-                ),
+        child: localProvider != null
+            ? Image(
+                image: localProvider,
+                width: size,
+                height: size,
+                fit: BoxFit.cover,
+                gaplessPlayback: true,
+                errorBuilder: (context, error, stackTrace) =>
+                    _buildByCoverOrPlaceholder(
+                      cover: cover,
+                      size: size,
+                      placeholder: placeholder,
+                    ),
+              )
+            : _buildByCoverOrPlaceholder(
+                cover: cover,
+                size: size,
+                placeholder: placeholder,
+              ),
       ),
     );
   }

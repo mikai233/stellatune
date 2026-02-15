@@ -1,18 +1,18 @@
 use std::thread;
 use std::time::Duration;
 
-use crossbeam_channel::{TryRecvError, TrySendError};
+use crossbeam_channel::TrySendError;
 use stellatune_mixer::ChannelMixer;
-use stellatune_plugins::PluginRuntimeEvent;
-use stellatune_plugins::runtime::CapabilityKind as RuntimeCapabilityKind;
+use stellatune_plugins::runtime::introspection::CapabilityKind as RuntimeCapabilityKind;
 use tracing::warn;
 
 use super::context::DecodeContext;
 use super::decoder::{EngineDecoder, open_engine_decoder};
-use super::dsp::apply_or_recreate_dsp_chain;
+use super::dsp::{apply_or_recreate_dsp_chain, apply_runtime_control_updates};
 use super::resampler::create_resampler_if_needed;
 use crate::engine::config::OUTPUT_SINK_WRITE_RETRY_SLEEP_MS;
-use crate::engine::messages::{DecodeCtrl, InternalMsg};
+use crate::engine::control::internal_error_dispatch;
+use crate::engine::messages::DecodeCtrl;
 use crate::engine::update_events::emit_config_update_runtime_event;
 
 pub(crate) fn skip_frames_by_decoding(
@@ -28,7 +28,7 @@ pub(crate) fn skip_frames_by_decoding(
                     return false;
                 }
                 frames_to_skip = frames_to_skip.saturating_sub(got_frames);
-            }
+            },
             Ok(None) => return false,
             Err(_) => return false,
         }
@@ -39,12 +39,23 @@ pub(crate) fn skip_frames_by_decoding(
 pub(crate) fn write_pending(ctx: &mut DecodeContext) -> bool {
     let mut offset = 0usize;
     while offset < ctx.out_pending.len() {
-        loop {
-            match ctx.plugin_runtime_events.try_recv() {
-                Ok(event) => handle_plugin_runtime_event_during_write(ctx, event),
-                Err(TryRecvError::Empty) => break,
-                Err(TryRecvError::Disconnected) => break,
-            }
+        if ctx.decoder.has_pending_runtime_recreate()
+            && let Err(e) = refresh_decoder(ctx)
+        {
+            warn!("decoder refresh on worker control failed: {e}");
+            let _ = ctx.internal_tx.send(internal_error_dispatch(e));
+            *ctx.playing = false;
+            return false;
+        }
+        if let Err(e) = apply_runtime_control_updates(
+            ctx.dsp_chain,
+            ctx.in_channels,
+            ctx.target_sample_rate,
+            ctx.out_channels as u16,
+        ) {
+            let _ = ctx.internal_tx.send(internal_error_dispatch(e));
+            *ctx.playing = false;
+            return false;
         }
 
         while let Ok(ctrl) = ctx.ctrl_rx.try_recv() {
@@ -57,9 +68,9 @@ pub(crate) fn write_pending(ctx: &mut DecodeContext) -> bool {
                         ctx.target_sample_rate,
                         ctx.out_channels as u16,
                     ) {
-                        let _ = ctx.internal_tx.send(InternalMsg::Error(e));
+                        let _ = ctx.internal_tx.send(internal_error_dispatch(e));
                     }
-                }
+                },
                 DecodeCtrl::SetLfeMode { mode } => {
                     *ctx.lfe_mode = core_lfe_to_mixer(mode);
                     *ctx.channel_mixer = stellatune_mixer::ChannelMixer::new(
@@ -67,35 +78,30 @@ pub(crate) fn write_pending(ctx: &mut DecodeContext) -> bool {
                         stellatune_mixer::ChannelLayout::from_count(ctx.out_channels as u16),
                         *ctx.lfe_mode,
                     );
-                }
+                },
                 DecodeCtrl::Pause => {
                     *ctx.playing = false;
                     break;
-                }
+                },
                 DecodeCtrl::SeekMs { position_ms } => {
                     *ctx.pending_seek = Some(position_ms);
                     return false;
-                }
+                },
                 DecodeCtrl::SetOutputSinkTx {
                     tx,
                     output_sink_chunk_frames,
                 } => {
                     *ctx.output_sink_tx = tx;
                     *ctx.output_sink_chunk_frames = output_sink_chunk_frames;
-                }
-                DecodeCtrl::RefreshDecoder => {
-                    if let Err(e) = refresh_decoder(ctx) {
-                        warn!("decoder refresh failed: {e}");
-                    }
-                }
+                },
                 DecodeCtrl::Stop => return true,
-                _ => {}
+                _ => {},
             }
         }
         if !*ctx.playing {
             break;
         }
-        // Control handlers (e.g. RefreshDecoder) may clear/replace out_pending.
+        // Control handlers may clear/replace out_pending.
         // Re-validate offset after handling controls before slicing.
         if offset >= ctx.out_pending.len() {
             break;
@@ -123,11 +129,11 @@ pub(crate) fn write_pending(ctx: &mut DecodeContext) -> bool {
                     *ctx.output_sink_tx = None;
                     thread::sleep(Duration::from_millis(OUTPUT_SINK_WRITE_RETRY_SLEEP_MS));
                     continue;
-                }
+                },
                 Err(TrySendError::Full(_)) => {
                     thread::sleep(Duration::from_millis(OUTPUT_SINK_WRITE_RETRY_SLEEP_MS));
                     continue;
-                }
+                },
             }
         } else if let Ok(mut producer) = ctx.producer.lock() {
             producer.push_slice(&ctx.out_pending[offset..])
@@ -159,23 +165,16 @@ pub(crate) fn write_pending(ctx: &mut DecodeContext) -> bool {
     false
 }
 
-fn handle_plugin_runtime_event_during_write(ctx: &mut DecodeContext, event: PluginRuntimeEvent) {
-    if !matches!(
-        event,
-        PluginRuntimeEvent::PluginsReloaded { .. } | PluginRuntimeEvent::PluginUnloaded { .. }
-    ) {
-        return;
-    }
-    if let Err(e) = refresh_decoder(ctx) {
-        warn!("decoder refresh on plugin runtime event failed: {e}");
-    }
-}
-
 fn active_decoder_generation(plugin_id: &str, type_id: &str) -> u64 {
-    stellatune_plugins::shared_runtime_service()
-        .resolve_active_capability(plugin_id, RuntimeCapabilityKind::Decoder, type_id)
-        .map(|cap| cap.generation.0)
-        .unwrap_or(0)
+    stellatune_runtime::block_on(
+        stellatune_plugins::runtime::handle::shared_runtime_service().find_capability(
+            plugin_id,
+            RuntimeCapabilityKind::Decoder,
+            type_id,
+        ),
+    )
+    .map(|cap| cap.lease_id)
+    .unwrap_or(0)
 }
 
 fn current_playback_position_ms(ctx: &DecodeContext) -> i64 {
@@ -204,7 +203,7 @@ pub(crate) fn refresh_decoder(ctx: &mut DecodeContext) -> Result<(), String> {
                 Some(&e),
             );
             return Err(e);
-        }
+        },
     };
     let plugin_id = next_info
         .decoder_plugin_id
@@ -266,6 +265,7 @@ pub(crate) fn refresh_decoder(ctx: &mut DecodeContext) -> Result<(), String> {
         ctx.spec_sample_rate,
         ctx.target_sample_rate,
         ctx.out_channels,
+        ctx.resample_quality,
     )?;
     *ctx.last_emit = std::time::Instant::now();
     *ctx.decoder = next_decoder;
@@ -280,10 +280,10 @@ pub(crate) fn refresh_decoder(ctx: &mut DecodeContext) -> Result<(), String> {
     Ok(())
 }
 
-pub(crate) fn core_lfe_to_mixer(mode: stellatune_core::LfeMode) -> stellatune_mixer::LfeMode {
+pub(crate) fn core_lfe_to_mixer(mode: crate::types::LfeMode) -> stellatune_mixer::LfeMode {
     match mode {
-        stellatune_core::LfeMode::Mute => stellatune_mixer::LfeMode::Mute,
-        stellatune_core::LfeMode::MixToFront => stellatune_mixer::LfeMode::MixToFront,
+        crate::types::LfeMode::Mute => stellatune_mixer::LfeMode::Mute,
+        crate::types::LfeMode::MixToFront => stellatune_mixer::LfeMode::MixToFront,
     }
 }
 

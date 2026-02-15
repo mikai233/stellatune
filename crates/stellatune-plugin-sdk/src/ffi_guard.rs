@@ -33,7 +33,7 @@ pub fn guard_status(op: &'static str, f: impl FnOnce() -> StStatus) -> StStatus 
                 &format!("panic in ffi `{op}`: {msg}\nbacktrace:\n{bt}"),
             );
             status_err_msg(ST_ERR_INTERNAL, format!("panic in ffi `{op}`: {msg}"))
-        }
+        },
     }
 }
 
@@ -65,6 +65,6 @@ pub fn guard_with_default<T>(op: &'static str, default: T, f: impl FnOnce() -> T
                 &format!("panic in ffi `{op}`: {msg}\nbacktrace:\n{bt}"),
             );
             default
-        }
+        },
     }
 }

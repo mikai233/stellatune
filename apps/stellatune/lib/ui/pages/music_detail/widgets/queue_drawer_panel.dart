@@ -437,11 +437,14 @@ class _QueueCoverState extends State<_QueueCover> {
     if (!_ready) {
       return placeholder;
     }
-    final useLocal = widget.trackId != null && widget.coverDir.trim().isNotEmpty;
+    final useLocal =
+        widget.trackId != null && widget.coverDir.trim().isNotEmpty;
     final localProvider = useLocal
         ? ResizeImage(
             FileImage(
-              File('${widget.coverDir}${Platform.pathSeparator}${widget.trackId}'),
+              File(
+                '${widget.coverDir}${Platform.pathSeparator}${widget.trackId}',
+              ),
             ),
             width: 96,
             height: 96,
@@ -450,22 +453,18 @@ class _QueueCoverState extends State<_QueueCover> {
         : null;
     return ClipRRect(
       borderRadius: BorderRadius.circular(10),
-      child:
-          localProvider != null
-              ? Image(
-                image: localProvider,
-                width: 52,
-                height: 52,
-                fit: BoxFit.cover,
-                filterQuality: FilterQuality.low,
-                gaplessPlayback: true,
-                errorBuilder:
-                    (context, error, stackTrace) => _buildCoverOrPlaceholder(
-                      cover,
-                      placeholder,
-                    ),
-              )
-              : _buildCoverOrPlaceholder(cover, placeholder),
+      child: localProvider != null
+          ? Image(
+              image: localProvider,
+              width: 52,
+              height: 52,
+              fit: BoxFit.cover,
+              filterQuality: FilterQuality.low,
+              gaplessPlayback: true,
+              errorBuilder: (context, error, stackTrace) =>
+                  _buildCoverOrPlaceholder(cover, placeholder),
+            )
+          : _buildCoverOrPlaceholder(cover, placeholder),
     );
   }
 

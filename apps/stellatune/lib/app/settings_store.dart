@@ -20,6 +20,7 @@ class OutputSettingsUiSession {
   final Map<String, String> outputSinkConfigDrafts = <String, String>{};
   List<OutputSinkTypeDescriptor> cachedOutputSinkTypes = const [];
   bool cachedOutputSinkTypesReady = false;
+  ResampleQuality resampleQuality = ResampleQuality.high;
 }
 
 class SettingsStore extends Notifier<SettingsStore> {
@@ -50,6 +51,7 @@ class SettingsStore extends Notifier<SettingsStore> {
   static const _keyMatchTrackSampleRate = 'match_track_sample_rate';
   static const _keyGaplessPlayback = 'gapless_playback';
   static const _keySeekTrackFade = 'seek_track_fade';
+  static const _keyResampleQuality = 'resample_quality';
   static const _keyOutputSinkRoute = 'output_sink_route';
   static const _keySourceConfigs = 'source_configs';
   static const _keyQueueSource = 'queue_source';
@@ -222,6 +224,19 @@ class SettingsStore extends Notifier<SettingsStore> {
   }
 
   Future<void> setSeekTrackFade(bool v) => _box.put(_keySeekTrackFade, v);
+
+  ResampleQuality get resampleQuality {
+    final raw = _box.get(_keyResampleQuality);
+    if (raw is String) {
+      for (final m in ResampleQuality.values) {
+        if (m.name == raw) return m;
+      }
+    }
+    return ResampleQuality.high;
+  }
+
+  Future<void> setResampleQuality(ResampleQuality v) =>
+      _box.put(_keyResampleQuality, v.name);
 
   OutputSinkRoute? get outputSinkRoute {
     final raw = _box.get(_keyOutputSinkRoute);

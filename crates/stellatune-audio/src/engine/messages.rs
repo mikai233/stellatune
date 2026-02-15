@@ -3,8 +3,6 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use crossbeam_channel::{Sender, TrySendError};
-use stellatune_core::TrackDecodeInfo;
-use stellatune_output::OutputSpec;
 
 use crate::ring_buffer::RingBufferProducer;
 
@@ -71,7 +69,7 @@ impl OutputSinkTx {
                     );
                 }
                 Err(e)
-            }
+            },
         }
     }
 }
@@ -85,10 +83,11 @@ pub(crate) enum DecodeCtrl {
         start_at_ms: i64,
         output_enabled: Arc<AtomicBool>,
         buffer_prefill_cap_ms: i64,
-        lfe_mode: stellatune_core::LfeMode,
+        lfe_mode: crate::types::LfeMode,
         output_sink_tx: Option<OutputSinkTx>,
         output_sink_chunk_frames: u32,
         output_sink_only: bool,
+        resample_quality: crate::types::ResampleQuality,
     },
     SetDspChain {
         chain: Vec<RuntimeDspChainEntry>,
@@ -99,13 +98,12 @@ pub(crate) enum DecodeCtrl {
         position_ms: i64,
     },
     SetLfeMode {
-        mode: stellatune_core::LfeMode,
+        mode: crate::types::LfeMode,
     },
     SetOutputSinkTx {
         tx: Option<OutputSinkTx>,
         output_sink_chunk_frames: u32,
     },
-    RefreshDecoder,
     Stop,
 }
 
@@ -116,50 +114,8 @@ pub(crate) struct RuntimeDspChainEntry {
     pub(crate) config_json: String,
 }
 
-pub(crate) enum EngineCtrl {
-    SetDspChain {
-        chain: Vec<stellatune_core::DspChainItem>,
-    },
-    SourceListItemsJson {
-        plugin_id: String,
-        type_id: String,
-        config_json: String,
-        request_json: String,
-        resp_tx: Sender<Result<String, String>>,
-    },
-    LyricsSearchJson {
-        plugin_id: String,
-        type_id: String,
-        query_json: String,
-        resp_tx: Sender<Result<String, String>>,
-    },
-    LyricsFetchJson {
-        plugin_id: String,
-        type_id: String,
-        track_json: String,
-        resp_tx: Sender<Result<String, String>>,
-    },
-    OutputSinkListTargetsJson {
-        plugin_id: String,
-        type_id: String,
-        config_json: String,
-        resp_tx: Sender<Result<String, String>>,
-    },
-    QuiescePluginUsage {
-        plugin_id: String,
-        resp_tx: Sender<Result<(), String>>,
-    },
-    ReloadPlugins {
-        dir: String,
-    },
-    SetLfeMode {
-        mode: stellatune_core::LfeMode,
-    },
-}
-
 #[derive(Debug, Clone)]
 pub(crate) struct PluginReloadSummary {
-    pub(crate) request_id: u64,
     pub(crate) dir: String,
     pub(crate) prev_count: usize,
     pub(crate) loaded_ids: Vec<String>,
@@ -168,39 +124,4 @@ pub(crate) struct PluginReloadSummary {
     pub(crate) unloaded_generations: usize,
     pub(crate) load_errors: Vec<String>,
     pub(crate) fatal_error: Option<String>,
-}
-
-pub(crate) enum InternalMsg {
-    Eof,
-    Error(String),
-    OutputError(String),
-    Position {
-        path: String,
-        ms: i64,
-    },
-    OutputSpecReady {
-        spec: OutputSpec,
-        took_ms: u64,
-        token: u64,
-    },
-    OutputSpecFailed {
-        message: String,
-        took_ms: u64,
-        token: u64,
-    },
-    PreloadReady {
-        path: String,
-        position_ms: u64,
-        track_info: TrackDecodeInfo,
-        chunk: PredecodedChunk,
-        took_ms: u64,
-        token: u64,
-    },
-    PreloadFailed {
-        path: String,
-        position_ms: u64,
-        message: String,
-        took_ms: u64,
-        token: u64,
-    },
 }

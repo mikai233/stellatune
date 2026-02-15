@@ -54,6 +54,8 @@ class _InstalledPlugin {
 }
 
 class SettingsPageState extends ConsumerState<SettingsPage> {
+  static const Duration _bridgeQueryTimeout = Duration(seconds: 8);
+
   Future<List<PluginDescriptor>>? _pluginsFuture;
   Future<List<OutputSinkTypeDescriptor>>? _outputSinkTypesFuture;
   Future<List<SourceCatalogTypeDescriptor>>? _sourceTypesFuture;
@@ -68,10 +70,6 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
       TextEditingController(text: '{}');
   final TextEditingController _outputSinkTargetController =
       TextEditingController(text: '{}');
-  final TextEditingController _pluginRuntimeTargetIdController =
-      TextEditingController();
-  final TextEditingController _pluginRuntimeJsonController =
-      TextEditingController(text: '{"scope":"player","command":"play"}');
   final TextEditingController _neteaseKeywordsController =
       TextEditingController();
   final TextEditingController _neteasePlaylistIdController =
@@ -84,9 +82,7 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
   final TextEditingController _neteaseLimitController = TextEditingController(
     text: '30',
   );
-  StreamSubscription<PluginRuntimeEvent>? _pluginRuntimeSub;
   Timer? _outputSinkConfigApplyDebounce;
-  final List<PluginRuntimeEvent> _pluginRuntimeEvents = <PluginRuntimeEvent>[];
   List<QueueItem> _neteaseDebugItems = const [];
   bool _neteaseDebugLoading = false;
   String? _neteaseDebugError;
@@ -111,6 +107,7 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
   bool _cachedOutputSinkTypesReady = false;
   List<SourceCatalogTypeDescriptor> _cachedSourceTypes = const [];
   bool _cachedSourceTypesReady = false;
+  ResampleQuality _resampleQuality = ResampleQuality.high;
 
   @override
   void initState() {
@@ -121,7 +118,6 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
     if (_parsePluginTypeKey(_selectedOutputBackendKey) != null) {
       unawaited(_loadOutputSinkTargets());
     }
-    _startPluginRuntimeListener();
     unawaited(_syncNeteaseSidecarBaseUrlFromConfig());
     unawaited(_ensureNeteaseSidecarResident());
   }
@@ -132,15 +128,12 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
     _outputSinkConfigApplyDebounce?.cancel();
     _outputSinkConfigController.dispose();
     _outputSinkTargetController.dispose();
-    _pluginRuntimeTargetIdController.dispose();
-    _pluginRuntimeJsonController.dispose();
     _neteaseKeywordsController.dispose();
     _neteasePlaylistIdController.dispose();
     _neteaseSidecarBaseUrlController.dispose();
     _neteaseLevelController.dispose();
     _neteaseLimitController.dispose();
     _neteaseAuthPollTimer?.cancel();
-    unawaited(_pluginRuntimeSub?.cancel());
     super.dispose();
   }
 
@@ -161,6 +154,7 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
       ..addAll(session.outputSinkConfigDrafts);
     _cachedOutputSinkTypes = session.cachedOutputSinkTypes;
     _cachedOutputSinkTypesReady = session.cachedOutputSinkTypesReady;
+    _resampleQuality = session.resampleQuality;
   }
 
   void _persistOutputUiSession() {
@@ -177,111 +171,7 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
       ..addAll(_outputSinkConfigDrafts);
     session.cachedOutputSinkTypes = _cachedOutputSinkTypes;
     session.cachedOutputSinkTypesReady = _cachedOutputSinkTypesReady;
-  }
-
-  void _startPluginRuntimeListener() {
-    unawaited(_pluginRuntimeSub?.cancel());
-    _pluginRuntimeSub = ref
-        .read(playerBridgeProvider)
-        .pluginRuntimeEvents()
-        .listen((event) {
-          if (!mounted) return;
-          setState(() {
-            _pluginRuntimeEvents.insert(0, event);
-            if (_pluginRuntimeEvents.length > 120) {
-              _pluginRuntimeEvents.removeRange(
-                120,
-                _pluginRuntimeEvents.length,
-              );
-            }
-          });
-        });
-  }
-
-  String _formatRuntimeEventLine(PluginRuntimeEvent event) {
-    final prefix = '[${event.kind.name}] ${event.pluginId}';
-    final payload = _tryDecodeRuntimePayload(event.payloadJson);
-    if (payload == null) {
-      return '$prefix: ${event.payloadJson}';
-    }
-    final topic = payload['topic']?.toString().trim() ?? '';
-    if (topic != 'host.instance.config_update') {
-      return '$prefix: ${event.payloadJson}';
-    }
-    final capability = payload['capability']?.toString().trim() ?? 'unknown';
-    final typeId = payload['type_id']?.toString().trim() ?? 'unknown';
-    final statusRaw = payload['status']?.toString().trim() ?? 'unknown';
-    final status = _runtimeConfigUpdateStatusLabel(statusRaw);
-    final generation = payload['generation']?.toString().trim();
-    final detail = payload['detail']?.toString().trim();
-    final genText = (generation == null || generation.isEmpty)
-        ? ''
-        : ' gen=$generation';
-    final detailText = (detail == null || detail.isEmpty) ? '' : ' ($detail)';
-    return '$prefix: $capability/$typeId -> $status$genText$detailText';
-  }
-
-  Map<String, Object?>? _tryDecodeRuntimePayload(String payloadJson) {
-    try {
-      final decoded = jsonDecode(payloadJson);
-      if (decoded is Map<String, dynamic>) {
-        return decoded.cast<String, Object?>();
-      }
-      if (decoded is Map) {
-        return decoded.map(
-          (key, value) => MapEntry(key.toString(), value as Object?),
-        );
-      }
-    } catch (_) {
-      return null;
-    }
-    return null;
-  }
-
-  String _runtimeConfigUpdateStatusLabel(String rawStatus) {
-    final status = rawStatus.toLowerCase();
-    final isZh = Localizations.localeOf(context).languageCode == 'zh';
-    if (isZh) {
-      return switch (status) {
-        'applied' => '已热更新',
-        'requires_recreate' => '需要重建',
-        'recreated' => '已重建',
-        'rejected' => '已拒绝',
-        'failed' => '失败',
-        _ => rawStatus,
-      };
-    }
-    return switch (status) {
-      'applied' => 'applied',
-      'requires_recreate' => 'requires recreate',
-      'recreated' => 'recreated',
-      'rejected' => 'rejected',
-      'failed' => 'failed',
-      _ => rawStatus,
-    };
-  }
-
-  Future<void> _sendPluginRuntimeEventJson() async {
-    final payload = _pluginRuntimeJsonController.text.trim();
-    if (payload.isEmpty) return;
-    final pluginId = _pluginRuntimeTargetIdController.text.trim();
-    try {
-      await ref
-          .read(playerBridgeProvider)
-          .pluginPublishEventJson(
-            pluginId: pluginId.isEmpty ? null : pluginId,
-            eventJson: payload,
-          );
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Plugin event sent')));
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Send failed: $e')));
-    }
+    session.resampleQuality = _resampleQuality;
   }
 
   void _loadFromSettings() {
@@ -299,17 +189,18 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
       _outputSinkConfigDrafts['${route.pluginId}::${route.typeId}'] =
           route.configJson;
     }
+    _resampleQuality = settings.resampleQuality;
     _persistOutputUiSession();
   }
 
   void _refresh() {
     final bridge = ref.read(playerBridgeProvider);
     final library = ref.read(libraryBridgeProvider);
-    _pluginsFuture = bridge.pluginsList();
+    _pluginsFuture = _listLoadedPlugins(bridge);
     _outputSinkTypesFuture = null;
     _cachedOutputSinkTypes = const [];
     _cachedOutputSinkTypesReady = false;
-    _sourceTypesFuture = bridge.sourceListTypes();
+    _sourceTypesFuture = _listSourceTypes(bridge);
     _installedPluginsFuture = _listInstalledPlugins();
     _disabledPluginIdsFuture = _listDisabledPluginIds(library);
   }
@@ -317,12 +208,38 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
   void _refreshPluginRuntimeState() {
     final bridge = ref.read(playerBridgeProvider);
     final library = ref.read(libraryBridgeProvider);
-    _pluginsFuture = bridge.pluginsList();
+    _pluginsFuture = _listLoadedPlugins(bridge);
     _outputSinkTypesFuture = null;
     _cachedOutputSinkTypes = const [];
     _cachedOutputSinkTypesReady = false;
-    _sourceTypesFuture = bridge.sourceListTypes();
+    _sourceTypesFuture = _listSourceTypes(bridge);
     _disabledPluginIdsFuture = _listDisabledPluginIds(library);
+  }
+
+  Future<List<PluginDescriptor>> _listLoadedPlugins(PlayerBridge bridge) async {
+    try {
+      return await bridge.pluginsList().timeout(_bridgeQueryTimeout);
+    } on TimeoutException catch (e, s) {
+      logger.w('pluginsList timed out', error: e, stackTrace: s);
+      return const <PluginDescriptor>[];
+    } catch (e, s) {
+      logger.w('pluginsList failed', error: e, stackTrace: s);
+      return const <PluginDescriptor>[];
+    }
+  }
+
+  Future<List<SourceCatalogTypeDescriptor>> _listSourceTypes(
+    PlayerBridge bridge,
+  ) async {
+    try {
+      return await bridge.sourceListTypes().timeout(_bridgeQueryTimeout);
+    } on TimeoutException catch (e, s) {
+      logger.w('sourceListTypes timed out', error: e, stackTrace: s);
+      return const <SourceCatalogTypeDescriptor>[];
+    } catch (e, s) {
+      logger.w('sourceListTypes failed', error: e, stackTrace: s);
+      return const <SourceCatalogTypeDescriptor>[];
+    }
   }
 
   Future<void> _ensurePluginDir() async {
@@ -499,6 +416,11 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
       await library.pluginDisable(pluginId: id);
     }
     await library.pluginApplyState();
+    if (!enabled) {
+      await ref
+          .read(playbackControllerProvider.notifier)
+          .removeUnplayableQueuedItemsDueToDisabledPlugins(pluginId: id);
+    }
     if (enabled) {
       unawaited(
         _ensureNeteaseSidecarResident(onlyForPluginId: id, silent: true),
@@ -1339,8 +1261,8 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final bridge = ref.read(playerBridgeProvider);
-    _pluginsFuture ??= bridge.pluginsList();
-    _sourceTypesFuture ??= bridge.sourceListTypes();
+    _pluginsFuture ??= _listLoadedPlugins(bridge);
+    _sourceTypesFuture ??= _listSourceTypes(bridge);
     _outputSinkTypesFuture ??= bridge.outputSinkListTypes();
     _installedPluginsFuture ??= _listInstalledPlugins();
 
@@ -2006,6 +1928,7 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
                                   matchTrackSampleRate: v,
                                   gaplessPlayback: store.gaplessPlayback,
                                   seekTrackFade: store.seekTrackFade,
+                                  resampleQuality: store.resampleQuality,
                                 );
                             setState(() {});
                           },
@@ -2025,6 +1948,7 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
                                       store.matchTrackSampleRate,
                                   gaplessPlayback: v,
                                   seekTrackFade: store.seekTrackFade,
+                                  resampleQuality: store.resampleQuality,
                                 );
                             setState(() {});
                           },
@@ -2047,9 +1971,56 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
                           matchTrackSampleRate: store.matchTrackSampleRate,
                           gaplessPlayback: store.gaplessPlayback,
                           seekTrackFade: v,
+                          resampleQuality: store.resampleQuality,
                         );
                     setState(() {});
                   },
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8.0),
+                  child: DropdownButtonFormField<ResampleQuality>(
+                    decoration: InputDecoration(
+                      labelText: l10n.settingsResampleQuality,
+                      border: const OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                    initialValue: _resampleQuality,
+                    items: [
+                      DropdownMenuItem(
+                        value: ResampleQuality.fast,
+                        child: Text(l10n.settingsResampleQualityFast),
+                      ),
+                      DropdownMenuItem(
+                        value: ResampleQuality.balanced,
+                        child: Text(l10n.settingsResampleQualityBalanced),
+                      ),
+                      DropdownMenuItem(
+                        value: ResampleQuality.high,
+                        child: Text(l10n.settingsResampleQualityHigh),
+                      ),
+                      DropdownMenuItem(
+                        value: ResampleQuality.ultra,
+                        child: Text(l10n.settingsResampleQualityUltra),
+                      ),
+                    ],
+                    onChanged: (v) async {
+                      if (v == null) return;
+                      final store = ref.read(settingsStoreProvider);
+                      await store.setResampleQuality(v);
+                      setState(() {
+                        _resampleQuality = v;
+                        _persistOutputUiSession();
+                      });
+                      await ref
+                          .read(playerBridgeProvider)
+                          .setOutputOptions(
+                            matchTrackSampleRate: store.matchTrackSampleRate,
+                            gaplessPlayback: store.gaplessPlayback,
+                            seekTrackFade: store.seekTrackFade,
+                            resampleQuality: v,
+                          );
+                    },
+                  ),
                 ),
               ],
             ),
@@ -2314,84 +2285,6 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
             ),
           ),
         ),
-        const SizedBox(height: 12),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Plugin Runtime Debug',
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: _pluginRuntimeTargetIdController,
-                  decoration: const InputDecoration(
-                    labelText: 'Target plugin id (optional)',
-                    hintText: 'empty = broadcast',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: _pluginRuntimeJsonController,
-                  minLines: 3,
-                  maxLines: 6,
-                  decoration: const InputDecoration(
-                    labelText: 'Event JSON',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    FilledButton.icon(
-                      onPressed: _sendPluginRuntimeEventJson,
-                      icon: const Icon(Icons.send),
-                      label: const Text('Send'),
-                    ),
-                    const SizedBox(width: 8),
-                    OutlinedButton(
-                      onPressed: () {
-                        setState(() => _pluginRuntimeEvents.clear());
-                      },
-                      child: const Text('Clear Events'),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                Container(
-                  width: double.infinity,
-                  height: 220,
-                  decoration: BoxDecoration(
-                    border: Border.all(
-                      color: Theme.of(
-                        context,
-                      ).dividerColor.withValues(alpha: 0.5),
-                    ),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: _pluginRuntimeEvents.isEmpty
-                      ? const Center(child: Text('No runtime events yet'))
-                      : ListView.separated(
-                          padding: const EdgeInsets.all(8),
-                          itemBuilder: (context, index) {
-                            final e = _pluginRuntimeEvents[index];
-                            return SelectableText(
-                              _formatRuntimeEventLine(e),
-                              style: Theme.of(context).textTheme.bodySmall,
-                            );
-                          },
-                          separatorBuilder: (_, _) => const SizedBox(height: 6),
-                          itemCount: _pluginRuntimeEvents.length,
-                        ),
-                ),
-              ],
-            ),
-          ),
-        ),
       ],
     );
 
@@ -2453,6 +2346,7 @@ class _PluginTileState extends State<_PluginTile> {
     final looksBusy =
         lower.contains('still in use') ||
         lower.contains('draining generation') ||
+        lower.contains('retired lease') ||
         lower.contains('busy');
     if (looksBusy) {
       if (isZh) {

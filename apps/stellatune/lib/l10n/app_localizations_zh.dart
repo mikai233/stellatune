@@ -167,6 +167,21 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsSeekTrackFade => '播放/暂停/Seek/切歌时淡入淡出';
 
   @override
+  String get settingsResampleQuality => '重采样质量';
+
+  @override
+  String get settingsResampleQualityFast => '快速 (低 CPU)';
+
+  @override
+  String get settingsResampleQualityBalanced => '平衡';
+
+  @override
+  String get settingsResampleQualityHigh => '高 (Sinc)';
+
+  @override
+  String get settingsResampleQualityUltra => '极高 (慢)';
+
+  @override
   String get settingsPluginsTitle => '插件';
 
   @override

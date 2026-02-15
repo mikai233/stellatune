@@ -4,7 +4,8 @@
 // ignore_for_file: invalid_use_of_internal_member, unused_import, unnecessary_import
 
 import '../frb_generated.dart';
-import '../third_party/stellatune_core.dart';
+import '../third_party/stellatune_audio/types.dart';
+import '../third_party/stellatune_backend_api/lyrics_types.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `engine`, `lyrics`, `normalize_json_payload`, `shared_player_context`
@@ -179,10 +180,12 @@ Future<void> setOutputOptions({
   required bool matchTrackSampleRate,
   required bool gaplessPlayback,
   required bool seekTrackFade,
+  required ResampleQuality resampleQuality,
 }) => StellatuneApi.instance.api.crateApiPlayerSetOutputOptions(
   matchTrackSampleRate: matchTrackSampleRate,
   gaplessPlayback: gaplessPlayback,
   seekTrackFade: seekTrackFade,
+  resampleQuality: resampleQuality,
 );
 
 Future<void> setOutputSinkRoute({required OutputSinkRoute route}) =>

@@ -8,27 +8,16 @@ use std::{
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 use anyhow::{Result, anyhow};
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-use std::time::{Duration, Instant};
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-use tokio::time::sleep;
+use std::time::Instant;
 
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::time::LocalTime;
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-use stellatune_plugins::SharedPluginRuntimeService;
+use stellatune_plugins::runtime::handle::SharedPluginRuntimeHandle;
 
 mod apply_state;
-mod bus;
-mod control;
 mod engine;
-mod router;
-#[cfg(all(
-    test,
-    any(target_os = "windows", target_os = "linux", target_os = "macos")
-))]
-mod tests;
-mod types;
 pub use engine::shared_runtime_engine;
 
 #[derive(Clone)]
@@ -85,18 +74,47 @@ fn open_tracing_log_file() -> Option<Arc<Mutex<std::fs::File>>> {
 }
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-pub type SharedPluginRuntime = SharedPluginRuntimeService;
+pub type SharedPluginRuntime = SharedPluginRuntimeHandle;
 
 #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
 pub type SharedPluginRuntime = ();
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 pub fn shared_plugin_runtime() -> SharedPluginRuntime {
-    stellatune_plugins::shared_runtime_service()
+    stellatune_plugins::runtime::handle::shared_runtime_service()
 }
 
 #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
 pub fn shared_plugin_runtime() -> SharedPluginRuntime {}
+
+fn install_panic_hook() {
+    static PANIC_HOOK_INIT: OnceLock<()> = OnceLock::new();
+    PANIC_HOOK_INIT.get_or_init(|| {
+        let previous_hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |panic_info| {
+            let location = panic_info
+                .location()
+                .map(|loc| format!("{}:{}:{}", loc.file(), loc.line(), loc.column()))
+                .unwrap_or_else(|| "<unknown>".to_string());
+            let payload = if let Some(message) = panic_info.payload().downcast_ref::<&str>() {
+                (*message).to_string()
+            } else if let Some(message) = panic_info.payload().downcast_ref::<String>() {
+                message.clone()
+            } else {
+                "<non-string panic payload>".to_string()
+            };
+            let backtrace = std::backtrace::Backtrace::force_capture();
+            tracing::error!(
+                target: "stellatune::panic",
+                %location,
+                %payload,
+                backtrace = %backtrace,
+                "unhandled panic"
+            );
+            previous_hook(panic_info);
+        }));
+    });
+}
 
 pub fn init_tracing() {
     static INIT: OnceLock<()> = OnceLock::new();
@@ -119,39 +137,29 @@ pub fn init_tracing() {
             .with_writer(writer)
             .try_init()
             .ok();
+        install_panic_hook();
     });
 }
 
-pub fn register_plugin_runtime_engine(engine: stellatune_audio::EngineHandle) {
-    router::register_plugin_runtime_engine(engine);
-}
-
-pub fn register_plugin_runtime_library(library: stellatune_library::LibraryHandle) {
-    router::register_plugin_runtime_library(library);
-}
-
-pub fn subscribe_plugin_runtime_events_global()
--> crossbeam_channel::Receiver<stellatune_core::PluginRuntimeEvent> {
-    router::subscribe_plugin_runtime_events_global()
-}
-
-fn cleanup_plugin_runtime_for_restart(reason: &'static str) {
+async fn cleanup_plugin_runtime_for_restart(reason: &'static str) {
     let service = shared_plugin_runtime();
-    let mut plugin_ids = service.active_plugin_ids();
+    let mut plugin_ids = service.active_plugin_ids().await;
     plugin_ids.sort();
-    let report = service.shutdown_and_cleanup();
-    let remaining_draining_generations: usize = plugin_ids
-        .iter()
-        .filter_map(|plugin_id| service.slot_snapshot(plugin_id))
-        .map(|slot| slot.draining.len())
-        .sum();
+    let report = service.shutdown_and_cleanup().await;
+    let mut remaining_retired_leases: usize = 0;
+    for plugin_id in &plugin_ids {
+        if let Some(state) = service.plugin_lease_state(plugin_id).await {
+            remaining_retired_leases =
+                remaining_retired_leases.saturating_add(state.retired_lease_ids.len());
+        }
+    }
 
-    if remaining_draining_generations == 0 && report.errors.is_empty() {
+    if remaining_retired_leases == 0 && report.errors.is_empty() {
         tracing::info!(
             reason,
             active_plugins_before_cleanup = plugin_ids.len(),
             deactivated = report.deactivated.len(),
-            unloaded_generations = report.unloaded_generations,
+            reclaimed_leases = report.reclaimed_leases,
             errors = report.errors.len(),
             "plugin runtime cleanup attempted"
         );
@@ -160,31 +168,31 @@ fn cleanup_plugin_runtime_for_restart(reason: &'static str) {
             reason,
             active_plugins_before_cleanup = plugin_ids.len(),
             deactivated = report.deactivated.len(),
-            unloaded_generations = report.unloaded_generations,
-            remaining_draining_generations,
+            reclaimed_leases = report.reclaimed_leases,
+            remaining_retired_leases,
             errors = report.errors.len(),
             "plugin runtime cleanup attempted with leftovers"
         );
     }
 }
 
-pub fn runtime_prepare_hot_restart() {
-    engine::runtime_prepare_hot_restart();
-    cleanup_plugin_runtime_for_restart("prepare_hot_restart");
+pub async fn runtime_prepare_hot_restart() {
+    engine::runtime_prepare_hot_restart().await;
+    cleanup_plugin_runtime_for_restart("prepare_hot_restart").await;
 }
 
-pub fn runtime_shutdown() {
-    engine::runtime_shutdown();
-    cleanup_plugin_runtime_for_restart("shutdown");
+pub async fn runtime_shutdown() {
+    engine::runtime_shutdown().await;
+    cleanup_plugin_runtime_for_restart("shutdown").await;
 }
 
 #[derive(Debug, Clone)]
 pub struct DisableReport {
     pub plugin_id: String,
     pub phase: &'static str,
-    pub deactivated_generation: Option<u64>,
-    pub unloaded_generations: usize,
-    pub remaining_draining_generations: usize,
+    pub deactivated_lease_id: Option<u64>,
+    pub reclaimed_leases: usize,
+    pub remaining_retired_leases: usize,
     pub timed_out: bool,
     pub errors: Vec<String>,
 }
@@ -200,7 +208,7 @@ pub struct ApplyStateReport {
     pub phase: &'static str,
     pub loaded: usize,
     pub deactivated: usize,
-    pub unloaded_generations: usize,
+    pub reclaimed_leases: usize,
     pub errors: Vec<String>,
     pub plan_discovered: usize,
     pub plan_disabled: usize,
@@ -222,7 +230,7 @@ impl ApplyStateReport {
             phase: "completed",
             loaded: 0,
             deactivated: 0,
-            unloaded_generations: 0,
+            reclaimed_leases: 0,
             errors: Vec::new(),
             plan_discovered: 0,
             plan_disabled: 0,
@@ -240,95 +248,58 @@ impl ApplyStateReport {
     }
 }
 
-pub fn plugin_runtime_apply_state_status_json() -> String {
-    apply_state::status_json()
+pub async fn plugin_runtime_apply_state_status_json() -> String {
+    apply_state::status_json().await
 }
-
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-const DEFAULT_PLUGIN_DISABLE_TIMEOUT_MS: u64 = 3_000;
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-const PLUGIN_DISABLE_POLL_INTERVAL_MS: u64 = 20;
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 pub async fn plugin_runtime_disable(
     library: &stellatune_library::LibraryHandle,
     plugin_id: String,
-    timeout_ms: u64,
+    _timeout_ms: u64,
 ) -> Result<DisableReport> {
     let plugin_id = plugin_id.trim().to_string();
     if plugin_id.is_empty() {
         return Err(anyhow!("plugin_id is empty"));
     }
 
-    let timeout_ms = if timeout_ms == 0 {
-        DEFAULT_PLUGIN_DISABLE_TIMEOUT_MS
-    } else {
-        timeout_ms
-    };
     let started_at = Instant::now();
     let mut report = DisableReport {
         plugin_id: plugin_id.clone(),
         phase: "freeze",
-        deactivated_generation: None,
-        unloaded_generations: 0,
-        remaining_draining_generations: 0,
+        deactivated_lease_id: None,
+        reclaimed_leases: 0,
+        remaining_retired_leases: 0,
         timed_out: false,
         errors: Vec::new(),
     };
 
-    tracing::info!(plugin_id, timeout_ms, "plugin_disable_begin");
+    tracing::info!(plugin_id, "plugin_disable_begin");
 
     tracing::debug!(plugin_id, phase = report.phase, "plugin_disable_phase");
     library.plugin_set_enabled(plugin_id.clone(), false).await?;
 
-    report.phase = "quiesce";
+    report.phase = "schedule";
     tracing::debug!(plugin_id, phase = report.phase, "plugin_disable_phase");
-    if let Err(err) = shared_runtime_engine().quiesce_plugin_usage(plugin_id.clone()) {
-        report.errors.push(err);
+    match shared_runtime_engine()
+        .schedule_plugin_disable(plugin_id.clone())
+        .await
+    {
+        Ok(deferred) => {
+            if deferred {
+                report.phase = "deferred";
+            }
+        },
+        Err(err) => report.errors.push(err),
     }
-
-    report.phase = "deactivate";
-    tracing::debug!(plugin_id, phase = report.phase, "plugin_disable_phase");
-    let service = shared_plugin_runtime();
-    report.deactivated_generation = service.deactivate_plugin(&plugin_id).map(|v| v.0);
-
-    report.phase = "collect";
-    tracing::debug!(plugin_id, phase = report.phase, "plugin_disable_phase");
-    let deadline = Instant::now() + Duration::from_millis(timeout_ms);
-    loop {
-        report.unloaded_generations += service.collect_ready_for_unload(&plugin_id).len();
-        report.remaining_draining_generations = service
-            .slot_snapshot(&plugin_id)
-            .map(|slot| slot.draining.len())
-            .unwrap_or(0);
-        let done = report.remaining_draining_generations == 0;
-
-        if done {
-            break;
-        }
-        if Instant::now() >= deadline {
-            report.timed_out = true;
-            tracing::warn!(
-                plugin_id,
-                remaining_draining_generations = report.remaining_draining_generations,
-                "plugin_disable_timeout"
-            );
-            break;
-        }
-        sleep(Duration::from_millis(PLUGIN_DISABLE_POLL_INTERVAL_MS)).await;
-    }
-
-    report.phase = "cleanup";
-    tracing::debug!(plugin_id, phase = report.phase, "plugin_disable_phase");
-    service.cleanup_shadow_copies_now();
 
     report.phase = "completed";
     tracing::info!(
         plugin_id,
         elapsed_ms = started_at.elapsed().as_millis() as u64,
-        deactivated_generation = report.deactivated_generation,
-        unloaded_generations = report.unloaded_generations,
-        remaining_draining_generations = report.remaining_draining_generations,
+        deactivated_lease_id = report.deactivated_lease_id,
+        reclaimed_leases = report.reclaimed_leases,
+        remaining_retired_leases = report.remaining_retired_leases,
         timed_out = report.timed_out,
         errors = report.errors.len(),
         "plugin_disable_end"
@@ -345,9 +316,9 @@ pub async fn plugin_runtime_disable(
     Ok(DisableReport {
         plugin_id,
         phase: "completed",
-        deactivated_generation: None,
-        unloaded_generations: 0,
-        remaining_draining_generations: 0,
+        deactivated_lease_id: None,
+        reclaimed_leases: 0,
+        remaining_retired_leases: 0,
         timed_out: false,
         errors: Vec::new(),
     })
@@ -395,8 +366,8 @@ pub async fn plugin_runtime_apply_state(
             .collect::<std::collections::HashSet<_>>();
 
         let service = shared_plugin_runtime();
-        service.set_disabled_plugin_ids(disabled_ids);
-        let report = service.reload_dir_detailed_from_state(&plugins_dir)?;
+        service.set_disabled_plugin_ids(disabled_ids).await;
+        let report = service.reload_dir_detailed_from_state(&plugins_dir).await?;
         let errors = report
             .load_report
             .errors
@@ -407,7 +378,7 @@ pub async fn plugin_runtime_apply_state(
             phase: "completed",
             loaded: report.load_report.loaded.len(),
             deactivated: report.load_report.deactivated.len(),
-            unloaded_generations: report.load_report.unloaded_generations,
+            reclaimed_leases: report.load_report.reclaimed_leases,
             errors,
             plan_discovered: report.plan.discovered,
             plan_disabled: report.plan.disabled,

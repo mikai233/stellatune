@@ -27,6 +27,9 @@ class LibraryPageState extends ConsumerState<LibraryPage> {
   static const double _minFoldersPaneWidth = 220.0;
   static const int _playabilityProbeMargin = 40;
   static const int _playabilityCacheMaxEntries = 12000;
+  static const Duration _pluginRuntimeRefreshDebounce = Duration(
+    milliseconds: 250,
+  );
 
   final _searchController = TextEditingController();
   bool _foldersPaneCollapsed = false;
@@ -40,6 +43,7 @@ class LibraryPageState extends ConsumerState<LibraryPage> {
   bool _dividerRearmPending = false;
   double _dividerDragLastX = 0.0;
   StreamSubscription<PluginRuntimeEvent>? _pluginRuntimeSub;
+  Timer? _pluginRuntimeRefreshTimer;
   int _playabilityRequestSeq = 0;
   int _viewportStart = 0;
   int _viewportEnd = -1;
@@ -70,11 +74,7 @@ class LibraryPageState extends ConsumerState<LibraryPage> {
     _pluginRuntimeSub = ref
         .read(playerBridgeProvider)
         .pluginRuntimeEvents()
-        .listen((_) {
-          _playabilityCache.clear();
-          final results = ref.read(libraryControllerProvider).results;
-          unawaited(_refreshTrackPlayability(results, force: true));
-        });
+        .listen((_) => _schedulePluginRuntimeRefresh());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final selectedPlaylistId = ref
@@ -88,11 +88,22 @@ class LibraryPageState extends ConsumerState<LibraryPage> {
 
   @override
   void dispose() {
+    _pluginRuntimeRefreshTimer?.cancel();
     unawaited(_pluginRuntimeSub?.cancel());
     _searchController.dispose();
     _foldersPaneWidth.dispose();
     _isResizingFoldersPane.dispose();
     super.dispose();
+  }
+
+  void _schedulePluginRuntimeRefresh() {
+    _pluginRuntimeRefreshTimer?.cancel();
+    _pluginRuntimeRefreshTimer = Timer(_pluginRuntimeRefreshDebounce, () {
+      if (!mounted) return;
+      _playabilityCache.clear();
+      final results = ref.read(libraryControllerProvider).results;
+      unawaited(_refreshTrackPlayability(results, force: true));
+    });
   }
 
   TrackRef _toLocalTrackRef(TrackLite t) =>

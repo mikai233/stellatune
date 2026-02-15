@@ -1,41 +1,52 @@
 use std::collections::{HashMap, HashSet};
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Error, Result, anyhow};
 use arc_swap::ArcSwapOption;
-use crossbeam_channel::{Receiver, Sender};
 use reqwest::StatusCode;
 use serde_json::Value;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode};
 use sqlx::{Connection, Row, SqliteConnection};
-use stellatune_core::{LyricLine, LyricsDoc, LyricsEvent, LyricsQuery, LyricsSearchCandidate};
+use stellatune_runtime as global_runtime;
+use stellatune_runtime::tokio_actor::ActorRef;
+use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 use url::Url;
 
-#[derive(Default)]
+use crate::{LyricLine, LyricsDoc, LyricsEvent, LyricsQuery, LyricsSearchCandidate};
+
+mod handlers;
+
+use self::handlers::apply_candidate::ApplyCandidateMessage;
+use self::handlers::clear_cache::ClearCacheMessage;
+use self::handlers::prefetch::PrefetchMessage;
+use self::handlers::prepare::PrepareMessage;
+use self::handlers::refresh_current::RefreshCurrentMessage;
+use self::handlers::search_candidates::SearchCandidatesMessage;
+use self::handlers::set_cache_db_path::SetCacheDbPathMessage;
+use self::handlers::set_position_ms::SetPositionMsMessage;
+
 struct LyricsEventHub {
-    subscribers: Mutex<Vec<Sender<LyricsEvent>>>,
+    tx: broadcast::Sender<LyricsEvent>,
+}
+
+impl Default for LyricsEventHub {
+    fn default() -> Self {
+        let (tx, _rx) = broadcast::channel(1024);
+        Self { tx }
+    }
 }
 
 impl LyricsEventHub {
-    fn subscribe(&self) -> Receiver<LyricsEvent> {
-        let (tx, rx) = crossbeam_channel::unbounded();
-        self.subscribers
-            .lock()
-            .expect("lyrics event hub mutex poisoned")
-            .push(tx);
-        rx
+    fn subscribe(&self) -> broadcast::Receiver<LyricsEvent> {
+        self.tx.subscribe()
     }
 
     fn emit(&self, event: LyricsEvent) {
-        let mut subs = self
-            .subscribers
-            .lock()
-            .expect("lyrics event hub mutex poisoned");
-        subs.retain(|tx| tx.send(event.clone()).is_ok());
+        let _ = self.tx.send(event);
     }
 }
 
@@ -58,6 +69,7 @@ const SOURCE_COOLDOWN_MS: i64 = 5 * 60 * 1_000;
 const SOURCE_FAILURE_THRESHOLD: u32 = 3;
 const SOURCE_LRCLIB: &str = "lrclib";
 const SOURCE_LYRICS_OVH: &str = "lyrics_ovh";
+const LYRICS_ACTOR_CALL_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Default)]
 struct HttpRateState {
@@ -76,12 +88,7 @@ struct ActiveFetchState {
     token: Option<CancellationToken>,
 }
 
-enum FetchWorkerResult {
-    Cancelled,
-    Finished(Result<Option<LyricsDoc>>),
-}
-
-pub struct LyricsService {
+struct LyricsServiceCore {
     hub: LyricsEventHub,
     state: Mutex<LyricsState>,
     client: reqwest::Client,
@@ -91,9 +98,119 @@ pub struct LyricsService {
     active_fetch: Mutex<ActiveFetchState>,
 }
 
+struct LyricsServiceActor {
+    core: Arc<LyricsServiceCore>,
+}
+
+pub struct LyricsService {
+    core: Arc<LyricsServiceCore>,
+    actor_ref: ActorRef<LyricsServiceActor>,
+}
+
 impl LyricsService {
     pub fn new() -> Arc<Self> {
-        Arc::new(Self {
+        let core = Arc::new(LyricsServiceCore::new());
+        let (actor_ref, _join) = stellatune_runtime::tokio_actor::spawn_actor(LyricsServiceActor {
+            core: Arc::clone(&core),
+        });
+        Arc::new(Self { core, actor_ref })
+    }
+
+    pub fn subscribe_events(&self) -> broadcast::Receiver<LyricsEvent> {
+        self.core.subscribe_events()
+    }
+
+    pub async fn set_cache_db_path(&self, db_path: String) -> Result<()> {
+        match self
+            .actor_ref
+            .call(SetCacheDbPathMessage { db_path }, LYRICS_ACTOR_CALL_TIMEOUT)
+            .await
+        {
+            Ok(result) => result,
+            Err(err) => Err(anyhow!("lyrics actor unavailable: {err:?}")),
+        }
+    }
+
+    pub async fn clear_cache(&self) -> Result<()> {
+        match self
+            .actor_ref
+            .call(ClearCacheMessage, LYRICS_ACTOR_CALL_TIMEOUT)
+            .await
+        {
+            Ok(result) => result,
+            Err(err) => Err(anyhow!("lyrics actor unavailable: {err:?}")),
+        }
+    }
+
+    pub async fn search_candidates(
+        &self,
+        query: LyricsQuery,
+    ) -> Result<Vec<LyricsSearchCandidate>> {
+        match self
+            .actor_ref
+            .call(SearchCandidatesMessage { query }, LYRICS_ACTOR_CALL_TIMEOUT)
+            .await
+        {
+            Ok(result) => result,
+            Err(err) => Err(anyhow!("lyrics actor unavailable: {err:?}")),
+        }
+    }
+
+    pub async fn apply_candidate(&self, track_key: String, doc: LyricsDoc) -> Result<()> {
+        match self
+            .actor_ref
+            .call(
+                ApplyCandidateMessage { track_key, doc },
+                LYRICS_ACTOR_CALL_TIMEOUT,
+            )
+            .await
+        {
+            Ok(result) => result,
+            Err(err) => Err(anyhow!("lyrics actor unavailable: {err:?}")),
+        }
+    }
+
+    pub async fn prefetch(self: &Arc<Self>, query: LyricsQuery) -> Result<()> {
+        match self
+            .actor_ref
+            .call(PrefetchMessage { query }, LYRICS_ACTOR_CALL_TIMEOUT)
+            .await
+        {
+            Ok(result) => result,
+            Err(err) => Err(anyhow!("lyrics actor unavailable: {err:?}")),
+        }
+    }
+
+    pub async fn prepare(self: &Arc<Self>, query: LyricsQuery) -> Result<()> {
+        match self
+            .actor_ref
+            .call(PrepareMessage { query }, LYRICS_ACTOR_CALL_TIMEOUT)
+            .await
+        {
+            Ok(result) => result,
+            Err(err) => Err(anyhow!("lyrics actor unavailable: {err:?}")),
+        }
+    }
+
+    pub async fn refresh_current(self: &Arc<Self>) -> Result<()> {
+        match self
+            .actor_ref
+            .call(RefreshCurrentMessage, LYRICS_ACTOR_CALL_TIMEOUT)
+            .await
+        {
+            Ok(result) => result,
+            Err(err) => Err(anyhow!("lyrics actor unavailable: {err:?}")),
+        }
+    }
+
+    pub fn set_position_ms(&self, position_ms: u64) {
+        let _ = self.actor_ref.cast(SetPositionMsMessage { position_ms });
+    }
+}
+
+impl LyricsServiceCore {
+    fn new() -> Self {
+        Self {
             hub: LyricsEventHub::default(),
             state: Mutex::new(LyricsState::default()),
             client: reqwest::Client::builder()
@@ -104,10 +221,10 @@ impl LyricsService {
             http_rate: Mutex::new(HttpRateState::default()),
             source_health: Mutex::new(HashMap::new()),
             active_fetch: Mutex::new(ActiveFetchState::default()),
-        })
+        }
     }
 
-    pub fn subscribe_events(&self) -> Receiver<LyricsEvent> {
+    pub fn subscribe_events(&self) -> broadcast::Receiver<LyricsEvent> {
         self.hub.subscribe()
     }
 
@@ -118,7 +235,7 @@ impl LyricsService {
         }
         let path = PathBuf::from(db_path);
         if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
-            std::fs::create_dir_all(parent)
+            fs::create_dir_all(parent)
                 .with_context(|| format!("failed to create lyrics db dir: {}", parent.display()))?;
         }
 
@@ -168,26 +285,26 @@ impl LyricsService {
                 for item in items {
                     push_candidate_unique(&mut out, &mut seen, item);
                 }
-            }
+            },
             Err(err) => {
                 tracing::warn!("lyrics candidate search (lrclib) failed: {err}");
-            }
+            },
         }
 
         match self.candidate_from_lyrics_ovh(&query).await {
             Ok(Some(item)) => {
                 push_candidate_unique(&mut out, &mut seen, item);
-            }
-            Ok(None) => {}
+            },
+            Ok(None) => {},
             Err(err) => {
                 tracing::warn!("lyrics candidate search (lyrics.ovh) failed: {err}");
-            }
+            },
         }
 
         Ok(out)
     }
 
-    pub fn apply_candidate(&self, track_key: String, mut doc: LyricsDoc) -> Result<()> {
+    pub async fn apply_candidate(&self, track_key: String, mut doc: LyricsDoc) -> Result<()> {
         let track_key = track_key.trim().to_string();
         if track_key.is_empty() {
             return Ok(());
@@ -197,7 +314,7 @@ impl LyricsService {
             return Ok(());
         }
 
-        self.persist_doc_to_cache_db(&doc)?;
+        self.persist_doc_to_cache_db(&doc).await?;
         let mut emit_ready = false;
         {
             let mut state = self.state.lock().expect("lyrics state mutex poisoned");
@@ -215,13 +332,13 @@ impl LyricsService {
         Ok(())
     }
 
-    pub fn prefetch(self: &Arc<Self>, query: LyricsQuery) -> Result<()> {
+    pub async fn prefetch(self: &Arc<Self>, query: LyricsQuery) -> Result<()> {
         let query = normalize_query(query);
         if query.track_key.is_empty() || query.title.is_empty() {
             return Ok(());
         }
 
-        if let Some(doc) = load_local_lrc_doc(&query.track_key) {
+        if let Some(doc) = load_local_lrc_doc_async(query.track_key.clone()).await {
             self.state
                 .lock()
                 .expect("lyrics state mutex poisoned")
@@ -240,7 +357,7 @@ impl LyricsService {
             return Ok(());
         }
 
-        if let Some(doc) = self.load_doc_from_cache_db(&query.track_key) {
+        if let Some(doc) = self.load_doc_from_cache_db(&query.track_key).await {
             self.state
                 .lock()
                 .expect("lyrics state mutex poisoned")
@@ -250,17 +367,14 @@ impl LyricsService {
         }
 
         let service = Arc::clone(self);
-        thread::Builder::new()
-            .name("stellatune-lyrics-prefetch".to_string())
-            .spawn(move || {
-                service.fetch_and_cache_only(query);
-            })
-            .context("failed to spawn lyrics prefetch worker")?;
+        global_runtime::spawn(async move {
+            service.fetch_and_cache_only(query).await;
+        });
 
         Ok(())
     }
 
-    pub fn prepare(self: &Arc<Self>, query: LyricsQuery) -> Result<()> {
+    pub async fn prepare(self: &Arc<Self>, query: LyricsQuery) -> Result<()> {
         let query = normalize_query(query);
         // Switching tracks should stop any in-flight request for the previous track.
         self.cancel_active_fetch();
@@ -268,7 +382,7 @@ impl LyricsService {
             return Ok(());
         }
 
-        if let Some(doc) = load_local_lrc_doc(&query.track_key) {
+        if let Some(doc) = load_local_lrc_doc_async(query.track_key.clone()).await {
             {
                 let mut state = self.state.lock().expect("lyrics state mutex poisoned");
                 state.current_track_key = Some(query.track_key.clone());
@@ -303,7 +417,7 @@ impl LyricsService {
             state.current_doc = None;
         }
 
-        if let Some(doc) = self.load_doc_from_cache_db(&query.track_key) {
+        if let Some(doc) = self.load_doc_from_cache_db(&query.track_key).await {
             {
                 let mut state = self.state.lock().expect("lyrics state mutex poisoned");
                 state.cache.insert(query.track_key.clone(), doc.clone());
@@ -325,17 +439,14 @@ impl LyricsService {
 
         let (fetch_id, cancel) = self.begin_active_fetch();
         let service = Arc::clone(self);
-        thread::Builder::new()
-            .name("stellatune-lyrics-fetch".to_string())
-            .spawn(move || {
-                service.fetch_and_publish(query, fetch_id, cancel);
-            })
-            .context("failed to spawn lyrics fetch worker")?;
+        global_runtime::spawn(async move {
+            service.fetch_and_publish(query, fetch_id, cancel).await;
+        });
 
         Ok(())
     }
 
-    pub fn refresh_current(self: &Arc<Self>) -> Result<()> {
+    pub async fn refresh_current(self: &Arc<Self>) -> Result<()> {
         let query = self
             .state
             .lock()
@@ -343,7 +454,7 @@ impl LyricsService {
             .current_query
             .clone();
         if let Some(query) = query {
-            self.prepare(query)?;
+            self.prepare(query).await?;
         }
         Ok(())
     }
@@ -417,37 +528,26 @@ impl LyricsService {
         }
     }
 
-    fn fetch_and_publish(
+    async fn fetch_and_publish(
         self: Arc<Self>,
         query: LyricsQuery,
         fetch_id: u64,
         cancel: CancellationToken,
     ) {
         let track_key = query.track_key.clone();
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build();
-        let worker_result = match runtime {
-            Ok(rt) => rt.block_on(async {
-                tokio::select! {
-                    _ = cancel.cancelled() => FetchWorkerResult::Cancelled,
-                    r = self.fetch_online(&query) => FetchWorkerResult::Finished(r),
-                }
-            }),
-            Err(err) => {
-                FetchWorkerResult::Finished(Err(anyhow!("failed to create lyrics runtime: {err}")))
-            }
+        let fetch_result = tokio::select! {
+            _ = cancel.cancelled() => None,
+            r = self.fetch_online(&query) => Some(r),
         };
         self.clear_active_fetch_if(fetch_id);
 
-        let fetch_result = match worker_result {
-            FetchWorkerResult::Cancelled => return,
-            FetchWorkerResult::Finished(r) => r,
+        let Some(fetch_result) = fetch_result else {
+            return;
         };
 
         match fetch_result {
             Ok(Some(doc)) => {
-                if let Err(err) = self.persist_doc_to_cache_db(&doc) {
+                if let Err(err) = self.persist_doc_to_cache_db(&doc).await {
                     tracing::warn!("persist lyrics cache failed: {err}");
                 }
                 let mut should_emit = false;
@@ -463,7 +563,7 @@ impl LyricsService {
                 if should_emit {
                     self.hub.emit(LyricsEvent::Ready { track_key, doc });
                 }
-            }
+            },
             Ok(None) => {
                 let mut should_emit = false;
                 {
@@ -477,7 +577,7 @@ impl LyricsService {
                 if should_emit {
                     self.hub.emit(LyricsEvent::Empty { track_key });
                 }
-            }
+            },
             Err(err) => {
                 let should_emit = self
                     .state
@@ -492,21 +592,13 @@ impl LyricsService {
                         message: err.to_string(),
                     });
                 }
-            }
+            },
         }
     }
 
-    fn fetch_and_cache_only(self: Arc<Self>, query: LyricsQuery) {
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build();
-        let fetch_result = match runtime {
-            Ok(rt) => rt.block_on(self.fetch_online(&query)),
-            Err(err) => Err(anyhow!("failed to create lyrics runtime: {err}")),
-        };
-
-        if let Ok(Some(doc)) = fetch_result {
-            if let Err(err) = self.persist_doc_to_cache_db(&doc) {
+    async fn fetch_and_cache_only(self: Arc<Self>, query: LyricsQuery) {
+        if let Ok(Some(doc)) = self.fetch_online(&query).await {
+            if let Err(err) = self.persist_doc_to_cache_db(&doc).await {
                 tracing::warn!("persist prefetched lyrics cache failed: {err}");
             }
             self.state
@@ -525,24 +617,24 @@ impl LyricsService {
                 Ok(Some(doc)) => {
                     self.mark_source_success(SOURCE_LRCLIB);
                     return Ok(Some(doc));
-                }
+                },
                 Ok(None) => {
                     self.mark_source_success(SOURCE_LRCLIB);
                     match self.fetch_lrclib_search(query).await {
                         Ok(Some(doc)) => return Ok(Some(doc)),
-                        Ok(None) => {}
+                        Ok(None) => {},
                         Err(err) => {
                             had_network_error = true;
                             self.mark_source_failure(SOURCE_LRCLIB);
                             tracing::warn!("lyrics source lrclib search failed: {err}");
-                        }
+                        },
                     }
-                }
+                },
                 Err(err) => {
                     had_network_error = true;
                     self.mark_source_failure(SOURCE_LRCLIB);
                     tracing::warn!("lyrics source lrclib get failed: {err}");
-                }
+                },
             }
         }
 
@@ -551,15 +643,15 @@ impl LyricsService {
                 Ok(Some(doc)) => {
                     self.mark_source_success(SOURCE_LYRICS_OVH);
                     return Ok(Some(doc));
-                }
+                },
                 Ok(None) => {
                     self.mark_source_success(SOURCE_LYRICS_OVH);
-                }
+                },
                 Err(err) => {
                     had_network_error = true;
                     self.mark_source_failure(SOURCE_LYRICS_OVH);
                     tracing::warn!("lyrics source lyrics.ovh failed: {err}");
-                }
+                },
             }
         }
 
@@ -781,7 +873,7 @@ impl LyricsService {
         allow_not_found: bool,
         source: &'static str,
     ) -> Result<Option<Value>> {
-        let mut last_error: Option<anyhow::Error> = None;
+        let mut last_error: Option<Error> = None;
 
         for attempt in 1..=HTTP_RETRY_MAX_ATTEMPTS {
             self.wait_rate_limit_slot().await;
@@ -822,7 +914,7 @@ impl LyricsService {
                     let err = anyhow!("{} failed with status {}", op_name, status);
                     last_error = Some(err);
                     break;
-                }
+                },
                 Err(err) => {
                     let retriable = is_retriable_error(&err);
                     if retriable && attempt < HTTP_RETRY_MAX_ATTEMPTS {
@@ -832,7 +924,7 @@ impl LyricsService {
                     }
                     last_error = Some(anyhow!("{} request failed: {}", op_name, err));
                     break;
-                }
+                },
             }
         }
 
@@ -846,20 +938,9 @@ impl LyricsService {
             .map(|db_path| db_path.as_ref().clone())
     }
 
-    fn load_doc_from_cache_db(&self, track_key: &str) -> Option<LyricsDoc> {
+    async fn load_doc_from_cache_db(&self, track_key: &str) -> Option<LyricsDoc> {
         let db_path = self.cache_db_path()?;
-        let runtime = match tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-        {
-            Ok(rt) => rt,
-            Err(err) => {
-                tracing::warn!("create lyrics sqlite runtime failed: {err}");
-                return None;
-            }
-        };
-
-        match runtime.block_on(async {
+        match async {
             let mut conn = Self::open_cache_db(&db_path).await?;
             let row = sqlx::query(
                 "SELECT doc_json, updated_at_ms FROM lyrics_cache WHERE track_key = ?1 LIMIT 1",
@@ -888,17 +969,19 @@ impl LyricsService {
                 .context("lyrics cache missing doc_json")?;
             let doc: LyricsDoc =
                 serde_json::from_str(&doc_json).context("parse lyrics cache doc_json failed")?;
-            Ok::<_, anyhow::Error>(Some(doc))
-        }) {
+            Ok::<_, Error>(Some(doc))
+        }
+        .await
+        {
             Ok(doc) => doc,
             Err(err) => {
                 tracing::warn!("load lyrics cache failed: {err}");
                 None
-            }
+            },
         }
     }
 
-    fn persist_doc_to_cache_db(&self, doc: &LyricsDoc) -> Result<()> {
+    async fn persist_doc_to_cache_db(&self, doc: &LyricsDoc) -> Result<()> {
         let Some(db_path) = self.cache_db_path() else {
             return Ok(());
         };
@@ -911,32 +994,25 @@ impl LyricsService {
             .context("system time before unix epoch")?
             .as_millis() as i64;
 
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .context("failed to create lyrics sqlite runtime")?;
-
-        runtime.block_on(async {
-            let mut conn = Self::open_cache_db(&db_path).await?;
-            sqlx::query(
-                "INSERT INTO lyrics_cache (track_key, source, is_synced, doc_json, updated_at_ms)
-                 VALUES (?1, ?2, ?3, ?4, ?5)
-                 ON CONFLICT(track_key) DO UPDATE SET
-                   source = excluded.source,
-                   is_synced = excluded.is_synced,
-                   doc_json = excluded.doc_json,
-                   updated_at_ms = excluded.updated_at_ms",
-            )
-            .bind(track_key)
-            .bind(source)
-            .bind(is_synced)
-            .bind(doc_json)
-            .bind(updated_at_ms)
-            .execute(&mut conn)
-            .await
-            .context("upsert lyrics cache failed")?;
-            Ok::<_, anyhow::Error>(())
-        })
+        let mut conn = Self::open_cache_db(&db_path).await?;
+        sqlx::query(
+            "INSERT INTO lyrics_cache (track_key, source, is_synced, doc_json, updated_at_ms)
+             VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(track_key) DO UPDATE SET
+               source = excluded.source,
+               is_synced = excluded.is_synced,
+               doc_json = excluded.doc_json,
+               updated_at_ms = excluded.updated_at_ms",
+        )
+        .bind(track_key)
+        .bind(source)
+        .bind(is_synced)
+        .bind(doc_json)
+        .bind(updated_at_ms)
+        .execute(&mut conn)
+        .await
+        .context("upsert lyrics cache failed")?;
+        Ok(())
     }
 
     async fn init_cache_db(path: &Path) -> Result<()> {
@@ -975,7 +1051,17 @@ fn unix_now_ms() -> i64 {
     }
 }
 
-fn load_local_lrc_doc(track_key: &str) -> Option<LyricsDoc> {
+async fn load_local_lrc_doc_async(track_key: String) -> Option<LyricsDoc> {
+    match tokio::task::spawn_blocking(move || load_local_lrc_doc_blocking(&track_key)).await {
+        Ok(doc) => doc,
+        Err(err) => {
+            tracing::warn!("load local lrc task failed: {err}");
+            None
+        },
+    }
+}
+
+fn load_local_lrc_doc_blocking(track_key: &str) -> Option<LyricsDoc> {
     let track_path = Path::new(track_key);
     if !track_path.exists() || !track_path.is_file() {
         return None;
@@ -988,7 +1074,7 @@ fn load_local_lrc_doc(track_key: &str) -> Option<LyricsDoc> {
 
     let parent = track_path.parent()?;
     let stem = track_path.file_stem()?.to_string_lossy().to_string();
-    let entries = std::fs::read_dir(parent).ok()?;
+    let entries = fs::read_dir(parent).ok()?;
     for entry in entries.flatten() {
         let p = entry.path();
         if !p.is_file() {
@@ -1013,7 +1099,7 @@ fn load_local_lrc_doc(track_key: &str) -> Option<LyricsDoc> {
 }
 
 fn read_and_parse_lrc(path: &Path, track_key: &str) -> Option<LyricsDoc> {
-    let content = std::fs::read_to_string(path).ok()?;
+    let content = fs::read_to_string(path).ok()?;
     parse_lrc(track_key, "local_lrc", &content)
         .or_else(|| parse_plain(track_key, "local_lrc", content.trim()))
 }
@@ -1040,9 +1126,9 @@ fn find_line_index(lines: &[LyricLine], position_ms: i64) -> i64 {
         match line.start_ms {
             Some(start_ms) if position_ms >= start_ms => {
                 idx = i as i64;
-            }
+            },
             Some(_) => break,
-            None => {}
+            None => {},
         }
     }
     idx

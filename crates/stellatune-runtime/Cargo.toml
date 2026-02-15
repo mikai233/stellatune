@@ -1,0 +1,14 @@
+[package]
+name = "stellatune-runtime"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+
+[dependencies]
+async-trait = "0.1.89"
+crossbeam-channel.workspace = true
+futures-util = "0.3.31"
+tokio.workspace = true
+
+[lints]
+workspace = true

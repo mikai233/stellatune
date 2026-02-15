@@ -12,7 +12,6 @@ frb = ["dep:flutter_rust_bridge"]
 flutter_rust_bridge = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
-stellatune-core.workspace = true
 
 [lints]
 workspace = true

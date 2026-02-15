@@ -1,20 +1,20 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, anyhow};
 use libloading::{Library, Symbol};
 use stellatune_plugin_api::{
-    STELLATUNE_PLUGIN_API_VERSION, STELLATUNE_PLUGIN_ENTRY_SYMBOL, StHostVTable, StPluginEntry,
-    StPluginModule,
+    STELLATUNE_PLUGIN_API_VERSION, StHostVTable, StPluginEntry, StPluginModule,
 };
 use stellatune_plugin_protocol::PluginMetadata;
 
+use tracing::debug;
+
 use crate::manifest::DiscoveredPlugin;
 
-use super::events::{PluginHostCtx, build_plugin_host_vtable};
-use super::{CapabilityDescriptorInput, capability_input_from_ffi};
+use super::events::{PluginEventBus, PluginHostCtx, build_plugin_host_vtable};
 
 #[derive(Debug, Clone, Default)]
 pub struct RuntimePluginInfo {
@@ -29,18 +29,23 @@ pub struct RuntimePluginInfo {
 pub struct RuntimeLoadReport {
     pub loaded: Vec<RuntimePluginInfo>,
     pub deactivated: Vec<String>,
-    pub unloaded_generations: usize,
+    pub reclaimed_leases: usize,
     pub errors: Vec<anyhow::Error>,
 }
 
 pub(crate) struct LoadedPluginModule {
     pub(crate) root_dir: PathBuf,
     pub(crate) library_path: PathBuf,
-    pub(crate) _shadow_library_path: PathBuf,
-    pub(crate) _module: StPluginModule,
-    pub(crate) _lib: Library,
-    pub(crate) _host_vtable: Box<StHostVTable>,
-    pub(crate) _host_ctx: Box<PluginHostCtx>,
+    pub(crate) shadow_library_path: PathBuf,
+    pub(crate) module: StPluginModule,
+    // Keep dynamic library loaded while any lease references this module.
+    #[allow(dead_code)]
+    pub(crate) library: Library,
+    // Keep host callback table/context alive for plugin-owned pointers.
+    #[allow(dead_code)]
+    pub(crate) host_vtable: Box<StHostVTable>,
+    #[allow(dead_code)]
+    pub(crate) host_ctx: Box<PluginHostCtx>,
 }
 
 pub(crate) struct LoadedModuleCandidate {
@@ -49,7 +54,6 @@ pub(crate) struct LoadedModuleCandidate {
     pub(crate) metadata_json: String,
     pub(crate) root_dir: PathBuf,
     pub(crate) library_path: PathBuf,
-    pub(crate) capabilities: Vec<CapabilityDescriptorInput>,
     pub(crate) loaded_module: LoadedPluginModule,
 }
 
@@ -66,6 +70,7 @@ pub(crate) struct ShadowCleanupReport {
 pub(crate) fn load_discovered_plugin(
     discovered: &DiscoveredPlugin,
     base_host: &StHostVTable,
+    event_bus: PluginEventBus,
 ) -> Result<LoadedModuleCandidate> {
     if discovered.manifest.api_version != STELLATUNE_PLUGIN_API_VERSION {
         return Err(anyhow!(
@@ -86,6 +91,7 @@ pub(crate) fn load_discovered_plugin(
     let shadow_library_path =
         make_shadow_library_copy(&discovered.library_path, &discovered.manifest.id)?;
 
+    let load_started = Instant::now();
     // SAFETY: Loading and calling foreign plugin entrypoint is inherently unsafe.
     let lib = unsafe { Library::new(&shadow_library_path) }.with_context(|| {
         format!(
@@ -94,12 +100,16 @@ pub(crate) fn load_discovered_plugin(
             discovered.library_path.display(),
         )
     })?;
+    let load_elapsed = load_started.elapsed();
+    if load_elapsed.as_millis() > 100 {
+        debug!(
+            plugin_id = discovered.manifest.id,
+            elapsed_ms = load_elapsed.as_millis() as u64,
+            "plugin library loaded slowly"
+        );
+    }
 
-    let entry_symbol = discovered
-        .manifest
-        .entry_symbol
-        .as_deref()
-        .unwrap_or(STELLATUNE_PLUGIN_ENTRY_SYMBOL);
+    let entry_symbol = discovered.manifest.entry_symbol();
     // SAFETY: Symbol type matches ABI contract; validated by plugin load checks.
     let entry: Symbol<StPluginEntry> = unsafe {
         lib.get(entry_symbol.as_bytes()).with_context(|| {
@@ -111,11 +121,24 @@ pub(crate) fn load_discovered_plugin(
         })?
     };
 
-    let (host_vtable, host_ctx) =
-        build_plugin_host_vtable(base_host, &discovered.manifest.id, &discovered.root_dir);
+    let (host_vtable, host_ctx) = build_plugin_host_vtable(
+        base_host,
+        &discovered.manifest.id,
+        &discovered.root_dir,
+        event_bus,
+    );
 
     // SAFETY: Plugin entrypoint is trusted by ABI contract. Null and version checked below.
+    let entry_started = Instant::now();
     let module_ptr = unsafe { (entry)(host_vtable.as_ref() as *const StHostVTable) };
+    let entry_elapsed = entry_started.elapsed();
+    if entry_elapsed.as_millis() > 50 {
+        debug!(
+            plugin_id = discovered.manifest.id,
+            elapsed_ms = entry_elapsed.as_millis() as u64,
+            "plugin entrypoint executed slowly"
+        );
+    }
     if module_ptr.is_null() {
         return Err(anyhow!(
             "plugin `{}` returned null module pointer",
@@ -159,7 +182,6 @@ pub(crate) fn load_discovered_plugin(
     }
 
     let cap_count = (module.capability_count)();
-    let mut capabilities = Vec::with_capacity(cap_count);
     for index in 0..cap_count {
         let desc_ptr = (module.capability_get)(index);
         if desc_ptr.is_null() {
@@ -168,9 +190,6 @@ pub(crate) fn load_discovered_plugin(
                 metadata.id
             ));
         }
-        // SAFETY: Descriptor pointer comes from plugin capability table and is read-only.
-        let input = unsafe { capability_input_from_ffi(&*desc_ptr) };
-        capabilities.push(input);
     }
 
     Ok(LoadedModuleCandidate {
@@ -179,15 +198,14 @@ pub(crate) fn load_discovered_plugin(
         metadata_json,
         root_dir: discovered.root_dir.clone(),
         library_path: discovered.library_path.clone(),
-        capabilities,
         loaded_module: LoadedPluginModule {
             root_dir: discovered.root_dir.clone(),
             library_path: discovered.library_path.clone(),
-            _shadow_library_path: shadow_library_path,
-            _module: module,
-            _lib: lib,
-            _host_vtable: host_vtable,
-            _host_ctx: host_ctx,
+            shadow_library_path,
+            module,
+            library: lib,
+            host_vtable,
+            host_ctx,
         },
     })
 }
@@ -346,10 +364,10 @@ fn cleanup_stale_shadow_libraries_in_dir(
             match std::fs::remove_file(&path) {
                 Ok(_) => {
                     report.deleted = report.deleted.saturating_add(1);
-                }
+                },
                 Err(_) => {
                     report.failed = report.failed.saturating_add(1);
-                }
+                },
             }
         }
 
@@ -360,94 +378,5 @@ fn cleanup_stale_shadow_libraries_in_dir(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{cleanup_stale_shadow_libraries_in_dir, parse_shadow_file_key, sanitize_plugin_id};
-    use std::collections::HashSet;
-    use std::path::{Path, PathBuf};
-    use std::time::{Duration, SystemTime, UNIX_EPOCH};
-
-    fn unique_temp_dir(suffix: &str) -> PathBuf {
-        let ts = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0);
-        std::env::temp_dir().join(format!(
-            "stellatune-shadow-cleanup-test-{}-{ts}-{suffix}",
-            std::process::id()
-        ))
-    }
-
-    fn build_shadow_file_name(pid: u32, seq: u64, base: &str) -> String {
-        format!("{}-{pid}-{seq}-{base}", 1_700_000_000_000_u64)
-    }
-
-    fn touch(path: &Path) {
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).expect("create parent dir");
-        }
-        std::fs::write(path, b"x").expect("write temp file");
-    }
-
-    #[test]
-    fn sanitize_plugin_id_replaces_invalid_chars() {
-        assert_eq!(sanitize_plugin_id(" dev/plug in "), "dev_plug_in");
-        assert_eq!(sanitize_plugin_id(""), "unknown-plugin");
-    }
-
-    #[test]
-    fn parse_shadow_file_key_requires_expected_prefix() {
-        assert!(parse_shadow_file_key("1700-123-1-a.dll").is_some());
-        assert!(parse_shadow_file_key("a-123-1-a.dll").is_none());
-        assert!(parse_shadow_file_key("1700-123-a-a.dll").is_none());
-        assert!(parse_shadow_file_key("1700-123-1-").is_none());
-    }
-
-    #[test]
-    fn cleanup_deletes_stale_and_keeps_active() {
-        let root = unique_temp_dir("deletes-stale");
-        let plugin_dir = root.join("dev.test.plugin");
-        let active_path = plugin_dir.join(build_shadow_file_name(std::process::id(), 1, "a.dll"));
-        let stale_current = plugin_dir.join(build_shadow_file_name(std::process::id(), 2, "b.dll"));
-        let stale_other = plugin_dir.join(build_shadow_file_name(999_999, 3, "c.dll"));
-        let unknown_name = plugin_dir.join("not-a-shadow-name.dll");
-        touch(&active_path);
-        touch(&stale_current);
-        touch(&stale_other);
-        touch(&unknown_name);
-
-        let protected = HashSet::from([active_path.clone()]);
-        let report = cleanup_stale_shadow_libraries_in_dir(&root, &protected, Duration::ZERO, 1000);
-
-        assert_eq!(report.deleted, 2);
-        assert_eq!(report.skipped_active, 1);
-        assert_eq!(report.skipped_unrecognized, 1);
-        assert!(active_path.exists());
-        assert!(!stale_current.exists());
-        assert!(!stale_other.exists());
-        assert!(unknown_name.exists());
-
-        let _ = std::fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn cleanup_respects_grace_period_for_current_process() {
-        let root = unique_temp_dir("grace");
-        let plugin_dir = root.join("dev.test.plugin");
-        let current = plugin_dir.join(build_shadow_file_name(std::process::id(), 7, "x.dll"));
-        touch(&current);
-
-        let protected = HashSet::<PathBuf>::new();
-        let report = cleanup_stale_shadow_libraries_in_dir(
-            &root,
-            &protected,
-            Duration::from_secs(3600),
-            1000,
-        );
-
-        assert_eq!(report.deleted, 0);
-        assert_eq!(report.skipped_recent_current_process, 1);
-        assert!(current.exists());
-
-        let _ = std::fs::remove_dir_all(root);
-    }
-}
+#[path = "tests/load_tests.rs"]
+mod tests;

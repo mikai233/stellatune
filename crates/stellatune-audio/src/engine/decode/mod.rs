@@ -4,32 +4,32 @@ use std::sync::atomic::{AtomicU8, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crossbeam_channel::{Receiver, Sender, TryRecvError};
-use stellatune_plugins::PluginRuntimeEvent;
-use tracing::{debug, warn};
+use crossbeam_channel::{Receiver, Sender};
+use tracing::debug;
 
-use stellatune_core::TrackDecodeInfo;
+use crate::engine::control::{InternalDispatch, internal_eof_dispatch, internal_error_dispatch};
+use crate::types::TrackDecodeInfo;
 use stellatune_mixer::{ChannelLayout, ChannelMixer};
 
-use crate::engine::config::RESAMPLE_CHUNK_FRAMES;
-use crate::engine::messages::{
-    DecodeCtrl, DecodeWorkerState, InternalMsg, OutputSinkTx, RuntimeDspChainEntry,
-};
+use crate::engine::messages::{DecodeCtrl, OutputSinkTx};
 
+pub mod audio_path;
 pub mod context;
+pub mod controls;
 pub mod decoder;
 pub mod dsp;
 pub mod resampler;
 pub mod utils;
 
+use self::audio_path::{handle_eof_and_flush, process_audio_no_resample, process_audio_resampled};
 use self::context::DecodeContext;
-use self::decoder::{EngineDecoder, open_engine_decoder};
-use self::dsp::{ActiveDspNode, DspStage, apply_dsp_stage, apply_or_recreate_dsp_chain};
-use self::resampler::{create_resampler_if_needed, resample_interleaved_chunk};
-use self::utils::{
-    adapt_channels_interleaved, core_lfe_to_mixer, refresh_decoder, skip_frames_by_decoding,
-    write_pending,
+use self::controls::{
+    emit_position, handle_paused_controls, handle_playing_controls, perform_seek,
 };
+use self::decoder::{EngineDecoder, open_engine_decoder};
+use self::dsp::ActiveDspNode;
+use self::resampler::create_resampler_if_needed;
+use self::utils::{core_lfe_to_mixer, skip_frames_by_decoding};
 
 type DecodeSetupState = (
     Arc<Mutex<crate::ring_buffer::RingBufferProducer<f32>>>,
@@ -39,17 +39,17 @@ type DecodeSetupState = (
     i64,
     Arc<std::sync::atomic::AtomicBool>,
     i64,
-    stellatune_core::LfeMode,
+    crate::types::LfeMode,
     Option<OutputSinkTx>,
     u32,
     bool,
+    crate::types::ResampleQuality,
 );
 
 pub(crate) struct DecodeThreadArgs {
     pub(crate) path: String,
-    pub(crate) internal_tx: Sender<InternalMsg>,
+    pub(crate) internal_tx: Sender<InternalDispatch>,
     pub(crate) ctrl_rx: Receiver<DecodeCtrl>,
-    pub(crate) plugin_runtime_events: Receiver<PluginRuntimeEvent>,
     pub(crate) setup_rx: Receiver<DecodeCtrl>,
     pub(crate) spec_tx: Sender<Result<TrackDecodeInfo, String>>,
     pub(crate) runtime_state: Arc<AtomicU8>,
@@ -60,7 +60,6 @@ pub(crate) fn decode_thread(args: DecodeThreadArgs) {
         path,
         internal_tx,
         ctrl_rx,
-        plugin_runtime_events,
         setup_rx,
         spec_tx,
         runtime_state,
@@ -73,7 +72,7 @@ pub(crate) fn decode_thread(args: DecodeThreadArgs) {
             Err(e) => {
                 let _ = spec_tx.send(Err(e));
                 return;
-            }
+            },
         };
     debug!("decoder open took {}ms", t_open.elapsed().as_millis());
 
@@ -92,6 +91,7 @@ pub(crate) fn decode_thread(args: DecodeThreadArgs) {
         mut output_sink_tx,
         mut output_sink_chunk_frames,
         output_sink_only,
+        resample_quality,
     ): DecodeSetupState = loop {
         crossbeam_channel::select! {
             recv(setup_rx) -> msg => {
@@ -108,6 +108,7 @@ pub(crate) fn decode_thread(args: DecodeThreadArgs) {
                     output_sink_tx,
                     output_sink_chunk_frames,
                     output_sink_only,
+                    resample_quality,
                 } = ctrl {
                     break (
                         ring_buffer_producer,
@@ -121,17 +122,13 @@ pub(crate) fn decode_thread(args: DecodeThreadArgs) {
                         output_sink_tx,
                         output_sink_chunk_frames,
                         output_sink_only,
+                        resample_quality,
                     );
                 }
             }
             recv(ctrl_rx) -> msg => {
                 let Ok(msg) = msg else { return };
                 if matches!(msg, DecodeCtrl::Stop) {
-                    return;
-                }
-            }
-            recv(plugin_runtime_events) -> msg => {
-                if msg.is_err() {
                     return;
                 }
             }
@@ -145,14 +142,18 @@ pub(crate) fn decode_thread(args: DecodeThreadArgs) {
     let expected_predecoded_start = base_ms as u64;
 
     let t_resampler = Instant::now();
-    let mut resampler =
-        match create_resampler_if_needed(spec.sample_rate, target_sample_rate, out_channels) {
-            Ok(r) => r,
-            Err(e) => {
-                let _ = internal_tx.send(InternalMsg::Error(e));
-                return;
-            }
-        };
+    let mut resampler = match create_resampler_if_needed(
+        spec.sample_rate,
+        target_sample_rate,
+        out_channels,
+        resample_quality,
+    ) {
+        Ok(r) => r,
+        Err(e) => {
+            let _ = internal_tx.send(internal_error_dispatch(e));
+            return;
+        },
+    };
     debug!(
         "resampler init: {} ({}ms)",
         if resampler.is_some() {
@@ -192,7 +193,7 @@ pub(crate) fn decode_thread(args: DecodeThreadArgs) {
         let t_skip = Instant::now();
         let frames_to_skip = ((base_ms as i128 * spec.sample_rate as i128) / 1000) as u64;
         if !skip_frames_by_decoding(&mut decoder, frames_to_skip) {
-            let _ = internal_tx.send(InternalMsg::Eof);
+            let _ = internal_tx.send(internal_eof_dispatch());
             return;
         }
         debug!(
@@ -249,8 +250,8 @@ pub(crate) fn decode_thread(args: DecodeThreadArgs) {
             output_sink_tx: &mut output_sink_tx,
             output_sink_chunk_frames: &mut output_sink_chunk_frames,
             output_sink_only,
+            resample_quality,
             ctrl_rx: &ctrl_rx,
-            plugin_runtime_events: &plugin_runtime_events,
             internal_tx: &internal_tx,
         };
 
@@ -277,17 +278,17 @@ pub(crate) fn decode_thread(args: DecodeThreadArgs) {
             } else {
                 match process_audio_resampled(&mut ctx) {
                     Ok(true) => return,
-                    Ok(false) => {}
+                    Ok(false) => {},
                     Err(e) => {
-                        let _ = ctx.internal_tx.send(InternalMsg::Error(e));
+                        let _ = ctx.internal_tx.send(internal_error_dispatch(e));
                         return;
-                    }
+                    },
                 }
             }
 
             if let Some(seek_ms) = ctx.pending_seek.take() {
                 if let Err(e) = perform_seek(seek_ms, &mut ctx) {
-                    let _ = ctx.internal_tx.send(InternalMsg::Error(e));
+                    let _ = ctx.internal_tx.send(internal_error_dispatch(e));
                     *ctx.playing = false;
                 }
                 continue 'main;
@@ -306,413 +307,40 @@ pub(crate) fn decode_thread(args: DecodeThreadArgs) {
                 } else {
                     match process_audio_resampled(&mut ctx) {
                         Ok(true) => return,
-                        Ok(false) => {}
+                        Ok(false) => {},
                         Err(e) => {
-                            let _ = ctx.internal_tx.send(InternalMsg::Error(e));
+                            let _ = ctx.internal_tx.send(internal_error_dispatch(e));
                             return;
-                        }
+                        },
                     }
                 }
 
                 if let Some(seek_ms) = ctx.pending_seek.take() {
                     if let Err(e) = perform_seek(seek_ms, &mut ctx) {
-                        let _ = ctx.internal_tx.send(InternalMsg::Error(e));
+                        let _ = ctx.internal_tx.send(internal_error_dispatch(e));
                         *ctx.playing = false;
                     }
                     continue 'main;
                 }
-            }
+            },
             Ok(None) => {
                 if handle_eof_and_flush(&mut ctx) {
                     return;
                 }
                 if let Some(seek_ms) = ctx.pending_seek.take() {
                     if let Err(e) = perform_seek(seek_ms, &mut ctx) {
-                        let _ = ctx.internal_tx.send(InternalMsg::Error(e));
+                        let _ = ctx.internal_tx.send(internal_error_dispatch(e));
                         *ctx.playing = false;
                     }
                     continue 'main;
                 }
-                let _ = ctx.internal_tx.send(InternalMsg::Eof);
+                let _ = ctx.internal_tx.send(internal_eof_dispatch());
                 break;
-            }
+            },
             Err(e) => {
-                let _ = ctx.internal_tx.send(InternalMsg::Error(e));
+                let _ = ctx.internal_tx.send(internal_error_dispatch(e));
                 break;
-            }
+            },
         }
     }
-}
-
-fn set_decode_worker_state(runtime_state: &Arc<AtomicU8>, next: DecodeWorkerState, reason: &str) {
-    let prev = runtime_state.swap(next as u8, Ordering::Relaxed);
-    if prev == next as u8 {
-        return;
-    }
-    let prev = DecodeWorkerState::from_u8(prev);
-    debug!(from = ?prev, to = ?next, reason, "decode worker state");
-}
-
-fn perform_seek(target_ms: i64, ctx: &mut DecodeContext) -> Result<(), String> {
-    let target_ms = target_ms.max(0);
-    ctx.output_enabled.store(false, Ordering::Release);
-    if let Ok(mut producer) = ctx.producer.lock() {
-        producer.clear();
-    }
-    ctx.decode_pending.clear();
-    ctx.out_pending.clear();
-    *ctx.frames_written = 0;
-    *ctx.base_ms = target_ms;
-
-    ctx.decoder.seek_ms(target_ms as u64)?;
-    *ctx.resampler = create_resampler_if_needed(
-        ctx.spec_sample_rate,
-        ctx.target_sample_rate,
-        ctx.out_channels,
-    )?;
-    *ctx.last_emit = Instant::now();
-    Ok(())
-}
-
-fn handle_paused_controls(ctx: &mut DecodeContext, runtime_state: &Arc<AtomicU8>) -> bool {
-    crossbeam_channel::select! {
-        recv(ctx.ctrl_rx) -> msg => {
-            match msg {
-                Ok(DecodeCtrl::Play) => {
-                    *ctx.playing = true;
-                    *ctx.last_emit = Instant::now();
-                    set_decode_worker_state(runtime_state, DecodeWorkerState::Playing, "play");
-                }
-                Ok(DecodeCtrl::Pause) => {
-                    set_decode_worker_state(runtime_state, DecodeWorkerState::Paused, "pause");
-                }
-                Ok(DecodeCtrl::SetDspChain { chain }) => {
-                    if let Err(e) = sync_dsp_chain(ctx, chain) {
-                        let _ = ctx.internal_tx.send(InternalMsg::Error(e));
-                    }
-                }
-                Ok(DecodeCtrl::RefreshDecoder) => {
-                    if let Err(e) = refresh_decoder(ctx) {
-                        debug!("decoder refresh failed: {e}");
-                    }
-                }
-                Ok(DecodeCtrl::SeekMs { position_ms }) => {
-                    if let Err(e) = perform_seek(position_ms, ctx) {
-                        let _ = ctx.internal_tx.send(InternalMsg::Error(e));
-                    }
-                }
-                Ok(DecodeCtrl::SetLfeMode { mode }) => {
-                    *ctx.lfe_mode = core_lfe_to_mixer(mode);
-                    *ctx.channel_mixer = ChannelMixer::new(
-                        ChannelLayout::from_count(ctx.in_channels as u16),
-                        ChannelLayout::from_count(ctx.out_channels as u16),
-                        *ctx.lfe_mode,
-                    );
-                }
-                Ok(DecodeCtrl::SetOutputSinkTx {
-                    tx,
-                    output_sink_chunk_frames,
-                }) => {
-                    *ctx.output_sink_tx = tx;
-                    *ctx.output_sink_chunk_frames = output_sink_chunk_frames;
-                }
-                Ok(DecodeCtrl::Stop) | Err(_) => {
-                    set_decode_worker_state(runtime_state, DecodeWorkerState::Idle, "stop");
-                    return true;
-                }
-                _ => {}
-            }
-        }
-        recv(ctx.plugin_runtime_events) -> msg => {
-            match msg {
-                Ok(event) => {
-                    handle_plugin_runtime_event(ctx, event);
-                }
-                Err(_) => {
-                    set_decode_worker_state(runtime_state, DecodeWorkerState::Idle, "plugin runtime disconnected");
-                    return true;
-                }
-            }
-        }
-    }
-    false
-}
-
-fn handle_playing_controls(ctx: &mut DecodeContext, runtime_state: &Arc<AtomicU8>) -> bool {
-    loop {
-        match ctx.plugin_runtime_events.try_recv() {
-            Ok(event) => handle_plugin_runtime_event(ctx, event),
-            Err(TryRecvError::Empty) => break,
-            Err(TryRecvError::Disconnected) => {
-                set_decode_worker_state(
-                    runtime_state,
-                    DecodeWorkerState::Idle,
-                    "plugin runtime disconnected",
-                );
-                return true;
-            }
-        }
-    }
-
-    while let Ok(ctrl) = ctx.ctrl_rx.try_recv() {
-        match ctrl {
-            DecodeCtrl::SetLfeMode { mode } => {
-                *ctx.lfe_mode = core_lfe_to_mixer(mode);
-                *ctx.channel_mixer = ChannelMixer::new(
-                    ChannelLayout::from_count(ctx.in_channels as u16),
-                    ChannelLayout::from_count(ctx.out_channels as u16),
-                    *ctx.lfe_mode,
-                );
-            }
-            DecodeCtrl::Pause => {
-                *ctx.playing = false;
-                set_decode_worker_state(runtime_state, DecodeWorkerState::Paused, "pause");
-                return false;
-            }
-            DecodeCtrl::SeekMs { position_ms } => {
-                if let Err(e) = perform_seek(position_ms, ctx) {
-                    let _ = ctx.internal_tx.send(InternalMsg::Error(e));
-                    *ctx.playing = false;
-                }
-                return false;
-            }
-            DecodeCtrl::SetDspChain { chain } => {
-                if let Err(e) = sync_dsp_chain(ctx, chain) {
-                    let _ = ctx.internal_tx.send(InternalMsg::Error(e));
-                }
-            }
-            DecodeCtrl::RefreshDecoder => {
-                if let Err(e) = refresh_decoder(ctx) {
-                    debug!("decoder refresh failed: {e}");
-                }
-            }
-            DecodeCtrl::SetOutputSinkTx {
-                tx,
-                output_sink_chunk_frames,
-            } => {
-                *ctx.output_sink_tx = tx;
-                *ctx.output_sink_chunk_frames = output_sink_chunk_frames;
-            }
-            DecodeCtrl::Stop => {
-                set_decode_worker_state(runtime_state, DecodeWorkerState::Idle, "stop");
-                return true;
-            }
-            _ => {}
-        }
-    }
-    false
-}
-
-fn handle_plugin_runtime_event(ctx: &mut DecodeContext, event: PluginRuntimeEvent) {
-    if !matches!(
-        event,
-        PluginRuntimeEvent::PluginsReloaded { .. } | PluginRuntimeEvent::PluginUnloaded { .. }
-    ) {
-        return;
-    }
-    if let Err(e) = refresh_decoder(ctx) {
-        warn!("decoder refresh on plugin runtime event failed: {e}");
-    }
-}
-
-fn emit_position(ctx: &mut DecodeContext) {
-    if ctx.last_emit.elapsed() >= Duration::from_millis(200) {
-        let buffered_frames = ctx
-            .producer
-            .lock()
-            .map(|p| (p.len() / ctx.out_channels) as u64)
-            .unwrap_or(0);
-        let played_frames = ctx.frames_written.saturating_sub(buffered_frames);
-        let ms = ctx.base_ms.saturating_add(
-            ((played_frames.saturating_mul(1000)) / ctx.target_sample_rate as u64) as i64,
-        );
-        let _ = ctx.internal_tx.try_send(InternalMsg::Position {
-            path: ctx.path.to_string(),
-            ms,
-        });
-        *ctx.last_emit = Instant::now();
-    }
-}
-
-fn process_audio_no_resample(ctx: &mut DecodeContext) -> bool {
-    apply_dsp_stage(
-        ctx.dsp_chain,
-        DspStage::PreMix,
-        ctx.decode_pending,
-        ctx.in_channels,
-    );
-
-    let mut chunk = if ctx.in_channels == ctx.out_channels {
-        std::mem::take(ctx.decode_pending)
-    } else {
-        let v = adapt_channels_interleaved(
-            ctx.decode_pending,
-            ctx.in_channels,
-            ctx.out_channels,
-            ctx.channel_mixer,
-        );
-        ctx.decode_pending.clear();
-        v
-    };
-
-    apply_dsp_stage(
-        ctx.dsp_chain,
-        DspStage::PostMix,
-        &mut chunk,
-        ctx.out_channels,
-    );
-    ctx.out_pending.extend_from_slice(&chunk);
-
-    write_pending(ctx)
-}
-
-fn process_audio_resampled(ctx: &mut DecodeContext) -> Result<bool, String> {
-    while ctx.decode_pending.len() >= RESAMPLE_CHUNK_FRAMES * ctx.in_channels {
-        let mut chunk_in: Vec<f32> = ctx
-            .decode_pending
-            .drain(..RESAMPLE_CHUNK_FRAMES * ctx.in_channels)
-            .collect();
-
-        apply_dsp_stage(
-            ctx.dsp_chain,
-            DspStage::PreMix,
-            &mut chunk_in,
-            ctx.in_channels,
-        );
-
-        let chunk = if ctx.in_channels == ctx.out_channels {
-            chunk_in
-        } else {
-            adapt_channels_interleaved(
-                &chunk_in,
-                ctx.in_channels,
-                ctx.out_channels,
-                ctx.channel_mixer,
-            )
-        };
-
-        let processed = resample_interleaved_chunk(
-            ctx.resampler.as_mut().expect("checked"),
-            &chunk,
-            ctx.out_channels,
-        )?;
-        let mut processed = processed;
-
-        apply_dsp_stage(
-            ctx.dsp_chain,
-            DspStage::PostMix,
-            &mut processed,
-            ctx.out_channels,
-        );
-        ctx.out_pending.extend_from_slice(&processed);
-
-        if write_pending(ctx) {
-            return Ok(true);
-        }
-        if ctx.pending_seek.is_some() {
-            break;
-        }
-        if !*ctx.playing {
-            break;
-        }
-    }
-    Ok(false)
-}
-
-fn handle_eof_and_flush(ctx: &mut DecodeContext) -> bool {
-    if let Some(resampler_inner) = ctx.resampler.as_mut() {
-        if !ctx.decode_pending.is_empty() {
-            ctx.decode_pending
-                .resize(RESAMPLE_CHUNK_FRAMES * ctx.in_channels, 0.0);
-            apply_dsp_stage(
-                ctx.dsp_chain,
-                DspStage::PreMix,
-                ctx.decode_pending,
-                ctx.in_channels,
-            );
-
-            let chunk = if ctx.in_channels == ctx.out_channels {
-                ctx.decode_pending.clone()
-            } else {
-                adapt_channels_interleaved(
-                    ctx.decode_pending,
-                    ctx.in_channels,
-                    ctx.out_channels,
-                    ctx.channel_mixer,
-                )
-            };
-            match resample_interleaved_chunk(resampler_inner, &chunk, ctx.out_channels) {
-                Ok(mut processed) => {
-                    apply_dsp_stage(
-                        ctx.dsp_chain,
-                        DspStage::PostMix,
-                        &mut processed,
-                        ctx.out_channels,
-                    );
-                    ctx.out_pending.extend_from_slice(&processed);
-                    ctx.decode_pending.clear();
-                }
-                Err(e) => {
-                    let _ = ctx.internal_tx.send(InternalMsg::Error(e));
-                    return true;
-                }
-            }
-        }
-        while !ctx.out_pending.is_empty() {
-            if write_pending(ctx) {
-                return true;
-            }
-            if ctx.pending_seek.is_some() || !*ctx.playing {
-                break;
-            }
-        }
-    } else if !ctx.decode_pending.is_empty() {
-        apply_dsp_stage(
-            ctx.dsp_chain,
-            DspStage::PreMix,
-            ctx.decode_pending,
-            ctx.in_channels,
-        );
-
-        let mut chunk = if ctx.in_channels == ctx.out_channels {
-            std::mem::take(ctx.decode_pending)
-        } else {
-            let v = adapt_channels_interleaved(
-                ctx.decode_pending,
-                ctx.in_channels,
-                ctx.out_channels,
-                ctx.channel_mixer,
-            );
-            ctx.decode_pending.clear();
-            v
-        };
-
-        apply_dsp_stage(
-            ctx.dsp_chain,
-            DspStage::PostMix,
-            &mut chunk,
-            ctx.out_channels,
-        );
-        ctx.out_pending.extend_from_slice(&chunk);
-
-        while !ctx.out_pending.is_empty() {
-            if write_pending(ctx) {
-                return true;
-            }
-            if ctx.pending_seek.is_some() || !*ctx.playing {
-                break;
-            }
-        }
-    }
-    false
-}
-
-fn sync_dsp_chain(ctx: &mut DecodeContext, chain: Vec<RuntimeDspChainEntry>) -> Result<(), String> {
-    apply_or_recreate_dsp_chain(
-        ctx.dsp_chain,
-        &chain,
-        ctx.in_channels,
-        ctx.target_sample_rate,
-        ctx.out_channels as u16,
-    )
 }

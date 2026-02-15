@@ -8,19 +8,23 @@ mod watch;
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::{Context, Result};
 use sqlx::{FromRow, QueryBuilder, SqlitePool};
-use tokio::sync::mpsc;
+use tokio::time::timeout;
 
-use stellatune_core::{LibraryCommand, LibraryEvent, PlaylistLite, TrackLite};
+use crate::{LibraryEvent, PlaylistLite, TrackLite};
+use stellatune_plugins::runtime::handle::shared_runtime_service;
+use stellatune_runtime::tokio_actor::ActorRef;
 
 use crate::service::EventHub;
 
 use self::fts::build_fts_query;
 use self::metadata::clear_metadata_decoder_cache;
 use self::paths::{is_drive_root, normalize_path_str, parent_dir_norm};
-use self::watch::{WatchCtrl, spawn_watch_task};
+use self::watch::{WatchTaskActor, request_watch_refresh, spawn_watch_task};
 
 #[derive(Debug, FromRow)]
 struct PlaylistLiteRow {
@@ -33,7 +37,7 @@ struct PlaylistLiteRow {
 
 pub(crate) struct WorkerDeps {
     pool: SqlitePool,
-    events: std::sync::Arc<EventHub>,
+    events: Arc<EventHub>,
     cover_dir: PathBuf,
     plugins_dir: PathBuf,
 }
@@ -41,7 +45,7 @@ pub(crate) struct WorkerDeps {
 impl WorkerDeps {
     pub(crate) async fn new(
         db_path: &Path,
-        events: std::sync::Arc<EventHub>,
+        events: Arc<EventHub>,
         plugins_dir: PathBuf,
     ) -> Result<Self> {
         let pool = db::init_db(db_path).await?;
@@ -57,26 +61,54 @@ impl WorkerDeps {
         #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
         {
             if plugins_dir.exists() {
+                tracing::info!(
+                    plugins_dir = %plugins_dir.display(),
+                    "library plugin bootstrap begin"
+                );
                 clear_metadata_decoder_cache();
                 let disabled = db::list_disabled_plugin_ids(&pool)
                     .await
                     .unwrap_or_default();
-                let service = stellatune_plugins::shared_runtime_service();
-                service.set_disabled_plugin_ids(disabled);
-                match service.reload_dir_from_state(&plugins_dir) {
-                    Ok(v2) => events.emit(LibraryEvent::Log {
-                        message: format!(
-                            "library plugin runtime v2 reload: loaded={} deactivated={} errors={} unloaded_generations={}",
-                            v2.loaded.len(),
-                            v2.deactivated.len(),
-                            v2.errors.len(),
-                            v2.unloaded_generations
-                        ),
-                    }),
-                    Err(e) => events.emit(LibraryEvent::Log {
-                        message: format!("library plugin runtime v2 reload failed: {e:#}"),
-                    }),
+                let service = shared_runtime_service();
+                service.set_disabled_plugin_ids(disabled).await;
+                match timeout(
+                    Duration::from_secs(8),
+                    service.reload_dir_from_state(&plugins_dir),
+                )
+                .await
+                {
+                    Ok(Ok(v2)) => {
+                        tracing::info!(
+                            loaded = v2.loaded.len(),
+                            deactivated = v2.deactivated.len(),
+                            errors = v2.errors.len(),
+                            reclaimed_leases = v2.reclaimed_leases,
+                            "library plugin bootstrap reload completed"
+                        );
+                        events.emit(LibraryEvent::Log {
+                            message: format!(
+                                "library plugin runtime v2 reload: loaded={} deactivated={} errors={} reclaimed_leases={}",
+                                v2.loaded.len(),
+                                v2.deactivated.len(),
+                                v2.errors.len(),
+                                v2.reclaimed_leases
+                            ),
+                        });
+                    },
+                    Ok(Err(e)) => {
+                        tracing::warn!(error = %format!("{e:#}"), "library plugin bootstrap reload failed");
+                        events.emit(LibraryEvent::Log {
+                            message: format!("library plugin runtime v2 reload failed: {e:#}"),
+                        });
+                    },
+                    Err(_) => {
+                        tracing::warn!("library plugin bootstrap reload timed out (8s)");
+                        events.emit(LibraryEvent::Log {
+                            message: "library plugin runtime v2 reload timed out (8s)".to_string(),
+                        });
+                    },
                 }
+                tracing::info!("library plugin bootstrap end");
             }
         }
 
@@ -91,9 +123,9 @@ impl WorkerDeps {
 
 pub(crate) struct LibraryWorker {
     pool: SqlitePool,
-    events: std::sync::Arc<EventHub>,
+    events: Arc<EventHub>,
     cover_dir: PathBuf,
-    watch_ctrl: mpsc::UnboundedSender<WatchCtrl>,
+    watch_ctrl: ActorRef<WatchTaskActor>,
     plugins_dir: PathBuf,
 }
 
@@ -101,7 +133,7 @@ impl LibraryWorker {
     pub(crate) fn new(deps: WorkerDeps) -> Self {
         let watch_ctrl = spawn_watch_task(
             deps.pool.clone(),
-            std::sync::Arc::clone(&deps.events),
+            Arc::clone(&deps.events),
             deps.cover_dir.clone(),
         );
         Self {
@@ -123,87 +155,17 @@ impl LibraryWorker {
             let disabled = db::list_disabled_plugin_ids(&self.pool)
                 .await
                 .unwrap_or_default();
-            let service = stellatune_plugins::shared_runtime_service();
-            service.set_disabled_plugin_ids(disabled);
-            let _ = service.reload_dir_from_state(&self.plugins_dir);
+            let service = shared_runtime_service();
+            service.set_disabled_plugin_ids(disabled).await;
+            let _ = timeout(
+                Duration::from_secs(8),
+                service.reload_dir_from_state(&self.plugins_dir),
+            )
+            .await;
         }
     }
 
-    pub(crate) async fn handle_command(&mut self, cmd: LibraryCommand) -> Result<()> {
-        match cmd {
-            LibraryCommand::AddRoot { path } => self.add_root(path).await,
-            LibraryCommand::RemoveRoot { path } => self.remove_root(path).await,
-            LibraryCommand::DeleteFolder { path } => self.delete_folder(path).await,
-            LibraryCommand::RestoreFolder { path } => self.restore_folder(path).await,
-            LibraryCommand::ListExcludedFolders => self.list_excluded_folders().await,
-            LibraryCommand::ListRoots => self.list_roots().await,
-            LibraryCommand::ListFolders => self.list_folders().await,
-            LibraryCommand::ListTracks {
-                folder,
-                recursive,
-                query,
-                limit,
-                offset,
-            } => {
-                self.list_tracks(folder, recursive, query, limit, offset)
-                    .await
-            }
-            LibraryCommand::ScanAll => self.scan_all(false).await,
-            LibraryCommand::ScanAllForce => self.scan_all(true).await,
-            LibraryCommand::Search {
-                query,
-                limit,
-                offset,
-            } => self.search(query, limit, offset).await,
-            LibraryCommand::ListPlaylists => self.list_playlists().await,
-            LibraryCommand::CreatePlaylist { name } => self.create_playlist(name).await,
-            LibraryCommand::RenamePlaylist { id, name } => self.rename_playlist(id, name).await,
-            LibraryCommand::DeletePlaylist { id } => self.delete_playlist(id).await,
-            LibraryCommand::ListPlaylistTracks {
-                playlist_id,
-                query,
-                limit,
-                offset,
-            } => {
-                self.list_playlist_tracks(playlist_id, query, limit, offset)
-                    .await
-            }
-            LibraryCommand::AddTrackToPlaylist {
-                playlist_id,
-                track_id,
-            } => self.add_track_to_playlist(playlist_id, track_id).await,
-            LibraryCommand::AddTracksToPlaylist {
-                playlist_id,
-                track_ids,
-            } => self.add_tracks_to_playlist(playlist_id, track_ids).await,
-            LibraryCommand::RemoveTrackFromPlaylist {
-                playlist_id,
-                track_id,
-            } => self.remove_track_from_playlist(playlist_id, track_id).await,
-            LibraryCommand::RemoveTracksFromPlaylist {
-                playlist_id,
-                track_ids,
-            } => {
-                self.remove_tracks_from_playlist(playlist_id, track_ids)
-                    .await
-            }
-            LibraryCommand::MoveTrackInPlaylist {
-                playlist_id,
-                track_id,
-                new_index,
-            } => {
-                self.move_track_in_playlist(playlist_id, track_id, new_index)
-                    .await
-            }
-            LibraryCommand::ListLikedTrackIds => self.list_liked_track_ids().await,
-            LibraryCommand::SetTrackLiked { track_id, liked } => {
-                self.set_track_liked(track_id, liked).await
-            }
-            LibraryCommand::Shutdown => Ok(()),
-        }
-    }
-
-    async fn list_roots(&self) -> Result<()> {
+    pub(crate) async fn list_roots(&self) -> Result<Vec<String>> {
         let roots_raw: Vec<String> = sqlx::query_scalar!(
             r#"
             SELECT path
@@ -220,11 +182,10 @@ impl LibraryWorker {
             .map(|p| normalize_path_str(&p))
             .filter(|p| !p.is_empty())
             .collect::<Vec<_>>();
-        self.events.emit(LibraryEvent::Roots { paths: roots });
-        Ok(())
+        Ok(roots)
     }
 
-    async fn list_folders(&self) -> Result<()> {
+    pub(crate) async fn list_folders(&self) -> Result<Vec<String>> {
         // Distinct directories with at least one track.
         let mut dirs: Vec<String> = sqlx::query_scalar!(
             r#"
@@ -270,13 +231,10 @@ impl LibraryWorker {
             }
         }
 
-        self.events.emit(LibraryEvent::Folders {
-            paths: set.into_iter().collect(),
-        });
-        Ok(())
+        Ok(set.into_iter().collect())
     }
 
-    async fn list_excluded_folders(&self) -> Result<()> {
+    pub(crate) async fn list_excluded_folders(&self) -> Result<Vec<String>> {
         let rows: Vec<String> = sqlx::query_scalar(
             r#"
             SELECT path
@@ -293,18 +251,17 @@ impl LibraryWorker {
             .filter(|p| !p.is_empty())
             .collect::<Vec<_>>();
 
-        self.events.emit(LibraryEvent::ExcludedFolders { paths });
-        Ok(())
+        Ok(paths)
     }
 
-    async fn list_tracks(
+    pub(crate) async fn list_tracks(
         &self,
         folder: String,
         recursive: bool,
         query: String,
         limit: i64,
         offset: i64,
-    ) -> Result<()> {
+    ) -> Result<Vec<TrackLite>> {
         let folder = normalize_path_str(&folder);
         let query = query.trim().to_string();
         let limit = limit.clamp(1, 5000);
@@ -436,16 +393,10 @@ impl LibraryWorker {
             })
             .collect::<Vec<_>>();
 
-        self.events.emit(LibraryEvent::Tracks {
-            folder,
-            recursive,
-            query,
-            items,
-        });
-        Ok(())
+        Ok(items)
     }
 
-    async fn list_playlists(&self) -> Result<()> {
+    pub(crate) async fn list_playlists(&self) -> Result<Vec<PlaylistLite>> {
         let rows = sqlx::query_as::<_, PlaylistLiteRow>(
             r#"
             SELECT
@@ -483,11 +434,10 @@ impl LibraryWorker {
             })
             .collect::<Vec<_>>();
 
-        self.events.emit(LibraryEvent::Playlists { items });
-        Ok(())
+        Ok(items)
     }
 
-    async fn create_playlist(&self, name: String) -> Result<()> {
+    pub(crate) async fn create_playlist(&self, name: String) -> Result<()> {
         let name = name.trim();
         if name.is_empty() {
             return Ok(());
@@ -507,7 +457,7 @@ impl LibraryWorker {
         Ok(())
     }
 
-    async fn rename_playlist(&self, id: i64, name: String) -> Result<()> {
+    pub(crate) async fn rename_playlist(&self, id: i64, name: String) -> Result<()> {
         let name = name.trim();
         if id <= 0 || name.is_empty() {
             return Ok(());
@@ -529,7 +479,7 @@ impl LibraryWorker {
         Ok(())
     }
 
-    async fn delete_playlist(&self, id: i64) -> Result<()> {
+    pub(crate) async fn delete_playlist(&self, id: i64) -> Result<()> {
         if id <= 0 {
             return Ok(());
         }
@@ -548,23 +498,17 @@ impl LibraryWorker {
         Ok(())
     }
 
-    async fn list_playlist_tracks(
+    pub(crate) async fn list_playlist_tracks(
         &self,
         playlist_id: i64,
         query: String,
         limit: i64,
         offset: i64,
-    ) -> Result<()> {
-        if playlist_id <= 0 {
-            self.events.emit(LibraryEvent::PlaylistTracks {
-                playlist_id,
-                query: query.trim().to_string(),
-                items: Vec::new(),
-            });
-            return Ok(());
-        }
-
+    ) -> Result<Vec<TrackLite>> {
         let query = query.trim().to_string();
+        if playlist_id <= 0 {
+            return Ok(Vec::new());
+        }
         let limit = limit.clamp(1, 5000);
         let offset = offset.max(0);
 
@@ -619,15 +563,14 @@ impl LibraryWorker {
             })
             .collect::<Vec<_>>();
 
-        self.events.emit(LibraryEvent::PlaylistTracks {
-            playlist_id,
-            query,
-            items,
-        });
-        Ok(())
+        Ok(items)
     }
 
-    async fn add_track_to_playlist(&self, playlist_id: i64, track_id: i64) -> Result<()> {
+    pub(crate) async fn add_track_to_playlist(
+        &self,
+        playlist_id: i64,
+        track_id: i64,
+    ) -> Result<()> {
         if playlist_id <= 0 || track_id <= 0 {
             return Ok(());
         }
@@ -654,7 +597,11 @@ impl LibraryWorker {
         Ok(())
     }
 
-    async fn remove_track_from_playlist(&self, playlist_id: i64, track_id: i64) -> Result<()> {
+    pub(crate) async fn remove_track_from_playlist(
+        &self,
+        playlist_id: i64,
+        track_id: i64,
+    ) -> Result<()> {
         if playlist_id <= 0 || track_id <= 0 {
             return Ok(());
         }
@@ -674,7 +621,11 @@ impl LibraryWorker {
         Ok(())
     }
 
-    async fn add_tracks_to_playlist(&self, playlist_id: i64, track_ids: Vec<i64>) -> Result<()> {
+    pub(crate) async fn add_tracks_to_playlist(
+        &self,
+        playlist_id: i64,
+        track_ids: Vec<i64>,
+    ) -> Result<()> {
         if playlist_id <= 0 {
             return Ok(());
         }
@@ -723,7 +674,7 @@ impl LibraryWorker {
         Ok(())
     }
 
-    async fn remove_tracks_from_playlist(
+    pub(crate) async fn remove_tracks_from_playlist(
         &self,
         playlist_id: i64,
         track_ids: Vec<i64>,
@@ -758,7 +709,7 @@ impl LibraryWorker {
         Ok(())
     }
 
-    async fn move_track_in_playlist(
+    pub(crate) async fn move_track_in_playlist(
         &self,
         playlist_id: i64,
         track_id: i64,
@@ -812,7 +763,7 @@ impl LibraryWorker {
         Ok(())
     }
 
-    async fn list_liked_track_ids(&self) -> Result<()> {
+    pub(crate) async fn list_liked_track_ids(&self) -> Result<Vec<i64>> {
         let liked_id = self.liked_playlist_id().await?;
         let track_ids = if let Some(playlist_id) = liked_id {
             sqlx::query_scalar::<_, i64>(
@@ -828,11 +779,10 @@ impl LibraryWorker {
         } else {
             Vec::new()
         };
-        self.events.emit(LibraryEvent::LikedTrackIds { track_ids });
-        Ok(())
+        Ok(track_ids)
     }
 
-    async fn set_track_liked(&self, track_id: i64, liked: bool) -> Result<()> {
+    pub(crate) async fn set_track_liked(&self, track_id: i64, liked: bool) -> Result<()> {
         if track_id <= 0 {
             return Ok(());
         }
@@ -923,7 +873,7 @@ impl LibraryWorker {
         Ok(())
     }
 
-    async fn add_root(&self, path: String) -> Result<()> {
+    pub(crate) async fn add_root(&self, path: String) -> Result<()> {
         let path = normalize_path_str(&path);
         sqlx::query!(
             r#"
@@ -939,12 +889,12 @@ impl LibraryWorker {
         self.events.emit(LibraryEvent::Log {
             message: format!("added scan root: {}", path),
         });
-        self.list_roots().await?;
-        let _ = self.watch_ctrl.send(WatchCtrl::Refresh);
+        self.events.emit(LibraryEvent::Changed);
+        request_watch_refresh(&self.watch_ctrl);
         Ok(())
     }
 
-    async fn remove_root(&self, path: String) -> Result<()> {
+    pub(crate) async fn remove_root(&self, path: String) -> Result<()> {
         let path = normalize_path_str(&path);
         sqlx::query(
             "UPDATE scan_roots SET enabled=0 WHERE rtrim(replace(path,'\\\\','/'),'/') = ?1",
@@ -955,12 +905,12 @@ impl LibraryWorker {
         self.events.emit(LibraryEvent::Log {
             message: format!("disabled scan root: {}", path),
         });
-        self.list_roots().await?;
-        let _ = self.watch_ctrl.send(WatchCtrl::Refresh);
+        self.events.emit(LibraryEvent::Changed);
+        request_watch_refresh(&self.watch_ctrl);
         Ok(())
     }
 
-    async fn delete_folder(&self, path: String) -> Result<()> {
+    pub(crate) async fn delete_folder(&self, path: String) -> Result<()> {
         let folder = normalize_path_str(&path);
         if folder.is_empty() || is_drive_root(&folder) {
             return Ok(());
@@ -1007,15 +957,12 @@ impl LibraryWorker {
         self.events.emit(LibraryEvent::Log {
             message: format!("deleted folder: {folder} ({deleted} tracks)"),
         });
-        self.list_roots().await?;
-        self.list_folders().await?;
-        self.list_excluded_folders().await?;
-        let _ = self.watch_ctrl.send(WatchCtrl::Refresh);
+        request_watch_refresh(&self.watch_ctrl);
         self.events.emit(LibraryEvent::Changed);
         Ok(())
     }
 
-    async fn restore_folder(&self, path: String) -> Result<()> {
+    pub(crate) async fn restore_folder(&self, path: String) -> Result<()> {
         let folder = normalize_path_str(&path);
         if folder.is_empty() || is_drive_root(&folder) {
             return Ok(());
@@ -1029,18 +976,17 @@ impl LibraryWorker {
         self.events.emit(LibraryEvent::Log {
             message: format!("restored folder: {folder}"),
         });
-        self.list_excluded_folders().await?;
-        let _ = self.watch_ctrl.send(WatchCtrl::Refresh);
+        request_watch_refresh(&self.watch_ctrl);
 
         // Re-import existing files immediately (async) so users don't have to
         // wait for the next filesystem change event.
         let pool = self.pool.clone();
         let events = std::sync::Arc::clone(&self.events);
         let cover_dir = self.cover_dir.clone();
-        tokio::spawn(async move {
+        stellatune_runtime::spawn(async move {
             match scan::scan_folder_into_db(pool, &events, &cover_dir, &folder).await {
                 Ok(true) => events.emit(LibraryEvent::Changed),
-                Ok(false) => {}
+                Ok(false) => {},
                 Err(e) => events.emit(LibraryEvent::Log {
                     message: format!("restore scan failed: {e:#}"),
                 }),
@@ -1051,12 +997,17 @@ impl LibraryWorker {
         Ok(())
     }
 
-    async fn scan_all(&self, force: bool) -> Result<()> {
+    pub(crate) async fn scan_all(&self, force: bool) -> Result<()> {
         self.refresh_plugins_best_effort().await;
         scan::scan_all(&self.pool, &self.events, &self.cover_dir, force).await
     }
 
-    async fn search(&self, query: String, limit: i64, offset: i64) -> Result<()> {
+    pub(crate) async fn search(
+        &self,
+        query: String,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<TrackLite>> {
         let query = query.trim().to_string();
         let limit = limit.clamp(1, 200);
         let offset = offset.max(0);
@@ -1109,8 +1060,6 @@ impl LibraryWorker {
             })
             .collect::<Vec<_>>();
 
-        self.events
-            .emit(LibraryEvent::SearchResult { query, items });
-        Ok(())
+        Ok(items)
     }
 }

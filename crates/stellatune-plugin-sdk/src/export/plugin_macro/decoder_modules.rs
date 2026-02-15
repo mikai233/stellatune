@@ -319,7 +319,10 @@ macro_rules! __st_export_decoder_modules {
                         };
                         match <$dec_ty as $crate::instance::DecoderDescriptor>::create(config) {
                             Ok(instance) => {
-                                let channels = instance.get_info().spec.channels.max(1);
+                                let channels = <$dec_ty as $crate::instance::DecoderInstance>::get_info(&instance)
+                                    .spec
+                                    .channels
+                                    .max(1);
                                 let boxed = Box::new($crate::instance::DecoderBox {
                                     inner: instance,
                                     channels,

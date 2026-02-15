@@ -17,12 +17,17 @@ macro_rules! __st_export_module_entry {
                 capability_get: __st_capability_get,
                 decoder_ext_score_count: Some(__st_decoder_ext_score_count),
                 decoder_ext_score_get: Some(__st_decoder_ext_score_get),
-                create_decoder_instance: Some(__st_create_decoder_instance),
-                create_dsp_instance: Some(__st_create_dsp_instance),
-                create_source_catalog_instance: Some(__st_create_source_catalog_instance),
-                create_lyrics_provider_instance: Some(__st_create_lyrics_provider_instance),
-                create_output_sink_instance: Some(__st_create_output_sink_instance),
-                shutdown: None,
+                begin_create_decoder_instance: Some(__st_begin_create_decoder_instance),
+                begin_create_dsp_instance: Some(__st_begin_create_dsp_instance),
+                begin_create_source_catalog_instance: Some(
+                    __st_begin_create_source_catalog_instance,
+                ),
+                begin_create_lyrics_provider_instance: Some(
+                    __st_begin_create_lyrics_provider_instance,
+                ),
+                begin_create_output_sink_instance: Some(__st_begin_create_output_sink_instance),
+                begin_quiesce: None,
+                begin_shutdown: None,
             };
 
         #[unsafe(no_mangle)]

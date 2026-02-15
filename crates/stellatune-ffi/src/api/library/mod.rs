@@ -1,199 +1,202 @@
-use std::thread;
+use std::sync::{Arc, OnceLock};
 
-use crate::frb_generated::{RustOpaque, StreamSink};
-use anyhow::Result;
+use crate::frb_generated::StreamSink;
+use anyhow::{Result, anyhow};
+use stellatune_runtime as global_runtime;
 use tracing::debug;
 
 use stellatune_backend_api::library::LibraryService;
-use stellatune_core::LibraryEvent;
+use stellatune_library::{LibraryEvent, PlaylistLite, TrackLite};
 
-pub struct Library {
-    service: LibraryService,
+static LIBRARY_SERVICE: OnceLock<Arc<LibraryService>> = OnceLock::new();
+static LIBRARY_INIT_LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+
+fn shared_library() -> Result<Arc<LibraryService>> {
+    LIBRARY_SERVICE
+        .get()
+        .map(Arc::clone)
+        .ok_or_else(|| anyhow!("library is not initialized; call create_library first"))
 }
 
-impl Library {
-    fn new(db_path: String) -> Result<Self> {
-        let service = LibraryService::new(db_path)?;
-        Ok(Self { service })
+pub async fn create_library(db_path: String) -> Result<()> {
+    if LIBRARY_SERVICE.get().is_some() {
+        return Ok(());
     }
+
+    let lock = LIBRARY_INIT_LOCK.get_or_init(|| tokio::sync::Mutex::new(()));
+    let _guard = lock.lock().await;
+
+    if LIBRARY_SERVICE.get().is_some() {
+        return Ok(());
+    }
+
+    let service = Arc::new(LibraryService::new(db_path).await?);
+    let _ = LIBRARY_SERVICE.set(service);
+    Ok(())
 }
 
-pub fn create_library(db_path: String) -> Result<RustOpaque<Library>> {
-    Ok(RustOpaque::new(Library::new(db_path)?))
+pub async fn library_add_root(path: String) -> Result<()> {
+    shared_library()?.add_root(path).await
 }
 
-pub fn library_add_root(library: RustOpaque<Library>, path: String) {
-    library.service.add_root(path);
+pub async fn library_remove_root(path: String) -> Result<()> {
+    shared_library()?.remove_root(path).await
 }
 
-pub fn library_remove_root(library: RustOpaque<Library>, path: String) {
-    library.service.remove_root(path);
+pub async fn library_delete_folder(path: String) -> Result<()> {
+    shared_library()?.delete_folder(path).await
 }
 
-pub fn library_delete_folder(library: RustOpaque<Library>, path: String) {
-    library.service.delete_folder(path);
+pub async fn library_restore_folder(path: String) -> Result<()> {
+    shared_library()?.restore_folder(path).await
 }
 
-pub fn library_restore_folder(library: RustOpaque<Library>, path: String) {
-    library.service.restore_folder(path);
+pub async fn library_list_excluded_folders() -> Result<Vec<String>> {
+    shared_library()?.list_excluded_folders().await
 }
 
-pub fn library_list_excluded_folders(library: RustOpaque<Library>) {
-    library.service.list_excluded_folders();
+pub async fn library_scan_all() -> Result<()> {
+    shared_library()?.scan_all().await
 }
 
-pub fn library_scan_all(library: RustOpaque<Library>) {
-    library.service.scan_all();
+pub async fn library_scan_all_force() -> Result<()> {
+    shared_library()?.scan_all_force().await
 }
 
-pub fn library_scan_all_force(library: RustOpaque<Library>) {
-    library.service.scan_all_force();
+pub async fn library_list_roots() -> Result<Vec<String>> {
+    shared_library()?.list_roots().await
 }
 
-pub fn library_list_roots(library: RustOpaque<Library>) {
-    library.service.list_roots();
+pub async fn library_list_folders() -> Result<Vec<String>> {
+    shared_library()?.list_folders().await
 }
 
-pub fn library_list_folders(library: RustOpaque<Library>) {
-    library.service.list_folders();
-}
-
-pub fn library_list_tracks(
-    library: RustOpaque<Library>,
+pub async fn library_list_tracks(
     folder: String,
     recursive: bool,
     query: String,
     limit: i64,
     offset: i64,
-) {
-    library
-        .service
-        .list_tracks(folder, recursive, query, limit, offset);
+) -> Result<Vec<TrackLite>> {
+    shared_library()?
+        .list_tracks(folder, recursive, query, limit, offset)
+        .await
 }
 
-pub fn library_search(library: RustOpaque<Library>, query: String, limit: i64, offset: i64) {
-    library.service.search(query, limit, offset);
+pub async fn library_search(query: String, limit: i64, offset: i64) -> Result<Vec<TrackLite>> {
+    shared_library()?.search(query, limit, offset).await
 }
 
-pub fn library_list_playlists(library: RustOpaque<Library>) {
-    library.service.list_playlists();
+pub async fn library_list_playlists() -> Result<Vec<PlaylistLite>> {
+    shared_library()?.list_playlists().await
 }
 
-pub fn library_create_playlist(library: RustOpaque<Library>, name: String) {
-    library.service.create_playlist(name);
+pub async fn library_create_playlist(name: String) -> Result<()> {
+    shared_library()?.create_playlist(name).await
 }
 
-pub fn library_rename_playlist(library: RustOpaque<Library>, id: i64, name: String) {
-    library.service.rename_playlist(id, name);
+pub async fn library_rename_playlist(id: i64, name: String) -> Result<()> {
+    shared_library()?.rename_playlist(id, name).await
 }
 
-pub fn library_delete_playlist(library: RustOpaque<Library>, id: i64) {
-    library.service.delete_playlist(id);
+pub async fn library_delete_playlist(id: i64) -> Result<()> {
+    shared_library()?.delete_playlist(id).await
 }
 
-pub fn library_list_playlist_tracks(
-    library: RustOpaque<Library>,
+pub async fn library_list_playlist_tracks(
     playlist_id: i64,
     query: String,
     limit: i64,
     offset: i64,
-) {
-    library
-        .service
-        .list_playlist_tracks(playlist_id, query, limit, offset);
+) -> Result<Vec<TrackLite>> {
+    shared_library()?
+        .list_playlist_tracks(playlist_id, query, limit, offset)
+        .await
 }
 
-pub fn library_add_track_to_playlist(
-    library: RustOpaque<Library>,
-    playlist_id: i64,
-    track_id: i64,
-) {
-    library.service.add_track_to_playlist(playlist_id, track_id);
+pub async fn library_add_track_to_playlist(playlist_id: i64, track_id: i64) -> Result<()> {
+    shared_library()?
+        .add_track_to_playlist(playlist_id, track_id)
+        .await
 }
 
-pub fn library_add_tracks_to_playlist(
-    library: RustOpaque<Library>,
-    playlist_id: i64,
-    track_ids: Vec<i64>,
-) {
-    library
-        .service
-        .add_tracks_to_playlist(playlist_id, track_ids);
+pub async fn library_add_tracks_to_playlist(playlist_id: i64, track_ids: Vec<i64>) -> Result<()> {
+    shared_library()?
+        .add_tracks_to_playlist(playlist_id, track_ids)
+        .await
 }
 
-pub fn library_remove_track_from_playlist(
-    library: RustOpaque<Library>,
-    playlist_id: i64,
-    track_id: i64,
-) {
-    library
-        .service
-        .remove_track_from_playlist(playlist_id, track_id);
+pub async fn library_remove_track_from_playlist(playlist_id: i64, track_id: i64) -> Result<()> {
+    shared_library()?
+        .remove_track_from_playlist(playlist_id, track_id)
+        .await
 }
 
-pub fn library_remove_tracks_from_playlist(
-    library: RustOpaque<Library>,
+pub async fn library_remove_tracks_from_playlist(
     playlist_id: i64,
     track_ids: Vec<i64>,
-) {
-    library
-        .service
-        .remove_tracks_from_playlist(playlist_id, track_ids);
+) -> Result<()> {
+    shared_library()?
+        .remove_tracks_from_playlist(playlist_id, track_ids)
+        .await
 }
 
-pub fn library_move_track_in_playlist(
-    library: RustOpaque<Library>,
+pub async fn library_move_track_in_playlist(
     playlist_id: i64,
     track_id: i64,
     new_index: i64,
-) {
-    library
-        .service
-        .move_track_in_playlist(playlist_id, track_id, new_index);
+) -> Result<()> {
+    shared_library()?
+        .move_track_in_playlist(playlist_id, track_id, new_index)
+        .await
 }
 
-pub fn library_list_liked_track_ids(library: RustOpaque<Library>) {
-    library.service.list_liked_track_ids();
+pub async fn library_list_liked_track_ids() -> Result<Vec<i64>> {
+    shared_library()?.list_liked_track_ids().await
 }
 
-pub fn library_set_track_liked(library: RustOpaque<Library>, track_id: i64, liked: bool) {
-    library.service.set_track_liked(track_id, liked);
+pub async fn library_set_track_liked(track_id: i64, liked: bool) -> Result<()> {
+    shared_library()?.set_track_liked(track_id, liked).await
 }
 
-pub fn library_events(library: RustOpaque<Library>, sink: StreamSink<LibraryEvent>) -> Result<()> {
-    let rx = library.service.subscribe_events();
-
-    thread::Builder::new()
-        .name("stellatune-library-events".to_string())
-        .spawn(move || {
-            for event in rx.iter() {
-                if sink.add(event).is_err() {
-                    debug!("library_events stream sink closed");
-                    break;
-                }
+pub fn library_events(sink: StreamSink<LibraryEvent>) -> Result<()> {
+    let mut rx = shared_library()?.subscribe_events();
+    global_runtime::spawn(async move {
+        loop {
+            match rx.recv().await {
+                Ok(event) => {
+                    if sink.add(event).is_err() {
+                        debug!("library_events stream sink closed");
+                        break;
+                    }
+                },
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                    debug!(skipped, "library_events lagged");
+                },
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
             }
-        })
-        .map_err(|e| anyhow::anyhow!("failed to spawn stellatune-library-events thread: {e}"))?;
+        }
+    });
 
     Ok(())
 }
 
-pub async fn library_plugin_disable(library: RustOpaque<Library>, plugin_id: String) -> Result<()> {
-    library.service.plugin_disable(plugin_id).await
+pub async fn library_plugin_disable(plugin_id: String) -> Result<()> {
+    shared_library()?.plugin_disable(plugin_id).await
 }
 
-pub async fn library_plugin_enable(library: RustOpaque<Library>, plugin_id: String) -> Result<()> {
-    library.service.plugin_enable(plugin_id).await
+pub async fn library_plugin_enable(plugin_id: String) -> Result<()> {
+    shared_library()?.plugin_enable(plugin_id).await
 }
 
-pub async fn library_plugin_apply_state(library: RustOpaque<Library>) -> Result<()> {
-    library.service.plugin_apply_state().await
+pub async fn library_plugin_apply_state() -> Result<()> {
+    shared_library()?.plugin_apply_state().await
 }
 
-pub fn library_plugin_apply_state_status_json(library: RustOpaque<Library>) -> String {
-    library.service.plugin_apply_state_status_json()
+pub async fn library_plugin_apply_state_status_json() -> Result<String> {
+    Ok(shared_library()?.plugin_apply_state_status_json().await)
 }
 
-pub async fn library_list_disabled_plugin_ids(library: RustOpaque<Library>) -> Result<Vec<String>> {
-    library.service.list_disabled_plugin_ids().await
+pub async fn library_list_disabled_plugin_ids() -> Result<Vec<String>> {
+    shared_library()?.list_disabled_plugin_ids().await
 }

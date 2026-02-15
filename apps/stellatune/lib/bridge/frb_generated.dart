@@ -4,6 +4,7 @@
 // ignore_for_file: unused_import, unused_element, unnecessary_import, duplicate_ignore, invalid_use_of_internal_member, annotate_overrides, non_constant_identifier_names, curly_braces_in_flow_control_structures, prefer_const_literals_to_create_immutables, unused_field
 
 import 'api/dlna.dart';
+import 'api/dlna/types.dart';
 import 'api/library.dart';
 import 'api/player.dart';
 import 'api/runtime.dart';
@@ -13,7 +14,9 @@ import 'frb_generated.dart';
 import 'frb_generated.io.dart'
     if (dart.library.js_interop) 'frb_generated.web.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
-import 'third_party/stellatune_core.dart';
+import 'third_party/stellatune_audio/types.dart';
+import 'third_party/stellatune_backend_api/lyrics_types.dart';
+import 'third_party/stellatune_library.dart';
 
 /// Main entrypoint of the Rust API
 class StellatuneApi
@@ -64,7 +67,9 @@ class StellatuneApi
       StellatuneApiWire.fromExternalLibrary;
 
   @override
-  Future<void> executeRustInitializers() async {}
+  Future<void> executeRustInitializers() async {
+    await api.crateApiInitApp();
+  }
 
   @override
   ExternalLibraryLoaderConfig get defaultExternalLibraryLoaderConfig =>
@@ -74,7 +79,7 @@ class StellatuneApi
   String get codegenVersion => '2.11.1';
 
   @override
-  int get rustContentHash => -973816047;
+  int get rustContentHash => -610783061;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -85,17 +90,13 @@ class StellatuneApi
 }
 
 abstract class StellatuneApiApi extends BaseApi {
-  Future<void> stellatuneCoreRequestIdAsStr({required RequestId that});
-
-  Future<String> stellatuneCoreRequestIdIntoInner({required RequestId that});
-
   Future<List<TrackPlayability>> crateApiPlayerCanPlayTrackRefs({
     required List<TrackRef> tracks,
   });
 
   Future<void> crateApiPlayerClearOutputSinkRoute();
 
-  Future<Library> crateApiLibraryCreateLibrary({required String dbPath});
+  Future<void> crateApiLibraryCreateLibrary({required String dbPath});
 
   Future<TrackDecodeInfo?> crateApiPlayerCurrentTrackInfo();
 
@@ -191,72 +192,52 @@ abstract class StellatuneApiApi extends BaseApi {
 
   Stream<Event> crateApiPlayerEvents();
 
-  Future<LfeMode> stellatuneCoreLfeModeDefault();
+  Future<void> crateApiInitApp();
 
-  Future<void> crateApiLibraryLibraryAddRoot({
-    required Library library_,
-    required String path,
-  });
+  Future<LfeMode> stellatuneAudioTypesLfeModeDefault();
+
+  Future<void> crateApiLibraryLibraryAddRoot({required String path});
 
   Future<void> crateApiLibraryLibraryAddTrackToPlaylist({
-    required Library library_,
     required PlatformInt64 playlistId,
     required PlatformInt64 trackId,
   });
 
   Future<void> crateApiLibraryLibraryAddTracksToPlaylist({
-    required Library library_,
     required PlatformInt64 playlistId,
     required Int64List trackIds,
   });
 
-  Future<void> crateApiLibraryLibraryCreatePlaylist({
-    required Library library_,
-    required String name,
-  });
+  Future<void> crateApiLibraryLibraryCreatePlaylist({required String name});
 
-  Future<void> crateApiLibraryLibraryDeleteFolder({
-    required Library library_,
-    required String path,
-  });
+  Future<void> crateApiLibraryLibraryDeleteFolder({required String path});
 
   Future<void> crateApiLibraryLibraryDeletePlaylist({
-    required Library library_,
     required PlatformInt64 id,
   });
 
-  Stream<LibraryEvent> crateApiLibraryLibraryEvents({
-    required Library library_,
-  });
+  Stream<LibraryEvent> crateApiLibraryLibraryEvents();
 
-  Future<List<String>> crateApiLibraryLibraryListDisabledPluginIds({
-    required Library library_,
-  });
+  Future<List<String>> crateApiLibraryLibraryListDisabledPluginIds();
 
-  Future<void> crateApiLibraryLibraryListExcludedFolders({
-    required Library library_,
-  });
+  Future<List<String>> crateApiLibraryLibraryListExcludedFolders();
 
-  Future<void> crateApiLibraryLibraryListFolders({required Library library_});
+  Future<List<String>> crateApiLibraryLibraryListFolders();
 
-  Future<void> crateApiLibraryLibraryListLikedTrackIds({
-    required Library library_,
-  });
+  Future<Int64List> crateApiLibraryLibraryListLikedTrackIds();
 
-  Future<void> crateApiLibraryLibraryListPlaylistTracks({
-    required Library library_,
+  Future<List<TrackLite>> crateApiLibraryLibraryListPlaylistTracks({
     required PlatformInt64 playlistId,
     required String query,
     required PlatformInt64 limit,
     required PlatformInt64 offset,
   });
 
-  Future<void> crateApiLibraryLibraryListPlaylists({required Library library_});
+  Future<List<PlaylistLite>> crateApiLibraryLibraryListPlaylists();
 
-  Future<void> crateApiLibraryLibraryListRoots({required Library library_});
+  Future<List<String>> crateApiLibraryLibraryListRoots();
 
-  Future<void> crateApiLibraryLibraryListTracks({
-    required Library library_,
+  Future<List<TrackLite>> crateApiLibraryLibraryListTracks({
     required String folder,
     required bool recursive,
     required String query,
@@ -265,71 +246,49 @@ abstract class StellatuneApiApi extends BaseApi {
   });
 
   Future<void> crateApiLibraryLibraryMoveTrackInPlaylist({
-    required Library library_,
     required PlatformInt64 playlistId,
     required PlatformInt64 trackId,
     required PlatformInt64 newIndex,
   });
 
-  Future<void> crateApiLibraryLibraryPluginApplyState({
-    required Library library_,
-  });
+  Future<void> crateApiLibraryLibraryPluginApplyState();
 
-  Future<String> crateApiLibraryLibraryPluginApplyStateStatusJson({
-    required Library library_,
-  });
+  Future<String> crateApiLibraryLibraryPluginApplyStateStatusJson();
 
-  Future<void> crateApiLibraryLibraryPluginDisable({
-    required Library library_,
-    required String pluginId,
-  });
+  Future<void> crateApiLibraryLibraryPluginDisable({required String pluginId});
 
-  Future<void> crateApiLibraryLibraryPluginEnable({
-    required Library library_,
-    required String pluginId,
-  });
+  Future<void> crateApiLibraryLibraryPluginEnable({required String pluginId});
 
-  Future<void> crateApiLibraryLibraryRemoveRoot({
-    required Library library_,
-    required String path,
-  });
+  Future<void> crateApiLibraryLibraryRemoveRoot({required String path});
 
   Future<void> crateApiLibraryLibraryRemoveTrackFromPlaylist({
-    required Library library_,
     required PlatformInt64 playlistId,
     required PlatformInt64 trackId,
   });
 
   Future<void> crateApiLibraryLibraryRemoveTracksFromPlaylist({
-    required Library library_,
     required PlatformInt64 playlistId,
     required Int64List trackIds,
   });
 
   Future<void> crateApiLibraryLibraryRenamePlaylist({
-    required Library library_,
     required PlatformInt64 id,
     required String name,
   });
 
-  Future<void> crateApiLibraryLibraryRestoreFolder({
-    required Library library_,
-    required String path,
-  });
+  Future<void> crateApiLibraryLibraryRestoreFolder({required String path});
 
-  Future<void> crateApiLibraryLibraryScanAll({required Library library_});
+  Future<void> crateApiLibraryLibraryScanAll();
 
-  Future<void> crateApiLibraryLibraryScanAllForce({required Library library_});
+  Future<void> crateApiLibraryLibraryScanAllForce();
 
-  Future<void> crateApiLibraryLibrarySearch({
-    required Library library_,
+  Future<List<TrackLite>> crateApiLibraryLibrarySearch({
     required String query,
     required PlatformInt64 limit,
     required PlatformInt64 offset,
   });
 
   Future<void> crateApiLibraryLibrarySetTrackLiked({
-    required Library library_,
     required PlatformInt64 trackId,
     required bool liked,
   });
@@ -417,9 +376,9 @@ abstract class StellatuneApiApi extends BaseApi {
     required BigInt positionMs,
   });
 
-  Future<void> crateApiRuntimePrepareHotRestart();
-
   Future<List<AudioDevice>> crateApiPlayerRefreshDevices();
+
+  Future<ResampleQuality> stellatuneAudioTypesResampleQualityDefault();
 
   Future<void> crateApiPlayerSeekMs({required BigInt positionMs});
 
@@ -432,6 +391,7 @@ abstract class StellatuneApiApi extends BaseApi {
     required bool matchTrackSampleRate,
     required bool gaplessPlayback,
     required bool seekTrackFade,
+    required ResampleQuality resampleQuality,
   });
 
   Future<void> crateApiPlayerSetOutputSinkRoute({
@@ -458,29 +418,19 @@ abstract class StellatuneApiApi extends BaseApi {
     required bool lazy,
   });
 
-  Future<TrackRef> stellatuneCoreTrackRefForLocalPath({required String path});
+  Future<TrackRef> stellatuneAudioTypesTrackRefForLocalPath({
+    required String path,
+  });
 
-  Future<TrackRef> stellatuneCoreTrackRefNew({
+  Future<TrackRef> stellatuneAudioTypesTrackRefNew({
     required String sourceId,
     required String trackId,
     required String locator,
   });
 
-  Future<String> stellatuneCoreTrackRefStableKey({required TrackRef that});
-
-  RustArcIncrementStrongCountFnType get rust_arc_increment_strong_count_Library;
-
-  RustArcDecrementStrongCountFnType get rust_arc_decrement_strong_count_Library;
-
-  CrossPlatformFinalizerArg get rust_arc_decrement_strong_count_LibraryPtr;
-
-  RustArcIncrementStrongCountFnType
-  get rust_arc_increment_strong_count_RequestId;
-
-  RustArcDecrementStrongCountFnType
-  get rust_arc_decrement_strong_count_RequestId;
-
-  CrossPlatformFinalizerArg get rust_arc_decrement_strong_count_RequestIdPtr;
+  Future<String> stellatuneAudioTypesTrackRefStableKey({
+    required TrackRef that,
+  });
 }
 
 class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
@@ -491,71 +441,6 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
     required super.generalizedFrbRustBinding,
     required super.portManager,
   });
-
-  @override
-  Future<void> stellatuneCoreRequestIdAsStr({required RequestId that}) {
-    return handler.executeNormal(
-      NormalTask(
-        callFfi: (port_) {
-          final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRequestId(
-            that,
-            serializer,
-          );
-          pdeCallFfi(
-            generalizedFrbRustBinding,
-            serializer,
-            funcId: 1,
-            port: port_,
-          );
-        },
-        codec: SseCodec(
-          decodeSuccessData: sse_decode_unit,
-          decodeErrorData: null,
-        ),
-        constMeta: kStellatuneCoreRequestIdAsStrConstMeta,
-        argValues: [that],
-        apiImpl: this,
-      ),
-    );
-  }
-
-  TaskConstMeta get kStellatuneCoreRequestIdAsStrConstMeta =>
-      const TaskConstMeta(debugName: "RequestId_as_str", argNames: ["that"]);
-
-  @override
-  Future<String> stellatuneCoreRequestIdIntoInner({required RequestId that}) {
-    return handler.executeNormal(
-      NormalTask(
-        callFfi: (port_) {
-          final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRequestId(
-            that,
-            serializer,
-          );
-          pdeCallFfi(
-            generalizedFrbRustBinding,
-            serializer,
-            funcId: 2,
-            port: port_,
-          );
-        },
-        codec: SseCodec(
-          decodeSuccessData: sse_decode_String,
-          decodeErrorData: null,
-        ),
-        constMeta: kStellatuneCoreRequestIdIntoInnerConstMeta,
-        argValues: [that],
-        apiImpl: this,
-      ),
-    );
-  }
-
-  TaskConstMeta get kStellatuneCoreRequestIdIntoInnerConstMeta =>
-      const TaskConstMeta(
-        debugName: "RequestId_into_inner",
-        argNames: ["that"],
-      );
 
   @override
   Future<List<TrackPlayability>> crateApiPlayerCanPlayTrackRefs({
@@ -569,7 +454,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 3,
+            funcId: 1,
             port: port_,
           );
         },
@@ -599,7 +484,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 4,
+            funcId: 2,
             port: port_,
           );
         },
@@ -618,7 +503,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
       const TaskConstMeta(debugName: "clear_output_sink_route", argNames: []);
 
   @override
-  Future<Library> crateApiLibraryCreateLibrary({required String dbPath}) {
+  Future<void> crateApiLibraryCreateLibrary({required String dbPath}) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
@@ -627,12 +512,12 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 5,
+            funcId: 3,
             port: port_,
           );
         },
         codec: SseCodec(
-          decodeSuccessData: sse_decode_RustOpaque_Library,
+          decodeSuccessData: sse_decode_unit,
           decodeErrorData: sse_decode_AnyhowException,
         ),
         constMeta: kCrateApiLibraryCreateLibraryConstMeta,
@@ -654,7 +539,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 6,
+            funcId: 4,
             port: port_,
           );
         },
@@ -686,7 +571,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 7,
+            funcId: 5,
             port: port_,
           );
         },
@@ -721,7 +606,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 8,
+            funcId: 6,
             port: port_,
           );
         },
@@ -756,7 +641,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 9,
+            funcId: 7,
             port: port_,
           );
         },
@@ -791,7 +676,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 10,
+            funcId: 8,
             port: port_,
           );
         },
@@ -828,7 +713,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 11,
+            funcId: 9,
             port: port_,
           );
         },
@@ -867,7 +752,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 12,
+            funcId: 10,
             port: port_,
           );
         },
@@ -902,7 +787,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 13,
+            funcId: 11,
             port: port_,
           );
         },
@@ -935,7 +820,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 14,
+            funcId: 12,
             port: port_,
           );
         },
@@ -968,7 +853,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 15,
+            funcId: 13,
             port: port_,
           );
         },
@@ -999,7 +884,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 16,
+            funcId: 14,
             port: port_,
           );
         },
@@ -1034,7 +919,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 17,
+            funcId: 15,
             port: port_,
           );
         },
@@ -1063,7 +948,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 18,
+            funcId: 16,
             port: port_,
           );
         },
@@ -1095,7 +980,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 19,
+            funcId: 17,
             port: port_,
           );
         },
@@ -1138,7 +1023,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 20,
+            funcId: 18,
             port: port_,
           );
         },
@@ -1173,7 +1058,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 21,
+            funcId: 19,
             port: port_,
           );
         },
@@ -1210,7 +1095,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 22,
+            funcId: 20,
             port: port_,
           );
         },
@@ -1247,7 +1132,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 23,
+            funcId: 21,
             port: port_,
           );
         },
@@ -1277,7 +1162,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 24,
+            funcId: 22,
             port: port_,
           );
         },
@@ -1305,7 +1190,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 25,
+            funcId: 23,
             port: port_,
           );
         },
@@ -1335,7 +1220,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
             pdeCallFfi(
               generalizedFrbRustBinding,
               serializer,
-              funcId: 26,
+              funcId: 24,
               port: port_,
             );
           },
@@ -1356,11 +1241,66 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
       const TaskConstMeta(debugName: "events", argNames: ["sink"]);
 
   @override
-  Future<LfeMode> stellatuneCoreLfeModeDefault() {
+  Future<void> crateApiInitApp() {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 25,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiInitAppConstMeta,
+        argValues: [],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiInitAppConstMeta =>
+      const TaskConstMeta(debugName: "init_app", argNames: []);
+
+  @override
+  Future<LfeMode> stellatuneAudioTypesLfeModeDefault() {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 26,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_lfe_mode,
+          decodeErrorData: null,
+        ),
+        constMeta: kStellatuneAudioTypesLfeModeDefaultConstMeta,
+        argValues: [],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kStellatuneAudioTypesLfeModeDefaultConstMeta =>
+      const TaskConstMeta(debugName: "lfe_mode_default", argNames: []);
+
+  @override
+  Future<void> crateApiLibraryLibraryAddRoot({required String path}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(path, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -1369,30 +1309,30 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           );
         },
         codec: SseCodec(
-          decodeSuccessData: sse_decode_lfe_mode,
-          decodeErrorData: null,
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_AnyhowException,
         ),
-        constMeta: kStellatuneCoreLfeModeDefaultConstMeta,
-        argValues: [],
+        constMeta: kCrateApiLibraryLibraryAddRootConstMeta,
+        argValues: [path],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kStellatuneCoreLfeModeDefaultConstMeta =>
-      const TaskConstMeta(debugName: "lfe_mode_default", argNames: []);
+  TaskConstMeta get kCrateApiLibraryLibraryAddRootConstMeta =>
+      const TaskConstMeta(debugName: "library_add_root", argNames: ["path"]);
 
   @override
-  Future<void> crateApiLibraryLibraryAddRoot({
-    required Library library_,
-    required String path,
+  Future<void> crateApiLibraryLibraryAddTrackToPlaylist({
+    required PlatformInt64 playlistId,
+    required PlatformInt64 trackId,
   }) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_RustOpaque_Library(library_, serializer);
-          sse_encode_String(path, serializer);
+          sse_encode_i_64(playlistId, serializer);
+          sse_encode_i_64(trackId, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -1402,34 +1342,32 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: null,
+          decodeErrorData: sse_decode_AnyhowException,
         ),
-        constMeta: kCrateApiLibraryLibraryAddRootConstMeta,
-        argValues: [library_, path],
+        constMeta: kCrateApiLibraryLibraryAddTrackToPlaylistConstMeta,
+        argValues: [playlistId, trackId],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiLibraryLibraryAddRootConstMeta =>
+  TaskConstMeta get kCrateApiLibraryLibraryAddTrackToPlaylistConstMeta =>
       const TaskConstMeta(
-        debugName: "library_add_root",
-        argNames: ["library_", "path"],
+        debugName: "library_add_track_to_playlist",
+        argNames: ["playlistId", "trackId"],
       );
 
   @override
-  Future<void> crateApiLibraryLibraryAddTrackToPlaylist({
-    required Library library_,
+  Future<void> crateApiLibraryLibraryAddTracksToPlaylist({
     required PlatformInt64 playlistId,
-    required PlatformInt64 trackId,
+    required Int64List trackIds,
   }) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_RustOpaque_Library(library_, serializer);
           sse_encode_i_64(playlistId, serializer);
-          sse_encode_i_64(trackId, serializer);
+          sse_encode_list_prim_i_64_strict(trackIds, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -1439,34 +1377,28 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: null,
+          decodeErrorData: sse_decode_AnyhowException,
         ),
-        constMeta: kCrateApiLibraryLibraryAddTrackToPlaylistConstMeta,
-        argValues: [library_, playlistId, trackId],
+        constMeta: kCrateApiLibraryLibraryAddTracksToPlaylistConstMeta,
+        argValues: [playlistId, trackIds],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiLibraryLibraryAddTrackToPlaylistConstMeta =>
+  TaskConstMeta get kCrateApiLibraryLibraryAddTracksToPlaylistConstMeta =>
       const TaskConstMeta(
-        debugName: "library_add_track_to_playlist",
-        argNames: ["library_", "playlistId", "trackId"],
+        debugName: "library_add_tracks_to_playlist",
+        argNames: ["playlistId", "trackIds"],
       );
 
   @override
-  Future<void> crateApiLibraryLibraryAddTracksToPlaylist({
-    required Library library_,
-    required PlatformInt64 playlistId,
-    required Int64List trackIds,
-  }) {
+  Future<void> crateApiLibraryLibraryCreatePlaylist({required String name}) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_RustOpaque_Library(library_, serializer);
-          sse_encode_i_64(playlistId, serializer);
-          sse_encode_list_prim_i_64_strict(trackIds, serializer);
+          sse_encode_String(name, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -1476,32 +1408,28 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: null,
+          decodeErrorData: sse_decode_AnyhowException,
         ),
-        constMeta: kCrateApiLibraryLibraryAddTracksToPlaylistConstMeta,
-        argValues: [library_, playlistId, trackIds],
+        constMeta: kCrateApiLibraryLibraryCreatePlaylistConstMeta,
+        argValues: [name],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiLibraryLibraryAddTracksToPlaylistConstMeta =>
+  TaskConstMeta get kCrateApiLibraryLibraryCreatePlaylistConstMeta =>
       const TaskConstMeta(
-        debugName: "library_add_tracks_to_playlist",
-        argNames: ["library_", "playlistId", "trackIds"],
+        debugName: "library_create_playlist",
+        argNames: ["name"],
       );
 
   @override
-  Future<void> crateApiLibraryLibraryCreatePlaylist({
-    required Library library_,
-    required String name,
-  }) {
+  Future<void> crateApiLibraryLibraryDeleteFolder({required String path}) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_RustOpaque_Library(library_, serializer);
-          sse_encode_String(name, serializer);
+          sse_encode_String(path, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -1511,32 +1439,30 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: null,
+          decodeErrorData: sse_decode_AnyhowException,
         ),
-        constMeta: kCrateApiLibraryLibraryCreatePlaylistConstMeta,
-        argValues: [library_, name],
+        constMeta: kCrateApiLibraryLibraryDeleteFolderConstMeta,
+        argValues: [path],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiLibraryLibraryCreatePlaylistConstMeta =>
+  TaskConstMeta get kCrateApiLibraryLibraryDeleteFolderConstMeta =>
       const TaskConstMeta(
-        debugName: "library_create_playlist",
-        argNames: ["library_", "name"],
+        debugName: "library_delete_folder",
+        argNames: ["path"],
       );
 
   @override
-  Future<void> crateApiLibraryLibraryDeleteFolder({
-    required Library library_,
-    required String path,
+  Future<void> crateApiLibraryLibraryDeletePlaylist({
+    required PlatformInt64 id,
   }) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_RustOpaque_Library(library_, serializer);
-          sse_encode_String(path, serializer);
+          sse_encode_i_64(id, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -1546,45 +1472,10 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: null,
-        ),
-        constMeta: kCrateApiLibraryLibraryDeleteFolderConstMeta,
-        argValues: [library_, path],
-        apiImpl: this,
-      ),
-    );
-  }
-
-  TaskConstMeta get kCrateApiLibraryLibraryDeleteFolderConstMeta =>
-      const TaskConstMeta(
-        debugName: "library_delete_folder",
-        argNames: ["library_", "path"],
-      );
-
-  @override
-  Future<void> crateApiLibraryLibraryDeletePlaylist({
-    required Library library_,
-    required PlatformInt64 id,
-  }) {
-    return handler.executeNormal(
-      NormalTask(
-        callFfi: (port_) {
-          final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_RustOpaque_Library(library_, serializer);
-          sse_encode_i_64(id, serializer);
-          pdeCallFfi(
-            generalizedFrbRustBinding,
-            serializer,
-            funcId: 33,
-            port: port_,
-          );
-        },
-        codec: SseCodec(
-          decodeSuccessData: sse_decode_unit,
-          decodeErrorData: null,
+          decodeErrorData: sse_decode_AnyhowException,
         ),
         constMeta: kCrateApiLibraryLibraryDeletePlaylistConstMeta,
-        argValues: [library_, id],
+        argValues: [id],
         apiImpl: this,
       ),
     );
@@ -1593,25 +1484,22 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   TaskConstMeta get kCrateApiLibraryLibraryDeletePlaylistConstMeta =>
       const TaskConstMeta(
         debugName: "library_delete_playlist",
-        argNames: ["library_", "id"],
+        argNames: ["id"],
       );
 
   @override
-  Stream<LibraryEvent> crateApiLibraryLibraryEvents({
-    required Library library_,
-  }) {
+  Stream<LibraryEvent> crateApiLibraryLibraryEvents() {
     final sink = RustStreamSink<LibraryEvent>();
     unawaited(
       handler.executeNormal(
         NormalTask(
           callFfi: (port_) {
             final serializer = SseSerializer(generalizedFrbRustBinding);
-            sse_encode_RustOpaque_Library(library_, serializer);
             sse_encode_StreamSink_library_event_Sse(sink, serializer);
             pdeCallFfi(
               generalizedFrbRustBinding,
               serializer,
-              funcId: 34,
+              funcId: 33,
               port: port_,
             );
           },
@@ -1620,7 +1508,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
             decodeErrorData: sse_decode_AnyhowException,
           ),
           constMeta: kCrateApiLibraryLibraryEventsConstMeta,
-          argValues: [library_, sink],
+          argValues: [sink],
           apiImpl: this,
         ),
       ),
@@ -1629,20 +1517,44 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   }
 
   TaskConstMeta get kCrateApiLibraryLibraryEventsConstMeta =>
-      const TaskConstMeta(
-        debugName: "library_events",
-        argNames: ["library_", "sink"],
-      );
+      const TaskConstMeta(debugName: "library_events", argNames: ["sink"]);
 
   @override
-  Future<List<String>> crateApiLibraryLibraryListDisabledPluginIds({
-    required Library library_,
-  }) {
+  Future<List<String>> crateApiLibraryLibraryListDisabledPluginIds() {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_RustOpaque_Library(library_, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 34,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_String,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiLibraryLibraryListDisabledPluginIdsConstMeta,
+        argValues: [],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiLibraryLibraryListDisabledPluginIdsConstMeta =>
+      const TaskConstMeta(
+        debugName: "library_list_disabled_plugin_ids",
+        argNames: [],
+      );
+
+  @override
+  Future<List<String>> crateApiLibraryLibraryListExcludedFolders() {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -1654,41 +1566,8 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           decodeSuccessData: sse_decode_list_String,
           decodeErrorData: sse_decode_AnyhowException,
         ),
-        constMeta: kCrateApiLibraryLibraryListDisabledPluginIdsConstMeta,
-        argValues: [library_],
-        apiImpl: this,
-      ),
-    );
-  }
-
-  TaskConstMeta get kCrateApiLibraryLibraryListDisabledPluginIdsConstMeta =>
-      const TaskConstMeta(
-        debugName: "library_list_disabled_plugin_ids",
-        argNames: ["library_"],
-      );
-
-  @override
-  Future<void> crateApiLibraryLibraryListExcludedFolders({
-    required Library library_,
-  }) {
-    return handler.executeNormal(
-      NormalTask(
-        callFfi: (port_) {
-          final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_RustOpaque_Library(library_, serializer);
-          pdeCallFfi(
-            generalizedFrbRustBinding,
-            serializer,
-            funcId: 36,
-            port: port_,
-          );
-        },
-        codec: SseCodec(
-          decodeSuccessData: sse_decode_unit,
-          decodeErrorData: null,
-        ),
         constMeta: kCrateApiLibraryLibraryListExcludedFoldersConstMeta,
-        argValues: [library_],
+        argValues: [],
         apiImpl: this,
       ),
     );
@@ -1697,16 +1576,42 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   TaskConstMeta get kCrateApiLibraryLibraryListExcludedFoldersConstMeta =>
       const TaskConstMeta(
         debugName: "library_list_excluded_folders",
-        argNames: ["library_"],
+        argNames: [],
       );
 
   @override
-  Future<void> crateApiLibraryLibraryListFolders({required Library library_}) {
+  Future<List<String>> crateApiLibraryLibraryListFolders() {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_RustOpaque_Library(library_, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 36,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_String,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiLibraryLibraryListFoldersConstMeta,
+        argValues: [],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiLibraryLibraryListFoldersConstMeta =>
+      const TaskConstMeta(debugName: "library_list_folders", argNames: []);
+
+  @override
+  Future<Int64List> crateApiLibraryLibraryListLikedTrackIds() {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -1715,44 +1620,11 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           );
         },
         codec: SseCodec(
-          decodeSuccessData: sse_decode_unit,
-          decodeErrorData: null,
-        ),
-        constMeta: kCrateApiLibraryLibraryListFoldersConstMeta,
-        argValues: [library_],
-        apiImpl: this,
-      ),
-    );
-  }
-
-  TaskConstMeta get kCrateApiLibraryLibraryListFoldersConstMeta =>
-      const TaskConstMeta(
-        debugName: "library_list_folders",
-        argNames: ["library_"],
-      );
-
-  @override
-  Future<void> crateApiLibraryLibraryListLikedTrackIds({
-    required Library library_,
-  }) {
-    return handler.executeNormal(
-      NormalTask(
-        callFfi: (port_) {
-          final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_RustOpaque_Library(library_, serializer);
-          pdeCallFfi(
-            generalizedFrbRustBinding,
-            serializer,
-            funcId: 38,
-            port: port_,
-          );
-        },
-        codec: SseCodec(
-          decodeSuccessData: sse_decode_unit,
-          decodeErrorData: null,
+          decodeSuccessData: sse_decode_list_prim_i_64_strict,
+          decodeErrorData: sse_decode_AnyhowException,
         ),
         constMeta: kCrateApiLibraryLibraryListLikedTrackIdsConstMeta,
-        argValues: [library_],
+        argValues: [],
         apiImpl: this,
       ),
     );
@@ -1761,12 +1633,11 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   TaskConstMeta get kCrateApiLibraryLibraryListLikedTrackIdsConstMeta =>
       const TaskConstMeta(
         debugName: "library_list_liked_track_ids",
-        argNames: ["library_"],
+        argNames: [],
       );
 
   @override
-  Future<void> crateApiLibraryLibraryListPlaylistTracks({
-    required Library library_,
+  Future<List<TrackLite>> crateApiLibraryLibraryListPlaylistTracks({
     required PlatformInt64 playlistId,
     required String query,
     required PlatformInt64 limit,
@@ -1776,7 +1647,6 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_RustOpaque_Library(library_, serializer);
           sse_encode_i_64(playlistId, serializer);
           sse_encode_String(query, serializer);
           sse_encode_i_64(limit, serializer);
@@ -1784,16 +1654,16 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 39,
+            funcId: 38,
             port: port_,
           );
         },
         codec: SseCodec(
-          decodeSuccessData: sse_decode_unit,
-          decodeErrorData: null,
+          decodeSuccessData: sse_decode_list_track_lite,
+          decodeErrorData: sse_decode_AnyhowException,
         ),
         constMeta: kCrateApiLibraryLibraryListPlaylistTracksConstMeta,
-        argValues: [library_, playlistId, query, limit, offset],
+        argValues: [playlistId, query, limit, offset],
         apiImpl: this,
       ),
     );
@@ -1802,18 +1672,42 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   TaskConstMeta get kCrateApiLibraryLibraryListPlaylistTracksConstMeta =>
       const TaskConstMeta(
         debugName: "library_list_playlist_tracks",
-        argNames: ["library_", "playlistId", "query", "limit", "offset"],
+        argNames: ["playlistId", "query", "limit", "offset"],
       );
 
   @override
-  Future<void> crateApiLibraryLibraryListPlaylists({
-    required Library library_,
-  }) {
+  Future<List<PlaylistLite>> crateApiLibraryLibraryListPlaylists() {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_RustOpaque_Library(library_, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 39,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_playlist_lite,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiLibraryLibraryListPlaylistsConstMeta,
+        argValues: [],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiLibraryLibraryListPlaylistsConstMeta =>
+      const TaskConstMeta(debugName: "library_list_playlists", argNames: []);
+
+  @override
+  Future<List<String>> crateApiLibraryLibraryListRoots() {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -1822,56 +1716,21 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           );
         },
         codec: SseCodec(
-          decodeSuccessData: sse_decode_unit,
-          decodeErrorData: null,
-        ),
-        constMeta: kCrateApiLibraryLibraryListPlaylistsConstMeta,
-        argValues: [library_],
-        apiImpl: this,
-      ),
-    );
-  }
-
-  TaskConstMeta get kCrateApiLibraryLibraryListPlaylistsConstMeta =>
-      const TaskConstMeta(
-        debugName: "library_list_playlists",
-        argNames: ["library_"],
-      );
-
-  @override
-  Future<void> crateApiLibraryLibraryListRoots({required Library library_}) {
-    return handler.executeNormal(
-      NormalTask(
-        callFfi: (port_) {
-          final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_RustOpaque_Library(library_, serializer);
-          pdeCallFfi(
-            generalizedFrbRustBinding,
-            serializer,
-            funcId: 41,
-            port: port_,
-          );
-        },
-        codec: SseCodec(
-          decodeSuccessData: sse_decode_unit,
-          decodeErrorData: null,
+          decodeSuccessData: sse_decode_list_String,
+          decodeErrorData: sse_decode_AnyhowException,
         ),
         constMeta: kCrateApiLibraryLibraryListRootsConstMeta,
-        argValues: [library_],
+        argValues: [],
         apiImpl: this,
       ),
     );
   }
 
   TaskConstMeta get kCrateApiLibraryLibraryListRootsConstMeta =>
-      const TaskConstMeta(
-        debugName: "library_list_roots",
-        argNames: ["library_"],
-      );
+      const TaskConstMeta(debugName: "library_list_roots", argNames: []);
 
   @override
-  Future<void> crateApiLibraryLibraryListTracks({
-    required Library library_,
+  Future<List<TrackLite>> crateApiLibraryLibraryListTracks({
     required String folder,
     required bool recursive,
     required String query,
@@ -1882,12 +1741,48 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_RustOpaque_Library(library_, serializer);
           sse_encode_String(folder, serializer);
           sse_encode_bool(recursive, serializer);
           sse_encode_String(query, serializer);
           sse_encode_i_64(limit, serializer);
           sse_encode_i_64(offset, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 41,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_track_lite,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiLibraryLibraryListTracksConstMeta,
+        argValues: [folder, recursive, query, limit, offset],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiLibraryLibraryListTracksConstMeta =>
+      const TaskConstMeta(
+        debugName: "library_list_tracks",
+        argNames: ["folder", "recursive", "query", "limit", "offset"],
+      );
+
+  @override
+  Future<void> crateApiLibraryLibraryMoveTrackInPlaylist({
+    required PlatformInt64 playlistId,
+    required PlatformInt64 trackId,
+    required PlatformInt64 newIndex,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_i_64(playlistId, serializer);
+          sse_encode_i_64(trackId, serializer);
+          sse_encode_i_64(newIndex, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -1897,43 +1792,27 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: null,
+          decodeErrorData: sse_decode_AnyhowException,
         ),
-        constMeta: kCrateApiLibraryLibraryListTracksConstMeta,
-        argValues: [library_, folder, recursive, query, limit, offset],
+        constMeta: kCrateApiLibraryLibraryMoveTrackInPlaylistConstMeta,
+        argValues: [playlistId, trackId, newIndex],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiLibraryLibraryListTracksConstMeta =>
+  TaskConstMeta get kCrateApiLibraryLibraryMoveTrackInPlaylistConstMeta =>
       const TaskConstMeta(
-        debugName: "library_list_tracks",
-        argNames: [
-          "library_",
-          "folder",
-          "recursive",
-          "query",
-          "limit",
-          "offset",
-        ],
+        debugName: "library_move_track_in_playlist",
+        argNames: ["playlistId", "trackId", "newIndex"],
       );
 
   @override
-  Future<void> crateApiLibraryLibraryMoveTrackInPlaylist({
-    required Library library_,
-    required PlatformInt64 playlistId,
-    required PlatformInt64 trackId,
-    required PlatformInt64 newIndex,
-  }) {
+  Future<void> crateApiLibraryLibraryPluginApplyState() {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_RustOpaque_Library(library_, serializer);
-          sse_encode_i_64(playlistId, serializer);
-          sse_encode_i_64(trackId, serializer);
-          sse_encode_i_64(newIndex, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -1943,43 +1822,10 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: null,
-        ),
-        constMeta: kCrateApiLibraryLibraryMoveTrackInPlaylistConstMeta,
-        argValues: [library_, playlistId, trackId, newIndex],
-        apiImpl: this,
-      ),
-    );
-  }
-
-  TaskConstMeta get kCrateApiLibraryLibraryMoveTrackInPlaylistConstMeta =>
-      const TaskConstMeta(
-        debugName: "library_move_track_in_playlist",
-        argNames: ["library_", "playlistId", "trackId", "newIndex"],
-      );
-
-  @override
-  Future<void> crateApiLibraryLibraryPluginApplyState({
-    required Library library_,
-  }) {
-    return handler.executeNormal(
-      NormalTask(
-        callFfi: (port_) {
-          final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_RustOpaque_Library(library_, serializer);
-          pdeCallFfi(
-            generalizedFrbRustBinding,
-            serializer,
-            funcId: 44,
-            port: port_,
-          );
-        },
-        codec: SseCodec(
-          decodeSuccessData: sse_decode_unit,
           decodeErrorData: sse_decode_AnyhowException,
         ),
         constMeta: kCrateApiLibraryLibraryPluginApplyStateConstMeta,
-        argValues: [library_],
+        argValues: [],
         apiImpl: this,
       ),
     );
@@ -1988,31 +1834,28 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   TaskConstMeta get kCrateApiLibraryLibraryPluginApplyStateConstMeta =>
       const TaskConstMeta(
         debugName: "library_plugin_apply_state",
-        argNames: ["library_"],
+        argNames: [],
       );
 
   @override
-  Future<String> crateApiLibraryLibraryPluginApplyStateStatusJson({
-    required Library library_,
-  }) {
+  Future<String> crateApiLibraryLibraryPluginApplyStateStatusJson() {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_RustOpaque_Library(library_, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 45,
+            funcId: 44,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_String,
-          decodeErrorData: null,
+          decodeErrorData: sse_decode_AnyhowException,
         ),
         constMeta: kCrateApiLibraryLibraryPluginApplyStateStatusJsonConstMeta,
-        argValues: [library_],
+        argValues: [],
         apiImpl: this,
       ),
     );
@@ -2022,19 +1865,46 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   get kCrateApiLibraryLibraryPluginApplyStateStatusJsonConstMeta =>
       const TaskConstMeta(
         debugName: "library_plugin_apply_state_status_json",
-        argNames: ["library_"],
+        argNames: [],
       );
 
   @override
-  Future<void> crateApiLibraryLibraryPluginDisable({
-    required Library library_,
-    required String pluginId,
-  }) {
+  Future<void> crateApiLibraryLibraryPluginDisable({required String pluginId}) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_RustOpaque_Library(library_, serializer);
+          sse_encode_String(pluginId, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 45,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiLibraryLibraryPluginDisableConstMeta,
+        argValues: [pluginId],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiLibraryLibraryPluginDisableConstMeta =>
+      const TaskConstMeta(
+        debugName: "library_plugin_disable",
+        argNames: ["pluginId"],
+      );
+
+  @override
+  Future<void> crateApiLibraryLibraryPluginEnable({required String pluginId}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_String(pluginId, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
@@ -2047,30 +1917,26 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           decodeSuccessData: sse_decode_unit,
           decodeErrorData: sse_decode_AnyhowException,
         ),
-        constMeta: kCrateApiLibraryLibraryPluginDisableConstMeta,
-        argValues: [library_, pluginId],
+        constMeta: kCrateApiLibraryLibraryPluginEnableConstMeta,
+        argValues: [pluginId],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiLibraryLibraryPluginDisableConstMeta =>
+  TaskConstMeta get kCrateApiLibraryLibraryPluginEnableConstMeta =>
       const TaskConstMeta(
-        debugName: "library_plugin_disable",
-        argNames: ["library_", "pluginId"],
+        debugName: "library_plugin_enable",
+        argNames: ["pluginId"],
       );
 
   @override
-  Future<void> crateApiLibraryLibraryPluginEnable({
-    required Library library_,
-    required String pluginId,
-  }) {
+  Future<void> crateApiLibraryLibraryRemoveRoot({required String path}) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_RustOpaque_Library(library_, serializer);
-          sse_encode_String(pluginId, serializer);
+          sse_encode_String(path, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -2082,30 +1948,27 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           decodeSuccessData: sse_decode_unit,
           decodeErrorData: sse_decode_AnyhowException,
         ),
-        constMeta: kCrateApiLibraryLibraryPluginEnableConstMeta,
-        argValues: [library_, pluginId],
+        constMeta: kCrateApiLibraryLibraryRemoveRootConstMeta,
+        argValues: [path],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiLibraryLibraryPluginEnableConstMeta =>
-      const TaskConstMeta(
-        debugName: "library_plugin_enable",
-        argNames: ["library_", "pluginId"],
-      );
+  TaskConstMeta get kCrateApiLibraryLibraryRemoveRootConstMeta =>
+      const TaskConstMeta(debugName: "library_remove_root", argNames: ["path"]);
 
   @override
-  Future<void> crateApiLibraryLibraryRemoveRoot({
-    required Library library_,
-    required String path,
+  Future<void> crateApiLibraryLibraryRemoveTrackFromPlaylist({
+    required PlatformInt64 playlistId,
+    required PlatformInt64 trackId,
   }) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_RustOpaque_Library(library_, serializer);
-          sse_encode_String(path, serializer);
+          sse_encode_i_64(playlistId, serializer);
+          sse_encode_i_64(trackId, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -2115,34 +1978,32 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: null,
+          decodeErrorData: sse_decode_AnyhowException,
         ),
-        constMeta: kCrateApiLibraryLibraryRemoveRootConstMeta,
-        argValues: [library_, path],
+        constMeta: kCrateApiLibraryLibraryRemoveTrackFromPlaylistConstMeta,
+        argValues: [playlistId, trackId],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiLibraryLibraryRemoveRootConstMeta =>
+  TaskConstMeta get kCrateApiLibraryLibraryRemoveTrackFromPlaylistConstMeta =>
       const TaskConstMeta(
-        debugName: "library_remove_root",
-        argNames: ["library_", "path"],
+        debugName: "library_remove_track_from_playlist",
+        argNames: ["playlistId", "trackId"],
       );
 
   @override
-  Future<void> crateApiLibraryLibraryRemoveTrackFromPlaylist({
-    required Library library_,
+  Future<void> crateApiLibraryLibraryRemoveTracksFromPlaylist({
     required PlatformInt64 playlistId,
-    required PlatformInt64 trackId,
+    required Int64List trackIds,
   }) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_RustOpaque_Library(library_, serializer);
           sse_encode_i_64(playlistId, serializer);
-          sse_encode_i_64(trackId, serializer);
+          sse_encode_list_prim_i_64_strict(trackIds, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -2152,34 +2013,32 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: null,
+          decodeErrorData: sse_decode_AnyhowException,
         ),
-        constMeta: kCrateApiLibraryLibraryRemoveTrackFromPlaylistConstMeta,
-        argValues: [library_, playlistId, trackId],
+        constMeta: kCrateApiLibraryLibraryRemoveTracksFromPlaylistConstMeta,
+        argValues: [playlistId, trackIds],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiLibraryLibraryRemoveTrackFromPlaylistConstMeta =>
+  TaskConstMeta get kCrateApiLibraryLibraryRemoveTracksFromPlaylistConstMeta =>
       const TaskConstMeta(
-        debugName: "library_remove_track_from_playlist",
-        argNames: ["library_", "playlistId", "trackId"],
+        debugName: "library_remove_tracks_from_playlist",
+        argNames: ["playlistId", "trackIds"],
       );
 
   @override
-  Future<void> crateApiLibraryLibraryRemoveTracksFromPlaylist({
-    required Library library_,
-    required PlatformInt64 playlistId,
-    required Int64List trackIds,
+  Future<void> crateApiLibraryLibraryRenamePlaylist({
+    required PlatformInt64 id,
+    required String name,
   }) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_RustOpaque_Library(library_, serializer);
-          sse_encode_i_64(playlistId, serializer);
-          sse_encode_list_prim_i_64_strict(trackIds, serializer);
+          sse_encode_i_64(id, serializer);
+          sse_encode_String(name, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -2189,34 +2048,28 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: null,
+          decodeErrorData: sse_decode_AnyhowException,
         ),
-        constMeta: kCrateApiLibraryLibraryRemoveTracksFromPlaylistConstMeta,
-        argValues: [library_, playlistId, trackIds],
+        constMeta: kCrateApiLibraryLibraryRenamePlaylistConstMeta,
+        argValues: [id, name],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiLibraryLibraryRemoveTracksFromPlaylistConstMeta =>
+  TaskConstMeta get kCrateApiLibraryLibraryRenamePlaylistConstMeta =>
       const TaskConstMeta(
-        debugName: "library_remove_tracks_from_playlist",
-        argNames: ["library_", "playlistId", "trackIds"],
+        debugName: "library_rename_playlist",
+        argNames: ["id", "name"],
       );
 
   @override
-  Future<void> crateApiLibraryLibraryRenamePlaylist({
-    required Library library_,
-    required PlatformInt64 id,
-    required String name,
-  }) {
+  Future<void> crateApiLibraryLibraryRestoreFolder({required String path}) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_RustOpaque_Library(library_, serializer);
-          sse_encode_i_64(id, serializer);
-          sse_encode_String(name, serializer);
+          sse_encode_String(path, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -2226,32 +2079,27 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: null,
+          decodeErrorData: sse_decode_AnyhowException,
         ),
-        constMeta: kCrateApiLibraryLibraryRenamePlaylistConstMeta,
-        argValues: [library_, id, name],
+        constMeta: kCrateApiLibraryLibraryRestoreFolderConstMeta,
+        argValues: [path],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiLibraryLibraryRenamePlaylistConstMeta =>
+  TaskConstMeta get kCrateApiLibraryLibraryRestoreFolderConstMeta =>
       const TaskConstMeta(
-        debugName: "library_rename_playlist",
-        argNames: ["library_", "id", "name"],
+        debugName: "library_restore_folder",
+        argNames: ["path"],
       );
 
   @override
-  Future<void> crateApiLibraryLibraryRestoreFolder({
-    required Library library_,
-    required String path,
-  }) {
+  Future<void> crateApiLibraryLibraryScanAll() {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_RustOpaque_Library(library_, serializer);
-          sse_encode_String(path, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -2261,28 +2109,24 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: null,
+          decodeErrorData: sse_decode_AnyhowException,
         ),
-        constMeta: kCrateApiLibraryLibraryRestoreFolderConstMeta,
-        argValues: [library_, path],
+        constMeta: kCrateApiLibraryLibraryScanAllConstMeta,
+        argValues: [],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiLibraryLibraryRestoreFolderConstMeta =>
-      const TaskConstMeta(
-        debugName: "library_restore_folder",
-        argNames: ["library_", "path"],
-      );
+  TaskConstMeta get kCrateApiLibraryLibraryScanAllConstMeta =>
+      const TaskConstMeta(debugName: "library_scan_all", argNames: []);
 
   @override
-  Future<void> crateApiLibraryLibraryScanAll({required Library library_}) {
+  Future<void> crateApiLibraryLibraryScanAllForce() {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_RustOpaque_Library(library_, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -2292,55 +2136,20 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: null,
-        ),
-        constMeta: kCrateApiLibraryLibraryScanAllConstMeta,
-        argValues: [library_],
-        apiImpl: this,
-      ),
-    );
-  }
-
-  TaskConstMeta get kCrateApiLibraryLibraryScanAllConstMeta =>
-      const TaskConstMeta(
-        debugName: "library_scan_all",
-        argNames: ["library_"],
-      );
-
-  @override
-  Future<void> crateApiLibraryLibraryScanAllForce({required Library library_}) {
-    return handler.executeNormal(
-      NormalTask(
-        callFfi: (port_) {
-          final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_RustOpaque_Library(library_, serializer);
-          pdeCallFfi(
-            generalizedFrbRustBinding,
-            serializer,
-            funcId: 54,
-            port: port_,
-          );
-        },
-        codec: SseCodec(
-          decodeSuccessData: sse_decode_unit,
-          decodeErrorData: null,
+          decodeErrorData: sse_decode_AnyhowException,
         ),
         constMeta: kCrateApiLibraryLibraryScanAllForceConstMeta,
-        argValues: [library_],
+        argValues: [],
         apiImpl: this,
       ),
     );
   }
 
   TaskConstMeta get kCrateApiLibraryLibraryScanAllForceConstMeta =>
-      const TaskConstMeta(
-        debugName: "library_scan_all_force",
-        argNames: ["library_"],
-      );
+      const TaskConstMeta(debugName: "library_scan_all_force", argNames: []);
 
   @override
-  Future<void> crateApiLibraryLibrarySearch({
-    required Library library_,
+  Future<List<TrackLite>> crateApiLibraryLibrarySearch({
     required String query,
     required PlatformInt64 limit,
     required PlatformInt64 offset,
@@ -2349,10 +2158,44 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_RustOpaque_Library(library_, serializer);
           sse_encode_String(query, serializer);
           sse_encode_i_64(limit, serializer);
           sse_encode_i_64(offset, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 54,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_track_lite,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiLibraryLibrarySearchConstMeta,
+        argValues: [query, limit, offset],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiLibraryLibrarySearchConstMeta =>
+      const TaskConstMeta(
+        debugName: "library_search",
+        argNames: ["query", "limit", "offset"],
+      );
+
+  @override
+  Future<void> crateApiLibraryLibrarySetTrackLiked({
+    required PlatformInt64 trackId,
+    required bool liked,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_i_64(trackId, serializer);
+          sse_encode_bool(liked, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -2362,47 +2205,10 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: null,
-        ),
-        constMeta: kCrateApiLibraryLibrarySearchConstMeta,
-        argValues: [library_, query, limit, offset],
-        apiImpl: this,
-      ),
-    );
-  }
-
-  TaskConstMeta get kCrateApiLibraryLibrarySearchConstMeta =>
-      const TaskConstMeta(
-        debugName: "library_search",
-        argNames: ["library_", "query", "limit", "offset"],
-      );
-
-  @override
-  Future<void> crateApiLibraryLibrarySetTrackLiked({
-    required Library library_,
-    required PlatformInt64 trackId,
-    required bool liked,
-  }) {
-    return handler.executeNormal(
-      NormalTask(
-        callFfi: (port_) {
-          final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_RustOpaque_Library(library_, serializer);
-          sse_encode_i_64(trackId, serializer);
-          sse_encode_bool(liked, serializer);
-          pdeCallFfi(
-            generalizedFrbRustBinding,
-            serializer,
-            funcId: 56,
-            port: port_,
-          );
-        },
-        codec: SseCodec(
-          decodeSuccessData: sse_decode_unit,
-          decodeErrorData: null,
+          decodeErrorData: sse_decode_AnyhowException,
         ),
         constMeta: kCrateApiLibraryLibrarySetTrackLikedConstMeta,
-        argValues: [library_, trackId, liked],
+        argValues: [trackId, liked],
         apiImpl: this,
       ),
     );
@@ -2411,7 +2217,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   TaskConstMeta get kCrateApiLibraryLibrarySetTrackLikedConstMeta =>
       const TaskConstMeta(
         debugName: "library_set_track_liked",
-        argNames: ["library_", "trackId", "liked"],
+        argNames: ["trackId", "liked"],
       );
 
   @override
@@ -2428,7 +2234,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 57,
+            funcId: 56,
             port: port_,
           );
         },
@@ -2458,7 +2264,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 58,
+            funcId: 57,
             port: port_,
           );
         },
@@ -2488,7 +2294,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
             pdeCallFfi(
               generalizedFrbRustBinding,
               serializer,
-              funcId: 59,
+              funcId: 58,
               port: port_,
             );
           },
@@ -2518,7 +2324,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 60,
+            funcId: 59,
             port: port_,
           );
         },
@@ -2546,7 +2352,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 61,
+            funcId: 60,
             port: port_,
           );
         },
@@ -2580,7 +2386,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 62,
+            funcId: 61,
             port: port_,
           );
         },
@@ -2611,7 +2417,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 63,
+            funcId: 62,
             port: port_,
           );
         },
@@ -2648,7 +2454,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 64,
+            funcId: 63,
             port: port_,
           );
         },
@@ -2678,7 +2484,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 65,
+            funcId: 64,
             port: port_,
           );
         },
@@ -2708,7 +2514,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 66,
+            funcId: 65,
             port: port_,
           );
         },
@@ -2739,7 +2545,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 67,
+            funcId: 66,
             port: port_,
           );
         },
@@ -2770,7 +2576,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 68,
+            funcId: 67,
             port: port_,
           );
         },
@@ -2807,7 +2613,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 69,
+            funcId: 68,
             port: port_,
           );
         },
@@ -2837,7 +2643,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 70,
+            funcId: 69,
             port: port_,
           );
         },
@@ -2864,7 +2670,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 71,
+            funcId: 70,
             port: port_,
           );
         },
@@ -2891,7 +2697,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 72,
+            funcId: 71,
             port: port_,
           );
         },
@@ -2923,7 +2729,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 73,
+            funcId: 72,
             port: port_,
           );
         },
@@ -2956,7 +2762,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
             pdeCallFfi(
               generalizedFrbRustBinding,
               serializer,
-              funcId: 74,
+              funcId: 73,
               port: port_,
             );
           },
@@ -2993,7 +2799,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 75,
+            funcId: 74,
             port: port_,
           );
         },
@@ -3023,7 +2829,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 76,
+            funcId: 75,
             port: port_,
           );
         },
@@ -3053,7 +2859,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 77,
+            funcId: 76,
             port: port_,
           );
         },
@@ -3088,7 +2894,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 78,
+            funcId: 77,
             port: port_,
           );
         },
@@ -3123,7 +2929,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 79,
+            funcId: 78,
             port: port_,
           );
         },
@@ -3157,7 +2963,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 80,
+            funcId: 79,
             port: port_,
           );
         },
@@ -3179,33 +2985,6 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
       );
 
   @override
-  Future<void> crateApiRuntimePrepareHotRestart() {
-    return handler.executeNormal(
-      NormalTask(
-        callFfi: (port_) {
-          final serializer = SseSerializer(generalizedFrbRustBinding);
-          pdeCallFfi(
-            generalizedFrbRustBinding,
-            serializer,
-            funcId: 81,
-            port: port_,
-          );
-        },
-        codec: SseCodec(
-          decodeSuccessData: sse_decode_unit,
-          decodeErrorData: null,
-        ),
-        constMeta: kCrateApiRuntimePrepareHotRestartConstMeta,
-        argValues: [],
-        apiImpl: this,
-      ),
-    );
-  }
-
-  TaskConstMeta get kCrateApiRuntimePrepareHotRestartConstMeta =>
-      const TaskConstMeta(debugName: "prepare_hot_restart", argNames: []);
-
-  @override
   Future<List<AudioDevice>> crateApiPlayerRefreshDevices() {
     return handler.executeNormal(
       NormalTask(
@@ -3214,7 +2993,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 82,
+            funcId: 80,
             port: port_,
           );
         },
@@ -3233,6 +3012,33 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
       const TaskConstMeta(debugName: "refresh_devices", argNames: []);
 
   @override
+  Future<ResampleQuality> stellatuneAudioTypesResampleQualityDefault() {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 81,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_resample_quality,
+          decodeErrorData: null,
+        ),
+        constMeta: kStellatuneAudioTypesResampleQualityDefaultConstMeta,
+        argValues: [],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kStellatuneAudioTypesResampleQualityDefaultConstMeta =>
+      const TaskConstMeta(debugName: "resample_quality_default", argNames: []);
+
+  @override
   Future<void> crateApiPlayerSeekMs({required BigInt positionMs}) {
     return handler.executeNormal(
       NormalTask(
@@ -3242,7 +3048,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 83,
+            funcId: 82,
             port: port_,
           );
         },
@@ -3274,7 +3080,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 84,
+            funcId: 83,
             port: port_,
           );
         },
@@ -3300,6 +3106,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
     required bool matchTrackSampleRate,
     required bool gaplessPlayback,
     required bool seekTrackFade,
+    required ResampleQuality resampleQuality,
   }) {
     return handler.executeNormal(
       NormalTask(
@@ -3308,10 +3115,11 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           sse_encode_bool(matchTrackSampleRate, serializer);
           sse_encode_bool(gaplessPlayback, serializer);
           sse_encode_bool(seekTrackFade, serializer);
+          sse_encode_resample_quality(resampleQuality, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 85,
+            funcId: 84,
             port: port_,
           );
         },
@@ -3320,7 +3128,12 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           decodeErrorData: sse_decode_AnyhowException,
         ),
         constMeta: kCrateApiPlayerSetOutputOptionsConstMeta,
-        argValues: [matchTrackSampleRate, gaplessPlayback, seekTrackFade],
+        argValues: [
+          matchTrackSampleRate,
+          gaplessPlayback,
+          seekTrackFade,
+          resampleQuality,
+        ],
         apiImpl: this,
       ),
     );
@@ -3329,7 +3142,12 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   TaskConstMeta get kCrateApiPlayerSetOutputOptionsConstMeta =>
       const TaskConstMeta(
         debugName: "set_output_options",
-        argNames: ["matchTrackSampleRate", "gaplessPlayback", "seekTrackFade"],
+        argNames: [
+          "matchTrackSampleRate",
+          "gaplessPlayback",
+          "seekTrackFade",
+          "resampleQuality",
+        ],
       );
 
   @override
@@ -3344,7 +3162,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 86,
+            funcId: 85,
             port: port_,
           );
         },
@@ -3375,7 +3193,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 87,
+            funcId: 86,
             port: port_,
           );
         },
@@ -3402,7 +3220,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 88,
+            funcId: 87,
             port: port_,
           );
         },
@@ -3438,7 +3256,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 89,
+            funcId: 88,
             port: port_,
           );
         },
@@ -3468,7 +3286,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 90,
+            funcId: 89,
             port: port_,
           );
         },
@@ -3495,7 +3313,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 91,
+            funcId: 90,
             port: port_,
           );
         },
@@ -3527,7 +3345,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 92,
+            funcId: 91,
             port: port_,
           );
         },
@@ -3549,7 +3367,9 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
       );
 
   @override
-  Future<TrackRef> stellatuneCoreTrackRefForLocalPath({required String path}) {
+  Future<TrackRef> stellatuneAudioTypesTrackRefForLocalPath({
+    required String path,
+  }) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
@@ -3558,7 +3378,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 93,
+            funcId: 92,
             port: port_,
           );
         },
@@ -3566,21 +3386,21 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           decodeSuccessData: sse_decode_track_ref,
           decodeErrorData: null,
         ),
-        constMeta: kStellatuneCoreTrackRefForLocalPathConstMeta,
+        constMeta: kStellatuneAudioTypesTrackRefForLocalPathConstMeta,
         argValues: [path],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kStellatuneCoreTrackRefForLocalPathConstMeta =>
+  TaskConstMeta get kStellatuneAudioTypesTrackRefForLocalPathConstMeta =>
       const TaskConstMeta(
         debugName: "track_ref_for_local_path",
         argNames: ["path"],
       );
 
   @override
-  Future<TrackRef> stellatuneCoreTrackRefNew({
+  Future<TrackRef> stellatuneAudioTypesTrackRefNew({
     required String sourceId,
     required String trackId,
     required String locator,
@@ -3595,7 +3415,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 94,
+            funcId: 93,
             port: port_,
           );
         },
@@ -3603,20 +3423,23 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           decodeSuccessData: sse_decode_track_ref,
           decodeErrorData: null,
         ),
-        constMeta: kStellatuneCoreTrackRefNewConstMeta,
+        constMeta: kStellatuneAudioTypesTrackRefNewConstMeta,
         argValues: [sourceId, trackId, locator],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kStellatuneCoreTrackRefNewConstMeta => const TaskConstMeta(
-    debugName: "track_ref_new",
-    argNames: ["sourceId", "trackId", "locator"],
-  );
+  TaskConstMeta get kStellatuneAudioTypesTrackRefNewConstMeta =>
+      const TaskConstMeta(
+        debugName: "track_ref_new",
+        argNames: ["sourceId", "trackId", "locator"],
+      );
 
   @override
-  Future<String> stellatuneCoreTrackRefStableKey({required TrackRef that}) {
+  Future<String> stellatuneAudioTypesTrackRefStableKey({
+    required TrackRef that,
+  }) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
@@ -3625,7 +3448,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 95,
+            funcId: 94,
             port: port_,
           );
         },
@@ -3633,72 +3456,23 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           decodeSuccessData: sse_decode_String,
           decodeErrorData: null,
         ),
-        constMeta: kStellatuneCoreTrackRefStableKeyConstMeta,
+        constMeta: kStellatuneAudioTypesTrackRefStableKeyConstMeta,
         argValues: [that],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kStellatuneCoreTrackRefStableKeyConstMeta =>
+  TaskConstMeta get kStellatuneAudioTypesTrackRefStableKeyConstMeta =>
       const TaskConstMeta(
         debugName: "track_ref_stable_key",
         argNames: ["that"],
       );
 
-  RustArcIncrementStrongCountFnType
-  get rust_arc_increment_strong_count_Library =>
-      wire.rust_arc_increment_strong_count_RustOpaque_Library;
-
-  RustArcDecrementStrongCountFnType
-  get rust_arc_decrement_strong_count_Library =>
-      wire.rust_arc_decrement_strong_count_RustOpaque_Library;
-
-  RustArcIncrementStrongCountFnType
-  get rust_arc_increment_strong_count_RequestId => wire
-      .rust_arc_increment_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRequestId;
-
-  RustArcDecrementStrongCountFnType
-  get rust_arc_decrement_strong_count_RequestId => wire
-      .rust_arc_decrement_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRequestId;
-
   @protected
   AnyhowException dco_decode_AnyhowException(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return AnyhowException(raw as String);
-  }
-
-  @protected
-  RequestId
-  dco_decode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRequestId(
-    dynamic raw,
-  ) {
-    // Codec=Dco (DartCObject based), see doc to use other codecs
-    return RequestIdImpl.frbInternalDcoDecode(raw as List<dynamic>);
-  }
-
-  @protected
-  RequestId
-  dco_decode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRequestId(
-    dynamic raw,
-  ) {
-    // Codec=Dco (DartCObject based), see doc to use other codecs
-    return RequestIdImpl.frbInternalDcoDecode(raw as List<dynamic>);
-  }
-
-  @protected
-  Library dco_decode_RustOpaque_Library(dynamic raw) {
-    // Codec=Dco (DartCObject based), see doc to use other codecs
-    return LibraryImpl.frbInternalDcoDecode(raw as List<dynamic>);
-  }
-
-  @protected
-  RequestId
-  dco_decode_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRequestId(
-    dynamic raw,
-  ) {
-    // Codec=Dco (DartCObject based), see doc to use other codecs
-    return RequestIdImpl.frbInternalDcoDecode(raw as List<dynamic>);
   }
 
   @protected
@@ -3968,30 +3742,15 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
     // Codec=Dco (DartCObject based), see doc to use other codecs
     switch (raw[0]) {
       case 0:
-        return LibraryEvent_Roots(paths: dco_decode_list_String(raw[1]));
-      case 1:
-        return LibraryEvent_Folders(paths: dco_decode_list_String(raw[1]));
-      case 2:
-        return LibraryEvent_ExcludedFolders(
-          paths: dco_decode_list_String(raw[1]),
-        );
-      case 3:
         return LibraryEvent_Changed();
-      case 4:
-        return LibraryEvent_Tracks(
-          folder: dco_decode_String(raw[1]),
-          recursive: dco_decode_bool(raw[2]),
-          query: dco_decode_String(raw[3]),
-          items: dco_decode_list_track_lite(raw[4]),
-        );
-      case 5:
+      case 1:
         return LibraryEvent_ScanProgress(
           scanned: dco_decode_i_64(raw[1]),
           updated: dco_decode_i_64(raw[2]),
           skipped: dco_decode_i_64(raw[3]),
           errors: dco_decode_i_64(raw[4]),
         );
-      case 6:
+      case 2:
         return LibraryEvent_ScanFinished(
           durationMs: dco_decode_i_64(raw[1]),
           scanned: dco_decode_i_64(raw[2]),
@@ -3999,28 +3758,9 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           skipped: dco_decode_i_64(raw[4]),
           errors: dco_decode_i_64(raw[5]),
         );
-      case 7:
-        return LibraryEvent_SearchResult(
-          query: dco_decode_String(raw[1]),
-          items: dco_decode_list_track_lite(raw[2]),
-        );
-      case 8:
-        return LibraryEvent_Playlists(
-          items: dco_decode_list_playlist_lite(raw[1]),
-        );
-      case 9:
-        return LibraryEvent_PlaylistTracks(
-          playlistId: dco_decode_i_64(raw[1]),
-          query: dco_decode_String(raw[2]),
-          items: dco_decode_list_track_lite(raw[3]),
-        );
-      case 10:
-        return LibraryEvent_LikedTrackIds(
-          trackIds: dco_decode_list_prim_i_64_strict(raw[1]),
-        );
-      case 11:
+      case 3:
         return LibraryEvent_Error(message: dco_decode_String(raw[1]));
-      case 12:
+      case 4:
         return LibraryEvent_Log(message: dco_decode_String(raw[1]));
       default:
         throw Exception("unreachable");
@@ -4366,6 +4106,12 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   }
 
   @protected
+  ResampleQuality dco_decode_resample_quality(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return ResampleQuality.values[raw as int];
+  }
+
+  @protected
   SourceCatalogTypeDescriptor dco_decode_source_catalog_type_descriptor(
     dynamic raw,
   ) {
@@ -4472,61 +4218,10 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   }
 
   @protected
-  BigInt dco_decode_usize(dynamic raw) {
-    // Codec=Dco (DartCObject based), see doc to use other codecs
-    return dcoDecodeU64(raw);
-  }
-
-  @protected
   AnyhowException sse_decode_AnyhowException(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var inner = sse_decode_String(deserializer);
     return AnyhowException(inner);
-  }
-
-  @protected
-  RequestId
-  sse_decode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRequestId(
-    SseDeserializer deserializer,
-  ) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    return RequestIdImpl.frbInternalSseDecode(
-      sse_decode_usize(deserializer),
-      sse_decode_i_32(deserializer),
-    );
-  }
-
-  @protected
-  RequestId
-  sse_decode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRequestId(
-    SseDeserializer deserializer,
-  ) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    return RequestIdImpl.frbInternalSseDecode(
-      sse_decode_usize(deserializer),
-      sse_decode_i_32(deserializer),
-    );
-  }
-
-  @protected
-  Library sse_decode_RustOpaque_Library(SseDeserializer deserializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    return LibraryImpl.frbInternalSseDecode(
-      sse_decode_usize(deserializer),
-      sse_decode_i_32(deserializer),
-    );
-  }
-
-  @protected
-  RequestId
-  sse_decode_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRequestId(
-    SseDeserializer deserializer,
-  ) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    return RequestIdImpl.frbInternalSseDecode(
-      sse_decode_usize(deserializer),
-      sse_decode_i_32(deserializer),
-    );
   }
 
   @protected
@@ -4827,28 +4522,8 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
     var tag_ = sse_decode_i_32(deserializer);
     switch (tag_) {
       case 0:
-        var var_paths = sse_decode_list_String(deserializer);
-        return LibraryEvent_Roots(paths: var_paths);
-      case 1:
-        var var_paths = sse_decode_list_String(deserializer);
-        return LibraryEvent_Folders(paths: var_paths);
-      case 2:
-        var var_paths = sse_decode_list_String(deserializer);
-        return LibraryEvent_ExcludedFolders(paths: var_paths);
-      case 3:
         return LibraryEvent_Changed();
-      case 4:
-        var var_folder = sse_decode_String(deserializer);
-        var var_recursive = sse_decode_bool(deserializer);
-        var var_query = sse_decode_String(deserializer);
-        var var_items = sse_decode_list_track_lite(deserializer);
-        return LibraryEvent_Tracks(
-          folder: var_folder,
-          recursive: var_recursive,
-          query: var_query,
-          items: var_items,
-        );
-      case 5:
+      case 1:
         var var_scanned = sse_decode_i_64(deserializer);
         var var_updated = sse_decode_i_64(deserializer);
         var var_skipped = sse_decode_i_64(deserializer);
@@ -4859,7 +4534,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           skipped: var_skipped,
           errors: var_errors,
         );
-      case 6:
+      case 2:
         var var_durationMs = sse_decode_i_64(deserializer);
         var var_scanned = sse_decode_i_64(deserializer);
         var var_updated = sse_decode_i_64(deserializer);
@@ -4872,29 +4547,10 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           skipped: var_skipped,
           errors: var_errors,
         );
-      case 7:
-        var var_query = sse_decode_String(deserializer);
-        var var_items = sse_decode_list_track_lite(deserializer);
-        return LibraryEvent_SearchResult(query: var_query, items: var_items);
-      case 8:
-        var var_items = sse_decode_list_playlist_lite(deserializer);
-        return LibraryEvent_Playlists(items: var_items);
-      case 9:
-        var var_playlistId = sse_decode_i_64(deserializer);
-        var var_query = sse_decode_String(deserializer);
-        var var_items = sse_decode_list_track_lite(deserializer);
-        return LibraryEvent_PlaylistTracks(
-          playlistId: var_playlistId,
-          query: var_query,
-          items: var_items,
-        );
-      case 10:
-        var var_trackIds = sse_decode_list_prim_i_64_strict(deserializer);
-        return LibraryEvent_LikedTrackIds(trackIds: var_trackIds);
-      case 11:
+      case 3:
         var var_message = sse_decode_String(deserializer);
         return LibraryEvent_Error(message: var_message);
-      case 12:
+      case 4:
         var var_message = sse_decode_String(deserializer);
         return LibraryEvent_Log(message: var_message);
       default:
@@ -5395,6 +5051,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   }
 
   @protected
+  ResampleQuality sse_decode_resample_quality(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var inner = sse_decode_i_32(deserializer);
+    return ResampleQuality.values[inner];
+  }
+
+  @protected
   SourceCatalogTypeDescriptor sse_decode_source_catalog_type_descriptor(
     SseDeserializer deserializer,
   ) {
@@ -5509,66 +5172,12 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   }
 
   @protected
-  BigInt sse_decode_usize(SseDeserializer deserializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    return deserializer.buffer.getBigUint64();
-  }
-
-  @protected
   void sse_encode_AnyhowException(
     AnyhowException self,
     SseSerializer serializer,
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_String(self.message, serializer);
-  }
-
-  @protected
-  void
-  sse_encode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRequestId(
-    RequestId self,
-    SseSerializer serializer,
-  ) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    sse_encode_usize(
-      (self as RequestIdImpl).frbInternalSseEncode(move: true),
-      serializer,
-    );
-  }
-
-  @protected
-  void
-  sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRequestId(
-    RequestId self,
-    SseSerializer serializer,
-  ) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    sse_encode_usize(
-      (self as RequestIdImpl).frbInternalSseEncode(move: false),
-      serializer,
-    );
-  }
-
-  @protected
-  void sse_encode_RustOpaque_Library(Library self, SseSerializer serializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    sse_encode_usize(
-      (self as LibraryImpl).frbInternalSseEncode(move: null),
-      serializer,
-    );
-  }
-
-  @protected
-  void
-  sse_encode_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRequestId(
-    RequestId self,
-    SseSerializer serializer,
-  ) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    sse_encode_usize(
-      (self as RequestIdImpl).frbInternalSseEncode(move: null),
-      serializer,
-    );
   }
 
   @protected
@@ -5879,35 +5488,15 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   void sse_encode_library_event(LibraryEvent self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     switch (self) {
-      case LibraryEvent_Roots(paths: final paths):
-        sse_encode_i_32(0, serializer);
-        sse_encode_list_String(paths, serializer);
-      case LibraryEvent_Folders(paths: final paths):
-        sse_encode_i_32(1, serializer);
-        sse_encode_list_String(paths, serializer);
-      case LibraryEvent_ExcludedFolders(paths: final paths):
-        sse_encode_i_32(2, serializer);
-        sse_encode_list_String(paths, serializer);
       case LibraryEvent_Changed():
-        sse_encode_i_32(3, serializer);
-      case LibraryEvent_Tracks(
-        folder: final folder,
-        recursive: final recursive,
-        query: final query,
-        items: final items,
-      ):
-        sse_encode_i_32(4, serializer);
-        sse_encode_String(folder, serializer);
-        sse_encode_bool(recursive, serializer);
-        sse_encode_String(query, serializer);
-        sse_encode_list_track_lite(items, serializer);
+        sse_encode_i_32(0, serializer);
       case LibraryEvent_ScanProgress(
         scanned: final scanned,
         updated: final updated,
         skipped: final skipped,
         errors: final errors,
       ):
-        sse_encode_i_32(5, serializer);
+        sse_encode_i_32(1, serializer);
         sse_encode_i_64(scanned, serializer);
         sse_encode_i_64(updated, serializer);
         sse_encode_i_64(skipped, serializer);
@@ -5919,36 +5508,17 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
         skipped: final skipped,
         errors: final errors,
       ):
-        sse_encode_i_32(6, serializer);
+        sse_encode_i_32(2, serializer);
         sse_encode_i_64(durationMs, serializer);
         sse_encode_i_64(scanned, serializer);
         sse_encode_i_64(updated, serializer);
         sse_encode_i_64(skipped, serializer);
         sse_encode_i_64(errors, serializer);
-      case LibraryEvent_SearchResult(query: final query, items: final items):
-        sse_encode_i_32(7, serializer);
-        sse_encode_String(query, serializer);
-        sse_encode_list_track_lite(items, serializer);
-      case LibraryEvent_Playlists(items: final items):
-        sse_encode_i_32(8, serializer);
-        sse_encode_list_playlist_lite(items, serializer);
-      case LibraryEvent_PlaylistTracks(
-        playlistId: final playlistId,
-        query: final query,
-        items: final items,
-      ):
-        sse_encode_i_32(9, serializer);
-        sse_encode_i_64(playlistId, serializer);
-        sse_encode_String(query, serializer);
-        sse_encode_list_track_lite(items, serializer);
-      case LibraryEvent_LikedTrackIds(trackIds: final trackIds):
-        sse_encode_i_32(10, serializer);
-        sse_encode_list_prim_i_64_strict(trackIds, serializer);
       case LibraryEvent_Error(message: final message):
-        sse_encode_i_32(11, serializer);
+        sse_encode_i_32(3, serializer);
         sse_encode_String(message, serializer);
       case LibraryEvent_Log(message: final message):
-        sse_encode_i_32(12, serializer);
+        sse_encode_i_32(4, serializer);
         sse_encode_String(message, serializer);
     }
   }
@@ -6374,6 +5944,15 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   }
 
   @protected
+  void sse_encode_resample_quality(
+    ResampleQuality self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.index, serializer);
+  }
+
+  @protected
   void sse_encode_source_catalog_type_descriptor(
     SourceCatalogTypeDescriptor self,
     SseSerializer serializer,
@@ -6459,56 +6038,4 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   void sse_encode_unit(void self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
   }
-
-  @protected
-  void sse_encode_usize(BigInt self, SseSerializer serializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    serializer.buffer.putBigUint64(self);
-  }
-}
-
-@sealed
-class LibraryImpl extends RustOpaque implements Library {
-  // Not to be used by end users
-  LibraryImpl.frbInternalDcoDecode(List<dynamic> wire)
-    : super.frbInternalDcoDecode(wire, _kStaticData);
-
-  // Not to be used by end users
-  LibraryImpl.frbInternalSseDecode(BigInt ptr, int externalSizeOnNative)
-    : super.frbInternalSseDecode(ptr, externalSizeOnNative, _kStaticData);
-
-  static final _kStaticData = RustArcStaticData(
-    rustArcIncrementStrongCount:
-        StellatuneApi.instance.api.rust_arc_increment_strong_count_Library,
-    rustArcDecrementStrongCount:
-        StellatuneApi.instance.api.rust_arc_decrement_strong_count_Library,
-    rustArcDecrementStrongCountPtr:
-        StellatuneApi.instance.api.rust_arc_decrement_strong_count_LibraryPtr,
-  );
-}
-
-@sealed
-class RequestIdImpl extends RustOpaque implements RequestId {
-  // Not to be used by end users
-  RequestIdImpl.frbInternalDcoDecode(List<dynamic> wire)
-    : super.frbInternalDcoDecode(wire, _kStaticData);
-
-  // Not to be used by end users
-  RequestIdImpl.frbInternalSseDecode(BigInt ptr, int externalSizeOnNative)
-    : super.frbInternalSseDecode(ptr, externalSizeOnNative, _kStaticData);
-
-  static final _kStaticData = RustArcStaticData(
-    rustArcIncrementStrongCount:
-        StellatuneApi.instance.api.rust_arc_increment_strong_count_RequestId,
-    rustArcDecrementStrongCount:
-        StellatuneApi.instance.api.rust_arc_decrement_strong_count_RequestId,
-    rustArcDecrementStrongCountPtr:
-        StellatuneApi.instance.api.rust_arc_decrement_strong_count_RequestIdPtr,
-  );
-
-  Future<void> asStr() =>
-      StellatuneApi.instance.api.stellatuneCoreRequestIdAsStr(that: this);
-
-  Future<String> intoInner() =>
-      StellatuneApi.instance.api.stellatuneCoreRequestIdIntoInner(that: this);
 }

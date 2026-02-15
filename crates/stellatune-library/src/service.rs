@@ -1,38 +1,273 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::thread;
+use std::time::Duration;
 
-use anyhow::{Context, Result};
-use crossbeam_channel::{Receiver, Sender};
-use tokio::sync::mpsc;
-use tracing::{error, info};
+use anyhow::{Context, Result, anyhow};
+use tokio::sync::broadcast;
+use tracing::info;
 
-use stellatune_core::{LibraryCommand, LibraryEvent};
+use crate::{LibraryEvent, PlaylistLite, TrackLite};
+use stellatune_plugins::runtime::handle::shared_runtime_service;
+use stellatune_runtime::tokio_actor::{ActorRef, CallError, Handler, Message, spawn_actor};
 
 use crate::worker::{LibraryWorker, WorkerDeps};
+
+mod service_actor;
+
+use self::service_actor::LibraryServiceActor;
+use self::service_actor::handlers::command::{
+    AddRootMessage, AddTrackToPlaylistMessage, AddTracksToPlaylistMessage, CreatePlaylistMessage,
+    DeleteFolderMessage, DeletePlaylistMessage, MoveTrackInPlaylistMessage, RemoveRootMessage,
+    RemoveTrackFromPlaylistMessage, RemoveTracksFromPlaylistMessage, RenamePlaylistMessage,
+    RestoreFolderMessage, ScanAllForceMessage, ScanAllMessage, SetTrackLikedMessage,
+    ShutdownMessage,
+};
+use self::service_actor::handlers::query::{
+    ListExcludedFoldersMessage, ListFoldersMessage, ListLikedTrackIdsMessage,
+    ListPlaylistTracksMessage, ListPlaylistsMessage, ListRootsMessage, ListTracksMessage,
+    SearchTracksMessage,
+};
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 use std::collections::HashSet;
 
 #[derive(Clone)]
 pub struct LibraryHandle {
-    cmd_tx: Sender<LibraryCommand>,
+    actor_ref: ActorRef<LibraryServiceActor>,
     events: Arc<EventHub>,
     plugins_dir: PathBuf,
     db_path: PathBuf,
 }
 
 impl LibraryHandle {
-    pub fn send_command(&self, cmd: LibraryCommand) {
-        let _ = self.cmd_tx.send(cmd);
+    const QUERY_TIMEOUT: Duration = Duration::from_secs(15);
+
+    fn cast_command<M>(&self, message: M) -> Result<(), String>
+    where
+        M: Message<Response = ()>,
+        LibraryServiceActor: Handler<M>,
+    {
+        self.actor_ref
+            .cast(message)
+            .map_err(|_| "library command channel closed".to_string())
     }
 
-    pub fn subscribe_events(&self) -> Receiver<LibraryEvent> {
+    pub async fn add_root(&self, path: String) -> Result<(), String> {
+        self.cast_command(AddRootMessage { path })
+    }
+
+    pub async fn remove_root(&self, path: String) -> Result<(), String> {
+        self.cast_command(RemoveRootMessage { path })
+    }
+
+    pub async fn delete_folder(&self, path: String) -> Result<(), String> {
+        self.cast_command(DeleteFolderMessage { path })
+    }
+
+    pub async fn restore_folder(&self, path: String) -> Result<(), String> {
+        self.cast_command(RestoreFolderMessage { path })
+    }
+
+    pub async fn scan_all(&self) -> Result<(), String> {
+        self.cast_command(ScanAllMessage)
+    }
+
+    pub async fn scan_all_force(&self) -> Result<(), String> {
+        self.cast_command(ScanAllForceMessage)
+    }
+
+    pub async fn create_playlist(&self, name: String) -> Result<(), String> {
+        self.cast_command(CreatePlaylistMessage { name })
+    }
+
+    pub async fn rename_playlist(&self, id: i64, name: String) -> Result<(), String> {
+        self.cast_command(RenamePlaylistMessage { id, name })
+    }
+
+    pub async fn delete_playlist(&self, id: i64) -> Result<(), String> {
+        self.cast_command(DeletePlaylistMessage { id })
+    }
+
+    pub async fn add_track_to_playlist(
+        &self,
+        playlist_id: i64,
+        track_id: i64,
+    ) -> Result<(), String> {
+        self.cast_command(AddTrackToPlaylistMessage {
+            playlist_id,
+            track_id,
+        })
+    }
+
+    pub async fn add_tracks_to_playlist(
+        &self,
+        playlist_id: i64,
+        track_ids: Vec<i64>,
+    ) -> Result<(), String> {
+        self.cast_command(AddTracksToPlaylistMessage {
+            playlist_id,
+            track_ids,
+        })
+    }
+
+    pub async fn remove_track_from_playlist(
+        &self,
+        playlist_id: i64,
+        track_id: i64,
+    ) -> Result<(), String> {
+        self.cast_command(RemoveTrackFromPlaylistMessage {
+            playlist_id,
+            track_id,
+        })
+    }
+
+    pub async fn remove_tracks_from_playlist(
+        &self,
+        playlist_id: i64,
+        track_ids: Vec<i64>,
+    ) -> Result<(), String> {
+        self.cast_command(RemoveTracksFromPlaylistMessage {
+            playlist_id,
+            track_ids,
+        })
+    }
+
+    pub async fn move_track_in_playlist(
+        &self,
+        playlist_id: i64,
+        track_id: i64,
+        new_index: i64,
+    ) -> Result<(), String> {
+        self.cast_command(MoveTrackInPlaylistMessage {
+            playlist_id,
+            track_id,
+            new_index,
+        })
+    }
+
+    pub async fn set_track_liked(&self, track_id: i64, liked: bool) -> Result<(), String> {
+        self.cast_command(SetTrackLikedMessage { track_id, liked })
+    }
+
+    pub async fn shutdown(&self) -> Result<(), String> {
+        self.cast_command(ShutdownMessage)
+    }
+
+    pub fn subscribe_events(&self) -> broadcast::Receiver<LibraryEvent> {
         self.events.subscribe()
     }
 
     pub fn plugins_dir_path(&self) -> &Path {
         &self.plugins_dir
+    }
+
+    pub async fn list_roots(&self) -> Result<Vec<String>> {
+        let result = self
+            .actor_ref
+            .call(ListRootsMessage, Self::QUERY_TIMEOUT)
+            .await
+            .map_err(map_call_error)?;
+        result.map_err(|e| anyhow!(e))
+    }
+
+    pub async fn list_folders(&self) -> Result<Vec<String>> {
+        let result = self
+            .actor_ref
+            .call(ListFoldersMessage, Self::QUERY_TIMEOUT)
+            .await
+            .map_err(map_call_error)?;
+        result.map_err(|e| anyhow!(e))
+    }
+
+    pub async fn list_excluded_folders(&self) -> Result<Vec<String>> {
+        let result = self
+            .actor_ref
+            .call(ListExcludedFoldersMessage, Self::QUERY_TIMEOUT)
+            .await
+            .map_err(map_call_error)?;
+        result.map_err(|e| anyhow!(e))
+    }
+
+    pub async fn list_tracks(
+        &self,
+        folder: String,
+        recursive: bool,
+        query: String,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<TrackLite>> {
+        let result = self
+            .actor_ref
+            .call(
+                ListTracksMessage {
+                    folder,
+                    recursive,
+                    query,
+                    limit,
+                    offset,
+                },
+                Self::QUERY_TIMEOUT,
+            )
+            .await
+            .map_err(map_call_error)?;
+        result.map_err(|e| anyhow!(e))
+    }
+
+    pub async fn search(&self, query: String, limit: i64, offset: i64) -> Result<Vec<TrackLite>> {
+        let result = self
+            .actor_ref
+            .call(
+                SearchTracksMessage {
+                    query,
+                    limit,
+                    offset,
+                },
+                Self::QUERY_TIMEOUT,
+            )
+            .await
+            .map_err(map_call_error)?;
+        result.map_err(|e| anyhow!(e))
+    }
+
+    pub async fn list_playlists(&self) -> Result<Vec<PlaylistLite>> {
+        let result = self
+            .actor_ref
+            .call(ListPlaylistsMessage, Self::QUERY_TIMEOUT)
+            .await
+            .map_err(map_call_error)?;
+        result.map_err(|e| anyhow!(e))
+    }
+
+    pub async fn list_playlist_tracks(
+        &self,
+        playlist_id: i64,
+        query: String,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<TrackLite>> {
+        let result = self
+            .actor_ref
+            .call(
+                ListPlaylistTracksMessage {
+                    playlist_id,
+                    query,
+                    limit,
+                    offset,
+                },
+                Self::QUERY_TIMEOUT,
+            )
+            .await
+            .map_err(map_call_error)?;
+        result.map_err(|e| anyhow!(e))
+    }
+
+    pub async fn list_liked_track_ids(&self) -> Result<Vec<i64>> {
+        let result = self
+            .actor_ref
+            .call(ListLikedTrackIdsMessage, Self::QUERY_TIMEOUT)
+            .await
+            .map_err(map_call_error)?;
+        result.map_err(|e| anyhow!(e))
     }
 
     #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
@@ -50,7 +285,9 @@ impl LibraryHandle {
         }
         persist_disabled_plugin_ids(&self.db_path, &disabled).await?;
 
-        stellatune_plugins::shared_runtime_service().set_plugin_enabled(&plugin_id, enabled);
+        shared_runtime_service()
+            .set_plugin_enabled(&plugin_id, enabled)
+            .await;
 
         Ok(())
     }
@@ -77,11 +314,17 @@ impl LibraryHandle {
     }
 }
 
-pub fn start_library(db_path: String) -> Result<LibraryHandle> {
-    let (cmd_tx, cmd_rx) = crossbeam_channel::unbounded::<LibraryCommand>();
+fn map_call_error(err: CallError) -> anyhow::Error {
+    match err {
+        CallError::Timeout => {
+            anyhow!("library query timed out")
+        },
+        _ => anyhow!("library actor unavailable"),
+    }
+}
+
+pub async fn start_library(db_path: String) -> Result<LibraryHandle> {
     let events = Arc::new(EventHub::new());
-    let thread_events = Arc::clone(&events);
-    let (init_tx, init_rx) = crossbeam_channel::bounded::<Result<()>>(1);
 
     let plugins_dir = PathBuf::from(&db_path)
         .parent()
@@ -89,96 +332,18 @@ pub fn start_library(db_path: String) -> Result<LibraryHandle> {
         .join("plugins");
     let db_path = PathBuf::from(db_path);
 
-    let plugins_dir_thread = plugins_dir.clone();
-    let db_path_thread = db_path.clone();
-
-    thread::Builder::new()
-        .name("stellatune-library".to_string())
-        .spawn(move || {
-            if let Err(e) = library_thread_main(
-                db_path_thread,
-                cmd_rx,
-                thread_events,
-                init_tx,
-                plugins_dir_thread,
-            ) {
-                error!("library thread exited with error: {e:?}");
-            }
-        })
-        .context("failed to spawn stellatune-library thread")?;
-
-    init_rx.recv().context("library init channel closed")??;
+    ensure_parent_dir(&db_path)?;
+    let deps = WorkerDeps::new(&db_path, Arc::clone(&events), plugins_dir.clone()).await?;
+    let worker = LibraryWorker::new(deps);
+    let (actor_ref, _join) = spawn_actor(LibraryServiceActor::new(worker, Arc::clone(&events)));
+    info!("library actor started");
 
     Ok(LibraryHandle {
-        cmd_tx,
+        actor_ref,
         events,
         plugins_dir,
         db_path,
     })
-}
-
-fn library_thread_main(
-    db_path: PathBuf,
-    cmd_rx: Receiver<LibraryCommand>,
-    events: Arc<EventHub>,
-    init_tx: Sender<Result<()>>,
-    plugins_dir: PathBuf,
-) -> Result<()> {
-    info!("library thread started");
-
-    let rt = tokio::runtime::Builder::new_multi_thread()
-        .worker_threads(2)
-        .enable_time()
-        .enable_io()
-        .thread_name("stellatune-library-rt")
-        .build()
-        .context("failed to build tokio runtime")?;
-
-    rt.block_on(async move {
-        let (cmd_async_tx, mut cmd_async_rx) = mpsc::unbounded_channel::<LibraryCommand>();
-
-        // Bridge crossbeam -> tokio so external callers don't depend on tokio.
-        tokio::task::spawn_blocking(move || {
-            for cmd in cmd_rx.iter() {
-                if cmd_async_tx.send(cmd).is_err() {
-                    break;
-                }
-            }
-        });
-
-        if let Err(e) = ensure_parent_dir(&db_path) {
-            let _ = init_tx.send(Err(e));
-            return Ok::<_, anyhow::Error>(());
-        }
-
-        let deps = match WorkerDeps::new(&db_path, Arc::clone(&events), plugins_dir).await {
-            Ok(v) => v,
-            Err(e) => {
-                let _ = init_tx.send(Err(e));
-                return Ok::<_, anyhow::Error>(());
-            }
-        };
-        let _ = init_tx.send(Ok(()));
-
-        let mut worker = LibraryWorker::new(deps);
-
-        while let Some(cmd) = cmd_async_rx.recv().await {
-            let is_shutdown = matches!(cmd, LibraryCommand::Shutdown);
-            if let Err(e) = worker.handle_command(cmd).await {
-                events.emit(LibraryEvent::Error {
-                    message: format!("{e:#}"),
-                });
-            }
-            if is_shutdown {
-                break;
-            }
-        }
-
-        info!("library thread exiting");
-        Ok::<_, anyhow::Error>(())
-    })?;
-
-    Ok(())
 }
 
 fn ensure_parent_dir(path: &Path) -> Result<()> {
@@ -191,28 +356,21 @@ fn ensure_parent_dir(path: &Path) -> Result<()> {
 }
 
 pub(crate) struct EventHub {
-    subscribers: std::sync::Mutex<Vec<Sender<LibraryEvent>>>,
+    tx: broadcast::Sender<LibraryEvent>,
 }
 
 impl EventHub {
     pub(crate) fn new() -> Self {
-        Self {
-            subscribers: std::sync::Mutex::new(Vec::new()),
-        }
+        let (tx, _rx) = broadcast::channel(1024);
+        Self { tx }
     }
 
-    pub(crate) fn subscribe(&self) -> Receiver<LibraryEvent> {
-        let (tx, rx) = crossbeam_channel::unbounded();
-        if let Ok(mut subs) = self.subscribers.lock() {
-            subs.push(tx);
-        }
-        rx
+    pub(crate) fn subscribe(&self) -> broadcast::Receiver<LibraryEvent> {
+        self.tx.subscribe()
     }
 
     pub(crate) fn emit(&self, event: LibraryEvent) {
-        if let Ok(mut subs) = self.subscribers.lock() {
-            subs.retain(|tx| tx.send(event.clone()).is_ok());
-        }
+        let _ = self.tx.send(event);
     }
 }
 

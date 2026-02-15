@@ -29,14 +29,14 @@ pub fn plugins_uninstall_by_id(plugins_dir: String, plugin_id: String) -> Result
 fn ensure_plugin_runtime_unloaded_for_uninstall(plugin_id: &str) -> Result<()> {
     let service = shared_plugin_runtime();
 
-    let _ = service.unload_plugin(plugin_id);
-    let Some(slot) = service.slot_snapshot(plugin_id) else {
+    let _ = stellatune_runtime::block_on(service.unload_plugin(plugin_id));
+    let Some(state) = stellatune_runtime::block_on(service.plugin_lease_state(plugin_id)) else {
         return Ok(());
     };
-    if !slot.draining.is_empty() {
+    if !state.retired_lease_ids.is_empty() {
         return Err(anyhow!(
-            "plugin `{plugin_id}` is still in use ({} draining generation(s)); stop playback/release instances and retry uninstall",
-            slot.draining.len()
+            "plugin `{plugin_id}` is still in use ({} retired lease(s)); stop playback/release instances and retry uninstall",
+            state.retired_lease_ids.len()
         ));
     }
     Ok(())

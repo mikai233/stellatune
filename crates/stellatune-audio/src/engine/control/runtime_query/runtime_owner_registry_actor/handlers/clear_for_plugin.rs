@@ -1,0 +1,198 @@
+use stellatune_runtime::tokio_actor::{ActorContext, CallError, Handler, Message};
+use tracing::warn;
+
+use crate::engine::control::runtime_query::OWNER_WORKER_CLEAR_TIMEOUT;
+use crate::engine::control::runtime_query::lyrics_owner_actor::handlers::freeze::LyricsFreezeMessage;
+use crate::engine::control::runtime_query::lyrics_owner_actor::handlers::shutdown::LyricsShutdownMessage;
+use crate::engine::control::runtime_query::output_sink_owner_actor::handlers::freeze::OutputSinkFreezeMessage;
+use crate::engine::control::runtime_query::output_sink_owner_actor::handlers::shutdown::OutputSinkShutdownMessage;
+use crate::engine::control::runtime_query::runtime_owner_registry_actor::RuntimeOwnerRegistryActor;
+use crate::engine::control::runtime_query::source_owner_actor::handlers::freeze::SourceFreezeMessage;
+use crate::engine::control::runtime_query::source_owner_actor::handlers::shutdown::SourceShutdownMessage;
+
+pub(crate) struct ClearRuntimeOwnersForPluginMessage {
+    pub plugin_id: String,
+}
+
+impl Message for ClearRuntimeOwnersForPluginMessage {
+    type Response = (usize, usize, usize);
+}
+
+#[async_trait::async_trait]
+impl Handler<ClearRuntimeOwnersForPluginMessage> for RuntimeOwnerRegistryActor {
+    async fn handle(
+        &mut self,
+        message: ClearRuntimeOwnersForPluginMessage,
+        _ctx: &mut ActorContext<Self>,
+    ) -> (usize, usize, usize) {
+        let source_freeze_refs: Vec<_> = self
+            .source_tasks
+            .iter()
+            .filter_map(|(slot, handle)| {
+                if slot.plugin_id.as_str() == message.plugin_id.as_str() && !handle.frozen {
+                    Some(handle.actor_ref.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        for (slot, handle) in &mut self.source_tasks {
+            if slot.plugin_id.as_str() == message.plugin_id.as_str() {
+                handle.frozen = true;
+            }
+        }
+
+        let removable_source_slots: Vec<_> = self
+            .source_tasks
+            .iter()
+            .filter_map(|(slot, handle)| {
+                if slot.plugin_id.as_str() == message.plugin_id.as_str()
+                    && handle.active_streams == 0
+                {
+                    Some(slot.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let source_shutdown_refs: Vec<_> = removable_source_slots
+            .iter()
+            .filter_map(|slot| self.source_tasks.remove(slot).map(|h| h.actor_ref))
+            .collect();
+        self.source_stream_slots
+            .retain(|_, slot| !removable_source_slots.iter().any(|s| s == slot));
+
+        let lyrics_freeze_refs: Vec<_> = self
+            .lyrics_tasks
+            .iter()
+            .filter_map(|(slot, handle)| {
+                if slot.plugin_id.as_str() == message.plugin_id.as_str() && !handle.frozen {
+                    Some(handle.actor_ref.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        for (slot, handle) in &mut self.lyrics_tasks {
+            if slot.plugin_id.as_str() == message.plugin_id.as_str() {
+                handle.frozen = true;
+            }
+        }
+        let removable_lyrics_slots: Vec<_> = self
+            .lyrics_tasks
+            .keys()
+            .filter(|slot| slot.plugin_id.as_str() == message.plugin_id.as_str())
+            .cloned()
+            .collect();
+        let lyrics_shutdown_refs: Vec<_> = removable_lyrics_slots
+            .iter()
+            .filter_map(|slot| self.lyrics_tasks.remove(slot).map(|h| h.actor_ref))
+            .collect();
+
+        let output_sink_freeze_refs: Vec<_> = self
+            .output_sink_tasks
+            .iter()
+            .filter_map(|(slot, handle)| {
+                if slot.plugin_id.as_str() == message.plugin_id.as_str() && !handle.frozen {
+                    Some(handle.actor_ref.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        for (slot, handle) in &mut self.output_sink_tasks {
+            if slot.plugin_id.as_str() == message.plugin_id.as_str() {
+                handle.frozen = true;
+            }
+        }
+        let removable_output_sink_slots: Vec<_> = self
+            .output_sink_tasks
+            .keys()
+            .filter(|slot| slot.plugin_id.as_str() == message.plugin_id.as_str())
+            .cloned()
+            .collect();
+        let output_sink_shutdown_refs: Vec<_> = removable_output_sink_slots
+            .iter()
+            .filter_map(|slot| self.output_sink_tasks.remove(slot).map(|h| h.actor_ref))
+            .collect();
+
+        for actor_ref in source_freeze_refs {
+            match actor_ref
+                .call(SourceFreezeMessage, OWNER_WORKER_CLEAR_TIMEOUT)
+                .await
+            {
+                Ok(()) => {},
+                Err(CallError::Timeout) => {
+                    warn!("source owner task freeze timeout");
+                },
+                Err(_) => {},
+            }
+        }
+        for actor_ref in source_shutdown_refs {
+            match actor_ref
+                .call(SourceShutdownMessage, OWNER_WORKER_CLEAR_TIMEOUT)
+                .await
+            {
+                Ok(()) => {},
+                Err(CallError::Timeout) => {
+                    warn!("source owner task shutdown timeout");
+                },
+                Err(_) => {},
+            }
+        }
+        for actor_ref in lyrics_freeze_refs {
+            match actor_ref
+                .call(LyricsFreezeMessage, OWNER_WORKER_CLEAR_TIMEOUT)
+                .await
+            {
+                Ok(()) => {},
+                Err(CallError::Timeout) => {
+                    warn!("lyrics owner task freeze timeout");
+                },
+                Err(_) => {},
+            }
+        }
+        for actor_ref in lyrics_shutdown_refs {
+            match actor_ref
+                .call(LyricsShutdownMessage, OWNER_WORKER_CLEAR_TIMEOUT)
+                .await
+            {
+                Ok(()) => {},
+                Err(CallError::Timeout) => {
+                    warn!("lyrics owner task shutdown timeout");
+                },
+                Err(_) => {},
+            }
+        }
+        for actor_ref in output_sink_freeze_refs {
+            match actor_ref
+                .call(OutputSinkFreezeMessage, OWNER_WORKER_CLEAR_TIMEOUT)
+                .await
+            {
+                Ok(()) => {},
+                Err(CallError::Timeout) => {
+                    warn!("output sink owner task freeze timeout");
+                },
+                Err(_) => {},
+            }
+        }
+        for actor_ref in output_sink_shutdown_refs {
+            match actor_ref
+                .call(OutputSinkShutdownMessage, OWNER_WORKER_CLEAR_TIMEOUT)
+                .await
+            {
+                Ok(()) => {},
+                Err(CallError::Timeout) => {
+                    warn!("output sink owner task shutdown timeout");
+                },
+                Err(_) => {},
+            }
+        }
+
+        (
+            removable_source_slots.len(),
+            removable_lyrics_slots.len(),
+            removable_output_sink_slots.len(),
+        )
+    }
+}

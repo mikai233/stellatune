@@ -1,7 +1,6 @@
 import 'dart:io';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
-import 'package:stellatune/bridge/api/runtime.dart' as runtime_api;
 import 'package:stellatune/bridge/frb_generated.dart';
 
 String _libFileName() {
@@ -29,5 +28,4 @@ ExternalLibrary _openRustLibrary() {
 
 Future<void> initRustRuntime() async {
   await StellatuneApi.init(externalLibrary: _openRustLibrary());
-  await runtime_api.prepareHotRestart();
 }

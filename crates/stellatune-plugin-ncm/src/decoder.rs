@@ -1,11 +1,12 @@
 use std::io::{Seek, SeekFrom};
 
-use stellatune_plugin_sdk::StLogLevel;
-use stellatune_plugin_sdk::instance::{DecoderDescriptor, DecoderExtScoreRule, DecoderInstance};
+use stellatune_plugin_sdk::instance::{
+    DecoderDescriptor, DecoderExtScoreRule, DecoderInstance, DecoderOpenArgsRef,
+};
 use stellatune_plugin_sdk::update::ConfigUpdatable;
 use stellatune_plugin_sdk::{
-    Decoder, DecoderDescriptor as LegacyDecoderDescriptor, DecoderInfo, DecoderOpenArgs, SdkError,
-    SdkResult,
+    Decoder, DecoderDescriptor as LegacyDecoderDescriptor, DecoderInfo, DecoderOpenArgs, HostIo,
+    SdkError, SdkResult, StAudioSpec, StDecoderInfo, StLogLevel, host_log,
 };
 use symphonia::core::audio::{SampleBuffer, SignalSpec};
 use symphonia::core::codecs::{Decoder as SymphoniaDecoder, DecoderOptions};
@@ -39,7 +40,7 @@ struct SymphoniaBackend {
     decoder: Box<dyn SymphoniaDecoder>,
     track_id: u32,
     in_channels: usize,
-    spec: stellatune_plugin_sdk::StAudioSpec,
+    spec: StAudioSpec,
     sample_buf: Option<SampleBuffer<f32>>,
     pending: Vec<f32>,
     metadata: Option<serde_json::Value>,
@@ -50,7 +51,7 @@ struct SymphoniaBackend {
 }
 
 impl NcmDecoder {
-    fn open_from_io(io: stellatune_plugin_sdk::HostIo) -> SdkResult<Self> {
+    fn open_from_io(io: HostIo) -> SdkResult<Self> {
         let mut io_copy = io;
         let file_size = io_copy.size().map_err(|e| e.to_string())?;
 
@@ -66,7 +67,7 @@ impl NcmDecoder {
             .get_info()
             .map_err(|e| format!("ncmdump get_info failed: {e}"))?;
         let cover = ncm.get_image().ok();
-        stellatune_plugin_sdk::host_log!(
+        host_log!(
             StLogLevel::Debug,
             "ncm: container info title={:?} fmt={:?} duration_ms={} cover={}",
             info.name.trim(),
@@ -104,7 +105,7 @@ impl NcmDecoder {
         if hint_ext.eq_ignore_ascii_case("flac") {
             start_offset = find_flac_streaminfo_start(&mut ncm)?;
             if start_offset != 0 {
-                stellatune_plugin_sdk::host_log!(
+                host_log!(
                     StLogLevel::Debug,
                     "ncm: flac payload has leading junk, skipping {} bytes",
                     start_offset
@@ -176,7 +177,7 @@ impl NcmDecoder {
         }
 
         let metadata = build_metadata(tags, duration_ms);
-        stellatune_plugin_sdk::host_log!(
+        host_log!(
             StLogLevel::Info,
             "ncm: opened sr={} ch={} hint_ext={:?} duration_ms={:?}",
             sample_rate,
@@ -191,7 +192,7 @@ impl NcmDecoder {
                 decoder,
                 track_id,
                 in_channels,
-                spec: stellatune_plugin_sdk::StAudioSpec {
+                spec: StAudioSpec {
                     sample_rate,
                     channels: out_channels,
                     reserved: 0,
@@ -307,20 +308,20 @@ impl SymphoniaBackend {
                                     self.pending.push((r * norm).clamp(-1.0, 1.0));
                                 }
                             }
-                        }
+                        },
                         Err(SymphoniaError::DecodeError(_)) => continue,
                         Err(SymphoniaError::ResetRequired) => {
                             self.decoder.reset();
                             continue;
-                        }
+                        },
                         Err(e) => return Err(SdkError::msg(e.to_string())),
                     }
-                }
+                },
                 Err(SymphoniaError::IoError(e))
                     if e.kind() == std::io::ErrorKind::UnexpectedEof =>
                 {
                     break;
-                }
+                },
                 Err(e) => return Err(SdkError::msg(e.to_string())),
             }
         }
@@ -388,7 +389,7 @@ impl LegacyDecoderDescriptor for NcmDecoder {
 
     fn open(args: DecoderOpenArgs<'_>) -> SdkResult<Self> {
         let io = args.io;
-        stellatune_plugin_sdk::host_log!(
+        host_log!(
             StLogLevel::Info,
             "ncm: open path={:?} ext={:?} seekable={}",
             args.path,
@@ -409,13 +410,8 @@ pub struct NcmDecoderInstance {
 impl ConfigUpdatable for NcmDecoderInstance {}
 
 impl DecoderInstance for NcmDecoderInstance {
-    fn open(
-        &mut self,
-        args: stellatune_plugin_sdk::instance::DecoderOpenArgsRef<'_>,
-    ) -> SdkResult<()> {
-        let host_io = unsafe {
-            stellatune_plugin_sdk::HostIo::from_raw(args.io.io_vtable, args.io.io_handle)
-        };
+    fn open(&mut self, args: DecoderOpenArgsRef<'_>) -> SdkResult<()> {
+        let host_io = unsafe { HostIo::from_raw(args.io.io_vtable, args.io.io_handle) };
         let decoder = <NcmDecoder as LegacyDecoderDescriptor>::open(DecoderOpenArgs {
             path: args.path_hint,
             ext: args.ext_hint,
@@ -425,10 +421,12 @@ impl DecoderInstance for NcmDecoderInstance {
         Ok(())
     }
 
-    fn get_info(&self) -> stellatune_plugin_sdk::StDecoderInfo {
-        self.inner.as_ref().map(|d| d.info().to_ffi()).unwrap_or(
-            stellatune_plugin_sdk::StDecoderInfo {
-                spec: stellatune_plugin_sdk::StAudioSpec {
+    fn get_info(&self) -> StDecoderInfo {
+        self.inner
+            .as_ref()
+            .map(|d| d.info().to_ffi())
+            .unwrap_or(StDecoderInfo {
+                spec: StAudioSpec {
                     sample_rate: 0,
                     channels: 0,
                     reserved: 0,
@@ -438,8 +436,7 @@ impl DecoderInstance for NcmDecoderInstance {
                 encoder_padding_frames: 0,
                 flags: 0,
                 reserved: 0,
-            },
-        )
+            })
     }
 
     fn get_metadata_json(&self) -> SdkResult<Option<String>> {
