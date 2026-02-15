@@ -5,12 +5,8 @@ pub(super) fn build_fts_query(q: &str) -> String {
         .filter(|s| !s.is_empty())
         // Always quote tokens so that punctuation (e.g. apostrophes) won't break the FTS5 parser.
         .filter_map(|raw| {
-            let token = raw
-                .chars()
-                .filter(|c| !c.is_control())
-                .collect::<String>()
-                .trim()
-                .to_string();
+            let token =
+                raw.chars().filter(|c| !c.is_control()).collect::<String>().trim().to_string();
             if token.is_empty() {
                 return None;
             }

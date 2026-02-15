@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Instant, UNIX_EPOCH};
 
 use anyhow::Result;
 use sqlx::SqlitePool;
@@ -90,7 +90,7 @@ pub(super) async fn scan_all(
                 let mtime_ms = meta
                     .modified()
                     .ok()
-                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
                     .map(|d| d.as_millis() as i64)
                     .unwrap_or(0);
                 let size_bytes = meta.len() as i64;
@@ -148,14 +148,14 @@ pub(super) async fn scan_all(
                         message: format!("metadata error: {}: {e:#}", file.path),
                     });
                     (None, None, None, None, None)
-                }
+                },
                 Err(join_err) => {
                     errors += 1;
                     events.emit(LibraryEvent::Log {
                         message: format!("metadata task failed: {}: {join_err}", file.path),
                     });
                     (None, None, None, None, None)
-                }
+                },
             };
 
             let track_id = match upsert_track(
@@ -183,7 +183,7 @@ pub(super) async fn scan_all(
                         message: format!("upsert error: {}: {e}", file.path),
                     });
                     continue;
-                }
+                },
             };
 
             if let Some(bytes) = cover
@@ -296,7 +296,7 @@ pub(super) async fn scan_folder_into_db(
             let mtime_ms = meta
                 .modified()
                 .ok()
-                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
                 .map(|d| d.as_millis() as i64)
                 .unwrap_or(0);
             let size_bytes = meta.len() as i64;
@@ -349,13 +349,13 @@ pub(super) async fn scan_folder_into_db(
                     message: format!("metadata error: {}: {e:#}", file.path),
                 });
                 (None, None, None, None, None)
-            }
+            },
             Err(join_err) => {
                 events.emit(LibraryEvent::Log {
                     message: format!("metadata task failed: {}: {join_err}", file.path),
                 });
                 (None, None, None, None, None)
-            }
+            },
         };
 
         let track_id = upsert_track(

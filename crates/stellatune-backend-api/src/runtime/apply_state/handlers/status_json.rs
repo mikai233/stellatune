@@ -1,6 +1,6 @@
 use stellatune_runtime::tokio_actor::{ActorContext, Handler, Message};
 
-use super::super::{ApplyStateCoordinatorActor, snapshot_status_json};
+use crate::runtime::apply_state::{ApplyStateCoordinatorActor, snapshot_status_json};
 
 pub(crate) struct GetStatusJsonMessage;
 

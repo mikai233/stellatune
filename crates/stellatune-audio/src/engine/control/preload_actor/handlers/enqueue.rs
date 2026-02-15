@@ -6,7 +6,7 @@ use crate::engine::control::{internal_preload_failed_dispatch, internal_preload_
 use crate::engine::decode::decoder::open_engine_decoder;
 use crate::engine::messages::PredecodedChunk;
 
-use super::super::PreloadActor;
+use crate::engine::control::preload_actor::PreloadActor;
 
 pub(crate) struct PreloadEnqueueMessage {
     pub(crate) path: String,
@@ -55,7 +55,7 @@ impl Handler<PreloadEnqueueMessage> for PreloadActor {
                             t0.elapsed().as_millis() as u64,
                             token,
                         ));
-                    }
+                    },
                     Ok(_) => {
                         let _ = internal_tx.send(internal_preload_failed_dispatch(
                             path.clone(),
@@ -64,7 +64,7 @@ impl Handler<PreloadEnqueueMessage> for PreloadActor {
                             t0.elapsed().as_millis() as u64,
                             token,
                         ));
-                    }
+                    },
                     Err(err) => {
                         let _ = internal_tx.send(internal_preload_failed_dispatch(
                             path.clone(),
@@ -73,9 +73,9 @@ impl Handler<PreloadEnqueueMessage> for PreloadActor {
                             t0.elapsed().as_millis() as u64,
                             token,
                         ));
-                    }
+                    },
                 }
-            }
+            },
             Err(err) => {
                 let _ = internal_tx.send(internal_preload_failed_dispatch(
                     path.clone(),
@@ -84,7 +84,7 @@ impl Handler<PreloadEnqueueMessage> for PreloadActor {
                     t0.elapsed().as_millis() as u64,
                     token,
                 ));
-            }
+            },
         }
     }
 }

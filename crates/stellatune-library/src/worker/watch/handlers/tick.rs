@@ -3,7 +3,7 @@ use tokio::time::Instant;
 use crate::LibraryEvent;
 use stellatune_runtime::tokio_actor::{ActorContext, Handler, Message};
 
-use super::super::{WatchTaskActor, apply_fs_changes};
+use crate::worker::watch::{WatchTaskActor, apply_fs_changes};
 
 pub(crate) struct WatchTickMessage;
 
@@ -38,7 +38,7 @@ impl Handler<WatchTickMessage> for WatchTaskActor {
         .await
         {
             Ok(true) => self.events.emit(LibraryEvent::Changed),
-            Ok(false) => {}
+            Ok(false) => {},
             Err(err) => self.events.emit(LibraryEvent::Log {
                 message: format!("fs sync error: {err:#}"),
             }),

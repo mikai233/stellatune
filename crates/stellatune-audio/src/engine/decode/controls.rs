@@ -73,20 +73,20 @@ pub(super) fn handle_paused_controls(
             *ctx.playing = true;
             *ctx.last_emit = Instant::now();
             set_decode_worker_state(runtime_state, DecodeWorkerState::Playing, "play");
-        }
+        },
         Ok(DecodeCtrl::Pause) => {
             set_decode_worker_state(runtime_state, DecodeWorkerState::Paused, "pause");
-        }
+        },
         Ok(DecodeCtrl::SetDspChain { chain }) => {
             if let Err(e) = sync_dsp_chain(ctx, chain) {
                 let _ = ctx.internal_tx.send(internal_error_dispatch(e));
             }
-        }
+        },
         Ok(DecodeCtrl::SeekMs { position_ms }) => {
             if let Err(e) = perform_seek(position_ms, ctx) {
                 let _ = ctx.internal_tx.send(internal_error_dispatch(e));
             }
-        }
+        },
         Ok(DecodeCtrl::SetLfeMode { mode }) => {
             *ctx.lfe_mode = core_lfe_to_mixer(mode);
             *ctx.channel_mixer = ChannelMixer::new(
@@ -94,20 +94,20 @@ pub(super) fn handle_paused_controls(
                 ChannelLayout::from_count(ctx.out_channels as u16),
                 *ctx.lfe_mode,
             );
-        }
+        },
         Ok(DecodeCtrl::SetOutputSinkTx {
             tx,
             output_sink_chunk_frames,
         }) => {
             *ctx.output_sink_tx = tx;
             *ctx.output_sink_chunk_frames = output_sink_chunk_frames;
-        }
+        },
         Ok(DecodeCtrl::Stop) | Err(RecvTimeoutError::Disconnected) => {
             set_decode_worker_state(runtime_state, DecodeWorkerState::Idle, "stop");
             return true;
-        }
-        Err(RecvTimeoutError::Timeout) => {}
-        _ => {}
+        },
+        Err(RecvTimeoutError::Timeout) => {},
+        _ => {},
     }
     false
 }
@@ -139,36 +139,36 @@ pub(super) fn handle_playing_controls(
                     ChannelLayout::from_count(ctx.out_channels as u16),
                     *ctx.lfe_mode,
                 );
-            }
+            },
             DecodeCtrl::Pause => {
                 *ctx.playing = false;
                 set_decode_worker_state(runtime_state, DecodeWorkerState::Paused, "pause");
                 return false;
-            }
+            },
             DecodeCtrl::SeekMs { position_ms } => {
                 if let Err(e) = perform_seek(position_ms, ctx) {
                     let _ = ctx.internal_tx.send(internal_error_dispatch(e));
                     *ctx.playing = false;
                 }
                 return false;
-            }
+            },
             DecodeCtrl::SetDspChain { chain } => {
                 if let Err(e) = sync_dsp_chain(ctx, chain) {
                     let _ = ctx.internal_tx.send(internal_error_dispatch(e));
                 }
-            }
+            },
             DecodeCtrl::SetOutputSinkTx {
                 tx,
                 output_sink_chunk_frames,
             } => {
                 *ctx.output_sink_tx = tx;
                 *ctx.output_sink_chunk_frames = output_sink_chunk_frames;
-            }
+            },
             DecodeCtrl::Stop => {
                 set_decode_worker_state(runtime_state, DecodeWorkerState::Idle, "stop");
                 return true;
-            }
-            _ => {}
+            },
+            _ => {},
         }
     }
     false

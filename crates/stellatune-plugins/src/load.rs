@@ -364,10 +364,10 @@ fn cleanup_stale_shadow_libraries_in_dir(
             match std::fs::remove_file(&path) {
                 Ok(_) => {
                     report.deleted = report.deleted.saturating_add(1);
-                }
+                },
                 Err(_) => {
                     report.failed = report.failed.saturating_add(1);
-                }
+                },
             }
         }
 

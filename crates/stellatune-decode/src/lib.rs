@@ -1,4 +1,5 @@
 use std::fs::File;
+use std::io;
 use std::path::Path;
 
 use symphonia::core::audio::SampleBuffer;
@@ -11,6 +12,7 @@ use symphonia::core::io::{MediaSourceStream, MediaSourceStreamOptions};
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
 use symphonia::core::units::Time;
+use symphonia::default::{get_codecs, get_probe};
 use thiserror::Error;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -22,7 +24,7 @@ pub struct TrackSpec {
 #[derive(Debug, Error)]
 pub enum DecodeError {
     #[error("io error: {0}")]
-    Io(#[from] std::io::Error),
+    Io(#[from] io::Error),
 
     #[error("unsupported file extension for built-in decoder: `{ext}`")]
     UnsupportedExtension { ext: String },
@@ -92,7 +94,7 @@ impl Decoder {
         let file = File::open(path)?;
         let mss = MediaSourceStream::new(Box::new(file), MediaSourceStreamOptions::default());
 
-        let probed = symphonia::default::get_probe().format(
+        let probed = get_probe().format(
             &hint,
             mss,
             &FormatOptions::default(),
@@ -111,7 +113,7 @@ impl Decoder {
             .map(|c| c.count() as u16)
             .unwrap_or(0);
 
-        let decoder = symphonia::default::get_codecs().make(&params, &DecoderOptions::default())?;
+        let decoder = get_codecs().make(&params, &DecoderOptions::default())?;
 
         Ok(Self {
             format,
@@ -173,20 +175,18 @@ impl Decoder {
                     match self.decoder.decode(&packet) {
                         Ok(audio_buf) => {
                             append_decoded(&mut self.sample_buf, &mut self.pending, audio_buf)
-                        }
+                        },
                         Err(SymphoniaError::DecodeError(_)) => continue,
                         Err(SymphoniaError::ResetRequired) => {
                             self.decoder.reset();
                             continue;
-                        }
+                        },
                         Err(e) => return Err(e.into()),
                     }
-                }
-                Err(SymphoniaError::IoError(e))
-                    if e.kind() == std::io::ErrorKind::UnexpectedEof =>
-                {
+                },
+                Err(SymphoniaError::IoError(e)) if e.kind() == io::ErrorKind::UnexpectedEof => {
                     break;
-                }
+                },
                 Err(e) => return Err(e.into()),
             }
         }

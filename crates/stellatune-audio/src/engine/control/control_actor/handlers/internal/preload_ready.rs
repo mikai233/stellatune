@@ -6,7 +6,7 @@ use crate::engine::messages::PredecodedChunk;
 use crate::engine::session::decode_worker::PromotedPreload;
 use crate::types::TrackDecodeInfo;
 
-use super::super::super::super::debug_metrics;
+use crate::engine::control::debug_metrics;
 
 pub(crate) struct PreloadReadyInternalMessage {
     pub(crate) path: String,

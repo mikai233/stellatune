@@ -1,6 +1,6 @@
 use stellatune_runtime::tokio_actor::{ActorContext, Handler, Message};
 
-use super::super::{ApplyStateCoordinatorActor, ApplyStateReport};
+use crate::runtime::apply_state::{ApplyStateCoordinatorActor, ApplyStateReport};
 
 pub(crate) struct GetLastReportMessage;
 

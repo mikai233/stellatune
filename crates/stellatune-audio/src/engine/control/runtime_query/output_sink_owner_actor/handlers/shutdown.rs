@@ -1,6 +1,6 @@
 use stellatune_runtime::tokio_actor::{ActorContext, Handler, Message};
 
-use super::super::OutputSinkOwnerActor;
+use crate::engine::control::runtime_query::output_sink_owner_actor::OutputSinkOwnerActor;
 
 pub(crate) struct OutputSinkShutdownMessage;
 

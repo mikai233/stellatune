@@ -25,7 +25,7 @@ impl WorkerConfigurableInstance for MockInstance {
                     instance_id: InstanceId(1),
                     revision: 1,
                 })
-            }
+            },
             "recreate" => Ok(InstanceUpdateResult::RequiresRecreate {
                 instance_id: InstanceId(1),
                 revision: 2,

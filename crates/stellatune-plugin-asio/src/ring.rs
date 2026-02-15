@@ -35,7 +35,7 @@ pub(crate) fn create_ring(
             Ok(map) => {
                 created = Some((path, map));
                 break;
-            }
+            },
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
             Err(e) => return Err(SdkError::Io(format!("failed to create shared ring: {e}"))),
         }

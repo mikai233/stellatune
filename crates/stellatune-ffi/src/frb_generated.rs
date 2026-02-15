@@ -3661,7 +3661,7 @@ const _: fn() = || {
     match None::<stellatune_audio::types::Event>.unwrap() {
         stellatune_audio::types::Event::StateChanged { state } => {
             let _: stellatune_audio::types::PlayerState = state;
-        }
+        },
         stellatune_audio::types::Event::Position {
             ms,
             path,
@@ -3670,25 +3670,25 @@ const _: fn() = || {
             let _: i64 = ms;
             let _: String = path;
             let _: u64 = session_id;
-        }
+        },
         stellatune_audio::types::Event::TrackChanged { path } => {
             let _: String = path;
-        }
+        },
         stellatune_audio::types::Event::PlaybackEnded { path } => {
             let _: String = path;
-        }
+        },
         stellatune_audio::types::Event::VolumeChanged { volume } => {
             let _: f32 = volume;
-        }
+        },
         stellatune_audio::types::Event::Error { message } => {
             let _: String = message;
-        }
+        },
         stellatune_audio::types::Event::Log { message } => {
             let _: String = message;
-        }
+        },
     }
     match None::<stellatune_library::LibraryEvent>.unwrap() {
-        stellatune_library::LibraryEvent::Changed => {}
+        stellatune_library::LibraryEvent::Changed => {},
         stellatune_library::LibraryEvent::ScanProgress {
             scanned,
             updated,
@@ -3699,7 +3699,7 @@ const _: fn() = || {
             let _: i64 = updated;
             let _: i64 = skipped;
             let _: i64 = errors;
-        }
+        },
         stellatune_library::LibraryEvent::ScanFinished {
             duration_ms,
             scanned,
@@ -3712,13 +3712,13 @@ const _: fn() = || {
             let _: i64 = updated;
             let _: i64 = skipped;
             let _: i64 = errors;
-        }
+        },
         stellatune_library::LibraryEvent::Error { message } => {
             let _: String = message;
-        }
+        },
         stellatune_library::LibraryEvent::Log { message } => {
             let _: String = message;
-        }
+        },
     }
     {
         let LyricLine = None::<stellatune_backend_api::lyrics_types::LyricLine>.unwrap();
@@ -3736,25 +3736,25 @@ const _: fn() = || {
     match None::<stellatune_backend_api::lyrics_types::LyricsEvent>.unwrap() {
         stellatune_backend_api::lyrics_types::LyricsEvent::Loading { track_key } => {
             let _: String = track_key;
-        }
+        },
         stellatune_backend_api::lyrics_types::LyricsEvent::Ready { track_key, doc } => {
             let _: String = track_key;
             let _: stellatune_backend_api::lyrics_types::LyricsDoc = doc;
-        }
+        },
         stellatune_backend_api::lyrics_types::LyricsEvent::Cursor {
             track_key,
             line_index,
         } => {
             let _: String = track_key;
             let _: i64 = line_index;
-        }
+        },
         stellatune_backend_api::lyrics_types::LyricsEvent::Empty { track_key } => {
             let _: String = track_key;
-        }
+        },
         stellatune_backend_api::lyrics_types::LyricsEvent::Error { track_key, message } => {
             let _: String = track_key;
             let _: String = message;
-        }
+        },
     }
     {
         let LyricsProviderTypeDescriptor =
@@ -4078,7 +4078,7 @@ impl SseDecode for stellatune_audio::types::Event {
                 let mut var_state =
                     <stellatune_audio::types::PlayerState>::sse_decode(deserializer);
                 return stellatune_audio::types::Event::StateChanged { state: var_state };
-            }
+            },
             1 => {
                 let mut var_ms = <i64>::sse_decode(deserializer);
                 let mut var_path = <String>::sse_decode(deserializer);
@@ -4088,34 +4088,34 @@ impl SseDecode for stellatune_audio::types::Event {
                     path: var_path,
                     session_id: var_sessionId,
                 };
-            }
+            },
             2 => {
                 let mut var_path = <String>::sse_decode(deserializer);
                 return stellatune_audio::types::Event::TrackChanged { path: var_path };
-            }
+            },
             3 => {
                 let mut var_path = <String>::sse_decode(deserializer);
                 return stellatune_audio::types::Event::PlaybackEnded { path: var_path };
-            }
+            },
             4 => {
                 let mut var_volume = <f32>::sse_decode(deserializer);
                 return stellatune_audio::types::Event::VolumeChanged { volume: var_volume };
-            }
+            },
             5 => {
                 let mut var_message = <String>::sse_decode(deserializer);
                 return stellatune_audio::types::Event::Error {
                     message: var_message,
                 };
-            }
+            },
             6 => {
                 let mut var_message = <String>::sse_decode(deserializer);
                 return stellatune_audio::types::Event::Log {
                     message: var_message,
                 };
-            }
+            },
             _ => {
                 unimplemented!("");
-            }
+            },
         }
     }
 }
@@ -4160,7 +4160,7 @@ impl SseDecode for stellatune_library::LibraryEvent {
         match tag_ {
             0 => {
                 return stellatune_library::LibraryEvent::Changed;
-            }
+            },
             1 => {
                 let mut var_scanned = <i64>::sse_decode(deserializer);
                 let mut var_updated = <i64>::sse_decode(deserializer);
@@ -4172,7 +4172,7 @@ impl SseDecode for stellatune_library::LibraryEvent {
                     skipped: var_skipped,
                     errors: var_errors,
                 };
-            }
+            },
             2 => {
                 let mut var_durationMs = <i64>::sse_decode(deserializer);
                 let mut var_scanned = <i64>::sse_decode(deserializer);
@@ -4186,22 +4186,22 @@ impl SseDecode for stellatune_library::LibraryEvent {
                     skipped: var_skipped,
                     errors: var_errors,
                 };
-            }
+            },
             3 => {
                 let mut var_message = <String>::sse_decode(deserializer);
                 return stellatune_library::LibraryEvent::Error {
                     message: var_message,
                 };
-            }
+            },
             4 => {
                 let mut var_message = <String>::sse_decode(deserializer);
                 return stellatune_library::LibraryEvent::Log {
                     message: var_message,
                 };
-            }
+            },
             _ => {
                 unimplemented!("");
-            }
+            },
         }
     }
 }
@@ -4489,7 +4489,7 @@ impl SseDecode for stellatune_backend_api::lyrics_types::LyricsEvent {
                 return stellatune_backend_api::lyrics_types::LyricsEvent::Loading {
                     track_key: var_trackKey,
                 };
-            }
+            },
             1 => {
                 let mut var_trackKey = <String>::sse_decode(deserializer);
                 let mut var_doc =
@@ -4498,7 +4498,7 @@ impl SseDecode for stellatune_backend_api::lyrics_types::LyricsEvent {
                     track_key: var_trackKey,
                     doc: var_doc,
                 };
-            }
+            },
             2 => {
                 let mut var_trackKey = <String>::sse_decode(deserializer);
                 let mut var_lineIndex = <i64>::sse_decode(deserializer);
@@ -4506,13 +4506,13 @@ impl SseDecode for stellatune_backend_api::lyrics_types::LyricsEvent {
                     track_key: var_trackKey,
                     line_index: var_lineIndex,
                 };
-            }
+            },
             3 => {
                 let mut var_trackKey = <String>::sse_decode(deserializer);
                 return stellatune_backend_api::lyrics_types::LyricsEvent::Empty {
                     track_key: var_trackKey,
                 };
-            }
+            },
             4 => {
                 let mut var_trackKey = <String>::sse_decode(deserializer);
                 let mut var_message = <String>::sse_decode(deserializer);
@@ -4520,10 +4520,10 @@ impl SseDecode for stellatune_backend_api::lyrics_types::LyricsEvent {
                     track_key: var_trackKey,
                     message: var_message,
                 };
-            }
+            },
             _ => {
                 unimplemented!("");
-            }
+            },
         }
     }
 }
@@ -4919,7 +4919,7 @@ fn pde_ffi_dispatcher_primary_impl(
         ),
         7 => {
             wire__crate__api__dlna__dlna_av_transport_pause_impl(port, ptr, rust_vec_len, data_len)
-        }
+        },
         8 => wire__crate__api__dlna__dlna_av_transport_play_impl(port, ptr, rust_vec_len, data_len),
         9 => wire__crate__api__dlna__dlna_av_transport_seek_ms_impl(
             port,
@@ -4935,7 +4935,7 @@ fn pde_ffi_dispatcher_primary_impl(
         ),
         11 => {
             wire__crate__api__dlna__dlna_av_transport_stop_impl(port, ptr, rust_vec_len, data_len)
-        }
+        },
         12 => wire__crate__api__dlna__dlna_discover_media_renderers_impl(
             port,
             ptr,
@@ -4944,14 +4944,14 @@ fn pde_ffi_dispatcher_primary_impl(
         ),
         13 => {
             wire__crate__api__dlna__dlna_discover_renderers_impl(port, ptr, rust_vec_len, data_len)
-        }
+        },
         14 => {
             wire__crate__api__dlna__dlna_http_publish_track_impl(port, ptr, rust_vec_len, data_len)
-        }
+        },
         15 => wire__crate__api__dlna__dlna_http_start_impl(port, ptr, rust_vec_len, data_len),
         16 => {
             wire__crate__api__dlna__dlna_http_unpublish_all_impl(port, ptr, rust_vec_len, data_len)
-        }
+        },
         17 => wire__crate__api__dlna__dlna_play_local_path_impl(port, ptr, rust_vec_len, data_len),
         18 => wire__crate__api__dlna__dlna_play_local_track_impl(port, ptr, rust_vec_len, data_len),
         19 => wire__crate__api__dlna__dlna_rendering_control_get_volume_impl(
@@ -4978,7 +4978,7 @@ fn pde_ffi_dispatcher_primary_impl(
         25 => wire__crate__api__init_app_impl(port, ptr, rust_vec_len, data_len),
         26 => {
             wire__stellatune_audio__types__lfe_mode_default_impl(port, ptr, rust_vec_len, data_len)
-        }
+        },
         27 => wire__crate__api__library__library_add_root_impl(port, ptr, rust_vec_len, data_len),
         28 => wire__crate__api__library__library_add_track_to_playlist_impl(
             port,
@@ -5000,7 +5000,7 @@ fn pde_ffi_dispatcher_primary_impl(
         ),
         31 => {
             wire__crate__api__library__library_delete_folder_impl(port, ptr, rust_vec_len, data_len)
-        }
+        },
         32 => wire__crate__api__library__library_delete_playlist_impl(
             port,
             ptr,
@@ -5022,7 +5022,7 @@ fn pde_ffi_dispatcher_primary_impl(
         ),
         36 => {
             wire__crate__api__library__library_list_folders_impl(port, ptr, rust_vec_len, data_len)
-        }
+        },
         37 => wire__crate__api__library__library_list_liked_track_ids_impl(
             port,
             ptr,
@@ -5044,7 +5044,7 @@ fn pde_ffi_dispatcher_primary_impl(
         40 => wire__crate__api__library__library_list_roots_impl(port, ptr, rust_vec_len, data_len),
         41 => {
             wire__crate__api__library__library_list_tracks_impl(port, ptr, rust_vec_len, data_len)
-        }
+        },
         42 => wire__crate__api__library__library_move_track_in_playlist_impl(
             port,
             ptr,
@@ -5071,10 +5071,10 @@ fn pde_ffi_dispatcher_primary_impl(
         ),
         46 => {
             wire__crate__api__library__library_plugin_enable_impl(port, ptr, rust_vec_len, data_len)
-        }
+        },
         47 => {
             wire__crate__api__library__library_remove_root_impl(port, ptr, rust_vec_len, data_len)
-        }
+        },
         48 => wire__crate__api__library__library_remove_track_from_playlist_impl(
             port,
             ptr,
@@ -5115,7 +5115,7 @@ fn pde_ffi_dispatcher_primary_impl(
         ),
         56 => {
             wire__crate__api__player__lyrics_apply_candidate_impl(port, ptr, rust_vec_len, data_len)
-        }
+        },
         57 => wire__crate__api__player__lyrics_clear_cache_impl(port, ptr, rust_vec_len, data_len),
         58 => wire__crate__api__player__lyrics_events_impl(port, ptr, rust_vec_len, data_len),
         59 => wire__crate__api__player__lyrics_prefetch_impl(port, ptr, rust_vec_len, data_len),
@@ -5140,7 +5140,7 @@ fn pde_ffi_dispatcher_primary_impl(
         ),
         64 => {
             wire__crate__api__player__lyrics_refresh_current_impl(port, ptr, rust_vec_len, data_len)
-        }
+        },
         65 => wire__crate__api__player__lyrics_search_candidates_impl(
             port,
             ptr,
@@ -5155,7 +5155,7 @@ fn pde_ffi_dispatcher_primary_impl(
         ),
         67 => {
             wire__crate__api__player__lyrics_set_position_ms_impl(port, ptr, rust_vec_len, data_len)
-        }
+        },
         68 => wire__crate__api__player__output_sink_list_targets_json_impl(
             port,
             ptr,
@@ -5164,7 +5164,7 @@ fn pde_ffi_dispatcher_primary_impl(
         ),
         69 => {
             wire__crate__api__player__output_sink_list_types_impl(port, ptr, rust_vec_len, data_len)
-        }
+        },
         70 => wire__crate__api__player__pause_impl(port, ptr, rust_vec_len, data_len),
         71 => wire__crate__api__player__play_impl(port, ptr, rust_vec_len, data_len),
         72 => wire__crate__api__player__plugin_publish_event_json_impl(
@@ -5212,12 +5212,12 @@ fn pde_ffi_dispatcher_primary_impl(
         84 => wire__crate__api__player__set_output_options_impl(port, ptr, rust_vec_len, data_len),
         85 => {
             wire__crate__api__player__set_output_sink_route_impl(port, ptr, rust_vec_len, data_len)
-        }
+        },
         86 => wire__crate__api__player__set_volume_impl(port, ptr, rust_vec_len, data_len),
         87 => wire__crate__api__runtime__shutdown_impl(port, ptr, rust_vec_len, data_len),
         88 => {
             wire__crate__api__player__source_list_items_json_impl(port, ptr, rust_vec_len, data_len)
-        }
+        },
         89 => wire__crate__api__player__source_list_types_impl(port, ptr, rust_vec_len, data_len),
         90 => wire__crate__api__player__stop_impl(port, ptr, rust_vec_len, data_len),
         91 => wire__crate__api__player__switch_track_ref_impl(port, ptr, rust_vec_len, data_len),
@@ -5463,7 +5463,7 @@ impl flutter_rust_bridge::IntoDart for FrbWrapper<stellatune_audio::types::Event
         match self.0 {
             stellatune_audio::types::Event::StateChanged { state } => {
                 [0.into_dart(), state.into_into_dart().into_dart()].into_dart()
-            }
+            },
             stellatune_audio::types::Event::Position {
                 ms,
                 path,
@@ -5477,22 +5477,22 @@ impl flutter_rust_bridge::IntoDart for FrbWrapper<stellatune_audio::types::Event
             .into_dart(),
             stellatune_audio::types::Event::TrackChanged { path } => {
                 [2.into_dart(), path.into_into_dart().into_dart()].into_dart()
-            }
+            },
             stellatune_audio::types::Event::PlaybackEnded { path } => {
                 [3.into_dart(), path.into_into_dart().into_dart()].into_dart()
-            }
+            },
             stellatune_audio::types::Event::VolumeChanged { volume } => {
                 [4.into_dart(), volume.into_into_dart().into_dart()].into_dart()
-            }
+            },
             stellatune_audio::types::Event::Error { message } => {
                 [5.into_dart(), message.into_into_dart().into_dart()].into_dart()
-            }
+            },
             stellatune_audio::types::Event::Log { message } => {
                 [6.into_dart(), message.into_into_dart().into_dart()].into_dart()
-            }
+            },
             _ => {
                 unimplemented!("");
-            }
+            },
         }
     }
 }
@@ -5563,13 +5563,13 @@ impl flutter_rust_bridge::IntoDart for FrbWrapper<stellatune_library::LibraryEve
             .into_dart(),
             stellatune_library::LibraryEvent::Error { message } => {
                 [3.into_dart(), message.into_into_dart().into_dart()].into_dart()
-            }
+            },
             stellatune_library::LibraryEvent::Log { message } => {
                 [4.into_dart(), message.into_into_dart().into_dart()].into_dart()
-            }
+            },
             _ => {
                 unimplemented!("");
-            }
+            },
         }
     }
 }
@@ -5637,7 +5637,7 @@ impl flutter_rust_bridge::IntoDart
         match self.0 {
             stellatune_backend_api::lyrics_types::LyricsEvent::Loading { track_key } => {
                 [0.into_dart(), track_key.into_into_dart().into_dart()].into_dart()
-            }
+            },
             stellatune_backend_api::lyrics_types::LyricsEvent::Ready { track_key, doc } => [
                 1.into_dart(),
                 track_key.into_into_dart().into_dart(),
@@ -5655,7 +5655,7 @@ impl flutter_rust_bridge::IntoDart
             .into_dart(),
             stellatune_backend_api::lyrics_types::LyricsEvent::Empty { track_key } => {
                 [3.into_dart(), track_key.into_into_dart().into_dart()].into_dart()
-            }
+            },
             stellatune_backend_api::lyrics_types::LyricsEvent::Error { track_key, message } => [
                 4.into_dart(),
                 track_key.into_into_dart().into_dart(),
@@ -5664,7 +5664,7 @@ impl flutter_rust_bridge::IntoDart
             .into_dart(),
             _ => {
                 unimplemented!("");
-            }
+            },
         }
     }
 }
@@ -6143,7 +6143,7 @@ impl SseEncode for stellatune_audio::types::AudioBackend {
                 stellatune_audio::types::AudioBackend::WasapiExclusive => 1,
                 _ => {
                     unimplemented!("");
-                }
+                },
             },
             serializer,
         );
@@ -6242,7 +6242,7 @@ impl SseEncode for stellatune_audio::types::Event {
             stellatune_audio::types::Event::StateChanged { state } => {
                 <i32>::sse_encode(0, serializer);
                 <stellatune_audio::types::PlayerState>::sse_encode(state, serializer);
-            }
+            },
             stellatune_audio::types::Event::Position {
                 ms,
                 path,
@@ -6252,30 +6252,30 @@ impl SseEncode for stellatune_audio::types::Event {
                 <i64>::sse_encode(ms, serializer);
                 <String>::sse_encode(path, serializer);
                 <u64>::sse_encode(session_id, serializer);
-            }
+            },
             stellatune_audio::types::Event::TrackChanged { path } => {
                 <i32>::sse_encode(2, serializer);
                 <String>::sse_encode(path, serializer);
-            }
+            },
             stellatune_audio::types::Event::PlaybackEnded { path } => {
                 <i32>::sse_encode(3, serializer);
                 <String>::sse_encode(path, serializer);
-            }
+            },
             stellatune_audio::types::Event::VolumeChanged { volume } => {
                 <i32>::sse_encode(4, serializer);
                 <f32>::sse_encode(volume, serializer);
-            }
+            },
             stellatune_audio::types::Event::Error { message } => {
                 <i32>::sse_encode(5, serializer);
                 <String>::sse_encode(message, serializer);
-            }
+            },
             stellatune_audio::types::Event::Log { message } => {
                 <i32>::sse_encode(6, serializer);
                 <String>::sse_encode(message, serializer);
-            }
+            },
             _ => {
                 unimplemented!("");
-            }
+            },
         }
     }
 }
@@ -6310,7 +6310,7 @@ impl SseEncode for stellatune_audio::types::LfeMode {
                 stellatune_audio::types::LfeMode::MixToFront => 1,
                 _ => {
                     unimplemented!("");
-                }
+                },
             },
             serializer,
         );
@@ -6323,7 +6323,7 @@ impl SseEncode for stellatune_library::LibraryEvent {
         match self {
             stellatune_library::LibraryEvent::Changed => {
                 <i32>::sse_encode(0, serializer);
-            }
+            },
             stellatune_library::LibraryEvent::ScanProgress {
                 scanned,
                 updated,
@@ -6335,7 +6335,7 @@ impl SseEncode for stellatune_library::LibraryEvent {
                 <i64>::sse_encode(updated, serializer);
                 <i64>::sse_encode(skipped, serializer);
                 <i64>::sse_encode(errors, serializer);
-            }
+            },
             stellatune_library::LibraryEvent::ScanFinished {
                 duration_ms,
                 scanned,
@@ -6349,18 +6349,18 @@ impl SseEncode for stellatune_library::LibraryEvent {
                 <i64>::sse_encode(updated, serializer);
                 <i64>::sse_encode(skipped, serializer);
                 <i64>::sse_encode(errors, serializer);
-            }
+            },
             stellatune_library::LibraryEvent::Error { message } => {
                 <i32>::sse_encode(3, serializer);
                 <String>::sse_encode(message, serializer);
-            }
+            },
             stellatune_library::LibraryEvent::Log { message } => {
                 <i32>::sse_encode(4, serializer);
                 <String>::sse_encode(message, serializer);
-            }
+            },
             _ => {
                 unimplemented!("");
-            }
+            },
         }
     }
 }
@@ -6573,12 +6573,12 @@ impl SseEncode for stellatune_backend_api::lyrics_types::LyricsEvent {
             stellatune_backend_api::lyrics_types::LyricsEvent::Loading { track_key } => {
                 <i32>::sse_encode(0, serializer);
                 <String>::sse_encode(track_key, serializer);
-            }
+            },
             stellatune_backend_api::lyrics_types::LyricsEvent::Ready { track_key, doc } => {
                 <i32>::sse_encode(1, serializer);
                 <String>::sse_encode(track_key, serializer);
                 <stellatune_backend_api::lyrics_types::LyricsDoc>::sse_encode(doc, serializer);
-            }
+            },
             stellatune_backend_api::lyrics_types::LyricsEvent::Cursor {
                 track_key,
                 line_index,
@@ -6586,19 +6586,19 @@ impl SseEncode for stellatune_backend_api::lyrics_types::LyricsEvent {
                 <i32>::sse_encode(2, serializer);
                 <String>::sse_encode(track_key, serializer);
                 <i64>::sse_encode(line_index, serializer);
-            }
+            },
             stellatune_backend_api::lyrics_types::LyricsEvent::Empty { track_key } => {
                 <i32>::sse_encode(3, serializer);
                 <String>::sse_encode(track_key, serializer);
-            }
+            },
             stellatune_backend_api::lyrics_types::LyricsEvent::Error { track_key, message } => {
                 <i32>::sse_encode(4, serializer);
                 <String>::sse_encode(track_key, serializer);
                 <String>::sse_encode(message, serializer);
-            }
+            },
             _ => {
                 unimplemented!("");
-            }
+            },
         }
     }
 }
@@ -6721,7 +6721,7 @@ impl SseEncode for stellatune_audio::types::PlayerState {
                 stellatune_audio::types::PlayerState::Buffering => 3,
                 _ => {
                     unimplemented!("");
-                }
+                },
             },
             serializer,
         );
@@ -6767,7 +6767,7 @@ impl SseEncode for stellatune_audio::types::PluginRuntimeKind {
                 stellatune_audio::types::PluginRuntimeKind::ControlFinished => 3,
                 _ => {
                     unimplemented!("");
-                }
+                },
             },
             serializer,
         );
@@ -6785,7 +6785,7 @@ impl SseEncode for stellatune_audio::types::ResampleQuality {
                 stellatune_audio::types::ResampleQuality::Ultra => 3,
                 _ => {
                     unimplemented!("");
-                }
+                },
             },
             serializer,
         );

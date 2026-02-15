@@ -1,3 +1,4 @@
+use std::ffi::c_void;
 use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
@@ -8,8 +9,7 @@ use crate::runtime::instance_registry::InstanceId;
 use crate::runtime::model::ModuleLease;
 use crate::runtime::update::{InstanceUpdateCoordinator, InstanceUpdateDecision};
 
-pub type PluginFreeFn =
-    Option<extern "C" fn(ptr: *mut core::ffi::c_void, len: usize, align: usize)>;
+pub type PluginFreeFn = Option<extern "C" fn(ptr: *mut c_void, len: usize, align: usize)>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConfigUpdatePlan {
@@ -47,11 +47,7 @@ fn status_err_to_anyhow(what: &str, status: StStatus, plugin_free: PluginFreeFn)
         && status.message.len != 0
         && let Some(free) = plugin_free
     {
-        (free)(
-            status.message.ptr as *mut core::ffi::c_void,
-            status.message.len,
-            1,
-        );
+        (free)(status.message.ptr as *mut c_void, status.message.len, 1);
     }
     if msg.is_empty() {
         anyhow!("{what} failed (code={})", status.code)
@@ -66,7 +62,7 @@ pub fn take_plugin_string(s: StStr, plugin_free: PluginFreeFn) -> String {
     }
     let text = unsafe { crate::util::ststr_to_string_lossy(s) };
     if let Some(free) = plugin_free {
-        (free)(s.ptr as *mut core::ffi::c_void, s.len, 1);
+        (free)(s.ptr as *mut c_void, s.len, 1);
     }
     text
 }

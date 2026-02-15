@@ -1,6 +1,6 @@
 use stellatune_runtime::thread_actor::{ActorContext, Handler, Message};
 
-use super::super::PreloadActor;
+use crate::engine::control::preload_actor::PreloadActor;
 
 pub(crate) struct PreloadShutdownMessage;
 

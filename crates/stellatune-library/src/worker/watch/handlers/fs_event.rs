@@ -4,7 +4,7 @@ use tokio::time::Instant;
 
 use stellatune_runtime::tokio_actor::{ActorContext, Handler, Message};
 
-use super::super::{WATCH_DEBOUNCE_MS, WatchTaskActor};
+use crate::worker::watch::{WATCH_DEBOUNCE_MS, WatchTaskActor};
 
 pub(crate) struct WatchFsEventMessage {
     pub(crate) result: notify::Result<notify::Event>,

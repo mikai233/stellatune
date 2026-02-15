@@ -1,10 +1,10 @@
 use stellatune_runtime::thread_actor::{ActorContext, Handler, Message};
 
-use super::super::super::super::{
+use crate::engine::control::control_actor::ControlActor;
+use crate::engine::control::{
     Event, apply_dsp_chain, clear_runtime_query_instance_cache,
     sync_output_sink_with_active_session,
 };
-use super::super::super::ControlActor;
 use crate::engine::messages::PluginReloadSummary;
 
 pub(crate) struct ReloadPluginsMessage {

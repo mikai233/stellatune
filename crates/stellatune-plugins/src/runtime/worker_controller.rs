@@ -135,13 +135,13 @@ impl<F: WorkerInstanceFactory> WorkerInstanceController<F> {
                 self.current_config_json = Some(new_config_json);
                 self.pending_recreate = false;
                 WorkerConfigUpdateOutcome::Applied { revision }
-            }
+            },
             InstanceUpdateResult::RequiresRecreate {
                 revision, reason, ..
             } => {
                 self.pending_recreate = true;
                 WorkerConfigUpdateOutcome::RequiresRecreate { revision, reason }
-            }
+            },
             InstanceUpdateResult::Rejected {
                 revision, reason, ..
             } => WorkerConfigUpdateOutcome::Rejected { revision, reason },
@@ -150,7 +150,7 @@ impl<F: WorkerInstanceFactory> WorkerInstanceController<F> {
             } => {
                 self.pending_recreate = true;
                 WorkerConfigUpdateOutcome::Failed { revision, error }
-            }
+            },
         };
         Ok(outcome)
     }

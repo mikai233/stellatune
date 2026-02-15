@@ -1,10 +1,10 @@
 use stellatune_runtime::thread_actor::{ActorContext, Handler, Message};
 
-use super::super::super::super::{
+use crate::engine::control::control_actor::ControlActor;
+use crate::engine::control::{
     Event, PlayerState, SessionStopMode, event_path_from_engine_token, set_state,
     stop_decode_session,
 };
-use crate::engine::control::control_actor::ControlActor;
 
 pub(crate) struct EofInternalMessage;
 

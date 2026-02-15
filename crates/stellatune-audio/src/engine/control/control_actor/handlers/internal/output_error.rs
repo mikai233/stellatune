@@ -3,11 +3,11 @@ use std::time::Instant;
 use stellatune_runtime::thread_actor::{ActorContext, Handler, Message};
 use tracing::error;
 
-use super::super::super::super::{
+use crate::engine::control::control_actor::ControlActor;
+use crate::engine::control::{
     Event, PlayerState, SessionStopMode, drop_output_pipeline, ensure_output_spec_prewarm,
     set_state, stop_all_audio, stop_decode_session,
 };
-use crate::engine::control::control_actor::ControlActor;
 
 pub(crate) struct OutputErrorInternalMessage {
     pub(crate) message: String,
@@ -64,17 +64,17 @@ impl Handler<OutputErrorInternalMessage> for ControlActor {
                 self.state.wants_playback = true;
                 self.state.play_request_started_at = Some(Instant::now());
                 set_state(&mut self.state, &self.events, PlayerState::Buffering);
-            }
+            },
             PlayerState::Paused => {
                 self.state.wants_playback = false;
                 self.state.play_request_started_at = None;
                 set_state(&mut self.state, &self.events, PlayerState::Paused);
-            }
+            },
             PlayerState::Stopped => {
                 self.state.wants_playback = false;
                 self.state.play_request_started_at = None;
                 set_state(&mut self.state, &self.events, PlayerState::Stopped);
-            }
+            },
         }
 
         self.events.emit(Event::Log {

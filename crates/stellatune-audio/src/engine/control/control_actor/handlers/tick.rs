@@ -6,16 +6,16 @@ use crate::types::PlayerState;
 use stellatune_runtime::thread_actor::{ActorContext, Handler, Message};
 use tracing::{debug, trace};
 
-use super::super::super::{
+use crate::engine::control::control_actor::ControlActor;
+use crate::engine::control::{
     BUFFER_HIGH_WATERMARK_MS, BUFFER_HIGH_WATERMARK_MS_EXCLUSIVE, BUFFER_LOW_WATERMARK_MS,
-    BUFFER_LOW_WATERMARK_MS_EXCLUSIVE, BUFFER_RESUME_STABLE_TICKS, DecodeCtrl, Event,
+    BUFFER_LOW_WATERMARK_MS_EXCLUSIVE, BUFFER_RESUME_STABLE_TICKS, DecodeCtrl, EngineState, Event,
     StartSessionArgs, UNDERRUN_LOG_INTERVAL, apply_dsp_chain, debug_metrics,
     decode_worker_unavailable_error_message, ensure_decode_worker, force_transition_gain_unity,
     is_decode_worker_unavailable_error, output_backend_for_selected,
     output_sink_queue_watermarks_ms, resolve_output_spec_and_sink_chunk, restart_decode_worker,
     set_state, start_session, sync_output_sink_with_active_session,
 };
-use super::super::ControlActor;
 
 pub(crate) struct ControlTickMessage;
 
@@ -59,7 +59,7 @@ impl Handler<ControlTickMessage> for ControlActor {
                         self.events.emit(Event::Error { message });
                         set_state(&mut self.state, &self.events, PlayerState::Stopped);
                         return;
-                    }
+                    },
                 };
             let start_at_ms = self.state.position_ms.max(0) as u64;
             let backend = output_backend_for_selected(self.state.selected_backend);
@@ -97,7 +97,7 @@ impl Handler<ControlTickMessage> for ControlActor {
                     {
                         restart_decode_worker(&mut self.state, &self.internal_tx, &message);
                         start_attempt = start_attempt.saturating_add(1);
-                    }
+                    },
                     Err(message) => break Err(message),
                 }
             };
@@ -128,14 +128,14 @@ impl Handler<ControlTickMessage> for ControlActor {
                         let _ = session.ctrl_tx.send(DecodeCtrl::Play);
                     }
                     set_state(&mut self.state, &self.events, PlayerState::Buffering);
-                }
+                },
                 Err(message) => {
                     self.state.pending_session_start = false;
                     self.state.wants_playback = false;
                     self.state.play_request_started_at = None;
                     self.events.emit(Event::Error { message });
                     set_state(&mut self.state, &self.events, PlayerState::Stopped);
-                }
+                },
             }
         }
 
@@ -181,7 +181,7 @@ impl Handler<ControlTickMessage> for ControlActor {
                     if buffered_ms <= low_watermark_ms {
                         set_state(&mut self.state, &self.events, PlayerState::Buffering);
                     }
-                }
+                },
                 PlayerState::Buffering => {
                     let transition_target =
                         f32::from_bits(session.transition_target_gain.load(Ordering::Relaxed));
@@ -229,8 +229,8 @@ impl Handler<ControlTickMessage> for ControlActor {
                             "buffering completed"
                         );
                     }
-                }
-                PlayerState::Paused | PlayerState::Stopped => {}
+                },
+                PlayerState::Paused | PlayerState::Stopped => {},
             }
             return;
         }
@@ -280,7 +280,7 @@ impl Handler<ControlTickMessage> for ControlActor {
                 } else {
                     session.output_enabled.store(true, Ordering::Release);
                 }
-            }
+            },
             PlayerState::Buffering => {
                 if buffered_ms >= high_watermark_ms {
                     self.state.buffering_ready_streak =
@@ -318,10 +318,10 @@ impl Handler<ControlTickMessage> for ControlActor {
                 } else {
                     session.output_enabled.store(false, Ordering::Release);
                 }
-            }
+            },
             PlayerState::Paused | PlayerState::Stopped => {
                 session.output_enabled.store(false, Ordering::Release);
-            }
+            },
         }
     }
 }
@@ -330,16 +330,12 @@ fn span_ms(from: Option<Instant>, to: Option<Instant>) -> Option<u64> {
     match (from, to) {
         (Some(start), Some(end)) if end >= start => {
             Some(end.duration_since(start).as_millis() as u64)
-        }
+        },
         _ => None,
     }
 }
 
-fn maybe_emit_manual_switch_timing(
-    state: &mut super::super::super::EngineState,
-    resumed_at: Instant,
-    buffered_ms: i64,
-) {
+fn maybe_emit_manual_switch_timing(state: &mut EngineState, resumed_at: Instant, buffered_ms: i64) {
     let Some(timing) = state.manual_switch_timing.take() else {
         return;
     };

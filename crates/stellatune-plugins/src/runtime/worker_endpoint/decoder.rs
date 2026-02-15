@@ -4,6 +4,7 @@ use stellatune_plugin_api::{StAsyncOpState, StCreateDecoderInstanceOpRef, StDeco
 use crate::capabilities::common::{status_to_result, ststr_from_str};
 use crate::capabilities::decoder::DecoderInstance;
 use crate::runtime::handle::PluginRuntimeHandle;
+use crate::runtime::update::InstanceUpdateResult;
 use crate::runtime::worker_controller::{WorkerConfigurableInstance, WorkerInstanceFactory};
 
 use super::common::{
@@ -62,10 +63,10 @@ impl DecoderInstanceFactory {
                             plugin_free,
                         )?;
                         return Ok(());
-                    }
+                    },
                     StAsyncOpState::Cancelled => {
                         return Err(anyhow!("create_decoder_instance operation cancelled"));
-                    }
+                    },
                     StAsyncOpState::Failed => {
                         let _ = status_to_result(
                             "create_decoder_instance op failed",
@@ -73,7 +74,7 @@ impl DecoderInstanceFactory {
                             plugin_free,
                         );
                         return Err(anyhow!("create_decoder_instance operation failed"));
-                    }
+                    },
                 }
             }
         })();
@@ -86,7 +87,7 @@ impl DecoderInstanceFactory {
             Err(err) => {
                 destroy_raw_decoder_instance(&mut raw);
                 Err(err)
-            }
+            },
         }
     }
 }
@@ -115,10 +116,7 @@ impl PluginRuntimeHandle {
 }
 
 impl WorkerConfigurableInstance for DecoderInstance {
-    fn apply_config_update_json(
-        &mut self,
-        new_config_json: &str,
-    ) -> Result<crate::runtime::update::InstanceUpdateResult> {
+    fn apply_config_update_json(&mut self, new_config_json: &str) -> Result<InstanceUpdateResult> {
         DecoderInstance::apply_config_update_json(self, new_config_json)
     }
 }

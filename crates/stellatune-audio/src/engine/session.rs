@@ -103,13 +103,13 @@ mod debug_metrics {
         match result {
             PromoteLookupResult::Hit => {
                 PROMOTE_HITS.fetch_add(1, Ordering::Relaxed);
-            }
+            },
             PromoteLookupResult::MissEmpty => {
                 PROMOTE_MISS_EMPTY.fetch_add(1, Ordering::Relaxed);
-            }
+            },
             PromoteLookupResult::MissMismatch => {
                 PROMOTE_MISS_MISMATCH.fetch_add(1, Ordering::Relaxed);
-            }
+            },
         }
         if lookups.is_multiple_of(DEBUG_PROMOTE_LOG_EVERY) {
             let stores = PROMOTE_STORES.load(Ordering::Relaxed);

@@ -1,10 +1,10 @@
 use stellatune_runtime::thread_actor::{ActorContext, Handler, Message};
 
-use super::super::{
+use crate::engine::control::control_actor::ControlActor;
+use crate::engine::control::{
     PlayerState, SessionStopMode, emit_position_event, next_position_session_id, set_state,
     stop_decode_session,
 };
-use crate::engine::control::control_actor::ControlActor;
 
 pub(crate) struct StopMessage;
 

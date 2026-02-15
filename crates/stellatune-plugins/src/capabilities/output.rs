@@ -1,8 +1,12 @@
 use anyhow::{Result, anyhow};
+use std::ffi::c_void;
 use stellatune_plugin_api::{
-    StAudioSpec, StConfigUpdatePlan, StOutputSinkInstanceRef, StOutputSinkNegotiatedSpec,
-    StOutputSinkRuntimeStatus, StStr,
+    StAudioSpec, StConfigUpdateMode, StConfigUpdatePlan, StOutputSinkInstanceRef,
+    StOutputSinkInstanceVTable, StOutputSinkNegotiatedSpec, StOutputSinkRuntimeStatus, StStr,
 };
+
+use crate::runtime::instance_registry::InstanceId;
+use crate::runtime::update::{InstanceUpdateDecision, InstanceUpdateResult};
 
 use super::common::{
     ConfigUpdatePlan, InstanceRuntimeCtx, decision_from_plan, plan_from_ffi, status_to_result,
@@ -11,8 +15,8 @@ use super::common::{
 
 pub struct OutputSinkInstance {
     ctx: InstanceRuntimeCtx,
-    handle: *mut core::ffi::c_void,
-    vtable: *const stellatune_plugin_api::StOutputSinkInstanceVTable,
+    handle: *mut c_void,
+    vtable: *const StOutputSinkInstanceVTable,
 }
 
 impl OutputSinkInstance {
@@ -27,7 +31,7 @@ impl OutputSinkInstance {
         })
     }
 
-    pub fn instance_id(&self) -> crate::runtime::instance_registry::InstanceId {
+    pub fn instance_id(&self) -> InstanceId {
         self.ctx.instance_id
     }
 
@@ -134,12 +138,12 @@ impl OutputSinkInstance {
     pub fn plan_config_update_json(&self, new_config_json: &str) -> Result<ConfigUpdatePlan> {
         let Some(plan_fn) = (unsafe { (*self.vtable).plan_config_update_json_utf8 }) else {
             return Ok(ConfigUpdatePlan {
-                mode: stellatune_plugin_api::StConfigUpdateMode::Recreate,
+                mode: StConfigUpdateMode::Recreate,
                 reason: Some("plugin does not implement plan_config_update".to_string()),
             });
         };
         let mut out = StConfigUpdatePlan {
-            mode: stellatune_plugin_api::StConfigUpdateMode::Reject,
+            mode: StConfigUpdateMode::Reject,
             reason_utf8: StStr::empty(),
         };
         let status = (plan_fn)(self.handle, ststr_from_str(new_config_json), &mut out);
@@ -154,7 +158,7 @@ impl OutputSinkInstance {
     pub fn apply_config_update_json(
         &mut self,
         new_config_json: &str,
-    ) -> Result<crate::runtime::update::InstanceUpdateResult> {
+    ) -> Result<InstanceUpdateResult> {
         let plan = self.plan_config_update_json(new_config_json)?;
         let decision = decision_from_plan(&plan);
         let req = self.ctx.updates.begin(
@@ -164,7 +168,7 @@ impl OutputSinkInstance {
             plan.reason.clone(),
         );
         match decision {
-            crate::runtime::update::InstanceUpdateDecision::HotApply => {
+            InstanceUpdateDecision::HotApply => {
                 let Some(apply_fn) = (unsafe { (*self.vtable).apply_config_update_json_utf8 })
                 else {
                     let msg = "output apply_config_update not supported".to_string();
@@ -181,18 +185,18 @@ impl OutputSinkInstance {
                     Err(err) => {
                         let _ = self.ctx.updates.finish_failed(&req, err.to_string());
                         Err(err)
-                    }
+                    },
                 }
-            }
-            crate::runtime::update::InstanceUpdateDecision::Recreate => {
+            },
+            InstanceUpdateDecision::Recreate => {
                 Ok(self.ctx.updates.finish_requires_recreate(&req, plan.reason))
-            }
-            crate::runtime::update::InstanceUpdateDecision::Reject => {
+            },
+            InstanceUpdateDecision::Reject => {
                 let reason = plan
                     .reason
                     .unwrap_or_else(|| "output rejected config update".to_string());
                 Ok(self.ctx.updates.finish_rejected(&req, reason))
-            }
+            },
         }
     }
 
@@ -225,7 +229,7 @@ impl Drop for OutputSinkInstance {
         if !self.handle.is_null() && !self.vtable.is_null() {
             self.close_before_destroy();
             unsafe { ((*self.vtable).destroy)(self.handle) };
-            self.handle = core::ptr::null_mut();
+            self.handle = std::ptr::null_mut();
         }
     }
 }

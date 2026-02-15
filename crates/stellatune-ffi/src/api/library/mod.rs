@@ -169,10 +169,10 @@ pub fn library_events(sink: StreamSink<LibraryEvent>) -> Result<()> {
                         debug!("library_events stream sink closed");
                         break;
                     }
-                }
+                },
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
                     debug!(skipped, "library_events lagged");
-                }
+                },
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
             }
         }

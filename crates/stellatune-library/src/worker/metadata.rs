@@ -1,10 +1,12 @@
+use std::cell::RefCell;
 use std::collections::HashMap;
+use std::ffi::c_void;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use base64::Engine;
 use crossbeam_channel::Receiver;
 use stellatune_plugin_api::{
@@ -23,6 +25,11 @@ use symphonia::core::meta::{Limit, MetadataOptions, StandardTagKey, StandardVisu
 use symphonia::core::probe::Hint;
 use symphonia::default::get_probe;
 use tracing::debug;
+
+use stellatune_plugins::runtime::handle::shared_runtime_service;
+use stellatune_runtime::block_on;
+
+use stellatune_plugins::capabilities::decoder::DecoderInstance;
 
 #[derive(Debug, serde::Deserialize)]
 struct PluginTrackMetadata {
@@ -74,7 +81,7 @@ fn status_code(code: i32) -> StStatus {
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 extern "C" fn local_io_read(
-    handle: *mut core::ffi::c_void,
+    handle: *mut c_void,
     out: *mut u8,
     len: usize,
     out_read: *mut usize,
@@ -86,7 +93,7 @@ extern "C" fn local_io_read(
     let out_slice: &mut [u8] = if len == 0 {
         &mut []
     } else {
-        unsafe { core::slice::from_raw_parts_mut(out, len) }
+        unsafe { std::slice::from_raw_parts_mut(out, len) }
     };
     match state.file.read(out_slice) {
         Ok(n) => {
@@ -94,14 +101,14 @@ extern "C" fn local_io_read(
                 *out_read = n;
             }
             StStatus::ok()
-        }
+        },
         Err(_) => status_code(ST_ERR_IO),
     }
 }
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 extern "C" fn local_io_seek(
-    handle: *mut core::ffi::c_void,
+    handle: *mut c_void,
     offset: i64,
     whence: StSeekWhence,
     out_pos: *mut u64,
@@ -116,7 +123,7 @@ extern "C" fn local_io_seek(
                 return status_code(ST_ERR_INVALID_ARG);
             }
             SeekFrom::Start(offset as u64)
-        }
+        },
         StSeekWhence::Current => SeekFrom::Current(offset),
         StSeekWhence::End => SeekFrom::End(offset),
     };
@@ -126,13 +133,13 @@ extern "C" fn local_io_seek(
                 *out_pos = pos;
             }
             StStatus::ok()
-        }
+        },
         Err(_) => status_code(ST_ERR_IO),
     }
 }
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-extern "C" fn local_io_tell(handle: *mut core::ffi::c_void, out_pos: *mut u64) -> StStatus {
+extern "C" fn local_io_tell(handle: *mut c_void, out_pos: *mut u64) -> StStatus {
     if handle.is_null() || out_pos.is_null() {
         return status_code(ST_ERR_INVALID_ARG);
     }
@@ -143,13 +150,13 @@ extern "C" fn local_io_tell(handle: *mut core::ffi::c_void, out_pos: *mut u64) -
                 *out_pos = pos;
             }
             StStatus::ok()
-        }
+        },
         Err(_) => status_code(ST_ERR_IO),
     }
 }
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-extern "C" fn local_io_size(handle: *mut core::ffi::c_void, out_size: *mut u64) -> StStatus {
+extern "C" fn local_io_size(handle: *mut c_void, out_size: *mut u64) -> StStatus {
     if handle.is_null() || out_size.is_null() {
         return status_code(ST_ERR_INVALID_ARG);
     }
@@ -160,7 +167,7 @@ extern "C" fn local_io_size(handle: *mut core::ffi::c_void, out_size: *mut u64) 
                 *out_size = meta.len();
             }
             StStatus::ok()
-        }
+        },
         Err(_) => status_code(ST_ERR_IO),
     }
 }
@@ -190,9 +197,9 @@ const METADATA_DECODER_CACHE_MAX_ENTRIES: usize = 8;
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 thread_local! {
-    static METADATA_DECODER_CACHE: std::cell::RefCell<
+    static METADATA_DECODER_CACHE: RefCell<
         HashMap<(String, String), CachedMetadataDecoder>
-    > = std::cell::RefCell::new(HashMap::new());
+    > = RefCell::new(HashMap::new());
 }
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
@@ -204,17 +211,16 @@ pub(super) fn clear_metadata_decoder_cache() {
 fn create_plugin_metadata_decoder(
     candidate: &DecoderCandidate,
 ) -> Result<(DecoderWorkerController, Receiver<WorkerControlMessage>)> {
-    let runtime = stellatune_plugins::runtime::handle::shared_runtime_service();
-    let endpoint = stellatune_runtime::block_on(
-        runtime.bind_decoder_worker_endpoint(&candidate.plugin_id, &candidate.type_id),
-    )
-    .map_err(|e| {
-        anyhow::anyhow!(
-            "bind_decoder_worker_endpoint failed for {}::{}: {e:#}",
-            candidate.plugin_id,
-            candidate.type_id
-        )
-    })?;
+    let runtime = shared_runtime_service();
+    let endpoint =
+        block_on(runtime.bind_decoder_worker_endpoint(&candidate.plugin_id, &candidate.type_id))
+            .map_err(|e| {
+                anyhow::anyhow!(
+                    "bind_decoder_worker_endpoint failed for {}::{}: {e:#}",
+                    candidate.plugin_id,
+                    candidate.type_id
+                )
+            })?;
     let (mut controller, control_rx) =
         endpoint.into_controller(candidate.default_config_json.clone());
     match controller.apply_pending().map_err(|e| {
@@ -226,14 +232,14 @@ fn create_plugin_metadata_decoder(
     })? {
         WorkerApplyPendingOutcome::Created | WorkerApplyPendingOutcome::Recreated => {
             Ok((controller, control_rx))
-        }
+        },
         WorkerApplyPendingOutcome::Destroyed | WorkerApplyPendingOutcome::Idle => {
             Err(anyhow::anyhow!(
                 "decoder controller did not create instance for {}::{}",
                 candidate.plugin_id,
                 candidate.type_id
             ))
-        }
+        },
     }
 }
 
@@ -280,8 +286,8 @@ fn refresh_cached_metadata_decoder(
                     candidate.plugin_id,
                     candidate.type_id
                 ));
-            }
-            WorkerApplyPendingOutcome::Created | WorkerApplyPendingOutcome::Recreated => {}
+            },
+            WorkerApplyPendingOutcome::Created | WorkerApplyPendingOutcome::Recreated => {},
         }
     }
 
@@ -299,14 +305,14 @@ fn refresh_cached_metadata_decoder(
                 candidate.type_id
             )
         })? {
-            WorkerApplyPendingOutcome::Created | WorkerApplyPendingOutcome::Recreated => {}
+            WorkerApplyPendingOutcome::Created | WorkerApplyPendingOutcome::Recreated => {},
             WorkerApplyPendingOutcome::Destroyed | WorkerApplyPendingOutcome::Idle => {
                 return Err(anyhow::anyhow!(
                     "decoder recreate did not produce instance for {}::{}",
                     candidate.plugin_id,
                     candidate.type_id
                 ));
-            }
+            },
         }
 
         if let Some(state_json) = state_json
@@ -344,14 +350,14 @@ fn refresh_cached_metadata_decoder(
         Err(_) => {
             recreate_instance(entry)?;
             return Ok(());
-        }
+        },
     };
 
     match update_outcome {
         WorkerConfigUpdateOutcome::Applied { .. } => {
             entry.config_json = candidate.default_config_json.clone();
             Ok(())
-        }
+        },
         WorkerConfigUpdateOutcome::DeferredNoInstance
         | WorkerConfigUpdateOutcome::RequiresRecreate { .. }
         | WorkerConfigUpdateOutcome::Rejected { .. }
@@ -362,7 +368,7 @@ fn refresh_cached_metadata_decoder(
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 fn with_cached_metadata_decoder<T>(
     candidate: &DecoderCandidate,
-    f: impl FnOnce(&mut stellatune_plugins::capabilities::decoder::DecoderInstance) -> Result<T>,
+    f: impl FnOnce(&mut DecoderInstance) -> Result<T>,
 ) -> Result<T> {
     METADATA_DECODER_CACHE.with_borrow_mut(|cache| {
         let now = Instant::now();
@@ -380,7 +386,7 @@ fn with_cached_metadata_decoder<T>(
                     control_rx,
                     last_used_at: now,
                 }
-            }
+            },
         };
 
         refresh_cached_metadata_decoder(&mut entry, candidate)?;
@@ -450,7 +456,7 @@ pub(super) fn extract_metadata(path: &Path) -> Result<ExtractedMetadata> {
             );
 
             return Err(e).context("symphonia probe failed");
-        }
+        },
     };
 
     let mut out = ExtractedMetadata::default();
@@ -509,12 +515,10 @@ fn decoder_candidates_for_ext(ext: &str) -> Vec<DecoderCandidate> {
     if normalized.is_empty() {
         return Vec::new();
     }
-    let service = stellatune_plugins::runtime::handle::shared_runtime_service();
+    let service = shared_runtime_service();
     let mut out = Vec::new();
-    for candidate in
-        stellatune_runtime::block_on(service.list_decoder_candidates_for_ext(&normalized))
-    {
-        let Some(cap) = stellatune_runtime::block_on(service.find_capability(
+    for candidate in block_on(service.list_decoder_candidates_for_ext(&normalized)) {
+        let Some(cap) = block_on(service.find_capability(
             &candidate.plugin_id,
             RuntimeCapabilityKind::Decoder,
             &candidate.type_id,
@@ -630,7 +634,7 @@ fn extract_plugin_metadata_from_plugin(path: &Path) -> Result<ExtractedMetadata>
             let mut file = File::open(path)
                 .map(|file| Box::new(LocalFileIoHandle { file }))
                 .with_context(|| format!("failed to open for metadata: {}", path.display()))?;
-            let io_handle = (&mut *file) as *mut LocalFileIoHandle as *mut core::ffi::c_void;
+            let io_handle = (&mut *file) as *mut LocalFileIoHandle as *mut c_void;
 
             dec.open_with_io(
                 &path_str,
@@ -713,11 +717,11 @@ fn extract_plugin_metadata_from_plugin(path: &Path) -> Result<ExtractedMetadata>
             Err(e) => {
                 last_err = Some(e.to_string());
                 continue;
-            }
+            },
         }
     }
 
-    Err(anyhow::anyhow!(
+    Err(anyhow!(
         "failed to extract plugin metadata for {}: {}",
         path.display(),
         last_err.unwrap_or_else(|| "no decoder candidate succeeded".to_string())
@@ -735,8 +739,8 @@ struct DirImageIndex {
 }
 
 thread_local! {
-    static DIR_IMAGE_INDEX: std::cell::RefCell<HashMap<PathBuf, DirImageIndex>> =
-        std::cell::RefCell::new(HashMap::new());
+    static DIR_IMAGE_INDEX: RefCell<HashMap<PathBuf, DirImageIndex>> =
+        RefCell::new(HashMap::new());
 }
 
 fn load_sidecar_cover(track_path: &Path) -> Option<Vec<u8>> {
@@ -920,18 +924,18 @@ fn apply_revision(rev: &symphonia::core::meta::MetadataRevision, out: &mut Extra
                     if out.title.is_none() {
                         out.title = value_to_string(&tag.value);
                     }
-                }
+                },
                 "artist" => {
                     if out.artist.is_none() {
                         out.artist = value_to_string(&tag.value);
                     }
-                }
+                },
                 "album" => {
                     if out.album.is_none() {
                         out.album = value_to_string(&tag.value);
                     }
-                }
-                _ => {}
+                },
+                _ => {},
             }
         }
     }

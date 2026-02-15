@@ -1,7 +1,7 @@
 use stellatune_runtime::thread_actor::{ActorContext, Handler, Message};
 
-use super::super::super::super::DecodeCtrl;
-use super::super::super::ControlActor;
+use crate::engine::control::DecodeCtrl;
+use crate::engine::control::control_actor::ControlActor;
 
 pub(crate) struct SetLfeModeMessage {
     pub(crate) mode: crate::types::LfeMode,

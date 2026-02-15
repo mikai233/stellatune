@@ -1,9 +1,7 @@
 use stellatune_runtime::thread_actor::{ActorContext, Handler, Message};
 
-use super::super::super::super::{
-    Event, PlayerState, SessionStopMode, set_state, stop_decode_session,
-};
 use crate::engine::control::control_actor::ControlActor;
+use crate::engine::control::{Event, PlayerState, SessionStopMode, set_state, stop_decode_session};
 
 pub(crate) struct ErrorInternalMessage {
     pub(crate) message: String,

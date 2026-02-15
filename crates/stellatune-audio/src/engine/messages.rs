@@ -69,7 +69,7 @@ impl OutputSinkTx {
                     );
                 }
                 Err(e)
-            }
+            },
         }
     }
 }

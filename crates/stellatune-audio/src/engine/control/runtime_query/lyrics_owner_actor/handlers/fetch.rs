@@ -1,6 +1,6 @@
 use stellatune_runtime::tokio_actor::{ActorContext, Handler, Message};
 
-use super::super::LyricsOwnerActor;
+use crate::engine::control::runtime_query::lyrics_owner_actor::LyricsOwnerActor;
 use crate::engine::control::runtime_query::{
     apply_or_recreate_lyrics_instance, create_lyrics_provider_cached_instance, with_runtime_service,
 };

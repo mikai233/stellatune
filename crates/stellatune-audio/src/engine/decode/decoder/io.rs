@@ -1,5 +1,7 @@
+use std::ffi::c_void;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
+use std::slice;
 
 use stellatune_plugin_api::{
     ST_ERR_INVALID_ARG, ST_ERR_IO, StIoVTable, StSeekWhence, StStatus, StStr,
@@ -28,10 +30,10 @@ impl DecoderIoOwner {
         }
     }
 
-    pub(super) fn io_handle_ptr(&mut self) -> *mut core::ffi::c_void {
+    pub(super) fn io_handle_ptr(&mut self) -> *mut c_void {
         match self {
-            Self::Local(file) => (&mut **file) as *mut LocalFileIoHandle as *mut core::ffi::c_void,
-            Self::Source { io_handle_addr, .. } => *io_handle_addr as *mut core::ffi::c_void,
+            Self::Local(file) => (&mut **file) as *mut LocalFileIoHandle as *mut c_void,
+            Self::Source { io_handle_addr, .. } => *io_handle_addr as *mut c_void,
         }
     }
 
@@ -67,7 +69,7 @@ fn status_code(code: i32) -> StStatus {
 }
 
 extern "C" fn local_io_read(
-    handle: *mut core::ffi::c_void,
+    handle: *mut c_void,
     out: *mut u8,
     len: usize,
     out_read: *mut usize,
@@ -79,7 +81,7 @@ extern "C" fn local_io_read(
     let out_slice: &mut [u8] = if len == 0 {
         &mut []
     } else {
-        unsafe { core::slice::from_raw_parts_mut(out, len) }
+        unsafe { slice::from_raw_parts_mut(out, len) }
     };
     match state.file.read(out_slice) {
         Ok(n) => {
@@ -87,13 +89,13 @@ extern "C" fn local_io_read(
                 *out_read = n;
             }
             StStatus::ok()
-        }
+        },
         Err(_) => status_code(ST_ERR_IO),
     }
 }
 
 extern "C" fn local_io_seek(
-    handle: *mut core::ffi::c_void,
+    handle: *mut c_void,
     offset: i64,
     whence: StSeekWhence,
     out_pos: *mut u64,
@@ -108,7 +110,7 @@ extern "C" fn local_io_seek(
                 return status_code(ST_ERR_INVALID_ARG);
             }
             SeekFrom::Start(offset as u64)
-        }
+        },
         StSeekWhence::Current => SeekFrom::Current(offset),
         StSeekWhence::End => SeekFrom::End(offset),
     };
@@ -118,12 +120,12 @@ extern "C" fn local_io_seek(
                 *out_pos = pos;
             }
             StStatus::ok()
-        }
+        },
         Err(_) => status_code(ST_ERR_IO),
     }
 }
 
-extern "C" fn local_io_tell(handle: *mut core::ffi::c_void, out_pos: *mut u64) -> StStatus {
+extern "C" fn local_io_tell(handle: *mut c_void, out_pos: *mut u64) -> StStatus {
     if handle.is_null() || out_pos.is_null() {
         return status_code(ST_ERR_INVALID_ARG);
     }
@@ -134,12 +136,12 @@ extern "C" fn local_io_tell(handle: *mut core::ffi::c_void, out_pos: *mut u64) -
                 *out_pos = pos;
             }
             StStatus::ok()
-        }
+        },
         Err(_) => status_code(ST_ERR_IO),
     }
 }
 
-extern "C" fn local_io_size(handle: *mut core::ffi::c_void, out_size: *mut u64) -> StStatus {
+extern "C" fn local_io_size(handle: *mut c_void, out_size: *mut u64) -> StStatus {
     if handle.is_null() || out_size.is_null() {
         return status_code(ST_ERR_INVALID_ARG);
     }
@@ -150,7 +152,7 @@ extern "C" fn local_io_size(handle: *mut core::ffi::c_void, out_size: *mut u64) 
                 *out_size = meta.len();
             }
             StStatus::ok()
-        }
+        },
         Err(_) => status_code(ST_ERR_IO),
     }
 }

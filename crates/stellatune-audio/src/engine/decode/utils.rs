@@ -28,7 +28,7 @@ pub(crate) fn skip_frames_by_decoding(
                     return false;
                 }
                 frames_to_skip = frames_to_skip.saturating_sub(got_frames);
-            }
+            },
             Ok(None) => return false,
             Err(_) => return false,
         }
@@ -70,7 +70,7 @@ pub(crate) fn write_pending(ctx: &mut DecodeContext) -> bool {
                     ) {
                         let _ = ctx.internal_tx.send(internal_error_dispatch(e));
                     }
-                }
+                },
                 DecodeCtrl::SetLfeMode { mode } => {
                     *ctx.lfe_mode = core_lfe_to_mixer(mode);
                     *ctx.channel_mixer = stellatune_mixer::ChannelMixer::new(
@@ -78,24 +78,24 @@ pub(crate) fn write_pending(ctx: &mut DecodeContext) -> bool {
                         stellatune_mixer::ChannelLayout::from_count(ctx.out_channels as u16),
                         *ctx.lfe_mode,
                     );
-                }
+                },
                 DecodeCtrl::Pause => {
                     *ctx.playing = false;
                     break;
-                }
+                },
                 DecodeCtrl::SeekMs { position_ms } => {
                     *ctx.pending_seek = Some(position_ms);
                     return false;
-                }
+                },
                 DecodeCtrl::SetOutputSinkTx {
                     tx,
                     output_sink_chunk_frames,
                 } => {
                     *ctx.output_sink_tx = tx;
                     *ctx.output_sink_chunk_frames = output_sink_chunk_frames;
-                }
+                },
                 DecodeCtrl::Stop => return true,
-                _ => {}
+                _ => {},
             }
         }
         if !*ctx.playing {
@@ -129,11 +129,11 @@ pub(crate) fn write_pending(ctx: &mut DecodeContext) -> bool {
                     *ctx.output_sink_tx = None;
                     thread::sleep(Duration::from_millis(OUTPUT_SINK_WRITE_RETRY_SLEEP_MS));
                     continue;
-                }
+                },
                 Err(TrySendError::Full(_)) => {
                     thread::sleep(Duration::from_millis(OUTPUT_SINK_WRITE_RETRY_SLEEP_MS));
                     continue;
-                }
+                },
             }
         } else if let Ok(mut producer) = ctx.producer.lock() {
             producer.push_slice(&ctx.out_pending[offset..])
@@ -203,7 +203,7 @@ pub(crate) fn refresh_decoder(ctx: &mut DecodeContext) -> Result<(), String> {
                 Some(&e),
             );
             return Err(e);
-        }
+        },
     };
     let plugin_id = next_info
         .decoder_plugin_id

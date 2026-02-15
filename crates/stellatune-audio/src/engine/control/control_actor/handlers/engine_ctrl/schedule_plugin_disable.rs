@@ -1,7 +1,7 @@
 use stellatune_runtime::thread_actor::{ActorContext, Handler, Message};
 use tokio::sync::oneshot::Sender as OneshotSender;
 
-use super::super::super::ControlActor;
+use crate::engine::control::control_actor::ControlActor;
 
 pub(crate) struct SchedulePluginDisableMessage {
     pub(crate) plugin_id: String,

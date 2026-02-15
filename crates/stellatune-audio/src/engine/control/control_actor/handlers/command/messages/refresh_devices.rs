@@ -1,7 +1,7 @@
 use stellatune_runtime::thread_actor::{ActorContext, Handler, Message};
 
-use super::super::output_backend_for_selected;
 use crate::engine::control::control_actor::ControlActor;
+use crate::engine::control::output_backend_for_selected;
 
 pub(crate) struct RefreshDevicesMessage;
 
@@ -23,10 +23,10 @@ impl Handler<RefreshDevicesMessage> for ControlActor {
                     backend: match d.backend {
                         stellatune_output::AudioBackend::Shared => {
                             crate::types::AudioBackend::Shared
-                        }
+                        },
                         stellatune_output::AudioBackend::WasapiExclusive => {
                             crate::types::AudioBackend::WasapiExclusive
-                        }
+                        },
                     },
                     id: d.id,
                     name: d.name,

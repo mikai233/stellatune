@@ -1,6 +1,6 @@
 use stellatune_runtime::tokio_actor::{ActorContext, Handler, Message};
 
-use super::super::{ApplyStateCoordinatorActor, now_ms_for_actor};
+use crate::runtime::apply_state::{ApplyStateCoordinatorActor, now_ms_for_actor};
 
 pub(crate) struct MarkApplyingMessage {
     pub(crate) request_id: u64,

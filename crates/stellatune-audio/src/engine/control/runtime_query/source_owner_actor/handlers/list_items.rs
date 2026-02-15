@@ -1,6 +1,6 @@
 use stellatune_runtime::tokio_actor::{ActorContext, Handler, Message};
 
-use super::super::SourceOwnerActor;
+use crate::engine::control::runtime_query::source_owner_actor::SourceOwnerActor;
 
 pub(crate) struct SourceListItemsMessage {
     pub config_json: String,
@@ -32,7 +32,7 @@ impl Handler<SourceListItemsMessage> for SourceOwnerActor {
                         .map_err(|e| e.to_string()),
                     Err(err) => Err(err),
                 }
-            }
+            },
             Err(err) => Err(err),
         }
     }

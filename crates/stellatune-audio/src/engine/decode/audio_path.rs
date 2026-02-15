@@ -124,11 +124,11 @@ pub(super) fn handle_eof_and_flush(ctx: &mut DecodeContext) -> bool {
                     );
                     ctx.out_pending.extend_from_slice(&processed);
                     ctx.decode_pending.clear();
-                }
+                },
                 Err(e) => {
                     let _ = ctx.internal_tx.send(internal_error_dispatch(e));
                     return true;
-                }
+                },
             }
         }
         while !ctx.out_pending.is_empty() {

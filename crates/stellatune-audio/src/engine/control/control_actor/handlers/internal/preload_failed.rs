@@ -1,8 +1,8 @@
 use stellatune_runtime::thread_actor::{ActorContext, Handler, Message};
 use tracing::debug;
 
-use super::super::super::super::debug_metrics;
 use crate::engine::control::control_actor::ControlActor;
+use crate::engine::control::debug_metrics;
 
 pub(crate) struct PreloadFailedInternalMessage {
     pub(crate) path: String,

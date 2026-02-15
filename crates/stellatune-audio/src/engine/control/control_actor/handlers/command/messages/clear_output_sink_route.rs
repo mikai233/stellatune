@@ -1,11 +1,11 @@
 use stellatune_runtime::thread_actor::{ActorContext, Handler, Message};
 
-use super::super::{
+use crate::engine::control::Event;
+use crate::engine::control::control_actor::ControlActor;
+use crate::engine::control::{
     PlayerState, SessionStopMode, drop_output_pipeline, ensure_output_spec_prewarm, set_state,
     stop_decode_session, sync_output_sink_with_active_session,
 };
-use crate::engine::control::Event;
-use crate::engine::control::control_actor::ControlActor;
 
 pub(crate) struct ClearOutputSinkRouteMessage;
 

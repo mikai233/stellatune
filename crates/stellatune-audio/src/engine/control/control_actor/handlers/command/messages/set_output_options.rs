@@ -1,9 +1,9 @@
 use stellatune_runtime::thread_actor::{ActorContext, Handler, Message};
 
-use super::super::{
+use crate::engine::control::control_actor::ControlActor;
+use crate::engine::control::{
     SessionStopMode, drop_output_pipeline, force_transition_gain_unity, stop_decode_session,
 };
-use crate::engine::control::control_actor::ControlActor;
 
 pub(crate) struct SetOutputOptionsMessage {
     pub(crate) match_track_sample_rate: bool,

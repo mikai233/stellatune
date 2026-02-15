@@ -1,9 +1,10 @@
 use std::collections::{HashMap, HashSet};
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Error, Result, anyhow};
 use arc_swap::ArcSwapOption;
 use reqwest::StatusCode;
 use serde_json::Value;
@@ -234,7 +235,7 @@ impl LyricsServiceCore {
         }
         let path = PathBuf::from(db_path);
         if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
-            std::fs::create_dir_all(parent)
+            fs::create_dir_all(parent)
                 .with_context(|| format!("failed to create lyrics db dir: {}", parent.display()))?;
         }
 
@@ -284,20 +285,20 @@ impl LyricsServiceCore {
                 for item in items {
                     push_candidate_unique(&mut out, &mut seen, item);
                 }
-            }
+            },
             Err(err) => {
                 tracing::warn!("lyrics candidate search (lrclib) failed: {err}");
-            }
+            },
         }
 
         match self.candidate_from_lyrics_ovh(&query).await {
             Ok(Some(item)) => {
                 push_candidate_unique(&mut out, &mut seen, item);
-            }
-            Ok(None) => {}
+            },
+            Ok(None) => {},
             Err(err) => {
                 tracing::warn!("lyrics candidate search (lyrics.ovh) failed: {err}");
-            }
+            },
         }
 
         Ok(out)
@@ -562,7 +563,7 @@ impl LyricsServiceCore {
                 if should_emit {
                     self.hub.emit(LyricsEvent::Ready { track_key, doc });
                 }
-            }
+            },
             Ok(None) => {
                 let mut should_emit = false;
                 {
@@ -576,7 +577,7 @@ impl LyricsServiceCore {
                 if should_emit {
                     self.hub.emit(LyricsEvent::Empty { track_key });
                 }
-            }
+            },
             Err(err) => {
                 let should_emit = self
                     .state
@@ -591,7 +592,7 @@ impl LyricsServiceCore {
                         message: err.to_string(),
                     });
                 }
-            }
+            },
         }
     }
 
@@ -616,24 +617,24 @@ impl LyricsServiceCore {
                 Ok(Some(doc)) => {
                     self.mark_source_success(SOURCE_LRCLIB);
                     return Ok(Some(doc));
-                }
+                },
                 Ok(None) => {
                     self.mark_source_success(SOURCE_LRCLIB);
                     match self.fetch_lrclib_search(query).await {
                         Ok(Some(doc)) => return Ok(Some(doc)),
-                        Ok(None) => {}
+                        Ok(None) => {},
                         Err(err) => {
                             had_network_error = true;
                             self.mark_source_failure(SOURCE_LRCLIB);
                             tracing::warn!("lyrics source lrclib search failed: {err}");
-                        }
+                        },
                     }
-                }
+                },
                 Err(err) => {
                     had_network_error = true;
                     self.mark_source_failure(SOURCE_LRCLIB);
                     tracing::warn!("lyrics source lrclib get failed: {err}");
-                }
+                },
             }
         }
 
@@ -642,15 +643,15 @@ impl LyricsServiceCore {
                 Ok(Some(doc)) => {
                     self.mark_source_success(SOURCE_LYRICS_OVH);
                     return Ok(Some(doc));
-                }
+                },
                 Ok(None) => {
                     self.mark_source_success(SOURCE_LYRICS_OVH);
-                }
+                },
                 Err(err) => {
                     had_network_error = true;
                     self.mark_source_failure(SOURCE_LYRICS_OVH);
                     tracing::warn!("lyrics source lyrics.ovh failed: {err}");
-                }
+                },
             }
         }
 
@@ -872,7 +873,7 @@ impl LyricsServiceCore {
         allow_not_found: bool,
         source: &'static str,
     ) -> Result<Option<Value>> {
-        let mut last_error: Option<anyhow::Error> = None;
+        let mut last_error: Option<Error> = None;
 
         for attempt in 1..=HTTP_RETRY_MAX_ATTEMPTS {
             self.wait_rate_limit_slot().await;
@@ -913,7 +914,7 @@ impl LyricsServiceCore {
                     let err = anyhow!("{} failed with status {}", op_name, status);
                     last_error = Some(err);
                     break;
-                }
+                },
                 Err(err) => {
                     let retriable = is_retriable_error(&err);
                     if retriable && attempt < HTTP_RETRY_MAX_ATTEMPTS {
@@ -923,7 +924,7 @@ impl LyricsServiceCore {
                     }
                     last_error = Some(anyhow!("{} request failed: {}", op_name, err));
                     break;
-                }
+                },
             }
         }
 
@@ -968,7 +969,7 @@ impl LyricsServiceCore {
                 .context("lyrics cache missing doc_json")?;
             let doc: LyricsDoc =
                 serde_json::from_str(&doc_json).context("parse lyrics cache doc_json failed")?;
-            Ok::<_, anyhow::Error>(Some(doc))
+            Ok::<_, Error>(Some(doc))
         }
         .await
         {
@@ -976,7 +977,7 @@ impl LyricsServiceCore {
             Err(err) => {
                 tracing::warn!("load lyrics cache failed: {err}");
                 None
-            }
+            },
         }
     }
 
@@ -1056,7 +1057,7 @@ async fn load_local_lrc_doc_async(track_key: String) -> Option<LyricsDoc> {
         Err(err) => {
             tracing::warn!("load local lrc task failed: {err}");
             None
-        }
+        },
     }
 }
 
@@ -1073,7 +1074,7 @@ fn load_local_lrc_doc_blocking(track_key: &str) -> Option<LyricsDoc> {
 
     let parent = track_path.parent()?;
     let stem = track_path.file_stem()?.to_string_lossy().to_string();
-    let entries = std::fs::read_dir(parent).ok()?;
+    let entries = fs::read_dir(parent).ok()?;
     for entry in entries.flatten() {
         let p = entry.path();
         if !p.is_file() {
@@ -1098,7 +1099,7 @@ fn load_local_lrc_doc_blocking(track_key: &str) -> Option<LyricsDoc> {
 }
 
 fn read_and_parse_lrc(path: &Path, track_key: &str) -> Option<LyricsDoc> {
-    let content = std::fs::read_to_string(path).ok()?;
+    let content = fs::read_to_string(path).ok()?;
     parse_lrc(track_key, "local_lrc", &content)
         .or_else(|| parse_plain(track_key, "local_lrc", content.trim()))
 }
@@ -1125,9 +1126,9 @@ fn find_line_index(lines: &[LyricLine], position_ms: i64) -> i64 {
         match line.start_ms {
             Some(start_ms) if position_ms >= start_ms => {
                 idx = i as i64;
-            }
+            },
             Some(_) => break,
-            None => {}
+            None => {},
         }
     }
     idx

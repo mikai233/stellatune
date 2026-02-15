@@ -1,7 +1,7 @@
 use stellatune_runtime::thread_actor::{ActorContext, Handler, Message};
 
-use super::super::stop_all_audio;
 use crate::engine::control::control_actor::ControlActor;
+use crate::engine::control::stop_all_audio;
 
 pub(crate) struct ShutdownMessage;
 

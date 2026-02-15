@@ -330,7 +330,7 @@ fn with_sidecar_client<T>(
                     SdkError::msg("failed to reinitialize leased ASIO sidecar client")
                 })?;
                 f(client)
-            }
+            },
             Err(e) => Err(e),
         };
     }
@@ -345,7 +345,7 @@ fn with_sidecar_client<T>(
         Err(e) if is_retryable_pipe_error(&e) => {
             client = AsioHostClient::spawn(config)?;
             f(&mut client)
-        }
+        },
         Err(e) => Err(e),
     }
 }

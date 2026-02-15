@@ -38,10 +38,10 @@ impl fmt::Display for SdkError {
                     f,
                     "host api version mismatch: expected={expected}, actual={actual}"
                 )
-            }
+            },
             SdkError::HostCallbackUnavailable(name) => {
                 write!(f, "host callback `{name}` unavailable")
-            }
+            },
             SdkError::HostOperationFailed {
                 operation,
                 code,
@@ -53,7 +53,7 @@ impl fmt::Display for SdkError {
                     return write!(f, "{operation} failed (code={code}): {message}");
                 }
                 write!(f, "{operation} failed (code={code})")
-            }
+            },
             SdkError::InvalidArg(msg) => write!(f, "invalid arg: {msg}"),
             SdkError::Serde(msg) => write!(f, "serde error: {msg}"),
             SdkError::Io(msg) => write!(f, "io error: {msg}"),

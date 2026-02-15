@@ -1,8 +1,8 @@
 use stellatune_runtime::thread_actor::{ActorContext, Handler, Message};
 use tokio::sync::oneshot::Sender as OneshotSender;
 
-use super::super::super::super::lyrics_search_json_via_runtime_async;
-use super::super::super::ControlActor;
+use crate::engine::control::control_actor::ControlActor;
+use crate::engine::control::lyrics_search_json_via_runtime_async;
 
 pub(crate) struct LyricsSearchJsonMessage {
     pub(crate) plugin_id: String,

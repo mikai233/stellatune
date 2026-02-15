@@ -1,7 +1,7 @@
 use crate::LibraryEvent;
 use stellatune_runtime::tokio_actor::{ActorContext, Handler, Message};
 
-use super::super::{WatchTaskActor, refresh_watch_state};
+use crate::worker::watch::{WatchTaskActor, refresh_watch_state};
 
 pub(crate) struct WatchRefreshMessage;
 

@@ -1,9 +1,11 @@
 use anyhow::{Result, anyhow};
+use std::ffi::c_void;
+use std::ptr;
 use std::time::{Duration, Instant};
-use stellatune_plugin_api::StLyricsProviderInstanceRef;
 use stellatune_plugin_api::{
-    StAsyncOpState, StConfigUpdatePlan, StConfigUpdatePlanOpRef, StJsonOpRef, StLyricsJsonOpRef,
-    StStr, StUnitOpRef,
+    StAsyncOpState, StConfigUpdateMode, StConfigUpdatePlan, StConfigUpdatePlanOpRef, StJsonOpRef,
+    StLyricsJsonOpRef, StLyricsProviderInstanceRef, StLyricsProviderInstanceVTable, StStr,
+    StUnitOpRef,
 };
 
 use super::common::{
@@ -19,8 +21,8 @@ const LYRICS_PLAN_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub struct LyricsProviderInstance {
     ctx: InstanceRuntimeCtx,
-    handle: *mut core::ffi::c_void,
-    vtable: *const stellatune_plugin_api::StLyricsProviderInstanceVTable,
+    handle: *mut c_void,
+    vtable: *const StLyricsProviderInstanceVTable,
 }
 
 impl LyricsProviderInstance {
@@ -43,8 +45,8 @@ impl LyricsProviderInstance {
 
     pub fn search_json(&mut self, query_json: &str) -> Result<String> {
         let mut op = StLyricsJsonOpRef {
-            handle: core::ptr::null_mut(),
-            vtable: core::ptr::null(),
+            handle: ptr::null_mut(),
+            vtable: ptr::null(),
             reserved0: 0,
             reserved1: 0,
         };
@@ -67,14 +69,14 @@ impl LyricsProviderInstance {
                 let status = unsafe { ((*op.vtable).take_json_utf8)(op.handle, &mut out) };
                 status_to_result("Lyrics search take_json_utf8", status, self.ctx.plugin_free)?;
                 Ok(take_plugin_string(out, self.ctx.plugin_free))
-            }
+            },
             StAsyncOpState::Cancelled => Err(anyhow!("lyrics search operation cancelled")),
             StAsyncOpState::Failed => {
                 let mut out = StStr::empty();
                 let status = unsafe { ((*op.vtable).take_json_utf8)(op.handle, &mut out) };
                 status_to_result("Lyrics search op failed", status, self.ctx.plugin_free)?;
                 Err(anyhow!("lyrics search operation failed"))
-            }
+            },
             StAsyncOpState::Pending => Err(anyhow!("lyrics search operation still pending")),
         })();
         unsafe { ((*op.vtable).destroy)(op.handle) };
@@ -83,8 +85,8 @@ impl LyricsProviderInstance {
 
     pub fn fetch_json(&mut self, track_json: &str) -> Result<String> {
         let mut op = StLyricsJsonOpRef {
-            handle: core::ptr::null_mut(),
-            vtable: core::ptr::null(),
+            handle: ptr::null_mut(),
+            vtable: ptr::null(),
             reserved0: 0,
             reserved1: 0,
         };
@@ -103,14 +105,14 @@ impl LyricsProviderInstance {
                 let status = unsafe { ((*op.vtable).take_json_utf8)(op.handle, &mut out) };
                 status_to_result("Lyrics fetch take_json_utf8", status, self.ctx.plugin_free)?;
                 Ok(take_plugin_string(out, self.ctx.plugin_free))
-            }
+            },
             StAsyncOpState::Cancelled => Err(anyhow!("lyrics fetch operation cancelled")),
             StAsyncOpState::Failed => {
                 let mut out = StStr::empty();
                 let status = unsafe { ((*op.vtable).take_json_utf8)(op.handle, &mut out) };
                 status_to_result("Lyrics fetch op failed", status, self.ctx.plugin_free)?;
                 Err(anyhow!("lyrics fetch operation failed"))
-            }
+            },
             StAsyncOpState::Pending => Err(anyhow!("lyrics fetch operation still pending")),
         })();
         unsafe { ((*op.vtable).destroy)(op.handle) };
@@ -120,14 +122,14 @@ impl LyricsProviderInstance {
     pub fn plan_config_update_json(&self, new_config_json: &str) -> Result<ConfigUpdatePlan> {
         let Some(plan_fn) = (unsafe { (*self.vtable).begin_plan_config_update_json_utf8 }) else {
             return Ok(ConfigUpdatePlan {
-                mode: stellatune_plugin_api::StConfigUpdateMode::Recreate,
+                mode: StConfigUpdateMode::Recreate,
                 reason: Some("plugin does not implement plan_config_update".to_string()),
             });
         };
 
         let mut op = StConfigUpdatePlanOpRef {
-            handle: core::ptr::null_mut(),
-            vtable: core::ptr::null(),
+            handle: ptr::null_mut(),
+            vtable: ptr::null(),
             reserved0: 0,
             reserved1: 0,
         };
@@ -146,7 +148,7 @@ impl LyricsProviderInstance {
         let result = (|| match wait_plan_op_state(&op, self.ctx.plugin_free)? {
             StAsyncOpState::Ready => {
                 let mut out = StConfigUpdatePlan {
-                    mode: stellatune_plugin_api::StConfigUpdateMode::Reject,
+                    mode: StConfigUpdateMode::Reject,
                     reason_utf8: StStr::empty(),
                 };
                 let status = unsafe { ((*op.vtable).take_plan)(op.handle, &mut out) };
@@ -156,13 +158,13 @@ impl LyricsProviderInstance {
                     self.ctx.plugin_free,
                 )?;
                 Ok(plan_from_ffi(out, self.ctx.plugin_free))
-            }
+            },
             StAsyncOpState::Cancelled => {
                 Err(anyhow!("lyrics plan_config_update operation cancelled"))
-            }
+            },
             StAsyncOpState::Failed => {
                 let mut out = StConfigUpdatePlan {
-                    mode: stellatune_plugin_api::StConfigUpdateMode::Reject,
+                    mode: StConfigUpdateMode::Reject,
                     reason_utf8: StStr::empty(),
                 };
                 let status = unsafe { ((*op.vtable).take_plan)(op.handle, &mut out) };
@@ -172,10 +174,10 @@ impl LyricsProviderInstance {
                     self.ctx.plugin_free,
                 )?;
                 Err(anyhow!("lyrics plan_config_update operation failed"))
-            }
+            },
             StAsyncOpState::Pending => {
                 Err(anyhow!("lyrics plan_config_update operation still pending"))
-            }
+            },
         })();
 
         unsafe { ((*op.vtable).destroy)(op.handle) };
@@ -205,8 +207,8 @@ impl LyricsProviderInstance {
                 };
 
                 let mut op = StUnitOpRef {
-                    handle: core::ptr::null_mut(),
-                    vtable: core::ptr::null(),
+                    handle: ptr::null_mut(),
+                    vtable: ptr::null(),
                     reserved0: 0,
                     reserved1: 0,
                 };
@@ -234,10 +236,10 @@ impl LyricsProviderInstance {
                                 status,
                                 self.ctx.plugin_free,
                             )
-                        }
+                        },
                         StAsyncOpState::Cancelled => {
                             Err(anyhow!("lyrics apply_config_update operation cancelled"))
-                        }
+                        },
                         StAsyncOpState::Failed => {
                             let status = unsafe { ((*op.vtable).finish)(op.handle) };
                             status_to_result(
@@ -246,7 +248,7 @@ impl LyricsProviderInstance {
                                 self.ctx.plugin_free,
                             )?;
                             Err(anyhow!("lyrics apply_config_update operation failed"))
-                        }
+                        },
                         StAsyncOpState::Pending => Err(anyhow!(
                             "lyrics apply_config_update operation still pending"
                         )),
@@ -261,18 +263,18 @@ impl LyricsProviderInstance {
                     Err(err) => {
                         let _ = self.ctx.updates.finish_failed(&req, err.to_string());
                         Err(err)
-                    }
+                    },
                 }
-            }
+            },
             crate::runtime::update::InstanceUpdateDecision::Recreate => {
                 Ok(self.ctx.updates.finish_requires_recreate(&req, plan.reason))
-            }
+            },
             crate::runtime::update::InstanceUpdateDecision::Reject => {
                 let reason = plan
                     .reason
                     .unwrap_or_else(|| "lyrics rejected config update".to_string());
                 Ok(self.ctx.updates.finish_rejected(&req, reason))
-            }
+            },
         }
     }
 
@@ -282,8 +284,8 @@ impl LyricsProviderInstance {
         };
 
         let mut op = StJsonOpRef {
-            handle: core::ptr::null_mut(),
-            vtable: core::ptr::null(),
+            handle: ptr::null_mut(),
+            vtable: ptr::null(),
             reserved0: 0,
             reserved1: 0,
         };
@@ -310,7 +312,7 @@ impl LyricsProviderInstance {
                 } else {
                     Ok(Some(raw))
                 }
-            }
+            },
             StAsyncOpState::Cancelled => Err(anyhow!("lyrics export_state operation cancelled")),
             StAsyncOpState::Failed => {
                 let mut out = StStr::empty();
@@ -321,7 +323,7 @@ impl LyricsProviderInstance {
                     self.ctx.plugin_free,
                 )?;
                 Err(anyhow!("lyrics export_state operation failed"))
-            }
+            },
             StAsyncOpState::Pending => Err(anyhow!("lyrics export_state operation still pending")),
         })();
 
@@ -335,8 +337,8 @@ impl LyricsProviderInstance {
         };
 
         let mut op = StUnitOpRef {
-            handle: core::ptr::null_mut(),
-            vtable: core::ptr::null(),
+            handle: ptr::null_mut(),
+            vtable: ptr::null(),
             reserved0: 0,
             reserved1: 0,
         };
@@ -358,10 +360,10 @@ impl LyricsProviderInstance {
                 StAsyncOpState::Ready => {
                     let status = unsafe { ((*op.vtable).finish)(op.handle) };
                     status_to_result("Lyrics import_state_json", status, self.ctx.plugin_free)
-                }
+                },
                 StAsyncOpState::Cancelled => {
                     Err(anyhow!("lyrics import_state operation cancelled"))
-                }
+                },
                 StAsyncOpState::Failed => {
                     let status = unsafe { ((*op.vtable).finish)(op.handle) };
                     status_to_result(
@@ -370,10 +372,10 @@ impl LyricsProviderInstance {
                         self.ctx.plugin_free,
                     )?;
                     Err(anyhow!("lyrics import_state operation failed"))
-                }
+                },
                 StAsyncOpState::Pending => {
                     Err(anyhow!("lyrics import_state operation still pending"))
-                }
+                },
             })();
 
         unsafe { ((*op.vtable).destroy)(op.handle) };
@@ -487,7 +489,7 @@ impl Drop for LyricsProviderInstance {
     fn drop(&mut self) {
         if !self.handle.is_null() && !self.vtable.is_null() {
             unsafe { ((*self.vtable).destroy)(self.handle) };
-            self.handle = core::ptr::null_mut();
+            self.handle = ptr::null_mut();
         }
     }
 }

@@ -3,13 +3,13 @@ use std::time::Instant;
 
 use stellatune_runtime::thread_actor::{ActorContext, Handler, Message};
 
-use super::super::super::tick::ControlTickMessage;
-use super::super::{
+use crate::engine::control::Event;
+use crate::engine::control::control_actor::ControlActor;
+use crate::engine::control::control_actor::handlers::tick::ControlTickMessage;
+use crate::engine::control::{
     DecodeCtrl, DisruptFadeKind, PlayerState, SeekPositionGuard, emit_position_event,
     maybe_fade_out_before_disrupt, next_position_session_id, set_state,
 };
-use crate::engine::control::Event;
-use crate::engine::control::control_actor::ControlActor;
 
 pub(crate) struct SeekMsMessage {
     pub(crate) position_ms: u64,

@@ -1,7 +1,7 @@
 use anyhow::Result;
 use stellatune_runtime::tokio_actor::{ActorContext, Handler, Message};
 
-use super::super::LyricsServiceActor;
+use crate::lyrics_service::LyricsServiceActor;
 use crate::{LyricsQuery, LyricsSearchCandidate};
 
 pub(crate) struct SearchCandidatesMessage {

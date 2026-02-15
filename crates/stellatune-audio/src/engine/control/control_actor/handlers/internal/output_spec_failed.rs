@@ -1,8 +1,8 @@
 use stellatune_runtime::thread_actor::{ActorContext, Handler, Message};
 use tracing::warn;
 
-use super::super::super::super::{Event, PlayerState, set_state};
 use crate::engine::control::control_actor::ControlActor;
+use crate::engine::control::{Event, PlayerState, set_state};
 
 pub(crate) struct OutputSpecFailedInternalMessage {
     pub(crate) message: String,

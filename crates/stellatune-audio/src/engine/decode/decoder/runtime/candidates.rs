@@ -1,7 +1,9 @@
 use std::collections::HashSet;
 use std::path::Path;
 
+use stellatune_plugins::runtime::handle::shared_runtime_service;
 use stellatune_plugins::runtime::introspection::CapabilityKind as RuntimeCapabilityKind;
+use stellatune_runtime::block_on;
 
 use super::DecoderCandidate;
 
@@ -22,14 +24,14 @@ fn runtime_scored_decoder_candidates(ext_hint: &str) -> Vec<DecoderCandidate> {
     if ext.is_empty() {
         return Vec::new();
     }
-    let service = stellatune_plugins::runtime::handle::shared_runtime_service();
+    let service = shared_runtime_service();
     let mut out = Vec::new();
     let mut seen = HashSet::new();
-    for candidate in stellatune_runtime::block_on(service.list_decoder_candidates_for_ext(&ext)) {
+    for candidate in block_on(service.list_decoder_candidates_for_ext(&ext)) {
         if !seen.insert((candidate.plugin_id.clone(), candidate.type_id.clone())) {
             continue;
         }
-        let Some(cap) = stellatune_runtime::block_on(service.find_capability(
+        let Some(cap) = block_on(service.find_capability(
             &candidate.plugin_id,
             RuntimeCapabilityKind::Decoder,
             &candidate.type_id,
@@ -46,12 +48,12 @@ fn runtime_scored_decoder_candidates(ext_hint: &str) -> Vec<DecoderCandidate> {
 }
 
 fn runtime_all_decoder_candidates() -> Vec<DecoderCandidate> {
-    let service = stellatune_plugins::runtime::handle::shared_runtime_service();
-    let mut plugin_ids = stellatune_runtime::block_on(service.active_plugin_ids());
+    let service = shared_runtime_service();
+    let mut plugin_ids = block_on(service.active_plugin_ids());
     plugin_ids.sort();
     let mut out = Vec::new();
     for plugin_id in plugin_ids {
-        let mut caps = stellatune_runtime::block_on(service.list_capabilities(&plugin_id));
+        let mut caps = block_on(service.list_capabilities(&plugin_id));
         caps.sort_by(|a, b| a.type_id.cmp(&b.type_id));
         for cap in caps {
             if cap.kind != RuntimeCapabilityKind::Decoder {
@@ -74,8 +76,8 @@ pub(super) fn select_decoder_candidates(
 ) -> Result<Vec<DecoderCandidate>, String> {
     match (decoder_plugin_id, decoder_type_id) {
         (Some(plugin_id), Some(type_id)) => {
-            let service = stellatune_plugins::runtime::handle::shared_runtime_service();
-            let cap = stellatune_runtime::block_on(service.find_capability(
+            let service = shared_runtime_service();
+            let cap = block_on(service.find_capability(
                 plugin_id,
                 RuntimeCapabilityKind::Decoder,
                 type_id,
@@ -91,7 +93,7 @@ pub(super) fn select_decoder_candidates(
                 type_id: type_id.to_string(),
                 default_config_json: cap.default_config_json,
             }])
-        }
+        },
         (Some(plugin_id), None) | (None, Some(plugin_id)) => Err(format!(
             "invalid decoder selector: both plugin_id and type_id are required, got `{plugin_id}` only"
         )),
@@ -105,7 +107,7 @@ pub(super) fn select_decoder_candidates(
             } else {
                 Ok(out)
             }
-        }
+        },
     }
 }
 
@@ -120,12 +122,10 @@ pub(super) fn has_decoder_candidates(
 }
 
 pub(super) fn runtime_has_source_catalog(plugin_id: &str, type_id: &str) -> bool {
-    stellatune_runtime::block_on(
-        stellatune_plugins::runtime::handle::shared_runtime_service().find_capability(
-            plugin_id,
-            RuntimeCapabilityKind::SourceCatalog,
-            type_id,
-        ),
-    )
+    block_on(shared_runtime_service().find_capability(
+        plugin_id,
+        RuntimeCapabilityKind::SourceCatalog,
+        type_id,
+    ))
     .is_some()
 }

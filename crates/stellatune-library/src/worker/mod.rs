@@ -8,6 +8,7 @@ mod watch;
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
@@ -15,6 +16,7 @@ use sqlx::{FromRow, QueryBuilder, SqlitePool};
 use tokio::time::timeout;
 
 use crate::{LibraryEvent, PlaylistLite, TrackLite};
+use stellatune_plugins::runtime::handle::shared_runtime_service;
 use stellatune_runtime::tokio_actor::ActorRef;
 
 use crate::service::EventHub;
@@ -35,7 +37,7 @@ struct PlaylistLiteRow {
 
 pub(crate) struct WorkerDeps {
     pool: SqlitePool,
-    events: std::sync::Arc<EventHub>,
+    events: Arc<EventHub>,
     cover_dir: PathBuf,
     plugins_dir: PathBuf,
 }
@@ -43,7 +45,7 @@ pub(crate) struct WorkerDeps {
 impl WorkerDeps {
     pub(crate) async fn new(
         db_path: &Path,
-        events: std::sync::Arc<EventHub>,
+        events: Arc<EventHub>,
         plugins_dir: PathBuf,
     ) -> Result<Self> {
         let pool = db::init_db(db_path).await?;
@@ -67,7 +69,7 @@ impl WorkerDeps {
                 let disabled = db::list_disabled_plugin_ids(&pool)
                     .await
                     .unwrap_or_default();
-                let service = stellatune_plugins::runtime::handle::shared_runtime_service();
+                let service = shared_runtime_service();
                 service.set_disabled_plugin_ids(disabled).await;
                 match timeout(
                     Duration::from_secs(8),
@@ -92,19 +94,19 @@ impl WorkerDeps {
                                 v2.reclaimed_leases
                             ),
                         });
-                    }
+                    },
                     Ok(Err(e)) => {
                         tracing::warn!(error = %format!("{e:#}"), "library plugin bootstrap reload failed");
                         events.emit(LibraryEvent::Log {
                             message: format!("library plugin runtime v2 reload failed: {e:#}"),
                         });
-                    }
+                    },
                     Err(_) => {
                         tracing::warn!("library plugin bootstrap reload timed out (8s)");
                         events.emit(LibraryEvent::Log {
                             message: "library plugin runtime v2 reload timed out (8s)".to_string(),
                         });
-                    }
+                    },
                 }
                 tracing::info!("library plugin bootstrap end");
             }
@@ -121,7 +123,7 @@ impl WorkerDeps {
 
 pub(crate) struct LibraryWorker {
     pool: SqlitePool,
-    events: std::sync::Arc<EventHub>,
+    events: Arc<EventHub>,
     cover_dir: PathBuf,
     watch_ctrl: ActorRef<WatchTaskActor>,
     plugins_dir: PathBuf,
@@ -131,7 +133,7 @@ impl LibraryWorker {
     pub(crate) fn new(deps: WorkerDeps) -> Self {
         let watch_ctrl = spawn_watch_task(
             deps.pool.clone(),
-            std::sync::Arc::clone(&deps.events),
+            Arc::clone(&deps.events),
             deps.cover_dir.clone(),
         );
         Self {
@@ -153,7 +155,7 @@ impl LibraryWorker {
             let disabled = db::list_disabled_plugin_ids(&self.pool)
                 .await
                 .unwrap_or_default();
-            let service = stellatune_plugins::runtime::handle::shared_runtime_service();
+            let service = shared_runtime_service();
             service.set_disabled_plugin_ids(disabled).await;
             let _ = timeout(
                 Duration::from_secs(8),
@@ -984,7 +986,7 @@ impl LibraryWorker {
         stellatune_runtime::spawn(async move {
             match scan::scan_folder_into_db(pool, &events, &cover_dir, &folder).await {
                 Ok(true) => events.emit(LibraryEvent::Changed),
-                Ok(false) => {}
+                Ok(false) => {},
                 Err(e) => events.emit(LibraryEvent::Log {
                     message: format!("restore scan failed: {e:#}"),
                 }),

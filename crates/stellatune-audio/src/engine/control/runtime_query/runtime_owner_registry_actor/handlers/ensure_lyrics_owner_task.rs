@@ -1,15 +1,17 @@
-use stellatune_runtime::tokio_actor::{ActorContext, Handler, Message};
+use stellatune_runtime::tokio_actor::{ActorContext, ActorRef, Handler, Message, spawn_actor};
 
-use super::super::{LyricsOwnerTaskHandle, RuntimeOwnerRegistryActor};
 use crate::engine::control::RuntimeInstanceSlotKey;
 use crate::engine::control::runtime_query::lyrics_owner_actor::LyricsOwnerActor;
+use crate::engine::control::runtime_query::runtime_owner_registry_actor::{
+    LyricsOwnerTaskHandle, RuntimeOwnerRegistryActor,
+};
 
 pub(crate) struct EnsureLyricsOwnerTaskMessage {
     pub slot: RuntimeInstanceSlotKey,
 }
 
 impl Message for EnsureLyricsOwnerTaskMessage {
-    type Response = stellatune_runtime::tokio_actor::ActorRef<LyricsOwnerActor>;
+    type Response = ActorRef<LyricsOwnerActor>;
 }
 
 #[async_trait::async_trait]
@@ -18,7 +20,7 @@ impl Handler<EnsureLyricsOwnerTaskMessage> for RuntimeOwnerRegistryActor {
         &mut self,
         message: EnsureLyricsOwnerTaskMessage,
         _ctx: &mut ActorContext<Self>,
-    ) -> stellatune_runtime::tokio_actor::ActorRef<LyricsOwnerActor> {
+    ) -> ActorRef<LyricsOwnerActor> {
         if let Some(handle) = self.lyrics_tasks.get(&message.slot)
             && !handle.actor_ref.is_closed()
         {
@@ -26,8 +28,7 @@ impl Handler<EnsureLyricsOwnerTaskMessage> for RuntimeOwnerRegistryActor {
         }
         let plugin_id = message.slot.plugin_id.clone();
         let type_id = message.slot.type_id.clone();
-        let (actor_ref, _join) =
-            stellatune_runtime::tokio_actor::spawn_actor(LyricsOwnerActor::new(plugin_id, type_id));
+        let (actor_ref, _join) = spawn_actor(LyricsOwnerActor::new(plugin_id, type_id));
         self.lyrics_tasks.insert(
             message.slot,
             LyricsOwnerTaskHandle {

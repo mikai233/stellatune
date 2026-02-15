@@ -1,10 +1,10 @@
 use stellatune_runtime::tokio_actor::{ActorContext, Handler, Message};
 
-use super::super::super::{
+use crate::engine::control::runtime_query::output_sink_owner_actor::OutputSinkOwnerActor;
+use crate::engine::control::runtime_query::{
     apply_or_recreate_output_sink_instance, create_output_sink_cached_instance,
     with_runtime_service,
 };
-use super::super::OutputSinkOwnerActor;
 
 pub(crate) struct OutputSinkListTargetsMessage {
     pub config_json: String,

@@ -1,6 +1,6 @@
 use stellatune_runtime::tokio_actor::{ActorContext, Handler, Message};
 
-use super::super::SourceOwnerActor;
+use crate::engine::control::runtime_query::source_owner_actor::SourceOwnerActor;
 
 pub(crate) struct SourceCloseStreamMessage {
     pub stream_id: u64,

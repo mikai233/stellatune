@@ -1,9 +1,9 @@
 use crate::types::TrackRef;
 use stellatune_runtime::thread_actor::{ActorContext, Handler, Message};
 
-use super::super::{debug_metrics, enqueue_preload_task, track_ref_to_engine_token};
 use crate::engine::control::Event;
 use crate::engine::control::control_actor::ControlActor;
+use crate::engine::control::{debug_metrics, enqueue_preload_task, track_ref_to_engine_token};
 
 pub(crate) struct PreloadTrackRefMessage {
     pub(crate) track: TrackRef,

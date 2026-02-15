@@ -389,7 +389,7 @@ impl SourceStream for BytesSourceStream {
                     return Err(SdkError::invalid_arg("seek before start"));
                 }
                 SeekFrom::Start(offset as u64)
-            }
+            },
             StSeekWhence::Current => SeekFrom::Current(offset),
             StSeekWhence::End => SeekFrom::End(offset),
         };
@@ -416,11 +416,11 @@ async fn fetch_song_items(
         "ensure_sidecar" => {
             ensure_sidecar_running(config).await?;
             Ok(Vec::new())
-        }
+        },
         "shutdown_sidecar" => {
             shutdown_sidecar(config).await?;
             Ok(Vec::new())
-        }
+        },
         "playlist_tracks" => {
             let playlist_id = extract_playlist_id(request)
                 .ok_or_else(|| SdkError::invalid_arg("playlist_id is required"))?;
@@ -433,7 +433,7 @@ async fn fetch_song_items(
             let response: SidecarSongListResponse =
                 sidecar_get_json(config, "/v1/playlist/tracks", &params).await?;
             Ok(response.items)
-        }
+        },
         _ => {
             let keywords = request.keywords.trim();
             if keywords.is_empty() {
@@ -448,7 +448,7 @@ async fn fetch_song_items(
             let response: SidecarSongListResponse =
                 sidecar_get_json(config, "/v1/search", &params).await?;
             Ok(response.items)
-        }
+        },
     }
 }
 
@@ -676,14 +676,14 @@ async fn shutdown_sidecar(config: &NeteaseSourceConfig) -> SdkResult<()> {
             }
             host_log(StLogLevel::Info, "netease sidecar shutdown requested");
             Ok(())
-        }
+        },
         Err(e) => {
             host_log(
                 StLogLevel::Debug,
                 &format!("netease sidecar shutdown skipped (unreachable): {e}"),
             );
             Ok(())
-        }
+        },
     }
 }
 
@@ -702,19 +702,19 @@ async fn ensure_sidecar_running(config: &NeteaseSourceConfig) -> SdkResult<()> {
             reset_sidecar_start_state_if_needed();
             host_log(StLogLevel::Debug, "netease sidecar already healthy");
             return Ok(());
-        }
+        },
         Ok(false) => {
             host_log(
                 StLogLevel::Debug,
                 "netease sidecar health returned ok=false",
             );
-        }
+        },
         Err(err) => {
             host_log(
                 StLogLevel::Debug,
                 &format!("netease sidecar health check failed: {err}"),
             );
-        }
+        },
     }
 
     let lock = SIDECAR_START_LOCK.get_or_init(|| tokio::sync::Mutex::new(()));
@@ -728,14 +728,14 @@ async fn ensure_sidecar_running(config: &NeteaseSourceConfig) -> SdkResult<()> {
                 "netease sidecar became healthy while waiting start lock",
             );
             return Ok(());
-        }
-        Ok(false) => {}
+        },
+        Ok(false) => {},
         Err(err) => {
             host_log(
                 StLogLevel::Debug,
                 &format!("netease sidecar health recheck failed: {err}"),
             );
-        }
+        },
     }
 
     let state_lock = SIDECAR_START_STATE.get_or_init(|| Mutex::new(SidecarStartState::default()));
@@ -778,7 +778,7 @@ async fn ensure_sidecar_running(config: &NeteaseSourceConfig) -> SdkResult<()> {
             }
             state.mark_success();
             Ok(())
-        }
+        },
         Err(err) => {
             state.mark_failure();
             let cooldown_ms = state.current_cooldown().as_millis();
@@ -790,7 +790,7 @@ async fn ensure_sidecar_running(config: &NeteaseSourceConfig) -> SdkResult<()> {
                 ),
             );
             Err(err)
-        }
+        },
     }
 }
 
@@ -806,7 +806,7 @@ async fn wait_sidecar_ready(config: &NeteaseSourceConfig) -> SdkResult<()> {
                     &format!("netease sidecar ready after {attempts} health checks"),
                 );
                 return Ok(());
-            }
+            },
             Ok(false) => {
                 if attempts == 1 || attempts.is_multiple_of(8) {
                     host_log(
@@ -814,7 +814,7 @@ async fn wait_sidecar_ready(config: &NeteaseSourceConfig) -> SdkResult<()> {
                         &format!("netease sidecar not ready yet (attempt={attempts})"),
                     );
                 }
-            }
+            },
             Err(err) => {
                 if attempts == 1 || attempts.is_multiple_of(8) {
                     host_log(
@@ -822,7 +822,7 @@ async fn wait_sidecar_ready(config: &NeteaseSourceConfig) -> SdkResult<()> {
                         &format!("netease sidecar health attempt={attempts} failed: {err}"),
                     );
                 }
-            }
+            },
         }
         sleep(Duration::from_millis(150)).await;
     }
@@ -884,19 +884,19 @@ async fn spawn_sidecar_process(config: &NeteaseSourceConfig) -> SdkResult<()> {
             return Err(SdkError::msg(format!(
                 "sidecar exited immediately after spawn (status={status})"
             )));
-        }
+        },
         Ok(None) => {
             host_log(
                 StLogLevel::Debug,
                 &format!("netease sidecar process is running pid={pid}"),
             );
-        }
+        },
         Err(err) => {
             host_log(
                 StLogLevel::Warn,
                 &format!("netease sidecar try_wait failed pid={pid}: {err}"),
             );
-        }
+        },
     }
     Ok(())
 }

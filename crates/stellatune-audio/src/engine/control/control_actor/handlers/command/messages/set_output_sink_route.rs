@@ -1,11 +1,11 @@
 use stellatune_runtime::thread_actor::{ActorContext, Handler, Message};
 
-use super::super::{
+use crate::engine::control::Event;
+use crate::engine::control::control_actor::ControlActor;
+use crate::engine::control::{
     PlayerState, SessionStopMode, drop_output_pipeline, ensure_output_spec_prewarm,
     parse_output_sink_route, set_state, stop_decode_session, sync_output_sink_with_active_session,
 };
-use crate::engine::control::Event;
-use crate::engine::control::control_actor::ControlActor;
 
 pub(crate) struct SetOutputSinkRouteMessage {
     pub(crate) route: crate::types::OutputSinkRoute,
@@ -34,7 +34,7 @@ impl Handler<SetOutputSinkRouteMessage> for ControlActor {
                     message: err.clone(),
                 });
                 return Err(err);
-            }
+            },
         };
         let mode_changed = state.desired_output_sink_route.is_none();
         let route_changed = state.desired_output_sink_route.as_ref() != Some(&parsed_route);

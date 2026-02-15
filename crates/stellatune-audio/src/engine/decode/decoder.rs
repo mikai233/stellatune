@@ -46,7 +46,7 @@ impl EngineDecoder {
                 dec.seek_ms(position_ms).map_err(|e| e.to_string())?;
                 gapless.reset_for_seek(position_ms);
                 Ok(())
-            }
+            },
             Self::Plugin {
                 controller,
                 gapless,
@@ -58,7 +58,7 @@ impl EngineDecoder {
                 dec.seek_ms(position_ms).map_err(|e| e.to_string())?;
                 gapless.reset_for_seek(position_ms);
                 Ok(())
-            }
+            },
         }
     }
 
@@ -79,7 +79,7 @@ impl EngineDecoder {
                     return Err("plugin decoder returned 0 frames without eof".to_string());
                 }
                 Ok(Some(samples))
-            }
+            },
         }
     }
 
@@ -176,7 +176,7 @@ pub(crate) fn assess_track_playability(track: &TrackRef) -> TrackPlayability {
                 playable: false,
                 reason: Some("invalid_source_track_locator".to_string()),
             };
-        }
+        },
     };
 
     if !runtime_has_source_catalog(&source.plugin_id, &source.type_id) {
@@ -233,10 +233,10 @@ pub(crate) fn open_engine_decoder(
                     );
                     debug!(path, "using built-in decoder for local track");
                     return Ok((Box::new(EngineDecoder::Builtin { dec: d, gapless }), info));
-                }
+                },
                 Err(e) => {
                     debug!("built-in decoder open failed, trying plugin decoders: {e}");
-                }
+                },
             }
         }
 
@@ -259,11 +259,11 @@ pub(crate) fn open_engine_decoder(
                     }),
                     info,
                 ));
-            }
-            Ok(None) => {}
+            },
+            Ok(None) => {},
             Err(e) => {
                 debug!("v2 local decoder open failed: {e}");
-            }
+            },
         }
 
         let d = Decoder::open(path).map_err(|e| format!("failed to open decoder: {e}"))?;
@@ -308,11 +308,11 @@ pub(crate) fn open_engine_decoder(
                 }),
                 info,
             ));
-        }
-        Ok(None) => {}
+        },
+        Ok(None) => {},
         Err(e) => {
             debug!("v2 source decoder open failed: {e}");
-        }
+        },
     }
     Err(format!(
         "failed to open v2 decoder on source stream `{path_hint}` (ext hint `{ext_hint}`)"

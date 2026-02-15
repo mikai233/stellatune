@@ -1,6 +1,12 @@
 use anyhow::{Result, anyhow};
-use stellatune_plugin_api::{StConfigUpdatePlan, StDecoderInstanceRef, StDecoderOpenArgs};
-use stellatune_plugin_api::{StDecoderInfo, StIoVTable, StStr};
+use std::ffi::c_void;
+use stellatune_plugin_api::{
+    StAudioSpec, StConfigUpdateMode, StConfigUpdatePlan, StDecoderInfo, StDecoderInstanceRef,
+    StDecoderInstanceVTable, StDecoderOpenArgs, StIoVTable, StStr,
+};
+
+use crate::runtime::instance_registry::InstanceId;
+use crate::runtime::update::{InstanceUpdateDecision, InstanceUpdateResult};
 
 use super::common::{
     ConfigUpdatePlan, InstanceRuntimeCtx, decision_from_plan, plan_from_ffi, status_to_result,
@@ -9,8 +15,8 @@ use super::common::{
 
 pub struct DecoderInstance {
     ctx: InstanceRuntimeCtx,
-    handle: *mut core::ffi::c_void,
-    vtable: *const stellatune_plugin_api::StDecoderInstanceVTable,
+    handle: *mut c_void,
+    vtable: *const StDecoderInstanceVTable,
 }
 
 impl DecoderInstance {
@@ -25,7 +31,7 @@ impl DecoderInstance {
         })
     }
 
-    pub fn instance_id(&self) -> crate::runtime::instance_registry::InstanceId {
+    pub fn instance_id(&self) -> InstanceId {
         self.ctx.instance_id
     }
 
@@ -34,7 +40,7 @@ impl DecoderInstance {
         path_hint: &str,
         ext_hint: &str,
         io_vtable: *const StIoVTable,
-        io_handle: *mut core::ffi::c_void,
+        io_handle: *mut c_void,
     ) -> Result<()> {
         if io_vtable.is_null() || io_handle.is_null() {
             return Err(anyhow!(
@@ -53,7 +59,7 @@ impl DecoderInstance {
 
     pub fn get_info(&self) -> Result<StDecoderInfo> {
         let mut out = StDecoderInfo {
-            spec: stellatune_plugin_api::StAudioSpec {
+            spec: StAudioSpec {
                 sample_rate: 0,
                 channels: 0,
                 reserved: 0,
@@ -115,12 +121,12 @@ impl DecoderInstance {
     pub fn plan_config_update_json(&self, new_config_json: &str) -> Result<ConfigUpdatePlan> {
         let Some(plan_fn) = (unsafe { (*self.vtable).plan_config_update_json_utf8 }) else {
             return Ok(ConfigUpdatePlan {
-                mode: stellatune_plugin_api::StConfigUpdateMode::Recreate,
+                mode: StConfigUpdateMode::Recreate,
                 reason: Some("plugin does not implement plan_config_update".to_string()),
             });
         };
         let mut out = StConfigUpdatePlan {
-            mode: stellatune_plugin_api::StConfigUpdateMode::Reject,
+            mode: StConfigUpdateMode::Reject,
             reason_utf8: StStr::empty(),
         };
         let status = (plan_fn)(self.handle, ststr_from_str(new_config_json), &mut out);
@@ -135,7 +141,7 @@ impl DecoderInstance {
     pub fn apply_config_update_json(
         &mut self,
         new_config_json: &str,
-    ) -> Result<crate::runtime::update::InstanceUpdateResult> {
+    ) -> Result<InstanceUpdateResult> {
         let plan = self.plan_config_update_json(new_config_json)?;
         let decision = decision_from_plan(&plan);
         let req = self.ctx.updates.begin(
@@ -145,7 +151,7 @@ impl DecoderInstance {
             plan.reason.clone(),
         );
         match decision {
-            crate::runtime::update::InstanceUpdateDecision::HotApply => {
+            InstanceUpdateDecision::HotApply => {
                 let Some(apply_fn) = (unsafe { (*self.vtable).apply_config_update_json_utf8 })
                 else {
                     let msg = "decoder apply_config_update not supported".to_string();
@@ -162,18 +168,18 @@ impl DecoderInstance {
                     Err(err) => {
                         let _ = self.ctx.updates.finish_failed(&req, err.to_string());
                         Err(err)
-                    }
+                    },
                 }
-            }
-            crate::runtime::update::InstanceUpdateDecision::Recreate => {
+            },
+            InstanceUpdateDecision::Recreate => {
                 Ok(self.ctx.updates.finish_requires_recreate(&req, plan.reason))
-            }
-            crate::runtime::update::InstanceUpdateDecision::Reject => {
+            },
+            InstanceUpdateDecision::Reject => {
                 let reason = plan
                     .reason
                     .unwrap_or_else(|| "decoder rejected config update".to_string());
                 Ok(self.ctx.updates.finish_rejected(&req, reason))
-            }
+            },
         }
     }
 
@@ -205,7 +211,7 @@ impl Drop for DecoderInstance {
     fn drop(&mut self) {
         if !self.handle.is_null() && !self.vtable.is_null() {
             unsafe { ((*self.vtable).destroy)(self.handle) };
-            self.handle = core::ptr::null_mut();
+            self.handle = std::ptr::null_mut();
         }
     }
 }

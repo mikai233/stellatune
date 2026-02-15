@@ -1,6 +1,8 @@
 use stellatune_runtime::tokio_actor::{ActorContext, Handler, Message};
 
-use super::super::{RuntimeOwnerRegistryActor, SourceCloseTarget};
+use crate::engine::control::runtime_query::runtime_owner_registry_actor::{
+    RuntimeOwnerRegistryActor, SourceCloseTarget,
+};
 
 pub(crate) struct PrepareSourceCloseStreamMessage {
     pub stream_id: u64,

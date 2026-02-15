@@ -1,7 +1,7 @@
 use stellatune_runtime::tokio_actor::{ActorContext, Handler, Message};
 
-use super::super::RuntimeOwnerRegistryActor;
 use crate::engine::control::RuntimeInstanceSlotKey;
+use crate::engine::control::runtime_query::runtime_owner_registry_actor::RuntimeOwnerRegistryActor;
 
 pub(crate) struct RollbackSourceOpenStreamMessage {
     pub slot: RuntimeInstanceSlotKey,

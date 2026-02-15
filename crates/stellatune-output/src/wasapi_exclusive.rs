@@ -3,9 +3,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 
+use anyhow::Error;
 use wasapi::{DeviceEnumerator, Direction, SampleType, StreamMode, WaveFormat};
 
-use crate::{OutputError, OutputSpec, SampleConsumer};
+use crate::{AudioBackend, AudioDevice, OutputError, OutputSpec, SampleConsumer};
 
 pub struct WasapiExclusiveHandle {
     shutdown: Arc<AtomicBool>,
@@ -174,7 +175,7 @@ fn run_exclusive_loop<C: SampleConsumer>(
     consumer: &mut C,
     expected_spec: OutputSpec,
     shutdown: Arc<AtomicBool>,
-) -> Result<(), anyhow::Error> {
+) -> Result<(), Error> {
     let _ = wasapi::initialize_mta();
 
     let enumerator = DeviceEnumerator::new().map_err(|e| anyhow::anyhow!("{}", e))?;
@@ -237,7 +238,7 @@ fn run_exclusive_loop<C: SampleConsumer>(
             Ok(supported) => {
                 selected = Some((supported, kind));
                 break;
-            }
+            },
             Err(e) => last_err = Some(anyhow::anyhow!("{e}")),
         }
     }
@@ -354,7 +355,7 @@ fn run_exclusive_loop<C: SampleConsumer>(
                     }
                     consumer.on_output(samples_needed, provided);
                     unsafe { std::slice::from_raw_parts(buf.as_ptr() as *const u8, nbr_bytes) }
-                }
+                },
                 RenderSampleKind::I16 => {
                     let buf = i16_buf.as_mut().expect("i16 buffer");
                     for s in &mut buf[..samples_needed] {
@@ -367,7 +368,7 @@ fn run_exclusive_loop<C: SampleConsumer>(
                     }
                     consumer.on_output(samples_needed, provided);
                     unsafe { std::slice::from_raw_parts(buf.as_ptr() as *const u8, nbr_bytes) }
-                }
+                },
                 RenderSampleKind::I32 => {
                     let buf = i32_buf.as_mut().expect("i32 buffer");
                     for s in &mut buf[..samples_needed] {
@@ -380,7 +381,7 @@ fn run_exclusive_loop<C: SampleConsumer>(
                     }
                     consumer.on_output(samples_needed, provided);
                     unsafe { std::slice::from_raw_parts(buf.as_ptr() as *const u8, nbr_bytes) }
-                }
+                },
             };
 
             render_client
@@ -393,7 +394,7 @@ fn run_exclusive_loop<C: SampleConsumer>(
     Ok(())
 }
 
-pub fn list_exclusive_devices_detailed() -> Result<Vec<crate::AudioDevice>, OutputError> {
+pub fn list_exclusive_devices_detailed() -> Result<Vec<AudioDevice>, OutputError> {
     let _ = wasapi::initialize_mta();
     let enumerator = DeviceEnumerator::new().map_err(|e| OutputError::ConfigMismatch {
         message: e.to_string(),
@@ -409,8 +410,8 @@ pub fn list_exclusive_devices_detailed() -> Result<Vec<crate::AudioDevice>, Outp
         let name = dev
             .get_friendlyname()
             .unwrap_or_else(|_| "Unknown WASAPI Device".to_string());
-        devices.push(crate::AudioDevice {
-            backend: crate::AudioBackend::WasapiExclusive,
+        devices.push(AudioDevice {
+            backend: AudioBackend::WasapiExclusive,
             id,
             name,
         });

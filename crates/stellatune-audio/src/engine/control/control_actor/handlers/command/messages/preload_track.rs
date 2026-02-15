@@ -1,7 +1,7 @@
 use stellatune_runtime::thread_actor::{ActorContext, Handler, Message};
 
-use super::super::{debug_metrics, enqueue_preload_task};
 use crate::engine::control::control_actor::ControlActor;
+use crate::engine::control::{debug_metrics, enqueue_preload_task};
 
 pub(crate) struct PreloadTrackMessage {
     pub(crate) path: String,

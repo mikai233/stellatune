@@ -536,15 +536,15 @@ impl OutputSinkWorker {
             })
             .expect("failed to spawn stellatune-output-sink thread");
         match startup_rx.recv() {
-            Ok(Ok(())) => {}
+            Ok(Ok(())) => {},
             Ok(Err(err)) => {
                 let _ = join.join();
                 return Err(err);
-            }
+            },
             Err(_) => {
                 let _ = join.join();
                 return Err("output sink worker startup channel closed".to_string());
-            }
+            },
         }
         Ok(Self {
             tx,
@@ -609,13 +609,13 @@ fn recreate_output_sink_instance(
         .and_then(|instance| instance.export_state_json().ok().flatten());
     controller.request_recreate();
     match controller.apply_pending().map_err(|e| e.to_string())? {
-        WorkerApplyPendingOutcome::Created | WorkerApplyPendingOutcome::Recreated => {}
+        WorkerApplyPendingOutcome::Created | WorkerApplyPendingOutcome::Recreated => {},
         WorkerApplyPendingOutcome::Destroyed | WorkerApplyPendingOutcome::Idle => {
             return Err(format!(
                 "output sink recreate failed for {}::{}: controller has no instance",
                 plugin_id, type_id
             ));
-        }
+        },
     }
     let Some(sink) = controller.instance_mut() else {
         return Err(format!(
@@ -653,13 +653,13 @@ fn create_output_sink_controller_and_open(
     .map_err(|e| format!("bind_output_sink_worker_endpoint failed: {e}"))?;
     let (mut controller, control_rx) = endpoint.into_controller(config_json.to_string());
     match controller.apply_pending().map_err(|e| e.to_string())? {
-        WorkerApplyPendingOutcome::Created | WorkerApplyPendingOutcome::Recreated => {}
+        WorkerApplyPendingOutcome::Created | WorkerApplyPendingOutcome::Recreated => {},
         WorkerApplyPendingOutcome::Destroyed | WorkerApplyPendingOutcome::Idle => {
             return Err(format!(
                 "create_output_sink_instance failed for {}::{}: controller has no instance",
                 plugin_id, type_id
             ));
-        }
+        },
     }
     let Some(sink) = controller.instance_mut() else {
         return Err(format!(

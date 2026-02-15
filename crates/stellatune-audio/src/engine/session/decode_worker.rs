@@ -129,11 +129,11 @@ fn run_decode_worker(
                     "prepare received",
                 );
                 prepare
-            }
+            },
             DecodePrepareMsg::Shutdown => {
                 set_decode_worker_state(&runtime_state, DecodeWorkerState::Idle, "shutdown");
                 break;
-            }
+            },
         };
 
         // Clear stale controls from the previous session before switching tracks.

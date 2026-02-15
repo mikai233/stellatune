@@ -87,12 +87,12 @@ impl PluginRuntimeHandle {
                     );
                 }
                 Some(value)
-            }
+            },
             Err(stellatune_runtime::thread_actor::CallError::MailboxClosed)
             | Err(stellatune_runtime::thread_actor::CallError::ActorStopped) => {
                 warn!(op, "plugin runtime actor unavailable");
                 None
-            }
+            },
             Err(stellatune_runtime::thread_actor::CallError::Timeout) => {
                 warn!(
                     op,
@@ -100,7 +100,7 @@ impl PluginRuntimeHandle {
                     "plugin runtime async query timed out"
                 );
                 None
-            }
+            },
         }
     }
 
@@ -114,7 +114,7 @@ impl PluginRuntimeHandle {
             Err(stellatune_runtime::thread_actor::CallError::MailboxClosed)
             | Err(stellatune_runtime::thread_actor::CallError::ActorStopped) => {
                 Err(anyhow!("plugin runtime actor unavailable: {op}"))
-            }
+            },
             Err(stellatune_runtime::thread_actor::CallError::Timeout) => Err(anyhow!(
                 "plugin runtime actor response timed out: {op} ({timeout_ms}ms)",
                 timeout_ms = timeout.as_millis() as u64

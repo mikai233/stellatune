@@ -72,7 +72,7 @@ pub(crate) fn decode_thread(args: DecodeThreadArgs) {
             Err(e) => {
                 let _ = spec_tx.send(Err(e));
                 return;
-            }
+            },
         };
     debug!("decoder open took {}ms", t_open.elapsed().as_millis());
 
@@ -152,7 +152,7 @@ pub(crate) fn decode_thread(args: DecodeThreadArgs) {
         Err(e) => {
             let _ = internal_tx.send(internal_error_dispatch(e));
             return;
-        }
+        },
     };
     debug!(
         "resampler init: {} ({}ms)",
@@ -278,11 +278,11 @@ pub(crate) fn decode_thread(args: DecodeThreadArgs) {
             } else {
                 match process_audio_resampled(&mut ctx) {
                     Ok(true) => return,
-                    Ok(false) => {}
+                    Ok(false) => {},
                     Err(e) => {
                         let _ = ctx.internal_tx.send(internal_error_dispatch(e));
                         return;
-                    }
+                    },
                 }
             }
 
@@ -307,11 +307,11 @@ pub(crate) fn decode_thread(args: DecodeThreadArgs) {
                 } else {
                     match process_audio_resampled(&mut ctx) {
                         Ok(true) => return,
-                        Ok(false) => {}
+                        Ok(false) => {},
                         Err(e) => {
                             let _ = ctx.internal_tx.send(internal_error_dispatch(e));
                             return;
-                        }
+                        },
                     }
                 }
 
@@ -322,7 +322,7 @@ pub(crate) fn decode_thread(args: DecodeThreadArgs) {
                     }
                     continue 'main;
                 }
-            }
+            },
             Ok(None) => {
                 if handle_eof_and_flush(&mut ctx) {
                     return;
@@ -336,11 +336,11 @@ pub(crate) fn decode_thread(args: DecodeThreadArgs) {
                 }
                 let _ = ctx.internal_tx.send(internal_eof_dispatch());
                 break;
-            }
+            },
             Err(e) => {
                 let _ = ctx.internal_tx.send(internal_error_dispatch(e));
                 break;
-            }
+            },
         }
     }
 }

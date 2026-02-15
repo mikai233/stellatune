@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::thread;
+use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use arc_swap::ArcSwapOption;
@@ -9,9 +9,15 @@ use crossbeam_channel::{Receiver, Sender};
 use tokio::sync::broadcast;
 use tracing::{debug, warn};
 
-use crate::types::{Event, PlayerState, TrackPlayability, TrackRef};
+use crate::types::{
+    AudioBackend, AudioDevice, DspChainItem, DspTypeDescriptor, Event, LfeMode,
+    LyricsProviderTypeDescriptor, OutputSinkRoute, OutputSinkTypeDescriptor, PlayerState,
+    PluginDescriptor, ResampleQuality, SourceCatalogTypeDescriptor, TrackDecodeInfo,
+    TrackPlayability, TrackRef,
+};
 use stellatune_output::OutputSpec;
 use stellatune_plugin_api::StOutputSinkNegotiatedSpec;
+use stellatune_plugins::runtime::handle::{SharedPluginRuntimeHandle, shared_runtime_service};
 use stellatune_plugins::runtime::introspection::CapabilityKind;
 use stellatune_plugins::runtime::{
     messages::WorkerControlMessage,
@@ -19,6 +25,32 @@ use stellatune_plugins::runtime::{
         LyricsProviderWorkerController, OutputSinkWorkerController, SourceCatalogWorkerController,
     },
 };
+use stellatune_runtime::thread_actor::{ActorRef, CallError};
+
+use control_actor::handlers::command::messages::{
+    clear_output_sink_route::ClearOutputSinkRouteMessage, pause::PauseMessage, play::PlayMessage,
+    preload_track::PreloadTrackMessage, preload_track_ref::PreloadTrackRefMessage,
+    refresh_devices::RefreshDevicesMessage, seek_ms::SeekMsMessage,
+    set_output_device::SetOutputDeviceMessage, set_output_options::SetOutputOptionsMessage,
+    set_output_sink_route::SetOutputSinkRouteMessage, set_volume::SetVolumeMessage,
+    shutdown::ShutdownMessage, stop::StopMessage, switch_track_ref::SwitchTrackRefMessage,
+};
+use control_actor::handlers::engine_ctrl::{
+    lyrics_fetch_json::LyricsFetchJsonMessage, lyrics_search_json::LyricsSearchJsonMessage,
+    output_sink_list_targets_json::OutputSinkListTargetsJsonMessage,
+    reload_plugins::ReloadPluginsMessage, schedule_plugin_disable::SchedulePluginDisableMessage,
+    set_dsp_chain::SetDspChainMessage, set_lfe_mode::SetLfeModeMessage,
+    source_list_items_json::SourceListItemsJsonMessage,
+};
+use control_actor::handlers::init::ControlInitMessage;
+use control_actor::handlers::internal::{
+    eof::EofInternalMessage, error::ErrorInternalMessage, output_error::OutputErrorInternalMessage,
+    output_spec_failed::OutputSpecFailedInternalMessage,
+    output_spec_ready::OutputSpecReadyInternalMessage, position::PositionInternalMessage,
+    preload_failed::PreloadFailedInternalMessage, preload_ready::PreloadReadyInternalMessage,
+};
+use control_actor::handlers::tick::ControlTickMessage;
+use preload_actor::handlers::shutdown::PreloadShutdownMessage;
 
 use crate::engine::config::{
     BUFFER_HIGH_WATERMARK_MS, BUFFER_HIGH_WATERMARK_MS_EXCLUSIVE, BUFFER_LOW_WATERMARK_MS,
@@ -74,38 +106,33 @@ const PLUGIN_SINK_DEFAULT_CHUNK_FRAMES: u32 = 256;
 const PLUGIN_SINK_MIN_LOW_WATERMARK_MS: i64 = 8;
 const PLUGIN_SINK_MIN_HIGH_WATERMARK_MS: i64 = 16;
 const ENGINE_QUERY_TIMEOUT: Duration = Duration::from_secs(12);
-type SharedTrackInfo = Arc<ArcSwapOption<crate::types::TrackDecodeInfo>>;
-type ControlActorRef = stellatune_runtime::thread_actor::ActorRef<control_actor::ControlActor>;
+type SharedTrackInfo = Arc<ArcSwapOption<TrackDecodeInfo>>;
+type ControlActorRef = ActorRef<control_actor::ControlActor>;
 type EngineCtrlDispatch = Box<dyn FnOnce(&ControlActorRef) + Send + 'static>;
 pub(crate) type InternalDispatch = Box<dyn FnOnce(&ControlActorRef) + Send + 'static>;
 pub(crate) type InternalDispatchTx = Sender<InternalDispatch>;
 
 pub(crate) fn internal_eof_dispatch() -> InternalDispatch {
     Box::new(|actor_ref| {
-        let _ = actor_ref.cast(control_actor::handlers::internal::eof::EofInternalMessage);
+        let _ = actor_ref.cast(EofInternalMessage);
     })
 }
 
 pub(crate) fn internal_error_dispatch(message: String) -> InternalDispatch {
     Box::new(move |actor_ref| {
-        let _ = actor_ref
-            .cast(control_actor::handlers::internal::error::ErrorInternalMessage { message });
+        let _ = actor_ref.cast(ErrorInternalMessage { message });
     })
 }
 
 pub(crate) fn internal_output_error_dispatch(message: String) -> InternalDispatch {
     Box::new(move |actor_ref| {
-        let _ = actor_ref.cast(
-            control_actor::handlers::internal::output_error::OutputErrorInternalMessage { message },
-        );
+        let _ = actor_ref.cast(OutputErrorInternalMessage { message });
     })
 }
 
 pub(crate) fn internal_position_dispatch(path: String, ms: i64) -> InternalDispatch {
     Box::new(move |actor_ref| {
-        let _ = actor_ref.cast(
-            control_actor::handlers::internal::position::PositionInternalMessage { path, ms },
-        );
+        let _ = actor_ref.cast(PositionInternalMessage { path, ms });
     })
 }
 
@@ -115,13 +142,11 @@ pub(crate) fn internal_output_spec_ready_dispatch(
     token: u64,
 ) -> InternalDispatch {
     Box::new(move |actor_ref| {
-        let _ = actor_ref.cast(
-            control_actor::handlers::internal::output_spec_ready::OutputSpecReadyInternalMessage {
-                spec,
-                took_ms,
-                token,
-            },
-        );
+        let _ = actor_ref.cast(OutputSpecReadyInternalMessage {
+            spec,
+            took_ms,
+            token,
+        });
     })
 }
 
@@ -131,7 +156,7 @@ pub(crate) fn internal_output_spec_failed_dispatch(
     token: u64,
 ) -> InternalDispatch {
     Box::new(move |actor_ref| {
-        let _ = actor_ref.cast(control_actor::handlers::internal::output_spec_failed::OutputSpecFailedInternalMessage {
+        let _ = actor_ref.cast(OutputSpecFailedInternalMessage {
             message,
             took_ms,
             token,
@@ -148,16 +173,14 @@ pub(crate) fn internal_preload_ready_dispatch(
     token: u64,
 ) -> InternalDispatch {
     Box::new(move |actor_ref| {
-        let _ = actor_ref.cast(
-            control_actor::handlers::internal::preload_ready::PreloadReadyInternalMessage {
-                path,
-                position_ms,
-                track_info,
-                chunk,
-                took_ms,
-                token,
-            },
-        );
+        let _ = actor_ref.cast(PreloadReadyInternalMessage {
+            path,
+            position_ms,
+            track_info,
+            chunk,
+            took_ms,
+            token,
+        });
     })
 }
 
@@ -169,22 +192,20 @@ pub(crate) fn internal_preload_failed_dispatch(
     token: u64,
 ) -> InternalDispatch {
     Box::new(move |actor_ref| {
-        let _ = actor_ref.cast(
-            control_actor::handlers::internal::preload_failed::PreloadFailedInternalMessage {
-                path,
-                position_ms,
-                message,
-                took_ms,
-                token,
-            },
-        );
+        let _ = actor_ref.cast(PreloadFailedInternalMessage {
+            path,
+            position_ms,
+            message,
+            took_ms,
+            token,
+        });
     })
 }
 
 fn with_runtime_service<T>(
-    f: impl FnOnce(&stellatune_plugins::runtime::handle::SharedPluginRuntimeHandle) -> Result<T, String>,
+    f: impl FnOnce(&SharedPluginRuntimeHandle) -> Result<T, String>,
 ) -> Result<T, String> {
-    let service = stellatune_plugins::runtime::handle::shared_runtime_service();
+    let service = shared_runtime_service();
     f(&service)
 }
 
@@ -445,22 +466,19 @@ mod debug_metrics {
 
 #[derive(Clone)]
 pub struct EngineHandle {
-    actor_ref: stellatune_runtime::thread_actor::ActorRef<control_actor::ControlActor>,
+    actor_ref: ActorRef<control_actor::ControlActor>,
     engine_ctrl_tx: Sender<EngineCtrlDispatch>,
     events: Arc<EventHub>,
     track_info: SharedTrackInfo,
 }
 
 impl EngineHandle {
-    fn map_control_call_error(err: stellatune_runtime::thread_actor::CallError) -> String {
+    fn map_control_call_error(err: CallError) -> String {
         match err {
-            stellatune_runtime::thread_actor::CallError::MailboxClosed
-            | stellatune_runtime::thread_actor::CallError::ActorStopped => {
+            CallError::MailboxClosed | CallError::ActorStopped => {
                 "control thread exited".to_string()
-            }
-            stellatune_runtime::thread_actor::CallError::Timeout => {
-                "control command timed out".to_string()
-            }
+            },
+            CallError::Timeout => "control command timed out".to_string(),
         }
     }
 
@@ -480,78 +498,54 @@ impl EngineHandle {
 
     pub async fn switch_track_ref(&self, track: TrackRef, lazy: bool) -> Result<(), String> {
         self.actor_ref
-            .call_async(
-                control_actor::handlers::command::messages::switch_track_ref::SwitchTrackRefMessage {
-                    track,
-                    lazy,
-                },
-                ENGINE_QUERY_TIMEOUT,
-            )
+            .call_async(SwitchTrackRefMessage { track, lazy }, ENGINE_QUERY_TIMEOUT)
             .await
             .map_err(Self::map_control_call_error)?
     }
 
     pub async fn play(&self) -> Result<(), String> {
         self.actor_ref
-            .call_async(
-                control_actor::handlers::command::messages::play::PlayMessage,
-                ENGINE_QUERY_TIMEOUT,
-            )
+            .call_async(PlayMessage, ENGINE_QUERY_TIMEOUT)
             .await
             .map_err(Self::map_control_call_error)?
     }
 
     pub async fn pause(&self) -> Result<(), String> {
         self.actor_ref
-            .call_async(
-                control_actor::handlers::command::messages::pause::PauseMessage,
-                ENGINE_QUERY_TIMEOUT,
-            )
+            .call_async(PauseMessage, ENGINE_QUERY_TIMEOUT)
             .await
             .map_err(Self::map_control_call_error)?
     }
 
     pub async fn seek_ms(&self, position_ms: u64) -> Result<(), String> {
         self.actor_ref
-            .call_async(
-                control_actor::handlers::command::messages::seek_ms::SeekMsMessage { position_ms },
-                ENGINE_QUERY_TIMEOUT,
-            )
+            .call_async(SeekMsMessage { position_ms }, ENGINE_QUERY_TIMEOUT)
             .await
             .map_err(Self::map_control_call_error)?
     }
 
     pub async fn set_volume(&self, volume: f32) -> Result<(), String> {
         self.actor_ref
-            .call_async(
-                control_actor::handlers::command::messages::set_volume::SetVolumeMessage { volume },
-                ENGINE_QUERY_TIMEOUT,
-            )
+            .call_async(SetVolumeMessage { volume }, ENGINE_QUERY_TIMEOUT)
             .await
             .map_err(Self::map_control_call_error)?
     }
 
     pub async fn stop(&self) -> Result<(), String> {
         self.actor_ref
-            .call_async(
-                control_actor::handlers::command::messages::stop::StopMessage,
-                ENGINE_QUERY_TIMEOUT,
-            )
+            .call_async(StopMessage, ENGINE_QUERY_TIMEOUT)
             .await
             .map_err(Self::map_control_call_error)?
     }
 
     pub async fn set_output_device(
         &self,
-        backend: crate::types::AudioBackend,
+        backend: AudioBackend,
         device_id: Option<String>,
     ) -> Result<(), String> {
         self.actor_ref
             .call_async(
-                control_actor::handlers::command::messages::set_output_device::SetOutputDeviceMessage {
-                    backend,
-                    device_id,
-                },
+                SetOutputDeviceMessage { backend, device_id },
                 ENGINE_QUERY_TIMEOUT,
             )
             .await
@@ -563,11 +557,11 @@ impl EngineHandle {
         match_track_sample_rate: bool,
         gapless_playback: bool,
         seek_track_fade: bool,
-        resample_quality: crate::types::ResampleQuality,
+        resample_quality: ResampleQuality,
     ) -> Result<(), String> {
         self.actor_ref
             .call_async(
-                control_actor::handlers::command::messages::set_output_options::SetOutputOptionsMessage {
+                SetOutputOptionsMessage {
                     match_track_sample_rate,
                     gapless_playback,
                     seek_track_fade,
@@ -579,25 +573,16 @@ impl EngineHandle {
             .map_err(Self::map_control_call_error)?
     }
 
-    pub async fn set_output_sink_route(
-        &self,
-        route: crate::types::OutputSinkRoute,
-    ) -> Result<(), String> {
+    pub async fn set_output_sink_route(&self, route: OutputSinkRoute) -> Result<(), String> {
         self.actor_ref
-            .call_async(
-                control_actor::handlers::command::messages::set_output_sink_route::SetOutputSinkRouteMessage { route },
-                ENGINE_QUERY_TIMEOUT,
-            )
+            .call_async(SetOutputSinkRouteMessage { route }, ENGINE_QUERY_TIMEOUT)
             .await
             .map_err(Self::map_control_call_error)?
     }
 
     pub async fn clear_output_sink_route(&self) -> Result<(), String> {
         self.actor_ref
-            .call_async(
-                control_actor::handlers::command::messages::clear_output_sink_route::ClearOutputSinkRouteMessage,
-                ENGINE_QUERY_TIMEOUT,
-            )
+            .call_async(ClearOutputSinkRouteMessage, ENGINE_QUERY_TIMEOUT)
             .await
             .map_err(Self::map_control_call_error)?
     }
@@ -605,10 +590,7 @@ impl EngineHandle {
     pub async fn preload_track(&self, path: String, position_ms: u64) -> Result<(), String> {
         self.actor_ref
             .call_async(
-                control_actor::handlers::command::messages::preload_track::PreloadTrackMessage {
-                    path,
-                    position_ms,
-                },
+                PreloadTrackMessage { path, position_ms },
                 ENGINE_QUERY_TIMEOUT,
             )
             .await
@@ -618,50 +600,37 @@ impl EngineHandle {
     pub async fn preload_track_ref(&self, track: TrackRef, position_ms: u64) -> Result<(), String> {
         self.actor_ref
             .call_async(
-                control_actor::handlers::command::messages::preload_track_ref::PreloadTrackRefMessage {
-                    track,
-                    position_ms,
-                },
+                PreloadTrackRefMessage { track, position_ms },
                 ENGINE_QUERY_TIMEOUT,
             )
             .await
             .map_err(Self::map_control_call_error)?
     }
 
-    pub async fn refresh_devices(&self) -> Result<Vec<crate::types::AudioDevice>, String> {
+    pub async fn refresh_devices(&self) -> Result<Vec<AudioDevice>, String> {
         self.actor_ref
-            .call_async(
-                control_actor::handlers::command::messages::refresh_devices::RefreshDevicesMessage,
-                ENGINE_QUERY_TIMEOUT,
-            )
+            .call_async(RefreshDevicesMessage, ENGINE_QUERY_TIMEOUT)
             .await
             .map_err(Self::map_control_call_error)?
     }
 
     pub async fn shutdown(&self) -> Result<(), String> {
         self.actor_ref
-            .call_async(
-                control_actor::handlers::command::messages::shutdown::ShutdownMessage,
-                ENGINE_QUERY_TIMEOUT,
-            )
+            .call_async(ShutdownMessage, ENGINE_QUERY_TIMEOUT)
             .await
             .map_err(Self::map_control_call_error)??;
         Ok(())
     }
 
-    pub fn set_dsp_chain(&self, chain: Vec<crate::types::DspChainItem>) {
+    pub fn set_dsp_chain(&self, chain: Vec<DspChainItem>) {
         let _ = self.engine_ctrl_tx.send(Box::new(move |actor_ref| {
-            let _ = actor_ref.cast(
-                control_actor::handlers::engine_ctrl::set_dsp_chain::SetDspChainMessage { chain },
-            );
+            let _ = actor_ref.cast(SetDspChainMessage { chain });
         }));
     }
 
     pub fn reload_plugins(&self, dir: String) {
         let _ = self.engine_ctrl_tx.send(Box::new(move |actor_ref| {
-            let _ = actor_ref.cast(
-                control_actor::handlers::engine_ctrl::reload_plugins::ReloadPluginsMessage { dir },
-            );
+            let _ = actor_ref.cast(ReloadPluginsMessage { dir });
         }));
     }
 
@@ -669,12 +638,7 @@ impl EngineHandle {
         let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
         self.engine_ctrl_tx
             .send(Box::new(move |actor_ref| {
-                let _ = actor_ref.cast(
-                    control_actor::handlers::engine_ctrl::schedule_plugin_disable::SchedulePluginDisableMessage {
-                        plugin_id,
-                        resp_tx,
-                    },
-                );
+                let _ = actor_ref.cast(SchedulePluginDisableMessage { plugin_id, resp_tx });
             }))
             .map_err(|_| "control thread exited".to_string())?;
         resp_rx
@@ -682,11 +646,9 @@ impl EngineHandle {
             .map_err(|_| "control thread dropped schedule-disable response".to_string())?
     }
 
-    pub fn set_lfe_mode(&self, mode: crate::types::LfeMode) {
+    pub fn set_lfe_mode(&self, mode: LfeMode) {
         let _ = self.engine_ctrl_tx.send(Box::new(move |actor_ref| {
-            let _ = actor_ref.cast(
-                control_actor::handlers::engine_ctrl::set_lfe_mode::SetLfeModeMessage { mode },
-            );
+            let _ = actor_ref.cast(SetLfeModeMessage { mode });
         }));
     }
 
@@ -694,7 +656,7 @@ impl EngineHandle {
         self.events.subscribe()
     }
 
-    pub async fn list_plugins(&self) -> Vec<crate::types::PluginDescriptor> {
+    pub async fn list_plugins(&self) -> Vec<PluginDescriptor> {
         let started = Instant::now();
         let service = stellatune_plugins::runtime::handle::shared_runtime_service();
         let mut plugin_ids = service.active_plugin_ids().await;
@@ -704,7 +666,7 @@ impl EngineHandle {
             let Some(generation) = service.current_plugin_lease_info(&plugin_id).await else {
                 continue;
             };
-            out.push(crate::types::PluginDescriptor {
+            out.push(PluginDescriptor {
                 id: plugin_id.clone(),
                 name: plugin_name_from_metadata_json(&plugin_id, &generation.metadata_json),
             });
@@ -720,7 +682,7 @@ impl EngineHandle {
         out
     }
 
-    pub async fn list_dsp_types(&self) -> Vec<crate::types::DspTypeDescriptor> {
+    pub async fn list_dsp_types(&self) -> Vec<DspTypeDescriptor> {
         let service = stellatune_plugins::runtime::handle::shared_runtime_service();
         let mut plugin_ids = service.active_plugin_ids().await;
         plugin_ids.sort();
@@ -736,7 +698,7 @@ impl EngineHandle {
                 if capability.kind != CapabilityKind::Dsp {
                     continue;
                 }
-                out.push(crate::types::DspTypeDescriptor {
+                out.push(DspTypeDescriptor {
                     plugin_id: plugin_id.clone(),
                     plugin_name: plugin_name.clone(),
                     type_id: capability.type_id,
@@ -749,9 +711,7 @@ impl EngineHandle {
         out
     }
 
-    pub async fn list_source_catalog_types(
-        &self,
-    ) -> Vec<crate::types::SourceCatalogTypeDescriptor> {
+    pub async fn list_source_catalog_types(&self) -> Vec<SourceCatalogTypeDescriptor> {
         let service = stellatune_plugins::runtime::handle::shared_runtime_service();
         let mut plugin_ids = service.active_plugin_ids().await;
         plugin_ids.sort();
@@ -767,7 +727,7 @@ impl EngineHandle {
                 if capability.kind != CapabilityKind::SourceCatalog {
                     continue;
                 }
-                out.push(crate::types::SourceCatalogTypeDescriptor {
+                out.push(SourceCatalogTypeDescriptor {
                     plugin_id: plugin_id.clone(),
                     plugin_name: plugin_name.clone(),
                     type_id: capability.type_id,
@@ -780,9 +740,7 @@ impl EngineHandle {
         out
     }
 
-    pub async fn list_lyrics_provider_types(
-        &self,
-    ) -> Vec<crate::types::LyricsProviderTypeDescriptor> {
+    pub async fn list_lyrics_provider_types(&self) -> Vec<LyricsProviderTypeDescriptor> {
         let service = stellatune_plugins::runtime::handle::shared_runtime_service();
         let mut plugin_ids = service.active_plugin_ids().await;
         plugin_ids.sort();
@@ -798,7 +756,7 @@ impl EngineHandle {
                 if capability.kind != CapabilityKind::LyricsProvider {
                     continue;
                 }
-                out.push(crate::types::LyricsProviderTypeDescriptor {
+                out.push(LyricsProviderTypeDescriptor {
                     plugin_id: plugin_id.clone(),
                     plugin_name: plugin_name.clone(),
                     type_id: capability.type_id,
@@ -809,7 +767,7 @@ impl EngineHandle {
         out
     }
 
-    pub async fn list_output_sink_types(&self) -> Vec<crate::types::OutputSinkTypeDescriptor> {
+    pub async fn list_output_sink_types(&self) -> Vec<OutputSinkTypeDescriptor> {
         let service = stellatune_plugins::runtime::handle::shared_runtime_service();
         let mut plugin_ids = service.active_plugin_ids().await;
         plugin_ids.sort();
@@ -825,7 +783,7 @@ impl EngineHandle {
                 if capability.kind != CapabilityKind::OutputSink {
                     continue;
                 }
-                out.push(crate::types::OutputSinkTypeDescriptor {
+                out.push(OutputSinkTypeDescriptor {
                     plugin_id: plugin_id.clone(),
                     plugin_name: plugin_name.clone(),
                     type_id: capability.type_id,
@@ -889,15 +847,13 @@ impl EngineHandle {
         let payload = self
             .send_engine_query_request(|resp_tx| {
                 Box::new(move |actor_ref| {
-                    let _ = actor_ref.cast(
-                        control_actor::handlers::engine_ctrl::source_list_items_json::SourceListItemsJsonMessage {
-                            plugin_id,
-                            type_id,
-                            config_json,
-                            request_json,
-                            resp_tx,
-                        },
-                    );
+                    let _ = actor_ref.cast(SourceListItemsJsonMessage {
+                        plugin_id,
+                        type_id,
+                        config_json,
+                        request_json,
+                        resp_tx,
+                    });
                 })
             })
             .await?;
@@ -922,14 +878,12 @@ impl EngineHandle {
         let payload = self
             .send_engine_query_request(|resp_tx| {
                 Box::new(move |actor_ref| {
-                    let _ = actor_ref.cast(
-                        control_actor::handlers::engine_ctrl::lyrics_search_json::LyricsSearchJsonMessage {
-                            plugin_id,
-                            type_id,
-                            query_json,
-                            resp_tx,
-                        },
-                    );
+                    let _ = actor_ref.cast(LyricsSearchJsonMessage {
+                        plugin_id,
+                        type_id,
+                        query_json,
+                        resp_tx,
+                    });
                 })
             })
             .await?;
@@ -954,14 +908,12 @@ impl EngineHandle {
         let payload = self
             .send_engine_query_request(|resp_tx| {
                 Box::new(move |actor_ref| {
-                    let _ = actor_ref.cast(
-                        control_actor::handlers::engine_ctrl::lyrics_fetch_json::LyricsFetchJsonMessage {
-                            plugin_id,
-                            type_id,
-                            track_json,
-                            resp_tx,
-                        },
-                    );
+                    let _ = actor_ref.cast(LyricsFetchJsonMessage {
+                        plugin_id,
+                        type_id,
+                        track_json,
+                        resp_tx,
+                    });
                 })
             })
             .await?;
@@ -986,14 +938,12 @@ impl EngineHandle {
         let payload = self
             .send_engine_query_request(|resp_tx| {
                 Box::new(move |actor_ref| {
-                    let _ = actor_ref.cast(
-                        control_actor::handlers::engine_ctrl::output_sink_list_targets_json::OutputSinkListTargetsJsonMessage {
-                            plugin_id,
-                            type_id,
-                            config_json,
-                            resp_tx,
-                        },
-                    );
+                    let _ = actor_ref.cast(OutputSinkListTargetsJsonMessage {
+                        plugin_id,
+                        type_id,
+                        config_json,
+                        resp_tx,
+                    });
                 })
             })
             .await?;
@@ -1030,10 +980,7 @@ pub fn start_engine() -> EngineHandle {
     )
     .expect("failed to spawn stellatune-control thread");
     actor_ref
-        .call(
-            control_actor::handlers::init::ControlInitMessage,
-            Duration::from_millis(500),
-        )
+        .call(ControlInitMessage, Duration::from_millis(500))
         .expect("failed to initialize control actor");
 
     let dispatch_actor_ref = actor_ref.clone();
@@ -1053,7 +1000,7 @@ pub fn start_engine() -> EngineHandle {
                     }
                     recv(tick_rx) -> _ => {
                         if dispatch_actor_ref
-                            .cast(control_actor::handlers::tick::ControlTickMessage)
+                            .cast(ControlTickMessage)
                             .is_err()
                         {
                             break;
@@ -1089,13 +1036,13 @@ struct EngineState {
     pending_session_start: bool,
     buffering_ready_streak: u8,
     desired_dsp_chain: Vec<DspChainEntry>,
-    lfe_mode: crate::types::LfeMode,
-    selected_backend: crate::types::AudioBackend,
+    lfe_mode: LfeMode,
+    selected_backend: AudioBackend,
     selected_device_id: Option<String>,
     match_track_sample_rate: bool,
     gapless_playback: bool,
     seek_track_fade: bool,
-    resample_quality: crate::types::ResampleQuality,
+    resample_quality: ResampleQuality,
     desired_output_sink_route: Option<OutputSinkRouteSpec>,
     output_sink_chunk_frames: u32,
     output_sink_negotiation_cache: Option<OutputSinkNegotiationCache>,
@@ -1136,8 +1083,8 @@ struct SeekPositionGuard {
 }
 
 struct PreloadWorker {
-    actor_ref: stellatune_runtime::thread_actor::ActorRef<preload_actor::PreloadActor>,
-    join: std::thread::JoinHandle<()>,
+    actor_ref: ActorRef<preload_actor::PreloadActor>,
+    join: JoinHandle<()>,
 }
 
 impl EngineState {
@@ -1160,13 +1107,13 @@ impl EngineState {
             pending_session_start: false,
             buffering_ready_streak: 0,
             desired_dsp_chain: Vec::new(),
-            lfe_mode: crate::types::LfeMode::default(),
-            selected_backend: crate::types::AudioBackend::Shared,
+            lfe_mode: LfeMode::default(),
+            selected_backend: AudioBackend::Shared,
             selected_device_id: None,
             match_track_sample_rate: false,
             gapless_playback: true,
             seek_track_fade: true,
-            resample_quality: crate::types::ResampleQuality::default(),
+            resample_quality: ResampleQuality::default(),
             desired_output_sink_route: None,
             output_sink_chunk_frames: 0,
             output_sink_negotiation_cache: None,
@@ -1188,7 +1135,7 @@ impl EngineState {
     }
 }
 
-fn parse_dsp_chain(chain: Vec<crate::types::DspChainItem>) -> Result<Vec<DspChainEntry>, String> {
+fn parse_dsp_chain(chain: Vec<DspChainItem>) -> Result<Vec<DspChainEntry>, String> {
     chain
         .into_iter()
         .map(|item| {
@@ -1207,9 +1154,7 @@ fn parse_dsp_chain(chain: Vec<crate::types::DspChainItem>) -> Result<Vec<DspChai
         .collect()
 }
 
-fn parse_output_sink_route(
-    route: crate::types::OutputSinkRoute,
-) -> Result<OutputSinkRouteSpec, String> {
+fn parse_output_sink_route(route: OutputSinkRoute) -> Result<OutputSinkRouteSpec, String> {
     let config = route
         .config::<serde_json::Value>()
         .map_err(|e| format!("invalid output sink route config_json: {e}"))?;
@@ -1275,7 +1220,7 @@ fn maybe_fade_out_before_disrupt(state: &EngineState, kind: DisruptFadeKind) {
             } else {
                 pending_audio
             }
-        }
+        },
     };
     if !should_wait {
         return;
@@ -1537,16 +1482,15 @@ fn shutdown_preload_worker(state: &mut EngineState) {
     let Some(worker) = state.preload_worker.take() else {
         return;
     };
-    match worker.actor_ref.call(
-        preload_actor::handlers::shutdown::PreloadShutdownMessage,
-        Duration::from_millis(500),
-    ) {
-        Ok(()) => {}
-        Err(stellatune_runtime::thread_actor::CallError::MailboxClosed)
-        | Err(stellatune_runtime::thread_actor::CallError::ActorStopped) => {}
-        Err(stellatune_runtime::thread_actor::CallError::Timeout) => {
+    match worker
+        .actor_ref
+        .call(PreloadShutdownMessage, Duration::from_millis(500))
+    {
+        Ok(()) => {},
+        Err(CallError::MailboxClosed) | Err(CallError::ActorStopped) => {},
+        Err(CallError::Timeout) => {
             warn!("preload worker shutdown timed out");
-        }
+        },
     }
     if worker.join.is_finished() {
         let _ = worker.join.join();

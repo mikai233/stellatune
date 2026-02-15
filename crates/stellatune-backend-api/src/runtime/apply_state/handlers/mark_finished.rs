@@ -1,6 +1,6 @@
 use stellatune_runtime::tokio_actor::{ActorContext, Handler, Message};
 
-use super::super::{
+use crate::runtime::apply_state::{
     ApplyStateCoordinatorActor, ApplyStateReport, ApplyStateRunResult, now_ms_for_actor,
 };
 
@@ -27,14 +27,14 @@ impl Handler<MarkFinishedMessage> for ApplyStateCoordinatorActor {
                     "failed"
                 };
                 self.snapshot.last_report = report;
-            }
+            },
             ApplyStateRunResult::Failure(error) => {
                 self.snapshot.phase = "failed";
                 let mut report = ApplyStateReport::empty_completed();
                 report.phase = "failed";
                 report.errors = vec![error];
                 self.snapshot.last_report = report;
-            }
+            },
         }
     }
 }

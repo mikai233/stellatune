@@ -1,23 +1,30 @@
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::error::Error;
+use std::io::{self, stdin, stdout, ErrorKind};
+use std::path::Path;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
-use std::thread::JoinHandle;
+use std::thread::{self, Builder, JoinHandle};
 use std::time::Duration;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use stellatune_asio_proto::{
-    read_frame, shm::SharedRingMapped, write_frame, AudioSpec, DeviceCaps, DeviceInfo, Request,
-    Response, SampleFormat, PROTOCOL_VERSION,
+    read_frame, shm::SharedRingMapped, write_frame, AudioSpec, DeviceCaps, DeviceInfo, ProtoError,
+    Request, Response, SampleFormat, SharedRingFile, PROTOCOL_VERSION,
 };
 
+#[cfg(windows)]
+use windows::core::HSTRING;
+#[cfg(windows)]
+use windows::Win32::Foundation::HANDLE;
 #[cfg(windows)]
 use windows::Win32::System::Threading::{
     AvSetMmThreadCharacteristicsW, AvSetMmThreadPriority, GetCurrentProcess, SetPriorityClass,
     AVRT_PRIORITY_HIGH, HIGH_PRIORITY_CLASS,
 };
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let stdin = std::io::stdin();
-    let stdout = std::io::stdout();
+fn main() -> Result<(), Box<dyn Error>> {
+    let stdin = stdin();
+    let stdout = stdout();
     let mut r = stdin.lock();
     let mut w = stdout.lock();
 
@@ -33,8 +40,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Ok(v) => v,
             Err(e) => {
                 // EOF / broken pipe => exit.
-                if matches!(e, stellatune_asio_proto::ProtoError::Io(ref io) if io.kind() == std::io::ErrorKind::UnexpectedEof)
-                {
+                if matches!(e, ProtoError::Io(ref io) if io.kind() == ErrorKind::UnexpectedEof) {
                     break;
                 }
                 let _ = write_frame(
@@ -114,7 +120,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[cfg(windows)]
-struct MmcssGuard(#[allow(dead_code)] windows::Win32::Foundation::HANDLE);
+struct MmcssGuard(#[allow(dead_code)] HANDLE);
 
 #[cfg(windows)]
 unsafe impl Send for MmcssGuard {}
@@ -122,7 +128,7 @@ unsafe impl Send for MmcssGuard {}
 #[cfg(windows)]
 fn enable_mmcss_pro_audio() -> Option<MmcssGuard> {
     let mut task_index = 0u32;
-    let task = windows::core::HSTRING::from("Pro Audio");
+    let task = HSTRING::from("Pro Audio");
     let handle = unsafe { AvSetMmThreadCharacteristicsW(&task, &mut task_index) }.ok()?;
     let _ = unsafe { AvSetMmThreadPriority(handle, AVRT_PRIORITY_HIGH) };
     Some(MmcssGuard(handle))
@@ -234,7 +240,7 @@ impl StreamState {
         device_id: &str,
         spec: AudioSpec,
         buffer_size_frames: Option<u32>,
-        shared_ring: Option<stellatune_asio_proto::SharedRingFile>,
+        shared_ring: Option<SharedRingFile>,
     ) -> Result<Self, String> {
         let host = asio_host()?;
         let devs = host.output_devices().map_err(|e| e.to_string())?;
@@ -246,7 +252,7 @@ impl StreamState {
         let shared_ring = shared_ring.ok_or_else(|| "shared ring not provided".to_string())?;
         let ring_capacity_samples = shared_ring.capacity_samples;
         let ring_path = shared_ring.path;
-        let ring = SharedRingMapped::open(std::path::Path::new(&ring_path))
+        let ring = SharedRingMapped::open(Path::new(&ring_path))
             .map_err(|e| format!("failed to open shared ring: {e}"))?;
         if ring.capacity_samples() != ring_capacity_samples as usize {
             return Err("shared ring capacity mismatch".to_string());
@@ -293,7 +299,7 @@ impl StreamState {
 
         let stream = match chosen_format {
             cpal::SampleFormat::F32 => {
-                let ring = SharedRingMapped::open(std::path::Path::new(&ring_path))
+                let ring = SharedRingMapped::open(Path::new(&ring_path))
                     .map_err(|e| format!("failed to open shared ring: {e}"))?;
                 let running_cb = Arc::clone(&running);
                 let metrics_cb = Arc::clone(&metrics);
@@ -315,7 +321,7 @@ impl StreamState {
             }
             cpal::SampleFormat::I16 => {
                 let mut tmp = vec![0f32; 0];
-                let ring = SharedRingMapped::open(std::path::Path::new(&ring_path))
+                let ring = SharedRingMapped::open(Path::new(&ring_path))
                     .map_err(|e| format!("failed to open shared ring: {e}"))?;
                 let running_cb = Arc::clone(&running);
                 let metrics_cb = Arc::clone(&metrics);
@@ -337,7 +343,7 @@ impl StreamState {
             }
             cpal::SampleFormat::I32 => {
                 let mut tmp = vec![0f32; 0];
-                let ring = SharedRingMapped::open(std::path::Path::new(&ring_path))
+                let ring = SharedRingMapped::open(Path::new(&ring_path))
                     .map_err(|e| format!("failed to open shared ring: {e}"))?;
                 let running_cb = Arc::clone(&running);
                 let metrics_cb = Arc::clone(&metrics);
@@ -359,7 +365,7 @@ impl StreamState {
             }
             cpal::SampleFormat::U16 => {
                 let mut tmp = vec![0f32; 0];
-                let ring = SharedRingMapped::open(std::path::Path::new(&ring_path))
+                let ring = SharedRingMapped::open(Path::new(&ring_path))
                     .map_err(|e| format!("failed to open shared ring: {e}"))?;
                 let running_cb = Arc::clone(&running);
                 let metrics_cb = Arc::clone(&metrics);
@@ -408,10 +414,10 @@ impl Drop for StreamState {
 
 #[derive(Default)]
 struct UnderrunMetrics {
-    underrun_callbacks: std::sync::atomic::AtomicU64,
-    underrun_samples: std::sync::atomic::AtomicU64,
-    delivered_samples: std::sync::atomic::AtomicU64,
-    max_shortfall_samples: std::sync::atomic::AtomicU64,
+    underrun_callbacks: AtomicU64,
+    underrun_samples: AtomicU64,
+    delivered_samples: AtomicU64,
+    max_shortfall_samples: AtomicU64,
     stop: AtomicBool,
 }
 
@@ -444,14 +450,14 @@ fn start_underrun_reporter(
     sample_rate: u32,
     channels: u16,
 ) -> JoinHandle<()> {
-    std::thread::Builder::new()
+    Builder::new()
         .name("stellatune-asio-underrun".to_string())
         .spawn(move || {
             let mut last_callbacks = 0u64;
             let mut last_samples = 0u64;
             let mut last_delivered = 0u64;
             while !metrics.stop.load(Ordering::Acquire) {
-                std::thread::sleep(Duration::from_secs(1));
+                thread::sleep(Duration::from_secs(1));
                 let callbacks = metrics.underrun_callbacks.load(Ordering::Relaxed);
                 let samples = metrics.underrun_samples.load(Ordering::Relaxed);
                 let delivered = metrics.delivered_samples.load(Ordering::Relaxed);

@@ -1,8 +1,8 @@
 use stellatune_runtime::thread_actor::{ActorContext, Handler, Message};
 use tokio::sync::oneshot::Sender as OneshotSender;
 
-use super::super::super::super::source_list_items_json_via_runtime_async;
-use super::super::super::ControlActor;
+use crate::engine::control::control_actor::ControlActor;
+use crate::engine::control::source_list_items_json_via_runtime_async;
 
 pub(crate) struct SourceListItemsJsonMessage {
     pub(crate) plugin_id: String,

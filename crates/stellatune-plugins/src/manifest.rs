@@ -175,7 +175,7 @@ pub fn discover_plugins(dir: impl AsRef<Path>) -> Result<Vec<DiscoveredPlugin>> 
                     "skip invalid plugin receipt path"
                 );
                 continue;
-            }
+            },
         };
         let uninstall_pending = pending_marker_path_for_plugin_root(&root_dir);
         if uninstall_pending.exists() {
@@ -197,7 +197,7 @@ pub fn discover_plugins(dir: impl AsRef<Path>) -> Result<Vec<DiscoveredPlugin>> 
                     "skip unreadable plugin receipt: {e:#}"
                 );
                 continue;
-            }
+            },
         };
 
         if receipt.manifest.id.trim().is_empty() {

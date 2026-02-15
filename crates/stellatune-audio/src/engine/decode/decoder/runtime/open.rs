@@ -11,9 +11,9 @@ use crate::engine::control::{
     source_close_stream_via_runtime_blocking, source_open_stream_via_runtime_blocking,
 };
 
-use super::super::gapless::GaplessTrimSpec;
-use super::super::io::DecoderIoOwner;
 use super::{PluginOpenDecoder, SourceStreamLocator};
+use crate::engine::decode::decoder::gapless::GaplessTrimSpec;
+use crate::engine::decode::decoder::io::DecoderIoOwner;
 
 fn create_decoder_controller(
     plugin_id: &str,
@@ -29,10 +29,10 @@ fn create_decoder_controller(
     match controller.apply_pending().map_err(|e| e.to_string())? {
         WorkerApplyPendingOutcome::Created | WorkerApplyPendingOutcome::Recreated => {
             Ok((controller, control_rx))
-        }
+        },
         WorkerApplyPendingOutcome::Destroyed | WorkerApplyPendingOutcome::Idle => {
             Err("decoder worker controller did not create instance".to_string())
-        }
+        },
     }
 }
 
@@ -60,7 +60,7 @@ fn build_plugin_track_info(
                     decoder_type_id, "decoder metadata json invalid: {e}"
                 );
                 None
-            }
+            },
         },
         Ok(None) => None,
         Err(e) => {
@@ -69,7 +69,7 @@ fn build_plugin_track_info(
                 decoder_type_id, "decoder metadata unavailable: {e}"
             );
             None
-        }
+        },
     }
     .or(fallback_metadata);
 
@@ -113,7 +113,7 @@ pub(super) fn try_open_decoder_for_local_path(
                     candidate.plugin_id, candidate.type_id
                 ));
                 continue;
-            }
+            },
         };
 
         let mut io_owner = match DecoderIoOwner::local(path) {
@@ -121,7 +121,7 @@ pub(super) fn try_open_decoder_for_local_path(
             Err(e) => {
                 last_err = Some(e);
                 continue;
-            }
+            },
         };
 
         let Some(dec) = controller.instance_mut() else {
@@ -139,13 +139,13 @@ pub(super) fn try_open_decoder_for_local_path(
                 let (info, gapless) =
                     build_plugin_track_info(dec, &candidate.plugin_id, &candidate.type_id, None)?;
                 return Ok(Some((controller, info, gapless, io_owner, control_rx)));
-            }
+            },
             Err(e) => {
                 last_err = Some(format!(
                     "decoder open_with_io failed for {}::{}: {e:#}",
                     candidate.plugin_id, candidate.type_id
                 ));
-            }
+            },
         }
     }
 
@@ -191,7 +191,7 @@ pub(super) fn try_open_decoder_for_source_stream(
                     candidate.plugin_id, candidate.type_id
                 ));
                 continue;
-            }
+            },
         };
 
         let Some(dec) = controller.instance_mut() else {
@@ -209,7 +209,7 @@ pub(super) fn try_open_decoder_for_source_stream(
             Err(e) => {
                 last_err = Some(format!("source open_stream failed: {e:#}"));
                 continue;
-            }
+            },
         };
         let source_metadata =
             lease.source_metadata_json.and_then(|raw| {
@@ -222,7 +222,7 @@ pub(super) fn try_open_decoder_for_source_stream(
                             "source metadata json invalid: {e}"
                         );
                         None
-                    }
+                    },
                 }
             });
 
@@ -245,14 +245,14 @@ pub(super) fn try_open_decoder_for_source_stream(
                     io_handle_addr: lease.io_handle_addr,
                 };
                 return Ok(Some((controller, info, gapless, io_owner, control_rx)));
-            }
+            },
             Err(e) => {
                 let _ = source_close_stream_via_runtime_blocking(lease.stream_id);
                 last_err = Some(format!(
                     "decoder open_with_io failed for {}::{}: {e:#}",
                     candidate.plugin_id, candidate.type_id
                 ));
-            }
+            },
         }
     }
 

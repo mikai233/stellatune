@@ -1,4 +1,4 @@
-use anyhow::{Result, anyhow};
+use std::ffi::c_void;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -6,11 +6,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::task::{Context, Poll, Waker};
 use std::time::Instant;
 use std::{sync::Mutex, time::Duration};
+
+use anyhow::{Result, anyhow};
 use stellatune_plugin_api::{
-    StAsyncOpState, StConfigUpdatePlan, StConfigUpdatePlanOpRef, StIoVTable, StJsonOpRef,
-    StOpNotifier, StOpNotifyFn, StSourceCatalogInstanceRef, StSourceListItemsOpRef,
-    StSourceListItemsOpVTable, StSourceOpenStreamOpRef, StSourceOpenStreamOpVTable, StStatus,
-    StStr, StUnitOpRef,
+    StAsyncOpState, StConfigUpdateMode, StConfigUpdatePlan, StConfigUpdatePlanOpRef, StIoVTable,
+    StJsonOpRef, StOpNotifier, StOpNotifyFn, StSourceCatalogInstanceRef,
+    StSourceCatalogInstanceVTable, StSourceListItemsOpRef, StSourceListItemsOpVTable,
+    StSourceOpenStreamOpRef, StSourceOpenStreamOpVTable, StStatus, StStr, StUnitOpRef,
 };
 
 use super::common::{
@@ -27,21 +29,19 @@ const SOURCE_PLAN_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub struct SourceCatalogInstance {
     ctx: InstanceRuntimeCtx,
-    handle: *mut core::ffi::c_void,
-    vtable: *const stellatune_plugin_api::StSourceCatalogInstanceVTable,
+    handle: *mut c_void,
+    vtable: *const StSourceCatalogInstanceVTable,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub struct SourceOpenStreamResult {
     pub io_vtable: *const StIoVTable,
-    pub io_handle: *mut core::ffi::c_void,
+    pub io_handle: *mut c_void,
 }
 
-type OpPollFn =
-    extern "C" fn(handle: *mut core::ffi::c_void, out_state: *mut StAsyncOpState) -> StStatus;
-type OpCancelFn = extern "C" fn(handle: *mut core::ffi::c_void) -> StStatus;
-type OpSetNotifierFn =
-    extern "C" fn(handle: *mut core::ffi::c_void, notifier: StOpNotifier) -> StStatus;
+type OpPollFn = extern "C" fn(handle: *mut c_void, out_state: *mut StAsyncOpState) -> StStatus;
+type OpCancelFn = extern "C" fn(handle: *mut c_void) -> StStatus;
+type OpSetNotifierFn = extern "C" fn(handle: *mut c_void, notifier: StOpNotifier) -> StStatus;
 
 #[derive(Default)]
 struct OpNotifyState {
@@ -61,7 +61,7 @@ impl OpNotifyState {
     }
 }
 
-extern "C" fn abi_op_notify_callback(user_data: *mut core::ffi::c_void) {
+extern "C" fn abi_op_notify_callback(user_data: *mut c_void) {
     if user_data.is_null() {
         return;
     }
@@ -116,8 +116,8 @@ impl AbiOpWaitFuture {
         }
     }
 
-    fn handle_ptr(&self) -> *mut core::ffi::c_void {
-        self.handle_addr as *mut core::ffi::c_void
+    fn handle_ptr(&self) -> *mut c_void {
+        self.handle_addr as *mut c_void
     }
 }
 
@@ -130,7 +130,7 @@ impl Future for AbiOpWaitFuture {
             let status = (self.set_notifier_fn)(
                 self.handle_ptr(),
                 StOpNotifier {
-                    user_data: token_addr as *mut core::ffi::c_void,
+                    user_data: token_addr as *mut c_void,
                     notify: Some(abi_op_notify_callback as StOpNotifyFn),
                 },
             );
@@ -196,8 +196,8 @@ impl SourceListItemsOpOwned {
         }
     }
 
-    fn handle_ptr(&self) -> *mut core::ffi::c_void {
-        self.handle_addr as *mut core::ffi::c_void
+    fn handle_ptr(&self) -> *mut c_void {
+        self.handle_addr as *mut c_void
     }
 
     fn vtable(&self) -> &StSourceListItemsOpVTable {
@@ -252,8 +252,8 @@ impl SourceOpenStreamOpOwned {
         }
     }
 
-    fn handle_ptr(&self) -> *mut core::ffi::c_void {
-        self.handle_addr as *mut core::ffi::c_void
+    fn handle_ptr(&self) -> *mut c_void {
+        self.handle_addr as *mut c_void
     }
 
     fn vtable(&self) -> &StSourceOpenStreamOpVTable {
@@ -281,9 +281,9 @@ impl SourceOpenStreamOpOwned {
     fn take_stream(
         &mut self,
         plugin_free: PluginFreeFn,
-    ) -> Result<(*const StIoVTable, *mut core::ffi::c_void, StStr)> {
+    ) -> Result<(*const StIoVTable, *mut c_void, StStr)> {
         let mut out_io_vtable: *const StIoVTable = core::ptr::null();
-        let mut out_io_handle: *mut core::ffi::c_void = core::ptr::null_mut();
+        let mut out_io_handle: *mut c_void = core::ptr::null_mut();
         let mut out_meta = StStr::empty();
         let status = (self.vtable().take_stream)(
             self.handle_ptr(),
@@ -362,7 +362,7 @@ impl SourceCatalogInstance {
             StAsyncOpState::Failed => {
                 let _ = op.take_json_utf8(self.ctx.plugin_free);
                 Err(anyhow!("source list_items operation failed"))
-            }
+            },
             StAsyncOpState::Pending => Err(anyhow!("source list_items operation still pending")),
         }
     }
@@ -416,7 +416,7 @@ impl SourceCatalogInstance {
                     },
                     if meta.is_empty() { None } else { Some(meta) },
                 ))
-            }
+            },
             StAsyncOpState::Cancelled => Err(anyhow!("source open_stream operation cancelled")),
             StAsyncOpState::Failed => {
                 if let Ok((_out_io_vtable, out_io_handle, out_meta)) =
@@ -430,12 +430,12 @@ impl SourceCatalogInstance {
                     }
                 }
                 Err(anyhow!("source open_stream operation failed"))
-            }
+            },
             StAsyncOpState::Pending => Err(anyhow!("source open_stream operation still pending")),
         }
     }
 
-    pub fn close_stream(&mut self, io_handle: *mut core::ffi::c_void) {
+    pub fn close_stream(&mut self, io_handle: *mut c_void) {
         if io_handle.is_null() {
             return;
         }
@@ -466,7 +466,7 @@ impl SourceCatalogInstance {
     pub fn plan_config_update_json(&self, new_config_json: &str) -> Result<ConfigUpdatePlan> {
         let Some(plan_fn) = (unsafe { (*self.vtable).begin_plan_config_update_json_utf8 }) else {
             return Ok(ConfigUpdatePlan {
-                mode: stellatune_plugin_api::StConfigUpdateMode::Recreate,
+                mode: StConfigUpdateMode::Recreate,
                 reason: Some("plugin does not implement plan_config_update".to_string()),
             });
         };
@@ -492,7 +492,7 @@ impl SourceCatalogInstance {
         let result = (|| match wait_plan_op_state(&op, self.ctx.plugin_free)? {
             StAsyncOpState::Ready => {
                 let mut out = StConfigUpdatePlan {
-                    mode: stellatune_plugin_api::StConfigUpdateMode::Reject,
+                    mode: StConfigUpdateMode::Reject,
                     reason_utf8: StStr::empty(),
                 };
                 let status = unsafe { ((*op.vtable).take_plan)(op.handle, &mut out) };
@@ -502,13 +502,13 @@ impl SourceCatalogInstance {
                     self.ctx.plugin_free,
                 )?;
                 Ok(plan_from_ffi(out, self.ctx.plugin_free))
-            }
+            },
             StAsyncOpState::Cancelled => {
                 Err(anyhow!("source plan_config_update operation cancelled"))
-            }
+            },
             StAsyncOpState::Failed => {
                 let mut out = StConfigUpdatePlan {
-                    mode: stellatune_plugin_api::StConfigUpdateMode::Reject,
+                    mode: StConfigUpdateMode::Reject,
                     reason_utf8: StStr::empty(),
                 };
                 let status = unsafe { ((*op.vtable).take_plan)(op.handle, &mut out) };
@@ -518,10 +518,10 @@ impl SourceCatalogInstance {
                     self.ctx.plugin_free,
                 )?;
                 Err(anyhow!("source plan_config_update operation failed"))
-            }
+            },
             StAsyncOpState::Pending => {
                 Err(anyhow!("source plan_config_update operation still pending"))
-            }
+            },
         })();
 
         unsafe { ((*op.vtable).destroy)(op.handle) };
@@ -580,10 +580,10 @@ impl SourceCatalogInstance {
                                 status,
                                 self.ctx.plugin_free,
                             )
-                        }
+                        },
                         StAsyncOpState::Cancelled => {
                             Err(anyhow!("source apply_config_update operation cancelled"))
-                        }
+                        },
                         StAsyncOpState::Failed => {
                             let status = unsafe { ((*op.vtable).finish)(op.handle) };
                             status_to_result(
@@ -592,7 +592,7 @@ impl SourceCatalogInstance {
                                 self.ctx.plugin_free,
                             )?;
                             Err(anyhow!("source apply_config_update operation failed"))
-                        }
+                        },
                         StAsyncOpState::Pending => Err(anyhow!(
                             "source apply_config_update operation still pending"
                         )),
@@ -607,18 +607,18 @@ impl SourceCatalogInstance {
                     Err(err) => {
                         let _ = self.ctx.updates.finish_failed(&req, err.to_string());
                         Err(err)
-                    }
+                    },
                 }
-            }
+            },
             crate::runtime::update::InstanceUpdateDecision::Recreate => {
                 Ok(self.ctx.updates.finish_requires_recreate(&req, plan.reason))
-            }
+            },
             crate::runtime::update::InstanceUpdateDecision::Reject => {
                 let reason = plan
                     .reason
                     .unwrap_or_else(|| "source rejected config update".to_string());
                 Ok(self.ctx.updates.finish_rejected(&req, reason))
-            }
+            },
         }
     }
 
@@ -656,7 +656,7 @@ impl SourceCatalogInstance {
                 } else {
                     Ok(Some(raw))
                 }
-            }
+            },
             StAsyncOpState::Cancelled => Err(anyhow!("source export_state operation cancelled")),
             StAsyncOpState::Failed => {
                 let mut out = StStr::empty();
@@ -667,7 +667,7 @@ impl SourceCatalogInstance {
                     self.ctx.plugin_free,
                 )?;
                 Err(anyhow!("source export_state operation failed"))
-            }
+            },
             StAsyncOpState::Pending => Err(anyhow!("source export_state operation still pending")),
         })();
 
@@ -704,10 +704,10 @@ impl SourceCatalogInstance {
                 StAsyncOpState::Ready => {
                     let status = unsafe { ((*op.vtable).finish)(op.handle) };
                     status_to_result("Source import_state_json", status, self.ctx.plugin_free)
-                }
+                },
                 StAsyncOpState::Cancelled => {
                     Err(anyhow!("source import_state operation cancelled"))
-                }
+                },
                 StAsyncOpState::Failed => {
                     let status = unsafe { ((*op.vtable).finish)(op.handle) };
                     status_to_result(
@@ -716,10 +716,10 @@ impl SourceCatalogInstance {
                         self.ctx.plugin_free,
                     )?;
                     Err(anyhow!("source import_state operation failed"))
-                }
+                },
                 StAsyncOpState::Pending => {
                     Err(anyhow!("source import_state operation still pending"))
-                }
+                },
             })();
 
         unsafe { ((*op.vtable).destroy)(op.handle) };

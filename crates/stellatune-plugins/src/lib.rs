@@ -177,13 +177,13 @@ fn extract_zip_to_dir(zip_path: &Path, out_dir: &Path) -> Result<()> {
             rawzip::CompressionMethod::Store => {
                 std::io::copy(&mut &*data, &mut out)
                     .with_context(|| format!("extract {} to {}", filename, out_path.display()))?;
-            }
+            },
             rawzip::CompressionMethod::Deflate => {
                 let mut decoder = flate2::read::DeflateDecoder::new(data);
                 std::io::copy(&mut decoder, &mut out).with_context(|| {
                     format!("extract (deflate) {} to {}", filename, out_path.display())
                 })?;
-            }
+            },
             method => return Err(anyhow!("unsupported compression method: {:?}", method)),
         }
     }
@@ -325,7 +325,7 @@ pub fn install_plugin_from_artifact(
                 "no valid StellaTune plugin library found in artifact: {}",
                 artifact_path.display()
             ));
-        }
+        },
         1 => valid.pop().expect("single valid plugin"),
         _ => {
             let ids = valid
@@ -336,7 +336,7 @@ pub fn install_plugin_from_artifact(
             return Err(anyhow!(
                 "artifact contains multiple StellaTune plugins ({ids}); one artifact must contain exactly one plugin"
             ));
-        }
+        },
     };
 
     let library_rel_path = library_path
@@ -479,7 +479,7 @@ pub fn uninstall_plugin(plugins_dir: impl AsRef<Path>, plugin_id: &str) -> Resul
             continue;
         }
         match std::fs::remove_dir_all(&root) {
-            Ok(()) => {}
+            Ok(()) => {},
             Err(remove_err) => {
                 let marker_path = pending_marker_path_for_plugin_root(&root);
                 let marker = UninstallPendingMarker {
@@ -497,7 +497,7 @@ pub fn uninstall_plugin(plugins_dir: impl AsRef<Path>, plugin_id: &str) -> Resul
                     marker = %marker_path.display(),
                     "plugin uninstall deferred; will retry on next discovery"
                 );
-            }
+            },
         }
     }
 

@@ -3,10 +3,13 @@ use std::time::Duration;
 use tokio::sync::oneshot::Sender as OneshotSender;
 use tracing::debug;
 
+use stellatune_plugins::runtime::handle::SharedPluginRuntimeHandle;
 use stellatune_plugins::runtime::introspection::CapabilityKind;
 use stellatune_plugins::runtime::worker_controller::{
     WorkerApplyPendingOutcome, WorkerConfigUpdateOutcome,
 };
+use stellatune_runtime::tokio_actor::CallError;
+use stellatune_runtime::{block_on, spawn};
 
 use self::lyrics_owner_actor::handlers::fetch::LyricsFetchMessage;
 use self::lyrics_owner_actor::handlers::search::LyricsSearchMessage;
@@ -49,15 +52,13 @@ pub(crate) struct RuntimeSourceStreamLease {
 }
 
 fn create_source_catalog_cached_instance(
-    service: &stellatune_plugins::runtime::handle::SharedPluginRuntimeHandle,
+    service: &SharedPluginRuntimeHandle,
     plugin_id: &str,
     type_id: &str,
     config_json: &str,
 ) -> Result<CachedSourceInstance, String> {
-    let endpoint = stellatune_runtime::block_on(
-        service.bind_source_catalog_worker_endpoint(plugin_id, type_id),
-    )
-    .map_err(|e| e.to_string())?;
+    let endpoint = block_on(service.bind_source_catalog_worker_endpoint(plugin_id, type_id))
+        .map_err(|e| e.to_string())?;
     let (mut controller, control_rx) = endpoint.into_controller(config_json.to_string());
     match controller.apply_pending().map_err(|e| e.to_string())? {
         WorkerApplyPendingOutcome::Created | WorkerApplyPendingOutcome::Recreated => {
@@ -65,7 +66,7 @@ fn create_source_catalog_cached_instance(
                 controller,
                 control_rx,
             })
-        }
+        },
         WorkerApplyPendingOutcome::Destroyed | WorkerApplyPendingOutcome::Idle => Err(format!(
             "source controller did not create instance for {plugin_id}::{type_id}"
         )),
@@ -73,15 +74,13 @@ fn create_source_catalog_cached_instance(
 }
 
 fn create_lyrics_provider_cached_instance(
-    service: &stellatune_plugins::runtime::handle::SharedPluginRuntimeHandle,
+    service: &SharedPluginRuntimeHandle,
     plugin_id: &str,
     type_id: &str,
     config_json: &str,
 ) -> Result<CachedLyricsInstance, String> {
-    let endpoint = stellatune_runtime::block_on(
-        service.bind_lyrics_provider_worker_endpoint(plugin_id, type_id),
-    )
-    .map_err(|e| e.to_string())?;
+    let endpoint = block_on(service.bind_lyrics_provider_worker_endpoint(plugin_id, type_id))
+        .map_err(|e| e.to_string())?;
     let (mut controller, control_rx) = endpoint.into_controller(config_json.to_string());
     match controller.apply_pending().map_err(|e| e.to_string())? {
         WorkerApplyPendingOutcome::Created | WorkerApplyPendingOutcome::Recreated => {
@@ -90,7 +89,7 @@ fn create_lyrics_provider_cached_instance(
                 controller,
                 control_rx,
             })
-        }
+        },
         WorkerApplyPendingOutcome::Destroyed | WorkerApplyPendingOutcome::Idle => Err(format!(
             "lyrics controller did not create instance for {plugin_id}::{type_id}"
         )),
@@ -98,14 +97,13 @@ fn create_lyrics_provider_cached_instance(
 }
 
 fn create_output_sink_cached_instance(
-    service: &stellatune_plugins::runtime::handle::SharedPluginRuntimeHandle,
+    service: &SharedPluginRuntimeHandle,
     plugin_id: &str,
     type_id: &str,
     config_json: &str,
 ) -> Result<CachedOutputSinkInstance, String> {
-    let endpoint =
-        stellatune_runtime::block_on(service.bind_output_sink_worker_endpoint(plugin_id, type_id))
-            .map_err(|e| e.to_string())?;
+    let endpoint = block_on(service.bind_output_sink_worker_endpoint(plugin_id, type_id))
+        .map_err(|e| e.to_string())?;
     let (mut controller, control_rx) = endpoint.into_controller(config_json.to_string());
     match controller.apply_pending().map_err(|e| e.to_string())? {
         WorkerApplyPendingOutcome::Created | WorkerApplyPendingOutcome::Recreated => {
@@ -114,7 +112,7 @@ fn create_output_sink_cached_instance(
                 controller,
                 control_rx,
             })
-        }
+        },
         WorkerApplyPendingOutcome::Destroyed | WorkerApplyPendingOutcome::Idle => Err(format!(
             "output sink controller did not create instance for {plugin_id}::{type_id}"
         )),
@@ -134,12 +132,12 @@ fn recreate_source_instance(
     match entry.controller.apply_pending().map_err(|e| {
         format!("source recreate apply_pending failed for {plugin_id}::{type_id}: {e}")
     })? {
-        WorkerApplyPendingOutcome::Created | WorkerApplyPendingOutcome::Recreated => {}
+        WorkerApplyPendingOutcome::Created | WorkerApplyPendingOutcome::Recreated => {},
         WorkerApplyPendingOutcome::Destroyed | WorkerApplyPendingOutcome::Idle => {
             return Err(format!(
                 "source recreate did not produce instance for {plugin_id}::{type_id}"
             ));
-        }
+        },
     }
 
     if let Some(state_json) = exported_state
@@ -164,12 +162,12 @@ fn recreate_lyrics_instance(
     match entry.controller.apply_pending().map_err(|e| {
         format!("lyrics recreate apply_pending failed for {plugin_id}::{type_id}: {e}")
     })? {
-        WorkerApplyPendingOutcome::Created | WorkerApplyPendingOutcome::Recreated => {}
+        WorkerApplyPendingOutcome::Created | WorkerApplyPendingOutcome::Recreated => {},
         WorkerApplyPendingOutcome::Destroyed | WorkerApplyPendingOutcome::Idle => {
             return Err(format!(
                 "lyrics recreate did not produce instance for {plugin_id}::{type_id}"
             ));
-        }
+        },
     }
 
     if let Some(state_json) = exported_state
@@ -194,12 +192,12 @@ fn recreate_output_sink_instance(
     match entry.controller.apply_pending().map_err(|e| {
         format!("output sink recreate apply_pending failed for {plugin_id}::{type_id}: {e}")
     })? {
-        WorkerApplyPendingOutcome::Created | WorkerApplyPendingOutcome::Recreated => {}
+        WorkerApplyPendingOutcome::Created | WorkerApplyPendingOutcome::Recreated => {},
         WorkerApplyPendingOutcome::Destroyed | WorkerApplyPendingOutcome::Idle => {
             return Err(format!(
                 "output sink recreate did not produce instance for {plugin_id}::{type_id}"
             ));
-        }
+        },
     }
 
     if let Some(state_json) = exported_state
@@ -230,8 +228,8 @@ fn sync_source_runtime_control(
                     type_id,
                     "source instance destroyed by runtime control; will recreate on demand"
                 );
-            }
-            WorkerApplyPendingOutcome::Created | WorkerApplyPendingOutcome::Recreated => {}
+            },
+            WorkerApplyPendingOutcome::Created | WorkerApplyPendingOutcome::Recreated => {},
         }
     }
 
@@ -265,8 +263,8 @@ fn sync_lyrics_runtime_control(
                     type_id,
                     "lyrics instance destroyed by runtime control; will recreate on demand"
                 );
-            }
-            WorkerApplyPendingOutcome::Created | WorkerApplyPendingOutcome::Recreated => {}
+            },
+            WorkerApplyPendingOutcome::Created | WorkerApplyPendingOutcome::Recreated => {},
         }
     }
 
@@ -300,8 +298,8 @@ fn sync_output_sink_runtime_control(
                     type_id,
                     "output sink instance destroyed by runtime control; will recreate on demand"
                 );
-            }
-            WorkerApplyPendingOutcome::Created | WorkerApplyPendingOutcome::Recreated => {}
+            },
+            WorkerApplyPendingOutcome::Created | WorkerApplyPendingOutcome::Recreated => {},
         }
     }
 
@@ -318,14 +316,12 @@ fn sync_output_sink_runtime_control(
 
 fn clear_runtime_owner_worker_cache() {
     let actor_ref = shared_runtime_owner_registry_actor();
-    let _ = stellatune_runtime::block_on(
-        actor_ref.call(ClearAllRuntimeOwnersMessage, OWNER_WORKER_CLEAR_TIMEOUT),
-    );
+    let _ = block_on(actor_ref.call(ClearAllRuntimeOwnersMessage, OWNER_WORKER_CLEAR_TIMEOUT));
 }
 
 fn clear_runtime_owner_worker_cache_for_plugin(plugin_id: &str) -> (usize, usize, usize) {
     let actor_ref = shared_runtime_owner_registry_actor();
-    stellatune_runtime::block_on(actor_ref.call(
+    block_on(actor_ref.call(
         ClearRuntimeOwnersForPluginMessage {
             plugin_id: plugin_id.to_string(),
         },
@@ -343,7 +339,7 @@ pub(super) fn source_list_items_json_via_runtime_async(
 ) {
     let slot = RuntimeInstanceSlotKey::new(&plugin_id, &type_id);
     let registry_actor_ref = shared_runtime_owner_registry_actor();
-    let actor_ref = match stellatune_runtime::block_on(registry_actor_ref.call(
+    let actor_ref = match block_on(registry_actor_ref.call(
         EnsureSourceOwnerTaskMessage { slot },
         OWNER_WORKER_CLEAR_TIMEOUT,
     )) {
@@ -351,9 +347,9 @@ pub(super) fn source_list_items_json_via_runtime_async(
         Err(_) => {
             let _ = resp_tx.send(Err("runtime source owner registry unavailable".to_string()));
             return;
-        }
+        },
     };
-    std::mem::drop(stellatune_runtime::spawn(async move {
+    std::mem::drop(spawn(async move {
         let result = match actor_ref
             .call(
                 SourceListItemsMessage {
@@ -365,9 +361,9 @@ pub(super) fn source_list_items_json_via_runtime_async(
             .await
         {
             Ok(result) => result,
-            Err(stellatune_runtime::tokio_actor::CallError::Timeout) => {
+            Err(CallError::Timeout) => {
                 Err("runtime source owner task list_items timeout".to_string())
-            }
+            },
             Err(_) => Err("runtime source owner task unavailable".to_string()),
         };
         let _ = resp_tx.send(result);
@@ -386,11 +382,11 @@ pub(super) fn lyrics_search_json_via_runtime_async(
             Err(e) => {
                 let _ = resp_tx.send(Err(e));
                 return;
-            }
+            },
         };
     let slot = RuntimeInstanceSlotKey::new(&plugin_id, &type_id);
     let registry_actor_ref = shared_runtime_owner_registry_actor();
-    let actor_ref = match stellatune_runtime::block_on(registry_actor_ref.call(
+    let actor_ref = match block_on(registry_actor_ref.call(
         EnsureLyricsOwnerTaskMessage { slot },
         OWNER_WORKER_CLEAR_TIMEOUT,
     )) {
@@ -398,9 +394,9 @@ pub(super) fn lyrics_search_json_via_runtime_async(
         Err(_) => {
             let _ = resp_tx.send(Err("runtime lyrics owner registry unavailable".to_string()));
             return;
-        }
+        },
     };
-    std::mem::drop(stellatune_runtime::spawn(async move {
+    std::mem::drop(spawn(async move {
         let result = match actor_ref
             .call(
                 LyricsSearchMessage {
@@ -412,9 +408,7 @@ pub(super) fn lyrics_search_json_via_runtime_async(
             .await
         {
             Ok(result) => result,
-            Err(stellatune_runtime::tokio_actor::CallError::Timeout) => {
-                Err("runtime lyrics owner task search timeout".to_string())
-            }
+            Err(CallError::Timeout) => Err("runtime lyrics owner task search timeout".to_string()),
             Err(_) => Err("runtime lyrics owner task unavailable".to_string()),
         };
         let _ = resp_tx.send(result);
@@ -433,11 +427,11 @@ pub(super) fn lyrics_fetch_json_via_runtime_async(
             Err(e) => {
                 let _ = resp_tx.send(Err(e));
                 return;
-            }
+            },
         };
     let slot = RuntimeInstanceSlotKey::new(&plugin_id, &type_id);
     let registry_actor_ref = shared_runtime_owner_registry_actor();
-    let actor_ref = match stellatune_runtime::block_on(registry_actor_ref.call(
+    let actor_ref = match block_on(registry_actor_ref.call(
         EnsureLyricsOwnerTaskMessage { slot },
         OWNER_WORKER_CLEAR_TIMEOUT,
     )) {
@@ -445,9 +439,9 @@ pub(super) fn lyrics_fetch_json_via_runtime_async(
         Err(_) => {
             let _ = resp_tx.send(Err("runtime lyrics owner registry unavailable".to_string()));
             return;
-        }
+        },
     };
-    std::mem::drop(stellatune_runtime::spawn(async move {
+    std::mem::drop(spawn(async move {
         let result = match actor_ref
             .call(
                 LyricsFetchMessage {
@@ -459,9 +453,7 @@ pub(super) fn lyrics_fetch_json_via_runtime_async(
             .await
         {
             Ok(result) => result,
-            Err(stellatune_runtime::tokio_actor::CallError::Timeout) => {
-                Err("runtime lyrics owner task fetch timeout".to_string())
-            }
+            Err(CallError::Timeout) => Err("runtime lyrics owner task fetch timeout".to_string()),
             Err(_) => Err("runtime lyrics owner task unavailable".to_string()),
         };
         let _ = resp_tx.send(result);
@@ -476,7 +468,7 @@ pub(crate) fn source_open_stream_via_runtime_blocking(
 ) -> Result<RuntimeSourceStreamLease, String> {
     let slot = RuntimeInstanceSlotKey::new(plugin_id, type_id);
     let registry_actor_ref = shared_runtime_owner_registry_actor();
-    let (actor_ref, stream_id) = match stellatune_runtime::block_on(registry_actor_ref.call(
+    let (actor_ref, stream_id) = match block_on(registry_actor_ref.call(
         PrepareSourceOpenStreamMessage { slot: slot.clone() },
         OWNER_WORKER_CLEAR_TIMEOUT,
     )) {
@@ -486,13 +478,13 @@ pub(crate) fn source_open_stream_via_runtime_blocking(
 
     let rollback_active = || {
         let registry_actor_ref = shared_runtime_owner_registry_actor();
-        let _ = stellatune_runtime::block_on(registry_actor_ref.call(
+        let _ = block_on(registry_actor_ref.call(
             RollbackSourceOpenStreamMessage { slot: slot.clone() },
             OWNER_WORKER_CLEAR_TIMEOUT,
         ));
     };
 
-    match stellatune_runtime::block_on(actor_ref.call(
+    match block_on(actor_ref.call(
         SourceOpenStreamMessage {
             config_json,
             track_json,
@@ -502,7 +494,7 @@ pub(crate) fn source_open_stream_via_runtime_blocking(
     )) {
         Ok(Ok(lease)) => {
             let registry_actor_ref = shared_runtime_owner_registry_actor();
-            let _ = stellatune_runtime::block_on(registry_actor_ref.call(
+            let _ = block_on(registry_actor_ref.call(
                 CommitSourceOpenStreamMessage {
                     stream_id: lease.stream_id,
                     slot,
@@ -510,60 +502,60 @@ pub(crate) fn source_open_stream_via_runtime_blocking(
                 OWNER_WORKER_CLEAR_TIMEOUT,
             ));
             Ok(lease)
-        }
+        },
         Ok(Err(e)) => {
             rollback_active();
             Err(e)
-        }
-        Err(stellatune_runtime::tokio_actor::CallError::Timeout) => {
-            let _ = stellatune_runtime::block_on(actor_ref.call(
+        },
+        Err(CallError::Timeout) => {
+            let _ = block_on(actor_ref.call(
                 SourceCloseStreamMessage { stream_id },
                 OWNER_WORKER_CLEAR_TIMEOUT,
             ));
             rollback_active();
             Err("runtime source owner task open_stream timeout".to_string())
-        }
+        },
         Err(_) => {
             rollback_active();
             Err("runtime source owner task unavailable".to_string())
-        }
+        },
     }
 }
 
 pub(crate) fn source_close_stream_via_runtime_blocking(stream_id: u64) -> Result<(), String> {
     let registry_actor_ref = shared_runtime_owner_registry_actor();
-    let (slot, actor_ref) = match stellatune_runtime::block_on(registry_actor_ref.call(
+    let (slot, actor_ref) = match block_on(registry_actor_ref.call(
         PrepareSourceCloseStreamMessage { stream_id },
         OWNER_WORKER_CLEAR_TIMEOUT,
     )) {
         Ok(SourceCloseTarget::MissingStream) => return Ok(()),
         Ok(SourceCloseTarget::MissingTask) => {
             return Err("runtime source owner task missing for close_stream".to_string());
-        }
+        },
         Ok(SourceCloseTarget::Ready { slot, actor_ref }) => (slot, actor_ref),
         Err(_) => return Err("runtime source owner registry unavailable".to_string()),
     };
 
-    let result = match stellatune_runtime::block_on(actor_ref.call(
+    let result = match block_on(actor_ref.call(
         SourceCloseStreamMessage { stream_id },
         OWNER_WORKER_STREAM_TIMEOUT,
     )) {
         Ok(result) => result,
-        Err(stellatune_runtime::tokio_actor::CallError::Timeout) => {
+        Err(CallError::Timeout) => {
             return Err("runtime source owner task close_stream timeout".to_string());
-        }
+        },
         Err(_) => {
             let registry_actor_ref = shared_runtime_owner_registry_actor();
-            let _ = stellatune_runtime::block_on(registry_actor_ref.call(
+            let _ = block_on(registry_actor_ref.call(
                 FinalizeSourceCloseStreamMessage { slot, stream_id },
                 OWNER_WORKER_CLEAR_TIMEOUT,
             ));
             return Err("runtime source owner task unavailable".to_string());
-        }
+        },
     };
 
     let registry_actor_ref = shared_runtime_owner_registry_actor();
-    let _ = stellatune_runtime::block_on(registry_actor_ref.call(
+    let _ = block_on(registry_actor_ref.call(
         FinalizeSourceCloseStreamMessage { slot, stream_id },
         OWNER_WORKER_CLEAR_TIMEOUT,
     ));
@@ -584,21 +576,21 @@ pub(super) fn output_sink_list_targets_json_via_runtime(
 ) -> Result<String, String> {
     let slot = RuntimeInstanceSlotKey::new(plugin_id, type_id);
     let registry_actor_ref = shared_runtime_owner_registry_actor();
-    let actor_ref = match stellatune_runtime::block_on(registry_actor_ref.call(
+    let actor_ref = match block_on(registry_actor_ref.call(
         EnsureOutputSinkOwnerTaskMessage { slot },
         OWNER_WORKER_CLEAR_TIMEOUT,
     )) {
         Ok(actor_ref) => actor_ref,
         Err(_) => return Err("runtime output sink owner registry unavailable".to_string()),
     };
-    match stellatune_runtime::block_on(actor_ref.call(
+    match block_on(actor_ref.call(
         OutputSinkListTargetsMessage { config_json },
         OWNER_WORKER_STREAM_TIMEOUT,
     )) {
         Ok(result) => result,
-        Err(stellatune_runtime::tokio_actor::CallError::Timeout) => {
+        Err(CallError::Timeout) => {
             Err("runtime output sink owner task list_targets timeout".to_string())
-        }
+        },
         Err(_) => Err("runtime output sink owner task unavailable".to_string()),
     }
 }
@@ -660,7 +652,7 @@ pub(super) fn apply_or_recreate_lyrics_instance(
             );
             entry.config_json = config_json.to_string();
             Ok(())
-        }
+        },
         WorkerConfigUpdateOutcome::RequiresRecreate {
             revision: generation,
             reason,
@@ -697,7 +689,7 @@ pub(super) fn apply_or_recreate_lyrics_instance(
                 debug!(plugin_id, type_id, "lyrics config recreate: {reason}");
             }
             Ok(())
-        }
+        },
         WorkerConfigUpdateOutcome::DeferredNoInstance => {
             emit_config_update_runtime_event(
                 plugin_id,
@@ -728,7 +720,7 @@ pub(super) fn apply_or_recreate_lyrics_instance(
                 Some("deferred_no_instance"),
             );
             Ok(())
-        }
+        },
         WorkerConfigUpdateOutcome::Rejected {
             revision: generation,
             reason,
@@ -744,7 +736,7 @@ pub(super) fn apply_or_recreate_lyrics_instance(
             Err(format!(
                 "lyrics config update rejected for {plugin_id}::{type_id}: {reason}"
             ))
-        }
+        },
         WorkerConfigUpdateOutcome::Failed {
             revision: generation,
             error,
@@ -760,7 +752,7 @@ pub(super) fn apply_or_recreate_lyrics_instance(
             Err(format!(
                 "lyrics config update failed for {plugin_id}::{type_id}: {error}"
             ))
-        }
+        },
     }
 }
 
@@ -793,7 +785,7 @@ pub(super) fn apply_or_recreate_output_sink_instance(
             );
             entry.config_json = config_json.to_string();
             Ok(())
-        }
+        },
         WorkerConfigUpdateOutcome::RequiresRecreate {
             revision: generation,
             reason,
@@ -830,7 +822,7 @@ pub(super) fn apply_or_recreate_output_sink_instance(
                 debug!(plugin_id, type_id, "output sink config recreate: {reason}");
             }
             Ok(())
-        }
+        },
         WorkerConfigUpdateOutcome::DeferredNoInstance => {
             emit_config_update_runtime_event(
                 plugin_id,
@@ -861,7 +853,7 @@ pub(super) fn apply_or_recreate_output_sink_instance(
                 Some("deferred_no_instance"),
             );
             Ok(())
-        }
+        },
         WorkerConfigUpdateOutcome::Rejected {
             revision: generation,
             reason,
@@ -877,7 +869,7 @@ pub(super) fn apply_or_recreate_output_sink_instance(
             Err(format!(
                 "output sink config update rejected for {plugin_id}::{type_id}: {reason}"
             ))
-        }
+        },
         WorkerConfigUpdateOutcome::Failed {
             revision: generation,
             error,
@@ -893,6 +885,6 @@ pub(super) fn apply_or_recreate_output_sink_instance(
             Err(format!(
                 "output sink config update failed for {plugin_id}::{type_id}: {error}"
             ))
-        }
+        },
     }
 }

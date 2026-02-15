@@ -458,15 +458,15 @@ fn spawn_decoder_worker(
                     match req {
                         WorkerRequest::Snapshot(reply) => {
                             let _ = reply.send(snapshot_from_controller(&mut controller));
-                        }
+                        },
                         WorkerRequest::HotApply { config_json, reply } => {
                             let out = controller.apply_config_update(config_json);
                             let _ = reply.send(out);
-                        }
+                        },
                         WorkerRequest::Stop(reply) => {
                             stop = true;
                             let _ = reply.send(());
-                        }
+                        },
                     }
                 }
 

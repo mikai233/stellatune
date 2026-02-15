@@ -3,12 +3,12 @@ use std::time::Instant;
 
 use stellatune_runtime::thread_actor::{ActorContext, Handler, Message};
 
-use super::super::super::tick::ControlTickMessage;
-use super::super::{
-    DecodeCtrl, PlayerState, ensure_output_spec_prewarm, force_transition_gain_unity, set_state,
-};
 use crate::engine::control::Event;
 use crate::engine::control::control_actor::ControlActor;
+use crate::engine::control::control_actor::handlers::tick::ControlTickMessage;
+use crate::engine::control::{
+    DecodeCtrl, PlayerState, ensure_output_spec_prewarm, force_transition_gain_unity, set_state,
+};
 
 pub(crate) struct PlayMessage;
 

@@ -289,7 +289,7 @@ pub async fn plugin_runtime_disable(
             if deferred {
                 report.phase = "deferred";
             }
-        }
+        },
         Err(err) => report.errors.push(err),
     }
 

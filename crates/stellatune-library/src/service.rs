@@ -7,7 +7,8 @@ use tokio::sync::broadcast;
 use tracing::info;
 
 use crate::{LibraryEvent, PlaylistLite, TrackLite};
-use stellatune_runtime::tokio_actor::ActorRef;
+use stellatune_plugins::runtime::handle::shared_runtime_service;
+use stellatune_runtime::tokio_actor::{ActorRef, CallError, Handler, Message, spawn_actor};
 
 use crate::worker::{LibraryWorker, WorkerDeps};
 
@@ -41,49 +42,49 @@ pub struct LibraryHandle {
 impl LibraryHandle {
     const QUERY_TIMEOUT: Duration = Duration::from_secs(15);
 
-    fn cast_command<M>(&self, message: M) -> std::result::Result<(), String>
+    fn cast_command<M>(&self, message: M) -> Result<(), String>
     where
-        M: stellatune_runtime::tokio_actor::Message<Response = ()>,
-        LibraryServiceActor: stellatune_runtime::tokio_actor::Handler<M>,
+        M: Message<Response = ()>,
+        LibraryServiceActor: Handler<M>,
     {
         self.actor_ref
             .cast(message)
             .map_err(|_| "library command channel closed".to_string())
     }
 
-    pub async fn add_root(&self, path: String) -> std::result::Result<(), String> {
+    pub async fn add_root(&self, path: String) -> Result<(), String> {
         self.cast_command(AddRootMessage { path })
     }
 
-    pub async fn remove_root(&self, path: String) -> std::result::Result<(), String> {
+    pub async fn remove_root(&self, path: String) -> Result<(), String> {
         self.cast_command(RemoveRootMessage { path })
     }
 
-    pub async fn delete_folder(&self, path: String) -> std::result::Result<(), String> {
+    pub async fn delete_folder(&self, path: String) -> Result<(), String> {
         self.cast_command(DeleteFolderMessage { path })
     }
 
-    pub async fn restore_folder(&self, path: String) -> std::result::Result<(), String> {
+    pub async fn restore_folder(&self, path: String) -> Result<(), String> {
         self.cast_command(RestoreFolderMessage { path })
     }
 
-    pub async fn scan_all(&self) -> std::result::Result<(), String> {
+    pub async fn scan_all(&self) -> Result<(), String> {
         self.cast_command(ScanAllMessage)
     }
 
-    pub async fn scan_all_force(&self) -> std::result::Result<(), String> {
+    pub async fn scan_all_force(&self) -> Result<(), String> {
         self.cast_command(ScanAllForceMessage)
     }
 
-    pub async fn create_playlist(&self, name: String) -> std::result::Result<(), String> {
+    pub async fn create_playlist(&self, name: String) -> Result<(), String> {
         self.cast_command(CreatePlaylistMessage { name })
     }
 
-    pub async fn rename_playlist(&self, id: i64, name: String) -> std::result::Result<(), String> {
+    pub async fn rename_playlist(&self, id: i64, name: String) -> Result<(), String> {
         self.cast_command(RenamePlaylistMessage { id, name })
     }
 
-    pub async fn delete_playlist(&self, id: i64) -> std::result::Result<(), String> {
+    pub async fn delete_playlist(&self, id: i64) -> Result<(), String> {
         self.cast_command(DeletePlaylistMessage { id })
     }
 
@@ -91,7 +92,7 @@ impl LibraryHandle {
         &self,
         playlist_id: i64,
         track_id: i64,
-    ) -> std::result::Result<(), String> {
+    ) -> Result<(), String> {
         self.cast_command(AddTrackToPlaylistMessage {
             playlist_id,
             track_id,
@@ -102,7 +103,7 @@ impl LibraryHandle {
         &self,
         playlist_id: i64,
         track_ids: Vec<i64>,
-    ) -> std::result::Result<(), String> {
+    ) -> Result<(), String> {
         self.cast_command(AddTracksToPlaylistMessage {
             playlist_id,
             track_ids,
@@ -113,7 +114,7 @@ impl LibraryHandle {
         &self,
         playlist_id: i64,
         track_id: i64,
-    ) -> std::result::Result<(), String> {
+    ) -> Result<(), String> {
         self.cast_command(RemoveTrackFromPlaylistMessage {
             playlist_id,
             track_id,
@@ -124,7 +125,7 @@ impl LibraryHandle {
         &self,
         playlist_id: i64,
         track_ids: Vec<i64>,
-    ) -> std::result::Result<(), String> {
+    ) -> Result<(), String> {
         self.cast_command(RemoveTracksFromPlaylistMessage {
             playlist_id,
             track_ids,
@@ -136,7 +137,7 @@ impl LibraryHandle {
         playlist_id: i64,
         track_id: i64,
         new_index: i64,
-    ) -> std::result::Result<(), String> {
+    ) -> Result<(), String> {
         self.cast_command(MoveTrackInPlaylistMessage {
             playlist_id,
             track_id,
@@ -144,15 +145,11 @@ impl LibraryHandle {
         })
     }
 
-    pub async fn set_track_liked(
-        &self,
-        track_id: i64,
-        liked: bool,
-    ) -> std::result::Result<(), String> {
+    pub async fn set_track_liked(&self, track_id: i64, liked: bool) -> Result<(), String> {
         self.cast_command(SetTrackLikedMessage { track_id, liked })
     }
 
-    pub async fn shutdown(&self) -> std::result::Result<(), String> {
+    pub async fn shutdown(&self) -> Result<(), String> {
         self.cast_command(ShutdownMessage)
     }
 
@@ -288,7 +285,7 @@ impl LibraryHandle {
         }
         persist_disabled_plugin_ids(&self.db_path, &disabled).await?;
 
-        stellatune_plugins::runtime::handle::shared_runtime_service()
+        shared_runtime_service()
             .set_plugin_enabled(&plugin_id, enabled)
             .await;
 
@@ -317,11 +314,11 @@ impl LibraryHandle {
     }
 }
 
-fn map_call_error(err: stellatune_runtime::tokio_actor::CallError) -> anyhow::Error {
+fn map_call_error(err: CallError) -> anyhow::Error {
     match err {
-        stellatune_runtime::tokio_actor::CallError::Timeout => {
+        CallError::Timeout => {
             anyhow!("library query timed out")
-        }
+        },
         _ => anyhow!("library actor unavailable"),
     }
 }
@@ -338,9 +335,7 @@ pub async fn start_library(db_path: String) -> Result<LibraryHandle> {
     ensure_parent_dir(&db_path)?;
     let deps = WorkerDeps::new(&db_path, Arc::clone(&events), plugins_dir.clone()).await?;
     let worker = LibraryWorker::new(deps);
-    let (actor_ref, _join) = stellatune_runtime::tokio_actor::spawn_actor(
-        LibraryServiceActor::new(worker, Arc::clone(&events)),
-    );
+    let (actor_ref, _join) = spawn_actor(LibraryServiceActor::new(worker, Arc::clone(&events)));
     info!("library actor started");
 
     Ok(LibraryHandle {

@@ -194,7 +194,7 @@ impl PluginRuntimeActor {
                 PluginSyncAction::ReloadChanged { .. } => plan_summary.reload_changed += 1,
                 PluginSyncAction::DeactivateMissingOrDisabled { .. } => {
                     plan_summary.deactivate += 1
-                }
+                },
             }
         }
         let plan_ms = plan_started.elapsed().as_millis() as u64;
@@ -240,7 +240,7 @@ impl PluginRuntimeActor {
                                 plugin_id,
                                 outcome: "loaded".to_string(),
                             });
-                        }
+                        },
                         Err(error) => {
                             report
                                 .errors
@@ -250,9 +250,9 @@ impl PluginRuntimeActor {
                                 plugin_id,
                                 outcome: "error".to_string(),
                             });
-                        }
+                        },
                     }
-                }
+                },
                 PluginSyncAction::ReloadChanged { plugin_id } => {
                     let Some(discovered) = discovered_by_id.get(&plugin_id) else {
                         report.errors.push(anyhow!(
@@ -275,7 +275,7 @@ impl PluginRuntimeActor {
                                 plugin_id,
                                 outcome: "reloaded".to_string(),
                             });
-                        }
+                        },
                         Err(error) => {
                             report.errors.push(
                                 error.context(format!(
@@ -287,9 +287,9 @@ impl PluginRuntimeActor {
                                 plugin_id,
                                 outcome: "error".to_string(),
                             });
-                        }
+                        },
                     }
-                }
+                },
                 PluginSyncAction::DeactivateMissingOrDisabled { plugin_id } => {
                     if self.disable_plugin_slot(&plugin_id) {
                         report.deactivated.push(plugin_id.clone());
@@ -306,7 +306,7 @@ impl PluginRuntimeActor {
                         });
                     }
                     report.reclaimed_leases += self.gc_plugin_retired_leases(&plugin_id);
-                }
+                },
             }
         }
         let execute_ms = execute_started.elapsed().as_millis() as u64;
@@ -361,7 +361,7 @@ impl PluginRuntimeActor {
                     if !active_ids.contains(&plugin_id) {
                         actions.push(PluginSyncAction::LoadNew { plugin_id });
                     }
-                }
+                },
                 SyncMode::Reconcile => {
                     if !active_ids.contains(&plugin_id) {
                         actions.push(PluginSyncAction::LoadNew { plugin_id });
@@ -372,7 +372,7 @@ impl PluginRuntimeActor {
                     if active_fingerprint != Some(next_fingerprint) {
                         actions.push(PluginSyncAction::ReloadChanged { plugin_id });
                     }
-                }
+                },
             }
         }
 

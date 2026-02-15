@@ -37,7 +37,7 @@ impl PluginEventBus {
                 Some(count) => {
                     *count = count.saturating_sub(1);
                     *count == 0
-                }
+                },
                 None => false,
             };
             if should_drop {

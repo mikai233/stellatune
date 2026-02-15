@@ -1,6 +1,6 @@
 use stellatune_runtime::tokio_actor::{ActorContext, Handler, Message};
 
-use super::super::ApplyStateCoordinatorActor;
+use crate::runtime::apply_state::ApplyStateCoordinatorActor;
 
 pub(crate) struct GetLastCompletedRequestIdMessage;
 

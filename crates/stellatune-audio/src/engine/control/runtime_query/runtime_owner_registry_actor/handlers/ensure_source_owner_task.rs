@@ -1,7 +1,9 @@
-use stellatune_runtime::tokio_actor::{ActorContext, Handler, Message};
+use stellatune_runtime::tokio_actor::{ActorContext, ActorRef, Handler, Message, spawn_actor};
 
-use super::super::{RuntimeOwnerRegistryActor, SourceOwnerTaskHandle};
 use crate::engine::control::RuntimeInstanceSlotKey;
+use crate::engine::control::runtime_query::runtime_owner_registry_actor::{
+    RuntimeOwnerRegistryActor, SourceOwnerTaskHandle,
+};
 use crate::engine::control::runtime_query::source_owner_actor::SourceOwnerActor;
 
 pub(crate) struct EnsureSourceOwnerTaskMessage {
@@ -9,7 +11,7 @@ pub(crate) struct EnsureSourceOwnerTaskMessage {
 }
 
 impl Message for EnsureSourceOwnerTaskMessage {
-    type Response = stellatune_runtime::tokio_actor::ActorRef<SourceOwnerActor>;
+    type Response = ActorRef<SourceOwnerActor>;
 }
 
 #[async_trait::async_trait]
@@ -18,7 +20,7 @@ impl Handler<EnsureSourceOwnerTaskMessage> for RuntimeOwnerRegistryActor {
         &mut self,
         message: EnsureSourceOwnerTaskMessage,
         _ctx: &mut ActorContext<Self>,
-    ) -> stellatune_runtime::tokio_actor::ActorRef<SourceOwnerActor> {
+    ) -> ActorRef<SourceOwnerActor> {
         if let Some(handle) = self.source_tasks.get(&message.slot)
             && !handle.actor_ref.is_closed()
         {
@@ -32,8 +34,7 @@ impl Handler<EnsureSourceOwnerTaskMessage> for RuntimeOwnerRegistryActor {
             .get(&message.slot)
             .map(|h| h.active_streams)
             .unwrap_or(0);
-        let (actor_ref, _join) =
-            stellatune_runtime::tokio_actor::spawn_actor(SourceOwnerActor::new(plugin_id, type_id));
+        let (actor_ref, _join) = spawn_actor(SourceOwnerActor::new(plugin_id, type_id));
         self.source_tasks.insert(
             message.slot,
             SourceOwnerTaskHandle {

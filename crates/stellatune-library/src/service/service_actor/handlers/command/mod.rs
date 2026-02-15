@@ -32,6 +32,6 @@ pub(crate) use scan_all_force::ScanAllForceMessage;
 pub(crate) use set_track_liked::SetTrackLikedMessage;
 pub(crate) use shutdown::ShutdownMessage;
 
-pub(super) use super::super::LibraryServiceActor;
 pub(super) use crate::LibraryEvent;
+pub(super) use crate::service::service_actor::LibraryServiceActor;
 pub(super) use stellatune_runtime::tokio_actor::{ActorContext, Handler, Message};

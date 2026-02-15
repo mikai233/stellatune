@@ -6,6 +6,7 @@ use stellatune_plugin_api::{
 use crate::capabilities::common::{status_to_result, ststr_from_str};
 use crate::capabilities::output::OutputSinkInstance;
 use crate::runtime::handle::PluginRuntimeHandle;
+use crate::runtime::update::InstanceUpdateResult;
 use crate::runtime::worker_controller::{WorkerConfigurableInstance, WorkerInstanceFactory};
 
 use super::common::{
@@ -64,10 +65,10 @@ impl OutputSinkInstanceFactory {
                             plugin_free,
                         )?;
                         return Ok(());
-                    }
+                    },
                     StAsyncOpState::Cancelled => {
                         return Err(anyhow!("create_output_sink_instance operation cancelled"));
-                    }
+                    },
                     StAsyncOpState::Failed => {
                         let _ = status_to_result(
                             "create_output_sink_instance op failed",
@@ -75,7 +76,7 @@ impl OutputSinkInstanceFactory {
                             plugin_free,
                         );
                         return Err(anyhow!("create_output_sink_instance operation failed"));
-                    }
+                    },
                 }
             }
         })();
@@ -88,7 +89,7 @@ impl OutputSinkInstanceFactory {
             Err(err) => {
                 destroy_raw_output_instance(&mut raw);
                 Err(err)
-            }
+            },
         }
     }
 }
@@ -117,10 +118,7 @@ impl PluginRuntimeHandle {
 }
 
 impl WorkerConfigurableInstance for OutputSinkInstance {
-    fn apply_config_update_json(
-        &mut self,
-        new_config_json: &str,
-    ) -> Result<crate::runtime::update::InstanceUpdateResult> {
+    fn apply_config_update_json(&mut self, new_config_json: &str) -> Result<InstanceUpdateResult> {
         OutputSinkInstance::apply_config_update_json(self, new_config_json)
     }
 }

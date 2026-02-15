@@ -51,32 +51,32 @@ impl MixMatrix {
             // 5.1 → Stereo: ITU-R BS.775-3
             (ChannelLayout::Surround5_1, ChannelLayout::Stereo) => {
                 Self::downmix_5_1_to_stereo(lfe_mode)
-            }
+            },
 
             // 7.1 → Stereo: ITU-R BS.775-3 extended
             (ChannelLayout::Surround7_1, ChannelLayout::Stereo) => {
                 Self::downmix_7_1_to_stereo(lfe_mode)
-            }
+            },
 
             // 5.1 → Mono
             (ChannelLayout::Surround5_1, ChannelLayout::Mono) => {
                 Self::downmix_5_1_to_mono(lfe_mode)
-            }
+            },
 
             // 7.1 → Mono
             (ChannelLayout::Surround7_1, ChannelLayout::Mono) => {
                 Self::downmix_7_1_to_mono(lfe_mode)
-            }
+            },
 
             // Stereo → 5.1: basic upmix
             (ChannelLayout::Stereo, ChannelLayout::Surround5_1) => {
                 Self::upmix_stereo_to_5_1(lfe_mode)
-            }
+            },
 
             // 7.1 → 5.1: drop side channels
             (ChannelLayout::Surround7_1, ChannelLayout::Surround5_1) => {
                 Self::downmix_7_1_to_5_1(lfe_mode)
-            }
+            },
 
             // Default: try to create a reasonable matrix
             _ => Self::create_generic(in_ch, out_ch, lfe_mode),

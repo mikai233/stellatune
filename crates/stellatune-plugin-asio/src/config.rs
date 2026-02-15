@@ -183,13 +183,13 @@ pub(crate) fn choose_sample_rate(
                     );
                 }
                 rate
-            }
+            },
             None => default_sr,
         },
         AsioSampleRateMode::MatchTrack => {
             let request = desired.max(1);
             choose_nearest_u32(request, &caps.supported_sample_rates, default_sr)
-        }
+        },
     }
 }
 

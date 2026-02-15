@@ -1,7 +1,8 @@
 use std::collections::HashSet;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
@@ -10,7 +11,7 @@ use tokio::sync::mpsc;
 use tokio::time::Instant;
 
 use crate::LibraryEvent;
-use stellatune_runtime::tokio_actor::ActorRef;
+use stellatune_runtime::tokio_actor::{ActorRef, spawn_actor};
 
 use crate::service::EventHub;
 
@@ -111,11 +112,11 @@ pub(super) fn spawn_watch_task(
                 message: format!("fs watcher init failed: {err}"),
             });
             None
-        }
+        },
     };
 
     let has_watcher = watcher.is_some();
-    let (actor_ref, _join) = stellatune_runtime::tokio_actor::spawn_actor(WatchTaskActor {
+    let (actor_ref, _join) = spawn_actor(WatchTaskActor {
         pool,
         events: Arc::clone(&events),
         cover_dir,
@@ -182,7 +183,7 @@ async fn apply_fs_changes(
             continue;
         }
 
-        if std::fs::metadata(&path).ok().is_some_and(|m| m.is_dir()) {
+        if fs::metadata(&path).ok().is_some_and(|m| m.is_dir()) {
             continue;
         }
 
@@ -191,13 +192,13 @@ async fn apply_fs_changes(
             continue;
         }
 
-        let meta = match std::fs::metadata(&path) {
+        let meta = match fs::metadata(&path) {
             Ok(m) => m,
             Err(_) => {
                 let deleted = delete_track_by_path_norm(pool, cover_dir, &path_norm).await?;
                 changed |= deleted > 0;
                 continue;
-            }
+            },
         };
 
         let ext = path
@@ -215,7 +216,7 @@ async fn apply_fs_changes(
         let mtime_ms = meta
             .modified()
             .ok()
-            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
             .map(|d| d.as_millis() as i64)
             .unwrap_or(0);
         let size_bytes = meta.len() as i64;
@@ -246,13 +247,13 @@ async fn apply_fs_changes(
                     message: format!("metadata error: {}: {e:#}", raw_trimmed),
                 });
                 (None, None, None, None, None)
-            }
+            },
             Err(join_err) => {
                 events.emit(LibraryEvent::Log {
                     message: format!("metadata task failed: {}: {join_err}", raw_trimmed),
                 });
                 (None, None, None, None, None)
-            }
+            },
         };
 
         let track_id = upsert_track_by_path_norm(

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -128,14 +129,13 @@ pub fn list_host_devices(_selected_backend: Option<AudioBackend>) -> Vec<AudioDe
         // Sort by name for stable indexing
         devs.sort_by(|a, b| a.name.cmp(&b.name));
 
-        let mut counts = std::collections::HashMap::new();
+        let mut counts = HashMap::new();
         for d in &devs {
             *counts.entry(d.name.clone()).or_insert(0) += 1;
         }
 
         let mut final_devs = Vec::new();
-        let mut current_indices = std::collections::HashMap::new();
-
+        let mut current_indices = HashMap::new();
         for d in devs {
             let count = counts[&d.name];
             if count > 1 {
@@ -169,12 +169,12 @@ pub fn supports_output_spec(
         #[cfg(windows)]
         AudioBackend::WasapiExclusive => {
             wasapi_exclusive::supports_exclusive_spec(device_id, spec).unwrap_or(false)
-        }
+        },
         #[cfg(not(windows))]
         AudioBackend::WasapiExclusive => {
             let _ = (device_id, spec);
             false
-        }
+        },
     }
 }
 
@@ -190,7 +190,7 @@ fn cpal_device_label(device: &cpal::Device) -> String {
                 .filter(|s| !s.is_empty())
                 .unwrap_or_else(|| desc.name().trim())
                 .to_string()
-        }
+        },
         Err(_) => "Unknown CPAL Device".to_string(),
     }
 }
@@ -232,11 +232,11 @@ pub fn output_spec_for_device(
                 sample_rate: config.sample_rate(),
                 channels: config.channels(),
             })
-        }
+        },
         #[cfg(windows)]
         AudioBackend::WasapiExclusive => {
             wasapi_exclusive::output_spec_for_exclusive_device(device_id)
-        }
+        },
         #[cfg(not(windows))]
         AudioBackend::WasapiExclusive => Err(OutputError::NoDevice),
     }
@@ -302,7 +302,7 @@ impl OutputHandle {
                             move |err| (on_error)(err.to_string()),
                             Some(Duration::from_millis(200)),
                         )?
-                    }
+                    },
                     cpal::SampleFormat::I16 => {
                         let on_error = Arc::clone(&on_error);
                         device.build_output_stream(
@@ -311,7 +311,7 @@ impl OutputHandle {
                             move |err| (on_error)(err.to_string()),
                             Some(Duration::from_millis(200)),
                         )?
-                    }
+                    },
                     cpal::SampleFormat::U16 => {
                         let on_error = Arc::clone(&on_error);
                         device.build_output_stream(
@@ -320,12 +320,12 @@ impl OutputHandle {
                             move |err| (on_error)(err.to_string()),
                             Some(Duration::from_millis(200)),
                         )?
-                    }
+                    },
                     other => {
                         return Err(OutputError::ConfigMismatch {
                             message: format!("unsupported output sample format: {other:?}"),
                         });
-                    }
+                    },
                 };
 
                 stream.play()?;
@@ -334,7 +334,7 @@ impl OutputHandle {
                     _stream: stream,
                     spec,
                 })
-            }
+            },
             #[cfg(windows)]
             AudioBackend::WasapiExclusive => {
                 let handle = wasapi_exclusive::WasapiExclusiveHandle::start(
@@ -344,7 +344,7 @@ impl OutputHandle {
                     on_error,
                 )?;
                 Ok(Self::Exclusive(handle))
-            }
+            },
             #[cfg(not(windows))]
             AudioBackend::WasapiExclusive => Err(OutputError::NoDevice),
         }
@@ -369,7 +369,7 @@ fn fill_f32<C: SampleConsumer>(out: &mut [f32], consumer: &mut C) {
             Some(v) => {
                 provided += 1;
                 *slot = v;
-            }
+            },
             None => *slot = 0.0,
         }
     }
@@ -383,7 +383,7 @@ fn fill_i16<C: SampleConsumer>(out: &mut [i16], consumer: &mut C) {
             Some(v) => {
                 provided += 1;
                 *slot = f32_to_i16(v);
-            }
+            },
             None => *slot = 0,
         }
     }
@@ -397,7 +397,7 @@ fn fill_u16<C: SampleConsumer>(out: &mut [u16], consumer: &mut C) {
             Some(v) => {
                 provided += 1;
                 *slot = f32_to_u16(v);
-            }
+            },
             None => *slot = 0,
         }
     }

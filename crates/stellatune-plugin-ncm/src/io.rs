@@ -39,7 +39,7 @@ impl Seek for NcmMediaSource {
                 }
                 self.ncm
                     .seek(SeekFrom::Start(self.start.saturating_add(end as u64)))
-            }
+            },
         }?;
         Ok(abs.saturating_sub(self.start))
     }

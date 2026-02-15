@@ -3,7 +3,7 @@ use std::cell::RefCell;
 use stellatune_runtime::thread_actor::{ActorContext, Handler, Message};
 use tracing::info;
 
-use super::super::ControlActor;
+use crate::engine::control::control_actor::ControlActor;
 
 thread_local! {
     static CONTROL_RT_GUARD: RefCell<Option<stellatune_output::RealtimeThreadGuard>> =

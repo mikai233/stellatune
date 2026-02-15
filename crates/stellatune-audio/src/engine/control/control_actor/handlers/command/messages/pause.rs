@@ -2,10 +2,10 @@ use std::sync::atomic::Ordering;
 
 use stellatune_runtime::thread_actor::{ActorContext, Handler, Message};
 
-use super::super::{
+use crate::engine::control::control_actor::ControlActor;
+use crate::engine::control::{
     DecodeCtrl, DisruptFadeKind, PlayerState, maybe_fade_out_before_disrupt, set_state,
 };
-use crate::engine::control::control_actor::ControlActor;
 
 pub(crate) struct PauseMessage;
 

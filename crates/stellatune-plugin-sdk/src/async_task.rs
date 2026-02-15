@@ -78,7 +78,7 @@ impl<R: Send + 'static> AsyncTaskOp<R> {
                     Err(RecvTimeoutError::Timeout) => notifier,
                     Err(RecvTimeoutError::Disconnected) => {
                         self.complete_with_err(&mut inner, "async operation channel disconnected")
-                    }
+                    },
                 };
             }
             (inner.state, notifier)
@@ -159,7 +159,7 @@ impl<R: Send + 'static> AsyncTaskOp<R> {
             Err(TryRecvError::Empty) => None,
             Err(TryRecvError::Disconnected) => {
                 self.complete_with_err(inner, "async operation channel disconnected")
-            }
+            },
         }
     }
 

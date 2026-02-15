@@ -1,7 +1,9 @@
 use stellatune_runtime::tokio_actor::{ActorContext, Handler, Message};
 
-use super::super::SourceOwnerActor;
 use crate::engine::control::runtime_query::RuntimeSourceStreamLease;
+use crate::engine::control::runtime_query::source_owner_actor::{
+    SourceOwnerActor, SourceStreamLeaseRecord,
+};
 
 pub(crate) struct SourceOpenStreamMessage {
     pub config_json: String,
@@ -47,7 +49,7 @@ impl Handler<SourceOpenStreamMessage> for SourceOwnerActor {
                                 } else {
                                     self.streams.insert(
                                         message.stream_id,
-                                        super::super::SourceStreamLeaseRecord {
+                                        SourceStreamLeaseRecord {
                                             lease_id,
                                             io_handle_addr,
                                         },
@@ -60,13 +62,13 @@ impl Handler<SourceOpenStreamMessage> for SourceOwnerActor {
                                         source_metadata_json,
                                     })
                                 }
-                            }
+                            },
                             Err(err) => Err(err),
                         }
-                    }
+                    },
                     Err(err) => Err(err),
                 }
-            }
+            },
             Err(err) => Err(err),
         }
     }

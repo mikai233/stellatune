@@ -1,6 +1,6 @@
 use stellatune_runtime::tokio_actor::{ActorContext, Handler, Message};
 
-use super::super::LyricsOwnerActor;
+use crate::engine::control::runtime_query::lyrics_owner_actor::LyricsOwnerActor;
 
 pub(crate) struct LyricsShutdownMessage;
 

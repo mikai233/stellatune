@@ -35,7 +35,7 @@ fn create_output_sink_cached_instance(
                 controller,
                 control_rx,
             })
-        }
+        },
         WorkerApplyPendingOutcome::Destroyed | WorkerApplyPendingOutcome::Idle => Err(format!(
             "output sink controller did not create instance for {plugin_id}::{type_id}"
         )),
@@ -252,10 +252,10 @@ pub(super) fn sync_output_sink_with_active_session(
                         output_sink_chunk_frames: state.output_sink_chunk_frames,
                     });
                     return Ok(());
-                }
+                },
                 Err(e) => {
                     warn!("output sink hot config update failed, fallback to recreate: {e}");
-                }
+                },
             }
         }
     }

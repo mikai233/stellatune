@@ -88,7 +88,7 @@ fn create_dsp_controller(
     })? {
         WorkerApplyPendingOutcome::Created | WorkerApplyPendingOutcome::Recreated => {
             Ok((controller, control_rx))
-        }
+        },
         WorkerApplyPendingOutcome::Destroyed | WorkerApplyPendingOutcome::Idle => Err(format!(
             "failed to create DSP {}::{}: controller has no instance",
             spec.plugin_id, spec.type_id
@@ -107,13 +107,13 @@ fn recreate_controller_instance(
 
     node.controller.request_recreate();
     match node.controller.apply_pending().map_err(|e| e.to_string())? {
-        WorkerApplyPendingOutcome::Created | WorkerApplyPendingOutcome::Recreated => {}
+        WorkerApplyPendingOutcome::Created | WorkerApplyPendingOutcome::Recreated => {},
         WorkerApplyPendingOutcome::Destroyed | WorkerApplyPendingOutcome::Idle => {
             return Err(format!(
                 "dsp recreate failed for {}::{}: controller has no instance",
                 node.spec.plugin_id, node.spec.type_id
             ));
-        }
+        },
     }
 
     if let Some(state_json) = previous_state
@@ -203,7 +203,7 @@ pub(crate) fn apply_or_recreate_dsp_chain(
                     None,
                 );
                 node.spec.config_json = next.config_json.clone();
-            }
+            },
             WorkerConfigUpdateOutcome::RequiresRecreate {
                 revision: generation,
                 reason,
@@ -226,7 +226,7 @@ pub(crate) fn apply_or_recreate_dsp_chain(
                     generation,
                     None,
                 );
-            }
+            },
             WorkerConfigUpdateOutcome::DeferredNoInstance => {
                 emit_config_update_runtime_event(
                     &next.plugin_id,
@@ -246,7 +246,7 @@ pub(crate) fn apply_or_recreate_dsp_chain(
                     0,
                     Some("deferred_no_instance"),
                 );
-            }
+            },
             WorkerConfigUpdateOutcome::Rejected {
                 revision: generation,
                 reason,
@@ -263,7 +263,7 @@ pub(crate) fn apply_or_recreate_dsp_chain(
                     "dsp config update rejected for {}::{}: {reason}",
                     next.plugin_id, next.type_id
                 ));
-            }
+            },
             WorkerConfigUpdateOutcome::Failed {
                 revision: generation,
                 error,
@@ -280,7 +280,7 @@ pub(crate) fn apply_or_recreate_dsp_chain(
                     "dsp config update failed for {}::{}: {error}",
                     next.plugin_id, next.type_id
                 ));
-            }
+            },
         }
 
         let Some(instance) = node.controller.instance() else {

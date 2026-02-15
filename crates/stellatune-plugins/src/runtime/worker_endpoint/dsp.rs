@@ -4,6 +4,7 @@ use stellatune_plugin_api::{StAsyncOpState, StCreateDspInstanceOpRef, StDspInsta
 use crate::capabilities::common::{status_to_result, ststr_from_str};
 use crate::capabilities::dsp::DspInstance;
 use crate::runtime::handle::PluginRuntimeHandle;
+use crate::runtime::update::InstanceUpdateResult;
 use crate::runtime::worker_controller::{WorkerConfigurableInstance, WorkerInstanceFactory};
 
 use super::common::{
@@ -60,10 +61,10 @@ impl DspInstanceFactory {
                         let status = unsafe { ((*op.vtable).take_instance)(op.handle, &mut raw) };
                         status_to_result("create_dsp_instance take_instance", status, plugin_free)?;
                         return Ok(());
-                    }
+                    },
                     StAsyncOpState::Cancelled => {
                         return Err(anyhow!("create_dsp_instance operation cancelled"));
-                    }
+                    },
                     StAsyncOpState::Failed => {
                         let _ = status_to_result(
                             "create_dsp_instance op failed",
@@ -71,7 +72,7 @@ impl DspInstanceFactory {
                             plugin_free,
                         );
                         return Err(anyhow!("create_dsp_instance operation failed"));
-                    }
+                    },
                 }
             }
         })();
@@ -84,7 +85,7 @@ impl DspInstanceFactory {
             Err(err) => {
                 destroy_raw_dsp_instance(&mut raw);
                 Err(err)
-            }
+            },
         }
     }
 }
@@ -123,10 +124,7 @@ impl PluginRuntimeHandle {
 }
 
 impl WorkerConfigurableInstance for DspInstance {
-    fn apply_config_update_json(
-        &mut self,
-        new_config_json: &str,
-    ) -> Result<crate::runtime::update::InstanceUpdateResult> {
+    fn apply_config_update_json(&mut self, new_config_json: &str) -> Result<InstanceUpdateResult> {
         DspInstance::apply_config_update_json(self, new_config_json)
     }
 }

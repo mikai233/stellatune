@@ -45,21 +45,21 @@ pub(super) fn ensure_output_spec_prewarm(
                     t0.elapsed().as_millis() as u64,
                     token,
                 ));
-            }
+            },
             Ok(Err(e)) => {
                 let _ = tx.send(internal_output_spec_failed_dispatch(
                     e.to_string(),
                     t0.elapsed().as_millis() as u64,
                     token,
                 ));
-            }
+            },
             Err(join_err) => {
                 let _ = tx.send(internal_output_spec_failed_dispatch(
                     format!("output spec prewarm task join failed: {join_err}"),
                     t0.elapsed().as_millis() as u64,
                     token,
                 ));
-            }
+            },
         }
     });
 }
@@ -71,6 +71,6 @@ pub(super) fn output_backend_for_selected(
         crate::types::AudioBackend::Shared => stellatune_output::AudioBackend::Shared,
         crate::types::AudioBackend::WasapiExclusive => {
             stellatune_output::AudioBackend::WasapiExclusive
-        }
+        },
     }
 }

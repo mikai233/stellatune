@@ -6,6 +6,7 @@ use stellatune_plugin_api::{
 use crate::capabilities::common::{status_to_result, ststr_from_str};
 use crate::capabilities::source::SourceCatalogInstance;
 use crate::runtime::handle::PluginRuntimeHandle;
+use crate::runtime::update::InstanceUpdateResult;
 use crate::runtime::worker_controller::{WorkerConfigurableInstance, WorkerInstanceFactory};
 
 use super::common::{
@@ -68,12 +69,12 @@ impl SourceCatalogInstanceFactory {
                             plugin_free,
                         )?;
                         return Ok(());
-                    }
+                    },
                     StAsyncOpState::Cancelled => {
                         return Err(anyhow!(
                             "create_source_catalog_instance operation cancelled"
                         ));
-                    }
+                    },
                     StAsyncOpState::Failed => {
                         let _ = status_to_result(
                             "create_source_catalog_instance op failed",
@@ -81,7 +82,7 @@ impl SourceCatalogInstanceFactory {
                             plugin_free,
                         );
                         return Err(anyhow!("create_source_catalog_instance operation failed"));
-                    }
+                    },
                 }
             }
         })();
@@ -94,7 +95,7 @@ impl SourceCatalogInstanceFactory {
             Err(err) => {
                 destroy_raw_source_instance(&mut raw);
                 Err(err)
-            }
+            },
         }
     }
 }
@@ -123,10 +124,7 @@ impl PluginRuntimeHandle {
 }
 
 impl WorkerConfigurableInstance for SourceCatalogInstance {
-    fn apply_config_update_json(
-        &mut self,
-        new_config_json: &str,
-    ) -> Result<crate::runtime::update::InstanceUpdateResult> {
+    fn apply_config_update_json(&mut self, new_config_json: &str) -> Result<InstanceUpdateResult> {
         SourceCatalogInstance::apply_config_update_json(self, new_config_json)
     }
 }

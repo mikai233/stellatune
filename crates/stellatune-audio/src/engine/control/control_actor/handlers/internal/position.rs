@@ -1,7 +1,7 @@
 use stellatune_runtime::thread_actor::{ActorContext, Handler, Message};
 
-use super::super::super::super::{PlayerState, emit_position_event};
 use crate::engine::control::control_actor::ControlActor;
+use crate::engine::control::{PlayerState, emit_position_event};
 
 const SEEK_POSITION_GUARD_TIMEOUT_MS: u64 = 1200;
 const SEEK_POSITION_ACCEPT_TOLERANCE_MS: i64 = 400;

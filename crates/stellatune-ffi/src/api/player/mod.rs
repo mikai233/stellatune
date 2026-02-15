@@ -84,10 +84,10 @@ pub fn events(sink: StreamSink<Event>) -> Result<()> {
                         debug!("events stream sink closed");
                         break;
                     }
-                }
+                },
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
                     debug!(skipped, "events lagged");
-                }
+                },
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
             }
         }
@@ -145,10 +145,10 @@ pub fn lyrics_events(sink: StreamSink<LyricsEvent>) -> Result<()> {
                         debug!("lyrics_events stream sink closed");
                         break;
                     }
-                }
+                },
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
                     debug!(skipped, "lyrics_events lagged");
-                }
+                },
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
             }
         }

@@ -6,14 +6,14 @@ use tracing::trace;
 use crate::types::TrackRef;
 use stellatune_runtime::thread_actor::{ActorContext, Handler, Message};
 
-use super::super::super::tick::ControlTickMessage;
-use super::super::{
+use crate::engine::control::control_actor::ControlActor;
+use crate::engine::control::control_actor::handlers::tick::ControlTickMessage;
+use crate::engine::control::{
     DisruptFadeKind, Event, ManualSwitchTiming, PlayerState, SessionStopMode, emit_position_event,
     ensure_output_spec_prewarm, flush_pending_plugin_disables, maybe_fade_out_before_disrupt,
     next_position_session_id, set_state, stop_decode_session, track_ref_to_engine_token,
     track_ref_to_event_path,
 };
-use crate::engine::control::control_actor::ControlActor;
 
 pub(crate) struct SwitchTrackRefMessage {
     pub(crate) track: TrackRef,

@@ -1,9 +1,9 @@
 use stellatune_runtime::thread_actor::{ActorContext, Handler, Message};
 
-use super::super::{
+use crate::engine::control::control_actor::ControlActor;
+use crate::engine::control::{
     SessionStopMode, drop_output_pipeline, ensure_output_spec_prewarm, stop_decode_session,
 };
-use crate::engine::control::control_actor::ControlActor;
 
 pub(crate) struct SetOutputDeviceMessage {
     pub(crate) backend: crate::types::AudioBackend,
