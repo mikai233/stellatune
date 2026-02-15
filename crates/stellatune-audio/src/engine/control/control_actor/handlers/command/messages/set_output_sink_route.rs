@@ -4,11 +4,11 @@ use super::super::{
     PlayerState, SessionStopMode, drop_output_pipeline, ensure_output_spec_prewarm,
     parse_output_sink_route, set_state, stop_decode_session, sync_output_sink_with_active_session,
 };
-use super::emit_and_err;
+use crate::engine::control::Event;
 use crate::engine::control::control_actor::ControlActor;
 
 pub(crate) struct SetOutputSinkRouteMessage {
-    pub(crate) route: stellatune_core::OutputSinkRoute,
+    pub(crate) route: crate::types::OutputSinkRoute,
 }
 
 impl Message for SetOutputSinkRouteMessage {
@@ -29,7 +29,12 @@ impl Handler<SetOutputSinkRouteMessage> for ControlActor {
         );
         let parsed_route = match parse_output_sink_route(message.route) {
             Ok(route) => route,
-            Err(err) => return emit_and_err(events, err),
+            Err(err) => {
+                events.emit(Event::Error {
+                    message: err.clone(),
+                });
+                return Err(err);
+            }
         };
         let mode_changed = state.desired_output_sink_route.is_none();
         let route_changed = state.desired_output_sink_route.as_ref() != Some(&parsed_route);
@@ -52,7 +57,10 @@ impl Handler<SetOutputSinkRouteMessage> for ControlActor {
             }
         }
         if let Err(err) = sync_output_sink_with_active_session(state, internal_tx) {
-            return emit_and_err(events, err);
+            events.emit(Event::Error {
+                message: err.clone(),
+            });
+            return Err(err);
         }
         Ok(())
     }

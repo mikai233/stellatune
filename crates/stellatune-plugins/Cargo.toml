@@ -20,7 +20,6 @@ tempfile = "3.25.0"
 
 stellatune-plugin-api.workspace = true
 stellatune-plugin-protocol.workspace = true
-stellatune-core.workspace = true
 stellatune-runtime.workspace = true
 
 [dev-dependencies]
@@ -28,4 +27,5 @@ stellatune-decode.workspace = true
 
 [lints]
 workspace = true
+
 

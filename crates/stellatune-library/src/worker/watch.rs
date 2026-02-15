@@ -9,7 +9,7 @@ use sqlx::SqlitePool;
 use tokio::sync::mpsc;
 use tokio::time::Instant;
 
-use stellatune_core::LibraryEvent;
+use crate::LibraryEvent;
 use stellatune_runtime::tokio_actor::ActorRef;
 
 use crate::service::EventHub;

@@ -17,18 +17,7 @@ use tracing_subscriber::fmt::time::LocalTime;
 use stellatune_plugins::runtime::handle::SharedPluginRuntimeHandle;
 
 mod apply_state;
-mod bus;
-mod control;
 mod engine;
-mod router;
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-mod router_actor;
-#[cfg(all(
-    test,
-    any(target_os = "windows", target_os = "linux", target_os = "macos")
-))]
-mod tests;
-mod types;
 pub use engine::shared_runtime_engine;
 
 #[derive(Clone)]
@@ -150,19 +139,6 @@ pub fn init_tracing() {
             .ok();
         install_panic_hook();
     });
-}
-
-pub fn register_plugin_runtime_engine(engine: stellatune_audio::EngineHandle) {
-    router::register_plugin_runtime_engine(engine);
-}
-
-pub fn register_plugin_runtime_library(library: stellatune_library::LibraryHandle) {
-    router::register_plugin_runtime_library(library);
-}
-
-pub fn subscribe_plugin_runtime_events_global()
--> tokio::sync::broadcast::Receiver<stellatune_core::PluginRuntimeEvent> {
-    router::subscribe_plugin_runtime_events_global()
 }
 
 async fn cleanup_plugin_runtime_for_restart(reason: &'static str) {

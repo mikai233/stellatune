@@ -6,7 +6,7 @@ use crate::engine::control::control_actor::ControlActor;
 pub(crate) struct RefreshDevicesMessage;
 
 impl Message for RefreshDevicesMessage {
-    type Response = Result<Vec<stellatune_core::AudioDevice>, String>;
+    type Response = Result<Vec<crate::types::AudioDevice>, String>;
 }
 
 impl Handler<RefreshDevicesMessage> for ControlActor {
@@ -14,18 +14,18 @@ impl Handler<RefreshDevicesMessage> for ControlActor {
         &mut self,
         _message: RefreshDevicesMessage,
         _ctx: &mut ActorContext<Self>,
-    ) -> Result<Vec<stellatune_core::AudioDevice>, String> {
+    ) -> Result<Vec<crate::types::AudioDevice>, String> {
         let selected_backend = output_backend_for_selected(self.state.selected_backend);
-        let devices: Vec<stellatune_core::AudioDevice> =
+        let devices: Vec<crate::types::AudioDevice> =
             stellatune_output::list_host_devices(Some(selected_backend))
                 .into_iter()
-                .map(|d| stellatune_core::AudioDevice {
+                .map(|d| crate::types::AudioDevice {
                     backend: match d.backend {
                         stellatune_output::AudioBackend::Shared => {
-                            stellatune_core::AudioBackend::Shared
+                            crate::types::AudioBackend::Shared
                         }
                         stellatune_output::AudioBackend::WasapiExclusive => {
-                            stellatune_core::AudioBackend::WasapiExclusive
+                            crate::types::AudioBackend::WasapiExclusive
                         }
                     },
                     id: d.id,

@@ -1,7 +1,7 @@
 use crossbeam_channel::Receiver;
 use tracing::debug;
 
-use stellatune_core::TrackDecodeInfo;
+use crate::types::TrackDecodeInfo;
 use stellatune_plugin_api::{ST_DECODER_INFO_FLAG_HAS_DURATION, StIoVTable};
 use stellatune_plugins::runtime::messages::WorkerControlMessage;
 use stellatune_plugins::runtime::worker_controller::WorkerApplyPendingOutcome;

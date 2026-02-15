@@ -168,6 +168,7 @@ Future<void> _applyPersistedOutputSettings({
       matchTrackSampleRate: settings.matchTrackSampleRate,
       gaplessPlayback: settings.gaplessPlayback,
       seekTrackFade: settings.seekTrackFade,
+      resampleQuality: settings.resampleQuality,
     );
 
     final route = settings.outputSinkRoute;

@@ -7,7 +7,7 @@ use super::super::super::tick::ControlTickMessage;
 use super::super::{
     DecodeCtrl, PlayerState, ensure_output_spec_prewarm, force_transition_gain_unity, set_state,
 };
-use super::emit_and_err;
+use crate::engine::control::Event;
 use crate::engine::control::control_actor::ControlActor;
 
 pub(crate) struct PlayMessage;
@@ -24,7 +24,11 @@ impl Handler<PlayMessage> for ControlActor {
     ) -> Result<(), String> {
         let (state, events, internal_tx) = (&mut self.state, &self.events, &self.internal_tx);
         let Some(path) = state.current_track.clone() else {
-            return emit_and_err(events, "no track loaded");
+            let message = "no track loaded".to_string();
+            events.emit(Event::Error {
+                message: message.clone(),
+            });
+            return Err(message);
         };
 
         let requested_at = Instant::now();

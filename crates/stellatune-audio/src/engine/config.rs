@@ -25,14 +25,50 @@ pub(crate) const OUTPUT_SINK_WRITE_RETRY_SLEEP_MS: u64 = 2;
 pub(crate) const OUTPUT_SINK_WRITE_STALL_TIMEOUT_MS: u64 = 250;
 
 pub(crate) const RESAMPLE_CHUNK_FRAMES: usize = 1024;
-// High-quality resampler preset.
-//
-// Notes:
-// - This is intentionally CPU-heavier but should sound better.
-// - We'll add a user-configurable quality level later.
-pub(crate) const RESAMPLE_SINC_LEN: usize = 256;
-pub(crate) const RESAMPLE_CUTOFF: f32 = 0.95;
-pub(crate) const RESAMPLE_OVERSAMPLING_FACTOR: usize = 128;
-pub(crate) const RESAMPLE_WINDOW: rubato::WindowFunction = rubato::WindowFunction::BlackmanHarris2;
-pub(crate) const RESAMPLE_INTERPOLATION: rubato::SincInterpolationType =
-    rubato::SincInterpolationType::Linear;
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ResampleParams {
+    pub sinc_len: usize,
+    pub f_cutoff: f32,
+    pub oversampling_factor: usize,
+    pub window: rubato::WindowFunction,
+    pub interpolation: rubato::SincInterpolationType,
+}
+
+impl ResampleParams {
+    pub fn from_quality(quality: crate::types::ResampleQuality) -> Self {
+        use crate::types::ResampleQuality;
+        use rubato::{SincInterpolationType, WindowFunction};
+
+        match quality {
+            ResampleQuality::Fast => Self {
+                sinc_len: 64,
+                f_cutoff: 0.92,
+                oversampling_factor: 64,
+                window: WindowFunction::Blackman,
+                interpolation: SincInterpolationType::Nearest,
+            },
+            ResampleQuality::Balanced => Self {
+                sinc_len: 128,
+                f_cutoff: 0.94,
+                oversampling_factor: 128,
+                window: WindowFunction::Blackman,
+                interpolation: SincInterpolationType::Linear,
+            },
+            ResampleQuality::High => Self {
+                sinc_len: 256,
+                f_cutoff: 0.95,
+                oversampling_factor: 128,
+                window: WindowFunction::BlackmanHarris2,
+                interpolation: SincInterpolationType::Linear,
+            },
+            ResampleQuality::Ultra => Self {
+                sinc_len: 512,
+                f_cutoff: 0.98,
+                oversampling_factor: 256,
+                window: WindowFunction::BlackmanHarris2,
+                interpolation: SincInterpolationType::Cubic,
+            },
+        }
+    }
+}

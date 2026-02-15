@@ -2,9 +2,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 
 use stellatune_audio::{EngineHandle, start_engine};
-use stellatune_core::Command;
 
-use super::{init_tracing, register_plugin_runtime_engine};
+use super::init_tracing;
 
 struct RuntimeEngineMetrics {
     runtime_engine_inits_total: AtomicU64,
@@ -31,7 +30,6 @@ fn new_runtime_engine() -> Arc<EngineHandle> {
         + 1;
 
     let engine = start_engine();
-    register_plugin_runtime_engine(engine.clone());
 
     tracing::info!(
         runtime_engine_inits_total = inits_total,
@@ -51,23 +49,23 @@ pub fn shared_runtime_engine() -> Arc<EngineHandle> {
 
 pub async fn runtime_prepare_hot_restart() {
     let engine = shared_runtime_engine();
-    if let Err(err) = engine.dispatch_command(Command::Stop).await {
+    if let Err(err) = engine.stop().await {
         tracing::warn!("runtime_prepare_hot_restart stop failed: {err}");
     }
-    if let Err(err) = engine.dispatch_command(Command::ClearOutputSinkRoute).await {
+    if let Err(err) = engine.clear_output_sink_route().await {
         tracing::warn!("runtime_prepare_hot_restart clear route failed: {err}");
     }
 }
 
 pub async fn runtime_shutdown() {
     let engine = shared_runtime_engine();
-    if let Err(err) = engine.dispatch_command(Command::Stop).await {
+    if let Err(err) = engine.stop().await {
         tracing::warn!("runtime_shutdown stop failed: {err}");
     }
-    if let Err(err) = engine.dispatch_command(Command::ClearOutputSinkRoute).await {
+    if let Err(err) = engine.clear_output_sink_route().await {
         tracing::warn!("runtime_shutdown clear route failed: {err}");
     }
-    if let Err(err) = engine.dispatch_command(Command::Shutdown).await {
+    if let Err(err) = engine.shutdown().await {
         tracing::warn!("runtime_shutdown command failed: {err}");
     }
 }

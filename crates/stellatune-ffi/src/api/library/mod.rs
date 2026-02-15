@@ -6,7 +6,7 @@ use stellatune_runtime as global_runtime;
 use tracing::debug;
 
 use stellatune_backend_api::library::LibraryService;
-use stellatune_core::{LibraryEvent, PlaylistLite, TrackLite};
+use stellatune_library::{LibraryEvent, PlaylistLite, TrackLite};
 
 static LIBRARY_SERVICE: OnceLock<Arc<LibraryService>> = OnceLock::new();
 static LIBRARY_INIT_LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();

@@ -5,20 +5,19 @@ use std::time::Instant;
 use crossbeam_channel::Sender;
 use tracing::debug;
 
-use stellatune_core::TrackDecodeInfo;
+use crate::engine::control::InternalDispatchTx;
+use crate::types::TrackDecodeInfo;
 use stellatune_output::{OutputHandle, OutputSpec};
 
 use crate::engine::config::{BUFFER_PREFILL_CAP_MS, BUFFER_PREFILL_CAP_MS_EXCLUSIVE};
-use crate::engine::messages::{DecodeCtrl, InternalMsg};
+use crate::engine::messages::DecodeCtrl;
 use crate::ring_buffer::RingBufferProducer;
 
-mod decode_worker;
-mod output_sink_worker;
+pub(crate) mod decode_worker;
+pub(crate) mod output_sink_worker;
 mod pipeline;
 
-use decode_worker::{DecodePrepare, DecodePrepareMsg};
-pub(crate) use decode_worker::{DecodeWorker, PromotedPreload, start_decode_worker};
-pub(crate) use output_sink_worker::{OutputSinkWorker, OutputSinkWorkerStartArgs};
+use decode_worker::{DecodePrepare, DecodePrepareMsg, DecodeWorker};
 use pipeline::create_output_pipeline;
 
 const OUTPUT_CONSUMER_CHUNK_SAMPLES: usize = 1024;
@@ -204,7 +203,7 @@ pub(crate) struct PlaybackSession {
 pub(crate) struct StartSessionArgs<'a> {
     pub(crate) path: String,
     pub(crate) decode_worker: &'a DecodeWorker,
-    pub(crate) internal_tx: Sender<InternalMsg>,
+    pub(crate) internal_tx: InternalDispatchTx,
     pub(crate) backend: stellatune_output::AudioBackend,
     pub(crate) device_id: Option<String>,
     pub(crate) match_track_sample_rate: bool,
@@ -212,9 +211,10 @@ pub(crate) struct StartSessionArgs<'a> {
     pub(crate) out_spec: OutputSpec,
     pub(crate) start_at_ms: i64,
     pub(crate) volume: Arc<AtomicU32>,
-    pub(crate) lfe_mode: stellatune_core::LfeMode,
+    pub(crate) lfe_mode: crate::types::LfeMode,
     pub(crate) output_sink_chunk_frames: u32,
     pub(crate) output_sink_only: bool,
+    pub(crate) resample_quality: crate::types::ResampleQuality,
     pub(crate) output_pipeline: &'a mut Option<OutputPipeline>,
 }
 
@@ -233,6 +233,7 @@ pub(crate) fn start_session(args: StartSessionArgs<'_>) -> Result<PlaybackSessio
         lfe_mode,
         output_sink_chunk_frames,
         output_sink_only,
+        resample_quality,
         output_pipeline,
     } = args;
 
@@ -339,6 +340,7 @@ pub(crate) fn start_session(args: StartSessionArgs<'_>) -> Result<PlaybackSessio
             lfe_mode,
             output_sink_chunk_frames,
             output_sink_only,
+            resample_quality,
             spec_tx,
         }))
         .map_err(|_| {

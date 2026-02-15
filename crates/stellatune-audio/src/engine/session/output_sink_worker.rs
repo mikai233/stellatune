@@ -14,7 +14,8 @@ use stellatune_plugins::runtime::worker_controller::{
 use stellatune_plugins::runtime::worker_endpoint::OutputSinkWorkerController;
 
 use crate::engine::config::{OUTPUT_SINK_WRITE_RETRY_SLEEP_MS, OUTPUT_SINK_WRITE_STALL_TIMEOUT_MS};
-use crate::engine::messages::{InternalMsg, OutputSinkTx, OutputSinkWrite};
+use crate::engine::control::{InternalDispatch, internal_output_error_dispatch};
+use crate::engine::messages::{OutputSinkTx, OutputSinkWrite};
 use crate::engine::update_events::emit_config_update_runtime_event;
 
 use super::OUTPUT_SINK_QUEUE_CAP_MESSAGES;
@@ -37,7 +38,7 @@ pub(crate) struct OutputSinkWorkerStartArgs {
     pub(crate) transition_gain: Arc<AtomicU32>,
     pub(crate) transition_target_gain: Arc<AtomicU32>,
     pub(crate) transition_ramp_ms: Arc<AtomicU32>,
-    pub(crate) internal_tx: Sender<InternalMsg>,
+    pub(crate) internal_tx: Sender<InternalDispatch>,
 }
 
 enum OutputSinkControl {
@@ -421,10 +422,12 @@ impl OutputSinkWorker {
                             controller.on_control_message(msg);
 
                             if controller.has_pending_destroy() {
-                                let _ = internal_tx.try_send(InternalMsg::OutputError(format!(
-                                    "plugin sink destroyed by runtime control: {}::{}",
-                                    plugin_id, type_id
-                                )));
+                                let _ = internal_tx.try_send(internal_output_error_dispatch(
+                                    format!(
+                                        "plugin sink destroyed by runtime control: {}::{}",
+                                        plugin_id, type_id
+                                    ),
+                                ));
                                 break;
                             }
 
@@ -460,9 +463,11 @@ impl OutputSinkWorker {
                                         generation,
                                         Some(&e),
                                     );
-                                    let _ = internal_tx.try_send(InternalMsg::OutputError(format!(
-                                        "plugin sink recreate by runtime control failed: {e}"
-                                    )));
+                                    let _ = internal_tx.try_send(internal_output_error_dispatch(
+                                        format!(
+                                            "plugin sink recreate by runtime control failed: {e}"
+                                        ),
+                                    ));
                                     break;
                                 }
                             }
@@ -484,9 +489,11 @@ impl OutputSinkWorker {
                                             Ordering::Relaxed,
                                             |current| Some(current.saturating_sub(queued)),
                                         );
-                                        let _ = internal_tx.try_send(InternalMsg::OutputError(
-                                            "plugin sink instance missing".to_string(),
-                                        ));
+                                        let _ = internal_tx.try_send(
+                                            internal_output_error_dispatch(
+                                                "plugin sink instance missing".to_string(),
+                                            ),
+                                        );
                                         break;
                                     };
                                     if let Err(e) = write_all_frames(sink, channels, &samples) {
@@ -496,9 +503,11 @@ impl OutputSinkWorker {
                                             |current| Some(current.saturating_sub(queued)),
                                         );
                                         warn!("output sink write failed: {e:#}");
-                                        let _ = internal_tx.try_send(InternalMsg::OutputError(format!(
-                                            "plugin sink write failed: {e}"
-                                        )));
+                                        let _ = internal_tx.try_send(
+                                            internal_output_error_dispatch(format!(
+                                                "plugin sink write failed: {e}"
+                                            )),
+                                        );
                                         break;
                                     }
                                     if let Ok(status) = sink.query_status() {

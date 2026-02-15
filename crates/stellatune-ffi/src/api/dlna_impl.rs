@@ -6,6 +6,9 @@ use std::sync::Arc;
 use std::sync::OnceLock;
 use std::time::Duration;
 
+use crate::api::dlna::{
+    DlnaHttpServerInfo, DlnaPositionInfo, DlnaRenderer, DlnaSsdpDevice, DlnaTransportInfo,
+};
 use anyhow::Result;
 use axum::Router;
 use axum::extract::{Path, State};
@@ -17,9 +20,6 @@ use mime_guess::MimeGuess;
 use mime_guess::mime;
 use roxmltree::Document;
 use socket2::{Domain, Protocol, Socket, Type};
-use stellatune_core::{
-    DlnaHttpServerInfo, DlnaPositionInfo, DlnaRenderer, DlnaSsdpDevice, DlnaTransportInfo,
-};
 use tokio::net::TcpListener;
 use tokio::net::UdpSocket;
 use tokio::sync::Mutex;

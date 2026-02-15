@@ -6,7 +6,7 @@ use tracing::debug;
 use stellatune_output::{OutputError, OutputHandle, OutputSpec};
 
 use crate::engine::config::{RING_BUFFER_CAPACITY_MS, TRANSITION_FADE_RAMP_MS_TRACK_SWITCH};
-use crate::engine::messages::InternalMsg;
+use crate::engine::control::{InternalDispatch, internal_output_error_dispatch};
 use crate::ring_buffer::{RingBufferConsumer, new_ring_buffer};
 
 use super::output_sink_worker::MasterGainProcessor;
@@ -17,7 +17,7 @@ pub(super) fn create_output_pipeline(
     device_id: Option<String>,
     out_spec: OutputSpec,
     volume: Arc<AtomicU32>,
-    internal_tx: crossbeam_channel::Sender<InternalMsg>,
+    internal_tx: crossbeam_channel::Sender<InternalDispatch>,
     device_output_enabled: bool,
 ) -> Result<OutputPipeline, String> {
     let capacity_samples =
@@ -60,7 +60,7 @@ pub(super) fn create_output_pipeline(
             output_consumer,
             out_spec,
             move |err| {
-                let _ = internal_tx.try_send(InternalMsg::OutputError(err.to_string()));
+                let _ = internal_tx.try_send(internal_output_error_dispatch(err.to_string()));
             },
         )
         .map_err(|e| match e {

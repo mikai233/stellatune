@@ -13,7 +13,6 @@ pub mod __private {
 #[doc(hidden)]
 pub mod async_task;
 mod codec;
-mod control;
 mod errors;
 pub mod export;
 #[doc(hidden)]
@@ -26,13 +25,9 @@ mod metadata;
 pub mod update;
 
 pub use codec::*;
-pub use control::*;
 pub use errors::*;
 pub use export::*;
 pub use ffi_utils::*;
 pub use host::*;
 pub use metadata::*;
 pub use update::*;
-
-#[cfg(test)]
-mod tests;

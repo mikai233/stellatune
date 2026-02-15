@@ -249,7 +249,7 @@ mod tests {
     }
 
     impl Handler<Inc> for CounterActor {
-        fn handle(&mut self, _message: Inc, _ctx: &mut ActorContext<Self>) -> () {
+        fn handle(&mut self, _message: Inc, _ctx: &mut ActorContext<Self>) {
             self.value = self.value.saturating_add(1);
         }
     }
@@ -261,7 +261,7 @@ mod tests {
     }
 
     impl Handler<KickSelf> for CounterActor {
-        fn handle(&mut self, _message: KickSelf, ctx: &mut ActorContext<Self>) -> () {
+        fn handle(&mut self, _message: KickSelf, ctx: &mut ActorContext<Self>) {
             ctx.actor_ref().cast(Inc).expect("self cast");
         }
     }

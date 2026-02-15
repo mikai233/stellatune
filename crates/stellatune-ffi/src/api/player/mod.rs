@@ -5,7 +5,12 @@ use anyhow::{Result, anyhow};
 use stellatune_runtime as global_runtime;
 use tracing::debug;
 
-use stellatune_audio::EngineHandle;
+use stellatune_audio::{
+    AudioBackend, AudioDevice, DspChainItem, DspTypeDescriptor, EngineHandle, Event,
+    LyricsProviderTypeDescriptor, OutputSinkRoute, OutputSinkTypeDescriptor, PluginDescriptor,
+    PluginRuntimeEvent, ResampleQuality, SourceCatalogTypeDescriptor, TrackDecodeInfo,
+    TrackPlayability, TrackRef,
+};
 use stellatune_backend_api::lyrics_service::LyricsService;
 use stellatune_backend_api::player::{
     plugins_install_from_file as backend_plugins_install_from_file,
@@ -13,12 +18,7 @@ use stellatune_backend_api::player::{
     plugins_uninstall_by_id as backend_plugins_uninstall_by_id,
 };
 use stellatune_backend_api::runtime::shared_runtime_engine;
-use stellatune_core::{
-    AudioBackend, AudioDevice, DspChainItem, DspTypeDescriptor, Event, LyricsDoc, LyricsEvent,
-    LyricsProviderTypeDescriptor, LyricsQuery, LyricsSearchCandidate, OutputSinkRoute,
-    OutputSinkTypeDescriptor, PluginDescriptor, PluginRuntimeEvent, SourceCatalogTypeDescriptor,
-    TrackDecodeInfo, TrackPlayability, TrackRef,
-};
+use stellatune_backend_api::{LyricsDoc, LyricsEvent, LyricsQuery, LyricsSearchCandidate};
 
 struct PlayerContext {
     engine: Arc<EngineHandle>,
@@ -97,25 +97,10 @@ pub fn events(sink: StreamSink<Event>) -> Result<()> {
 }
 
 pub fn plugin_runtime_events_global(sink: StreamSink<PluginRuntimeEvent>) -> Result<()> {
-    let mut rx = stellatune_backend_api::runtime::subscribe_plugin_runtime_events_global();
-    global_runtime::spawn(async move {
-        loop {
-            match rx.recv().await {
-                Ok(event) => {
-                    if sink.add(event).is_err() {
-                        debug!("plugin_runtime_events_global stream sink closed");
-                        break;
-                    }
-                }
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
-                    debug!(skipped, "plugin_runtime_events_global lagged");
-                }
-                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
-            }
-        }
-    });
-
-    Ok(())
+    let _ = sink;
+    Err(anyhow!(
+        "plugin runtime host-event channel has been removed"
+    ))
 }
 
 pub async fn lyrics_prepare(query: LyricsQuery) -> Result<()> {
@@ -177,9 +162,10 @@ pub async fn plugins_list() -> Vec<PluginDescriptor> {
 }
 
 pub fn plugin_publish_event_json(plugin_id: Option<String>, event_json: String) -> Result<()> {
-    engine()
-        .plugin_publish_event_json(plugin_id, event_json)
-        .map_err(anyhow::Error::msg)
+    let _ = (plugin_id, event_json);
+    Err(anyhow!(
+        "plugin runtime host-event channel has been removed"
+    ))
 }
 
 pub async fn dsp_list_types() -> Vec<DspTypeDescriptor> {
@@ -309,9 +295,15 @@ pub async fn set_output_options(
     match_track_sample_rate: bool,
     gapless_playback: bool,
     seek_track_fade: bool,
+    resample_quality: ResampleQuality,
 ) -> Result<()> {
     engine()
-        .set_output_options(match_track_sample_rate, gapless_playback, seek_track_fade)
+        .set_output_options(
+            match_track_sample_rate,
+            gapless_playback,
+            seek_track_fade,
+            resample_quality,
+        )
         .await
         .map_err(anyhow::Error::msg)
 }

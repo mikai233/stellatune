@@ -14,7 +14,7 @@ use anyhow::{Context, Result};
 use sqlx::{FromRow, QueryBuilder, SqlitePool};
 use tokio::time::timeout;
 
-use stellatune_core::{LibraryCommand, LibraryEvent, PlaylistLite, TrackLite};
+use crate::{LibraryEvent, PlaylistLite, TrackLite};
 use stellatune_runtime::tokio_actor::ActorRef;
 
 use crate::service::EventHub;
@@ -160,102 +160,6 @@ impl LibraryWorker {
                 service.reload_dir_from_state(&self.plugins_dir),
             )
             .await;
-        }
-    }
-
-    pub(crate) async fn handle_command(&mut self, cmd: LibraryCommand) -> Result<()> {
-        match cmd {
-            LibraryCommand::AddRoot { path } => self.add_root(path).await,
-            LibraryCommand::RemoveRoot { path } => self.remove_root(path).await,
-            LibraryCommand::DeleteFolder { path } => self.delete_folder(path).await,
-            LibraryCommand::RestoreFolder { path } => self.restore_folder(path).await,
-            LibraryCommand::ListExcludedFolders => {
-                let _ = self.list_excluded_folders().await?;
-                Ok(())
-            }
-            LibraryCommand::ListRoots => {
-                let _ = self.list_roots().await?;
-                Ok(())
-            }
-            LibraryCommand::ListFolders => {
-                let _ = self.list_folders().await?;
-                Ok(())
-            }
-            LibraryCommand::ListTracks {
-                folder,
-                recursive,
-                query,
-                limit,
-                offset,
-            } => {
-                let _ = self
-                    .list_tracks(folder, recursive, query, limit, offset)
-                    .await?;
-                Ok(())
-            }
-            LibraryCommand::ScanAll => self.scan_all(false).await,
-            LibraryCommand::ScanAllForce => self.scan_all(true).await,
-            LibraryCommand::Search {
-                query,
-                limit,
-                offset,
-            } => {
-                let _ = self.search(query, limit, offset).await?;
-                Ok(())
-            }
-            LibraryCommand::ListPlaylists => {
-                let _ = self.list_playlists().await?;
-                Ok(())
-            }
-            LibraryCommand::CreatePlaylist { name } => self.create_playlist(name).await,
-            LibraryCommand::RenamePlaylist { id, name } => self.rename_playlist(id, name).await,
-            LibraryCommand::DeletePlaylist { id } => self.delete_playlist(id).await,
-            LibraryCommand::ListPlaylistTracks {
-                playlist_id,
-                query,
-                limit,
-                offset,
-            } => {
-                let _ = self
-                    .list_playlist_tracks(playlist_id, query, limit, offset)
-                    .await?;
-                Ok(())
-            }
-            LibraryCommand::AddTrackToPlaylist {
-                playlist_id,
-                track_id,
-            } => self.add_track_to_playlist(playlist_id, track_id).await,
-            LibraryCommand::AddTracksToPlaylist {
-                playlist_id,
-                track_ids,
-            } => self.add_tracks_to_playlist(playlist_id, track_ids).await,
-            LibraryCommand::RemoveTrackFromPlaylist {
-                playlist_id,
-                track_id,
-            } => self.remove_track_from_playlist(playlist_id, track_id).await,
-            LibraryCommand::RemoveTracksFromPlaylist {
-                playlist_id,
-                track_ids,
-            } => {
-                self.remove_tracks_from_playlist(playlist_id, track_ids)
-                    .await
-            }
-            LibraryCommand::MoveTrackInPlaylist {
-                playlist_id,
-                track_id,
-                new_index,
-            } => {
-                self.move_track_in_playlist(playlist_id, track_id, new_index)
-                    .await
-            }
-            LibraryCommand::ListLikedTrackIds => {
-                let _ = self.list_liked_track_ids().await?;
-                Ok(())
-            }
-            LibraryCommand::SetTrackLiked { track_id, liked } => {
-                self.set_track_liked(track_id, liked).await
-            }
-            LibraryCommand::Shutdown => Ok(()),
         }
     }
 
@@ -531,7 +435,7 @@ impl LibraryWorker {
         Ok(items)
     }
 
-    async fn create_playlist(&self, name: String) -> Result<()> {
+    pub(crate) async fn create_playlist(&self, name: String) -> Result<()> {
         let name = name.trim();
         if name.is_empty() {
             return Ok(());
@@ -551,7 +455,7 @@ impl LibraryWorker {
         Ok(())
     }
 
-    async fn rename_playlist(&self, id: i64, name: String) -> Result<()> {
+    pub(crate) async fn rename_playlist(&self, id: i64, name: String) -> Result<()> {
         let name = name.trim();
         if id <= 0 || name.is_empty() {
             return Ok(());
@@ -573,7 +477,7 @@ impl LibraryWorker {
         Ok(())
     }
 
-    async fn delete_playlist(&self, id: i64) -> Result<()> {
+    pub(crate) async fn delete_playlist(&self, id: i64) -> Result<()> {
         if id <= 0 {
             return Ok(());
         }
@@ -660,7 +564,11 @@ impl LibraryWorker {
         Ok(items)
     }
 
-    async fn add_track_to_playlist(&self, playlist_id: i64, track_id: i64) -> Result<()> {
+    pub(crate) async fn add_track_to_playlist(
+        &self,
+        playlist_id: i64,
+        track_id: i64,
+    ) -> Result<()> {
         if playlist_id <= 0 || track_id <= 0 {
             return Ok(());
         }
@@ -687,7 +595,11 @@ impl LibraryWorker {
         Ok(())
     }
 
-    async fn remove_track_from_playlist(&self, playlist_id: i64, track_id: i64) -> Result<()> {
+    pub(crate) async fn remove_track_from_playlist(
+        &self,
+        playlist_id: i64,
+        track_id: i64,
+    ) -> Result<()> {
         if playlist_id <= 0 || track_id <= 0 {
             return Ok(());
         }
@@ -707,7 +619,11 @@ impl LibraryWorker {
         Ok(())
     }
 
-    async fn add_tracks_to_playlist(&self, playlist_id: i64, track_ids: Vec<i64>) -> Result<()> {
+    pub(crate) async fn add_tracks_to_playlist(
+        &self,
+        playlist_id: i64,
+        track_ids: Vec<i64>,
+    ) -> Result<()> {
         if playlist_id <= 0 {
             return Ok(());
         }
@@ -756,7 +672,7 @@ impl LibraryWorker {
         Ok(())
     }
 
-    async fn remove_tracks_from_playlist(
+    pub(crate) async fn remove_tracks_from_playlist(
         &self,
         playlist_id: i64,
         track_ids: Vec<i64>,
@@ -791,7 +707,7 @@ impl LibraryWorker {
         Ok(())
     }
 
-    async fn move_track_in_playlist(
+    pub(crate) async fn move_track_in_playlist(
         &self,
         playlist_id: i64,
         track_id: i64,
@@ -864,7 +780,7 @@ impl LibraryWorker {
         Ok(track_ids)
     }
 
-    async fn set_track_liked(&self, track_id: i64, liked: bool) -> Result<()> {
+    pub(crate) async fn set_track_liked(&self, track_id: i64, liked: bool) -> Result<()> {
         if track_id <= 0 {
             return Ok(());
         }
@@ -955,7 +871,7 @@ impl LibraryWorker {
         Ok(())
     }
 
-    async fn add_root(&self, path: String) -> Result<()> {
+    pub(crate) async fn add_root(&self, path: String) -> Result<()> {
         let path = normalize_path_str(&path);
         sqlx::query!(
             r#"
@@ -976,7 +892,7 @@ impl LibraryWorker {
         Ok(())
     }
 
-    async fn remove_root(&self, path: String) -> Result<()> {
+    pub(crate) async fn remove_root(&self, path: String) -> Result<()> {
         let path = normalize_path_str(&path);
         sqlx::query(
             "UPDATE scan_roots SET enabled=0 WHERE rtrim(replace(path,'\\\\','/'),'/') = ?1",
@@ -992,7 +908,7 @@ impl LibraryWorker {
         Ok(())
     }
 
-    async fn delete_folder(&self, path: String) -> Result<()> {
+    pub(crate) async fn delete_folder(&self, path: String) -> Result<()> {
         let folder = normalize_path_str(&path);
         if folder.is_empty() || is_drive_root(&folder) {
             return Ok(());
@@ -1044,7 +960,7 @@ impl LibraryWorker {
         Ok(())
     }
 
-    async fn restore_folder(&self, path: String) -> Result<()> {
+    pub(crate) async fn restore_folder(&self, path: String) -> Result<()> {
         let folder = normalize_path_str(&path);
         if folder.is_empty() || is_drive_root(&folder) {
             return Ok(());
@@ -1079,7 +995,7 @@ impl LibraryWorker {
         Ok(())
     }
 
-    async fn scan_all(&self, force: bool) -> Result<()> {
+    pub(crate) async fn scan_all(&self, force: bool) -> Result<()> {
         self.refresh_plugins_best_effort().await;
         scan::scan_all(&self.pool, &self.events, &self.cover_dir, force).await
     }

@@ -1,5 +1,5 @@
 rust_root: ../../crates/stellatune-ffi
-rust_input: crate::api,stellatune-core
+rust_input: crate::api,stellatune-audio::types,stellatune-library::types,stellatune-backend-api::lyrics_types
 
 dart_output: lib/bridge
 dart_entrypoint_class_name: StellatuneApi

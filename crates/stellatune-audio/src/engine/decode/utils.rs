@@ -11,7 +11,8 @@ use super::decoder::{EngineDecoder, open_engine_decoder};
 use super::dsp::{apply_or_recreate_dsp_chain, apply_runtime_control_updates};
 use super::resampler::create_resampler_if_needed;
 use crate::engine::config::OUTPUT_SINK_WRITE_RETRY_SLEEP_MS;
-use crate::engine::messages::{DecodeCtrl, InternalMsg};
+use crate::engine::control::internal_error_dispatch;
+use crate::engine::messages::DecodeCtrl;
 use crate::engine::update_events::emit_config_update_runtime_event;
 
 pub(crate) fn skip_frames_by_decoding(
@@ -42,7 +43,7 @@ pub(crate) fn write_pending(ctx: &mut DecodeContext) -> bool {
             && let Err(e) = refresh_decoder(ctx)
         {
             warn!("decoder refresh on worker control failed: {e}");
-            let _ = ctx.internal_tx.send(InternalMsg::Error(e));
+            let _ = ctx.internal_tx.send(internal_error_dispatch(e));
             *ctx.playing = false;
             return false;
         }
@@ -52,7 +53,7 @@ pub(crate) fn write_pending(ctx: &mut DecodeContext) -> bool {
             ctx.target_sample_rate,
             ctx.out_channels as u16,
         ) {
-            let _ = ctx.internal_tx.send(InternalMsg::Error(e));
+            let _ = ctx.internal_tx.send(internal_error_dispatch(e));
             *ctx.playing = false;
             return false;
         }
@@ -67,7 +68,7 @@ pub(crate) fn write_pending(ctx: &mut DecodeContext) -> bool {
                         ctx.target_sample_rate,
                         ctx.out_channels as u16,
                     ) {
-                        let _ = ctx.internal_tx.send(InternalMsg::Error(e));
+                        let _ = ctx.internal_tx.send(internal_error_dispatch(e));
                     }
                 }
                 DecodeCtrl::SetLfeMode { mode } => {
@@ -264,6 +265,7 @@ pub(crate) fn refresh_decoder(ctx: &mut DecodeContext) -> Result<(), String> {
         ctx.spec_sample_rate,
         ctx.target_sample_rate,
         ctx.out_channels,
+        ctx.resample_quality,
     )?;
     *ctx.last_emit = std::time::Instant::now();
     *ctx.decoder = next_decoder;
@@ -278,10 +280,10 @@ pub(crate) fn refresh_decoder(ctx: &mut DecodeContext) -> Result<(), String> {
     Ok(())
 }
 
-pub(crate) fn core_lfe_to_mixer(mode: stellatune_core::LfeMode) -> stellatune_mixer::LfeMode {
+pub(crate) fn core_lfe_to_mixer(mode: crate::types::LfeMode) -> stellatune_mixer::LfeMode {
     match mode {
-        stellatune_core::LfeMode::Mute => stellatune_mixer::LfeMode::Mute,
-        stellatune_core::LfeMode::MixToFront => stellatune_mixer::LfeMode::MixToFront,
+        crate::types::LfeMode::Mute => stellatune_mixer::LfeMode::Mute,
+        crate::types::LfeMode::MixToFront => stellatune_mixer::LfeMode::MixToFront,
     }
 }
 

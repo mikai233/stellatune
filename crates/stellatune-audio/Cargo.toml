@@ -15,9 +15,9 @@ serde.workspace = true
 serde_json.workspace = true
 arc-swap.workspace = true
 tokio.workspace = true
+flutter_rust_bridge.workspace = true
 async-trait = "0.1.89"
 
-stellatune-core.workspace = true
 stellatune-decode.workspace = true
 stellatune-dsp.workspace = true
 stellatune-mixer.workspace = true

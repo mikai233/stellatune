@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Instant;
 
-use stellatune_core::PlayerState;
+use crate::types::PlayerState;
 use stellatune_runtime::thread_actor::{ActorContext, Handler, Message};
 use tracing::{debug, trace};
 
@@ -87,6 +87,7 @@ impl Handler<ControlTickMessage> for ControlActor {
                     lfe_mode: self.state.lfe_mode,
                     output_sink_chunk_frames: self.state.output_sink_chunk_frames,
                     output_sink_only: self.state.desired_output_sink_route.is_some(),
+                    resample_quality: self.state.resample_quality,
                     output_pipeline: &mut self.state.output_pipeline,
                 });
                 match result {
@@ -263,7 +264,7 @@ impl Handler<ControlTickMessage> for ControlActor {
         }
 
         let (low_watermark_ms, high_watermark_ms) = match self.state.selected_backend {
-            stellatune_core::AudioBackend::WasapiExclusive => (
+            crate::types::AudioBackend::WasapiExclusive => (
                 BUFFER_LOW_WATERMARK_MS_EXCLUSIVE,
                 BUFFER_HIGH_WATERMARK_MS_EXCLUSIVE,
             ),

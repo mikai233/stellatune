@@ -1,6 +1,6 @@
 use tokio::sync::broadcast;
 
-use stellatune_core::Event;
+use crate::types::Event;
 
 pub(crate) struct EventHub {
     tx: broadcast::Sender<Event>,

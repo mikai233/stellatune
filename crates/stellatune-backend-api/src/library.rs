@@ -3,10 +3,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use anyhow::Result;
 use tokio::sync::broadcast;
 
-use crate::runtime::{init_tracing, register_plugin_runtime_library};
+use crate::runtime::init_tracing;
 
-use stellatune_core::{LibraryCommand, LibraryEvent, PlaylistLite, TrackLite};
-use stellatune_library::{LibraryHandle, start_library};
+use stellatune_library::{LibraryEvent, LibraryHandle, PlaylistLite, TrackLite, start_library};
 
 pub struct LibraryService {
     instance_id: u64,
@@ -20,7 +19,6 @@ impl LibraryService {
         init_tracing();
         tracing::info!(instance_id, "creating library: {}", db_path);
         let handle = start_library(db_path).await?;
-        register_plugin_runtime_library(handle.clone());
         Ok(Self {
             instance_id,
             handle,
@@ -35,27 +33,29 @@ impl LibraryService {
         self.handle.subscribe_events()
     }
 
-    async fn dispatch(&self, cmd: LibraryCommand) -> Result<()> {
+    pub async fn add_root(&self, path: String) -> Result<()> {
+        self.handle.add_root(path).await.map_err(anyhow::Error::msg)
+    }
+
+    pub async fn remove_root(&self, path: String) -> Result<()> {
         self.handle
-            .send_command(cmd)
+            .remove_root(path)
             .await
             .map_err(anyhow::Error::msg)
     }
 
-    pub async fn add_root(&self, path: String) -> Result<()> {
-        self.dispatch(LibraryCommand::AddRoot { path }).await
-    }
-
-    pub async fn remove_root(&self, path: String) -> Result<()> {
-        self.dispatch(LibraryCommand::RemoveRoot { path }).await
-    }
-
     pub async fn delete_folder(&self, path: String) -> Result<()> {
-        self.dispatch(LibraryCommand::DeleteFolder { path }).await
+        self.handle
+            .delete_folder(path)
+            .await
+            .map_err(anyhow::Error::msg)
     }
 
     pub async fn restore_folder(&self, path: String) -> Result<()> {
-        self.dispatch(LibraryCommand::RestoreFolder { path }).await
+        self.handle
+            .restore_folder(path)
+            .await
+            .map_err(anyhow::Error::msg)
     }
 
     pub async fn list_excluded_folders(&self) -> Result<Vec<String>> {
@@ -63,11 +63,14 @@ impl LibraryService {
     }
 
     pub async fn scan_all(&self) -> Result<()> {
-        self.dispatch(LibraryCommand::ScanAll).await
+        self.handle.scan_all().await.map_err(anyhow::Error::msg)
     }
 
     pub async fn scan_all_force(&self) -> Result<()> {
-        self.dispatch(LibraryCommand::ScanAllForce).await
+        self.handle
+            .scan_all_force()
+            .await
+            .map_err(anyhow::Error::msg)
     }
 
     pub async fn list_roots(&self) -> Result<Vec<String>> {
@@ -100,16 +103,24 @@ impl LibraryService {
     }
 
     pub async fn create_playlist(&self, name: String) -> Result<()> {
-        self.dispatch(LibraryCommand::CreatePlaylist { name }).await
+        self.handle
+            .create_playlist(name)
+            .await
+            .map_err(anyhow::Error::msg)
     }
 
     pub async fn rename_playlist(&self, id: i64, name: String) -> Result<()> {
-        self.dispatch(LibraryCommand::RenamePlaylist { id, name })
+        self.handle
+            .rename_playlist(id, name)
             .await
+            .map_err(anyhow::Error::msg)
     }
 
     pub async fn delete_playlist(&self, id: i64) -> Result<()> {
-        self.dispatch(LibraryCommand::DeletePlaylist { id }).await
+        self.handle
+            .delete_playlist(id)
+            .await
+            .map_err(anyhow::Error::msg)
     }
 
     pub async fn list_playlist_tracks(
@@ -125,11 +136,10 @@ impl LibraryService {
     }
 
     pub async fn add_track_to_playlist(&self, playlist_id: i64, track_id: i64) -> Result<()> {
-        self.dispatch(LibraryCommand::AddTrackToPlaylist {
-            playlist_id,
-            track_id,
-        })
-        .await
+        self.handle
+            .add_track_to_playlist(playlist_id, track_id)
+            .await
+            .map_err(anyhow::Error::msg)
     }
 
     pub async fn add_tracks_to_playlist(
@@ -137,19 +147,17 @@ impl LibraryService {
         playlist_id: i64,
         track_ids: Vec<i64>,
     ) -> Result<()> {
-        self.dispatch(LibraryCommand::AddTracksToPlaylist {
-            playlist_id,
-            track_ids,
-        })
-        .await
+        self.handle
+            .add_tracks_to_playlist(playlist_id, track_ids)
+            .await
+            .map_err(anyhow::Error::msg)
     }
 
     pub async fn remove_track_from_playlist(&self, playlist_id: i64, track_id: i64) -> Result<()> {
-        self.dispatch(LibraryCommand::RemoveTrackFromPlaylist {
-            playlist_id,
-            track_id,
-        })
-        .await
+        self.handle
+            .remove_track_from_playlist(playlist_id, track_id)
+            .await
+            .map_err(anyhow::Error::msg)
     }
 
     pub async fn remove_tracks_from_playlist(
@@ -157,11 +165,10 @@ impl LibraryService {
         playlist_id: i64,
         track_ids: Vec<i64>,
     ) -> Result<()> {
-        self.dispatch(LibraryCommand::RemoveTracksFromPlaylist {
-            playlist_id,
-            track_ids,
-        })
-        .await
+        self.handle
+            .remove_tracks_from_playlist(playlist_id, track_ids)
+            .await
+            .map_err(anyhow::Error::msg)
     }
 
     pub async fn move_track_in_playlist(
@@ -170,12 +177,10 @@ impl LibraryService {
         track_id: i64,
         new_index: i64,
     ) -> Result<()> {
-        self.dispatch(LibraryCommand::MoveTrackInPlaylist {
-            playlist_id,
-            track_id,
-            new_index,
-        })
-        .await
+        self.handle
+            .move_track_in_playlist(playlist_id, track_id, new_index)
+            .await
+            .map_err(anyhow::Error::msg)
     }
 
     pub async fn list_liked_track_ids(&self) -> Result<Vec<i64>> {
@@ -183,8 +188,10 @@ impl LibraryService {
     }
 
     pub async fn set_track_liked(&self, track_id: i64, liked: bool) -> Result<()> {
-        self.dispatch(LibraryCommand::SetTrackLiked { track_id, liked })
+        self.handle
+            .set_track_liked(track_id, liked)
             .await
+            .map_err(anyhow::Error::msg)
     }
 
     pub async fn plugin_disable(&self, plugin_id: String) -> Result<()> {

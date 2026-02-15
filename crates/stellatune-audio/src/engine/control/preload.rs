@@ -1,11 +1,9 @@
 use crossbeam_channel::Sender;
 
-use crate::engine::messages::InternalMsg;
-
 use super::preload_actor::handlers::enqueue::PreloadEnqueueMessage;
-use super::{EngineState, PreloadWorker, TRACK_REF_TOKEN_PREFIX, preload_actor};
+use super::{EngineState, InternalDispatch, PreloadWorker, TRACK_REF_TOKEN_PREFIX, preload_actor};
 
-pub(super) fn start_preload_worker(internal_tx: Sender<InternalMsg>) -> PreloadWorker {
+pub(super) fn start_preload_worker(internal_tx: Sender<InternalDispatch>) -> PreloadWorker {
     let (actor_ref, join) =
         preload_actor::spawn_preload_actor(internal_tx).expect("failed to spawn preload actor");
     PreloadWorker { actor_ref, join }
@@ -27,9 +25,9 @@ pub(super) fn enqueue_preload_task(
     });
 }
 
-pub(super) fn engine_token_to_track_ref(token: &str) -> Option<stellatune_core::TrackRef> {
+pub(super) fn engine_token_to_track_ref(token: &str) -> Option<crate::types::TrackRef> {
     let json = token.strip_prefix(TRACK_REF_TOKEN_PREFIX)?;
-    serde_json::from_str::<stellatune_core::TrackRef>(json).ok()
+    serde_json::from_str::<crate::types::TrackRef>(json).ok()
 }
 
 pub(super) fn event_path_from_engine_token(token: &str) -> String {
@@ -39,7 +37,7 @@ pub(super) fn event_path_from_engine_token(token: &str) -> String {
     }
 }
 
-pub(super) fn track_ref_to_event_path(track: &stellatune_core::TrackRef) -> Option<String> {
+pub(super) fn track_ref_to_event_path(track: &crate::types::TrackRef) -> Option<String> {
     let locator = track.locator.trim();
     if locator.is_empty() {
         None
@@ -48,7 +46,7 @@ pub(super) fn track_ref_to_event_path(track: &stellatune_core::TrackRef) -> Opti
     }
 }
 
-pub(super) fn track_ref_to_engine_token(track: &stellatune_core::TrackRef) -> Option<String> {
+pub(super) fn track_ref_to_engine_token(track: &crate::types::TrackRef) -> Option<String> {
     if track.source_id.trim().eq_ignore_ascii_case("local") {
         return track_ref_to_event_path(track);
     }

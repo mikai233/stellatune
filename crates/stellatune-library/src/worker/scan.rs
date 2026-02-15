@@ -6,7 +6,7 @@ use anyhow::Result;
 use sqlx::SqlitePool;
 use walkdir::WalkDir;
 
-use stellatune_core::LibraryEvent;
+use crate::LibraryEvent;
 
 use crate::service::EventHub;
 

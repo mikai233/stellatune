@@ -2,7 +2,6 @@ use std::sync::atomic::Ordering;
 
 use stellatune_runtime::thread_actor::{ActorContext, Handler, Message};
 
-use super::super::ui_volume_to_gain;
 use crate::engine::control::Event;
 use crate::engine::control::control_actor::ControlActor;
 
@@ -21,7 +20,13 @@ impl Handler<SetVolumeMessage> for ControlActor {
         _ctx: &mut ActorContext<Self>,
     ) -> Result<(), String> {
         let ui = message.volume.clamp(0.0, 1.0);
-        let gain = ui_volume_to_gain(ui);
+        let gain = if ui <= 0.0 {
+            0.0
+        } else {
+            const MIN_DB: f32 = -30.0;
+            let db = MIN_DB * (1.0 - ui);
+            10.0_f32.powf(db / 20.0)
+        };
         self.state.volume = ui;
         self.state
             .volume_atomic

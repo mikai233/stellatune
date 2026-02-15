@@ -6,7 +6,8 @@ use crossbeam_channel::RecvTimeoutError;
 use stellatune_mixer::{ChannelLayout, ChannelMixer};
 use tracing::{debug, warn};
 
-use crate::engine::messages::{DecodeCtrl, DecodeWorkerState, InternalMsg};
+use crate::engine::control::{internal_error_dispatch, internal_position_dispatch};
+use crate::engine::messages::{DecodeCtrl, DecodeWorkerState};
 
 use super::audio_path::sync_dsp_chain;
 use super::context::DecodeContext;
@@ -43,6 +44,7 @@ pub(super) fn perform_seek(target_ms: i64, ctx: &mut DecodeContext) -> Result<()
         ctx.spec_sample_rate,
         ctx.target_sample_rate,
         ctx.out_channels,
+        ctx.resample_quality,
     )?;
     *ctx.last_emit = Instant::now();
     Ok(())
@@ -61,7 +63,7 @@ pub(super) fn handle_paused_controls(
         ctx.target_sample_rate,
         ctx.out_channels as u16,
     ) {
-        let _ = ctx.internal_tx.send(InternalMsg::Error(e));
+        let _ = ctx.internal_tx.send(internal_error_dispatch(e));
         *ctx.playing = false;
         return false;
     }
@@ -77,12 +79,12 @@ pub(super) fn handle_paused_controls(
         }
         Ok(DecodeCtrl::SetDspChain { chain }) => {
             if let Err(e) = sync_dsp_chain(ctx, chain) {
-                let _ = ctx.internal_tx.send(InternalMsg::Error(e));
+                let _ = ctx.internal_tx.send(internal_error_dispatch(e));
             }
         }
         Ok(DecodeCtrl::SeekMs { position_ms }) => {
             if let Err(e) = perform_seek(position_ms, ctx) {
-                let _ = ctx.internal_tx.send(InternalMsg::Error(e));
+                let _ = ctx.internal_tx.send(internal_error_dispatch(e));
             }
         }
         Ok(DecodeCtrl::SetLfeMode { mode }) => {
@@ -123,7 +125,7 @@ pub(super) fn handle_playing_controls(
         ctx.target_sample_rate,
         ctx.out_channels as u16,
     ) {
-        let _ = ctx.internal_tx.send(InternalMsg::Error(e));
+        let _ = ctx.internal_tx.send(internal_error_dispatch(e));
         *ctx.playing = false;
         return false;
     }
@@ -145,14 +147,14 @@ pub(super) fn handle_playing_controls(
             }
             DecodeCtrl::SeekMs { position_ms } => {
                 if let Err(e) = perform_seek(position_ms, ctx) {
-                    let _ = ctx.internal_tx.send(InternalMsg::Error(e));
+                    let _ = ctx.internal_tx.send(internal_error_dispatch(e));
                     *ctx.playing = false;
                 }
                 return false;
             }
             DecodeCtrl::SetDspChain { chain } => {
                 if let Err(e) = sync_dsp_chain(ctx, chain) {
-                    let _ = ctx.internal_tx.send(InternalMsg::Error(e));
+                    let _ = ctx.internal_tx.send(internal_error_dispatch(e));
                 }
             }
             DecodeCtrl::SetOutputSinkTx {
@@ -178,7 +180,7 @@ fn maybe_refresh_decoder_from_runtime_control(ctx: &mut DecodeContext) -> bool {
     }
     if let Err(e) = refresh_decoder(ctx) {
         warn!("decoder refresh on worker control failed: {e}");
-        let _ = ctx.internal_tx.send(InternalMsg::Error(e));
+        let _ = ctx.internal_tx.send(internal_error_dispatch(e));
         *ctx.playing = false;
     }
     true
@@ -195,10 +197,9 @@ pub(super) fn emit_position(ctx: &mut DecodeContext) {
         let ms = ctx.base_ms.saturating_add(
             ((played_frames.saturating_mul(1000)) / ctx.target_sample_rate as u64) as i64,
         );
-        let _ = ctx.internal_tx.try_send(InternalMsg::Position {
-            path: ctx.path.to_string(),
-            ms,
-        });
+        let _ = ctx
+            .internal_tx
+            .try_send(internal_position_dispatch(ctx.path.to_string(), ms));
         *ctx.last_emit = Instant::now();
     }
 }

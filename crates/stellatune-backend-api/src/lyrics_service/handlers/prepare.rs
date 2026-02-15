@@ -1,8 +1,8 @@
 use anyhow::Result;
-use stellatune_core::LyricsQuery;
 use stellatune_runtime::tokio_actor::{ActorContext, Handler, Message};
 
 use super::super::LyricsServiceActor;
+use crate::LyricsQuery;
 
 pub(crate) struct PrepareMessage {
     pub(crate) query: LyricsQuery,

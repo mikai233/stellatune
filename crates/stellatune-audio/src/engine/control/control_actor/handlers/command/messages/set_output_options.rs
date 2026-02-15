@@ -9,6 +9,7 @@ pub(crate) struct SetOutputOptionsMessage {
     pub(crate) match_track_sample_rate: bool,
     pub(crate) gapless_playback: bool,
     pub(crate) seek_track_fade: bool,
+    pub(crate) resample_quality: crate::types::ResampleQuality,
 }
 
 impl Message for SetOutputOptionsMessage {
@@ -28,10 +29,12 @@ impl Handler<SetOutputOptionsMessage> for ControlActor {
         state.seek_track_fade = message.seek_track_fade;
 
         let changed = state.match_track_sample_rate != message.match_track_sample_rate
-            || state.gapless_playback != message.gapless_playback;
+            || state.gapless_playback != message.gapless_playback
+            || state.resample_quality != message.resample_quality;
         if changed {
             state.match_track_sample_rate = message.match_track_sample_rate;
             state.gapless_playback = message.gapless_playback;
+            state.resample_quality = message.resample_quality;
             if state.session.is_some() {
                 stop_decode_session(state, track_info, SessionStopMode::TearDownSink);
                 if state.wants_playback {

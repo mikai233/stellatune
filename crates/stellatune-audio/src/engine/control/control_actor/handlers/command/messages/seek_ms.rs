@@ -8,7 +8,7 @@ use super::super::{
     DecodeCtrl, DisruptFadeKind, PlayerState, SeekPositionGuard, emit_position_event,
     maybe_fade_out_before_disrupt, next_position_session_id, set_state,
 };
-use super::emit_and_err;
+use crate::engine::control::Event;
 use crate::engine::control::control_actor::ControlActor;
 
 pub(crate) struct SeekMsMessage {
@@ -27,7 +27,11 @@ impl Handler<SeekMsMessage> for ControlActor {
     ) -> Result<(), String> {
         let (state, events) = (&mut self.state, &self.events);
         if state.current_track.is_none() {
-            return emit_and_err(events, "no track loaded");
+            let message = "no track loaded".to_string();
+            events.emit(Event::Error {
+                message: message.clone(),
+            });
+            return Err(message);
         }
 
         maybe_fade_out_before_disrupt(state, DisruptFadeKind::Seek);

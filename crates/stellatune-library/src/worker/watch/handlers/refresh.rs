@@ -1,4 +1,4 @@
-use stellatune_core::LibraryEvent;
+use crate::LibraryEvent;
 use stellatune_runtime::tokio_actor::{ActorContext, Handler, Message};
 
 use super::super::{WatchTaskActor, refresh_watch_state};

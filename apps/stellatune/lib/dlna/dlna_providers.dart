@@ -1,5 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:stellatune/bridge/third_party/stellatune_core.dart';
+import 'package:stellatune/bridge/api/dlna/types.dart';
 
 class DlnaSelectedRendererNotifier extends Notifier<DlnaRenderer?> {
   @override

@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::{Mutex, OnceLock};
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use serde_json::Value;
@@ -12,15 +12,15 @@ struct FixtureArtifacts {
     v2: PathBuf,
 }
 
-static TEST_MUTEX: OnceLock<Mutex<()>> = OnceLock::new();
+static TEST_MUTEX: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
 static FIXTURES: OnceLock<FixtureArtifacts> = OnceLock::new();
 
 #[tokio::test(flavor = "multi_thread")]
 async fn lifecycle_reload_disable_and_gc_with_dynamic_plugins() {
     let _guard = TEST_MUTEX
-        .get_or_init(|| Mutex::new(()))
+        .get_or_init(|| tokio::sync::Mutex::new(()))
         .lock()
-        .expect("test mutex poisoned");
+        .await;
 
     let runtime = PluginRuntimeHandle::new_with_default_host();
 

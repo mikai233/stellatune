@@ -1,20 +1,20 @@
 use std::sync::Arc;
 
-use crossbeam_channel::Sender;
 use tracing::warn;
 
 use stellatune_output::OutputSpec;
 use stellatune_plugin_api::{StAudioSpec, StOutputSinkNegotiatedSpec};
 use stellatune_plugins::runtime::worker_controller::WorkerApplyPendingOutcome;
 
-use crate::engine::session::OutputSinkWorkerStartArgs;
+use crate::engine::session::output_sink_worker::OutputSinkWorkerStartArgs;
 
 use super::{
-    CachedOutputSinkInstance, DecodeCtrl, EngineState, InternalMsg, OUTPUT_SINK_QUEUE_CAP_MESSAGES,
-    OpenOutputSinkWorkerArgs, OutputSinkNegotiationCache, OutputSinkWorker, OutputSinkWorkerSpec,
-    PLUGIN_SINK_DEFAULT_CHUNK_FRAMES, PLUGIN_SINK_FALLBACK_CHANNELS,
-    PLUGIN_SINK_FALLBACK_SAMPLE_RATE, PLUGIN_SINK_MIN_HIGH_WATERMARK_MS,
-    PLUGIN_SINK_MIN_LOW_WATERMARK_MS, RuntimeInstanceSlotKey, debug_metrics, with_runtime_service,
+    CachedOutputSinkInstance, DecodeCtrl, EngineState, InternalDispatchTx,
+    OUTPUT_SINK_QUEUE_CAP_MESSAGES, OpenOutputSinkWorkerArgs, OutputSinkNegotiationCache,
+    OutputSinkWorker, OutputSinkWorkerSpec, PLUGIN_SINK_DEFAULT_CHUNK_FRAMES,
+    PLUGIN_SINK_FALLBACK_CHANNELS, PLUGIN_SINK_FALLBACK_SAMPLE_RATE,
+    PLUGIN_SINK_MIN_HIGH_WATERMARK_MS, PLUGIN_SINK_MIN_LOW_WATERMARK_MS, RuntimeInstanceSlotKey,
+    debug_metrics, with_runtime_service,
 };
 use crate::engine::control::runtime_query::apply_or_recreate_output_sink_instance;
 
@@ -195,7 +195,7 @@ pub(super) fn open_output_sink_worker(
 
 pub(super) fn sync_output_sink_with_active_session(
     state: &mut EngineState,
-    internal_tx: &Sender<InternalMsg>,
+    internal_tx: &InternalDispatchTx,
 ) -> Result<(), String> {
     let Some(session) = state.session.as_ref() else {
         shutdown_output_sink_worker(state);

@@ -1,12 +1,10 @@
-use crate::engine::config::{
-    RESAMPLE_CHUNK_FRAMES, RESAMPLE_CUTOFF, RESAMPLE_INTERPOLATION, RESAMPLE_OVERSAMPLING_FACTOR,
-    RESAMPLE_SINC_LEN, RESAMPLE_WINDOW,
-};
+use crate::engine::config::RESAMPLE_CHUNK_FRAMES;
 
 pub fn create_resampler_if_needed(
     src_rate: u32,
     dst_rate: u32,
     channels: usize,
+    quality: crate::types::ResampleQuality,
 ) -> Result<Option<rubato::Async<f32>>, String> {
     if src_rate == dst_rate {
         return Ok(None);
@@ -14,12 +12,13 @@ pub fn create_resampler_if_needed(
 
     use rubato::{Async, FixedAsync, SincInterpolationParameters};
 
+    let params_spec = crate::engine::config::ResampleParams::from_quality(quality);
     let params = SincInterpolationParameters {
-        sinc_len: RESAMPLE_SINC_LEN,
-        f_cutoff: RESAMPLE_CUTOFF,
-        oversampling_factor: RESAMPLE_OVERSAMPLING_FACTOR,
-        interpolation: RESAMPLE_INTERPOLATION,
-        window: RESAMPLE_WINDOW,
+        sinc_len: params_spec.sinc_len,
+        f_cutoff: params_spec.f_cutoff,
+        oversampling_factor: params_spec.oversampling_factor,
+        interpolation: params_spec.interpolation,
+        window: params_spec.window,
     };
 
     let ratio = dst_rate as f64 / src_rate as f64;

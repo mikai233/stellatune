@@ -6,10 +6,8 @@ use arc_swap::ArcSwap;
 #[cfg(test)]
 use stellatune_plugin_api::STELLATUNE_PLUGIN_API_VERSION;
 use stellatune_plugin_api::StHostVTable;
-use tokio::sync::mpsc;
 
 use crate::events::{PluginEventBus, new_runtime_event_bus};
-use crate::runtime::backend_control::BackendControlRequest;
 use crate::runtime::introspection::{PluginLeaseInfo, PluginLeaseState};
 use crate::runtime::model::{ModuleLease, ModuleLeaseRef};
 use crate::runtime::registry::PluginModuleLeaseSlotState;
@@ -46,31 +44,6 @@ impl PluginRuntimeService {
             introspection_cache: ArcSwap::from_pointee(RuntimeIntrospectionCache::default()),
             introspection_cache_dirty: AtomicBool::new(false),
         }
-    }
-
-    pub fn push_host_event_json(&self, plugin_id: &str, event_json: &str) {
-        let plugin_id = plugin_id.trim();
-        if plugin_id.is_empty() || event_json.is_empty() {
-            return;
-        }
-        self.event_bus
-            .push_host_event(plugin_id, event_json.to_string());
-    }
-
-    pub fn broadcast_host_event_json(&self, event_json: &str) {
-        if event_json.is_empty() {
-            return;
-        }
-        for plugin_id in self.event_bus.registered_plugin_ids() {
-            self.event_bus
-                .push_host_event(&plugin_id, event_json.to_string());
-        }
-    }
-
-    pub fn subscribe_backend_control_requests(
-        &self,
-    ) -> mpsc::UnboundedReceiver<BackendControlRequest> {
-        self.event_bus.subscribe_control_requests()
     }
 
     pub fn set_disabled_plugin_ids(&mut self, disabled_ids: HashSet<String>) {

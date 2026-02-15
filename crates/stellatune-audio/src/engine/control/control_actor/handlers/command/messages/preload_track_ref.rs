@@ -1,8 +1,8 @@
-use stellatune_core::TrackRef;
+use crate::types::TrackRef;
 use stellatune_runtime::thread_actor::{ActorContext, Handler, Message};
 
 use super::super::{debug_metrics, enqueue_preload_task, track_ref_to_engine_token};
-use super::emit_and_err;
+use crate::engine::control::Event;
 use crate::engine::control::control_actor::ControlActor;
 
 pub(crate) struct PreloadTrackRefMessage {
@@ -22,7 +22,11 @@ impl Handler<PreloadTrackRefMessage> for ControlActor {
     ) -> Result<(), String> {
         let (state, events) = (&mut self.state, &self.events);
         let Some(path) = track_ref_to_engine_token(&message.track) else {
-            return emit_and_err(events, "track locator is empty");
+            let message = "track locator is empty".to_string();
+            events.emit(Event::Error {
+                message: message.clone(),
+            });
+            return Err(message);
         };
         if state.requested_preload_path.as_deref() == Some(path.as_str())
             && state.requested_preload_position_ms == message.position_ms

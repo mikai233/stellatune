@@ -7,6 +7,7 @@
 // ignore_for_file: argument_type_not_assignable
 
 import 'api/dlna.dart';
+import 'api/dlna/types.dart';
 import 'api/library.dart';
 import 'api/player.dart';
 import 'api/runtime.dart';
@@ -14,7 +15,9 @@ import 'dart:async';
 import 'dart:convert';
 import 'frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated_web.dart';
-import 'third_party/stellatune_core.dart';
+import 'third_party/stellatune_audio/types.dart';
+import 'third_party/stellatune_backend_api/lyrics_types.dart';
+import 'third_party/stellatune_library.dart';
 
 abstract class StellatuneApiApiImplPlatform
     extends BaseApiImpl<StellatuneApiWire> {
@@ -25,30 +28,8 @@ abstract class StellatuneApiApiImplPlatform
     required super.portManager,
   });
 
-  CrossPlatformFinalizerArg
-  get rust_arc_decrement_strong_count_RequestIdPtr => wire
-      .rust_arc_decrement_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRequestId;
-
   @protected
   AnyhowException dco_decode_AnyhowException(dynamic raw);
-
-  @protected
-  RequestId
-  dco_decode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRequestId(
-    dynamic raw,
-  );
-
-  @protected
-  RequestId
-  dco_decode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRequestId(
-    dynamic raw,
-  );
-
-  @protected
-  RequestId
-  dco_decode_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRequestId(
-    dynamic raw,
-  );
 
   @protected
   RustStreamSink<Event> dco_decode_StreamSink_event_Sse(dynamic raw);
@@ -262,6 +243,9 @@ abstract class StellatuneApiApiImplPlatform
   PluginRuntimeKind dco_decode_plugin_runtime_kind(dynamic raw);
 
   @protected
+  ResampleQuality dco_decode_resample_quality(dynamic raw);
+
+  @protected
   SourceCatalogTypeDescriptor dco_decode_source_catalog_type_descriptor(
     dynamic raw,
   );
@@ -294,28 +278,7 @@ abstract class StellatuneApiApiImplPlatform
   void dco_decode_unit(dynamic raw);
 
   @protected
-  BigInt dco_decode_usize(dynamic raw);
-
-  @protected
   AnyhowException sse_decode_AnyhowException(SseDeserializer deserializer);
-
-  @protected
-  RequestId
-  sse_decode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRequestId(
-    SseDeserializer deserializer,
-  );
-
-  @protected
-  RequestId
-  sse_decode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRequestId(
-    SseDeserializer deserializer,
-  );
-
-  @protected
-  RequestId
-  sse_decode_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRequestId(
-    SseDeserializer deserializer,
-  );
 
   @protected
   RustStreamSink<Event> sse_decode_StreamSink_event_Sse(
@@ -567,6 +530,9 @@ abstract class StellatuneApiApiImplPlatform
   );
 
   @protected
+  ResampleQuality sse_decode_resample_quality(SseDeserializer deserializer);
+
+  @protected
   SourceCatalogTypeDescriptor sse_decode_source_catalog_type_descriptor(
     SseDeserializer deserializer,
   );
@@ -599,32 +565,8 @@ abstract class StellatuneApiApiImplPlatform
   void sse_decode_unit(SseDeserializer deserializer);
 
   @protected
-  BigInt sse_decode_usize(SseDeserializer deserializer);
-
-  @protected
   void sse_encode_AnyhowException(
     AnyhowException self,
-    SseSerializer serializer,
-  );
-
-  @protected
-  void
-  sse_encode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRequestId(
-    RequestId self,
-    SseSerializer serializer,
-  );
-
-  @protected
-  void
-  sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRequestId(
-    RequestId self,
-    SseSerializer serializer,
-  );
-
-  @protected
-  void
-  sse_encode_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRequestId(
-    RequestId self,
     SseSerializer serializer,
   );
 
@@ -950,6 +892,12 @@ abstract class StellatuneApiApiImplPlatform
   );
 
   @protected
+  void sse_encode_resample_quality(
+    ResampleQuality self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_source_catalog_type_descriptor(
     SourceCatalogTypeDescriptor self,
     SseSerializer serializer,
@@ -987,31 +935,12 @@ abstract class StellatuneApiApiImplPlatform
 
   @protected
   void sse_encode_unit(void self, SseSerializer serializer);
-
-  @protected
-  void sse_encode_usize(BigInt self, SseSerializer serializer);
 }
 
 // Section: wire_class
 
 class StellatuneApiWire implements BaseWire {
   StellatuneApiWire.fromExternalLibrary(ExternalLibrary lib);
-
-  void
-  rust_arc_increment_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRequestId(
-    int ptr,
-  ) => wasmModule
-      .rust_arc_increment_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRequestId(
-        ptr,
-      );
-
-  void
-  rust_arc_decrement_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRequestId(
-    int ptr,
-  ) => wasmModule
-      .rust_arc_decrement_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRequestId(
-        ptr,
-      );
 }
 
 @JS('wasm_bindgen')
@@ -1019,14 +948,4 @@ external StellatuneApiWasmModule get wasmModule;
 
 @JS()
 @anonymous
-extension type StellatuneApiWasmModule._(JSObject _) implements JSObject {
-  external void
-  rust_arc_increment_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRequestId(
-    int ptr,
-  );
-
-  external void
-  rust_arc_decrement_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRequestId(
-    int ptr,
-  );
-}
+extension type StellatuneApiWasmModule._(JSObject _) implements JSObject {}

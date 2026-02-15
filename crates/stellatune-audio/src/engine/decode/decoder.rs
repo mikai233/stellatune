@@ -1,7 +1,7 @@
 use crossbeam_channel::Receiver;
 use tracing::debug;
 
-use stellatune_core::{TrackDecodeInfo, TrackPlayability, TrackRef};
+use crate::types::{TrackDecodeInfo, TrackPlayability, TrackRef};
 use stellatune_decode::{Decoder, TrackSpec, supports_path};
 use stellatune_plugins::runtime::messages::WorkerControlMessage;
 use stellatune_plugins::runtime::worker_endpoint::DecoderWorkerController;

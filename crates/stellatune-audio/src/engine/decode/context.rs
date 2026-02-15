@@ -1,5 +1,6 @@
 use super::decoder;
-use crate::engine::messages::{DecodeCtrl, InternalMsg, OutputSinkTx};
+use crate::engine::control::InternalDispatch;
+use crate::engine::messages::{DecodeCtrl, OutputSinkTx};
 use crate::ring_buffer::RingBufferProducer;
 use crossbeam_channel::{Receiver, Sender};
 use std::sync::atomic::AtomicBool;
@@ -29,11 +30,12 @@ pub(crate) struct DecodeContext<'a> {
     pub(crate) out_channels: usize,
     pub(crate) spec_sample_rate: u32,
     pub(crate) target_sample_rate: u32,
+    pub(crate) resample_quality: crate::types::ResampleQuality,
 
     pub(crate) output_enabled: &'a AtomicBool,
     pub(crate) output_sink_tx: &'a mut Option<OutputSinkTx>,
     pub(crate) output_sink_chunk_frames: &'a mut u32,
     pub(crate) output_sink_only: bool,
     pub(crate) ctrl_rx: &'a Receiver<DecodeCtrl>,
-    pub(crate) internal_tx: &'a Sender<InternalMsg>,
+    pub(crate) internal_tx: &'a Sender<InternalDispatch>,
 }

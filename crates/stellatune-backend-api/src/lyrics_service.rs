@@ -9,12 +9,13 @@ use reqwest::StatusCode;
 use serde_json::Value;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode};
 use sqlx::{Connection, Row, SqliteConnection};
-use stellatune_core::{LyricLine, LyricsDoc, LyricsEvent, LyricsQuery, LyricsSearchCandidate};
 use stellatune_runtime as global_runtime;
 use stellatune_runtime::tokio_actor::ActorRef;
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 use url::Url;
+
+use crate::{LyricLine, LyricsDoc, LyricsEvent, LyricsQuery, LyricsSearchCandidate};
 
 mod handlers;
 

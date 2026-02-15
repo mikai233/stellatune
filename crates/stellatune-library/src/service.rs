@@ -6,7 +6,7 @@ use anyhow::{Context, Result, anyhow};
 use tokio::sync::broadcast;
 use tracing::info;
 
-use stellatune_core::{LibraryCommand, LibraryEvent, PlaylistLite, TrackLite};
+use crate::{LibraryEvent, PlaylistLite, TrackLite};
 use stellatune_runtime::tokio_actor::ActorRef;
 
 use crate::worker::{LibraryWorker, WorkerDeps};
@@ -14,7 +14,13 @@ use crate::worker::{LibraryWorker, WorkerDeps};
 mod service_actor;
 
 use self::service_actor::LibraryServiceActor;
-use self::service_actor::handlers::command::LibraryCommandMessage;
+use self::service_actor::handlers::command::{
+    AddRootMessage, AddTrackToPlaylistMessage, AddTracksToPlaylistMessage, CreatePlaylistMessage,
+    DeleteFolderMessage, DeletePlaylistMessage, MoveTrackInPlaylistMessage, RemoveRootMessage,
+    RemoveTrackFromPlaylistMessage, RemoveTracksFromPlaylistMessage, RenamePlaylistMessage,
+    RestoreFolderMessage, ScanAllForceMessage, ScanAllMessage, SetTrackLikedMessage,
+    ShutdownMessage,
+};
 use self::service_actor::handlers::query::{
     ListExcludedFoldersMessage, ListFoldersMessage, ListLikedTrackIdsMessage,
     ListPlaylistTracksMessage, ListPlaylistsMessage, ListRootsMessage, ListTracksMessage,
@@ -35,10 +41,119 @@ pub struct LibraryHandle {
 impl LibraryHandle {
     const QUERY_TIMEOUT: Duration = Duration::from_secs(15);
 
-    pub async fn send_command(&self, cmd: LibraryCommand) -> std::result::Result<(), String> {
+    fn cast_command<M>(&self, message: M) -> std::result::Result<(), String>
+    where
+        M: stellatune_runtime::tokio_actor::Message<Response = ()>,
+        LibraryServiceActor: stellatune_runtime::tokio_actor::Handler<M>,
+    {
         self.actor_ref
-            .cast(LibraryCommandMessage { command: cmd })
+            .cast(message)
             .map_err(|_| "library command channel closed".to_string())
+    }
+
+    pub async fn add_root(&self, path: String) -> std::result::Result<(), String> {
+        self.cast_command(AddRootMessage { path })
+    }
+
+    pub async fn remove_root(&self, path: String) -> std::result::Result<(), String> {
+        self.cast_command(RemoveRootMessage { path })
+    }
+
+    pub async fn delete_folder(&self, path: String) -> std::result::Result<(), String> {
+        self.cast_command(DeleteFolderMessage { path })
+    }
+
+    pub async fn restore_folder(&self, path: String) -> std::result::Result<(), String> {
+        self.cast_command(RestoreFolderMessage { path })
+    }
+
+    pub async fn scan_all(&self) -> std::result::Result<(), String> {
+        self.cast_command(ScanAllMessage)
+    }
+
+    pub async fn scan_all_force(&self) -> std::result::Result<(), String> {
+        self.cast_command(ScanAllForceMessage)
+    }
+
+    pub async fn create_playlist(&self, name: String) -> std::result::Result<(), String> {
+        self.cast_command(CreatePlaylistMessage { name })
+    }
+
+    pub async fn rename_playlist(&self, id: i64, name: String) -> std::result::Result<(), String> {
+        self.cast_command(RenamePlaylistMessage { id, name })
+    }
+
+    pub async fn delete_playlist(&self, id: i64) -> std::result::Result<(), String> {
+        self.cast_command(DeletePlaylistMessage { id })
+    }
+
+    pub async fn add_track_to_playlist(
+        &self,
+        playlist_id: i64,
+        track_id: i64,
+    ) -> std::result::Result<(), String> {
+        self.cast_command(AddTrackToPlaylistMessage {
+            playlist_id,
+            track_id,
+        })
+    }
+
+    pub async fn add_tracks_to_playlist(
+        &self,
+        playlist_id: i64,
+        track_ids: Vec<i64>,
+    ) -> std::result::Result<(), String> {
+        self.cast_command(AddTracksToPlaylistMessage {
+            playlist_id,
+            track_ids,
+        })
+    }
+
+    pub async fn remove_track_from_playlist(
+        &self,
+        playlist_id: i64,
+        track_id: i64,
+    ) -> std::result::Result<(), String> {
+        self.cast_command(RemoveTrackFromPlaylistMessage {
+            playlist_id,
+            track_id,
+        })
+    }
+
+    pub async fn remove_tracks_from_playlist(
+        &self,
+        playlist_id: i64,
+        track_ids: Vec<i64>,
+    ) -> std::result::Result<(), String> {
+        self.cast_command(RemoveTracksFromPlaylistMessage {
+            playlist_id,
+            track_ids,
+        })
+    }
+
+    pub async fn move_track_in_playlist(
+        &self,
+        playlist_id: i64,
+        track_id: i64,
+        new_index: i64,
+    ) -> std::result::Result<(), String> {
+        self.cast_command(MoveTrackInPlaylistMessage {
+            playlist_id,
+            track_id,
+            new_index,
+        })
+    }
+
+    pub async fn set_track_liked(
+        &self,
+        track_id: i64,
+        liked: bool,
+    ) -> std::result::Result<(), String> {
+        self.cast_command(SetTrackLikedMessage { track_id, liked })
+    }
+
+    pub async fn shutdown(&self) -> std::result::Result<(), String> {
+        self.cast_command(ShutdownMessage)
     }
 
     pub fn subscribe_events(&self) -> broadcast::Receiver<LibraryEvent> {

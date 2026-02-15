@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::{Mutex, OnceLock};
+use std::sync::OnceLock;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -68,15 +68,15 @@ impl DecoderWorkerHandle {
     }
 }
 
-static TEST_MUTEX: OnceLock<Mutex<()>> = OnceLock::new();
+static TEST_MUTEX: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
 static FIXTURES: OnceLock<FixtureArtifacts> = OnceLock::new();
 
 #[tokio::test(flavor = "multi_thread")]
 async fn multi_plugin_workers_reload_disable_hot_apply_external_flow() {
     let _guard = TEST_MUTEX
-        .get_or_init(|| Mutex::new(()))
+        .get_or_init(|| tokio::sync::Mutex::new(()))
         .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+        .await;
 
     let runtime = PluginRuntimeHandle::new_with_default_host();
 
@@ -191,9 +191,9 @@ async fn multi_plugin_workers_reload_disable_hot_apply_external_flow() {
 #[tokio::test(flavor = "multi_thread")]
 async fn multi_plugin_disable_and_hot_apply_are_isolated_between_workers() {
     let _guard = TEST_MUTEX
-        .get_or_init(|| Mutex::new(()))
+        .get_or_init(|| tokio::sync::Mutex::new(()))
         .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+        .await;
 
     let runtime = PluginRuntimeHandle::new_with_default_host();
 
@@ -297,9 +297,9 @@ async fn multi_plugin_disable_and_hot_apply_are_isolated_between_workers() {
 #[tokio::test(flavor = "multi_thread")]
 async fn multi_plugin_reload_disable_hot_apply_stress_rounds() {
     let _guard = TEST_MUTEX
-        .get_or_init(|| Mutex::new(()))
+        .get_or_init(|| tokio::sync::Mutex::new(()))
         .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+        .await;
 
     let runtime = PluginRuntimeHandle::new_with_default_host();
 

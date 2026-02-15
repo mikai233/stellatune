@@ -5,10 +5,11 @@ use std::thread::JoinHandle;
 use crossbeam_channel::{Receiver, Sender};
 use tracing::debug;
 
-use stellatune_core::TrackDecodeInfo;
+use crate::engine::control::InternalDispatch;
+use crate::types::TrackDecodeInfo;
 
 use crate::engine::decode::{DecodeThreadArgs, decode_thread};
-use crate::engine::messages::{DecodeCtrl, DecodeWorkerState, InternalMsg, PredecodedChunk};
+use crate::engine::messages::{DecodeCtrl, DecodeWorkerState, PredecodedChunk};
 use crate::ring_buffer::RingBufferProducer;
 
 use super::debug_metrics;
@@ -27,9 +28,10 @@ pub(super) struct DecodePrepare {
     pub(super) start_at_ms: i64,
     pub(super) output_enabled: Arc<AtomicBool>,
     pub(super) buffer_prefill_cap_ms: i64,
-    pub(super) lfe_mode: stellatune_core::LfeMode,
+    pub(super) lfe_mode: crate::types::LfeMode,
     pub(super) output_sink_chunk_frames: u32,
     pub(super) output_sink_only: bool,
+    pub(super) resample_quality: crate::types::ResampleQuality,
     pub(super) spec_tx: Sender<Result<TrackDecodeInfo, String>>,
 }
 
@@ -81,7 +83,7 @@ impl DecodeWorker {
     }
 }
 
-pub(crate) fn start_decode_worker(internal_tx: Sender<InternalMsg>) -> DecodeWorker {
+pub(crate) fn start_decode_worker(internal_tx: Sender<InternalDispatch>) -> DecodeWorker {
     debug_metrics::note_worker_start();
     let runtime_state = Arc::new(AtomicU8::new(DecodeWorkerState::Idle as u8));
     let promoted_preload = Arc::new(Mutex::new(None));
@@ -112,7 +114,7 @@ pub(crate) fn start_decode_worker(internal_tx: Sender<InternalMsg>) -> DecodeWor
 }
 
 fn run_decode_worker(
-    internal_tx: Sender<InternalMsg>,
+    internal_tx: Sender<InternalDispatch>,
     ctrl_rx: Receiver<DecodeCtrl>,
     prepare_rx: Receiver<DecodePrepareMsg>,
     runtime_state: Arc<AtomicU8>,
@@ -158,6 +160,7 @@ fn run_decode_worker(
                 output_sink_tx: None,
                 output_sink_chunk_frames: prepare.output_sink_chunk_frames,
                 output_sink_only: prepare.output_sink_only,
+                resample_quality: prepare.resample_quality,
             })
             .is_err()
         {

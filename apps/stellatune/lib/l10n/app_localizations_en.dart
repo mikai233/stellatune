@@ -175,6 +175,21 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsSeekTrackFade => 'Fade on play/pause/seek/track switch';
 
   @override
+  String get settingsResampleQuality => 'Resampling Quality';
+
+  @override
+  String get settingsResampleQualityFast => 'Fast (Low CPU)';
+
+  @override
+  String get settingsResampleQualityBalanced => 'Balanced';
+
+  @override
+  String get settingsResampleQualityHigh => 'High (Sinc)';
+
+  @override
+  String get settingsResampleQualityUltra => 'Ultra (Slow)';
+
+  @override
   String get settingsPluginsTitle => 'Plugins';
 
   @override

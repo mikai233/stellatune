@@ -4,7 +4,6 @@ members = [
   "crates/stellatune-audio",
   "crates/stellatune-asio-proto",
   "crates/stellatune-backend-api",
-  "crates/stellatune-core",
   "crates/stellatune-decode",
   "crates/stellatune-dsp",
   "crates/stellatune-ffi",
@@ -35,7 +34,6 @@ wildcard_imports = "deny"
 stellatune-audio = { path = "crates/stellatune-audio" }
 stellatune-asio-proto = { path = "crates/stellatune-asio-proto" }
 stellatune-backend-api = { path = "crates/stellatune-backend-api" }
-stellatune-core = { path = "crates/stellatune-core" }
 stellatune-decode = { path = "crates/stellatune-decode" }
 stellatune-dsp = { path = "crates/stellatune-dsp" }
 stellatune-ffi = { path = "crates/stellatune-ffi" }

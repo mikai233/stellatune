@@ -6,7 +6,7 @@ use super::super::{
 use crate::engine::control::control_actor::ControlActor;
 
 pub(crate) struct SetOutputDeviceMessage {
-    pub(crate) backend: stellatune_core::AudioBackend,
+    pub(crate) backend: crate::types::AudioBackend,
     pub(crate) device_id: Option<String>,
 }
 

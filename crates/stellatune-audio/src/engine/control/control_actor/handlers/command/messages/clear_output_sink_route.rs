@@ -4,7 +4,7 @@ use super::super::{
     PlayerState, SessionStopMode, drop_output_pipeline, ensure_output_spec_prewarm, set_state,
     stop_decode_session, sync_output_sink_with_active_session,
 };
-use super::emit_and_err;
+use crate::engine::control::Event;
 use crate::engine::control::control_actor::ControlActor;
 
 pub(crate) struct ClearOutputSinkRouteMessage;
@@ -45,7 +45,10 @@ impl Handler<ClearOutputSinkRouteMessage> for ControlActor {
             }
         }
         if let Err(err) = sync_output_sink_with_active_session(state, internal_tx) {
-            return emit_and_err(events, err);
+            events.emit(Event::Error {
+                message: err.clone(),
+            });
+            return Err(err);
         }
         Ok(())
     }

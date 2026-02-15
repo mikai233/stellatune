@@ -2,8 +2,9 @@ use std::time::Instant;
 
 use stellatune_runtime::thread_actor::{ActorContext, Handler, Message};
 
+use crate::engine::control::{internal_preload_failed_dispatch, internal_preload_ready_dispatch};
 use crate::engine::decode::decoder::open_engine_decoder;
-use crate::engine::messages::{InternalMsg, PredecodedChunk};
+use crate::engine::messages::PredecodedChunk;
 
 use super::super::PreloadActor;
 
@@ -30,59 +31,59 @@ impl Handler<PreloadEnqueueMessage> for PreloadActor {
                 if position_ms > 0
                     && let Err(err) = decoder.seek_ms(position_ms)
                 {
-                    let _ = internal_tx.send(InternalMsg::PreloadFailed {
-                        path: path.clone(),
+                    let _ = internal_tx.send(internal_preload_failed_dispatch(
+                        path.clone(),
                         position_ms,
-                        message: err,
-                        took_ms: t0.elapsed().as_millis() as u64,
+                        err,
+                        t0.elapsed().as_millis() as u64,
                         token,
-                    });
+                    ));
                     return;
                 }
                 match decoder.next_block(2048) {
                     Ok(Some(samples)) if !samples.is_empty() => {
-                        let _ = internal_tx.send(InternalMsg::PreloadReady {
-                            path: path.clone(),
+                        let _ = internal_tx.send(internal_preload_ready_dispatch(
+                            path.clone(),
                             position_ms,
-                            track_info: track_info.clone(),
-                            chunk: PredecodedChunk {
+                            track_info.clone(),
+                            PredecodedChunk {
                                 samples,
                                 sample_rate: track_info.sample_rate,
                                 channels: track_info.channels,
                                 start_at_ms: position_ms,
                             },
-                            took_ms: t0.elapsed().as_millis() as u64,
+                            t0.elapsed().as_millis() as u64,
                             token,
-                        });
+                        ));
                     }
                     Ok(_) => {
-                        let _ = internal_tx.send(InternalMsg::PreloadFailed {
-                            path: path.clone(),
+                        let _ = internal_tx.send(internal_preload_failed_dispatch(
+                            path.clone(),
                             position_ms,
-                            message: "decoder returned no preload audio".to_string(),
-                            took_ms: t0.elapsed().as_millis() as u64,
+                            "decoder returned no preload audio".to_string(),
+                            t0.elapsed().as_millis() as u64,
                             token,
-                        });
+                        ));
                     }
                     Err(err) => {
-                        let _ = internal_tx.send(InternalMsg::PreloadFailed {
-                            path: path.clone(),
+                        let _ = internal_tx.send(internal_preload_failed_dispatch(
+                            path.clone(),
                             position_ms,
-                            message: err,
-                            took_ms: t0.elapsed().as_millis() as u64,
+                            err,
+                            t0.elapsed().as_millis() as u64,
                             token,
-                        });
+                        ));
                     }
                 }
             }
             Err(err) => {
-                let _ = internal_tx.send(InternalMsg::PreloadFailed {
-                    path: path.clone(),
+                let _ = internal_tx.send(internal_preload_failed_dispatch(
+                    path.clone(),
                     position_ms,
-                    message: err,
-                    took_ms: t0.elapsed().as_millis() as u64,
+                    err,
+                    t0.elapsed().as_millis() as u64,
                     token,
-                });
+                ));
             }
         }
     }

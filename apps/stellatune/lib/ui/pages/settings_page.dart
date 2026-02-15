@@ -107,6 +107,7 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
   bool _cachedOutputSinkTypesReady = false;
   List<SourceCatalogTypeDescriptor> _cachedSourceTypes = const [];
   bool _cachedSourceTypesReady = false;
+  ResampleQuality _resampleQuality = ResampleQuality.high;
 
   @override
   void initState() {
@@ -153,6 +154,7 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
       ..addAll(session.outputSinkConfigDrafts);
     _cachedOutputSinkTypes = session.cachedOutputSinkTypes;
     _cachedOutputSinkTypesReady = session.cachedOutputSinkTypesReady;
+    _resampleQuality = session.resampleQuality;
   }
 
   void _persistOutputUiSession() {
@@ -169,6 +171,7 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
       ..addAll(_outputSinkConfigDrafts);
     session.cachedOutputSinkTypes = _cachedOutputSinkTypes;
     session.cachedOutputSinkTypesReady = _cachedOutputSinkTypesReady;
+    session.resampleQuality = _resampleQuality;
   }
 
   void _loadFromSettings() {
@@ -186,6 +189,7 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
       _outputSinkConfigDrafts['${route.pluginId}::${route.typeId}'] =
           route.configJson;
     }
+    _resampleQuality = settings.resampleQuality;
     _persistOutputUiSession();
   }
 
@@ -1924,6 +1928,7 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
                                   matchTrackSampleRate: v,
                                   gaplessPlayback: store.gaplessPlayback,
                                   seekTrackFade: store.seekTrackFade,
+                                  resampleQuality: store.resampleQuality,
                                 );
                             setState(() {});
                           },
@@ -1943,6 +1948,7 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
                                       store.matchTrackSampleRate,
                                   gaplessPlayback: v,
                                   seekTrackFade: store.seekTrackFade,
+                                  resampleQuality: store.resampleQuality,
                                 );
                             setState(() {});
                           },
@@ -1965,9 +1971,56 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
                           matchTrackSampleRate: store.matchTrackSampleRate,
                           gaplessPlayback: store.gaplessPlayback,
                           seekTrackFade: v,
+                          resampleQuality: store.resampleQuality,
                         );
                     setState(() {});
                   },
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8.0),
+                  child: DropdownButtonFormField<ResampleQuality>(
+                    decoration: InputDecoration(
+                      labelText: l10n.settingsResampleQuality,
+                      border: const OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                    initialValue: _resampleQuality,
+                    items: [
+                      DropdownMenuItem(
+                        value: ResampleQuality.fast,
+                        child: Text(l10n.settingsResampleQualityFast),
+                      ),
+                      DropdownMenuItem(
+                        value: ResampleQuality.balanced,
+                        child: Text(l10n.settingsResampleQualityBalanced),
+                      ),
+                      DropdownMenuItem(
+                        value: ResampleQuality.high,
+                        child: Text(l10n.settingsResampleQualityHigh),
+                      ),
+                      DropdownMenuItem(
+                        value: ResampleQuality.ultra,
+                        child: Text(l10n.settingsResampleQualityUltra),
+                      ),
+                    ],
+                    onChanged: (v) async {
+                      if (v == null) return;
+                      final store = ref.read(settingsStoreProvider);
+                      await store.setResampleQuality(v);
+                      setState(() {
+                        _resampleQuality = v;
+                        _persistOutputUiSession();
+                      });
+                      await ref
+                          .read(playerBridgeProvider)
+                          .setOutputOptions(
+                            matchTrackSampleRate: store.matchTrackSampleRate,
+                            gaplessPlayback: store.gaplessPlayback,
+                            seekTrackFade: store.seekTrackFade,
+                            resampleQuality: v,
+                          );
+                    },
+                  ),
                 ),
               ],
             ),

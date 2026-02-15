@@ -7,14 +7,12 @@ use anyhow::{Result, anyhow};
 use arc_swap::ArcSwap;
 use crossbeam_channel::Sender;
 use stellatune_plugin_api::StHostVTable;
-use tokio::sync::mpsc;
 use tracing::{debug, warn};
 
 use crate::default_host_vtable;
 use crate::load::{RuntimeLoadReport, RuntimePluginInfo};
 use crate::runtime::actor::handlers::acquire_current_module_lease::AcquireCurrentModuleLeaseMessage;
 use crate::runtime::actor::handlers::active_plugin_ids::ActivePluginIdsMessage;
-use crate::runtime::actor::handlers::broadcast_host_event_json::BroadcastHostEventJsonMessage;
 use crate::runtime::actor::handlers::cleanup_shadow_copies_now::CleanupShadowCopiesNowMessage;
 use crate::runtime::actor::handlers::collect_retired_module_leases_by_refcount::CollectRetiredModuleLeasesByRefcountMessage;
 use crate::runtime::actor::handlers::current_module_lease_ref::CurrentModuleLeaseRefMessage;
@@ -24,7 +22,6 @@ use crate::runtime::actor::handlers::list_active_plugins::ListActivePluginsMessa
 use crate::runtime::actor::handlers::load_dir_additive_filtered::LoadDirAdditiveFilteredMessage;
 use crate::runtime::actor::handlers::load_dir_additive_from_state::LoadDirAdditiveFromStateMessage;
 use crate::runtime::actor::handlers::plugin_lease_state::PluginLeaseStateMessage;
-use crate::runtime::actor::handlers::push_host_event_json::PushHostEventJsonMessage;
 use crate::runtime::actor::handlers::register_worker_control_sender::RegisterWorkerControlSenderMessage;
 use crate::runtime::actor::handlers::reload_dir_detailed_from_state::ReloadDirDetailedFromStateMessage;
 use crate::runtime::actor::handlers::reload_dir_filtered::ReloadDirFilteredMessage;
@@ -32,10 +29,8 @@ use crate::runtime::actor::handlers::reload_dir_from_state::ReloadDirFromStateMe
 use crate::runtime::actor::handlers::set_disabled_plugin_ids::SetDisabledPluginIdsMessage;
 use crate::runtime::actor::handlers::set_plugin_enabled::SetPluginEnabledMessage;
 use crate::runtime::actor::handlers::shutdown_and_cleanup::ShutdownAndCleanupMessage;
-use crate::runtime::actor::handlers::subscribe_backend_control_requests::SubscribeBackendControlRequestsMessage;
 use crate::runtime::actor::handlers::unload_plugin::UnloadPluginMessage;
 use crate::runtime::actor::{PluginRuntimeActor, spawn_plugin_runtime_actor};
-use crate::runtime::backend_control::BackendControlRequest;
 use crate::runtime::introspection::{
     CapabilityDescriptor, CapabilityKind, DecoderCandidate, PluginLeaseInfo, PluginLeaseState,
     RuntimeIntrospectionReadCache,
@@ -145,53 +140,12 @@ impl PluginRuntimeHandle {
         .unwrap_or(false)
     }
 
-    pub async fn subscribe_backend_control_requests(
-        &self,
-    ) -> mpsc::UnboundedReceiver<BackendControlRequest> {
-        self.call(
-            "subscribe_backend_control_requests",
-            QUERY_TIMEOUT,
-            SubscribeBackendControlRequestsMessage,
-        )
-        .await
-        .unwrap_or_else(|| {
-            let (_tx, rx) = mpsc::unbounded_channel();
-            rx
-        })
-    }
-
     pub async fn set_disabled_plugin_ids(&self, disabled_ids: HashSet<String>) {
         let _ = self
             .call(
                 "set_disabled_plugin_ids",
                 QUERY_TIMEOUT,
                 SetDisabledPluginIdsMessage { disabled_ids },
-            )
-            .await;
-    }
-
-    pub async fn push_host_event_json(&self, plugin_id: &str, event_json: &str) {
-        let plugin_id = plugin_id.to_string();
-        let event_json = event_json.to_string();
-        let _ = self
-            .call(
-                "push_host_event_json",
-                QUERY_TIMEOUT,
-                PushHostEventJsonMessage {
-                    plugin_id,
-                    event_json,
-                },
-            )
-            .await;
-    }
-
-    pub async fn broadcast_host_event_json(&self, event_json: &str) {
-        let event_json = event_json.to_string();
-        let _ = self
-            .call(
-                "broadcast_host_event_json",
-                QUERY_TIMEOUT,
-                BroadcastHostEventJsonMessage { event_json },
             )
             .await;
     }

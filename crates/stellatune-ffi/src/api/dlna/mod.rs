@@ -2,9 +2,10 @@ use anyhow::Result;
 
 use super::dlna_impl;
 use stellatune_backend_api::runtime::init_tracing;
-use stellatune_core::{
-    DlnaHttpServerInfo, DlnaPositionInfo, DlnaRenderer, DlnaSsdpDevice, DlnaTransportInfo,
-};
+
+pub mod types;
+
+pub use types::*;
 
 pub async fn dlna_discover_media_renderers(timeout_ms: u32) -> Result<Vec<DlnaSsdpDevice>> {
     init_tracing();

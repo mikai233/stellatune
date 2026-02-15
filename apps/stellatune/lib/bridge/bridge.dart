@@ -3,10 +3,13 @@ import 'dart:convert';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart'
     as frb;
 import 'api.dart' as api;
-import 'third_party/stellatune_core.dart';
+import 'api/dlna/types.dart';
+import 'third_party/stellatune_audio/types.dart';
+import 'third_party/stellatune_backend_api/lyrics_types.dart';
+import 'third_party/stellatune_library.dart';
 
 export 'frb_generated.dart' show StellatuneApi;
-export 'third_party/stellatune_core.dart'
+export 'third_party/stellatune_audio/types.dart'
     show
         Event,
         EventPatterns,
@@ -19,22 +22,31 @@ export 'third_party/stellatune_core.dart'
         OutputSinkRoute,
         PluginDescriptor,
         PlayerState,
+        TrackDecodeInfo,
+        TrackPlayability,
+        PluginRuntimeEvent,
+        ResampleQuality;
+export 'third_party/stellatune_library.dart'
+    show
         LibraryEvent,
         LibraryEventPatterns,
         PlaylistLite,
-        TrackDecodeInfo,
-        TrackPlayability,
-        TrackLite,
+        TrackLite;
+export 'third_party/stellatune_backend_api/lyrics_types.dart'
+    show
         LyricsQuery,
         LyricsEvent,
         LyricsEventPatterns,
-        PluginRuntimeEvent,
         LyricsDoc,
         LyricLine,
-        LyricsSearchCandidate,
+        LyricsSearchCandidate;
+export 'api/dlna/types.dart'
+    show
         DlnaSsdpDevice,
         DlnaRenderer,
-        DlnaHttpServerInfo;
+        DlnaHttpServerInfo,
+        DlnaPositionInfo,
+        DlnaTransportInfo;
 
 Stream<PluginRuntimeEvent>? _pluginRuntimeEventGlobalBroadcast;
 
@@ -190,10 +202,12 @@ class PlayerBridge {
     required bool matchTrackSampleRate,
     required bool gaplessPlayback,
     required bool seekTrackFade,
+    required ResampleQuality resampleQuality,
   }) => api.setOutputOptions(
     matchTrackSampleRate: matchTrackSampleRate,
     gaplessPlayback: gaplessPlayback,
     seekTrackFade: seekTrackFade,
+    resampleQuality: resampleQuality,
   );
 
   Future<void> preloadTrack(String path, {int positionMs = 0}) =>
@@ -252,7 +266,8 @@ class LibraryBridge {
   Future<void> restoreFolder(String path) =>
       api.libraryRestoreFolder(path: path);
 
-  Future<List<String>> listExcludedFolders() => api.libraryListExcludedFolders();
+  Future<List<String>> listExcludedFolders() =>
+      api.libraryListExcludedFolders();
 
   Future<void> scanAll() => api.libraryScanAll();
   Future<void> scanAllForce() => api.libraryScanAllForce();
@@ -275,8 +290,11 @@ class LibraryBridge {
     offset: offset,
   );
 
-  Future<List<TrackLite>> search(String query, {int limit = 200, int offset = 0}) =>
-      api.librarySearch(query: query, limit: limit, offset: offset);
+  Future<List<TrackLite>> search(
+    String query, {
+    int limit = 200,
+    int offset = 0,
+  }) => api.librarySearch(query: query, limit: limit, offset: offset);
 
   Future<List<PlaylistLite>> listPlaylists() => api.libraryListPlaylists();
 

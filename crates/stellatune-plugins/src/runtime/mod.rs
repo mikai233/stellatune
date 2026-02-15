@@ -6,7 +6,6 @@
 //! execution is expected to live in business-side worker threads.
 
 pub mod actor;
-pub mod backend_control;
 pub mod handle;
 pub mod instance_registry;
 pub mod introspection;

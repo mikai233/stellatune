@@ -1,5 +1,6 @@
 use crate::engine::config::RESAMPLE_CHUNK_FRAMES;
-use crate::engine::messages::{InternalMsg, RuntimeDspChainEntry};
+use crate::engine::control::internal_error_dispatch;
+use crate::engine::messages::RuntimeDspChainEntry;
 
 use super::context::DecodeContext;
 use super::dsp::{DspStage, apply_dsp_stage, apply_or_recreate_dsp_chain};
@@ -125,7 +126,7 @@ pub(super) fn handle_eof_and_flush(ctx: &mut DecodeContext) -> bool {
                     ctx.decode_pending.clear();
                 }
                 Err(e) => {
-                    let _ = ctx.internal_tx.send(InternalMsg::Error(e));
+                    let _ = ctx.internal_tx.send(internal_error_dispatch(e));
                     return true;
                 }
             }

@@ -1,8 +1,8 @@
 use anyhow::Result;
-use stellatune_core::LyricsDoc;
 use stellatune_runtime::tokio_actor::{ActorContext, Handler, Message};
 
 use super::super::LyricsServiceActor;
+use crate::LyricsDoc;
 
 pub(crate) struct ApplyCandidateMessage {
     pub(crate) track_key: String,

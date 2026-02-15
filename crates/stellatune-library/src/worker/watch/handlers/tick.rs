@@ -1,6 +1,6 @@
 use tokio::time::Instant;
 
-use stellatune_core::LibraryEvent;
+use crate::LibraryEvent;
 use stellatune_runtime::tokio_actor::{ActorContext, Handler, Message};
 
 use super::super::{WatchTaskActor, apply_fs_changes};

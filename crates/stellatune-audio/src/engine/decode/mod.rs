@@ -7,10 +7,11 @@ use std::time::{Duration, Instant};
 use crossbeam_channel::{Receiver, Sender};
 use tracing::debug;
 
-use stellatune_core::TrackDecodeInfo;
+use crate::engine::control::{InternalDispatch, internal_eof_dispatch, internal_error_dispatch};
+use crate::types::TrackDecodeInfo;
 use stellatune_mixer::{ChannelLayout, ChannelMixer};
 
-use crate::engine::messages::{DecodeCtrl, InternalMsg, OutputSinkTx};
+use crate::engine::messages::{DecodeCtrl, OutputSinkTx};
 
 pub mod audio_path;
 pub mod context;
@@ -38,15 +39,16 @@ type DecodeSetupState = (
     i64,
     Arc<std::sync::atomic::AtomicBool>,
     i64,
-    stellatune_core::LfeMode,
+    crate::types::LfeMode,
     Option<OutputSinkTx>,
     u32,
     bool,
+    crate::types::ResampleQuality,
 );
 
 pub(crate) struct DecodeThreadArgs {
     pub(crate) path: String,
-    pub(crate) internal_tx: Sender<InternalMsg>,
+    pub(crate) internal_tx: Sender<InternalDispatch>,
     pub(crate) ctrl_rx: Receiver<DecodeCtrl>,
     pub(crate) setup_rx: Receiver<DecodeCtrl>,
     pub(crate) spec_tx: Sender<Result<TrackDecodeInfo, String>>,
@@ -89,6 +91,7 @@ pub(crate) fn decode_thread(args: DecodeThreadArgs) {
         mut output_sink_tx,
         mut output_sink_chunk_frames,
         output_sink_only,
+        resample_quality,
     ): DecodeSetupState = loop {
         crossbeam_channel::select! {
             recv(setup_rx) -> msg => {
@@ -105,6 +108,7 @@ pub(crate) fn decode_thread(args: DecodeThreadArgs) {
                     output_sink_tx,
                     output_sink_chunk_frames,
                     output_sink_only,
+                    resample_quality,
                 } = ctrl {
                     break (
                         ring_buffer_producer,
@@ -118,6 +122,7 @@ pub(crate) fn decode_thread(args: DecodeThreadArgs) {
                         output_sink_tx,
                         output_sink_chunk_frames,
                         output_sink_only,
+                        resample_quality,
                     );
                 }
             }
@@ -137,14 +142,18 @@ pub(crate) fn decode_thread(args: DecodeThreadArgs) {
     let expected_predecoded_start = base_ms as u64;
 
     let t_resampler = Instant::now();
-    let mut resampler =
-        match create_resampler_if_needed(spec.sample_rate, target_sample_rate, out_channels) {
-            Ok(r) => r,
-            Err(e) => {
-                let _ = internal_tx.send(InternalMsg::Error(e));
-                return;
-            }
-        };
+    let mut resampler = match create_resampler_if_needed(
+        spec.sample_rate,
+        target_sample_rate,
+        out_channels,
+        resample_quality,
+    ) {
+        Ok(r) => r,
+        Err(e) => {
+            let _ = internal_tx.send(internal_error_dispatch(e));
+            return;
+        }
+    };
     debug!(
         "resampler init: {} ({}ms)",
         if resampler.is_some() {
@@ -184,7 +193,7 @@ pub(crate) fn decode_thread(args: DecodeThreadArgs) {
         let t_skip = Instant::now();
         let frames_to_skip = ((base_ms as i128 * spec.sample_rate as i128) / 1000) as u64;
         if !skip_frames_by_decoding(&mut decoder, frames_to_skip) {
-            let _ = internal_tx.send(InternalMsg::Eof);
+            let _ = internal_tx.send(internal_eof_dispatch());
             return;
         }
         debug!(
@@ -241,6 +250,7 @@ pub(crate) fn decode_thread(args: DecodeThreadArgs) {
             output_sink_tx: &mut output_sink_tx,
             output_sink_chunk_frames: &mut output_sink_chunk_frames,
             output_sink_only,
+            resample_quality,
             ctrl_rx: &ctrl_rx,
             internal_tx: &internal_tx,
         };
@@ -270,7 +280,7 @@ pub(crate) fn decode_thread(args: DecodeThreadArgs) {
                     Ok(true) => return,
                     Ok(false) => {}
                     Err(e) => {
-                        let _ = ctx.internal_tx.send(InternalMsg::Error(e));
+                        let _ = ctx.internal_tx.send(internal_error_dispatch(e));
                         return;
                     }
                 }
@@ -278,7 +288,7 @@ pub(crate) fn decode_thread(args: DecodeThreadArgs) {
 
             if let Some(seek_ms) = ctx.pending_seek.take() {
                 if let Err(e) = perform_seek(seek_ms, &mut ctx) {
-                    let _ = ctx.internal_tx.send(InternalMsg::Error(e));
+                    let _ = ctx.internal_tx.send(internal_error_dispatch(e));
                     *ctx.playing = false;
                 }
                 continue 'main;
@@ -299,7 +309,7 @@ pub(crate) fn decode_thread(args: DecodeThreadArgs) {
                         Ok(true) => return,
                         Ok(false) => {}
                         Err(e) => {
-                            let _ = ctx.internal_tx.send(InternalMsg::Error(e));
+                            let _ = ctx.internal_tx.send(internal_error_dispatch(e));
                             return;
                         }
                     }
@@ -307,7 +317,7 @@ pub(crate) fn decode_thread(args: DecodeThreadArgs) {
 
                 if let Some(seek_ms) = ctx.pending_seek.take() {
                     if let Err(e) = perform_seek(seek_ms, &mut ctx) {
-                        let _ = ctx.internal_tx.send(InternalMsg::Error(e));
+                        let _ = ctx.internal_tx.send(internal_error_dispatch(e));
                         *ctx.playing = false;
                     }
                     continue 'main;
@@ -319,16 +329,16 @@ pub(crate) fn decode_thread(args: DecodeThreadArgs) {
                 }
                 if let Some(seek_ms) = ctx.pending_seek.take() {
                     if let Err(e) = perform_seek(seek_ms, &mut ctx) {
-                        let _ = ctx.internal_tx.send(InternalMsg::Error(e));
+                        let _ = ctx.internal_tx.send(internal_error_dispatch(e));
                         *ctx.playing = false;
                     }
                     continue 'main;
                 }
-                let _ = ctx.internal_tx.send(InternalMsg::Eof);
+                let _ = ctx.internal_tx.send(internal_eof_dispatch());
                 break;
             }
             Err(e) => {
-                let _ = ctx.internal_tx.send(InternalMsg::Error(e));
+                let _ = ctx.internal_tx.send(internal_error_dispatch(e));
                 break;
             }
         }
