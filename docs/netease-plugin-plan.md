@@ -10,7 +10,7 @@ This document tracks the temporary in-repo implementation plan for Netease plugi
 
 ## Implemented Structure
 
-- `crates/stellatune-plugin-netease`
+- `crates/plugins-native/stellatune-plugin-netease`
   - `SourceCatalog` type: `netease`
   - Decoder type: `stream_symphonia`
 - `tools/stellatune-ncm-sidecar`

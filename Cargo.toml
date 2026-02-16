@@ -2,19 +2,19 @@
 resolver = "3"
 members = [
   "crates/stellatune-audio",
-  "crates/stellatune-asio-proto",
+  "crates/plugins-native/stellatune-asio-proto",
   "crates/stellatune-backend-api",
   "crates/stellatune-ffi",
   "crates/stellatune-library",
   "crates/stellatune-plugin-api",
-  "crates/stellatune-plugin-asio",
-  "crates/stellatune-plugin-netease",
-  "crates/stellatune-plugin-ncm",
+  "crates/plugins-native/stellatune-plugin-asio",
+  "crates/plugins-native/stellatune-plugin-netease",
+  "crates/plugins-native/stellatune-plugin-ncm",
   "crates/stellatune-plugin-sdk",
   "crates/stellatune-plugins",
   "crates/stellatune-runtime",
 ]
-exclude = ["crates/stellatune-asio-host"]
+exclude = ["crates/plugins-native/stellatune-asio-host"]
 
 [workspace.package]
 license = "MIT"
@@ -27,7 +27,7 @@ wildcard_imports = "deny"
 
 [workspace.dependencies]
 stellatune-audio = { path = "crates/stellatune-audio" }
-stellatune-asio-proto = { path = "crates/stellatune-asio-proto" }
+stellatune-asio-proto = { path = "crates/plugins-native/stellatune-asio-proto" }
 stellatune-backend-api = { path = "crates/stellatune-backend-api" }
 stellatune-ffi = { path = "crates/stellatune-ffi" }
 stellatune-library = { path = "crates/stellatune-library" }

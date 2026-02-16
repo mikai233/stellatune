@@ -50,7 +50,7 @@ $RepoRoot = Resolve-Path (Join-Path $ScriptDir "..\..\..")
 $ProfileDir = Get-ProfileDir -Configuration $Configuration
 $CargoTargetDir = Join-Path $RepoRoot "target"
 
-$PluginManifestPath = Join-Path $RepoRoot "crates\stellatune-plugin-netease\Cargo.toml"
+$PluginManifestPath = Join-Path $RepoRoot "crates\plugins-native\stellatune-plugin-netease\Cargo.toml"
 $SidecarRoot = Join-Path $RepoRoot "tools\stellatune-ncm-sidecar"
 
 if (-not (Test-Path $PluginManifestPath)) {

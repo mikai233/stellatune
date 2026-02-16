@@ -27,7 +27,7 @@ You can override the sidecar path with plugin config `sidecar_path`.
 From repository root:
 
 ```powershell
-cargo build --manifest-path crates/stellatune-asio-host/Cargo.toml --features asio --release
+cargo build --manifest-path crates/plugins-native/stellatune-asio-host/Cargo.toml --features asio --release
 ```
 
 Then copy the produced `stellatune-asio-host.exe` into plugin runtime root
@@ -38,20 +38,20 @@ Then copy the produced `stellatune-asio-host.exe` into plugin runtime root
 Use the packaging script to build plugin + sidecar and produce an installable zip:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File crates/stellatune-plugin-asio/scripts/package-windows.ps1
+powershell -ExecutionPolicy Bypass -File crates/plugins-native/stellatune-plugin-asio/scripts/package-windows.ps1
 ```
 
 Optional flags:
 
 ```powershell
 # Explicit target
-powershell -ExecutionPolicy Bypass -File crates/stellatune-plugin-asio/scripts/package-windows.ps1 -Target x86_64-pc-windows-msvc
+powershell -ExecutionPolicy Bypass -File crates/plugins-native/stellatune-plugin-asio/scripts/package-windows.ps1 -Target x86_64-pc-windows-msvc
 
 # Debug build output
-powershell -ExecutionPolicy Bypass -File crates/stellatune-plugin-asio/scripts/package-windows.ps1 -Configuration Debug
+powershell -ExecutionPolicy Bypass -File crates/plugins-native/stellatune-plugin-asio/scripts/package-windows.ps1 -Configuration Debug
 
 # Custom artifact directory
-powershell -ExecutionPolicy Bypass -File crates/stellatune-plugin-asio/scripts/package-windows.ps1 -OutDir .\artifacts\plugins
+powershell -ExecutionPolicy Bypass -File crates/plugins-native/stellatune-plugin-asio/scripts/package-windows.ps1 -OutDir .\artifacts\plugins
 ```
 
 The script creates a zip artifact containing:

@@ -38,8 +38,8 @@ $RepoRoot = Resolve-Path (Join-Path $ScriptDir "..\..\..")
 $ProfileDir = Get-ProfileDir -Configuration $Configuration
 $CargoTargetDir = Join-Path $RepoRoot "target"
 
-$PluginManifestPath = Join-Path $RepoRoot "crates\stellatune-plugin-asio\Cargo.toml"
-$AsioHostManifestPath = Join-Path $RepoRoot "crates\stellatune-asio-host\Cargo.toml"
+$PluginManifestPath = Join-Path $RepoRoot "crates\plugins-native\stellatune-plugin-asio\Cargo.toml"
+$AsioHostManifestPath = Join-Path $RepoRoot "crates\plugins-native\stellatune-asio-host\Cargo.toml"
 
 if (-not (Test-Path $PluginManifestPath)) {
     throw "plugin manifest not found: $PluginManifestPath"

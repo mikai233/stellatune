@@ -229,12 +229,12 @@ This section maps the latest implementation status to the 7-item improvement che
 5. Sidecar underrun observability (`P1`)
 - Status: Partial.
 - Notes: Sidecar underrun counters and periodic summary logs are implemented. Plugin runtime event reporting for underrun is not wired yet.
-- Refs: `crates/stellatune-asio-host/src/main.rs:410`, `crates/stellatune-asio-host/src/main.rs:441`, `crates/stellatune-asio-host/src/main.rs:478`.
+- Refs: `crates/plugins-native/stellatune-asio-host/src/main.rs:410`, `crates/plugins-native/stellatune-asio-host/src/main.rs:441`, `crates/plugins-native/stellatune-asio-host/src/main.rs:478`.
 
 6. Real-time resample quality preset (`P1`)
 - Status: Partial.
 - Notes: ASIO sample-rate mode (`fixed_target` / `match_track`) is done. Resampler quality level is still fixed high-quality (`SINC_LEN=256`) and not yet exposed as runtime preset.
-- Refs: `crates/stellatune-plugin-asio/src/lib.rs:33`, `crates/stellatune-plugin-asio/src/lib.rs:81`, `crates/stellatune-audio/src/engine/config.rs:31`.
+- Refs: `crates/plugins-native/stellatune-plugin-asio/src/lib.rs:33`, `crates/plugins-native/stellatune-plugin-asio/src/lib.rs:81`, `crates/stellatune-audio/src/engine/config.rs:31`.
 
 7. Merge switch flow into one command (`P1`)
 - Status: Done.

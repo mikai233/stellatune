@@ -28,13 +28,13 @@ This plugin currently provides:
 ## Build
 
 ```powershell
-cargo build --manifest-path crates/stellatune-plugin-netease/Cargo.toml --release
+cargo build --manifest-path crates/plugins-native/stellatune-plugin-netease/Cargo.toml --release
 ```
 
 ## Packaging
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File crates/stellatune-plugin-netease/scripts/package-windows.ps1
+powershell -ExecutionPolicy Bypass -File crates/plugins-native/stellatune-plugin-netease/scripts/package-windows.ps1
 ```
 
 The zip contains:
