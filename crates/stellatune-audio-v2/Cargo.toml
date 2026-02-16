@@ -1,0 +1,21 @@
+[package]
+name = "stellatune-audio-v2"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+
+[dependencies]
+crossbeam-channel.workspace = true
+ringbuf.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+rubato.workspace = true
+audioadapter-buffers.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+stellatune-audio-core.workspace = true
+stellatune-runtime.workspace = true
+
+[lints]
+workspace = true

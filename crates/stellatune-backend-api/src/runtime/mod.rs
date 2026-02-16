@@ -281,17 +281,17 @@ pub async fn plugin_runtime_disable(
 
     report.phase = "schedule";
     tracing::debug!(plugin_id, phase = report.phase, "plugin_disable_phase");
-    match shared_runtime_engine()
-        .schedule_plugin_disable(plugin_id.clone())
+    let service = shared_plugin_runtime();
+    let unload_report = service.unload_plugin(&plugin_id).await;
+    report.reclaimed_leases = unload_report.reclaimed_leases;
+    report
+        .errors
+        .extend(unload_report.errors.into_iter().map(|err| err.to_string()));
+    report.remaining_retired_leases = service
+        .plugin_lease_state(&plugin_id)
         .await
-    {
-        Ok(deferred) => {
-            if deferred {
-                report.phase = "deferred";
-            }
-        },
-        Err(err) => report.errors.push(err),
-    }
+        .map(|state| state.retired_lease_ids.len())
+        .unwrap_or(0);
 
     report.phase = "completed";
     tracing::info!(

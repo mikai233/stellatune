@@ -35,6 +35,7 @@ stellatune-backend-api.workspace = true
 stellatune-audio.workspace = true
 stellatune-library.workspace = true
 stellatune-plugin-api.workspace = true
+stellatune-plugins.workspace = true
 stellatune-runtime.workspace = true
 
 [lints]

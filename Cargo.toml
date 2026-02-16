@@ -1,6 +1,9 @@
 [workspace]
 resolver = "3"
 members = [
+  "crates/stellatune-audio-core",
+  "crates/stellatune-audio-builtin-adapters",
+  "crates/stellatune-audio-plugin-adapters",
   "crates/stellatune-audio",
   "crates/plugins-native/stellatune-asio-proto",
   "crates/stellatune-backend-api",
@@ -13,6 +16,7 @@ members = [
   "crates/stellatune-plugin-sdk",
   "crates/stellatune-plugins",
   "crates/stellatune-runtime",
+  "crates/stellatune-audio-v2",
 ]
 exclude = ["crates/plugins-native/stellatune-asio-host"]
 
@@ -26,7 +30,11 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(frb_expand)'] }
 wildcard_imports = "deny"
 
 [workspace.dependencies]
+stellatune-audio-core = { path = "crates/stellatune-audio-core" }
+stellatune-audio-builtin-adapters = { path = "crates/stellatune-audio-builtin-adapters" }
+stellatune-audio-plugin-adapters = { path = "crates/stellatune-audio-plugin-adapters" }
 stellatune-audio = { path = "crates/stellatune-audio" }
+stellatune-audio-v2 = { path = "crates/stellatune-audio-v2" }
 stellatune-asio-proto = { path = "crates/plugins-native/stellatune-asio-proto" }
 stellatune-backend-api = { path = "crates/stellatune-backend-api" }
 stellatune-ffi = { path = "crates/stellatune-ffi" }

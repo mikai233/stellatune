@@ -3139,6 +3139,51 @@ dependencies = [
 ]
 
 [[package]]
+name = "stellatune-audio-builtin-adapters"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "stellatune-audio-core",
+]
+
+[[package]]
+name = "stellatune-audio-core"
+version = "0.1.0"
+dependencies = [
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "stellatune-audio-plugin-adapters"
+version = "0.1.0"
+dependencies = [
+ "crossbeam-channel",
+ "serde",
+ "serde_json",
+ "stellatune-audio-core",
+ "stellatune-plugin-api",
+ "stellatune-plugins",
+ "stellatune-runtime",
+]
+
+[[package]]
+name = "stellatune-audio-v2"
+version = "0.1.0"
+dependencies = [
+ "audioadapter-buffers",
+ "crossbeam-channel",
+ "ringbuf",
+ "rubato",
+ "serde",
+ "serde_json",
+ "stellatune-audio-core",
+ "stellatune-runtime",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "stellatune-backend-api"
 version = "0.1.0"
 dependencies = [
@@ -3181,6 +3226,7 @@ dependencies = [
  "stellatune-backend-api",
  "stellatune-library",
  "stellatune-plugin-api",
+ "stellatune-plugins",
  "stellatune-runtime",
  "tokio",
  "tokio-util",
