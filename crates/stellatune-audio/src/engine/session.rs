@@ -6,8 +6,8 @@ use crossbeam_channel::Sender;
 use tracing::debug;
 
 use crate::engine::control::InternalDispatchTx;
-use crate::types::TrackDecodeInfo;
-use stellatune_output::{OutputHandle, OutputSpec};
+use crate::output::{OutputHandle, OutputSpec};
+use crate::types::{LfeMode, ResampleQuality, TrackDecodeInfo};
 
 use crate::engine::config::{BUFFER_PREFILL_CAP_MS, BUFFER_PREFILL_CAP_MS_EXCLUSIVE};
 use crate::engine::messages::DecodeCtrl;
@@ -180,7 +180,7 @@ pub(crate) struct OutputPipeline {
     pub(crate) transition_gain: Arc<AtomicU32>,
     pub(crate) transition_target_gain: Arc<AtomicU32>,
     pub(crate) transition_ramp_ms: Arc<AtomicU32>,
-    pub(crate) backend: stellatune_output::AudioBackend,
+    pub(crate) backend: crate::output::AudioBackend,
     pub(crate) device_id: Option<String>,
     pub(crate) device_output_enabled: bool,
     pub(crate) out_sample_rate: u32,
@@ -204,17 +204,17 @@ pub(crate) struct StartSessionArgs<'a> {
     pub(crate) path: String,
     pub(crate) decode_worker: &'a DecodeWorker,
     pub(crate) internal_tx: InternalDispatchTx,
-    pub(crate) backend: stellatune_output::AudioBackend,
+    pub(crate) backend: crate::output::AudioBackend,
     pub(crate) device_id: Option<String>,
     pub(crate) match_track_sample_rate: bool,
     pub(crate) gapless_playback: bool,
     pub(crate) out_spec: OutputSpec,
     pub(crate) start_at_ms: i64,
     pub(crate) volume: Arc<AtomicU32>,
-    pub(crate) lfe_mode: crate::types::LfeMode,
+    pub(crate) lfe_mode: LfeMode,
     pub(crate) output_sink_chunk_frames: u32,
     pub(crate) output_sink_only: bool,
-    pub(crate) resample_quality: crate::types::ResampleQuality,
+    pub(crate) resample_quality: ResampleQuality,
     pub(crate) output_pipeline: &'a mut Option<OutputPipeline>,
 }
 
@@ -254,14 +254,14 @@ pub(crate) fn start_session(args: StartSessionArgs<'_>) -> Result<PlaybackSessio
     let mut desired_out_spec = out_spec;
     if !output_sink_only
         && match_track_sample_rate
-        && matches!(backend, stellatune_output::AudioBackend::WasapiExclusive)
+        && matches!(backend, crate::output::AudioBackend::WasapiExclusive)
         && let Some(info) = promoted_track_info.as_ref()
     {
         let candidate = OutputSpec {
             sample_rate: info.sample_rate,
             channels: out_spec.channels,
         };
-        if stellatune_output::supports_output_spec(backend, device_id.clone(), candidate) {
+        if crate::output::supports_output_spec(backend, device_id.clone(), candidate) {
             desired_out_spec = candidate;
         }
     }
@@ -334,7 +334,7 @@ pub(crate) fn start_session(args: StartSessionArgs<'_>) -> Result<PlaybackSessio
             start_at_ms,
             output_enabled: Arc::clone(&pipeline.output_enabled),
             buffer_prefill_cap_ms: match backend {
-                stellatune_output::AudioBackend::WasapiExclusive => BUFFER_PREFILL_CAP_MS_EXCLUSIVE,
+                crate::output::AudioBackend::WasapiExclusive => BUFFER_PREFILL_CAP_MS_EXCLUSIVE,
                 _ => BUFFER_PREFILL_CAP_MS,
             },
             lfe_mode,

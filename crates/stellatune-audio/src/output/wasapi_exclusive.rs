@@ -6,14 +6,14 @@ use std::time::Duration;
 use anyhow::Error;
 use wasapi::{DeviceEnumerator, Direction, SampleType, StreamMode, WaveFormat};
 
-use crate::{AudioBackend, AudioDevice, OutputError, OutputSpec, SampleConsumer};
+use super::{AudioBackend, AudioDevice, OutputError, OutputSpec, SampleConsumer};
 
 pub struct WasapiExclusiveHandle {
     shutdown: Arc<AtomicBool>,
     thread: Option<thread::JoinHandle<()>>,
 }
 
-// MMCSS logic moved to crate::mmcss
+// MMCSS logic moved to super::mmcss
 
 impl Drop for WasapiExclusiveHandle {
     fn drop(&mut self) {
@@ -148,7 +148,7 @@ impl WasapiExclusiveHandle {
             .name("stellatune-wasapi-exclusive".to_string())
             .spawn(move || {
                 #[cfg(windows)]
-                let _mmcss = crate::mmcss::enable_mmcss_pro_audio();
+                let _mmcss = super::mmcss::enable_mmcss_pro_audio();
                 if let Err(e) =
                     run_exclusive_loop(device_id, &mut consumer, expected_spec, thread_shutdown)
                 {

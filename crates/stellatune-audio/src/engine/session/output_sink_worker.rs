@@ -184,7 +184,7 @@ impl OutputSinkWorker {
         let join = std::thread::Builder::new()
             .name("stellatune-output-sink".to_string())
             .spawn(move || {
-                let _rt_guard = stellatune_output::enable_realtime_audio_thread();
+                let _rt_guard = crate::output::enable_realtime_audio_thread();
                 let (mut controller, worker_control_rx) = match create_output_sink_controller_and_open(
                     &plugin_id,
                     &type_id,

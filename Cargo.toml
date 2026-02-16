@@ -4,16 +4,11 @@ members = [
   "crates/stellatune-audio",
   "crates/stellatune-asio-proto",
   "crates/stellatune-backend-api",
-  "crates/stellatune-decode",
-  "crates/stellatune-dsp",
   "crates/stellatune-ffi",
   "crates/stellatune-library",
-  "crates/stellatune-mixer",
-  "crates/stellatune-output",
   "crates/stellatune-plugin-api",
   "crates/stellatune-plugin-asio",
   "crates/stellatune-plugin-netease",
-  "crates/stellatune-plugin-protocol",
   "crates/stellatune-plugin-ncm",
   "crates/stellatune-plugin-sdk",
   "crates/stellatune-plugins",
@@ -34,16 +29,11 @@ wildcard_imports = "deny"
 stellatune-audio = { path = "crates/stellatune-audio" }
 stellatune-asio-proto = { path = "crates/stellatune-asio-proto" }
 stellatune-backend-api = { path = "crates/stellatune-backend-api" }
-stellatune-decode = { path = "crates/stellatune-decode" }
-stellatune-dsp = { path = "crates/stellatune-dsp" }
 stellatune-ffi = { path = "crates/stellatune-ffi" }
 stellatune-library = { path = "crates/stellatune-library" }
-stellatune-output = { path = "crates/stellatune-output" }
 stellatune-plugin-api = { path = "crates/stellatune-plugin-api" }
-stellatune-plugin-protocol = { path = "crates/stellatune-plugin-protocol" }
 stellatune-plugins = { path = "crates/stellatune-plugins" }
 stellatune-plugin-sdk = { path = "crates/stellatune-plugin-sdk" }
-stellatune-mixer = { path = "crates/stellatune-mixer" }
 stellatune-runtime = { path = "crates/stellatune-runtime" }
 
 anyhow = "1.0.101"

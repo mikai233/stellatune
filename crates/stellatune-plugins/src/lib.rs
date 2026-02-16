@@ -17,11 +17,10 @@ use crate::manifest::{
 use anyhow::{Context, Result, anyhow};
 use libloading::{Library, Symbol};
 use serde::Serialize;
+use stellatune_plugin_api::{PluginMetadata, StLogLevel, StStr};
 use stellatune_plugin_api::{
     STELLATUNE_PLUGIN_API_VERSION, STELLATUNE_PLUGIN_ENTRY_SYMBOL, StHostVTable, StPluginEntry,
 };
-use stellatune_plugin_api::{StLogLevel, StStr};
-use stellatune_plugin_protocol::PluginMetadata;
 use tracing::{info, warn};
 
 #[derive(Debug, Clone, Serialize)]

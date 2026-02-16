@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use stellatune_plugin_protocol::PluginMetadata;
+use stellatune_plugin_api::PluginMetadata;
 use tracing::warn;
 
 pub const INSTALL_RECEIPT_FILE_NAME: &str = ".install.json";

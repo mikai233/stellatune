@@ -1,8 +1,18 @@
 use std::fs::File;
+use std::io;
 use std::io::{Seek, SeekFrom, Write};
 use std::path::Path;
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result, anyhow, bail};
+use symphonia::core::audio::SampleBuffer;
+use symphonia::core::audio::{AudioBufferRef, SignalSpec};
+use symphonia::core::codecs::{Decoder as SymphoniaDecoder, DecoderOptions};
+use symphonia::core::errors::Error as SymphoniaError;
+use symphonia::core::formats::{FormatOptions, FormatReader};
+use symphonia::core::io::{MediaSourceStream, MediaSourceStreamOptions};
+use symphonia::core::meta::MetadataOptions;
+use symphonia::core::probe::Hint;
+use symphonia::default::{get_codecs, get_probe};
 
 struct Wav16Writer {
     file: File,
@@ -91,6 +101,144 @@ impl Wav16Writer {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct TrackSpec {
+    sample_rate: u32,
+    channels: u16,
+}
+
+struct BuiltinDecoder {
+    format: Box<dyn FormatReader>,
+    decoder: Box<dyn SymphoniaDecoder>,
+    track_id: u32,
+    spec: TrackSpec,
+    sample_buf: Option<SampleBuffer<f32>>,
+    pending: Vec<f32>,
+}
+
+fn supports_extension(ext: &str) -> bool {
+    matches!(ext, "mp3" | "flac" | "wav")
+}
+
+impl BuiltinDecoder {
+    fn open(path: impl AsRef<Path>) -> Result<Self> {
+        let path = path.as_ref();
+        let ext = path
+            .extension()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .trim()
+            .to_ascii_lowercase();
+        if !supports_extension(&ext) {
+            bail!("unsupported file extension for built-in decoder: `{ext}`");
+        }
+
+        let mut hint = Hint::new();
+        if !ext.is_empty() {
+            hint.with_extension(&ext);
+        }
+
+        let file = File::open(path)
+            .with_context(|| format!("failed to open input file {}", path.display()))?;
+        let mss = MediaSourceStream::new(Box::new(file), MediaSourceStreamOptions::default());
+        let probed = get_probe().format(
+            &hint,
+            mss,
+            &FormatOptions::default(),
+            &MetadataOptions::default(),
+        )?;
+
+        let format = probed.format;
+        let track = format
+            .default_track()
+            .ok_or_else(|| anyhow!("missing audio track"))?;
+        let track_id = track.id;
+        let params = track.codec_params.clone();
+        let sample_rate = params
+            .sample_rate
+            .ok_or_else(|| anyhow!("missing sample rate in codec parameters"))?;
+        let channels = params
+            .channels
+            .as_ref()
+            .map(|c| c.count() as u16)
+            .unwrap_or(0);
+        let decoder = get_codecs().make(&params, &DecoderOptions::default())?;
+
+        Ok(Self {
+            format,
+            decoder,
+            track_id,
+            spec: TrackSpec {
+                sample_rate,
+                channels,
+            },
+            sample_buf: None,
+            pending: Vec::new(),
+        })
+    }
+
+    fn spec(&self) -> TrackSpec {
+        self.spec
+    }
+
+    fn next_block(&mut self, frames: usize) -> Result<Option<Vec<f32>>> {
+        let want_samples = frames.saturating_mul(self.spec.channels as usize);
+
+        while self.pending.len() < want_samples {
+            match self.format.next_packet() {
+                Ok(packet) => {
+                    if packet.track_id() != self.track_id {
+                        continue;
+                    }
+                    match self.decoder.decode(&packet) {
+                        Ok(audio_buf) => {
+                            append_decoded(&mut self.sample_buf, &mut self.pending, audio_buf)
+                        },
+                        Err(SymphoniaError::DecodeError(_)) => continue,
+                        Err(SymphoniaError::ResetRequired) => {
+                            self.decoder.reset();
+                            continue;
+                        },
+                        Err(e) => return Err(e.into()),
+                    }
+                },
+                Err(SymphoniaError::IoError(e)) if e.kind() == io::ErrorKind::UnexpectedEof => {
+                    break;
+                },
+                Err(e) => return Err(e.into()),
+            }
+        }
+
+        if self.pending.is_empty() {
+            return Ok(None);
+        }
+
+        let take = want_samples.min(self.pending.len());
+        let out = self.pending.drain(..take).collect::<Vec<_>>();
+        Ok(Some(out))
+    }
+}
+
+fn append_decoded(
+    sample_buf: &mut Option<SampleBuffer<f32>>,
+    pending: &mut Vec<f32>,
+    audio_buf: AudioBufferRef<'_>,
+) {
+    let spec = SignalSpec::new(audio_buf.spec().rate, audio_buf.spec().channels);
+    let duration = audio_buf.capacity() as u64;
+    let needs_realloc = match sample_buf.as_ref() {
+        None => true,
+        Some(buf) => buf.capacity() < audio_buf.capacity(),
+    };
+    if needs_realloc {
+        *sample_buf = Some(SampleBuffer::<f32>::new(duration, spec));
+    }
+
+    let sb = sample_buf.as_mut().expect("just initialized");
+    sb.copy_interleaved_ref(audio_buf);
+    pending.extend_from_slice(sb.samples());
+}
+
 fn main() -> Result<()> {
     // Usage:
     //   convert_to_wav <plugin_dir> <input> <output.wav>
@@ -103,7 +251,7 @@ fn main() -> Result<()> {
     }
 
     // Built-in decode example. Plugin decode flow has moved to host runtime.
-    let mut d = stellatune_decode::Decoder::open(&input)
+    let mut d = BuiltinDecoder::open(&input)
         .map_err(|e| anyhow!("failed to open built-in decoder: {e}"))?;
     let spec = d.spec();
     eprintln!(

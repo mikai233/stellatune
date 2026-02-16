@@ -17,14 +17,12 @@ impl Handler<RefreshDevicesMessage> for ControlActor {
     ) -> Result<Vec<crate::types::AudioDevice>, String> {
         let selected_backend = output_backend_for_selected(self.state.selected_backend);
         let devices: Vec<crate::types::AudioDevice> =
-            stellatune_output::list_host_devices(Some(selected_backend))
+            crate::output::list_host_devices(Some(selected_backend))
                 .into_iter()
                 .map(|d| crate::types::AudioDevice {
                     backend: match d.backend {
-                        stellatune_output::AudioBackend::Shared => {
-                            crate::types::AudioBackend::Shared
-                        },
-                        stellatune_output::AudioBackend::WasapiExclusive => {
+                        crate::output::AudioBackend::Shared => crate::types::AudioBackend::Shared,
+                        crate::output::AudioBackend::WasapiExclusive => {
                             crate::types::AudioBackend::WasapiExclusive
                         },
                     },

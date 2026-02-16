@@ -6,7 +6,7 @@ use crossbeam_channel::{Receiver, Sender};
 use tracing::debug;
 
 use crate::engine::control::InternalDispatch;
-use crate::types::TrackDecodeInfo;
+use crate::types::{LfeMode, ResampleQuality, TrackDecodeInfo};
 
 use crate::engine::decode::{DecodeThreadArgs, decode_thread};
 use crate::engine::messages::{DecodeCtrl, DecodeWorkerState, PredecodedChunk};
@@ -28,10 +28,10 @@ pub(super) struct DecodePrepare {
     pub(super) start_at_ms: i64,
     pub(super) output_enabled: Arc<AtomicBool>,
     pub(super) buffer_prefill_cap_ms: i64,
-    pub(super) lfe_mode: crate::types::LfeMode,
+    pub(super) lfe_mode: LfeMode,
     pub(super) output_sink_chunk_frames: u32,
     pub(super) output_sink_only: bool,
-    pub(super) resample_quality: crate::types::ResampleQuality,
+    pub(super) resample_quality: ResampleQuality,
     pub(super) spec_tx: Sender<Result<TrackDecodeInfo, String>>,
 }
 
@@ -92,9 +92,9 @@ pub(crate) fn start_decode_worker(internal_tx: Sender<InternalDispatch>) -> Deco
     let (prepare_tx, prepare_rx) = crossbeam_channel::unbounded::<DecodePrepareMsg>();
 
     let join = std::thread::Builder::new()
-        .name("stellatune-decode".to_string())
+        .name("stellatune-audio-decode".to_string())
         .spawn(move || {
-            let _rt_guard = stellatune_output::enable_realtime_audio_thread();
+            let _rt_guard = crate::output::enable_realtime_audio_thread();
             run_decode_worker(
                 internal_tx,
                 ctrl_rx,
@@ -103,7 +103,7 @@ pub(crate) fn start_decode_worker(internal_tx: Sender<InternalDispatch>) -> Deco
                 Arc::clone(&promoted_preload_for_thread),
             )
         })
-        .expect("failed to spawn stellatune-decode thread");
+        .expect("failed to spawn stellatune-audio-decode thread");
 
     DecodeWorker {
         ctrl_tx,

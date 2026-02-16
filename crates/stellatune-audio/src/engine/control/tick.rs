@@ -2,7 +2,7 @@ use std::time::Instant;
 
 use tracing::debug;
 
-use stellatune_output::output_spec_for_device;
+use crate::output::output_spec_for_device;
 use stellatune_runtime as global_runtime;
 
 use super::{
@@ -66,11 +66,9 @@ pub(super) fn ensure_output_spec_prewarm(
 
 pub(super) fn output_backend_for_selected(
     backend: crate::types::AudioBackend,
-) -> stellatune_output::AudioBackend {
+) -> crate::output::AudioBackend {
     match backend {
-        crate::types::AudioBackend::Shared => stellatune_output::AudioBackend::Shared,
-        crate::types::AudioBackend::WasapiExclusive => {
-            stellatune_output::AudioBackend::WasapiExclusive
-        },
+        crate::types::AudioBackend::Shared => crate::output::AudioBackend::Shared,
+        crate::types::AudioBackend::WasapiExclusive => crate::output::AudioBackend::WasapiExclusive,
     }
 }

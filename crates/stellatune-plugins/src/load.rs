@@ -6,9 +6,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use anyhow::{Context, Result, anyhow};
 use libloading::{Library, Symbol};
 use stellatune_plugin_api::{
-    STELLATUNE_PLUGIN_API_VERSION, StHostVTable, StPluginEntry, StPluginModule,
+    PluginMetadata, STELLATUNE_PLUGIN_API_VERSION, StHostVTable, StPluginEntry, StPluginModule,
 };
-use stellatune_plugin_protocol::PluginMetadata;
 
 use tracing::debug;
 

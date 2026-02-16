@@ -1,8 +1,9 @@
 use std::thread;
 use std::time::Duration;
 
+use crate::mixer::{ChannelLayout, ChannelMixer, LfeMode};
+use crate::types::LfeMode as CoreLfeMode;
 use crossbeam_channel::TrySendError;
-use stellatune_mixer::ChannelMixer;
 use stellatune_plugins::runtime::introspection::CapabilityKind as RuntimeCapabilityKind;
 use tracing::warn;
 
@@ -73,9 +74,9 @@ pub(crate) fn write_pending(ctx: &mut DecodeContext) -> bool {
                 },
                 DecodeCtrl::SetLfeMode { mode } => {
                     *ctx.lfe_mode = core_lfe_to_mixer(mode);
-                    *ctx.channel_mixer = stellatune_mixer::ChannelMixer::new(
-                        stellatune_mixer::ChannelLayout::from_count(ctx.in_channels as u16),
-                        stellatune_mixer::ChannelLayout::from_count(ctx.out_channels as u16),
+                    *ctx.channel_mixer = ChannelMixer::new(
+                        ChannelLayout::from_count(ctx.in_channels as u16),
+                        ChannelLayout::from_count(ctx.out_channels as u16),
                         *ctx.lfe_mode,
                     );
                 },
@@ -280,10 +281,10 @@ pub(crate) fn refresh_decoder(ctx: &mut DecodeContext) -> Result<(), String> {
     Ok(())
 }
 
-pub(crate) fn core_lfe_to_mixer(mode: crate::types::LfeMode) -> stellatune_mixer::LfeMode {
+pub(crate) fn core_lfe_to_mixer(mode: CoreLfeMode) -> LfeMode {
     match mode {
-        crate::types::LfeMode::Mute => stellatune_mixer::LfeMode::Mute,
-        crate::types::LfeMode::MixToFront => stellatune_mixer::LfeMode::MixToFront,
+        CoreLfeMode::Mute => LfeMode::Mute,
+        CoreLfeMode::MixToFront => LfeMode::MixToFront,
     }
 }
 

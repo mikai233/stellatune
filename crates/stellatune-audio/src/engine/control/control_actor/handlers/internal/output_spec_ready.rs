@@ -1,4 +1,4 @@
-use stellatune_output::OutputSpec;
+use crate::output::OutputSpec;
 use stellatune_runtime::thread_actor::{ActorContext, Handler, Message};
 use tracing::debug;
 

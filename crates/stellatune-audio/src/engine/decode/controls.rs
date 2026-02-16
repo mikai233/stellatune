@@ -2,8 +2,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::{Duration, Instant};
 
+use crate::mixer::{ChannelLayout, ChannelMixer};
 use crossbeam_channel::RecvTimeoutError;
-use stellatune_mixer::{ChannelLayout, ChannelMixer};
 use tracing::{debug, warn};
 
 use crate::engine::control::{internal_error_dispatch, internal_position_dispatch};

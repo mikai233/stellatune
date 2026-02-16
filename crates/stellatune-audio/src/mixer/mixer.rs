@@ -1,12 +1,12 @@
 //! Channel mixer for converting between channel layouts.
 
-use crate::{ChannelLayout, MixMatrix};
+use super::{ChannelLayout, LfeMode, MixMatrix};
 
 /// Mixer for converting audio between different channel layouts.
 ///
 /// # Example
 /// ```
-/// use stellatune_mixer::{ChannelLayout, ChannelMixer, LfeMode};
+/// use stellatune_audio::mixer::{ChannelLayout, ChannelMixer, LfeMode};
 ///
 /// let mixer = ChannelMixer::new(
 ///     ChannelLayout::Surround5_1,
@@ -26,11 +26,7 @@ pub struct ChannelMixer {
 
 impl ChannelMixer {
     /// Create a new mixer for the given input/output layouts.
-    pub fn new(
-        in_layout: ChannelLayout,
-        out_layout: ChannelLayout,
-        lfe_mode: crate::LfeMode,
-    ) -> Self {
+    pub fn new(in_layout: ChannelLayout, out_layout: ChannelLayout, lfe_mode: LfeMode) -> Self {
         let matrix = MixMatrix::create(in_layout, out_layout, lfe_mode);
         Self {
             in_layout,
@@ -88,7 +84,7 @@ impl ChannelMixer {
 #[cfg(test)]
 mod tests {
     use super::ChannelMixer;
-    use crate::{ChannelLayout, LfeMode};
+    use crate::mixer::{ChannelLayout, LfeMode};
 
     #[test]
     fn passthrough_same_layout() {

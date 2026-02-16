@@ -1,8 +1,8 @@
 use crossbeam_channel::Receiver;
 use serde::Deserialize;
 
+use crate::decoder::types::TrackSpec;
 use crate::types::{TrackDecodeInfo, TrackRef};
-use stellatune_decode::TrackSpec;
 use stellatune_plugins::runtime::messages::WorkerControlMessage;
 use stellatune_plugins::runtime::worker_endpoint::DecoderWorkerController;
 

@@ -6,7 +6,6 @@ license.workspace = true
 
 [dependencies]
 stellatune-plugin-api.workspace = true
-stellatune-plugin-protocol.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true

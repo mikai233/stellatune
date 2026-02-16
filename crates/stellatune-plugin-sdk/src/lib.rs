@@ -2,7 +2,6 @@
 
 pub use async_trait::async_trait;
 pub use stellatune_plugin_api::*;
-pub use stellatune_plugin_protocol as protocol;
 
 #[doc(hidden)]
 pub mod __private {

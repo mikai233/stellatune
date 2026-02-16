@@ -9,13 +9,13 @@ use crossbeam_channel::{Receiver, Sender};
 use tokio::sync::broadcast;
 use tracing::{debug, warn};
 
+use crate::output::OutputSpec;
 use crate::types::{
     AudioBackend, AudioDevice, DspChainItem, DspTypeDescriptor, Event, LfeMode,
     LyricsProviderTypeDescriptor, OutputSinkRoute, OutputSinkTypeDescriptor, PlayerState,
     PluginDescriptor, ResampleQuality, SourceCatalogTypeDescriptor, TrackDecodeInfo,
     TrackPlayability, TrackRef,
 };
-use stellatune_output::OutputSpec;
 use stellatune_plugin_api::StOutputSinkNegotiatedSpec;
 use stellatune_plugins::runtime::handle::{SharedPluginRuntimeHandle, shared_runtime_service};
 use stellatune_plugins::runtime::introspection::CapabilityKind;
@@ -167,7 +167,7 @@ pub(crate) fn internal_output_spec_failed_dispatch(
 pub(crate) fn internal_preload_ready_dispatch(
     path: String,
     position_ms: u64,
-    track_info: crate::types::TrackDecodeInfo,
+    track_info: TrackDecodeInfo,
     chunk: PredecodedChunk,
     took_ms: u64,
     token: u64,

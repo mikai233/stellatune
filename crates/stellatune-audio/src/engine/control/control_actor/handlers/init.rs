@@ -6,7 +6,7 @@ use tracing::info;
 use crate::engine::control::control_actor::ControlActor;
 
 thread_local! {
-    static CONTROL_RT_GUARD: RefCell<Option<stellatune_output::RealtimeThreadGuard>> =
+    static CONTROL_RT_GUARD: RefCell<Option<crate::output::RealtimeThreadGuard>> =
         const { RefCell::new(None) };
 }
 
@@ -20,7 +20,7 @@ impl Handler<ControlInitMessage> for ControlActor {
     fn handle(&mut self, _message: ControlInitMessage, _ctx: &mut ActorContext<Self>) {
         CONTROL_RT_GUARD.with(|guard| {
             if guard.borrow().is_none() {
-                *guard.borrow_mut() = Some(stellatune_output::enable_realtime_audio_thread());
+                *guard.borrow_mut() = Some(crate::output::enable_realtime_audio_thread());
                 info!("control thread started");
             }
         });

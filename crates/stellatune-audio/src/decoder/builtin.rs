@@ -13,34 +13,10 @@ use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
 use symphonia::core::units::Time;
 use symphonia::default::{get_codecs, get_probe};
-use thiserror::Error;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct TrackSpec {
-    pub sample_rate: u32,
-    pub channels: u16,
-}
-
-#[derive(Debug, Error)]
-pub enum DecodeError {
-    #[error("io error: {0}")]
-    Io(#[from] io::Error),
-
-    #[error("unsupported file extension for built-in decoder: `{ext}`")]
-    UnsupportedExtension { ext: String },
-
-    #[error("unsupported channel count: {channels} (only mono/stereo supported)")]
-    UnsupportedChannels { channels: u16 },
-
-    #[error("missing audio track")]
-    MissingTrack,
-
-    #[error("missing sample rate in codec parameters")]
-    MissingSampleRate,
-
-    #[error("decoder error: {0}")]
-    Symphonia(#[from] SymphoniaError),
-}
+use super::error::DecodeError;
+use super::support::supports_extension;
+use super::types::TrackSpec;
 
 pub struct Decoder {
     format: Box<dyn FormatReader>,
@@ -51,26 +27,6 @@ pub struct Decoder {
     encoder_padding_frames: u32,
     sample_buf: Option<SampleBuffer<f32>>,
     pending: Vec<f32>,
-}
-
-/// Built-in decoder extension support allowlist.
-///
-/// Keep this explicit so higher layers can decide whether fallback to built-in decoding is valid
-/// after a plugin decoder fails to open.
-pub fn supports_extension(ext: &str) -> bool {
-    matches!(ext, "mp3" | "flac" | "wav")
-}
-
-/// Returns whether built-in decoding is allowed for a given path by extension allowlist.
-pub fn supports_path(path: impl AsRef<Path>) -> bool {
-    let ext = path
-        .as_ref()
-        .extension()
-        .and_then(|s| s.to_str())
-        .unwrap_or("")
-        .trim()
-        .to_ascii_lowercase();
-    supports_extension(&ext)
 }
 
 impl Decoder {

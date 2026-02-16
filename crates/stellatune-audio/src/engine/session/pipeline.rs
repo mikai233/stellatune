@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 
 use tracing::debug;
 
-use stellatune_output::{OutputError, OutputHandle, OutputSpec};
+use crate::output::{OutputError, OutputHandle, OutputSpec};
 
 use crate::engine::config::{RING_BUFFER_CAPACITY_MS, TRANSITION_FADE_RAMP_MS_TRACK_SWITCH};
 use crate::engine::control::{InternalDispatch, internal_output_error_dispatch};
@@ -13,7 +13,7 @@ use super::output_sink_worker::MasterGainProcessor;
 use super::{OUTPUT_CONSUMER_CHUNK_SAMPLES, OutputPipeline};
 
 pub(super) fn create_output_pipeline(
-    backend: stellatune_output::AudioBackend,
+    backend: crate::output::AudioBackend,
     device_id: Option<String>,
     out_spec: OutputSpec,
     volume: Arc<AtomicU32>,
@@ -101,7 +101,7 @@ struct GatedConsumer {
     last_enabled: bool,
 }
 
-impl stellatune_output::SampleConsumer for GatedConsumer {
+impl crate::output::SampleConsumer for GatedConsumer {
     fn pop_sample(&mut self) -> Option<f32> {
         let enabled = self.enabled.load(Ordering::Acquire);
         if !enabled {

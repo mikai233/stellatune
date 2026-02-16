@@ -3116,25 +3116,26 @@ dependencies = [
 name = "stellatune-audio"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "arc-swap",
  "async-trait",
  "audioadapter-buffers",
+ "cpal",
  "crossbeam-channel",
  "flutter_rust_bridge",
  "ringbuf",
  "rubato",
  "serde",
  "serde_json",
- "stellatune-decode",
- "stellatune-dsp",
- "stellatune-mixer",
- "stellatune-output",
  "stellatune-plugin-api",
  "stellatune-plugins",
  "stellatune-runtime",
+ "symphonia",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
+ "wasapi",
+ "windows",
 ]
 
 [[package]]
@@ -3151,7 +3152,6 @@ dependencies = [
  "sqlx",
  "stellatune-audio",
  "stellatune-library",
- "stellatune-plugin-protocol",
  "stellatune-plugins",
  "stellatune-runtime",
  "tokio",
@@ -3160,18 +3160,6 @@ dependencies = [
  "tracing-subscriber",
  "url",
 ]
-
-[[package]]
-name = "stellatune-decode"
-version = "0.1.0"
-dependencies = [
- "symphonia",
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "stellatune-dsp"
-version = "0.1.0"
 
 [[package]]
 name = "stellatune-ffi"
@@ -3192,7 +3180,7 @@ dependencies = [
  "stellatune-audio",
  "stellatune-backend-api",
  "stellatune-library",
- "stellatune-plugin-protocol",
+ "stellatune-plugin-api",
  "stellatune-runtime",
  "tokio",
  "tokio-util",
@@ -3224,24 +3212,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "stellatune-mixer"
-version = "0.1.0"
-
-[[package]]
-name = "stellatune-output"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "cpal",
- "serde",
- "thiserror 2.0.18",
- "wasapi",
- "windows",
-]
-
-[[package]]
 name = "stellatune-plugin-api"
 version = "0.1.0"
+dependencies = [
+ "flutter_rust_bridge",
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "stellatune-plugin-asio"
@@ -3279,15 +3256,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "stellatune-plugin-protocol"
-version = "0.1.0"
-dependencies = [
- "flutter_rust_bridge",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "stellatune-plugin-sdk"
 version = "0.1.0"
 dependencies = [
@@ -3295,7 +3263,6 @@ dependencies = [
  "serde",
  "serde_json",
  "stellatune-plugin-api",
- "stellatune-plugin-protocol",
  "tokio",
 ]
 
@@ -3311,10 +3278,9 @@ dependencies = [
  "rawzip",
  "serde",
  "serde_json",
- "stellatune-decode",
  "stellatune-plugin-api",
- "stellatune-plugin-protocol",
  "stellatune-runtime",
+ "symphonia",
  "tempfile",
  "tokio",
  "tracing",

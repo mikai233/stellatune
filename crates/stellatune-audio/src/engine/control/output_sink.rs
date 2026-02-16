@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use tracing::warn;
 
-use stellatune_output::OutputSpec;
+use crate::output::OutputSpec;
 use stellatune_plugin_api::{StAudioSpec, StOutputSinkNegotiatedSpec};
 use stellatune_plugins::runtime::worker_controller::WorkerApplyPendingOutcome;
 

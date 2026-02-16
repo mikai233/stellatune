@@ -8,10 +8,10 @@ use crossbeam_channel::{Receiver, Sender};
 use tracing::debug;
 
 use crate::engine::control::{InternalDispatch, internal_eof_dispatch, internal_error_dispatch};
-use crate::types::TrackDecodeInfo;
-use stellatune_mixer::{ChannelLayout, ChannelMixer};
-
-use crate::engine::messages::{DecodeCtrl, OutputSinkTx};
+use crate::engine::messages::{DecodeCtrl, OutputSinkTx, PredecodedChunk};
+use crate::mixer::{ChannelLayout, ChannelMixer};
+use crate::ring_buffer::RingBufferProducer;
+use crate::types::{LfeMode, ResampleQuality, TrackDecodeInfo};
 
 pub mod audio_path;
 pub mod context;
@@ -32,18 +32,18 @@ use self::resampler::create_resampler_if_needed;
 use self::utils::{core_lfe_to_mixer, skip_frames_by_decoding};
 
 type DecodeSetupState = (
-    Arc<Mutex<crate::ring_buffer::RingBufferProducer<f32>>>,
+    Arc<Mutex<RingBufferProducer<f32>>>,
     u32,
     u16,
-    Option<crate::engine::messages::PredecodedChunk>,
+    Option<PredecodedChunk>,
     i64,
     Arc<std::sync::atomic::AtomicBool>,
     i64,
-    crate::types::LfeMode,
+    LfeMode,
     Option<OutputSinkTx>,
     u32,
     bool,
-    crate::types::ResampleQuality,
+    ResampleQuality,
 );
 
 pub(crate) struct DecodeThreadArgs {

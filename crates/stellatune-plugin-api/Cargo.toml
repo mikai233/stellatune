@@ -4,8 +4,14 @@ version = "0.1.0"
 edition = "2024"
 license.workspace = true
 
-[dependencies]
+[features]
+default = []
+frb = ["dep:flutter_rust_bridge"]
 
+[dependencies]
+flutter_rust_bridge = { workspace = true, optional = true }
+serde.workspace = true
+serde_json.workspace = true
 
 [lints]
 workspace = true

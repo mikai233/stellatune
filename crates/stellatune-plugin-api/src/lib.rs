@@ -10,6 +10,7 @@ mod dsp;
 mod lyrics;
 mod module;
 mod output;
+mod protocol;
 mod source;
 
 pub use async_ops::*;
@@ -19,6 +20,7 @@ pub use dsp::*;
 pub use lyrics::*;
 pub use module::*;
 pub use output::*;
+pub use protocol::*;
 pub use source::*;
 
 // Single in-development ABI version (early-stage project).

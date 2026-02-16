@@ -2,7 +2,7 @@
 //!
 //! Implements ITU-R BS.775-3 compliant mixing coefficients.
 
-use crate::ChannelLayout;
+use super::{ChannelLayout, LfeMode};
 
 /// Standard mixing coefficient for center channel (1/√2 ≈ -3dB)
 pub const CENTER_COEFF: f32 = std::f32::consts::FRAC_1_SQRT_2;
@@ -11,10 +11,10 @@ pub const CENTER_COEFF: f32 = std::f32::consts::FRAC_1_SQRT_2;
 pub const SURROUND_COEFF: f32 = std::f32::consts::FRAC_1_SQRT_2;
 
 /// Calculate LFE coefficient based on mode.
-fn get_lfe_coeff(mode: crate::LfeMode) -> f32 {
+fn get_lfe_coeff(mode: LfeMode) -> f32 {
     match mode {
-        crate::LfeMode::Mute => 0.0,
-        crate::LfeMode::MixToFront => 0.707, // Mix LFE into mains at -3dB
+        LfeMode::Mute => 0.0,
+        LfeMode::MixToFront => 0.707, // Mix LFE into mains at -3dB
     }
 }
 
@@ -28,12 +28,12 @@ pub struct MixMatrix {
     in_channels: usize,
     pub out_channels: usize,
     #[allow(dead_code)]
-    pub lfe_mode: crate::LfeMode,
+    pub lfe_mode: LfeMode,
 }
 
 impl MixMatrix {
     /// Create a mixing matrix for the given layout conversion.
-    pub fn create(from: ChannelLayout, to: ChannelLayout, lfe_mode: crate::LfeMode) -> Self {
+    pub fn create(from: ChannelLayout, to: ChannelLayout, lfe_mode: LfeMode) -> Self {
         let in_ch = from.channel_count();
         let out_ch = to.channel_count();
 
@@ -93,12 +93,12 @@ impl MixMatrix {
             coeffs,
             in_channels: channels,
             out_channels: channels,
-            lfe_mode: crate::LfeMode::default(),
+            lfe_mode: LfeMode::default(),
         }
     }
 
     /// Mono → Stereo: L = R = M
-    fn upmix_mono_to_stereo(lfe_mode: crate::LfeMode) -> Self {
+    fn upmix_mono_to_stereo(lfe_mode: LfeMode) -> Self {
         Self {
             coeffs: vec![
                 vec![1.0], // L = M
@@ -111,7 +111,7 @@ impl MixMatrix {
     }
 
     /// Stereo → Mono: M = (L + R) * 0.5
-    fn downmix_stereo_to_mono(lfe_mode: crate::LfeMode) -> Self {
+    fn downmix_stereo_to_mono(lfe_mode: LfeMode) -> Self {
         Self {
             coeffs: vec![vec![0.5, 0.5]], // M = (L + R) * 0.5
             in_channels: 2,
@@ -122,7 +122,7 @@ impl MixMatrix {
 
     /// 5.1 → Stereo (ITU-R BS.775-3)
     /// Order: FL, FR, FC, LFE, BL, BR
-    fn downmix_5_1_to_stereo(lfe_mode: crate::LfeMode) -> Self {
+    fn downmix_5_1_to_stereo(lfe_mode: LfeMode) -> Self {
         let lfe = get_lfe_coeff(lfe_mode);
         Self {
             coeffs: vec![
@@ -139,7 +139,7 @@ impl MixMatrix {
 
     /// 7.1 → Stereo (ITU-R BS.775-3 extended)
     /// Order: FL, FR, FC, LFE, BL, BR, SL, SR
-    fn downmix_7_1_to_stereo(lfe_mode: crate::LfeMode) -> Self {
+    fn downmix_7_1_to_stereo(lfe_mode: LfeMode) -> Self {
         let lfe = get_lfe_coeff(lfe_mode);
         Self {
             coeffs: vec![
@@ -173,7 +173,7 @@ impl MixMatrix {
     }
 
     /// 5.1 → Mono
-    fn downmix_5_1_to_mono(lfe_mode: crate::LfeMode) -> Self {
+    fn downmix_5_1_to_mono(lfe_mode: LfeMode) -> Self {
         let lfe = get_lfe_coeff(lfe_mode);
         // First downmix to stereo, then to mono
         let k = 0.5; // stereo to mono factor
@@ -193,7 +193,7 @@ impl MixMatrix {
     }
 
     /// 7.1 → Mono
-    fn downmix_7_1_to_mono(lfe_mode: crate::LfeMode) -> Self {
+    fn downmix_7_1_to_mono(lfe_mode: LfeMode) -> Self {
         let lfe = get_lfe_coeff(lfe_mode);
         let k = 0.5;
         Self {
@@ -214,7 +214,7 @@ impl MixMatrix {
     }
 
     /// Stereo → 5.1 (basic upmix)
-    fn upmix_stereo_to_5_1(lfe_mode: crate::LfeMode) -> Self {
+    fn upmix_stereo_to_5_1(lfe_mode: LfeMode) -> Self {
         Self {
             coeffs: vec![
                 vec![1.0, 0.0],   // FL = L
@@ -231,7 +231,7 @@ impl MixMatrix {
     }
 
     /// 7.1 → 5.1 (fold side channels into back)
-    fn downmix_7_1_to_5_1(lfe_mode: crate::LfeMode) -> Self {
+    fn downmix_7_1_to_5_1(lfe_mode: LfeMode) -> Self {
         // Combine side with back: BL' = BL + SL*0.707, BR' = BR + SR*0.707
         Self {
             coeffs: vec![
@@ -251,7 +251,7 @@ impl MixMatrix {
     /// Generic matrix for arbitrary channel counts.
     /// Downmix: average extra channels into first out_ch channels.
     /// Upmix: copy first channels, zero the rest.
-    fn create_generic(in_ch: usize, out_ch: usize, lfe_mode: crate::LfeMode) -> Self {
+    fn create_generic(in_ch: usize, out_ch: usize, lfe_mode: LfeMode) -> Self {
         let mut coeffs = vec![vec![0.0; in_ch]; out_ch];
 
         if out_ch <= in_ch {
@@ -320,7 +320,7 @@ impl MixMatrix {
 #[cfg(test)]
 mod tests {
     use super::{CENTER_COEFF, MixMatrix};
-    use crate::{ChannelLayout, LfeMode};
+    use crate::mixer::{ChannelLayout, LfeMode};
 
     #[test]
     fn identity_passthrough() {

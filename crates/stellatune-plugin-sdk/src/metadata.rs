@@ -1,4 +1,4 @@
-pub use stellatune_plugin_protocol::{PluginMetadata, PluginMetadataVersion};
+pub use stellatune_plugin_api::{PluginMetadata, PluginMetadataVersion};
 
 pub fn build_plugin_metadata(
     id: impl Into<String>,

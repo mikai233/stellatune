@@ -1,5 +1,3 @@
-#![allow(unexpected_cfgs)]
-
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
