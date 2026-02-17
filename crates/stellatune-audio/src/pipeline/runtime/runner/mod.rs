@@ -1,3 +1,24 @@
+//! Pipeline runner state machine and step execution primitives.
+//!
+//! # Architecture
+//!
+//! [`PipelineRunner`] is the single owner of source/decoder/transform stages for
+//! one active playback pipeline. It does not own sink devices directly; sink I/O
+//! is coordinated through sink session handles.
+//!
+//! Runner lifecycle is split into three phases:
+//! 1. `prepare_decode`: binds input and prepares decode/transform chain.
+//! 2. `activate_sink`: attaches the prepared output spec to a sink session route.
+//! 3. `step`/`drain`/`stop`: drives playback and teardown.
+//!
+//! # Invariants
+//!
+//! - `step` requires both decode preparation and a matching active sink route.
+//! - At most one `pending_sink_block` exists; it is the backpressure bridge
+//!   between decode pacing and sink queue capacity.
+//! - Stage control dispatch is keyed by a validated stage-key map, so runtime
+//!   controls never rely on transform index ordering from callers.
+
 use std::collections::HashMap;
 
 #[cfg(test)]

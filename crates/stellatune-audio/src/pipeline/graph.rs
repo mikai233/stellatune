@@ -1,29 +1,47 @@
+//! Transform graph model and mutation helpers.
+
 use thiserror::Error;
 
+/// Logical transform segment in the decode pipeline.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TransformSegment {
+    /// Segment before mixer/resampler.
     PreMix,
+    /// Main transform segment.
     Main,
+    /// Segment after mixer/resampler.
     PostMix,
 }
 
+/// Insert/move target position within a transform segment.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TransformPosition {
+    /// Insert at segment front.
     Front,
+    /// Insert at segment back.
     Back,
+    /// Insert at explicit index.
     Index(usize),
+    /// Insert before the specified stage key.
     Before(String),
+    /// Insert after the specified stage key.
     After(String),
 }
 
+/// Trait required by transform graph entries.
 pub trait TransformGraphStage {
+    /// Returns the stable stage key.
     fn stage_key(&self) -> &str;
 }
 
+/// Three-segment transform graph.
 #[derive(Debug, Clone)]
 pub struct TransformGraph<T> {
+    /// Pre-mix segment.
     pub pre_mix: Vec<T>,
+    /// Main segment.
     pub main: Vec<T>,
+    /// Post-mix segment.
     pub post_mix: Vec<T>,
 }
 
@@ -38,6 +56,7 @@ impl<T> Default for TransformGraph<T> {
 }
 
 impl<T> TransformGraph<T> {
+    /// Creates a graph from explicit segment vectors.
     pub fn new(pre_mix: Vec<T>, main: Vec<T>, post_mix: Vec<T>) -> Self {
         Self {
             pre_mix,
@@ -47,70 +66,119 @@ impl<T> TransformGraph<T> {
     }
 }
 
+/// Mutable transform graph operation.
 #[derive(Debug, Clone)]
 pub enum TransformGraphMutation<T> {
+    /// Inserts a stage into the selected segment and position.
     Insert {
+        /// Target segment.
         segment: TransformSegment,
+        /// Target position within the segment.
         position: TransformPosition,
+        /// Stage payload.
         stage: T,
     },
+    /// Replaces an existing stage identified by key.
     Replace {
+        /// Target stage key.
         target_stage_key: String,
+        /// Replacement stage payload.
         stage: T,
     },
+    /// Removes an existing stage identified by key.
     Remove {
+        /// Target stage key.
         target_stage_key: String,
     },
+    /// Moves an existing stage to another segment/position.
     Move {
+        /// Stage key to move.
         target_stage_key: String,
+        /// Destination segment.
         segment: TransformSegment,
+        /// Destination position.
         position: TransformPosition,
     },
 }
 
+/// Transform graph mutation/validation errors.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum TransformGraphError {
+    /// Stage key is empty.
     #[error("stage key must not be empty")]
     StageKeyMustNotBeEmpty,
+    /// Duplicate stage key exists in graph.
     #[error("duplicate stage key: {stage_key}")]
-    DuplicateStageKey { stage_key: String },
+    DuplicateStageKey {
+        /// Duplicate stage key.
+        stage_key: String,
+    },
+    /// Insert attempted with an already existing stage key.
     #[error("cannot insert stage '{stage_key}': stage key already exists")]
-    CannotInsertExistingStageKey { stage_key: String },
+    CannotInsertExistingStageKey {
+        /// Existing conflicting stage key.
+        stage_key: String,
+    },
+    /// Replace attempted with a stage key that exists elsewhere in graph.
     #[error(
         "cannot replace '{target_stage_key}' with '{next_stage_key}': stage key already exists"
     )]
     CannotReplaceWithExistingStageKey {
+        /// Stage key being replaced.
         target_stage_key: String,
+        /// New stage key that conflicts with an existing entry.
         next_stage_key: String,
     },
+    /// Requested stage key does not exist.
     #[error("stage key not found: {stage_key}")]
-    StageKeyNotFound { stage_key: String },
+    StageKeyNotFound {
+        /// Missing stage key.
+        stage_key: String,
+    },
+    /// Requested anchor key does not exist.
     #[error("anchor stage key not found: {anchor}")]
-    AnchorStageKeyNotFound { anchor: String },
+    AnchorStageKeyNotFound {
+        /// Missing anchor key.
+        anchor: String,
+    },
+    /// Anchor exists in a different segment than expected.
     #[error(
         "anchor stage '{anchor}' is in segment {anchor_segment:?}, expected {expected_segment:?}"
     )]
     AnchorSegmentMismatch {
+        /// Anchor stage key.
         anchor: String,
+        /// Segment where the anchor was found.
         anchor_segment: TransformSegment,
+        /// Segment required by the operation.
         expected_segment: TransformSegment,
     },
+    /// Relative move requested with the same source and anchor stage.
     #[error("cannot move relative to itself")]
     CannotMoveRelativeToItself,
+    /// Insert/move index exceeded segment bounds.
     #[error("index out of bounds in segment {segment:?}: {index} > {len}")]
     IndexOutOfBounds {
+        /// Segment involved in index resolution.
         segment: TransformSegment,
+        /// Requested index.
         index: usize,
+        /// Segment length.
         len: usize,
     },
+    /// Validation found the same stage key multiple times.
     #[error("stage key '{stage_key}' appears multiple times in transform graph")]
-    StageKeyAppearsMultipleTimes { stage_key: String },
+    StageKeyAppearsMultipleTimes {
+        /// Duplicated stage key.
+        stage_key: String,
+    },
 }
 
 impl<T> TransformGraph<T>
 where
     T: TransformGraphStage,
 {
+    /// Applies a single graph mutation.
     pub fn apply_mutation(
         &mut self,
         mutation: TransformGraphMutation<T>,
@@ -136,6 +204,7 @@ where
         }
     }
 
+    /// Applies multiple mutations in order.
     pub fn apply_mutations<I>(&mut self, mutations: I) -> Result<(), TransformGraphError>
     where
         I: IntoIterator<Item = TransformGraphMutation<T>>,
@@ -146,6 +215,7 @@ where
         Ok(())
     }
 
+    /// Verifies that each stage key appears exactly once.
     pub fn validate_unique_stage_keys(&self) -> Result<(), TransformGraphError> {
         let mut seen = std::collections::HashSet::<String>::new();
         for key in self.all_stage_keys() {

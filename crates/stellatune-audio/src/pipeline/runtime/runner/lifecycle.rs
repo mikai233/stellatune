@@ -1,3 +1,5 @@
+//! Runner lifecycle transitions and preparation guards.
+
 use stellatune_audio_core::pipeline::context::{InputRef, PipelineContext, StreamSpec};
 use stellatune_audio_core::pipeline::error::PipelineError;
 use stellatune_audio_core::pipeline::stages::decoder::DecoderStage;
@@ -42,6 +44,7 @@ impl PipelineRunner {
         })
     }
 
+    /// Prepares decode/transform stages and caches the output stream spec used by sink activation.
     pub(crate) fn prepare_decode(
         &mut self,
         input: &InputRef,
@@ -71,6 +74,7 @@ impl PipelineRunner {
         Ok(spec)
     }
 
+    /// Activates sink output for the prepared route and reports whether sink state was reused.
     pub(crate) fn activate_sink(
         &mut self,
         sink_session: &mut SinkSession,
@@ -141,6 +145,7 @@ impl PipelineRunner {
         Ok(())
     }
 
+    /// Seeks via context handoff after dropping queued sink blocks to avoid stale audio output.
     pub(crate) fn seek(
         &mut self,
         position_ms: i64,
@@ -176,6 +181,7 @@ impl PipelineRunner {
         self.state = RunnerState::Stopped;
     }
 
+    /// Stops playback with optional sink draining while keeping error semantics uniform.
     pub(crate) fn stop_with_behavior(
         &mut self,
         behavior: StopBehavior,
@@ -189,6 +195,7 @@ impl PipelineRunner {
         Ok(())
     }
 
+    /// Ensures decode is prepared and sink session still matches the active route fingerprint.
     pub(crate) fn ensure_sink_prepared(
         &self,
         sink_session: &SinkSession,

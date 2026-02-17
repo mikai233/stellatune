@@ -1,3 +1,5 @@
+//! Runner step and drain execution helpers.
+
 use stellatune_audio_core::pipeline::context::{AudioBlock, PipelineContext, StreamSpec};
 use stellatune_audio_core::pipeline::error::PipelineError;
 use stellatune_audio_core::pipeline::stages::StageStatus;
@@ -10,6 +12,10 @@ use crate::pipeline::runtime::sink_session::SinkSession;
 use crate::workers::sink::worker::SinkWriteError;
 
 impl PipelineRunner {
+    /// Executes one playback iteration and pushes at most one block to sink.
+    ///
+    /// The step synchronizes runtime control, handles pending seeks, runs
+    /// decoder plus transform stages, and emits a [`StepResult`].
     pub(crate) fn step(
         &mut self,
         sink_session: &mut SinkSession,
@@ -66,6 +72,7 @@ impl PipelineRunner {
         self.try_push_sink_block(sink_session, block, out_spec, ctx)
     }
 
+    /// Flushes decoder and transform tails, then drains sink queued audio.
     pub(crate) fn drain(
         &mut self,
         sink_session: &mut SinkSession,
@@ -83,6 +90,9 @@ impl PipelineRunner {
         Ok(())
     }
 
+    /// Attempts to push one block into sink session queue.
+    ///
+    /// On full queue, the block is retained as pending and the step reports idle.
     fn try_push_sink_block(
         &mut self,
         sink_session: &mut SinkSession,
@@ -106,6 +116,7 @@ impl PipelineRunner {
         }
     }
 
+    /// Flushes all queued pending blocks with bounded retries.
     fn flush_pending_sink_blocks(
         &mut self,
         sink_session: &mut SinkSession,
@@ -131,6 +142,7 @@ impl PipelineRunner {
         Ok(())
     }
 
+    /// Drains transform-generated tail audio after decoder flush.
     fn drain_transform_tail(
         &mut self,
         sink_session: &mut SinkSession,

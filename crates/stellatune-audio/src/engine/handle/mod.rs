@@ -11,6 +11,10 @@ mod control_ops;
 mod pipeline_ops;
 mod transport;
 
+/// Shared handle for issuing engine commands and subscribing to runtime events.
+///
+/// Clones of this handle reference the same underlying control actor and event
+/// hub. Methods are asynchronous when they require actor round-trips.
 #[derive(Clone)]
 pub struct EngineHandle {
     actor_ref: ActorRef<ControlActor>,

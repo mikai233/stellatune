@@ -1,3 +1,8 @@
+//! Dedicated sink worker loop and control channel plumbing.
+//!
+//! This module decouples decode-thread production from sink I/O timing by using
+//! a bounded ring buffer and a control mailbox.
+
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::JoinHandle;
@@ -143,6 +148,7 @@ impl SinkWorker {
         shutdown_result
     }
 
+    /// Sends a control request to sink loop and maps timeout/disconnect to pipeline errors.
     fn call_control(
         &self,
         constructor: impl FnOnce(Sender<Result<(), PipelineError>>) -> SinkControl,
@@ -216,6 +222,10 @@ struct SinkThreadArgs {
     running: Arc<AtomicBool>,
 }
 
+/// Entry point for the sink thread.
+///
+/// The loop waits for either control commands or wake events and processes
+/// queued audio blocks until shutdown or channel disconnect.
 fn sink_thread_main(args: SinkThreadArgs) {
     let SinkThreadArgs {
         mut sinks,
@@ -243,6 +253,7 @@ fn sink_thread_main(args: SinkThreadArgs) {
                 let Ok(control) = msg else {
                     break;
                 };
+                // Control commands are handled eagerly to keep external RPCs responsive.
                 if handle_control(control, &mut sinks, &mut audio_cons, &mut ctx) {
                     break;
                 }
@@ -328,6 +339,9 @@ fn stop_sinks(sinks: &mut [Box<dyn SinkStage>], ctx: &mut PipelineContext) {
     }
 }
 
+/// Handles one sink-control command.
+///
+/// Returns `true` when the sink thread should exit its main loop.
 fn handle_control(
     control: SinkControl,
     sinks: &mut [Box<dyn SinkStage>],
@@ -339,6 +353,7 @@ fn handle_control(
             ctx: next_ctx,
             resp_tx,
         } => {
+            // Caller sends a full context snapshot; sink thread adopts it atomically.
             *ctx = next_ctx;
             let _ = resp_tx.send(sync_runtime_control(sinks, ctx));
             false

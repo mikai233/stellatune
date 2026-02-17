@@ -1,3 +1,14 @@
+//! Main decode worker loop and EOF transition helpers.
+//!
+//! # Loop Structure
+//!
+//! The loop alternates between:
+//! - command intake (biased, so control requests are processed promptly),
+//! - timed wake-ups for runner stepping and recovery retries.
+//!
+//! This keeps state transitions deterministic while still allowing periodic
+//! forward progress even when no command is arriving.
+
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -23,6 +34,10 @@ use crate::workers::decode::state::DecodeWorkerState;
 use crate::workers::decode::util::{maybe_emit_position, update_state};
 use crate::workers::decode::{DecodeWorkerEvent, DecodeWorkerEventCallback};
 
+/// Runs the decode worker event loop until shutdown or channel closure.
+///
+/// The loop prioritizes control commands, drives runner stepping while playing,
+/// and coordinates EOF promotion, queued-next fallback, and sink recovery.
 pub(crate) fn decode_worker_main(
     assembler: Arc<dyn PipelineAssembler>,
     config: EngineConfig,
@@ -56,6 +71,7 @@ pub(crate) fn decode_worker_main(
                     Err(_) => break,
                 }
             }
+            // Periodic wake drives playback stepping and recovery retries.
             recv(timeout_rx) -> _ => {}
         };
 
@@ -91,6 +107,7 @@ pub(crate) fn decode_worker_main(
             },
             Ok(StepResult::Eof) => {
                 if let Some(prewarmed_next) = state.prewarmed_next.take() {
+                    // Promote already-prepared next runner for a cheap cutover.
                     if let Some(active_runner) = state.runner.as_mut() {
                         let _ = active_runner
                             .drain_sink_for_reuse(&mut state.sink_session, &mut state.ctx);
@@ -120,6 +137,7 @@ pub(crate) fn decode_worker_main(
                         callback(DecodeWorkerEvent::Error(error));
                     }
                 } else {
+                    // Fully drained EOF path with no fallback candidate.
                     if let Some(active_runner) = state.runner.as_mut() {
                         let _ = active_runner.stop_with_behavior(
                             StopBehavior::DrainSink,
@@ -137,6 +155,7 @@ pub(crate) fn decode_worker_main(
             Err(error) => {
                 let active_input = recovery::active_input_for_log(&state);
                 if matches!(error, PipelineError::SinkDisconnected) {
+                    // Sink disconnection is recoverable; stage failure is not.
                     warn!(
                         message = %error,
                         active_input = %active_input,
@@ -179,6 +198,10 @@ pub(crate) fn decode_worker_main(
     }
 }
 
+/// Promotes a prewarmed runner into the active playback slot.
+///
+/// This preserves sink routing, reapplies persisted stage controls, and emits
+/// track/state notifications as part of the cutover.
 fn promote_prewarmed_next(
     mut prewarmed_next: crate::workers::decode::state::PrewarmedNext,
     callback: &DecodeWorkerEventCallback,
@@ -214,6 +237,7 @@ fn promote_prewarmed_next(
     state.recovery_attempts = 0;
     state.recovery_retry_at = None;
     state.last_position_emit_at = Instant::now();
+    // Cutover always starts from the new input origin in the promoted context.
     callback(DecodeWorkerEvent::Position { position_ms: 0 });
     match prewarmed_next.input {
         stellatune_audio_core::pipeline::context::InputRef::TrackToken(track_token) => {
@@ -224,6 +248,7 @@ fn promote_prewarmed_next(
     Ok(())
 }
 
+/// Computes the next loop wait duration based on playback and recovery state.
 fn compute_loop_timeout(state: &DecodeWorkerState, config: &EngineConfig) -> Duration {
     if state.state != PlayerState::Playing {
         return config.decode_idle_sleep;

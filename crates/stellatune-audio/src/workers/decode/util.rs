@@ -1,3 +1,5 @@
+//! Small helpers shared by decode worker command handlers and loop code.
+
 use std::time::{Duration, Instant};
 
 use crossbeam_channel::Receiver;

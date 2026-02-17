@@ -1,3 +1,21 @@
+//! Decode worker orchestration and command transport.
+//!
+//! The decode worker owns the active [`crate::pipeline::runtime::runner::PipelineRunner`]
+//! and handles command serialization from the control actor.
+//!
+//! # Responsibilities
+//!
+//! - Own playback state and active input identity.
+//! - Drive runner stepping and position/event emission.
+//! - Handle EOF transition policy (prewarmed-next, queued-next, stop).
+//! - Coordinate sink-disconnect recovery with bounded backoff.
+//!
+//! # Command Model
+//!
+//! Public methods on [`DecodeWorker`] are thin transport wrappers that serialize
+//! commands into the worker mailbox. Complex behavior intentionally lives inside
+//! command handlers and the worker loop to keep this façade predictable.
+
 mod command;
 mod handlers;
 mod pipeline_policies;

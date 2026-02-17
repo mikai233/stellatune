@@ -1,3 +1,8 @@
+//! Sink-disconnect recovery helpers for the decode worker loop.
+//!
+//! Recovery is intentionally implemented as a loop-level policy instead of a
+//! sink-internal retry to keep error ownership in decode worker state.
+
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -16,6 +21,7 @@ use crate::workers::decode::pipeline_policies::apply_decode_policies;
 use crate::workers::decode::state::DecodeWorkerState;
 use crate::workers::decode::{DecodeWorkerEvent, DecodeWorkerEventCallback};
 
+/// Initializes sink-recovery state after disconnect and emits the first retry event.
 pub(crate) fn schedule_sink_recovery(
     callback: &DecodeWorkerEventCallback,
     state: &mut DecodeWorkerState,
@@ -47,6 +53,9 @@ pub(crate) fn schedule_sink_recovery(
     true
 }
 
+/// Executes one recovery tick once backoff elapses.
+///
+/// Returns `true` while recovery handling should continue in the caller loop.
 pub(crate) fn try_sink_recovery_tick(
     assembler: &Arc<dyn PipelineAssembler>,
     callback: &DecodeWorkerEventCallback,
@@ -110,6 +119,7 @@ pub(crate) fn try_sink_recovery_tick(
         callback(DecodeWorkerEvent::Error(message));
         return false;
     }
+    // Backoff is computed for the next visible retry attempt.
     let next_attempt = attempt.saturating_add(1);
     let backoff = compute_recovery_backoff(config, next_attempt);
     warn!(
@@ -133,6 +143,7 @@ pub(crate) fn active_input_for_log(state: &DecodeWorkerState) -> String {
     }
 }
 
+/// Reassembles and reactivates the current track runner at the last known position.
 fn rebuild_active_runner(
     assembler: &Arc<dyn PipelineAssembler>,
     pipeline_runtime: &mut dyn PipelineRuntime,
@@ -170,6 +181,8 @@ fn rebuild_active_runner(
         &mut next_ctx,
     )?;
     if resume_position_ms > 0 {
+        // Resume seeks are applied after sink activation so transport and sink
+        // observe the same timeline origin for the rebuilt runner.
         next_runner.seek(resume_position_ms, &mut state.sink_session, &mut next_ctx)?;
         next_ctx.position_ms = resume_position_ms;
     }

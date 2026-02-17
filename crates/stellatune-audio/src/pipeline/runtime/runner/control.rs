@@ -1,3 +1,16 @@
+//! Runtime-control synchronization and transform-control routing helpers.
+//!
+//! # Why This Layer Exists
+//!
+//! Runtime controls are sourced from multiple places:
+//! - actor commands (for explicit stage control),
+//! - hot control snapshots (for gain and trim metadata),
+//! - stage-local runtime updates during stepping.
+//!
+//! Centralizing this in the runner prevents drift between source/decoder/transform
+//! state and sink-visible context. The control path is also where stage-key routing
+//! is validated so dispatch can remain stable even if transform ordering changes.
+
 use std::any::Any;
 use std::collections::HashMap;
 #[cfg(test)]
@@ -17,6 +30,11 @@ use crate::pipeline::runtime::runner::PipelineRunner;
 use crate::pipeline::runtime::sink_session::SinkSession;
 
 impl PipelineRunner {
+    /// Synchronizes runtime control across all active stages and updates gapless trim state.
+    ///
+    /// This is the control-plane checkpoint called from playback stepping. Any
+    /// drift between decoder-provided trim metadata and transform trim state is
+    /// reconciled here before new audio is produced.
     pub(crate) fn sync_runtime_control(
         &mut self,
         sink_session: &mut SinkSession,
@@ -28,6 +46,7 @@ impl PipelineRunner {
         let next_gapless_trim_spec =
             Self::normalize_gapless_trim_spec(self.decoder.current_gapless_trim_spec());
         if next_gapless_trim_spec != self.decoder_gapless_trim_spec {
+            // Decoder trim metadata can change after seek/reopen; keep trim transform in sync.
             self.decoder_gapless_trim_spec = next_gapless_trim_spec;
             self.apply_gapless_trim_control(ctx)?;
         }
@@ -48,6 +67,10 @@ impl PipelineRunner {
         self.apply_transform_control_internal(stage_key, control, ctx)
     }
 
+    /// Applies typed control to a routed transform stage with strict mismatch checks.
+    ///
+    /// The function is intentionally strict: once a key resolves to a transform,
+    /// rejection of the payload is treated as a contract error instead of a soft no-op.
     fn apply_transform_control_internal(
         &mut self,
         stage_key: &str,
@@ -96,6 +119,10 @@ impl PipelineRunner {
         scaled.min(u64::MAX as u128) as u64
     }
 
+    /// Refreshes playable-remaining hint in output-rate domain, including gapless tail trimming.
+    ///
+    /// The hint is approximate and is used for policy decisions and transition timing,
+    /// not as an exact playback position source.
     pub(crate) fn refresh_playable_remaining_frames_hint(&mut self) {
         let tail_frames = if self.supports_gapless_trim() {
             self.decoder_gapless_trim_spec
@@ -129,6 +156,10 @@ impl PipelineRunner {
         spec.filter(|v| !v.is_disabled())
     }
 
+    /// Builds and validates stage-key routes used by typed transform controls.
+    ///
+    /// Route construction is done once during runner creation to keep control
+    /// dispatch O(1) during playback.
     pub(crate) fn build_transform_control_routes(
         transforms: &[Box<dyn TransformStage>],
     ) -> Result<HashMap<String, usize>, PipelineError> {
@@ -141,6 +172,7 @@ impl PipelineRunner {
                         "transform stage key must not be empty".to_string(),
                     ));
                 }
+                // Reject collisions early so control dispatch never becomes ambiguous.
                 if routes.insert(key.to_string(), index).is_some() {
                     return Err(PipelineError::StageFailure(format!(
                         "duplicate transform stage key: {key}"
