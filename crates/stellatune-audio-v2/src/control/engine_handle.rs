@@ -5,23 +5,23 @@ use tokio::sync::broadcast;
 
 use stellatune_runtime::thread_actor::{ActorRef, CallError};
 
-use crate::assembly::PipelinePlan;
+use crate::assembly::{PipelineMutation, PipelinePlan};
 use crate::event_hub::EventHub;
-use crate::types::{
-    DspChainSpec, EngineSnapshot, Event, LfeMode, PauseBehavior, ResampleQuality, StopBehavior,
-};
+use crate::runtime::transform::control::SharedMasterGainHotControl;
+use crate::types::{EngineSnapshot, Event, LfeMode, PauseBehavior, ResampleQuality, StopBehavior};
 
 use crate::control::actor::ControlActor;
 use crate::control::messages::{
-    ApplyPipelinePlanMessage, ApplyStageControlMessage, GetSnapshotMessage, PauseMessage,
-    PlayMessage, QueueNextTrackMessage, SeekMessage, SetDspChainMessage, SetLfeModeMessage,
-    SetResampleQualityMessage, SetVolumeMessage, ShutdownMessage, StopMessage, SwitchTrackMessage,
+    ApplyPipelineMutationMessage, ApplyPipelinePlanMessage, ApplyStageControlMessage,
+    GetSnapshotMessage, PauseMessage, PlayMessage, QueueNextTrackMessage, SeekMessage,
+    SetLfeModeMessage, SetResampleQualityMessage, ShutdownMessage, StopMessage, SwitchTrackMessage,
 };
 
 #[derive(Clone)]
 pub struct EngineHandle {
     actor_ref: ActorRef<ControlActor>,
     events: Arc<EventHub>,
+    master_gain_hot_control: SharedMasterGainHotControl,
     timeout: std::time::Duration,
 }
 
@@ -29,11 +29,13 @@ impl EngineHandle {
     pub(crate) fn new(
         actor_ref: ActorRef<ControlActor>,
         events: Arc<EventHub>,
+        master_gain_hot_control: SharedMasterGainHotControl,
         timeout: std::time::Duration,
     ) -> Self {
         Self {
             actor_ref,
             events,
+            master_gain_hot_control,
             timeout,
         }
     }
@@ -96,18 +98,10 @@ impl EngineHandle {
             .map_err(Self::map_call_error)?
     }
 
-    pub async fn set_volume(&self, volume: f32) -> Result<(), String> {
-        self.actor_ref
-            .call_async(SetVolumeMessage { volume }, self.timeout)
-            .await
-            .map_err(Self::map_call_error)?
-    }
-
-    pub async fn set_dsp_chain(&self, spec: DspChainSpec) -> Result<(), String> {
-        self.actor_ref
-            .call_async(SetDspChainMessage { spec }, self.timeout)
-            .await
-            .map_err(Self::map_call_error)?
+    pub async fn set_volume(&self, volume: f32, seq: u64, ramp_ms: u32) -> Result<(), String> {
+        self.master_gain_hot_control.update(volume, ramp_ms, None);
+        self.events.emit(Event::VolumeChanged { volume, seq });
+        Ok(())
     }
 
     pub async fn set_lfe_mode(&self, mode: LfeMode) -> Result<(), String> {
@@ -158,6 +152,13 @@ impl EngineHandle {
     pub async fn apply_pipeline_plan(&self, plan: Arc<dyn PipelinePlan>) -> Result<(), String> {
         self.actor_ref
             .call_async(ApplyPipelinePlanMessage { plan }, self.timeout)
+            .await
+            .map_err(Self::map_call_error)?
+    }
+
+    pub async fn apply_pipeline_mutation(&self, mutation: PipelineMutation) -> Result<(), String> {
+        self.actor_ref
+            .call_async(ApplyPipelineMutationMessage { mutation }, self.timeout)
             .await
             .map_err(Self::map_call_error)?
     }

@@ -10,6 +10,8 @@ use anyhow::{Result, anyhow};
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 use std::time::Instant;
 
+use stellatune_audio_v2::control::EngineHandle;
+use stellatune_audio_v2::types::ResampleQuality;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::time::LocalTime;
 
@@ -18,7 +20,83 @@ use stellatune_plugins::runtime::handle::SharedPluginRuntimeHandle;
 
 mod apply_state;
 mod engine;
-pub use engine::shared_runtime_engine;
+mod v2_pipeline;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OutputBackend {
+    Shared,
+    WasapiExclusive,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OutputDeviceDescriptor {
+    pub backend: OutputBackend,
+    pub id: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct DeviceSinkMetricsSnapshot {
+    pub written_samples: u64,
+    pub dropped_samples: u64,
+    pub callback_requested_samples: u64,
+    pub callback_provided_samples: u64,
+    pub underrun_callbacks: u64,
+    pub callback_errors: u64,
+    pub reconfigure_attempts: u64,
+    pub reconfigure_successes: u64,
+    pub reconfigure_failures: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeOutputDeviceApplyReport {
+    pub requested_backend: OutputBackend,
+    pub applied_backend: OutputBackend,
+    pub requested_device_id: Option<String>,
+    pub applied_device_id: Option<String>,
+    pub output_sample_rate: u32,
+    pub output_channels: u16,
+    pub fallback_to_default: bool,
+}
+
+pub fn shared_runtime_engine() -> Arc<EngineHandle> {
+    engine::shared_runtime_engine()
+}
+
+pub fn runtime_list_output_devices() -> Result<Vec<OutputDeviceDescriptor>, String> {
+    engine::runtime_list_output_devices()
+}
+
+pub fn runtime_output_sink_metrics() -> DeviceSinkMetricsSnapshot {
+    engine::runtime_output_sink_metrics()
+}
+
+pub async fn runtime_set_output_device(
+    backend: OutputBackend,
+    device_id: Option<String>,
+) -> Result<RuntimeOutputDeviceApplyReport, String> {
+    engine::runtime_set_output_device(backend, device_id).await
+}
+
+pub async fn runtime_set_output_options(
+    match_track_sample_rate: bool,
+    resample_quality: ResampleQuality,
+) -> Result<(), String> {
+    engine::runtime_set_output_options(match_track_sample_rate, resample_quality).await
+}
+
+pub async fn runtime_set_output_sink_route(
+    plugin_id: String,
+    type_id: String,
+    config_json: String,
+    target_json: String,
+) -> Result<(), String> {
+    engine::runtime_set_output_sink_route(plugin_id, type_id, config_json, target_json).await
+}
+
+pub async fn runtime_clear_output_sink_route() -> Result<(), String> {
+    engine::runtime_clear_output_sink_route().await
+}
 
 #[derive(Clone)]
 struct TeeWriter {
@@ -287,6 +365,11 @@ pub async fn plugin_runtime_disable(
     report
         .errors
         .extend(unload_report.errors.into_iter().map(|err| err.to_string()));
+    if let Err(error) = engine::runtime_clear_output_sink_route_for_plugin(&plugin_id).await {
+        report.errors.push(format!(
+            "failed to clear output sink route for disabled plugin '{plugin_id}': {error}"
+        ));
+    }
     report.remaining_retired_leases = service
         .plugin_lease_state(&plugin_id)
         .await
@@ -368,12 +451,20 @@ pub async fn plugin_runtime_apply_state(
         let service = shared_plugin_runtime();
         service.set_disabled_plugin_ids(disabled_ids).await;
         let report = service.reload_dir_detailed_from_state(&plugins_dir).await?;
-        let errors = report
+        let mut errors: Vec<String> = report
             .load_report
             .errors
             .into_iter()
             .map(|err| format!("{err:#}"))
             .collect();
+        let active_plugin_ids = service.active_plugin_ids().await;
+        if let Err(error) =
+            engine::runtime_clear_output_sink_route_if_plugin_unavailable(&active_plugin_ids).await
+        {
+            errors.push(format!(
+                "failed to reconcile output sink route after plugin apply state: {error}"
+            ));
+        }
         Ok(ApplyStateReport {
             phase: "completed",
             loaded: report.load_report.loaded.len(),

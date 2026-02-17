@@ -14,11 +14,12 @@ use stellatune_audio_core::pipeline::stages::source::SourceStage;
 use stellatune_audio_core::pipeline::stages::transform::TransformStage;
 
 use crate::assembly::SinkPlan;
-use crate::runtime::sink_worker::{SinkWorker, SinkWriteError};
+use crate::runtime::sink_session::{SinkActivationMode, SinkSession};
 #[cfg(test)]
 use crate::runtime::transform::control::TransitionGainControl;
 use crate::runtime::transform::control::{GAPLESS_TRIM_STAGE_KEY, GaplessTrimControl};
 use crate::types::{PauseBehavior, SinkLatencyConfig, StopBehavior};
+use crate::workers::sink_worker::SinkWriteError;
 #[cfg(test)]
 use std::sync::{Arc, Mutex};
 
@@ -46,9 +47,7 @@ pub(crate) struct PipelineRunner {
     supports_transition_gain: bool,
     supports_gapless_trim: bool,
     sink_plan: Option<Box<dyn SinkPlan>>,
-    sink_worker: Option<SinkWorker>,
-    sink_latency: SinkLatencyConfig,
-    sink_control_timeout: Duration,
+    sink_route_fingerprint: u64,
     pending_sink_block: Option<AudioBlock>,
     source_handle: Option<SourceHandle>,
     decoder_spec: Option<StreamSpec>,
@@ -68,11 +67,12 @@ impl PipelineRunner {
         decoder: Box<dyn DecoderStage>,
         transforms: Vec<Box<dyn TransformStage>>,
         sink_plan: Box<dyn SinkPlan>,
-        sink_latency: SinkLatencyConfig,
-        sink_control_timeout: Duration,
+        _sink_latency: SinkLatencyConfig,
+        _sink_control_timeout: Duration,
         supports_transition_gain: bool,
         supports_gapless_trim: bool,
     ) -> Result<Self, PipelineError> {
+        let sink_route_fingerprint = sink_plan.route_fingerprint();
         let transform_control_routes = Self::build_transform_control_routes(&transforms)?;
         Ok(Self {
             source,
@@ -81,9 +81,7 @@ impl PipelineRunner {
             supports_transition_gain,
             supports_gapless_trim,
             sink_plan: Some(sink_plan),
-            sink_worker: None,
-            sink_latency,
-            sink_control_timeout,
+            sink_route_fingerprint,
             pending_sink_block: None,
             source_handle: None,
             decoder_spec: None,
@@ -95,17 +93,6 @@ impl PipelineRunner {
             transition_request_log_sink: None,
             state: RunnerState::Stopped,
         })
-    }
-
-    pub(crate) fn prepare(
-        &mut self,
-        input: &InputRef,
-        ctx: &mut PipelineContext,
-    ) -> Result<StreamSpec, PipelineError> {
-        let spec = self.prepare_decode(input, ctx)?;
-        self.activate_sink(ctx)?;
-        self.state = RunnerState::Paused;
-        Ok(spec)
     }
 
     pub(crate) fn prepare_decode(
@@ -137,22 +124,32 @@ impl PipelineRunner {
         Ok(spec)
     }
 
-    pub(crate) fn activate_sink(&mut self, ctx: &PipelineContext) -> Result<(), PipelineError> {
-        if self.sink_worker.is_some() {
-            return Ok(());
-        }
+    pub(crate) fn activate_sink(
+        &mut self,
+        sink_session: &mut SinkSession,
+        ctx: &PipelineContext,
+        mode: SinkActivationMode,
+    ) -> Result<bool, PipelineError> {
+        self.ensure_decode_prepared()?;
         let spec = self.output_spec.ok_or(PipelineError::NotPrepared)?;
-        let sink_plan = self
-            .sink_plan
-            .take()
-            .ok_or_else(|| PipelineError::StageFailure("sink plan already consumed".to_string()))?;
-        let sinks = sink_plan.into_sinks()?;
-        let queue_capacity = self.sink_latency.queue_capacity(spec.sample_rate);
-        let sink_worker = SinkWorker::start(sinks, spec, ctx.clone(), queue_capacity)?;
-
-        self.sink_worker = Some(sink_worker);
+        let reused = sink_session.activate(
+            spec,
+            self.sink_route_fingerprint,
+            &mut self.sink_plan,
+            ctx,
+            mode,
+        )?;
         self.pending_sink_block = None;
-        Ok(())
+        Ok(reused)
+    }
+
+    pub(crate) fn drain_sink_for_reuse(
+        &mut self,
+        sink_session: &mut SinkSession,
+        ctx: &mut PipelineContext,
+    ) -> Result<(), PipelineError> {
+        self.ensure_sink_prepared(sink_session)?;
+        self.drain(sink_session, ctx)
     }
 
     pub(crate) fn set_state(&mut self, state: RunnerState) {
@@ -186,11 +183,12 @@ impl PipelineRunner {
     pub(crate) fn pause(
         &mut self,
         behavior: PauseBehavior,
+        sink_session: &mut SinkSession,
         ctx: &mut PipelineContext,
     ) -> Result<(), PipelineError> {
-        self.ensure_prepared()?;
+        self.ensure_sink_prepared(sink_session)?;
         if matches!(behavior, PauseBehavior::DrainSink) {
-            self.drain(ctx)?;
+            self.drain(sink_session, ctx)?;
         }
         self.state = RunnerState::Paused;
         Ok(())
@@ -199,15 +197,12 @@ impl PipelineRunner {
     pub(crate) fn seek(
         &mut self,
         position_ms: i64,
+        sink_session: &mut SinkSession,
         ctx: &mut PipelineContext,
     ) -> Result<(), PipelineError> {
-        self.ensure_prepared()?;
+        self.ensure_sink_prepared(sink_session)?;
         self.pending_sink_block = None;
-        let sink_worker = self
-            .sink_worker
-            .as_ref()
-            .ok_or(PipelineError::NotPrepared)?;
-        sink_worker.drop_queued(self.sink_control_timeout)?;
+        sink_session.drop_queued()?;
         ctx.request_seek(position_ms);
         self.refresh_playable_remaining_frames_hint();
         Ok(())
@@ -215,9 +210,10 @@ impl PipelineRunner {
 
     pub(crate) fn sync_runtime_control(
         &mut self,
+        sink_session: &mut SinkSession,
         ctx: &mut PipelineContext,
     ) -> Result<(), PipelineError> {
-        self.ensure_prepared()?;
+        self.ensure_sink_prepared(sink_session)?;
         self.source.sync_runtime_control(ctx)?;
         self.decoder.sync_runtime_control(ctx)?;
         let next_gapless_trim_spec =
@@ -229,11 +225,7 @@ impl PipelineRunner {
         for transform in &mut self.transforms {
             transform.sync_runtime_control(ctx)?;
         }
-        let sink_worker = self
-            .sink_worker
-            .as_ref()
-            .ok_or(PipelineError::NotPrepared)?;
-        sink_worker.sync_runtime_control(ctx, self.sink_control_timeout)?;
+        sink_session.sync_runtime_control(ctx)?;
         Ok(())
     }
 
@@ -243,7 +235,7 @@ impl PipelineRunner {
         control: &dyn Any,
         ctx: &mut PipelineContext,
     ) -> Result<bool, PipelineError> {
-        self.ensure_prepared()?;
+        self.ensure_decode_prepared()?;
         self.apply_transform_control_internal(stage_key, control, ctx)
     }
 
@@ -279,13 +271,17 @@ impl PipelineRunner {
         Ok(true)
     }
 
-    pub(crate) fn step(&mut self, ctx: &mut PipelineContext) -> Result<StepResult, PipelineError> {
-        self.ensure_prepared()?;
+    pub(crate) fn step(
+        &mut self,
+        sink_session: &mut SinkSession,
+        ctx: &mut PipelineContext,
+    ) -> Result<StepResult, PipelineError> {
+        self.ensure_sink_prepared(sink_session)?;
         if self.state != RunnerState::Playing {
             return Ok(StepResult::Idle);
         }
 
-        self.sync_runtime_control(ctx)?;
+        self.sync_runtime_control(sink_session, ctx)?;
         if let Some(seek_ms) = ctx.clear_pending_seek() {
             ctx.position_ms = seek_ms;
         }
@@ -293,7 +289,7 @@ impl PipelineRunner {
 
         let out_spec = self.output_spec.ok_or(PipelineError::NotPrepared)?;
         if let Some(block) = self.pending_sink_block.take() {
-            return self.try_push_sink_block(block, out_spec, ctx);
+            return self.try_push_sink_block(sink_session, block, out_spec, ctx);
         }
         let mut block = AudioBlock::new(out_spec.channels);
 
@@ -328,13 +324,15 @@ impl PipelineRunner {
             return Ok(StepResult::Idle);
         }
 
-        self.try_push_sink_block(block, out_spec, ctx)
+        self.try_push_sink_block(sink_session, block, out_spec, ctx)
     }
 
-    pub(crate) fn stop(&mut self, ctx: &mut PipelineContext) {
-        if let Some(worker) = self.sink_worker.take() {
-            let _ = worker.shutdown(false, self.sink_control_timeout);
-        }
+    pub(crate) fn stop(&mut self, sink_session: &mut SinkSession, ctx: &mut PipelineContext) {
+        sink_session.shutdown(false);
+        self.stop_decode_only(ctx);
+    }
+
+    pub(crate) fn stop_decode_only(&mut self, ctx: &mut PipelineContext) {
         self.pending_sink_block = None;
         self.playable_remaining_frames_hint = None;
         self.decoder_gapless_trim_spec = None;
@@ -353,44 +351,42 @@ impl PipelineRunner {
     pub(crate) fn stop_with_behavior(
         &mut self,
         behavior: StopBehavior,
+        sink_session: &mut SinkSession,
         ctx: &mut PipelineContext,
     ) -> Result<(), PipelineError> {
-        if matches!(behavior, StopBehavior::DrainSink) && self.is_prepared() {
-            self.drain(ctx)?;
+        if matches!(behavior, StopBehavior::DrainSink) && self.is_decode_prepared() {
+            self.drain(sink_session, ctx)?;
         }
-        self.stop(ctx);
+        self.stop(sink_session, ctx);
         Ok(())
     }
 
-    fn drain(&mut self, ctx: &mut PipelineContext) -> Result<(), PipelineError> {
+    fn drain(
+        &mut self,
+        sink_session: &mut SinkSession,
+        ctx: &mut PipelineContext,
+    ) -> Result<(), PipelineError> {
         self.decoder.flush(ctx)?;
         for transform in &mut self.transforms {
             transform.flush(ctx)?;
         }
         let out_spec = self.output_spec.ok_or(PipelineError::NotPrepared)?;
-        self.flush_pending_sink_blocks(out_spec, ctx)?;
-        self.drain_transform_tail(out_spec, ctx)?;
-        self.flush_pending_sink_blocks(out_spec, ctx)?;
-        let sink_worker = self
-            .sink_worker
-            .as_ref()
-            .ok_or(PipelineError::NotPrepared)?;
-        sink_worker.drain(self.sink_control_timeout)?;
+        self.flush_pending_sink_blocks(sink_session, out_spec, ctx)?;
+        self.drain_transform_tail(sink_session, out_spec, ctx)?;
+        self.flush_pending_sink_blocks(sink_session, out_spec, ctx)?;
+        sink_session.drain()?;
         Ok(())
     }
 
     fn try_push_sink_block(
         &mut self,
+        sink_session: &mut SinkSession,
         block: AudioBlock,
         out_spec: StreamSpec,
         ctx: &mut PipelineContext,
     ) -> Result<StepResult, PipelineError> {
         let produced_frames = block.frames();
-        let sink_worker = self
-            .sink_worker
-            .as_mut()
-            .ok_or(PipelineError::NotPrepared)?;
-        match sink_worker.try_send_block(block) {
+        match sink_session.try_send_block(block) {
             Ok(()) => {
                 ctx.advance_frames(produced_frames as u64, out_spec.sample_rate);
                 Ok(StepResult::Produced {
@@ -405,8 +401,18 @@ impl PipelineRunner {
         }
     }
 
-    fn ensure_prepared(&self) -> Result<(), PipelineError> {
-        if !self.is_prepared() {
+    fn ensure_sink_prepared(&self, sink_session: &SinkSession) -> Result<(), PipelineError> {
+        let output_spec = self.output_spec.ok_or(PipelineError::NotPrepared)?;
+        if !self.is_decode_prepared()
+            || !sink_session.is_active_for(output_spec, self.sink_route_fingerprint)
+        {
+            return Err(PipelineError::NotPrepared);
+        }
+        Ok(())
+    }
+
+    fn ensure_decode_prepared(&self) -> Result<(), PipelineError> {
+        if !self.is_decode_prepared() {
             return Err(PipelineError::NotPrepared);
         }
         Ok(())
@@ -414,12 +420,13 @@ impl PipelineRunner {
 
     fn flush_pending_sink_blocks(
         &mut self,
+        sink_session: &mut SinkSession,
         out_spec: StreamSpec,
         ctx: &mut PipelineContext,
     ) -> Result<(), PipelineError> {
         let mut attempts = 0usize;
         while let Some(block) = self.pending_sink_block.take() {
-            match self.try_push_sink_block(block, out_spec, ctx)? {
+            match self.try_push_sink_block(sink_session, block, out_spec, ctx)? {
                 StepResult::Produced { .. } => {},
                 StepResult::Idle => {
                     attempts = attempts.saturating_add(1);
@@ -428,11 +435,7 @@ impl PipelineRunner {
                             "pending sink block could not be drained".to_string(),
                         ));
                     }
-                    let sink_worker = self
-                        .sink_worker
-                        .as_ref()
-                        .ok_or(PipelineError::NotPrepared)?;
-                    sink_worker.drain(self.sink_control_timeout)?;
+                    sink_session.drain()?;
                 },
                 StepResult::Eof => unreachable!("try_push_sink_block never returns eof"),
             }
@@ -442,6 +445,7 @@ impl PipelineRunner {
 
     fn drain_transform_tail(
         &mut self,
+        sink_session: &mut SinkSession,
         out_spec: StreamSpec,
         ctx: &mut PipelineContext,
     ) -> Result<(), PipelineError> {
@@ -461,15 +465,11 @@ impl PipelineRunner {
                 break;
             }
 
-            match self.try_push_sink_block(block, out_spec, ctx)? {
+            match self.try_push_sink_block(sink_session, block, out_spec, ctx)? {
                 StepResult::Produced { .. } => {},
                 StepResult::Idle => {
-                    let sink_worker = self
-                        .sink_worker
-                        .as_ref()
-                        .ok_or(PipelineError::NotPrepared)?;
-                    sink_worker.drain(self.sink_control_timeout)?;
-                    self.flush_pending_sink_blocks(out_spec, ctx)?;
+                    sink_session.drain()?;
+                    self.flush_pending_sink_blocks(sink_session, out_spec, ctx)?;
                 },
                 StepResult::Eof => unreachable!("try_push_sink_block never returns eof"),
             }
@@ -554,8 +554,8 @@ impl PipelineRunner {
         self.transition_request_log_sink = Some(sink);
     }
 
-    fn is_prepared(&self) -> bool {
-        self.source_handle.is_some() && self.output_spec.is_some() && self.sink_worker.is_some()
+    fn is_decode_prepared(&self) -> bool {
+        self.source_handle.is_some() && self.output_spec.is_some()
     }
 }
 
@@ -710,8 +710,8 @@ mod tests {
         );
         let mut ctx = PipelineContext::default();
         runner
-            .prepare(&InputRef::TrackToken("track-a".to_string()), &mut ctx)
-            .expect("prepare failed");
+            .prepare_decode(&InputRef::TrackToken("track-a".to_string()), &mut ctx)
+            .expect("prepare_decode failed");
 
         assert_eq!(runner.playable_remaining_frames_hint(), Some(3));
     }
@@ -729,8 +729,8 @@ mod tests {
         );
         let mut ctx = PipelineContext::default();
         runner
-            .prepare(&InputRef::TrackToken("track-a".to_string()), &mut ctx)
-            .expect("prepare failed");
+            .prepare_decode(&InputRef::TrackToken("track-a".to_string()), &mut ctx)
+            .expect("prepare_decode failed");
 
         assert_eq!(runner.playable_remaining_frames_hint(), Some(2));
     }

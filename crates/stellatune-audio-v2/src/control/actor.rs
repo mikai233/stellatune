@@ -2,13 +2,13 @@ use std::sync::Arc;
 
 use crate::event_hub::EventHub;
 use crate::types::{EngineConfig, EngineSnapshot, Event, PlayerState};
-use crate::worker::decode_loop::DecodeLoopWorker;
+use crate::workers::decode_worker::DecodeWorker;
 
 pub(crate) struct ControlActor {
     pub(crate) events: Arc<EventHub>,
     pub(crate) config: EngineConfig,
     pub(crate) snapshot: EngineSnapshot,
-    pub(crate) worker: Option<DecodeLoopWorker>,
+    pub(crate) worker: Option<DecodeWorker>,
 }
 
 impl ControlActor {
@@ -21,10 +21,10 @@ impl ControlActor {
         }
     }
 
-    pub(crate) fn ensure_worker(&mut self) -> Result<&mut DecodeLoopWorker, String> {
+    pub(crate) fn ensure_worker(&mut self) -> Result<&mut DecodeWorker, String> {
         self.worker
             .as_mut()
-            .ok_or_else(|| "decode loop is not installed".to_string())
+            .ok_or_else(|| "decode worker is not installed".to_string())
     }
 
     pub(crate) fn emit_error(&self, message: String) {

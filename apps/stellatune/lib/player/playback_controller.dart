@@ -8,6 +8,7 @@ import 'package:stellatune/app/logging.dart';
 import 'package:stellatune/app/providers.dart';
 import 'package:stellatune/bridge/bridge.dart';
 import 'package:stellatune/dlna/dlna_providers.dart';
+import 'package:stellatune/player/decoder_extension_support.dart';
 import 'package:stellatune/player/playback_models.dart';
 import 'package:stellatune/player/playability_messages.dart';
 import 'package:stellatune/player/queue_controller.dart';
@@ -22,13 +23,18 @@ class PlaybackController extends Notifier<PlaybackState> {
     'source_catalog_unavailable',
     'source_decoder_unavailable',
   };
+  static const int _volumeRampMs = 6;
 
   StreamSubscription<Event>? _sub;
+  StreamSubscription<PluginRuntimeEvent>? _pluginRuntimeSub;
   Timer? _volumePersistDebounce;
   Timer? _resumePersistTimer;
   TrackRef? _resumePendingTrack;
   int _resumePendingPositionMs = 0;
   double _lastNonZeroVolume = 1.0;
+  int _nextVolumeSeq = 1;
+  int _latestVolumeCommandSeq = 0;
+  int _latestVolumeAckSeq = 0;
   String? _dlnaLastPath;
   Timer? _dlnaPollTimer;
   bool _dlnaPollInFlight = false;
@@ -46,6 +52,7 @@ class PlaybackController extends Notifier<PlaybackState> {
   @override
   PlaybackState build() {
     unawaited(_sub?.cancel());
+    unawaited(_pluginRuntimeSub?.cancel());
     _volumePersistDebounce?.cancel();
     _volumePersistDebounce = null;
     _resumePersistTimer?.cancel();
@@ -60,6 +67,9 @@ class PlaybackController extends Notifier<PlaybackState> {
     _lastPreloadedNextTrackKey = null;
     _activePositionPath = null;
     _activePositionSessionId = null;
+    _nextVolumeSeq = 1;
+    _latestVolumeCommandSeq = 0;
+    _latestVolumeAckSeq = 0;
 
     final bridge = ref.read(playerBridgeProvider);
     _sub = bridge.events().listen(
@@ -71,9 +81,24 @@ class PlaybackController extends Notifier<PlaybackState> {
         state = state.copyWith(lastError: err.toString());
       },
     );
+    _pluginRuntimeSub = bridge.pluginRuntimeEvents().listen(
+      (_) {
+        DecoderExtensionSupportCache.instance.invalidate();
+        unawaited(_refreshDecoderExtensionSupport());
+      },
+      onError: (Object err, StackTrace st) {
+        ref
+            .read(loggerProvider)
+            .d(
+              'plugin runtime events unavailable for decoder extension cache refresh: $err',
+              stackTrace: st,
+            );
+      },
+    );
 
     ref.onDispose(() {
       unawaited(_sub?.cancel());
+      unawaited(_pluginRuntimeSub?.cancel());
       _volumePersistDebounce?.cancel();
       _resumePersistTimer?.cancel();
       _dlnaPollTimer?.cancel();
@@ -89,14 +114,20 @@ class PlaybackController extends Notifier<PlaybackState> {
     });
 
     if (!_dlnaActive) {
-      unawaited(bridge.setVolume(savedVolume));
+      final seq = _nextVolumeSeq++;
+      _latestVolumeCommandSeq = seq;
+      unawaited(bridge.setVolume(savedVolume, seq: seq, rampMs: 0));
     } else {
       _ensureDlnaPoller();
     }
+    unawaited(_refreshDecoderExtensionSupport());
 
     // Defer resume restoration to avoid mutating other providers during build.
     unawaited(Future<void>.microtask(_restoreResume));
-    return const PlaybackState.initial().copyWith(volume: savedVolume);
+    return const PlaybackState.initial().copyWith(
+      desiredVolume: savedVolume,
+      appliedVolume: savedVolume,
+    );
   }
 
   bool get _dlnaActive =>
@@ -770,18 +801,25 @@ class PlaybackController extends Notifier<PlaybackState> {
   }
 
   void setVolume(double volume) {
-    final v = volume.clamp(0.0, 1.0);
-    if (state.volume == v) return;
-    state = state.copyWith(volume: v);
+    final v = volume.clamp(0.0, 1.0).toDouble();
+    if (state.desiredVolume == v) return;
+    state = state.copyWith(desiredVolume: v);
     if (v > 0) {
       _lastNonZeroVolume = v;
     }
 
     // No throttling for audio: keep loudness in sync with the slider.
     if (_dlnaActive) {
+      state = state.copyWith(appliedVolume: v);
       unawaited(_applyDlnaVolume(v));
     } else {
-      unawaited(ref.read(playerBridgeProvider).setVolume(v));
+      final seq = _nextVolumeSeq++;
+      _latestVolumeCommandSeq = seq;
+      unawaited(
+        ref
+            .read(playerBridgeProvider)
+            .setVolume(v, seq: seq, rampMs: _volumeRampMs),
+      );
     }
 
     // Debounce persistence only (doesn't affect loudness).
@@ -792,8 +830,8 @@ class PlaybackController extends Notifier<PlaybackState> {
   }
 
   void toggleMute() {
-    if (state.volume > 0) {
-      _lastNonZeroVolume = state.volume;
+    if (state.desiredVolume > 0) {
+      _lastNonZeroVolume = state.desiredVolume;
       setVolume(0);
       return;
     }
@@ -941,7 +979,49 @@ class PlaybackController extends Notifier<PlaybackState> {
     }
   }
 
+  Future<void> _refreshDecoderExtensionSupport() async {
+    try {
+      await DecoderExtensionSupportCache.instance.refresh(
+        ref.read(playerBridgeProvider),
+      );
+    } catch (e, st) {
+      ref
+          .read(loggerProvider)
+          .d(
+            'decoderSupportedExtensions refresh failed',
+            error: e,
+            stackTrace: st,
+          );
+    }
+  }
+
+  String? _localTrackPlayabilityBlockReasonFast(TrackRef track) {
+    if (track.sourceId.trim().toLowerCase() != 'local') {
+      return null;
+    }
+    final snapshot = DecoderExtensionSupportCache.instance.snapshotOrNull;
+    if (snapshot == null) {
+      return null;
+    }
+    return snapshot.canPlayLocalPath(track.locator)
+        ? null
+        : 'no_decoder_for_local_track';
+  }
+
   Future<String?> _playabilityBlockReason(TrackRef track) async {
+    if (track.sourceId.trim().toLowerCase() == 'local') {
+      final fastReason = _localTrackPlayabilityBlockReasonFast(track);
+      if (fastReason != null) {
+        return fastReason;
+      }
+      try {
+        await _refreshDecoderExtensionSupport();
+      } catch (_) {
+        // `_refreshDecoderExtensionSupport` already logs details.
+      }
+      return _localTrackPlayabilityBlockReasonFast(track);
+    }
+
     try {
       final result = await ref.read(playerBridgeProvider).canPlayTrackRefs([
         track,
@@ -1123,7 +1203,6 @@ class PlaybackController extends Notifier<PlaybackState> {
     final bridge = ref.read(playerBridgeProvider);
     state = state.copyWith(playerState: PlayerState.buffering, lastError: null);
     await bridge.switchTrackRef(item.track, lazy: false);
-    unawaited(_updateTrackInfo());
     return true;
   }
 
@@ -1172,10 +1251,22 @@ class PlaybackController extends Notifier<PlaybackState> {
         ref.read(loggerProvider).i('playback ended: $path');
         unawaited(next(auto: true));
       },
-      volumeChanged: (volume) {
-        state = state.copyWith(volume: volume);
-        if (volume > 0) {
-          _lastNonZeroVolume = volume.clamp(0.0, 1.0);
+      volumeChanged: (volume, seq) {
+        final normalized = volume.clamp(0.0, 1.0).toDouble();
+        final seqInt = seq.toInt();
+        if (seqInt <= _latestVolumeAckSeq) {
+          return;
+        }
+        _latestVolumeAckSeq = seqInt;
+        if (seqInt < _latestVolumeCommandSeq) {
+          return;
+        }
+        state = state.copyWith(
+          desiredVolume: normalized,
+          appliedVolume: normalized,
+        );
+        if (normalized > 0) {
+          _lastNonZeroVolume = normalized;
         }
       },
       error: (message) {

@@ -14,6 +14,7 @@ import 'package:stellatune/app/settings_store.dart';
 import 'package:stellatune/bridge/bridge.dart';
 import 'package:stellatune/l10n/app_localizations.dart';
 import 'package:stellatune/lyrics/lyrics_controller.dart';
+import 'package:stellatune/player/decoder_extension_support.dart';
 import 'package:stellatune/player/playback_controller.dart';
 import 'package:stellatune/player/queue_models.dart';
 import 'package:stellatune/ui/forms/schema_form.dart';
@@ -416,6 +417,7 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
       await library.pluginDisable(pluginId: id);
     }
     await library.pluginApplyState();
+    await _refreshDecoderExtensionSupportCache();
     if (!enabled) {
       await ref
           .read(playbackControllerProvider.notifier)
@@ -451,6 +453,7 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
       await Directory(plugin.dirPath).delete(recursive: true);
     }
     await library.pluginApplyState();
+    await _refreshDecoderExtensionSupportCache();
     if (!mounted) return;
     setState(_refresh);
     ScaffoldMessenger.of(context).showSnackBar(
@@ -511,6 +514,7 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
         artifactPath: srcPath,
       );
       await library.pluginApplyState();
+      await _refreshDecoderExtensionSupportCache();
       unawaited(
         _ensureNeteaseSidecarResident(
           onlyForPluginId: installedPluginId,
@@ -528,6 +532,21 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
       final l10n = AppLocalizations.of(context)!;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(l10n.settingsPluginInstallFailed(e.toString()))),
+      );
+    }
+  }
+
+  Future<void> _refreshDecoderExtensionSupportCache() async {
+    DecoderExtensionSupportCache.instance.invalidate();
+    try {
+      await DecoderExtensionSupportCache.instance.refresh(
+        ref.read(playerBridgeProvider),
+      );
+    } catch (e, s) {
+      logger.w(
+        'failed to refresh decoder extension cache after plugin apply state',
+        error: e,
+        stackTrace: s,
       );
     }
   }
@@ -1882,12 +1901,14 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
                         await _applyOutputSinkRoute();
                       } catch (e, s) {
                         logger.e(
-                          'failed to set output device',
+                          'failed to apply output sink route',
                           error: e,
                           stackTrace: s,
                         );
                         messenger.showSnackBar(
-                          SnackBar(content: Text('Apply backend failed: $e')),
+                          SnackBar(
+                            content: Text('Apply output sink route failed: $e'),
+                          ),
                         );
                       }
                       return;

@@ -2,13 +2,15 @@ use std::any::Any;
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::pipeline_graph::{TransformGraphMutation, TransformGraphStage};
 use crate::runtime::runner::PipelineRunner;
+use crate::runtime::transform::control::SharedMasterGainHotControl;
 use crate::runtime::transform::gapless_trim::GaplessTrimStage;
 use crate::runtime::transform::master_gain::MasterGainStage;
 use crate::runtime::transform::mixer::MixerStage;
 use crate::runtime::transform::resampler::ResamplerStage;
 use crate::runtime::transform::transition_gain::TransitionGainStage;
-use crate::types::{DspChainSpec, LfeMode, ResampleQuality, SinkLatencyConfig};
+use crate::types::{LfeMode, ResampleQuality, SinkLatencyConfig};
 
 use stellatune_audio_core::pipeline::context::InputRef;
 use stellatune_audio_core::pipeline::error::PipelineError;
@@ -21,7 +23,7 @@ pub struct AssembledDecodePipeline {
     pub source: Box<dyn SourceStage>,
     pub decoder: Box<dyn DecoderStage>,
     pub transforms: Vec<Box<dyn TransformStage>>,
-    pub dsp_chain: DspTransformChain,
+    pub transform_chain: TransformChain,
     pub mixer: Option<MixerPlan>,
     pub resampler: Option<ResamplerPlan>,
     pub builtin_slots: BuiltinTransformSlots,
@@ -53,17 +55,17 @@ impl AssembledDecodePipeline {
         self
     }
 
-    pub fn with_dsp_chain(mut self, dsp_chain: DspTransformChain) -> Self {
-        self.dsp_chain = dsp_chain;
+    pub fn with_transform_chain(mut self, transform_chain: TransformChain) -> Self {
+        self.transform_chain = transform_chain;
         self
     }
 
     pub fn push_pre_mix_transform(&mut self, transform: Box<dyn TransformStage>) {
-        self.dsp_chain.pre_mix.push(transform);
+        self.transform_chain.pre_mix.push(transform);
     }
 
     pub fn push_post_mix_transform(&mut self, transform: Box<dyn TransformStage>) {
-        self.dsp_chain.post_mix.push(transform);
+        self.transform_chain.post_mix.push(transform);
     }
 }
 
@@ -84,12 +86,12 @@ impl Default for BuiltinTransformSlots {
     }
 }
 
-pub struct DspTransformChain {
+pub struct TransformChain {
     pub pre_mix: Vec<Box<dyn TransformStage>>,
     pub post_mix: Vec<Box<dyn TransformStage>>,
 }
 
-impl Default for DspTransformChain {
+impl Default for TransformChain {
     fn default() -> Self {
         Self {
             pre_mix: Vec::new(),
@@ -129,20 +131,36 @@ impl ResamplerPlan {
 }
 
 pub trait SinkPlan: Send {
+    fn route_fingerprint(&self) -> u64;
     fn into_sinks(self: Box<Self>) -> Result<Vec<Box<dyn SinkStage>>, PipelineError>;
 }
 
 pub struct StaticSinkPlan {
     sinks: Vec<Box<dyn SinkStage>>,
+    route_fingerprint: u64,
 }
 
 impl StaticSinkPlan {
     pub fn new(sinks: Vec<Box<dyn SinkStage>>) -> Self {
-        Self { sinks }
+        Self {
+            sinks,
+            route_fingerprint: 0,
+        }
+    }
+
+    pub fn with_route_fingerprint(sinks: Vec<Box<dyn SinkStage>>, route_fingerprint: u64) -> Self {
+        Self {
+            sinks,
+            route_fingerprint,
+        }
     }
 }
 
 impl SinkPlan for StaticSinkPlan {
+    fn route_fingerprint(&self) -> u64 {
+        self.route_fingerprint
+    }
+
     fn into_sinks(self: Box<Self>) -> Result<Vec<Box<dyn SinkStage>>, PipelineError> {
         Ok(self.sinks)
     }
@@ -165,7 +183,7 @@ impl AssembledPipeline {
                 source,
                 decoder,
                 transforms,
-                dsp_chain: DspTransformChain::default(),
+                transform_chain: TransformChain::default(),
                 mixer: None,
                 resampler: None,
                 builtin_slots: BuiltinTransformSlots::default(),
@@ -182,12 +200,13 @@ impl AssembledPipeline {
         self,
         sink_latency: SinkLatencyConfig,
         sink_control_timeout: Duration,
+        master_gain_hot_control: Option<SharedMasterGainHotControl>,
     ) -> Result<PipelineRunner, PipelineError> {
         let AssembledDecodePipeline {
             source,
             decoder,
             mut transforms,
-            mut dsp_chain,
+            mut transform_chain,
             mixer,
             resampler,
             builtin_slots,
@@ -196,7 +215,7 @@ impl AssembledPipeline {
         if builtin_slots.gapless_trim {
             final_transforms.push(Box::new(GaplessTrimStage::new()));
         }
-        final_transforms.append(&mut dsp_chain.pre_mix);
+        final_transforms.append(&mut transform_chain.pre_mix);
         if let Some(plan) = mixer {
             final_transforms.push(Box::new(MixerStage::new(plan)));
         }
@@ -204,12 +223,16 @@ impl AssembledPipeline {
             final_transforms.push(Box::new(ResamplerStage::new(plan)));
         }
         final_transforms.append(&mut transforms);
-        final_transforms.append(&mut dsp_chain.post_mix);
+        final_transforms.append(&mut transform_chain.post_mix);
         if builtin_slots.transition_gain {
             final_transforms.push(Box::new(TransitionGainStage::new()));
         }
         if builtin_slots.master_gain {
-            final_transforms.push(Box::new(MasterGainStage::new()));
+            let stage = match master_gain_hot_control {
+                Some(ref hot_control) => MasterGainStage::with_hot_control(Arc::clone(hot_control)),
+                None => MasterGainStage::new(),
+            };
+            final_transforms.push(Box::new(stage));
         }
         PipelineRunner::new(
             source,
@@ -228,9 +251,75 @@ pub trait PipelinePlan: Any + Send + Sync {}
 
 impl<T> PipelinePlan for T where T: Any + Send + Sync {}
 
+pub type PipelineStagePayload = Arc<dyn Any + Send + Sync>;
+
+#[derive(Clone)]
+pub struct OpaqueTransformStageSpec {
+    pub stage_key: String,
+    pub payload: PipelineStagePayload,
+}
+
+impl OpaqueTransformStageSpec {
+    pub fn new(stage_key: impl Into<String>, payload: PipelineStagePayload) -> Self {
+        Self {
+            stage_key: stage_key.into(),
+            payload,
+        }
+    }
+
+    pub fn with_payload<T>(stage_key: impl Into<String>, payload: T) -> Self
+    where
+        T: Any + Send + Sync + 'static,
+    {
+        Self::new(stage_key, Arc::new(payload))
+    }
+
+    pub fn payload_ref<T: Any>(&self) -> Option<&T> {
+        self.payload.as_ref().downcast_ref::<T>()
+    }
+}
+
+impl std::fmt::Debug for OpaqueTransformStageSpec {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OpaqueTransformStageSpec")
+            .field("stage_key", &self.stage_key)
+            .finish_non_exhaustive()
+    }
+}
+
+impl TransformGraphStage for OpaqueTransformStageSpec {
+    fn stage_key(&self) -> &str {
+        &self.stage_key
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BuiltinTransformSlot {
+    GaplessTrim,
+    TransitionGain,
+    MasterGain,
+}
+
+#[derive(Debug, Clone)]
+pub enum PipelineMutation {
+    MutateTransformGraph {
+        mutation: TransformGraphMutation<OpaqueTransformStageSpec>,
+    },
+    SetMixerPlan {
+        mixer: Option<MixerPlan>,
+    },
+    SetResamplerPlan {
+        resampler: Option<ResamplerPlan>,
+    },
+    SetBuiltinTransformSlot {
+        slot: BuiltinTransformSlot,
+        enabled: bool,
+    },
+}
+
 pub trait PipelineRuntime: Send {
     fn ensure(&mut self, plan: &dyn PipelinePlan) -> Result<AssembledPipeline, PipelineError>;
-    fn apply_dsp_chain(&mut self, spec: DspChainSpec) -> Result<(), PipelineError>;
+    fn apply_pipeline_mutation(&mut self, mutation: PipelineMutation) -> Result<(), PipelineError>;
     fn reset(&mut self) {}
 }
 
@@ -256,11 +345,12 @@ mod tests {
     use stellatune_audio_core::pipeline::stages::transform::TransformStage;
 
     use crate::runtime::runner::{RunnerState, StepResult};
+    use crate::runtime::sink_session::{SinkActivationMode, SinkSession};
     use crate::types::{LfeMode, ResampleQuality, SinkLatencyConfig, StopBehavior};
 
     use super::{
-        AssembledDecodePipeline, AssembledPipeline, BuiltinTransformSlots, DspTransformChain,
-        MixerPlan, ResamplerPlan, StaticSinkPlan,
+        AssembledDecodePipeline, AssembledPipeline, BuiltinTransformSlots, MixerPlan,
+        ResamplerPlan, StaticSinkPlan, TransformChain,
     };
 
     #[derive(Default)]
@@ -544,7 +634,7 @@ mod tests {
     }
 
     #[test]
-    fn dsp_pre_post_chain_wraps_mixer_and_resampler() {
+    fn pre_post_transform_chain_wraps_mixer_and_resampler() {
         let pre_seen = Arc::new(Mutex::new(Vec::new()));
         let post_seen = Arc::new(Mutex::new(Vec::new()));
 
@@ -553,7 +643,7 @@ mod tests {
                 source: Box::new(TestSource),
                 decoder: Box::new(TestDecoder::new(vec![vec![0.0, 1.0, 2.0, 3.0]], 1, 48_000)),
                 transforms: Vec::new(),
-                dsp_chain: DspTransformChain {
+                transform_chain: TransformChain {
                     pre_mix: vec![Box::new(SpecTap::new(Arc::clone(&pre_seen)))],
                     post_mix: vec![Box::new(SpecTap::new(Arc::clone(&post_seen)))],
                 },
@@ -568,14 +658,29 @@ mod tests {
         );
 
         let mut runner = assembled
-            .into_runner(SinkLatencyConfig::default(), Duration::from_millis(100))
+            .into_runner(
+                SinkLatencyConfig::default(),
+                Duration::from_millis(100),
+                None,
+            )
             .expect("into_runner failed");
+        let mut sink_session =
+            SinkSession::new(SinkLatencyConfig::default(), Duration::from_millis(100));
         let mut ctx = PipelineContext::default();
         runner
-            .prepare(&InputRef::TrackToken("track-a".to_string()), &mut ctx)
-            .expect("prepare failed");
+            .prepare_decode(&InputRef::TrackToken("track-a".to_string()), &mut ctx)
+            .expect("prepare_decode failed");
+        runner
+            .activate_sink(
+                &mut sink_session,
+                &ctx,
+                SinkActivationMode::ImmediateCutover,
+            )
+            .expect("activate_sink failed");
         runner.set_state(RunnerState::Playing);
-        let result = runner.step(&mut ctx).expect("step failed");
+        let result = runner
+            .step(&mut sink_session, &mut ctx)
+            .expect("step failed");
         assert!(matches!(result, StepResult::Produced { .. }));
 
         let pre = pre_seen.lock().expect("pre tap mutex poisoned");
@@ -604,7 +709,7 @@ mod tests {
                 source: Box::new(TestSource),
                 decoder: Box::new(TestDecoder::new(Vec::new(), 1, 48_000)),
                 transforms: vec![Box::new(FlushTailTap::new(vec![0.25, 0.5]))],
-                dsp_chain: DspTransformChain::default(),
+                transform_chain: TransformChain::default(),
                 mixer: None,
                 resampler: None,
                 builtin_slots: BuiltinTransformSlots {
@@ -618,14 +723,27 @@ mod tests {
         );
 
         let mut runner = assembled
-            .into_runner(SinkLatencyConfig::default(), Duration::from_millis(100))
+            .into_runner(
+                SinkLatencyConfig::default(),
+                Duration::from_millis(100),
+                None,
+            )
             .expect("into_runner failed");
+        let mut sink_session =
+            SinkSession::new(SinkLatencyConfig::default(), Duration::from_millis(100));
         let mut ctx = PipelineContext::default();
         runner
-            .prepare(&InputRef::TrackToken("track-a".to_string()), &mut ctx)
-            .expect("prepare failed");
+            .prepare_decode(&InputRef::TrackToken("track-a".to_string()), &mut ctx)
+            .expect("prepare_decode failed");
         runner
-            .stop_with_behavior(StopBehavior::DrainSink, &mut ctx)
+            .activate_sink(
+                &mut sink_session,
+                &ctx,
+                SinkActivationMode::ImmediateCutover,
+            )
+            .expect("activate_sink failed");
+        runner
+            .stop_with_behavior(StopBehavior::DrainSink, &mut sink_session, &mut ctx)
             .expect("stop_with_behavior failed");
 
         let written = captured.lock().expect("capture sink mutex poisoned");
@@ -644,7 +762,7 @@ mod tests {
                     Box::new(KeyedNoopTransform::new("external.dup")),
                     Box::new(KeyedNoopTransform::new("external.dup")),
                 ],
-                dsp_chain: DspTransformChain::default(),
+                transform_chain: TransformChain::default(),
                 mixer: None,
                 resampler: None,
                 builtin_slots: BuiltinTransformSlots {
@@ -656,8 +774,11 @@ mod tests {
             Box::new(StaticSinkPlan::new(vec![Box::new(TestSink)])),
         );
 
-        let result =
-            assembled.into_runner(SinkLatencyConfig::default(), Duration::from_millis(100));
+        let result = assembled.into_runner(
+            SinkLatencyConfig::default(),
+            Duration::from_millis(100),
+            None,
+        );
         match result {
             Ok(_) => panic!("expected duplicate stage key validation failure"),
             Err(PipelineError::StageFailure(message)) => {

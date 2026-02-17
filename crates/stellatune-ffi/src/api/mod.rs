@@ -1,4 +1,5 @@
 #![allow(clippy::wildcard_imports)] // Intentional wildcard usage (API facade, macro template, or generated code).
+#![allow(ambiguous_glob_reexports)]
 
 pub mod dlna;
 mod dlna_impl;

@@ -217,11 +217,15 @@ impl PluginRuntimeHandle {
         .flatten()
     }
 
-    pub async fn list_capabilities(&self, plugin_id: &str) -> Vec<CapabilityDescriptor> {
+    pub fn cached_capability_plugin_ids(&self) -> Vec<String> {
+        self.introspection_cache.load().capability_plugin_ids()
+    }
+
+    pub fn list_capabilities_cached(&self, plugin_id: &str) -> Vec<CapabilityDescriptor> {
         self.introspection_cache.load().list_capabilities(plugin_id)
     }
 
-    pub async fn find_capability(
+    pub fn find_capability_cached(
         &self,
         plugin_id: &str,
         kind: CapabilityKind,
@@ -232,10 +236,47 @@ impl PluginRuntimeHandle {
             .find_capability(plugin_id, kind, type_id)
     }
 
-    pub async fn list_decoder_candidates_for_ext(&self, ext: &str) -> Vec<DecoderCandidate> {
+    pub fn list_decoder_candidates_for_ext_cached(&self, ext: &str) -> Vec<DecoderCandidate> {
         self.introspection_cache
             .load()
             .list_decoder_candidates_for_ext(ext)
+    }
+
+    pub fn decoder_supported_extensions_cached(&self) -> Vec<String> {
+        self.introspection_cache
+            .load()
+            .decoder_supported_extensions()
+    }
+
+    pub fn decoder_has_wildcard_candidate_cached(&self) -> bool {
+        self.introspection_cache
+            .load()
+            .decoder_has_wildcard_candidate()
+    }
+
+    pub async fn list_capabilities(&self, plugin_id: &str) -> Vec<CapabilityDescriptor> {
+        self.list_capabilities_cached(plugin_id)
+    }
+
+    pub async fn find_capability(
+        &self,
+        plugin_id: &str,
+        kind: CapabilityKind,
+        type_id: &str,
+    ) -> Option<CapabilityDescriptor> {
+        self.find_capability_cached(plugin_id, kind, type_id)
+    }
+
+    pub async fn list_decoder_candidates_for_ext(&self, ext: &str) -> Vec<DecoderCandidate> {
+        self.list_decoder_candidates_for_ext_cached(ext)
+    }
+
+    pub async fn decoder_supported_extensions(&self) -> Vec<String> {
+        self.decoder_supported_extensions_cached()
+    }
+
+    pub async fn decoder_has_wildcard_candidate(&self) -> bool {
+        self.decoder_has_wildcard_candidate_cached()
     }
 
     pub(crate) async fn acquire_current_module_lease(

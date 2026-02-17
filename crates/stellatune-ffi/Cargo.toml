@@ -32,7 +32,8 @@ serde.workspace = true
 serde_json.workspace = true
 
 stellatune-backend-api.workspace = true
-stellatune-audio.workspace = true
+stellatune-audio-plugin-adapters.workspace = true
+stellatune-audio-v2.workspace = true
 stellatune-library.workspace = true
 stellatune-plugin-api.workspace = true
 stellatune-plugins.workspace = true

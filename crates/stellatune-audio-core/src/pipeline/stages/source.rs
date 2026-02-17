@@ -8,7 +8,9 @@ pub trait SourceStage: Send {
         ctx: &mut PipelineContext,
     ) -> Result<SourceHandle, PipelineError>;
 
-    fn sync_runtime_control(&mut self, ctx: &mut PipelineContext) -> Result<(), PipelineError>;
+    fn sync_runtime_control(&mut self, _ctx: &mut PipelineContext) -> Result<(), PipelineError> {
+        Ok(())
+    }
 
     fn stop(&mut self, ctx: &mut PipelineContext);
 }

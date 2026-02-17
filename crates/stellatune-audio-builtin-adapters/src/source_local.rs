@@ -28,10 +28,6 @@ impl SourceStage for LocalSourceStage {
         Ok(SourceHandle::new(self.payload.clone()))
     }
 
-    fn sync_runtime_control(&mut self, _ctx: &mut PipelineContext) -> Result<(), PipelineError> {
-        Ok(())
-    }
-
     fn stop(&mut self, _ctx: &mut PipelineContext) {}
 }
 

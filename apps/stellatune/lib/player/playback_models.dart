@@ -7,7 +7,8 @@ class PlaybackState {
     required this.playerState,
     required this.positionMs,
     required this.currentPath,
-    required this.volume,
+    required this.desiredVolume,
+    required this.appliedVolume,
     required this.lastError,
     required this.lastLog,
     this.trackInfo,
@@ -17,7 +18,8 @@ class PlaybackState {
     : playerState = PlayerState.stopped,
       positionMs = 0,
       currentPath = null,
-      volume = 1.0,
+      desiredVolume = 1.0,
+      appliedVolume = 1.0,
       lastError = null,
       lastLog = '',
       trackInfo = null;
@@ -25,7 +27,8 @@ class PlaybackState {
   final PlayerState playerState;
   final int positionMs;
   final String? currentPath;
-  final double volume;
+  final double desiredVolume;
+  final double appliedVolume;
   final String? lastError;
   final String lastLog;
   final TrackDecodeInfo? trackInfo;
@@ -34,7 +37,8 @@ class PlaybackState {
     PlayerState? playerState,
     int? positionMs,
     String? currentPath,
-    double? volume,
+    double? desiredVolume,
+    double? appliedVolume,
     String? lastError,
     String? lastLog,
     TrackDecodeInfo? trackInfo,
@@ -43,7 +47,8 @@ class PlaybackState {
       playerState: playerState ?? this.playerState,
       positionMs: positionMs ?? this.positionMs,
       currentPath: currentPath ?? this.currentPath,
-      volume: volume ?? this.volume,
+      desiredVolume: desiredVolume ?? this.desiredVolume,
+      appliedVolume: appliedVolume ?? this.appliedVolume,
       lastError: lastError ?? this.lastError,
       lastLog: lastLog ?? this.lastLog,
       trackInfo: trackInfo ?? this.trackInfo,

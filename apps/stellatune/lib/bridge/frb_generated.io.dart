@@ -7,13 +7,13 @@ import 'api/dlna.dart';
 import 'api/dlna/types.dart';
 import 'api/library.dart';
 import 'api/player.dart';
+import 'api/player/types.dart';
 import 'api/runtime.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi' as ffi;
 import 'frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated_io.dart';
-import 'third_party/stellatune_audio/types.dart';
 import 'third_party/stellatune_backend_api/lyrics_types.dart';
 import 'third_party/stellatune_library.dart';
 

@@ -4,7 +4,7 @@ use crate::library::LibraryService;
 use crate::lyrics_service::LyricsService;
 use crate::runtime::shared_runtime_engine;
 use std::sync::Arc;
-use stellatune_audio::EngineHandle;
+use stellatune_audio_v2::control::EngineHandle;
 
 #[derive(Debug, Clone, Default)]
 pub struct BackendSessionOptions {

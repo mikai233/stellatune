@@ -7,6 +7,7 @@ import 'package:stellatune/app/providers.dart';
 import 'package:stellatune/bridge/bridge.dart';
 import 'package:stellatune/library/library_controller.dart';
 import 'package:stellatune/l10n/app_localizations.dart';
+import 'package:stellatune/player/decoder_extension_support.dart';
 import 'package:stellatune/player/playback_controller.dart';
 import 'package:stellatune/player/playability_messages.dart';
 import 'package:stellatune/player/queue_controller.dart';
@@ -75,6 +76,7 @@ class LibraryPageState extends ConsumerState<LibraryPage> {
         .read(playerBridgeProvider)
         .pluginRuntimeEvents()
         .listen((_) => _schedulePluginRuntimeRefresh());
+    unawaited(_refreshDecoderExtensionSupport());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final selectedPlaylistId = ref
@@ -101,13 +103,12 @@ class LibraryPageState extends ConsumerState<LibraryPage> {
     _pluginRuntimeRefreshTimer = Timer(_pluginRuntimeRefreshDebounce, () {
       if (!mounted) return;
       _playabilityCache.clear();
+      DecoderExtensionSupportCache.instance.invalidate();
+      unawaited(_refreshDecoderExtensionSupport());
       final results = ref.read(libraryControllerProvider).results;
       unawaited(_refreshTrackPlayability(results, force: true));
     });
   }
-
-  TrackRef _toLocalTrackRef(TrackLite t) =>
-      TrackRef(sourceId: 'local', trackId: t.path, locator: t.path);
 
   String _trackCacheKey(TrackLite t) => '${t.id}|${t.path}';
 
@@ -166,6 +167,14 @@ class LibraryPageState extends ConsumerState<LibraryPage> {
     unawaited(_refreshTrackPlayability(results));
   }
 
+  Future<void> _refreshDecoderExtensionSupport() async {
+    try {
+      await DecoderExtensionSupportCache.instance.refresh(
+        ref.read(playerBridgeProvider),
+      );
+    } catch (_) {}
+  }
+
   Future<void> _refreshTrackPlayability(
     List<TrackLite> items, {
     bool force = false,
@@ -200,38 +209,31 @@ class LibraryPageState extends ConsumerState<LibraryPage> {
       probeEnd = probeStart;
     }
 
-    final refs = <TrackRef>[];
-    final refKeys = <String>[];
+    final pending = <(String, String)>[];
     for (var i = probeStart; i <= probeEnd; i++) {
       final t = items[i];
       final cacheKey = _trackCacheKey(t);
       if (!force && _playabilityCache.containsKey(cacheKey)) {
         continue;
       }
-      refs.add(_toLocalTrackRef(t));
-      refKeys.add(cacheKey);
+      pending.add((cacheKey, t.path));
     }
-    if (refs.isEmpty) {
+    if (pending.isEmpty) {
       return;
     }
 
     final requestSeq = ++_playabilityRequestSeq;
-    List<TrackPlayability> verdicts;
-    try {
-      verdicts = await ref.read(playerBridgeProvider).canPlayTrackRefs(refs);
-    } catch (_) {
+    await _refreshDecoderExtensionSupport();
+    final snapshot = DecoderExtensionSupportCache.instance.snapshotOrNull;
+    if (snapshot == null) {
       return;
     }
     if (!mounted || requestSeq != _playabilityRequestSeq) return;
 
-    final count = verdicts.length < refKeys.length
-        ? verdicts.length
-        : refKeys.length;
-    for (var i = 0; i < count; i++) {
-      final verdict = verdicts[i];
-      _playabilityCache[refKeys[i]] = verdict.playable
+    for (final item in pending) {
+      _playabilityCache[item.$1] = snapshot.canPlayLocalPath(item.$2)
           ? null
-          : verdict.reason?.trim() ?? '';
+          : 'no_decoder_for_local_track';
     }
     _evictPlayabilityCacheIfNeeded();
     _rebuildBlockedReasonByTrackId(items);

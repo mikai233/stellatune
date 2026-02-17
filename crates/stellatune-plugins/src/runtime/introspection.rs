@@ -65,6 +65,10 @@ pub struct RuntimeIntrospectionReadCache {
 }
 
 impl RuntimeIntrospectionReadCache {
+    pub fn capability_plugin_ids(&self) -> Vec<String> {
+        self.capabilities_by_plugin.keys().cloned().collect()
+    }
+
     pub fn list_capabilities(&self, plugin_id: &str) -> Vec<CapabilityDescriptor> {
         self.capabilities_by_plugin
             .get(plugin_id)
@@ -94,5 +98,15 @@ impl RuntimeIntrospectionReadCache {
             .get(ext.as_str())
             .cloned()
             .unwrap_or_else(|| self.decoder_candidates_wildcard.clone())
+    }
+
+    pub fn decoder_supported_extensions(&self) -> Vec<String> {
+        let mut out: Vec<String> = self.decoder_candidates_by_ext.keys().cloned().collect();
+        out.sort();
+        out
+    }
+
+    pub fn decoder_has_wildcard_candidate(&self) -> bool {
+        !self.decoder_candidates_wildcard.is_empty()
     }
 }

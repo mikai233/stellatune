@@ -283,7 +283,7 @@ class _MobileMusicDetailPageState extends ConsumerState<MobileMusicDetailPage> {
                         durationMs: durationMs,
                         isPlaying: isPlaying,
                         playMode: queue.playMode,
-                        volume: playback.volume,
+                        volume: playback.desiredVolume,
                         foregroundColor: effectiveColor,
                         currentPath: playback.currentPath,
                         sampleRate: playback.trackInfo?.sampleRate,

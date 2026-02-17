@@ -19,7 +19,10 @@ reqwest = { version = "0.12.12", default-features = false, features = ["rustls-t
 tokio-util = { version = "0.7.13", features = ["io"] }
 url = "2.5.4"
 
-stellatune-audio.workspace = true
+stellatune-audio-builtin-adapters.workspace = true
+stellatune-audio-core.workspace = true
+stellatune-audio-plugin-adapters.workspace = true
+stellatune-audio-v2.workspace = true
 stellatune-library.workspace = true
 stellatune-plugins.workspace = true
 stellatune-runtime.workspace = true

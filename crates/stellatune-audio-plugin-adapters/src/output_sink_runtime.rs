@@ -2,9 +2,63 @@ use std::time::{Duration, Instant};
 
 use crossbeam_channel::Receiver;
 use stellatune_plugin_api::StAudioSpec;
+use stellatune_plugins::capabilities::output::OutputSinkInstance;
+use stellatune_plugins::runtime::handle::shared_runtime_service;
 use stellatune_plugins::runtime::messages::WorkerControlMessage;
 use stellatune_plugins::runtime::worker_controller::WorkerApplyPendingOutcome;
 use stellatune_plugins::runtime::worker_endpoint::OutputSinkWorkerController;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NegotiatedOutputSinkSpec {
+    pub sample_rate: u32,
+    pub channels: u16,
+}
+
+pub fn negotiate_output_sink_spec(
+    plugin_id: &str,
+    type_id: &str,
+    config_json: &str,
+    target_json: &str,
+    desired_sample_rate: u32,
+    desired_channels: u16,
+) -> Result<NegotiatedOutputSinkSpec, String> {
+    let endpoint = stellatune_runtime::block_on(
+        stellatune_plugins::runtime::handle::shared_runtime_service()
+            .bind_output_sink_worker_endpoint(plugin_id, type_id),
+    )
+    .map_err(|e| format!("bind_output_sink_worker_endpoint failed: {e}"))?;
+    let (mut controller, _control_rx) = endpoint.into_controller(config_json.to_string());
+    match controller.apply_pending().map_err(|e| e.to_string())? {
+        WorkerApplyPendingOutcome::Created | WorkerApplyPendingOutcome::Recreated => {},
+        WorkerApplyPendingOutcome::Destroyed | WorkerApplyPendingOutcome::Idle => {
+            return Err(format!(
+                "create_output_sink_instance failed for {}::{}: controller has no instance",
+                plugin_id, type_id
+            ));
+        },
+    }
+    let Some(sink) = controller.instance_mut() else {
+        return Err(format!(
+            "create_output_sink_instance failed for {}::{}: controller has no instance",
+            plugin_id, type_id
+        ));
+    };
+
+    let negotiated = sink
+        .negotiate_spec(
+            target_json,
+            StAudioSpec {
+                sample_rate: desired_sample_rate.max(1),
+                channels: desired_channels.max(1),
+                reserved: 0,
+            },
+        )
+        .map_err(|e| format!("output sink negotiate_spec failed: {e}"))?;
+    Ok(NegotiatedOutputSinkSpec {
+        sample_rate: negotiated.spec.sample_rate.max(1),
+        channels: negotiated.spec.channels.max(1),
+    })
+}
 
 pub fn recreate_output_sink_instance(
     plugin_id: &str,
@@ -90,16 +144,13 @@ pub fn create_output_sink_controller_and_open(
 }
 
 pub fn current_plugin_lease_id(plugin_id: &str) -> u64 {
-    stellatune_runtime::block_on(
-        stellatune_plugins::runtime::handle::shared_runtime_service()
-            .current_plugin_lease_info(plugin_id),
-    )
-    .map(|v| v.lease_id)
-    .unwrap_or(0)
+    stellatune_runtime::block_on(shared_runtime_service().current_plugin_lease_info(plugin_id))
+        .map(|v| v.lease_id)
+        .unwrap_or(0)
 }
 
 pub fn write_all_frames(
-    sink: &mut stellatune_plugins::capabilities::output::OutputSinkInstance,
+    sink: &mut OutputSinkInstance,
     channels: u16,
     samples: &[f32],
     retry_sleep_ms: u64,

@@ -72,10 +72,10 @@ the sidecar automatically.
   "buffer_size_frames": null,
   "sample_rate_mode": "fixed_target",
   "fixed_target_sample_rate": null,
-  "ring_capacity_ms": 250,
+  "ring_capacity_ms": 40,
   "start_prefill_ms": 0,
   "preferred_chunk_frames": 0,
-  "latency_profile": "balanced",
+  "latency_profile": "aggressive",
   "flush_timeout_ms": 400
 }
 ```
@@ -93,8 +93,8 @@ Field notes:
   - `aggressive`: lower latency, higher underrun risk.
   - `balanced`: middle ground.
   - `conservative`: higher latency, better startup/switch stability.
-- `start_prefill_ms`: sidecar stream start prefill threshold. `0` means auto by `latency_profile` (`aggressive`=15ms, `balanced`=30ms, `conservative`=60ms).
-- `preferred_chunk_frames`: host write chunk hint via negotiation. `0` means auto by sample rate and `latency_profile` (base: 48k->128, 96k->256, 192k->512; then `aggressive` x1, `balanced` x2, `conservative` x4). `>0` uses fixed chunk size.
+- `start_prefill_ms`: sidecar stream start prefill threshold. `0` means auto by `latency_profile` (`aggressive`=8ms, `balanced`=16ms, `conservative`=32ms).
+- `preferred_chunk_frames`: host write chunk hint via negotiation. `0` means auto by sample rate and `latency_profile` (base: 48k->128, 96k->256, 192k->512; then `aggressive` x0.5, `balanced` x1, `conservative` x2). `>0` uses fixed chunk size.
 - `flush_timeout_ms`: best-effort flush wait timeout before close.
 
 ## Limitations

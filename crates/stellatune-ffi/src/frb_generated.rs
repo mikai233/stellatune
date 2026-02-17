@@ -37,7 +37,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.11.1";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -610783061;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -404559645;
 
 // Section: executor
 
@@ -68,7 +68,7 @@ fn wire__crate__api__player__can_play_track_refs_impl(
             let mut deserializer =
                 flutter_rust_bridge::for_generated::SseDeserializer::new(message);
             let api_tracks =
-                <Vec<stellatune_audio::types::TrackRef>>::sse_decode(&mut deserializer);
+                <Vec<crate::api::player::types::TrackRef>>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
                 transform_result_sse::<_, ()>((move || {
@@ -157,7 +157,7 @@ fn wire__crate__api__player__current_track_info_impl(
     rust_vec_len_: i32,
     data_len_: i32,
 ) {
-    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
         flutter_rust_bridge::for_generated::TaskInfo {
             debug_name: "current_track_info",
             port: Some(port_),
@@ -174,11 +174,52 @@ fn wire__crate__api__player__current_track_info_impl(
             let mut deserializer =
                 flutter_rust_bridge::for_generated::SseDeserializer::new(message);
             deserializer.end();
-            move |context| {
-                transform_result_sse::<_, ()>((move || {
-                    let output_ok = Result::<_, ()>::Ok(crate::api::player::current_track_info())?;
-                    Ok(output_ok)
-                })())
+            move |context| async move {
+                transform_result_sse::<_, ()>(
+                    (move || async move {
+                        let output_ok =
+                            Result::<_, ()>::Ok(crate::api::player::current_track_info().await)?;
+                        Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__player__decoder_supported_extensions_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "decoder_supported_extensions",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, ()>(
+                    (move || async move {
+                        let output_ok = Result::<_, ()>::Ok(
+                            crate::api::player::decoder_supported_extensions().await,
+                        )?;
+                        Ok(output_ok)
+                    })()
+                    .await,
+                )
             }
         },
     )
@@ -917,7 +958,7 @@ fn wire__crate__api__player__dsp_set_chain_impl(
     rust_vec_len_: i32,
     data_len_: i32,
 ) {
-    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
         flutter_rust_bridge::for_generated::TaskInfo {
             debug_name: "dsp_set_chain",
             port: Some(port_),
@@ -934,15 +975,18 @@ fn wire__crate__api__player__dsp_set_chain_impl(
             let mut deserializer =
                 flutter_rust_bridge::for_generated::SseDeserializer::new(message);
             let api_chain =
-                <Vec<stellatune_audio::types::DspChainItem>>::sse_decode(&mut deserializer);
+                <Vec<crate::api::player::types::DspChainItem>>::sse_decode(&mut deserializer);
             deserializer.end();
-            move |context| {
-                transform_result_sse::<_, ()>((move || {
-                    let output_ok = Result::<_, ()>::Ok({
-                        crate::api::player::dsp_set_chain(api_chain);
-                    })?;
-                    Ok(output_ok)
-                })())
+            move |context| async move {
+                transform_result_sse::<_, ()>(
+                    (move || async move {
+                        let output_ok = Result::<_, ()>::Ok({
+                            crate::api::player::dsp_set_chain(api_chain).await;
+                        })?;
+                        Ok(output_ok)
+                    })()
+                    .await,
+                )
             }
         },
     )
@@ -970,7 +1014,7 @@ fn wire__crate__api__player__events_impl(
             let mut deserializer =
                 flutter_rust_bridge::for_generated::SseDeserializer::new(message);
             let api_sink = <StreamSink<
-                stellatune_audio::types::Event,
+                crate::api::player::types::Event,
                 flutter_rust_bridge::for_generated::SseCodec,
             >>::sse_decode(&mut deserializer);
             deserializer.end();
@@ -1019,7 +1063,7 @@ fn wire__crate__api__init_app_impl(
         },
     )
 }
-fn wire__stellatune_audio__types__lfe_mode_default_impl(
+fn wire__crate__api__player__types__lfe_mode_default_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
     rust_vec_len_: i32,
@@ -1045,7 +1089,7 @@ fn wire__stellatune_audio__types__lfe_mode_default_impl(
             move |context| {
                 transform_result_sse::<_, ()>((move || {
                     let output_ok =
-                        Result::<_, ()>::Ok(stellatune_audio::types::LfeMode::default())?;
+                        Result::<_, ()>::Ok(crate::api::player::types::LfeMode::default())?;
                     Ok(output_ok)
                 })())
             }
@@ -2820,7 +2864,7 @@ fn wire__crate__api__player__plugin_runtime_events_global_impl(
             let mut deserializer =
                 flutter_rust_bridge::for_generated::SseDeserializer::new(message);
             let api_sink = <StreamSink<
-                stellatune_audio::types::PluginRuntimeEvent,
+                crate::api::player::types::PluginRuntimeEvent,
                 flutter_rust_bridge::for_generated::SseCodec,
             >>::sse_decode(&mut deserializer);
             deserializer.end();
@@ -3051,7 +3095,7 @@ fn wire__crate__api__player__preload_track_ref_impl(
             };
             let mut deserializer =
                 flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_track = <stellatune_audio::types::TrackRef>::sse_decode(&mut deserializer);
+            let api_track = <crate::api::player::types::TrackRef>::sse_decode(&mut deserializer);
             let api_position_ms = <u64>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| async move {
@@ -3103,7 +3147,7 @@ fn wire__crate__api__player__refresh_devices_impl(
         },
     )
 }
-fn wire__stellatune_audio__types__resample_quality_default_impl(
+fn wire__crate__api__player__types__resample_quality_default_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
     rust_vec_len_: i32,
@@ -3129,7 +3173,7 @@ fn wire__stellatune_audio__types__resample_quality_default_impl(
             move |context| {
                 transform_result_sse::<_, ()>((move || {
                     let output_ok =
-                        Result::<_, ()>::Ok(stellatune_audio::types::ResampleQuality::default())?;
+                        Result::<_, ()>::Ok(crate::api::player::types::ResampleQuality::default())?;
                     Ok(output_ok)
                 })())
             }
@@ -3172,6 +3216,42 @@ fn wire__crate__api__player__seek_ms_impl(
         },
     )
 }
+fn wire__crate__api__player__set_lfe_mode_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "set_lfe_mode",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_mode = <crate::api::player::types::LfeMode>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || async move {
+                        let output_ok = crate::api::player::set_lfe_mode(api_mode).await?;
+                        Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
 fn wire__crate__api__player__set_output_device_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -3195,7 +3275,7 @@ fn wire__crate__api__player__set_output_device_impl(
             let mut deserializer =
                 flutter_rust_bridge::for_generated::SseDeserializer::new(message);
             let api_backend =
-                <stellatune_audio::types::AudioBackend>::sse_decode(&mut deserializer);
+                <crate::api::player::types::AudioBackend>::sse_decode(&mut deserializer);
             let api_device_id = <Option<String>>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| async move {
@@ -3238,7 +3318,7 @@ fn wire__crate__api__player__set_output_options_impl(
             let api_gapless_playback = <bool>::sse_decode(&mut deserializer);
             let api_seek_track_fade = <bool>::sse_decode(&mut deserializer);
             let api_resample_quality =
-                <stellatune_audio::types::ResampleQuality>::sse_decode(&mut deserializer);
+                <crate::api::player::types::ResampleQuality>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| async move {
                 transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
@@ -3281,7 +3361,7 @@ fn wire__crate__api__player__set_output_sink_route_impl(
             let mut deserializer =
                 flutter_rust_bridge::for_generated::SseDeserializer::new(message);
             let api_route =
-                <stellatune_audio::types::OutputSinkRoute>::sse_decode(&mut deserializer);
+                <crate::api::player::types::OutputSinkRoute>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| async move {
                 transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
@@ -3319,11 +3399,15 @@ fn wire__crate__api__player__set_volume_impl(
             let mut deserializer =
                 flutter_rust_bridge::for_generated::SseDeserializer::new(message);
             let api_volume = <f32>::sse_decode(&mut deserializer);
+            let api_seq = <u64>::sse_decode(&mut deserializer);
+            let api_ramp_ms = <u32>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| async move {
                 transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
                     (move || async move {
-                        let output_ok = crate::api::player::set_volume(api_volume).await?;
+                        let output_ok =
+                            crate::api::player::set_volume(api_volume, api_seq, api_ramp_ms)
+                                .await?;
                         Ok(output_ok)
                     })()
                     .await,
@@ -3507,7 +3591,7 @@ fn wire__crate__api__player__switch_track_ref_impl(
             };
             let mut deserializer =
                 flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_track = <stellatune_audio::types::TrackRef>::sse_decode(&mut deserializer);
+            let api_track = <crate::api::player::types::TrackRef>::sse_decode(&mut deserializer);
             let api_lazy = <bool>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| async move {
@@ -3523,7 +3607,7 @@ fn wire__crate__api__player__switch_track_ref_impl(
         },
     )
 }
-fn wire__stellatune_audio__types__track_ref_for_local_path_impl(
+fn wire__crate__api__player__types__track_ref_for_local_path_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
     rust_vec_len_: i32,
@@ -3550,7 +3634,7 @@ fn wire__stellatune_audio__types__track_ref_for_local_path_impl(
             move |context| {
                 transform_result_sse::<_, ()>((move || {
                     let output_ok = Result::<_, ()>::Ok(
-                        stellatune_audio::types::TrackRef::for_local_path(api_path),
+                        crate::api::player::types::TrackRef::for_local_path(api_path),
                     )?;
                     Ok(output_ok)
                 })())
@@ -3558,7 +3642,7 @@ fn wire__stellatune_audio__types__track_ref_for_local_path_impl(
         },
     )
 }
-fn wire__stellatune_audio__types__track_ref_new_impl(
+fn wire__crate__api__player__types__track_ref_new_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
     rust_vec_len_: i32,
@@ -3586,7 +3670,7 @@ fn wire__stellatune_audio__types__track_ref_new_impl(
             deserializer.end();
             move |context| {
                 transform_result_sse::<_, ()>((move || {
-                    let output_ok = Result::<_, ()>::Ok(stellatune_audio::types::TrackRef::new(
+                    let output_ok = Result::<_, ()>::Ok(crate::api::player::types::TrackRef::new(
                         api_source_id,
                         api_track_id,
                         api_locator,
@@ -3597,7 +3681,7 @@ fn wire__stellatune_audio__types__track_ref_new_impl(
         },
     )
 }
-fn wire__stellatune_audio__types__track_ref_stable_key_impl(
+fn wire__crate__api__player__types__track_ref_stable_key_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
     rust_vec_len_: i32,
@@ -3619,12 +3703,12 @@ fn wire__stellatune_audio__types__track_ref_stable_key_impl(
             };
             let mut deserializer =
                 flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <stellatune_audio::types::TrackRef>::sse_decode(&mut deserializer);
+            let api_that = <crate::api::player::types::TrackRef>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
                 transform_result_sse::<_, ()>((move || {
                     let output_ok = Result::<_, ()>::Ok(
-                        stellatune_audio::types::TrackRef::stable_key(&api_that),
+                        crate::api::player::types::TrackRef::stable_key(&api_that),
                     )?;
                     Ok(output_ok)
                 })())
@@ -3637,56 +3721,6 @@ fn wire__stellatune_audio__types__track_ref_stable_key_impl(
 
 #[allow(clippy::unnecessary_literal_unwrap)]
 const _: fn() = || {
-    {
-        let AudioDevice = None::<stellatune_audio::types::AudioDevice>.unwrap();
-        let _: stellatune_audio::types::AudioBackend = AudioDevice.backend;
-        let _: String = AudioDevice.id;
-        let _: String = AudioDevice.name;
-    }
-    {
-        let DspChainItem = None::<stellatune_audio::types::DspChainItem>.unwrap();
-        let _: String = DspChainItem.plugin_id;
-        let _: String = DspChainItem.type_id;
-        let _: String = DspChainItem.config_json;
-    }
-    {
-        let DspTypeDescriptor = None::<stellatune_audio::types::DspTypeDescriptor>.unwrap();
-        let _: String = DspTypeDescriptor.plugin_id;
-        let _: String = DspTypeDescriptor.plugin_name;
-        let _: String = DspTypeDescriptor.type_id;
-        let _: String = DspTypeDescriptor.display_name;
-        let _: String = DspTypeDescriptor.config_schema_json;
-        let _: String = DspTypeDescriptor.default_config_json;
-    }
-    match None::<stellatune_audio::types::Event>.unwrap() {
-        stellatune_audio::types::Event::StateChanged { state } => {
-            let _: stellatune_audio::types::PlayerState = state;
-        },
-        stellatune_audio::types::Event::Position {
-            ms,
-            path,
-            session_id,
-        } => {
-            let _: i64 = ms;
-            let _: String = path;
-            let _: u64 = session_id;
-        },
-        stellatune_audio::types::Event::TrackChanged { path } => {
-            let _: String = path;
-        },
-        stellatune_audio::types::Event::PlaybackEnded { path } => {
-            let _: String = path;
-        },
-        stellatune_audio::types::Event::VolumeChanged { volume } => {
-            let _: f32 = volume;
-        },
-        stellatune_audio::types::Event::Error { message } => {
-            let _: String = message;
-        },
-        stellatune_audio::types::Event::Log { message } => {
-            let _: String = message;
-        },
-    }
     match None::<stellatune_library::LibraryEvent>.unwrap() {
         stellatune_library::LibraryEvent::Changed => {},
         stellatune_library::LibraryEvent::ScanProgress {
@@ -3757,14 +3791,6 @@ const _: fn() = || {
         },
     }
     {
-        let LyricsProviderTypeDescriptor =
-            None::<stellatune_audio::types::LyricsProviderTypeDescriptor>.unwrap();
-        let _: String = LyricsProviderTypeDescriptor.plugin_id;
-        let _: String = LyricsProviderTypeDescriptor.plugin_name;
-        let _: String = LyricsProviderTypeDescriptor.type_id;
-        let _: String = LyricsProviderTypeDescriptor.display_name;
-    }
-    {
         let LyricsQuery = None::<stellatune_backend_api::lyrics_types::LyricsQuery>.unwrap();
         let _: String = LyricsQuery.track_key;
         let _: String = LyricsQuery.title;
@@ -3785,59 +3811,12 @@ const _: fn() = || {
         let _: stellatune_backend_api::lyrics_types::LyricsDoc = LyricsSearchCandidate.doc;
     }
     {
-        let OutputSinkRoute = None::<stellatune_audio::types::OutputSinkRoute>.unwrap();
-        let _: String = OutputSinkRoute.plugin_id;
-        let _: String = OutputSinkRoute.type_id;
-        let _: String = OutputSinkRoute.config_json;
-        let _: String = OutputSinkRoute.target_json;
-    }
-    {
-        let OutputSinkTypeDescriptor =
-            None::<stellatune_audio::types::OutputSinkTypeDescriptor>.unwrap();
-        let _: String = OutputSinkTypeDescriptor.plugin_id;
-        let _: String = OutputSinkTypeDescriptor.plugin_name;
-        let _: String = OutputSinkTypeDescriptor.type_id;
-        let _: String = OutputSinkTypeDescriptor.display_name;
-        let _: String = OutputSinkTypeDescriptor.config_schema_json;
-        let _: String = OutputSinkTypeDescriptor.default_config_json;
-    }
-    {
         let PlaylistLite = None::<stellatune_library::PlaylistLite>.unwrap();
         let _: i64 = PlaylistLite.id;
         let _: String = PlaylistLite.name;
         let _: Option<String> = PlaylistLite.system_key;
         let _: i64 = PlaylistLite.track_count;
         let _: Option<i64> = PlaylistLite.first_track_id;
-    }
-    {
-        let PluginDescriptor = None::<stellatune_audio::types::PluginDescriptor>.unwrap();
-        let _: String = PluginDescriptor.id;
-        let _: String = PluginDescriptor.name;
-    }
-    {
-        let PluginRuntimeEvent = None::<stellatune_audio::types::PluginRuntimeEvent>.unwrap();
-        let _: String = PluginRuntimeEvent.plugin_id;
-        let _: stellatune_audio::types::PluginRuntimeKind = PluginRuntimeEvent.kind;
-        let _: String = PluginRuntimeEvent.payload_json;
-    }
-    {
-        let SourceCatalogTypeDescriptor =
-            None::<stellatune_audio::types::SourceCatalogTypeDescriptor>.unwrap();
-        let _: String = SourceCatalogTypeDescriptor.plugin_id;
-        let _: String = SourceCatalogTypeDescriptor.plugin_name;
-        let _: String = SourceCatalogTypeDescriptor.type_id;
-        let _: String = SourceCatalogTypeDescriptor.display_name;
-        let _: String = SourceCatalogTypeDescriptor.config_schema_json;
-        let _: String = SourceCatalogTypeDescriptor.default_config_json;
-    }
-    {
-        let TrackDecodeInfo = None::<stellatune_audio::types::TrackDecodeInfo>.unwrap();
-        let _: u32 = TrackDecodeInfo.sample_rate;
-        let _: u16 = TrackDecodeInfo.channels;
-        let _: Option<u64> = TrackDecodeInfo.duration_ms;
-        let _: Option<String> = TrackDecodeInfo.metadata_json;
-        let _: Option<String> = TrackDecodeInfo.decoder_plugin_id;
-        let _: Option<String> = TrackDecodeInfo.decoder_type_id;
     }
     {
         let TrackLite = None::<stellatune_library::TrackLite>.unwrap();
@@ -3847,18 +3826,6 @@ const _: fn() = || {
         let _: Option<String> = TrackLite.artist;
         let _: Option<String> = TrackLite.album;
         let _: Option<i64> = TrackLite.duration_ms;
-    }
-    {
-        let TrackPlayability = None::<stellatune_audio::types::TrackPlayability>.unwrap();
-        let _: stellatune_audio::types::TrackRef = TrackPlayability.track;
-        let _: bool = TrackPlayability.playable;
-        let _: Option<String> = TrackPlayability.reason;
-    }
-    {
-        let TrackRef = None::<stellatune_audio::types::TrackRef>.unwrap();
-        let _: String = TrackRef.source_id;
-        let _: String = TrackRef.track_id;
-        let _: String = TrackRef.locator;
     }
 };
 
@@ -3873,7 +3840,7 @@ impl SseDecode for flutter_rust_bridge::for_generated::anyhow::Error {
 }
 
 impl SseDecode
-    for StreamSink<stellatune_audio::types::Event, flutter_rust_bridge::for_generated::SseCodec>
+    for StreamSink<crate::api::player::types::Event, flutter_rust_bridge::for_generated::SseCodec>
 {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -3907,7 +3874,7 @@ impl SseDecode
 
 impl SseDecode
     for StreamSink<
-        stellatune_audio::types::PluginRuntimeEvent,
+        crate::api::player::types::PluginRuntimeEvent,
         flutter_rust_bridge::for_generated::SseCodec,
     >
 {
@@ -3926,25 +3893,25 @@ impl SseDecode for String {
     }
 }
 
-impl SseDecode for stellatune_audio::types::AudioBackend {
+impl SseDecode for crate::api::player::types::AudioBackend {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut inner = <i32>::sse_decode(deserializer);
         return match inner {
-            0 => stellatune_audio::types::AudioBackend::Shared,
-            1 => stellatune_audio::types::AudioBackend::WasapiExclusive,
+            0 => crate::api::player::types::AudioBackend::Shared,
+            1 => crate::api::player::types::AudioBackend::WasapiExclusive,
             _ => unreachable!("Invalid variant for AudioBackend: {}", inner),
         };
     }
 }
 
-impl SseDecode for stellatune_audio::types::AudioDevice {
+impl SseDecode for crate::api::player::types::AudioDevice {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
-        let mut var_backend = <stellatune_audio::types::AudioBackend>::sse_decode(deserializer);
+        let mut var_backend = <crate::api::player::types::AudioBackend>::sse_decode(deserializer);
         let mut var_id = <String>::sse_decode(deserializer);
         let mut var_name = <String>::sse_decode(deserializer);
-        return stellatune_audio::types::AudioDevice {
+        return crate::api::player::types::AudioDevice {
             backend: var_backend,
             id: var_id,
             name: var_name,
@@ -4035,13 +4002,13 @@ impl SseDecode for crate::api::dlna::types::DlnaTransportInfo {
     }
 }
 
-impl SseDecode for stellatune_audio::types::DspChainItem {
+impl SseDecode for crate::api::player::types::DspChainItem {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut var_pluginId = <String>::sse_decode(deserializer);
         let mut var_typeId = <String>::sse_decode(deserializer);
         let mut var_configJson = <String>::sse_decode(deserializer);
-        return stellatune_audio::types::DspChainItem {
+        return crate::api::player::types::DspChainItem {
             plugin_id: var_pluginId,
             type_id: var_typeId,
             config_json: var_configJson,
@@ -4049,7 +4016,7 @@ impl SseDecode for stellatune_audio::types::DspChainItem {
     }
 }
 
-impl SseDecode for stellatune_audio::types::DspTypeDescriptor {
+impl SseDecode for crate::api::player::types::DspTypeDescriptor {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut var_pluginId = <String>::sse_decode(deserializer);
@@ -4058,7 +4025,7 @@ impl SseDecode for stellatune_audio::types::DspTypeDescriptor {
         let mut var_displayName = <String>::sse_decode(deserializer);
         let mut var_configSchemaJson = <String>::sse_decode(deserializer);
         let mut var_defaultConfigJson = <String>::sse_decode(deserializer);
-        return stellatune_audio::types::DspTypeDescriptor {
+        return crate::api::player::types::DspTypeDescriptor {
             plugin_id: var_pluginId,
             plugin_name: var_pluginName,
             type_id: var_typeId,
@@ -4069,21 +4036,21 @@ impl SseDecode for stellatune_audio::types::DspTypeDescriptor {
     }
 }
 
-impl SseDecode for stellatune_audio::types::Event {
+impl SseDecode for crate::api::player::types::Event {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut tag_ = <i32>::sse_decode(deserializer);
         match tag_ {
             0 => {
                 let mut var_state =
-                    <stellatune_audio::types::PlayerState>::sse_decode(deserializer);
-                return stellatune_audio::types::Event::StateChanged { state: var_state };
+                    <crate::api::player::types::PlayerState>::sse_decode(deserializer);
+                return crate::api::player::types::Event::StateChanged { state: var_state };
             },
             1 => {
                 let mut var_ms = <i64>::sse_decode(deserializer);
                 let mut var_path = <String>::sse_decode(deserializer);
                 let mut var_sessionId = <u64>::sse_decode(deserializer);
-                return stellatune_audio::types::Event::Position {
+                return crate::api::player::types::Event::Position {
                     ms: var_ms,
                     path: var_path,
                     session_id: var_sessionId,
@@ -4091,25 +4058,29 @@ impl SseDecode for stellatune_audio::types::Event {
             },
             2 => {
                 let mut var_path = <String>::sse_decode(deserializer);
-                return stellatune_audio::types::Event::TrackChanged { path: var_path };
+                return crate::api::player::types::Event::TrackChanged { path: var_path };
             },
             3 => {
                 let mut var_path = <String>::sse_decode(deserializer);
-                return stellatune_audio::types::Event::PlaybackEnded { path: var_path };
+                return crate::api::player::types::Event::PlaybackEnded { path: var_path };
             },
             4 => {
                 let mut var_volume = <f32>::sse_decode(deserializer);
-                return stellatune_audio::types::Event::VolumeChanged { volume: var_volume };
+                let mut var_seq = <u64>::sse_decode(deserializer);
+                return crate::api::player::types::Event::VolumeChanged {
+                    volume: var_volume,
+                    seq: var_seq,
+                };
             },
             5 => {
                 let mut var_message = <String>::sse_decode(deserializer);
-                return stellatune_audio::types::Event::Error {
+                return crate::api::player::types::Event::Error {
                     message: var_message,
                 };
             },
             6 => {
                 let mut var_message = <String>::sse_decode(deserializer);
-                return stellatune_audio::types::Event::Log {
+                return crate::api::player::types::Event::Log {
                     message: var_message,
                 };
             },
@@ -4141,13 +4112,13 @@ impl SseDecode for i64 {
     }
 }
 
-impl SseDecode for stellatune_audio::types::LfeMode {
+impl SseDecode for crate::api::player::types::LfeMode {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut inner = <i32>::sse_decode(deserializer);
         return match inner {
-            0 => stellatune_audio::types::LfeMode::Mute,
-            1 => stellatune_audio::types::LfeMode::MixToFront,
+            0 => crate::api::player::types::LfeMode::Mute,
+            1 => crate::api::player::types::LfeMode::MixToFront,
             _ => unreachable!("Invalid variant for LfeMode: {}", inner),
         };
     }
@@ -4218,13 +4189,13 @@ impl SseDecode for Vec<String> {
     }
 }
 
-impl SseDecode for Vec<stellatune_audio::types::AudioDevice> {
+impl SseDecode for Vec<crate::api::player::types::AudioDevice> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut len_ = <i32>::sse_decode(deserializer);
         let mut ans_ = vec![];
         for idx_ in 0..len_ {
-            ans_.push(<stellatune_audio::types::AudioDevice>::sse_decode(
+            ans_.push(<crate::api::player::types::AudioDevice>::sse_decode(
                 deserializer,
             ));
         }
@@ -4260,13 +4231,13 @@ impl SseDecode for Vec<crate::api::dlna::types::DlnaSsdpDevice> {
     }
 }
 
-impl SseDecode for Vec<stellatune_audio::types::DspChainItem> {
+impl SseDecode for Vec<crate::api::player::types::DspChainItem> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut len_ = <i32>::sse_decode(deserializer);
         let mut ans_ = vec![];
         for idx_ in 0..len_ {
-            ans_.push(<stellatune_audio::types::DspChainItem>::sse_decode(
+            ans_.push(<crate::api::player::types::DspChainItem>::sse_decode(
                 deserializer,
             ));
         }
@@ -4274,13 +4245,13 @@ impl SseDecode for Vec<stellatune_audio::types::DspChainItem> {
     }
 }
 
-impl SseDecode for Vec<stellatune_audio::types::DspTypeDescriptor> {
+impl SseDecode for Vec<crate::api::player::types::DspTypeDescriptor> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut len_ = <i32>::sse_decode(deserializer);
         let mut ans_ = vec![];
         for idx_ in 0..len_ {
-            ans_.push(<stellatune_audio::types::DspTypeDescriptor>::sse_decode(
+            ans_.push(<crate::api::player::types::DspTypeDescriptor>::sse_decode(
                 deserializer,
             ));
         }
@@ -4300,14 +4271,14 @@ impl SseDecode for Vec<stellatune_backend_api::lyrics_types::LyricLine> {
     }
 }
 
-impl SseDecode for Vec<stellatune_audio::types::LyricsProviderTypeDescriptor> {
+impl SseDecode for Vec<crate::api::player::types::LyricsProviderTypeDescriptor> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut len_ = <i32>::sse_decode(deserializer);
         let mut ans_ = vec![];
         for idx_ in 0..len_ {
             ans_.push(
-                <stellatune_audio::types::LyricsProviderTypeDescriptor>::sse_decode(deserializer),
+                <crate::api::player::types::LyricsProviderTypeDescriptor>::sse_decode(deserializer),
             );
         }
         return ans_;
@@ -4330,14 +4301,14 @@ impl SseDecode for Vec<stellatune_backend_api::lyrics_types::LyricsSearchCandida
     }
 }
 
-impl SseDecode for Vec<stellatune_audio::types::OutputSinkTypeDescriptor> {
+impl SseDecode for Vec<crate::api::player::types::OutputSinkTypeDescriptor> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut len_ = <i32>::sse_decode(deserializer);
         let mut ans_ = vec![];
         for idx_ in 0..len_ {
             ans_.push(
-                <stellatune_audio::types::OutputSinkTypeDescriptor>::sse_decode(deserializer),
+                <crate::api::player::types::OutputSinkTypeDescriptor>::sse_decode(deserializer),
             );
         }
         return ans_;
@@ -4356,13 +4327,13 @@ impl SseDecode for Vec<stellatune_library::PlaylistLite> {
     }
 }
 
-impl SseDecode for Vec<stellatune_audio::types::PluginDescriptor> {
+impl SseDecode for Vec<crate::api::player::types::PluginDescriptor> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut len_ = <i32>::sse_decode(deserializer);
         let mut ans_ = vec![];
         for idx_ in 0..len_ {
-            ans_.push(<stellatune_audio::types::PluginDescriptor>::sse_decode(
+            ans_.push(<crate::api::player::types::PluginDescriptor>::sse_decode(
                 deserializer,
             ));
         }
@@ -4394,14 +4365,14 @@ impl SseDecode for Vec<u8> {
     }
 }
 
-impl SseDecode for Vec<stellatune_audio::types::SourceCatalogTypeDescriptor> {
+impl SseDecode for Vec<crate::api::player::types::SourceCatalogTypeDescriptor> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut len_ = <i32>::sse_decode(deserializer);
         let mut ans_ = vec![];
         for idx_ in 0..len_ {
             ans_.push(
-                <stellatune_audio::types::SourceCatalogTypeDescriptor>::sse_decode(deserializer),
+                <crate::api::player::types::SourceCatalogTypeDescriptor>::sse_decode(deserializer),
             );
         }
         return ans_;
@@ -4420,13 +4391,13 @@ impl SseDecode for Vec<stellatune_library::TrackLite> {
     }
 }
 
-impl SseDecode for Vec<stellatune_audio::types::TrackPlayability> {
+impl SseDecode for Vec<crate::api::player::types::TrackPlayability> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut len_ = <i32>::sse_decode(deserializer);
         let mut ans_ = vec![];
         for idx_ in 0..len_ {
-            ans_.push(<stellatune_audio::types::TrackPlayability>::sse_decode(
+            ans_.push(<crate::api::player::types::TrackPlayability>::sse_decode(
                 deserializer,
             ));
         }
@@ -4434,13 +4405,13 @@ impl SseDecode for Vec<stellatune_audio::types::TrackPlayability> {
     }
 }
 
-impl SseDecode for Vec<stellatune_audio::types::TrackRef> {
+impl SseDecode for Vec<crate::api::player::types::TrackRef> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut len_ = <i32>::sse_decode(deserializer);
         let mut ans_ = vec![];
         for idx_ in 0..len_ {
-            ans_.push(<stellatune_audio::types::TrackRef>::sse_decode(
+            ans_.push(<crate::api::player::types::TrackRef>::sse_decode(
                 deserializer,
             ));
         }
@@ -4528,14 +4499,14 @@ impl SseDecode for stellatune_backend_api::lyrics_types::LyricsEvent {
     }
 }
 
-impl SseDecode for stellatune_audio::types::LyricsProviderTypeDescriptor {
+impl SseDecode for crate::api::player::types::LyricsProviderTypeDescriptor {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut var_pluginId = <String>::sse_decode(deserializer);
         let mut var_pluginName = <String>::sse_decode(deserializer);
         let mut var_typeId = <String>::sse_decode(deserializer);
         let mut var_displayName = <String>::sse_decode(deserializer);
-        return stellatune_audio::types::LyricsProviderTypeDescriptor {
+        return crate::api::player::types::LyricsProviderTypeDescriptor {
             plugin_id: var_pluginId,
             plugin_name: var_pluginName,
             type_id: var_typeId,
@@ -4609,11 +4580,11 @@ impl SseDecode for Option<i64> {
     }
 }
 
-impl SseDecode for Option<stellatune_audio::types::TrackDecodeInfo> {
+impl SseDecode for Option<crate::api::player::types::TrackDecodeInfo> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         if (<bool>::sse_decode(deserializer)) {
-            return Some(<stellatune_audio::types::TrackDecodeInfo>::sse_decode(
+            return Some(<crate::api::player::types::TrackDecodeInfo>::sse_decode(
                 deserializer,
             ));
         } else {
@@ -4644,14 +4615,14 @@ impl SseDecode for Option<u64> {
     }
 }
 
-impl SseDecode for stellatune_audio::types::OutputSinkRoute {
+impl SseDecode for crate::api::player::types::OutputSinkRoute {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut var_pluginId = <String>::sse_decode(deserializer);
         let mut var_typeId = <String>::sse_decode(deserializer);
         let mut var_configJson = <String>::sse_decode(deserializer);
         let mut var_targetJson = <String>::sse_decode(deserializer);
-        return stellatune_audio::types::OutputSinkRoute {
+        return crate::api::player::types::OutputSinkRoute {
             plugin_id: var_pluginId,
             type_id: var_typeId,
             config_json: var_configJson,
@@ -4660,7 +4631,7 @@ impl SseDecode for stellatune_audio::types::OutputSinkRoute {
     }
 }
 
-impl SseDecode for stellatune_audio::types::OutputSinkTypeDescriptor {
+impl SseDecode for crate::api::player::types::OutputSinkTypeDescriptor {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut var_pluginId = <String>::sse_decode(deserializer);
@@ -4669,7 +4640,7 @@ impl SseDecode for stellatune_audio::types::OutputSinkTypeDescriptor {
         let mut var_displayName = <String>::sse_decode(deserializer);
         let mut var_configSchemaJson = <String>::sse_decode(deserializer);
         let mut var_defaultConfigJson = <String>::sse_decode(deserializer);
-        return stellatune_audio::types::OutputSinkTypeDescriptor {
+        return crate::api::player::types::OutputSinkTypeDescriptor {
             plugin_id: var_pluginId,
             plugin_name: var_pluginName,
             type_id: var_typeId,
@@ -4680,15 +4651,15 @@ impl SseDecode for stellatune_audio::types::OutputSinkTypeDescriptor {
     }
 }
 
-impl SseDecode for stellatune_audio::types::PlayerState {
+impl SseDecode for crate::api::player::types::PlayerState {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut inner = <i32>::sse_decode(deserializer);
         return match inner {
-            0 => stellatune_audio::types::PlayerState::Stopped,
-            1 => stellatune_audio::types::PlayerState::Playing,
-            2 => stellatune_audio::types::PlayerState::Paused,
-            3 => stellatune_audio::types::PlayerState::Buffering,
+            0 => crate::api::player::types::PlayerState::Stopped,
+            1 => crate::api::player::types::PlayerState::Playing,
+            2 => crate::api::player::types::PlayerState::Paused,
+            3 => crate::api::player::types::PlayerState::Buffering,
             _ => unreachable!("Invalid variant for PlayerState: {}", inner),
         };
     }
@@ -4712,25 +4683,25 @@ impl SseDecode for stellatune_library::PlaylistLite {
     }
 }
 
-impl SseDecode for stellatune_audio::types::PluginDescriptor {
+impl SseDecode for crate::api::player::types::PluginDescriptor {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut var_id = <String>::sse_decode(deserializer);
         let mut var_name = <String>::sse_decode(deserializer);
-        return stellatune_audio::types::PluginDescriptor {
+        return crate::api::player::types::PluginDescriptor {
             id: var_id,
             name: var_name,
         };
     }
 }
 
-impl SseDecode for stellatune_audio::types::PluginRuntimeEvent {
+impl SseDecode for crate::api::player::types::PluginRuntimeEvent {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut var_pluginId = <String>::sse_decode(deserializer);
-        let mut var_kind = <stellatune_audio::types::PluginRuntimeKind>::sse_decode(deserializer);
+        let mut var_kind = <crate::api::player::types::PluginRuntimeKind>::sse_decode(deserializer);
         let mut var_payloadJson = <String>::sse_decode(deserializer);
-        return stellatune_audio::types::PluginRuntimeEvent {
+        return crate::api::player::types::PluginRuntimeEvent {
             plugin_id: var_pluginId,
             kind: var_kind,
             payload_json: var_payloadJson,
@@ -4738,35 +4709,35 @@ impl SseDecode for stellatune_audio::types::PluginRuntimeEvent {
     }
 }
 
-impl SseDecode for stellatune_audio::types::PluginRuntimeKind {
+impl SseDecode for crate::api::player::types::PluginRuntimeKind {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut inner = <i32>::sse_decode(deserializer);
         return match inner {
-            0 => stellatune_audio::types::PluginRuntimeKind::Notify,
-            1 => stellatune_audio::types::PluginRuntimeKind::Control,
-            2 => stellatune_audio::types::PluginRuntimeKind::ControlResult,
-            3 => stellatune_audio::types::PluginRuntimeKind::ControlFinished,
+            0 => crate::api::player::types::PluginRuntimeKind::Notify,
+            1 => crate::api::player::types::PluginRuntimeKind::Control,
+            2 => crate::api::player::types::PluginRuntimeKind::ControlResult,
+            3 => crate::api::player::types::PluginRuntimeKind::ControlFinished,
             _ => unreachable!("Invalid variant for PluginRuntimeKind: {}", inner),
         };
     }
 }
 
-impl SseDecode for stellatune_audio::types::ResampleQuality {
+impl SseDecode for crate::api::player::types::ResampleQuality {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut inner = <i32>::sse_decode(deserializer);
         return match inner {
-            0 => stellatune_audio::types::ResampleQuality::Fast,
-            1 => stellatune_audio::types::ResampleQuality::Balanced,
-            2 => stellatune_audio::types::ResampleQuality::High,
-            3 => stellatune_audio::types::ResampleQuality::Ultra,
+            0 => crate::api::player::types::ResampleQuality::Fast,
+            1 => crate::api::player::types::ResampleQuality::Balanced,
+            2 => crate::api::player::types::ResampleQuality::High,
+            3 => crate::api::player::types::ResampleQuality::Ultra,
             _ => unreachable!("Invalid variant for ResampleQuality: {}", inner),
         };
     }
 }
 
-impl SseDecode for stellatune_audio::types::SourceCatalogTypeDescriptor {
+impl SseDecode for crate::api::player::types::SourceCatalogTypeDescriptor {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut var_pluginId = <String>::sse_decode(deserializer);
@@ -4775,7 +4746,7 @@ impl SseDecode for stellatune_audio::types::SourceCatalogTypeDescriptor {
         let mut var_displayName = <String>::sse_decode(deserializer);
         let mut var_configSchemaJson = <String>::sse_decode(deserializer);
         let mut var_defaultConfigJson = <String>::sse_decode(deserializer);
-        return stellatune_audio::types::SourceCatalogTypeDescriptor {
+        return crate::api::player::types::SourceCatalogTypeDescriptor {
             plugin_id: var_pluginId,
             plugin_name: var_pluginName,
             type_id: var_typeId,
@@ -4786,7 +4757,7 @@ impl SseDecode for stellatune_audio::types::SourceCatalogTypeDescriptor {
     }
 }
 
-impl SseDecode for stellatune_audio::types::TrackDecodeInfo {
+impl SseDecode for crate::api::player::types::TrackDecodeInfo {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut var_sampleRate = <u32>::sse_decode(deserializer);
@@ -4795,7 +4766,7 @@ impl SseDecode for stellatune_audio::types::TrackDecodeInfo {
         let mut var_metadataJson = <Option<String>>::sse_decode(deserializer);
         let mut var_decoderPluginId = <Option<String>>::sse_decode(deserializer);
         let mut var_decoderTypeId = <Option<String>>::sse_decode(deserializer);
-        return stellatune_audio::types::TrackDecodeInfo {
+        return crate::api::player::types::TrackDecodeInfo {
             sample_rate: var_sampleRate,
             channels: var_channels,
             duration_ms: var_durationMs,
@@ -4826,13 +4797,13 @@ impl SseDecode for stellatune_library::TrackLite {
     }
 }
 
-impl SseDecode for stellatune_audio::types::TrackPlayability {
+impl SseDecode for crate::api::player::types::TrackPlayability {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
-        let mut var_track = <stellatune_audio::types::TrackRef>::sse_decode(deserializer);
+        let mut var_track = <crate::api::player::types::TrackRef>::sse_decode(deserializer);
         let mut var_playable = <bool>::sse_decode(deserializer);
         let mut var_reason = <Option<String>>::sse_decode(deserializer);
-        return stellatune_audio::types::TrackPlayability {
+        return crate::api::player::types::TrackPlayability {
             track: var_track,
             playable: var_playable,
             reason: var_reason,
@@ -4840,13 +4811,13 @@ impl SseDecode for stellatune_audio::types::TrackPlayability {
     }
 }
 
-impl SseDecode for stellatune_audio::types::TrackRef {
+impl SseDecode for crate::api::player::types::TrackRef {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut var_sourceId = <String>::sse_decode(deserializer);
         let mut var_trackId = <String>::sse_decode(deserializer);
         let mut var_locator = <String>::sse_decode(deserializer);
-        return stellatune_audio::types::TrackRef {
+        return crate::api::player::types::TrackRef {
             source_id: var_sourceId,
             track_id: var_trackId,
             locator: var_locator,
@@ -4905,330 +4876,342 @@ fn pde_ffi_dispatcher_primary_impl(
         ),
         3 => wire__crate__api__library__create_library_impl(port, ptr, rust_vec_len, data_len),
         4 => wire__crate__api__player__current_track_info_impl(port, ptr, rust_vec_len, data_len),
-        5 => wire__crate__api__dlna__dlna_av_transport_get_position_info_impl(
+        5 => wire__crate__api__player__decoder_supported_extensions_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        6 => wire__crate__api__dlna__dlna_av_transport_get_transport_info_impl(
+        6 => wire__crate__api__dlna__dlna_av_transport_get_position_info_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        7 => {
+        7 => wire__crate__api__dlna__dlna_av_transport_get_transport_info_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        8 => {
             wire__crate__api__dlna__dlna_av_transport_pause_impl(port, ptr, rust_vec_len, data_len)
         },
-        8 => wire__crate__api__dlna__dlna_av_transport_play_impl(port, ptr, rust_vec_len, data_len),
-        9 => wire__crate__api__dlna__dlna_av_transport_seek_ms_impl(
+        9 => wire__crate__api__dlna__dlna_av_transport_play_impl(port, ptr, rust_vec_len, data_len),
+        10 => wire__crate__api__dlna__dlna_av_transport_seek_ms_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        10 => wire__crate__api__dlna__dlna_av_transport_set_uri_impl(
+        11 => wire__crate__api__dlna__dlna_av_transport_set_uri_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        11 => {
+        12 => {
             wire__crate__api__dlna__dlna_av_transport_stop_impl(port, ptr, rust_vec_len, data_len)
         },
-        12 => wire__crate__api__dlna__dlna_discover_media_renderers_impl(
+        13 => wire__crate__api__dlna__dlna_discover_media_renderers_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        13 => {
+        14 => {
             wire__crate__api__dlna__dlna_discover_renderers_impl(port, ptr, rust_vec_len, data_len)
         },
-        14 => {
+        15 => {
             wire__crate__api__dlna__dlna_http_publish_track_impl(port, ptr, rust_vec_len, data_len)
         },
-        15 => wire__crate__api__dlna__dlna_http_start_impl(port, ptr, rust_vec_len, data_len),
-        16 => {
+        16 => wire__crate__api__dlna__dlna_http_start_impl(port, ptr, rust_vec_len, data_len),
+        17 => {
             wire__crate__api__dlna__dlna_http_unpublish_all_impl(port, ptr, rust_vec_len, data_len)
         },
-        17 => wire__crate__api__dlna__dlna_play_local_path_impl(port, ptr, rust_vec_len, data_len),
-        18 => wire__crate__api__dlna__dlna_play_local_track_impl(port, ptr, rust_vec_len, data_len),
-        19 => wire__crate__api__dlna__dlna_rendering_control_get_volume_impl(
+        18 => wire__crate__api__dlna__dlna_play_local_path_impl(port, ptr, rust_vec_len, data_len),
+        19 => wire__crate__api__dlna__dlna_play_local_track_impl(port, ptr, rust_vec_len, data_len),
+        20 => wire__crate__api__dlna__dlna_rendering_control_get_volume_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        20 => wire__crate__api__dlna__dlna_rendering_control_set_mute_impl(
+        21 => wire__crate__api__dlna__dlna_rendering_control_set_mute_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        21 => wire__crate__api__dlna__dlna_rendering_control_set_volume_impl(
+        22 => wire__crate__api__dlna__dlna_rendering_control_set_volume_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        22 => wire__crate__api__player__dsp_list_types_impl(port, ptr, rust_vec_len, data_len),
-        23 => wire__crate__api__player__dsp_set_chain_impl(port, ptr, rust_vec_len, data_len),
-        24 => wire__crate__api__player__events_impl(port, ptr, rust_vec_len, data_len),
-        25 => wire__crate__api__init_app_impl(port, ptr, rust_vec_len, data_len),
-        26 => {
-            wire__stellatune_audio__types__lfe_mode_default_impl(port, ptr, rust_vec_len, data_len)
-        },
-        27 => wire__crate__api__library__library_add_root_impl(port, ptr, rust_vec_len, data_len),
-        28 => wire__crate__api__library__library_add_track_to_playlist_impl(
+        23 => wire__crate__api__player__dsp_list_types_impl(port, ptr, rust_vec_len, data_len),
+        24 => wire__crate__api__player__dsp_set_chain_impl(port, ptr, rust_vec_len, data_len),
+        25 => wire__crate__api__player__events_impl(port, ptr, rust_vec_len, data_len),
+        26 => wire__crate__api__init_app_impl(port, ptr, rust_vec_len, data_len),
+        27 => wire__crate__api__player__types__lfe_mode_default_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        29 => wire__crate__api__library__library_add_tracks_to_playlist_impl(
+        28 => wire__crate__api__library__library_add_root_impl(port, ptr, rust_vec_len, data_len),
+        29 => wire__crate__api__library__library_add_track_to_playlist_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        30 => wire__crate__api__library__library_create_playlist_impl(
+        30 => wire__crate__api__library__library_add_tracks_to_playlist_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        31 => {
+        31 => wire__crate__api__library__library_create_playlist_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        32 => {
             wire__crate__api__library__library_delete_folder_impl(port, ptr, rust_vec_len, data_len)
         },
-        32 => wire__crate__api__library__library_delete_playlist_impl(
+        33 => wire__crate__api__library__library_delete_playlist_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        33 => wire__crate__api__library__library_events_impl(port, ptr, rust_vec_len, data_len),
-        34 => wire__crate__api__library__library_list_disabled_plugin_ids_impl(
+        34 => wire__crate__api__library__library_events_impl(port, ptr, rust_vec_len, data_len),
+        35 => wire__crate__api__library__library_list_disabled_plugin_ids_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        35 => wire__crate__api__library__library_list_excluded_folders_impl(
+        36 => wire__crate__api__library__library_list_excluded_folders_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        36 => {
+        37 => {
             wire__crate__api__library__library_list_folders_impl(port, ptr, rust_vec_len, data_len)
         },
-        37 => wire__crate__api__library__library_list_liked_track_ids_impl(
+        38 => wire__crate__api__library__library_list_liked_track_ids_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        38 => wire__crate__api__library__library_list_playlist_tracks_impl(
+        39 => wire__crate__api__library__library_list_playlist_tracks_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        39 => wire__crate__api__library__library_list_playlists_impl(
+        40 => wire__crate__api__library__library_list_playlists_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        40 => wire__crate__api__library__library_list_roots_impl(port, ptr, rust_vec_len, data_len),
-        41 => {
+        41 => wire__crate__api__library__library_list_roots_impl(port, ptr, rust_vec_len, data_len),
+        42 => {
             wire__crate__api__library__library_list_tracks_impl(port, ptr, rust_vec_len, data_len)
         },
-        42 => wire__crate__api__library__library_move_track_in_playlist_impl(
+        43 => wire__crate__api__library__library_move_track_in_playlist_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        43 => wire__crate__api__library__library_plugin_apply_state_impl(
+        44 => wire__crate__api__library__library_plugin_apply_state_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        44 => wire__crate__api__library__library_plugin_apply_state_status_json_impl(
+        45 => wire__crate__api__library__library_plugin_apply_state_status_json_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        45 => wire__crate__api__library__library_plugin_disable_impl(
+        46 => wire__crate__api__library__library_plugin_disable_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        46 => {
+        47 => {
             wire__crate__api__library__library_plugin_enable_impl(port, ptr, rust_vec_len, data_len)
         },
-        47 => {
+        48 => {
             wire__crate__api__library__library_remove_root_impl(port, ptr, rust_vec_len, data_len)
         },
-        48 => wire__crate__api__library__library_remove_track_from_playlist_impl(
+        49 => wire__crate__api__library__library_remove_track_from_playlist_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        49 => wire__crate__api__library__library_remove_tracks_from_playlist_impl(
+        50 => wire__crate__api__library__library_remove_tracks_from_playlist_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        50 => wire__crate__api__library__library_rename_playlist_impl(
+        51 => wire__crate__api__library__library_rename_playlist_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        51 => wire__crate__api__library__library_restore_folder_impl(
+        52 => wire__crate__api__library__library_restore_folder_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        52 => wire__crate__api__library__library_scan_all_impl(port, ptr, rust_vec_len, data_len),
-        53 => wire__crate__api__library__library_scan_all_force_impl(
+        53 => wire__crate__api__library__library_scan_all_impl(port, ptr, rust_vec_len, data_len),
+        54 => wire__crate__api__library__library_scan_all_force_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        54 => wire__crate__api__library__library_search_impl(port, ptr, rust_vec_len, data_len),
-        55 => wire__crate__api__library__library_set_track_liked_impl(
+        55 => wire__crate__api__library__library_search_impl(port, ptr, rust_vec_len, data_len),
+        56 => wire__crate__api__library__library_set_track_liked_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        56 => {
+        57 => {
             wire__crate__api__player__lyrics_apply_candidate_impl(port, ptr, rust_vec_len, data_len)
         },
-        57 => wire__crate__api__player__lyrics_clear_cache_impl(port, ptr, rust_vec_len, data_len),
-        58 => wire__crate__api__player__lyrics_events_impl(port, ptr, rust_vec_len, data_len),
-        59 => wire__crate__api__player__lyrics_prefetch_impl(port, ptr, rust_vec_len, data_len),
-        60 => wire__crate__api__player__lyrics_prepare_impl(port, ptr, rust_vec_len, data_len),
-        61 => wire__crate__api__player__lyrics_provider_fetch_json_impl(
+        58 => wire__crate__api__player__lyrics_clear_cache_impl(port, ptr, rust_vec_len, data_len),
+        59 => wire__crate__api__player__lyrics_events_impl(port, ptr, rust_vec_len, data_len),
+        60 => wire__crate__api__player__lyrics_prefetch_impl(port, ptr, rust_vec_len, data_len),
+        61 => wire__crate__api__player__lyrics_prepare_impl(port, ptr, rust_vec_len, data_len),
+        62 => wire__crate__api__player__lyrics_provider_fetch_json_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        62 => wire__crate__api__player__lyrics_provider_list_types_impl(
+        63 => wire__crate__api__player__lyrics_provider_list_types_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        63 => wire__crate__api__player__lyrics_provider_search_json_impl(
+        64 => wire__crate__api__player__lyrics_provider_search_json_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        64 => {
+        65 => {
             wire__crate__api__player__lyrics_refresh_current_impl(port, ptr, rust_vec_len, data_len)
         },
-        65 => wire__crate__api__player__lyrics_search_candidates_impl(
+        66 => wire__crate__api__player__lyrics_search_candidates_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        66 => wire__crate__api__player__lyrics_set_cache_db_path_impl(
+        67 => wire__crate__api__player__lyrics_set_cache_db_path_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        67 => {
+        68 => {
             wire__crate__api__player__lyrics_set_position_ms_impl(port, ptr, rust_vec_len, data_len)
         },
-        68 => wire__crate__api__player__output_sink_list_targets_json_impl(
+        69 => wire__crate__api__player__output_sink_list_targets_json_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        69 => {
+        70 => {
             wire__crate__api__player__output_sink_list_types_impl(port, ptr, rust_vec_len, data_len)
         },
-        70 => wire__crate__api__player__pause_impl(port, ptr, rust_vec_len, data_len),
-        71 => wire__crate__api__player__play_impl(port, ptr, rust_vec_len, data_len),
-        72 => wire__crate__api__player__plugin_publish_event_json_impl(
+        71 => wire__crate__api__player__pause_impl(port, ptr, rust_vec_len, data_len),
+        72 => wire__crate__api__player__play_impl(port, ptr, rust_vec_len, data_len),
+        73 => wire__crate__api__player__plugin_publish_event_json_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        73 => wire__crate__api__player__plugin_runtime_events_global_impl(
+        74 => wire__crate__api__player__plugin_runtime_events_global_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        74 => wire__crate__api__player__plugins_install_from_file_impl(
+        75 => wire__crate__api__player__plugins_install_from_file_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        75 => wire__crate__api__player__plugins_list_impl(port, ptr, rust_vec_len, data_len),
-        76 => wire__crate__api__player__plugins_list_installed_json_impl(
+        76 => wire__crate__api__player__plugins_list_impl(port, ptr, rust_vec_len, data_len),
+        77 => wire__crate__api__player__plugins_list_installed_json_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        77 => wire__crate__api__player__plugins_uninstall_by_id_impl(
+        78 => wire__crate__api__player__plugins_uninstall_by_id_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        78 => wire__crate__api__player__preload_track_impl(port, ptr, rust_vec_len, data_len),
-        79 => wire__crate__api__player__preload_track_ref_impl(port, ptr, rust_vec_len, data_len),
-        80 => wire__crate__api__player__refresh_devices_impl(port, ptr, rust_vec_len, data_len),
-        81 => wire__stellatune_audio__types__resample_quality_default_impl(
+        79 => wire__crate__api__player__preload_track_impl(port, ptr, rust_vec_len, data_len),
+        80 => wire__crate__api__player__preload_track_ref_impl(port, ptr, rust_vec_len, data_len),
+        81 => wire__crate__api__player__refresh_devices_impl(port, ptr, rust_vec_len, data_len),
+        82 => wire__crate__api__player__types__resample_quality_default_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        82 => wire__crate__api__player__seek_ms_impl(port, ptr, rust_vec_len, data_len),
-        83 => wire__crate__api__player__set_output_device_impl(port, ptr, rust_vec_len, data_len),
-        84 => wire__crate__api__player__set_output_options_impl(port, ptr, rust_vec_len, data_len),
-        85 => {
+        83 => wire__crate__api__player__seek_ms_impl(port, ptr, rust_vec_len, data_len),
+        84 => wire__crate__api__player__set_lfe_mode_impl(port, ptr, rust_vec_len, data_len),
+        85 => wire__crate__api__player__set_output_device_impl(port, ptr, rust_vec_len, data_len),
+        86 => wire__crate__api__player__set_output_options_impl(port, ptr, rust_vec_len, data_len),
+        87 => {
             wire__crate__api__player__set_output_sink_route_impl(port, ptr, rust_vec_len, data_len)
         },
-        86 => wire__crate__api__player__set_volume_impl(port, ptr, rust_vec_len, data_len),
-        87 => wire__crate__api__runtime__shutdown_impl(port, ptr, rust_vec_len, data_len),
-        88 => {
+        88 => wire__crate__api__player__set_volume_impl(port, ptr, rust_vec_len, data_len),
+        89 => wire__crate__api__runtime__shutdown_impl(port, ptr, rust_vec_len, data_len),
+        90 => {
             wire__crate__api__player__source_list_items_json_impl(port, ptr, rust_vec_len, data_len)
         },
-        89 => wire__crate__api__player__source_list_types_impl(port, ptr, rust_vec_len, data_len),
-        90 => wire__crate__api__player__stop_impl(port, ptr, rust_vec_len, data_len),
-        91 => wire__crate__api__player__switch_track_ref_impl(port, ptr, rust_vec_len, data_len),
-        92 => wire__stellatune_audio__types__track_ref_for_local_path_impl(
+        91 => wire__crate__api__player__source_list_types_impl(port, ptr, rust_vec_len, data_len),
+        92 => wire__crate__api__player__stop_impl(port, ptr, rust_vec_len, data_len),
+        93 => wire__crate__api__player__switch_track_ref_impl(port, ptr, rust_vec_len, data_len),
+        94 => wire__crate__api__player__types__track_ref_for_local_path_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        93 => wire__stellatune_audio__types__track_ref_new_impl(port, ptr, rust_vec_len, data_len),
-        94 => wire__stellatune_audio__types__track_ref_stable_key_impl(
+        95 => {
+            wire__crate__api__player__types__track_ref_new_impl(port, ptr, rust_vec_len, data_len)
+        },
+        96 => wire__crate__api__player__types__track_ref_stable_key_impl(
             port,
             ptr,
             rust_vec_len,
@@ -5253,46 +5236,46 @@ fn pde_ffi_dispatcher_sync_impl(
 // Section: rust2dart
 
 // Codec=Dco (DartCObject based), see doc to use other codecs
-impl flutter_rust_bridge::IntoDart for FrbWrapper<stellatune_audio::types::AudioBackend> {
+impl flutter_rust_bridge::IntoDart for crate::api::player::types::AudioBackend {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
-        match self.0 {
-            stellatune_audio::types::AudioBackend::Shared => 0.into_dart(),
-            stellatune_audio::types::AudioBackend::WasapiExclusive => 1.into_dart(),
+        match self {
+            Self::Shared => 0.into_dart(),
+            Self::WasapiExclusive => 1.into_dart(),
             _ => unreachable!(),
         }
     }
 }
 impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
-    for FrbWrapper<stellatune_audio::types::AudioBackend>
+    for crate::api::player::types::AudioBackend
 {
 }
-impl flutter_rust_bridge::IntoIntoDart<FrbWrapper<stellatune_audio::types::AudioBackend>>
-    for stellatune_audio::types::AudioBackend
+impl flutter_rust_bridge::IntoIntoDart<crate::api::player::types::AudioBackend>
+    for crate::api::player::types::AudioBackend
 {
-    fn into_into_dart(self) -> FrbWrapper<stellatune_audio::types::AudioBackend> {
-        self.into()
+    fn into_into_dart(self) -> crate::api::player::types::AudioBackend {
+        self
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
-impl flutter_rust_bridge::IntoDart for FrbWrapper<stellatune_audio::types::AudioDevice> {
+impl flutter_rust_bridge::IntoDart for crate::api::player::types::AudioDevice {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
-            self.0.backend.into_into_dart().into_dart(),
-            self.0.id.into_into_dart().into_dart(),
-            self.0.name.into_into_dart().into_dart(),
+            self.backend.into_into_dart().into_dart(),
+            self.id.into_into_dart().into_dart(),
+            self.name.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
 }
 impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
-    for FrbWrapper<stellatune_audio::types::AudioDevice>
+    for crate::api::player::types::AudioDevice
 {
 }
-impl flutter_rust_bridge::IntoIntoDart<FrbWrapper<stellatune_audio::types::AudioDevice>>
-    for stellatune_audio::types::AudioDevice
+impl flutter_rust_bridge::IntoIntoDart<crate::api::player::types::AudioDevice>
+    for crate::api::player::types::AudioDevice
 {
-    fn into_into_dart(self) -> FrbWrapper<stellatune_audio::types::AudioDevice> {
-        self.into()
+    fn into_into_dart(self) -> crate::api::player::types::AudioDevice {
+        self
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
@@ -5411,60 +5394,60 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::dlna::types::DlnaTransportInf
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
-impl flutter_rust_bridge::IntoDart for FrbWrapper<stellatune_audio::types::DspChainItem> {
+impl flutter_rust_bridge::IntoDart for crate::api::player::types::DspChainItem {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
-            self.0.plugin_id.into_into_dart().into_dart(),
-            self.0.type_id.into_into_dart().into_dart(),
-            self.0.config_json.into_into_dart().into_dart(),
+            self.plugin_id.into_into_dart().into_dart(),
+            self.type_id.into_into_dart().into_dart(),
+            self.config_json.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
 }
 impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
-    for FrbWrapper<stellatune_audio::types::DspChainItem>
+    for crate::api::player::types::DspChainItem
 {
 }
-impl flutter_rust_bridge::IntoIntoDart<FrbWrapper<stellatune_audio::types::DspChainItem>>
-    for stellatune_audio::types::DspChainItem
+impl flutter_rust_bridge::IntoIntoDart<crate::api::player::types::DspChainItem>
+    for crate::api::player::types::DspChainItem
 {
-    fn into_into_dart(self) -> FrbWrapper<stellatune_audio::types::DspChainItem> {
-        self.into()
+    fn into_into_dart(self) -> crate::api::player::types::DspChainItem {
+        self
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
-impl flutter_rust_bridge::IntoDart for FrbWrapper<stellatune_audio::types::DspTypeDescriptor> {
+impl flutter_rust_bridge::IntoDart for crate::api::player::types::DspTypeDescriptor {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
-            self.0.plugin_id.into_into_dart().into_dart(),
-            self.0.plugin_name.into_into_dart().into_dart(),
-            self.0.type_id.into_into_dart().into_dart(),
-            self.0.display_name.into_into_dart().into_dart(),
-            self.0.config_schema_json.into_into_dart().into_dart(),
-            self.0.default_config_json.into_into_dart().into_dart(),
+            self.plugin_id.into_into_dart().into_dart(),
+            self.plugin_name.into_into_dart().into_dart(),
+            self.type_id.into_into_dart().into_dart(),
+            self.display_name.into_into_dart().into_dart(),
+            self.config_schema_json.into_into_dart().into_dart(),
+            self.default_config_json.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
 }
 impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
-    for FrbWrapper<stellatune_audio::types::DspTypeDescriptor>
+    for crate::api::player::types::DspTypeDescriptor
 {
 }
-impl flutter_rust_bridge::IntoIntoDart<FrbWrapper<stellatune_audio::types::DspTypeDescriptor>>
-    for stellatune_audio::types::DspTypeDescriptor
+impl flutter_rust_bridge::IntoIntoDart<crate::api::player::types::DspTypeDescriptor>
+    for crate::api::player::types::DspTypeDescriptor
 {
-    fn into_into_dart(self) -> FrbWrapper<stellatune_audio::types::DspTypeDescriptor> {
-        self.into()
+    fn into_into_dart(self) -> crate::api::player::types::DspTypeDescriptor {
+        self
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
-impl flutter_rust_bridge::IntoDart for FrbWrapper<stellatune_audio::types::Event> {
+impl flutter_rust_bridge::IntoDart for crate::api::player::types::Event {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
-        match self.0 {
-            stellatune_audio::types::Event::StateChanged { state } => {
+        match self {
+            crate::api::player::types::Event::StateChanged { state } => {
                 [0.into_dart(), state.into_into_dart().into_dart()].into_dart()
             },
-            stellatune_audio::types::Event::Position {
+            crate::api::player::types::Event::Position {
                 ms,
                 path,
                 session_id,
@@ -5475,19 +5458,22 @@ impl flutter_rust_bridge::IntoDart for FrbWrapper<stellatune_audio::types::Event
                 session_id.into_into_dart().into_dart(),
             ]
             .into_dart(),
-            stellatune_audio::types::Event::TrackChanged { path } => {
+            crate::api::player::types::Event::TrackChanged { path } => {
                 [2.into_dart(), path.into_into_dart().into_dart()].into_dart()
             },
-            stellatune_audio::types::Event::PlaybackEnded { path } => {
+            crate::api::player::types::Event::PlaybackEnded { path } => {
                 [3.into_dart(), path.into_into_dart().into_dart()].into_dart()
             },
-            stellatune_audio::types::Event::VolumeChanged { volume } => {
-                [4.into_dart(), volume.into_into_dart().into_dart()].into_dart()
-            },
-            stellatune_audio::types::Event::Error { message } => {
+            crate::api::player::types::Event::VolumeChanged { volume, seq } => [
+                4.into_dart(),
+                volume.into_into_dart().into_dart(),
+                seq.into_into_dart().into_dart(),
+            ]
+            .into_dart(),
+            crate::api::player::types::Event::Error { message } => {
                 [5.into_dart(), message.into_into_dart().into_dart()].into_dart()
             },
-            stellatune_audio::types::Event::Log { message } => {
+            crate::api::player::types::Event::Log { message } => {
                 [6.into_dart(), message.into_into_dart().into_dart()].into_dart()
             },
             _ => {
@@ -5497,35 +5483,35 @@ impl flutter_rust_bridge::IntoDart for FrbWrapper<stellatune_audio::types::Event
     }
 }
 impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
-    for FrbWrapper<stellatune_audio::types::Event>
+    for crate::api::player::types::Event
 {
 }
-impl flutter_rust_bridge::IntoIntoDart<FrbWrapper<stellatune_audio::types::Event>>
-    for stellatune_audio::types::Event
+impl flutter_rust_bridge::IntoIntoDart<crate::api::player::types::Event>
+    for crate::api::player::types::Event
 {
-    fn into_into_dart(self) -> FrbWrapper<stellatune_audio::types::Event> {
-        self.into()
+    fn into_into_dart(self) -> crate::api::player::types::Event {
+        self
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
-impl flutter_rust_bridge::IntoDart for FrbWrapper<stellatune_audio::types::LfeMode> {
+impl flutter_rust_bridge::IntoDart for crate::api::player::types::LfeMode {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
-        match self.0 {
-            stellatune_audio::types::LfeMode::Mute => 0.into_dart(),
-            stellatune_audio::types::LfeMode::MixToFront => 1.into_dart(),
+        match self {
+            Self::Mute => 0.into_dart(),
+            Self::MixToFront => 1.into_dart(),
             _ => unreachable!(),
         }
     }
 }
 impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
-    for FrbWrapper<stellatune_audio::types::LfeMode>
+    for crate::api::player::types::LfeMode
 {
 }
-impl flutter_rust_bridge::IntoIntoDart<FrbWrapper<stellatune_audio::types::LfeMode>>
-    for stellatune_audio::types::LfeMode
+impl flutter_rust_bridge::IntoIntoDart<crate::api::player::types::LfeMode>
+    for crate::api::player::types::LfeMode
 {
-    fn into_into_dart(self) -> FrbWrapper<stellatune_audio::types::LfeMode> {
-        self.into()
+    fn into_into_dart(self) -> crate::api::player::types::LfeMode {
+        self
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
@@ -5681,30 +5667,26 @@ impl
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
-impl flutter_rust_bridge::IntoDart
-    for FrbWrapper<stellatune_audio::types::LyricsProviderTypeDescriptor>
-{
+impl flutter_rust_bridge::IntoDart for crate::api::player::types::LyricsProviderTypeDescriptor {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
-            self.0.plugin_id.into_into_dart().into_dart(),
-            self.0.plugin_name.into_into_dart().into_dart(),
-            self.0.type_id.into_into_dart().into_dart(),
-            self.0.display_name.into_into_dart().into_dart(),
+            self.plugin_id.into_into_dart().into_dart(),
+            self.plugin_name.into_into_dart().into_dart(),
+            self.type_id.into_into_dart().into_dart(),
+            self.display_name.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
 }
 impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
-    for FrbWrapper<stellatune_audio::types::LyricsProviderTypeDescriptor>
+    for crate::api::player::types::LyricsProviderTypeDescriptor
 {
 }
-impl
-    flutter_rust_bridge::IntoIntoDart<
-        FrbWrapper<stellatune_audio::types::LyricsProviderTypeDescriptor>,
-    > for stellatune_audio::types::LyricsProviderTypeDescriptor
+impl flutter_rust_bridge::IntoIntoDart<crate::api::player::types::LyricsProviderTypeDescriptor>
+    for crate::api::player::types::LyricsProviderTypeDescriptor
 {
-    fn into_into_dart(self) -> FrbWrapper<stellatune_audio::types::LyricsProviderTypeDescriptor> {
-        self.into()
+    fn into_into_dart(self) -> crate::api::player::types::LyricsProviderTypeDescriptor {
+        self
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
@@ -5768,77 +5750,74 @@ impl
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
-impl flutter_rust_bridge::IntoDart for FrbWrapper<stellatune_audio::types::OutputSinkRoute> {
+impl flutter_rust_bridge::IntoDart for crate::api::player::types::OutputSinkRoute {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
-            self.0.plugin_id.into_into_dart().into_dart(),
-            self.0.type_id.into_into_dart().into_dart(),
-            self.0.config_json.into_into_dart().into_dart(),
-            self.0.target_json.into_into_dart().into_dart(),
+            self.plugin_id.into_into_dart().into_dart(),
+            self.type_id.into_into_dart().into_dart(),
+            self.config_json.into_into_dart().into_dart(),
+            self.target_json.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
 }
 impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
-    for FrbWrapper<stellatune_audio::types::OutputSinkRoute>
+    for crate::api::player::types::OutputSinkRoute
 {
 }
-impl flutter_rust_bridge::IntoIntoDart<FrbWrapper<stellatune_audio::types::OutputSinkRoute>>
-    for stellatune_audio::types::OutputSinkRoute
+impl flutter_rust_bridge::IntoIntoDart<crate::api::player::types::OutputSinkRoute>
+    for crate::api::player::types::OutputSinkRoute
 {
-    fn into_into_dart(self) -> FrbWrapper<stellatune_audio::types::OutputSinkRoute> {
-        self.into()
+    fn into_into_dart(self) -> crate::api::player::types::OutputSinkRoute {
+        self
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
-impl flutter_rust_bridge::IntoDart
-    for FrbWrapper<stellatune_audio::types::OutputSinkTypeDescriptor>
-{
+impl flutter_rust_bridge::IntoDart for crate::api::player::types::OutputSinkTypeDescriptor {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
-            self.0.plugin_id.into_into_dart().into_dart(),
-            self.0.plugin_name.into_into_dart().into_dart(),
-            self.0.type_id.into_into_dart().into_dart(),
-            self.0.display_name.into_into_dart().into_dart(),
-            self.0.config_schema_json.into_into_dart().into_dart(),
-            self.0.default_config_json.into_into_dart().into_dart(),
+            self.plugin_id.into_into_dart().into_dart(),
+            self.plugin_name.into_into_dart().into_dart(),
+            self.type_id.into_into_dart().into_dart(),
+            self.display_name.into_into_dart().into_dart(),
+            self.config_schema_json.into_into_dart().into_dart(),
+            self.default_config_json.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
 }
 impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
-    for FrbWrapper<stellatune_audio::types::OutputSinkTypeDescriptor>
+    for crate::api::player::types::OutputSinkTypeDescriptor
 {
 }
-impl
-    flutter_rust_bridge::IntoIntoDart<FrbWrapper<stellatune_audio::types::OutputSinkTypeDescriptor>>
-    for stellatune_audio::types::OutputSinkTypeDescriptor
+impl flutter_rust_bridge::IntoIntoDart<crate::api::player::types::OutputSinkTypeDescriptor>
+    for crate::api::player::types::OutputSinkTypeDescriptor
 {
-    fn into_into_dart(self) -> FrbWrapper<stellatune_audio::types::OutputSinkTypeDescriptor> {
-        self.into()
+    fn into_into_dart(self) -> crate::api::player::types::OutputSinkTypeDescriptor {
+        self
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
-impl flutter_rust_bridge::IntoDart for FrbWrapper<stellatune_audio::types::PlayerState> {
+impl flutter_rust_bridge::IntoDart for crate::api::player::types::PlayerState {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
-        match self.0 {
-            stellatune_audio::types::PlayerState::Stopped => 0.into_dart(),
-            stellatune_audio::types::PlayerState::Playing => 1.into_dart(),
-            stellatune_audio::types::PlayerState::Paused => 2.into_dart(),
-            stellatune_audio::types::PlayerState::Buffering => 3.into_dart(),
+        match self {
+            Self::Stopped => 0.into_dart(),
+            Self::Playing => 1.into_dart(),
+            Self::Paused => 2.into_dart(),
+            Self::Buffering => 3.into_dart(),
             _ => unreachable!(),
         }
     }
 }
 impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
-    for FrbWrapper<stellatune_audio::types::PlayerState>
+    for crate::api::player::types::PlayerState
 {
 }
-impl flutter_rust_bridge::IntoIntoDart<FrbWrapper<stellatune_audio::types::PlayerState>>
-    for stellatune_audio::types::PlayerState
+impl flutter_rust_bridge::IntoIntoDart<crate::api::player::types::PlayerState>
+    for crate::api::player::types::PlayerState
 {
-    fn into_into_dart(self) -> FrbWrapper<stellatune_audio::types::PlayerState> {
-        self.into()
+    fn into_into_dart(self) -> crate::api::player::types::PlayerState {
+        self
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
@@ -5866,146 +5845,142 @@ impl flutter_rust_bridge::IntoIntoDart<FrbWrapper<stellatune_library::PlaylistLi
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
-impl flutter_rust_bridge::IntoDart for FrbWrapper<stellatune_audio::types::PluginDescriptor> {
+impl flutter_rust_bridge::IntoDart for crate::api::player::types::PluginDescriptor {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
-            self.0.id.into_into_dart().into_dart(),
-            self.0.name.into_into_dart().into_dart(),
+            self.id.into_into_dart().into_dart(),
+            self.name.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
 }
 impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
-    for FrbWrapper<stellatune_audio::types::PluginDescriptor>
+    for crate::api::player::types::PluginDescriptor
 {
 }
-impl flutter_rust_bridge::IntoIntoDart<FrbWrapper<stellatune_audio::types::PluginDescriptor>>
-    for stellatune_audio::types::PluginDescriptor
+impl flutter_rust_bridge::IntoIntoDart<crate::api::player::types::PluginDescriptor>
+    for crate::api::player::types::PluginDescriptor
 {
-    fn into_into_dart(self) -> FrbWrapper<stellatune_audio::types::PluginDescriptor> {
-        self.into()
+    fn into_into_dart(self) -> crate::api::player::types::PluginDescriptor {
+        self
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
-impl flutter_rust_bridge::IntoDart for FrbWrapper<stellatune_audio::types::PluginRuntimeEvent> {
+impl flutter_rust_bridge::IntoDart for crate::api::player::types::PluginRuntimeEvent {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
-            self.0.plugin_id.into_into_dart().into_dart(),
-            self.0.kind.into_into_dart().into_dart(),
-            self.0.payload_json.into_into_dart().into_dart(),
+            self.plugin_id.into_into_dart().into_dart(),
+            self.kind.into_into_dart().into_dart(),
+            self.payload_json.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
 }
 impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
-    for FrbWrapper<stellatune_audio::types::PluginRuntimeEvent>
+    for crate::api::player::types::PluginRuntimeEvent
 {
 }
-impl flutter_rust_bridge::IntoIntoDart<FrbWrapper<stellatune_audio::types::PluginRuntimeEvent>>
-    for stellatune_audio::types::PluginRuntimeEvent
+impl flutter_rust_bridge::IntoIntoDart<crate::api::player::types::PluginRuntimeEvent>
+    for crate::api::player::types::PluginRuntimeEvent
 {
-    fn into_into_dart(self) -> FrbWrapper<stellatune_audio::types::PluginRuntimeEvent> {
-        self.into()
+    fn into_into_dart(self) -> crate::api::player::types::PluginRuntimeEvent {
+        self
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
-impl flutter_rust_bridge::IntoDart for FrbWrapper<stellatune_audio::types::PluginRuntimeKind> {
+impl flutter_rust_bridge::IntoDart for crate::api::player::types::PluginRuntimeKind {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
-        match self.0 {
-            stellatune_audio::types::PluginRuntimeKind::Notify => 0.into_dart(),
-            stellatune_audio::types::PluginRuntimeKind::Control => 1.into_dart(),
-            stellatune_audio::types::PluginRuntimeKind::ControlResult => 2.into_dart(),
-            stellatune_audio::types::PluginRuntimeKind::ControlFinished => 3.into_dart(),
+        match self {
+            Self::Notify => 0.into_dart(),
+            Self::Control => 1.into_dart(),
+            Self::ControlResult => 2.into_dart(),
+            Self::ControlFinished => 3.into_dart(),
             _ => unreachable!(),
         }
     }
 }
 impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
-    for FrbWrapper<stellatune_audio::types::PluginRuntimeKind>
+    for crate::api::player::types::PluginRuntimeKind
 {
 }
-impl flutter_rust_bridge::IntoIntoDart<FrbWrapper<stellatune_audio::types::PluginRuntimeKind>>
-    for stellatune_audio::types::PluginRuntimeKind
+impl flutter_rust_bridge::IntoIntoDart<crate::api::player::types::PluginRuntimeKind>
+    for crate::api::player::types::PluginRuntimeKind
 {
-    fn into_into_dart(self) -> FrbWrapper<stellatune_audio::types::PluginRuntimeKind> {
-        self.into()
+    fn into_into_dart(self) -> crate::api::player::types::PluginRuntimeKind {
+        self
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
-impl flutter_rust_bridge::IntoDart for FrbWrapper<stellatune_audio::types::ResampleQuality> {
+impl flutter_rust_bridge::IntoDart for crate::api::player::types::ResampleQuality {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
-        match self.0 {
-            stellatune_audio::types::ResampleQuality::Fast => 0.into_dart(),
-            stellatune_audio::types::ResampleQuality::Balanced => 1.into_dart(),
-            stellatune_audio::types::ResampleQuality::High => 2.into_dart(),
-            stellatune_audio::types::ResampleQuality::Ultra => 3.into_dart(),
+        match self {
+            Self::Fast => 0.into_dart(),
+            Self::Balanced => 1.into_dart(),
+            Self::High => 2.into_dart(),
+            Self::Ultra => 3.into_dart(),
             _ => unreachable!(),
         }
     }
 }
 impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
-    for FrbWrapper<stellatune_audio::types::ResampleQuality>
+    for crate::api::player::types::ResampleQuality
 {
 }
-impl flutter_rust_bridge::IntoIntoDart<FrbWrapper<stellatune_audio::types::ResampleQuality>>
-    for stellatune_audio::types::ResampleQuality
+impl flutter_rust_bridge::IntoIntoDart<crate::api::player::types::ResampleQuality>
+    for crate::api::player::types::ResampleQuality
 {
-    fn into_into_dart(self) -> FrbWrapper<stellatune_audio::types::ResampleQuality> {
-        self.into()
+    fn into_into_dart(self) -> crate::api::player::types::ResampleQuality {
+        self
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
-impl flutter_rust_bridge::IntoDart
-    for FrbWrapper<stellatune_audio::types::SourceCatalogTypeDescriptor>
-{
+impl flutter_rust_bridge::IntoDart for crate::api::player::types::SourceCatalogTypeDescriptor {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
-            self.0.plugin_id.into_into_dart().into_dart(),
-            self.0.plugin_name.into_into_dart().into_dart(),
-            self.0.type_id.into_into_dart().into_dart(),
-            self.0.display_name.into_into_dart().into_dart(),
-            self.0.config_schema_json.into_into_dart().into_dart(),
-            self.0.default_config_json.into_into_dart().into_dart(),
+            self.plugin_id.into_into_dart().into_dart(),
+            self.plugin_name.into_into_dart().into_dart(),
+            self.type_id.into_into_dart().into_dart(),
+            self.display_name.into_into_dart().into_dart(),
+            self.config_schema_json.into_into_dart().into_dart(),
+            self.default_config_json.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
 }
 impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
-    for FrbWrapper<stellatune_audio::types::SourceCatalogTypeDescriptor>
+    for crate::api::player::types::SourceCatalogTypeDescriptor
 {
 }
-impl
-    flutter_rust_bridge::IntoIntoDart<
-        FrbWrapper<stellatune_audio::types::SourceCatalogTypeDescriptor>,
-    > for stellatune_audio::types::SourceCatalogTypeDescriptor
+impl flutter_rust_bridge::IntoIntoDart<crate::api::player::types::SourceCatalogTypeDescriptor>
+    for crate::api::player::types::SourceCatalogTypeDescriptor
 {
-    fn into_into_dart(self) -> FrbWrapper<stellatune_audio::types::SourceCatalogTypeDescriptor> {
-        self.into()
+    fn into_into_dart(self) -> crate::api::player::types::SourceCatalogTypeDescriptor {
+        self
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
-impl flutter_rust_bridge::IntoDart for FrbWrapper<stellatune_audio::types::TrackDecodeInfo> {
+impl flutter_rust_bridge::IntoDart for crate::api::player::types::TrackDecodeInfo {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
-            self.0.sample_rate.into_into_dart().into_dart(),
-            self.0.channels.into_into_dart().into_dart(),
-            self.0.duration_ms.into_into_dart().into_dart(),
-            self.0.metadata_json.into_into_dart().into_dart(),
-            self.0.decoder_plugin_id.into_into_dart().into_dart(),
-            self.0.decoder_type_id.into_into_dart().into_dart(),
+            self.sample_rate.into_into_dart().into_dart(),
+            self.channels.into_into_dart().into_dart(),
+            self.duration_ms.into_into_dart().into_dart(),
+            self.metadata_json.into_into_dart().into_dart(),
+            self.decoder_plugin_id.into_into_dart().into_dart(),
+            self.decoder_type_id.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
 }
 impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
-    for FrbWrapper<stellatune_audio::types::TrackDecodeInfo>
+    for crate::api::player::types::TrackDecodeInfo
 {
 }
-impl flutter_rust_bridge::IntoIntoDart<FrbWrapper<stellatune_audio::types::TrackDecodeInfo>>
-    for stellatune_audio::types::TrackDecodeInfo
+impl flutter_rust_bridge::IntoIntoDart<crate::api::player::types::TrackDecodeInfo>
+    for crate::api::player::types::TrackDecodeInfo
 {
-    fn into_into_dart(self) -> FrbWrapper<stellatune_audio::types::TrackDecodeInfo> {
-        self.into()
+    fn into_into_dart(self) -> crate::api::player::types::TrackDecodeInfo {
+        self
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
@@ -6034,47 +6009,47 @@ impl flutter_rust_bridge::IntoIntoDart<FrbWrapper<stellatune_library::TrackLite>
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
-impl flutter_rust_bridge::IntoDart for FrbWrapper<stellatune_audio::types::TrackPlayability> {
+impl flutter_rust_bridge::IntoDart for crate::api::player::types::TrackPlayability {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
-            self.0.track.into_into_dart().into_dart(),
-            self.0.playable.into_into_dart().into_dart(),
-            self.0.reason.into_into_dart().into_dart(),
+            self.track.into_into_dart().into_dart(),
+            self.playable.into_into_dart().into_dart(),
+            self.reason.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
 }
 impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
-    for FrbWrapper<stellatune_audio::types::TrackPlayability>
+    for crate::api::player::types::TrackPlayability
 {
 }
-impl flutter_rust_bridge::IntoIntoDart<FrbWrapper<stellatune_audio::types::TrackPlayability>>
-    for stellatune_audio::types::TrackPlayability
+impl flutter_rust_bridge::IntoIntoDart<crate::api::player::types::TrackPlayability>
+    for crate::api::player::types::TrackPlayability
 {
-    fn into_into_dart(self) -> FrbWrapper<stellatune_audio::types::TrackPlayability> {
-        self.into()
+    fn into_into_dart(self) -> crate::api::player::types::TrackPlayability {
+        self
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
-impl flutter_rust_bridge::IntoDart for FrbWrapper<stellatune_audio::types::TrackRef> {
+impl flutter_rust_bridge::IntoDart for crate::api::player::types::TrackRef {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
-            self.0.source_id.into_into_dart().into_dart(),
-            self.0.track_id.into_into_dart().into_dart(),
-            self.0.locator.into_into_dart().into_dart(),
+            self.source_id.into_into_dart().into_dart(),
+            self.track_id.into_into_dart().into_dart(),
+            self.locator.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
 }
 impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
-    for FrbWrapper<stellatune_audio::types::TrackRef>
+    for crate::api::player::types::TrackRef
 {
 }
-impl flutter_rust_bridge::IntoIntoDart<FrbWrapper<stellatune_audio::types::TrackRef>>
-    for stellatune_audio::types::TrackRef
+impl flutter_rust_bridge::IntoIntoDart<crate::api::player::types::TrackRef>
+    for crate::api::player::types::TrackRef
 {
-    fn into_into_dart(self) -> FrbWrapper<stellatune_audio::types::TrackRef> {
-        self.into()
+    fn into_into_dart(self) -> crate::api::player::types::TrackRef {
+        self
     }
 }
 
@@ -6086,7 +6061,7 @@ impl SseEncode for flutter_rust_bridge::for_generated::anyhow::Error {
 }
 
 impl SseEncode
-    for StreamSink<stellatune_audio::types::Event, flutter_rust_bridge::for_generated::SseCodec>
+    for StreamSink<crate::api::player::types::Event, flutter_rust_bridge::for_generated::SseCodec>
 {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -6117,7 +6092,7 @@ impl SseEncode
 
 impl SseEncode
     for StreamSink<
-        stellatune_audio::types::PluginRuntimeEvent,
+        crate::api::player::types::PluginRuntimeEvent,
         flutter_rust_bridge::for_generated::SseCodec,
     >
 {
@@ -6134,13 +6109,13 @@ impl SseEncode for String {
     }
 }
 
-impl SseEncode for stellatune_audio::types::AudioBackend {
+impl SseEncode for crate::api::player::types::AudioBackend {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <i32>::sse_encode(
             match self {
-                stellatune_audio::types::AudioBackend::Shared => 0,
-                stellatune_audio::types::AudioBackend::WasapiExclusive => 1,
+                crate::api::player::types::AudioBackend::Shared => 0,
+                crate::api::player::types::AudioBackend::WasapiExclusive => 1,
                 _ => {
                     unimplemented!("");
                 },
@@ -6150,10 +6125,10 @@ impl SseEncode for stellatune_audio::types::AudioBackend {
     }
 }
 
-impl SseEncode for stellatune_audio::types::AudioDevice {
+impl SseEncode for crate::api::player::types::AudioDevice {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
-        <stellatune_audio::types::AudioBackend>::sse_encode(self.backend, serializer);
+        <crate::api::player::types::AudioBackend>::sse_encode(self.backend, serializer);
         <String>::sse_encode(self.id, serializer);
         <String>::sse_encode(self.name, serializer);
     }
@@ -6214,7 +6189,7 @@ impl SseEncode for crate::api::dlna::types::DlnaTransportInfo {
     }
 }
 
-impl SseEncode for stellatune_audio::types::DspChainItem {
+impl SseEncode for crate::api::player::types::DspChainItem {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <String>::sse_encode(self.plugin_id, serializer);
@@ -6223,7 +6198,7 @@ impl SseEncode for stellatune_audio::types::DspChainItem {
     }
 }
 
-impl SseEncode for stellatune_audio::types::DspTypeDescriptor {
+impl SseEncode for crate::api::player::types::DspTypeDescriptor {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <String>::sse_encode(self.plugin_id, serializer);
@@ -6235,15 +6210,15 @@ impl SseEncode for stellatune_audio::types::DspTypeDescriptor {
     }
 }
 
-impl SseEncode for stellatune_audio::types::Event {
+impl SseEncode for crate::api::player::types::Event {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         match self {
-            stellatune_audio::types::Event::StateChanged { state } => {
+            crate::api::player::types::Event::StateChanged { state } => {
                 <i32>::sse_encode(0, serializer);
-                <stellatune_audio::types::PlayerState>::sse_encode(state, serializer);
+                <crate::api::player::types::PlayerState>::sse_encode(state, serializer);
             },
-            stellatune_audio::types::Event::Position {
+            crate::api::player::types::Event::Position {
                 ms,
                 path,
                 session_id,
@@ -6253,23 +6228,24 @@ impl SseEncode for stellatune_audio::types::Event {
                 <String>::sse_encode(path, serializer);
                 <u64>::sse_encode(session_id, serializer);
             },
-            stellatune_audio::types::Event::TrackChanged { path } => {
+            crate::api::player::types::Event::TrackChanged { path } => {
                 <i32>::sse_encode(2, serializer);
                 <String>::sse_encode(path, serializer);
             },
-            stellatune_audio::types::Event::PlaybackEnded { path } => {
+            crate::api::player::types::Event::PlaybackEnded { path } => {
                 <i32>::sse_encode(3, serializer);
                 <String>::sse_encode(path, serializer);
             },
-            stellatune_audio::types::Event::VolumeChanged { volume } => {
+            crate::api::player::types::Event::VolumeChanged { volume, seq } => {
                 <i32>::sse_encode(4, serializer);
                 <f32>::sse_encode(volume, serializer);
+                <u64>::sse_encode(seq, serializer);
             },
-            stellatune_audio::types::Event::Error { message } => {
+            crate::api::player::types::Event::Error { message } => {
                 <i32>::sse_encode(5, serializer);
                 <String>::sse_encode(message, serializer);
             },
-            stellatune_audio::types::Event::Log { message } => {
+            crate::api::player::types::Event::Log { message } => {
                 <i32>::sse_encode(6, serializer);
                 <String>::sse_encode(message, serializer);
             },
@@ -6301,13 +6277,13 @@ impl SseEncode for i64 {
     }
 }
 
-impl SseEncode for stellatune_audio::types::LfeMode {
+impl SseEncode for crate::api::player::types::LfeMode {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <i32>::sse_encode(
             match self {
-                stellatune_audio::types::LfeMode::Mute => 0,
-                stellatune_audio::types::LfeMode::MixToFront => 1,
+                crate::api::player::types::LfeMode::Mute => 0,
+                crate::api::player::types::LfeMode::MixToFront => 1,
                 _ => {
                     unimplemented!("");
                 },
@@ -6375,12 +6351,12 @@ impl SseEncode for Vec<String> {
     }
 }
 
-impl SseEncode for Vec<stellatune_audio::types::AudioDevice> {
+impl SseEncode for Vec<crate::api::player::types::AudioDevice> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <i32>::sse_encode(self.len() as _, serializer);
         for item in self {
-            <stellatune_audio::types::AudioDevice>::sse_encode(item, serializer);
+            <crate::api::player::types::AudioDevice>::sse_encode(item, serializer);
         }
     }
 }
@@ -6405,22 +6381,22 @@ impl SseEncode for Vec<crate::api::dlna::types::DlnaSsdpDevice> {
     }
 }
 
-impl SseEncode for Vec<stellatune_audio::types::DspChainItem> {
+impl SseEncode for Vec<crate::api::player::types::DspChainItem> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <i32>::sse_encode(self.len() as _, serializer);
         for item in self {
-            <stellatune_audio::types::DspChainItem>::sse_encode(item, serializer);
+            <crate::api::player::types::DspChainItem>::sse_encode(item, serializer);
         }
     }
 }
 
-impl SseEncode for Vec<stellatune_audio::types::DspTypeDescriptor> {
+impl SseEncode for Vec<crate::api::player::types::DspTypeDescriptor> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <i32>::sse_encode(self.len() as _, serializer);
         for item in self {
-            <stellatune_audio::types::DspTypeDescriptor>::sse_encode(item, serializer);
+            <crate::api::player::types::DspTypeDescriptor>::sse_encode(item, serializer);
         }
     }
 }
@@ -6435,12 +6411,12 @@ impl SseEncode for Vec<stellatune_backend_api::lyrics_types::LyricLine> {
     }
 }
 
-impl SseEncode for Vec<stellatune_audio::types::LyricsProviderTypeDescriptor> {
+impl SseEncode for Vec<crate::api::player::types::LyricsProviderTypeDescriptor> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <i32>::sse_encode(self.len() as _, serializer);
         for item in self {
-            <stellatune_audio::types::LyricsProviderTypeDescriptor>::sse_encode(item, serializer);
+            <crate::api::player::types::LyricsProviderTypeDescriptor>::sse_encode(item, serializer);
         }
     }
 }
@@ -6457,12 +6433,12 @@ impl SseEncode for Vec<stellatune_backend_api::lyrics_types::LyricsSearchCandida
     }
 }
 
-impl SseEncode for Vec<stellatune_audio::types::OutputSinkTypeDescriptor> {
+impl SseEncode for Vec<crate::api::player::types::OutputSinkTypeDescriptor> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <i32>::sse_encode(self.len() as _, serializer);
         for item in self {
-            <stellatune_audio::types::OutputSinkTypeDescriptor>::sse_encode(item, serializer);
+            <crate::api::player::types::OutputSinkTypeDescriptor>::sse_encode(item, serializer);
         }
     }
 }
@@ -6477,12 +6453,12 @@ impl SseEncode for Vec<stellatune_library::PlaylistLite> {
     }
 }
 
-impl SseEncode for Vec<stellatune_audio::types::PluginDescriptor> {
+impl SseEncode for Vec<crate::api::player::types::PluginDescriptor> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <i32>::sse_encode(self.len() as _, serializer);
         for item in self {
-            <stellatune_audio::types::PluginDescriptor>::sse_encode(item, serializer);
+            <crate::api::player::types::PluginDescriptor>::sse_encode(item, serializer);
         }
     }
 }
@@ -6507,12 +6483,12 @@ impl SseEncode for Vec<u8> {
     }
 }
 
-impl SseEncode for Vec<stellatune_audio::types::SourceCatalogTypeDescriptor> {
+impl SseEncode for Vec<crate::api::player::types::SourceCatalogTypeDescriptor> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <i32>::sse_encode(self.len() as _, serializer);
         for item in self {
-            <stellatune_audio::types::SourceCatalogTypeDescriptor>::sse_encode(item, serializer);
+            <crate::api::player::types::SourceCatalogTypeDescriptor>::sse_encode(item, serializer);
         }
     }
 }
@@ -6527,22 +6503,22 @@ impl SseEncode for Vec<stellatune_library::TrackLite> {
     }
 }
 
-impl SseEncode for Vec<stellatune_audio::types::TrackPlayability> {
+impl SseEncode for Vec<crate::api::player::types::TrackPlayability> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <i32>::sse_encode(self.len() as _, serializer);
         for item in self {
-            <stellatune_audio::types::TrackPlayability>::sse_encode(item, serializer);
+            <crate::api::player::types::TrackPlayability>::sse_encode(item, serializer);
         }
     }
 }
 
-impl SseEncode for Vec<stellatune_audio::types::TrackRef> {
+impl SseEncode for Vec<crate::api::player::types::TrackRef> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <i32>::sse_encode(self.len() as _, serializer);
         for item in self {
-            <stellatune_audio::types::TrackRef>::sse_encode(item, serializer);
+            <crate::api::player::types::TrackRef>::sse_encode(item, serializer);
         }
     }
 }
@@ -6603,7 +6579,7 @@ impl SseEncode for stellatune_backend_api::lyrics_types::LyricsEvent {
     }
 }
 
-impl SseEncode for stellatune_audio::types::LyricsProviderTypeDescriptor {
+impl SseEncode for crate::api::player::types::LyricsProviderTypeDescriptor {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <String>::sse_encode(self.plugin_id, serializer);
@@ -6658,12 +6634,12 @@ impl SseEncode for Option<i64> {
     }
 }
 
-impl SseEncode for Option<stellatune_audio::types::TrackDecodeInfo> {
+impl SseEncode for Option<crate::api::player::types::TrackDecodeInfo> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <bool>::sse_encode(self.is_some(), serializer);
         if let Some(value) = self {
-            <stellatune_audio::types::TrackDecodeInfo>::sse_encode(value, serializer);
+            <crate::api::player::types::TrackDecodeInfo>::sse_encode(value, serializer);
         }
     }
 }
@@ -6688,7 +6664,7 @@ impl SseEncode for Option<u64> {
     }
 }
 
-impl SseEncode for stellatune_audio::types::OutputSinkRoute {
+impl SseEncode for crate::api::player::types::OutputSinkRoute {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <String>::sse_encode(self.plugin_id, serializer);
@@ -6698,7 +6674,7 @@ impl SseEncode for stellatune_audio::types::OutputSinkRoute {
     }
 }
 
-impl SseEncode for stellatune_audio::types::OutputSinkTypeDescriptor {
+impl SseEncode for crate::api::player::types::OutputSinkTypeDescriptor {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <String>::sse_encode(self.plugin_id, serializer);
@@ -6710,15 +6686,15 @@ impl SseEncode for stellatune_audio::types::OutputSinkTypeDescriptor {
     }
 }
 
-impl SseEncode for stellatune_audio::types::PlayerState {
+impl SseEncode for crate::api::player::types::PlayerState {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <i32>::sse_encode(
             match self {
-                stellatune_audio::types::PlayerState::Stopped => 0,
-                stellatune_audio::types::PlayerState::Playing => 1,
-                stellatune_audio::types::PlayerState::Paused => 2,
-                stellatune_audio::types::PlayerState::Buffering => 3,
+                crate::api::player::types::PlayerState::Stopped => 0,
+                crate::api::player::types::PlayerState::Playing => 1,
+                crate::api::player::types::PlayerState::Paused => 2,
+                crate::api::player::types::PlayerState::Buffering => 3,
                 _ => {
                     unimplemented!("");
                 },
@@ -6739,7 +6715,7 @@ impl SseEncode for stellatune_library::PlaylistLite {
     }
 }
 
-impl SseEncode for stellatune_audio::types::PluginDescriptor {
+impl SseEncode for crate::api::player::types::PluginDescriptor {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <String>::sse_encode(self.id, serializer);
@@ -6747,24 +6723,24 @@ impl SseEncode for stellatune_audio::types::PluginDescriptor {
     }
 }
 
-impl SseEncode for stellatune_audio::types::PluginRuntimeEvent {
+impl SseEncode for crate::api::player::types::PluginRuntimeEvent {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <String>::sse_encode(self.plugin_id, serializer);
-        <stellatune_audio::types::PluginRuntimeKind>::sse_encode(self.kind, serializer);
+        <crate::api::player::types::PluginRuntimeKind>::sse_encode(self.kind, serializer);
         <String>::sse_encode(self.payload_json, serializer);
     }
 }
 
-impl SseEncode for stellatune_audio::types::PluginRuntimeKind {
+impl SseEncode for crate::api::player::types::PluginRuntimeKind {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <i32>::sse_encode(
             match self {
-                stellatune_audio::types::PluginRuntimeKind::Notify => 0,
-                stellatune_audio::types::PluginRuntimeKind::Control => 1,
-                stellatune_audio::types::PluginRuntimeKind::ControlResult => 2,
-                stellatune_audio::types::PluginRuntimeKind::ControlFinished => 3,
+                crate::api::player::types::PluginRuntimeKind::Notify => 0,
+                crate::api::player::types::PluginRuntimeKind::Control => 1,
+                crate::api::player::types::PluginRuntimeKind::ControlResult => 2,
+                crate::api::player::types::PluginRuntimeKind::ControlFinished => 3,
                 _ => {
                     unimplemented!("");
                 },
@@ -6774,15 +6750,15 @@ impl SseEncode for stellatune_audio::types::PluginRuntimeKind {
     }
 }
 
-impl SseEncode for stellatune_audio::types::ResampleQuality {
+impl SseEncode for crate::api::player::types::ResampleQuality {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <i32>::sse_encode(
             match self {
-                stellatune_audio::types::ResampleQuality::Fast => 0,
-                stellatune_audio::types::ResampleQuality::Balanced => 1,
-                stellatune_audio::types::ResampleQuality::High => 2,
-                stellatune_audio::types::ResampleQuality::Ultra => 3,
+                crate::api::player::types::ResampleQuality::Fast => 0,
+                crate::api::player::types::ResampleQuality::Balanced => 1,
+                crate::api::player::types::ResampleQuality::High => 2,
+                crate::api::player::types::ResampleQuality::Ultra => 3,
                 _ => {
                     unimplemented!("");
                 },
@@ -6792,7 +6768,7 @@ impl SseEncode for stellatune_audio::types::ResampleQuality {
     }
 }
 
-impl SseEncode for stellatune_audio::types::SourceCatalogTypeDescriptor {
+impl SseEncode for crate::api::player::types::SourceCatalogTypeDescriptor {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <String>::sse_encode(self.plugin_id, serializer);
@@ -6804,7 +6780,7 @@ impl SseEncode for stellatune_audio::types::SourceCatalogTypeDescriptor {
     }
 }
 
-impl SseEncode for stellatune_audio::types::TrackDecodeInfo {
+impl SseEncode for crate::api::player::types::TrackDecodeInfo {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <u32>::sse_encode(self.sample_rate, serializer);
@@ -6828,16 +6804,16 @@ impl SseEncode for stellatune_library::TrackLite {
     }
 }
 
-impl SseEncode for stellatune_audio::types::TrackPlayability {
+impl SseEncode for crate::api::player::types::TrackPlayability {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
-        <stellatune_audio::types::TrackRef>::sse_encode(self.track, serializer);
+        <crate::api::player::types::TrackRef>::sse_encode(self.track, serializer);
         <bool>::sse_encode(self.playable, serializer);
         <Option<String>>::sse_encode(self.reason, serializer);
     }
 }
 
-impl SseEncode for stellatune_audio::types::TrackRef {
+impl SseEncode for crate::api::player::types::TrackRef {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <String>::sse_encode(self.source_id, serializer);

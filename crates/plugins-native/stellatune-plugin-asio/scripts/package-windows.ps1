@@ -34,12 +34,8 @@ function Get-ProfileDir {
 }
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$RepoRoot = Resolve-Path (Join-Path $ScriptDir "..\..\..")
-$ProfileDir = Get-ProfileDir -Configuration $Configuration
-$CargoTargetDir = Join-Path $RepoRoot "target"
-
-$PluginManifestPath = Join-Path $RepoRoot "crates\plugins-native\stellatune-plugin-asio\Cargo.toml"
-$AsioHostManifestPath = Join-Path $RepoRoot "crates\plugins-native\stellatune-asio-host\Cargo.toml"
+$PluginManifestPath = Join-Path $ScriptDir "..\Cargo.toml"
+$AsioHostManifestPath = Join-Path $ScriptDir "..\..\stellatune-asio-host\Cargo.toml"
 
 if (-not (Test-Path $PluginManifestPath)) {
     throw "plugin manifest not found: $PluginManifestPath"
@@ -47,6 +43,13 @@ if (-not (Test-Path $PluginManifestPath)) {
 if (-not (Test-Path $AsioHostManifestPath)) {
     throw "ASIO host manifest not found: $AsioHostManifestPath"
 }
+
+$PluginManifestPath = (Resolve-Path $PluginManifestPath).Path
+$AsioHostManifestPath = (Resolve-Path $AsioHostManifestPath).Path
+$PluginCrateDir = Split-Path -Parent $PluginManifestPath
+$RepoRoot = (Resolve-Path (Join-Path $PluginCrateDir "..\..\..")).Path
+$ProfileDir = Get-ProfileDir -Configuration $Configuration
+$CargoTargetDir = Join-Path $RepoRoot "target"
 
 if ([string]::IsNullOrWhiteSpace($OutDir)) {
     $OutDir = Join-Path $CargoTargetDir "plugins"

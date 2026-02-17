@@ -10,7 +10,7 @@ impl Handler<InstallDecodeWorkerMessage> for ControlActor {
         _ctx: &mut ActorContext<Self>,
     ) -> Result<(), String> {
         if self.worker.is_some() {
-            return Err("decode loop already installed".to_string());
+            return Err("decode worker already installed".to_string());
         }
         self.worker = Some(message.worker);
         Ok(())

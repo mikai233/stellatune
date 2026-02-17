@@ -1,6 +1,5 @@
 use std::time::Duration;
 
-use serde::{Deserialize, Serialize};
 use stellatune_audio_core::pipeline::context::{TransitionCurve, TransitionTimePolicy};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -38,32 +37,13 @@ pub enum ResampleQuality {
     Ultra,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum DspChainStage {
-    PreMix,
-    PostMix,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DspChainItem {
-    pub plugin_id: String,
-    pub type_id: String,
-    pub config_json: String,
-    pub stage: DspChainStage,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub struct DspChainSpec {
-    pub items: Vec<DspChainItem>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Event {
     StateChanged { state: PlayerState },
     TrackChanged { track_token: String },
     Recovering { attempt: u32, backoff_ms: u64 },
     Position { position_ms: i64 },
+    VolumeChanged { volume: f32, seq: u64 },
     Eof,
     Error { message: String },
 }
@@ -93,10 +73,10 @@ impl SinkLatencyConfig {
 impl Default for SinkLatencyConfig {
     fn default() -> Self {
         Self {
-            target_latency_ms: 80,
-            block_frames: 1024,
-            min_queue_blocks: 2,
-            max_queue_blocks: 64,
+            target_latency_ms: 12,
+            block_frames: 128,
+            min_queue_blocks: 1,
+            max_queue_blocks: 20,
         }
     }
 }

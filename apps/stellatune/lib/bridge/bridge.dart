@@ -4,12 +4,12 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart'
     as frb;
 import 'api.dart' as api;
 import 'api/dlna/types.dart';
-import 'third_party/stellatune_audio/types.dart';
+import 'api/player/types.dart';
 import 'third_party/stellatune_backend_api/lyrics_types.dart';
 import 'third_party/stellatune_library.dart';
 
 export 'frb_generated.dart' show StellatuneApi;
-export 'third_party/stellatune_audio/types.dart'
+export 'api/player/types.dart'
     show
         Event,
         EventPatterns,
@@ -27,11 +27,7 @@ export 'third_party/stellatune_audio/types.dart'
         PluginRuntimeEvent,
         ResampleQuality;
 export 'third_party/stellatune_library.dart'
-    show
-        LibraryEvent,
-        LibraryEventPatterns,
-        PlaylistLite,
-        TrackLite;
+    show LibraryEvent, LibraryEventPatterns, PlaylistLite, TrackLite;
 export 'third_party/stellatune_backend_api/lyrics_types.dart'
     show
         LyricsQuery,
@@ -85,7 +81,11 @@ class PlayerBridge {
   Future<void> pause() => api.pause();
   Future<void> seekMs(int positionMs) =>
       api.seekMs(positionMs: BigInt.from(positionMs));
-  Future<void> setVolume(double volume) => api.setVolume(volume: volume);
+  Future<void> setVolume(
+    double volume, {
+    required int seq,
+    required int rampMs,
+  }) => api.setVolume(volume: volume, seq: BigInt.from(seq), rampMs: rampMs);
   Future<void> stop() => api.stop();
 
   Future<void> lyricsPrepare(LyricsQuery query) =>
@@ -215,6 +215,9 @@ class PlayerBridge {
 
   Future<void> preloadTrackRef(TrackRef track, {int positionMs = 0}) =>
       api.preloadTrackRef(track: track, positionMs: BigInt.from(positionMs));
+
+  Future<List<String>> decoderSupportedExtensions() =>
+      api.decoderSupportedExtensions();
 
   Future<List<TrackPlayability>> canPlayTrackRefs(List<TrackRef> tracks) =>
       api.canPlayTrackRefs(tracks: tracks);

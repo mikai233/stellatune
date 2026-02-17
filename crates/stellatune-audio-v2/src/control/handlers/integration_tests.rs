@@ -6,18 +6,20 @@ use stellatune_audio_core::pipeline::context::InputRef;
 use stellatune_audio_core::pipeline::error::PipelineError;
 use stellatune_runtime::thread_actor::{ActorRef, spawn_actor_named};
 
-use crate::assembly::{AssembledPipeline, PipelineAssembler, PipelinePlan, PipelineRuntime};
+use crate::assembly::{
+    AssembledPipeline, BuiltinTransformSlot, PipelineAssembler, PipelineMutation, PipelinePlan,
+    PipelineRuntime,
+};
 use crate::control::actor::ControlActor;
 use crate::control::messages::{
-    ApplyStageControlMessage, GetSnapshotMessage, InstallDecodeWorkerMessage,
-    OnDecodeLoopEventMessage, SetDspChainMessage, SetLfeModeMessage, SetResampleQualityMessage,
-    SetVolumeMessage, ShutdownMessage, StopMessage,
+    ApplyPipelineMutationMessage, ApplyStageControlMessage, GetSnapshotMessage,
+    InstallDecodeWorkerMessage, OnDecodeWorkerEventMessage, SetLfeModeMessage,
+    SetResampleQualityMessage, ShutdownMessage, StopMessage,
 };
 use crate::event_hub::EventHub;
-use crate::types::{
-    DspChainSpec, EngineConfig, LfeMode, PlayerState, ResampleQuality, StopBehavior,
-};
-use crate::worker::decode_loop::{DecodeLoopEvent, DecodeLoopEventCallback, DecodeLoopWorker};
+use crate::runtime::transform::control::MasterGainHotControl;
+use crate::types::{EngineConfig, LfeMode, PlayerState, ResampleQuality, StopBehavior};
+use crate::workers::decode_worker::{DecodeWorker, DecodeWorkerEvent, DecodeWorkerEventCallback};
 
 const TEST_TIMEOUT: Duration = Duration::from_millis(500);
 
@@ -52,7 +54,10 @@ impl PipelineRuntime for DummyRuntime {
         ))
     }
 
-    fn apply_dsp_chain(&mut self, _spec: DspChainSpec) -> Result<(), PipelineError> {
+    fn apply_pipeline_mutation(
+        &mut self,
+        _mutation: PipelineMutation,
+    ) -> Result<(), PipelineError> {
         Ok(())
     }
 }
@@ -65,8 +70,13 @@ fn spawn_control_actor(config: EngineConfig) -> (ActorRef<ControlActor>, JoinHan
 
 fn install_decode_worker(actor_ref: &ActorRef<ControlActor>, config: &EngineConfig) {
     let assembler: Arc<dyn PipelineAssembler> = Arc::new(DummyAssembler);
-    let callback: DecodeLoopEventCallback = Arc::new(|_| {});
-    let worker = DecodeLoopWorker::start(assembler, config.clone(), callback);
+    let callback: DecodeWorkerEventCallback = Arc::new(|_| {});
+    let worker = DecodeWorker::start(
+        assembler,
+        config.clone(),
+        callback,
+        Arc::new(MasterGainHotControl::default()),
+    );
     actor_ref
         .call(InstallDecodeWorkerMessage { worker }, TEST_TIMEOUT)
         .expect("failed to call install decode worker")
@@ -89,8 +99,8 @@ fn stop_clears_current_track_in_snapshot() {
     install_decode_worker(&actor_ref, &config);
 
     actor_ref
-        .cast(OnDecodeLoopEventMessage {
-            event: DecodeLoopEvent::TrackChanged {
+        .cast(OnDecodeWorkerEventMessage {
+            event: DecodeWorkerEvent::TrackChanged {
                 track_token: "track-a".to_string(),
             },
         })
@@ -125,25 +135,25 @@ fn eof_event_clears_current_track_and_resets_position() {
     let (actor_ref, join) = spawn_control_actor(config);
 
     actor_ref
-        .cast(OnDecodeLoopEventMessage {
-            event: DecodeLoopEvent::TrackChanged {
+        .cast(OnDecodeWorkerEventMessage {
+            event: DecodeWorkerEvent::TrackChanged {
                 track_token: "track-a".to_string(),
             },
         })
         .expect("failed to cast track changed event");
     actor_ref
-        .cast(OnDecodeLoopEventMessage {
-            event: DecodeLoopEvent::StateChanged(PlayerState::Playing),
+        .cast(OnDecodeWorkerEventMessage {
+            event: DecodeWorkerEvent::StateChanged(PlayerState::Playing),
         })
         .expect("failed to cast state changed event");
     actor_ref
-        .cast(OnDecodeLoopEventMessage {
-            event: DecodeLoopEvent::Position { position_ms: 4800 },
+        .cast(OnDecodeWorkerEventMessage {
+            event: DecodeWorkerEvent::Position { position_ms: 4800 },
         })
         .expect("failed to cast position event");
     actor_ref
-        .cast(OnDecodeLoopEventMessage {
-            event: DecodeLoopEvent::Eof,
+        .cast(OnDecodeWorkerEventMessage {
+            event: DecodeWorkerEvent::Eof,
         })
         .expect("failed to cast eof event");
 
@@ -163,25 +173,25 @@ fn error_event_clears_current_track_and_stops_state() {
     let (actor_ref, join) = spawn_control_actor(config);
 
     actor_ref
-        .cast(OnDecodeLoopEventMessage {
-            event: DecodeLoopEvent::TrackChanged {
+        .cast(OnDecodeWorkerEventMessage {
+            event: DecodeWorkerEvent::TrackChanged {
                 track_token: "track-a".to_string(),
             },
         })
         .expect("failed to cast track changed event");
     actor_ref
-        .cast(OnDecodeLoopEventMessage {
-            event: DecodeLoopEvent::StateChanged(PlayerState::Playing),
+        .cast(OnDecodeWorkerEventMessage {
+            event: DecodeWorkerEvent::StateChanged(PlayerState::Playing),
         })
         .expect("failed to cast state changed event");
     actor_ref
-        .cast(OnDecodeLoopEventMessage {
-            event: DecodeLoopEvent::Position { position_ms: 6400 },
+        .cast(OnDecodeWorkerEventMessage {
+            event: DecodeWorkerEvent::Position { position_ms: 6400 },
         })
         .expect("failed to cast position event");
     actor_ref
-        .cast(OnDecodeLoopEventMessage {
-            event: DecodeLoopEvent::Error("decoder failed".to_string()),
+        .cast(OnDecodeWorkerEventMessage {
+            event: DecodeWorkerEvent::Error("decoder failed".to_string()),
         })
         .expect("failed to cast error event");
 
@@ -196,47 +206,7 @@ fn error_event_clears_current_track_and_stops_state() {
 }
 
 #[test]
-fn set_volume_message_forwards_to_decode_loop() {
-    let config = test_config();
-    let (actor_ref, join) = spawn_control_actor(config.clone());
-    install_decode_worker(&actor_ref, &config);
-
-    actor_ref
-        .call(SetVolumeMessage { volume: 0.35 }, TEST_TIMEOUT)
-        .expect("failed to call set volume")
-        .expect("set volume failed");
-
-    shutdown_and_join(actor_ref, join);
-}
-
-#[test]
-fn set_dsp_chain_message_forwards_to_decode_loop() {
-    let config = test_config();
-    let (actor_ref, join) = spawn_control_actor(config.clone());
-    install_decode_worker(&actor_ref, &config);
-
-    actor_ref
-        .call(
-            SetDspChainMessage {
-                spec: crate::types::DspChainSpec {
-                    items: vec![crate::types::DspChainItem {
-                        plugin_id: "plugin-a".to_string(),
-                        type_id: "eq".to_string(),
-                        config_json: "{\"gain\":1.2}".to_string(),
-                        stage: crate::types::DspChainStage::PreMix,
-                    }],
-                },
-            },
-            TEST_TIMEOUT,
-        )
-        .expect("failed to call set dsp chain")
-        .expect("set dsp chain failed");
-
-    shutdown_and_join(actor_ref, join);
-}
-
-#[test]
-fn set_lfe_mode_message_forwards_to_decode_loop() {
+fn set_lfe_mode_message_forwards_to_decode_worker() {
     let config = test_config();
     let (actor_ref, join) = spawn_control_actor(config.clone());
     install_decode_worker(&actor_ref, &config);
@@ -255,7 +225,7 @@ fn set_lfe_mode_message_forwards_to_decode_loop() {
 }
 
 #[test]
-fn set_resample_quality_message_forwards_to_decode_loop() {
+fn set_resample_quality_message_forwards_to_decode_worker() {
     let config = test_config();
     let (actor_ref, join) = spawn_control_actor(config.clone());
     install_decode_worker(&actor_ref, &config);
@@ -274,7 +244,7 @@ fn set_resample_quality_message_forwards_to_decode_loop() {
 }
 
 #[test]
-fn apply_stage_control_message_reaches_decode_loop() {
+fn apply_stage_control_message_reaches_decode_worker() {
     let config = test_config();
     let (actor_ref, join) = spawn_control_actor(config.clone());
     install_decode_worker(&actor_ref, &config);
@@ -288,6 +258,28 @@ fn apply_stage_control_message_reaches_decode_loop() {
             TEST_TIMEOUT,
         )
         .expect("failed to call apply stage control");
+    assert!(result.is_ok());
+
+    shutdown_and_join(actor_ref, join);
+}
+
+#[test]
+fn apply_pipeline_mutation_message_reaches_decode_worker() {
+    let config = test_config();
+    let (actor_ref, join) = spawn_control_actor(config.clone());
+    install_decode_worker(&actor_ref, &config);
+
+    let result = actor_ref
+        .call(
+            ApplyPipelineMutationMessage {
+                mutation: PipelineMutation::SetBuiltinTransformSlot {
+                    slot: BuiltinTransformSlot::MasterGain,
+                    enabled: true,
+                },
+            },
+            TEST_TIMEOUT,
+        )
+        .expect("failed to call apply pipeline mutation");
     assert!(result.is_ok());
 
     shutdown_and_join(actor_ref, join);

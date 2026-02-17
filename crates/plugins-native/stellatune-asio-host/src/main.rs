@@ -1,5 +1,5 @@
 use std::error::Error;
-use std::io::{self, stdin, stdout, ErrorKind};
+use std::io::{stdin, stdout, ErrorKind};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
@@ -124,6 +124,29 @@ struct MmcssGuard(#[allow(dead_code)] HANDLE);
 
 #[cfg(windows)]
 unsafe impl Send for MmcssGuard {}
+
+#[cfg(windows)]
+#[derive(Default)]
+struct MmcssState {
+    attempted: bool,
+    guard: Option<MmcssGuard>,
+}
+
+#[cfg(windows)]
+impl MmcssState {
+    fn ensure_pro_audio(&mut self, format_label: &str) {
+        if self.attempted {
+            return;
+        }
+        self.attempted = true;
+        self.guard = enable_mmcss_pro_audio();
+        if self.guard.is_some() {
+            eprintln!("asio host mmcss: Pro Audio enabled ({format_label})");
+        } else {
+            eprintln!("asio host mmcss: failed to enable Pro Audio ({format_label})");
+        }
+    }
+}
 
 #[cfg(windows)]
 fn enable_mmcss_pro_audio() -> Option<MmcssGuard> {
@@ -304,14 +327,12 @@ impl StreamState {
                 let running_cb = Arc::clone(&running);
                 let metrics_cb = Arc::clone(&metrics);
                 #[cfg(windows)]
-                let mut mmcss_guard: Option<MmcssGuard> = None;
+                let mut mmcss_state = MmcssState::default();
                 dev.build_output_stream(
                     &cfg,
                     move |out: &mut [f32], _| {
                         #[cfg(windows)]
-                        if mmcss_guard.is_none() {
-                            mmcss_guard = enable_mmcss_pro_audio();
-                        }
+                        mmcss_state.ensure_pro_audio("f32");
                         fill_shm_f32(out, &ring, &running_cb, &metrics_cb)
                     },
                     err_fn,
@@ -326,14 +347,12 @@ impl StreamState {
                 let running_cb = Arc::clone(&running);
                 let metrics_cb = Arc::clone(&metrics);
                 #[cfg(windows)]
-                let mut mmcss_guard: Option<MmcssGuard> = None;
+                let mut mmcss_state = MmcssState::default();
                 dev.build_output_stream(
                     &cfg,
                     move |out: &mut [i16], _| {
                         #[cfg(windows)]
-                        if mmcss_guard.is_none() {
-                            mmcss_guard = enable_mmcss_pro_audio();
-                        }
+                        mmcss_state.ensure_pro_audio("i16");
                         fill_shm_i16(out, &ring, &running_cb, &metrics_cb, &mut tmp)
                     },
                     err_fn,
@@ -348,14 +367,12 @@ impl StreamState {
                 let running_cb = Arc::clone(&running);
                 let metrics_cb = Arc::clone(&metrics);
                 #[cfg(windows)]
-                let mut mmcss_guard: Option<MmcssGuard> = None;
+                let mut mmcss_state = MmcssState::default();
                 dev.build_output_stream(
                     &cfg,
                     move |out: &mut [i32], _| {
                         #[cfg(windows)]
-                        if mmcss_guard.is_none() {
-                            mmcss_guard = enable_mmcss_pro_audio();
-                        }
+                        mmcss_state.ensure_pro_audio("i32");
                         fill_shm_i32(out, &ring, &running_cb, &metrics_cb, &mut tmp)
                     },
                     err_fn,
@@ -370,14 +387,12 @@ impl StreamState {
                 let running_cb = Arc::clone(&running);
                 let metrics_cb = Arc::clone(&metrics);
                 #[cfg(windows)]
-                let mut mmcss_guard: Option<MmcssGuard> = None;
+                let mut mmcss_state = MmcssState::default();
                 dev.build_output_stream(
                     &cfg,
                     move |out: &mut [u16], _| {
                         #[cfg(windows)]
-                        if mmcss_guard.is_none() {
-                            mmcss_guard = enable_mmcss_pro_audio();
-                        }
+                        mmcss_state.ensure_pro_audio("u16");
                         fill_shm_u16(out, &ring, &running_cb, &metrics_cb, &mut tmp)
                     },
                     err_fn,

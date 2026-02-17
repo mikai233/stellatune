@@ -9,6 +9,7 @@ crossbeam-channel.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 stellatune-audio-core.workspace = true
+stellatune-audio-v2.workspace = true
 stellatune-plugin-api.workspace = true
 stellatune-plugins.workspace = true
 stellatune-runtime.workspace = true

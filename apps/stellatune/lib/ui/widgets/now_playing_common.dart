@@ -8,7 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
 
-import 'package:stellatune/bridge/third_party/stellatune_audio/types.dart';
+import 'package:stellatune/bridge/bridge.dart';
 import 'package:stellatune/player/queue_models.dart';
 
 class NowPlayingCommon {

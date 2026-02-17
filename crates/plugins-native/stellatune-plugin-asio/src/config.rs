@@ -30,7 +30,7 @@ pub(crate) const CONFIG_SCHEMA_JSON: &str = r#"{
       "title": "Fixed Target Sample Rate",
       "description": "Used when sample_rate_mode=fixed_target. null means device default sample rate."
     },
-    "ring_capacity_ms": { "type": "integer", "minimum": 20, "default": 250 },
+    "ring_capacity_ms": { "type": "integer", "minimum": 20, "default": 40 },
     "start_prefill_ms": {
       "type": "integer",
       "minimum": 0,
@@ -48,7 +48,7 @@ pub(crate) const CONFIG_SCHEMA_JSON: &str = r#"{
     "latency_profile": {
       "type": "string",
       "enum": ["aggressive", "balanced", "conservative"],
-      "default": "balanced",
+      "default": "aggressive",
       "title": "Latency Profile",
       "description": "Controls auto chunk size and auto prefill threshold when manual overrides are 0."
     },
@@ -70,8 +70,8 @@ pub enum AsioSampleRateMode {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum AsioLatencyProfile {
-    Aggressive,
     #[default]
+    Aggressive,
     Balanced,
     Conservative,
 }
@@ -99,10 +99,10 @@ impl Default for AsioOutputConfig {
             buffer_size_frames: None,
             sample_rate_mode: AsioSampleRateMode::FixedTarget,
             fixed_target_sample_rate: None,
-            ring_capacity_ms: 250,
+            ring_capacity_ms: 40,
             start_prefill_ms: 0,
             preferred_chunk_frames: 0,
-            latency_profile: AsioLatencyProfile::Balanced,
+            latency_profile: AsioLatencyProfile::Aggressive,
             flush_timeout_ms: 400,
         }
     }
@@ -220,9 +220,9 @@ pub(crate) fn auto_preferred_chunk_frames(sample_rate: u32, config: &AsioOutputC
     let target = (sample_rate.max(1) / 375).max(64);
     let base = target.next_power_of_two().clamp(64, 1024);
     let scaled = match config.latency_profile {
-        AsioLatencyProfile::Aggressive => base,
-        AsioLatencyProfile::Balanced => base.saturating_mul(2),
-        AsioLatencyProfile::Conservative => base.saturating_mul(4),
+        AsioLatencyProfile::Aggressive => (base / 2).max(64),
+        AsioLatencyProfile::Balanced => base,
+        AsioLatencyProfile::Conservative => base.saturating_mul(2),
     };
     scaled.clamp(64, 4096)
 }
@@ -232,9 +232,9 @@ pub(crate) fn effective_start_prefill_ms(config: &AsioOutputConfig) -> u32 {
         return config.start_prefill_ms;
     }
     match config.latency_profile {
-        AsioLatencyProfile::Aggressive => 15,
-        AsioLatencyProfile::Balanced => 30,
-        AsioLatencyProfile::Conservative => 60,
+        AsioLatencyProfile::Aggressive => 8,
+        AsioLatencyProfile::Balanced => 16,
+        AsioLatencyProfile::Conservative => 32,
     }
 }
 

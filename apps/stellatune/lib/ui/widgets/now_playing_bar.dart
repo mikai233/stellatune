@@ -242,7 +242,7 @@ class NowPlayingBar extends ConsumerWidget {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           VolumePopupButton(
-                            volume: playback.volume,
+                            volume: playback.desiredVolume,
                             enableHover: true, // Desktop behavior
                             onChanged: (v) => ref
                                 .read(playbackControllerProvider.notifier)

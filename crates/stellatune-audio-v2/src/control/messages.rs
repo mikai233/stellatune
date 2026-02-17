@@ -1,13 +1,13 @@
 use std::any::Any;
 use std::sync::Arc;
 
-use crate::assembly::PipelinePlan;
-use crate::types::{DspChainSpec, LfeMode, PauseBehavior, ResampleQuality, StopBehavior};
-use crate::worker::decode_loop::{DecodeLoopEvent, DecodeLoopWorker};
+use crate::assembly::{PipelineMutation, PipelinePlan};
+use crate::types::{LfeMode, PauseBehavior, ResampleQuality, StopBehavior};
+use crate::workers::decode_worker::{DecodeWorker, DecodeWorkerEvent};
 use stellatune_runtime::thread_actor::Message;
 
 pub(crate) struct InstallDecodeWorkerMessage {
-    pub(crate) worker: DecodeLoopWorker,
+    pub(crate) worker: DecodeWorker,
 }
 
 pub(crate) struct SwitchTrackMessage {
@@ -29,12 +29,6 @@ pub(crate) struct StopMessage {
 pub(crate) struct SeekMessage {
     pub(crate) position_ms: i64,
 }
-pub(crate) struct SetVolumeMessage {
-    pub(crate) volume: f32,
-}
-pub(crate) struct SetDspChainMessage {
-    pub(crate) spec: DspChainSpec,
-}
 pub(crate) struct SetLfeModeMessage {
     pub(crate) mode: LfeMode,
 }
@@ -51,9 +45,12 @@ pub(crate) struct ShutdownMessage;
 pub(crate) struct ApplyPipelinePlanMessage {
     pub(crate) plan: Arc<dyn PipelinePlan>,
 }
+pub(crate) struct ApplyPipelineMutationMessage {
+    pub(crate) mutation: PipelineMutation,
+}
 
-pub(crate) struct OnDecodeLoopEventMessage {
-    pub(crate) event: DecodeLoopEvent,
+pub(crate) struct OnDecodeWorkerEventMessage {
+    pub(crate) event: DecodeWorkerEvent,
 }
 
 impl Message for InstallDecodeWorkerMessage {
@@ -84,14 +81,6 @@ impl Message for SeekMessage {
     type Response = Result<(), String>;
 }
 
-impl Message for SetVolumeMessage {
-    type Response = Result<(), String>;
-}
-
-impl Message for SetDspChainMessage {
-    type Response = Result<(), String>;
-}
-
 impl Message for SetLfeModeMessage {
     type Response = Result<(), String>;
 }
@@ -116,6 +105,10 @@ impl Message for ApplyPipelinePlanMessage {
     type Response = Result<(), String>;
 }
 
-impl Message for OnDecodeLoopEventMessage {
+impl Message for ApplyPipelineMutationMessage {
+    type Response = Result<(), String>;
+}
+
+impl Message for OnDecodeWorkerEventMessage {
     type Response = ();
 }
