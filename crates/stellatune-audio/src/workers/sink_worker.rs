@@ -59,7 +59,7 @@ impl SinkWorker {
         let running_for_thread = Arc::clone(&running);
 
         let join = std::thread::Builder::new()
-            .name("stellatune-audio-v2-sink-loop".to_string())
+            .name("stellatune-audio-sink-loop".to_string())
             .spawn(move || {
                 sink_thread_main(
                     sinks,
@@ -183,7 +183,7 @@ impl Drop for SinkWorker {
 
 fn detach_join(join: JoinHandle<()>) {
     let _ = std::thread::Builder::new()
-        .name("stellatune-audio-v2-sink-join".to_string())
+        .name("stellatune-audio-sink-join".to_string())
         .spawn(move || {
             let _ = join.join();
         });

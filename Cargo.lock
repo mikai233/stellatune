@@ -3113,6 +3113,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "stellatune-audio"
+version = "0.1.0"
+dependencies = [
+ "arc-swap",
+ "audioadapter-buffers",
+ "crossbeam-channel",
+ "ringbuf",
+ "rubato",
+ "serde",
+ "serde_json",
+ "stellatune-audio-core",
+ "stellatune-runtime",
+ "tokio",
+ "tracing",
+ "windows",
+]
+
+[[package]]
 name = "stellatune-audio-builtin-adapters"
 version = "0.1.0"
 dependencies = [
@@ -3121,8 +3139,8 @@ dependencies = [
  "ringbuf",
  "serde",
  "serde_json",
+ "stellatune-audio",
  "stellatune-audio-core",
- "stellatune-audio-v2",
  "thiserror 2.0.18",
  "wasapi",
  "windows",
@@ -3142,29 +3160,11 @@ dependencies = [
  "crossbeam-channel",
  "serde",
  "serde_json",
+ "stellatune-audio",
  "stellatune-audio-core",
- "stellatune-audio-v2",
  "stellatune-plugin-api",
  "stellatune-plugins",
  "stellatune-runtime",
-]
-
-[[package]]
-name = "stellatune-audio-v2"
-version = "0.1.0"
-dependencies = [
- "arc-swap",
- "audioadapter-buffers",
- "crossbeam-channel",
- "ringbuf",
- "rubato",
- "serde",
- "serde_json",
- "stellatune-audio-core",
- "stellatune-runtime",
- "tokio",
- "tracing",
- "windows",
 ]
 
 [[package]]
@@ -3179,10 +3179,10 @@ dependencies = [
  "serde",
  "serde_json",
  "sqlx",
+ "stellatune-audio",
  "stellatune-audio-builtin-adapters",
  "stellatune-audio-core",
  "stellatune-audio-plugin-adapters",
- "stellatune-audio-v2",
  "stellatune-library",
  "stellatune-plugins",
  "stellatune-runtime",
@@ -3209,8 +3209,8 @@ dependencies = [
  "serde",
  "serde_json",
  "socket2",
+ "stellatune-audio",
  "stellatune-audio-plugin-adapters",
- "stellatune-audio-v2",
  "stellatune-backend-api",
  "stellatune-library",
  "stellatune-plugin-api",

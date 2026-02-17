@@ -23,7 +23,7 @@ pub(crate) fn start_engine_with_config(
     let events = Arc::new(EventHub::new(config.event_capacity));
     let master_gain_hot_control = Arc::new(MasterGainHotControl::default());
     let actor = ControlActor::new(Arc::clone(&events), config.clone());
-    let (actor_ref, _join) = spawn_actor_named(actor, "stellatune-audio-v2-control")
+    let (actor_ref, _join) = spawn_actor_named(actor, "stellatune-audio-control")
         .map_err(|e| format!("failed to spawn control actor: {e}"))?;
 
     let worker_actor_ref = actor_ref.clone();

@@ -2,14 +2,14 @@
 
 Status: `Active`  
 Last Updated: `2026-02-16`  
-Owner: `stellatune-audio-v2` / `stellatune-audio-core` / adapters / backend-api / ffi / Flutter host  
+Owner: `stellatune-audio` / `stellatune-audio-core` / adapters / backend-api / ffi / Flutter host  
 Scope: **Breaking change only**. No compatibility facade after cutover.
 
 ## 1. Decision Snapshot
 
 These decisions are fixed unless explicitly changed:
 
-1. `stellatune-audio-v2` is the final engine to replace the legacy `stellatune-audio` engine.
+1. `stellatune-audio` is the final engine to replace the legacy `stellatune-audio-legacy` engine.
 2. `MasterGain` is immediate-apply (no volume ramp in control path for now).
 3. `Stop` clears `current_track` in snapshot/event semantics.
 4. Documentation follows current implementation contracts first; pseudocode must not diverge from code contracts.
@@ -36,7 +36,7 @@ The v2 direction keeps a strict pipeline contract:
 
 ### 3.2 v2 Runtime
 
-`stellatune-audio-v2` currently provides:
+`stellatune-audio` currently provides:
 
 1. `PipelineRunner` + decode loop worker.
 2. Sink worker with non-blocking audio ring write path.
@@ -180,8 +180,8 @@ Exit criteria:
 
 ### Build/Test
 
-1. `cargo check -p stellatune-audio-core -p stellatune-audio-v2 -p stellatune-audio-builtin-adapters -p stellatune-audio-plugin-adapters`
-2. `cargo test -p stellatune-audio-core -p stellatune-audio-v2`
+1. `cargo check -p stellatune-audio-core -p stellatune-audio -p stellatune-audio-builtin-adapters -p stellatune-audio-plugin-adapters`
+2. `cargo test -p stellatune-audio-core -p stellatune-audio`
 
 ### Behavior
 

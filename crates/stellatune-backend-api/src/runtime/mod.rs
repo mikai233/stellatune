@@ -10,8 +10,8 @@ use anyhow::{Result, anyhow};
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 use std::time::Instant;
 
-use stellatune_audio_v2::control::EngineHandle;
-use stellatune_audio_v2::types::ResampleQuality;
+use stellatune_audio::control::EngineHandle;
+use stellatune_audio::types::ResampleQuality;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::time::LocalTime;
 
@@ -20,7 +20,7 @@ use stellatune_plugins::runtime::handle::SharedPluginRuntimeHandle;
 
 mod apply_state;
 mod engine;
-mod v2_pipeline;
+mod pipeline;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutputBackend {

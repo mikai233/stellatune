@@ -10,12 +10,12 @@ use tracing::{debug, warn};
 pub(crate) mod types;
 use stellatune_audio_plugin_adapters::decoder_stage::probe_track_decode_info;
 use stellatune_audio_plugin_adapters::orchestrator::PluginPipelineOrchestrator;
-use stellatune_audio_plugin_adapters::v2_bridge::{
+use stellatune_audio_plugin_adapters::bridge::{
     PluginTransformSegment, PluginTransformStageSpec,
 };
-use stellatune_audio_v2::assembly::{BuiltinTransformSlot, PipelineMutation};
-use stellatune_audio_v2::control::EngineHandle as V2EngineHandle;
-use stellatune_audio_v2::types::{
+use stellatune_audio::assembly::{BuiltinTransformSlot, PipelineMutation};
+use stellatune_audio::control::EngineHandle as AudioEngineHandle;
+use stellatune_audio::types::{
     Event as V2Event, LfeMode as V2LfeMode, PlayerState as V2PlayerState,
     ResampleQuality as V2ResampleQuality,
 };
@@ -41,7 +41,7 @@ use types::{
 };
 
 struct PlayerContext {
-    engine: Arc<V2EngineHandle>,
+    engine: Arc<AudioEngineHandle>,
     lyrics: Arc<LyricsService>,
     dsp_orchestrator: Arc<Mutex<PluginPipelineOrchestrator>>,
     track_info_cache: Arc<Mutex<Option<CachedTrackDecodeInfo>>>,
@@ -92,7 +92,7 @@ fn shared_player_context() -> &'static PlayerContext {
     })
 }
 
-fn engine() -> Arc<V2EngineHandle> {
+fn engine() -> Arc<AudioEngineHandle> {
     Arc::clone(&shared_player_context().engine)
 }
 

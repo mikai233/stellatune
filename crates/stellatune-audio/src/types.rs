@@ -1,24 +1,34 @@
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use std::time::Duration;
 
-#[flutter_rust_bridge::frb(non_opaque)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+use stellatune_audio_core::pipeline::context::{TransitionCurve, TransitionTimePolicy};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlayerState {
     Stopped,
-    Playing,
     Paused,
-    Buffering,
+    Playing,
 }
 
-#[flutter_rust_bridge::frb(non_opaque)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PauseBehavior {
+    Immediate,
+    DrainSink,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StopBehavior {
+    Immediate,
+    DrainSink,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum LfeMode {
     #[default]
     Mute,
     MixToFront,
 }
 
-#[flutter_rust_bridge::frb(non_opaque)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ResampleQuality {
     Fast,
     Balanced,
@@ -27,270 +37,146 @@ pub enum ResampleQuality {
     Ultra,
 }
 
-#[flutter_rust_bridge::frb(non_opaque)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum AudioBackend {
-    Shared,
-    WasapiExclusive,
-}
-
-#[flutter_rust_bridge::frb(non_opaque)]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct AudioDevice {
-    pub backend: AudioBackend,
-    pub id: String,
-    pub name: String,
-}
-
-#[flutter_rust_bridge::frb(non_opaque)]
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TrackRef {
-    pub source_id: String,
-    pub track_id: String,
-    pub locator: String,
-}
-
-impl TrackRef {
-    pub fn new(source_id: String, track_id: String, locator: String) -> Self {
-        Self {
-            source_id,
-            track_id,
-            locator,
-        }
-    }
-
-    pub fn for_local_path(path: String) -> Self {
-        Self {
-            source_id: "local".to_string(),
-            track_id: path.clone(),
-            locator: path,
-        }
-    }
-
-    pub fn stable_key(&self) -> String {
-        format!("{}:{}", self.source_id, self.track_id)
-    }
-}
-
-#[flutter_rust_bridge::frb(non_opaque)]
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TrackPlayability {
-    pub track: TrackRef,
-    pub playable: bool,
-    pub reason: Option<String>,
-}
-
-#[flutter_rust_bridge::frb(non_opaque)]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct DspChainItem {
-    pub plugin_id: String,
-    pub type_id: String,
-    pub config_json: String,
-}
-
-impl DspChainItem {
-    pub fn with_config<T: Serialize>(
-        plugin_id: String,
-        type_id: String,
-        config: &T,
-    ) -> Result<Self, serde_json::Error> {
-        Ok(Self {
-            plugin_id,
-            type_id,
-            config_json: serde_json::to_string(config)?,
-        })
-    }
-
-    pub fn config<T: DeserializeOwned>(&self) -> Result<T, serde_json::Error> {
-        serde_json::from_str(&self.config_json)
-    }
-}
-
-#[flutter_rust_bridge::frb(non_opaque)]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct PluginDescriptor {
-    pub id: String,
-    pub name: String,
-}
-
-#[flutter_rust_bridge::frb(non_opaque)]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct DspTypeDescriptor {
-    pub plugin_id: String,
-    pub plugin_name: String,
-    pub type_id: String,
-    pub display_name: String,
-    pub config_schema_json: String,
-    pub default_config_json: String,
-}
-
-#[flutter_rust_bridge::frb(non_opaque)]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct SourceCatalogTypeDescriptor {
-    pub plugin_id: String,
-    pub plugin_name: String,
-    pub type_id: String,
-    pub display_name: String,
-    pub config_schema_json: String,
-    pub default_config_json: String,
-}
-
-#[flutter_rust_bridge::frb(non_opaque)]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct LyricsProviderTypeDescriptor {
-    pub plugin_id: String,
-    pub plugin_name: String,
-    pub type_id: String,
-    pub display_name: String,
-}
-
-#[flutter_rust_bridge::frb(non_opaque)]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct OutputSinkTypeDescriptor {
-    pub plugin_id: String,
-    pub plugin_name: String,
-    pub type_id: String,
-    pub display_name: String,
-    pub config_schema_json: String,
-    pub default_config_json: String,
-}
-
-#[flutter_rust_bridge::frb(non_opaque)]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct OutputSinkRoute {
-    pub plugin_id: String,
-    pub type_id: String,
-    pub config_json: String,
-    pub target_json: String,
-}
-
-impl OutputSinkRoute {
-    pub fn with_config_target<C: Serialize, T: Serialize>(
-        plugin_id: String,
-        type_id: String,
-        config: &C,
-        target: &T,
-    ) -> Result<Self, serde_json::Error> {
-        Ok(Self {
-            plugin_id,
-            type_id,
-            config_json: serde_json::to_string(config)?,
-            target_json: serde_json::to_string(target)?,
-        })
-    }
-
-    pub fn config<C: DeserializeOwned>(&self) -> Result<C, serde_json::Error> {
-        serde_json::from_str(&self.config_json)
-    }
-
-    pub fn target<T: DeserializeOwned>(&self) -> Result<T, serde_json::Error> {
-        serde_json::from_str(&self.target_json)
-    }
-}
-
-#[flutter_rust_bridge::frb(non_opaque)]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Event {
-    StateChanged {
-        state: PlayerState,
-    },
-    Position {
-        ms: i64,
-        path: String,
-        session_id: u64,
-    },
-    TrackChanged {
-        path: String,
-    },
-    PlaybackEnded {
-        path: String,
-    },
-    VolumeChanged {
-        volume: f32,
-    },
-    Error {
-        message: String,
-    },
-    Log {
-        message: String,
-    },
+    StateChanged { state: PlayerState },
+    TrackChanged { track_token: String },
+    Recovering { attempt: u32, backoff_ms: u64 },
+    Position { position_ms: i64 },
+    VolumeChanged { volume: f32, seq: u64 },
+    Eof,
+    Error { message: String },
 }
 
-#[flutter_rust_bridge::frb(non_opaque)]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct PluginRuntimeEvent {
-    pub plugin_id: String,
-    pub kind: PluginRuntimeKind,
-    pub payload_json: String,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SinkLatencyConfig {
+    pub target_latency_ms: u32,
+    pub block_frames: u32,
+    pub min_queue_blocks: usize,
+    pub max_queue_blocks: usize,
 }
 
-#[flutter_rust_bridge::frb(non_opaque)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum PluginRuntimeKind {
-    Notify,
-    Control,
-    ControlResult,
-    ControlFinished,
+impl SinkLatencyConfig {
+    pub fn queue_capacity(self, sample_rate: u32) -> usize {
+        let min_blocks = self.min_queue_blocks.max(1);
+        let max_blocks = self.max_queue_blocks.max(min_blocks);
+        let block_frames = self.block_frames.max(1) as u64;
+        let target_frames = (sample_rate as u64 * self.target_latency_ms as u64).div_ceil(1000);
+        let mut blocks = target_frames.div_ceil(block_frames) as usize;
+        if blocks == 0 {
+            blocks = 1;
+        }
+        blocks.clamp(min_blocks, max_blocks)
+    }
 }
 
-impl PluginRuntimeKind {
-    #[flutter_rust_bridge::frb(ignore)]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Notify => "notify",
-            Self::Control => "control",
-            Self::ControlResult => "control_result",
-            Self::ControlFinished => "control_finished",
+impl Default for SinkLatencyConfig {
+    fn default() -> Self {
+        Self {
+            target_latency_ms: 12,
+            block_frames: 128,
+            min_queue_blocks: 1,
+            max_queue_blocks: 20,
         }
     }
 }
 
-impl PluginRuntimeEvent {
-    pub fn from_payload<T: Serialize>(
-        plugin_id: impl Into<String>,
-        kind: PluginRuntimeKind,
-        payload: &T,
-    ) -> Result<Self, serde_json::Error> {
-        Ok(Self {
-            plugin_id: plugin_id.into(),
-            kind,
-            payload_json: serde_json::to_string(payload)?,
-        })
-    }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SinkRecoveryConfig {
+    pub max_attempts: u32,
+    pub initial_backoff: Duration,
+    pub max_backoff: Duration,
+}
 
-    pub fn payload<T: DeserializeOwned>(&self) -> Result<T, serde_json::Error> {
-        serde_json::from_str(&self.payload_json)
+impl Default for SinkRecoveryConfig {
+    fn default() -> Self {
+        Self {
+            max_attempts: 6,
+            initial_backoff: Duration::from_millis(100),
+            max_backoff: Duration::from_secs(2),
+        }
     }
 }
 
-#[flutter_rust_bridge::frb(non_opaque)]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TrackDecodeInfo {
-    pub sample_rate: u32,
-    pub channels: u16,
-    pub duration_ms: Option<u64>,
-    pub metadata_json: Option<String>,
-    pub decoder_plugin_id: Option<String>,
-    pub decoder_type_id: Option<String>,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EngineSnapshot {
+    pub state: PlayerState,
+    pub current_track: Option<String>,
+    pub position_ms: i64,
 }
 
-impl TrackDecodeInfo {
-    pub fn set_metadata<T: Serialize>(
-        &mut self,
-        metadata: Option<&T>,
-    ) -> Result<(), serde_json::Error> {
-        self.metadata_json = match metadata {
-            Some(v) => Some(serde_json::to_string(v)?),
-            None => None,
-        };
-        Ok(())
+impl Default for EngineSnapshot {
+    fn default() -> Self {
+        Self {
+            state: PlayerState::Stopped,
+            current_track: None,
+            position_ms: 0,
+        }
     }
+}
 
-    pub fn metadata<T: DeserializeOwned>(&self) -> Result<Option<T>, serde_json::Error> {
-        let Some(raw) = self.metadata_json.as_deref() else {
-            return Ok(None);
-        };
-        serde_json::from_str(raw).map(Some)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GainTransitionConfig {
+    pub open_fade_in_ms: u32,
+    pub play_fade_in_ms: u32,
+    pub seek_fade_out_ms: u32,
+    pub seek_fade_in_ms: u32,
+    pub pause_fade_out_ms: u32,
+    pub stop_fade_out_ms: u32,
+    pub switch_fade_out_ms: u32,
+    pub curve: TransitionCurve,
+    pub fade_in_time_policy: TransitionTimePolicy,
+    pub fade_out_time_policy: TransitionTimePolicy,
+    pub interrupt_max_extra_wait_ms: u32,
+}
+
+impl Default for GainTransitionConfig {
+    fn default() -> Self {
+        Self {
+            open_fade_in_ms: 24,
+            play_fade_in_ms: 24,
+            seek_fade_out_ms: 24,
+            seek_fade_in_ms: 24,
+            pause_fade_out_ms: 36,
+            stop_fade_out_ms: 48,
+            switch_fade_out_ms: 36,
+            curve: TransitionCurve::EqualPower,
+            fade_in_time_policy: TransitionTimePolicy::Exact,
+            fade_out_time_policy: TransitionTimePolicy::FitToAvailable,
+            interrupt_max_extra_wait_ms: 80,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct EngineConfig {
+    pub command_timeout: Duration,
+    pub decode_command_timeout: Duration,
+    pub decode_playing_pending_block_sleep: Duration,
+    pub decode_playing_idle_sleep: Duration,
+    pub decode_idle_sleep: Duration,
+    pub sink_control_timeout: Duration,
+    pub sink_latency: SinkLatencyConfig,
+    pub sink_recovery: SinkRecoveryConfig,
+    pub gain_transition: GainTransitionConfig,
+    pub decode_command_capacity: usize,
+    pub event_capacity: usize,
+}
+
+impl Default for EngineConfig {
+    fn default() -> Self {
+        Self {
+            command_timeout: Duration::from_secs(12),
+            decode_command_timeout: Duration::from_secs(12),
+            decode_playing_pending_block_sleep: Duration::from_micros(250),
+            decode_playing_idle_sleep: Duration::from_millis(2),
+            decode_idle_sleep: Duration::from_millis(8),
+            sink_control_timeout: Duration::from_millis(500),
+            sink_latency: SinkLatencyConfig::default(),
+            sink_recovery: SinkRecoveryConfig::default(),
+            gain_transition: GainTransitionConfig::default(),
+            decode_command_capacity: 128,
+            event_capacity: 256,
+        }
     }
 }

@@ -7,26 +7,18 @@ license.workspace = true
 [dependencies]
 crossbeam-channel.workspace = true
 ringbuf.workspace = true
-thiserror.workspace = true
-anyhow.workspace = true
-cpal.workspace = true
+tokio.workspace = true
+tracing.workspace = true
 rubato.workspace = true
 audioadapter-buffers.workspace = true
-tracing.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 arc-swap.workspace = true
-tokio.workspace = true
-flutter_rust_bridge.workspace = true
-symphonia.workspace = true
-async-trait = "0.1.89"
 
-stellatune-plugin-api.workspace = true
-stellatune-plugins.workspace = true
+stellatune-audio-core.workspace = true
 stellatune-runtime.workspace = true
 
 [target.'cfg(windows)'.dependencies]
-wasapi = "0.22.0"
 windows = { version = "0.62.2", features = [
     "Win32_System_Threading",
     "Win32_Foundation",
@@ -34,4 +26,3 @@ windows = { version = "0.62.2", features = [
 
 [lints]
 workspace = true
-

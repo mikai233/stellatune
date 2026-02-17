@@ -9,4 +9,4 @@ pub mod output_sink_stage;
 pub mod source_plugin;
 pub mod transform_runtime;
 pub mod transform_stage;
-pub mod v2_bridge;
+pub mod bridge;

@@ -1,12 +1,9 @@
 #![deny(clippy::wildcard_imports)]
 
-pub mod decoder;
-pub mod dsp;
-pub mod engine;
-pub mod mixer;
-pub mod output;
-pub mod ring_buffer;
+pub mod assembly;
+pub mod control;
+mod event_hub;
+pub mod pipeline_graph;
+mod runtime;
 pub mod types;
-
-pub use engine::{EngineHandle, start_engine};
-pub use types::*;
+mod workers;

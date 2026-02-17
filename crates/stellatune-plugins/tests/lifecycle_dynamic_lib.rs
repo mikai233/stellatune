@@ -117,8 +117,8 @@ fn fixture_artifacts() -> &'static FixtureArtifacts {
             "lifecycle_plugin_v1",
         ),
         v2: build_fixture_library(
-            "tests/fixtures/lifecycle_plugin_v2/Cargo.toml",
-            "lifecycle_plugin_v2",
+            "tests/fixtures/lifecycle_plugin/Cargo.toml",
+            "lifecycle_plugin",
         ),
     })
 }

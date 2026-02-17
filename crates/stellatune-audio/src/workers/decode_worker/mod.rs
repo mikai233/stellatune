@@ -48,7 +48,7 @@ impl DecodeWorker {
         let (tx, rx) =
             crossbeam_channel::bounded::<DecodeWorkerCommand>(config.decode_command_capacity);
         let join = std::thread::Builder::new()
-            .name("stellatune-audio-v2-decode-worker".to_string())
+            .name("stellatune-audio-decode-worker".to_string())
             .spawn(move || {
                 let _rt_guard = crate::runtime::realtime::enable_realtime_audio_thread();
                 main::decode_worker_main(assembler, config, callback, rx, master_gain_hot_control)

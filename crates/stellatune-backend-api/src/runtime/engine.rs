@@ -8,11 +8,11 @@ use stellatune_audio_builtin_adapters::device_sink::{
 };
 use stellatune_audio_plugin_adapters::output_sink_runtime::negotiate_output_sink_spec;
 use stellatune_audio_plugin_adapters::output_sink_stage::PluginOutputSinkRouteSpec;
-use stellatune_audio_v2::assembly::{MixerPlan, PipelineMutation, ResamplerPlan};
-use stellatune_audio_v2::control::{EngineHandle, start_engine};
-use stellatune_audio_v2::types::{LfeMode, ResampleQuality};
+use stellatune_audio::assembly::{MixerPlan, PipelineMutation, ResamplerPlan};
+use stellatune_audio::control::{EngineHandle, start_engine};
+use stellatune_audio::types::{LfeMode, ResampleQuality};
 
-use super::v2_pipeline::{
+use super::pipeline::{
     V2BackendAssembler, shared_device_sink_control, shared_runtime_sink_route_control,
 };
 use super::{
@@ -475,7 +475,7 @@ fn should_clear_route_if_plugin_unavailable(
 }
 
 fn resolve_rollback_output_spec(
-    route_control: &super::v2_pipeline::RuntimeSinkRouteControl,
+    route_control: &super::pipeline::RuntimeSinkRouteControl,
     previous_route: Option<PluginOutputSinkRouteSpec>,
     fallback_device_spec: Option<OutputDeviceSpec>,
 ) -> Option<OutputDeviceSpec> {

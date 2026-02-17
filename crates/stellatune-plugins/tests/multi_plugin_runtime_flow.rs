@@ -14,7 +14,7 @@ use stellatune_plugins::runtime::worker_endpoint::DecoderWorkerEndpoint;
 
 struct FixtureArtifacts {
     alpha_v1: PathBuf,
-    alpha_v2: PathBuf,
+    alpha_next: PathBuf,
     beta_v1: PathBuf,
 }
 
@@ -140,7 +140,7 @@ async fn multi_plugin_workers_reload_disable_hot_apply_external_flow() {
     assert_eq!(alpha_hot.build.as_deref(), Some("alpha-v1"));
 
     thread::sleep(Duration::from_millis(50));
-    std::fs::copy(&fixtures.alpha_v2, &alpha_installed.library_path)
+    std::fs::copy(&fixtures.alpha_next, &alpha_installed.library_path)
         .expect("overwrite alpha library with v2");
 
     runtime
@@ -377,7 +377,7 @@ async fn multi_plugin_reload_disable_hot_apply_stress_rounds() {
         );
 
         let (alpha_lib_src, expected_build) = if round % 2 == 0 {
-            (&fixtures.alpha_v2, "alpha-v2")
+            (&fixtures.alpha_next, "alpha-v2")
         } else {
             (&fixtures.alpha_v1, "alpha-v1")
         };
@@ -532,9 +532,9 @@ fn fixture_artifacts() -> &'static FixtureArtifacts {
             "tests/fixtures/multi_plugin_alpha_v1/Cargo.toml",
             "multi_plugin_alpha_v1",
         ),
-        alpha_v2: build_fixture_library(
-            "tests/fixtures/multi_plugin_alpha_v2/Cargo.toml",
-            "multi_plugin_alpha_v2",
+        alpha_next: build_fixture_library(
+            "tests/fixtures/multi_plugin_alpha_next/Cargo.toml",
+            "multi_plugin_alpha_next",
         ),
         beta_v1: build_fixture_library(
             "tests/fixtures/multi_plugin_beta_v1/Cargo.toml",

@@ -64,7 +64,7 @@ impl PipelineRuntime for DummyRuntime {
 
 fn spawn_control_actor(config: EngineConfig) -> (ActorRef<ControlActor>, JoinHandle<()>) {
     let actor = ControlActor::new(Arc::new(EventHub::new(config.event_capacity)), config);
-    spawn_actor_named(actor, "stellatune-audio-v2-control-test")
+    spawn_actor_named(actor, "stellatune-audio-control-test")
         .expect("failed to spawn control actor")
 }
 
