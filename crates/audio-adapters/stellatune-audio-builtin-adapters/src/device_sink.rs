@@ -287,7 +287,7 @@ pub fn output_spec_for_route(
 ) -> Result<OutputDeviceSpec, String> {
     let spec = output_spec_for_device(
         backend.to_audio_backend(),
-        normalize_device_id_ref(device_id.as_deref()).map(str::to_string),
+        normalize_device_id_ref(device_id).map(str::to_string),
     )
     .map_err(|e| format!("{e}"))?;
     Ok(OutputDeviceSpec {

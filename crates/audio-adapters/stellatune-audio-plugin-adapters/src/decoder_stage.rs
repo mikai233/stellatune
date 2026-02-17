@@ -810,7 +810,7 @@ struct LocalFileIoHandle {
 
 enum DecoderIoOwner {
     Local(Box<LocalFileIoHandle>),
-    Source(SourceStreamLease),
+    Source(Box<SourceStreamLease>),
 }
 
 impl DecoderIoOwner {
@@ -821,7 +821,7 @@ impl DecoderIoOwner {
     }
 
     fn source(source: SourceStreamLease) -> Self {
-        Self::Source(source)
+        Self::Source(Box::new(source))
     }
 
     fn io_vtable_ptr(&self) -> *const StIoVTable {

@@ -45,18 +45,18 @@ pub(crate) fn open_input(
 ) -> Result<(), String> {
     let transition = state.gain_transition;
     let mut previous_runner = state.runner.take();
-    if let Some(active_runner) = previous_runner.as_mut() {
-        if state.state == PlayerState::Playing {
-            let available_frames_hint = active_runner.playable_remaining_frames_hint();
-            let _ = gain_transition::run_interrupt_fade_out(
-                active_runner,
-                &mut state.sink_session,
-                &mut state.ctx,
-                transition,
-                transition.switch_fade_out_ms,
-                available_frames_hint,
-            );
-        }
+    if let Some(active_runner) = previous_runner.as_mut()
+        && state.state == PlayerState::Playing
+    {
+        let available_frames_hint = active_runner.playable_remaining_frames_hint();
+        let _ = gain_transition::run_interrupt_fade_out(
+            active_runner,
+            &mut state.sink_session,
+            &mut state.ctx,
+            transition,
+            transition.switch_fade_out_ms,
+            available_frames_hint,
+        );
     }
     state.reset_context();
     state.active_input = None;

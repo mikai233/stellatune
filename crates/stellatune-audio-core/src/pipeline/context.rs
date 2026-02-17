@@ -82,40 +82,25 @@ impl GaplessTrimSpec {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum TransitionCurve {
     Linear,
+    #[default]
     EqualPower,
 }
 
-impl Default for TransitionCurve {
-    fn default() -> Self {
-        Self::EqualPower
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum TransitionTimePolicy {
     Exact,
+    #[default]
     FitToAvailable,
 }
 
-impl Default for TransitionTimePolicy {
-    fn default() -> Self {
-        Self::FitToAvailable
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum MasterGainCurve {
     Linear,
+    #[default]
     AudioTaper,
-}
-
-impl Default for MasterGainCurve {
-    fn default() -> Self {
-        Self::AudioTaper
-    }
 }
 
 impl MasterGainCurve {
@@ -193,19 +178,10 @@ impl AudioBlock {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct PipelineContext {
     pub position_ms: i64,
     pub pending_seek_ms: Option<i64>,
-}
-
-impl Default for PipelineContext {
-    fn default() -> Self {
-        Self {
-            position_ms: 0,
-            pending_seek_ms: None,
-        }
-    }
 }
 
 impl PipelineContext {

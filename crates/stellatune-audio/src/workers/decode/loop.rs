@@ -238,10 +238,10 @@ fn compute_loop_timeout(state: &DecodeWorkerState, config: &EngineConfig) -> Dur
         return until_retry.min(config.decode_playing_pending_block_sleep);
     }
 
-    if let Some(active_runner) = state.runner.as_ref() {
-        if active_runner.has_pending_sink_block() {
-            return config.decode_playing_pending_block_sleep;
-        }
+    if let Some(active_runner) = state.runner.as_ref()
+        && active_runner.has_pending_sink_block()
+    {
+        return config.decode_playing_pending_block_sleep;
     }
     config.decode_playing_idle_sleep
 }

@@ -54,16 +54,16 @@ impl SinkSession {
             self.shutdown(false);
         }
 
-        if let Some(worker) = self.sink_worker.as_ref() {
-            if matches!(mode, SinkActivationMode::ImmediateCutover) {
-                match worker.drop_queued(self.sink_control_timeout) {
-                    Ok(()) => {},
-                    Err(PipelineError::SinkDisconnected) => {
-                        self.sink_worker = None;
-                        self.sink_spec = None;
-                    },
-                    Err(error) => return Err(error),
-                }
+        if let Some(worker) = self.sink_worker.as_ref()
+            && matches!(mode, SinkActivationMode::ImmediateCutover)
+        {
+            match worker.drop_queued(self.sink_control_timeout) {
+                Ok(()) => {},
+                Err(PipelineError::SinkDisconnected) => {
+                    self.sink_worker = None;
+                    self.sink_spec = None;
+                },
+                Err(error) => return Err(error),
             }
         }
 

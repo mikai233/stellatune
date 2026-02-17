@@ -163,8 +163,8 @@ impl V2BackendRuntime {
         let (backend, device_id) = control.desired_route();
         let output = output_spec_for_route(backend, device_id.as_deref())
             .or_else(|_| default_output_spec_for_backend(backend))
-            .unwrap_or_else(
-                |_| stellatune_audio_builtin_adapters::device_sink::OutputDeviceSpec {
+            .unwrap_or(
+                stellatune_audio_builtin_adapters::device_sink::OutputDeviceSpec {
                     sample_rate: self.fallback_output_sample_rate,
                     channels: self.fallback_output_channels,
                 },

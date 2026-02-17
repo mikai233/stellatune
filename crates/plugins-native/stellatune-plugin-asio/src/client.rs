@@ -281,10 +281,10 @@ fn release_sidecar_lease_impl(signature: &str) -> SdkResult<()> {
         return Ok(());
     }
 
-    if let Some(mut entry) = guard.entries.remove(signature) {
-        if let Some(client) = entry.client.as_mut() {
-            let _ = client.request_ok(Request::Stop);
-        }
+    if let Some(mut entry) = guard.entries.remove(signature)
+        && let Some(client) = entry.client.as_mut()
+    {
+        let _ = client.request_ok(Request::Stop);
     }
     let running_after_drop = sidecar_metrics().set_running(sidecar_running_entries(&guard));
     let spawns_total = sidecar_metrics()

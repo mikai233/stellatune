@@ -61,16 +61,16 @@ impl SinkWorker {
         let join = std::thread::Builder::new()
             .name("stellatune-audio-sink-loop".to_string())
             .spawn(move || {
-                sink_thread_main(
+                sink_thread_main(SinkThreadArgs {
                     sinks,
                     spec,
-                    initial_ctx,
+                    ctx: initial_ctx,
                     startup_tx,
                     audio_cons,
                     wake_rx,
                     ctrl_rx,
-                    running_for_thread,
-                )
+                    running: running_for_thread,
+                })
             })
             .map_err(|e| PipelineError::StageFailure(format!("spawn sink loop failed: {e}")))?;
 
@@ -205,16 +205,28 @@ impl Drop for RunningFlagGuard {
     }
 }
 
-fn sink_thread_main(
-    mut sinks: Vec<Box<dyn SinkStage>>,
+struct SinkThreadArgs {
+    sinks: Vec<Box<dyn SinkStage>>,
     spec: StreamSpec,
-    mut ctx: PipelineContext,
+    ctx: PipelineContext,
     startup_tx: Sender<Result<(), PipelineError>>,
-    mut audio_cons: HeapCons<AudioBlock>,
+    audio_cons: HeapCons<AudioBlock>,
     wake_rx: Receiver<()>,
     ctrl_rx: Receiver<SinkControl>,
     running: Arc<AtomicBool>,
-) {
+}
+
+fn sink_thread_main(args: SinkThreadArgs) {
+    let SinkThreadArgs {
+        mut sinks,
+        spec,
+        mut ctx,
+        startup_tx,
+        mut audio_cons,
+        wake_rx,
+        ctrl_rx,
+        running,
+    } = args;
     let _running_guard = RunningFlagGuard::new(running);
     let startup = prepare_sinks(&mut sinks, spec, &mut ctx);
     let startup_ok = startup.is_ok();

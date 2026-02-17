@@ -85,18 +85,10 @@ impl Default for BuiltinTransformSlots {
     }
 }
 
+#[derive(Default)]
 pub struct TransformChain {
     pub pre_mix: Vec<Box<dyn TransformStage>>,
     pub post_mix: Vec<Box<dyn TransformStage>>,
-}
-
-impl Default for TransformChain {
-    fn default() -> Self {
-        Self {
-            pre_mix: Vec::new(),
-            post_mix: Vec::new(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

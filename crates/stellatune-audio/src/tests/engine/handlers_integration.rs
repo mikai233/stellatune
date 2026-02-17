@@ -24,10 +24,11 @@ use crate::workers::decode::{DecodeWorker, DecodeWorkerEvent, DecodeWorkerEventC
 const TEST_TIMEOUT: Duration = Duration::from_millis(500);
 
 fn test_config() -> EngineConfig {
-    let mut config = EngineConfig::default();
-    config.command_timeout = TEST_TIMEOUT;
-    config.decode_command_timeout = TEST_TIMEOUT;
-    config
+    EngineConfig {
+        command_timeout: TEST_TIMEOUT,
+        decode_command_timeout: TEST_TIMEOUT,
+        ..EngineConfig::default()
+    }
 }
 
 #[derive(Default)]

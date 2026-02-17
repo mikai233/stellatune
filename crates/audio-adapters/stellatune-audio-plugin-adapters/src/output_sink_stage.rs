@@ -227,7 +227,7 @@ impl SinkStage for PluginOutputSinkStage {
         if let Some(controller) = self.controller.as_mut()
             && let Some(sink) = controller.instance_mut()
         {
-            let _ = sink.close();
+            sink.close();
         }
         self.controller = None;
         self.control_rx = None;

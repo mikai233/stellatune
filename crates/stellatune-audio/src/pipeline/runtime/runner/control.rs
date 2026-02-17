@@ -70,12 +70,12 @@ impl PipelineRunner {
             )));
         }
         #[cfg(test)]
-        if let Some(control) = control.downcast_ref::<TransitionGainControl>() {
-            if let Some(sink) = self.transition_request_log_sink.as_ref() {
-                sink.lock()
-                    .expect("transition request log sink mutex poisoned")
-                    .push(control.request);
-            }
+        if let Some(control) = control.downcast_ref::<TransitionGainControl>()
+            && let Some(sink) = self.transition_request_log_sink.as_ref()
+        {
+            sink.lock()
+                .expect("transition request log sink mutex poisoned")
+                .push(control.request);
         }
         Ok(true)
     }

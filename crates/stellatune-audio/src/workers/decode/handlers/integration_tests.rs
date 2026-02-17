@@ -142,7 +142,7 @@ impl PipelineRuntime for TestRuntime {
                     master_gain: false,
                 },
             },
-            Box::new(StaticSinkPlan::new(vec![Box::new(TestSink::default())])),
+            Box::new(StaticSinkPlan::new(vec![Box::new(TestSink)])),
         ))
     }
 
@@ -535,11 +535,10 @@ impl TestHarness {
         );
         assert!(!should_break);
         let result = resp_rx.recv().expect("open response channel closed");
-        if result.is_ok() {
-            if let Some(active_runner) = self.state.runner.as_mut() {
-                active_runner
-                    .set_transition_request_log_sink(Arc::clone(&self.transition_requests));
-            }
+        if result.is_ok()
+            && let Some(active_runner) = self.state.runner.as_mut()
+        {
+            active_runner.set_transition_request_log_sink(Arc::clone(&self.transition_requests));
         }
         result
     }
@@ -832,8 +831,10 @@ fn master_gain_hot_state_persists_across_context_resets() {
 
 #[test]
 fn seek_command_uses_resampled_remaining_frames_hint_for_near_eof_fade_out() {
-    let mut pipeline_config = HarnessPipelineConfig::default();
-    pipeline_config.resampler_target_sample_rate = Some(2_000);
+    let pipeline_config = HarnessPipelineConfig {
+        resampler_target_sample_rate: Some(2_000),
+        ..HarnessPipelineConfig::default()
+    };
     let mut harness = TestHarness::with_pipeline_config(pipeline_config);
     harness
         .open("track-a", true)
@@ -852,12 +853,14 @@ fn seek_command_uses_resampled_remaining_frames_hint_for_near_eof_fade_out() {
 
 #[test]
 fn stop_command_applies_gapless_tail_before_resampled_hint_scaling() {
-    let mut pipeline_config = HarnessPipelineConfig::default();
-    pipeline_config.resampler_target_sample_rate = Some(2_000);
-    pipeline_config.gapless_trim_spec = Some(GaplessTrimSpec {
-        head_frames: 0,
-        tail_frames: 1,
-    });
+    let pipeline_config = HarnessPipelineConfig {
+        resampler_target_sample_rate: Some(2_000),
+        gapless_trim_spec: Some(GaplessTrimSpec {
+            head_frames: 0,
+            tail_frames: 1,
+        }),
+        ..HarnessPipelineConfig::default()
+    };
     let mut harness = TestHarness::with_pipeline_config(pipeline_config);
     harness
         .open("track-a", true)
