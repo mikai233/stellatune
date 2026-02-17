@@ -2,8 +2,8 @@
 resolver = "3"
 members = [
   "crates/stellatune-audio-core",
-  "crates/stellatune-audio-builtin-adapters",
-  "crates/stellatune-audio-plugin-adapters",
+  "crates/audio-adapters/stellatune-audio-builtin-adapters",
+  "crates/audio-adapters/stellatune-audio-plugin-adapters",
   "crates/plugins-native/stellatune-asio-proto",
   "crates/stellatune-backend-api",
   "crates/stellatune-ffi",
@@ -30,8 +30,8 @@ wildcard_imports = "deny"
 
 [workspace.dependencies]
 stellatune-audio-core = { path = "crates/stellatune-audio-core" }
-stellatune-audio-builtin-adapters = { path = "crates/stellatune-audio-builtin-adapters" }
-stellatune-audio-plugin-adapters = { path = "crates/stellatune-audio-plugin-adapters" }
+stellatune-audio-builtin-adapters = { path = "crates/audio-adapters/stellatune-audio-builtin-adapters" }
+stellatune-audio-plugin-adapters = { path = "crates/audio-adapters/stellatune-audio-plugin-adapters" }
 stellatune-audio = { path = "crates/stellatune-audio" }
 stellatune-asio-proto = { path = "crates/plugins-native/stellatune-asio-proto" }
 stellatune-backend-api = { path = "crates/stellatune-backend-api" }
