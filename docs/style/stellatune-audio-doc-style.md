@@ -24,6 +24,14 @@ For public enums/structs:
 2. Document invariants and semantic constraints.
 3. For enum variants, describe when each variant is produced.
 
+For private/internal functions:
+
+1. Do not document obvious wrappers/getters/setters.
+2. Add docs only when behavior is non-trivial (state machine, threading,
+   recovery, ordering, invariants, or error policy).
+3. Prefer short function-level intent + selective inline comments at critical
+   branches over verbose line-by-line narration.
+
 ## Linking and Terminology
 
 1. Use intra-doc links for crate types, for example:
@@ -52,6 +60,8 @@ For public enums/structs:
 1. Keep summary line short (roughly one sentence).
 2. Prefer short paragraphs over large narrative blocks.
 3. Use bullet lists for multiple conditions or guarantees.
+4. Avoid comment noise: if a reader can infer behavior immediately from code,
+   skip the doc comment.
 
 ## Review Checklist
 
@@ -60,3 +70,4 @@ For public enums/structs:
 - Is `# Errors` present and specific for fallible APIs?
 - Are links and terms consistent with this guide?
 - Does the example match the documented contract?
+- For private docs, do comments focus on complex behavior instead of obvious code?

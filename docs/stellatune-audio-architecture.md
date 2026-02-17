@@ -20,6 +20,18 @@ It complements rustdoc by focusing on cross-module behavior, ownership boundarie
 - `pipeline::runtime::sink_session`:
   - Manages sink worker lifetime, route fingerprinting, and reuse decisions.
 
+## 1.1 External Boundaries
+
+`stellatune-audio` is runtime-core only. It does not own plugin capability
+binding directly. Integration boundaries are:
+
+- `crates/audio-adapters/stellatune-audio-plugin-adapters`:
+  - Plugin-backed source/decoder/transform/output stage adapters.
+- `crates/audio-adapters/stellatune-audio-builtin-adapters`:
+  - Built-in device/output runtime adapters.
+- `crates/stellatune-backend-api`:
+  - Assembler/runtime wiring and app-facing orchestration.
+
 ## 2. Thread Topology
 
 The runtime uses a small fixed topology:
@@ -35,6 +47,9 @@ The runtime uses a small fixed topology:
    - Writes queued blocks and executes control calls (`drain`, `drop_queued`, `sync_runtime_control`).
 
 This split keeps high-frequency audio movement out of actor command channels.
+
+The exact sink implementation (builtin output device vs plugin output sink) is
+selected by pipeline assembly and sink route state, not by the runner loop.
 
 ## 3. Data Plane vs Control Plane
 
@@ -77,7 +92,14 @@ Recovery policy is intentionally decode-worker-owned so retry visibility and sta
 - At most one pending sink block is retained in runner as a backpressure bridge.
 - Sink thread owns sink stage calls; non-sink threads do not invoke sink stage methods directly.
 
-## 7. Reading Order for Maintainers
+## 7. API Boundary Notes
+
+- Engine/public control methods are asynchronous actor messages.
+- Decode and sink workers are internal execution details and are not public API.
+- Runtime errors crossing crate boundary are normalized to typed engine/decode
+  errors in `stellatune-audio`, then adapted again by upper layers.
+
+## 8. Reading Order for Maintainers
 
 Recommended file reading order:
 

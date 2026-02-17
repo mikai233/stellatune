@@ -1,85 +1,90 @@
-# stellatune-backend-api
+# `stellatune-backend-api`
 
-This crate is the UI-agnostic backend entry for StellaTune.
-It contains no Flutter/FRB binding code and can be used directly by Rust frontends such as TUI/CLI.
+`stellatune-backend-api` is the UI-agnostic backend facade for StellaTune.
 
-## Goals
+It is designed for Rust frontends (CLI/TUI/desktop shells) that want to call
+application services directly without going through Flutter/FRB bindings.
 
-- Keep backend domain logic independent from UI adapters.
-- Provide one clear app/session entry for non-Flutter frontends.
-- Keep FRB-specific translation in `stellatune-ffi` only.
+## Design Goals
 
-## Module Layout
+- Keep app/domain orchestration independent from UI transport layers.
+- Provide one async session entry for runtime services.
+- Keep `stellatune-ffi` as an adapter layer, not as the domain owner.
 
-- `app`: top-level backend facade (`BackendApp`)
-- `session`: runtime session assembly (`BackendSession`, options)
-- `player`: player service (`PlayerService`) and plugin package management helpers
-- `library`: library service (`LibraryService`)
-- `runtime`: plugin runtime router/event hub/shared plugin runtime state
+## Current Module Layout
 
-## Recommended Usage
+- `app`: high-level bootstrap facade (`BackendApp`).
+- `session`: session assembly and service access (`BackendSession`, options).
+- `library`: library domain service (`LibraryService`).
+- `lyrics_service` + `lyrics_types`: lyrics orchestration and shared data models.
+- `player`: plugin package install/list/uninstall helpers.
+- `runtime`: shared runtime engine and plugin-runtime operations.
 
-### 1. Create app + session
+`lib.rs` currently re-exports lyrics model types:
+- `LyricLine`
+- `LyricsDoc`
+- `LyricsEvent`
+- `LyricsQuery`
+- `LyricsSearchCandidate`
+
+## Quick Start (Async)
 
 ```rust
 use anyhow::Result;
 use stellatune_backend_api::app::BackendApp;
 use stellatune_backend_api::session::BackendSessionOptions;
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     let app = BackendApp::new();
+    let session = app
+        .create_session(BackendSessionOptions::with_library("./data/library.db"))
+        .await?;
 
-    let mut session = app.create_session(BackendSessionOptions::with_library(
-        "./data/library.db",
-    ))?;
-
-    session.player().play();
+    session.player().play().await?;
 
     if let Some(library) = session.library() {
-        library.scan_all();
+        library.scan_all().await?;
     }
 
     Ok(())
 }
 ```
 
-### 2. Subscribe plugin runtime events
+## Runtime Operations Exposed in This Crate
 
-```rust
-use anyhow::Result;
-use stellatune_backend_api::runtime::subscribe_plugin_runtime_events_global;
+The `runtime` module is the integration surface for shared runtime state:
 
-fn main() -> Result<()> {
-    let rx = subscribe_plugin_runtime_events_global();
-    for ev in rx.iter() {
-        println!("plugin={} kind={:?}", ev.plugin_id, ev.kind);
-    }
+- output device routing:
+  - `runtime_list_output_devices()`
+  - `runtime_set_output_device(...)`
+  - `runtime_output_sink_metrics()`
+- output behavior:
+  - `runtime_set_output_options(...)`
+  - `runtime_set_output_sink_route(...)`
+  - `runtime_clear_output_sink_route()`
+- lifecycle:
+  - `runtime_prepare_hot_restart()`
+  - `runtime_shutdown()`
+- plugin runtime state:
+  - `plugin_runtime_apply_state(...)`
+  - `plugin_runtime_enable(...)`
+  - `plugin_runtime_disable(...)`
+  - `plugin_runtime_apply_state_status_json()`
 
-    Ok(())
-}
-```
+## Plugin Package Management
 
-### 3. Manage plugin packages
+`BackendApp` exposes sync helpers for plugin package files:
 
-```rust
-use anyhow::Result;
-use stellatune_backend_api::app::BackendApp;
+- `plugins_install_from_file(...)`
+- `plugins_list_installed_json(...)`
+- `plugins_uninstall_by_id(...)`
 
-fn main() -> Result<()> {
-    let app = BackendApp::new();
-
-    let id = app.plugins_install_from_file(
-        "./plugins".to_string(),
-        "./downloads/demo-plugin.zip".to_string(),
-    )?;
-
-    println!("installed: {id}");
-    Ok(())
-}
-```
+Use these for artifact-level package operations. Use `LibraryService` runtime
+methods for enable/disable/apply-state behavior.
 
 ## Notes
 
-- This crate does not use `pub use` re-export shortcuts. Import symbols from explicit modules, e.g. `stellatune_backend_api::session::BackendSession`.
-- `stellatune-ffi` is now an adapter crate that calls into this crate.
-- If you need a new frontend (TUI/CLI), build it directly on top of `app` + `session`.
+- This crate intentionally does not expose Flutter-specific stream adapters.
+- Legacy plugin host-event JSON bridge is no longer part of backend API usage.
+- For non-Flutter frontends, build directly on top of `BackendApp` + `BackendSession`.
