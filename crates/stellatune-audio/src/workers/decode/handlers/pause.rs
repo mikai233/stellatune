@@ -1,6 +1,7 @@
 use crossbeam_channel::Sender;
 
 use crate::config::engine::{PauseBehavior, PlayerState};
+use crate::error::DecodeError;
 use crate::workers::decode::DecodeWorkerEventCallback;
 use crate::workers::decode::handlers::gain_transition;
 use crate::workers::decode::state::DecodeWorkerState;
@@ -8,7 +9,7 @@ use crate::workers::decode::util::update_state;
 
 pub(crate) fn handle(
     behavior: PauseBehavior,
-    resp_tx: Sender<Result<(), String>>,
+    resp_tx: Sender<Result<(), DecodeError>>,
     callback: &DecodeWorkerEventCallback,
     state: &mut DecodeWorkerState,
 ) -> bool {
@@ -30,10 +31,10 @@ pub(crate) fn handle(
                 update_state(callback, &mut state.state, PlayerState::Paused);
                 Ok(())
             },
-            Err(error) => Err(error.to_string()),
+            Err(error) => Err(DecodeError::from(error)),
         }
     } else {
-        Err("no active pipeline to pause".to_string())
+        Err(DecodeError::NoActivePipeline { operation: "pause" })
     };
     let _ = resp_tx.send(result);
     false

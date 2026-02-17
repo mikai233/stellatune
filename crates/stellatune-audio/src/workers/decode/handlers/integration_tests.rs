@@ -17,6 +17,7 @@ use stellatune_audio_core::pipeline::stages::source::SourceStage;
 use crate::config::engine::{
     EngineConfig, LfeMode, PauseBehavior, PlayerState, ResampleQuality, StopBehavior,
 };
+use crate::error::DecodeError;
 use crate::pipeline::assembly::{
     AssembledDecodePipeline, AssembledPipeline, BuiltinTransformSlots, OpaqueTransformStageSpec,
     PipelineAssembler, PipelineMutation, PipelinePlan, PipelineRuntime, ResamplerPlan,
@@ -154,16 +155,15 @@ impl PipelineRuntime for TestRuntime {
                 Ok(())
             },
             PipelineMutation::MutateTransformGraph { mutation } => {
-                let typed =
-                    decode_probe_graph_mutation(mutation).map_err(PipelineError::StageFailure)?;
+                let typed = decode_probe_graph_mutation(mutation)?;
                 self.pipeline_config
                     .probe_graph
                     .apply_mutation(typed)
-                    .map_err(PipelineError::StageFailure)?;
+                    .map_err(|error| PipelineError::StageFailure(error.to_string()))?;
                 self.pipeline_config
                     .probe_graph
                     .validate_unique_stage_keys()
-                    .map_err(PipelineError::StageFailure)?;
+                    .map_err(|error| PipelineError::StageFailure(error.to_string()))?;
                 Ok(())
             },
             PipelineMutation::SetMixerPlan { .. } => Ok(()),
@@ -174,7 +174,7 @@ impl PipelineRuntime for TestRuntime {
 
 fn decode_probe_graph_mutation(
     mutation: TransformGraphMutation<OpaqueTransformStageSpec>,
-) -> Result<TransformGraphMutation<ProbeStageConfig>, String> {
+) -> Result<TransformGraphMutation<ProbeStageConfig>, PipelineError> {
     match mutation {
         TransformGraphMutation::Insert {
             segment,
@@ -207,15 +207,15 @@ fn decode_probe_graph_mutation(
     }
 }
 
-fn decode_probe_stage(stage: OpaqueTransformStageSpec) -> Result<ProbeStageConfig, String> {
+fn decode_probe_stage(stage: OpaqueTransformStageSpec) -> Result<ProbeStageConfig, PipelineError> {
     let mut decoded = stage
         .payload_ref::<ProbeStageConfig>()
         .cloned()
         .ok_or_else(|| {
-            format!(
+            PipelineError::StageFailure(format!(
                 "expected ProbeStageConfig payload for stage '{}'",
                 stage.stage_key
-            )
+            ))
         })?;
     decoded.stage_key = stage.stage_key;
     Ok(decoded)
@@ -520,7 +520,7 @@ impl TestHarness {
             .and_then(|runner| runner.playable_remaining_frames_hint())
     }
 
-    fn open(&mut self, track_token: &str, start_playing: bool) -> Result<(), String> {
+    fn open(&mut self, track_token: &str, start_playing: bool) -> Result<(), DecodeError> {
         let (resp_tx, resp_rx) = bounded(1);
         let should_break = handle_command(
             DecodeWorkerCommand::Open {
@@ -543,7 +543,7 @@ impl TestHarness {
         result
     }
 
-    fn seek(&mut self, position_ms: i64) -> Result<(), String> {
+    fn seek(&mut self, position_ms: i64) -> Result<(), DecodeError> {
         let (resp_tx, resp_rx) = bounded(1);
         let should_break = handle_command(
             DecodeWorkerCommand::Seek {
@@ -559,7 +559,7 @@ impl TestHarness {
         resp_rx.recv().expect("seek response channel closed")
     }
 
-    fn pause(&mut self, behavior: PauseBehavior) -> Result<(), String> {
+    fn pause(&mut self, behavior: PauseBehavior) -> Result<(), DecodeError> {
         let (resp_tx, resp_rx) = bounded(1);
         let should_break = handle_command(
             DecodeWorkerCommand::Pause { behavior, resp_tx },
@@ -572,7 +572,7 @@ impl TestHarness {
         resp_rx.recv().expect("pause response channel closed")
     }
 
-    fn stop(&mut self, behavior: StopBehavior) -> Result<(), String> {
+    fn stop(&mut self, behavior: StopBehavior) -> Result<(), DecodeError> {
         let (resp_tx, resp_rx) = bounded(1);
         let should_break = handle_command(
             DecodeWorkerCommand::Stop { behavior, resp_tx },
@@ -585,12 +585,12 @@ impl TestHarness {
         resp_rx.recv().expect("stop response channel closed")
     }
 
-    fn set_master_gain_level(&mut self, level: f32) -> Result<(), String> {
+    fn set_master_gain_level(&mut self, level: f32) -> Result<(), DecodeError> {
         self.state.master_gain_hot_control.update(level, 0, None);
         Ok(())
     }
 
-    fn set_lfe_mode(&mut self, mode: LfeMode) -> Result<(), String> {
+    fn set_lfe_mode(&mut self, mode: LfeMode) -> Result<(), DecodeError> {
         let (resp_tx, resp_rx) = bounded(1);
         let should_break = handle_command(
             DecodeWorkerCommand::SetLfeMode { mode, resp_tx },
@@ -605,7 +605,7 @@ impl TestHarness {
             .expect("set_lfe_mode response channel closed")
     }
 
-    fn set_resample_quality(&mut self, quality: ResampleQuality) -> Result<(), String> {
+    fn set_resample_quality(&mut self, quality: ResampleQuality) -> Result<(), DecodeError> {
         let (resp_tx, resp_rx) = bounded(1);
         let should_break = handle_command(
             DecodeWorkerCommand::SetResampleQuality { quality, resp_tx },
@@ -620,7 +620,7 @@ impl TestHarness {
             .expect("set_resample_quality response channel closed")
     }
 
-    fn apply_stage_control<T>(&mut self, stage_key: &str, control: T) -> Result<(), String>
+    fn apply_stage_control<T>(&mut self, stage_key: &str, control: T) -> Result<(), DecodeError>
     where
         T: Any + Send + 'static,
     {
@@ -642,7 +642,7 @@ impl TestHarness {
             .expect("apply_stage_control response channel closed")
     }
 
-    fn apply_pipeline_mutation(&mut self, mutation: PipelineMutation) -> Result<(), String> {
+    fn apply_pipeline_mutation(&mut self, mutation: PipelineMutation) -> Result<(), DecodeError> {
         let (resp_tx, resp_rx) = bounded(1);
         let should_break = handle_command(
             DecodeWorkerCommand::ApplyPipelineMutation { mutation, resp_tx },
@@ -657,7 +657,7 @@ impl TestHarness {
             .expect("apply_pipeline_mutation response channel closed")
     }
 
-    fn queue_next(&mut self, track_token: &str) -> Result<(), String> {
+    fn queue_next(&mut self, track_token: &str) -> Result<(), DecodeError> {
         let (resp_tx, resp_rx) = bounded(1);
         let should_break = handle_command(
             DecodeWorkerCommand::QueueNext {
@@ -673,7 +673,7 @@ impl TestHarness {
         resp_rx.recv().expect("queue_next response channel closed")
     }
 
-    fn play(&mut self) -> Result<(), String> {
+    fn play(&mut self) -> Result<(), DecodeError> {
         let (resp_tx, resp_rx) = bounded(1);
         let should_break = handle_command(
             DecodeWorkerCommand::Play { resp_tx },
@@ -686,7 +686,7 @@ impl TestHarness {
         resp_rx.recv().expect("play response channel closed")
     }
 
-    fn apply_pipeline_plan(&mut self, plan: Arc<dyn PipelinePlan>) -> Result<(), String> {
+    fn apply_pipeline_plan(&mut self, plan: Arc<dyn PipelinePlan>) -> Result<(), DecodeError> {
         let (resp_tx, resp_rx) = bounded(1);
         let should_break = handle_command(
             DecodeWorkerCommand::ApplyPipelinePlan { plan, resp_tx },
@@ -951,12 +951,12 @@ fn apply_stage_control_reports_missing_stage_key() {
         "custom.unknown.stage",
         TransitionGainControl::new(GainTransitionRequest::default()),
     );
-    assert!(result.is_err());
-    assert!(
-        result
-            .expect_err("expected missing stage key error")
-            .contains("stage key")
-    );
+    let error = result.expect_err("expected missing stage key error");
+    assert!(matches!(
+        error,
+        DecodeError::TransformStageNotFound { ref stage_key }
+            if stage_key == "custom.unknown.stage"
+    ));
 }
 
 #[test]
@@ -1095,12 +1095,11 @@ fn apply_pipeline_mutation_supports_insert_move_replace_and_remove() {
 fn play_command_requires_active_pipeline() {
     let mut harness = TestHarness::new();
     let result = harness.play();
-    assert!(result.is_err());
-    assert!(
-        result
-            .expect_err("play without active pipeline should fail")
-            .contains("no active pipeline")
-    );
+    let error = result.expect_err("play without active pipeline should fail");
+    assert!(matches!(
+        error,
+        DecodeError::NoActivePipeline { operation: "play" }
+    ));
 }
 
 #[test]

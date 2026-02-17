@@ -169,7 +169,8 @@ pub fn events(sink: StreamSink<Event>) -> Result<()> {
                     {
                         warn!(
                             position_ms,
-                            error, "failed to apply pending preload seek on track switch"
+                            error = %error,
+                            "failed to apply pending preload seek on track switch"
                         );
                     }
                     let mapped = map_v2_event_to_ffi(event, &mut state);
@@ -574,7 +575,7 @@ pub async fn dsp_set_chain(chain: Vec<DspChainItem>) {
     for mutation in planned_mutations.iter().cloned() {
         if let Err(error) = engine.apply_pipeline_mutation(mutation).await {
             warn!(
-                error,
+                error = %error,
                 "failed to apply dsp chain via v2 transform graph mutations"
             );
             return;
@@ -595,7 +596,7 @@ pub async fn current_track_info() -> Option<TrackDecodeInfo> {
     let snapshot = match engine().snapshot().await {
         Ok(snapshot) => snapshot,
         Err(error) => {
-            warn!(error, "current_track_info snapshot failed");
+            warn!(error = %error, "current_track_info snapshot failed");
             return None;
         },
     };

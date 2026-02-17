@@ -103,7 +103,7 @@ fn try_sink_recovery_tick_exhaustion_emits_error_and_stops_retries() {
     let recorded = events.lock().expect("events mutex poisoned").clone();
     assert_eq!(recorded.len(), 1);
     match &recorded[0] {
-        DecodeWorkerEvent::Error(message) => assert!(message.contains("plan failed")),
+        DecodeWorkerEvent::Error(error) => assert!(error.to_string().contains("plan failed")),
         other => panic!("unexpected event: {other:?}"),
     }
 }

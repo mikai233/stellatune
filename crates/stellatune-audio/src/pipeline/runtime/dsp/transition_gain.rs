@@ -8,7 +8,7 @@ use stellatune_audio_core::pipeline::error::PipelineError;
 use stellatune_audio_core::pipeline::stages::StageStatus;
 use stellatune_audio_core::pipeline::stages::transform::TransformStage;
 
-use crate::pipeline::runtime::dsp::control::TransitionGainControl;
+use crate::pipeline::runtime::dsp::control::{TRANSITION_GAIN_STAGE_KEY, TransitionGainControl};
 
 #[derive(Debug)]
 pub(crate) struct TransitionGainStage {
@@ -131,7 +131,7 @@ impl TransitionGainStage {
 
 impl TransformStage for TransitionGainStage {
     fn stage_key(&self) -> Option<&str> {
-        Some(crate::pipeline::runtime::dsp::control::TRANSITION_GAIN_STAGE_KEY)
+        Some(TRANSITION_GAIN_STAGE_KEY)
     }
 
     fn apply_control(

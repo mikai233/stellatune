@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 
 use stellatune_audio::engine::EngineHandle;
+use stellatune_audio::error::EngineError;
 use stellatune_audio::pipeline::assembly::PipelineMutation;
 
 use crate::bridge::PluginTransformStageSpec;
@@ -78,7 +79,7 @@ impl PluginPipelineOrchestrator {
         engine: &EngineHandle,
         next: &[PluginTransformStageSpec],
         disabled_plugin_ids: &HashSet<String>,
-    ) -> Result<usize, String> {
+    ) -> Result<usize, EngineError> {
         let mut next_lifecycle = self.lifecycle.clone();
         let mutations = next_lifecycle.replace_transform_chain_filtered(next, disabled_plugin_ids);
         for mutation in mutations.iter().cloned() {
@@ -92,7 +93,7 @@ impl PluginPipelineOrchestrator {
         &mut self,
         engine: &EngineHandle,
         deactivated_plugin_ids: I,
-    ) -> Result<usize, String>
+    ) -> Result<usize, EngineError>
     where
         I: IntoIterator<Item = &'a str>,
     {
@@ -108,7 +109,7 @@ impl PluginPipelineOrchestrator {
     pub async fn clear_pipeline_on_engine(
         &mut self,
         engine: &EngineHandle,
-    ) -> Result<usize, String> {
+    ) -> Result<usize, EngineError> {
         let mut next_lifecycle = self.lifecycle.clone();
         let mutations = next_lifecycle.clear_pipeline();
         for mutation in mutations.iter().cloned() {

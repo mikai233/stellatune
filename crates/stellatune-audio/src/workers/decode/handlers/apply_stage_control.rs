@@ -2,23 +2,23 @@ use std::any::Any;
 
 use crossbeam_channel::Sender;
 
+use crate::error::DecodeError;
 use crate::workers::decode::state::DecodeWorkerState;
 
 pub(crate) fn handle(
     stage_key: String,
     control: Box<dyn Any + Send>,
-    resp_tx: Sender<Result<(), String>>,
+    resp_tx: Sender<Result<(), DecodeError>>,
     state: &mut DecodeWorkerState,
 ) -> bool {
     let result = (|| {
         if let Some(runner) = state.runner.as_mut() {
-            let handled = runner
-                .apply_transform_control_to(&stage_key, control.as_ref(), &mut state.ctx)
-                .map_err(|e| e.to_string())?;
+            let handled =
+                runner.apply_transform_control_to(&stage_key, control.as_ref(), &mut state.ctx)?;
             if !handled {
-                return Err(format!(
-                    "transform stage not found for stage key: {stage_key}"
-                ));
+                return Err(DecodeError::TransformStageNotFound {
+                    stage_key: stage_key.clone(),
+                });
             }
         }
         state.persisted_stage_controls.insert(stage_key, control);

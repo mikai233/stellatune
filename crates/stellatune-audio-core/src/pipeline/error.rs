@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-#[derive(Debug, Error)]
+#[derive(Debug, Clone, Error)]
 pub enum PipelineError {
     #[error("invalid stream spec: sample_rate={sample_rate} channels={channels}")]
     InvalidSpec { sample_rate: u32, channels: u16 },

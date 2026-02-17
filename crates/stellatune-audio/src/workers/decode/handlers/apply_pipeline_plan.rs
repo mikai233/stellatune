@@ -3,6 +3,7 @@ use std::sync::Arc;
 use crossbeam_channel::Sender;
 
 use crate::config::engine::PlayerState;
+use crate::error::DecodeError;
 use crate::pipeline::assembly::{PipelinePlan, PipelineRuntime};
 use crate::pipeline::runtime::runner::RunnerState;
 use crate::pipeline::runtime::sink_session::SinkActivationMode;
@@ -15,7 +16,7 @@ use crate::workers::decode::{DecodeWorkerEvent, DecodeWorkerEventCallback};
 
 pub(crate) fn handle(
     plan: Arc<dyn PipelinePlan>,
-    resp_tx: Sender<Result<(), String>>,
+    resp_tx: Sender<Result<(), DecodeError>>,
     callback: &DecodeWorkerEventCallback,
     pipeline_runtime: &mut dyn PipelineRuntime,
     state: &mut DecodeWorkerState,
@@ -36,24 +37,17 @@ pub(crate) fn handle(
     state.reset_context();
     state.prewarmed_next = None;
 
-    let result = (|| {
-        let mut assembled = pipeline_runtime
-            .ensure(plan.as_ref())
-            .map_err(|e| e.to_string())?;
+    let result = (|| -> Result<(), DecodeError> {
+        let mut assembled = pipeline_runtime.ensure(plan.as_ref())?;
         apply_decode_policies(&mut assembled, state);
-        let mut next_runner = assembled
-            .into_runner(Some(Arc::clone(&state.master_gain_hot_control)))
-            .map_err(|e| e.to_string())?;
-        next_runner
-            .prepare_decode(&input, &mut state.ctx)
-            .map_err(|e| e.to_string())?;
-        next_runner
-            .activate_sink(
-                &mut state.sink_session,
-                &state.ctx,
-                SinkActivationMode::ForceRecreate,
-            )
-            .map_err(|e| e.to_string())?;
+        let mut next_runner =
+            assembled.into_runner(Some(Arc::clone(&state.master_gain_hot_control)))?;
+        next_runner.prepare_decode(&input, &mut state.ctx)?;
+        next_runner.activate_sink(
+            &mut state.sink_session,
+            &state.ctx,
+            SinkActivationMode::ForceRecreate,
+        )?;
         control_apply::apply_master_gain_level_to_runner(
             &mut next_runner,
             &mut state.ctx,
@@ -66,9 +60,7 @@ pub(crate) fn handle(
             &mut state.ctx,
         )?;
         if resume_position_ms > 0 {
-            next_runner
-                .seek(resume_position_ms, &mut state.sink_session, &mut state.ctx)
-                .map_err(|e| e.to_string())?;
+            next_runner.seek(resume_position_ms, &mut state.sink_session, &mut state.ctx)?;
             state.ctx.position_ms = resume_position_ms;
             callback(DecodeWorkerEvent::Position {
                 position_ms: resume_position_ms,
@@ -80,8 +72,7 @@ pub(crate) fn handle(
                 &mut state.ctx,
                 transition,
                 transition.play_fade_in_ms,
-            )
-            .map_err(|e| e.to_string())?;
+            )?;
         }
         next_runner.set_state(if resume_playing {
             RunnerState::Playing

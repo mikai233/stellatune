@@ -3,6 +3,7 @@ use std::sync::Arc;
 use crossbeam_channel::Sender;
 
 use crate::config::engine::ResampleQuality;
+use crate::error::DecodeError;
 use crate::pipeline::assembly::{PipelineAssembler, PipelineRuntime};
 use crate::workers::decode::DecodeWorkerEventCallback;
 use crate::workers::decode::handlers::control_apply;
@@ -10,7 +11,7 @@ use crate::workers::decode::state::DecodeWorkerState;
 
 pub(crate) fn handle(
     quality: ResampleQuality,
-    resp_tx: Sender<Result<(), String>>,
+    resp_tx: Sender<Result<(), DecodeError>>,
     assembler: &Arc<dyn PipelineAssembler>,
     callback: &DecodeWorkerEventCallback,
     pipeline_runtime: &mut dyn PipelineRuntime,

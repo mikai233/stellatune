@@ -50,7 +50,7 @@ fn eof_falls_back_to_queued_next_open_when_prewarm_failed() {
     );
     let queue_error = queue_result.expect_err("queue_next should fail");
     assert!(
-        queue_error.contains("prewarm failed"),
+        queue_error.to_string().contains("prewarm failed"),
         "queue_next error should contain prewarm cause"
     );
 

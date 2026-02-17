@@ -7,7 +7,9 @@ use stellatune_audio_core::pipeline::error::PipelineError;
 use stellatune_audio_core::pipeline::stages::StageStatus;
 use stellatune_audio_core::pipeline::stages::transform::TransformStage;
 
-use crate::pipeline::runtime::dsp::control::{MasterGainControl, SharedMasterGainHotControl};
+use crate::pipeline::runtime::dsp::control::{
+    MASTER_GAIN_STAGE_KEY, MasterGainControl, SharedMasterGainHotControl,
+};
 
 #[derive(Debug)]
 pub(crate) struct MasterGainStage {
@@ -81,7 +83,7 @@ impl MasterGainStage {
 
 impl TransformStage for MasterGainStage {
     fn stage_key(&self) -> Option<&str> {
-        Some(crate::pipeline::runtime::dsp::control::MASTER_GAIN_STAGE_KEY)
+        Some(MASTER_GAIN_STAGE_KEY)
     }
 
     fn apply_control(

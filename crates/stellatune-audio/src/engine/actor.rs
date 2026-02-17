@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use crate::config::engine::{EngineConfig, EngineSnapshot, Event, PlayerState};
+use crate::error::EngineError;
 use crate::infra::event_hub::EventHub;
 use crate::workers::decode::DecodeWorker;
 
@@ -21,10 +22,8 @@ impl ControlActor {
         }
     }
 
-    pub(crate) fn ensure_worker(&mut self) -> Result<&mut DecodeWorker, String> {
-        self.worker
-            .as_mut()
-            .ok_or_else(|| "decode worker is not installed".to_string())
+    pub(crate) fn ensure_worker(&mut self) -> Result<&mut DecodeWorker, EngineError> {
+        self.worker.as_mut().ok_or(EngineError::WorkerNotInstalled)
     }
 
     pub(crate) fn emit_error(&self, message: String) {

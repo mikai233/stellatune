@@ -2,6 +2,7 @@ use std::any::Any;
 use std::sync::Arc;
 
 use crate::config::engine::{LfeMode, PauseBehavior, ResampleQuality, StopBehavior};
+use crate::error::EngineError;
 use crate::pipeline::assembly::{PipelineMutation, PipelinePlan};
 use crate::workers::decode::{DecodeWorker, DecodeWorkerEvent};
 use stellatune_runtime::thread_actor::Message;
@@ -54,43 +55,43 @@ pub(crate) struct OnDecodeWorkerEventMessage {
 }
 
 impl Message for InstallDecodeWorkerMessage {
-    type Response = Result<(), String>;
+    type Response = Result<(), EngineError>;
 }
 
 impl Message for SwitchTrackMessage {
-    type Response = Result<(), String>;
+    type Response = Result<(), EngineError>;
 }
 
 impl Message for QueueNextTrackMessage {
-    type Response = Result<(), String>;
+    type Response = Result<(), EngineError>;
 }
 
 impl Message for PlayMessage {
-    type Response = Result<(), String>;
+    type Response = Result<(), EngineError>;
 }
 
 impl Message for PauseMessage {
-    type Response = Result<(), String>;
+    type Response = Result<(), EngineError>;
 }
 
 impl Message for StopMessage {
-    type Response = Result<(), String>;
+    type Response = Result<(), EngineError>;
 }
 
 impl Message for SeekMessage {
-    type Response = Result<(), String>;
+    type Response = Result<(), EngineError>;
 }
 
 impl Message for SetLfeModeMessage {
-    type Response = Result<(), String>;
+    type Response = Result<(), EngineError>;
 }
 
 impl Message for SetResampleQualityMessage {
-    type Response = Result<(), String>;
+    type Response = Result<(), EngineError>;
 }
 
 impl Message for ApplyStageControlMessage {
-    type Response = Result<(), String>;
+    type Response = Result<(), EngineError>;
 }
 
 impl Message for GetSnapshotMessage {
@@ -98,15 +99,15 @@ impl Message for GetSnapshotMessage {
 }
 
 impl Message for ShutdownMessage {
-    type Response = Result<(), String>;
+    type Response = Result<(), EngineError>;
 }
 
 impl Message for ApplyPipelinePlanMessage {
-    type Response = Result<(), String>;
+    type Response = Result<(), EngineError>;
 }
 
 impl Message for ApplyPipelineMutationMessage {
-    type Response = Result<(), String>;
+    type Response = Result<(), EngineError>;
 }
 
 impl Message for OnDecodeWorkerEventMessage {

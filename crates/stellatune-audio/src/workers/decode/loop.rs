@@ -6,6 +6,7 @@ use stellatune_audio_core::pipeline::error::PipelineError;
 use tracing::warn;
 
 use crate::config::engine::{EngineConfig, PlayerState, StopBehavior};
+use crate::error::DecodeError;
 use crate::pipeline::assembly::PipelineAssembler;
 use crate::pipeline::runtime::dsp::control::SharedMasterGainHotControl;
 use crate::pipeline::runtime::runner::{RunnerState, StepResult};
@@ -99,10 +100,10 @@ pub(crate) fn decode_worker_main(
                     state.queued_next_input = None;
                     let promote_result =
                         promote_prewarmed_next(prewarmed_next, &callback, &mut state);
-                    if let Err(message) = promote_result {
-                        warn!(message, "failed to promote prewarmed next track");
+                    if let Err(error) = promote_result {
+                        warn!(message = %error, "failed to promote prewarmed next track");
                         update_state(&callback, &mut state.state, PlayerState::Stopped);
-                        callback(DecodeWorkerEvent::Error(message));
+                        callback(DecodeWorkerEvent::Error(error));
                     }
                 } else if let Some(next_input) = state.queued_next_input.take() {
                     let open_result = open_input(
@@ -113,10 +114,10 @@ pub(crate) fn decode_worker_main(
                         pipeline_runtime.as_mut(),
                         &mut state,
                     );
-                    if let Err(message) = open_result {
-                        warn!(message, "failed to open queued next track");
+                    if let Err(error) = open_result {
+                        warn!(message = %error, "failed to open queued next track");
                         update_state(&callback, &mut state.state, PlayerState::Stopped);
-                        callback(DecodeWorkerEvent::Error(message));
+                        callback(DecodeWorkerEvent::Error(error));
                     }
                 } else {
                     if let Some(active_runner) = state.runner.as_mut() {
@@ -134,11 +135,10 @@ pub(crate) fn decode_worker_main(
                 }
             },
             Err(error) => {
-                let message = error.to_string();
                 let active_input = recovery::active_input_for_log(&state);
                 if matches!(error, PipelineError::SinkDisconnected) {
                     warn!(
-                        message,
+                        message = %error,
                         active_input = %active_input,
                         "sink disconnected, entering recovery"
                     );
@@ -151,7 +151,7 @@ pub(crate) fn decode_worker_main(
                     }
                 } else {
                     warn!(
-                        message,
+                        message = %error,
                         active_input = %active_input,
                         "decode worker step failed"
                     );
@@ -167,7 +167,7 @@ pub(crate) fn decode_worker_main(
                 state.recovery_attempts = 0;
                 state.recovery_retry_at = None;
                 update_state(&callback, &mut state.state, PlayerState::Stopped);
-                callback(DecodeWorkerEvent::Error(message));
+                callback(DecodeWorkerEvent::Error(DecodeError::Pipeline(error)));
             },
         }
     }
@@ -183,15 +183,12 @@ fn promote_prewarmed_next(
     mut prewarmed_next: crate::workers::decode::state::PrewarmedNext,
     callback: &DecodeWorkerEventCallback,
     state: &mut DecodeWorkerState,
-) -> Result<(), String> {
-    prewarmed_next
-        .runner
-        .activate_sink(
-            &mut state.sink_session,
-            &prewarmed_next.ctx,
-            SinkActivationMode::PreserveQueued,
-        )
-        .map_err(|e| e.to_string())?;
+) -> Result<(), DecodeError> {
+    prewarmed_next.runner.activate_sink(
+        &mut state.sink_session,
+        &prewarmed_next.ctx,
+        SinkActivationMode::PreserveQueued,
+    )?;
     apply_master_gain_level_to_runner(
         &mut prewarmed_next.runner,
         &mut prewarmed_next.ctx,
@@ -208,8 +205,7 @@ fn promote_prewarmed_next(
         &mut prewarmed_next.ctx,
         state.gain_transition,
         state.gain_transition.open_fade_in_ms,
-    )
-    .map_err(|e| e.to_string())?;
+    )?;
     prewarmed_next.runner.set_state(RunnerState::Playing);
 
     state.ctx = prewarmed_next.ctx;

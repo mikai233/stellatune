@@ -4,6 +4,7 @@ use crossbeam_channel::Sender;
 use stellatune_audio_core::pipeline::context::InputRef;
 
 use crate::config::engine::PlayerState;
+use crate::error::DecodeError;
 use crate::pipeline::assembly::{PipelineAssembler, PipelineRuntime};
 use crate::pipeline::runtime::runner::RunnerState;
 use crate::pipeline::runtime::sink_session::SinkActivationMode;
@@ -17,7 +18,7 @@ use crate::workers::decode::{DecodeWorkerEvent, DecodeWorkerEventCallback};
 pub(crate) fn handle(
     input: InputRef,
     start_playing: bool,
-    resp_tx: Sender<Result<(), String>>,
+    resp_tx: Sender<Result<(), DecodeError>>,
     assembler: &Arc<dyn PipelineAssembler>,
     callback: &DecodeWorkerEventCallback,
     pipeline_runtime: &mut dyn PipelineRuntime,
@@ -42,7 +43,7 @@ pub(crate) fn open_input(
     callback: &DecodeWorkerEventCallback,
     pipeline_runtime: &mut dyn PipelineRuntime,
     state: &mut DecodeWorkerState,
-) -> Result<(), String> {
+) -> Result<(), DecodeError> {
     let transition = state.gain_transition;
     let mut previous_runner = state.runner.take();
     if let Some(active_runner) = previous_runner.as_mut()
@@ -67,26 +68,19 @@ pub(crate) fn open_input(
 
     let plan = match state.pinned_plan.as_ref() {
         Some(plan) => Arc::clone(plan),
-        None => assembler.plan(&input).map_err(|e| e.to_string())?,
+        None => assembler.plan(&input)?,
     };
-    let mut assembled = pipeline_runtime
-        .ensure(plan.as_ref())
-        .map_err(|e| e.to_string())?;
+    let mut assembled = pipeline_runtime.ensure(plan.as_ref())?;
     apply_decode_policies(&mut assembled, state);
-    let build_result = (|| -> Result<_, String> {
-        let mut next_runner = assembled
-            .into_runner(Some(Arc::clone(&state.master_gain_hot_control)))
-            .map_err(|e| e.to_string())?;
-        next_runner
-            .prepare_decode(&input, &mut state.ctx)
-            .map_err(|e| e.to_string())?;
-        next_runner
-            .activate_sink(
-                &mut state.sink_session,
-                &state.ctx,
-                SinkActivationMode::ImmediateCutover,
-            )
-            .map_err(|e| e.to_string())?;
+    let build_result = (|| -> Result<_, DecodeError> {
+        let mut next_runner =
+            assembled.into_runner(Some(Arc::clone(&state.master_gain_hot_control)))?;
+        next_runner.prepare_decode(&input, &mut state.ctx)?;
+        next_runner.activate_sink(
+            &mut state.sink_session,
+            &state.ctx,
+            SinkActivationMode::ImmediateCutover,
+        )?;
         Ok(next_runner)
     })();
     if let Some(mut previous_runner) = previous_runner {
@@ -110,8 +104,7 @@ pub(crate) fn open_input(
             &mut state.ctx,
             transition,
             transition.open_fade_in_ms,
-        )
-        .map_err(|e| e.to_string())?;
+        )?;
     }
     next_runner.set_state(if start_playing {
         RunnerState::Playing
@@ -144,22 +137,17 @@ pub(crate) fn prewarm_input(
     assembler: &Arc<dyn PipelineAssembler>,
     pipeline_runtime: &mut dyn PipelineRuntime,
     state: &DecodeWorkerState,
-) -> Result<PrewarmedNext, String> {
+) -> Result<PrewarmedNext, DecodeError> {
     let plan = match state.pinned_plan.as_ref() {
         Some(plan) => Arc::clone(plan),
-        None => assembler.plan(&input).map_err(|e| e.to_string())?,
+        None => assembler.plan(&input)?,
     };
-    let mut assembled = pipeline_runtime
-        .ensure(plan.as_ref())
-        .map_err(|e| e.to_string())?;
+    let mut assembled = pipeline_runtime.ensure(plan.as_ref())?;
     apply_decode_policies(&mut assembled, state);
-    let mut next_runner = assembled
-        .into_runner(Some(Arc::clone(&state.master_gain_hot_control)))
-        .map_err(|e| e.to_string())?;
+    let mut next_runner =
+        assembled.into_runner(Some(Arc::clone(&state.master_gain_hot_control)))?;
     let mut next_ctx = state.fresh_context();
-    next_runner
-        .prepare_decode(&input, &mut next_ctx)
-        .map_err(|e| e.to_string())?;
+    next_runner.prepare_decode(&input, &mut next_ctx)?;
     control_apply::replay_persisted_stage_controls_to_runner(
         &state.persisted_stage_controls,
         &mut next_runner,

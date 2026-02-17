@@ -1,6 +1,7 @@
 use crossbeam_channel::Sender;
 
 use crate::config::engine::PlayerState;
+use crate::error::DecodeError;
 use crate::pipeline::runtime::runner::RunnerState;
 use crate::workers::decode::DecodeWorkerEventCallback;
 use crate::workers::decode::handlers::gain_transition;
@@ -8,7 +9,7 @@ use crate::workers::decode::state::DecodeWorkerState;
 use crate::workers::decode::util::update_state;
 
 pub(crate) fn handle(
-    resp_tx: Sender<Result<(), String>>,
+    resp_tx: Sender<Result<(), DecodeError>>,
     callback: &DecodeWorkerEventCallback,
     state: &mut DecodeWorkerState,
 ) -> bool {
@@ -21,7 +22,7 @@ pub(crate) fn handle(
                 transition,
                 transition.play_fade_in_ms,
             ) {
-                Err(error.to_string())
+                Err(DecodeError::from(error))
             } else {
                 active_runner.set_state(RunnerState::Playing);
                 update_state(callback, &mut state.state, PlayerState::Playing);
@@ -33,7 +34,7 @@ pub(crate) fn handle(
             Ok(())
         }
     } else {
-        Err("no active pipeline to play".to_string())
+        Err(DecodeError::NoActivePipeline { operation: "play" })
     };
     let _ = resp_tx.send(result);
     false

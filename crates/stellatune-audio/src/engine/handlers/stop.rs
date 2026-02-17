@@ -3,13 +3,14 @@ use stellatune_runtime::thread_actor::{ActorContext, Handler};
 use crate::config::engine::PlayerState;
 use crate::engine::actor::ControlActor;
 use crate::engine::messages::StopMessage;
+use crate::error::EngineError;
 
 impl Handler<StopMessage> for ControlActor {
     fn handle(
         &mut self,
         message: StopMessage,
         _ctx: &mut ActorContext<Self>,
-    ) -> Result<(), String> {
+    ) -> Result<(), EngineError> {
         let timeout = self.config.decode_command_timeout;
         let worker = self.ensure_worker()?;
         worker.stop(message.behavior, timeout)?;

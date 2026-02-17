@@ -13,6 +13,7 @@ use crate::engine::messages::{
     InstallDecodeWorkerMessage, OnDecodeWorkerEventMessage, SetLfeModeMessage,
     SetResampleQualityMessage, ShutdownMessage, StopMessage,
 };
+use crate::error::DecodeError;
 use crate::infra::event_hub::EventHub;
 use crate::pipeline::assembly::{
     AssembledPipeline, BuiltinTransformSlot, PipelineAssembler, PipelineMutation, PipelinePlan,
@@ -192,7 +193,9 @@ fn error_event_clears_current_track_and_stops_state() {
         .expect("failed to cast position event");
     actor_ref
         .cast(OnDecodeWorkerEventMessage {
-            event: DecodeWorkerEvent::Error("decoder failed".to_string()),
+            event: DecodeWorkerEvent::Error(DecodeError::Pipeline(PipelineError::StageFailure(
+                "decoder failed".to_string(),
+            ))),
         })
         .expect("failed to cast error event");
 

@@ -574,7 +574,8 @@ async fn apply_output_spec_mutations(
         .apply_pipeline_mutation(PipelineMutation::SetMixerPlan {
             mixer: Some(MixerPlan::new(spec.channels, LfeMode::Mute)),
         })
-        .await?;
+        .await
+        .map_err(|error| error.to_string())?;
     let resampler = if output_options.match_track_sample_rate {
         None
     } else {
@@ -586,6 +587,7 @@ async fn apply_output_spec_mutations(
     engine
         .apply_pipeline_mutation(PipelineMutation::SetResamplerPlan { resampler })
         .await
+        .map_err(|error| error.to_string())
 }
 
 fn normalize_device_id(device_id: Option<String>) -> Option<String> {

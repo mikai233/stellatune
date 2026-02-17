@@ -1,8 +1,9 @@
 use std::sync::Arc;
 
-use stellatune_runtime::thread_actor::{ActorRef, CallError};
+use stellatune_runtime::thread_actor::ActorRef;
 
 use crate::engine::actor::ControlActor;
+use crate::error::EngineError;
 use crate::infra::event_hub::EventHub;
 use crate::pipeline::runtime::dsp::control::SharedMasterGainHotControl;
 
@@ -33,12 +34,11 @@ impl EngineHandle {
         }
     }
 
-    pub(crate) fn map_call_error(err: CallError) -> String {
-        match err {
-            CallError::MailboxClosed | CallError::ActorStopped => {
-                "control actor exited".to_string()
-            },
-            CallError::Timeout => "control command timed out".to_string(),
-        }
+    pub(crate) fn map_call_error(
+        operation: &'static str,
+        timeout: std::time::Duration,
+        err: stellatune_runtime::thread_actor::CallError,
+    ) -> EngineError {
+        EngineError::from_call_error(operation, timeout, err)
     }
 }

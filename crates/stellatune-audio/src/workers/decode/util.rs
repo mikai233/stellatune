@@ -4,15 +4,18 @@ use crossbeam_channel::Receiver;
 use stellatune_audio_core::pipeline::context::PipelineContext;
 
 use crate::config::engine::PlayerState;
+use crate::error::DecodeError;
 use crate::workers::decode::{DecodeWorkerEvent, DecodeWorkerEventCallback};
 
 pub(crate) fn recv_result(
-    resp_rx: Receiver<Result<(), String>>,
+    resp_rx: Receiver<Result<(), DecodeError>>,
     timeout: Duration,
-) -> Result<(), String> {
+) -> Result<(), DecodeError> {
     resp_rx
         .recv_timeout(timeout)
-        .map_err(|_| "decode worker command timed out".to_string())?
+        .map_err(|_| DecodeError::CommandTimedOut {
+            timeout_ms: timeout.as_millis(),
+        })?
 }
 
 pub(crate) fn update_state(

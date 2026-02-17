@@ -234,10 +234,10 @@ impl PipelineRuntime for V2BackendRuntime {
             PipelineMutation::MutateTransformGraph { mutation } => {
                 self.transform_graph
                     .apply_mutation(mutation)
-                    .map_err(PipelineError::StageFailure)?;
+                    .map_err(|error| PipelineError::StageFailure(error.to_string()))?;
                 self.transform_graph
                     .validate_unique_stage_keys()
-                    .map_err(PipelineError::StageFailure)
+                    .map_err(|error| PipelineError::StageFailure(error.to_string()))
             },
             PipelineMutation::SetMixerPlan { mixer } => {
                 self.mixer = mixer;

@@ -5,6 +5,7 @@ use stellatune_audio_core::pipeline::context::InputRef;
 use tracing::{info, warn};
 
 use crate::config::engine::EngineConfig;
+use crate::error::DecodeError;
 use crate::pipeline::assembly::{PipelineAssembler, PipelineRuntime};
 use crate::pipeline::runtime::runner::RunnerState;
 use crate::pipeline::runtime::sink_session::SinkActivationMode;
@@ -85,12 +86,14 @@ pub(crate) fn try_sink_recovery_tick(
         return true;
     }
 
-    let message = recover_result
-        .err()
-        .unwrap_or_else(|| "sink recovery failed".to_string());
+    let message = recover_result.err().unwrap_or(DecodeError::Pipeline(
+        stellatune_audio_core::pipeline::error::PipelineError::StageFailure(
+            "sink recovery failed".to_string(),
+        ),
+    ));
     warn!(
         attempt,
-        message,
+        message = %message,
         active_input = %active_input_for_log(state),
         "sink recovery attempt failed"
     );
@@ -99,7 +102,7 @@ pub(crate) fn try_sink_recovery_tick(
         warn!(
             attempt,
             max_attempts = state.sink_recovery.max_attempts,
-            message,
+            message = %message,
             active_input = %active_input_for_log(state),
             "sink recovery exhausted; stopping playback"
         );
@@ -134,34 +137,27 @@ fn rebuild_active_runner(
     assembler: &Arc<dyn PipelineAssembler>,
     pipeline_runtime: &mut dyn PipelineRuntime,
     state: &mut DecodeWorkerState,
-) -> Result<(), String> {
+) -> Result<(), DecodeError> {
     let input = state
         .active_input
         .clone()
-        .ok_or_else(|| "no active input for sink recovery".to_string())?;
+        .ok_or(DecodeError::NoActiveInputForRecovery)?;
     let resume_position_ms = state.ctx.position_ms.max(0);
     let plan = match state.pinned_plan.as_ref() {
         Some(plan) => Arc::clone(plan),
-        None => assembler.plan(&input).map_err(|e| e.to_string())?,
+        None => assembler.plan(&input)?,
     };
-    let mut assembled = pipeline_runtime
-        .ensure(plan.as_ref())
-        .map_err(|e| e.to_string())?;
+    let mut assembled = pipeline_runtime.ensure(plan.as_ref())?;
     apply_decode_policies(&mut assembled, state);
     let mut next_ctx = state.fresh_context();
-    let mut next_runner = assembled
-        .into_runner(Some(Arc::clone(&state.master_gain_hot_control)))
-        .map_err(|e| e.to_string())?;
-    next_runner
-        .prepare_decode(&input, &mut next_ctx)
-        .map_err(|e| e.to_string())?;
-    next_runner
-        .activate_sink(
-            &mut state.sink_session,
-            &next_ctx,
-            SinkActivationMode::ImmediateCutover,
-        )
-        .map_err(|e| e.to_string())?;
+    let mut next_runner =
+        assembled.into_runner(Some(Arc::clone(&state.master_gain_hot_control)))?;
+    next_runner.prepare_decode(&input, &mut next_ctx)?;
+    next_runner.activate_sink(
+        &mut state.sink_session,
+        &next_ctx,
+        SinkActivationMode::ImmediateCutover,
+    )?;
     apply_master_gain_level_to_runner(
         &mut next_runner,
         &mut next_ctx,
@@ -174,9 +170,7 @@ fn rebuild_active_runner(
         &mut next_ctx,
     )?;
     if resume_position_ms > 0 {
-        next_runner
-            .seek(resume_position_ms, &mut state.sink_session, &mut next_ctx)
-            .map_err(|e| e.to_string())?;
+        next_runner.seek(resume_position_ms, &mut state.sink_session, &mut next_ctx)?;
         next_ctx.position_ms = resume_position_ms;
     }
     next_runner.set_state(RunnerState::Playing);

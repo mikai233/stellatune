@@ -7,7 +7,7 @@ use stellatune_audio_core::pipeline::error::PipelineError;
 use stellatune_audio_core::pipeline::stages::StageStatus;
 use stellatune_audio_core::pipeline::stages::transform::TransformStage;
 
-use crate::pipeline::runtime::dsp::control::GaplessTrimControl;
+use crate::pipeline::runtime::dsp::control::{GAPLESS_TRIM_STAGE_KEY, GaplessTrimControl};
 
 const GAPLESS_ENTRY_DECLICK_MS: usize = 2;
 
@@ -149,7 +149,7 @@ impl GaplessTrimStage {
 
 impl TransformStage for GaplessTrimStage {
     fn stage_key(&self) -> Option<&str> {
-        Some(crate::pipeline::runtime::dsp::control::GAPLESS_TRIM_STAGE_KEY)
+        Some(GAPLESS_TRIM_STAGE_KEY)
     }
 
     fn apply_control(

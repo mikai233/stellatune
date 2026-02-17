@@ -3125,6 +3125,7 @@ dependencies = [
  "serde_json",
  "stellatune-audio-core",
  "stellatune-runtime",
+ "thiserror 2.0.18",
  "tokio",
  "tracing",
  "windows",

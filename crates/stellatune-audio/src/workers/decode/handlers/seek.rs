@@ -1,13 +1,14 @@
 use crossbeam_channel::Sender;
 
 use crate::config::engine::PlayerState;
+use crate::error::DecodeError;
 use crate::workers::decode::handlers::gain_transition;
 use crate::workers::decode::state::DecodeWorkerState;
 use crate::workers::decode::{DecodeWorkerEvent, DecodeWorkerEventCallback};
 
 pub(crate) fn handle(
     position_ms: i64,
-    resp_tx: Sender<Result<(), String>>,
+    resp_tx: Sender<Result<(), DecodeError>>,
     callback: &DecodeWorkerEventCallback,
     state: &mut DecodeWorkerState,
 ) -> bool {
@@ -27,7 +28,7 @@ pub(crate) fn handle(
         }
         match active_runner
             .seek(position_ms, &mut state.sink_session, &mut state.ctx)
-            .map_err(|e| e.to_string())
+            .map_err(DecodeError::from)
         {
             Ok(()) => {
                 if was_playing {
@@ -37,7 +38,7 @@ pub(crate) fn handle(
                         transition,
                         transition.seek_fade_in_ms,
                     ) {
-                        Err(error.to_string())
+                        Err(DecodeError::from(error))
                     } else {
                         let position_ms = position_ms.max(0);
                         state.ctx.position_ms = position_ms;
@@ -54,7 +55,7 @@ pub(crate) fn handle(
             Err(error) => Err(error),
         }
     } else {
-        Err("no active pipeline to seek".to_string())
+        Err(DecodeError::NoActivePipeline { operation: "seek" })
     };
     let _ = resp_tx.send(result);
     false

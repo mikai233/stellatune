@@ -1,6 +1,7 @@
 use crossbeam_channel::Sender;
 
 use crate::config::engine::{PlayerState, StopBehavior};
+use crate::error::DecodeError;
 use crate::pipeline::assembly::PipelineRuntime;
 use crate::workers::decode::handlers::gain_transition;
 use crate::workers::decode::state::DecodeWorkerState;
@@ -9,13 +10,13 @@ use crate::workers::decode::{DecodeWorkerEvent, DecodeWorkerEventCallback};
 
 pub(crate) fn handle(
     behavior: StopBehavior,
-    resp_tx: Sender<Result<(), String>>,
+    resp_tx: Sender<Result<(), DecodeError>>,
     callback: &DecodeWorkerEventCallback,
     pipeline_runtime: &mut dyn PipelineRuntime,
     state: &mut DecodeWorkerState,
 ) -> bool {
     let transition = state.gain_transition;
-    let mut stop_error: Option<String> = None;
+    let mut stop_error: Option<DecodeError> = None;
     if let Some(active_runner) = state.runner.as_mut() {
         if state.state == PlayerState::Playing {
             let available_frames_hint = active_runner.playable_remaining_frames_hint();
@@ -31,7 +32,7 @@ pub(crate) fn handle(
         if let Err(error) =
             active_runner.stop_with_behavior(behavior, &mut state.sink_session, &mut state.ctx)
         {
-            stop_error = Some(error.to_string());
+            stop_error = Some(DecodeError::from(error));
         }
     } else {
         state.sink_session.shutdown(false);

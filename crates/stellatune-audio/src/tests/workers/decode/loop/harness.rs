@@ -14,6 +14,7 @@ use stellatune_audio_core::pipeline::stages::sink::SinkStage;
 use stellatune_audio_core::pipeline::stages::source::SourceStage;
 
 use crate::config::engine::EngineConfig;
+use crate::error::DecodeError;
 use crate::pipeline::assembly::{
     AssembledDecodePipeline, AssembledPipeline, BuiltinTransformSlots, PipelineAssembler,
     PipelineMutation, PipelinePlan, PipelineRuntime, StaticSinkPlan, TransformChain,
@@ -267,17 +268,17 @@ impl LoopHarness {
         }
     }
 
-    pub(super) fn open(&self, track_token: &str, start_playing: bool) -> Result<(), String> {
+    pub(super) fn open(&self, track_token: &str, start_playing: bool) -> Result<(), DecodeError> {
         self.worker_ref()
             .open(track_token.to_string(), start_playing, self.command_timeout)
     }
 
-    pub(super) fn queue_next(&self, track_token: &str) -> Result<(), String> {
+    pub(super) fn queue_next(&self, track_token: &str) -> Result<(), DecodeError> {
         self.worker_ref()
             .queue_next(track_token.to_string(), self.command_timeout)
     }
 
-    pub(super) fn play(&self) -> Result<(), String> {
+    pub(super) fn play(&self) -> Result<(), DecodeError> {
         self.worker_ref().play(self.command_timeout)
     }
 
@@ -306,9 +307,9 @@ impl LoopHarness {
                 }) if current == track_token => {
                     return Ok(());
                 },
-                Ok(DecodeWorkerEvent::Error(message)) => {
+                Ok(DecodeWorkerEvent::Error(error)) => {
                     return Err(format!(
-                        "unexpected decode worker error while waiting for track '{track_token}': {message}"
+                        "unexpected decode worker error while waiting for track '{track_token}': {error}"
                     ));
                 },
                 Ok(_) => {},

@@ -18,6 +18,7 @@ use stellatune_audio_core::pipeline::context::InputRef;
 use crate::config::engine::{
     EngineConfig, LfeMode, PauseBehavior, PlayerState, ResampleQuality, StopBehavior,
 };
+use crate::error::DecodeError;
 use crate::pipeline::assembly::{PipelineAssembler, PipelineMutation, PipelinePlan};
 use crate::pipeline::runtime::dsp::control::SharedMasterGainHotControl;
 use crate::workers::decode::command::DecodeWorkerCommand;
@@ -30,7 +31,7 @@ pub(crate) enum DecodeWorkerEvent {
     Recovering { attempt: u32, backoff_ms: u64 },
     Position { position_ms: i64 },
     Eof,
-    Error(String),
+    Error(DecodeError),
 }
 
 pub(crate) type DecodeWorkerEventCallback = Arc<dyn Fn(DecodeWorkerEvent) + Send + Sync>;
@@ -70,7 +71,7 @@ impl DecodeWorker {
         track_token: String,
         start_playing: bool,
         timeout: Duration,
-    ) -> Result<(), String> {
+    ) -> Result<(), DecodeError> {
         let (resp_tx, resp_rx) = crossbeam_channel::bounded(1);
         self.send_command(
             DecodeWorkerCommand::Open {
@@ -83,11 +84,15 @@ impl DecodeWorker {
         recv_result(resp_rx, timeout)
     }
 
-    pub(crate) fn play(&self, timeout: Duration) -> Result<(), String> {
+    pub(crate) fn play(&self, timeout: Duration) -> Result<(), DecodeError> {
         self.call_simple(|resp_tx| DecodeWorkerCommand::Play { resp_tx }, timeout)
     }
 
-    pub(crate) fn queue_next(&self, track_token: String, timeout: Duration) -> Result<(), String> {
+    pub(crate) fn queue_next(
+        &self,
+        track_token: String,
+        timeout: Duration,
+    ) -> Result<(), DecodeError> {
         let (resp_tx, resp_rx) = crossbeam_channel::bounded(1);
         self.send_command(
             DecodeWorkerCommand::QueueNext {
@@ -99,14 +104,18 @@ impl DecodeWorker {
         recv_result(resp_rx, timeout)
     }
 
-    pub(crate) fn pause(&self, behavior: PauseBehavior, timeout: Duration) -> Result<(), String> {
+    pub(crate) fn pause(
+        &self,
+        behavior: PauseBehavior,
+        timeout: Duration,
+    ) -> Result<(), DecodeError> {
         self.call_simple(
             |resp_tx| DecodeWorkerCommand::Pause { behavior, resp_tx },
             timeout,
         )
     }
 
-    pub(crate) fn seek(&self, position_ms: i64, timeout: Duration) -> Result<(), String> {
+    pub(crate) fn seek(&self, position_ms: i64, timeout: Duration) -> Result<(), DecodeError> {
         let (resp_tx, resp_rx) = crossbeam_channel::bounded(1);
         self.send_command(
             DecodeWorkerCommand::Seek {
@@ -118,7 +127,11 @@ impl DecodeWorker {
         recv_result(resp_rx, timeout)
     }
 
-    pub(crate) fn stop(&self, behavior: StopBehavior, timeout: Duration) -> Result<(), String> {
+    pub(crate) fn stop(
+        &self,
+        behavior: StopBehavior,
+        timeout: Duration,
+    ) -> Result<(), DecodeError> {
         self.call_simple(
             |resp_tx| DecodeWorkerCommand::Stop { behavior, resp_tx },
             timeout,
@@ -129,7 +142,7 @@ impl DecodeWorker {
         &self,
         plan: Arc<dyn PipelinePlan>,
         timeout: Duration,
-    ) -> Result<(), String> {
+    ) -> Result<(), DecodeError> {
         let (resp_tx, resp_rx) = crossbeam_channel::bounded(1);
         self.send_command(
             DecodeWorkerCommand::ApplyPipelinePlan { plan, resp_tx },
@@ -142,7 +155,7 @@ impl DecodeWorker {
         &self,
         mutation: PipelineMutation,
         timeout: Duration,
-    ) -> Result<(), String> {
+    ) -> Result<(), DecodeError> {
         let (resp_tx, resp_rx) = crossbeam_channel::bounded(1);
         self.send_command(
             DecodeWorkerCommand::ApplyPipelineMutation { mutation, resp_tx },
@@ -151,7 +164,7 @@ impl DecodeWorker {
         recv_result(resp_rx, timeout)
     }
 
-    pub(crate) fn set_lfe_mode(&self, mode: LfeMode, timeout: Duration) -> Result<(), String> {
+    pub(crate) fn set_lfe_mode(&self, mode: LfeMode, timeout: Duration) -> Result<(), DecodeError> {
         self.call_simple(
             |resp_tx| DecodeWorkerCommand::SetLfeMode { mode, resp_tx },
             timeout,
@@ -162,7 +175,7 @@ impl DecodeWorker {
         &self,
         quality: ResampleQuality,
         timeout: Duration,
-    ) -> Result<(), String> {
+    ) -> Result<(), DecodeError> {
         self.call_simple(
             |resp_tx| DecodeWorkerCommand::SetResampleQuality { quality, resp_tx },
             timeout,
@@ -174,7 +187,7 @@ impl DecodeWorker {
         stage_key: impl Into<String>,
         control: Box<dyn Any + Send>,
         timeout: Duration,
-    ) -> Result<(), String> {
+    ) -> Result<(), DecodeError> {
         let (resp_tx, resp_rx) = crossbeam_channel::bounded(1);
         self.send_command(
             DecodeWorkerCommand::ApplyStageControl {
@@ -187,39 +200,40 @@ impl DecodeWorker {
         recv_result(resp_rx, timeout)
     }
 
-    pub(crate) fn shutdown(self, timeout: Duration) -> Result<(), String> {
+    pub(crate) fn shutdown(self, timeout: Duration) -> Result<(), DecodeError> {
         let (ack_tx, ack_rx) = crossbeam_channel::bounded(1);
         self.send_command(DecodeWorkerCommand::Shutdown { ack_tx }, timeout)?;
         ack_rx
             .recv_timeout(timeout)
-            .map_err(|_| "decode worker shutdown timed out".to_string())?;
-        self.join
-            .join()
-            .map_err(|_| "decode worker thread panicked".to_string())?;
+            .map_err(|_| DecodeError::ShutdownTimedOut {
+                timeout_ms: timeout.as_millis(),
+            })?;
+        self.join.join().map_err(|_| DecodeError::WorkerPanicked)?;
         Ok(())
     }
 
     fn call_simple(
         &self,
-        constructor: impl FnOnce(Sender<Result<(), String>>) -> DecodeWorkerCommand,
+        constructor: impl FnOnce(Sender<Result<(), DecodeError>>) -> DecodeWorkerCommand,
         timeout: Duration,
-    ) -> Result<(), String> {
+    ) -> Result<(), DecodeError> {
         let (resp_tx, resp_rx) = crossbeam_channel::bounded(1);
         self.send_command(constructor(resp_tx), timeout)?;
         recv_result(resp_rx, timeout)
     }
 
-    fn send_command(&self, command: DecodeWorkerCommand, timeout: Duration) -> Result<(), String> {
+    fn send_command(
+        &self,
+        command: DecodeWorkerCommand,
+        timeout: Duration,
+    ) -> Result<(), DecodeError> {
         self.tx
             .send_timeout(command, timeout)
             .map_err(|error| match error {
-                SendTimeoutError::Timeout(_) => {
-                    format!(
-                        "decode worker command queue full after {}ms",
-                        timeout.as_millis()
-                    )
+                SendTimeoutError::Timeout(_) => DecodeError::CommandQueueFull {
+                    timeout_ms: timeout.as_millis(),
                 },
-                SendTimeoutError::Disconnected(_) => "decode worker exited".to_string(),
+                SendTimeoutError::Disconnected(_) => DecodeError::WorkerExited,
             })
     }
 }

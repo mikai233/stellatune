@@ -1,3 +1,5 @@
+use thiserror::Error;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TransformSegment {
     PreMix,
@@ -66,11 +68,53 @@ pub enum TransformGraphMutation<T> {
     },
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum TransformGraphError {
+    #[error("stage key must not be empty")]
+    StageKeyMustNotBeEmpty,
+    #[error("duplicate stage key: {stage_key}")]
+    DuplicateStageKey { stage_key: String },
+    #[error("cannot insert stage '{stage_key}': stage key already exists")]
+    CannotInsertExistingStageKey { stage_key: String },
+    #[error(
+        "cannot replace '{target_stage_key}' with '{next_stage_key}': stage key already exists"
+    )]
+    CannotReplaceWithExistingStageKey {
+        target_stage_key: String,
+        next_stage_key: String,
+    },
+    #[error("stage key not found: {stage_key}")]
+    StageKeyNotFound { stage_key: String },
+    #[error("anchor stage key not found: {anchor}")]
+    AnchorStageKeyNotFound { anchor: String },
+    #[error(
+        "anchor stage '{anchor}' is in segment {anchor_segment:?}, expected {expected_segment:?}"
+    )]
+    AnchorSegmentMismatch {
+        anchor: String,
+        anchor_segment: TransformSegment,
+        expected_segment: TransformSegment,
+    },
+    #[error("cannot move relative to itself")]
+    CannotMoveRelativeToItself,
+    #[error("index out of bounds in segment {segment:?}: {index} > {len}")]
+    IndexOutOfBounds {
+        segment: TransformSegment,
+        index: usize,
+        len: usize,
+    },
+    #[error("stage key '{stage_key}' appears multiple times in transform graph")]
+    StageKeyAppearsMultipleTimes { stage_key: String },
+}
+
 impl<T> TransformGraph<T>
 where
     T: TransformGraphStage,
 {
-    pub fn apply_mutation(&mut self, mutation: TransformGraphMutation<T>) -> Result<(), String> {
+    pub fn apply_mutation(
+        &mut self,
+        mutation: TransformGraphMutation<T>,
+    ) -> Result<(), TransformGraphError> {
         match mutation {
             TransformGraphMutation::Insert {
                 segment,
@@ -92,7 +136,7 @@ where
         }
     }
 
-    pub fn apply_mutations<I>(&mut self, mutations: I) -> Result<(), String>
+    pub fn apply_mutations<I>(&mut self, mutations: I) -> Result<(), TransformGraphError>
     where
         I: IntoIterator<Item = TransformGraphMutation<T>>,
     {
@@ -102,11 +146,13 @@ where
         Ok(())
     }
 
-    pub fn validate_unique_stage_keys(&self) -> Result<(), String> {
+    pub fn validate_unique_stage_keys(&self) -> Result<(), TransformGraphError> {
         let mut seen = std::collections::HashSet::<String>::new();
         for key in self.all_stage_keys() {
             if !seen.insert(key.to_string()) {
-                return Err(format!("duplicate stage key: {key}"));
+                return Err(TransformGraphError::DuplicateStageKey {
+                    stage_key: key.to_string(),
+                });
             }
         }
         Ok(())
@@ -125,33 +171,40 @@ where
         segment: TransformSegment,
         position: TransformPosition,
         stage: T,
-    ) -> Result<(), String> {
+    ) -> Result<(), TransformGraphError> {
         let stage_key = stage.stage_key().trim();
         if stage_key.is_empty() {
-            return Err("stage key must not be empty".to_string());
+            return Err(TransformGraphError::StageKeyMustNotBeEmpty);
         }
         if self.locate_stage(stage_key)?.is_some() {
-            return Err(format!(
-                "cannot insert stage '{stage_key}': stage key already exists"
-            ));
+            return Err(TransformGraphError::CannotInsertExistingStageKey {
+                stage_key: stage_key.to_string(),
+            });
         }
         let insert_at = self.resolve_insert_index(segment, &position, None)?;
         self.segment_mut(segment).insert(insert_at, stage);
         Ok(())
     }
 
-    fn replace_stage(&mut self, target_stage_key: &str, stage: T) -> Result<(), String> {
+    fn replace_stage(
+        &mut self,
+        target_stage_key: &str,
+        stage: T,
+    ) -> Result<(), TransformGraphError> {
         let Some((target_segment, target_index)) = self.locate_stage(target_stage_key)? else {
-            return Err(format!("stage key not found: {target_stage_key}"));
+            return Err(TransformGraphError::StageKeyNotFound {
+                stage_key: target_stage_key.to_string(),
+            });
         };
         let next_key = stage.stage_key().trim();
         if next_key.is_empty() {
-            return Err("stage key must not be empty".to_string());
+            return Err(TransformGraphError::StageKeyMustNotBeEmpty);
         }
         if next_key != target_stage_key && self.locate_stage(next_key)?.is_some() {
-            return Err(format!(
-                "cannot replace '{target_stage_key}' with '{next_key}': stage key already exists"
-            ));
+            return Err(TransformGraphError::CannotReplaceWithExistingStageKey {
+                target_stage_key: target_stage_key.to_string(),
+                next_stage_key: next_key.to_string(),
+            });
         }
         self.segment_mut(target_segment)[target_index] = stage;
         Ok(())
@@ -162,14 +215,16 @@ where
         target_stage_key: &str,
         target_segment: TransformSegment,
         position: TransformPosition,
-    ) -> Result<(), String> {
+    ) -> Result<(), TransformGraphError> {
         let Some((source_segment, source_index)) = self.locate_stage(target_stage_key)? else {
-            return Err(format!("stage key not found: {target_stage_key}"));
+            return Err(TransformGraphError::StageKeyNotFound {
+                stage_key: target_stage_key.to_string(),
+            });
         };
         if matches!(&position, TransformPosition::Before(anchor) if anchor == target_stage_key)
             || matches!(&position, TransformPosition::After(anchor) if anchor == target_stage_key)
         {
-            return Err("cannot move relative to itself".to_string());
+            return Err(TransformGraphError::CannotMoveRelativeToItself);
         }
 
         let mut insert_at = self.resolve_insert_index(
@@ -185,9 +240,14 @@ where
         Ok(())
     }
 
-    fn remove_stage(&mut self, stage_key: &str) -> Result<(T, TransformSegment, usize), String> {
+    fn remove_stage(
+        &mut self,
+        stage_key: &str,
+    ) -> Result<(T, TransformSegment, usize), TransformGraphError> {
         let Some((segment, index)) = self.locate_stage(stage_key)? else {
-            return Err(format!("stage key not found: {stage_key}"));
+            return Err(TransformGraphError::StageKeyNotFound {
+                stage_key: stage_key.to_string(),
+            });
         };
         let stage = self.segment_mut(segment).remove(index);
         Ok((stage, segment, index))
@@ -198,7 +258,7 @@ where
         segment: TransformSegment,
         position: &TransformPosition,
         moving_from: Option<(TransformSegment, usize)>,
-    ) -> Result<usize, String> {
+    ) -> Result<usize, TransformGraphError> {
         let segment_items = self.segment(segment);
         let len = segment_items.len();
         match position {
@@ -206,44 +266,57 @@ where
             TransformPosition::Back => Ok(len),
             TransformPosition::Index(index) => {
                 if *index > len {
-                    return Err(format!(
-                        "index out of bounds in segment {segment:?}: {index} > {len}"
-                    ));
+                    return Err(TransformGraphError::IndexOutOfBounds {
+                        segment,
+                        index: *index,
+                        len,
+                    });
                 }
                 Ok(*index)
             },
             TransformPosition::Before(anchor) => {
                 let Some((anchor_segment, anchor_index)) = self.locate_stage(anchor)? else {
-                    return Err(format!("anchor stage key not found: {anchor}"));
+                    return Err(TransformGraphError::AnchorStageKeyNotFound {
+                        anchor: anchor.to_string(),
+                    });
                 };
                 if anchor_segment != segment {
-                    return Err(format!(
-                        "anchor stage '{anchor}' is in segment {anchor_segment:?}, expected {segment:?}"
-                    ));
+                    return Err(TransformGraphError::AnchorSegmentMismatch {
+                        anchor: anchor.to_string(),
+                        anchor_segment,
+                        expected_segment: segment,
+                    });
                 }
                 if moving_from == Some((anchor_segment, anchor_index)) {
-                    return Err("cannot move relative to itself".to_string());
+                    return Err(TransformGraphError::CannotMoveRelativeToItself);
                 }
                 Ok(anchor_index)
             },
             TransformPosition::After(anchor) => {
                 let Some((anchor_segment, anchor_index)) = self.locate_stage(anchor)? else {
-                    return Err(format!("anchor stage key not found: {anchor}"));
+                    return Err(TransformGraphError::AnchorStageKeyNotFound {
+                        anchor: anchor.to_string(),
+                    });
                 };
                 if anchor_segment != segment {
-                    return Err(format!(
-                        "anchor stage '{anchor}' is in segment {anchor_segment:?}, expected {segment:?}"
-                    ));
+                    return Err(TransformGraphError::AnchorSegmentMismatch {
+                        anchor: anchor.to_string(),
+                        anchor_segment,
+                        expected_segment: segment,
+                    });
                 }
                 if moving_from == Some((anchor_segment, anchor_index)) {
-                    return Err("cannot move relative to itself".to_string());
+                    return Err(TransformGraphError::CannotMoveRelativeToItself);
                 }
                 Ok(anchor_index.saturating_add(1))
             },
         }
     }
 
-    fn locate_stage(&self, stage_key: &str) -> Result<Option<(TransformSegment, usize)>, String> {
+    fn locate_stage(
+        &self,
+        stage_key: &str,
+    ) -> Result<Option<(TransformSegment, usize)>, TransformGraphError> {
         let mut found: Option<(TransformSegment, usize)> = None;
         for (segment, items) in [
             (TransformSegment::PreMix, &self.pre_mix),
@@ -255,9 +328,9 @@ where
                     continue;
                 }
                 if found.is_some() {
-                    return Err(format!(
-                        "stage key '{stage_key}' appears multiple times in transform graph"
-                    ));
+                    return Err(TransformGraphError::StageKeyAppearsMultipleTimes {
+                        stage_key: stage_key.to_string(),
+                    });
                 }
                 found = Some((segment, index));
             }

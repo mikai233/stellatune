@@ -35,8 +35,8 @@ impl Handler<OnDecodeWorkerEventMessage> for ControlActor {
                 self.update_position(0);
                 self.update_state(PlayerState::Stopped);
             },
-            DecodeWorkerEvent::Error(message) => {
-                self.emit_error(message);
+            DecodeWorkerEvent::Error(error) => {
+                self.emit_error(error.to_string());
                 self.snapshot.current_track = None;
                 self.update_state(PlayerState::Stopped);
             },
