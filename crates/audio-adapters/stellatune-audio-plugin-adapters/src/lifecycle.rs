@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
-use stellatune_audio::assembly::PipelineMutation;
-use stellatune_audio::pipeline_graph::TransformGraphMutation;
+use stellatune_audio::pipeline::assembly::PipelineMutation;
+use stellatune_audio::pipeline::graph::TransformGraphMutation;
 
 use crate::bridge::{
     ManagedPluginTransform, PluginTransformStageSpec, filter_transform_chain_specs_by_plugin_ids,
@@ -102,8 +102,8 @@ mod tests {
 
     use super::PluginPipelineLifecycle;
     use crate::bridge::{PluginTransformSegment, PluginTransformStageSpec};
-    use stellatune_audio::assembly::PipelineMutation;
-    use stellatune_audio::pipeline_graph::TransformGraphMutation;
+    use stellatune_audio::pipeline::assembly::PipelineMutation;
+    use stellatune_audio::pipeline::graph::TransformGraphMutation;
 
     #[test]
     fn remove_plugin_only_drops_matching_stages() {

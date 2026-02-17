@@ -8,12 +8,12 @@ use stellatune_runtime as global_runtime;
 use tracing::{debug, warn};
 
 pub(crate) mod types;
-use stellatune_audio::assembly::{BuiltinTransformSlot, PipelineMutation};
-use stellatune_audio::control::EngineHandle as AudioEngineHandle;
-use stellatune_audio::types::{
+use stellatune_audio::config::engine::{
     Event as V2Event, LfeMode as V2LfeMode, PlayerState as V2PlayerState,
     ResampleQuality as V2ResampleQuality,
 };
+use stellatune_audio::engine::EngineHandle as AudioEngineHandle;
+use stellatune_audio::pipeline::assembly::{BuiltinTransformSlot, PipelineMutation};
 use stellatune_audio_plugin_adapters::bridge::{PluginTransformSegment, PluginTransformStageSpec};
 use stellatune_audio_plugin_adapters::decoder_stage::probe_track_decode_info;
 use stellatune_audio_plugin_adapters::orchestrator::PluginPipelineOrchestrator;

@@ -1,6 +1,6 @@
 use serde::Deserialize;
-use stellatune_audio::assembly::{OpaqueTransformStageSpec, PipelineMutation};
-use stellatune_audio::pipeline_graph::{
+use stellatune_audio::pipeline::assembly::{OpaqueTransformStageSpec, PipelineMutation};
+use stellatune_audio::pipeline::graph::{
     TransformGraphMutation, TransformPosition, TransformSegment,
 };
 
@@ -220,8 +220,8 @@ mod tests {
         BuiltinTransformChainLifecycle, TransformChainStage, parse_stage_control_payload,
         plan_replace_managed_transform_chain,
     };
-    use stellatune_audio::assembly::PipelineMutation;
-    use stellatune_audio::pipeline_graph::{TransformGraphMutation, TransformSegment};
+    use stellatune_audio::pipeline::assembly::PipelineMutation;
+    use stellatune_audio::pipeline::graph::{TransformGraphMutation, TransformSegment};
 
     #[test]
     fn parses_payload_into_staged_entries() {

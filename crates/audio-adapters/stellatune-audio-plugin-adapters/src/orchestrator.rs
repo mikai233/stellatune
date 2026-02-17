@@ -1,10 +1,10 @@
 use std::collections::HashSet;
 
-use stellatune_audio::assembly::PipelineMutation;
-use stellatune_audio::control::EngineHandle;
+use stellatune_audio::engine::EngineHandle;
+use stellatune_audio::pipeline::assembly::PipelineMutation;
 
-use crate::lifecycle::PluginPipelineLifecycle;
 use crate::bridge::PluginTransformStageSpec;
+use crate::lifecycle::PluginPipelineLifecycle;
 
 #[derive(Debug, Clone, Default)]
 pub struct PluginPipelineOrchestrator {

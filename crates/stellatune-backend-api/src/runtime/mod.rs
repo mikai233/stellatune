@@ -10,8 +10,8 @@ use anyhow::{Result, anyhow};
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 use std::time::Instant;
 
-use stellatune_audio::control::EngineHandle;
-use stellatune_audio::types::ResampleQuality;
+use stellatune_audio::config::engine::ResampleQuality;
+use stellatune_audio::engine::EngineHandle;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::time::LocalTime;
 

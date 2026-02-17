@@ -3,6 +3,13 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex, OnceLock};
 
+use stellatune_audio::config::engine::{LfeMode, ResampleQuality};
+use stellatune_audio::pipeline::assembly::{
+    AssembledDecodePipeline, AssembledPipeline, BuiltinTransformSlot, BuiltinTransformSlots,
+    MixerPlan, OpaqueTransformStageSpec, PipelineAssembler, PipelineMutation, PipelinePlan,
+    PipelineRuntime, ResamplerPlan, StaticSinkPlan, TransformChain,
+};
+use stellatune_audio::pipeline::graph::TransformGraph;
 use stellatune_audio_builtin_adapters::device_sink::{
     DeviceSinkControl, DeviceSinkStage, OutputBackend, default_output_spec_for_backend,
     output_spec_for_route,
@@ -17,13 +24,6 @@ use stellatune_audio_plugin_adapters::output_sink_stage::{
 };
 use stellatune_audio_plugin_adapters::source_plugin::build_plugin_source;
 use stellatune_audio_plugin_adapters::transform_stage::build_plugin_transform_stage_set_from_graph;
-use stellatune_audio::assembly::{
-    AssembledDecodePipeline, AssembledPipeline, BuiltinTransformSlot, BuiltinTransformSlots,
-    MixerPlan, OpaqueTransformStageSpec, PipelineAssembler, PipelineMutation, PipelinePlan,
-    PipelineRuntime, ResamplerPlan, StaticSinkPlan, TransformChain,
-};
-use stellatune_audio::pipeline_graph::TransformGraph;
-use stellatune_audio::types::{LfeMode, ResampleQuality};
 
 const FALLBACK_OUTPUT_SAMPLE_RATE: u32 = 48_000;
 const FALLBACK_OUTPUT_CHANNELS: u16 = 2;

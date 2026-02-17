@@ -1,23 +1,23 @@
 use std::any::Any;
 
 use crossbeam_channel::Receiver;
+use stellatune_audio::pipeline::assembly::OpaqueTransformStageSpec;
+use stellatune_audio::pipeline::graph::TransformGraph;
 use stellatune_audio_core::pipeline::context::{AudioBlock, PipelineContext, StreamSpec};
 use stellatune_audio_core::pipeline::error::PipelineError;
 use stellatune_audio_core::pipeline::stages::StageStatus;
 use stellatune_audio_core::pipeline::stages::transform::TransformStage;
-use stellatune_audio::assembly::OpaqueTransformStageSpec;
-use stellatune_audio::pipeline_graph::TransformGraph;
 use stellatune_plugins::runtime::messages::WorkerControlMessage;
 use stellatune_plugins::runtime::worker_controller::{
     WorkerApplyPendingOutcome, WorkerConfigUpdateOutcome,
 };
 use stellatune_plugins::runtime::worker_endpoint::DspWorkerController as TransformWorkerController;
 
+use crate::bridge::PluginTransformStagePayload;
 use crate::transform_runtime::{
     TransformWorkerSpec, apply_transform_controller_pending, bind_transform_controller,
     recreate_transform_controller_instance, sync_transform_runtime_control,
 };
-use crate::bridge::PluginTransformStagePayload;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PluginTransformConfigControl {
@@ -384,8 +384,8 @@ mod tests {
     use crate::bridge::{
         PluginTransformSegment, PluginTransformStagePayload, PluginTransformStageSpec,
     };
-    use stellatune_audio::assembly::OpaqueTransformStageSpec;
-    use stellatune_audio::pipeline_graph::{TransformGraph, TransformGraphMutation};
+    use stellatune_audio::pipeline::assembly::OpaqueTransformStageSpec;
+    use stellatune_audio::pipeline::graph::{TransformGraph, TransformGraphMutation};
 
     fn payload(spec: &PluginTransformStageSpec) -> PluginTransformStagePayload {
         PluginTransformStagePayload {
@@ -426,24 +426,24 @@ mod tests {
         graph
             .apply_mutations([
                 TransformGraphMutation::Insert {
-                    segment: stellatune_audio::pipeline_graph::TransformSegment::PreMix,
-                    position: stellatune_audio::pipeline_graph::TransformPosition::Back,
+                    segment: stellatune_audio::pipeline::graph::TransformSegment::PreMix,
+                    position: stellatune_audio::pipeline::graph::TransformPosition::Back,
                     stage: OpaqueTransformStageSpec::with_payload(
                         "plugin.transform.pre.plugin-a.eq.0",
                         payload(&pre),
                     ),
                 },
                 TransformGraphMutation::Insert {
-                    segment: stellatune_audio::pipeline_graph::TransformSegment::Main,
-                    position: stellatune_audio::pipeline_graph::TransformPosition::Back,
+                    segment: stellatune_audio::pipeline::graph::TransformSegment::Main,
+                    position: stellatune_audio::pipeline::graph::TransformPosition::Back,
                     stage: OpaqueTransformStageSpec::with_payload(
                         "plugin.transform.main.plugin-b.limiter.0",
                         payload(&main),
                     ),
                 },
                 TransformGraphMutation::Insert {
-                    segment: stellatune_audio::pipeline_graph::TransformSegment::PostMix,
-                    position: stellatune_audio::pipeline_graph::TransformPosition::Back,
+                    segment: stellatune_audio::pipeline::graph::TransformSegment::PostMix,
+                    position: stellatune_audio::pipeline::graph::TransformPosition::Back,
                     stage: OpaqueTransformStageSpec::with_payload(
                         "plugin.transform.post.plugin-c.clipper.0",
                         payload(&post),

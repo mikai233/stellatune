@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
-use stellatune_audio::assembly::{OpaqueTransformStageSpec, PipelineMutation};
-use stellatune_audio::pipeline_graph::{
+use stellatune_audio::pipeline::assembly::{OpaqueTransformStageSpec, PipelineMutation};
+use stellatune_audio::pipeline::graph::{
     TransformGraphMutation, TransformPosition, TransformSegment,
 };
 
@@ -151,8 +151,8 @@ mod tests {
         PluginTransformStageSpec, filter_transform_chain_specs_by_plugin_ids,
         plan_replace_managed_transform_chain,
     };
-    use stellatune_audio::assembly::PipelineMutation;
-    use stellatune_audio::pipeline_graph::{TransformGraphMutation, TransformSegment};
+    use stellatune_audio::pipeline::assembly::PipelineMutation;
+    use stellatune_audio::pipeline::graph::{TransformGraphMutation, TransformSegment};
 
     #[test]
     fn replace_chain_generates_remove_then_insert_mutations() {

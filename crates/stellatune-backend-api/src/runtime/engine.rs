@@ -2,15 +2,15 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
+use stellatune_audio::config::engine::{LfeMode, ResampleQuality};
+use stellatune_audio::engine::{EngineHandle, start_engine};
+use stellatune_audio::pipeline::assembly::{MixerPlan, PipelineMutation, ResamplerPlan};
 use stellatune_audio_builtin_adapters::device_sink::{
     OutputBackend as AdapterOutputBackend, OutputDeviceSpec, default_output_spec_for_backend,
     list_output_devices, output_spec_for_route,
 };
 use stellatune_audio_plugin_adapters::output_sink_runtime::negotiate_output_sink_spec;
 use stellatune_audio_plugin_adapters::output_sink_stage::PluginOutputSinkRouteSpec;
-use stellatune_audio::assembly::{MixerPlan, PipelineMutation, ResamplerPlan};
-use stellatune_audio::control::{EngineHandle, start_engine};
-use stellatune_audio::types::{LfeMode, ResampleQuality};
 
 use super::pipeline::{
     V2BackendAssembler, shared_device_sink_control, shared_runtime_sink_route_control,
