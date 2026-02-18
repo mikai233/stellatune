@@ -29,6 +29,12 @@ impl Handler<OnDecodeWorkerEventMessage> for ControlActor {
             DecodeWorkerEvent::Position { position_ms } => {
                 self.update_position(position_ms);
             },
+            DecodeWorkerEvent::AudioStart => {
+                self.events.emit(Event::AudioStart);
+            },
+            DecodeWorkerEvent::AudioEnd => {
+                self.events.emit(Event::AudioEnd);
+            },
             DecodeWorkerEvent::Eof => {
                 self.events.emit(Event::Eof);
                 self.snapshot.current_track = None;

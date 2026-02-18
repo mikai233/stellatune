@@ -315,6 +315,7 @@ class _DesktopMusicDetailPageState
                         volume: playback.desiredVolume,
                         foregroundColor: effectiveColor,
                         currentPath: playback.currentPath,
+                        audioStarted: playback.audioStarted,
                         sampleRate: playback.trackInfo?.sampleRate,
                         onPlayPause: () => isPlaying
                             ? ref

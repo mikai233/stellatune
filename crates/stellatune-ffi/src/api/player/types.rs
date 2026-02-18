@@ -209,6 +209,8 @@ pub enum Event {
         volume: f32,
         seq: u64,
     },
+    AudioStart,
+    AudioEnd,
     Error {
         message: String,
     },

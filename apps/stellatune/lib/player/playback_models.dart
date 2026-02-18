@@ -11,6 +11,7 @@ class PlaybackState {
     required this.appliedVolume,
     required this.lastError,
     required this.lastLog,
+    required this.audioStarted,
     this.trackInfo,
   });
 
@@ -22,6 +23,7 @@ class PlaybackState {
       appliedVolume = 1.0,
       lastError = null,
       lastLog = '',
+      audioStarted = false,
       trackInfo = null;
 
   final PlayerState playerState;
@@ -31,6 +33,7 @@ class PlaybackState {
   final double appliedVolume;
   final String? lastError;
   final String lastLog;
+  final bool audioStarted;
   final TrackDecodeInfo? trackInfo;
 
   PlaybackState copyWith({
@@ -41,6 +44,7 @@ class PlaybackState {
     double? appliedVolume,
     String? lastError,
     String? lastLog,
+    bool? audioStarted,
     TrackDecodeInfo? trackInfo,
   }) {
     return PlaybackState(
@@ -51,6 +55,7 @@ class PlaybackState {
       appliedVolume: appliedVolume ?? this.appliedVolume,
       lastError: lastError ?? this.lastError,
       lastLog: lastLog ?? this.lastLog,
+      audioStarted: audioStarted ?? this.audioStarted,
       trackInfo: trackInfo ?? this.trackInfo,
     );
   }

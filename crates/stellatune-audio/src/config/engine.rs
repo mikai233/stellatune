@@ -90,6 +90,10 @@ pub enum Event {
     },
     /// Active track reached end-of-stream.
     Eof,
+    /// Audio playback has physically started producing output for the current track.
+    AudioStart,
+    /// Audio playback has physically finished for the current track.
+    AudioEnd,
     /// Error message emitted by the runtime boundary.
     Error {
         /// Human-readable error text.

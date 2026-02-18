@@ -916,6 +916,8 @@ fn map_v2_event_to_ffi(event: V2Event, state: &mut FfiEventMapperState) -> Vec<E
             out
         },
         V2Event::VolumeChanged { volume, seq } => vec![Event::VolumeChanged { volume, seq }],
+        V2Event::AudioStart => vec![Event::AudioStart],
+        V2Event::AudioEnd => vec![Event::AudioEnd],
         V2Event::Eof => {
             state.recovering = false;
             vec![Event::PlaybackEnded {

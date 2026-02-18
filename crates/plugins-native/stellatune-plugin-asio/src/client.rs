@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::io::{BufReader, BufWriter};
+use std::io::{BufReader, BufWriter, ErrorKind};
 use std::path::Path;
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -66,9 +66,22 @@ impl AsioHostClient {
     }
 
     fn request(&mut self, req: Request) -> SdkResult<Response> {
-        write_frame(&mut self.stdin, &req).map_err(|e| SdkError::Io(e.to_string()))?;
-        let resp: Response =
-            read_frame(&mut self.stdout).map_err(|e| SdkError::Io(e.to_string()))?;
+        write_frame(&mut self.stdin, &req)
+            .map_err(|e| SdkError::Io(format!("ASIO sidecar write_frame failed: {e}")))?;
+        let resp: Response = read_frame(&mut self.stdout).map_err(|e| match e {
+            stellatune_asio_proto::ProtoError::Io(io) if io.kind() == ErrorKind::UnexpectedEof => {
+                SdkError::Io(
+                    "ASIO sidecar closed the pipe unexpectedly while reading response. \
+                     Verify `sidecar_path` points to `stellatune-asio-host` and that the sidecar was built with `--features asio`."
+                        .to_string(),
+                )
+            },
+            stellatune_asio_proto::ProtoError::Postcard(err) => SdkError::msg(format!(
+                "ASIO sidecar protocol decode failed: {err}. \
+                 Sidecar stdout may be non-protocol output; check sidecar executable/path."
+            )),
+            other => SdkError::Io(format!("ASIO sidecar read_frame failed: {other}")),
+        })?;
         if let Response::Err { message } = resp {
             return Err(SdkError::msg(message));
         }
@@ -367,8 +380,13 @@ fn is_retryable_pipe_error(err: &SdkError) -> bool {
     let SdkError::Io(msg) = err else {
         return false;
     };
-    msg.contains("os error 232")
-        || msg.contains("broken pipe")
+    let normalized = msg.to_ascii_lowercase();
+    normalized.contains("os error 232")
+        || normalized.contains("os error 109")
+        || normalized.contains("broken pipe")
+        || normalized.contains("failed to fill whole buffer")
+        || normalized.contains("unexpected eof")
+        || normalized.contains("connection reset")
         || msg.contains("管道正在被关闭")
         || msg.contains("管道已结束")
 }

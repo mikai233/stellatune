@@ -49,6 +49,8 @@ pub(crate) enum DecodeWorkerEvent {
     Recovering { attempt: u32, backoff_ms: u64 },
     Position { position_ms: i64 },
     Eof,
+    AudioStart,
+    AudioEnd,
     Error(DecodeError),
 }
 

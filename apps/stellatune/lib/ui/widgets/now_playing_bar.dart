@@ -320,6 +320,7 @@ class NowPlayingBar extends ConsumerWidget {
                         queue.currentItem != null &&
                         playback.currentPath != null &&
                         playback.currentPath!.isNotEmpty,
+                    audioStarted: playback.audioStarted,
                     playerState: playback.playerState,
                     onSeekMs: (ms) => ref
                         .read(playbackControllerProvider.notifier)

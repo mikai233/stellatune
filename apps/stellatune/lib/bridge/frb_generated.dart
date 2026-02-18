@@ -3780,8 +3780,12 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           seq: dco_decode_u_64(raw[2]),
         );
       case 5:
-        return Event_Error(message: dco_decode_String(raw[1]));
+        return Event_AudioStart();
       case 6:
+        return Event_AudioEnd();
+      case 7:
+        return Event_Error(message: dco_decode_String(raw[1]));
+      case 8:
         return Event_Log(message: dco_decode_String(raw[1]));
       default:
         throw Exception("unreachable");
@@ -4556,9 +4560,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
         var var_seq = sse_decode_u_64(deserializer);
         return Event_VolumeChanged(volume: var_volume, seq: var_seq);
       case 5:
+        return Event_AudioStart();
+      case 6:
+        return Event_AudioEnd();
+      case 7:
         var var_message = sse_decode_String(deserializer);
         return Event_Error(message: var_message);
-      case 6:
+      case 8:
         var var_message = sse_decode_String(deserializer);
         return Event_Log(message: var_message);
       default:
@@ -5528,11 +5536,15 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
         sse_encode_i_32(4, serializer);
         sse_encode_f_32(volume, serializer);
         sse_encode_u_64(seq, serializer);
-      case Event_Error(message: final message):
+      case Event_AudioStart():
         sse_encode_i_32(5, serializer);
+      case Event_AudioEnd():
+        sse_encode_i_32(6, serializer);
+      case Event_Error(message: final message):
+        sse_encode_i_32(7, serializer);
         sse_encode_String(message, serializer);
       case Event_Log(message: final message):
-        sse_encode_i_32(6, serializer);
+        sse_encode_i_32(8, serializer);
         sse_encode_String(message, serializer);
     }
   }

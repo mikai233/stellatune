@@ -119,6 +119,8 @@ sealed class Event with _$Event {
     required double volume,
     required BigInt seq,
   }) = Event_VolumeChanged;
+  const factory Event.audioStart() = Event_AudioStart;
+  const factory Event.audioEnd() = Event_AudioEnd;
   const factory Event.error({required String message}) = Event_Error;
   const factory Event.log({required String message}) = Event_Log;
 }

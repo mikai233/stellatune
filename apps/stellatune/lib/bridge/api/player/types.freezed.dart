@@ -55,7 +55,7 @@ extension EventPatterns on Event {
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeMap<TResult extends Object?>({TResult Function( Event_StateChanged value)?  stateChanged,TResult Function( Event_Position value)?  position,TResult Function( Event_TrackChanged value)?  trackChanged,TResult Function( Event_PlaybackEnded value)?  playbackEnded,TResult Function( Event_VolumeChanged value)?  volumeChanged,TResult Function( Event_Error value)?  error,TResult Function( Event_Log value)?  log,required TResult orElse(),}){
+@optionalTypeArgs TResult maybeMap<TResult extends Object?>({TResult Function( Event_StateChanged value)?  stateChanged,TResult Function( Event_Position value)?  position,TResult Function( Event_TrackChanged value)?  trackChanged,TResult Function( Event_PlaybackEnded value)?  playbackEnded,TResult Function( Event_VolumeChanged value)?  volumeChanged,TResult Function( Event_AudioStart value)?  audioStart,TResult Function( Event_AudioEnd value)?  audioEnd,TResult Function( Event_Error value)?  error,TResult Function( Event_Log value)?  log,required TResult orElse(),}){
 final _that = this;
 switch (_that) {
 case Event_StateChanged() when stateChanged != null:
@@ -63,7 +63,9 @@ return stateChanged(_that);case Event_Position() when position != null:
 return position(_that);case Event_TrackChanged() when trackChanged != null:
 return trackChanged(_that);case Event_PlaybackEnded() when playbackEnded != null:
 return playbackEnded(_that);case Event_VolumeChanged() when volumeChanged != null:
-return volumeChanged(_that);case Event_Error() when error != null:
+return volumeChanged(_that);case Event_AudioStart() when audioStart != null:
+return audioStart(_that);case Event_AudioEnd() when audioEnd != null:
+return audioEnd(_that);case Event_Error() when error != null:
 return error(_that);case Event_Log() when log != null:
 return log(_that);case _:
   return orElse();
@@ -83,7 +85,7 @@ return log(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult map<TResult extends Object?>({required TResult Function( Event_StateChanged value)  stateChanged,required TResult Function( Event_Position value)  position,required TResult Function( Event_TrackChanged value)  trackChanged,required TResult Function( Event_PlaybackEnded value)  playbackEnded,required TResult Function( Event_VolumeChanged value)  volumeChanged,required TResult Function( Event_Error value)  error,required TResult Function( Event_Log value)  log,}){
+@optionalTypeArgs TResult map<TResult extends Object?>({required TResult Function( Event_StateChanged value)  stateChanged,required TResult Function( Event_Position value)  position,required TResult Function( Event_TrackChanged value)  trackChanged,required TResult Function( Event_PlaybackEnded value)  playbackEnded,required TResult Function( Event_VolumeChanged value)  volumeChanged,required TResult Function( Event_AudioStart value)  audioStart,required TResult Function( Event_AudioEnd value)  audioEnd,required TResult Function( Event_Error value)  error,required TResult Function( Event_Log value)  log,}){
 final _that = this;
 switch (_that) {
 case Event_StateChanged():
@@ -91,7 +93,9 @@ return stateChanged(_that);case Event_Position():
 return position(_that);case Event_TrackChanged():
 return trackChanged(_that);case Event_PlaybackEnded():
 return playbackEnded(_that);case Event_VolumeChanged():
-return volumeChanged(_that);case Event_Error():
+return volumeChanged(_that);case Event_AudioStart():
+return audioStart(_that);case Event_AudioEnd():
+return audioEnd(_that);case Event_Error():
 return error(_that);case Event_Log():
 return log(_that);}
 }
@@ -107,7 +111,7 @@ return log(_that);}
 /// }
 /// ```
 
-@optionalTypeArgs TResult? mapOrNull<TResult extends Object?>({TResult? Function( Event_StateChanged value)?  stateChanged,TResult? Function( Event_Position value)?  position,TResult? Function( Event_TrackChanged value)?  trackChanged,TResult? Function( Event_PlaybackEnded value)?  playbackEnded,TResult? Function( Event_VolumeChanged value)?  volumeChanged,TResult? Function( Event_Error value)?  error,TResult? Function( Event_Log value)?  log,}){
+@optionalTypeArgs TResult? mapOrNull<TResult extends Object?>({TResult? Function( Event_StateChanged value)?  stateChanged,TResult? Function( Event_Position value)?  position,TResult? Function( Event_TrackChanged value)?  trackChanged,TResult? Function( Event_PlaybackEnded value)?  playbackEnded,TResult? Function( Event_VolumeChanged value)?  volumeChanged,TResult? Function( Event_AudioStart value)?  audioStart,TResult? Function( Event_AudioEnd value)?  audioEnd,TResult? Function( Event_Error value)?  error,TResult? Function( Event_Log value)?  log,}){
 final _that = this;
 switch (_that) {
 case Event_StateChanged() when stateChanged != null:
@@ -115,7 +119,9 @@ return stateChanged(_that);case Event_Position() when position != null:
 return position(_that);case Event_TrackChanged() when trackChanged != null:
 return trackChanged(_that);case Event_PlaybackEnded() when playbackEnded != null:
 return playbackEnded(_that);case Event_VolumeChanged() when volumeChanged != null:
-return volumeChanged(_that);case Event_Error() when error != null:
+return volumeChanged(_that);case Event_AudioStart() when audioStart != null:
+return audioStart(_that);case Event_AudioEnd() when audioEnd != null:
+return audioEnd(_that);case Event_Error() when error != null:
 return error(_that);case Event_Log() when log != null:
 return log(_that);case _:
   return null;
@@ -134,14 +140,16 @@ return log(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function( PlayerState state)?  stateChanged,TResult Function( PlatformInt64 ms,  String path,  BigInt sessionId)?  position,TResult Function( String path)?  trackChanged,TResult Function( String path)?  playbackEnded,TResult Function( double volume,  BigInt seq)?  volumeChanged,TResult Function( String message)?  error,TResult Function( String message)?  log,required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function( PlayerState state)?  stateChanged,TResult Function( PlatformInt64 ms,  String path,  BigInt sessionId)?  position,TResult Function( String path)?  trackChanged,TResult Function( String path)?  playbackEnded,TResult Function( double volume,  BigInt seq)?  volumeChanged,TResult Function()?  audioStart,TResult Function()?  audioEnd,TResult Function( String message)?  error,TResult Function( String message)?  log,required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case Event_StateChanged() when stateChanged != null:
 return stateChanged(_that.state);case Event_Position() when position != null:
 return position(_that.ms,_that.path,_that.sessionId);case Event_TrackChanged() when trackChanged != null:
 return trackChanged(_that.path);case Event_PlaybackEnded() when playbackEnded != null:
 return playbackEnded(_that.path);case Event_VolumeChanged() when volumeChanged != null:
-return volumeChanged(_that.volume,_that.seq);case Event_Error() when error != null:
+return volumeChanged(_that.volume,_that.seq);case Event_AudioStart() when audioStart != null:
+return audioStart();case Event_AudioEnd() when audioEnd != null:
+return audioEnd();case Event_Error() when error != null:
 return error(_that.message);case Event_Log() when log != null:
 return log(_that.message);case _:
   return orElse();
@@ -161,14 +169,16 @@ return log(_that.message);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function( PlayerState state)  stateChanged,required TResult Function( PlatformInt64 ms,  String path,  BigInt sessionId)  position,required TResult Function( String path)  trackChanged,required TResult Function( String path)  playbackEnded,required TResult Function( double volume,  BigInt seq)  volumeChanged,required TResult Function( String message)  error,required TResult Function( String message)  log,}) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function( PlayerState state)  stateChanged,required TResult Function( PlatformInt64 ms,  String path,  BigInt sessionId)  position,required TResult Function( String path)  trackChanged,required TResult Function( String path)  playbackEnded,required TResult Function( double volume,  BigInt seq)  volumeChanged,required TResult Function()  audioStart,required TResult Function()  audioEnd,required TResult Function( String message)  error,required TResult Function( String message)  log,}) {final _that = this;
 switch (_that) {
 case Event_StateChanged():
 return stateChanged(_that.state);case Event_Position():
 return position(_that.ms,_that.path,_that.sessionId);case Event_TrackChanged():
 return trackChanged(_that.path);case Event_PlaybackEnded():
 return playbackEnded(_that.path);case Event_VolumeChanged():
-return volumeChanged(_that.volume,_that.seq);case Event_Error():
+return volumeChanged(_that.volume,_that.seq);case Event_AudioStart():
+return audioStart();case Event_AudioEnd():
+return audioEnd();case Event_Error():
 return error(_that.message);case Event_Log():
 return log(_that.message);}
 }
@@ -184,14 +194,16 @@ return log(_that.message);}
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function( PlayerState state)?  stateChanged,TResult? Function( PlatformInt64 ms,  String path,  BigInt sessionId)?  position,TResult? Function( String path)?  trackChanged,TResult? Function( String path)?  playbackEnded,TResult? Function( double volume,  BigInt seq)?  volumeChanged,TResult? Function( String message)?  error,TResult? Function( String message)?  log,}) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function( PlayerState state)?  stateChanged,TResult? Function( PlatformInt64 ms,  String path,  BigInt sessionId)?  position,TResult? Function( String path)?  trackChanged,TResult? Function( String path)?  playbackEnded,TResult? Function( double volume,  BigInt seq)?  volumeChanged,TResult? Function()?  audioStart,TResult? Function()?  audioEnd,TResult? Function( String message)?  error,TResult? Function( String message)?  log,}) {final _that = this;
 switch (_that) {
 case Event_StateChanged() when stateChanged != null:
 return stateChanged(_that.state);case Event_Position() when position != null:
 return position(_that.ms,_that.path,_that.sessionId);case Event_TrackChanged() when trackChanged != null:
 return trackChanged(_that.path);case Event_PlaybackEnded() when playbackEnded != null:
 return playbackEnded(_that.path);case Event_VolumeChanged() when volumeChanged != null:
-return volumeChanged(_that.volume,_that.seq);case Event_Error() when error != null:
+return volumeChanged(_that.volume,_that.seq);case Event_AudioStart() when audioStart != null:
+return audioStart();case Event_AudioEnd() when audioEnd != null:
+return audioEnd();case Event_Error() when error != null:
 return error(_that.message);case Event_Log() when log != null:
 return log(_that.message);case _:
   return null;
@@ -536,6 +548,70 @@ as BigInt,
 
 
 }
+
+/// @nodoc
+
+
+class Event_AudioStart extends Event {
+  const Event_AudioStart(): super._();
+  
+
+
+
+
+
+
+@override
+bool operator ==(Object other) {
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is Event_AudioStart);
+}
+
+
+@override
+int get hashCode => runtimeType.hashCode;
+
+@override
+String toString() {
+  return 'Event.audioStart()';
+}
+
+
+}
+
+
+
+
+/// @nodoc
+
+
+class Event_AudioEnd extends Event {
+  const Event_AudioEnd(): super._();
+  
+
+
+
+
+
+
+@override
+bool operator ==(Object other) {
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is Event_AudioEnd);
+}
+
+
+@override
+int get hashCode => runtimeType.hashCode;
+
+@override
+String toString() {
+  return 'Event.audioEnd()';
+}
+
+
+}
+
+
+
 
 /// @nodoc
 

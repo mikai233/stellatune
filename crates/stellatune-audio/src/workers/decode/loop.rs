@@ -100,12 +100,17 @@ pub(crate) fn decode_worker_main(
 
         match step_result {
             Ok(StepResult::Produced { .. }) => {
+                if !state.audio_start_sent {
+                    state.audio_start_sent = true;
+                    callback(DecodeWorkerEvent::AudioStart);
+                }
                 maybe_emit_position(&callback, &state.ctx, &mut state.last_position_emit_at);
             },
             Ok(StepResult::Idle) => {
                 std::thread::yield_now();
             },
             Ok(StepResult::Eof) => {
+                callback(DecodeWorkerEvent::AudioEnd);
                 if let Some(prewarmed_next) = state.prewarmed_next.take() {
                     // Promote already-prepared next runner for a cheap cutover.
                     if let Some(active_runner) = state.runner.as_mut() {
@@ -237,6 +242,7 @@ fn promote_prewarmed_next(
     state.recovery_attempts = 0;
     state.recovery_retry_at = None;
     state.last_position_emit_at = Instant::now();
+    state.audio_start_sent = false;
     // Cutover always starts from the new input origin in the promoted context.
     callback(DecodeWorkerEvent::Position { position_ms: 0 });
     match prewarmed_next.input {

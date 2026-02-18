@@ -38,6 +38,7 @@ pub(crate) struct DecodeWorkerState {
     pub(crate) persisted_stage_controls: HashMap<String, Box<dyn Any + Send>>,
     pub(crate) recovery_attempts: u32,
     pub(crate) recovery_retry_at: Option<Instant>,
+    pub(crate) audio_start_sent: bool,
 }
 
 impl DecodeWorkerState {
@@ -67,6 +68,7 @@ impl DecodeWorkerState {
             persisted_stage_controls: HashMap::new(),
             recovery_attempts: 0,
             recovery_retry_at: None,
+            audio_start_sent: false,
         }
     }
 

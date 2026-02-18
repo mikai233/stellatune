@@ -4073,12 +4073,18 @@ impl SseDecode for crate::api::player::types::Event {
                 };
             },
             5 => {
+                return crate::api::player::types::Event::AudioStart;
+            },
+            6 => {
+                return crate::api::player::types::Event::AudioEnd;
+            },
+            7 => {
                 let mut var_message = <String>::sse_decode(deserializer);
                 return crate::api::player::types::Event::Error {
                     message: var_message,
                 };
             },
-            6 => {
+            8 => {
                 let mut var_message = <String>::sse_decode(deserializer);
                 return crate::api::player::types::Event::Log {
                     message: var_message,
@@ -5470,11 +5476,13 @@ impl flutter_rust_bridge::IntoDart for crate::api::player::types::Event {
                 seq.into_into_dart().into_dart(),
             ]
             .into_dart(),
+            crate::api::player::types::Event::AudioStart => [5.into_dart()].into_dart(),
+            crate::api::player::types::Event::AudioEnd => [6.into_dart()].into_dart(),
             crate::api::player::types::Event::Error { message } => {
-                [5.into_dart(), message.into_into_dart().into_dart()].into_dart()
+                [7.into_dart(), message.into_into_dart().into_dart()].into_dart()
             },
             crate::api::player::types::Event::Log { message } => {
-                [6.into_dart(), message.into_into_dart().into_dart()].into_dart()
+                [8.into_dart(), message.into_into_dart().into_dart()].into_dart()
             },
             _ => {
                 unimplemented!("");
@@ -6241,12 +6249,18 @@ impl SseEncode for crate::api::player::types::Event {
                 <f32>::sse_encode(volume, serializer);
                 <u64>::sse_encode(seq, serializer);
             },
-            crate::api::player::types::Event::Error { message } => {
+            crate::api::player::types::Event::AudioStart => {
                 <i32>::sse_encode(5, serializer);
+            },
+            crate::api::player::types::Event::AudioEnd => {
+                <i32>::sse_encode(6, serializer);
+            },
+            crate::api::player::types::Event::Error { message } => {
+                <i32>::sse_encode(7, serializer);
                 <String>::sse_encode(message, serializer);
             },
             crate::api::player::types::Event::Log { message } => {
-                <i32>::sse_encode(6, serializer);
+                <i32>::sse_encode(8, serializer);
                 <String>::sse_encode(message, serializer);
             },
             _ => {

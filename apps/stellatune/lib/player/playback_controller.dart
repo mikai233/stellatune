@@ -1237,7 +1237,11 @@ class PlaybackController extends Notifier<PlaybackState> {
       trackChanged: (path) {
         _activePositionPath = path;
         _activePositionSessionId = null;
-        state = state.copyWith(currentPath: path, positionMs: 0);
+        state = state.copyWith(
+          currentPath: path,
+          positionMs: 0,
+          audioStarted: false,
+        );
         unawaited(
           _persistResumeNow(
             track: _resolveCurrentTrackForResume() ?? _localTrackRef(path),
@@ -1249,7 +1253,14 @@ class PlaybackController extends Notifier<PlaybackState> {
       },
       playbackEnded: (path) {
         ref.read(loggerProvider).i('playback ended: $path');
+        state = state.copyWith(audioStarted: false);
         unawaited(next(auto: true));
+      },
+      audioStart: () {
+        state = state.copyWith(audioStarted: true);
+      },
+      audioEnd: () {
+        state = state.copyWith(audioStarted: false);
       },
       volumeChanged: (volume, seq) {
         final normalized = volume.clamp(0.0, 1.0).toDouble();

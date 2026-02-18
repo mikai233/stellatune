@@ -7,6 +7,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use stellatune_audio_core::pipeline::context::InputRef;
+use stellatune_audio_core::pipeline::error::PipelineError;
 use tracing::{info, warn};
 
 use crate::config::engine::EngineConfig;
@@ -95,11 +96,12 @@ pub(crate) fn try_sink_recovery_tick(
         return true;
     }
 
-    let message = recover_result.err().unwrap_or(DecodeError::Pipeline(
-        stellatune_audio_core::pipeline::error::PipelineError::StageFailure(
-            "sink recovery failed".to_string(),
-        ),
-    ));
+    let message =
+        recover_result
+            .err()
+            .unwrap_or(DecodeError::Pipeline(PipelineError::StageFailure(
+                "sink recovery failed".to_string(),
+            )));
     warn!(
         attempt,
         message = %message,

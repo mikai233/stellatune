@@ -23,6 +23,7 @@ class BottomPlaybackBar extends StatefulWidget {
     required this.onQueuePressed,
     required this.foregroundColor,
     required this.onToggleMute,
+    required this.audioStarted,
     this.currentPath,
     this.sampleRate,
     this.enableVolumeHover = false,
@@ -44,6 +45,7 @@ class BottomPlaybackBar extends StatefulWidget {
   final String? currentPath;
   final int? sampleRate;
   final VoidCallback onToggleMute;
+  final bool audioStarted;
   final bool enableVolumeHover;
 
   @override
@@ -85,6 +87,7 @@ class _BottomPlaybackBarState extends State<BottomPlaybackBar> {
           positionMs: widget.positionMs,
           durationMs: widget.durationMs,
           enabled: true,
+          audioStarted: widget.audioStarted,
           playerState: widget.isPlaying
               ? PlayerState.playing
               : PlayerState.paused,

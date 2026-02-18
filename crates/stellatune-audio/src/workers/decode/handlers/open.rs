@@ -114,6 +114,7 @@ pub(crate) fn open_input(
     state.runner = Some(next_runner);
     state.active_input = Some(input.clone());
     state.last_position_emit_at = std::time::Instant::now();
+    state.audio_start_sent = false;
     callback(DecodeWorkerEvent::Position { position_ms: 0 });
     match input {
         InputRef::TrackToken(track_token) => {
