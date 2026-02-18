@@ -15,7 +15,6 @@ use stellatune_audio::config::engine::{
 use stellatune_audio::engine::EngineHandle as AudioEngineHandle;
 use stellatune_audio::pipeline::assembly::{BuiltinTransformSlot, PipelineMutation};
 use stellatune_audio_plugin_adapters::bridge::{PluginTransformSegment, PluginTransformStageSpec};
-use stellatune_audio_plugin_adapters::decoder_stage::probe_track_decode_info;
 use stellatune_audio_plugin_adapters::orchestrator::PluginPipelineOrchestrator;
 use stellatune_backend_api::lyrics_service::LyricsService;
 use stellatune_backend_api::player::{
@@ -24,9 +23,11 @@ use stellatune_backend_api::player::{
     plugins_uninstall_by_id as backend_plugins_uninstall_by_id,
 };
 use stellatune_backend_api::runtime::{
-    OutputBackend as RuntimeOutputBackend, runtime_clear_output_sink_route,
-    runtime_list_output_devices, runtime_set_output_device, runtime_set_output_options,
-    runtime_set_output_sink_route, shared_plugin_runtime, shared_runtime_engine,
+    OutputBackend as RuntimeOutputBackend,
+    decoder_supported_extensions_hybrid as runtime_decoder_supported_extensions,
+    probe_track_decode_info_hybrid, runtime_clear_output_sink_route, runtime_list_output_devices,
+    runtime_set_output_device, runtime_set_output_options, runtime_set_output_sink_route,
+    shared_plugin_runtime, shared_runtime_engine,
 };
 use stellatune_backend_api::{LyricsDoc, LyricsEvent, LyricsQuery, LyricsSearchCandidate};
 use stellatune_plugins::runtime::introspection::CapabilityKind;
@@ -612,14 +613,14 @@ pub async fn current_track_info() -> Option<TrackDecodeInfo> {
         return entry.info.clone();
     }
 
-    let info = match probe_track_decode_info(track_token.as_str()) {
+    let info = match probe_track_decode_info_hybrid(track_token.as_str()) {
         Ok(probed) => Some(TrackDecodeInfo {
             sample_rate: probed.sample_rate,
             channels: probed.channels,
             duration_ms: probed.duration_ms,
             metadata_json: probed.metadata_json,
-            decoder_plugin_id: Some(probed.decoder_plugin_id),
-            decoder_type_id: Some(probed.decoder_type_id),
+            decoder_plugin_id: probed.decoder_plugin_id,
+            decoder_type_id: probed.decoder_type_id,
         }),
         Err(error) => {
             warn!(track_token, error, "current_track_info probe failed");
@@ -765,22 +766,19 @@ pub async fn preload_track_ref(track: TrackRef, position_ms: u64) -> Result<()> 
 }
 
 pub async fn decoder_supported_extensions() -> Vec<String> {
-    let service = shared_plugin_runtime();
-    let mut out = service.decoder_supported_extensions_cached();
-    if service.decoder_has_wildcard_candidate_cached() {
-        out.push("*".to_string());
-    }
-    out.sort();
-    out.dedup();
-    out
+    runtime_decoder_supported_extensions()
 }
 
+/// Deprecated compatibility API.
+///
+/// Flutter should use `decoder_supported_extensions` and perform local-file
+/// extension checks client-side.
 pub fn can_play_track_refs(tracks: Vec<TrackRef>) -> Vec<TrackPlayability> {
     tracks
         .into_iter()
         .map(|track| {
             let track_token = encode_track_ref_token(&track);
-            match probe_track_decode_info(track_token.as_str()) {
+            match probe_track_decode_info_hybrid(track_token.as_str()) {
                 Ok(_) => TrackPlayability {
                     track,
                     playable: true,

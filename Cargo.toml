@@ -62,12 +62,22 @@ sqlx = { version = "0.8.6", default-features = false, features = [
 ] }
 walkdir = "2.5.0"
 cpal = "0.17.2"
-symphonia = { version = "0.5.4", default-features = false, features = [
+symphonia = { version = "=0.5.4", default-features = false, features = [
+  "aac",
+  "alac",
+  "mp1",
+  "mp2",
   "mp3",
   "flac",
   "wav",
+  "aiff",
+  "caf",
+  "isomp4",
+  "ogg",
+  "vorbis",
   "pcm",
   "adpcm",
+  "opt-simd",
 ] }
 rubato = "1.0.1"
 audioadapter-buffers = "2.0.0"

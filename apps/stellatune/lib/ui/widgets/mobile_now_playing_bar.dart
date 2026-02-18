@@ -32,6 +32,9 @@ class MobileNowPlayingBar extends ConsumerWidget {
     final isPlaying =
         playback.playerState == PlayerState.playing ||
         playback.playerState == PlayerState.buffering;
+    final totalDurationMs =
+        queue.currentItem?.durationMs ??
+        playback.trackInfo?.durationMs?.toInt();
 
     return Material(
       elevation: 4,
@@ -146,7 +149,7 @@ class MobileNowPlayingBar extends ConsumerWidget {
             ),
           ),
           NowPlayingProgressBar(
-            durationMs: queue.currentItem?.durationMs,
+            durationMs: totalDurationMs,
             positionMs: playback.positionMs,
             enabled:
                 queue.currentItem != null &&

@@ -20,7 +20,15 @@ use stellatune_plugins::runtime::handle::SharedPluginRuntimeHandle;
 
 mod apply_state;
 mod engine;
+mod hybrid_decoder_stage;
 mod pipeline;
+
+pub use hybrid_decoder_stage::{
+    HybridDecoderStage, HybridProbedTrackDecodeInfo, SharedUserDecoderProvider,
+    UserDecoderImplementation, UserDecoderProvider, decoder_supported_extensions_hybrid,
+    decoder_supported_extensions_hybrid_with_user_decoders, default_user_decoder_providers,
+    probe_track_decode_info_hybrid, probe_track_decode_info_hybrid_with_user_decoders,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutputBackend {

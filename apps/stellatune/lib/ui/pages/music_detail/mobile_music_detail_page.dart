@@ -199,7 +199,8 @@ class _MobileMusicDetailPageState extends ConsumerState<MobileMusicDetailPage> {
         playback.playerState == PlayerState.playing ||
         playback.playerState == PlayerState.buffering;
     final positionMs = playback.positionMs;
-    final durationMs = currentItem?.durationMs ?? 0;
+    final durationMs =
+        currentItem?.durationMs ?? playback.trackInfo?.durationMs?.toInt() ?? 0;
 
     final hasLyrics = lyrics.enabled && lyrics.hasLyrics;
     _updateLyricsState(hasLyrics, trackChanged);

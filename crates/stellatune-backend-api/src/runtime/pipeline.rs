@@ -18,12 +18,13 @@ use stellatune_audio_builtin_adapters::wasapi_exclusive_sink::WasapiExclusiveSin
 use stellatune_audio_core::pipeline::context::InputRef;
 use stellatune_audio_core::pipeline::error::PipelineError;
 use stellatune_audio_core::pipeline::stages::sink::SinkStage;
-use stellatune_audio_plugin_adapters::decoder_stage::PluginDecoderStage;
 use stellatune_audio_plugin_adapters::output_sink_stage::{
     PluginOutputSinkRouteSpec, PluginOutputSinkStage,
 };
 use stellatune_audio_plugin_adapters::source_plugin::build_plugin_source;
 use stellatune_audio_plugin_adapters::transform_stage::build_plugin_transform_stage_set_from_graph;
+
+use super::hybrid_decoder_stage::HybridDecoderStage;
 
 const FALLBACK_OUTPUT_SAMPLE_RATE: u32 = 48_000;
 const FALLBACK_OUTPUT_CHANNELS: u16 = 2;
@@ -189,7 +190,7 @@ impl PipelineRuntime for V2BackendRuntime {
 
         let decode = AssembledDecodePipeline {
             source: build_plugin_source(plan.track_token.clone()),
-            decoder: Box::new(PluginDecoderStage::new()),
+            decoder: Box::new(HybridDecoderStage::new()),
             transforms: plugin_stages.main,
             transform_chain: TransformChain {
                 pre_mix: plugin_stages.pre_mix,

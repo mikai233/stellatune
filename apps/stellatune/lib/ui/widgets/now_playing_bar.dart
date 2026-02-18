@@ -50,7 +50,9 @@ class NowPlayingBar extends ConsumerWidget {
     final localizedPlaybackError = playback.lastError == null
         ? null
         : localizePlaybackError(l10n, playback.lastError!);
-    final totalDurationMs = queue.currentItem?.durationMs;
+    final totalDurationMs =
+        queue.currentItem?.durationMs ??
+        playback.trackInfo?.durationMs?.toInt();
     final timeLabel = (totalDurationMs != null && totalDurationMs > 0)
         ? '${NowPlayingCommon.formatMs(playback.positionMs)} / ${NowPlayingCommon.formatMs(totalDurationMs)}'
         : NowPlayingCommon.formatMs(playback.positionMs);
@@ -314,7 +316,7 @@ class NowPlayingBar extends ConsumerWidget {
                   right: 0,
                   top: 0,
                   child: NowPlayingProgressBar(
-                    durationMs: queue.currentItem?.durationMs,
+                    durationMs: totalDurationMs,
                     positionMs: playback.positionMs,
                     enabled:
                         queue.currentItem != null &&

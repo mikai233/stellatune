@@ -470,12 +470,29 @@ pub struct ProbedTrackDecodeInfo {
 }
 
 pub fn probe_track_decode_info(track_token: &str) -> Result<ProbedTrackDecodeInfo, String> {
+    probe_track_decode_info_with_decoder_selector(track_token, None, None)
+}
+
+pub fn probe_track_decode_info_with_decoder_selector(
+    track_token: &str,
+    decoder_plugin_id: Option<&str>,
+    decoder_type_id: Option<&str>,
+) -> Result<ProbedTrackDecodeInfo, String> {
+    if decoder_plugin_id.is_some() != decoder_type_id.is_some() {
+        return Err(
+            "invalid decoder selector: both plugin_id and type_id are required".to_string(),
+        );
+    }
+
     let track_token = track_token.trim();
     if track_token.is_empty() {
         return Err("track token is empty".to_string());
     }
 
     let mut stage = PluginDecoderStage::new();
+    if let (Some(plugin_id), Some(type_id)) = (decoder_plugin_id, decoder_type_id) {
+        stage = stage.with_decoder_selector(plugin_id.to_string(), type_id.to_string());
+    }
     let source = SourceHandle::new(PluginSourcePayload {
         track_token: track_token.to_string(),
     });

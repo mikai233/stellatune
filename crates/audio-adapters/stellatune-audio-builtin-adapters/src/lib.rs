@@ -1,5 +1,6 @@
 #![deny(clippy::wildcard_imports)]
 
+pub mod builtin_decoder;
 pub mod device_sink;
 pub(crate) mod output_runtime;
 pub mod shared_device_sink;

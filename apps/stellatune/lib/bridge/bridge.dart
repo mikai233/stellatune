@@ -219,6 +219,10 @@ class PlayerBridge {
   Future<List<String>> decoderSupportedExtensions() =>
       api.decoderSupportedExtensions();
 
+  @Deprecated(
+    'Legacy compatibility API. Prefer decoderSupportedExtensions() and '
+    'client-side extension checks for local tracks.',
+  )
   Future<List<TrackPlayability>> canPlayTrackRefs(List<TrackRef> tracks) =>
       api.canPlayTrackRefs(tracks: tracks);
 }

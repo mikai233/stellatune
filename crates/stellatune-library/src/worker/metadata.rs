@@ -19,13 +19,16 @@ use stellatune_plugins::runtime::worker_controller::{
     WorkerApplyPendingOutcome, WorkerConfigUpdateOutcome,
 };
 use stellatune_plugins::runtime::worker_endpoint::DecoderWorkerController;
-use symphonia::core::formats::FormatOptions;
+use symphonia::core::formats::{FormatOptions, FormatReader, SeekMode, SeekTo};
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::{Limit, MetadataOptions, StandardTagKey, StandardVisualKey, Value};
 use symphonia::core::probe::Hint;
+use symphonia::core::units::{Time, TimeBase};
 use symphonia::default::get_probe;
 use tracing::debug;
 
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+use stellatune_audio_builtin_adapters::builtin_decoder::builtin_decoder_score_for_ext;
 use stellatune_plugins::runtime::handle::shared_runtime_service;
 use stellatune_runtime::block_on;
 
@@ -476,13 +479,16 @@ pub(super) fn extract_metadata(path: &Path) -> Result<ExtractedMetadata> {
         }
     }
 
-    // Duration estimate from codec params (fast, no decoding).
+    // Duration estimate from codec params (fast, no decoding), with seek-based fallback.
     if let Some(track) = probed.format.default_track() {
-        let cp = &track.codec_params;
-        if let (Some(tb), Some(n_frames)) = (cp.time_base, cp.n_frames) {
-            let t = tb.calc_time(n_frames);
-            let ms = (t.seconds as f64 * 1000.0) + (t.frac * 1000.0);
-            out.duration_ms = Some(ms.round() as i64);
+        let track_id = track.id;
+        let time_base = track.codec_params.time_base;
+        let n_frames = track.codec_params.n_frames;
+        out.duration_ms = duration_ms_from_track_params(time_base, n_frames);
+        if out.duration_ms.is_none() {
+            // TODO: Re-evaluate whether this seek-based duration fallback should be removed.
+            out.duration_ms =
+                estimate_duration_ms_by_seek(probed.format.as_mut(), track_id, time_base);
         }
     }
 
@@ -583,14 +589,12 @@ pub(super) fn extract_metadata_with_plugins(path: &Path) -> Result<ExtractedMeta
             .unwrap_or("")
             .trim()
             .to_ascii_lowercase();
-
-        const BUILTIN_META_SCORE: u16 = 50;
+        let builtin_score = builtin_decoder_score_for_ext(&ext).unwrap_or(0);
+        let symphonia_supported = builtin_score > 0;
         let prefer_plugin = if ext.is_empty() {
             false
-        } else if is_symphonia_primary_ext(&ext) {
-            best_decoder_score_for_ext(&ext).is_some_and(|score| score > BUILTIN_META_SCORE)
         } else {
-            best_decoder_score_for_ext(&ext).is_some_and(|score| score > 0)
+            best_decoder_score_for_ext(&ext).is_some_and(|score| score > builtin_score)
         };
 
         if prefer_plugin {
@@ -600,15 +604,67 @@ pub(super) fn extract_metadata_with_plugins(path: &Path) -> Result<ExtractedMeta
                 ext = %ext,
                 "using v2 plugin metadata extractor"
             );
-            return extract_plugin_metadata_from_plugin(path);
+            match extract_plugin_metadata_from_plugin(path) {
+                Ok(metadata) => return Ok(metadata),
+                Err(error) => {
+                    if symphonia_supported {
+                        debug!(
+                            target: "stellatune_library::metadata",
+                            path = %path.display(),
+                            ext = %ext,
+                            err = %error,
+                            "v2 plugin metadata extractor failed, fallback to symphonia"
+                        );
+                    } else {
+                        debug!(
+                            target: "stellatune_library::metadata",
+                            path = %path.display(),
+                            ext = %ext,
+                            err = %error,
+                            "v2 plugin metadata extractor failed, no symphonia fallback for unsupported ext"
+                        );
+                        return Err(error);
+                    }
+                },
+            }
         }
     }
 
     extract_metadata(path)
 }
 
-fn is_symphonia_primary_ext(ext_lower: &str) -> bool {
-    matches!(ext_lower, "mp3" | "flac" | "wav")
+fn duration_ms_from_track_params(
+    time_base: Option<TimeBase>,
+    n_frames: Option<u64>,
+) -> Option<i64> {
+    let tb = time_base?;
+    let frames = n_frames?;
+    Some(duration_ms_from_time_base(tb, frames))
+}
+
+fn duration_ms_from_time_base(tb: TimeBase, ts: u64) -> i64 {
+    let t = tb.calc_time(ts);
+    let ms = (t.seconds as f64 * 1000.0) + (t.frac * 1000.0);
+    ms.round() as i64
+}
+
+fn estimate_duration_ms_by_seek(
+    format: &mut dyn FormatReader,
+    track_id: u32,
+    time_base: Option<TimeBase>,
+) -> Option<i64> {
+    let tb = time_base?;
+    let seeked = format
+        .seek(
+            SeekMode::Coarse,
+            SeekTo::Time {
+                time: Time::new(u64::MAX, 0.0),
+                track_id: Some(track_id),
+            },
+        )
+        .ok()?;
+    let end_ts = seeked.actual_ts.max(seeked.required_ts);
+    Some(duration_ms_from_time_base(tb, end_ts))
 }
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]

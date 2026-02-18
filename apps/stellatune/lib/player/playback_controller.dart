@@ -930,32 +930,48 @@ class PlaybackController extends Notifier<PlaybackState> {
   TrackRef _localTrackRef(String path) =>
       TrackRef(sourceId: 'local', trackId: path, locator: path);
 
-  Set<String> _trackPluginIds(TrackRef track) {
-    final out = <String>{};
+  ({String? sourcePluginId, String? decoderPluginId})
+  _extractTrackLocatorPluginIds(TrackRef track) {
     if (track.sourceId.trim().toLowerCase() == 'local') {
-      return out;
+      return (sourcePluginId: null, decoderPluginId: null);
     }
     final locator = track.locator.trim();
     if (locator.isEmpty) {
-      return out;
+      return (sourcePluginId: null, decoderPluginId: null);
     }
     try {
       final decoded = jsonDecode(locator);
       if (decoded is! Map) {
-        return out;
+        return (sourcePluginId: null, decoderPluginId: null);
       }
-      final pluginId = (decoded['plugin_id'] as Object?)?.toString().trim();
-      if (pluginId != null && pluginId.isNotEmpty) {
-        out.add(pluginId);
-      }
+      final sourcePluginId = (decoded['plugin_id'] as Object?)
+          ?.toString()
+          .trim();
       final decoderPluginId = (decoded['decoder_plugin_id'] as Object?)
           ?.toString()
           .trim();
-      if (decoderPluginId != null && decoderPluginId.isNotEmpty) {
-        out.add(decoderPluginId);
-      }
+      return (
+        sourcePluginId: sourcePluginId == null || sourcePluginId.isEmpty
+            ? null
+            : sourcePluginId,
+        decoderPluginId: decoderPluginId == null || decoderPluginId.isEmpty
+            ? null
+            : decoderPluginId,
+      );
     } catch (_) {
       // Ignore non-JSON locator payloads.
+      return (sourcePluginId: null, decoderPluginId: null);
+    }
+  }
+
+  Set<String> _trackPluginIds(TrackRef track) {
+    final out = <String>{};
+    final ids = _extractTrackLocatorPluginIds(track);
+    if (ids.sourcePluginId != null) {
+      out.add(ids.sourcePluginId!);
+    }
+    if (ids.decoderPluginId != null) {
+      out.add(ids.decoderPluginId!);
     }
     return out;
   }
@@ -1022,28 +1038,31 @@ class PlaybackController extends Notifier<PlaybackState> {
       return _localTrackPlayabilityBlockReasonFast(track);
     }
 
-    try {
-      final result = await ref.read(playerBridgeProvider).canPlayTrackRefs([
-        track,
-      ]);
-      if (result.isEmpty || result.first.playable) return null;
-      final reason = result.first.reason?.trim();
-      ref
-          .read(loggerProvider)
-          .w(
-            'playability blocked: track=${track.sourceId}:${track.trackId} reason=${reason ?? "unknown"}',
-          );
-      return reason;
-    } catch (e, st) {
-      ref
-          .read(loggerProvider)
-          .w(
-            'canPlayTrackRefs failed, fallback to optimistic playback',
-            error: e,
-            stackTrace: st,
-          );
+    final disabledPluginIds = await _loadDisabledPluginIdSet();
+    if (disabledPluginIds.isEmpty) {
       return null;
     }
+    final ids = _extractTrackLocatorPluginIds(track);
+    final sourcePluginId = ids.sourcePluginId;
+    final decoderPluginId = ids.decoderPluginId;
+    final reason =
+        sourcePluginId != null && disabledPluginIds.contains(sourcePluginId)
+        ? 'source_catalog_unavailable'
+        : decoderPluginId != null && disabledPluginIds.contains(decoderPluginId)
+        ? 'source_decoder_unavailable'
+        : null;
+    if (reason != null) {
+      ref
+          .read(loggerProvider)
+          .w(
+            'playability blocked by disabled plugin: '
+            'track=${track.sourceId}:${track.trackId} '
+            'source_plugin_id=${sourcePluginId ?? "<none>"} '
+            'decoder_plugin_id=${decoderPluginId ?? "<none>"} '
+            'reason=$reason',
+          );
+    }
+    return reason;
   }
 
   Future<bool> _removeCurrentQueueItemIfDisabledPluginBlocked(
@@ -1102,7 +1121,6 @@ class PlaybackController extends Notifier<PlaybackState> {
     if (disabledPluginIds.isEmpty) return 0;
 
     final candidateIndexes = <int>[];
-    final candidateTracks = <TrackRef>[];
     for (var i = 0; i < queue.items.length; i++) {
       if (i == queue.currentIndex) {
         continue;
@@ -1113,49 +1131,21 @@ class PlaybackController extends Notifier<PlaybackState> {
         continue;
       }
       candidateIndexes.add(i);
-      candidateTracks.add(item.track);
     }
-    if (candidateTracks.isEmpty) return 0;
+    if (candidateIndexes.isEmpty) return 0;
 
-    try {
-      final verdicts = await ref
-          .read(playerBridgeProvider)
-          .canPlayTrackRefs(candidateTracks);
-      final removeIndexes = <int>{};
-      final count = verdicts.length < candidateIndexes.length
-          ? verdicts.length
-          : candidateIndexes.length;
-      for (var i = 0; i < count; i++) {
-        final verdict = verdicts[i];
-        if (verdict.playable) {
-          continue;
-        }
-        if (!_isDisabledPluginPruneReason(verdict.reason)) {
-          continue;
-        }
-        removeIndexes.add(candidateIndexes[i]);
-      }
-      if (removeIndexes.isEmpty) return 0;
-
-      final removed = ref
-          .read(queueControllerProvider.notifier)
-          .removeIndices(removeIndexes);
-      if (removed > 0) {
-        ref
-            .read(loggerProvider)
-            .i('queue pruned after plugin disable: removed=$removed');
-      }
-      return removed;
-    } catch (e, st) {
+    final removed = ref
+        .read(queueControllerProvider.notifier)
+        .removeIndices(candidateIndexes.toSet());
+    if (removed > 0) {
       ref
           .read(loggerProvider)
-          .w(
-            'failed to prune queue for disabled plugins',
-            error: e,
-            stackTrace: st,
+          .i(
+            'queue pruned after plugin disable: '
+            'removed=$removed candidates=${candidateIndexes.length}',
           );
-      return 0;
     }
+    return removed;
   }
 
   Future<bool> _loadAndPlayQueueItem(QueueItem item) async {
