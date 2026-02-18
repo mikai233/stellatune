@@ -626,10 +626,10 @@ fn resolve_device_output_spec() -> Result<OutputDeviceSpec, String> {
 
 fn resolve_current_output_spec_for_output_options() -> Result<ResolvedOutputSpec, String> {
     let route_control = shared_runtime_sink_route_control();
-    if let Some(route) = route_control.current_plugin_route() {
-        if let Some(cached) = cached_plugin_resolved_spec(&route) {
-            return Ok(cached);
-        }
+    if let Some(route) = route_control.current_plugin_route()
+        && let Some(cached) = cached_plugin_resolved_spec(&route)
+    {
+        return Ok(cached);
     }
     resolve_current_output_spec()
 }

@@ -77,7 +77,7 @@ enum ActiveHybridDecoder {
         decoder: Box<dyn UserDecoderImplementation>,
     },
     Plugin {
-        stage: PluginDecoderStage,
+        stage: Box<PluginDecoderStage>,
     },
 }
 
@@ -202,7 +202,9 @@ impl HybridDecoderStage {
                         .with_decoder_selector(plugin_id.clone(), type_id.clone());
                     match stage.prepare(source, ctx) {
                         Ok(spec) => {
-                            self.active = Some(ActiveHybridDecoder::Plugin { stage });
+                            self.active = Some(ActiveHybridDecoder::Plugin {
+                                stage: Box::new(stage),
+                            });
                             self.last_runtime_error = None;
                             return Ok(spec);
                         },
@@ -248,7 +250,9 @@ impl HybridDecoderStage {
                 .with_decoder_selector(plugin_id.clone(), type_id.clone());
             match stage.prepare(source, ctx) {
                 Ok(spec) => {
-                    self.active = Some(ActiveHybridDecoder::Plugin { stage });
+                    self.active = Some(ActiveHybridDecoder::Plugin {
+                        stage: Box::new(stage),
+                    });
                     self.last_runtime_error = None;
                     return Ok(spec);
                 },
