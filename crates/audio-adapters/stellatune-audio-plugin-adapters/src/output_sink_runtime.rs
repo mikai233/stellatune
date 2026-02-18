@@ -1,7 +1,7 @@
 use std::time::{Duration, Instant};
 
 use crossbeam_channel::Receiver;
-use stellatune_plugin_api::StAudioSpec;
+use stellatune_plugin_api::{ST_OUTPUT_NEGOTIATE_PREFER_TRACK_RATE, StAudioSpec};
 use stellatune_plugins::capabilities::output::OutputSinkInstance;
 use stellatune_plugins::runtime::handle::shared_runtime_service;
 use stellatune_plugins::runtime::messages::WorkerControlMessage;
@@ -12,6 +12,7 @@ use stellatune_plugins::runtime::worker_endpoint::OutputSinkWorkerController;
 pub struct NegotiatedOutputSinkSpec {
     pub sample_rate: u32,
     pub channels: u16,
+    pub prefer_track_rate: bool,
 }
 
 pub fn negotiate_output_sink_spec(
@@ -57,6 +58,7 @@ pub fn negotiate_output_sink_spec(
     Ok(NegotiatedOutputSinkSpec {
         sample_rate: negotiated.spec.sample_rate.max(1),
         channels: negotiated.spec.channels.max(1),
+        prefer_track_rate: (negotiated.flags & ST_OUTPUT_NEGOTIATE_PREFER_TRACK_RATE) != 0,
     })
 }
 

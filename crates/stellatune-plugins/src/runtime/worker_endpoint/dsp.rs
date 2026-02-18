@@ -16,14 +16,15 @@ use super::{DspInstanceFactory, DspWorkerEndpoint};
 impl DspInstanceFactory {
     pub fn create_instance(&self, config_json: &str) -> Result<DspInstance> {
         let lease = acquire_active_lease(&self.runtime, &self.plugin_id)?;
-        let Some(create) = lease.loaded.module.begin_create_dsp_instance else {
+        let module = lease.module();
+        let Some(create) = module.begin_create_dsp_instance else {
             return Err(anyhow!(
                 "plugin `{}` does not provide dsp factory",
                 self.plugin_id
             ));
         };
 
-        let plugin_free = lease.loaded.module.plugin_free;
+        let plugin_free = module.plugin_free;
         let mut op = StCreateDspInstanceOpRef {
             handle: core::ptr::null_mut(),
             vtable: core::ptr::null(),

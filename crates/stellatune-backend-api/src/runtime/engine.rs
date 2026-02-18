@@ -73,6 +73,18 @@ struct RuntimeOutputOptions {
     resample_quality: ResampleQuality,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ResolvedOutputSpec {
+    spec: OutputDeviceSpec,
+    plugin_prefers_track_rate: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CachedPluginResolvedSpec {
+    route: PluginOutputSinkRouteSpec,
+    resolved: ResolvedOutputSpec,
+}
+
 impl Default for RuntimeOutputOptions {
     fn default() -> Self {
         Self {
@@ -98,6 +110,32 @@ fn runtime_engine_metrics() -> &'static RuntimeEngineMetrics {
 fn runtime_output_options() -> &'static Mutex<RuntimeOutputOptions> {
     static OPTIONS: OnceLock<Mutex<RuntimeOutputOptions>> = OnceLock::new();
     OPTIONS.get_or_init(|| Mutex::new(RuntimeOutputOptions::default()))
+}
+
+fn plugin_resolved_spec_cache() -> &'static Mutex<Option<CachedPluginResolvedSpec>> {
+    static CACHE: OnceLock<Mutex<Option<CachedPluginResolvedSpec>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(None))
+}
+
+fn cache_plugin_resolved_spec(route: PluginOutputSinkRouteSpec, resolved: ResolvedOutputSpec) {
+    if let Ok(mut guard) = plugin_resolved_spec_cache().lock() {
+        *guard = Some(CachedPluginResolvedSpec { route, resolved });
+    }
+}
+
+fn clear_plugin_resolved_spec_cache() {
+    if let Ok(mut guard) = plugin_resolved_spec_cache().lock() {
+        *guard = None;
+    }
+}
+
+fn cached_plugin_resolved_spec(route: &PluginOutputSinkRouteSpec) -> Option<ResolvedOutputSpec> {
+    plugin_resolved_spec_cache().lock().ok().and_then(|guard| {
+        guard
+            .as_ref()
+            .filter(|cached| cached.route == *route)
+            .map(|cached| cached.resolved)
+    })
 }
 
 fn ensure_output_sink_monitor_started() {
@@ -307,10 +345,15 @@ pub async fn runtime_set_output_device(
 
     let (applied_backend, applied_device_id, output_spec, fallback_to_default) =
         resolve_target_output_spec(backend, requested_device_id.as_deref())?;
+    let resolved_output_spec = ResolvedOutputSpec {
+        spec: output_spec,
+        plugin_prefers_track_rate: None,
+    };
 
     sink_route_control.clear_plugin_route();
+    clear_plugin_resolved_spec_cache();
     control.set_route(applied_backend, applied_device_id.clone());
-    if let Err(error) = apply_output_spec_mutations(engine.as_ref(), output_spec).await {
+    if let Err(error) = apply_output_spec_mutations(engine.as_ref(), resolved_output_spec).await {
         if let Some(route) = previous_plugin_route {
             sink_route_control.set_plugin_route(route);
         }
@@ -329,8 +372,8 @@ pub async fn runtime_set_output_device(
         applied_backend: from_adapter_backend(applied_backend),
         requested_device_id,
         applied_device_id,
-        output_sample_rate: output_spec.sample_rate,
-        output_channels: output_spec.channels,
+        output_sample_rate: resolved_output_spec.spec.sample_rate,
+        output_channels: resolved_output_spec.spec.channels,
         fallback_to_default,
     })
 }
@@ -349,7 +392,7 @@ pub async fn runtime_set_output_options(
         };
     }
 
-    let output_spec = resolve_current_output_spec()?;
+    let output_spec = resolve_current_output_spec_for_output_options()?;
     apply_output_spec_mutations(shared_runtime_engine().as_ref(), output_spec).await
 }
 
@@ -363,6 +406,7 @@ pub async fn runtime_set_output_sink_route(
     let route_control = shared_runtime_sink_route_control();
     let previous_route = route_control.current_plugin_route();
     let fallback_device_spec = resolve_device_output_spec().ok();
+    clear_plugin_resolved_spec_cache();
     route_control.set_plugin_route(route);
 
     let output_spec = match resolve_current_output_spec() {
@@ -401,6 +445,7 @@ pub async fn runtime_clear_output_sink_route() -> Result<(), String> {
     let previous_route = route_control.current_plugin_route();
     let fallback_device_spec = resolve_device_output_spec().ok();
     route_control.clear_plugin_route();
+    clear_plugin_resolved_spec_cache();
     let output_spec = match resolve_current_output_spec() {
         Ok(spec) => spec,
         Err(error) => {
@@ -478,7 +523,7 @@ fn resolve_rollback_output_spec(
     route_control: &super::pipeline::RuntimeSinkRouteControl,
     previous_route: Option<PluginOutputSinkRouteSpec>,
     fallback_device_spec: Option<OutputDeviceSpec>,
-) -> Option<OutputDeviceSpec> {
+) -> Option<ResolvedOutputSpec> {
     match previous_route {
         Some(route) => {
             route_control.set_plugin_route(route);
@@ -495,7 +540,12 @@ fn resolve_rollback_output_spec(
         },
     }
 
-    fallback_device_spec.or_else(|| resolve_device_output_spec().ok())
+    fallback_device_spec
+        .or_else(|| resolve_device_output_spec().ok())
+        .map(|spec| ResolvedOutputSpec {
+            spec,
+            plugin_prefers_track_rate: None,
+        })
 }
 
 pub async fn runtime_prepare_hot_restart() {
@@ -537,11 +587,15 @@ fn resolve_target_output_spec(
     }
 }
 
-fn resolve_current_output_spec() -> Result<OutputDeviceSpec, String> {
+fn resolve_current_output_spec() -> Result<ResolvedOutputSpec, String> {
     let device_spec = resolve_device_output_spec()?;
     let route_control = shared_runtime_sink_route_control();
     let Some(route) = route_control.current_plugin_route() else {
-        return Ok(device_spec);
+        clear_plugin_resolved_spec_cache();
+        return Ok(ResolvedOutputSpec {
+            spec: device_spec,
+            plugin_prefers_track_rate: None,
+        });
     };
     let negotiated = negotiate_output_sink_spec(
         &route.plugin_id,
@@ -551,10 +605,15 @@ fn resolve_current_output_spec() -> Result<OutputDeviceSpec, String> {
         device_spec.sample_rate,
         device_spec.channels,
     )?;
-    Ok(OutputDeviceSpec {
-        sample_rate: negotiated.sample_rate,
-        channels: negotiated.channels,
-    })
+    let resolved = ResolvedOutputSpec {
+        spec: OutputDeviceSpec {
+            sample_rate: negotiated.sample_rate,
+            channels: negotiated.channels,
+        },
+        plugin_prefers_track_rate: Some(negotiated.prefer_track_rate),
+    };
+    cache_plugin_resolved_spec(route, resolved);
+    Ok(resolved)
 }
 
 fn resolve_device_output_spec() -> Result<OutputDeviceSpec, String> {
@@ -565,18 +624,33 @@ fn resolve_device_output_spec() -> Result<OutputDeviceSpec, String> {
         .map_err(|error| format!("failed to resolve output spec for current route: {error}"))
 }
 
+fn resolve_current_output_spec_for_output_options() -> Result<ResolvedOutputSpec, String> {
+    let route_control = shared_runtime_sink_route_control();
+    if let Some(route) = route_control.current_plugin_route() {
+        if let Some(cached) = cached_plugin_resolved_spec(&route) {
+            return Ok(cached);
+        }
+    }
+    resolve_current_output_spec()
+}
+
 async fn apply_output_spec_mutations(
     engine: &EngineHandle,
-    spec: OutputDeviceSpec,
+    resolved: ResolvedOutputSpec,
 ) -> Result<(), String> {
+    let spec = resolved.spec;
     let output_options = snapshot_runtime_output_options();
+    let match_track_sample_rate = resolve_match_track_policy(
+        resolved.plugin_prefers_track_rate,
+        output_options.match_track_sample_rate,
+    );
     engine
         .apply_pipeline_mutation(PipelineMutation::SetMixerPlan {
             mixer: Some(MixerPlan::new(spec.channels, LfeMode::Mute)),
         })
         .await
         .map_err(|error| error.to_string())?;
-    let resampler = if output_options.match_track_sample_rate {
+    let resampler = if match_track_sample_rate {
         None
     } else {
         Some(ResamplerPlan::new(
@@ -588,6 +662,13 @@ async fn apply_output_spec_mutations(
         .apply_pipeline_mutation(PipelineMutation::SetResamplerPlan { resampler })
         .await
         .map_err(|error| error.to_string())
+}
+
+fn resolve_match_track_policy(
+    plugin_prefers_track_rate: Option<bool>,
+    global_match_track_sample_rate: bool,
+) -> bool {
+    plugin_prefers_track_rate.unwrap_or(global_match_track_sample_rate)
 }
 
 fn normalize_device_id(device_id: Option<String>) -> Option<String> {
@@ -615,7 +696,8 @@ mod tests {
     use super::{
         DeviceSinkMetricsSnapshot, OutputDeviceSpec, OutputSinkMonitorState,
         OutputSinkWatermarkState, estimate_buffered_ms, output_sink_watermarks_ms,
-        should_clear_route_for_plugin, should_clear_route_if_plugin_unavailable,
+        resolve_match_track_policy, should_clear_route_for_plugin,
+        should_clear_route_if_plugin_unavailable,
     };
     use stellatune_audio_plugin_adapters::output_sink_stage::PluginOutputSinkRouteSpec;
 
@@ -689,5 +771,17 @@ mod tests {
 
         assert_eq!(state.watermark_state, OutputSinkWatermarkState::Unknown);
         assert_eq!(state.recovery_ready_streak, 0);
+    }
+
+    #[test]
+    fn resolve_match_track_policy_prefers_plugin_hint() {
+        assert!(resolve_match_track_policy(Some(true), false));
+        assert!(!resolve_match_track_policy(Some(false), true));
+    }
+
+    #[test]
+    fn resolve_match_track_policy_falls_back_to_global_option() {
+        assert!(resolve_match_track_policy(None, true));
+        assert!(!resolve_match_track_policy(None, false));
     }
 }

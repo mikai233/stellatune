@@ -19,10 +19,18 @@ impl Handler<RegisterWorkerControlSenderMessage> for PluginRuntimeActor {
         message: RegisterWorkerControlSenderMessage,
         _ctx: &mut ActorContext<Self>,
     ) -> bool {
-        self.worker_control_subscribers
-            .entry(message.plugin_id)
-            .or_default()
-            .push(message.sender);
+        let plugin_id = message.plugin_id;
+        let sender = message.sender;
+        let subscribers = self
+            .worker_control_subscribers
+            .entry(plugin_id.clone())
+            .or_default();
+        subscribers.push(sender);
+        tracing::debug!(
+            plugin_id,
+            subscribers = subscribers.len(),
+            "worker control subscriber registered"
+        );
         true
     }
 }

@@ -2,7 +2,8 @@ use serde::{Deserialize, Serialize};
 use stellatune_asio_proto::{AudioSpec, DeviceCaps};
 use stellatune_plugin_sdk::{
     ST_OUTPUT_NEGOTIATE_CHANGED_CH, ST_OUTPUT_NEGOTIATE_CHANGED_SR, ST_OUTPUT_NEGOTIATE_EXACT,
-    StAudioSpec, StLogLevel, StOutputSinkNegotiatedSpec, host_log,
+    ST_OUTPUT_NEGOTIATE_PREFER_TRACK_RATE, SdkError, SdkResult, StAudioSpec, StLogLevel,
+    StOutputSinkNegotiatedSpec, host_log,
 };
 
 pub(crate) const CONFIG_SCHEMA_JSON: &str = r#"{
@@ -28,7 +29,7 @@ pub(crate) const CONFIG_SCHEMA_JSON: &str = r#"{
       "type": ["integer", "null"],
       "minimum": 8000,
       "title": "Fixed Target Sample Rate",
-      "description": "Used when sample_rate_mode=fixed_target. null means device default sample rate."
+      "description": "Used when sample_rate_mode=fixed_target. null means host desired sample rate."
     },
     "ring_capacity_ms": { "type": "integer", "minimum": 20, "default": 40 },
     "start_prefill_ms": {
@@ -112,6 +113,24 @@ impl Default for AsioOutputConfig {
 pub struct AsioOutputTarget {
     pub id: String,
     pub name: Option<String>,
+    #[serde(default)]
+    pub selection_session_id: Option<String>,
+}
+
+impl AsioOutputTarget {
+    pub(crate) fn required_selection_session_id(&self) -> SdkResult<&str> {
+        let session_id = self
+            .selection_session_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                SdkError::invalid_arg(
+                    "ASIO output target is missing selection_session_id. Refresh output sink targets before apply.",
+                )
+            })?;
+        Ok(session_id)
+    }
 }
 
 pub(crate) fn build_negotiated_spec(
@@ -145,6 +164,9 @@ pub(crate) fn build_negotiated_spec(
     if channels != desired_ch {
         flags |= ST_OUTPUT_NEGOTIATE_CHANGED_CH;
     }
+    if matches!(config.sample_rate_mode, AsioSampleRateMode::MatchTrack) {
+        flags |= ST_OUTPUT_NEGOTIATE_PREFER_TRACK_RATE;
+    }
     if flags == 0 {
         flags |= ST_OUTPUT_NEGOTIATE_EXACT;
     }
@@ -166,7 +188,6 @@ pub(crate) fn choose_sample_rate(
     caps: &DeviceCaps,
     config: &AsioOutputConfig,
 ) -> u32 {
-    let default_sr = caps.default_spec.sample_rate.max(1);
     match config.sample_rate_mode {
         AsioSampleRateMode::FixedTarget => match config.fixed_target_sample_rate {
             Some(rate) => {
@@ -184,11 +205,15 @@ pub(crate) fn choose_sample_rate(
                 }
                 rate
             },
-            None => default_sr,
+            None => desired.max(1),
         },
         AsioSampleRateMode::MatchTrack => {
             let request = desired.max(1);
-            choose_nearest_u32(request, &caps.supported_sample_rates, default_sr)
+            choose_nearest_u32(
+                request,
+                &caps.supported_sample_rates,
+                caps.default_spec.sample_rate,
+            )
         },
     }
 }
@@ -287,4 +312,78 @@ pub(crate) fn choose_nearest_u16(desired: u16, supported: &[u16], fallback: u16)
         }
     }
     best
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use stellatune_asio_proto::{AudioSpec, DeviceCaps, SampleFormat};
+
+    fn test_caps() -> DeviceCaps {
+        DeviceCaps {
+            default_spec: AudioSpec {
+                sample_rate: 48_000,
+                channels: 2,
+            },
+            supported_sample_rates: vec![44_100, 48_000, 96_000],
+            supported_channels: vec![2],
+            supported_formats: vec![SampleFormat::F32],
+        }
+    }
+
+    #[test]
+    fn build_negotiated_spec_sets_prefer_track_rate_for_match_track() {
+        let config = AsioOutputConfig {
+            sample_rate_mode: AsioSampleRateMode::MatchTrack,
+            ..Default::default()
+        };
+        let negotiated = build_negotiated_spec(
+            StAudioSpec {
+                sample_rate: 44_100,
+                channels: 2,
+                reserved: 0,
+            },
+            &test_caps(),
+            &config,
+        );
+
+        assert_ne!(negotiated.flags & ST_OUTPUT_NEGOTIATE_PREFER_TRACK_RATE, 0);
+    }
+
+    #[test]
+    fn build_negotiated_spec_does_not_set_prefer_track_rate_for_fixed_target() {
+        let config = AsioOutputConfig::default();
+        let negotiated = build_negotiated_spec(
+            StAudioSpec {
+                sample_rate: 48_000,
+                channels: 2,
+                reserved: 0,
+            },
+            &test_caps(),
+            &config,
+        );
+
+        assert_eq!(negotiated.flags & ST_OUTPUT_NEGOTIATE_PREFER_TRACK_RATE, 0);
+        assert_ne!(negotiated.flags & ST_OUTPUT_NEGOTIATE_EXACT, 0);
+    }
+
+    #[test]
+    fn choose_sample_rate_fixed_target_none_uses_desired_rate() {
+        let config = AsioOutputConfig {
+            sample_rate_mode: AsioSampleRateMode::FixedTarget,
+            fixed_target_sample_rate: None,
+            ..Default::default()
+        };
+        let caps = DeviceCaps {
+            default_spec: AudioSpec {
+                sample_rate: 44_100,
+                channels: 2,
+            },
+            supported_sample_rates: vec![44_100, 48_000, 96_000],
+            supported_channels: vec![2],
+            supported_formats: vec![SampleFormat::F32],
+        };
+
+        assert_eq!(choose_sample_rate(48_000, &caps, &config), 48_000);
+    }
 }

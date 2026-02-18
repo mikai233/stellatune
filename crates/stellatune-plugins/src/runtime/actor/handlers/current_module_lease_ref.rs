@@ -18,7 +18,7 @@ impl Handler<CurrentModuleLeaseRefMessage> for PluginRuntimeActor {
         _ctx: &mut ActorContext<Self>,
     ) -> Option<ModuleLeaseRef> {
         let slot = self.modules.get(&message.plugin_id)?;
-        let lease = slot.current.as_ref()?;
-        Some(ModuleLeaseRef::from_arc(lease))
+        let current = slot.current.as_ref()?;
+        Some(ModuleLeaseRef::from_lease(&current.lease))
     }
 }

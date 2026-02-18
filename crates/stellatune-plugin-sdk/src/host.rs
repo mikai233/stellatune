@@ -13,7 +13,6 @@ pub struct HostContext {
 }
 
 unsafe impl Send for HostContext {}
-unsafe impl Sync for HostContext {}
 
 impl HostContext {
     pub fn current() -> SdkResult<Self> {

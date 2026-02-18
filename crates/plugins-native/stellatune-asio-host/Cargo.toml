@@ -12,10 +12,11 @@ stellatune-asio-proto = { path = "../stellatune-asio-proto", features = [
 # Note: enabling cpal's `asio` feature can pull the Steinberg ASIO SDK at build time
 # (depending on CPAL_ASIO_DIR / cache), and may require clang/bindgen.
 cpal = "0.17.1"
+asio-sys = { version = "0.2.5", optional = true }
 
 [features]
 default = []
-asio = ["cpal/asio"]
+asio = ["cpal/asio", "dep:asio-sys"]
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62.2", features = [

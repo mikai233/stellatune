@@ -366,6 +366,58 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
     return text.length <= 96 ? text : '${text.substring(0, 93)}...';
   }
 
+  Map<String, Object?>? _targetAsMap(Object? target) {
+    if (target is Map) {
+      return target.map((k, v) => MapEntry(k.toString(), v));
+    }
+    if (target is String) {
+      final raw = target.trim();
+      if (raw.startsWith('{') && raw.endsWith('}')) {
+        try {
+          final decoded = jsonDecode(raw);
+          if (decoded is Map) {
+            return decoded.map((k, v) => MapEntry(k.toString(), v));
+          }
+        } catch (_) {
+          // Ignore parse failures and fallback to plain text.
+        }
+      }
+    }
+    return null;
+  }
+
+  String _targetDebugSummary(Object? target) {
+    final map = _targetAsMap(target);
+    if (map != null) {
+      return 'id=${map['id']} session=${map['selection_session_id']} name=${map['name']}';
+    }
+    final raw = (target ?? '')
+        .toString()
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    if (raw.length <= 180) {
+      return raw;
+    }
+    return '${raw.substring(0, 180)}...';
+  }
+
+  void _logOutputSinkTargets(
+    String stage, {
+    required String pluginId,
+    required String typeId,
+    required List<Object?> targets,
+    String? selectedTargetJson,
+  }) {
+    final preview = targets.take(6).map(_targetDebugSummary).join(' || ');
+    final selectedSummary = selectedTargetJson == null
+        ? '<null>'
+        : _targetDebugSummary(selectedTargetJson);
+    logger.i(
+      'output sink targets stage=$stage plugin=$pluginId type=$typeId '
+      'count=${targets.length} selected=$selectedSummary preview=[$preview]',
+    );
+  }
+
   String _sourceConfigForType(SourceCatalogTypeDescriptor t) {
     final key = _sourceTypeKey(t);
     final draft = _sourceConfigDrafts[key];
@@ -596,6 +648,13 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
             configJson: _outputSinkConfigController.text.trim(),
           );
       final targets = _parseOutputSinkTargets(raw);
+      _logOutputSinkTargets(
+        'load',
+        pluginId: parts[0],
+        typeId: parts[1],
+        targets: targets,
+        selectedTargetJson: _outputSinkTargetController.text.trim(),
+      );
       if (!mounted) return;
       setState(() => _outputSinkTargets = targets);
       if (targets.isNotEmpty) {
@@ -665,6 +724,50 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
       _outputSinkConfigController.text = configJson;
     }
     _outputSinkConfigDrafts[selectedKey] = configJson;
+    logger.i(
+      'apply output sink route start plugin=${parts[0]} type=${parts[1]} '
+      'target=${_targetDebugSummary(targetJson)} config_len=${configJson.length}',
+    );
+
+    // Revalidate target against latest runtime snapshot before applying route.
+    // This prevents stale persisted/session target_json from repeatedly failing
+    // negotiate_spec when device topology changed.
+    final rawTargets = await bridge.outputSinkListTargetsJson(
+      pluginId: parts[0],
+      typeId: parts[1],
+      configJson: configJson,
+    );
+    final latestTargets = _parseOutputSinkTargets(rawTargets);
+    _logOutputSinkTargets(
+      'apply_revalidate',
+      pluginId: parts[0],
+      typeId: parts[1],
+      targets: latestTargets,
+      selectedTargetJson: targetJson,
+    );
+    if (mounted) {
+      setState(() => _outputSinkTargets = latestTargets);
+    } else {
+      _outputSinkTargets = latestTargets;
+    }
+    if (latestTargets.isEmpty) {
+      throw StateError(
+        'No output sink targets available for ${parts[0]}::${parts[1]}',
+      );
+    }
+    final latestTargetValues = latestTargets.map(_targetValueOf).toSet();
+    if (!latestTargetValues.contains(targetJson)) {
+      final available = latestTargets.map(_targetDebugSummary).join(' || ');
+      final selected = _targetDebugSummary(targetJson);
+      logger.e(
+        'apply output sink route target missing after revalidate '
+        'selected=$selected available=[$available]',
+      );
+      throw StateError(
+        'Selected output sink target is no longer available. '
+        'selected=$selected; available=[$available]',
+      );
+    }
 
     final route = OutputSinkRoute(
       pluginId: parts[0],
@@ -674,6 +777,10 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
     );
     await bridge.setOutputSinkRoute(route);
     await settings.setOutputSinkRoute(route);
+    logger.i(
+      'apply output sink route success plugin=${route.pluginId} type=${route.typeId} '
+      'target=${_targetDebugSummary(route.targetJson)}',
+    );
     if (showFeedback && mounted) {
       final l10n = AppLocalizations.of(context)!;
       ScaffoldMessenger.of(

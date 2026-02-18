@@ -25,6 +25,15 @@ pub struct AsioOutputSink {
 
 impl Drop for AsioOutputSink {
     fn drop(&mut self) {
+        host_log(
+            StLogLevel::Debug,
+            &format!(
+                "asio output sink drop: started={} queued_samples={} ring_path={}",
+                self.started,
+                self.queued_samples(),
+                self.ring_path.display()
+            ),
+        );
         let _ = std::fs::remove_file(&self.ring_path);
     }
 }
@@ -34,6 +43,7 @@ impl AsioOutputSink {
         spec: StAudioSpec,
         config: &AsioOutputConfig,
         target_id: String,
+        selection_session_id: String,
     ) -> SdkResult<Self> {
         let lease = acquire_sidecar_lease(config)?;
         let spec = AudioSpec {
@@ -45,17 +55,24 @@ impl AsioOutputSink {
         let open_result = sidecar_request_ok(
             config,
             Request::Open {
-                device_id: target_id,
+                selection_session_id: selection_session_id.clone(),
+                device_id: target_id.clone(),
                 spec: spec.clone(),
                 buffer_size_frames: config.buffer_size_frames,
                 shared_ring: Some(ring_desc),
             },
         );
         if let Err(e) = open_result {
-            let _ = sidecar_request_ok(config, Request::Stop);
             let _ = std::fs::remove_file(&ring_path);
             return Err(e);
         }
+        host_log(
+            StLogLevel::Debug,
+            &format!(
+                "asio output sink opened: target_id={:?} selection_session_id={:?} sample_rate={} channels={}",
+                target_id, selection_session_id, spec.sample_rate, spec.channels
+            ),
+        );
 
         Ok(Self {
             config: config.clone(),

@@ -6,7 +6,8 @@ use std::time::{Duration, Instant};
 use anyhow::{Result, anyhow};
 use arc_swap::ArcSwap;
 use crossbeam_channel::Sender;
-use stellatune_plugin_api::StHostVTable;
+use stellatune_plugin_api::{StHostVTable, StPluginModule};
+use stellatune_runtime::thread_actor::{ActorRef, CallError, Handler, Message};
 use tracing::{debug, warn};
 
 use crate::default_host_vtable;
@@ -23,6 +24,7 @@ use crate::runtime::actor::handlers::load_dir_additive_filtered::LoadDirAdditive
 use crate::runtime::actor::handlers::load_dir_additive_from_state::LoadDirAdditiveFromStateMessage;
 use crate::runtime::actor::handlers::plugin_lease_state::PluginLeaseStateMessage;
 use crate::runtime::actor::handlers::register_worker_control_sender::RegisterWorkerControlSenderMessage;
+use crate::runtime::actor::handlers::release_module_lease::ReleaseModuleLeaseMessage;
 use crate::runtime::actor::handlers::reload_dir_detailed_from_state::ReloadDirDetailedFromStateMessage;
 use crate::runtime::actor::handlers::reload_dir_filtered::ReloadDirFilteredMessage;
 use crate::runtime::actor::handlers::reload_dir_from_state::ReloadDirFromStateMessage;
@@ -36,15 +38,54 @@ use crate::runtime::introspection::{
     RuntimeIntrospectionReadCache,
 };
 use crate::runtime::messages::WorkerControlMessage;
-use crate::runtime::model::{ModuleLease, ModuleLeaseRef, RuntimeSyncReport};
+use crate::runtime::model::{AcquiredModuleLease, ModuleLeaseRef, RuntimeSyncReport};
 
 const QUERY_TIMEOUT: Duration = Duration::from_secs(6);
 const IO_TIMEOUT: Duration = Duration::from_secs(60);
 const SLOW_QUERY_LOG_THRESHOLD: Duration = Duration::from_millis(150);
 
+pub(crate) struct ModuleLeaseHandle {
+    plugin_id: String,
+    lease_id: u64,
+    module: StPluginModule,
+    actor_ref: ActorRef<PluginRuntimeActor>,
+}
+
+impl ModuleLeaseHandle {
+    fn new(
+        plugin_id: String,
+        acquired: AcquiredModuleLease,
+        actor_ref: ActorRef<PluginRuntimeActor>,
+    ) -> Self {
+        Self {
+            plugin_id,
+            lease_id: acquired.lease_id,
+            module: acquired.module,
+            actor_ref,
+        }
+    }
+
+    pub(crate) fn module(&self) -> StPluginModule {
+        self.module
+    }
+
+    pub(crate) fn lease_id(&self) -> u64 {
+        self.lease_id
+    }
+}
+
+impl Drop for ModuleLeaseHandle {
+    fn drop(&mut self) {
+        let _ = self.actor_ref.cast(ReleaseModuleLeaseMessage {
+            plugin_id: self.plugin_id.clone(),
+            lease_id: self.lease_id,
+        });
+    }
+}
+
 #[derive(Clone)]
 pub struct PluginRuntimeHandle {
-    actor_ref: stellatune_runtime::thread_actor::ActorRef<PluginRuntimeActor>,
+    actor_ref: ActorRef<PluginRuntimeActor>,
     introspection_cache: Arc<ArcSwap<RuntimeIntrospectionReadCache>>,
 }
 
@@ -72,8 +113,8 @@ impl PluginRuntimeHandle {
 
     async fn call<M>(&self, op: &'static str, timeout: Duration, message: M) -> Option<M::Response>
     where
-        M: stellatune_runtime::thread_actor::Message,
-        PluginRuntimeActor: stellatune_runtime::thread_actor::Handler<M>,
+        M: Message,
+        PluginRuntimeActor: Handler<M>,
     {
         let started = Instant::now();
         match self.actor_ref.call_async(message, timeout).await {
@@ -88,12 +129,11 @@ impl PluginRuntimeHandle {
                 }
                 Some(value)
             },
-            Err(stellatune_runtime::thread_actor::CallError::MailboxClosed)
-            | Err(stellatune_runtime::thread_actor::CallError::ActorStopped) => {
+            Err(CallError::MailboxClosed) | Err(CallError::ActorStopped) => {
                 warn!(op, "plugin runtime actor unavailable");
                 None
             },
-            Err(stellatune_runtime::thread_actor::CallError::Timeout) => {
+            Err(CallError::Timeout) => {
                 warn!(
                     op,
                     timeout_ms = timeout.as_millis() as u64,
@@ -106,13 +146,12 @@ impl PluginRuntimeHandle {
 
     async fn call_io<T, M>(&self, op: &'static str, timeout: Duration, message: M) -> Result<T>
     where
-        M: stellatune_runtime::thread_actor::Message<Response = anyhow::Result<T>>,
-        PluginRuntimeActor: stellatune_runtime::thread_actor::Handler<M>,
+        M: Message<Response = anyhow::Result<T>>,
+        PluginRuntimeActor: Handler<M>,
     {
         match self.actor_ref.call_async(message, timeout).await {
             Ok(result) => result,
-            Err(stellatune_runtime::thread_actor::CallError::MailboxClosed)
-            | Err(stellatune_runtime::thread_actor::CallError::ActorStopped) => {
+            Err(CallError::MailboxClosed) | Err(CallError::ActorStopped) => {
                 Err(anyhow!("plugin runtime actor unavailable: {op}"))
             },
             Err(stellatune_runtime::thread_actor::CallError::Timeout) => Err(anyhow!(
@@ -282,15 +321,23 @@ impl PluginRuntimeHandle {
     pub(crate) async fn acquire_current_module_lease(
         &self,
         plugin_id: &str,
-    ) -> Option<Arc<ModuleLease>> {
+    ) -> Option<ModuleLeaseHandle> {
         let plugin_id = plugin_id.to_string();
-        self.call(
-            "acquire_current_module_lease",
-            QUERY_TIMEOUT,
-            AcquireCurrentModuleLeaseMessage { plugin_id },
-        )
-        .await
-        .flatten()
+        let acquired = self
+            .call(
+                "acquire_current_module_lease",
+                QUERY_TIMEOUT,
+                AcquireCurrentModuleLeaseMessage {
+                    plugin_id: plugin_id.clone(),
+                },
+            )
+            .await
+            .flatten()?;
+        Some(ModuleLeaseHandle::new(
+            plugin_id,
+            acquired,
+            self.actor_ref.clone(),
+        ))
     }
 
     pub async fn active_plugin_ids(&self) -> Vec<String> {

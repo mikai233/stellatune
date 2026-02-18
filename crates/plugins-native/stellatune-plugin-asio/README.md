@@ -84,10 +84,13 @@ Field notes:
 
 - `sidecar_path`: absolute path or runtime-root-relative path.
 - `buffer_size_frames`: passed to sidecar `Open` request.
+- Sidecar lifecycle is plugin-scoped: the sidecar process is prewarmed on output-sink
+  instance creation and kept resident across `open/close` cycles. It is shut down during
+  plugin module shutdown/unload (`begin_shutdown`), not when lease count drops to zero.
 - `sample_rate_mode`:
   - `fixed_target`: keep one negotiated output sample rate (recommended for lessgap).
   - `match_track`: follow each track sample rate (may cause more reopen/re-negotiate events).
-- `fixed_target_sample_rate`: used in `fixed_target` mode. When explicitly set, plugin forces this exact output rate (does not auto-fallback to nearest caps rate). `null` means device default sample rate.
+- `fixed_target_sample_rate`: used in `fixed_target` mode. When explicitly set, plugin forces this exact output rate (does not auto-fallback to nearest caps rate). `null` means host desired sample rate.
 - `ring_capacity_ms`: shared ring capacity in milliseconds.
 - `latency_profile`: ASIO buffering aggressiveness preset:
   - `aggressive`: lower latency, higher underrun risk.
@@ -96,6 +99,7 @@ Field notes:
 - `start_prefill_ms`: sidecar stream start prefill threshold. `0` means auto by `latency_profile` (`aggressive`=8ms, `balanced`=16ms, `conservative`=32ms).
 - `preferred_chunk_frames`: host write chunk hint via negotiation. `0` means auto by sample rate and `latency_profile` (base: 48k->128, 96k->256, 192k->512; then `aggressive` x0.5, `balanced` x1, `conservative` x2). `>0` uses fixed chunk size.
 - `flush_timeout_ms`: best-effort flush wait timeout before close.
+- `target_json` contract: values returned by `list_targets_json` now include a `selection_session_id`. `negotiate_spec/open` require that session id to match the current device snapshot. If stale, route apply is rejected and targets must be refreshed/reselected (no implicit fallback/remap).
 
 ## Limitations
 

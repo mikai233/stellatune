@@ -27,9 +27,10 @@ impl Handler<ListActivePluginsMessage> for PluginRuntimeActor {
             let Some(slot) = self.modules.get(&plugin_id) else {
                 continue;
             };
-            let Some(current) = slot.current.as_ref() else {
+            let Some(current_entry) = slot.current.as_ref() else {
                 continue;
             };
+            let current = &current_entry.lease;
             let mut info = RuntimePluginInfo {
                 id: plugin_id.clone(),
                 name: plugin_id.clone(),

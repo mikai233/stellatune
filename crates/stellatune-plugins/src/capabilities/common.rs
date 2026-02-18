@@ -5,8 +5,8 @@ use anyhow::{Result, anyhow};
 use stellatune_plugin_api::{StConfigUpdateMode, StConfigUpdatePlan};
 use stellatune_plugin_api::{StStatus, StStr};
 
+use crate::runtime::handle::ModuleLeaseHandle;
 use crate::runtime::instance_registry::InstanceId;
-use crate::runtime::model::ModuleLease;
 use crate::runtime::update::{InstanceUpdateCoordinator, InstanceUpdateDecision};
 
 pub type PluginFreeFn = Option<extern "C" fn(ptr: *mut c_void, len: usize, align: usize)>;
@@ -17,12 +17,11 @@ pub struct ConfigUpdatePlan {
     pub reason: Option<String>,
 }
 
-#[derive(Clone)]
 pub struct InstanceRuntimeCtx {
     pub instance_id: InstanceId,
     // Keep the module lease alive for the full instance lifetime.
     #[allow(dead_code)]
-    pub(crate) module_lease: Arc<ModuleLease>,
+    pub(crate) module_lease: ModuleLeaseHandle,
     pub updates: Arc<InstanceUpdateCoordinator>,
     pub plugin_free: PluginFreeFn,
 }

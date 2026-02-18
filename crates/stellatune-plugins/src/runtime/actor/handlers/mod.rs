@@ -10,6 +10,7 @@ pub(crate) mod load_dir_additive_filtered;
 pub(crate) mod load_dir_additive_from_state;
 pub(crate) mod plugin_lease_state;
 pub(crate) mod register_worker_control_sender;
+pub(crate) mod release_module_lease;
 pub(crate) mod reload_dir_detailed_from_state;
 pub(crate) mod reload_dir_filtered;
 pub(crate) mod reload_dir_from_state;

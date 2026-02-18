@@ -357,6 +357,16 @@ pub async fn plugin_runtime_disable(
     tracing::debug!(plugin_id, phase = report.phase, "plugin_disable_phase");
     library.plugin_set_enabled(plugin_id.clone(), false).await?;
 
+    // Clear active output route before unloading the plugin lease. This avoids
+    // a teardown-order race where runtime destroy control for an in-use plugin
+    // sink can overlap with sink-session reconfigure control and trip the sink
+    // loop control timeout.
+    if let Err(error) = engine::runtime_clear_output_sink_route_for_plugin(&plugin_id).await {
+        report.errors.push(format!(
+            "failed to clear output sink route for disabled plugin '{plugin_id}': {error}"
+        ));
+    }
+
     report.phase = "schedule";
     tracing::debug!(plugin_id, phase = report.phase, "plugin_disable_phase");
     let service = shared_plugin_runtime();
@@ -365,11 +375,6 @@ pub async fn plugin_runtime_disable(
     report
         .errors
         .extend(unload_report.errors.into_iter().map(|err| err.to_string()));
-    if let Err(error) = engine::runtime_clear_output_sink_route_for_plugin(&plugin_id).await {
-        report.errors.push(format!(
-            "failed to clear output sink route for disabled plugin '{plugin_id}': {error}"
-        ));
-    }
     report.remaining_retired_leases = service
         .plugin_lease_state(&plugin_id)
         .await

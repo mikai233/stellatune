@@ -100,6 +100,7 @@ impl PluginRuntimeActor {
                 .map(|slot| slot.current.is_none() && slot.retired.is_empty())
                 .unwrap_or(false);
             if remove {
+                tracing::debug!(plugin_id, "removing empty plugin lease slot");
                 self.modules.remove(&plugin_id);
             }
         }
@@ -114,16 +115,33 @@ impl PluginRuntimeActor {
     }
 
     pub(super) fn disable_plugin_slot(&mut self, plugin_id: &str) -> bool {
-        let retired = {
+        let (retired, retired_lease_id, retired_lease_refcount, retired_lease_count) = {
             let Some(slot) = self.modules.get_mut(plugin_id) else {
                 return false;
             };
-            slot.retire_current()
+            let retired = slot.retire_current();
+            let (retired_lease_id, retired_lease_refcount) = slot
+                .retired
+                .last()
+                .map(|entry| (entry.lease.lease_id, entry.external_refcount))
+                .unwrap_or((0, 0));
+            (
+                retired,
+                retired_lease_id,
+                retired_lease_refcount,
+                slot.retired.len(),
+            )
         };
         if !retired {
             return false;
         }
-        tracing::debug!(plugin_id, "plugin lease deactivated");
+        tracing::debug!(
+            plugin_id,
+            retired_lease_id,
+            retired_lease_refcount,
+            retired_lease_count,
+            "plugin lease deactivated"
+        );
         self.mark_introspection_cache_dirty();
         true
     }
@@ -139,6 +157,20 @@ impl PluginRuntimeActor {
 
         let reclaimed = self.reclaim_retired_module_leases_by_refcount(plugin_id);
         if reclaimed == 0 {
+            if let Some(slot) = self.modules.get(plugin_id) {
+                let pending_retired = slot
+                    .retired
+                    .iter()
+                    .map(|entry| (entry.lease.lease_id, entry.external_refcount))
+                    .collect::<Vec<_>>();
+                if !pending_retired.is_empty() {
+                    tracing::debug!(
+                        plugin_id,
+                        pending_retired = ?pending_retired,
+                        "plugin retired leases still referenced"
+                    );
+                }
+            }
             return 0;
         }
 
@@ -148,6 +180,7 @@ impl PluginRuntimeActor {
             .map(|slot| slot.current.is_none() && slot.retired.is_empty())
             .unwrap_or(false);
         if remove_module_slot {
+            tracing::debug!(plugin_id, "removing empty plugin lease slot");
             self.modules.remove(plugin_id);
         }
         tracing::debug!(
@@ -391,7 +424,7 @@ impl PluginRuntimeActor {
         let slot = self.modules.get(plugin_id)?;
         slot.current
             .as_ref()
-            .map(|current| current.source_fingerprint.clone())
+            .map(|current| current.lease.source_fingerprint.clone())
     }
 
     fn activate_loaded_candidate(&mut self, candidate: LoadedModuleCandidate) -> ActivatedLoad {
@@ -421,11 +454,13 @@ impl PluginRuntimeActor {
         metadata_json: String,
         loaded: LoadedPluginModule,
     ) {
+        let lease_id = self.allocate_lease_id();
         let source_fingerprint = source_fingerprint_for_path(&loaded.library_path);
         self.modules
             .entry(plugin_id.to_string())
             .or_default()
             .set_current(ModuleLease {
+                lease_id,
                 plugin_id: plugin_id.to_string(),
                 plugin_name,
                 metadata_json,
@@ -440,15 +475,57 @@ impl PluginRuntimeActor {
             return 0;
         };
         let mut reclaimed = 0usize;
-        slot.retired.retain(|lease| {
-            if std::sync::Arc::strong_count(lease) > 1 {
+        let mut reclaimed_lease_ids = Vec::new();
+        let mut retained_lease_refs = Vec::new();
+        slot.retired.retain(|entry| {
+            let refcount = entry.external_refcount;
+            let lease_id = entry.lease.lease_id;
+            if refcount > 0 {
+                retained_lease_refs.push((lease_id, refcount));
                 true
             } else {
                 reclaimed = reclaimed.saturating_add(1);
+                reclaimed_lease_ids.push(lease_id);
                 false
             }
         });
+        if !reclaimed_lease_ids.is_empty() || !retained_lease_refs.is_empty() {
+            tracing::debug!(
+                plugin_id,
+                reclaimed_lease_ids = ?reclaimed_lease_ids,
+                retained_lease_refs = ?retained_lease_refs,
+                "retired lease refcount sweep"
+            );
+        }
         reclaimed
+    }
+
+    pub(crate) fn release_module_lease_ref(&mut self, plugin_id: &str, lease_id: u64) {
+        let release_state = self
+            .modules
+            .get_mut(plugin_id)
+            .and_then(|slot| slot.release_lease(lease_id));
+        let Some(release_state) = release_state else {
+            tracing::debug!(
+                plugin_id,
+                lease_id,
+                "ignored lease release for unknown or already released lease"
+            );
+            return;
+        };
+
+        tracing::debug!(
+            plugin_id,
+            lease_id,
+            lease_external_refcount = release_state.external_refcount,
+            was_retired = release_state.was_retired,
+            "plugin lease reference released"
+        );
+
+        if release_state.was_retired {
+            let _ = self.collect_retired_module_leases_by_refcount();
+            self.maybe_refresh_introspection_cache();
+        }
     }
 }
 

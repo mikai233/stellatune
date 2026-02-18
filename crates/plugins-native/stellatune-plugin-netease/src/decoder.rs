@@ -1,4 +1,7 @@
-use std::io::{Read, Seek, SeekFrom};
+use std::{
+    io::{Read, Seek, SeekFrom},
+    sync::Mutex,
+};
 
 use serde_json::{Map, Value};
 use stellatune_plugin_sdk::instance::{DecoderDescriptor, DecoderExtScoreRule, DecoderInstance};
@@ -364,7 +367,7 @@ impl DecoderDescriptor for StreamDecoderInstance {
 }
 
 struct IoMediaSource {
-    io: HostIo,
+    io: Mutex<HostIo>,
     byte_len: Option<u64>,
     seekable: bool,
 }
@@ -372,7 +375,7 @@ struct IoMediaSource {
 impl IoMediaSource {
     fn new(io: HostIo, byte_len: Option<u64>, seekable: bool) -> Self {
         Self {
-            io,
+            io: Mutex::new(io),
             byte_len,
             seekable,
         }
@@ -381,13 +384,21 @@ impl IoMediaSource {
 
 impl Read for IoMediaSource {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        self.io.read(buf)
+        let mut io = self
+            .io
+            .lock()
+            .map_err(|_| std::io::Error::other("host io lock poisoned"))?;
+        io.read(buf)
     }
 }
 
 impl Seek for IoMediaSource {
     fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
-        self.io.seek(pos)
+        let mut io = self
+            .io
+            .lock()
+            .map_err(|_| std::io::Error::other("host io lock poisoned"))?;
+        io.seek(pos)
     }
 }
 

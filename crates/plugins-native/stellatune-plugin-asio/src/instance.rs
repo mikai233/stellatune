@@ -1,11 +1,13 @@
 use stellatune_plugin_sdk::instance::OutputSinkInstance;
 use stellatune_plugin_sdk::update::ConfigUpdatable;
 use stellatune_plugin_sdk::{
-    OutputSink, SdkError, SdkResult, StAudioSpec, StOutputSinkNegotiatedSpec,
-    StOutputSinkRuntimeStatus,
+    OutputSink, SdkError, SdkResult, StAudioSpec, StLogLevel, StOutputSinkNegotiatedSpec,
+    StOutputSinkRuntimeStatus, host_log,
 };
 
-use crate::client::{ensure_windows, sidecar_get_device_caps, sidecar_list_devices};
+use crate::client::{
+    ensure_windows, prewarm_sidecar, sidecar_get_device_caps, sidecar_list_devices,
+};
 use crate::config::{AsioOutputConfig, AsioOutputTarget, build_negotiated_spec};
 use crate::sink::AsioOutputSink;
 
@@ -29,8 +31,21 @@ impl AsioOutputSinkInstance {
     }
 }
 
+impl Drop for AsioOutputSinkInstance {
+    fn drop(&mut self) {
+        host_log(
+            StLogLevel::Debug,
+            &format!(
+                "asio output sink instance drop: opened={}",
+                self.opened.is_some()
+            ),
+        );
+    }
+}
+
 pub(crate) fn create_instance(config: AsioOutputConfig) -> SdkResult<AsioOutputSinkInstance> {
     ensure_windows()?;
+    prewarm_sidecar(&config)?;
     Ok(AsioOutputSinkInstance {
         config,
         opened: None,
@@ -49,6 +64,7 @@ impl OutputSinkInstance for AsioOutputSinkInstance {
             .map(|d| AsioOutputTarget {
                 id: d.id,
                 name: Some(d.name),
+                selection_session_id: Some(d.selection_session_id),
             })
             .collect::<Vec<_>>();
         stellatune_plugin_sdk::__private::serde_json::to_string(&targets).map_err(SdkError::from)
@@ -63,6 +79,7 @@ impl OutputSinkInstance for AsioOutputSinkInstance {
         let target: AsioOutputTarget =
             stellatune_plugin_sdk::__private::serde_json::from_str(target_json)
                 .map_err(SdkError::from)?;
+        let selection_session_id = target.required_selection_session_id()?;
         let desired_sr = desired_spec.sample_rate.max(1);
         let desired_ch = desired_spec.channels.max(1);
 
@@ -74,7 +91,7 @@ impl OutputSinkInstance for AsioOutputSinkInstance {
             return Ok(cached.negotiated);
         }
 
-        let caps = sidecar_get_device_caps(&self.config, &target.id)?;
+        let caps = sidecar_get_device_caps(&self.config, selection_session_id, &target.id)?;
         let negotiated = build_negotiated_spec(desired_spec, &caps, &self.config);
         self.negotiated_cache = Some(CachedNegotiation {
             target_id: target.id,
@@ -90,7 +107,8 @@ impl OutputSinkInstance for AsioOutputSinkInstance {
         let target: AsioOutputTarget =
             stellatune_plugin_sdk::__private::serde_json::from_str(target_json)
                 .map_err(SdkError::from)?;
-        let sink = AsioOutputSink::open(spec, &self.config, target.id)?;
+        let selection_session_id = target.required_selection_session_id()?.to_string();
+        let sink = AsioOutputSink::open(spec, &self.config, target.id, selection_session_id)?;
         self.opened = Some(sink);
         self.invalidate_negotiate_cache();
         Ok(())
@@ -136,6 +154,10 @@ impl OutputSinkInstance for AsioOutputSinkInstance {
     fn close(&mut self) -> SdkResult<()> {
         // Cleanup semantic: closing an output sink instance must deterministically release
         // runtime-owned external resources (ring mapping + sidecar lease via sink drop).
+        host_log(
+            StLogLevel::Debug,
+            "asio output sink instance close requested",
+        );
         self.opened = None;
         self.invalidate_negotiate_cache();
         Ok(())

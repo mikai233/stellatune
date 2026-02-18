@@ -4,10 +4,9 @@ use anyhow::{Result, anyhow};
 use crossbeam_channel::Receiver;
 
 use crate::capabilities::common::{InstanceRuntimeCtx, PluginFreeFn};
-use crate::runtime::handle::PluginRuntimeHandle;
+use crate::runtime::handle::{ModuleLeaseHandle, PluginRuntimeHandle};
 use crate::runtime::instance_registry::InstanceRegistry;
 use crate::runtime::messages::WorkerControlMessage;
-use crate::runtime::model::ModuleLease;
 use crate::runtime::update::InstanceUpdateCoordinator;
 
 pub(super) fn normalize_plugin_type_ids(
@@ -40,7 +39,7 @@ pub(super) fn subscribe_worker_control(
 pub(super) fn acquire_active_lease(
     runtime: &PluginRuntimeHandle,
     plugin_id: &str,
-) -> Result<Arc<ModuleLease>> {
+) -> Result<ModuleLeaseHandle> {
     stellatune_runtime::block_on(runtime.acquire_current_module_lease(plugin_id)).ok_or_else(|| {
         anyhow!(
             "plugin `{}` has no active lease (disabled, unloaded, or unavailable)",
@@ -59,7 +58,7 @@ pub(super) fn new_factory_state() -> (Arc<InstanceRegistry>, Arc<InstanceUpdateC
 pub(super) fn new_instance_runtime_ctx(
     instances: &Arc<InstanceRegistry>,
     updates: &Arc<InstanceUpdateCoordinator>,
-    lease: Arc<ModuleLease>,
+    lease: ModuleLeaseHandle,
     plugin_free: PluginFreeFn,
 ) -> InstanceRuntimeCtx {
     let instance_id = instances.register();

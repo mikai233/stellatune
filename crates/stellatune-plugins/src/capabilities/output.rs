@@ -226,11 +226,22 @@ impl OutputSinkInstance {
 
 impl Drop for OutputSinkInstance {
     fn drop(&mut self) {
+        let lease_id = self.ctx.module_lease.lease_id();
+        tracing::debug!(
+            instance_id = self.ctx.instance_id.0,
+            lease_id,
+            "dropping output sink instance"
+        );
         if !self.handle.is_null() && !self.vtable.is_null() {
             self.close_before_destroy();
             unsafe { ((*self.vtable).destroy)(self.handle) };
             self.handle = std::ptr::null_mut();
         }
+        tracing::debug!(
+            instance_id = self.ctx.instance_id.0,
+            lease_id,
+            "output sink instance dropped"
+        );
     }
 }
 

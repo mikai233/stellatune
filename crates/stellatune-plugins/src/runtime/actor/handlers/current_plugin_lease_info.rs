@@ -1,6 +1,6 @@
 use stellatune_runtime::thread_actor::{ActorContext, Handler, Message};
 
-use crate::runtime::actor::{PluginRuntimeActor, lease_id_of};
+use crate::runtime::actor::PluginRuntimeActor;
 use crate::runtime::introspection::PluginLeaseInfo;
 
 pub(crate) struct CurrentPluginLeaseInfoMessage {
@@ -18,9 +18,9 @@ impl Handler<CurrentPluginLeaseInfoMessage> for PluginRuntimeActor {
         _ctx: &mut ActorContext<Self>,
     ) -> Option<PluginLeaseInfo> {
         let slot = self.modules.get(&message.plugin_id)?;
-        let lease = slot.current.as_ref()?;
+        let lease = &slot.current.as_ref()?.lease;
         Some(PluginLeaseInfo {
-            lease_id: lease_id_of(lease),
+            lease_id: lease.lease_id,
             metadata_json: lease.metadata_json.clone(),
         })
     }

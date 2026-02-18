@@ -51,9 +51,8 @@ pub struct StHostVTable {
 }
 
 // Raw pointers make this not auto-Send/Sync. Host vtable is treated as immutable and requires
-// `user_data` to be thread-safe when used across threads.
+// `user_data` to be thread-safe when moved across threads.
 unsafe impl Send for StHostVTable {}
-unsafe impl Sync for StHostVTable {}
 
 pub type StPluginEntry = unsafe extern "C" fn(host: *const StHostVTable) -> *const StPluginModule;
 
@@ -188,6 +187,17 @@ pub struct StCreateOutputSinkInstanceOpVTable {
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
+/// Plugin module function table.
+///
+/// Concurrency contract:
+/// - Hosts may copy this table by value and invoke callbacks through any copy.
+/// - Hosts may invoke module-level callbacks concurrently from multiple threads.
+/// - Plugin implementations must treat callbacks in this table as thread-safe entry points
+///   (reentrant or internally synchronized), including `capability_*`,
+///   `decoder_ext_score_*`, and `begin_create_*`.
+///
+/// Instance-level callbacks are exposed through per-instance vtables returned by
+/// `begin_create_*` operations and may use a different threading model.
 pub struct StPluginModule {
     pub api_version: u32,
     pub plugin_version: StVersion,
@@ -200,10 +210,13 @@ pub struct StPluginModule {
 
     /// Optional decoder extension scoring table access.
     /// Host may use this to rank decoder candidates by extension without content probing.
+    /// This callback may be invoked concurrently with other module-level callbacks.
     pub decoder_ext_score_count: Option<extern "C" fn(type_id_utf8: StStr) -> usize>,
+    /// This callback may be invoked concurrently with other module-level callbacks.
     pub decoder_ext_score_get:
         Option<extern "C" fn(type_id_utf8: StStr, index: usize) -> *const StDecoderExtScore>,
 
+    /// May be invoked concurrently with other `begin_create_*` callbacks.
     pub begin_create_decoder_instance: Option<
         extern "C" fn(
             type_id_utf8: StStr,
@@ -211,6 +224,7 @@ pub struct StPluginModule {
             out_op: *mut StCreateDecoderInstanceOpRef,
         ) -> StStatus,
     >,
+    /// May be invoked concurrently with other `begin_create_*` callbacks.
     pub begin_create_dsp_instance: Option<
         extern "C" fn(
             type_id_utf8: StStr,
@@ -220,6 +234,7 @@ pub struct StPluginModule {
             out_op: *mut StCreateDspInstanceOpRef,
         ) -> StStatus,
     >,
+    /// May be invoked concurrently with other `begin_create_*` callbacks.
     pub begin_create_source_catalog_instance: Option<
         extern "C" fn(
             type_id_utf8: StStr,
@@ -227,6 +242,7 @@ pub struct StPluginModule {
             out_op: *mut StCreateSourceCatalogInstanceOpRef,
         ) -> StStatus,
     >,
+    /// May be invoked concurrently with other `begin_create_*` callbacks.
     pub begin_create_lyrics_provider_instance: Option<
         extern "C" fn(
             type_id_utf8: StStr,
@@ -234,6 +250,7 @@ pub struct StPluginModule {
             out_op: *mut StCreateLyricsProviderInstanceOpRef,
         ) -> StStatus,
     >,
+    /// May be invoked concurrently with other `begin_create_*` callbacks.
     pub begin_create_output_sink_instance: Option<
         extern "C" fn(
             type_id_utf8: StStr,

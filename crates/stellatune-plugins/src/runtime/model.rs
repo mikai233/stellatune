@@ -1,8 +1,8 @@
 use std::path::PathBuf;
-use std::sync::Arc;
 
 use crate::load::LoadedPluginModule;
 use crate::load::RuntimeLoadReport;
+use stellatune_plugin_api::StPluginModule;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SourceLibraryFingerprint {
@@ -52,11 +52,18 @@ pub struct RuntimeSyncReport {
 }
 
 pub(crate) struct ModuleLease {
+    pub(crate) lease_id: u64,
     pub(crate) plugin_id: String,
     pub(crate) plugin_name: String,
     pub(crate) metadata_json: String,
     pub(crate) source_fingerprint: SourceLibraryFingerprint,
     pub(crate) loaded: LoadedPluginModule,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct AcquiredModuleLease {
+    pub(crate) lease_id: u64,
+    pub(crate) module: StPluginModule,
 }
 
 #[derive(Debug, Clone)]
@@ -67,7 +74,7 @@ pub struct ModuleLeaseRef {
 }
 
 impl ModuleLeaseRef {
-    pub(crate) fn from_arc(lease: &Arc<ModuleLease>) -> Self {
+    pub(crate) fn from_lease(lease: &ModuleLease) -> Self {
         Self {
             plugin_id: lease.plugin_id.clone(),
             plugin_name: lease.plugin_name.clone(),

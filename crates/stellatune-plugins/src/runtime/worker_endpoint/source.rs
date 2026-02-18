@@ -18,14 +18,15 @@ use super::{SourceCatalogInstanceFactory, SourceCatalogWorkerEndpoint};
 impl SourceCatalogInstanceFactory {
     pub fn create_instance(&self, config_json: &str) -> Result<SourceCatalogInstance> {
         let lease = acquire_active_lease(&self.runtime, &self.plugin_id)?;
-        let Some(create) = lease.loaded.module.begin_create_source_catalog_instance else {
+        let module = lease.module();
+        let Some(create) = module.begin_create_source_catalog_instance else {
             return Err(anyhow!(
                 "plugin `{}` does not provide source catalog factory",
                 self.plugin_id
             ));
         };
 
-        let plugin_free = lease.loaded.module.plugin_free;
+        let plugin_free = module.plugin_free;
         let mut op = StCreateSourceCatalogInstanceOpRef {
             handle: core::ptr::null_mut(),
             vtable: core::ptr::null(),

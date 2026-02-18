@@ -1,7 +1,14 @@
 #[doc(hidden)]
 #[macro_export]
 macro_rules! __st_export_module_entry {
-    ($vmaj:literal, $vmin:literal, $vpatch:literal) => {
+    (
+        $vmaj:literal,
+        $vmin:literal,
+        $vpatch:literal
+        $(, begin_quiesce: $begin_quiesce:path)?
+        $(, begin_shutdown: $begin_shutdown:path)?
+        $(,)?
+    ) => {
         static __ST_PLUGIN_MODULE_FULL: stellatune_plugin_api::StPluginModule =
             stellatune_plugin_api::StPluginModule {
                 api_version: stellatune_plugin_api::STELLATUNE_PLUGIN_API_VERSION,
@@ -26,8 +33,8 @@ macro_rules! __st_export_module_entry {
                     __st_begin_create_lyrics_provider_instance,
                 ),
                 begin_create_output_sink_instance: Some(__st_begin_create_output_sink_instance),
-                begin_quiesce: None,
-                begin_shutdown: None,
+                begin_quiesce: $crate::__st_opt_create_cb!($($begin_quiesce)?),
+                begin_shutdown: $crate::__st_opt_create_cb!($($begin_shutdown)?),
             };
 
         #[unsafe(no_mangle)]

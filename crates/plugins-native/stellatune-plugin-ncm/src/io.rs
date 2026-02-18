@@ -1,9 +1,12 @@
-use std::io::{Read, Seek, SeekFrom};
+use std::{
+    io::{Read, Seek, SeekFrom},
+    sync::Mutex,
+};
 
 use symphonia::core::io::MediaSource;
 
 pub(crate) struct NcmMediaSource {
-    ncm: ncmdump::Ncmdump<stellatune_plugin_sdk::HostIo>,
+    ncm: Mutex<ncmdump::Ncmdump<stellatune_plugin_sdk::HostIo>>,
     start: u64,
     len: u64,
 }
@@ -14,34 +17,47 @@ impl NcmMediaSource {
         start: u64,
         len: u64,
     ) -> Self {
-        Self { ncm, start, len }
+        Self {
+            ncm: Mutex::new(ncm),
+            start,
+            len,
+        }
     }
 }
 
 impl Read for NcmMediaSource {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        Read::read(&mut self.ncm, buf)
+        let mut ncm = self
+            .ncm
+            .lock()
+            .map_err(|_| std::io::Error::other("ncm io lock poisoned"))?;
+        Read::read(&mut *ncm, buf)
     }
 }
 
 impl Seek for NcmMediaSource {
     fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
+        let start = self.start;
+        let len = self.len;
+        let mut ncm = self
+            .ncm
+            .lock()
+            .map_err(|_| std::io::Error::other("ncm io lock poisoned"))?;
         let abs = match pos {
-            SeekFrom::Start(n) => self.ncm.seek(SeekFrom::Start(self.start.saturating_add(n))),
-            SeekFrom::Current(n) => self.ncm.seek(SeekFrom::Current(n)),
+            SeekFrom::Start(n) => ncm.seek(SeekFrom::Start(start.saturating_add(n))),
+            SeekFrom::Current(n) => ncm.seek(SeekFrom::Current(n)),
             SeekFrom::End(n) => {
-                let end = self.len as i64 + n;
+                let end = len as i64 + n;
                 if end < 0 {
                     return Err(std::io::Error::new(
                         std::io::ErrorKind::InvalidInput,
                         "seek before start",
                     ));
                 }
-                self.ncm
-                    .seek(SeekFrom::Start(self.start.saturating_add(end as u64)))
+                ncm.seek(SeekFrom::Start(start.saturating_add(end as u64)))
             },
         }?;
-        Ok(abs.saturating_sub(self.start))
+        Ok(abs.saturating_sub(start))
     }
 }
 

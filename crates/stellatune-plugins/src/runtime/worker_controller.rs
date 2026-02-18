@@ -102,18 +102,37 @@ impl<F: WorkerInstanceFactory> WorkerInstanceController<F> {
     }
 
     pub fn on_control_message(&mut self, message: WorkerControlMessage) {
-        let (seq, is_destroy) = match &message {
-            WorkerControlMessage::Recreate { seq, .. } => (*seq, false),
-            WorkerControlMessage::Destroy { seq, .. } => (*seq, true),
+        let (seq, kind, reason) = match &message {
+            WorkerControlMessage::Recreate { reason, seq } => (*seq, "recreate", reason.as_str()),
+            WorkerControlMessage::Destroy { reason, seq } => (*seq, "destroy", reason.as_str()),
         };
         if seq <= self.last_control_seq {
+            tracing::debug!(
+                control_seq = seq,
+                control_kind = kind,
+                control_reason = reason,
+                last_control_seq = self.last_control_seq,
+                "worker controller ignored stale control message"
+            );
             return;
         }
         self.last_control_seq = seq;
-        if is_destroy {
+        if kind == "destroy" {
             self.request_destroy();
+            tracing::debug!(
+                control_seq = seq,
+                control_reason = reason,
+                has_instance = self.instance.is_some(),
+                "worker controller accepted destroy control message"
+            );
         } else {
             self.request_recreate();
+            tracing::debug!(
+                control_seq = seq,
+                control_reason = reason,
+                has_instance = self.instance.is_some(),
+                "worker controller accepted recreate control message"
+            );
         }
     }
 
@@ -161,6 +180,7 @@ impl<F: WorkerInstanceFactory> WorkerInstanceController<F> {
             self.pending_destroy = false;
             self.pending_recreate = false;
             self.current_config_json = None;
+            tracing::debug!(had_instance, "worker controller applied pending destroy");
             return Ok(if had_instance {
                 WorkerApplyPendingOutcome::Destroyed
             } else {
@@ -174,6 +194,7 @@ impl<F: WorkerInstanceFactory> WorkerInstanceController<F> {
             self.instance = Some(instance);
             self.current_config_json = Some(self.desired_config_json.clone());
             self.pending_recreate = false;
+            tracing::debug!(had_instance, "worker controller applied pending recreate");
             return Ok(if had_instance {
                 WorkerApplyPendingOutcome::Recreated
             } else {

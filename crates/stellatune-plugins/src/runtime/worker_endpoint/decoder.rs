@@ -16,14 +16,15 @@ use super::{DecoderInstanceFactory, DecoderWorkerEndpoint};
 impl DecoderInstanceFactory {
     pub fn create_instance(&self, config_json: &str) -> Result<DecoderInstance> {
         let lease = acquire_active_lease(&self.runtime, &self.plugin_id)?;
-        let Some(create) = lease.loaded.module.begin_create_decoder_instance else {
+        let module = lease.module();
+        let Some(create) = module.begin_create_decoder_instance else {
             return Err(anyhow!(
                 "plugin `{}` does not provide decoder factory",
                 self.plugin_id
             ));
         };
 
-        let plugin_free = lease.loaded.module.plugin_free;
+        let plugin_free = module.plugin_free;
         let mut op = StCreateDecoderInstanceOpRef {
             handle: core::ptr::null_mut(),
             vtable: core::ptr::null(),

@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-pub const PROTOCOL_VERSION: u32 = 3;
+pub const PROTOCOL_VERSION: u32 = 4;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AudioSpec {
@@ -11,6 +11,10 @@ pub struct AudioSpec {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeviceInfo {
+    /// Session token for this exact device snapshot.
+    ///
+    /// Target IDs are only valid when this session token matches.
+    pub selection_session_id: String,
     pub id: String,
     pub name: String,
 }
@@ -46,9 +50,11 @@ pub enum Request {
     },
     ListDevices,
     GetDeviceCaps {
+        selection_session_id: String,
         device_id: String,
     },
     Open {
+        selection_session_id: String,
         device_id: String,
         spec: AudioSpec,
         buffer_size_frames: Option<u32>,

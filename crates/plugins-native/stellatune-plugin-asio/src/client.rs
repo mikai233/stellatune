@@ -68,20 +68,35 @@ impl AsioHostClient {
     fn request(&mut self, req: Request) -> SdkResult<Response> {
         write_frame(&mut self.stdin, &req)
             .map_err(|e| SdkError::Io(format!("ASIO sidecar write_frame failed: {e}")))?;
-        let resp: Response = read_frame(&mut self.stdout).map_err(|e| match e {
-            stellatune_asio_proto::ProtoError::Io(io) if io.kind() == ErrorKind::UnexpectedEof => {
-                SdkError::Io(
-                    "ASIO sidecar closed the pipe unexpectedly while reading response. \
-                     Verify `sidecar_path` points to `stellatune-asio-host` and that the sidecar was built with `--features asio`."
+        let resp: Response = match read_frame(&mut self.stdout) {
+            Ok(resp) => resp,
+            Err(stellatune_asio_proto::ProtoError::Io(io))
+                if io.kind() == ErrorKind::UnexpectedEof =>
+            {
+                let status_hint = match self.child.try_wait() {
+                    Ok(Some(status)) => format!(" sidecar exit status: {status}."),
+                    Ok(None) => " sidecar exit status is not observable yet; process may still be running or may be terminating."
                         .to_string(),
-                )
+                    Err(error) => format!(" sidecar status query failed: {error}."),
+                };
+                return Err(SdkError::Io(format!(
+                    "ASIO sidecar closed the pipe unexpectedly while reading response.{} \
+                     Verify `sidecar_path` points to `stellatune-asio-host` and that the sidecar was built with `--features asio`.",
+                    status_hint
+                )));
             },
-            stellatune_asio_proto::ProtoError::Postcard(err) => SdkError::msg(format!(
-                "ASIO sidecar protocol decode failed: {err}. \
-                 Sidecar stdout may be non-protocol output; check sidecar executable/path."
-            )),
-            other => SdkError::Io(format!("ASIO sidecar read_frame failed: {other}")),
-        })?;
+            Err(stellatune_asio_proto::ProtoError::Postcard(err)) => {
+                return Err(SdkError::msg(format!(
+                    "ASIO sidecar protocol decode failed: {err}. \
+                     Sidecar stdout may be non-protocol output; check sidecar executable/path."
+                )));
+            },
+            Err(other) => {
+                return Err(SdkError::Io(format!(
+                    "ASIO sidecar read_frame failed: {other}"
+                )));
+            },
+        };
         if let Response::Err { message } = resp {
             return Err(SdkError::msg(message));
         }
@@ -106,8 +121,13 @@ impl AsioHostClient {
         }
     }
 
-    fn get_device_caps(&mut self, device_id: &str) -> SdkResult<DeviceCaps> {
+    fn get_device_caps(
+        &mut self,
+        selection_session_id: &str,
+        device_id: &str,
+    ) -> SdkResult<DeviceCaps> {
         match self.request(Request::GetDeviceCaps {
+            selection_session_id: selection_session_id.to_string(),
             device_id: device_id.to_string(),
         })? {
             Response::DeviceCaps { caps } => Ok(caps),
@@ -294,20 +314,20 @@ fn release_sidecar_lease_impl(signature: &str) -> SdkResult<()> {
         return Ok(());
     }
 
-    if let Some(mut entry) = guard.entries.remove(signature)
+    if let Some(entry) = guard.entries.get_mut(signature)
         && let Some(client) = entry.client.as_mut()
     {
         let _ = client.request_ok(Request::Stop);
     }
-    let running_after_drop = sidecar_metrics().set_running(sidecar_running_entries(&guard));
+    let running_after_stop = sidecar_metrics().set_running(sidecar_running_entries(&guard));
     let spawns_total = sidecar_metrics()
         .asio_sidecar_spawns_total
         .load(Ordering::Relaxed);
     host_log(
         StLogLevel::Debug,
         &format!(
-            "asio sidecar entry removed: signature={} asio_sidecar_spawns_total={} asio_sidecar_running={}",
-            signature_log, spawns_total, running_after_drop
+            "asio sidecar lease reached zero (client kept resident): signature={} asio_sidecar_spawns_total={} asio_sidecar_running={}",
+            signature_log, spawns_total, running_after_stop
         ),
     );
     Ok(())
@@ -318,44 +338,80 @@ fn with_sidecar_client<T>(
     mut f: impl FnMut(&mut AsioHostClient) -> SdkResult<T>,
 ) -> SdkResult<T> {
     let signature = sidecar_client_signature(config);
+    let signature_log = sidecar_signature_for_log(&signature);
     let mut guard = sidecar_manager_state()
         .lock()
         .map_err(|_| SdkError::msg("ASIO sidecar manager mutex poisoned"))?;
-
-    if let Some(entry) = guard.entries.get_mut(&signature) {
+    let mut initialized = false;
+    let mut lease_count: usize;
+    {
+        let entry = guard.entries.entry(signature.clone()).or_default();
         if entry.client.is_none() {
             entry.client = Some(AsioHostClient::spawn(config)?);
+            initialized = true;
         }
-        let first_result = {
-            let client = entry
-                .client
-                .as_mut()
-                .ok_or_else(|| SdkError::msg("failed to initialize leased ASIO sidecar client"))?;
-            f(client)
-        };
-        return match first_result {
-            Ok(v) => Ok(v),
-            Err(e) if is_retryable_pipe_error(&e) => {
-                entry.client = Some(AsioHostClient::spawn(config)?);
-                let client = entry.client.as_mut().ok_or_else(|| {
-                    SdkError::msg("failed to reinitialize leased ASIO sidecar client")
-                })?;
-                f(client)
-            },
-            Err(e) => Err(e),
-        };
+        lease_count = entry.lease_count;
+    }
+    if initialized {
+        let metrics = sidecar_metrics();
+        let spawns_total = metrics
+            .asio_sidecar_spawns_total
+            .fetch_add(1, Ordering::Relaxed)
+            + 1;
+        let running = metrics.set_running(sidecar_running_entries(&guard));
+        host_log(
+            StLogLevel::Debug,
+            &format!(
+                "asio sidecar client initialized: signature={} leases={} asio_sidecar_spawns_total={} asio_sidecar_running={}",
+                signature_log, lease_count, spawns_total, running
+            ),
+        );
     }
 
-    // No active leases for this signature. Use a temporary sidecar client
-    // for metadata queries and drop it immediately after this call.
-    drop(guard);
-    let mut client = AsioHostClient::spawn(config)?;
-    let first_result = f(&mut client);
+    let first_result = {
+        let entry = guard
+            .entries
+            .get_mut(&signature)
+            .ok_or_else(|| SdkError::msg("missing ASIO sidecar entry"))?;
+        let client = entry
+            .client
+            .as_mut()
+            .ok_or_else(|| SdkError::msg("failed to initialize ASIO sidecar client"))?;
+        f(client)
+    };
     match first_result {
         Ok(v) => Ok(v),
         Err(e) if is_retryable_pipe_error(&e) => {
-            client = AsioHostClient::spawn(config)?;
-            f(&mut client)
+            {
+                let entry = guard
+                    .entries
+                    .get_mut(&signature)
+                    .ok_or_else(|| SdkError::msg("missing ASIO sidecar entry"))?;
+                entry.client = Some(AsioHostClient::spawn(config)?);
+                lease_count = entry.lease_count;
+            }
+            let metrics = sidecar_metrics();
+            let spawns_total = metrics
+                .asio_sidecar_spawns_total
+                .fetch_add(1, Ordering::Relaxed)
+                + 1;
+            let running = metrics.set_running(sidecar_running_entries(&guard));
+            host_log(
+                StLogLevel::Warn,
+                &format!(
+                    "asio sidecar client reinitialized after pipe error: signature={} leases={} asio_sidecar_spawns_total={} asio_sidecar_running={}",
+                    signature_log, lease_count, spawns_total, running
+                ),
+            );
+            let entry = guard
+                .entries
+                .get_mut(&signature)
+                .ok_or_else(|| SdkError::msg("missing ASIO sidecar entry"))?;
+            let client = entry
+                .client
+                .as_mut()
+                .ok_or_else(|| SdkError::msg("failed to reinitialize ASIO sidecar client"))?;
+            f(client)
         },
         Err(e) => Err(e),
     }
@@ -365,15 +421,56 @@ pub(crate) fn sidecar_request_ok(config: &AsioOutputConfig, req: Request) -> Sdk
     with_sidecar_client(config, |client| client.request_ok(req.clone()))
 }
 
+pub(crate) fn prewarm_sidecar(config: &AsioOutputConfig) -> SdkResult<()> {
+    with_sidecar_client(config, |_| Ok(()))
+}
+
 pub(crate) fn sidecar_list_devices(config: &AsioOutputConfig) -> SdkResult<Vec<DeviceInfo>> {
     with_sidecar_client(config, |client| client.list_devices())
 }
 
 pub(crate) fn sidecar_get_device_caps(
     config: &AsioOutputConfig,
+    selection_session_id: &str,
     device_id: &str,
 ) -> SdkResult<DeviceCaps> {
-    with_sidecar_client(config, |client| client.get_device_caps(device_id))
+    with_sidecar_client(config, |client| {
+        client.get_device_caps(selection_session_id, device_id)
+    })
+}
+
+pub(crate) fn shutdown_all_sidecars() -> SdkResult<()> {
+    let mut guard = sidecar_manager_state()
+        .lock()
+        .map_err(|_| SdkError::msg("ASIO sidecar manager mutex poisoned"))?;
+    let entries = std::mem::take(&mut guard.entries);
+    let entries_total = entries.len();
+    let spawns_total = sidecar_metrics()
+        .asio_sidecar_spawns_total
+        .load(Ordering::Relaxed);
+    sidecar_metrics().set_running(0);
+    drop(guard);
+
+    for (signature, mut entry) in entries {
+        let signature_log = sidecar_signature_for_log(&signature);
+        if let Some(client) = entry.client.as_mut() {
+            let _ = client.request_ok(Request::Stop);
+            let _ = client.request_ok(Request::Close);
+        }
+        host_log(
+            StLogLevel::Debug,
+            &format!("asio sidecar shutdown entry: signature={signature_log}"),
+        );
+    }
+
+    host_log(
+        StLogLevel::Debug,
+        &format!(
+            "asio sidecar shutdown complete: entries={} asio_sidecar_spawns_total={} asio_sidecar_running=0",
+            entries_total, spawns_total
+        ),
+    );
+    Ok(())
 }
 
 fn is_retryable_pipe_error(err: &SdkError) -> bool {

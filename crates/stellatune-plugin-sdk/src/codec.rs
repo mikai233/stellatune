@@ -76,9 +76,6 @@ pub struct HostIo {
 }
 
 unsafe impl Send for HostIo {}
-// Raw pointers make this not auto-Sync. StellaTune treats the IO vtable as immutable, and the
-// host must ensure any IO handle is thread-safe if it is accessed from multiple threads.
-unsafe impl Sync for HostIo {}
 
 impl HostIo {
     /// # Safety

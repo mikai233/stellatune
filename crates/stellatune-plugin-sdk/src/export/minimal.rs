@@ -13,6 +13,9 @@ macro_rules! __st_opt_create_cb {
 ///
 /// This macro intentionally provides a narrow bootstrap surface so migration can proceed
 /// incrementally. Capability-specific export macros can be layered on top later.
+///
+/// Concurrency note: callbacks wired into `StPluginModule` may be invoked concurrently by host.
+/// Plugin implementations should ensure module-level callbacks are thread-safe.
 #[macro_export]
 macro_rules! export_plugin_minimal {
     (

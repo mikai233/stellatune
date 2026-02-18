@@ -18,14 +18,15 @@ use super::{LyricsProviderInstanceFactory, LyricsProviderWorkerEndpoint};
 impl LyricsProviderInstanceFactory {
     pub fn create_instance(&self, config_json: &str) -> Result<LyricsProviderInstance> {
         let lease = acquire_active_lease(&self.runtime, &self.plugin_id)?;
-        let Some(create) = lease.loaded.module.begin_create_lyrics_provider_instance else {
+        let module = lease.module();
+        let Some(create) = module.begin_create_lyrics_provider_instance else {
             return Err(anyhow!(
                 "plugin `{}` does not provide lyrics provider factory",
                 self.plugin_id
             ));
         };
 
-        let plugin_free = lease.loaded.module.plugin_free;
+        let plugin_free = module.plugin_free;
         let mut op = StCreateLyricsProviderInstanceOpRef {
             handle: core::ptr::null_mut(),
             vtable: core::ptr::null(),

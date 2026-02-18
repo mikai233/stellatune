@@ -161,6 +161,9 @@ pub struct StDecoderInfo {
 pub const ST_OUTPUT_NEGOTIATE_EXACT: u32 = 1 << 0;
 pub const ST_OUTPUT_NEGOTIATE_CHANGED_SR: u32 = 1 << 1;
 pub const ST_OUTPUT_NEGOTIATE_CHANGED_CH: u32 = 1 << 2;
+/// Plugin requests host to preserve per-track sample-rate behavior.
+/// Host should avoid forcing a fixed output resampler rate when possible.
+pub const ST_OUTPUT_NEGOTIATE_PREFER_TRACK_RATE: u32 = 1 << 3;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

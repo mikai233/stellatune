@@ -13,10 +13,10 @@ impl PluginRuntimeActor {
         let mut out = HashSet::new();
         for slot in self.modules.values() {
             if let Some(current) = slot.current.as_ref() {
-                out.insert(current.loaded.shadow_library_path.clone());
+                out.insert(current.lease.loaded.shadow_library_path.clone());
             }
             for retired in &slot.retired {
-                out.insert(retired.loaded.shadow_library_path.clone());
+                out.insert(retired.lease.loaded.shadow_library_path.clone());
             }
         }
         out

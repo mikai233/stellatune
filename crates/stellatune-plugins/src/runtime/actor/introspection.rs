@@ -10,7 +10,7 @@ use crate::runtime::introspection::{
 use crate::runtime::model::ModuleLease;
 use crate::runtime::registry::PluginModuleLeaseSlotState;
 
-use super::{PluginRuntimeActor, lease_id_of};
+use super::PluginRuntimeActor;
 
 impl PluginRuntimeActor {
     pub(crate) fn introspection_cache_snapshot(&self) -> Arc<RuntimeIntrospectionReadCache> {
@@ -55,9 +55,10 @@ impl RuntimeIntrospectionReadCache {
             let Some(slot) = modules.get(&plugin_id) else {
                 continue;
             };
-            let Some(lease) = slot.current.as_ref() else {
+            let Some(current) = slot.current.as_ref() else {
                 continue;
             };
+            let lease = &current.lease;
 
             let capabilities = collect_capabilities_from_lease(lease);
             for capability in &capabilities {
@@ -125,8 +126,8 @@ impl RuntimeIntrospectionReadCache {
     }
 }
 
-fn collect_capabilities_from_lease(lease: &Arc<ModuleLease>) -> Vec<CapabilityDescriptor> {
-    let lease_id = lease_id_of(lease);
+fn collect_capabilities_from_lease(lease: &ModuleLease) -> Vec<CapabilityDescriptor> {
+    let lease_id = lease.lease_id;
     let mut out = Vec::new();
     let cap_count = (lease.loaded.module.capability_count)();
     for index in 0..cap_count {

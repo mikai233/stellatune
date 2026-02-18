@@ -30,6 +30,8 @@ macro_rules! export_plugin {
             $($sink_mod:ident => $sink_ty:ty),* $(,)?
         ]
         $(, info: $info:expr)?
+        $(, begin_quiesce: $begin_quiesce:path)?
+        $(, begin_shutdown: $begin_shutdown:path)?
         $(,)?
     ) => {
         const __ST_PLUGIN_ID: &str = $plugin_id;
@@ -80,6 +82,12 @@ macro_rules! export_plugin {
             lyrics_providers: [$( $lyrics_mod => $lyrics_ty ),*],
             output_sinks: [$( $sink_mod => $sink_ty ),*],
         );
-        $crate::__st_export_module_entry!($vmaj, $vmin, $vpatch);
+        $crate::__st_export_module_entry!(
+            $vmaj,
+            $vmin,
+            $vpatch
+            $(, begin_quiesce: $begin_quiesce)?
+            $(, begin_shutdown: $begin_shutdown)?
+        );
     };
 }

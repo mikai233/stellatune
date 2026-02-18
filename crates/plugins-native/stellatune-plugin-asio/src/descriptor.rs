@@ -32,6 +32,7 @@ impl LegacyOutputSinkDescriptor for AsioOutputSink {
             .map(|d| AsioOutputTarget {
                 id: d.id,
                 name: Some(d.name),
+                selection_session_id: Some(d.selection_session_id),
             })
             .collect())
     }
@@ -42,13 +43,15 @@ impl LegacyOutputSinkDescriptor for AsioOutputSink {
         target: &Self::Target,
     ) -> SdkResult<StOutputSinkNegotiatedSpec> {
         ensure_windows()?;
-        let caps = sidecar_get_device_caps(config, &target.id)?;
+        let selection_session_id = target.required_selection_session_id()?;
+        let caps = sidecar_get_device_caps(config, selection_session_id, &target.id)?;
         Ok(build_negotiated_spec(desired_spec, &caps, config))
     }
 
     fn open(spec: StAudioSpec, config: &Self::Config, target: &Self::Target) -> SdkResult<Self> {
         ensure_windows()?;
-        AsioOutputSink::open(spec, config, target.id.clone())
+        let selection_session_id = target.required_selection_session_id()?.to_string();
+        AsioOutputSink::open(spec, config, target.id.clone(), selection_session_id)
     }
 }
 

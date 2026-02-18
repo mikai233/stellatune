@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::ffi::c_void;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -6,10 +7,11 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use anyhow::{Context, Result, anyhow};
 use libloading::{Library, Symbol};
 use stellatune_plugin_api::{
-    PluginMetadata, STELLATUNE_PLUGIN_API_VERSION, StHostVTable, StPluginEntry, StPluginModule,
+    PluginMetadata, STELLATUNE_PLUGIN_API_VERSION, StAsyncOpState, StHostVTable, StPluginEntry,
+    StPluginModule, StStatus, StUnitOpRef,
 };
 
-use tracing::debug;
+use tracing::{debug, warn};
 
 use crate::manifest::DiscoveredPlugin;
 
@@ -45,6 +47,139 @@ pub(crate) struct LoadedPluginModule {
     pub(crate) host_vtable: Box<StHostVTable>,
     #[allow(dead_code)]
     pub(crate) host_ctx: Box<PluginHostCtx>,
+}
+
+const MODULE_SHUTDOWN_WAIT_SLICE_MS: u32 = 50;
+const MODULE_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
+
+impl Drop for LoadedPluginModule {
+    fn drop(&mut self) {
+        self.begin_shutdown_best_effort();
+    }
+}
+
+impl LoadedPluginModule {
+    fn begin_shutdown_best_effort(&mut self) {
+        let Some(begin_shutdown) = self.module.begin_shutdown else {
+            return;
+        };
+
+        let mut op = StUnitOpRef {
+            handle: core::ptr::null_mut(),
+            vtable: core::ptr::null(),
+            reserved0: 0,
+            reserved1: 0,
+        };
+
+        let status = begin_shutdown(&mut op as *mut StUnitOpRef);
+        if let Err(err) = status_to_anyhow("plugin begin_shutdown", status, self.module.plugin_free)
+        {
+            warn!(
+                library_path = %self.library_path.display(),
+                shadow_path = %self.shadow_library_path.display(),
+                error = %err,
+                "plugin begin_shutdown request failed"
+            );
+            return;
+        }
+
+        if op.handle.is_null() || op.vtable.is_null() {
+            return;
+        }
+
+        let shutdown_result = wait_and_finish_unit_op(
+            &op,
+            self.module.plugin_free,
+            MODULE_SHUTDOWN_WAIT_SLICE_MS,
+            MODULE_SHUTDOWN_TIMEOUT,
+        );
+        unsafe {
+            ((*op.vtable).destroy)(op.handle);
+        }
+        match shutdown_result {
+            Ok(()) => {
+                debug!(
+                    library_path = %self.library_path.display(),
+                    shadow_path = %self.shadow_library_path.display(),
+                    "plugin begin_shutdown completed"
+                );
+            },
+            Err(err) => {
+                warn!(
+                    library_path = %self.library_path.display(),
+                    shadow_path = %self.shadow_library_path.display(),
+                    error = %err,
+                    "plugin begin_shutdown completed with error"
+                );
+            },
+        }
+    }
+}
+
+fn wait_and_finish_unit_op(
+    op: &StUnitOpRef,
+    plugin_free: Option<extern "C" fn(ptr: *mut c_void, len: usize, align: usize)>,
+    wait_slice_ms: u32,
+    timeout: Duration,
+) -> Result<()> {
+    let started = Instant::now();
+    let final_state = loop {
+        let mut state = StAsyncOpState::Pending;
+        let status = unsafe { ((*op.vtable).wait)(op.handle, wait_slice_ms, &mut state) };
+        status_to_anyhow("plugin begin_shutdown wait", status, plugin_free)?;
+        if state != StAsyncOpState::Pending {
+            break state;
+        }
+        if started.elapsed() >= timeout {
+            let cancel_status = unsafe { ((*op.vtable).cancel)(op.handle) };
+            let _ = status_to_anyhow("plugin begin_shutdown cancel", cancel_status, plugin_free);
+            return Err(anyhow!(
+                "plugin begin_shutdown timed out after {}ms",
+                timeout.as_millis()
+            ));
+        }
+    };
+
+    match final_state {
+        StAsyncOpState::Ready => {
+            let status = unsafe { ((*op.vtable).finish)(op.handle) };
+            status_to_anyhow("plugin begin_shutdown finish", status, plugin_free)
+        },
+        StAsyncOpState::Cancelled => Err(anyhow!("plugin begin_shutdown operation cancelled")),
+        StAsyncOpState::Failed => {
+            let status = unsafe { ((*op.vtable).finish)(op.handle) };
+            status_to_anyhow(
+                "plugin begin_shutdown finish after failure",
+                status,
+                plugin_free,
+            )?;
+            Err(anyhow!("plugin begin_shutdown operation failed"))
+        },
+        StAsyncOpState::Pending => Err(anyhow!("plugin begin_shutdown operation still pending")),
+    }
+}
+
+fn status_to_anyhow(
+    what: &str,
+    status: StStatus,
+    plugin_free: Option<extern "C" fn(ptr: *mut c_void, len: usize, align: usize)>,
+) -> Result<()> {
+    if status.code == 0 {
+        return Ok(());
+    }
+
+    let msg = unsafe { crate::util::ststr_to_string_lossy(status.message) };
+    if status.message.len != 0
+        && let Some(free) = plugin_free
+    {
+        (free)(status.message.ptr as *mut c_void, status.message.len, 1);
+    }
+
+    if msg.is_empty() {
+        Err(anyhow!("{what} failed (code={})", status.code))
+    } else {
+        Err(anyhow!("{what} failed (code={}): {msg}", status.code))
+    }
 }
 
 pub(crate) struct LoadedModuleCandidate {
