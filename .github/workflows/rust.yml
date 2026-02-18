@@ -51,12 +51,12 @@ jobs:
           cache-dependency-path: tools/stellatune-ncm-sidecar/package-lock.json
 
       - name: Build plugin crate
-        run: cargo build --manifest-path crates/stellatune-plugin-netease/Cargo.toml --release
+        run: cargo build --manifest-path crates/plugins-native/stellatune-plugin-netease/Cargo.toml --release
 
       - name: Package plugin artifact
         shell: pwsh
         run: |
-          powershell -ExecutionPolicy Bypass -File crates/stellatune-plugin-netease/scripts/package-windows.ps1
+          powershell -ExecutionPolicy Bypass -File crates/plugins-native/stellatune-plugin-netease/scripts/package-windows.ps1
 
       - name: Verify packaged files
         shell: pwsh
