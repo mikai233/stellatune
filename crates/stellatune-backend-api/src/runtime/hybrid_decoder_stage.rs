@@ -7,6 +7,7 @@ use serde::Deserialize;
 use stellatune_audio_builtin_adapters::builtin_decoder::{
     BuiltinDecoder, builtin_decoder_score_for_ext, builtin_decoder_supported_extensions,
 };
+use stellatune_audio_builtin_adapters::playlist_decoder::PlaylistDecoder;
 use stellatune_audio_core::pipeline::context::{
     AudioBlock, GaplessTrimSpec, PipelineContext, SourceHandle, StreamSpec,
 };
@@ -40,7 +41,10 @@ pub trait UserDecoderProvider: Send + Sync {
 }
 
 pub fn default_user_decoder_providers() -> Vec<SharedUserDecoderProvider> {
-    vec![Arc::new(PrebuiltUserDecoderProvider)]
+    vec![
+        Arc::new(PrebuiltUserDecoderProvider),
+        Arc::new(PlaylistUserDecoderProvider),
+    ]
 }
 
 pub fn decoder_supported_extensions_hybrid() -> Vec<String> {
@@ -790,6 +794,56 @@ struct PrebuiltUserDecoderInstance {
 }
 
 impl UserDecoderImplementation for PrebuiltUserDecoderInstance {
+    fn spec(&self) -> StreamSpec {
+        self.decoder.spec()
+    }
+
+    fn duration_ms_hint(&self) -> Option<u64> {
+        self.decoder.duration_ms_hint()
+    }
+
+    fn gapless_trim_spec(&self) -> Option<GaplessTrimSpec> {
+        self.decoder.gapless_trim_spec()
+    }
+
+    fn seek_ms(&mut self, position_ms: u64) -> Result<(), String> {
+        self.decoder.seek_ms(position_ms)
+    }
+
+    fn next_block(&mut self, frames: usize) -> Result<Option<Vec<f32>>, String> {
+        self.decoder.next_block(frames)
+    }
+}
+
+struct PlaylistUserDecoderProvider;
+
+impl UserDecoderProvider for PlaylistUserDecoderProvider {
+    fn implementation_id(&self) -> &str {
+        "prebuilt.playlist_m3u8"
+    }
+
+    fn score_for_extension(&self, ext_hint: &str) -> Option<u16> {
+        match ext_hint {
+            "m3u" | "m3u8" => Some(100),
+            _ => None,
+        }
+    }
+
+    fn supported_extensions(&self) -> Vec<String> {
+        vec!["m3u".to_string(), "m3u8".to_string()]
+    }
+
+    fn open(&self, locator: &str) -> Result<Box<dyn UserDecoderImplementation>, String> {
+        let decoder = PlaylistDecoder::open(locator)?;
+        Ok(Box::new(PlaylistUserDecoderInstance { decoder }))
+    }
+}
+
+struct PlaylistUserDecoderInstance {
+    decoder: PlaylistDecoder,
+}
+
+impl UserDecoderImplementation for PlaylistUserDecoderInstance {
     fn spec(&self) -> StreamSpec {
         self.decoder.spec()
     }
