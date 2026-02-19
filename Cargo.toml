@@ -1,6 +1,7 @@
 [workspace]
 resolver = "3"
 members = [
+  "apps/stellatune-tui",
   "crates/stellatune-audio-core",
   "crates/audio-adapters/stellatune-audio-builtin-adapters",
   "crates/audio-adapters/stellatune-audio-plugin-adapters",

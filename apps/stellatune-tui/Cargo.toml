@@ -1,0 +1,22 @@
+[package]
+name = "stellatune-tui"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+stellatune-backend-api.workspace = true
+stellatune-library.workspace = true
+stellatune-audio.workspace = true
+
+clap = { version = "4.5.31", features = ["derive"] }
+crossterm = "0.29.0"
+directories = "5.0.1"
+ratatui = "0.29.0"
