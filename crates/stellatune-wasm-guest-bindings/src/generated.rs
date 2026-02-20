@@ -1,36 +1,5 @@
-// Guest-side typed bindings generated from the canonical Stellatune WIT package.
-
-pub mod decoder_plugin {
-    wit_bindgen::generate!({
-        path: "../../wit/stellatune-plugin",
-        world: "decoder-plugin",
-    });
-}
-
-pub mod source_plugin {
-    wit_bindgen::generate!({
-        path: "../../wit/stellatune-plugin",
-        world: "source-plugin",
-    });
-}
-
-pub mod dsp_plugin {
-    wit_bindgen::generate!({
-        path: "../../wit/stellatune-plugin",
-        world: "dsp-plugin",
-    });
-}
-
-pub mod lyrics_plugin {
-    wit_bindgen::generate!({
-        path: "../../wit/stellatune-plugin",
-        world: "lyrics-plugin",
-    });
-}
-
-pub mod output_sink_plugin {
-    wit_bindgen::generate!({
-        path: "../../wit/stellatune-plugin",
-        world: "output-sink-plugin",
-    });
-}
+pub use stellatune_wasm_guest_bindings_decoder as decoder_plugin;
+pub use stellatune_wasm_guest_bindings_dsp as dsp_plugin;
+pub use stellatune_wasm_guest_bindings_lyrics as lyrics_plugin;
+pub use stellatune_wasm_guest_bindings_output_sink as output_sink_plugin;
+pub use stellatune_wasm_guest_bindings_source as source_plugin;

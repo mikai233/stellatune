@@ -1,4 +1,4 @@
-# Hot-Path Core ABI (Sink/DSP First)
+# Hot-Path Core ABI v1 (Frozen 2026-02-20)
 
 This document defines the low-level core Wasm ABI used when a plugin returns
 `some(core-module-spec)` from:
@@ -8,6 +8,10 @@ This document defines the low-level core Wasm ABI used when a plugin returns
 
 The goal is near-zero-copy processing on the host<->plugin boundary for
 realtime-heavy paths.
+
+Freeze rule:
+- This spec is locked as `abi_version = 1` for the SDK phase.
+- Breaking layout/signature updates require `abi_version` increment.
 
 ## 1. Scope
 

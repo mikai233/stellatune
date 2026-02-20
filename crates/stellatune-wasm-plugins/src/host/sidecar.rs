@@ -753,6 +753,9 @@ impl SharedMemoryChannelIo {
 
         let deadline = timeout_ms.map(|ms| Instant::now() + Duration::from_millis(ms as u64));
         let mut out = vec![0_u8; max_bytes];
+        let mut spins = 0;
+        let mut yields = 0;
+
         loop {
             let read = self.rx.read_bytes(&mut out);
             if read > 0 {
@@ -767,7 +770,16 @@ impl SharedMemoryChannelIo {
             } else {
                 return Ok(Vec::new());
             }
-            thread::sleep(SHM_POLL_INTERVAL);
+
+            if spins < 10 {
+                std::hint::spin_loop();
+                spins += 1;
+            } else if yields < 50 {
+                thread::yield_now();
+                yields += 1;
+            } else {
+                thread::sleep(SHM_POLL_INTERVAL);
+            }
         }
     }
 }

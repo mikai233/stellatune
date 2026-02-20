@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::mpsc::{Receiver, Sender};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 
 use crate::error::Result;
 use wasmtime::component::{Component, HasSelf, Linker};
@@ -67,8 +67,13 @@ pub struct WasmtimePluginController {
     http_client: Arc<dyn HttpClientHost>,
     stream_service: Arc<dyn HostStreamService>,
     sidecar_host: Arc<dyn SidecarHost>,
-    directives: Mutex<DirectiveRegistry>,
+    directives: RwLock<DirectiveRegistry>,
     plugins: Mutex<BTreeMap<String, ActivePluginRecord>>,
+    decoder_linker: Linker<DecoderStoreData>,
+    source_linker: Linker<SourceStoreData>,
+    lyrics_linker: Linker<LyricsStoreData>,
+    output_sink_linker: Linker<OutputSinkStoreData>,
+    dsp_linker: Linker<DspStoreData>,
 }
 
 impl WasmtimePluginController {
@@ -87,13 +92,48 @@ impl WasmtimePluginController {
         let mut config = Config::new();
         config.wasm_component_model(true);
         let engine = Engine::new(&config)?;
+
+        let mut decoder_linker: Linker<DecoderStoreData> = Linker::new(&engine);
+        DecoderPluginBinding::add_to_linker::<_, HasSelf<DecoderStoreData>>(
+            &mut decoder_linker,
+            |state| state,
+        )?;
+
+        let mut source_linker: Linker<SourceStoreData> = Linker::new(&engine);
+        SourcePluginBinding::add_to_linker::<_, HasSelf<SourceStoreData>>(
+            &mut source_linker,
+            |state| state,
+        )?;
+
+        let mut lyrics_linker: Linker<LyricsStoreData> = Linker::new(&engine);
+        LyricsPluginBinding::add_to_linker::<_, HasSelf<LyricsStoreData>>(
+            &mut lyrics_linker,
+            |state| state,
+        )?;
+
+        let mut output_sink_linker: Linker<OutputSinkStoreData> = Linker::new(&engine);
+        OutputSinkPluginBinding::add_to_linker::<_, HasSelf<OutputSinkStoreData>>(
+            &mut output_sink_linker,
+            |state| state,
+        )?;
+
+        let mut dsp_linker: Linker<DspStoreData> = Linker::new(&engine);
+        DspPluginBinding::add_to_linker::<_, HasSelf<DspStoreData>>(&mut dsp_linker, |state| {
+            state
+        })?;
+
         Ok(Self {
             engine,
             http_client,
             stream_service,
             sidecar_host,
-            directives: Mutex::new(DirectiveRegistry::default()),
+            directives: RwLock::new(DirectiveRegistry::default()),
             plugins: Mutex::new(BTreeMap::new()),
+            decoder_linker,
+            source_linker,
+            lyrics_linker,
+            output_sink_linker,
+            dsp_linker,
         })
     }
 
@@ -144,7 +184,7 @@ impl WasmtimePluginController {
     fn ensure_plugin_active(&self, plugin_id: &str) -> Result<()> {
         let routes = self
             .directives
-            .lock()
+            .read()
             .expect("executor directives lock poisoned");
         if routes.active_plugins.contains(plugin_id) {
             return Ok(());
@@ -159,7 +199,7 @@ impl WasmtimePluginController {
     ) -> Result<()> {
         let mut routes = self
             .directives
-            .lock()
+            .write()
             .expect("executor directives lock poisoned");
         if !routes.active_plugins.contains(plugin_id) {
             return Err(crate::op_error!(
@@ -212,14 +252,9 @@ impl WasmtimePluginController {
         component: &Component,
         rx: Receiver<RuntimePluginDirective>,
     ) -> Result<PluginCell<Store<LyricsStoreData>, LyricsPluginBinding>> {
-        let mut linker: Linker<LyricsStoreData> = Linker::new(&self.engine);
-        LyricsPluginBinding::add_to_linker::<_, HasSelf<LyricsStoreData>>(&mut linker, |state| {
-            state
-        })?;
-
         let mut store = Store::new(&self.engine, self.new_lyrics_store_data());
-        let instance =
-            LyricsPluginBinding::instantiate(&mut store, component, &linker).map_err(|error| {
+        let instance = LyricsPluginBinding::instantiate(&mut store, component, &self.lyrics_linker)
+            .map_err(|error| {
                 crate::op_error!("failed to instantiate lyrics component: {error:#}")
             })?;
         let on_enable = instance
@@ -236,13 +271,9 @@ impl WasmtimePluginController {
         component: &Component,
         rx: Receiver<RuntimePluginDirective>,
     ) -> Result<PluginCell<Store<DecoderStoreData>, DecoderPluginBinding>> {
-        let mut linker: Linker<DecoderStoreData> = Linker::new(&self.engine);
-        DecoderPluginBinding::add_to_linker::<_, HasSelf<DecoderStoreData>>(
-            &mut linker,
-            |state| state,
-        )?;
         let mut store = Store::new(&self.engine, self.new_decoder_store_data());
-        let instance = DecoderPluginBinding::instantiate(&mut store, component, &linker)?;
+        let instance =
+            DecoderPluginBinding::instantiate(&mut store, component, &self.decoder_linker)?;
         let on_enable = instance
             .stellatune_plugin_lifecycle()
             .call_on_enable(&mut store)?;
@@ -256,13 +287,9 @@ impl WasmtimePluginController {
         component: &Component,
         rx: Receiver<RuntimePluginDirective>,
     ) -> Result<PluginCell<Store<SourceStoreData>, SourcePluginBinding>> {
-        let mut linker: Linker<SourceStoreData> = Linker::new(&self.engine);
-        SourcePluginBinding::add_to_linker::<_, HasSelf<SourceStoreData>>(&mut linker, |state| {
-            state
-        })?;
         let mut store = Store::new(&self.engine, self.new_source_store_data());
-        let instance =
-            SourcePluginBinding::instantiate(&mut store, component, &linker).map_err(|error| {
+        let instance = SourcePluginBinding::instantiate(&mut store, component, &self.source_linker)
+            .map_err(|error| {
                 crate::op_error!("failed to instantiate source component: {error:#}")
             })?;
         let on_enable = instance
@@ -279,14 +306,10 @@ impl WasmtimePluginController {
         component: &Component,
         rx: Receiver<RuntimePluginDirective>,
     ) -> Result<PluginCell<Store<OutputSinkStoreData>, OutputSinkPluginBinding>> {
-        let mut linker: Linker<OutputSinkStoreData> = Linker::new(&self.engine);
-        OutputSinkPluginBinding::add_to_linker::<_, HasSelf<OutputSinkStoreData>>(
-            &mut linker,
-            |state| state,
-        )?;
         let mut store = Store::new(&self.engine, self.new_output_sink_store_data());
-        let instance = OutputSinkPluginBinding::instantiate(&mut store, component, &linker)
-            .map_err(|error| {
+        let instance =
+            OutputSinkPluginBinding::instantiate(&mut store, component, &self.output_sink_linker)
+                .map_err(|error| {
                 crate::op_error!("failed to instantiate output-sink component: {error:#}")
             })?;
         let on_enable = instance
@@ -303,10 +326,8 @@ impl WasmtimePluginController {
         component: &Component,
         rx: Receiver<RuntimePluginDirective>,
     ) -> Result<PluginCell<Store<DspStoreData>, DspPluginBinding>> {
-        let mut linker: Linker<DspStoreData> = Linker::new(&self.engine);
-        DspPluginBinding::add_to_linker::<_, HasSelf<DspStoreData>>(&mut linker, |state| state)?;
         let mut store = Store::new(&self.engine, self.new_dsp_store_data());
-        let instance = DspPluginBinding::instantiate(&mut store, component, &linker)
+        let instance = DspPluginBinding::instantiate(&mut store, component, &self.dsp_linker)
             .map_err(|error| crate::op_error!("failed to instantiate dsp component: {error:#}"))?;
         let on_enable = instance
             .stellatune_plugin_lifecycle()

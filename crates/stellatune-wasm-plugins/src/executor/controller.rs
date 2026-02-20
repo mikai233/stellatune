@@ -62,7 +62,7 @@ impl WasmPluginController for WasmtimePluginController {
 
         let mut routes = self
             .directives
-            .lock()
+            .write()
             .expect("executor directives lock poisoned");
         let already_installed = routes.active_plugins.contains(&plugin.id);
         routes.active_plugins.insert(plugin.id.clone());
@@ -86,7 +86,7 @@ impl WasmPluginController for WasmtimePluginController {
     fn uninstall_plugin(&self, plugin_id: &str, reason: PluginDisableReason) -> Result<()> {
         let mut routes = self
             .directives
-            .lock()
+            .write()
             .expect("executor directives lock poisoned");
         if let Some(senders) = routes.senders.get_mut(plugin_id) {
             senders.retain(|sender| {
@@ -109,24 +109,30 @@ impl WasmPluginController for WasmtimePluginController {
         if plugin_id.is_empty() {
             return Ok(());
         }
-        let mut routes = self
-            .directives
-            .lock()
-            .expect("executor directives lock poisoned");
-        if !routes.active_plugins.contains(plugin_id) {
-            return Ok(());
-        }
-        let Some(senders) = routes.senders.get_mut(plugin_id) else {
-            return Ok(());
+        let senders_to_dispatch = {
+            let routes = self
+                .directives
+                .read()
+                .expect("executor directives lock poisoned");
+            if !routes.active_plugins.contains(plugin_id) {
+                return Ok(());
+            }
+            let Some(senders) = routes.senders.get(plugin_id) else {
+                return Ok(());
+            };
+            senders.clone()
         };
-        senders.retain(|sender| sender.send(directive.clone()).is_ok());
+
+        for sender in senders_to_dispatch {
+            let _ = sender.send(directive.clone());
+        }
         Ok(())
     }
 
     fn shutdown(&self) -> Result<()> {
         let mut routes = self
             .directives
-            .lock()
+            .write()
             .expect("executor directives lock poisoned");
         for senders in routes.senders.values_mut() {
             senders.retain(|sender| {

@@ -122,10 +122,13 @@ Current rollout priority:
 
 ## World Selection
 
-Choose world by ability + sidecar requirement:
+Choose world by ability:
 
-- decoder: `decoder-plugin` / `decoder-plugin-sidecar`
-- source: `source-plugin` / `source-plugin-sidecar`
-- lyrics: `lyrics-plugin` / `lyrics-plugin-sidecar`
-- output sink: `output-sink-plugin` / `output-sink-plugin-sidecar`
-- dsp: `dsp-plugin` / `dsp-plugin-sidecar`
+- decoder: `decoder-plugin`
+- source: `source-plugin`
+- lyrics: `lyrics-plugin`
+- output sink: `output-sink-plugin`
+- dsp: `dsp-plugin`
+
+Sidecar access is not selected by world suffix. It is provided through the
+`sidecar` host import defined by each world contract in `worlds.wit`.

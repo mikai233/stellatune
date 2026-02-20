@@ -1,4 +1,4 @@
-# Wasm Plugin Manifest (Draft)
+# Wasm Plugin Manifest (v1, Frozen 2026-02-20)
 
 This draft defines how one installed plugin package can contain multiple Wasm
 components, each implementing one capability ("ability") with independent
@@ -10,6 +10,13 @@ runtime/thread policy.
 - Allow each ability to compile as a separate Wasm component.
 - Allow host to run each ability in a different worker thread.
 - Keep metadata typed at interface level (see `wit/stellatune-plugin/*.wit`).
+
+## Freeze Notes
+
+- This document is the canonical manifest contract for schema version `1`.
+- Plugin packages targeting this runtime must emit `schema_version: 1`.
+- Field additions are allowed only as backward-compatible optional fields.
+- Any breaking manifest shape change must bump `schema_version`.
 
 ## Package Layout Example
 
@@ -50,7 +57,7 @@ wit/stellatune-plugin/
     {
       "id": "decoder-ncm",
       "path": "wasm/decoder_ncm.wasm",
-      "world": "stellatune:plugin/decoder-plugin-sidecar@0.1.0",
+      "world": "stellatune:plugin/decoder-plugin@0.1.0",
       "abilities": [
         {
           "kind": "decoder",
@@ -65,7 +72,7 @@ wit/stellatune-plugin/
     {
       "id": "source-netease",
       "path": "wasm/source_netease.wasm",
-      "world": "stellatune:plugin/source-plugin-sidecar@0.1.0",
+      "world": "stellatune:plugin/source-plugin@0.1.0",
       "abilities": [
         {
           "kind": "source",

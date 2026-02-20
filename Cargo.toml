@@ -13,10 +13,17 @@ members = [
   "crates/plugins-native/stellatune-plugin-asio",
   "crates/plugins-native/stellatune-plugin-netease",
   "crates/plugins-native/stellatune-plugin-ncm",
+  "crates/plugins-native/stellatune-plugin-ncm-wasm-decoder",
   "crates/stellatune-plugin-sdk",
   "crates/stellatune-plugins",
   "crates/stellatune-wasm-host-bindings",
   "crates/stellatune-wasm-guest-bindings",
+  "crates/stellatune-wasm-guest-bindings-worlds/stellatune-wasm-guest-bindings-decoder",
+  "crates/stellatune-wasm-guest-bindings-worlds/stellatune-wasm-guest-bindings-source",
+  "crates/stellatune-wasm-guest-bindings-worlds/stellatune-wasm-guest-bindings-lyrics",
+  "crates/stellatune-wasm-guest-bindings-worlds/stellatune-wasm-guest-bindings-output-sink",
+  "crates/stellatune-wasm-guest-bindings-worlds/stellatune-wasm-guest-bindings-dsp",
+  "crates/stellatune-wasm-plugin-sdk",
   "crates/stellatune-wasm-plugins",
   "crates/stellatune-runtime",
   "crates/stellatune-audio",
@@ -45,6 +52,12 @@ stellatune-plugin-api = { path = "crates/stellatune-plugin-api" }
 stellatune-plugins = { path = "crates/stellatune-plugins" }
 stellatune-wasm-host-bindings = { path = "crates/stellatune-wasm-host-bindings" }
 stellatune-wasm-guest-bindings = { path = "crates/stellatune-wasm-guest-bindings" }
+stellatune-wasm-guest-bindings-decoder = { path = "crates/stellatune-wasm-guest-bindings-worlds/stellatune-wasm-guest-bindings-decoder" }
+stellatune-wasm-guest-bindings-source = { path = "crates/stellatune-wasm-guest-bindings-worlds/stellatune-wasm-guest-bindings-source" }
+stellatune-wasm-guest-bindings-lyrics = { path = "crates/stellatune-wasm-guest-bindings-worlds/stellatune-wasm-guest-bindings-lyrics" }
+stellatune-wasm-guest-bindings-output-sink = { path = "crates/stellatune-wasm-guest-bindings-worlds/stellatune-wasm-guest-bindings-output-sink" }
+stellatune-wasm-guest-bindings-dsp = { path = "crates/stellatune-wasm-guest-bindings-worlds/stellatune-wasm-guest-bindings-dsp" }
+stellatune-wasm-plugin-sdk = { path = "crates/stellatune-wasm-plugin-sdk" }
 stellatune-wasm-plugins = { path = "crates/stellatune-wasm-plugins" }
 stellatune-plugin-sdk = { path = "crates/stellatune-plugin-sdk" }
 stellatune-runtime = { path = "crates/stellatune-runtime" }
@@ -98,6 +111,7 @@ libloading = "0.9.0"
 toml = "0.9.2"
 serde_json = "1.0.149"
 arc-swap = "1.8.2"
+parking_lot = "0.12.5"
 m3u8-rs = "6.0.0"
-wasmtime = { version = "41.0.3", features = ["component-model"] }
+wasmtime = { version = "41.0.3", features = ["component-model", "cache"] }
 wit-bindgen = "0.53.1"

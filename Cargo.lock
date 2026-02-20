@@ -4180,6 +4180,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "stellatune-plugin-ncm-wasm-decoder"
+version = "0.1.0"
+dependencies = [
+ "ncmdump",
+ "stellatune-wasm-plugin-sdk",
+ "symphonia",
+]
+
+[[package]]
 name = "stellatune-plugin-netease"
 version = "0.1.0"
 dependencies = [
@@ -4258,6 +4267,45 @@ dependencies = [
 name = "stellatune-wasm-guest-bindings"
 version = "0.1.0"
 dependencies = [
+ "stellatune-wasm-guest-bindings-decoder",
+ "stellatune-wasm-guest-bindings-dsp",
+ "stellatune-wasm-guest-bindings-lyrics",
+ "stellatune-wasm-guest-bindings-output-sink",
+ "stellatune-wasm-guest-bindings-source",
+]
+
+[[package]]
+name = "stellatune-wasm-guest-bindings-decoder"
+version = "0.1.0"
+dependencies = [
+ "wit-bindgen 0.53.1",
+]
+
+[[package]]
+name = "stellatune-wasm-guest-bindings-dsp"
+version = "0.1.0"
+dependencies = [
+ "wit-bindgen 0.53.1",
+]
+
+[[package]]
+name = "stellatune-wasm-guest-bindings-lyrics"
+version = "0.1.0"
+dependencies = [
+ "wit-bindgen 0.53.1",
+]
+
+[[package]]
+name = "stellatune-wasm-guest-bindings-output-sink"
+version = "0.1.0"
+dependencies = [
+ "wit-bindgen 0.53.1",
+]
+
+[[package]]
+name = "stellatune-wasm-guest-bindings-source"
+version = "0.1.0"
+dependencies = [
  "wit-bindgen 0.53.1",
 ]
 
@@ -4266,6 +4314,22 @@ name = "stellatune-wasm-host-bindings"
 version = "0.1.0"
 dependencies = [
  "wasmtime",
+]
+
+[[package]]
+name = "stellatune-wasm-plugin-sdk"
+version = "0.1.0"
+dependencies = [
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "stellatune-wasm-guest-bindings",
+ "stellatune-wasm-guest-bindings-decoder",
+ "stellatune-wasm-guest-bindings-dsp",
+ "stellatune-wasm-guest-bindings-lyrics",
+ "stellatune-wasm-guest-bindings-output-sink",
+ "stellatune-wasm-guest-bindings-source",
+ "thiserror 2.0.18",
 ]
 
 [[package]]

@@ -120,9 +120,7 @@ impl WasmtimeSourcePlugin {
             |store, plugin| {
                 let source = plugin.stellatune_plugin_source();
                 for stream in &stream_refs {
-                    let _ = source
-                        .source_stream()
-                        .call_close(&mut *store, *stream);
+                    let _ = source.source_stream().call_close(&mut *store, *stream);
                     let _ = (*stream).resource_drop(&mut *store);
                 }
                 if let Some(catalog_ref) = catalog {
@@ -156,9 +154,7 @@ impl WasmtimeSourcePlugin {
             |store, plugin, reason| {
                 let source = plugin.stellatune_plugin_source();
                 for stream in &stream_refs {
-                    let _ = source
-                        .source_stream()
-                        .call_close(&mut *store, *stream);
+                    let _ = source.source_stream().call_close(&mut *store, *stream);
                     let _ = (*stream).resource_drop(&mut *store);
                 }
                 if let Some(catalog_ref) = catalog {
