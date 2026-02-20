@@ -1,0 +1,34 @@
+package stellatune:plugin@0.1.0;
+
+world decoder-plugin {
+    import host-stream;
+    import sidecar;
+    export lifecycle;
+    export decoder;
+}
+
+world source-plugin {
+    import host-stream;
+    import sidecar;
+    export lifecycle;
+    export source;
+}
+
+world lyrics-plugin {
+    import sidecar;
+    import http-client;
+    export lifecycle;
+    export lyrics;
+}
+
+world output-sink-plugin {
+    import sidecar;
+    export lifecycle;
+    export output-sink;
+}
+
+world dsp-plugin {
+    import sidecar;
+    export lifecycle;
+    export dsp;
+}

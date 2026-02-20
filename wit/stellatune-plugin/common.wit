@@ -1,0 +1,99 @@
+package stellatune:plugin@0.1.0;
+
+interface common {
+    enum seek-whence {
+        start,
+        current,
+        end,
+    }
+
+    variant plugin-error {
+        invalid-arg(string),
+        not-found(string),
+        io(string),
+        timeout(string),
+        unsupported(string),
+        denied(string),
+        internal(string),
+    }
+
+    record encoded-audio-format {
+        codec: string,
+        sample-rate: option<u32>,
+        channels: option<u16>,
+        bitrate-kbps: option<u32>,
+        container: option<string>,
+    }
+
+    record audio-tags {
+        title: option<string>,
+        album: option<string>,
+        artists: list<string>,
+        album-artists: list<string>,
+        genres: list<string>,
+        track-number: option<u32>,
+        track-total: option<u32>,
+        disc-number: option<u32>,
+        disc-total: option<u32>,
+        year: option<u32>,
+        comment: option<string>,
+    }
+
+    variant metadata-value {
+        text(string),
+        boolean(bool),
+        uint32(u32),
+        uint64(u64),
+        int64(s64),
+        float64(f64),
+        bytes(list<u8>),
+    }
+
+    record metadata-entry {
+        key: string,
+        value: metadata-value,
+    }
+
+    record media-metadata {
+        tags: audio-tags,
+        duration-ms: option<u64>,
+        format: encoded-audio-format,
+        extras: list<metadata-entry>,
+    }
+
+    record encoded-chunk {
+        bytes: list<u8>,
+        eof: bool,
+    }
+
+    record pcm-f32-chunk {
+        interleaved-f32le: list<u8>,
+        frames: u32,
+        eof: bool,
+    }
+
+    record decoder-info {
+        sample-rate: u32,
+        channels: u16,
+        duration-ms: option<u64>,
+        seekable: bool,
+        encoder-delay-frames: u32,
+        encoder-padding-frames: u32,
+    }
+
+    enum config-update-mode {
+        hot-apply,
+        recreate,
+        reject,
+    }
+
+    record config-update-plan {
+        mode: config-update-mode,
+        reason: option<string>,
+    }
+
+    record audio-spec {
+        sample-rate: u32,
+        channels: u16,
+    }
+}

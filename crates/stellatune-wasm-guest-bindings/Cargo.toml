@@ -1,0 +1,11 @@
+[package]
+name = "stellatune-wasm-guest-bindings"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+
+[dependencies]
+wit-bindgen.workspace = true
+
+[lints]
+workspace = true

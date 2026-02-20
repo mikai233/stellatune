@@ -1,0 +1,35 @@
+package stellatune:plugin@0.1.0;
+
+interface output-sink {
+    use common.{audio-spec, config-update-plan, plugin-error};
+    use hot-path.{core-module-spec};
+
+    record negotiated-spec {
+        spec: audio-spec,
+        preferred-chunk-frames: u32,
+        prefer-track-rate: bool,
+    }
+
+    record runtime-status {
+        queued-samples: u32,
+        running: bool,
+    }
+
+    resource session {
+        list-targets-json: func() -> result<string, plugin-error>;
+        negotiate-spec-json: func(target-json: string, desired: audio-spec) -> result<negotiated-spec, plugin-error>;
+        describe-hot-path: func(spec: audio-spec) -> result<option<core-module-spec>, plugin-error>;
+        open-json: func(target-json: string, spec: audio-spec) -> result<_, plugin-error>;
+        write-interleaved-f32: func(channels: u16, interleaved-f32le: list<u8>) -> result<u32, plugin-error>;
+        query-status: func() -> result<runtime-status, plugin-error>;
+        flush: func() -> result<_, plugin-error>;
+        reset: func() -> result<_, plugin-error>;
+        plan-config-update-json: func(new-config-json: string) -> result<config-update-plan, plugin-error>;
+        apply-config-update-json: func(new-config-json: string) -> result<_, plugin-error>;
+        export-state-json: func() -> result<option<string>, plugin-error>;
+        import-state-json: func(state-json: string) -> result<_, plugin-error>;
+        close: func();
+    }
+
+    create: func() -> result<session, plugin-error>;
+}

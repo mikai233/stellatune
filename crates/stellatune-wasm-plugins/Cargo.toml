@@ -1,0 +1,24 @@
+[package]
+name = "stellatune-wasm-plugins"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+
+[dependencies]
+stellatune-wasm-host-bindings.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+walkdir.workspace = true
+tracing.workspace = true
+thiserror.workspace = true
+memmap2 = "0.9.10"
+rawzip = "0.4.3"
+flate2 = "1.1.9"
+tempfile = "3.25.0"
+wasmtime.workspace = true
+
+[dev-dependencies]
+wat = "1.245.1"
+
+[lints]
+workspace = true

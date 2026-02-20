@@ -1,0 +1,63 @@
+package stellatune:plugin@0.1.0;
+
+interface host-stream {
+    use common.{plugin-error, seek-whence};
+
+    resource host-stream-handle {
+        read: func(max-bytes: u32) -> result<list<u8>, plugin-error>;
+        seek: func(offset: s64, whence: seek-whence) -> result<u64, plugin-error>;
+        tell: func() -> result<u64, plugin-error>;
+        size: func() -> result<u64, plugin-error>;
+        close: func();
+    }
+
+    open-uri: func(uri: string) -> result<host-stream-handle, plugin-error>;
+}
+
+interface sidecar {
+    use common.{plugin-error};
+
+    enum transport-kind {
+        stdio,
+        named-pipe,
+        unix-socket,
+        loopback-tcp,
+        shared-memory-ring,
+    }
+
+    record transport-option {
+        kind: transport-kind,
+        priority: u8,
+        max-frame-bytes: option<u32>,
+    }
+
+    record launch-spec {
+        executable: string,
+        args: list<string>,
+        preferred-control: list<transport-option>,
+        preferred-data: list<transport-option>,
+        env: list<tuple<string, string>>,
+    }
+
+    resource process {
+        open-control: func() -> result<channel, plugin-error>;
+        open-data: func(role: string, preferred: list<transport-option>) -> result<channel, plugin-error>;
+        wait-exit: func(timeout-ms: option<u32>) -> result<option<s32>, plugin-error>;
+        terminate: func(grace-ms: u32) -> result<_, plugin-error>;
+    }
+
+    resource channel {
+        transport: func() -> transport-kind;
+        write: func(data: list<u8>) -> result<u32, plugin-error>;
+        read: func(max-bytes: u32, timeout-ms: option<u32>) -> result<list<u8>, plugin-error>;
+        close: func();
+    }
+
+    launch: func(spec: launch-spec) -> result<process, plugin-error>;
+}
+
+interface http-client {
+    use common.{plugin-error};
+
+    fetch-json: func(url: string) -> result<string, plugin-error>;
+}

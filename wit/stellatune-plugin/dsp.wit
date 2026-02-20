@@ -1,0 +1,20 @@
+package stellatune:plugin@0.1.0;
+
+interface dsp {
+    use common.{audio-spec, config-update-plan, plugin-error};
+    use hot-path.{core-module-spec};
+
+    resource processor {
+        describe-hot-path: func(spec: audio-spec) -> result<option<core-module-spec>, plugin-error>;
+        process-interleaved-f32: func(channels: u16, interleaved-f32le: list<u8>) -> result<list<u8>, plugin-error>;
+        supported-layouts: func() -> u32;
+        output-channels: func() -> u16;
+        plan-config-update-json: func(new-config-json: string) -> result<config-update-plan, plugin-error>;
+        apply-config-update-json: func(new-config-json: string) -> result<_, plugin-error>;
+        export-state-json: func() -> result<option<string>, plugin-error>;
+        import-state-json: func(state-json: string) -> result<_, plugin-error>;
+        close: func();
+    }
+
+    create: func(spec: audio-spec) -> result<processor, plugin-error>;
+}

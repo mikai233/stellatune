@@ -1,0 +1,79 @@
+package stellatune:plugin@0.1.0;
+
+interface decoder {
+    use common.{config-update-plan, decoder-info, media-metadata, pcm-f32-chunk, plugin-error};
+    use host-stream.{host-stream-handle};
+
+    resource session {
+        info: func() -> result<decoder-info, plugin-error>;
+        metadata: func() -> result<media-metadata, plugin-error>;
+        read-pcm-f32: func(max-frames: u32) -> result<pcm-f32-chunk, plugin-error>;
+        seek-ms: func(position-ms: u64) -> result<_, plugin-error>;
+        plan-config-update-json: func(new-config-json: string) -> result<config-update-plan, plugin-error>;
+        apply-config-update-json: func(new-config-json: string) -> result<_, plugin-error>;
+        export-state-json: func() -> result<option<string>, plugin-error>;
+        import-state-json: func(state-json: string) -> result<_, plugin-error>;
+        close: func();
+    }
+
+    open: func(input: host-stream-handle, ext-hint: option<string>) -> result<session, plugin-error>;
+}
+
+interface source {
+    use common.{config-update-plan, encoded-chunk, media-metadata, plugin-error};
+
+    resource source-stream {
+        metadata: func() -> result<media-metadata, plugin-error>;
+        read: func(max-bytes: u32) -> result<encoded-chunk, plugin-error>;
+        close: func();
+    }
+
+    resource catalog {
+        list-items-json: func(request-json: string) -> result<string, plugin-error>;
+        open-stream-json: func(track-json: string) -> result<source-stream, plugin-error>;
+        open-uri: func(uri: string) -> result<source-stream, plugin-error>;
+        plan-config-update-json: func(new-config-json: string) -> result<config-update-plan, plugin-error>;
+        apply-config-update-json: func(new-config-json: string) -> result<_, plugin-error>;
+        export-state-json: func() -> result<option<string>, plugin-error>;
+        import-state-json: func(state-json: string) -> result<_, plugin-error>;
+        close: func();
+    }
+
+    create: func() -> result<catalog, plugin-error>;
+}
+
+interface lyrics {
+    use common.{config-update-plan, plugin-error};
+
+    record lyric-candidate {
+        id: string,
+        title: string,
+        artist: string,
+    }
+
+    resource provider {
+        search: func(keyword: string) -> result<list<lyric-candidate>, plugin-error>;
+        fetch: func(id: string) -> result<string, plugin-error>;
+        plan-config-update-json: func(new-config-json: string) -> result<config-update-plan, plugin-error>;
+        apply-config-update-json: func(new-config-json: string) -> result<_, plugin-error>;
+        export-state-json: func() -> result<option<string>, plugin-error>;
+        import-state-json: func(state-json: string) -> result<_, plugin-error>;
+        close: func();
+    }
+
+    create: func() -> result<provider, plugin-error>;
+}
+
+interface lifecycle {
+    use common.{plugin-error};
+
+    enum disable-reason {
+        host-disable,
+        unload,
+        shutdown,
+        reload,
+    }
+
+    on-enable: func() -> result<_, plugin-error>;
+    on-disable: func(reason: disable-reason) -> result<_, plugin-error>;
+}

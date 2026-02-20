@@ -2,6 +2,7 @@
 
 pub use async_trait::async_trait;
 pub use stellatune_plugin_api::*;
+pub use stellatune_wasm_guest_bindings as wasm_guest_bindings;
 
 #[doc(hidden)]
 pub mod __private {

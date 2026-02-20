@@ -1,0 +1,35 @@
+package stellatune:plugin@0.1.0;
+
+interface hot-path {
+    enum sample-format {
+        f32le,
+        i16le,
+        i32le,
+    }
+
+    enum role {
+        dsp-transform,
+        output-sink,
+    }
+
+    record buffer-layout {
+        in-offset: u32,
+        out-offset: option<u32>,
+        max-frames: u32,
+        channels: u16,
+        sample-format: sample-format,
+        interleaved: bool,
+    }
+
+    record core-module-spec {
+        role: role,
+        wasm-rel-path: string,
+        abi-version: u32,
+        memory-export: string,
+        init-export: string,
+        process-export: string,
+        reset-export: option<string>,
+        drop-export: option<string>,
+        buffer: buffer-layout,
+    }
+}
