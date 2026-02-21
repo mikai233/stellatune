@@ -35,7 +35,7 @@ pub mod plugin_cell;
 use plugin_cell::PluginCell;
 pub mod plugin_instance;
 mod sidecar_state;
-use sidecar_state::SidecarState;
+use sidecar_state::{PackageSidecarRegistry, SidecarState};
 
 pub trait WasmPluginController: Send + Sync {
     fn install_plugin(
@@ -71,7 +71,7 @@ pub struct WasmtimePluginController {
     engine: Engine,
     http_client: Arc<dyn HttpClientHost>,
     stream_service: Arc<dyn HostStreamService>,
-    sidecar_host: Arc<dyn SidecarHost>,
+    sidecar_registry: PackageSidecarRegistry,
     directives: RwLock<DirectiveRegistry>,
     plugins: RwLock<BTreeMap<String, ActivePluginRecord>>,
     component_cache: RwLock<BTreeMap<PathBuf, Component>>,
@@ -142,12 +142,13 @@ impl WasmtimePluginController {
             state
         })?;
         add_to_linker_sync(&mut dsp_linker)?;
+        let sidecar_registry = PackageSidecarRegistry::new(sidecar_host);
 
         Ok(Self {
             engine,
             http_client,
             stream_service,
-            sidecar_host,
+            sidecar_registry,
             directives: RwLock::new(DirectiveRegistry::default()),
             plugins: RwLock::new(BTreeMap::new()),
             component_cache: RwLock::new(BTreeMap::new()),
@@ -166,57 +167,61 @@ impl WasmtimePluginController {
         Ok(Arc::new(Self::new(http_client, stream_service)?))
     }
 
-    fn new_decoder_store_data(&self, plugin_root: &Path) -> DecoderStoreData {
+    fn new_decoder_store_data(&self, plugin_id: &str, plugin_root: &Path) -> DecoderStoreData {
         let (wasi_ctx, wasi_table) = create_store_wasi_state();
         DecoderStoreData {
             stream_service: self.stream_service.clone(),
             next_rep: 1,
             streams: BTreeMap::new(),
-            sidecar: SidecarState::new(self.sidecar_host.clone()),
+            sidecar: SidecarState::new(plugin_id.to_string(), self.sidecar_registry.clone()),
             plugin_root: plugin_root.to_path_buf(),
             wasi_ctx,
             wasi_table,
         }
     }
 
-    fn new_source_store_data(&self, plugin_root: &Path) -> SourceStoreData {
+    fn new_source_store_data(&self, plugin_id: &str, plugin_root: &Path) -> SourceStoreData {
         let (wasi_ctx, wasi_table) = create_store_wasi_state();
         SourceStoreData {
             stream_service: self.stream_service.clone(),
             next_rep: 1,
             streams: BTreeMap::new(),
-            sidecar: SidecarState::new(self.sidecar_host.clone()),
+            sidecar: SidecarState::new(plugin_id.to_string(), self.sidecar_registry.clone()),
             plugin_root: plugin_root.to_path_buf(),
             wasi_ctx,
             wasi_table,
         }
     }
 
-    fn new_lyrics_store_data(&self, plugin_root: &Path) -> LyricsStoreData {
+    fn new_lyrics_store_data(&self, plugin_id: &str, plugin_root: &Path) -> LyricsStoreData {
         let (wasi_ctx, wasi_table) = create_store_wasi_state();
         LyricsStoreData {
             http_client: self.http_client.clone(),
-            sidecar: SidecarState::new(self.sidecar_host.clone()),
+            sidecar: SidecarState::new(plugin_id.to_string(), self.sidecar_registry.clone()),
             plugin_root: plugin_root.to_path_buf(),
             wasi_ctx,
             wasi_table,
         }
     }
 
-    fn new_output_sink_store_data(&self, plugin_root: &Path) -> OutputSinkStoreData {
+    fn new_output_sink_store_data(
+        &self,
+        plugin_id: &str,
+        plugin_root: &Path,
+    ) -> OutputSinkStoreData {
         let (wasi_ctx, wasi_table) = create_store_wasi_state();
         OutputSinkStoreData {
-            sidecar: SidecarState::new(self.sidecar_host.clone()),
+            sidecar: SidecarState::new(plugin_id.to_string(), self.sidecar_registry.clone()),
             plugin_root: plugin_root.to_path_buf(),
             wasi_ctx,
             wasi_table,
         }
     }
 
-    fn new_dsp_store_data(&self, plugin_root: &Path) -> DspStoreData {
+    fn new_dsp_store_data(&self, plugin_id: &str, plugin_root: &Path) -> DspStoreData {
         let (wasi_ctx, wasi_table) = create_store_wasi_state();
         DspStoreData {
-            sidecar: SidecarState::new(self.sidecar_host.clone()),
+            sidecar: SidecarState::new(plugin_id.to_string(), self.sidecar_registry.clone()),
             plugin_root: plugin_root.to_path_buf(),
             wasi_ctx,
             wasi_table,
@@ -326,97 +331,93 @@ impl WasmtimePluginController {
 
     fn instantiate_lyrics_component(
         &self,
+        plugin_id: &str,
         plugin_root: &Path,
         component: &Component,
         rx: Receiver<RuntimePluginDirective>,
     ) -> Result<PluginCell<Store<LyricsStoreData>, LyricsPluginBinding>> {
-        let mut store = Store::new(&self.engine, self.new_lyrics_store_data(plugin_root));
+        let mut store = Store::new(
+            &self.engine,
+            self.new_lyrics_store_data(plugin_id, plugin_root),
+        );
         let instance = LyricsPluginBinding::instantiate(&mut store, component, &self.lyrics_linker)
             .map_err(|error| {
                 crate::op_error!("failed to instantiate lyrics component: {error:#}")
             })?;
-        let on_enable = instance
-            .stellatune_plugin_lifecycle()
-            .call_on_enable(&mut store)
-            .map_err(|error| crate::op_error!("lifecycle.on-enable call failed: {error:#}"))?;
-        on_enable
-            .map_err(|error| crate::op_error!("lifecycle.on-enable plugin error: {error:?}"))?;
+        call_lyrics_on_enable(&instance, &mut store)?;
         Ok(PluginCell::new(store, instance, rx))
     }
 
     fn instantiate_decoder_component(
         &self,
+        plugin_id: &str,
         plugin_root: &Path,
         component: &Component,
         rx: Receiver<RuntimePluginDirective>,
     ) -> Result<PluginCell<Store<DecoderStoreData>, DecoderPluginBinding>> {
-        let mut store = Store::new(&self.engine, self.new_decoder_store_data(plugin_root));
+        let mut store = Store::new(
+            &self.engine,
+            self.new_decoder_store_data(plugin_id, plugin_root),
+        );
         let instance =
             DecoderPluginBinding::instantiate(&mut store, component, &self.decoder_linker)?;
-        let on_enable = instance
-            .stellatune_plugin_lifecycle()
-            .call_on_enable(&mut store)?;
-        on_enable
-            .map_err(|error| crate::op_error!("lifecycle.on-enable plugin error: {error:?}"))?;
+        call_decoder_on_enable(&instance, &mut store)?;
         Ok(PluginCell::new(store, instance, rx))
     }
 
     fn instantiate_source_component(
         &self,
+        plugin_id: &str,
         plugin_root: &Path,
         component: &Component,
         rx: Receiver<RuntimePluginDirective>,
     ) -> Result<PluginCell<Store<SourceStoreData>, SourcePluginBinding>> {
-        let mut store = Store::new(&self.engine, self.new_source_store_data(plugin_root));
+        let mut store = Store::new(
+            &self.engine,
+            self.new_source_store_data(plugin_id, plugin_root),
+        );
         let instance = SourcePluginBinding::instantiate(&mut store, component, &self.source_linker)
             .map_err(|error| {
                 crate::op_error!("failed to instantiate source component: {error:#}")
             })?;
-        let on_enable = instance
-            .stellatune_plugin_lifecycle()
-            .call_on_enable(&mut store)
-            .map_err(|error| crate::op_error!("lifecycle.on-enable call failed: {error:#}"))?;
-        on_enable
-            .map_err(|error| crate::op_error!("lifecycle.on-enable plugin error: {error:?}"))?;
+        call_source_on_enable(&instance, &mut store)?;
         Ok(PluginCell::new(store, instance, rx))
     }
 
     fn instantiate_output_sink_component(
         &self,
+        plugin_id: &str,
         plugin_root: &Path,
         component: &Component,
         rx: Receiver<RuntimePluginDirective>,
     ) -> Result<PluginCell<Store<OutputSinkStoreData>, OutputSinkPluginBinding>> {
-        let mut store = Store::new(&self.engine, self.new_output_sink_store_data(plugin_root));
+        let mut store = Store::new(
+            &self.engine,
+            self.new_output_sink_store_data(plugin_id, plugin_root),
+        );
         let instance =
             OutputSinkPluginBinding::instantiate(&mut store, component, &self.output_sink_linker)
                 .map_err(|error| {
                 crate::op_error!("failed to instantiate output-sink component: {error:#}")
             })?;
-        let on_enable = instance
-            .stellatune_plugin_lifecycle()
-            .call_on_enable(&mut store)
-            .map_err(|error| crate::op_error!("lifecycle.on-enable call failed: {error:#}"))?;
-        on_enable
-            .map_err(|error| crate::op_error!("lifecycle.on-enable plugin error: {error:?}"))?;
+        call_output_sink_on_enable(&instance, &mut store)?;
         Ok(PluginCell::new(store, instance, rx))
     }
 
     fn instantiate_dsp_component(
         &self,
+        plugin_id: &str,
         plugin_root: &Path,
         component: &Component,
         rx: Receiver<RuntimePluginDirective>,
     ) -> Result<PluginCell<Store<DspStoreData>, DspPluginBinding>> {
-        let mut store = Store::new(&self.engine, self.new_dsp_store_data(plugin_root));
+        let mut store = Store::new(
+            &self.engine,
+            self.new_dsp_store_data(plugin_id, plugin_root),
+        );
         let instance = DspPluginBinding::instantiate(&mut store, component, &self.dsp_linker)
             .map_err(|error| crate::op_error!("failed to instantiate dsp component: {error:#}"))?;
-        let on_enable = instance
-            .stellatune_plugin_lifecycle()
-            .call_on_enable(&mut store)
-            .map_err(|error| crate::op_error!("lifecycle.on-enable call failed: {error:#}"))?;
-        on_enable
-            .map_err(|error| crate::op_error!("lifecycle.on-enable plugin error: {error:?}"))?;
+        call_dsp_on_enable(&instance, &mut store)?;
         Ok(PluginCell::new(store, instance, rx))
     }
 }
@@ -466,6 +467,131 @@ fn map_disable_reason_dsp(reason: PluginDisableReason) -> dsp_lifecycle::Disable
         PluginDisableReason::Shutdown => dsp_lifecycle::DisableReason::Shutdown,
         PluginDisableReason::Reload => dsp_lifecycle::DisableReason::Reload,
     }
+}
+
+pub(crate) fn call_decoder_on_enable(
+    plugin: &DecoderPluginBinding,
+    store: &mut Store<DecoderStoreData>,
+) -> Result<()> {
+    let on_enable = plugin
+        .stellatune_plugin_lifecycle()
+        .call_on_enable(store)
+        .map_err(|error| crate::op_error!("lifecycle.on-enable call failed: {error:#}"))?;
+    on_enable.map_err(|error| crate::op_error!("lifecycle.on-enable plugin error: {error:?}"))?;
+    Ok(())
+}
+
+pub(crate) fn call_decoder_on_disable(
+    plugin: &DecoderPluginBinding,
+    store: &mut Store<DecoderStoreData>,
+    reason: decoder_lifecycle::DisableReason,
+) -> Result<()> {
+    let on_disable = plugin
+        .stellatune_plugin_lifecycle()
+        .call_on_disable(store, reason)
+        .map_err(|error| crate::op_error!("lifecycle.on-disable call failed: {error:#}"))?;
+    on_disable.map_err(|error| crate::op_error!("lifecycle.on-disable plugin error: {error:?}"))?;
+    Ok(())
+}
+
+pub(crate) fn call_source_on_enable(
+    plugin: &SourcePluginBinding,
+    store: &mut Store<SourceStoreData>,
+) -> Result<()> {
+    let on_enable = plugin
+        .stellatune_plugin_lifecycle()
+        .call_on_enable(store)
+        .map_err(|error| crate::op_error!("lifecycle.on-enable call failed: {error:#}"))?;
+    on_enable.map_err(|error| crate::op_error!("lifecycle.on-enable plugin error: {error:?}"))?;
+    Ok(())
+}
+
+pub(crate) fn call_source_on_disable(
+    plugin: &SourcePluginBinding,
+    store: &mut Store<SourceStoreData>,
+    reason: source_lifecycle::DisableReason,
+) -> Result<()> {
+    let on_disable = plugin
+        .stellatune_plugin_lifecycle()
+        .call_on_disable(store, reason)
+        .map_err(|error| crate::op_error!("lifecycle.on-disable call failed: {error:#}"))?;
+    on_disable.map_err(|error| crate::op_error!("lifecycle.on-disable plugin error: {error:?}"))?;
+    Ok(())
+}
+
+pub(crate) fn call_lyrics_on_enable(
+    plugin: &LyricsPluginBinding,
+    store: &mut Store<LyricsStoreData>,
+) -> Result<()> {
+    let on_enable = plugin
+        .stellatune_plugin_lifecycle()
+        .call_on_enable(store)
+        .map_err(|error| crate::op_error!("lifecycle.on-enable call failed: {error:#}"))?;
+    on_enable.map_err(|error| crate::op_error!("lifecycle.on-enable plugin error: {error:?}"))?;
+    Ok(())
+}
+
+pub(crate) fn call_lyrics_on_disable(
+    plugin: &LyricsPluginBinding,
+    store: &mut Store<LyricsStoreData>,
+    reason: lyrics_lifecycle::DisableReason,
+) -> Result<()> {
+    let on_disable = plugin
+        .stellatune_plugin_lifecycle()
+        .call_on_disable(store, reason)
+        .map_err(|error| crate::op_error!("lifecycle.on-disable call failed: {error:#}"))?;
+    on_disable.map_err(|error| crate::op_error!("lifecycle.on-disable plugin error: {error:?}"))?;
+    Ok(())
+}
+
+pub(crate) fn call_output_sink_on_enable(
+    plugin: &OutputSinkPluginBinding,
+    store: &mut Store<OutputSinkStoreData>,
+) -> Result<()> {
+    let on_enable = plugin
+        .stellatune_plugin_lifecycle()
+        .call_on_enable(store)
+        .map_err(|error| crate::op_error!("lifecycle.on-enable call failed: {error:#}"))?;
+    on_enable.map_err(|error| crate::op_error!("lifecycle.on-enable plugin error: {error:?}"))?;
+    Ok(())
+}
+
+pub(crate) fn call_output_sink_on_disable(
+    plugin: &OutputSinkPluginBinding,
+    store: &mut Store<OutputSinkStoreData>,
+    reason: output_sink_lifecycle::DisableReason,
+) -> Result<()> {
+    let on_disable = plugin
+        .stellatune_plugin_lifecycle()
+        .call_on_disable(store, reason)
+        .map_err(|error| crate::op_error!("lifecycle.on-disable call failed: {error:#}"))?;
+    on_disable.map_err(|error| crate::op_error!("lifecycle.on-disable plugin error: {error:?}"))?;
+    Ok(())
+}
+
+pub(crate) fn call_dsp_on_enable(
+    plugin: &DspPluginBinding,
+    store: &mut Store<DspStoreData>,
+) -> Result<()> {
+    let on_enable = plugin
+        .stellatune_plugin_lifecycle()
+        .call_on_enable(store)
+        .map_err(|error| crate::op_error!("lifecycle.on-enable call failed: {error:#}"))?;
+    on_enable.map_err(|error| crate::op_error!("lifecycle.on-enable plugin error: {error:?}"))?;
+    Ok(())
+}
+
+pub(crate) fn call_dsp_on_disable(
+    plugin: &DspPluginBinding,
+    store: &mut Store<DspStoreData>,
+    reason: dsp_lifecycle::DisableReason,
+) -> Result<()> {
+    let on_disable = plugin
+        .stellatune_plugin_lifecycle()
+        .call_on_disable(store, reason)
+        .map_err(|error| crate::op_error!("lifecycle.on-disable call failed: {error:#}"))?;
+    on_disable.map_err(|error| crate::op_error!("lifecycle.on-disable plugin error: {error:?}"))?;
+    Ok(())
 }
 
 mod controller;

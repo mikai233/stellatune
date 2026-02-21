@@ -25,6 +25,7 @@ pub use crate::hot_path::{
 pub use crate::http_client::{HttpClient, HttpClientExt};
 pub use crate::lifecycle::PluginLifecycle;
 pub use crate::sidecar::{
-    SidecarChannel, SidecarChannelExt, SidecarClient, SidecarLaunchSpec, SidecarProcess,
-    SidecarProcessExt, TransportKind, TransportOption, ordered_transport_options,
+    SidecarChannel, SidecarChannelExt, SidecarClient, SidecarLaunchSpec, SidecarLockGuard,
+    SidecarProcess, SidecarProcessExt, SidecarScope, TransportKind, TransportOption,
+    ordered_transport_options,
 };

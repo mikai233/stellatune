@@ -48,6 +48,11 @@ interface host-stream {
 interface sidecar {
     use common.{plugin-error};
 
+    enum launch-scope {
+        instance,
+        package-shared,
+    }
+
     enum transport-kind {
         stdio,
         named-pipe,
@@ -63,6 +68,7 @@ interface sidecar {
     }
 
     record launch-spec {
+        scope: launch-scope,
         executable: string,
         args: list<string>,
         preferred-control: list<transport-option>,
@@ -77,6 +83,10 @@ interface sidecar {
         terminate: func(grace-ms: u32) -> result<_, plugin-error>;
     }
 
+    resource lock-guard {
+        unlock: func();
+    }
+
     resource channel {
         transport: func() -> transport-kind;
         write: func(data: list<u8>) -> result<u32, plugin-error>;
@@ -84,6 +94,7 @@ interface sidecar {
         close: func();
     }
 
+    lock: func(name: string, timeout-ms: option<u32>) -> result<lock-guard, plugin-error>;
     launch: func(spec: launch-spec) -> result<process, plugin-error>;
 }
 

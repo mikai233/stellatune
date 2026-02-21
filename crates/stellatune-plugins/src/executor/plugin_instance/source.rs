@@ -13,8 +13,8 @@ use host_bindings::source_plugin::stellatune::plugin::common as source_common;
 use crate::executor::plugin_cell::{PluginCell, PluginCellState};
 use crate::executor::stores::source::SourceStoreData;
 use crate::executor::{
-    WasmPluginController, WasmtimePluginController, WorldKind, classify_world,
-    map_disable_reason_source,
+    WasmPluginController, WasmtimePluginController, WorldKind, call_source_on_disable,
+    call_source_on_enable, classify_world, map_disable_reason_source,
 };
 use crate::host::stream::HostStreamHandle;
 use crate::manifest::AbilityKind;
@@ -138,27 +138,12 @@ impl WasmtimeSourcePlugin {
                     let _ = source.catalog().call_close(&mut *store, catalog_ref);
                     let _ = catalog_ref.resource_drop(&mut *store);
                 }
-                let disable = plugin
-                    .stellatune_plugin_lifecycle()
-                    .call_on_disable(
-                        &mut *store,
-                        map_disable_reason_source(PluginDisableReason::Reload),
-                    )
-                    .map_err(|error| {
-                        crate::op_error!("lifecycle.on-disable call failed: {error:#}")
-                    })?;
-                disable.map_err(|error| {
-                    crate::op_error!("lifecycle.on-disable plugin error: {error:?}")
-                })?;
-                let enable = plugin
-                    .stellatune_plugin_lifecycle()
-                    .call_on_enable(&mut *store)
-                    .map_err(|error| {
-                        crate::op_error!("lifecycle.on-enable call failed: {error:#}")
-                    })?;
-                enable.map_err(|error| {
-                    crate::op_error!("lifecycle.on-enable plugin error: {error:?}")
-                })?;
+                call_source_on_disable(
+                    plugin,
+                    store,
+                    map_disable_reason_source(PluginDisableReason::Reload),
+                )?;
+                call_source_on_enable(plugin, store)?;
                 rebuilt = true;
                 Ok(())
             },
@@ -172,15 +157,7 @@ impl WasmtimeSourcePlugin {
                     let _ = source.catalog().call_close(&mut *store, catalog_ref);
                     let _ = catalog_ref.resource_drop(&mut *store);
                 }
-                let disable = plugin
-                    .stellatune_plugin_lifecycle()
-                    .call_on_disable(&mut *store, map_disable_reason_source(reason))
-                    .map_err(|error| {
-                        crate::op_error!("lifecycle.on-disable call failed: {error:#}")
-                    })?;
-                disable.map_err(|error| {
-                    crate::op_error!("lifecycle.on-disable plugin error: {error:?}")
-                })?;
+                call_source_on_disable(plugin, store, map_disable_reason_source(reason))?;
                 destroyed = true;
                 Ok(())
             },
@@ -440,14 +417,11 @@ impl Drop for WasmtimeSourcePlugin {
             let _ = catalog.resource_drop(&mut self.component.store);
         }
         if self.component.state() != PluginCellState::Destroyed {
-            let _ = self
-                .component
-                .plugin
-                .stellatune_plugin_lifecycle()
-                .call_on_disable(
-                    &mut self.component.store,
-                    map_disable_reason_source(PluginDisableReason::HostDisable),
-                );
+            let _ = call_source_on_disable(
+                &self.component.plugin,
+                &mut self.component.store,
+                map_disable_reason_source(PluginDisableReason::HostDisable),
+            );
         }
     }
 }
@@ -477,7 +451,7 @@ impl WasmtimePluginController {
         let (tx, rx) = mpsc::channel::<RuntimePluginDirective>();
         let component = match classify_world(&capability.world) {
             WorldKind::Source => {
-                self.instantiate_source_component(&plugin.root_dir, &component, rx)?
+                self.instantiate_source_component(plugin_id, &plugin.root_dir, &component, rx)?
             },
             _ => {
                 return Err(crate::op_error!(

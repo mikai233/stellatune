@@ -11,7 +11,8 @@ use stellatune_host_bindings::generated::lyrics_plugin::stellatune::plugin::side
 use crate::executor::sidecar_state::SidecarState;
 use crate::host::http::HttpClientHost;
 use crate::host::sidecar::{
-    SidecarLaunchSpec, SidecarTransportKind, SidecarTransportOption, resolve_sidecar_executable,
+    SidecarLaunchScope, SidecarLaunchSpec, SidecarTransportKind, SidecarTransportOption,
+    resolve_sidecar_executable,
 };
 
 pub(crate) struct LyricsStoreData {
@@ -74,7 +75,26 @@ fn lyrics_transport_kind_into(kind: SidecarTransportKind) -> lyrics_sidecar::Tra
     }
 }
 
+fn lyrics_launch_scope_from(scope: lyrics_sidecar::LaunchScope) -> SidecarLaunchScope {
+    match scope {
+        lyrics_sidecar::LaunchScope::Instance => SidecarLaunchScope::Instance,
+        lyrics_sidecar::LaunchScope::PackageShared => SidecarLaunchScope::Package,
+    }
+}
+
 impl lyrics_sidecar::Host for LyricsStoreData {
+    fn lock(
+        &mut self,
+        name: String,
+        timeout_ms: Option<u32>,
+    ) -> std::result::Result<Resource<lyrics_sidecar::LockGuard>, lyrics_sidecar::PluginError> {
+        let lock_rep = self
+            .sidecar
+            .lock(name.trim(), timeout_ms)
+            .map_err(lyrics_plugin_error_internal)?;
+        Ok(Resource::new_own(lock_rep))
+    }
+
     fn launch(
         &mut self,
         spec: lyrics_sidecar::LaunchSpec,
@@ -82,6 +102,7 @@ impl lyrics_sidecar::Host for LyricsStoreData {
         let process_rep = self
             .sidecar
             .launch(&SidecarLaunchSpec {
+                scope: lyrics_launch_scope_from(spec.scope),
                 executable: resolve_sidecar_executable(&self.plugin_root, &spec.executable)
                     .map_err(lyrics_plugin_error_internal)?,
                 args: spec.args,
@@ -202,6 +223,17 @@ impl lyrics_sidecar::HostChannel for LyricsStoreData {
 
     fn drop(&mut self, rep: Resource<lyrics_sidecar::Channel>) -> wasmtime::Result<()> {
         self.sidecar.drop_channel(rep.rep());
+        Ok(())
+    }
+}
+
+impl lyrics_sidecar::HostLockGuard for LyricsStoreData {
+    fn unlock(&mut self, self_: Resource<lyrics_sidecar::LockGuard>) {
+        let _ = self.sidecar.unlock(self_.rep());
+    }
+
+    fn drop(&mut self, rep: Resource<lyrics_sidecar::LockGuard>) -> wasmtime::Result<()> {
+        self.sidecar.drop_lock(rep.rep());
         Ok(())
     }
 }

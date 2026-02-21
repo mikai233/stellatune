@@ -13,8 +13,8 @@ use host_bindings::output_sink_plugin::stellatune::plugin::hot_path as output_si
 use crate::executor::plugin_cell::{PluginCell, PluginCellState};
 use crate::executor::stores::output_sink::OutputSinkStoreData;
 use crate::executor::{
-    WasmPluginController, WasmtimePluginController, WorldKind, classify_world,
-    map_disable_reason_output_sink,
+    WasmPluginController, WasmtimePluginController, WorldKind, call_output_sink_on_disable,
+    call_output_sink_on_enable, classify_world, map_disable_reason_output_sink,
 };
 use crate::manifest::AbilityKind;
 use crate::runtime::model::{
@@ -124,27 +124,12 @@ impl WasmtimeOutputSinkPlugin {
                     let _ = output.session().call_close(&mut *store, session_ref);
                     let _ = session_ref.resource_drop(&mut *store);
                 }
-                let disable = plugin
-                    .stellatune_plugin_lifecycle()
-                    .call_on_disable(
-                        &mut *store,
-                        map_disable_reason_output_sink(PluginDisableReason::Reload),
-                    )
-                    .map_err(|error| {
-                        crate::op_error!("lifecycle.on-disable call failed: {error:#}")
-                    })?;
-                disable.map_err(|error| {
-                    crate::op_error!("lifecycle.on-disable plugin error: {error:?}")
-                })?;
-                let enable = plugin
-                    .stellatune_plugin_lifecycle()
-                    .call_on_enable(&mut *store)
-                    .map_err(|error| {
-                        crate::op_error!("lifecycle.on-enable call failed: {error:#}")
-                    })?;
-                enable.map_err(|error| {
-                    crate::op_error!("lifecycle.on-enable plugin error: {error:?}")
-                })?;
+                call_output_sink_on_disable(
+                    plugin,
+                    store,
+                    map_disable_reason_output_sink(PluginDisableReason::Reload),
+                )?;
+                call_output_sink_on_enable(plugin, store)?;
                 rebuilt = true;
                 Ok(())
             },
@@ -154,15 +139,7 @@ impl WasmtimeOutputSinkPlugin {
                     let _ = output.session().call_close(&mut *store, session_ref);
                     let _ = session_ref.resource_drop(&mut *store);
                 }
-                let disable = plugin
-                    .stellatune_plugin_lifecycle()
-                    .call_on_disable(&mut *store, map_disable_reason_output_sink(reason))
-                    .map_err(|error| {
-                        crate::op_error!("lifecycle.on-disable call failed: {error:#}")
-                    })?;
-                disable.map_err(|error| {
-                    crate::op_error!("lifecycle.on-disable plugin error: {error:?}")
-                })?;
+                call_output_sink_on_disable(plugin, store, map_disable_reason_output_sink(reason))?;
                 destroyed = true;
                 Ok(())
             },
@@ -420,14 +397,11 @@ impl Drop for WasmtimeOutputSinkPlugin {
     fn drop(&mut self) {
         let _ = self.close();
         if self.component.state() != PluginCellState::Destroyed {
-            let _ = self
-                .component
-                .plugin
-                .stellatune_plugin_lifecycle()
-                .call_on_disable(
-                    &mut self.component.store,
-                    map_disable_reason_output_sink(PluginDisableReason::HostDisable),
-                );
+            let _ = call_output_sink_on_disable(
+                &self.component.plugin,
+                &mut self.component.store,
+                map_disable_reason_output_sink(PluginDisableReason::HostDisable),
+            );
         }
     }
 }
@@ -457,7 +431,7 @@ impl WasmtimePluginController {
         let (tx, rx) = mpsc::channel::<RuntimePluginDirective>();
         let component = match classify_world(&capability.world) {
             WorldKind::OutputSink => {
-                self.instantiate_output_sink_component(&plugin.root_dir, &component, rx)?
+                self.instantiate_output_sink_component(plugin_id, &plugin.root_dir, &component, rx)?
             },
             _ => {
                 return Err(crate::op_error!(

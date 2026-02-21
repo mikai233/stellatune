@@ -245,11 +245,7 @@ impl OutputSinkSession for AsioWasmSession {
 
     fn close(&mut self) -> SdkResult<()> {
         if self.opened {
-            let _ = with_sidecar(&self.config, |client| {
-                let _ = client.stop();
-                let _ = client.reset();
-                Ok(())
-            });
+            let _ = with_sidecar(&self.config, |client| client.stop());
         }
         self.opened = false;
         self.started = false;

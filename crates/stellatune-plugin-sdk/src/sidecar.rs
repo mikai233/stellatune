@@ -12,6 +12,12 @@ pub enum TransportKind {
     SharedMemoryRing,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SidecarScope {
+    Instance,
+    Package,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TransportOption {
     pub kind: TransportKind,
@@ -21,6 +27,7 @@ pub struct TransportOption {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SidecarLaunchSpec {
+    pub scope: SidecarScope,
     pub executable: String,
     pub args: Vec<String>,
     pub preferred_control: Vec<TransportOption>,
@@ -77,8 +84,15 @@ pub trait SidecarProcessExt: SidecarProcess {
 
 impl<T: SidecarProcess + ?Sized> SidecarProcessExt for T {}
 
+pub trait SidecarLockGuard: Send {
+    fn unlock(&mut self) -> SdkResult<()>;
+}
+
 pub trait SidecarClient {
     type Process: SidecarProcess;
+    type LockGuard: SidecarLockGuard;
+
+    fn lock(&mut self, name: &str, timeout_ms: Option<u32>) -> SdkResult<Self::LockGuard>;
     fn launch(&mut self, spec: &SidecarLaunchSpec) -> SdkResult<Self::Process>;
 }
 

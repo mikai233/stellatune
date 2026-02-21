@@ -11,7 +11,8 @@ use stellatune_host_bindings::generated::source_plugin::stellatune::plugin::side
 
 use crate::executor::sidecar_state::SidecarState;
 use crate::host::sidecar::{
-    SidecarLaunchSpec, SidecarTransportKind, SidecarTransportOption, resolve_sidecar_executable,
+    SidecarLaunchScope, SidecarLaunchSpec, SidecarTransportKind, SidecarTransportOption,
+    resolve_sidecar_executable,
 };
 use crate::host::stream::{
     HostStreamHandle, HostStreamOpenRequest, HostStreamService, StreamHeader, StreamHttpMethod,
@@ -212,7 +213,26 @@ fn source_transport_kind_into(kind: SidecarTransportKind) -> source_sidecar::Tra
     }
 }
 
+fn source_launch_scope_from(scope: source_sidecar::LaunchScope) -> SidecarLaunchScope {
+    match scope {
+        source_sidecar::LaunchScope::Instance => SidecarLaunchScope::Instance,
+        source_sidecar::LaunchScope::PackageShared => SidecarLaunchScope::Package,
+    }
+}
+
 impl source_sidecar::Host for SourceStoreData {
+    fn lock(
+        &mut self,
+        name: String,
+        timeout_ms: Option<u32>,
+    ) -> std::result::Result<Resource<source_sidecar::LockGuard>, source_sidecar::PluginError> {
+        let lock_rep = self
+            .sidecar
+            .lock(name.trim(), timeout_ms)
+            .map_err(source_plugin_error_internal)?;
+        Ok(Resource::new_own(lock_rep))
+    }
+
     fn launch(
         &mut self,
         spec: source_sidecar::LaunchSpec,
@@ -220,6 +240,7 @@ impl source_sidecar::Host for SourceStoreData {
         let process_rep = self
             .sidecar
             .launch(&SidecarLaunchSpec {
+                scope: source_launch_scope_from(spec.scope),
                 executable: resolve_sidecar_executable(&self.plugin_root, &spec.executable)
                     .map_err(source_plugin_error_internal)?,
                 args: spec.args,
@@ -340,6 +361,17 @@ impl source_sidecar::HostChannel for SourceStoreData {
 
     fn drop(&mut self, rep: Resource<source_sidecar::Channel>) -> wasmtime::Result<()> {
         self.sidecar.drop_channel(rep.rep());
+        Ok(())
+    }
+}
+
+impl source_sidecar::HostLockGuard for SourceStoreData {
+    fn unlock(&mut self, self_: Resource<source_sidecar::LockGuard>) {
+        let _ = self.sidecar.unlock(self_.rep());
+    }
+
+    fn drop(&mut self, rep: Resource<source_sidecar::LockGuard>) -> wasmtime::Result<()> {
+        self.sidecar.drop_lock(rep.rep());
         Ok(())
     }
 }

@@ -35,8 +35,15 @@ pub(crate) struct SidecarTransportOption {
     pub max_frame_bytes: Option<u32>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SidecarLaunchScope {
+    Instance,
+    Package,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SidecarLaunchSpec {
+    pub scope: SidecarLaunchScope,
     pub executable: String,
     pub args: Vec<String>,
     pub preferred_control: Vec<SidecarTransportOption>,

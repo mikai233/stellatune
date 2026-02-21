@@ -14,8 +14,8 @@ use host_bindings::dsp_plugin::stellatune::plugin::hot_path as dsp_hot_path;
 use crate::executor::plugin_cell::{PluginCell, PluginCellState};
 use crate::executor::stores::dsp::DspStoreData;
 use crate::executor::{
-    WasmPluginController, WasmtimePluginController, WorldKind, classify_world,
-    map_disable_reason_dsp,
+    WasmPluginController, WasmtimePluginController, WorldKind, call_dsp_on_disable,
+    call_dsp_on_enable, classify_world, map_disable_reason_dsp,
 };
 use crate::manifest::AbilityKind;
 use crate::runtime::model::{
@@ -138,27 +138,12 @@ impl WasmtimeDspPlugin {
                     let _ = dsp.processor().call_close(&mut *store, *processor);
                     let _ = (*processor).resource_drop(&mut *store);
                 }
-                let disable = plugin
-                    .stellatune_plugin_lifecycle()
-                    .call_on_disable(
-                        &mut *store,
-                        map_disable_reason_dsp(PluginDisableReason::Reload),
-                    )
-                    .map_err(|error| {
-                        crate::op_error!("lifecycle.on-disable call failed: {error:#}")
-                    })?;
-                disable.map_err(|error| {
-                    crate::op_error!("lifecycle.on-disable plugin error: {error:?}")
-                })?;
-                let enable = plugin
-                    .stellatune_plugin_lifecycle()
-                    .call_on_enable(&mut *store)
-                    .map_err(|error| {
-                        crate::op_error!("lifecycle.on-enable call failed: {error:#}")
-                    })?;
-                enable.map_err(|error| {
-                    crate::op_error!("lifecycle.on-enable plugin error: {error:?}")
-                })?;
+                call_dsp_on_disable(
+                    plugin,
+                    store,
+                    map_disable_reason_dsp(PluginDisableReason::Reload),
+                )?;
+                call_dsp_on_enable(plugin, store)?;
                 rebuilt = true;
                 Ok(())
             },
@@ -168,15 +153,7 @@ impl WasmtimeDspPlugin {
                     let _ = dsp.processor().call_close(&mut *store, *processor);
                     let _ = (*processor).resource_drop(&mut *store);
                 }
-                let disable = plugin
-                    .stellatune_plugin_lifecycle()
-                    .call_on_disable(&mut *store, map_disable_reason_dsp(reason))
-                    .map_err(|error| {
-                        crate::op_error!("lifecycle.on-disable call failed: {error:#}")
-                    })?;
-                disable.map_err(|error| {
-                    crate::op_error!("lifecycle.on-disable plugin error: {error:?}")
-                })?;
+                call_dsp_on_disable(plugin, store, map_disable_reason_dsp(reason))?;
                 destroyed = true;
                 Ok(())
             },
@@ -420,14 +397,11 @@ impl Drop for WasmtimeDspPlugin {
             let _ = processor_ref.resource_drop(&mut self.component.store);
         }
         if self.component.state() != PluginCellState::Destroyed {
-            let _ = self
-                .component
-                .plugin
-                .stellatune_plugin_lifecycle()
-                .call_on_disable(
-                    &mut self.component.store,
-                    map_disable_reason_dsp(PluginDisableReason::HostDisable),
-                );
+            let _ = call_dsp_on_disable(
+                &self.component.plugin,
+                &mut self.component.store,
+                map_disable_reason_dsp(PluginDisableReason::HostDisable),
+            );
         }
     }
 }
@@ -450,15 +424,18 @@ impl WasmtimePluginController {
             })?;
 
         let (tx, rx) = mpsc::channel::<RuntimePluginDirective>();
-        let component = match classify_world(&capability.world) {
-            WorldKind::Dsp => self.instantiate_dsp_component(&plugin.root_dir, &component, rx)?,
-            _ => {
-                return Err(crate::op_error!(
-                    "capability world `{}` is not a dsp world",
-                    capability.world
-                ));
-            },
-        };
+        let component: PluginCell<Store<DspStoreData>, DspBinding> =
+            match classify_world(&capability.world) {
+                WorldKind::Dsp => {
+                    self.instantiate_dsp_component(plugin_id, &plugin.root_dir, &component, rx)?
+                },
+                _ => {
+                    return Err(crate::op_error!(
+                        "capability world `{}` is not a dsp world",
+                        capability.world
+                    ));
+                },
+            };
         self.register_directive_sender(plugin_id, tx)?;
 
         Ok(WasmtimeDspPlugin {

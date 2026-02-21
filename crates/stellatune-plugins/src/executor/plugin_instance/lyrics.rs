@@ -11,8 +11,8 @@ use host_bindings::lyrics_plugin::stellatune::plugin::common as lyrics_common;
 use crate::executor::plugin_cell::{PluginCell, PluginCellState};
 use crate::executor::stores::lyrics::LyricsStoreData;
 use crate::executor::{
-    WasmPluginController, WasmtimePluginController, WorldKind, classify_world,
-    map_disable_reason_lyrics,
+    WasmPluginController, WasmtimePluginController, WorldKind, call_lyrics_on_disable,
+    call_lyrics_on_enable, classify_world, map_disable_reason_lyrics,
 };
 use crate::manifest::AbilityKind;
 use crate::runtime::model::{
@@ -80,39 +80,16 @@ impl WasmtimeLyricsPlugin {
                 Ok(())
             },
             |store, plugin| {
-                let disable = plugin
-                    .stellatune_plugin_lifecycle()
-                    .call_on_disable(
-                        &mut *store,
-                        map_disable_reason_lyrics(PluginDisableReason::Reload),
-                    )
-                    .map_err(|error| {
-                        crate::op_error!("lifecycle.on-disable call failed: {error:#}")
-                    })?;
-                disable.map_err(|error| {
-                    crate::op_error!("lifecycle.on-disable plugin error: {error:?}")
-                })?;
-                let enable = plugin
-                    .stellatune_plugin_lifecycle()
-                    .call_on_enable(&mut *store)
-                    .map_err(|error| {
-                        crate::op_error!("lifecycle.on-enable call failed: {error:#}")
-                    })?;
-                enable.map_err(|error| {
-                    crate::op_error!("lifecycle.on-enable plugin error: {error:?}")
-                })?;
+                call_lyrics_on_disable(
+                    plugin,
+                    store,
+                    map_disable_reason_lyrics(PluginDisableReason::Reload),
+                )?;
+                call_lyrics_on_enable(plugin, store)?;
                 Ok(())
             },
             |store, plugin, reason| {
-                let disable = plugin
-                    .stellatune_plugin_lifecycle()
-                    .call_on_disable(&mut *store, map_disable_reason_lyrics(reason))
-                    .map_err(|error| {
-                        crate::op_error!("lifecycle.on-disable call failed: {error:#}")
-                    })?;
-                disable.map_err(|error| {
-                    crate::op_error!("lifecycle.on-disable plugin error: {error:?}")
-                })?;
+                call_lyrics_on_disable(plugin, store, map_disable_reason_lyrics(reason))?;
                 Ok(())
             },
         )
@@ -181,14 +158,11 @@ impl LyricsPluginApi for WasmtimeLyricsPlugin {
 impl Drop for WasmtimeLyricsPlugin {
     fn drop(&mut self) {
         if self.component.state() != PluginCellState::Destroyed {
-            let _ = self
-                .component
-                .plugin
-                .stellatune_plugin_lifecycle()
-                .call_on_disable(
-                    &mut self.component.store,
-                    map_disable_reason_lyrics(PluginDisableReason::HostDisable),
-                );
+            let _ = call_lyrics_on_disable(
+                &self.component.plugin,
+                &mut self.component.store,
+                map_disable_reason_lyrics(PluginDisableReason::HostDisable),
+            );
         }
     }
 }
@@ -218,7 +192,7 @@ impl WasmtimePluginController {
         let (tx, rx) = mpsc::channel::<RuntimePluginDirective>();
         let component = match classify_world(&capability.world) {
             WorldKind::Lyrics => {
-                self.instantiate_lyrics_component(&plugin.root_dir, &component, rx)?
+                self.instantiate_lyrics_component(plugin_id, &plugin.root_dir, &component, rx)?
             },
             _ => {
                 return Err(crate::op_error!(

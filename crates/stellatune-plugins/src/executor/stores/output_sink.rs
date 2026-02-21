@@ -9,7 +9,8 @@ use stellatune_host_bindings::generated::output_sink_plugin::stellatune::plugin:
 
 use crate::executor::sidecar_state::SidecarState;
 use crate::host::sidecar::{
-    SidecarLaunchSpec, SidecarTransportKind, SidecarTransportOption, resolve_sidecar_executable,
+    SidecarLaunchScope, SidecarLaunchSpec, SidecarTransportKind, SidecarTransportOption,
+    resolve_sidecar_executable,
 };
 
 pub(crate) struct OutputSinkStoreData {
@@ -69,7 +70,29 @@ fn output_sink_transport_kind_into(
     }
 }
 
+fn output_sink_launch_scope_from(scope: output_sink_sidecar::LaunchScope) -> SidecarLaunchScope {
+    match scope {
+        output_sink_sidecar::LaunchScope::Instance => SidecarLaunchScope::Instance,
+        output_sink_sidecar::LaunchScope::PackageShared => SidecarLaunchScope::Package,
+    }
+}
+
 impl output_sink_sidecar::Host for OutputSinkStoreData {
+    fn lock(
+        &mut self,
+        name: String,
+        timeout_ms: Option<u32>,
+    ) -> std::result::Result<
+        Resource<output_sink_sidecar::LockGuard>,
+        output_sink_sidecar::PluginError,
+    > {
+        let lock_rep = self
+            .sidecar
+            .lock(name.trim(), timeout_ms)
+            .map_err(output_sink_plugin_error_internal)?;
+        Ok(Resource::new_own(lock_rep))
+    }
+
     fn launch(
         &mut self,
         spec: output_sink_sidecar::LaunchSpec,
@@ -78,6 +101,7 @@ impl output_sink_sidecar::Host for OutputSinkStoreData {
         let process_rep = self
             .sidecar
             .launch(&SidecarLaunchSpec {
+                scope: output_sink_launch_scope_from(spec.scope),
                 executable: resolve_sidecar_executable(&self.plugin_root, &spec.executable)
                     .map_err(output_sink_plugin_error_internal)?,
                 args: spec.args,
@@ -200,6 +224,17 @@ impl output_sink_sidecar::HostChannel for OutputSinkStoreData {
 
     fn drop(&mut self, rep: Resource<output_sink_sidecar::Channel>) -> wasmtime::Result<()> {
         self.sidecar.drop_channel(rep.rep());
+        Ok(())
+    }
+}
+
+impl output_sink_sidecar::HostLockGuard for OutputSinkStoreData {
+    fn unlock(&mut self, self_: Resource<output_sink_sidecar::LockGuard>) {
+        let _ = self.sidecar.unlock(self_.rep());
+    }
+
+    fn drop(&mut self, rep: Resource<output_sink_sidecar::LockGuard>) -> wasmtime::Result<()> {
+        self.sidecar.drop_lock(rep.rep());
         Ok(())
     }
 }

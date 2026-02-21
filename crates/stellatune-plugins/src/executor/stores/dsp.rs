@@ -9,7 +9,8 @@ use stellatune_host_bindings::generated::dsp_plugin::stellatune::plugin::sidecar
 
 use crate::executor::sidecar_state::SidecarState;
 use crate::host::sidecar::{
-    SidecarLaunchSpec, SidecarTransportKind, SidecarTransportOption, resolve_sidecar_executable,
+    SidecarLaunchScope, SidecarLaunchSpec, SidecarTransportKind, SidecarTransportOption,
+    resolve_sidecar_executable,
 };
 
 pub(crate) struct DspStoreData {
@@ -59,7 +60,26 @@ fn dsp_transport_kind_into(kind: SidecarTransportKind) -> dsp_sidecar::Transport
     }
 }
 
+fn dsp_launch_scope_from(scope: dsp_sidecar::LaunchScope) -> SidecarLaunchScope {
+    match scope {
+        dsp_sidecar::LaunchScope::Instance => SidecarLaunchScope::Instance,
+        dsp_sidecar::LaunchScope::PackageShared => SidecarLaunchScope::Package,
+    }
+}
+
 impl dsp_sidecar::Host for DspStoreData {
+    fn lock(
+        &mut self,
+        name: String,
+        timeout_ms: Option<u32>,
+    ) -> std::result::Result<Resource<dsp_sidecar::LockGuard>, dsp_sidecar::PluginError> {
+        let lock_rep = self
+            .sidecar
+            .lock(name.trim(), timeout_ms)
+            .map_err(dsp_plugin_error_internal)?;
+        Ok(Resource::new_own(lock_rep))
+    }
+
     fn launch(
         &mut self,
         spec: dsp_sidecar::LaunchSpec,
@@ -67,6 +87,7 @@ impl dsp_sidecar::Host for DspStoreData {
         let process_rep = self
             .sidecar
             .launch(&SidecarLaunchSpec {
+                scope: dsp_launch_scope_from(spec.scope),
                 executable: resolve_sidecar_executable(&self.plugin_root, &spec.executable)
                     .map_err(dsp_plugin_error_internal)?,
                 args: spec.args,
@@ -184,6 +205,17 @@ impl dsp_sidecar::HostChannel for DspStoreData {
 
     fn drop(&mut self, rep: Resource<dsp_sidecar::Channel>) -> wasmtime::Result<()> {
         self.sidecar.drop_channel(rep.rep());
+        Ok(())
+    }
+}
+
+impl dsp_sidecar::HostLockGuard for DspStoreData {
+    fn unlock(&mut self, self_: Resource<dsp_sidecar::LockGuard>) {
+        let _ = self.sidecar.unlock(self_.rep());
+    }
+
+    fn drop(&mut self, rep: Resource<dsp_sidecar::LockGuard>) -> wasmtime::Result<()> {
+        self.sidecar.drop_lock(rep.rep());
         Ok(())
     }
 }

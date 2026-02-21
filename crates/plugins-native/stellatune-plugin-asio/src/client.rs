@@ -9,6 +9,7 @@ use stellatune_plugin_sdk::error::{SdkError, SdkResult};
 use crate::config::AsioOutputConfig;
 
 const DEFAULT_SIDECAR_EXE: &str = "stellatune-asio-host";
+const CONTROL_LOCK_NAME: &str = "asio-control";
 
 /// Communication channel wrapper using WASM sidecar guest bindings.
 ///
@@ -26,6 +27,7 @@ impl AsioSidecarClient {
             .unwrap_or(DEFAULT_SIDECAR_EXE);
 
         let spec = sidecar::LaunchSpec {
+            scope: sidecar::LaunchScope::PackageShared,
             executable: exe.to_string(),
             args: config.sidecar_args.clone(),
             preferred_control: vec![sidecar::TransportOption {
@@ -70,8 +72,14 @@ impl AsioSidecarClient {
     }
 
     fn control_request(&mut self, req: Request) -> SdkResult<Response> {
-        self.send_request(&self.control_channel, &req)?;
-        self.read_response(&self.control_channel)
+        let lock = sidecar::lock(CONTROL_LOCK_NAME, Some(5_000))
+            .map_err(|e| SdkError::io(format!("acquire control lock: {e:?}")))?;
+        let result = (|| {
+            self.send_request(&self.control_channel, &req)?;
+            self.read_response(&self.control_channel)
+        })();
+        lock.unlock();
+        result
     }
 
     fn send_request(&self, channel: &sidecar::Channel, req: &Request) -> SdkResult<()> {
@@ -178,10 +186,6 @@ impl AsioSidecarClient {
         self.expect_ok(Request::Stop)
     }
 
-    pub fn close(&mut self) -> SdkResult<()> {
-        self.expect_ok(Request::Close)
-    }
-
     pub fn reset(&mut self) -> SdkResult<()> {
         self.expect_ok(Request::Reset)
     }
@@ -214,21 +218,48 @@ impl AsioSidecarClient {
 
 #[derive(Default)]
 struct SidecarManager {
+    lifecycle_leases: usize,
     signature: Option<String>,
     client: Option<AsioSidecarClient>,
 }
 
 impl SidecarManager {
-    fn shutdown_current(&mut self) {
-        if let Some(client) = self.client.as_mut() {
-            let _ = client.stop();
-            let _ = client.close();
-        }
+    fn drop_current_client(&mut self) {
+        // Do not send protocol-level stop/close here.
+        // Lifecycle owns process leases; stream control belongs to session APIs.
         self.client = None;
         self.signature = None;
     }
 
+    fn acquire_lifecycle(&mut self, config: &AsioOutputConfig) -> SdkResult<()> {
+        self.lifecycle_leases = self.lifecycle_leases.saturating_add(1);
+        if let Err(error) = self.ensure_for(config) {
+            self.lifecycle_leases = self.lifecycle_leases.saturating_sub(1);
+            if self.lifecycle_leases == 0 {
+                self.drop_current_client();
+            }
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    fn release_lifecycle(&mut self) {
+        if self.lifecycle_leases == 0 {
+            return;
+        }
+        self.lifecycle_leases -= 1;
+        if self.lifecycle_leases == 0 {
+            self.drop_current_client();
+        }
+    }
+
     fn ensure_for(&mut self, config: &AsioOutputConfig) -> SdkResult<&mut AsioSidecarClient> {
+        if self.lifecycle_leases == 0 {
+            return Err(SdkError::internal(
+                "sidecar access outside plugin lifecycle is not allowed",
+            ));
+        }
+
         let signature = config_signature(config);
         let needs_restart = self
             .signature
@@ -238,7 +269,7 @@ impl SidecarManager {
             || self.client.is_none();
 
         if needs_restart {
-            self.shutdown_current();
+            self.drop_current_client();
             self.client = Some(AsioSidecarClient::launch(config)?);
             self.signature = Some(signature.to_string());
         }
@@ -268,13 +299,15 @@ fn lock_manager() -> MutexGuard<'static, SidecarManager> {
 }
 
 pub(crate) fn lifecycle_on_enable() -> SdkResult<()> {
-    // Prewarm with default config; session-level config can trigger restart.
-    with_sidecar(&AsioOutputConfig::default(), |_| Ok(()))
+    // Acquire lifecycle lease and prewarm with default config.
+    // Session-level config can trigger a signature-based restart.
+    let mut manager = lock_manager();
+    manager.acquire_lifecycle(&AsioOutputConfig::default())
 }
 
 pub(crate) fn lifecycle_on_disable() -> SdkResult<()> {
     let mut manager = lock_manager();
-    manager.shutdown_current();
+    manager.release_lifecycle();
     Ok(())
 }
 
