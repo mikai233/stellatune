@@ -5,9 +5,7 @@ use std::{
     path::PathBuf,
 };
 
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 use anyhow::{Result, anyhow};
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 use std::time::Instant;
 
 use stellatune_audio::config::engine::ResampleQuality;
@@ -15,7 +13,6 @@ use stellatune_audio::engine::EngineHandle;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::time::LocalTime;
 
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 use stellatune_plugins::host_runtime::runtime_service::SharedPluginRuntime;
 
 mod apply_state;
@@ -159,16 +156,9 @@ fn open_tracing_log_file() -> Option<Arc<Mutex<std::fs::File>>> {
     Some(Arc::new(Mutex::new(file)))
 }
 
-#[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
-pub type SharedPluginRuntime = ();
-
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 pub fn shared_plugin_runtime() -> SharedPluginRuntime {
     stellatune_plugins::host_runtime::shared_runtime_service()
 }
-
-#[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
-pub fn shared_plugin_runtime() -> SharedPluginRuntime {}
 
 fn install_panic_hook() {
     static PANIC_HOOK_INIT: OnceLock<()> = OnceLock::new();
@@ -314,7 +304,6 @@ pub async fn plugin_runtime_apply_state_status_json() -> String {
     apply_state::status_json().await
 }
 
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 pub async fn plugin_runtime_disable(
     library: &stellatune_library::LibraryHandle,
     plugin_id: String,
@@ -383,20 +372,6 @@ pub async fn plugin_runtime_disable(
     Ok(report)
 }
 
-#[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
-pub async fn plugin_runtime_disable(
-    _library: &stellatune_library::LibraryHandle,
-    plugin_id: String,
-    _timeout_ms: u64,
-) -> anyhow::Result<DisableReport> {
-    Ok(DisableReport {
-        plugin_id,
-        phase: "completed",
-        errors: Vec::new(),
-    })
-}
-
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 pub async fn plugin_runtime_enable(
     library: &stellatune_library::LibraryHandle,
     plugin_id: String,
@@ -427,18 +402,6 @@ pub async fn plugin_runtime_enable(
     })
 }
 
-#[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
-pub async fn plugin_runtime_enable(
-    _library: &stellatune_library::LibraryHandle,
-    plugin_id: String,
-) -> anyhow::Result<EnableReport> {
-    Ok(EnableReport {
-        plugin_id,
-        phase: "completed",
-    })
-}
-
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 pub async fn plugin_runtime_apply_state(
     library: &stellatune_library::LibraryHandle,
 ) -> Result<ApplyStateReport> {
@@ -493,18 +456,6 @@ pub async fn plugin_runtime_apply_state(
         })
     })
     .await?;
-    let mut report = result.report;
-    report.coalesced_requests = result.coalesced_requests;
-    report.execution_loops = result.execution_loops;
-    Ok(report)
-}
-
-#[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
-pub async fn plugin_runtime_apply_state(
-    _library: &stellatune_library::LibraryHandle,
-) -> anyhow::Result<ApplyStateReport> {
-    let result =
-        apply_state::run_coalesced(|| async { Ok(ApplyStateReport::empty_completed()) }).await?;
     let mut report = result.report;
     report.coalesced_requests = result.coalesced_requests;
     report.execution_loops = result.execution_loops;

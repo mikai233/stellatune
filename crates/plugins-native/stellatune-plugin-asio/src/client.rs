@@ -1,10 +1,10 @@
+use std::sync::OnceLock;
 use stellatune_asio_proto::{
     AudioSpec, DeviceCaps, DeviceInfo, PROTOCOL_VERSION, Request, Response,
 };
-use stellatune_plugin_sdk::error::{SdkError, SdkResult};
 use stellatune_plugin_sdk::__private::parking_lot::{Mutex, MutexGuard};
 use stellatune_plugin_sdk::__private::stellatune_world_output_sink::stellatune::plugin::sidecar;
-use std::sync::OnceLock;
+use stellatune_plugin_sdk::error::{SdkError, SdkResult};
 
 use crate::config::AsioOutputConfig;
 

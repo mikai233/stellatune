@@ -10,7 +10,7 @@ crate-type = ["cdylib"]
 [dependencies]
 stellatune-plugin-sdk.workspace = true
 symphonia.workspace = true
-ncmdump = "0.8.0"
+ncmdump.workspace = true
 
 [lints]
 workspace = true

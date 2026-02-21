@@ -27,7 +27,6 @@ use self::service_actor::handlers::query::{
     SearchTracksMessage,
 };
 
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 use std::collections::HashSet;
 
 #[derive(Clone)]
@@ -269,7 +268,6 @@ impl LibraryHandle {
         result.map_err(|e| anyhow!(e))
     }
 
-    #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
     pub async fn plugin_set_enabled(&self, plugin_id: String, enabled: bool) -> Result<()> {
         let plugin_id = plugin_id.trim().to_string();
         if plugin_id.is_empty() {
@@ -287,13 +285,6 @@ impl LibraryHandle {
         Ok(())
     }
 
-    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
-    pub async fn plugin_set_enabled(&self, plugin_id: String, enabled: bool) -> Result<()> {
-        let _ = (plugin_id, enabled);
-        Ok(())
-    }
-
-    #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
     pub async fn list_disabled_plugin_ids(&self) -> Result<Vec<String>> {
         let mut out = load_disabled_plugin_ids(&self.db_path)
             .await?
@@ -301,11 +292,6 @@ impl LibraryHandle {
             .collect::<Vec<_>>();
         out.sort();
         Ok(out)
-    }
-
-    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
-    pub async fn list_disabled_plugin_ids(&self) -> Result<Vec<String>> {
-        Ok(Vec::new())
     }
 }
 
@@ -369,7 +355,6 @@ impl EventHub {
     }
 }
 
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 async fn persist_disabled_plugin_ids(db_path: &Path, disabled: &HashSet<String>) -> Result<()> {
     let pool = crate::worker::db::open_state_db_pool(db_path).await?;
     crate::worker::db::replace_disabled_plugin_ids(&pool, disabled).await?;
@@ -377,7 +362,6 @@ async fn persist_disabled_plugin_ids(db_path: &Path, disabled: &HashSet<String>)
     Ok(())
 }
 
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 async fn load_disabled_plugin_ids(db_path: &Path) -> Result<HashSet<String>> {
     let pool = crate::worker::db::open_state_db_pool(db_path).await?;
     let out = crate::worker::db::list_disabled_plugin_ids(&pool).await?;

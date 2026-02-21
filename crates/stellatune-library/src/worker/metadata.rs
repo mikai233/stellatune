@@ -14,9 +14,7 @@ use symphonia::core::units::{Time, TimeBase};
 use symphonia::default::get_probe;
 use tracing::debug;
 
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 use stellatune_audio_builtin_adapters::builtin_decoder::builtin_decoder_score_for_ext;
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 use stellatune_plugins::host_runtime::{
     RuntimeCapabilityKind, RuntimeDecoderPlugin, shared_runtime_service,
 };
@@ -30,7 +28,6 @@ pub(super) struct ExtractedMetadata {
     pub(super) cover: Option<Vec<u8>>,
 }
 
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 #[derive(Debug, Clone)]
 struct DecoderCandidate {
     plugin_id: String,
@@ -38,31 +35,25 @@ struct DecoderCandidate {
     score: u16,
 }
 
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 struct CachedMetadataDecoder {
     decoder: RuntimeDecoderPlugin,
     last_used_at: Instant,
 }
 
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 const METADATA_DECODER_CACHE_IDLE_TTL: Duration = Duration::from_secs(2);
 
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 const METADATA_DECODER_CACHE_MAX_ENTRIES: usize = 8;
 
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 thread_local! {
     static METADATA_DECODER_CACHE: RefCell<
         HashMap<(String, String), CachedMetadataDecoder>
     > = RefCell::new(HashMap::new());
 }
 
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 pub(super) fn clear_metadata_decoder_cache() {
     METADATA_DECODER_CACHE.with_borrow_mut(|cache| cache.clear());
 }
 
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 fn create_plugin_metadata_decoder(candidate: &DecoderCandidate) -> Result<RuntimeDecoderPlugin> {
     let runtime = shared_runtime_service();
     runtime
@@ -76,7 +67,6 @@ fn create_plugin_metadata_decoder(candidate: &DecoderCandidate) -> Result<Runtim
         })
 }
 
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 fn prune_metadata_decoder_cache(
     cache: &mut HashMap<(String, String), CachedMetadataDecoder>,
     now: Instant,
@@ -96,7 +86,6 @@ fn prune_metadata_decoder_cache(
     }
 }
 
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 fn with_cached_metadata_decoder<T>(
     candidate: &DecoderCandidate,
     f: impl FnOnce(&mut RuntimeDecoderPlugin) -> Result<T>,
@@ -225,12 +214,10 @@ pub(super) fn extract_metadata(path: &Path) -> Result<ExtractedMetadata> {
     Ok(out)
 }
 
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 fn normalize_ext_hint(raw: &str) -> String {
     raw.trim().trim_start_matches('.').to_ascii_lowercase()
 }
 
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 fn decoder_candidates_for_ext(ext: &str) -> Vec<DecoderCandidate> {
     let normalized = normalize_ext_hint(ext);
     if normalized.is_empty() {
@@ -259,7 +246,6 @@ fn decoder_candidates_for_ext(ext: &str) -> Vec<DecoderCandidate> {
     out
 }
 
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 fn best_decoder_score_for_ext(ext: &str) -> Option<u16> {
     decoder_candidates_for_ext(ext)
         .into_iter()
@@ -267,7 +253,6 @@ fn best_decoder_score_for_ext(ext: &str) -> Option<u16> {
         .max()
 }
 
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 fn select_plugin_metadata_decoder_candidates(path: &Path) -> Vec<DecoderCandidate> {
     let ext = path
         .extension()
@@ -278,72 +263,62 @@ fn select_plugin_metadata_decoder_candidates(path: &Path) -> Vec<DecoderCandidat
 }
 
 pub(super) fn has_plugin_decoder_for_path(path: &Path) -> bool {
-    #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-    {
-        let ext = path
-            .extension()
-            .and_then(|s| s.to_str())
-            .unwrap_or("")
-            .to_ascii_lowercase();
-        if ext.is_empty() {
-            return false;
-        }
-        !decoder_candidates_for_ext(&ext).is_empty()
-    }
-    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
-    {
-        let _ = path;
+    let ext = path
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if ext.is_empty() {
         false
+    } else {
+        !decoder_candidates_for_ext(&ext).is_empty()
     }
 }
 
 pub(super) fn extract_metadata_with_plugins(path: &Path) -> Result<ExtractedMetadata> {
-    #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-    {
-        let ext = path
-            .extension()
-            .and_then(|s| s.to_str())
-            .unwrap_or("")
-            .trim()
-            .to_ascii_lowercase();
-        let builtin_score = builtin_decoder_score_for_ext(&ext).unwrap_or(0);
-        let symphonia_supported = builtin_score > 0;
-        let prefer_plugin = if ext.is_empty() {
-            false
-        } else {
-            best_decoder_score_for_ext(&ext).is_some_and(|score| score > builtin_score)
-        };
+    let ext = path
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
+    let builtin_score = builtin_decoder_score_for_ext(&ext).unwrap_or(0);
+    let symphonia_supported = builtin_score > 0;
+    let prefer_plugin = if ext.is_empty() {
+        false
+    } else {
+        best_decoder_score_for_ext(&ext).is_some_and(|score| score > builtin_score)
+    };
 
-        if prefer_plugin {
-            debug!(
-                target: "stellatune_library::metadata",
-                path = %path.display(),
-                ext = %ext,
-                "using v2 plugin metadata extractor"
-            );
-            match extract_plugin_metadata_from_plugin(path) {
-                Ok(metadata) => return Ok(metadata),
-                Err(error) => {
-                    if symphonia_supported {
-                        debug!(
-                            target: "stellatune_library::metadata",
-                            path = %path.display(),
-                            ext = %ext,
-                            err = %error,
-                            "v2 plugin metadata extractor failed, fallback to symphonia"
-                        );
-                    } else {
-                        debug!(
-                            target: "stellatune_library::metadata",
-                            path = %path.display(),
-                            ext = %ext,
-                            err = %error,
-                            "v2 plugin metadata extractor failed, no symphonia fallback for unsupported ext"
-                        );
-                        return Err(error);
-                    }
-                },
-            }
+    if prefer_plugin {
+        debug!(
+            target: "stellatune_library::metadata",
+            path = %path.display(),
+            ext = %ext,
+            "using v2 plugin metadata extractor"
+        );
+        match extract_plugin_metadata_from_plugin(path) {
+            Ok(metadata) => return Ok(metadata),
+            Err(error) => {
+                if symphonia_supported {
+                    debug!(
+                        target: "stellatune_library::metadata",
+                        path = %path.display(),
+                        ext = %ext,
+                        err = %error,
+                        "v2 plugin metadata extractor failed, fallback to symphonia"
+                    );
+                } else {
+                    debug!(
+                        target: "stellatune_library::metadata",
+                        path = %path.display(),
+                        ext = %ext,
+                        err = %error,
+                        "v2 plugin metadata extractor failed, no symphonia fallback for unsupported ext"
+                    );
+                    return Err(error);
+                }
+            },
         }
     }
 
@@ -384,7 +359,6 @@ fn estimate_duration_ms_by_seek(
     Some(duration_ms_from_time_base(tb, end_ts))
 }
 
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 fn extract_plugin_metadata_from_plugin(path: &Path) -> Result<ExtractedMetadata> {
     let started = std::time::Instant::now();
     let ext = path
@@ -457,7 +431,6 @@ fn extract_plugin_metadata_from_plugin(path: &Path) -> Result<ExtractedMetadata>
     ))
 }
 
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 fn apply_runtime_metadata_json(metadata: &JsonValue, out: &mut ExtractedMetadata) {
     if out.title.is_none() {
         out.title = metadata
@@ -487,18 +460,15 @@ fn apply_runtime_metadata_json(metadata: &JsonValue, out: &mut ExtractedMetadata
     }
 }
 
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 fn normalize_text_field(raw: &str) -> Option<String> {
     let text = raw.trim().to_string();
     if text.is_empty() { None } else { Some(text) }
 }
 
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 fn json_u64_to_i64(value: &JsonValue) -> Option<i64> {
     value.as_u64().map(|v| v.min(i64::MAX as u64) as i64)
 }
 
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 fn extract_cover_from_runtime_extras_json(metadata: &JsonValue) -> Option<Vec<u8>> {
     let extras = metadata.get("extras")?.as_array()?;
     for entry in extras {
@@ -521,7 +491,6 @@ fn extract_cover_from_runtime_extras_json(metadata: &JsonValue) -> Option<Vec<u8
     None
 }
 
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 fn extract_cover_bytes_from_runtime_value(value: &JsonValue) -> Option<Vec<u8>> {
     if let Some(bytes) = value
         .get("bytes")

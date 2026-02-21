@@ -16,7 +16,7 @@ stellatune-backend-api.workspace = true
 stellatune-library.workspace = true
 stellatune-audio.workspace = true
 
-clap = { version = "4.5.31", features = ["derive"] }
-crossterm = "0.29.0"
-directories = "5.0.1"
-ratatui = "0.29.0"
+clap.workspace = true
+crossterm.workspace = true
+directories.workspace = true
+ratatui.workspace = true

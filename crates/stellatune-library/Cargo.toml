@@ -14,14 +14,12 @@ walkdir.workspace = true
 symphonia.workspace = true
 notify.workspace = true
 serde.workspace = true
-async-trait = "0.1.89"
+async-trait.workspace = true
 flutter_rust_bridge.workspace = true
 
 stellatune-runtime.workspace = true
 serde_json.workspace = true
-base64 = "0.22.1"
-
-[target.'cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))'.dependencies]
+base64.workspace = true
 stellatune-audio-builtin-adapters.workspace = true
 stellatune-plugins.workspace = true
 

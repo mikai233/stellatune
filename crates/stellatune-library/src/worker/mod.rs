@@ -16,8 +16,8 @@ use sqlx::{FromRow, QueryBuilder, SqlitePool};
 use tokio::time::timeout;
 
 use crate::{LibraryEvent, PlaylistLite, TrackLite};
-use stellatune_runtime::tokio_actor::ActorRef;
 use stellatune_plugins::host_runtime::shared_runtime_service;
+use stellatune_runtime::tokio_actor::ActorRef;
 
 use crate::service::EventHub;
 
@@ -58,51 +58,48 @@ impl WorkerDeps {
             format!("failed to create cover cache dir: {}", cover_dir.display())
         })?;
 
-        #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-        {
-            if plugins_dir.exists() {
-                tracing::info!(
-                    plugins_dir = %plugins_dir.display(),
-                    "library plugin bootstrap begin"
-                );
-                clear_metadata_decoder_cache();
-                let disabled = db::list_disabled_plugin_ids(&pool)
-                    .await
-                    .unwrap_or_default();
-                let service = shared_runtime_service();
-                match timeout(Duration::from_secs(8), async {
-                    service.sync_dir_with_disabled_ids(&plugins_dir, disabled)
-                })
+        if plugins_dir.exists() {
+            tracing::info!(
+                plugins_dir = %plugins_dir.display(),
+                "library plugin bootstrap begin"
+            );
+            clear_metadata_decoder_cache();
+            let disabled = db::list_disabled_plugin_ids(&pool)
                 .await
-                {
-                    Ok(Ok(())) => {
-                        let active = service.active_plugin_ids();
-                        tracing::info!(
-                            loaded = active.len(),
-                            "library wasm plugin bootstrap sync completed"
-                        );
-                        events.emit(LibraryEvent::Log {
-                            message: format!(
-                                "library wasm plugin runtime sync: active={}",
-                                active.len(),
-                            ),
-                        });
-                    },
-                    Ok(Err(e)) => {
-                        tracing::warn!(error = %format!("{e:#}"), "library wasm plugin bootstrap sync failed");
-                        events.emit(LibraryEvent::Log {
-                            message: format!("library wasm plugin runtime sync failed: {e:#}"),
-                        });
-                    },
-                    Err(_) => {
-                        tracing::warn!("library wasm plugin bootstrap sync timed out (8s)");
-                        events.emit(LibraryEvent::Log {
-                            message: "library wasm plugin runtime sync timed out (8s)".to_string(),
-                        });
-                    },
-                }
-                tracing::info!("library plugin bootstrap end");
+                .unwrap_or_default();
+            let service = shared_runtime_service();
+            match timeout(Duration::from_secs(8), async {
+                service.sync_dir_with_disabled_ids(&plugins_dir, disabled)
+            })
+            .await
+            {
+                Ok(Ok(())) => {
+                    let active = service.active_plugin_ids();
+                    tracing::info!(
+                        loaded = active.len(),
+                        "library wasm plugin bootstrap sync completed"
+                    );
+                    events.emit(LibraryEvent::Log {
+                        message: format!(
+                            "library wasm plugin runtime sync: active={}",
+                            active.len()
+                        ),
+                    });
+                },
+                Ok(Err(e)) => {
+                    tracing::warn!(error = %format!("{e:#}"), "library wasm plugin bootstrap sync failed");
+                    events.emit(LibraryEvent::Log {
+                        message: format!("library wasm plugin runtime sync failed: {e:#}"),
+                    });
+                },
+                Err(_) => {
+                    tracing::warn!("library wasm plugin bootstrap sync timed out (8s)");
+                    events.emit(LibraryEvent::Log {
+                        message: "library wasm plugin runtime sync timed out (8s)".to_string(),
+                    });
+                },
             }
+            tracing::info!("library plugin bootstrap end");
         }
 
         Ok(Self {
@@ -139,21 +136,18 @@ impl LibraryWorker {
     }
 
     async fn refresh_plugins_best_effort(&self) {
-        #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-        {
-            if !self.plugins_dir.exists() {
-                return;
-            }
-            clear_metadata_decoder_cache();
-            let disabled = db::list_disabled_plugin_ids(&self.pool)
-                .await
-                .unwrap_or_default();
-            let service = shared_runtime_service();
-            let _ = timeout(Duration::from_secs(8), async {
-                service.sync_dir_with_disabled_ids(&self.plugins_dir, disabled)
-            })
-            .await;
+        if !self.plugins_dir.exists() {
+            return;
         }
+        clear_metadata_decoder_cache();
+        let disabled = db::list_disabled_plugin_ids(&self.pool)
+            .await
+            .unwrap_or_default();
+        let service = shared_runtime_service();
+        let _ = timeout(Duration::from_secs(8), async {
+            service.sync_dir_with_disabled_ids(&self.plugins_dir, disabled)
+        })
+        .await;
     }
 
     pub(crate) async fn list_roots(&self) -> Result<Vec<String>> {

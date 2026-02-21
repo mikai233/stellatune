@@ -12,17 +12,17 @@ serde_json.workspace = true
 walkdir.workspace = true
 tracing.workspace = true
 thiserror.workspace = true
-memmap2 = "0.9.10"
-rawzip = "0.4.3"
-flate2 = "1.1.9"
-tempfile = "3.25.0"
+memmap2.workspace = true
+rawzip.workspace = true
+flate2.workspace = true
+tempfile.workspace = true
 wasmtime.workspace = true
-wasmtime-wasi = "41.0.3"
+wasmtime-wasi.workspace = true
 parking_lot.workspace = true
-reqwest = { version = "0.12.12", default-features = false, features = ["blocking", "rustls-tls", "gzip"] }
+reqwest = { workspace = true, features = ["blocking", "rustls-tls", "gzip"] }
 
 [dev-dependencies]
-wat = "1.245.1"
+wat.workspace = true
 
 [lints]
 workspace = true

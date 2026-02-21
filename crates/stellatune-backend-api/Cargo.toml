@@ -14,10 +14,10 @@ serde_json.workspace = true
 sqlx.workspace = true
 arc-swap.workspace = true
 flutter_rust_bridge.workspace = true
-async-trait = "0.1.89"
-reqwest = { version = "0.12.12", default-features = false, features = ["rustls-tls", "gzip"] }
-tokio-util = { version = "0.7.13", features = ["io"] }
-url = "2.5.4"
+async-trait.workspace = true
+reqwest = { workspace = true, features = ["rustls-tls", "gzip"] }
+tokio-util = { workspace = true, features = ["io"] }
+url.workspace = true
 
 stellatune-audio-builtin-adapters.workspace = true
 stellatune-audio-core.workspace = true

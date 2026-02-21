@@ -5,9 +5,9 @@ edition = "2024"
 license.workspace = true
 
 [dependencies]
-async-trait = "0.1.89"
+async-trait.workspace = true
 crossbeam-channel.workspace = true
-futures-util = "0.3.32"
+futures-util.workspace = true
 tokio.workspace = true
 
 [lints]
