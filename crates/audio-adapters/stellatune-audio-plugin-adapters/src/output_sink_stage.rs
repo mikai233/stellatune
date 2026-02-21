@@ -2,7 +2,7 @@ use stellatune_audio_core::pipeline::context::{AudioBlock, PipelineContext, Stre
 use stellatune_audio_core::pipeline::error::PipelineError;
 use stellatune_audio_core::pipeline::stages::StageStatus;
 use stellatune_audio_core::pipeline::stages::sink::SinkStage;
-use stellatune_wasm_plugins::host_runtime::RuntimeOutputSinkPlugin;
+use stellatune_plugins::host_runtime::RuntimeOutputSinkPlugin;
 
 use crate::output_sink_runtime::{create_output_sink_controller_and_open, write_all_frames};
 

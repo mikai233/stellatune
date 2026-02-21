@@ -17,7 +17,7 @@ use tracing::debug;
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 use stellatune_audio_builtin_adapters::builtin_decoder::builtin_decoder_score_for_ext;
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-use stellatune_wasm_plugins::host_runtime::{
+use stellatune_plugins::host_runtime::{
     RuntimeCapabilityKind, RuntimeDecoderPlugin, shared_runtime_service,
 };
 

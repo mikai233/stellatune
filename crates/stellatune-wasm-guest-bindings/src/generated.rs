@@ -1,5 +1,0 @@
-pub use stellatune_wasm_guest_bindings_decoder as decoder_plugin;
-pub use stellatune_wasm_guest_bindings_dsp as dsp_plugin;
-pub use stellatune_wasm_guest_bindings_lyrics as lyrics_plugin;
-pub use stellatune_wasm_guest_bindings_output_sink as output_sink_plugin;
-pub use stellatune_wasm_guest_bindings_source as source_plugin;

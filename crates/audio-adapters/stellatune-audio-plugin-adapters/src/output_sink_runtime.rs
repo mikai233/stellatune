@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use stellatune_wasm_plugins::host_runtime::{RuntimeOutputSinkPlugin, shared_runtime_service};
+use stellatune_plugins::host_runtime::{RuntimeOutputSinkPlugin, shared_runtime_service};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NegotiatedOutputSinkSpec {

@@ -9,7 +9,7 @@ serde.workspace = true
 serde_json.workspace = true
 stellatune-audio-core.workspace = true
 stellatune-audio.workspace = true
-stellatune-wasm-plugins.workspace = true
+stellatune-plugins.workspace = true
 
 [lints]
 workspace = true

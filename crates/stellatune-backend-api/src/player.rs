@@ -4,14 +4,14 @@ use crate::runtime::shared_plugin_runtime;
 
 pub fn plugins_install_from_file(plugins_dir: String, artifact_path: String) -> Result<String> {
     let installed =
-        stellatune_wasm_plugins::package::install_from_artifact(&plugins_dir, &artifact_path)
+        stellatune_plugins::package::install_from_artifact(&plugins_dir, &artifact_path)
             .map_err(|e| anyhow!(e.to_string()))?;
     sync_runtime_after_package_change(&plugins_dir)?;
     Ok(installed.id)
 }
 
 pub fn plugins_list_installed_json(plugins_dir: String) -> Result<String> {
-    let installed = stellatune_wasm_plugins::package::list_installed(&plugins_dir)
+    let installed = stellatune_plugins::package::list_installed(&plugins_dir)
         .map_err(|e| anyhow!(e.to_string()))?;
     serde_json::to_string(&installed).map_err(|e| anyhow!(e.to_string()))
 }
@@ -24,7 +24,7 @@ pub fn plugins_uninstall_by_id(plugins_dir: String, plugin_id: String) -> Result
 
     ensure_plugin_runtime_unloaded_for_uninstall(&plugin_id)?;
 
-    stellatune_wasm_plugins::package::uninstall_by_id(&plugins_dir, &plugin_id)
+    stellatune_plugins::package::uninstall_by_id(&plugins_dir, &plugin_id)
         .map_err(|e| anyhow!(e.to_string()))?;
     sync_runtime_after_package_change(&plugins_dir)
 }

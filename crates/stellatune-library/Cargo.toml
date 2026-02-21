@@ -23,7 +23,7 @@ base64 = "0.22.1"
 
 [target.'cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))'.dependencies]
 stellatune-audio-builtin-adapters.workspace = true
-stellatune-wasm-plugins.workspace = true
+stellatune-plugins.workspace = true
 
 [lints]
 workspace = true

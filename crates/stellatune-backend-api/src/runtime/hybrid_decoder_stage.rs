@@ -18,7 +18,7 @@ use stellatune_audio_plugin_adapters::stages::{
     PluginDecoderStage, plugin_track_token_from_source_handle,
     probe_track_decode_info_with_decoder_selector,
 };
-use stellatune_wasm_plugins::host_runtime::RuntimeCapabilityKind;
+use stellatune_plugins::host_runtime::RuntimeCapabilityKind;
 
 use super::shared_plugin_runtime;
 

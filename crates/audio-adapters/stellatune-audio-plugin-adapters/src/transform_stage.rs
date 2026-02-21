@@ -6,7 +6,7 @@ use stellatune_audio_core::pipeline::context::{AudioBlock, PipelineContext, Stre
 use stellatune_audio_core::pipeline::error::PipelineError;
 use stellatune_audio_core::pipeline::stages::StageStatus;
 use stellatune_audio_core::pipeline::stages::transform::TransformStage;
-use stellatune_wasm_plugins::host_runtime::{RuntimeDspPlugin, shared_runtime_service};
+use stellatune_plugins::host_runtime::{RuntimeDspPlugin, shared_runtime_service};
 
 use crate::bridge::PluginTransformStagePayload;
 

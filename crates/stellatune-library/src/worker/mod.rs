@@ -17,7 +17,7 @@ use tokio::time::timeout;
 
 use crate::{LibraryEvent, PlaylistLite, TrackLite};
 use stellatune_runtime::tokio_actor::ActorRef;
-use stellatune_wasm_plugins::host_runtime::shared_runtime_service;
+use stellatune_plugins::host_runtime::shared_runtime_service;
 
 use crate::service::EventHub;
 

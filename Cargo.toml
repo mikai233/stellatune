@@ -9,17 +9,17 @@ members = [
   "crates/stellatune-backend-api",
   "crates/stellatune-ffi",
   "crates/stellatune-library",
-  "crates/plugins-native/stellatune-plugin-asio-wasm",
-  "crates/plugins-native/stellatune-plugin-ncm-wasm-decoder",
-  "crates/stellatune-wasm-host-bindings",
-  "crates/stellatune-wasm-guest-bindings",
-  "crates/stellatune-wasm-guest-bindings-worlds/stellatune-wasm-guest-bindings-decoder",
-  "crates/stellatune-wasm-guest-bindings-worlds/stellatune-wasm-guest-bindings-source",
-  "crates/stellatune-wasm-guest-bindings-worlds/stellatune-wasm-guest-bindings-lyrics",
-  "crates/stellatune-wasm-guest-bindings-worlds/stellatune-wasm-guest-bindings-output-sink",
-  "crates/stellatune-wasm-guest-bindings-worlds/stellatune-wasm-guest-bindings-dsp",
-  "crates/stellatune-wasm-plugin-sdk",
-  "crates/stellatune-wasm-plugins",
+  "crates/plugins-native/stellatune-plugin-asio",
+  "crates/plugins-native/stellatune-plugin-ncm",
+  "crates/stellatune-host-bindings",
+  "crates/stellatune-world-bindings",
+  "crates/guest-worlds/decoder",
+  "crates/guest-worlds/source",
+  "crates/guest-worlds/lyrics",
+  "crates/guest-worlds/output-sink",
+  "crates/guest-worlds/dsp",
+  "crates/stellatune-plugin-sdk",
+  "crates/stellatune-plugins",
   "crates/stellatune-runtime",
   "crates/stellatune-audio",
 ]
@@ -46,15 +46,15 @@ stellatune-asio-proto = { path = "crates/plugins-native/stellatune-asio-proto" }
 stellatune-backend-api = { path = "crates/stellatune-backend-api" }
 stellatune-ffi = { path = "crates/stellatune-ffi" }
 stellatune-library = { path = "crates/stellatune-library" }
-stellatune-wasm-host-bindings = { path = "crates/stellatune-wasm-host-bindings" }
-stellatune-wasm-guest-bindings = { path = "crates/stellatune-wasm-guest-bindings" }
-stellatune-wasm-guest-bindings-decoder = { path = "crates/stellatune-wasm-guest-bindings-worlds/stellatune-wasm-guest-bindings-decoder" }
-stellatune-wasm-guest-bindings-source = { path = "crates/stellatune-wasm-guest-bindings-worlds/stellatune-wasm-guest-bindings-source" }
-stellatune-wasm-guest-bindings-lyrics = { path = "crates/stellatune-wasm-guest-bindings-worlds/stellatune-wasm-guest-bindings-lyrics" }
-stellatune-wasm-guest-bindings-output-sink = { path = "crates/stellatune-wasm-guest-bindings-worlds/stellatune-wasm-guest-bindings-output-sink" }
-stellatune-wasm-guest-bindings-dsp = { path = "crates/stellatune-wasm-guest-bindings-worlds/stellatune-wasm-guest-bindings-dsp" }
-stellatune-wasm-plugin-sdk = { path = "crates/stellatune-wasm-plugin-sdk" }
-stellatune-wasm-plugins = { path = "crates/stellatune-wasm-plugins" }
+stellatune-host-bindings = { path = "crates/stellatune-host-bindings" }
+stellatune-world-bindings = { path = "crates/stellatune-world-bindings" }
+stellatune-world-decoder = { path = "crates/guest-worlds/decoder" }
+stellatune-world-source = { path = "crates/guest-worlds/source" }
+stellatune-world-lyrics = { path = "crates/guest-worlds/lyrics" }
+stellatune-world-output-sink = { path = "crates/guest-worlds/output-sink" }
+stellatune-world-dsp = { path = "crates/guest-worlds/dsp" }
+stellatune-plugin-sdk = { package = "stellatune-plugin-sdk", path = "crates/stellatune-plugin-sdk" }
+stellatune-plugins = { package = "stellatune-plugins", path = "crates/stellatune-plugins" }
 stellatune-runtime = { path = "crates/stellatune-runtime" }
 
 anyhow = "1.0.101"

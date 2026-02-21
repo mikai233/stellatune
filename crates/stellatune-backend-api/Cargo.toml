@@ -24,7 +24,7 @@ stellatune-audio-core.workspace = true
 stellatune-audio-plugin-adapters.workspace = true
 stellatune-audio.workspace = true
 stellatune-library.workspace = true
-stellatune-wasm-plugins.workspace = true
+stellatune-plugins.workspace = true
 stellatune-runtime.workspace = true
 
 [lints]

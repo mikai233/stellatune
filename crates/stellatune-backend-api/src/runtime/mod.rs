@@ -16,7 +16,7 @@ use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::time::LocalTime;
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-use stellatune_wasm_plugins::host_runtime::runtime_service::SharedPluginRuntime;
+use stellatune_plugins::host_runtime::runtime_service::SharedPluginRuntime;
 
 mod apply_state;
 mod engine;
@@ -164,7 +164,7 @@ pub type SharedPluginRuntime = ();
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 pub fn shared_plugin_runtime() -> SharedPluginRuntime {
-    stellatune_wasm_plugins::host_runtime::shared_runtime_service()
+    stellatune_plugins::host_runtime::shared_runtime_service()
 }
 
 #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]

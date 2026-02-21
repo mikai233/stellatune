@@ -12,10 +12,10 @@ use stellatune_audio_core::pipeline::context::{
 use stellatune_audio_core::pipeline::error::PipelineError;
 use stellatune_audio_core::pipeline::stages::StageStatus;
 use stellatune_audio_core::pipeline::stages::decoder::DecoderStage;
-use stellatune_wasm_plugins::error::Error as WasmPluginError;
-use stellatune_wasm_plugins::executor::plugin_instance::source::RuntimeOpenedSourceStreamHandle;
-use stellatune_wasm_plugins::host::stream::{HostStreamHandle, StreamSeekWhence};
-use stellatune_wasm_plugins::host_runtime::{
+use stellatune_plugins::error::Error as WasmPluginError;
+use stellatune_plugins::executor::plugin_instance::source::RuntimeOpenedSourceStreamHandle;
+use stellatune_plugins::host::stream::{HostStreamHandle, StreamSeekWhence};
+use stellatune_plugins::host_runtime::{
     RuntimeCapabilityKind, RuntimeDecoderPlugin, shared_runtime_service,
 };
 

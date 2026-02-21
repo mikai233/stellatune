@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "id": "dev.stellatune.decoder.ncm",
+  "name": "NCM Decoder",
+  "version": "0.1.0",
+  "api_version": 1,
+  "components": [
+    {
+      "id": "decoder-ncm",
+      "path": "wasm/stellatune_plugin_ncm.wasm",
+      "world": "stellatune:plugin/decoder-plugin@0.1.0",
+      "abilities": [
+        {
+          "kind": "decoder",
+          "type_id": "ncm",
+          "display_name": "NCM Decoder",
+          "config_schema_json": "{}",
+          "default_config_json": "{}",
+          "decoder": {
+            "ext_scores": [
+              {
+                "ext": "ncm",
+                "score": 100
+              }
+            ],
+            "wildcard_score": 0
+          }
+        }
+      ]
+    }
+  ]
+}
