@@ -251,9 +251,7 @@ impl BackendFacade {
 
     #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
     pub async fn active_plugin_ids(&self) -> Vec<String> {
-        let mut ids = stellatune_backend_api::runtime::shared_plugin_runtime()
-            .active_plugin_ids()
-            .await;
+        let mut ids = stellatune_backend_api::runtime::shared_plugin_runtime().active_plugin_ids();
         ids.sort();
         ids
     }

@@ -23,7 +23,10 @@ members = [
   "crates/stellatune-runtime",
   "crates/stellatune-audio",
 ]
-exclude = ["crates/plugins-native/stellatune-asio-host"]
+exclude = [
+  "crates/plugins-native/stellatune-asio-host",
+  "crates/plugins-native/stellatune-plugin-netease",
+]
 
 [workspace.package]
 license = "MIT"
