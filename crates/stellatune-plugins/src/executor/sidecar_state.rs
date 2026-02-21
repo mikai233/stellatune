@@ -43,6 +43,7 @@ struct NamedLock {
 
 struct PackageSidecarRegistryInner {
     host: Arc<dyn SidecarHost>,
+    plugin_refs: Mutex<BTreeMap<String, usize>>,
     processes: Mutex<BTreeMap<SidecarProcessKey, SharedProcessEntry>>,
     locks: Mutex<BTreeMap<SidecarLockKey, Arc<NamedLock>>>,
 }
@@ -57,10 +58,91 @@ impl PackageSidecarRegistry {
         Self {
             inner: Arc::new(PackageSidecarRegistryInner {
                 host,
+                plugin_refs: Mutex::new(BTreeMap::new()),
                 processes: Mutex::new(BTreeMap::new()),
                 locks: Mutex::new(BTreeMap::new()),
             }),
         }
+    }
+
+    pub(crate) fn plugin_activated(&self, plugin_id: &str) {
+        let plugin_id = plugin_id.trim();
+        if plugin_id.is_empty() {
+            return;
+        }
+        let leases = {
+            let mut refs = self.inner.plugin_refs.lock();
+            let entry = refs.entry(plugin_id.to_string()).or_insert(0);
+            *entry = entry.saturating_add(1);
+            *entry
+        };
+        debug!(plugin_id, refs = leases, "package sidecar plugin activated");
+    }
+
+    pub(crate) fn plugin_deactivated(&self, plugin_id: &str, grace_ms: u32) {
+        let plugin_id = plugin_id.trim();
+        if plugin_id.is_empty() {
+            return;
+        }
+
+        let should_force_release = {
+            let mut refs = self.inner.plugin_refs.lock();
+            let Some(entry) = refs.get_mut(plugin_id) else {
+                return;
+            };
+            if *entry > 1 {
+                *entry -= 1;
+                debug!(
+                    plugin_id,
+                    refs = *entry,
+                    "package sidecar plugin deactivated (references remain)"
+                );
+                false
+            } else {
+                refs.remove(plugin_id);
+                true
+            }
+        };
+        if !should_force_release {
+            return;
+        }
+
+        let processes = {
+            let mut processes = self.inner.processes.lock();
+            let keys = processes
+                .keys()
+                .filter(|key| key.plugin_id == plugin_id)
+                .cloned()
+                .collect::<Vec<_>>();
+            let mut removed =
+                Vec::<(SidecarProcessKey, Arc<Mutex<Box<dyn SidecarProcessHandle>>>)>::new();
+            for key in keys {
+                if let Some(entry) = processes.remove(&key) {
+                    removed.push((key, entry.process));
+                }
+            }
+            removed
+        };
+        for (key, process) in processes {
+            info!(
+                plugin_id = %key.plugin_id,
+                signature_id = key.signature_id,
+                grace_ms,
+                "terminating package sidecar process due to plugin deactivation"
+            );
+            let mut process = process.lock();
+            let _ = process.terminate(grace_ms);
+        }
+    }
+
+    fn is_plugin_active(&self, plugin_id: &str) -> bool {
+        self.inner
+            .plugin_refs
+            .lock()
+            .get(plugin_id)
+            .copied()
+            .unwrap_or(0)
+            > 0
     }
 
     fn acquire_process(
@@ -151,6 +233,7 @@ impl PackageSidecarRegistry {
     }
 
     fn release_process(&self, key: &SidecarProcessKey, grace_ms: u32) -> Result<()> {
+        let keep_alive = self.is_plugin_active(key.plugin_id.as_str());
         let process = {
             let mut processes = self.inner.processes.lock();
             let Some(entry) = processes.get_mut(key) else {
@@ -168,6 +251,15 @@ impl PackageSidecarRegistry {
                     signature_id = key.signature_id,
                     leases = entry.lease_count,
                     "released shared sidecar lease"
+                );
+                return Ok(());
+            }
+            if keep_alive {
+                entry.lease_count = 0;
+                debug!(
+                    plugin_id = %key.plugin_id,
+                    signature_id = key.signature_id,
+                    "released shared sidecar lease (kept alive while plugin is active)"
                 );
                 return Ok(());
             }

@@ -4304,6 +4304,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "stellatune-plugin-netease-decoder"
+version = "0.1.0"
+dependencies = [
+ "stellatune-plugin-sdk",
+ "symphonia",
+]
+
+[[package]]
+name = "stellatune-plugin-netease-source"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "stellatune-plugin-sdk",
+ "url",
+]
+
+[[package]]
 name = "stellatune-plugin-sdk"
 version = "0.1.0"
 dependencies = [

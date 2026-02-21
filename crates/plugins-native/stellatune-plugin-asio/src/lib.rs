@@ -14,7 +14,8 @@ impl PluginLifecycle for AsioWasmPlugin {
     }
 
     fn on_disable(&mut self, _reason: DisableReason) -> SdkResult<()> {
-        crate::client::lifecycle_on_disable()
+        // Package-scoped sidecar shutdown is driven by host plugin disable/unload.
+        Ok(())
     }
 }
 

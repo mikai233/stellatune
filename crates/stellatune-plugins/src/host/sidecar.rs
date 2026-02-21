@@ -207,7 +207,7 @@ impl SidecarHost for ProcessSidecarHost {
         Ok(Box::new(ProcessHandle {
             inner: Arc::new(Mutex::new(ChildIo {
                 child,
-                stdin,
+                stdin: Some(stdin),
                 stdout,
             })),
             control_preferred: spec.preferred_control.clone(),
@@ -220,7 +220,7 @@ impl SidecarHost for ProcessSidecarHost {
 
 struct ChildIo {
     child: Child,
-    stdin: ChildStdin,
+    stdin: Option<ChildStdin>,
     stdout: ChildStdout,
 }
 
@@ -266,6 +266,14 @@ impl ChannelHandle {
 }
 
 impl ProcessHandle {
+    fn signal_graceful_shutdown(inner: &mut ChildIo) {
+        // Closing stdin sends EOF to the sidecar process. This works as a
+        // protocol-agnostic graceful shutdown signal before force kill.
+        if let Some(mut stdin) = inner.stdin.take() {
+            let _ = stdin.flush();
+        }
+    }
+
     fn channel_from_options(
         &mut self,
         role: Option<&str>,
@@ -471,6 +479,15 @@ impl SidecarProcessHandle for ProcessHandle {
             return Ok(());
         }
 
+        Self::signal_graceful_shutdown(&mut inner);
+        if let Some(_status) = inner
+            .child
+            .try_wait()
+            .map_err(|error| Error::operation("sidecar.terminate", error.to_string()))?
+        {
+            return Ok(());
+        }
+
         if grace_ms > 0 {
             let deadline = Instant::now() + Duration::from_millis(grace_ms as u64);
             loop {
@@ -522,10 +539,13 @@ impl SidecarChannelHandle for ChannelHandle {
         match &mut self.io {
             ChannelIo::Stdio(inner) => {
                 let mut inner = inner.lock();
-                inner.stdin.write_all(data).map_err(|error| {
+                let stdin = inner.stdin.as_mut().ok_or_else(|| {
+                    Error::operation("sidecar.channel.write", "sidecar stdin is closed")
+                })?;
+                stdin.write_all(data).map_err(|error| {
                     Error::operation("sidecar.channel.write", error.to_string())
                 })?;
-                inner.stdin.flush().map_err(|error| {
+                stdin.flush().map_err(|error| {
                     Error::operation("sidecar.channel.write", error.to_string())
                 })?;
             },

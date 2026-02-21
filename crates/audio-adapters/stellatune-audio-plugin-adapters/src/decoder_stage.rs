@@ -2,7 +2,6 @@ use std::collections::HashSet;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
-use std::sync::Arc;
 
 use serde::Deserialize;
 use serde_json::Value;
@@ -16,8 +15,9 @@ use stellatune_plugins::error::Error as WasmPluginError;
 use stellatune_plugins::executor::plugin_instance::source::RuntimeOpenedSourceStreamHandle;
 use stellatune_plugins::host::stream::{HostStreamHandle, StreamSeekWhence};
 use stellatune_plugins::host_runtime::{
-    RuntimeCapabilityKind, RuntimeDecoderPlugin, shared_runtime_service,
+    RuntimeCapabilityKind, RuntimeDecoderPlugin, RuntimeSourcePlugin, shared_runtime_service,
 };
+use stellatune_plugins::runtime::model::RuntimeSourceStreamHandle;
 
 use crate::source_plugin::PluginSourcePayload;
 use crate::source_plugin::plugin_track_token_from_source_handle;
@@ -155,7 +155,7 @@ impl PluginDecoderStage {
             locator.path_hint.trim().to_string()
         };
         let (forced_plugin_id, forced_type_id) = self.decoder_selector_for_track(Some(&locator))?;
-        let candidates = select_decoder_candidates(
+        let candidates = select_source_decoder_candidates(
             ext_hint.as_str(),
             forced_plugin_id.as_deref(),
             forced_type_id.as_deref(),
@@ -182,22 +182,28 @@ impl PluginDecoderStage {
         }))
     }
 
-    fn apply_pending_seek(&mut self, ctx: &PipelineContext) -> Result<(), PipelineError> {
+    fn apply_pending_seek(&mut self, ctx: &mut PipelineContext) -> Result<(), PipelineError> {
         let Some(position_ms) = ctx.pending_seek_ms else {
             return Ok(());
         };
         let Some(prepared) = self.prepared.as_mut() else {
             return Err(PipelineError::NotPrepared);
         };
-        prepared
+        if let Err(error) = prepared
             .decoder
             .seek_ms(prepared.session_handle, position_ms.max(0) as u64)
-            .map_err(|error| {
-                PipelineError::StageFailure(format!(
-                    "decoder seek failed for {}::{}: {error}",
-                    prepared.plugin_id, prepared.type_id
-                ))
-            })?;
+        {
+            if matches!(error, WasmPluginError::Unsupported { .. }) {
+                // Streaming decoders may not support random access; ignore seek
+                // request instead of failing the whole playback pipeline.
+                ctx.pending_seek_ms = None;
+                return Ok(());
+            }
+            return Err(PipelineError::StageFailure(format!(
+                "decoder seek failed for {}::{}: {error}",
+                prepared.plugin_id, prepared.type_id
+            )));
+        }
         Ok(())
     }
 
@@ -556,6 +562,54 @@ fn select_decoder_candidates(
     }
 }
 
+fn select_source_decoder_candidates(
+    ext_hint: &str,
+    decoder_plugin_id: Option<&str>,
+    decoder_type_id: Option<&str>,
+) -> Result<Vec<DecoderCandidate>, String> {
+    match (decoder_plugin_id, decoder_type_id) {
+        (Some(plugin_id), Some(type_id)) => {
+            let service = shared_runtime_service();
+            let Some(_) =
+                service.find_capability(plugin_id, RuntimeCapabilityKind::Decoder, type_id)
+            else {
+                return Err(format!(
+                    "decoder not found: plugin_id={} type_id={}",
+                    plugin_id, type_id
+                ));
+            };
+            Ok(vec![DecoderCandidate {
+                plugin_id: plugin_id.to_string(),
+                type_id: type_id.to_string(),
+            }])
+        },
+        (Some(value), None) | (None, Some(value)) => Err(format!(
+            "invalid decoder selector: both plugin_id and type_id are required, got `{value}` only"
+        )),
+        (None, None) => {
+            let candidates = runtime_scored_decoder_candidates(ext_hint);
+            if candidates.is_empty() {
+                Err(build_no_source_decoder_candidates_error(ext_hint))
+            } else {
+                Ok(candidates)
+            }
+        },
+    }
+}
+
+fn build_no_source_decoder_candidates_error(ext_hint: &str) -> String {
+    let ext = normalize_ext_hint(ext_hint);
+    let service = shared_runtime_service();
+    let mut decoder_plugin_ids = service.decoder_capability_plugin_ids();
+    decoder_plugin_ids.sort();
+    let mut supported_exts = service.decoder_supported_extensions();
+    supported_exts.sort();
+    let has_wildcard = service.decoder_has_wildcard_candidate();
+    format!(
+        "no decoder candidates available for source stream (ext=`{ext}`, decoder_plugins={decoder_plugin_ids:?}, decoder_supported_exts={supported_exts:?}, decoder_wildcard={has_wildcard})"
+    )
+}
+
 fn open_source_stream_for_decoder(
     locator: &SourceStreamLocator,
     fallback_ext_hint: &str,
@@ -596,42 +650,15 @@ fn open_source_stream_for_decoder(
     };
     match stream.handle {
         RuntimeOpenedSourceStreamHandle::Passthrough(handle) => Ok((handle, ext_hint)),
-        RuntimeOpenedSourceStreamHandle::Processed(stream_handle) => {
-            let mut bytes = Vec::<u8>::new();
-            let read_result = (|| -> Result<(), String> {
-                loop {
-                    let chunk = source
-                        .read(stream_handle, SOURCE_STREAM_READ_BYTES)
-                        .map_err(|error| {
-                            format!(
-                                "source stream read failed for {}::{}: {error}",
-                                locator.plugin_id, locator.type_id
-                            )
-                        })?;
-                    if !chunk.bytes.is_empty() {
-                        bytes.extend_from_slice(&chunk.bytes);
-                    }
-                    if chunk.eof {
-                        break;
-                    }
-                }
-                Ok(())
-            })();
-            let close_result = source.close_stream(stream_handle).map_err(|error| {
-                format!(
-                    "source close_stream failed for {}::{}: {error}",
-                    locator.plugin_id, locator.type_id
-                )
-            });
-            if let Err(error) = close_result
-                && read_result.is_ok()
-            {
-                return Err(error);
-            }
-            read_result?;
-            let bytes: Arc<[u8]> = bytes.into();
-            Ok((Box::new(MemoryHostStreamHandle::new(bytes)), ext_hint))
-        },
+        RuntimeOpenedSourceStreamHandle::Processed(stream_handle) => Ok((
+            Box::new(ProcessedSourceHostStreamHandle::new(
+                source,
+                stream_handle,
+                locator.plugin_id.clone(),
+                locator.type_id.clone(),
+            )),
+            ext_hint,
+        )),
     }
 }
 
@@ -748,72 +775,79 @@ impl HostStreamHandle for FileHostStreamHandle {
     }
 }
 
-struct MemoryHostStreamHandle {
-    bytes: Arc<[u8]>,
+struct ProcessedSourceHostStreamHandle {
+    source: Option<RuntimeSourcePlugin>,
+    stream_handle: Option<RuntimeSourceStreamHandle>,
+    plugin_id: String,
+    type_id: String,
     position: u64,
+    eof: bool,
 }
 
-impl MemoryHostStreamHandle {
-    fn new(bytes: Arc<[u8]>) -> Self {
-        Self { bytes, position: 0 }
+impl ProcessedSourceHostStreamHandle {
+    fn new(
+        source: RuntimeSourcePlugin,
+        stream_handle: RuntimeSourceStreamHandle,
+        plugin_id: String,
+        type_id: String,
+    ) -> Self {
+        Self {
+            source: Some(source),
+            stream_handle: Some(stream_handle),
+            plugin_id,
+            type_id,
+            position: 0,
+            eof: false,
+        }
     }
 
-    fn seek_target(&self, offset: i64, whence: StreamSeekWhence) -> Result<u64, WasmPluginError> {
-        match whence {
-            StreamSeekWhence::Start => {
-                if offset < 0 {
-                    return Err(WasmPluginError::invalid_input(
-                        "negative offset with seek start",
-                    ));
-                }
-                Ok(offset as u64)
-            },
-            StreamSeekWhence::Current => {
-                if offset >= 0 {
-                    self.position.checked_add(offset as u64).ok_or_else(|| {
-                        WasmPluginError::invalid_input("seek overflow with current base")
-                    })
-                } else {
-                    self.position
-                        .checked_sub(offset.unsigned_abs())
-                        .ok_or_else(|| {
-                            WasmPluginError::invalid_input("seek underflow with current base")
-                        })
-                }
-            },
-            StreamSeekWhence::End => {
-                let end = self.bytes.len() as u64;
-                if offset >= 0 {
-                    end.checked_add(offset as u64).ok_or_else(|| {
-                        WasmPluginError::invalid_input("seek overflow with end base")
-                    })
-                } else {
-                    end.checked_sub(offset.unsigned_abs()).ok_or_else(|| {
-                        WasmPluginError::invalid_input("seek underflow with end base")
-                    })
-                }
-            },
+    fn close_internal(&mut self) {
+        if let (Some(source), Some(stream_handle)) =
+            (self.source.as_mut(), self.stream_handle.take())
+        {
+            let _ = source.close_stream(stream_handle);
         }
     }
 }
 
-impl HostStreamHandle for MemoryHostStreamHandle {
+impl HostStreamHandle for ProcessedSourceHostStreamHandle {
     fn read(&mut self, max_bytes: u32) -> Result<Vec<u8>, WasmPluginError> {
-        let max_bytes = max_bytes.max(1) as usize;
-        let len = self.bytes.len() as u64;
-        if self.position >= len {
+        if self.eof {
             return Ok(Vec::new());
         }
-        let start = self.position as usize;
-        let end = start.saturating_add(max_bytes).min(self.bytes.len());
-        self.position = end as u64;
-        Ok(self.bytes[start..end].to_vec())
+
+        let Some(source) = self.source.as_mut() else {
+            return Err(WasmPluginError::operation(
+                "runtime.source.read",
+                "processed source stream is closed",
+            ));
+        };
+        let Some(stream_handle) = self.stream_handle else {
+            return Err(WasmPluginError::operation(
+                "runtime.source.read",
+                "processed source stream handle is missing",
+            ));
+        };
+
+        let request_bytes = max_bytes.clamp(1, SOURCE_STREAM_READ_BYTES);
+        let chunk = source.read(stream_handle, request_bytes).map_err(|error| {
+            WasmPluginError::operation(
+                "runtime.source.read",
+                format!(
+                    "source stream read failed for {}::{}: {error}",
+                    self.plugin_id, self.type_id
+                ),
+            )
+        })?;
+        self.position = self.position.saturating_add(chunk.bytes.len() as u64);
+        self.eof = chunk.eof;
+        Ok(chunk.bytes)
     }
 
-    fn seek(&mut self, offset: i64, whence: StreamSeekWhence) -> Result<u64, WasmPluginError> {
-        let position = self.seek_target(offset, whence)?;
-        self.position = position;
-        Ok(position)
+    fn seek(&mut self, _offset: i64, _whence: StreamSeekWhence) -> Result<u64, WasmPluginError> {
+        Err(WasmPluginError::unsupported(
+            "seek is unsupported for processed source streams",
+        ))
     }
 
     fn tell(&mut self) -> Result<u64, WasmPluginError> {
@@ -821,7 +855,20 @@ impl HostStreamHandle for MemoryHostStreamHandle {
     }
 
     fn size(&mut self) -> Result<u64, WasmPluginError> {
-        Ok(self.bytes.len() as u64)
+        Err(WasmPluginError::unsupported(
+            "size is unsupported for processed source streams",
+        ))
+    }
+
+    fn close(&mut self) {
+        self.close_internal();
+        self.eof = true;
+    }
+}
+
+impl Drop for ProcessedSourceHostStreamHandle {
+    fn drop(&mut self) {
+        self.close_internal();
     }
 }
 

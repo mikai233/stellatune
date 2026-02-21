@@ -232,25 +232,16 @@ impl SidecarManager {
     }
 
     fn acquire_lifecycle(&mut self, config: &AsioOutputConfig) -> SdkResult<()> {
-        self.lifecycle_leases = self.lifecycle_leases.saturating_add(1);
+        if self.lifecycle_leases > 0 {
+            return Ok(());
+        }
+        self.lifecycle_leases = 1;
         if let Err(error) = self.ensure_for(config) {
-            self.lifecycle_leases = self.lifecycle_leases.saturating_sub(1);
-            if self.lifecycle_leases == 0 {
-                self.drop_current_client();
-            }
+            self.lifecycle_leases = 0;
+            self.drop_current_client();
             return Err(error);
         }
         Ok(())
-    }
-
-    fn release_lifecycle(&mut self) {
-        if self.lifecycle_leases == 0 {
-            return;
-        }
-        self.lifecycle_leases -= 1;
-        if self.lifecycle_leases == 0 {
-            self.drop_current_client();
-        }
     }
 
     fn ensure_for(&mut self, config: &AsioOutputConfig) -> SdkResult<&mut AsioSidecarClient> {
@@ -303,12 +294,6 @@ pub(crate) fn lifecycle_on_enable() -> SdkResult<()> {
     // Session-level config can trigger a signature-based restart.
     let mut manager = lock_manager();
     manager.acquire_lifecycle(&AsioOutputConfig::default())
-}
-
-pub(crate) fn lifecycle_on_disable() -> SdkResult<()> {
-    let mut manager = lock_manager();
-    manager.release_lifecycle();
-    Ok(())
 }
 
 pub(crate) fn with_sidecar<T>(

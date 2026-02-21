@@ -723,17 +723,27 @@ fn select_plugin_candidates(
             "invalid decoder selector: both plugin_id and type_id are required, got `{value}` only"
         )),
         (None, None) => {
-            let mut candidates = runtime_scored_plugin_candidates(ext_hint);
+            let candidates = runtime_scored_plugin_candidates(ext_hint);
             if candidates.is_empty() {
-                candidates = runtime_all_plugin_candidates();
-            }
-            if candidates.is_empty() {
-                Err("no decoder candidates available".to_string())
+                Err(build_no_source_decoder_candidates_error(ext_hint))
             } else {
                 Ok(candidates)
             }
         },
     }
+}
+
+fn build_no_source_decoder_candidates_error(ext_hint: &str) -> String {
+    let ext = normalize_ext_hint(ext_hint);
+    let service = shared_plugin_runtime();
+    let mut decoder_plugin_ids = service.decoder_capability_plugin_ids();
+    decoder_plugin_ids.sort();
+    let mut supported_exts = service.decoder_supported_extensions();
+    supported_exts.sort();
+    let has_wildcard = service.decoder_has_wildcard_candidate();
+    format!(
+        "no decoder candidates available for source stream (ext=`{ext}`, decoder_plugins={decoder_plugin_ids:?}, decoder_supported_exts={supported_exts:?}, decoder_wildcard={has_wildcard})"
+    )
 }
 
 fn sort_hybrid_candidates(candidates: &mut [HybridDecoderCandidate]) {

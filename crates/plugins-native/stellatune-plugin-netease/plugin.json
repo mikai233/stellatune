@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "id": "dev.stellatune.source.netease",
+  "name": "Netease Source",
+  "version": "0.1.0",
+  "api_version": 1,
+  "components": [
+    {
+      "id": "source-netease",
+      "path": "wasm/stellatune_plugin_netease_source.wasm",
+      "world": "stellatune:plugin/source-plugin@0.1.0",
+      "abilities": [
+        {
+          "kind": "source",
+          "type_id": "netease",
+          "display_name": "Netease Cloud Music",
+          "config_schema_json": "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"sidecar_base_url\":{\"type\":\"string\",\"default\":\"http://127.0.0.1:46321\"},\"sidecar_path\":{\"type\":[\"string\",\"null\"]},\"sidecar_args\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},\"default\":[]},\"request_timeout_ms\":{\"type\":\"integer\",\"minimum\":500,\"default\":8000},\"default_level\":{\"type\":\"string\",\"default\":\"standard\"}}}",
+          "default_config_json": "{\"sidecar_base_url\":\"http://127.0.0.1:46321\",\"sidecar_path\":null,\"sidecar_args\":[],\"request_timeout_ms\":8000,\"default_level\":\"standard\"}"
+        }
+      ]
+    },
+    {
+      "id": "decoder-stream-symphonia",
+      "path": "wasm/stellatune_plugin_netease_decoder.wasm",
+      "world": "stellatune:plugin/decoder-plugin@0.1.0",
+      "abilities": [
+        {
+          "kind": "decoder",
+          "type_id": "stream_symphonia",
+          "display_name": "Stream Decoder (Symphonia)",
+          "config_schema_json": "{}",
+          "default_config_json": "{}",
+          "decoder": {
+            "ext_scores": [
+              {
+                "ext": "mp3",
+                "score": 80
+              },
+              {
+                "ext": "flac",
+                "score": 80
+              },
+              {
+                "ext": "wav",
+                "score": 80
+              },
+              {
+                "ext": "m4a",
+                "score": 80
+              },
+              {
+                "ext": "aac",
+                "score": 80
+              }
+            ],
+            "wildcard_score": 0
+          }
+        }
+      ]
+    }
+  ]
+}

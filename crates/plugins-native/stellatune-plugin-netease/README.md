@@ -1,16 +1,17 @@
 # stellatune-plugin-netease
 
-Netease source plugin for StellaTune (development stage).
+Wasm source plugin for NetEase Cloud Music.
 
-This plugin currently provides:
+This plugin provides:
 
-- `SourceCatalog` type: `netease`
+- Source type: `netease`
 - Decoder type: `stream_symphonia`
 
 ## Runtime model
 
-- The plugin talks to a sidecar HTTP service.
-- Sidecar default URL: `http://127.0.0.1:46321`.
+- The source component runs as Wasm (`source-plugin` world).
+- The component launches and reuses a sidecar process through host `sidecar` imports.
+- Sidecar HTTP base URL default: `http://127.0.0.1:46321`.
 - Sidecar implementation is under `tools/stellatune-ncm-sidecar`.
 
 ## Plugin config
@@ -28,10 +29,11 @@ This plugin currently provides:
 ## Build
 
 ```powershell
-cargo build --manifest-path crates/plugins-native/stellatune-plugin-netease/Cargo.toml --release
+cargo build --manifest-path crates/plugins-native/stellatune-plugin-netease/source/Cargo.toml --target wasm32-wasip2 --release
+cargo build --manifest-path crates/plugins-native/stellatune-plugin-netease/decoder/Cargo.toml --target wasm32-wasip2 --release
 ```
 
-## Packaging
+## Packaging (Windows)
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File crates/plugins-native/stellatune-plugin-netease/scripts/package-windows.ps1
@@ -39,5 +41,7 @@ powershell -ExecutionPolicy Bypass -File crates/plugins-native/stellatune-plugin
 
 The zip contains:
 
-- `stellatune_plugin_netease.dll`
-- `bin/stellatune-ncm-sidecar.exe` (standalone sidecar executable, no Node.js runtime required on end-user machine)
+- `plugin.json`
+- `wasm/stellatune_plugin_netease_source.wasm`
+- `wasm/stellatune_plugin_netease_decoder.wasm`
+- `bin/stellatune-ncm-sidecar.exe`

@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::Path;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, OnceLock};
+use std::thread;
 
 use crate::executor::WasmtimePluginController;
 use crate::host::http::HttpClientHost;
@@ -649,18 +650,34 @@ impl HttpClientHost for BackendHttpClient {
         if url.is_empty() {
             return Err(WasmPluginError::invalid_input("url is empty"));
         }
-        let body = reqwest::blocking::get(url)
+        let url = url.to_string();
+        let worker = thread::Builder::new()
+            .name("stellatune-http-client".to_string())
+            .spawn(move || {
+                reqwest::blocking::get(url)
+                    .map_err(|error| {
+                        WasmPluginError::operation("http_client.fetch_json", error.to_string())
+                    })?
+                    .error_for_status()
+                    .map_err(|error| {
+                        WasmPluginError::operation("http_client.fetch_json", error.to_string())
+                    })?
+                    .text()
+                    .map_err(|error| {
+                        WasmPluginError::operation("http_client.fetch_json", error.to_string())
+                    })
+            })
             .map_err(|error| {
-                WasmPluginError::operation("http_client.fetch_json", error.to_string())
-            })?
-            .error_for_status()
-            .map_err(|error| {
-                WasmPluginError::operation("http_client.fetch_json", error.to_string())
-            })?
-            .text()
-            .map_err(|error| {
-                WasmPluginError::operation("http_client.fetch_json", error.to_string())
+                WasmPluginError::operation(
+                    "http_client.fetch_json",
+                    format!("spawn blocking worker failed: {error}"),
+                )
             })?;
-        Ok(body)
+        worker.join().map_err(|_| {
+            WasmPluginError::operation(
+                "http_client.fetch_json",
+                "blocking worker panicked".to_string(),
+            )
+        })?
     }
 }

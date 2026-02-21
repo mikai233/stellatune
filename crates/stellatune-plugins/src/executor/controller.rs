@@ -9,6 +9,8 @@ use crate::runtime::model::{
     PluginDisableReason, RuntimeCapabilityDescriptor, RuntimePluginDirective, RuntimePluginInfo,
 };
 
+const PACKAGE_SIDECAR_SHUTDOWN_GRACE_MS: u32 = 1_500;
+
 impl WasmPluginController for WasmtimePluginController {
     fn install_plugin(
         &self,
@@ -67,6 +69,9 @@ impl WasmPluginController for WasmtimePluginController {
             senders.retain(|sender| sender.send(RuntimePluginDirective::Rebuild).is_ok());
         }
         drop(routes);
+        if !already_installed {
+            self.sidecar_registry.plugin_activated(plugin.id.as_str());
+        }
 
         let mut plugins = self.plugins.write();
         plugins.insert(
@@ -80,6 +85,10 @@ impl WasmPluginController for WasmtimePluginController {
     }
 
     fn uninstall_plugin(&self, plugin_id: &str, reason: PluginDisableReason) -> Result<()> {
+        let plugin_id = plugin_id.trim();
+        if plugin_id.is_empty() {
+            return Ok(());
+        }
         let mut routes = self.directives.write();
         if let Some(senders) = routes.senders.get_mut(plugin_id) {
             senders.retain(|sender| {
@@ -88,9 +97,14 @@ impl WasmPluginController for WasmtimePluginController {
                     .is_ok()
             });
         }
-        routes.active_plugins.remove(plugin_id);
+        let was_active = routes.active_plugins.remove(plugin_id);
         routes.senders.remove(plugin_id);
         drop(routes);
+        if was_active {
+            // Package-scoped sidecars must follow plugin enabled/disabled lifecycle.
+            self.sidecar_registry
+                .plugin_deactivated(plugin_id, PACKAGE_SIDECAR_SHUTDOWN_GRACE_MS);
+        }
 
         let mut plugins = self.plugins.write();
         let removed = plugins.remove(plugin_id);
@@ -125,6 +139,7 @@ impl WasmPluginController for WasmtimePluginController {
 
     fn shutdown(&self) -> Result<()> {
         let mut routes = self.directives.write();
+        let active_plugin_ids = routes.active_plugins.iter().cloned().collect::<Vec<_>>();
         for senders in routes.senders.values_mut() {
             senders.retain(|sender| {
                 sender
@@ -137,6 +152,10 @@ impl WasmPluginController for WasmtimePluginController {
         routes.active_plugins.clear();
         routes.senders.clear();
         drop(routes);
+        for plugin_id in active_plugin_ids {
+            self.sidecar_registry
+                .plugin_deactivated(plugin_id.as_str(), PACKAGE_SIDECAR_SHUTDOWN_GRACE_MS);
+        }
 
         let mut plugins = self.plugins.write();
         plugins.clear();

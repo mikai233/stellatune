@@ -1327,8 +1327,6 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
             track: track,
             extHint: extHint,
             pathHint: pathHint,
-            decoderPluginId: sourceType.pluginId,
-            decoderTypeId: 'stream_symphonia',
           );
 
           items.add(

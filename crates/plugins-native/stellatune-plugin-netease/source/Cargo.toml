@@ -1,5 +1,5 @@
 [package]
-name = "stellatune-plugin-netease"
+name = "stellatune-plugin-netease-source"
 version = "0.1.0"
 edition = "2024"
 license.workspace = true
@@ -9,12 +9,9 @@ crate-type = ["cdylib"]
 
 [dependencies]
 stellatune-plugin-sdk.workspace = true
-stellatune-plugin-api.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-symphonia.workspace = true
-tokio.workspace = true
-reqwest = { version = "0.12.12", default-features = false, features = ["json", "rustls-tls"] }
+url.workspace = true
 
 [lints]
 workspace = true

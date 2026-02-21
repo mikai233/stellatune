@@ -202,6 +202,7 @@ pub fn init_tracing() {
                 EnvFilter::new("info")
             }
         });
+        let filter = add_quiet_http_directives(filter);
         let file = open_tracing_log_file();
         let writer = move || TeeWriter::new(file.clone());
         tracing_subscriber::fmt()
@@ -215,6 +216,16 @@ pub fn init_tracing() {
             .ok();
         install_panic_hook();
     });
+}
+
+fn add_quiet_http_directives(filter: EnvFilter) -> EnvFilter {
+    let mut filter = filter;
+    for directive in ["hyper_util=info", "reqwest=info"] {
+        if let Ok(parsed) = directive.parse::<tracing_subscriber::filter::Directive>() {
+            filter = filter.add_directive(parsed);
+        }
+    }
+    filter
 }
 
 async fn cleanup_plugin_runtime_for_shutdown() {
