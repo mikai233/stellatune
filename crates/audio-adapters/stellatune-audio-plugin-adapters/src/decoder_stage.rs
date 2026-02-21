@@ -265,6 +265,10 @@ impl DecoderStage for PluginDecoderStage {
         Some(frames.min(u64::MAX as u128) as u64)
     }
 
+    fn runtime_error_detail(&self) -> Option<&str> {
+        self.last_runtime_error()
+    }
+
     fn next_block(&mut self, out: &mut AudioBlock, ctx: &mut PipelineContext) -> StageStatus {
         self.last_position_ms = ctx.position_ms;
         let Some(prepared) = self.prepared.as_mut() else {

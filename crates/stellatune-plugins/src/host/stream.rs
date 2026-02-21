@@ -9,6 +9,10 @@ use std::time::Duration;
 use crate::error::{Error, Result};
 use tracing::warn;
 
+const HTTP_STREAM_CHUNK_BYTES: usize = 64 * 1024;
+const HTTP_STREAM_BUFFER_BYTES: usize = 32 * 1024 * 1024;
+const HTTP_STREAM_QUEUE_CAPACITY: usize = HTTP_STREAM_BUFFER_BYTES / HTTP_STREAM_CHUNK_BYTES;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StreamSeekWhence {
     Start,
@@ -147,7 +151,7 @@ fn stream_http_chunks(
     chunk_tx: &SyncSender<HttpChunkMessage>,
     cancel_rx: &mpsc::Receiver<()>,
 ) {
-    let mut buffer = vec![0_u8; 64 * 1024];
+    let mut buffer = vec![0_u8; HTTP_STREAM_CHUNK_BYTES];
     loop {
         if cancel_rx.try_recv().is_ok() {
             return;
@@ -182,7 +186,7 @@ fn start_http_stream_worker(
     Option<u64>,
 )> {
     let (ready_tx, ready_rx) = mpsc::sync_channel::<Result<HttpOpenState>>(1);
-    let (chunk_tx, chunk_rx) = mpsc::sync_channel::<HttpChunkMessage>(8);
+    let (chunk_tx, chunk_rx) = mpsc::sync_channel::<HttpChunkMessage>(HTTP_STREAM_QUEUE_CAPACITY);
     let (cancel_tx, cancel_rx) = mpsc::channel::<()>();
     let config = config.clone();
 

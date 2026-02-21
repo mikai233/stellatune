@@ -51,7 +51,9 @@ jobs:
           cache-dependency-path: tools/stellatune-ncm-sidecar/package-lock.json
 
       - name: Build plugin crate
-        run: cargo build --manifest-path crates/plugins-native/stellatune-plugin-netease/Cargo.toml --release
+        run: |
+          cargo build --manifest-path crates/plugins-native/stellatune-plugin-netease/source/Cargo.toml --target wasm32-wasip2 --release
+          cargo build --manifest-path crates/plugins-native/stellatune-plugin-netease/decoder/Cargo.toml --target wasm32-wasip2 --release
 
       - name: Package plugin artifact
         shell: pwsh
@@ -61,13 +63,16 @@ jobs:
       - name: Verify packaged files
         shell: pwsh
         run: |
-          $zip = Get-ChildItem target/plugins -Filter "stellatune-plugin-netease-*.zip" | Select-Object -First 1
+          $zip = Get-ChildItem target/plugins -Filter "*.zip" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
           if ($null -eq $zip) { throw "packaged zip not found under target/plugins" }
           $extractDir = Join-Path $env:RUNNER_TEMP "netease-plugin-smoke"
           if (Test-Path $extractDir) { Remove-Item -Recurse -Force $extractDir }
           Expand-Archive -Path $zip.FullName -DestinationPath $extractDir -Force
-          if (-not (Test-Path (Join-Path $extractDir "stellatune_plugin_netease.dll"))) {
-            throw "missing packaged plugin dll"
+          if (-not (Test-Path (Join-Path $extractDir "wasm/stellatune_plugin_netease_source.wasm"))) {
+            throw "missing packaged source wasm"
+          }
+          if (-not (Test-Path (Join-Path $extractDir "wasm/stellatune_plugin_netease_decoder.wasm"))) {
+            throw "missing packaged decoder wasm"
           }
           if (-not (Test-Path (Join-Path $extractDir "bin/stellatune-ncm-sidecar.exe"))) {
             throw "missing packaged sidecar executable"

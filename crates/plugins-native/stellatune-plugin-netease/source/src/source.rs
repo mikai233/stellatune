@@ -14,7 +14,8 @@ use url::Url;
 
 const DEFAULT_SIDECAR_BASE_URL: &str = "http://127.0.0.1:46321";
 const DEFAULT_SIDECAR_EXECUTABLE: &str = "stellatune-ncm-sidecar";
-const DEFAULT_REQUEST_TIMEOUT_MS: u64 = 8_000;
+const DEFAULT_API_REQUEST_TIMEOUT_MS: u64 = 8_000;
+const DEFAULT_STREAM_READ_TIMEOUT_MS: Option<u64> = None;
 const DEFAULT_LEVEL: &str = "standard";
 const SIDECAR_READY_TIMEOUT_SECS: u64 = 10;
 const SIDECAR_READY_POLL_MS: u64 = 150;
@@ -35,7 +36,8 @@ pub const CONFIG_SCHEMA_JSON: &str = r#"{
       "items": { "type": "string" },
       "default": []
     },
-    "request_timeout_ms": { "type": "integer", "minimum": 500, "default": 8000 },
+    "api_request_timeout_ms": { "type": "integer", "minimum": 500, "default": 8000 },
+    "stream_read_timeout_ms": { "type": ["integer", "null"], "minimum": 500, "default": null },
     "default_level": { "type": "string", "default": "standard" }
   }
 }"#;
@@ -44,7 +46,8 @@ pub const DEFAULT_CONFIG_JSON: &str = r#"{
   "sidecar_base_url": "http://127.0.0.1:46321",
   "sidecar_path": null,
   "sidecar_args": [],
-  "request_timeout_ms": 8000,
+  "api_request_timeout_ms": 8000,
+  "stream_read_timeout_ms": null,
   "default_level": "standard"
 }"#;
 
@@ -104,7 +107,9 @@ pub struct NeteaseSourceConfig {
     pub sidecar_base_url: String,
     pub sidecar_path: Option<String>,
     pub sidecar_args: Vec<String>,
-    pub request_timeout_ms: u64,
+    #[serde(alias = "request_timeout_ms")]
+    pub api_request_timeout_ms: u64,
+    pub stream_read_timeout_ms: Option<u64>,
     pub default_level: String,
 }
 
@@ -114,7 +119,8 @@ impl Default for NeteaseSourceConfig {
             sidecar_base_url: DEFAULT_SIDECAR_BASE_URL.to_string(),
             sidecar_path: None,
             sidecar_args: Vec::new(),
-            request_timeout_ms: DEFAULT_REQUEST_TIMEOUT_MS,
+            api_request_timeout_ms: DEFAULT_API_REQUEST_TIMEOUT_MS,
+            stream_read_timeout_ms: DEFAULT_STREAM_READ_TIMEOUT_MS,
             default_level: DEFAULT_LEVEL.to_string(),
         }
     }
@@ -303,9 +309,8 @@ impl SourceCatalog for NeteaseSourceCatalog {
 
         let metadata = build_track_metadata(&track, ext_hint.as_str());
         let mut request = HostStreamOpenRequest::http(resolved.url);
-        let timeout = clamp_timeout_ms(self.config.request_timeout_ms);
-        request.connect_timeout_ms = Some(timeout);
-        request.read_timeout_ms = Some(timeout);
+        request.connect_timeout_ms = Some(clamp_timeout_ms(self.config.api_request_timeout_ms));
+        request.read_timeout_ms = clamp_optional_timeout_ms(self.config.stream_read_timeout_ms);
 
         Ok(OpenedSourceStream::PassthroughRequest {
             request,
@@ -522,7 +527,7 @@ fn sidecar_get_json<T: DeserializeOwned>(
 ) -> SdkResult<T> {
     ensure_sidecar_running(config)?;
     let url = build_url(config, path, params)?;
-    let payload = http_get_bytes(&url, clamp_timeout_ms(config.request_timeout_ms))?;
+    let payload = http_get_bytes(&url, clamp_timeout_ms(config.api_request_timeout_ms))?;
     serde_json::from_slice::<T>(&payload).map_err(|error| {
         SdkError::internal(format!("decode sidecar JSON failed path={path}: {error}"))
     })
@@ -611,7 +616,7 @@ fn sidecar_get_json_without_bootstrap<T: DeserializeOwned>(
     params: &[(String, String)],
 ) -> SdkResult<T> {
     let url = build_url(config, path, params)?;
-    let payload = http_get_bytes(&url, clamp_timeout_ms(config.request_timeout_ms))?;
+    let payload = http_get_bytes(&url, clamp_timeout_ms(config.api_request_timeout_ms))?;
     serde_json::from_slice::<T>(&payload).map_err(|error| {
         SdkError::internal(format!("decode sidecar JSON failed path={path}: {error}"))
     })
@@ -680,7 +685,11 @@ fn config_signature(config: &NeteaseSourceConfig) -> String {
         .unwrap_or(DEFAULT_SIDECAR_EXECUTABLE);
     let args = config.sidecar_args.join("\u{1f}");
     let base = normalize_base_url(config.sidecar_base_url.as_str());
-    format!("{path}\u{1e}{args}\u{1e}{base}")
+    let api_timeout = clamp_timeout_ms(config.api_request_timeout_ms);
+    let stream_timeout = clamp_optional_timeout_ms(config.stream_read_timeout_ms)
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "none".to_string());
+    format!("{path}\u{1e}{args}\u{1e}{base}\u{1e}{api_timeout}\u{1e}{stream_timeout}")
 }
 
 fn build_track_metadata(track: &NeteaseTrack, codec: &str) -> MediaMetadata {
@@ -716,6 +725,10 @@ fn build_track_metadata(track: &NeteaseTrack, codec: &str) -> MediaMetadata {
 
 fn clamp_timeout_ms(timeout_ms: u64) -> u32 {
     timeout_ms.clamp(500, u32::MAX as u64) as u32
+}
+
+fn clamp_optional_timeout_ms(timeout_ms: Option<u64>) -> Option<u32> {
+    timeout_ms.map(clamp_timeout_ms)
 }
 
 fn normalize_base_url(raw: &str) -> String {

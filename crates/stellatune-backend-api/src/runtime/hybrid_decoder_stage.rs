@@ -345,6 +345,16 @@ impl DecoderStage for HybridDecoderStage {
         }
     }
 
+    fn runtime_error_detail(&self) -> Option<&str> {
+        if let Some(error) = self.last_runtime_error.as_deref() {
+            return Some(error);
+        }
+        match self.active.as_ref() {
+            Some(ActiveHybridDecoder::Plugin { stage }) => stage.runtime_error_detail(),
+            _ => None,
+        }
+    }
+
     fn next_block(&mut self, out: &mut AudioBlock, ctx: &mut PipelineContext) -> StageStatus {
         self.last_position_ms = ctx.position_ms;
         match self.active.as_mut() {

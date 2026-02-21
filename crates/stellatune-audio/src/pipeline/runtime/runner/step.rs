@@ -45,7 +45,13 @@ impl PipelineRunner {
                 return Ok(StepResult::Eof);
             },
             StageStatus::Fatal => {
-                return Err(PipelineError::StageFailure("decoder fatal".to_string()));
+                let detail = self
+                    .decoder
+                    .runtime_error_detail()
+                    .unwrap_or("decoder returned fatal status");
+                return Err(PipelineError::StageFailure(format!(
+                    "decoder fatal: {detail}"
+                )));
             },
         }
         self.refresh_playable_remaining_frames_hint();

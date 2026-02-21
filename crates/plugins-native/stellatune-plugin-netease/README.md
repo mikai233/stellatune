@@ -21,7 +21,8 @@ This plugin provides:
   "sidecar_base_url": "http://127.0.0.1:46321",
   "sidecar_path": null,
   "sidecar_args": [],
-  "request_timeout_ms": 8000,
+  "api_request_timeout_ms": 8000,
+  "stream_read_timeout_ms": null,
   "default_level": "standard"
 }
 ```
