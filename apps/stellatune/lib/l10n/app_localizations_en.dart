@@ -205,8 +205,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsInstallPlugin => 'Install plugin';
 
   @override
-  String get settingsInstallPluginPickFolder =>
-      'Pick plugin file (.zip/.dll/.so/.dylib)';
+  String get settingsInstallPluginPickFolder => 'Pick plugin package (.zip)';
 
   @override
   String get settingsInstallPluginMissingManifest =>

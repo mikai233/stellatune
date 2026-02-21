@@ -9,8 +9,9 @@ use stellatune_audio_builtin_adapters::device_sink::{
     OutputBackend as AdapterOutputBackend, OutputDeviceSpec, default_output_spec_for_backend,
     list_output_devices, output_spec_for_route,
 };
-use stellatune_audio_plugin_adapters::output_sink_runtime::negotiate_output_sink_spec;
-use stellatune_audio_plugin_adapters::output_sink_stage::PluginOutputSinkRouteSpec;
+use stellatune_audio_plugin_adapters::stages::{
+    PluginOutputSinkRouteSpec, negotiate_output_sink_spec,
+};
 
 use super::pipeline::{
     V2BackendAssembler, shared_device_sink_control, shared_runtime_sink_route_control,
@@ -548,13 +549,6 @@ fn resolve_rollback_output_spec(
         })
 }
 
-pub async fn runtime_prepare_hot_restart() {
-    let engine = shared_runtime_engine();
-    if let Err(err) = engine.stop().await {
-        tracing::warn!("runtime_prepare_hot_restart stop failed: {err}");
-    }
-}
-
 pub async fn runtime_shutdown() {
     let engine = shared_runtime_engine();
     if let Err(err) = engine.stop().await {
@@ -699,7 +693,7 @@ mod tests {
         resolve_match_track_policy, should_clear_route_for_plugin,
         should_clear_route_if_plugin_unavailable,
     };
-    use stellatune_audio_plugin_adapters::output_sink_stage::PluginOutputSinkRouteSpec;
+    use stellatune_audio_plugin_adapters::stages::PluginOutputSinkRouteSpec;
 
     fn route(plugin_id: &str) -> PluginOutputSinkRouteSpec {
         PluginOutputSinkRouteSpec::new(

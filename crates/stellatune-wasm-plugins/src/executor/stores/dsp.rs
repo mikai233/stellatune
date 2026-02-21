@@ -1,18 +1,35 @@
+use std::path::PathBuf;
+
 use wasmtime::component::Resource;
+use wasmtime_wasi::{ResourceTable, WasiCtx, WasiCtxView, WasiView};
 
 use stellatune_wasm_host_bindings::generated::dsp_plugin::stellatune::plugin::common as dsp_common;
 use stellatune_wasm_host_bindings::generated::dsp_plugin::stellatune::plugin::hot_path as dsp_hot_path;
 use stellatune_wasm_host_bindings::generated::dsp_plugin::stellatune::plugin::sidecar as dsp_sidecar;
 
 use crate::executor::sidecar_state::SidecarState;
-use crate::host::sidecar::{SidecarLaunchSpec, SidecarTransportKind, SidecarTransportOption};
+use crate::host::sidecar::{
+    SidecarLaunchSpec, SidecarTransportKind, SidecarTransportOption, resolve_sidecar_executable,
+};
 
 pub(crate) struct DspStoreData {
     pub(crate) sidecar: SidecarState,
+    pub(crate) plugin_root: PathBuf,
+    pub(crate) wasi_ctx: WasiCtx,
+    pub(crate) wasi_table: ResourceTable,
 }
 
 impl dsp_common::Host for DspStoreData {}
 impl dsp_hot_path::Host for DspStoreData {}
+
+impl WasiView for DspStoreData {
+    fn ctx(&mut self) -> WasiCtxView<'_> {
+        WasiCtxView {
+            ctx: &mut self.wasi_ctx,
+            table: &mut self.wasi_table,
+        }
+    }
+}
 
 fn dsp_plugin_error_internal(error: impl std::fmt::Display) -> dsp_sidecar::PluginError {
     dsp_sidecar::PluginError::Internal(error.to_string())
@@ -50,7 +67,8 @@ impl dsp_sidecar::Host for DspStoreData {
         let process_rep = self
             .sidecar
             .launch(&SidecarLaunchSpec {
-                executable: spec.executable,
+                executable: resolve_sidecar_executable(&self.plugin_root, &spec.executable)
+                    .map_err(dsp_plugin_error_internal)?,
                 args: spec.args,
                 preferred_control: spec
                     .preferred_control

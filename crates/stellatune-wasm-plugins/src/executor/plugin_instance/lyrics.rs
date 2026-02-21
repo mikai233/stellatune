@@ -2,7 +2,6 @@ use std::sync::mpsc;
 
 use crate::error::Result;
 use wasmtime::Store;
-use wasmtime::component::Component;
 
 use stellatune_wasm_host_bindings::generated as host_bindings;
 
@@ -206,17 +205,21 @@ impl WasmtimePluginController {
         self.ensure_plugin_active(plugin_id)?;
 
         let component_path = plugin.root_dir.join(&capability.component_rel_path);
-        let component = Component::from_file(&self.engine, &component_path).map_err(|error| {
-            crate::op_error!(
-                "failed to load component for plugin `{}` component `{}`: {error:#}",
-                plugin_id,
-                capability.component_id
-            )
-        })?;
+        let component = self
+            .load_component_cached(&component_path)
+            .map_err(|error| {
+                crate::op_error!(
+                    "failed to load component for plugin `{}` component `{}`: {error:#}",
+                    plugin_id,
+                    capability.component_id
+                )
+            })?;
 
         let (tx, rx) = mpsc::channel::<RuntimePluginDirective>();
         let component = match classify_world(&capability.world) {
-            WorldKind::Lyrics => self.instantiate_lyrics_component(&component, rx)?,
+            WorldKind::Lyrics => {
+                self.instantiate_lyrics_component(&plugin.root_dir, &component, rx)?
+            },
             _ => {
                 return Err(crate::op_error!(
                     "capability world `{}` is not a lyrics world",

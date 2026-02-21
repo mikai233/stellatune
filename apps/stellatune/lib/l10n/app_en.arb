@@ -90,7 +90,7 @@
   "settingsNoPlugins": "No plugins installed.",
   "settingsNoLoadedPlugins": "No plugins loaded.",
   "settingsInstallPlugin": "Install plugin",
-  "settingsInstallPluginPickFolder": "Pick plugin file (.zip/.dll/.so/.dylib)",
+  "settingsInstallPluginPickFolder": "Pick plugin package (.zip)",
   "settingsInstallPluginMissingManifest": "Unsupported plugin package.",
   "settingsPluginInstalled": "Plugin installed",
   "settingsOpenPluginDir": "Open plugin directory",

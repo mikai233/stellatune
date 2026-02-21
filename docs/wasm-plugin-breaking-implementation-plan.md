@@ -45,8 +45,6 @@ Initial modules:
   - decoder endpoint bridge
   - source endpoint bridge
   - lyrics endpoint bridge
-- `scheduler`
-  - dedicated thread vs shared pool execution
 - `errors`
   - canonical error mapping between host errors and WIT `plugin-error`
 
@@ -56,9 +54,6 @@ Initial modules:
 - Activation unit: component id from manifest.
 - Invocation route key:
   `(plugin_id, component_id, ability_kind, type_id)`.
-- Threading:
-  - `dedicated`: one worker per component instance group.
-  - `shared_pool`: scheduled on named pool.
 - Sidecar:
   - component-scoped process registry.
   - hard terminate during unload/shutdown.
@@ -180,16 +175,14 @@ Exit criteria:
 
 - host can discover and invoke decoder/source/lyrics from Wasm components.
 
-## Phase 6: Scheduler and Isolation
+## Phase 6: Runtime Isolation and Limits
 
-- Implement dedicated worker model per component.
-- Implement shared pools (`io`, `cpu`) for light workloads.
-- Add per-component limits (`max_instances`) and backpressure behavior.
+- Add per-component instance limits and backpressure behavior.
 - Add shutdown ordering and timeout handling.
 
 Exit criteria:
 
-- components can run in different threads as directed by manifest.
+- components remain isolated and stable under concurrent load.
 
 ## Phase 7: App/Backend Cutover
 
@@ -249,8 +242,8 @@ Exit criteria:
     shared memory transport.
 - Risk: plugin packaging mistakes.
   - Mitigation: strict manifest validation and deterministic error messages.
-- Risk: threading model mismatch with host workers.
-  - Mitigation: explicit scheduler module and per-component policy tests.
+- Risk: runtime instance contention under concurrent plugin load.
+  - Mitigation: explicit instance limits, backpressure, and stress tests.
 
 ## 8. Breaking Change Rollout Checklist
 

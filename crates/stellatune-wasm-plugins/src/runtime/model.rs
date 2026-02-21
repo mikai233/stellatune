@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use crate::manifest::{AbilityKind, ThreadingHint};
+use crate::manifest::AbilityKind;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RuntimePluginInfo {
@@ -15,6 +15,12 @@ pub struct RuntimePluginInfo {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RuntimeDecoderExtScore {
+    pub ext: String,
+    pub score: u16,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RuntimeCapabilityDescriptor {
     pub plugin_id: String,
     pub component_id: String,
@@ -22,7 +28,13 @@ pub struct RuntimeCapabilityDescriptor {
     pub world: String,
     pub kind: AbilityKind,
     pub type_id: String,
-    pub threading: Option<ThreadingHint>,
+    pub display_name: String,
+    pub config_schema_json: String,
+    pub default_config_json: String,
+    #[serde(default)]
+    pub decoder_ext_scores: Vec<RuntimeDecoderExtScore>,
+    #[serde(default)]
+    pub decoder_wildcard_score: u16,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -209,9 +221,10 @@ pub enum PluginDisableReason {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum RuntimePluginState {
+pub enum RuntimePluginLifecycleState {
     Active,
-    Inactive,
+    Disabled,
+    Failed,
     Missing,
 }
 
@@ -219,23 +232,36 @@ pub enum RuntimePluginState {
 pub struct RuntimePluginStatus {
     pub plugin_id: String,
     pub desired_state: DesiredPluginState,
-    pub runtime_state: RuntimePluginState,
+    pub lifecycle_state: RuntimePluginLifecycleState,
+    #[serde(default)]
+    pub last_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum RuntimePluginChangeKind {
-    Activated,
-    Reloaded,
-    Deactivated,
+pub enum RuntimePluginTransitionTrigger {
+    LoadNew,
+    ReloadChanged,
+    DisableRequested,
+    RemovedFromDisk,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimePluginTransitionOutcome {
+    Applied,
     Skipped,
+    Failed,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RuntimePluginChange {
+pub struct RuntimePluginTransition {
     pub plugin_id: String,
-    pub kind: RuntimePluginChangeKind,
-    pub reason: String,
+    pub from: RuntimePluginLifecycleState,
+    pub to: RuntimePluginLifecycleState,
+    pub trigger: RuntimePluginTransitionTrigger,
+    pub outcome: RuntimePluginTransitionOutcome,
+    pub detail: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -252,6 +278,6 @@ pub struct RuntimeSyncReport {
     pub discovered_plugins: usize,
     pub active_plugins: Vec<RuntimePluginInfo>,
     pub plugin_statuses: Vec<RuntimePluginStatus>,
-    pub changes: Vec<RuntimePluginChange>,
+    pub transitions: Vec<RuntimePluginTransition>,
     pub errors: Vec<String>,
 }

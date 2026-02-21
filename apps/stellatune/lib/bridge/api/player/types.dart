@@ -9,6 +9,7 @@ import 'package:freezed_annotation/freezed_annotation.dart' hide protected;
 part 'types.freezed.dart';
 
 // These functions are ignored because they have generic arguments: `config`, `config`, `from_payload`, `metadata`, `payload`, `set_metadata`, `target`, `with_config_target`, `with_config`
+// These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `TrackPlayability`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
 // These functions are ignored (category: IgnoreBecauseExplicitAttribute): `as_str`
 
@@ -366,30 +367,6 @@ class TrackDecodeInfo {
           metadataJson == other.metadataJson &&
           decoderPluginId == other.decoderPluginId &&
           decoderTypeId == other.decoderTypeId;
-}
-
-class TrackPlayability {
-  final TrackRef track;
-  final bool playable;
-  final String? reason;
-
-  const TrackPlayability({
-    required this.track,
-    required this.playable,
-    this.reason,
-  });
-
-  @override
-  int get hashCode => track.hashCode ^ playable.hashCode ^ reason.hashCode;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is TrackPlayability &&
-          runtimeType == other.runtimeType &&
-          track == other.track &&
-          playable == other.playable &&
-          reason == other.reason;
 }
 
 class TrackRef {

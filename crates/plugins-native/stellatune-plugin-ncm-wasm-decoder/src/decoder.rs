@@ -1,4 +1,4 @@
-use std::io::{Seek, SeekFrom};
+use std::io::{Read, Seek, SeekFrom};
 
 use stellatune_wasm_plugin_sdk::prelude::*;
 use symphonia::core::audio::{SampleBuffer, SignalSpec};
@@ -11,10 +11,9 @@ use symphonia::core::probe::Hint;
 use symphonia::core::units::Time;
 
 use crate::flac_offset::find_flac_streaminfo_start;
-use crate::io::NcmMediaSource;
+use crate::io::{DecoderInputReader, NcmMediaSource};
 
 const NCM_MAGIC: &[u8; 8] = b"CTENFDAM";
-const MAX_INPUT_BYTES: usize = 512 * 1024 * 1024;
 
 pub struct NcmWasmDecoderSession {
     backend: SymphoniaBackend,
@@ -95,19 +94,15 @@ impl DecoderSession for NcmWasmDecoderSession {
 }
 
 impl NcmWasmDecoderSession {
-    pub fn open(input: DecoderInput<'_>) -> SdkResult<Self> {
-        let ext_hint = input
-            .ext_hint
+    pub fn open(input: DecoderInput) -> SdkResult<Self> {
+        let DecoderInput { stream, ext_hint } = input;
+        let ext_hint = ext_hint
+            .as_deref()
             .map(|v| v.trim().to_ascii_lowercase())
             .filter(|v| !v.is_empty());
 
-        let encrypted = read_all_input(input.stream)?;
-        if encrypted.is_empty() {
-            return Err(SdkError::invalid_arg("ncm input is empty"));
-        }
-
-        let magic_ok =
-            encrypted.len() >= NCM_MAGIC.len() && &encrypted[..NCM_MAGIC.len()] == NCM_MAGIC;
+        let mut input_reader = DecoderInputReader::new(stream);
+        let magic_ok = has_ncm_magic(&mut input_reader)?;
         let ext_ok = ext_hint.as_deref() == Some("ncm");
         if !magic_ok && !ext_ok {
             return Err(SdkError::unsupported(
@@ -115,8 +110,13 @@ impl NcmWasmDecoderSession {
             ));
         }
 
-        let cursor = std::io::Cursor::new(encrypted);
-        let mut ncm = ncmdump::Ncmdump::from_reader(cursor)
+        input_reader.seek(SeekFrom::Start(0)).map_err(|e| {
+            SdkError::internal(format!(
+                "failed to reset input stream before ncmdump parse: {e}"
+            ))
+        })?;
+
+        let mut ncm = ncmdump::Ncmdump::from_reader(input_reader)
             .map_err(|e| SdkError::internal(format!("ncmdump parse failed: {e}")))?;
 
         let info = ncm
@@ -161,7 +161,7 @@ impl NcmWasmDecoderSession {
 
         let payload_len = payload_end.saturating_sub(payload_start);
         let len = payload_len.saturating_sub(start_offset);
-        let src = NcmMediaSource::new(ncm, start_offset, len);
+        let src = NcmMediaSource::new(ncm, start_offset, Some(len));
         let mss = MediaSourceStream::new(Box::new(src), MediaSourceStreamOptions::default());
 
         let meta_opts = MetadataOptions {
@@ -434,27 +434,26 @@ fn build_metadata(
     }
 }
 
-fn read_all_input(stream: &mut dyn DecoderInputStream) -> SdkResult<Vec<u8>> {
-    if let Ok(size) = stream.size()
-        && size as usize > MAX_INPUT_BYTES
-    {
-        return Err(SdkError::unsupported(format!(
-            "ncm input too large: {size} bytes, limit is {MAX_INPUT_BYTES}"
-        )));
-    }
+fn has_ncm_magic<R>(reader: &mut R) -> SdkResult<bool>
+where
+    R: Read + Seek,
+{
+    reader
+        .seek(SeekFrom::Start(0))
+        .map_err(|e| SdkError::internal(format!("failed to seek input to start: {e}")))?;
 
-    let mut out = Vec::<u8>::new();
-    loop {
-        let chunk = stream.read(64 * 1024)?;
-        if chunk.is_empty() {
-            break;
-        }
-        if out.len().saturating_add(chunk.len()) > MAX_INPUT_BYTES {
-            return Err(SdkError::unsupported(format!(
-                "ncm input exceeds limit {MAX_INPUT_BYTES} bytes"
-            )));
-        }
-        out.extend_from_slice(&chunk);
+    let mut magic = [0u8; NCM_MAGIC.len()];
+    let read_result = reader.read_exact(&mut magic);
+
+    reader
+        .seek(SeekFrom::Start(0))
+        .map_err(|e| SdkError::internal(format!("failed to restore input position: {e}")))?;
+
+    match read_result {
+        Ok(()) => Ok(&magic == NCM_MAGIC),
+        Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => Ok(false),
+        Err(error) => Err(SdkError::internal(format!(
+            "failed to read ncm magic header: {error}"
+        ))),
     }
-    Ok(out)
 }

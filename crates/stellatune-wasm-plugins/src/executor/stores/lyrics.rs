@@ -1,6 +1,8 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use wasmtime::component::Resource;
+use wasmtime_wasi::{ResourceTable, WasiCtx, WasiCtxView, WasiView};
 
 use stellatune_wasm_host_bindings::generated::lyrics_plugin::stellatune::plugin::common as lyrics_common;
 use stellatune_wasm_host_bindings::generated::lyrics_plugin::stellatune::plugin::http_client as lyrics_http_client;
@@ -8,14 +10,28 @@ use stellatune_wasm_host_bindings::generated::lyrics_plugin::stellatune::plugin:
 
 use crate::executor::sidecar_state::SidecarState;
 use crate::host::http::HttpClientHost;
-use crate::host::sidecar::{SidecarLaunchSpec, SidecarTransportKind, SidecarTransportOption};
+use crate::host::sidecar::{
+    SidecarLaunchSpec, SidecarTransportKind, SidecarTransportOption, resolve_sidecar_executable,
+};
 
 pub(crate) struct LyricsStoreData {
     pub(crate) http_client: Arc<dyn HttpClientHost>,
     pub(crate) sidecar: SidecarState,
+    pub(crate) plugin_root: PathBuf,
+    pub(crate) wasi_ctx: WasiCtx,
+    pub(crate) wasi_table: ResourceTable,
 }
 
 impl lyrics_common::Host for LyricsStoreData {}
+
+impl WasiView for LyricsStoreData {
+    fn ctx(&mut self) -> WasiCtxView<'_> {
+        WasiCtxView {
+            ctx: &mut self.wasi_ctx,
+            table: &mut self.wasi_table,
+        }
+    }
+}
 
 impl lyrics_http_client::Host for LyricsStoreData {
     fn fetch_json(
@@ -66,7 +82,8 @@ impl lyrics_sidecar::Host for LyricsStoreData {
         let process_rep = self
             .sidecar
             .launch(&SidecarLaunchSpec {
-                executable: spec.executable,
+                executable: resolve_sidecar_executable(&self.plugin_root, &spec.executable)
+                    .map_err(lyrics_plugin_error_internal)?,
                 args: spec.args,
                 preferred_control: spec
                     .preferred_control

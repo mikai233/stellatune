@@ -1,24 +1,11 @@
 use std::cell::RefCell;
-use std::collections::HashMap;
-use std::ffi::c_void;
-use std::fs::File;
-use std::io::{Read, Seek, SeekFrom};
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow};
 use base64::Engine;
-use crossbeam_channel::Receiver;
-use stellatune_plugin_api::{
-    ST_DECODER_INFO_FLAG_HAS_DURATION, ST_ERR_INVALID_ARG, ST_ERR_IO, StIoVTable, StSeekWhence,
-    StStatus, StStr,
-};
-use stellatune_plugins::runtime::introspection::CapabilityKind as RuntimeCapabilityKind;
-use stellatune_plugins::runtime::messages::WorkerControlMessage;
-use stellatune_plugins::runtime::worker_controller::{
-    WorkerApplyPendingOutcome, WorkerConfigUpdateOutcome,
-};
-use stellatune_plugins::runtime::worker_endpoint::DecoderWorkerController;
+use serde_json::Value as JsonValue;
 use symphonia::core::formats::{FormatOptions, FormatReader, SeekMode, SeekTo};
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::{Limit, MetadataOptions, StandardTagKey, StandardVisualKey, Value};
@@ -29,26 +16,10 @@ use tracing::debug;
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 use stellatune_audio_builtin_adapters::builtin_decoder::builtin_decoder_score_for_ext;
-use stellatune_plugins::runtime::handle::shared_runtime_service;
-use stellatune_runtime::block_on;
-
-use stellatune_plugins::capabilities::decoder::DecoderInstance;
-
-#[derive(Debug, serde::Deserialize)]
-struct PluginTrackMetadata {
-    #[serde(default)]
-    title: Option<String>,
-    #[serde(default)]
-    artist: Option<String>,
-    #[serde(default)]
-    album: Option<String>,
-    #[serde(default)]
-    duration_ms: Option<i64>,
-    #[serde(default)]
-    cover_base64: Option<String>,
-    #[serde(default)]
-    cover_bytes: Option<Vec<u8>>,
-}
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+use stellatune_wasm_plugins::host_runtime::{
+    RuntimeCapabilityKind, RuntimeDecoderPlugin, shared_runtime_service,
+};
 
 #[derive(Default)]
 pub(super) struct ExtractedMetadata {
@@ -64,131 +35,12 @@ pub(super) struct ExtractedMetadata {
 struct DecoderCandidate {
     plugin_id: String,
     type_id: String,
-    default_config_json: String,
     score: u16,
-    generation: u64,
 }
-
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-struct LocalFileIoHandle {
-    file: File,
-}
-
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-fn status_code(code: i32) -> StStatus {
-    StStatus {
-        code,
-        message: StStr::empty(),
-    }
-}
-
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-extern "C" fn local_io_read(
-    handle: *mut c_void,
-    out: *mut u8,
-    len: usize,
-    out_read: *mut usize,
-) -> StStatus {
-    if handle.is_null() || out_read.is_null() || (len > 0 && out.is_null()) {
-        return status_code(ST_ERR_INVALID_ARG);
-    }
-    let state = unsafe { &mut *(handle as *mut LocalFileIoHandle) };
-    let out_slice: &mut [u8] = if len == 0 {
-        &mut []
-    } else {
-        unsafe { std::slice::from_raw_parts_mut(out, len) }
-    };
-    match state.file.read(out_slice) {
-        Ok(n) => {
-            unsafe {
-                *out_read = n;
-            }
-            StStatus::ok()
-        },
-        Err(_) => status_code(ST_ERR_IO),
-    }
-}
-
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-extern "C" fn local_io_seek(
-    handle: *mut c_void,
-    offset: i64,
-    whence: StSeekWhence,
-    out_pos: *mut u64,
-) -> StStatus {
-    if handle.is_null() || out_pos.is_null() {
-        return status_code(ST_ERR_INVALID_ARG);
-    }
-    let state = unsafe { &mut *(handle as *mut LocalFileIoHandle) };
-    let seek_from = match whence {
-        StSeekWhence::Start => {
-            if offset < 0 {
-                return status_code(ST_ERR_INVALID_ARG);
-            }
-            SeekFrom::Start(offset as u64)
-        },
-        StSeekWhence::Current => SeekFrom::Current(offset),
-        StSeekWhence::End => SeekFrom::End(offset),
-    };
-    match state.file.seek(seek_from) {
-        Ok(pos) => {
-            unsafe {
-                *out_pos = pos;
-            }
-            StStatus::ok()
-        },
-        Err(_) => status_code(ST_ERR_IO),
-    }
-}
-
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-extern "C" fn local_io_tell(handle: *mut c_void, out_pos: *mut u64) -> StStatus {
-    if handle.is_null() || out_pos.is_null() {
-        return status_code(ST_ERR_INVALID_ARG);
-    }
-    let state = unsafe { &mut *(handle as *mut LocalFileIoHandle) };
-    match state.file.stream_position() {
-        Ok(pos) => {
-            unsafe {
-                *out_pos = pos;
-            }
-            StStatus::ok()
-        },
-        Err(_) => status_code(ST_ERR_IO),
-    }
-}
-
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-extern "C" fn local_io_size(handle: *mut c_void, out_size: *mut u64) -> StStatus {
-    if handle.is_null() || out_size.is_null() {
-        return status_code(ST_ERR_INVALID_ARG);
-    }
-    let state = unsafe { &mut *(handle as *mut LocalFileIoHandle) };
-    match state.file.metadata() {
-        Ok(meta) => {
-            unsafe {
-                *out_size = meta.len();
-            }
-            StStatus::ok()
-        },
-        Err(_) => status_code(ST_ERR_IO),
-    }
-}
-
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-static LOCAL_FILE_IO_VTABLE: StIoVTable = StIoVTable {
-    read: local_io_read,
-    seek: Some(local_io_seek),
-    tell: Some(local_io_tell),
-    size: Some(local_io_size),
-};
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 struct CachedMetadataDecoder {
-    generation: u64,
-    config_json: String,
-    controller: DecoderWorkerController,
-    control_rx: Receiver<WorkerControlMessage>,
+    decoder: RuntimeDecoderPlugin,
     last_used_at: Instant,
 }
 
@@ -211,39 +63,17 @@ pub(super) fn clear_metadata_decoder_cache() {
 }
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-fn create_plugin_metadata_decoder(
-    candidate: &DecoderCandidate,
-) -> Result<(DecoderWorkerController, Receiver<WorkerControlMessage>)> {
+fn create_plugin_metadata_decoder(candidate: &DecoderCandidate) -> Result<RuntimeDecoderPlugin> {
     let runtime = shared_runtime_service();
-    let endpoint =
-        block_on(runtime.bind_decoder_worker_endpoint(&candidate.plugin_id, &candidate.type_id))
-            .map_err(|e| {
-                anyhow::anyhow!(
-                    "bind_decoder_worker_endpoint failed for {}::{}: {e:#}",
-                    candidate.plugin_id,
-                    candidate.type_id
-                )
-            })?;
-    let (mut controller, control_rx) =
-        endpoint.into_controller(candidate.default_config_json.clone());
-    match controller.apply_pending().map_err(|e| {
-        anyhow::anyhow!(
-            "decoder controller apply_pending failed for {}::{}: {e:#}",
-            candidate.plugin_id,
-            candidate.type_id
-        )
-    })? {
-        WorkerApplyPendingOutcome::Created | WorkerApplyPendingOutcome::Recreated => {
-            Ok((controller, control_rx))
-        },
-        WorkerApplyPendingOutcome::Destroyed | WorkerApplyPendingOutcome::Idle => {
-            Err(anyhow::anyhow!(
-                "decoder controller did not create instance for {}::{}",
+    runtime
+        .create_decoder_plugin(&candidate.plugin_id, &candidate.type_id)
+        .map_err(|e| {
+            anyhow::anyhow!(
+                "create decoder plugin failed for {}::{}: {e:#}",
                 candidate.plugin_id,
                 candidate.type_id
-            ))
-        },
-    }
+            )
+        })
 }
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
@@ -267,111 +97,9 @@ fn prune_metadata_decoder_cache(
 }
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-fn refresh_cached_metadata_decoder(
-    entry: &mut CachedMetadataDecoder,
-    candidate: &DecoderCandidate,
-) -> Result<()> {
-    while let Ok(message) = entry.control_rx.try_recv() {
-        entry.controller.on_control_message(message);
-    }
-
-    if entry.controller.has_pending_destroy() {
-        match entry.controller.apply_pending().map_err(|e| {
-            anyhow::anyhow!(
-                "decoder destroy apply_pending failed for {}::{}: {e:#}",
-                candidate.plugin_id,
-                candidate.type_id
-            )
-        })? {
-            WorkerApplyPendingOutcome::Destroyed | WorkerApplyPendingOutcome::Idle => {
-                return Err(anyhow::anyhow!(
-                    "decoder instance destroyed by runtime control for {}::{}",
-                    candidate.plugin_id,
-                    candidate.type_id
-                ));
-            },
-            WorkerApplyPendingOutcome::Created | WorkerApplyPendingOutcome::Recreated => {},
-        }
-    }
-
-    let recreate_instance = |entry: &mut CachedMetadataDecoder| -> Result<()> {
-        let state_json = entry
-            .controller
-            .instance()
-            .and_then(|instance| instance.export_state_json().ok().flatten());
-
-        entry.controller.request_recreate();
-        match entry.controller.apply_pending().map_err(|e| {
-            anyhow::anyhow!(
-                "decoder recreate apply_pending failed for {}::{}: {e:#}",
-                candidate.plugin_id,
-                candidate.type_id
-            )
-        })? {
-            WorkerApplyPendingOutcome::Created | WorkerApplyPendingOutcome::Recreated => {},
-            WorkerApplyPendingOutcome::Destroyed | WorkerApplyPendingOutcome::Idle => {
-                return Err(anyhow::anyhow!(
-                    "decoder recreate did not produce instance for {}::{}",
-                    candidate.plugin_id,
-                    candidate.type_id
-                ));
-            },
-        }
-
-        if let Some(state_json) = state_json
-            && let Some(instance) = entry.controller.instance_mut()
-        {
-            let _ = instance.import_state_json(&state_json);
-        }
-
-        entry.generation = candidate.generation;
-        entry.config_json = candidate.default_config_json.clone();
-        Ok(())
-    };
-
-    if entry.controller.has_pending_recreate() {
-        recreate_instance(entry)?;
-    }
-    if entry.controller.instance().is_none() {
-        recreate_instance(entry)?;
-    }
-
-    if entry.generation != candidate.generation {
-        recreate_instance(entry)?;
-        return Ok(());
-    }
-
-    if entry.config_json == candidate.default_config_json {
-        return Ok(());
-    }
-
-    let update_outcome = match entry
-        .controller
-        .apply_config_update(candidate.default_config_json.clone())
-    {
-        Ok(outcome) => outcome,
-        Err(_) => {
-            recreate_instance(entry)?;
-            return Ok(());
-        },
-    };
-
-    match update_outcome {
-        WorkerConfigUpdateOutcome::Applied { .. } => {
-            entry.config_json = candidate.default_config_json.clone();
-            Ok(())
-        },
-        WorkerConfigUpdateOutcome::DeferredNoInstance
-        | WorkerConfigUpdateOutcome::RequiresRecreate { .. }
-        | WorkerConfigUpdateOutcome::Rejected { .. }
-        | WorkerConfigUpdateOutcome::Failed { .. } => recreate_instance(entry),
-    }
-}
-
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 fn with_cached_metadata_decoder<T>(
     candidate: &DecoderCandidate,
-    f: impl FnOnce(&mut DecoderInstance) -> Result<T>,
+    f: impl FnOnce(&mut RuntimeDecoderPlugin) -> Result<T>,
 ) -> Result<T> {
     METADATA_DECODER_CACHE.with_borrow_mut(|cache| {
         let now = Instant::now();
@@ -381,32 +109,19 @@ fn with_cached_metadata_decoder<T>(
         let mut entry = match cache.remove(&key) {
             Some(entry) => entry,
             None => {
-                let (controller, control_rx) = create_plugin_metadata_decoder(candidate)?;
+                let decoder = create_plugin_metadata_decoder(candidate)?;
                 CachedMetadataDecoder {
-                    generation: candidate.generation,
-                    config_json: candidate.default_config_json.clone(),
-                    controller,
-                    control_rx,
+                    decoder,
                     last_used_at: now,
                 }
             },
         };
-
-        refresh_cached_metadata_decoder(&mut entry, candidate)?;
-
-        let result = {
-            let decoder = entry.controller.instance_mut().ok_or_else(|| {
-                anyhow::anyhow!(
-                    "decoder instance unavailable for {}::{}",
-                    candidate.plugin_id,
-                    candidate.type_id
-                )
-            })?;
-            f(decoder)
-        };
-        entry.last_used_at = Instant::now();
-        cache.insert(key, entry);
-        prune_metadata_decoder_cache(cache, Instant::now());
+        let result = f(&mut entry.decoder);
+        if result.is_ok() {
+            entry.last_used_at = Instant::now();
+            cache.insert(key, entry);
+            prune_metadata_decoder_cache(cache, Instant::now());
+        }
         result
     })
 }
@@ -522,21 +237,23 @@ fn decoder_candidates_for_ext(ext: &str) -> Vec<DecoderCandidate> {
         return Vec::new();
     }
     let service = shared_runtime_service();
+    let mut seen = HashSet::new();
     let mut out = Vec::new();
-    for candidate in block_on(service.list_decoder_candidates_for_ext(&normalized)) {
-        let Some(cap) = block_on(service.find_capability(
+    for candidate in service.list_decoder_candidates_for_ext(&normalized) {
+        if !seen.insert((candidate.plugin_id.clone(), candidate.type_id.clone())) {
+            continue;
+        }
+        let Some(_) = service.find_capability(
             &candidate.plugin_id,
             RuntimeCapabilityKind::Decoder,
             &candidate.type_id,
-        )) else {
+        ) else {
             continue;
         };
         out.push(DecoderCandidate {
             plugin_id: candidate.plugin_id,
             type_id: candidate.type_id,
-            default_config_json: cap.default_config_json,
             score: candidate.score,
-            generation: cap.lease_id,
         });
     }
     out
@@ -670,7 +387,6 @@ fn estimate_duration_ms_by_seek(
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 fn extract_plugin_metadata_from_plugin(path: &Path) -> Result<ExtractedMetadata> {
     let started = std::time::Instant::now();
-    let path_str = path.to_string_lossy().to_string();
     let ext = path
         .extension()
         .and_then(|s| s.to_str())
@@ -686,84 +402,41 @@ fn extract_plugin_metadata_from_plugin(path: &Path) -> Result<ExtractedMetadata>
 
     let mut last_err: Option<String> = None;
     for candidate in candidates {
-        match with_cached_metadata_decoder(&candidate, |dec| {
-            let mut file = File::open(path)
-                .map(|file| Box::new(LocalFileIoHandle { file }))
-                .with_context(|| format!("failed to open for metadata: {}", path.display()))?;
-            let io_handle = (&mut *file) as *mut LocalFileIoHandle as *mut c_void;
-
-            dec.open_with_io(
-                &path_str,
-                &ext,
-                &LOCAL_FILE_IO_VTABLE as *const _,
-                io_handle,
-            )
-            .map_err(|e| anyhow::anyhow!("{e:#}"))
-            .with_context(|| {
-                format!(
-                    "decoder open_with_io failed for {}::{}",
-                    candidate.plugin_id, candidate.type_id
-                )
-            })?;
-
+        match with_cached_metadata_decoder(&candidate, |decoder| {
+            let ext_hint = (!ext.trim().is_empty()).then_some(ext.as_str());
+            let session = decoder
+                .open_file(path, ext_hint)
+                .map_err(|error| anyhow!("{error:#}"))
+                .with_context(|| {
+                    format!(
+                        "decoder open_file failed for {}::{}",
+                        candidate.plugin_id, candidate.type_id
+                    )
+                })?;
             debug!(
                 target: "stellatune_library::metadata",
                 path = %path.display(),
                 plugin_id = %candidate.plugin_id,
                 decoder_type_id = %candidate.type_id,
                 elapsed_ms = started.elapsed().as_millis(),
-                "v2 plugin decoder opened for metadata"
+                "v2 wasm decoder opened for metadata"
             );
 
-            let info = dec.get_info().map_err(|e| anyhow::anyhow!("{e:#}"))?;
+            let info = decoder.info(session).map_err(|error| anyhow!("{error:#}"));
+            let metadata = decoder
+                .metadata(session)
+                .ok()
+                .and_then(|value| serde_json::to_value(value).ok());
+            let _ = decoder.close(session);
+            let info = info?;
+
             let mut out = ExtractedMetadata {
-                duration_ms: if info.flags & ST_DECODER_INFO_FLAG_HAS_DURATION != 0 {
-                    Some(info.duration_ms as i64)
-                } else {
-                    None
-                },
+                duration_ms: info.duration_ms.map(|ms| ms.min(i64::MAX as u64) as i64),
                 ..Default::default()
             };
-
-            if let Ok(Some(raw)) = dec.get_metadata_json()
-                && let Ok(meta) = serde_json::from_str::<PluginTrackMetadata>(&raw)
-            {
-                out.title = meta
-                    .title
-                    .map(|s| s.trim().to_string())
-                    .filter(|s| !s.is_empty());
-                out.artist = meta
-                    .artist
-                    .map(|s| s.trim().to_string())
-                    .filter(|s| !s.is_empty());
-                out.album = meta
-                    .album
-                    .map(|s| s.trim().to_string())
-                    .filter(|s| !s.is_empty());
-
-                if out.duration_ms.is_none() {
-                    out.duration_ms = meta.duration_ms.filter(|ms| *ms >= 0);
-                }
-
-                if out.cover.is_none() {
-                    if let Some(s) = meta.cover_base64.as_deref() {
-                        let s = s.trim();
-                        if !s.is_empty()
-                            && let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(s)
-                            && !bytes.is_empty()
-                            && (bytes.len() as u64) <= COVER_BYTES_LIMIT
-                        {
-                            out.cover = Some(bytes);
-                        }
-                    } else if let Some(bytes) = meta.cover_bytes
-                        && !bytes.is_empty()
-                        && (bytes.len() as u64) <= COVER_BYTES_LIMIT
-                    {
-                        out.cover = Some(bytes);
-                    }
-                }
+            if let Some(metadata) = metadata.as_ref() {
+                apply_runtime_metadata_json(metadata, &mut out);
             }
-
             if out.cover.is_none() {
                 out.cover = load_sidecar_cover(path);
             }
@@ -782,6 +455,107 @@ fn extract_plugin_metadata_from_plugin(path: &Path) -> Result<ExtractedMetadata>
         path.display(),
         last_err.unwrap_or_else(|| "no decoder candidate succeeded".to_string())
     ))
+}
+
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+fn apply_runtime_metadata_json(metadata: &JsonValue, out: &mut ExtractedMetadata) {
+    if out.title.is_none() {
+        out.title = metadata
+            .pointer("/tags/title")
+            .and_then(JsonValue::as_str)
+            .and_then(normalize_text_field);
+    }
+    if out.artist.is_none() {
+        out.artist = metadata
+            .pointer("/tags/artists")
+            .and_then(JsonValue::as_array)
+            .and_then(|artists| artists.first())
+            .and_then(JsonValue::as_str)
+            .and_then(normalize_text_field);
+    }
+    if out.album.is_none() {
+        out.album = metadata
+            .pointer("/tags/album")
+            .and_then(JsonValue::as_str)
+            .and_then(normalize_text_field);
+    }
+    if out.duration_ms.is_none() {
+        out.duration_ms = metadata.get("duration_ms").and_then(json_u64_to_i64);
+    }
+    if out.cover.is_none() {
+        out.cover = extract_cover_from_runtime_extras_json(metadata);
+    }
+}
+
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+fn normalize_text_field(raw: &str) -> Option<String> {
+    let text = raw.trim().to_string();
+    if text.is_empty() { None } else { Some(text) }
+}
+
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+fn json_u64_to_i64(value: &JsonValue) -> Option<i64> {
+    value.as_u64().map(|v| v.min(i64::MAX as u64) as i64)
+}
+
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+fn extract_cover_from_runtime_extras_json(metadata: &JsonValue) -> Option<Vec<u8>> {
+    let extras = metadata.get("extras")?.as_array()?;
+    for entry in extras {
+        let key = entry
+            .get("key")
+            .and_then(JsonValue::as_str)
+            .unwrap_or_default()
+            .trim()
+            .to_ascii_lowercase();
+        if !key.contains("cover") && !key.contains("art") && !key.contains("image") {
+            continue;
+        }
+        let Some(value) = entry.get("value") else {
+            continue;
+        };
+        if let Some(bytes) = extract_cover_bytes_from_runtime_value(value) {
+            return Some(bytes);
+        }
+    }
+    None
+}
+
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+fn extract_cover_bytes_from_runtime_value(value: &JsonValue) -> Option<Vec<u8>> {
+    if let Some(bytes) = value
+        .get("bytes")
+        .or_else(|| value.get("Bytes"))
+        .and_then(JsonValue::as_array)
+    {
+        let mut out = Vec::with_capacity(bytes.len());
+        for item in bytes {
+            let byte = item.as_u64()?;
+            if byte > u8::MAX as u64 {
+                return None;
+            }
+            out.push(byte as u8);
+        }
+        if !out.is_empty() && (out.len() as u64) <= COVER_BYTES_LIMIT {
+            return Some(out);
+        }
+    }
+    let text = value
+        .get("text")
+        .or_else(|| value.get("Text"))
+        .and_then(JsonValue::as_str)
+        .or_else(|| value.as_str())?;
+    let text = text.trim();
+    if text.is_empty() {
+        return None;
+    }
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(text)
+        .ok()?;
+    if bytes.is_empty() || (bytes.len() as u64) > COVER_BYTES_LIMIT {
+        return None;
+    }
+    Some(bytes)
 }
 
 const COVER_BYTES_LIMIT: u64 = 12 * 1024 * 1024;

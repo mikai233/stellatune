@@ -1,18 +1,35 @@
+use std::path::PathBuf;
+
 use wasmtime::component::Resource;
+use wasmtime_wasi::{ResourceTable, WasiCtx, WasiCtxView, WasiView};
 
 use stellatune_wasm_host_bindings::generated::output_sink_plugin::stellatune::plugin::common as output_sink_common;
 use stellatune_wasm_host_bindings::generated::output_sink_plugin::stellatune::plugin::hot_path as output_sink_hot_path;
 use stellatune_wasm_host_bindings::generated::output_sink_plugin::stellatune::plugin::sidecar as output_sink_sidecar;
 
 use crate::executor::sidecar_state::SidecarState;
-use crate::host::sidecar::{SidecarLaunchSpec, SidecarTransportKind, SidecarTransportOption};
+use crate::host::sidecar::{
+    SidecarLaunchSpec, SidecarTransportKind, SidecarTransportOption, resolve_sidecar_executable,
+};
 
 pub(crate) struct OutputSinkStoreData {
     pub(crate) sidecar: SidecarState,
+    pub(crate) plugin_root: PathBuf,
+    pub(crate) wasi_ctx: WasiCtx,
+    pub(crate) wasi_table: ResourceTable,
 }
 
 impl output_sink_common::Host for OutputSinkStoreData {}
 impl output_sink_hot_path::Host for OutputSinkStoreData {}
+
+impl WasiView for OutputSinkStoreData {
+    fn ctx(&mut self) -> WasiCtxView<'_> {
+        WasiCtxView {
+            ctx: &mut self.wasi_ctx,
+            table: &mut self.wasi_table,
+        }
+    }
+}
 
 fn output_sink_plugin_error_internal(
     error: impl std::fmt::Display,
@@ -61,7 +78,8 @@ impl output_sink_sidecar::Host for OutputSinkStoreData {
         let process_rep = self
             .sidecar
             .launch(&SidecarLaunchSpec {
-                executable: spec.executable,
+                executable: resolve_sidecar_executable(&self.plugin_root, &spec.executable)
+                    .map_err(output_sink_plugin_error_internal)?,
                 args: spec.args,
                 preferred_control: spec
                     .preferred_control

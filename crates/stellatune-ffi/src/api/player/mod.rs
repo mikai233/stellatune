@@ -2,10 +2,12 @@ use std::collections::HashSet;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::frb_generated::StreamSink;
-use anyhow::{Result, anyhow};
+use anyhow::{Context, Result, anyhow};
 use serde_json::Value;
 use stellatune_runtime as global_runtime;
 use tracing::{debug, warn};
+
+use crate::api::library::shared_library_if_initialized;
 
 pub(crate) mod types;
 use stellatune_audio::config::engine::{
@@ -14,8 +16,9 @@ use stellatune_audio::config::engine::{
 };
 use stellatune_audio::engine::EngineHandle as AudioEngineHandle;
 use stellatune_audio::pipeline::assembly::{BuiltinTransformSlot, PipelineMutation};
-use stellatune_audio_plugin_adapters::bridge::{PluginTransformSegment, PluginTransformStageSpec};
-use stellatune_audio_plugin_adapters::orchestrator::PluginPipelineOrchestrator;
+use stellatune_audio_plugin_adapters::pipeline::{
+    PluginPipelineOrchestrator, PluginTransformSegment, PluginTransformStageSpec,
+};
 use stellatune_backend_api::lyrics_service::LyricsService;
 use stellatune_backend_api::player::{
     plugins_install_from_file as backend_plugins_install_from_file,
@@ -30,13 +33,11 @@ use stellatune_backend_api::runtime::{
     shared_plugin_runtime, shared_runtime_engine,
 };
 use stellatune_backend_api::{LyricsDoc, LyricsEvent, LyricsQuery, LyricsSearchCandidate};
-use stellatune_plugins::runtime::introspection::CapabilityKind;
-use stellatune_plugins::runtime::worker_controller::WorkerApplyPendingOutcome;
 use types::{
     AudioBackend, AudioDevice, DspChainItem, DspTypeDescriptor, Event, LfeMode,
     LyricsProviderTypeDescriptor, OutputSinkRoute, OutputSinkTypeDescriptor, PlayerState,
     PluginDescriptor, PluginRuntimeEvent, ResampleQuality, SourceCatalogTypeDescriptor,
-    TrackDecodeInfo, TrackPlayability, TrackRef,
+    TrackDecodeInfo, TrackRef,
 };
 
 struct PlayerContext {
@@ -255,20 +256,15 @@ pub fn lyrics_events(sink: StreamSink<LyricsEvent>) -> Result<()> {
 }
 
 pub async fn plugins_list() -> Vec<PluginDescriptor> {
-    let service = shared_plugin_runtime();
-    let mut plugin_ids = service.active_plugin_ids().await;
-    plugin_ids.sort();
-    let mut out = Vec::with_capacity(plugin_ids.len());
-    for plugin_id in plugin_ids {
-        let Some(generation) = service.current_plugin_lease_info(&plugin_id).await else {
-            continue;
-        };
-        out.push(PluginDescriptor {
-            id: plugin_id.clone(),
-            name: plugin_name_from_metadata_json(&plugin_id, &generation.metadata_json),
-        });
-    }
-    out
+    shared_plugin_runtime()
+        .active_plugins()
+        .await
+        .into_iter()
+        .map(|plugin| PluginDescriptor {
+            id: plugin.id,
+            name: plugin.name,
+        })
+        .collect()
 }
 
 pub fn plugin_publish_event_json(plugin_id: Option<String>, event_json: String) -> Result<()> {
@@ -280,23 +276,15 @@ pub fn plugin_publish_event_json(plugin_id: Option<String>, event_json: String) 
 
 pub async fn dsp_list_types() -> Vec<DspTypeDescriptor> {
     let service = shared_plugin_runtime();
-    let mut plugin_ids = service.active_plugin_ids().await;
-    plugin_ids.sort();
+    let plugins = service.active_plugins().await;
     let mut out = Vec::new();
-    for plugin_id in plugin_ids {
-        let Some(generation) = service.current_plugin_lease_info(&plugin_id).await else {
-            continue;
-        };
-        let plugin_name = plugin_name_from_metadata_json(&plugin_id, &generation.metadata_json);
-        let mut capabilities = service.list_capabilities(&plugin_id).await;
+    for plugin in plugins {
+        let mut capabilities = service.list_dsp_capabilities(&plugin.id);
         capabilities.sort_by(|a, b| a.type_id.cmp(&b.type_id));
         for capability in capabilities {
-            if capability.kind != CapabilityKind::Dsp {
-                continue;
-            }
             out.push(DspTypeDescriptor {
-                plugin_id: plugin_id.clone(),
-                plugin_name: plugin_name.clone(),
+                plugin_id: plugin.id.clone(),
+                plugin_name: plugin.name.clone(),
                 type_id: capability.type_id,
                 display_name: capability.display_name,
                 config_schema_json: capability.config_schema_json,
@@ -309,23 +297,15 @@ pub async fn dsp_list_types() -> Vec<DspTypeDescriptor> {
 
 pub async fn source_list_types() -> Vec<SourceCatalogTypeDescriptor> {
     let service = shared_plugin_runtime();
-    let mut plugin_ids = service.active_plugin_ids().await;
-    plugin_ids.sort();
+    let plugins = service.active_plugins().await;
     let mut out = Vec::new();
-    for plugin_id in plugin_ids {
-        let Some(generation) = service.current_plugin_lease_info(&plugin_id).await else {
-            continue;
-        };
-        let plugin_name = plugin_name_from_metadata_json(&plugin_id, &generation.metadata_json);
-        let mut capabilities = service.list_capabilities(&plugin_id).await;
+    for plugin in plugins {
+        let mut capabilities = service.list_source_capabilities(&plugin.id);
         capabilities.sort_by(|a, b| a.type_id.cmp(&b.type_id));
         for capability in capabilities {
-            if capability.kind != CapabilityKind::SourceCatalog {
-                continue;
-            }
             out.push(SourceCatalogTypeDescriptor {
-                plugin_id: plugin_id.clone(),
-                plugin_name: plugin_name.clone(),
+                plugin_id: plugin.id.clone(),
+                plugin_name: plugin.name.clone(),
                 type_id: capability.type_id,
                 display_name: capability.display_name,
                 config_schema_json: capability.config_schema_json,
@@ -338,23 +318,15 @@ pub async fn source_list_types() -> Vec<SourceCatalogTypeDescriptor> {
 
 pub async fn lyrics_provider_list_types() -> Vec<LyricsProviderTypeDescriptor> {
     let service = shared_plugin_runtime();
-    let mut plugin_ids = service.active_plugin_ids().await;
-    plugin_ids.sort();
+    let plugins = service.active_plugins().await;
     let mut out = Vec::new();
-    for plugin_id in plugin_ids {
-        let Some(generation) = service.current_plugin_lease_info(&plugin_id).await else {
-            continue;
-        };
-        let plugin_name = plugin_name_from_metadata_json(&plugin_id, &generation.metadata_json);
-        let mut capabilities = service.list_capabilities(&plugin_id).await;
+    for plugin in plugins {
+        let mut capabilities = service.list_lyrics_capabilities(&plugin.id);
         capabilities.sort_by(|a, b| a.type_id.cmp(&b.type_id));
         for capability in capabilities {
-            if capability.kind != CapabilityKind::LyricsProvider {
-                continue;
-            }
             out.push(LyricsProviderTypeDescriptor {
-                plugin_id: plugin_id.clone(),
-                plugin_name: plugin_name.clone(),
+                plugin_id: plugin.id.clone(),
+                plugin_name: plugin.name.clone(),
                 type_id: capability.type_id,
                 display_name: capability.display_name,
             });
@@ -365,23 +337,15 @@ pub async fn lyrics_provider_list_types() -> Vec<LyricsProviderTypeDescriptor> {
 
 pub async fn output_sink_list_types() -> Vec<OutputSinkTypeDescriptor> {
     let service = shared_plugin_runtime();
-    let mut plugin_ids = service.active_plugin_ids().await;
-    plugin_ids.sort();
+    let plugins = service.active_plugins().await;
     let mut out = Vec::new();
-    for plugin_id in plugin_ids {
-        let Some(generation) = service.current_plugin_lease_info(&plugin_id).await else {
-            continue;
-        };
-        let plugin_name = plugin_name_from_metadata_json(&plugin_id, &generation.metadata_json);
-        let mut capabilities = service.list_capabilities(&plugin_id).await;
+    for plugin in plugins {
+        let mut capabilities = service.list_output_sink_capabilities(&plugin.id);
         capabilities.sort_by(|a, b| a.type_id.cmp(&b.type_id));
         for capability in capabilities {
-            if capability.kind != CapabilityKind::OutputSink {
-                continue;
-            }
             out.push(OutputSinkTypeDescriptor {
-                plugin_id: plugin_id.clone(),
-                plugin_name: plugin_name.clone(),
+                plugin_id: plugin.id.clone(),
+                plugin_name: plugin.name.clone(),
                 type_id: capability.type_id,
                 display_name: capability.display_name,
                 config_schema_json: capability.config_schema_json,
@@ -402,31 +366,20 @@ pub async fn source_list_items_json(
         .map_err(|e| anyhow!("invalid source config_json: {e}"))?;
     let request = serde_json::from_str::<serde_json::Value>(&request_json)
         .map_err(|e| anyhow!("invalid source request_json: {e}"))?;
-    let endpoint = shared_plugin_runtime()
-        .bind_source_catalog_worker_endpoint(&plugin_id, &type_id)
-        .await
-        .map_err(|e| anyhow!("bind source endpoint failed: {e}"))?;
-    let (mut controller, _control_rx) = endpoint.into_controller(
-        serde_json::to_string(&config).map_err(|e| anyhow!("serialize source config_json: {e}"))?,
-    );
-    match controller
-        .apply_pending()
-        .map_err(|e| anyhow!(e.to_string()))?
-    {
-        WorkerApplyPendingOutcome::Created | WorkerApplyPendingOutcome::Recreated => {},
-        WorkerApplyPendingOutcome::Destroyed | WorkerApplyPendingOutcome::Idle => {
-            return Err(anyhow!("source controller did not create instance"));
-        },
-    }
-    let instance = controller
-        .instance_mut()
-        .ok_or_else(|| anyhow!("source instance unavailable"))?;
-    let payload = instance
+    let mut source = shared_plugin_runtime()
+        .create_source_plugin(&plugin_id, &type_id)
+        .map_err(|e| anyhow!("create source plugin failed: {e}"))?;
+    source
+        .apply_config_update_json(
+            &serde_json::to_string(&config)
+                .map_err(|e| anyhow!("serialize source config_json: {e}"))?,
+        )
+        .map_err(|e| anyhow!("source apply_config_update_json failed: {e}"))?;
+    let payload = source
         .list_items_json(
             &serde_json::to_string(&request)
                 .map_err(|e| anyhow!("serialize source request_json: {e}"))?,
         )
-        .await
         .map_err(|e| anyhow!("source list_items failed: {e}"))?;
     normalize_json_string_payload("source list response", payload)
 }
@@ -438,28 +391,13 @@ pub async fn lyrics_provider_search_json(
 ) -> Result<String> {
     let query = serde_json::from_str::<serde_json::Value>(&query_json)
         .map_err(|e| anyhow!("invalid lyrics query_json: {e}"))?;
-    let endpoint = shared_plugin_runtime()
-        .bind_lyrics_provider_worker_endpoint(&plugin_id, &type_id)
-        .await
-        .map_err(|e| anyhow!("bind lyrics endpoint failed: {e}"))?;
-    let (mut controller, _control_rx) = endpoint.into_controller("{}".to_string());
-    match controller
-        .apply_pending()
-        .map_err(|e| anyhow!(e.to_string()))?
-    {
-        WorkerApplyPendingOutcome::Created | WorkerApplyPendingOutcome::Recreated => {},
-        WorkerApplyPendingOutcome::Destroyed | WorkerApplyPendingOutcome::Idle => {
-            return Err(anyhow!("lyrics controller did not create instance"));
-        },
-    }
-    let instance = controller
-        .instance_mut()
-        .ok_or_else(|| anyhow!("lyrics instance unavailable"))?;
-    let payload = instance
-        .search_json(
-            &serde_json::to_string(&query)
-                .map_err(|e| anyhow!("serialize lyrics query_json: {e}"))?,
-        )
+    let keyword = extract_lyrics_search_keyword(&query)
+        .ok_or_else(|| anyhow!("lyrics query_json missing keyword"))?;
+    let mut lyrics = shared_plugin_runtime()
+        .create_lyrics_plugin(&plugin_id, &type_id)
+        .map_err(|e| anyhow!("create lyrics plugin failed: {e}"))?;
+    let payload = lyrics
+        .search_json(&keyword)
         .map_err(|e| anyhow!("lyrics search failed: {e}"))?;
     normalize_json_string_payload("lyrics search response", payload)
 }
@@ -471,30 +409,15 @@ pub async fn lyrics_provider_fetch_json(
 ) -> Result<String> {
     let track = serde_json::from_str::<serde_json::Value>(&track_json)
         .map_err(|e| anyhow!("invalid lyrics track_json: {e}"))?;
-    let endpoint = shared_plugin_runtime()
-        .bind_lyrics_provider_worker_endpoint(&plugin_id, &type_id)
-        .await
-        .map_err(|e| anyhow!("bind lyrics endpoint failed: {e}"))?;
-    let (mut controller, _control_rx) = endpoint.into_controller("{}".to_string());
-    match controller
-        .apply_pending()
-        .map_err(|e| anyhow!(e.to_string()))?
-    {
-        WorkerApplyPendingOutcome::Created | WorkerApplyPendingOutcome::Recreated => {},
-        WorkerApplyPendingOutcome::Destroyed | WorkerApplyPendingOutcome::Idle => {
-            return Err(anyhow!("lyrics controller did not create instance"));
-        },
-    }
-    let instance = controller
-        .instance_mut()
-        .ok_or_else(|| anyhow!("lyrics instance unavailable"))?;
-    let payload = instance
-        .fetch_json(
-            &serde_json::to_string(&track)
-                .map_err(|e| anyhow!("serialize lyrics track_json: {e}"))?,
-        )
+    let lyric_id =
+        extract_lyrics_fetch_id(&track).ok_or_else(|| anyhow!("lyrics track_json missing id"))?;
+    let mut lyrics = shared_plugin_runtime()
+        .create_lyrics_plugin(&plugin_id, &type_id)
+        .map_err(|e| anyhow!("create lyrics plugin failed: {e}"))?;
+    let payload = lyrics
+        .fetch_text(&lyric_id)
         .map_err(|e| anyhow!("lyrics fetch failed: {e}"))?;
-    normalize_json_string_payload("lyrics fetch response", payload)
+    normalize_json_payload("lyrics fetch response", serde_json::Value::String(payload))
 }
 
 pub async fn output_sink_list_targets_json(
@@ -504,27 +427,16 @@ pub async fn output_sink_list_targets_json(
 ) -> Result<String> {
     let config = serde_json::from_str::<serde_json::Value>(&config_json)
         .map_err(|e| anyhow!("invalid output sink config_json: {e}"))?;
-    let endpoint = shared_plugin_runtime()
-        .bind_output_sink_worker_endpoint(&plugin_id, &type_id)
-        .await
-        .map_err(|e| anyhow!("bind output sink endpoint failed: {e}"))?;
-    let (mut controller, _control_rx) = endpoint.into_controller(
-        serde_json::to_string(&config)
-            .map_err(|e| anyhow!("serialize output sink config_json: {e}"))?,
-    );
-    match controller
-        .apply_pending()
-        .map_err(|e| anyhow!(e.to_string()))?
-    {
-        WorkerApplyPendingOutcome::Created | WorkerApplyPendingOutcome::Recreated => {},
-        WorkerApplyPendingOutcome::Destroyed | WorkerApplyPendingOutcome::Idle => {
-            return Err(anyhow!("output sink controller did not create instance"));
-        },
-    }
-    let instance = controller
-        .instance_mut()
-        .ok_or_else(|| anyhow!("output sink instance unavailable"))?;
-    let payload = instance
+    let mut output_sink = shared_plugin_runtime()
+        .create_output_sink_plugin(&plugin_id, &type_id)
+        .map_err(|e| anyhow!("create output sink plugin failed: {e}"))?;
+    output_sink
+        .apply_config_update_json(
+            &serde_json::to_string(&config)
+                .map_err(|e| anyhow!("serialize output sink config_json: {e}"))?,
+        )
+        .map_err(|e| anyhow!("output sink apply_config_update_json failed: {e}"))?;
+    let payload = output_sink
         .list_targets_json()
         .map_err(|e| anyhow!("output sink list_targets failed: {e}"))?;
     normalize_json_string_payload("output sink targets", payload)
@@ -641,11 +553,13 @@ pub async fn plugins_install_from_file(
     plugins_dir: String,
     artifact_path: String,
 ) -> Result<String> {
-    tokio::task::spawn_blocking(move || {
+    let installed_plugin_id = tokio::task::spawn_blocking(move || {
         backend_plugins_install_from_file(plugins_dir, artifact_path)
     })
     .await
-    .map_err(|e| anyhow!("JoinError: {e}"))?
+    .map_err(|e| anyhow!("JoinError: {e}"))??;
+    reconcile_plugin_runtime_state_after_package_change("install").await?;
+    Ok(installed_plugin_id)
 }
 
 pub async fn plugins_list_installed_json(plugins_dir: String) -> Result<String> {
@@ -657,7 +571,18 @@ pub async fn plugins_list_installed_json(plugins_dir: String) -> Result<String> 
 pub async fn plugins_uninstall_by_id(plugins_dir: String, plugin_id: String) -> Result<()> {
     tokio::task::spawn_blocking(move || backend_plugins_uninstall_by_id(plugins_dir, plugin_id))
         .await
-        .map_err(|e| anyhow!("JoinError: {e}"))?
+        .map_err(|e| anyhow!("JoinError: {e}"))??;
+    reconcile_plugin_runtime_state_after_package_change("uninstall").await
+}
+
+async fn reconcile_plugin_runtime_state_after_package_change(operation: &str) -> Result<()> {
+    let Some(library) = shared_library_if_initialized() else {
+        return Ok(());
+    };
+    library
+        .plugin_apply_state()
+        .await
+        .with_context(|| format!("failed to apply plugin runtime state after {operation}"))
 }
 
 pub async fn refresh_devices() -> Result<Vec<AudioDevice>> {
@@ -769,31 +694,6 @@ pub async fn decoder_supported_extensions() -> Vec<String> {
     runtime_decoder_supported_extensions()
 }
 
-/// Deprecated compatibility API.
-///
-/// Flutter should use `decoder_supported_extensions` and perform local-file
-/// extension checks client-side.
-pub fn can_play_track_refs(tracks: Vec<TrackRef>) -> Vec<TrackPlayability> {
-    tracks
-        .into_iter()
-        .map(|track| {
-            let track_token = encode_track_ref_token(&track);
-            match probe_track_decode_info_hybrid(track_token.as_str()) {
-                Ok(_) => TrackPlayability {
-                    track,
-                    playable: true,
-                    reason: None,
-                },
-                Err(reason) => TrackPlayability {
-                    track,
-                    playable: false,
-                    reason: Some(reason),
-                },
-            }
-        })
-        .collect()
-}
-
 fn normalize_json_payload(label: &str, payload: serde_json::Value) -> Result<String> {
     serde_json::to_string(&payload).map_err(|e| anyhow!("serialize {label}: {e}"))
 }
@@ -804,15 +704,36 @@ fn normalize_json_string_payload(label: &str, payload: String) -> Result<String>
     normalize_json_payload(label, value)
 }
 
-fn plugin_name_from_metadata_json(plugin_id: &str, metadata_json: &str) -> String {
-    serde_json::from_str::<serde_json::Value>(metadata_json)
-        .ok()
-        .and_then(|v| {
-            v.get("name")
-                .and_then(serde_json::Value::as_str)
-                .map(str::to_string)
-        })
-        .unwrap_or_else(|| plugin_id.to_string())
+fn extract_lyrics_search_keyword(query: &serde_json::Value) -> Option<String> {
+    match query {
+        serde_json::Value::String(s) => {
+            let s = s.trim();
+            (!s.is_empty()).then_some(s.to_string())
+        },
+        serde_json::Value::Object(map) => ["keyword", "keywords", "query", "q", "title"]
+            .into_iter()
+            .find_map(|key| map.get(key).and_then(serde_json::Value::as_str))
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string),
+        _ => None,
+    }
+}
+
+fn extract_lyrics_fetch_id(track: &serde_json::Value) -> Option<String> {
+    match track {
+        serde_json::Value::String(s) => {
+            let s = s.trim();
+            (!s.is_empty()).then_some(s.to_string())
+        },
+        serde_json::Value::Object(map) => ["id", "lyric_id", "lyricId", "track_id", "trackId"]
+            .into_iter()
+            .find_map(|key| map.get(key).and_then(serde_json::Value::as_str))
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string),
+        _ => None,
+    }
 }
 
 fn clear_cached_track_info() {

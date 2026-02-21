@@ -10,9 +10,9 @@ pub trait DecoderInputStream: Send {
     fn size(&mut self) -> SdkResult<u64>;
 }
 
-pub struct DecoderInput<'a> {
-    pub stream: &'a mut dyn DecoderInputStream,
-    pub ext_hint: Option<&'a str>,
+pub struct DecoderInput {
+    pub stream: Box<dyn DecoderInputStream>,
+    pub ext_hint: Option<String>,
 }
 
 pub trait DecoderSession: ConfigStateOps + Send {
@@ -43,5 +43,5 @@ pub trait DecoderPlugin: PluginLifecycle + Send + 'static {
         }
     }
 
-    fn open(&mut self, input: DecoderInput<'_>) -> SdkResult<Self::Session>;
+    fn open(&mut self, input: DecoderInput) -> SdkResult<Self::Session>;
 }

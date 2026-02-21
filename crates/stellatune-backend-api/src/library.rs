@@ -196,12 +196,6 @@ impl LibraryService {
 
     pub async fn plugin_disable(&self, plugin_id: String) -> Result<()> {
         let report = crate::runtime::plugin_runtime_disable(&self.handle, plugin_id, 3_000).await?;
-        if report.timed_out {
-            return Err(anyhow::anyhow!(
-                "plugin disable timed out: remaining_retired_leases={}",
-                report.remaining_retired_leases
-            ));
-        }
         if !report.errors.is_empty() {
             return Err(anyhow::anyhow!(
                 "plugin disable finished with errors: {}",
@@ -227,7 +221,6 @@ impl LibraryService {
             phase = report.phase,
             loaded = report.loaded,
             deactivated = report.deactivated,
-            reclaimed_leases = report.reclaimed_leases,
             plan_actions_total = report.plan_actions_total,
             plan_load_new = report.plan_load_new,
             plan_reload_changed = report.plan_reload_changed,
@@ -240,10 +233,16 @@ impl LibraryService {
             errors = report.errors.len(),
             "plugin_apply_state_done"
         );
-        for err in report.errors {
+        if report.errors.is_empty() {
+            return Ok(());
+        }
+        for err in &report.errors {
             tracing::warn!(error = %err, "plugin_apply_state_error");
         }
-        Ok(())
+        Err(anyhow::anyhow!(
+            "plugin runtime apply-state completed with errors: {}",
+            report.errors.join("; ")
+        ))
     }
 
     pub async fn plugin_apply_state_status_json(&self) -> String {

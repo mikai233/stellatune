@@ -10,7 +10,7 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 
 [features]
 default = []
-frb = ["stellatune-plugin-api/frb"]
+frb = []
 
 [dependencies]
 anyhow.workspace = true
@@ -35,8 +35,6 @@ stellatune-backend-api.workspace = true
 stellatune-audio-plugin-adapters.workspace = true
 stellatune-audio.workspace = true
 stellatune-library.workspace = true
-stellatune-plugin-api.workspace = true
-stellatune-plugins.workspace = true
 stellatune-runtime.workspace = true
 
 [lints]

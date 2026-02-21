@@ -1,21 +1,31 @@
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use wasmtime::component::Resource;
+use wasmtime_wasi::{ResourceTable, WasiCtx, WasiCtxView, WasiView};
 
 use stellatune_wasm_host_bindings::generated::decoder_plugin::stellatune::plugin::common as decoder_common;
 use stellatune_wasm_host_bindings::generated::decoder_plugin::stellatune::plugin::host_stream as decoder_host_stream;
 use stellatune_wasm_host_bindings::generated::decoder_plugin::stellatune::plugin::sidecar as decoder_sidecar;
 
 use crate::executor::sidecar_state::SidecarState;
-use crate::host::sidecar::{SidecarLaunchSpec, SidecarTransportKind, SidecarTransportOption};
-use crate::host::stream::{HostStreamHandle, HostStreamService, StreamSeekWhence};
+use crate::host::sidecar::{
+    SidecarLaunchSpec, SidecarTransportKind, SidecarTransportOption, resolve_sidecar_executable,
+};
+use crate::host::stream::{
+    HostStreamHandle, HostStreamOpenRequest, HostStreamService, StreamHeader, StreamHttpMethod,
+    StreamOpenKind, StreamSeekWhence,
+};
 
 pub(crate) struct DecoderStoreData {
     pub(crate) stream_service: Arc<dyn HostStreamService>,
     pub(crate) next_rep: u32,
     pub(crate) streams: BTreeMap<u32, Box<dyn HostStreamHandle>>,
     pub(crate) sidecar: SidecarState,
+    pub(crate) plugin_root: PathBuf,
+    pub(crate) wasi_ctx: WasiCtx,
+    pub(crate) wasi_table: ResourceTable,
 }
 
 impl DecoderStoreData {
@@ -30,6 +40,15 @@ impl DecoderStoreData {
 }
 
 impl decoder_common::Host for DecoderStoreData {}
+
+impl WasiView for DecoderStoreData {
+    fn ctx(&mut self) -> WasiCtxView<'_> {
+        WasiCtxView {
+            ctx: &mut self.wasi_ctx,
+            table: &mut self.wasi_table,
+        }
+    }
+}
 
 impl decoder_host_stream::HostHostStreamHandle for DecoderStoreData {
     fn read(
@@ -116,16 +135,46 @@ impl decoder_host_stream::HostHostStreamHandle for DecoderStoreData {
 }
 
 impl decoder_host_stream::Host for DecoderStoreData {
-    fn open_uri(
+    fn open(
         &mut self,
-        uri: String,
+        request: decoder_host_stream::OpenRequest,
     ) -> std::result::Result<
         Resource<decoder_host_stream::HostStreamHandle>,
         decoder_host_stream::PluginError,
     > {
+        let kind = match request.kind {
+            decoder_host_stream::StreamOpenKind::File => StreamOpenKind::File,
+            decoder_host_stream::StreamOpenKind::Http => StreamOpenKind::Http,
+            decoder_host_stream::StreamOpenKind::Tcp => StreamOpenKind::Tcp,
+            decoder_host_stream::StreamOpenKind::Udp => StreamOpenKind::Udp,
+        };
+        let method = request.method.map(|method| match method {
+            decoder_host_stream::HttpMethod::Get => StreamHttpMethod::Get,
+            decoder_host_stream::HttpMethod::Post => StreamHttpMethod::Post,
+            decoder_host_stream::HttpMethod::Put => StreamHttpMethod::Put,
+            decoder_host_stream::HttpMethod::Delete => StreamHttpMethod::Delete,
+            decoder_host_stream::HttpMethod::Head => StreamHttpMethod::Head,
+            decoder_host_stream::HttpMethod::Patch => StreamHttpMethod::Patch,
+        });
+        let request = HostStreamOpenRequest {
+            kind,
+            target: request.target,
+            method,
+            headers: request
+                .headers
+                .into_iter()
+                .map(|header| StreamHeader {
+                    name: header.name,
+                    value: header.value,
+                })
+                .collect::<Vec<_>>(),
+            body: request.body,
+            connect_timeout_ms: request.connect_timeout_ms,
+            read_timeout_ms: request.read_timeout_ms,
+        };
         let stream = self
             .stream_service
-            .open_uri(&uri)
+            .open(&request)
             .map_err(|error| decoder_host_stream::PluginError::Internal(error.to_string()))?;
         let rep = self.alloc_rep();
         self.streams.insert(rep, stream);
@@ -177,7 +226,8 @@ impl decoder_sidecar::Host for DecoderStoreData {
         let process_rep = self
             .sidecar
             .launch(&SidecarLaunchSpec {
-                executable: spec.executable,
+                executable: resolve_sidecar_executable(&self.plugin_root, &spec.executable)
+                    .map_err(decoder_plugin_error_internal)?,
                 args: spec.args,
                 preferred_control: spec
                     .preferred_control

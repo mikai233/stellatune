@@ -14,12 +14,13 @@ use stellatune_audio_core::pipeline::context::{
 use stellatune_audio_core::pipeline::error::PipelineError;
 use stellatune_audio_core::pipeline::stages::StageStatus;
 use stellatune_audio_core::pipeline::stages::decoder::DecoderStage;
-use stellatune_audio_plugin_adapters::decoder_stage::{
-    PluginDecoderStage, probe_track_decode_info_with_decoder_selector,
+use stellatune_audio_plugin_adapters::stages::{
+    PluginDecoderStage, plugin_track_token_from_source_handle,
+    probe_track_decode_info_with_decoder_selector,
 };
-use stellatune_audio_plugin_adapters::source_plugin::plugin_track_token_from_source_handle;
-use stellatune_plugins::runtime::handle::shared_runtime_service;
-use stellatune_plugins::runtime::introspection::CapabilityKind as RuntimeCapabilityKind;
+use stellatune_wasm_plugins::host_runtime::RuntimeCapabilityKind;
+
+use super::shared_plugin_runtime;
 
 const DEFAULT_READ_FRAMES: u32 = 1024;
 
@@ -55,12 +56,12 @@ pub fn decoder_supported_extensions_hybrid() -> Vec<String> {
 pub fn decoder_supported_extensions_hybrid_with_user_decoders(
     user_decoder_providers: &[SharedUserDecoderProvider],
 ) -> Vec<String> {
-    let service = shared_runtime_service();
-    let mut out = service.decoder_supported_extensions_cached();
+    let service = shared_plugin_runtime();
+    let mut out = service.decoder_supported_extensions();
     for provider in user_decoder_providers {
         out.extend(provider.supported_extensions());
     }
-    if service.decoder_has_wildcard_candidate_cached() {
+    if service.decoder_has_wildcard_candidate() {
         out.push("*".to_string());
     }
     out.sort();
@@ -166,8 +167,10 @@ impl HybridDecoderStage {
             self.user_decoder_providers.as_slice(),
         );
         if candidates.is_empty() {
-            return Err(format!(
-                "no decoder candidates available for local `{path}`"
+            return Err(build_no_decoder_candidates_error(
+                path,
+                ext_hint.as_str(),
+                self.user_decoder_providers.as_slice(),
             ));
         }
         sort_hybrid_candidates(&mut candidates);
@@ -414,8 +417,10 @@ pub fn probe_track_decode_info_hybrid_with_user_decoders(
         let mut candidates =
             select_local_hybrid_candidates(ext_hint.as_str(), user_decoder_providers);
         if candidates.is_empty() {
-            return Err(format!(
-                "no decoder candidates available for local `{path}`"
+            return Err(build_no_decoder_candidates_error(
+                path,
+                ext_hint.as_str(),
+                user_decoder_providers,
             ));
         }
         sort_hybrid_candidates(&mut candidates);
@@ -646,14 +651,14 @@ fn runtime_scored_plugin_candidates(ext_hint: &str) -> Vec<HybridDecoderCandidat
     if ext.is_empty() {
         return Vec::new();
     }
-    let service = shared_runtime_service();
+    let service = shared_plugin_runtime();
     let mut out = Vec::new();
     let mut seen = HashSet::new();
-    for candidate in service.list_decoder_candidates_for_ext_cached(ext.as_str()) {
+    for candidate in service.list_decoder_candidates_for_ext(ext.as_str()) {
         if !seen.insert((candidate.plugin_id.clone(), candidate.type_id.clone())) {
             continue;
         }
-        let Some(_capability) = service.find_capability_cached(
+        let Some(_capability) = service.find_capability(
             &candidate.plugin_id,
             RuntimeCapabilityKind::Decoder,
             &candidate.type_id,
@@ -670,13 +675,13 @@ fn runtime_scored_plugin_candidates(ext_hint: &str) -> Vec<HybridDecoderCandidat
 }
 
 fn runtime_all_plugin_candidates() -> Vec<HybridDecoderCandidate> {
-    let service = shared_runtime_service();
-    let mut plugin_ids = service.cached_capability_plugin_ids();
+    let service = shared_plugin_runtime();
+    let mut plugin_ids = service.decoder_capability_plugin_ids();
     plugin_ids.sort();
 
     let mut out = Vec::new();
     for plugin_id in plugin_ids {
-        let mut capabilities = service.list_capabilities_cached(&plugin_id);
+        let mut capabilities = service.list_capabilities_snapshot(&plugin_id);
         capabilities.sort_by(|a, b| a.type_id.cmp(&b.type_id));
         for capability in capabilities {
             if capability.kind != RuntimeCapabilityKind::Decoder {
@@ -699,9 +704,9 @@ fn select_plugin_candidates(
 ) -> Result<Vec<HybridDecoderCandidate>, String> {
     match (decoder_plugin_id, decoder_type_id) {
         (Some(plugin_id), Some(type_id)) => {
-            let service = shared_runtime_service();
+            let service = shared_plugin_runtime();
             let _capability = service
-                .find_capability_cached(plugin_id, RuntimeCapabilityKind::Decoder, type_id)
+                .find_capability(plugin_id, RuntimeCapabilityKind::Decoder, type_id)
                 .ok_or_else(|| {
                     format!(
                         "decoder not found: plugin_id={} type_id={}",
@@ -766,6 +771,41 @@ fn sort_hybrid_candidates(candidates: &mut [HybridDecoderCandidate]) {
             ) => a_plugin.cmp(b_plugin).then_with(|| a_type.cmp(b_type)),
         })
     });
+}
+
+fn build_no_decoder_candidates_error(
+    path: &str,
+    ext_hint: &str,
+    user_decoder_providers: &[SharedUserDecoderProvider],
+) -> String {
+    let ext = normalize_ext_hint(ext_hint);
+    let service = shared_plugin_runtime();
+    let mut active_plugin_ids = service.active_plugin_ids();
+    active_plugin_ids.sort();
+    let mut decoder_plugin_ids = service.decoder_capability_plugin_ids();
+    decoder_plugin_ids.sort();
+    let mut supported_exts = service.decoder_supported_extensions();
+    supported_exts.sort();
+    let has_wildcard = service.decoder_has_wildcard_candidate();
+
+    let mut matched_user_impls = Vec::<String>::new();
+    for provider in user_decoder_providers {
+        let score = if ext.is_empty() {
+            Some(1)
+        } else {
+            provider.score_for_extension(ext.as_str())
+        };
+        if let Some(score) = score {
+            matched_user_impls.push(format!("{}:{score}", provider.implementation_id()));
+        }
+    }
+    matched_user_impls.sort();
+
+    let message = format!(
+        "no decoder candidates available for local `{path}` (ext=`{ext}`, active_plugins={active_plugin_ids:?}, decoder_plugins={decoder_plugin_ids:?}, decoder_supported_exts={supported_exts:?}, decoder_wildcard={has_wildcard}, matched_user_decoders={matched_user_impls:?})"
+    );
+    tracing::warn!("{message}");
+    message
 }
 
 struct PrebuiltUserDecoderProvider;

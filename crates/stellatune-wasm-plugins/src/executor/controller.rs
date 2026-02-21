@@ -1,7 +1,6 @@
 use std::collections::BTreeMap;
 
 use crate::error::Result;
-use wasmtime::component::Component;
 
 use crate::executor::{
     ActivePluginRecord, WasmPluginController, WasmtimePluginController, WorldKind, classify_world,
@@ -51,7 +50,7 @@ impl WasmPluginController for WasmtimePluginController {
                 ));
             }
             let component_path: std::path::PathBuf = plugin.root_dir.join(&component_rel_path);
-            Component::from_file(&self.engine, &component_path).map_err(|e| {
+            self.load_component_cached(&component_path).map_err(|e| {
                 crate::op_error!(
                     "failed to load component for plugin `{}` component `{}`: {e:#}",
                     plugin.id,
@@ -60,10 +59,7 @@ impl WasmPluginController for WasmtimePluginController {
             })?;
         }
 
-        let mut routes = self
-            .directives
-            .write()
-            .expect("executor directives lock poisoned");
+        let mut routes = self.directives.write();
         let already_installed = routes.active_plugins.contains(&plugin.id);
         routes.active_plugins.insert(plugin.id.clone());
         let senders = routes.senders.entry(plugin.id.clone()).or_default();
@@ -72,7 +68,7 @@ impl WasmPluginController for WasmtimePluginController {
         }
         drop(routes);
 
-        let mut plugins = self.plugins.lock().expect("executor plugin lock poisoned");
+        let mut plugins = self.plugins.write();
         plugins.insert(
             plugin.id.clone(),
             ActivePluginRecord {
@@ -84,10 +80,7 @@ impl WasmPluginController for WasmtimePluginController {
     }
 
     fn uninstall_plugin(&self, plugin_id: &str, reason: PluginDisableReason) -> Result<()> {
-        let mut routes = self
-            .directives
-            .write()
-            .expect("executor directives lock poisoned");
+        let mut routes = self.directives.write();
         if let Some(senders) = routes.senders.get_mut(plugin_id) {
             senders.retain(|sender| {
                 sender
@@ -99,8 +92,12 @@ impl WasmPluginController for WasmtimePluginController {
         routes.senders.remove(plugin_id);
         drop(routes);
 
-        let mut plugins = self.plugins.lock().expect("executor plugin lock poisoned");
-        plugins.remove(plugin_id);
+        let mut plugins = self.plugins.write();
+        let removed = plugins.remove(plugin_id);
+        drop(plugins);
+        if let Some(record) = removed {
+            self.remove_cached_components_for_plugin(&record.info, &record.capabilities);
+        }
         Ok(())
     }
 
@@ -110,10 +107,7 @@ impl WasmPluginController for WasmtimePluginController {
             return Ok(());
         }
         let senders_to_dispatch = {
-            let routes = self
-                .directives
-                .read()
-                .expect("executor directives lock poisoned");
+            let routes = self.directives.read();
             if !routes.active_plugins.contains(plugin_id) {
                 return Ok(());
             }
@@ -130,10 +124,7 @@ impl WasmPluginController for WasmtimePluginController {
     }
 
     fn shutdown(&self) -> Result<()> {
-        let mut routes = self
-            .directives
-            .write()
-            .expect("executor directives lock poisoned");
+        let mut routes = self.directives.write();
         for senders in routes.senders.values_mut() {
             senders.retain(|sender| {
                 sender
@@ -147,8 +138,10 @@ impl WasmPluginController for WasmtimePluginController {
         routes.senders.clear();
         drop(routes);
 
-        let mut plugins = self.plugins.lock().expect("executor plugin lock poisoned");
+        let mut plugins = self.plugins.write();
         plugins.clear();
+        drop(plugins);
+        self.clear_component_cache();
         Ok(())
     }
 }

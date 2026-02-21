@@ -1,4 +1,3 @@
-use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
@@ -7,13 +6,13 @@ use std::net::{Shutdown, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::ptr;
-use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use memmap2::{MmapMut, MmapOptions};
+use parking_lot::Mutex;
 
 #[cfg(unix)]
 use std::os::unix::net::UnixStream;
@@ -45,14 +44,14 @@ pub(crate) struct SidecarLaunchSpec {
     pub env: Vec<(String, String)>,
 }
 
-pub(crate) trait SidecarChannelHandle {
+pub(crate) trait SidecarChannelHandle: Send {
     fn transport(&self) -> SidecarTransportKind;
     fn write(&mut self, data: &[u8]) -> Result<u32>;
     fn read(&mut self, max_bytes: u32, timeout_ms: Option<u32>) -> Result<Vec<u8>>;
     fn close(&mut self) {}
 }
 
-pub(crate) trait SidecarProcessHandle {
+pub(crate) trait SidecarProcessHandle: Send {
     fn open_control(&mut self) -> Result<Box<dyn SidecarChannelHandle>>;
     fn open_data(
         &mut self,
@@ -69,6 +68,82 @@ pub(crate) trait SidecarHost: Send + Sync {
 
 pub(crate) fn default_sidecar_host() -> Arc<dyn SidecarHost> {
     Arc::new(ProcessSidecarHost)
+}
+
+pub(crate) fn resolve_sidecar_executable(
+    plugin_root: &Path,
+    raw_executable: &str,
+) -> Result<String> {
+    let executable = raw_executable.trim();
+    if executable.is_empty() {
+        return Err(Error::invalid_input("sidecar executable is empty"));
+    }
+
+    let executable_path = Path::new(executable);
+    if executable_path.is_absolute() {
+        if executable_path.is_file() {
+            return Ok(executable.to_string());
+        }
+        return Err(Error::not_found(
+            "sidecar executable",
+            executable_path.display().to_string(),
+        ));
+    }
+
+    if !is_safe_relative_sidecar_path(executable_path) {
+        return Err(Error::invalid_input(format!(
+            "sidecar executable relative path is unsafe: {}",
+            executable
+        )));
+    }
+
+    let mut candidates = Vec::<PathBuf>::new();
+    candidates.push(plugin_root.join(executable_path));
+    candidates.push(plugin_root.join("bin").join(executable_path));
+
+    // On Windows plugin configs often use a bare executable name without ".exe".
+    if cfg!(windows)
+        && executable_path.extension().is_none()
+        && let Some(file_name) = executable_path.file_name().and_then(|name| name.to_str())
+    {
+        let exe_name = format!("{file_name}.exe");
+        if let Some(parent) = executable_path.parent() {
+            candidates.push(plugin_root.join(parent).join(&exe_name));
+            candidates.push(plugin_root.join("bin").join(parent).join(exe_name));
+        } else {
+            candidates.push(plugin_root.join(&exe_name));
+            candidates.push(plugin_root.join("bin").join(exe_name));
+        }
+    }
+
+    for candidate in candidates {
+        if candidate.is_file() {
+            return Ok(candidate.to_string_lossy().to_string());
+        }
+    }
+
+    Err(Error::not_found(
+        "sidecar executable",
+        format!(
+            "{} (searched under plugin root `{}` and `bin/`)",
+            executable,
+            plugin_root.display()
+        ),
+    ))
+}
+
+fn is_safe_relative_sidecar_path(path: &Path) -> bool {
+    if path.as_os_str().is_empty() || path.is_absolute() {
+        return false;
+    }
+    !path.components().any(|component| {
+        matches!(
+            component,
+            std::path::Component::ParentDir
+                | std::path::Component::RootDir
+                | std::path::Component::Prefix(_)
+        )
+    })
 }
 
 struct ProcessSidecarHost;
@@ -123,7 +198,7 @@ impl SidecarHost for ProcessSidecarHost {
             .ok_or_else(|| Error::operation("sidecar.launch", "missing stdout pipe"))?;
 
         Ok(Box::new(ProcessHandle {
-            inner: Rc::new(RefCell::new(ChildIo {
+            inner: Arc::new(Mutex::new(ChildIo {
                 child,
                 stdin,
                 stdout,
@@ -143,7 +218,7 @@ struct ChildIo {
 }
 
 struct ProcessHandle {
-    inner: Rc<RefCell<ChildIo>>,
+    inner: Arc<Mutex<ChildIo>>,
     control_preferred: Vec<SidecarTransportOption>,
     data_preferred: Vec<SidecarTransportOption>,
     env_map: BTreeMap<String, String>,
@@ -151,7 +226,7 @@ struct ProcessHandle {
 }
 
 enum ChannelIo {
-    Stdio(Rc<RefCell<ChildIo>>),
+    Stdio(Arc<Mutex<ChildIo>>),
     Tcp(TcpStream),
     #[cfg(unix)]
     Unix(UnixStream),
@@ -166,7 +241,7 @@ struct ChannelHandle {
 }
 
 impl ChannelHandle {
-    fn stdio(inner: Rc<RefCell<ChildIo>>) -> Self {
+    fn stdio(inner: Arc<Mutex<ChildIo>>) -> Self {
         Self {
             transport: SidecarTransportKind::Stdio,
             io: ChannelIo::Stdio(inner),
@@ -352,7 +427,7 @@ impl SidecarProcessHandle for ProcessHandle {
     }
 
     fn wait_exit(&mut self, timeout_ms: Option<u32>) -> Result<Option<i32>> {
-        let mut inner = self.inner.borrow_mut();
+        let mut inner = self.inner.lock();
         match timeout_ms {
             None => {
                 let status = inner
@@ -380,7 +455,7 @@ impl SidecarProcessHandle for ProcessHandle {
     }
 
     fn terminate(&mut self, grace_ms: u32) -> Result<()> {
-        let mut inner = self.inner.borrow_mut();
+        let mut inner = self.inner.lock();
         if let Some(_status) = inner
             .child
             .try_wait()
@@ -439,7 +514,7 @@ impl SidecarChannelHandle for ChannelHandle {
 
         match &mut self.io {
             ChannelIo::Stdio(inner) => {
-                let mut inner = inner.borrow_mut();
+                let mut inner = inner.lock();
                 inner.stdin.write_all(data).map_err(|error| {
                     Error::operation("sidecar.channel.write", error.to_string())
                 })?;
@@ -485,7 +560,7 @@ impl SidecarChannelHandle for ChannelHandle {
         let mut buffer = vec![0_u8; max_bytes as usize];
         let size = match &mut self.io {
             ChannelIo::Stdio(inner) => {
-                let mut inner = inner.borrow_mut();
+                let mut inner = inner.lock();
                 inner
                     .stdout
                     .read(&mut buffer)
@@ -1001,7 +1076,7 @@ mod tests {
 
     use crate::host::sidecar::{
         SHM_MIN_CAPACITY, SharedByteRingMapped, SidecarTransportKind, SidecarTransportOption,
-        parse_shared_memory_endpoint, prepare_shared_memory_env,
+        parse_shared_memory_endpoint, prepare_shared_memory_env, resolve_sidecar_executable,
     };
 
     #[test]
@@ -1071,5 +1146,40 @@ mod tests {
             assert!(path.exists());
             let _ = std::fs::remove_file(path);
         }
+    }
+
+    #[test]
+    fn resolves_bare_executable_in_plugin_bin_dir() {
+        let temp = tempfile::tempdir().expect("create tempdir");
+        let root = temp.path();
+        let bin_dir = root.join("bin");
+        std::fs::create_dir_all(&bin_dir).expect("create bin dir");
+
+        let bare = "stellatune-asio-host";
+        let expected = if cfg!(windows) {
+            bin_dir.join("stellatune-asio-host.exe")
+        } else {
+            bin_dir.join("stellatune-asio-host")
+        };
+        std::fs::write(&expected, b"stub").expect("create sidecar stub");
+
+        let resolved = resolve_sidecar_executable(root, bare).expect("resolve executable");
+        assert_eq!(std::path::Path::new(&resolved), expected.as_path());
+    }
+
+    #[test]
+    fn fails_when_no_candidate_exists() {
+        let temp = tempfile::tempdir().expect("create tempdir");
+        let err = resolve_sidecar_executable(temp.path(), "stellatune-asio-host")
+            .expect_err("missing sidecar should fail");
+        assert!(err.to_string().contains("sidecar executable"));
+    }
+
+    #[test]
+    fn rejects_parent_dir_relative_path() {
+        let temp = tempfile::tempdir().expect("create tempdir");
+        let err = resolve_sidecar_executable(temp.path(), "../stellatune-asio-host")
+            .expect_err("unsafe relative path should fail");
+        assert!(err.to_string().contains("unsafe"));
     }
 }

@@ -26,7 +26,6 @@ class PlaybackController extends Notifier<PlaybackState> {
   static const int _volumeRampMs = 6;
 
   StreamSubscription<Event>? _sub;
-  StreamSubscription<PluginRuntimeEvent>? _pluginRuntimeSub;
   Timer? _volumePersistDebounce;
   Timer? _resumePersistTimer;
   TrackRef? _resumePendingTrack;
@@ -52,7 +51,6 @@ class PlaybackController extends Notifier<PlaybackState> {
   @override
   PlaybackState build() {
     unawaited(_sub?.cancel());
-    unawaited(_pluginRuntimeSub?.cancel());
     _volumePersistDebounce?.cancel();
     _volumePersistDebounce = null;
     _resumePersistTimer?.cancel();
@@ -81,24 +79,9 @@ class PlaybackController extends Notifier<PlaybackState> {
         state = state.copyWith(lastError: err.toString());
       },
     );
-    _pluginRuntimeSub = bridge.pluginRuntimeEvents().listen(
-      (_) {
-        DecoderExtensionSupportCache.instance.invalidate();
-        unawaited(_refreshDecoderExtensionSupport());
-      },
-      onError: (Object err, StackTrace st) {
-        ref
-            .read(loggerProvider)
-            .d(
-              'plugin runtime events unavailable for decoder extension cache refresh: $err',
-              stackTrace: st,
-            );
-      },
-    );
 
     ref.onDispose(() {
       unawaited(_sub?.cancel());
-      unawaited(_pluginRuntimeSub?.cancel());
       _volumePersistDebounce?.cancel();
       _resumePersistTimer?.cancel();
       _dlnaPollTimer?.cancel();

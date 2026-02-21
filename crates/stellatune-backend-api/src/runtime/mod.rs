@@ -16,7 +16,7 @@ use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::time::LocalTime;
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-use stellatune_plugins::runtime::handle::SharedPluginRuntimeHandle;
+use stellatune_wasm_plugins::host_runtime::runtime_service::SharedPluginRuntime;
 
 mod apply_state;
 mod engine;
@@ -159,15 +159,12 @@ fn open_tracing_log_file() -> Option<Arc<Mutex<std::fs::File>>> {
     Some(Arc::new(Mutex::new(file)))
 }
 
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-pub type SharedPluginRuntime = SharedPluginRuntimeHandle;
-
 #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
 pub type SharedPluginRuntime = ();
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 pub fn shared_plugin_runtime() -> SharedPluginRuntime {
-    stellatune_plugins::runtime::handle::shared_runtime_service()
+    stellatune_wasm_plugins::host_runtime::shared_runtime_service()
 }
 
 #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
@@ -207,7 +204,10 @@ pub fn init_tracing() {
     INIT.get_or_init(|| {
         let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
             if cfg!(debug_assertions) {
-                EnvFilter::new("debug")
+                // Keep application-level debug logging but silence noisy Wasmtime/Cranelift internals.
+                EnvFilter::new(
+                    "debug,cranelift_codegen=warn,cranelift_frontend=warn,wasmtime_cranelift=warn,wasmtime_internal_cranelift=warn,wasmtime_internal_jit_debug=warn,wasmtime_internal_cache=warn",
+                )
             } else {
                 EnvFilter::new("info")
             }
@@ -227,59 +227,37 @@ pub fn init_tracing() {
     });
 }
 
-async fn cleanup_plugin_runtime_for_restart(reason: &'static str) {
+async fn cleanup_plugin_runtime_for_shutdown() {
     let service = shared_plugin_runtime();
-    let mut plugin_ids = service.active_plugin_ids().await;
+    let mut plugin_ids = service.active_plugin_ids();
     plugin_ids.sort();
     let report = service.shutdown_and_cleanup().await;
-    let mut remaining_retired_leases: usize = 0;
-    for plugin_id in &plugin_ids {
-        if let Some(state) = service.plugin_lease_state(plugin_id).await {
-            remaining_retired_leases =
-                remaining_retired_leases.saturating_add(state.retired_lease_ids.len());
-        }
-    }
-
-    if remaining_retired_leases == 0 && report.errors.is_empty() {
+    if report.errors.is_empty() {
         tracing::info!(
-            reason,
             active_plugins_before_cleanup = plugin_ids.len(),
             deactivated = report.deactivated.len(),
-            reclaimed_leases = report.reclaimed_leases,
             errors = report.errors.len(),
-            "plugin runtime cleanup attempted"
+            "plugin runtime cleanup completed during shutdown"
         );
     } else {
         tracing::warn!(
-            reason,
             active_plugins_before_cleanup = plugin_ids.len(),
             deactivated = report.deactivated.len(),
-            reclaimed_leases = report.reclaimed_leases,
-            remaining_retired_leases,
             errors = report.errors.len(),
-            "plugin runtime cleanup attempted with leftovers"
+            "plugin runtime cleanup completed with leftovers during shutdown"
         );
     }
-}
-
-pub async fn runtime_prepare_hot_restart() {
-    engine::runtime_prepare_hot_restart().await;
-    cleanup_plugin_runtime_for_restart("prepare_hot_restart").await;
 }
 
 pub async fn runtime_shutdown() {
     engine::runtime_shutdown().await;
-    cleanup_plugin_runtime_for_restart("shutdown").await;
+    cleanup_plugin_runtime_for_shutdown().await;
 }
 
 #[derive(Debug, Clone)]
 pub struct DisableReport {
     pub plugin_id: String,
     pub phase: &'static str,
-    pub deactivated_lease_id: Option<u64>,
-    pub reclaimed_leases: usize,
-    pub remaining_retired_leases: usize,
-    pub timed_out: bool,
     pub errors: Vec<String>,
 }
 
@@ -294,7 +272,6 @@ pub struct ApplyStateReport {
     pub phase: &'static str,
     pub loaded: usize,
     pub deactivated: usize,
-    pub reclaimed_leases: usize,
     pub errors: Vec<String>,
     pub plan_discovered: usize,
     pub plan_disabled: usize,
@@ -316,7 +293,6 @@ impl ApplyStateReport {
             phase: "completed",
             loaded: 0,
             deactivated: 0,
-            reclaimed_leases: 0,
             errors: Vec::new(),
             plan_discovered: 0,
             plan_disabled: 0,
@@ -353,10 +329,6 @@ pub async fn plugin_runtime_disable(
     let mut report = DisableReport {
         plugin_id: plugin_id.clone(),
         phase: "freeze",
-        deactivated_lease_id: None,
-        reclaimed_leases: 0,
-        remaining_retired_leases: 0,
-        timed_out: false,
         errors: Vec::new(),
     };
 
@@ -378,25 +350,33 @@ pub async fn plugin_runtime_disable(
     report.phase = "schedule";
     tracing::debug!(plugin_id, phase = report.phase, "plugin_disable_phase");
     let service = shared_plugin_runtime();
-    let unload_report = service.unload_plugin(&plugin_id).await;
-    report.reclaimed_leases = unload_report.reclaimed_leases;
+    let unload_report = service.unload_plugin_report(&plugin_id).await;
     report
         .errors
         .extend(unload_report.errors.into_iter().map(|err| err.to_string()));
-    report.remaining_retired_leases = service
-        .plugin_lease_state(&plugin_id)
-        .await
-        .map(|state| state.retired_lease_ids.len())
-        .unwrap_or(0);
+
+    report.phase = "apply_state";
+    tracing::debug!(plugin_id, phase = report.phase, "plugin_disable_phase");
+    match plugin_runtime_apply_state(library).await {
+        Ok(apply_report) => {
+            report.errors.extend(apply_report.errors);
+        },
+        Err(error) => report.errors.push(format!(
+            "failed to apply plugin runtime state after disable for '{plugin_id}': {error:#}"
+        )),
+    }
+
+    let active_plugin_ids = shared_plugin_runtime().active_plugin_ids();
+    if active_plugin_ids.iter().any(|id| id == &plugin_id) {
+        report.errors.push(format!(
+            "plugin '{plugin_id}' is still active after disable/apply-state"
+        ));
+    }
 
     report.phase = "completed";
     tracing::info!(
         plugin_id,
         elapsed_ms = started_at.elapsed().as_millis() as u64,
-        deactivated_lease_id = report.deactivated_lease_id,
-        reclaimed_leases = report.reclaimed_leases,
-        remaining_retired_leases = report.remaining_retired_leases,
-        timed_out = report.timed_out,
         errors = report.errors.len(),
         "plugin_disable_end"
     );
@@ -412,10 +392,6 @@ pub async fn plugin_runtime_disable(
     Ok(DisableReport {
         plugin_id,
         phase: "completed",
-        deactivated_lease_id: None,
-        reclaimed_leases: 0,
-        remaining_retired_leases: 0,
-        timed_out: false,
         errors: Vec::new(),
     })
 }
@@ -430,6 +406,21 @@ pub async fn plugin_runtime_enable(
         return Err(anyhow!("plugin_id is empty"));
     }
     library.plugin_set_enabled(plugin_id.clone(), true).await?;
+
+    let apply_report = plugin_runtime_apply_state(library).await?;
+    if !apply_report.errors.is_empty() {
+        let details = apply_report.errors.join("; ");
+        return Err(anyhow!(
+            "plugin runtime apply-state completed with errors after enable for '{plugin_id}': {details}"
+        ));
+    }
+    let active_plugin_ids = shared_plugin_runtime().active_plugin_ids();
+    if !active_plugin_ids.iter().any(|id| id == &plugin_id) {
+        return Err(anyhow!(
+            "plugin '{plugin_id}' is still inactive after enable/apply-state"
+        ));
+    }
+
     Ok(EnableReport {
         plugin_id,
         phase: "completed",
@@ -470,7 +461,7 @@ pub async fn plugin_runtime_apply_state(
             .into_iter()
             .map(|err| format!("{err:#}"))
             .collect();
-        let active_plugin_ids = service.active_plugin_ids().await;
+        let active_plugin_ids = service.active_plugin_ids();
         if let Err(error) =
             engine::runtime_clear_output_sink_route_if_plugin_unavailable(&active_plugin_ids).await
         {
@@ -482,7 +473,6 @@ pub async fn plugin_runtime_apply_state(
             phase: "completed",
             loaded: report.load_report.loaded.len(),
             deactivated: report.load_report.deactivated.len(),
-            reclaimed_leases: report.load_report.reclaimed_leases,
             errors,
             plan_discovered: report.plan.discovered,
             plan_disabled: report.plan.disabled,

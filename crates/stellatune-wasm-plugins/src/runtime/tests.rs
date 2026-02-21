@@ -1,7 +1,8 @@
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use crate::error::Result;
+use parking_lot::Mutex;
 
 use crate::executor::WasmPluginController;
 use crate::manifest::AbilityKind;
@@ -11,18 +12,24 @@ use crate::manifest::{
 };
 use crate::runtime::model::DesiredPluginState;
 use crate::runtime::model::{
-    PluginDisableReason, RuntimeCapabilityDescriptor, RuntimePluginChangeKind, RuntimePluginInfo,
+    PluginDisableReason, RuntimeCapabilityDescriptor, RuntimePluginInfo,
+    RuntimePluginLifecycleState, RuntimePluginTransitionOutcome, RuntimePluginTransitionTrigger,
 };
 use crate::runtime::service::WasmPluginRuntime;
 
 #[derive(Default)]
 struct RecordingLifecycleHost {
     events: Mutex<Vec<String>>,
+    fail_uninstall: Mutex<bool>,
 }
 
 impl RecordingLifecycleHost {
+    fn set_fail_uninstall(&self, fail: bool) {
+        *self.fail_uninstall.lock() = fail;
+    }
+
     fn events(&self) -> Vec<String> {
-        self.events.lock().expect("events lock poisoned").clone()
+        self.events.lock().clone()
     }
 }
 
@@ -32,17 +39,19 @@ impl WasmPluginController for RecordingLifecycleHost {
         plugin: &RuntimePluginInfo,
         _capabilities: &[RuntimeCapabilityDescriptor],
     ) -> Result<()> {
-        self.events
-            .lock()
-            .expect("events lock poisoned")
-            .push(format!("install:{}", plugin.id));
+        self.events.lock().push(format!("install:{}", plugin.id));
         Ok(())
     }
 
     fn uninstall_plugin(&self, plugin_id: &str, reason: PluginDisableReason) -> Result<()> {
+        if *self.fail_uninstall.lock() {
+            return Err(crate::op_error!(
+                "forced uninstall failure for plugin `{}`",
+                plugin_id
+            ));
+        }
         self.events
             .lock()
-            .expect("events lock poisoned")
             .push(format!("uninstall:{plugin_id}:{reason:?}"));
         Ok(())
     }
@@ -98,8 +107,11 @@ fn install_test_plugin_with_ability(
             abilities: vec![AbilitySpec {
                 kind: ability_kind,
                 type_id: type_id.to_string(),
+                display_name: None,
+                config_schema_json: None,
+                default_config_json: None,
+                decoder: None,
             }],
-            threading: None,
         }],
     };
     let manifest_text = serde_json::to_string_pretty(&manifest)?;
@@ -135,12 +147,10 @@ fn sync_activates_new_plugin() {
     let report = runtime.sync_plugins(&plugins_dir).expect("sync runtime");
 
     assert_eq!(report.active_plugins.len(), 1);
-    assert!(
-        report
-            .changes
-            .iter()
-            .any(|change| change.kind == RuntimePluginChangeKind::Activated)
-    );
+    assert!(report.transitions.iter().any(|transition| {
+        transition.trigger == RuntimePluginTransitionTrigger::LoadNew
+            && transition.outcome == RuntimePluginTransitionOutcome::Applied
+    }));
     assert_eq!(host.events(), vec!["install:demo".to_string()]);
 }
 
@@ -160,12 +170,10 @@ fn disable_desired_state_deactivates_plugin() {
 
     let report = runtime.sync_plugins(&plugins_dir).expect("second sync");
     assert!(report.active_plugins.is_empty());
-    assert!(
-        report
-            .changes
-            .iter()
-            .any(|change| change.reason == "disabled")
-    );
+    assert!(report.transitions.iter().any(|transition| {
+        transition.trigger == RuntimePluginTransitionTrigger::DisableRequested
+            && transition.outcome != RuntimePluginTransitionOutcome::Failed
+    }));
     assert_eq!(
         host.events(),
         vec![
@@ -188,12 +196,10 @@ fn manifest_change_triggers_reload_lifecycle() {
     update_plugin_version(&plugins_dir, "demo", "2.0.0").expect("update version");
 
     let report = runtime.sync_plugins(&plugins_dir).expect("reload sync");
-    assert!(
-        report
-            .changes
-            .iter()
-            .any(|change| change.kind == RuntimePluginChangeKind::Reloaded)
-    );
+    assert!(report.transitions.iter().any(|transition| {
+        transition.trigger == RuntimePluginTransitionTrigger::ReloadChanged
+            && transition.outcome == RuntimePluginTransitionOutcome::Applied
+    }));
     assert_eq!(
         host.events(),
         vec![
@@ -217,12 +223,10 @@ fn plugin_removal_uses_unload_reason() {
 
     std::fs::remove_dir_all(plugins_dir.join("demo")).expect("remove plugin dir");
     let report = runtime.sync_plugins(&plugins_dir).expect("second sync");
-    assert!(
-        report
-            .changes
-            .iter()
-            .any(|change| change.kind == RuntimePluginChangeKind::Deactivated)
-    );
+    assert!(report.transitions.iter().any(|transition| {
+        transition.trigger == RuntimePluginTransitionTrigger::RemovedFromDisk
+            && transition.outcome == RuntimePluginTransitionOutcome::Applied
+    }));
     assert_eq!(
         host.events(),
         vec![
@@ -250,5 +254,59 @@ fn shutdown_uses_shutdown_reason() {
             "install:demo".to_string(),
             "uninstall:demo:Shutdown".to_string()
         ]
+    );
+}
+
+#[test]
+fn dropping_clone_does_not_shutdown_runtime() {
+    let temp = tempfile::tempdir().expect("create tempdir");
+    let plugins_dir = temp.path().join("plugins");
+    std::fs::create_dir_all(&plugins_dir).expect("create plugins dir");
+    install_test_plugin(&plugins_dir, "demo", "1.0.0").expect("install test plugin");
+
+    let host = Arc::new(RecordingLifecycleHost::default());
+    let runtime = WasmPluginRuntime::new(host.clone());
+    runtime.sync_plugins(&plugins_dir).expect("first sync");
+
+    let runtime_clone = runtime.clone();
+    drop(runtime_clone);
+
+    assert_eq!(host.events(), vec!["install:demo".to_string()]);
+}
+
+#[test]
+fn failed_reload_keeps_previous_plugin_active_and_records_error() {
+    let temp = tempfile::tempdir().expect("create tempdir");
+    let plugins_dir = temp.path().join("plugins");
+    std::fs::create_dir_all(&plugins_dir).expect("create plugins dir");
+    install_test_plugin(&plugins_dir, "demo", "1.0.0").expect("install test plugin");
+
+    let host = Arc::new(RecordingLifecycleHost::default());
+    let runtime = WasmPluginRuntime::new(host.clone());
+    runtime.sync_plugins(&plugins_dir).expect("first sync");
+
+    update_plugin_version(&plugins_dir, "demo", "2.0.0").expect("update version");
+    host.set_fail_uninstall(true);
+
+    let report = runtime
+        .sync_plugins(&plugins_dir)
+        .expect("reload sync with forced failure");
+    assert_eq!(report.active_plugins.len(), 1);
+    assert!(report.transitions.iter().any(|transition| {
+        transition.trigger == RuntimePluginTransitionTrigger::ReloadChanged
+            && transition.outcome == RuntimePluginTransitionOutcome::Failed
+    }));
+
+    let status = report
+        .plugin_statuses
+        .iter()
+        .find(|status| status.plugin_id == "demo")
+        .expect("plugin status for demo");
+    assert_eq!(status.lifecycle_state, RuntimePluginLifecycleState::Active);
+    assert!(
+        status
+            .last_error
+            .as_deref()
+            .is_some_and(|value| !value.is_empty())
     );
 }

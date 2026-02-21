@@ -62,9 +62,22 @@ pub fn install_from_artifact(
         extract_zip_to_dir(artifact_path, &staging_root)?;
     }
 
-    let mut valid = find_manifest_candidates(&staging_root);
+    let (mut valid, invalid) = find_manifest_candidates(&staging_root);
     let (manifest_path, manifest) = match valid.len() {
         0 => {
+            if !invalid.is_empty() {
+                let details = invalid
+                    .iter()
+                    .take(3)
+                    .map(|(path, error)| format!("{} => {}", path.display(), error))
+                    .collect::<Vec<_>>()
+                    .join(" | ");
+                return Err(crate::op_error!(
+                    "no valid wasm plugin manifest found in artifact: {}; invalid manifest candidates: {}",
+                    artifact_path.display(),
+                    details
+                ));
+            }
             return Err(crate::op_error!(
                 "no valid wasm plugin manifest found in artifact: {}",
                 artifact_path.display()
@@ -337,8 +350,11 @@ fn extract_zip_to_dir(zip_path: &Path, out_dir: &Path) -> Result<()> {
     Ok(())
 }
 
-fn find_manifest_candidates(root: &Path) -> Vec<(PathBuf, WasmPluginManifest)> {
-    let mut out = Vec::new();
+fn find_manifest_candidates(
+    root: &Path,
+) -> (Vec<(PathBuf, WasmPluginManifest)>, Vec<(PathBuf, String)>) {
+    let mut valid = Vec::new();
+    let mut invalid = Vec::new();
     for entry in walkdir::WalkDir::new(root)
         .follow_links(false)
         .max_depth(8)
@@ -352,9 +368,10 @@ fn find_manifest_candidates(root: &Path) -> Vec<(PathBuf, WasmPluginManifest)> {
             continue;
         }
         let path = entry.path().to_path_buf();
-        if let Ok(manifest) = read_manifest(&path) {
-            out.push((path, manifest));
+        match read_manifest(&path) {
+            Ok(manifest) => valid.push((path, manifest)),
+            Err(error) => invalid.push((path, format!("{error:#}"))),
         }
     }
-    out
+    (valid, invalid)
 }

@@ -7,7 +7,6 @@ use tokio::sync::broadcast;
 use tracing::info;
 
 use crate::{LibraryEvent, PlaylistLite, TrackLite};
-use stellatune_plugins::runtime::handle::shared_runtime_service;
 use stellatune_runtime::tokio_actor::{ActorRef, CallError, Handler, Message, spawn_actor};
 
 use crate::worker::{LibraryWorker, WorkerDeps};
@@ -284,10 +283,6 @@ impl LibraryHandle {
             disabled.insert(plugin_id.clone());
         }
         persist_disabled_plugin_ids(&self.db_path, &disabled).await?;
-
-        shared_runtime_service()
-            .set_plugin_enabled(&plugin_id, enabled)
-            .await;
 
         Ok(())
     }

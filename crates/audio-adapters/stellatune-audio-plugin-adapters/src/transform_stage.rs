@@ -1,23 +1,21 @@
 use std::any::Any;
 
-use crossbeam_channel::Receiver;
 use stellatune_audio::pipeline::assembly::OpaqueTransformStageSpec;
 use stellatune_audio::pipeline::graph::TransformGraph;
 use stellatune_audio_core::pipeline::context::{AudioBlock, PipelineContext, StreamSpec};
 use stellatune_audio_core::pipeline::error::PipelineError;
 use stellatune_audio_core::pipeline::stages::StageStatus;
 use stellatune_audio_core::pipeline::stages::transform::TransformStage;
-use stellatune_plugins::runtime::messages::WorkerControlMessage;
-use stellatune_plugins::runtime::worker_controller::{
-    WorkerApplyPendingOutcome, WorkerConfigUpdateOutcome,
-};
-use stellatune_plugins::runtime::worker_endpoint::DspWorkerController as TransformWorkerController;
+use stellatune_wasm_plugins::host_runtime::{RuntimeDspPlugin, shared_runtime_service};
 
 use crate::bridge::PluginTransformStagePayload;
-use crate::transform_runtime::{
-    TransformWorkerSpec, apply_transform_controller_pending, bind_transform_controller,
-    recreate_transform_controller_instance, sync_transform_runtime_control,
-};
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TransformWorkerSpec {
+    plugin_id: String,
+    type_id: String,
+    config_json: String,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PluginTransformConfigControl {
@@ -35,17 +33,21 @@ pub struct PluginTransformLifecycleControl {
     pub action: PluginTransformLifecycleAction,
 }
 
+struct RuntimeTransformInstance {
+    plugin: RuntimeDspPlugin,
+    spec: StreamSpec,
+}
+
 pub struct PluginTransformStage {
     stage_key: String,
     worker_spec: TransformWorkerSpec,
     target_spec: Option<StreamSpec>,
-    controller: Option<TransformWorkerController>,
-    control_rx: Option<Receiver<WorkerControlMessage>>,
+    instance: Option<RuntimeTransformInstance>,
     last_runtime_error: Option<String>,
 }
 
 impl PluginTransformStage {
-    pub fn new(stage_key: String, worker_spec: TransformWorkerSpec) -> Result<Self, String> {
+    fn new(stage_key: String, worker_spec: TransformWorkerSpec) -> Result<Self, String> {
         let stage_key = stage_key.trim().to_string();
         if stage_key.is_empty() {
             return Err("plugin transform stage key must not be empty".to_string());
@@ -66,8 +68,7 @@ impl PluginTransformStage {
             stage_key,
             worker_spec,
             target_spec: None,
-            controller: None,
-            control_rx: None,
+            instance: None,
             last_runtime_error: None,
         })
     }
@@ -88,164 +89,111 @@ impl PluginTransformStage {
         self.last_runtime_error.as_deref()
     }
 
-    fn bind_controller(&mut self, spec: StreamSpec) -> Result<(), String> {
-        let (controller, control_rx) = bind_transform_controller(
-            &self.worker_spec,
-            spec.sample_rate.max(1),
-            spec.channels.max(1),
-        )?;
-        self.controller = Some(controller);
-        self.control_rx = Some(control_rx);
-        Ok(())
-    }
-
-    fn maybe_bind_controller(&mut self) {
-        if self.controller.is_some() {
-            return;
-        }
-        let Some(spec) = self.target_spec else {
-            return;
-        };
-        if let Err(error) = self.bind_controller(spec) {
-            self.last_runtime_error = Some(error);
-        }
-    }
-
-    fn ensure_controller_strict(
-        &mut self,
-    ) -> Result<&mut TransformWorkerController, PipelineError> {
-        if self.controller.is_none() {
-            let spec = self.target_spec.ok_or_else(|| {
-                PipelineError::StageFailure(format!(
-                    "plugin transform '{}' is not prepared",
-                    self.stage_key
-                ))
+    fn create_instance_for_spec(
+        &self,
+        spec: StreamSpec,
+    ) -> Result<RuntimeTransformInstance, String> {
+        let mut plugin = shared_runtime_service()
+            .create_dsp_plugin(&self.worker_spec.plugin_id, &self.worker_spec.type_id)
+            .map_err(|e| {
+                format!(
+                    "create_dsp_plugin failed for {}::{}: {e}",
+                    self.worker_spec.plugin_id, self.worker_spec.type_id
+                )
             })?;
-            self.bind_controller(spec)
-                .map_err(PipelineError::StageFailure)?;
-        }
-        self.controller.as_mut().ok_or_else(|| {
-            PipelineError::StageFailure(format!(
-                "plugin transform '{}' has no controller",
-                self.stage_key
-            ))
-        })
+        plugin
+            .open_processor(spec.sample_rate.max(1), spec.channels.max(1))
+            .map_err(|e| {
+                format!(
+                    "dsp open_processor failed for {}::{}: {e}",
+                    self.worker_spec.plugin_id, self.worker_spec.type_id
+                )
+            })?;
+        plugin
+            .apply_config_update_json(&self.worker_spec.config_json)
+            .map_err(|e| {
+                format!(
+                    "dsp apply_config_update_json failed for {}::{}: {e}",
+                    self.worker_spec.plugin_id, self.worker_spec.type_id
+                )
+            })?;
+        Ok(RuntimeTransformInstance { plugin, spec })
     }
 
-    fn ensure_controller_instance_best_effort(&mut self) {
-        let Some(controller) = self.controller.as_mut() else {
-            return;
-        };
-        if controller.instance().is_some() && !controller.has_pending_recreate() {
-            return;
-        }
-        match apply_transform_controller_pending(
-            &self.worker_spec.plugin_id,
-            &self.worker_spec.type_id,
-            controller,
-        ) {
-            Ok(WorkerApplyPendingOutcome::Created | WorkerApplyPendingOutcome::Recreated) => {
-                self.last_runtime_error = None;
-            },
-            Ok(WorkerApplyPendingOutcome::Destroyed | WorkerApplyPendingOutcome::Idle) => {},
-            Err(error) => {
-                self.last_runtime_error = Some(error);
-            },
+    fn clear_instance(&mut self) {
+        if let Some(mut instance) = self.instance.take() {
+            let _ = instance.plugin.close_processor();
         }
     }
 
-    fn sync_runtime_control_best_effort(&mut self) {
-        self.maybe_bind_controller();
-        self.ensure_controller_instance_best_effort();
+    fn recreate_instance_preserve_state(&mut self) -> Result<(), String> {
+        let spec = self
+            .target_spec
+            .ok_or_else(|| format!("plugin transform '{}' is not prepared", self.stage_key))?;
 
-        let Some(controller) = self.controller.as_mut() else {
-            return;
-        };
-        let Some(control_rx) = self.control_rx.as_ref() else {
-            self.last_runtime_error = Some(format!(
-                "plugin transform {}::{} missing control receiver",
-                self.worker_spec.plugin_id, self.worker_spec.type_id
-            ));
-            return;
-        };
+        let state_json = self
+            .instance
+            .as_mut()
+            .and_then(|instance| instance.plugin.export_state_json().ok().flatten());
 
-        match sync_transform_runtime_control(
-            &self.worker_spec.plugin_id,
-            &self.worker_spec.type_id,
-            controller,
-            control_rx,
-        ) {
-            Ok(WorkerApplyPendingOutcome::Created | WorkerApplyPendingOutcome::Recreated) => {
-                self.last_runtime_error = None;
-            },
-            Ok(WorkerApplyPendingOutcome::Destroyed | WorkerApplyPendingOutcome::Idle) => {},
-            Err(error) => {
-                self.last_runtime_error = Some(error);
-            },
+        self.clear_instance();
+        let mut next = self.create_instance_for_spec(spec)?;
+        if let Some(state_json) = state_json {
+            let _ = next.plugin.import_state_json(&state_json);
         }
+        self.instance = Some(next);
+        self.last_runtime_error = None;
+        Ok(())
     }
 
     fn apply_config_control(
         &mut self,
         control: &PluginTransformConfigControl,
     ) -> Result<(), PipelineError> {
-        let plugin_id = self.worker_spec.plugin_id.clone();
-        let type_id = self.worker_spec.type_id.clone();
         self.worker_spec.config_json = control.config_json.clone();
-        let controller = self.ensure_controller_strict()?;
-        let outcome = controller
-            .apply_config_update(control.config_json.clone())
-            .map_err(|e| {
-                PipelineError::StageFailure(format!(
-                    "plugin transform config update failed for {}::{}: {e}",
-                    plugin_id, type_id
-                ))
-            })?;
-        match outcome {
-            WorkerConfigUpdateOutcome::Applied { .. } => {
-                self.last_runtime_error = None;
-                Ok(())
-            },
-            WorkerConfigUpdateOutcome::RequiresRecreate { .. }
-            | WorkerConfigUpdateOutcome::DeferredNoInstance => {
-                recreate_transform_controller_instance(&plugin_id, &type_id, controller)
-                    .map_err(PipelineError::StageFailure)?;
-                self.last_runtime_error = None;
-                Ok(())
-            },
-            WorkerConfigUpdateOutcome::Rejected { reason, .. } => {
-                Err(PipelineError::StageFailure(format!(
-                    "plugin transform config update rejected for {}::{}: {}",
-                    plugin_id, type_id, reason
-                )))
-            },
-            WorkerConfigUpdateOutcome::Failed { error, .. } => {
-                Err(PipelineError::StageFailure(format!(
-                    "plugin transform config update failed for {}::{}: {}",
-                    plugin_id, type_id, error
-                )))
-            },
+
+        if self.instance.is_none() {
+            return Ok(());
         }
+
+        let apply_result = self
+            .instance
+            .as_mut()
+            .ok_or_else(|| {
+                PipelineError::StageFailure(format!(
+                    "plugin transform '{}' instance unavailable",
+                    self.stage_key
+                ))
+            })?
+            .plugin
+            .apply_config_update_json(&control.config_json);
+
+        if let Err(error) = apply_result {
+            self.recreate_instance_preserve_state()
+                .map_err(PipelineError::StageFailure)?;
+            return Err(PipelineError::StageFailure(format!(
+                "plugin transform config update required recreate: {error}"
+            )));
+        }
+
+        self.last_runtime_error = None;
+        Ok(())
     }
 
     fn apply_lifecycle_control(
         &mut self,
         control: PluginTransformLifecycleControl,
     ) -> Result<(), PipelineError> {
-        let plugin_id = self.worker_spec.plugin_id.clone();
-        let type_id = self.worker_spec.type_id.clone();
-        let controller = self.ensure_controller_strict()?;
         match control.action {
             PluginTransformLifecycleAction::Recreate => {
-                recreate_transform_controller_instance(&plugin_id, &type_id, controller)
+                self.recreate_instance_preserve_state()
                     .map_err(PipelineError::StageFailure)?;
             },
             PluginTransformLifecycleAction::Destroy => {
-                controller.request_destroy();
-                let _ = apply_transform_controller_pending(&plugin_id, &type_id, controller)
-                    .map_err(PipelineError::StageFailure)?;
+                self.clear_instance();
             },
         }
+        self.last_runtime_error = None;
         Ok(())
     }
 }
@@ -277,14 +225,19 @@ impl TransformStage for PluginTransformStage {
         _ctx: &mut PipelineContext,
     ) -> Result<StreamSpec, PipelineError> {
         self.target_spec = Some(spec);
-        self.bind_controller(spec)
+        self.clear_instance();
+        let instance = self
+            .create_instance_for_spec(spec)
             .map_err(PipelineError::StageFailure)?;
-        self.ensure_controller_instance_best_effort();
+        self.instance = Some(instance);
+        self.last_runtime_error = None;
         Ok(spec)
     }
 
     fn sync_runtime_control(&mut self, _ctx: &mut PipelineContext) -> Result<(), PipelineError> {
-        self.sync_runtime_control_best_effort();
+        if let Some(error) = self.last_runtime_error.take() {
+            return Err(PipelineError::StageFailure(error));
+        }
         Ok(())
     }
 
@@ -292,19 +245,31 @@ impl TransformStage for PluginTransformStage {
         if block.is_empty() {
             return StageStatus::Ok;
         }
-        let Some(controller) = self.controller.as_mut() else {
+        let Some(instance) = self.instance.as_mut() else {
             return StageStatus::Ok;
         };
-        let Some(instance) = controller.instance_mut() else {
-            return StageStatus::Ok;
-        };
-        let channels = block.channels.max(1) as usize;
-        let frames = block.samples.len() / channels;
-        if frames == 0 {
-            return StageStatus::Ok;
+
+        if instance.spec.channels != block.channels {
+            self.last_runtime_error = Some(format!(
+                "plugin transform '{}' channel mismatch: prepared={} block={}",
+                self.stage_key, instance.spec.channels, block.channels
+            ));
+            return StageStatus::Fatal;
         }
-        instance.process_interleaved_f32_in_place(&mut block.samples, frames as u32);
-        StageStatus::Ok
+
+        match instance
+            .plugin
+            .process_interleaved_f32_in_place(block.channels, &mut block.samples)
+        {
+            Ok(()) => StageStatus::Ok,
+            Err(error) => {
+                self.last_runtime_error = Some(format!(
+                    "plugin transform '{}' process failed: {error}",
+                    self.stage_key
+                ));
+                StageStatus::Fatal
+            },
+        }
     }
 
     fn flush(&mut self, _ctx: &mut PipelineContext) -> Result<(), PipelineError> {
@@ -312,14 +277,9 @@ impl TransformStage for PluginTransformStage {
     }
 
     fn stop(&mut self, _ctx: &mut PipelineContext) {
-        if let Some(controller) = self.controller.as_mut() {
-            controller.request_destroy();
-            let _ = apply_transform_controller_pending(
-                &self.worker_spec.plugin_id,
-                &self.worker_spec.type_id,
-                controller,
-            );
-        }
+        self.clear_instance();
+        self.target_spec = None;
+        self.last_runtime_error = None;
     }
 }
 

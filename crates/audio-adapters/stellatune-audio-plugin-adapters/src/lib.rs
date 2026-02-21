@@ -1,12 +1,13 @@
 #![deny(clippy::wildcard_imports)]
 
-pub mod bridge;
-pub mod decoder_runtime;
-pub mod decoder_stage;
-pub mod lifecycle;
-pub mod orchestrator;
-pub mod output_sink_runtime;
-pub mod output_sink_stage;
-pub mod source_plugin;
-pub mod transform_runtime;
-pub mod transform_stage;
+mod bridge;
+mod decoder_stage;
+mod lifecycle;
+mod orchestrator;
+mod output_sink_runtime;
+mod output_sink_stage;
+mod source_plugin;
+mod transform_stage;
+
+pub mod pipeline;
+pub mod stages;

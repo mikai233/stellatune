@@ -197,7 +197,9 @@ class LibraryController extends Notifier<LibraryState> {
   }
 
   Future<void> _refreshLikedTrackIds() async {
-    final likedTrackIds = await ref.read(libraryBridgeProvider).listLikedTrackIds();
+    final likedTrackIds = await ref
+        .read(libraryBridgeProvider)
+        .listLikedTrackIds();
     state = state.copyWith(likedTrackIds: likedTrackIds.toSet());
   }
 
@@ -220,7 +222,8 @@ class LibraryController extends Notifier<LibraryState> {
           );
 
     if (selectedPlaylistId != null) {
-      if (state.selectedPlaylistId != selectedPlaylistId || state.query != query) {
+      if (state.selectedPlaylistId != selectedPlaylistId ||
+          state.query != query) {
         return;
       }
     } else if (state.selectedPlaylistId != null ||

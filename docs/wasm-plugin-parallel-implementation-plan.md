@@ -72,14 +72,11 @@ Deliverable:
 Deliverable:
 - At least sink + dsp are runnable through Wasm runtime in parallel with native runtime.
 
-## Phase 4: State, Config, and Threading
+## Phase 4: State, Config, and Isolation
 
 1. Implement config plan/apply/export/import hooks.
-2. Implement per-component threading hints:
-   - dedicated
-   - shared pool
-3. Add plugin instance isolation rules and resource limits.
-4. Add deterministic teardown semantics for sidecar and runtime instances.
+2. Add plugin instance isolation rules and resource limits.
+3. Add deterministic teardown semantics for sidecar and runtime instances.
 
 Deliverable:
 - Wasm plugins support runtime reconfiguration and stable multithread execution.

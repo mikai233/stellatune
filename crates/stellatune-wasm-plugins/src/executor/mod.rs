@@ -1,10 +1,15 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender};
-use std::sync::{Arc, Mutex, RwLock};
 
 use crate::error::Result;
+use parking_lot::RwLock;
+use tracing::warn;
 use wasmtime::component::{Component, HasSelf, Linker};
-use wasmtime::{Config, Engine, Store};
+use wasmtime::{Cache, Config, Engine, Store};
+use wasmtime_wasi::p2::add_to_linker_sync;
+use wasmtime_wasi::{ResourceTable, WasiCtx, WasiCtxBuilder};
 
 use stellatune_wasm_host_bindings as wasm_host;
 use stellatune_wasm_host_bindings::generated::decoder_plugin::DecoderPlugin as DecoderPluginBinding;
@@ -68,7 +73,8 @@ pub struct WasmtimePluginController {
     stream_service: Arc<dyn HostStreamService>,
     sidecar_host: Arc<dyn SidecarHost>,
     directives: RwLock<DirectiveRegistry>,
-    plugins: Mutex<BTreeMap<String, ActivePluginRecord>>,
+    plugins: RwLock<BTreeMap<String, ActivePluginRecord>>,
+    component_cache: RwLock<BTreeMap<PathBuf, Component>>,
     decoder_linker: Linker<DecoderStoreData>,
     source_linker: Linker<SourceStoreData>,
     lyrics_linker: Linker<LyricsStoreData>,
@@ -91,6 +97,16 @@ impl WasmtimePluginController {
     ) -> Result<Self> {
         let mut config = Config::new();
         config.wasm_component_model(true);
+        match Cache::from_file(None) {
+            Ok(cache) => {
+                config.cache(Some(cache));
+            },
+            Err(error) => {
+                warn!(
+                    "wasmtime cache config unavailable; continuing without disk cache: {error:#}"
+                );
+            },
+        };
         let engine = Engine::new(&config)?;
 
         let mut decoder_linker: Linker<DecoderStoreData> = Linker::new(&engine);
@@ -98,29 +114,34 @@ impl WasmtimePluginController {
             &mut decoder_linker,
             |state| state,
         )?;
+        add_to_linker_sync(&mut decoder_linker)?;
 
         let mut source_linker: Linker<SourceStoreData> = Linker::new(&engine);
         SourcePluginBinding::add_to_linker::<_, HasSelf<SourceStoreData>>(
             &mut source_linker,
             |state| state,
         )?;
+        add_to_linker_sync(&mut source_linker)?;
 
         let mut lyrics_linker: Linker<LyricsStoreData> = Linker::new(&engine);
         LyricsPluginBinding::add_to_linker::<_, HasSelf<LyricsStoreData>>(
             &mut lyrics_linker,
             |state| state,
         )?;
+        add_to_linker_sync(&mut lyrics_linker)?;
 
         let mut output_sink_linker: Linker<OutputSinkStoreData> = Linker::new(&engine);
         OutputSinkPluginBinding::add_to_linker::<_, HasSelf<OutputSinkStoreData>>(
             &mut output_sink_linker,
             |state| state,
         )?;
+        add_to_linker_sync(&mut output_sink_linker)?;
 
         let mut dsp_linker: Linker<DspStoreData> = Linker::new(&engine);
         DspPluginBinding::add_to_linker::<_, HasSelf<DspStoreData>>(&mut dsp_linker, |state| {
             state
         })?;
+        add_to_linker_sync(&mut dsp_linker)?;
 
         Ok(Self {
             engine,
@@ -128,7 +149,8 @@ impl WasmtimePluginController {
             stream_service,
             sidecar_host,
             directives: RwLock::new(DirectiveRegistry::default()),
-            plugins: Mutex::new(BTreeMap::new()),
+            plugins: RwLock::new(BTreeMap::new()),
+            component_cache: RwLock::new(BTreeMap::new()),
             decoder_linker,
             source_linker,
             lyrics_linker,
@@ -144,48 +166,65 @@ impl WasmtimePluginController {
         Ok(Arc::new(Self::new(http_client, stream_service)?))
     }
 
-    fn new_decoder_store_data(&self) -> DecoderStoreData {
+    fn new_decoder_store_data(&self, plugin_root: &Path) -> DecoderStoreData {
+        let (wasi_ctx, wasi_table) = create_store_wasi_state();
         DecoderStoreData {
             stream_service: self.stream_service.clone(),
             next_rep: 1,
             streams: BTreeMap::new(),
             sidecar: SidecarState::new(self.sidecar_host.clone()),
+            plugin_root: plugin_root.to_path_buf(),
+            wasi_ctx,
+            wasi_table,
         }
     }
 
-    fn new_source_store_data(&self) -> SourceStoreData {
+    fn new_source_store_data(&self, plugin_root: &Path) -> SourceStoreData {
+        let (wasi_ctx, wasi_table) = create_store_wasi_state();
         SourceStoreData {
             stream_service: self.stream_service.clone(),
             next_rep: 1,
             streams: BTreeMap::new(),
             sidecar: SidecarState::new(self.sidecar_host.clone()),
+            plugin_root: plugin_root.to_path_buf(),
+            wasi_ctx,
+            wasi_table,
         }
     }
 
-    fn new_lyrics_store_data(&self) -> LyricsStoreData {
+    fn new_lyrics_store_data(&self, plugin_root: &Path) -> LyricsStoreData {
+        let (wasi_ctx, wasi_table) = create_store_wasi_state();
         LyricsStoreData {
             http_client: self.http_client.clone(),
             sidecar: SidecarState::new(self.sidecar_host.clone()),
+            plugin_root: plugin_root.to_path_buf(),
+            wasi_ctx,
+            wasi_table,
         }
     }
 
-    fn new_output_sink_store_data(&self) -> OutputSinkStoreData {
+    fn new_output_sink_store_data(&self, plugin_root: &Path) -> OutputSinkStoreData {
+        let (wasi_ctx, wasi_table) = create_store_wasi_state();
         OutputSinkStoreData {
             sidecar: SidecarState::new(self.sidecar_host.clone()),
+            plugin_root: plugin_root.to_path_buf(),
+            wasi_ctx,
+            wasi_table,
         }
     }
 
-    fn new_dsp_store_data(&self) -> DspStoreData {
+    fn new_dsp_store_data(&self, plugin_root: &Path) -> DspStoreData {
+        let (wasi_ctx, wasi_table) = create_store_wasi_state();
         DspStoreData {
             sidecar: SidecarState::new(self.sidecar_host.clone()),
+            plugin_root: plugin_root.to_path_buf(),
+            wasi_ctx,
+            wasi_table,
         }
     }
 
     fn ensure_plugin_active(&self, plugin_id: &str) -> Result<()> {
-        let routes = self
-            .directives
-            .read()
-            .expect("executor directives lock poisoned");
+        let routes = self.directives.read();
         if routes.active_plugins.contains(plugin_id) {
             return Ok(());
         }
@@ -197,10 +236,7 @@ impl WasmtimePluginController {
         plugin_id: &str,
         sender: Sender<RuntimePluginDirective>,
     ) -> Result<()> {
-        let mut routes = self
-            .directives
-            .write()
-            .expect("executor directives lock poisoned");
+        let mut routes = self.directives.write();
         if !routes.active_plugins.contains(plugin_id) {
             return Err(crate::op_error!(
                 "plugin `{plugin_id}` was deactivated during creation"
@@ -229,7 +265,7 @@ impl WasmtimePluginController {
             return Err(crate::op_error!("type_id is empty"));
         }
 
-        let plugins = self.plugins.lock().expect("executor plugin lock poisoned");
+        let plugins = self.plugins.read();
         let Some(record) = plugins.get(plugin_id) else {
             return Err(crate::op_error!("plugin `{plugin_id}` is not installed"));
         };
@@ -247,12 +283,54 @@ impl WasmtimePluginController {
         Ok((record.info.clone(), capability))
     }
 
+    pub(crate) fn load_component_cached(&self, component_path: &Path) -> Result<Component> {
+        let cache_key = component_path.to_path_buf();
+
+        {
+            let cache = self.component_cache.read();
+            if let Some(component) = cache.get(&cache_key) {
+                return Ok(component.clone());
+            }
+        }
+
+        let component = Component::from_file(&self.engine, &cache_key).map_err(|error| {
+            crate::op_error!(
+                "failed to load component from `{}`: {error:#}",
+                cache_key.display()
+            )
+        })?;
+
+        let mut cache = self.component_cache.write();
+        if let Some(component) = cache.get(&cache_key) {
+            return Ok(component.clone());
+        }
+        cache.insert(cache_key, component.clone());
+        Ok(component)
+    }
+
+    pub(crate) fn remove_cached_components_for_plugin(
+        &self,
+        plugin: &RuntimePluginInfo,
+        capabilities: &[RuntimeCapabilityDescriptor],
+    ) {
+        let mut cache = self.component_cache.write();
+        for capability in capabilities {
+            let component_path = plugin.root_dir.join(&capability.component_rel_path);
+            cache.remove(&component_path);
+        }
+    }
+
+    pub(crate) fn clear_component_cache(&self) {
+        self.component_cache.write().clear();
+    }
+
     fn instantiate_lyrics_component(
         &self,
+        plugin_root: &Path,
         component: &Component,
         rx: Receiver<RuntimePluginDirective>,
     ) -> Result<PluginCell<Store<LyricsStoreData>, LyricsPluginBinding>> {
-        let mut store = Store::new(&self.engine, self.new_lyrics_store_data());
+        let mut store = Store::new(&self.engine, self.new_lyrics_store_data(plugin_root));
         let instance = LyricsPluginBinding::instantiate(&mut store, component, &self.lyrics_linker)
             .map_err(|error| {
                 crate::op_error!("failed to instantiate lyrics component: {error:#}")
@@ -268,10 +346,11 @@ impl WasmtimePluginController {
 
     fn instantiate_decoder_component(
         &self,
+        plugin_root: &Path,
         component: &Component,
         rx: Receiver<RuntimePluginDirective>,
     ) -> Result<PluginCell<Store<DecoderStoreData>, DecoderPluginBinding>> {
-        let mut store = Store::new(&self.engine, self.new_decoder_store_data());
+        let mut store = Store::new(&self.engine, self.new_decoder_store_data(plugin_root));
         let instance =
             DecoderPluginBinding::instantiate(&mut store, component, &self.decoder_linker)?;
         let on_enable = instance
@@ -284,10 +363,11 @@ impl WasmtimePluginController {
 
     fn instantiate_source_component(
         &self,
+        plugin_root: &Path,
         component: &Component,
         rx: Receiver<RuntimePluginDirective>,
     ) -> Result<PluginCell<Store<SourceStoreData>, SourcePluginBinding>> {
-        let mut store = Store::new(&self.engine, self.new_source_store_data());
+        let mut store = Store::new(&self.engine, self.new_source_store_data(plugin_root));
         let instance = SourcePluginBinding::instantiate(&mut store, component, &self.source_linker)
             .map_err(|error| {
                 crate::op_error!("failed to instantiate source component: {error:#}")
@@ -303,10 +383,11 @@ impl WasmtimePluginController {
 
     fn instantiate_output_sink_component(
         &self,
+        plugin_root: &Path,
         component: &Component,
         rx: Receiver<RuntimePluginDirective>,
     ) -> Result<PluginCell<Store<OutputSinkStoreData>, OutputSinkPluginBinding>> {
-        let mut store = Store::new(&self.engine, self.new_output_sink_store_data());
+        let mut store = Store::new(&self.engine, self.new_output_sink_store_data(plugin_root));
         let instance =
             OutputSinkPluginBinding::instantiate(&mut store, component, &self.output_sink_linker)
                 .map_err(|error| {
@@ -323,10 +404,11 @@ impl WasmtimePluginController {
 
     fn instantiate_dsp_component(
         &self,
+        plugin_root: &Path,
         component: &Component,
         rx: Receiver<RuntimePluginDirective>,
     ) -> Result<PluginCell<Store<DspStoreData>, DspPluginBinding>> {
-        let mut store = Store::new(&self.engine, self.new_dsp_store_data());
+        let mut store = Store::new(&self.engine, self.new_dsp_store_data(plugin_root));
         let instance = DspPluginBinding::instantiate(&mut store, component, &self.dsp_linker)
             .map_err(|error| crate::op_error!("failed to instantiate dsp component: {error:#}"))?;
         let on_enable = instance
@@ -414,4 +496,14 @@ fn normalize_world_name(world: &str) -> &str {
     let world = world.trim();
     let world = world.rsplit('/').next().unwrap_or(world);
     world.split('@').next().unwrap_or(world).trim()
+}
+
+fn create_store_wasi_state() -> (WasiCtx, ResourceTable) {
+    (
+        WasiCtxBuilder::new()
+            .inherit_stdout()
+            .inherit_stderr()
+            .build(),
+        ResourceTable::new(),
+    )
 }

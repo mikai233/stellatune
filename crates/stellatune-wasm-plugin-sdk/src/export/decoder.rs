@@ -248,11 +248,10 @@ macro_rules! export_decoder_component {
                 fn open(input: __StHostStreamHandle, ext_hint: Option<String>) -> Result<__st_bindings::exports::stellatune::plugin::decoder::Session, __StPluginError>
                 {
                     let mut plugin = __plugin_guard()?;
-                    let mut stream = __StDecoderInputStream { handle: input };
                     let session = plugin
                         .open($crate::DecoderInput {
-                            stream: &mut stream,
-                            ext_hint: ext_hint.as_deref(),
+                            stream: Box::new(__StDecoderInputStream { handle: input }),
+                            ext_hint,
                         })
                         .map_err(__map_error)?;
                     Ok(__st_bindings::exports::stellatune::plugin::decoder::Session::new(

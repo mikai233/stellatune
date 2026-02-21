@@ -300,13 +300,6 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
     return ids.map((id) => id.trim()).where((id) => id.isNotEmpty).toSet();
   }
 
-  String _pluginLibExtForPlatform() {
-    if (Platform.isWindows) return 'dll';
-    if (Platform.isLinux) return 'so';
-    if (Platform.isMacOS) return 'dylib';
-    return 'dll';
-  }
-
   String _sourceTypeKey(SourceCatalogTypeDescriptor t) =>
       '${t.pluginId}::${t.typeId}';
 
@@ -526,7 +519,7 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
         dialogTitle: l10n.settingsInstallPluginPickFolder,
         type: FileType.custom,
         allowMultiple: false,
-        allowedExtensions: ['zip', _pluginLibExtForPlatform()],
+        allowedExtensions: ['zip'],
         lockParentWindow: true,
       );
     } catch (e, s) {
@@ -560,12 +553,10 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
 
     try {
       final bridge = ref.read(playerBridgeProvider);
-      final library = ref.read(libraryBridgeProvider);
       final installedPluginId = await bridge.pluginsInstallFromFile(
         dir: pluginDir,
         artifactPath: srcPath,
       );
-      await library.pluginApplyState();
       await _refreshDecoderExtensionSupportCache();
       unawaited(
         _ensureNeteaseSidecarResident(
@@ -574,17 +565,32 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
         ),
       );
       if (!mounted) return;
-      setState(_refresh);
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(l10n.settingsPluginInstalled)));
     } catch (e, s) {
       logger.e('failed to install plugin', error: e, stackTrace: s);
+      try {
+        final status = await ref
+            .read(libraryBridgeProvider)
+            .pluginApplyStateStatusJson();
+        logger.w('plugin apply-state status after install failure: $status');
+      } catch (statusError, statusStack) {
+        logger.w(
+          'failed to query plugin apply-state status after install failure',
+          error: statusError,
+          stackTrace: statusStack,
+        );
+      }
       if (!mounted) return;
       final l10n = AppLocalizations.of(context)!;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(l10n.settingsPluginInstallFailed(e.toString()))),
       );
+    } finally {
+      if (mounted) {
+        setState(_refresh);
+      }
     }
   }
 

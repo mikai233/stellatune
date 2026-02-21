@@ -461,7 +461,7 @@ abstract class AppLocalizations {
   /// No description provided for @settingsInstallPluginPickFolder.
   ///
   /// In en, this message translates to:
-  /// **'Pick plugin file (.zip/.dll/.so/.dylib)'**
+  /// **'Pick plugin package (.zip)'**
   String get settingsInstallPluginPickFolder;
 
   /// No description provided for @settingsInstallPluginMissingManifest.

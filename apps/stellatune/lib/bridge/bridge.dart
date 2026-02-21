@@ -23,7 +23,6 @@ export 'api/player/types.dart'
         PluginDescriptor,
         PlayerState,
         TrackDecodeInfo,
-        TrackPlayability,
         PluginRuntimeEvent,
         ResampleQuality;
 export 'third_party/stellatune_library.dart'
@@ -218,13 +217,6 @@ class PlayerBridge {
 
   Future<List<String>> decoderSupportedExtensions() =>
       api.decoderSupportedExtensions();
-
-  @Deprecated(
-    'Legacy compatibility API. Prefer decoderSupportedExtensions() and '
-    'client-side extension checks for local tracks.',
-  )
-  Future<List<TrackPlayability>> canPlayTrackRefs(List<TrackRef> tracks) =>
-      api.canPlayTrackRefs(tracks: tracks);
 }
 
 TrackRef buildPluginSourceTrackRef({

@@ -87,6 +87,15 @@ Future<AppBootstrapResult> bootstrapApp() async {
   final paths = await _resolvePaths();
 
   final library = await LibraryBridge.create(dbPath: paths.dbPath);
+  try {
+    await library.pluginApplyState();
+  } catch (e, s) {
+    logger.w(
+      'failed to apply plugin runtime state during bootstrap',
+      error: e,
+      stackTrace: s,
+    );
+  }
 
   await _applyPersistedOutputSettings(bridge: bridge, settings: settings);
   await _setupLyricsCacheDb(bridge: bridge, lyricsDbPath: paths.lyricsDbPath);

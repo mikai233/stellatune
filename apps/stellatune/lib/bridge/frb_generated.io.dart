@@ -179,12 +179,6 @@ abstract class StellatuneApiApiImplPlatform
   List<TrackLite> dco_decode_list_track_lite(dynamic raw);
 
   @protected
-  List<TrackPlayability> dco_decode_list_track_playability(dynamic raw);
-
-  @protected
-  List<TrackRef> dco_decode_list_track_ref(dynamic raw);
-
-  @protected
   LyricLine dco_decode_lyric_line(dynamic raw);
 
   @protected
@@ -253,9 +247,6 @@ abstract class StellatuneApiApiImplPlatform
 
   @protected
   TrackLite dco_decode_track_lite(dynamic raw);
-
-  @protected
-  TrackPlayability dco_decode_track_playability(dynamic raw);
 
   @protected
   TrackRef dco_decode_track_ref(dynamic raw);
@@ -454,14 +445,6 @@ abstract class StellatuneApiApiImplPlatform
   List<TrackLite> sse_decode_list_track_lite(SseDeserializer deserializer);
 
   @protected
-  List<TrackPlayability> sse_decode_list_track_playability(
-    SseDeserializer deserializer,
-  );
-
-  @protected
-  List<TrackRef> sse_decode_list_track_ref(SseDeserializer deserializer);
-
-  @protected
   LyricLine sse_decode_lyric_line(SseDeserializer deserializer);
 
   @protected
@@ -540,9 +523,6 @@ abstract class StellatuneApiApiImplPlatform
 
   @protected
   TrackLite sse_decode_track_lite(SseDeserializer deserializer);
-
-  @protected
-  TrackPlayability sse_decode_track_playability(SseDeserializer deserializer);
 
   @protected
   TrackRef sse_decode_track_ref(SseDeserializer deserializer);
@@ -800,15 +780,6 @@ abstract class StellatuneApiApiImplPlatform
   );
 
   @protected
-  void sse_encode_list_track_playability(
-    List<TrackPlayability> self,
-    SseSerializer serializer,
-  );
-
-  @protected
-  void sse_encode_list_track_ref(List<TrackRef> self, SseSerializer serializer);
-
-  @protected
   void sse_encode_lyric_line(LyricLine self, SseSerializer serializer);
 
   @protected
@@ -909,12 +880,6 @@ abstract class StellatuneApiApiImplPlatform
 
   @protected
   void sse_encode_track_lite(TrackLite self, SseSerializer serializer);
-
-  @protected
-  void sse_encode_track_playability(
-    TrackPlayability self,
-    SseSerializer serializer,
-  );
 
   @protected
   void sse_encode_track_ref(TrackRef self, SseSerializer serializer);

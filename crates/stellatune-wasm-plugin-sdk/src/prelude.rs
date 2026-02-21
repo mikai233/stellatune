@@ -1,7 +1,8 @@
 pub use crate::capabilities::{
     AbilityDescriptor, AbilityKind, ConfigStateOps, DecoderInput, DecoderInputStream,
     DecoderPlugin, DecoderSession, DspPlugin, DspProcessor, LyricsPlugin, LyricsProvider,
-    OutputSinkPlugin, OutputSinkSession, SourceCatalog, SourcePlugin, SourceStream,
+    OpenedSourceStream, OutputSinkPlugin, OutputSinkSession, SourceCatalog, SourcePlugin,
+    SourceStream,
 };
 pub use crate::common::{
     AudioSpec, AudioTags, BufferLayout, ConfigUpdateMode, ConfigUpdatePlan, CoreModuleSpec,
@@ -12,7 +13,10 @@ pub use crate::common::{
 pub use crate::error::{SdkError, SdkResult};
 pub use crate::export::{ComponentExport, ComponentExportMetadata};
 pub use crate::guest_bindings;
-pub use crate::host_stream::{HostStreamClient, HostStreamHandle, HostStreamReader};
+pub use crate::host_stream::{
+    HostStreamClient, HostStreamHandle, HostStreamOpenRequest, HostStreamReader, HttpMethod,
+    StreamHeader, StreamOpenKind,
+};
 pub use crate::hot_path::{
     CoreModuleSpecBuilder, DEFAULT_DROP_EXPORT, DEFAULT_INIT_EXPORT, DEFAULT_MEMORY_EXPORT,
     DEFAULT_PROCESS_EXPORT, DEFAULT_RESET_EXPORT, HOT_INIT_ARGS_SIZE, HOT_PATH_ABI_VERSION_V1,

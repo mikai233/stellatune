@@ -1,11 +1,12 @@
-use std::path::Path;
+use std::collections::VecDeque;
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread::{self, Builder, JoinHandle};
 use std::time::Duration;
 
 use cpal::traits::{DeviceTrait, StreamTrait};
-use stellatune_asio_proto::{AudioSpec, SharedRingFile, shm::SharedRingMapped};
+use stellatune_asio_proto::AudioSpec;
 
 use crate::device::find_live_device;
 
@@ -18,8 +19,66 @@ use windows::Win32::System::Threading::{
 #[cfg(windows)]
 use windows::core::HSTRING;
 
+const DEFAULT_QUEUE_MS: u32 = 80;
+const MIN_QUEUE_MS: u32 = 20;
+const MIN_QUEUE_FRAMES: u32 = 1024;
+const MAX_QUEUE_SAMPLES: usize = 4 * 1024 * 1024;
+
+struct LocalSampleQueue {
+    inner: Mutex<VecDeque<f32>>,
+    capacity_samples: usize,
+}
+
+impl LocalSampleQueue {
+    fn new(capacity_samples: usize) -> Self {
+        Self {
+            inner: Mutex::new(VecDeque::with_capacity(capacity_samples.min(16_384))),
+            capacity_samples,
+        }
+    }
+
+    fn write_samples(&self, input: &[f32]) -> usize {
+        let Ok(mut guard) = self.inner.lock() else {
+            return 0;
+        };
+        let available = self.capacity_samples.saturating_sub(guard.len());
+        let count = available.min(input.len());
+        if count == 0 {
+            return 0;
+        }
+        guard.extend(input.iter().take(count).copied());
+        count
+    }
+
+    fn read_samples(&self, out: &mut [f32]) -> usize {
+        let Ok(mut guard) = self.inner.try_lock() else {
+            return 0;
+        };
+        let count = out.len().min(guard.len());
+        for slot in out.iter_mut().take(count) {
+            *slot = guard.pop_front().unwrap_or(0.0);
+        }
+        count
+    }
+
+    fn queued_samples(&self) -> u32 {
+        let Ok(guard) = self.inner.lock() else {
+            return 0;
+        };
+        guard.len().min(u32::MAX as usize) as u32
+    }
+
+    fn reset(&self) {
+        if let Ok(mut guard) = self.inner.lock() {
+            guard.clear();
+        }
+    }
+}
+
 pub(crate) struct StreamState {
     running: Arc<AtomicBool>,
+    queue: Arc<LocalSampleQueue>,
+    channels: u16,
     metrics: Arc<UnderrunMetrics>,
     metrics_join: Option<JoinHandle<()>>,
     _stream: cpal::Stream,
@@ -30,33 +89,27 @@ impl StreamState {
         device_id: &str,
         spec: AudioSpec,
         buffer_size_frames: Option<u32>,
-        shared_ring: Option<SharedRingFile>,
+        queue_capacity_ms: Option<u32>,
     ) -> Result<Self, String> {
         let dev = find_live_device(device_id)?;
-
-        let shared_ring = shared_ring.ok_or_else(|| "shared ring not provided".to_string())?;
-        let ring_capacity_samples = shared_ring.capacity_samples;
-        let ring_path = shared_ring.path;
-        let ring = SharedRingMapped::open(Path::new(&ring_path))
-            .map_err(|e| format!("failed to open shared ring: {e}"))?;
-        if ring.capacity_samples() != ring_capacity_samples as usize {
-            return Err("shared ring capacity mismatch".to_string());
-        }
-        if ring.channels() != spec.channels {
-            return Err("shared ring channel mismatch".to_string());
-        }
-        ring.reset();
+        let channels = spec.channels.max(1);
+        let queue = Arc::new(LocalSampleQueue::new(queue_capacity_samples(
+            &spec,
+            buffer_size_frames,
+            queue_capacity_ms,
+        )));
+        queue.reset();
 
         let running = Arc::new(AtomicBool::new(false));
         let metrics = Arc::new(UnderrunMetrics::default());
         let metrics_join = Some(start_underrun_reporter(
             Arc::clone(&metrics),
             spec.sample_rate,
-            spec.channels,
+            channels,
         ));
 
         let cfg = cpal::StreamConfig {
-            channels: spec.channels,
+            channels,
             sample_rate: spec.sample_rate,
             buffer_size: match buffer_size_frames {
                 Some(n) => cpal::BufferSize::Fixed(n),
@@ -84,8 +137,7 @@ impl StreamState {
 
         let stream = match chosen_format {
             cpal::SampleFormat::F32 => {
-                let ring = SharedRingMapped::open(Path::new(&ring_path))
-                    .map_err(|e| format!("failed to open shared ring: {e}"))?;
+                let queue_cb = Arc::clone(&queue);
                 let running_cb = Arc::clone(&running);
                 let metrics_cb = Arc::clone(&metrics);
                 #[cfg(windows)]
@@ -95,7 +147,7 @@ impl StreamState {
                     move |out: &mut [f32], _| {
                         #[cfg(windows)]
                         mmcss_state.ensure_pro_audio("f32");
-                        fill_shm_f32(out, &ring, &running_cb, &metrics_cb)
+                        fill_queue_f32(out, &queue_cb, &running_cb, &metrics_cb)
                     },
                     err_fn,
                     None,
@@ -104,8 +156,7 @@ impl StreamState {
             },
             cpal::SampleFormat::I16 => {
                 let mut tmp = vec![0f32; 0];
-                let ring = SharedRingMapped::open(Path::new(&ring_path))
-                    .map_err(|e| format!("failed to open shared ring: {e}"))?;
+                let queue_cb = Arc::clone(&queue);
                 let running_cb = Arc::clone(&running);
                 let metrics_cb = Arc::clone(&metrics);
                 #[cfg(windows)]
@@ -115,7 +166,7 @@ impl StreamState {
                     move |out: &mut [i16], _| {
                         #[cfg(windows)]
                         mmcss_state.ensure_pro_audio("i16");
-                        fill_shm_i16(out, &ring, &running_cb, &metrics_cb, &mut tmp)
+                        fill_queue_i16(out, &queue_cb, &running_cb, &metrics_cb, &mut tmp)
                     },
                     err_fn,
                     None,
@@ -124,8 +175,7 @@ impl StreamState {
             },
             cpal::SampleFormat::I32 => {
                 let mut tmp = vec![0f32; 0];
-                let ring = SharedRingMapped::open(Path::new(&ring_path))
-                    .map_err(|e| format!("failed to open shared ring: {e}"))?;
+                let queue_cb = Arc::clone(&queue);
                 let running_cb = Arc::clone(&running);
                 let metrics_cb = Arc::clone(&metrics);
                 #[cfg(windows)]
@@ -135,7 +185,7 @@ impl StreamState {
                     move |out: &mut [i32], _| {
                         #[cfg(windows)]
                         mmcss_state.ensure_pro_audio("i32");
-                        fill_shm_i32(out, &ring, &running_cb, &metrics_cb, &mut tmp)
+                        fill_queue_i32(out, &queue_cb, &running_cb, &metrics_cb, &mut tmp)
                     },
                     err_fn,
                     None,
@@ -144,8 +194,7 @@ impl StreamState {
             },
             cpal::SampleFormat::U16 => {
                 let mut tmp = vec![0f32; 0];
-                let ring = SharedRingMapped::open(Path::new(&ring_path))
-                    .map_err(|e| format!("failed to open shared ring: {e}"))?;
+                let queue_cb = Arc::clone(&queue);
                 let running_cb = Arc::clone(&running);
                 let metrics_cb = Arc::clone(&metrics);
                 #[cfg(windows)]
@@ -155,7 +204,7 @@ impl StreamState {
                     move |out: &mut [u16], _| {
                         #[cfg(windows)]
                         mmcss_state.ensure_pro_audio("u16");
-                        fill_shm_u16(out, &ring, &running_cb, &metrics_cb, &mut tmp)
+                        fill_queue_u16(out, &queue_cb, &running_cb, &metrics_cb, &mut tmp)
                     },
                     err_fn,
                     None,
@@ -167,6 +216,8 @@ impl StreamState {
 
         Ok(Self {
             running,
+            queue,
+            channels,
             metrics,
             metrics_join,
             _stream: stream,
@@ -176,6 +227,38 @@ impl StreamState {
     pub(crate) fn start(&self) -> Result<(), String> {
         self.running.store(true, Ordering::Release);
         self._stream.play().map_err(|e| e.to_string())
+    }
+
+    pub(crate) fn reset(&self) {
+        self.queue.reset();
+    }
+
+    pub(crate) fn queued_samples(&self) -> u32 {
+        self.queue.queued_samples()
+    }
+
+    pub(crate) fn running(&self) -> bool {
+        self.running.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn write_interleaved_f32le(&self, interleaved_f32le: &[u8]) -> Result<u32, String> {
+        if !interleaved_f32le.len().is_multiple_of(std::mem::size_of::<f32>()) {
+            return Err("interleaved_f32le length must be a multiple of 4".to_string());
+        }
+
+        let channels = self.channels.max(1) as usize;
+        let sample_count = interleaved_f32le.len() / std::mem::size_of::<f32>();
+        if !sample_count.is_multiple_of(channels) {
+            return Err("samples not aligned to channels".to_string());
+        }
+
+        let mut samples = Vec::<f32>::with_capacity(sample_count);
+        for bytes in interleaved_f32le.chunks_exact(4) {
+            samples.push(f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]));
+        }
+
+        let accepted_samples = self.queue.write_samples(samples.as_slice());
+        Ok((accepted_samples / channels) as u32)
     }
 }
 
@@ -187,6 +270,27 @@ impl Drop for StreamState {
             let _ = join.join();
         }
     }
+}
+
+fn queue_capacity_samples(
+    spec: &AudioSpec,
+    buffer_size_frames: Option<u32>,
+    queue_capacity_ms: Option<u32>,
+) -> usize {
+    let channels = spec.channels.max(1) as u64;
+    let sample_rate = spec.sample_rate.max(1) as u64;
+    let queue_ms = queue_capacity_ms
+        .unwrap_or(DEFAULT_QUEUE_MS)
+        .max(MIN_QUEUE_MS) as u64;
+    let by_time_frames = sample_rate.saturating_mul(queue_ms) / 1000;
+    let by_buffer_frames = buffer_size_frames
+        .unwrap_or(MIN_QUEUE_FRAMES)
+        .max(MIN_QUEUE_FRAMES)
+        .saturating_mul(2) as u64;
+    let frames = by_time_frames.max(by_buffer_frames).max(MIN_QUEUE_FRAMES as u64);
+    let min_samples = channels.saturating_mul(MIN_QUEUE_FRAMES as u64);
+    let samples = frames.saturating_mul(channels).max(min_samples);
+    samples.min(MAX_QUEUE_SAMPLES as u64).min(usize::MAX as u64) as usize
 }
 
 #[cfg(windows)]
@@ -286,8 +390,6 @@ fn start_underrun_reporter(
                 last_samples = samples;
                 last_delivered = delivered;
 
-                // Suppress pause/idle spam: if no actual audio samples were delivered
-                // in this interval, underrun callbacks are expected and not actionable.
                 if delta_delivered == 0 {
                     continue;
                 }
@@ -322,12 +424,12 @@ fn start_underrun_reporter(
         .expect("failed to spawn stellatune-asio-underrun thread")
 }
 
-fn read_from_ring_with_underrun(
-    ring: &SharedRingMapped,
+fn read_from_queue_with_underrun(
+    queue: &Arc<LocalSampleQueue>,
     out: &mut [f32],
     metrics: &Arc<UnderrunMetrics>,
 ) -> usize {
-    let n = ring.read_samples(out);
+    let n = queue.read_samples(out);
     if n > 0 {
         metrics
             .delivered_samples
@@ -339,9 +441,9 @@ fn read_from_ring_with_underrun(
     n
 }
 
-fn fill_shm_f32(
+fn fill_queue_f32(
     out: &mut [f32],
-    ring: &SharedRingMapped,
+    queue: &Arc<LocalSampleQueue>,
     running: &Arc<AtomicBool>,
     metrics: &Arc<UnderrunMetrics>,
 ) {
@@ -349,7 +451,7 @@ fn fill_shm_f32(
         out.fill(0.0);
         return;
     }
-    let n = read_from_ring_with_underrun(ring, out, metrics);
+    let n = read_from_queue_with_underrun(queue, out, metrics);
     if n < out.len() {
         out[n..].fill(0.0);
     }
@@ -361,9 +463,9 @@ fn ensure_tmp(tmp: &mut Vec<f32>, len: usize) {
     }
 }
 
-fn fill_shm_i16(
+fn fill_queue_i16(
     out: &mut [i16],
-    ring: &SharedRingMapped,
+    queue: &Arc<LocalSampleQueue>,
     running: &Arc<AtomicBool>,
     metrics: &Arc<UnderrunMetrics>,
     tmp: &mut Vec<f32>,
@@ -373,7 +475,7 @@ fn fill_shm_i16(
         return;
     }
     ensure_tmp(tmp, out.len());
-    let n = read_from_ring_with_underrun(ring, &mut tmp[..out.len()], metrics);
+    let n = read_from_queue_with_underrun(queue, &mut tmp[..out.len()], metrics);
     if n < out.len() {
         tmp[n..out.len()].fill(0.0);
     }
@@ -383,9 +485,9 @@ fn fill_shm_i16(
     }
 }
 
-fn fill_shm_i32(
+fn fill_queue_i32(
     out: &mut [i32],
-    ring: &SharedRingMapped,
+    queue: &Arc<LocalSampleQueue>,
     running: &Arc<AtomicBool>,
     metrics: &Arc<UnderrunMetrics>,
     tmp: &mut Vec<f32>,
@@ -395,7 +497,7 @@ fn fill_shm_i32(
         return;
     }
     ensure_tmp(tmp, out.len());
-    let n = read_from_ring_with_underrun(ring, &mut tmp[..out.len()], metrics);
+    let n = read_from_queue_with_underrun(queue, &mut tmp[..out.len()], metrics);
     if n < out.len() {
         tmp[n..out.len()].fill(0.0);
     }
@@ -405,9 +507,9 @@ fn fill_shm_i32(
     }
 }
 
-fn fill_shm_u16(
+fn fill_queue_u16(
     out: &mut [u16],
-    ring: &SharedRingMapped,
+    queue: &Arc<LocalSampleQueue>,
     running: &Arc<AtomicBool>,
     metrics: &Arc<UnderrunMetrics>,
     tmp: &mut Vec<f32>,
@@ -417,7 +519,7 @@ fn fill_shm_u16(
         return;
     }
     ensure_tmp(tmp, out.len());
-    let n = read_from_ring_with_underrun(ring, &mut tmp[..out.len()], metrics);
+    let n = read_from_queue_with_underrun(queue, &mut tmp[..out.len()], metrics);
     if n < out.len() {
         tmp[n..out.len()].fill(0.0);
     }

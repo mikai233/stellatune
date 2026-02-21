@@ -1,12 +1,6 @@
 use std::time::{Duration, Instant};
 
-use crossbeam_channel::Receiver;
-use stellatune_plugin_api::{ST_OUTPUT_NEGOTIATE_PREFER_TRACK_RATE, StAudioSpec};
-use stellatune_plugins::capabilities::output::OutputSinkInstance;
-use stellatune_plugins::runtime::handle::shared_runtime_service;
-use stellatune_plugins::runtime::messages::WorkerControlMessage;
-use stellatune_plugins::runtime::worker_controller::WorkerApplyPendingOutcome;
-use stellatune_plugins::runtime::worker_endpoint::OutputSinkWorkerController;
+use stellatune_wasm_plugins::host_runtime::{RuntimeOutputSinkPlugin, shared_runtime_service};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NegotiatedOutputSinkSpec {
@@ -23,85 +17,30 @@ pub fn negotiate_output_sink_spec(
     desired_sample_rate: u32,
     desired_channels: u16,
 ) -> Result<NegotiatedOutputSinkSpec, String> {
-    let endpoint = stellatune_runtime::block_on(
-        stellatune_plugins::runtime::handle::shared_runtime_service()
-            .bind_output_sink_worker_endpoint(plugin_id, type_id),
-    )
-    .map_err(|e| format!("bind_output_sink_worker_endpoint failed: {e}"))?;
-    let (mut controller, _control_rx) = endpoint.into_controller(config_json.to_string());
-    match controller.apply_pending().map_err(|e| e.to_string())? {
-        WorkerApplyPendingOutcome::Created | WorkerApplyPendingOutcome::Recreated => {},
-        WorkerApplyPendingOutcome::Destroyed | WorkerApplyPendingOutcome::Idle => {
-            return Err(format!(
-                "create_output_sink_instance failed for {}::{}: controller has no instance",
+    let mut sink = shared_runtime_service()
+        .create_output_sink_plugin(plugin_id, type_id)
+        .map_err(|e| {
+            format!(
+                "create_output_sink_plugin failed for {}::{}: {e}",
                 plugin_id, type_id
-            ));
-        },
-    }
-    let Some(sink) = controller.instance_mut() else {
-        return Err(format!(
-            "create_output_sink_instance failed for {}::{}: controller has no instance",
-            plugin_id, type_id
-        ));
-    };
+            )
+        })?;
+    sink.apply_config_update_json(config_json)
+        .map_err(|e| format!("output sink apply_config_update_json failed: {e}"))?;
 
     let negotiated = sink
         .negotiate_spec(
             target_json,
-            StAudioSpec {
-                sample_rate: desired_sample_rate.max(1),
-                channels: desired_channels.max(1),
-                reserved: 0,
-            },
+            desired_sample_rate.max(1),
+            desired_channels.max(1),
         )
-        .map_err(|e| format!("output sink negotiate_spec failed: {e}"))?;
+        .map_err(|e| format!("output sink negotiate_spec_json failed: {e}"))?;
+
     Ok(NegotiatedOutputSinkSpec {
         sample_rate: negotiated.spec.sample_rate.max(1),
         channels: negotiated.spec.channels.max(1),
-        prefer_track_rate: (negotiated.flags & ST_OUTPUT_NEGOTIATE_PREFER_TRACK_RATE) != 0,
+        prefer_track_rate: negotiated.prefer_track_rate,
     })
-}
-
-pub fn recreate_output_sink_instance(
-    plugin_id: &str,
-    type_id: &str,
-    target_json: &str,
-    sample_rate: u32,
-    channels: u16,
-    controller: &mut OutputSinkWorkerController,
-) -> Result<(), String> {
-    let state_json = controller
-        .instance()
-        .and_then(|instance| instance.export_state_json().ok().flatten());
-    controller.request_recreate();
-    match controller.apply_pending().map_err(|e| e.to_string())? {
-        WorkerApplyPendingOutcome::Created | WorkerApplyPendingOutcome::Recreated => {},
-        WorkerApplyPendingOutcome::Destroyed | WorkerApplyPendingOutcome::Idle => {
-            return Err(format!(
-                "output sink recreate failed for {}::{}: controller has no instance",
-                plugin_id, type_id
-            ));
-        },
-    }
-    let Some(sink) = controller.instance_mut() else {
-        return Err(format!(
-            "output sink recreate failed for {}::{}: controller has no instance",
-            plugin_id, type_id
-        ));
-    };
-    sink.open(
-        target_json,
-        StAudioSpec {
-            sample_rate: sample_rate.max(1),
-            channels: channels.max(1),
-            reserved: 0,
-        },
-    )
-    .map_err(|e| format!("output sink reopen failed: {e}"))?;
-    if let Some(state_json) = state_json {
-        let _ = sink.import_state_json(&state_json);
-    }
-    Ok(())
 }
 
 pub fn create_output_sink_controller_and_open(
@@ -111,48 +50,24 @@ pub fn create_output_sink_controller_and_open(
     target_json: &str,
     sample_rate: u32,
     channels: u16,
-) -> Result<(OutputSinkWorkerController, Receiver<WorkerControlMessage>), String> {
-    let endpoint = stellatune_runtime::block_on(
-        stellatune_plugins::runtime::handle::shared_runtime_service()
-            .bind_output_sink_worker_endpoint(plugin_id, type_id),
-    )
-    .map_err(|e| format!("bind_output_sink_worker_endpoint failed: {e}"))?;
-    let (mut controller, control_rx) = endpoint.into_controller(config_json.to_string());
-    match controller.apply_pending().map_err(|e| e.to_string())? {
-        WorkerApplyPendingOutcome::Created | WorkerApplyPendingOutcome::Recreated => {},
-        WorkerApplyPendingOutcome::Destroyed | WorkerApplyPendingOutcome::Idle => {
-            return Err(format!(
-                "create_output_sink_instance failed for {}::{}: controller has no instance",
+) -> Result<RuntimeOutputSinkPlugin, String> {
+    let mut sink = shared_runtime_service()
+        .create_output_sink_plugin(plugin_id, type_id)
+        .map_err(|e| {
+            format!(
+                "create_output_sink_plugin failed for {}::{}: {e}",
                 plugin_id, type_id
-            ));
-        },
-    }
-    let Some(sink) = controller.instance_mut() else {
-        return Err(format!(
-            "create_output_sink_instance failed for {}::{}: controller has no instance",
-            plugin_id, type_id
-        ));
-    };
-    sink.open(
-        target_json,
-        StAudioSpec {
-            sample_rate: sample_rate.max(1),
-            channels: channels.max(1),
-            reserved: 0,
-        },
-    )
-    .map_err(|e| format!("output sink reopen failed: {e}"))?;
-    Ok((controller, control_rx))
-}
-
-pub fn current_plugin_lease_id(plugin_id: &str) -> u64 {
-    stellatune_runtime::block_on(shared_runtime_service().current_plugin_lease_info(plugin_id))
-        .map(|v| v.lease_id)
-        .unwrap_or(0)
+            )
+        })?;
+    sink.apply_config_update_json(config_json)
+        .map_err(|e| format!("output sink apply_config_update_json failed: {e}"))?;
+    sink.open(target_json, sample_rate.max(1), channels.max(1))
+        .map_err(|e| format!("output sink open_json failed: {e}"))?;
+    Ok(sink)
 }
 
 pub fn write_all_frames(
-    sink: &mut OutputSinkInstance,
+    sink: &mut RuntimeOutputSinkPlugin,
     channels: u16,
     samples: &[f32],
     retry_sleep_ms: u64,

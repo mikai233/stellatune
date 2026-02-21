@@ -8,7 +8,7 @@ import '../third_party/stellatune_backend_api/lyrics_types.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'player/types.dart';
 
-// These functions are ignored because they are not marked as `pub`: `clear_cached_track_info`, `clear_pending_preload_seek`, `decode_track_token_path`, `encode_track_ref_token`, `engine`, `lyrics`, `map_lfe_mode`, `map_player_state`, `map_resample_quality`, `map_v2_event_to_ffi`, `next_position_session_id`, `normalize_json_payload`, `normalize_json_string_payload`, `plugin_name_from_metadata_json`, `set_pending_preload_seek`, `shared_player_context`, `take_pending_preload_seek_for_event`
+// These functions are ignored because they are not marked as `pub`: `clear_cached_track_info`, `clear_pending_preload_seek`, `decode_track_token_path`, `encode_track_ref_token`, `engine`, `extract_lyrics_fetch_id`, `extract_lyrics_search_keyword`, `lyrics`, `map_lfe_mode`, `map_player_state`, `map_resample_quality`, `map_v2_event_to_ffi`, `next_position_session_id`, `normalize_json_payload`, `normalize_json_string_payload`, `set_pending_preload_seek`, `shared_player_context`, `take_pending_preload_seek_for_event`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `CachedTrackDecodeInfo`, `FfiEventMapperState`, `PendingPreloadSeek`, `PlayerContext`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`
 // These functions are ignored (category: IgnoreBecauseOwnerTyShouldIgnore): `default`
@@ -222,7 +222,3 @@ Future<void> preloadTrackRef({
 
 Future<List<String>> decoderSupportedExtensions() =>
     StellatuneApi.instance.api.crateApiPlayerDecoderSupportedExtensions();
-
-Future<List<TrackPlayability>> canPlayTrackRefs({
-  required List<TrackRef> tracks,
-}) => StellatuneApi.instance.api.crateApiPlayerCanPlayTrackRefs(tracks: tracks);

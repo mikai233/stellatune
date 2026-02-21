@@ -16,7 +16,7 @@ impl DecoderPlugin for NcmWasmDecoderPlugin {
     const TYPE_ID: &'static str = "ncm-wasm";
     const DISPLAY_NAME: &'static str = "NCM Decoder (Wasm)";
 
-    fn open(&mut self, input: DecoderInput<'_>) -> SdkResult<Self::Session> {
+    fn open(&mut self, input: DecoderInput) -> SdkResult<Self::Session> {
         NcmWasmDecoderSession::open(input)
     }
 }

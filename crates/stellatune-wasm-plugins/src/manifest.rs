@@ -28,39 +28,43 @@ pub enum AbilityKind {
     Dsp,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct DecoderExtScoreSpec {
+    pub ext: String,
+    pub score: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub struct DecoderAbilitySpec {
+    #[serde(default)]
+    pub ext_scores: Vec<DecoderExtScoreSpec>,
+    #[serde(default)]
+    pub wildcard_score: Option<u16>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct AbilitySpec {
     pub kind: AbilityKind,
     pub type_id: String,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ThreadingModel {
-    Dedicated,
-    SharedPool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ThreadingHint {
-    pub model: ThreadingModel,
     #[serde(default)]
-    pub max_instances: Option<u32>,
+    pub display_name: Option<String>,
     #[serde(default)]
-    pub pool: Option<String>,
+    pub config_schema_json: Option<String>,
+    #[serde(default)]
+    pub default_config_json: Option<String>,
+    #[serde(default)]
+    pub decoder: Option<DecoderAbilitySpec>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ComponentSpec {
     pub id: String,
     pub path: String,
     pub world: String,
     pub abilities: Vec<AbilitySpec>,
-    #[serde(default)]
-    pub threading: Option<ThreadingHint>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct WasmPluginManifest {
     pub schema_version: u32,
     pub id: String,
@@ -190,6 +194,62 @@ pub fn validate_manifest(manifest: &WasmPluginManifest, root_dir: &Path) -> Resu
                 return Err(crate::op_error!(
                     "component `{component_id}` has empty ability type_id"
                 ));
+            }
+            if ability
+                .display_name
+                .as_ref()
+                .is_some_and(|v| v.trim().is_empty())
+            {
+                return Err(crate::op_error!(
+                    "component `{component_id}` ability `{type_id}` has empty display_name"
+                ));
+            }
+            if let Some(schema) = ability.config_schema_json.as_deref() {
+                serde_json::from_str::<serde_json::Value>(schema).map_err(|error| {
+                    crate::op_error!(
+                        "component `{component_id}` ability `{type_id}` config_schema_json is not valid json: {error}"
+                    )
+                })?;
+            }
+            if let Some(default_config) = ability.default_config_json.as_deref() {
+                serde_json::from_str::<serde_json::Value>(default_config).map_err(|error| {
+                    crate::op_error!(
+                        "component `{component_id}` ability `{type_id}` default_config_json is not valid json: {error}"
+                    )
+                })?;
+            }
+            if ability.kind != AbilityKind::Decoder {
+                if ability.decoder.is_some() {
+                    return Err(crate::op_error!(
+                        "component `{component_id}` ability `{type_id}` has decoder rules but kind is not decoder"
+                    ));
+                }
+            } else {
+                let Some(decoder) = ability.decoder.as_ref() else {
+                    return Err(crate::op_error!(
+                        "component `{component_id}` decoder ability `{type_id}` is missing decoder rules"
+                    ));
+                };
+                if decoder.ext_scores.is_empty() && decoder.wildcard_score.unwrap_or(0) == 0 {
+                    return Err(crate::op_error!(
+                        "component `{component_id}` decoder ability `{type_id}` has no usable decoder rules"
+                    ));
+                }
+                let mut seen_ext = HashSet::<String>::new();
+                for rule in &decoder.ext_scores {
+                    let normalized = rule.ext.trim().trim_start_matches('.').to_ascii_lowercase();
+                    if normalized.is_empty() || normalized == "*" {
+                        return Err(crate::op_error!(
+                            "component `{component_id}` decoder ability `{type_id}` has invalid decoder rule ext `{}`",
+                            rule.ext
+                        ));
+                    }
+                    if !seen_ext.insert(normalized.clone()) {
+                        return Err(crate::op_error!(
+                            "component `{component_id}` decoder ability `{type_id}` has duplicate decoder rule ext `{normalized}`"
+                        ));
+                    }
+                }
             }
             let key = (ability.kind, type_id.to_string());
             if !ability_keys.insert(key) {

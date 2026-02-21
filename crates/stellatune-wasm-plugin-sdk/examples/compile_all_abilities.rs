@@ -52,7 +52,7 @@ impl DecoderPlugin for ExampleDecoder {
     const TYPE_ID: &'static str = "example-decoder";
     const DISPLAY_NAME: &'static str = "Example Decoder";
 
-    fn open(&mut self, _input: DecoderInput<'_>) -> SdkResult<Self::Session> {
+    fn open(&mut self, _input: DecoderInput) -> SdkResult<Self::Session> {
         Ok(ExampleDecoderSession)
     }
 }

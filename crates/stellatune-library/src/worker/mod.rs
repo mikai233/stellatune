@@ -16,8 +16,8 @@ use sqlx::{FromRow, QueryBuilder, SqlitePool};
 use tokio::time::timeout;
 
 use crate::{LibraryEvent, PlaylistLite, TrackLite};
-use stellatune_plugins::runtime::handle::shared_runtime_service;
 use stellatune_runtime::tokio_actor::ActorRef;
+use stellatune_wasm_plugins::host_runtime::shared_runtime_service;
 
 use crate::service::EventHub;
 
@@ -70,41 +70,34 @@ impl WorkerDeps {
                     .await
                     .unwrap_or_default();
                 let service = shared_runtime_service();
-                service.set_disabled_plugin_ids(disabled).await;
-                match timeout(
-                    Duration::from_secs(8),
-                    service.reload_dir_from_state(&plugins_dir),
-                )
+                match timeout(Duration::from_secs(8), async {
+                    service.sync_dir_with_disabled_ids(&plugins_dir, disabled)
+                })
                 .await
                 {
-                    Ok(Ok(v2)) => {
+                    Ok(Ok(())) => {
+                        let active = service.active_plugin_ids();
                         tracing::info!(
-                            loaded = v2.loaded.len(),
-                            deactivated = v2.deactivated.len(),
-                            errors = v2.errors.len(),
-                            reclaimed_leases = v2.reclaimed_leases,
-                            "library plugin bootstrap reload completed"
+                            loaded = active.len(),
+                            "library wasm plugin bootstrap sync completed"
                         );
                         events.emit(LibraryEvent::Log {
                             message: format!(
-                                "library plugin runtime v2 reload: loaded={} deactivated={} errors={} reclaimed_leases={}",
-                                v2.loaded.len(),
-                                v2.deactivated.len(),
-                                v2.errors.len(),
-                                v2.reclaimed_leases
+                                "library wasm plugin runtime sync: active={}",
+                                active.len(),
                             ),
                         });
                     },
                     Ok(Err(e)) => {
-                        tracing::warn!(error = %format!("{e:#}"), "library plugin bootstrap reload failed");
+                        tracing::warn!(error = %format!("{e:#}"), "library wasm plugin bootstrap sync failed");
                         events.emit(LibraryEvent::Log {
-                            message: format!("library plugin runtime v2 reload failed: {e:#}"),
+                            message: format!("library wasm plugin runtime sync failed: {e:#}"),
                         });
                     },
                     Err(_) => {
-                        tracing::warn!("library plugin bootstrap reload timed out (8s)");
+                        tracing::warn!("library wasm plugin bootstrap sync timed out (8s)");
                         events.emit(LibraryEvent::Log {
-                            message: "library plugin runtime v2 reload timed out (8s)".to_string(),
+                            message: "library wasm plugin runtime sync timed out (8s)".to_string(),
                         });
                     },
                 }
@@ -156,11 +149,9 @@ impl LibraryWorker {
                 .await
                 .unwrap_or_default();
             let service = shared_runtime_service();
-            service.set_disabled_plugin_ids(disabled).await;
-            let _ = timeout(
-                Duration::from_secs(8),
-                service.reload_dir_from_state(&self.plugins_dir),
-            )
+            let _ = timeout(Duration::from_secs(8), async {
+                service.sync_dir_with_disabled_ids(&self.plugins_dir, disabled)
+            })
             .await;
         }
     }

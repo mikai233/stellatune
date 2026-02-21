@@ -3,7 +3,6 @@ use std::sync::mpsc;
 
 use crate::error::Result;
 use wasmtime::Store;
-use wasmtime::component::Component;
 
 use stellatune_wasm_host_bindings::generated as host_bindings;
 
@@ -17,6 +16,7 @@ use crate::executor::{
     WasmPluginController, WasmtimePluginController, WorldKind, classify_world,
     map_disable_reason_source,
 };
+use crate::host::stream::HostStreamHandle;
 use crate::manifest::AbilityKind;
 use crate::runtime::model::{
     PluginDisableReason, RuntimeAudioTags, RuntimeCapabilityDescriptor, RuntimeEncodedAudioFormat,
@@ -26,10 +26,21 @@ use crate::runtime::model::{
 
 use crate::executor::plugin_instance::common::reconcile_with;
 
+pub enum RuntimeOpenedSourceStreamHandle {
+    Passthrough(Box<dyn HostStreamHandle>),
+    Processed(RuntimeSourceStreamHandle),
+}
+
+pub struct RuntimeOpenedSourceStream {
+    pub handle: RuntimeOpenedSourceStreamHandle,
+    pub ext_hint: Option<String>,
+    pub metadata: Option<RuntimeMediaMetadata>,
+}
+
 pub trait SourcePluginApi {
     fn list_items_json(&mut self, request_json: &str) -> Result<String>;
-    fn open_stream_json(&mut self, track_json: &str) -> Result<RuntimeSourceStreamHandle>;
-    fn open_uri(&mut self, uri: &str) -> Result<RuntimeSourceStreamHandle>;
+    fn open_stream_json(&mut self, track_json: &str) -> Result<RuntimeOpenedSourceStream>;
+    fn open_uri(&mut self, uri: &str) -> Result<RuntimeOpenedSourceStream>;
     fn metadata(&mut self, stream: RuntimeSourceStreamHandle) -> Result<RuntimeMediaMetadata>;
     fn read(
         &mut self,
@@ -193,64 +204,9 @@ impl WasmtimeSourcePlugin {
         self.catalog
             .ok_or_else(|| crate::op_error!("source catalog handle missing after create"))
     }
-}
 
-impl SourcePluginApi for WasmtimeSourcePlugin {
-    fn list_items_json(&mut self, request_json: &str) -> Result<String> {
-        self.reconcile_runtime()?;
-        let catalog = self.ensure_catalog()?;
-        let source = self.source_api();
-        source
-            .catalog()
-            .call_list_items_json(&mut self.component.store, catalog, request_json)?
-            .map_err(|error| {
-                crate::op_error!("source.catalog.list-items-json plugin error: {error:?}")
-            })
-    }
-
-    fn open_stream_json(&mut self, track_json: &str) -> Result<RuntimeSourceStreamHandle> {
-        self.reconcile_runtime()?;
-        let catalog = self.ensure_catalog()?;
-        let source = self.source_api();
-        let stream = source
-            .catalog()
-            .call_open_stream_json(&mut self.component.store, catalog, track_json)?
-            .map_err(|error| {
-                crate::op_error!("source.catalog.open-stream-json plugin error: {error:?}")
-            })?;
-        let handle = self.alloc_stream_handle();
-        self.streams.insert(handle, stream);
-        Ok(RuntimeSourceStreamHandle(handle))
-    }
-
-    fn open_uri(&mut self, uri: &str) -> Result<RuntimeSourceStreamHandle> {
-        let uri = uri.trim();
-        if uri.is_empty() {
-            return Err(crate::op_error!("source uri is empty"));
-        }
-        self.reconcile_runtime()?;
-        let catalog = self.ensure_catalog()?;
-        let source = self.source_api();
-        let stream = source
-            .catalog()
-            .call_open_uri(&mut self.component.store, catalog, uri)?
-            .map_err(|error| crate::op_error!("source.catalog.open-uri plugin error: {error:?}"))?;
-        let handle = self.alloc_stream_handle();
-        self.streams.insert(handle, stream);
-        Ok(RuntimeSourceStreamHandle(handle))
-    }
-
-    fn metadata(&mut self, stream: RuntimeSourceStreamHandle) -> Result<RuntimeMediaMetadata> {
-        let Some(stream_ref) = self.streams.get(&stream.0).cloned() else {
-            return Err(crate::op_error!("source stream `{}` not found", stream.0));
-        };
-        self.reconcile_runtime()?;
-        let source = self.source_api();
-        let meta = source
-            .source_stream()
-            .call_metadata(&mut self.component.store, stream_ref)?
-            .map_err(|error| crate::op_error!("source.stream.metadata plugin error: {error:?}"))?;
-        Ok(RuntimeMediaMetadata {
+    fn map_runtime_metadata(meta: source_common::MediaMetadata) -> RuntimeMediaMetadata {
+        RuntimeMediaMetadata {
             tags: RuntimeAudioTags {
                 title: meta.tags.title,
                 album: meta.tags.album,
@@ -292,7 +248,95 @@ impl SourcePluginApi for WasmtimeSourcePlugin {
                     },
                 })
                 .collect::<Vec<_>>(),
+        }
+    }
+
+    fn map_opened_stream(
+        &mut self,
+        opened: source_exports::OpenedStream,
+    ) -> Result<RuntimeOpenedSourceStream> {
+        let metadata = opened.metadata.map(Self::map_runtime_metadata);
+        let ext_hint = opened.ext_hint;
+        let handle = match opened.handle {
+            source_exports::OpenedStreamHandle::Processed(stream_ref) => {
+                let handle = self.alloc_stream_handle();
+                self.streams.insert(handle, stream_ref);
+                RuntimeOpenedSourceStreamHandle::Processed(RuntimeSourceStreamHandle(handle))
+            },
+            source_exports::OpenedStreamHandle::Passthrough(stream_ref) => {
+                let rep = stream_ref.rep();
+                let stream = {
+                    let state = self.component.store.data_mut();
+                    state.streams.remove(&rep).ok_or_else(|| {
+                        crate::op_error!("source passthrough stream `{rep}` not found")
+                    })?
+                };
+                if let Ok(any) = stream_ref.try_into_resource_any(&mut self.component.store) {
+                    let _ = any.resource_drop(&mut self.component.store);
+                }
+                RuntimeOpenedSourceStreamHandle::Passthrough(stream)
+            },
+        };
+        Ok(RuntimeOpenedSourceStream {
+            handle,
+            ext_hint,
+            metadata,
         })
+    }
+}
+
+impl SourcePluginApi for WasmtimeSourcePlugin {
+    fn list_items_json(&mut self, request_json: &str) -> Result<String> {
+        self.reconcile_runtime()?;
+        let catalog = self.ensure_catalog()?;
+        let source = self.source_api();
+        source
+            .catalog()
+            .call_list_items_json(&mut self.component.store, catalog, request_json)?
+            .map_err(|error| {
+                crate::op_error!("source.catalog.list-items-json plugin error: {error:?}")
+            })
+    }
+
+    fn open_stream_json(&mut self, track_json: &str) -> Result<RuntimeOpenedSourceStream> {
+        self.reconcile_runtime()?;
+        let catalog = self.ensure_catalog()?;
+        let source = self.source_api();
+        let opened = source
+            .catalog()
+            .call_open_stream_json(&mut self.component.store, catalog, track_json)?
+            .map_err(|error| {
+                crate::op_error!("source.catalog.open-stream-json plugin error: {error:?}")
+            })?;
+        self.map_opened_stream(opened)
+    }
+
+    fn open_uri(&mut self, uri: &str) -> Result<RuntimeOpenedSourceStream> {
+        let uri = uri.trim();
+        if uri.is_empty() {
+            return Err(crate::op_error!("source uri is empty"));
+        }
+        self.reconcile_runtime()?;
+        let catalog = self.ensure_catalog()?;
+        let source = self.source_api();
+        let opened = source
+            .catalog()
+            .call_open_uri(&mut self.component.store, catalog, uri)?
+            .map_err(|error| crate::op_error!("source.catalog.open-uri plugin error: {error:?}"))?;
+        self.map_opened_stream(opened)
+    }
+
+    fn metadata(&mut self, stream: RuntimeSourceStreamHandle) -> Result<RuntimeMediaMetadata> {
+        let Some(stream_ref) = self.streams.get(&stream.0).cloned() else {
+            return Err(crate::op_error!("source stream `{}` not found", stream.0));
+        };
+        self.reconcile_runtime()?;
+        let source = self.source_api();
+        let meta = source
+            .source_stream()
+            .call_metadata(&mut self.component.store, stream_ref)?
+            .map_err(|error| crate::op_error!("source.stream.metadata plugin error: {error:?}"))?;
+        Ok(Self::map_runtime_metadata(meta))
     }
 
     fn read(
@@ -420,17 +464,21 @@ impl WasmtimePluginController {
         self.ensure_plugin_active(plugin_id)?;
 
         let component_path = plugin.root_dir.join(&capability.component_rel_path);
-        let component = Component::from_file(&self.engine, &component_path).map_err(|error| {
-            crate::op_error!(
-                "failed to load component for plugin `{}` component `{}`: {error:#}",
-                plugin_id,
-                capability.component_id
-            )
-        })?;
+        let component = self
+            .load_component_cached(&component_path)
+            .map_err(|error| {
+                crate::op_error!(
+                    "failed to load component for plugin `{}` component `{}`: {error:#}",
+                    plugin_id,
+                    capability.component_id
+                )
+            })?;
 
         let (tx, rx) = mpsc::channel::<RuntimePluginDirective>();
         let component = match classify_world(&capability.world) {
-            WorldKind::Source => self.instantiate_source_component(&component, rx)?,
+            WorldKind::Source => {
+                self.instantiate_source_component(&plugin.root_dir, &component, rx)?
+            },
             _ => {
                 return Err(crate::op_error!(
                     "capability world `{}` is not a source world",

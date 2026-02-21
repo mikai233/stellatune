@@ -3,6 +3,37 @@ package stellatune:plugin@0.1.0;
 interface host-stream {
     use common.{plugin-error, seek-whence};
 
+    enum stream-open-kind {
+        file,
+        http,
+        tcp,
+        udp,
+    }
+
+    enum http-method {
+        get,
+        post,
+        put,
+        delete,
+        head,
+        patch,
+    }
+
+    record header {
+        name: string,
+        value: string,
+    }
+
+    record open-request {
+        kind: stream-open-kind,
+        target: string,
+        method: option<http-method>,
+        headers: list<header>,
+        body: option<list<u8>>,
+        connect-timeout-ms: option<u32>,
+        read-timeout-ms: option<u32>,
+    }
+
     resource host-stream-handle {
         read: func(max-bytes: u32) -> result<list<u8>, plugin-error>;
         seek: func(offset: s64, whence: seek-whence) -> result<u64, plugin-error>;
@@ -11,7 +42,7 @@ interface host-stream {
         close: func();
     }
 
-    open-uri: func(uri: string) -> result<host-stream-handle, plugin-error>;
+    open: func(request: open-request) -> result<host-stream-handle, plugin-error>;
 }
 
 interface sidecar {

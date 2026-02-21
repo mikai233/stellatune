@@ -1,0 +1,23 @@
+{
+    "schema_version": 1,
+    "id": "dev.stellatune.output.asio-wasm",
+    "name": "ASIO Output Sink (Wasm)",
+    "version": "0.1.0",
+    "api_version": 1,
+    "components": [
+        {
+            "id": "output-sink-asio-wasm",
+            "path": "wasm/stellatune_plugin_asio_wasm.wasm",
+            "world": "stellatune:plugin/output-sink-plugin@0.1.0",
+            "abilities": [
+                {
+                    "kind": "output_sink",
+                    "type_id": "asio-wasm",
+                    "display_name": "ASIO Output (Wasm)",
+                    "config_schema_json": "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"sidecar_path\":{\"type\":\"string\"},\"sidecar_args\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},\"default\":[]},\"buffer_size_frames\":{\"type\":[\"integer\",\"null\"],\"minimum\":16},\"sample_rate_mode\":{\"type\":\"string\",\"enum\":[\"fixed_target\",\"match_track\"],\"default\":\"fixed_target\"},\"fixed_target_sample_rate\":{\"type\":[\"integer\",\"null\"],\"minimum\":8000},\"ring_capacity_ms\":{\"type\":\"integer\",\"minimum\":20,\"default\":40},\"start_prefill_ms\":{\"type\":\"integer\",\"minimum\":0,\"default\":0},\"preferred_chunk_frames\":{\"type\":\"integer\",\"minimum\":0,\"default\":0},\"latency_profile\":{\"type\":\"string\",\"enum\":[\"aggressive\",\"balanced\",\"conservative\"],\"default\":\"aggressive\"},\"flush_timeout_ms\":{\"type\":\"integer\",\"minimum\":1,\"default\":400}}}",
+                    "default_config_json": "{\"sidecar_args\":[],\"sample_rate_mode\":\"fixed_target\",\"ring_capacity_ms\":40,\"start_prefill_ms\":0,\"preferred_chunk_frames\":0,\"latency_profile\":\"aggressive\",\"flush_timeout_ms\":400}"
+                }
+            ]
+        }
+    ]
+}

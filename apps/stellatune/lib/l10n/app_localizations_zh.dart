@@ -197,7 +197,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsInstallPlugin => '安装插件';
 
   @override
-  String get settingsInstallPluginPickFolder => '选择插件文件（.zip/.dll/.so/.dylib）';
+  String get settingsInstallPluginPickFolder => '选择插件包（.zip）';
 
   @override
   String get settingsInstallPluginMissingManifest => '不支持的插件包。';

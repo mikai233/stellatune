@@ -2,8 +2,9 @@ use std::collections::BTreeMap;
 use std::sync::mpsc;
 
 use crate::error::Result;
+use crate::host::stream::HostStreamHandle;
 use wasmtime::Store;
-use wasmtime::component::{Component, Resource};
+use wasmtime::component::Resource;
 
 use stellatune_wasm_host_bindings::generated as host_bindings;
 
@@ -101,9 +102,9 @@ macro_rules! runtime_media_metadata_from_decoder {
 }
 
 pub trait DecoderPluginApi {
-    fn open_uri(
+    fn open_stream(
         &mut self,
-        uri: &str,
+        stream: Box<dyn HostStreamHandle>,
         ext_hint: Option<&str>,
     ) -> Result<RuntimeDecoderSessionHandle>;
     fn info(&mut self, session: RuntimeDecoderSessionHandle) -> Result<RuntimeDecoderInfo>;
@@ -242,32 +243,34 @@ impl WasmtimeDecoderPlugin {
 }
 
 impl DecoderPluginApi for WasmtimeDecoderPlugin {
-    fn open_uri(
+    fn open_stream(
         &mut self,
-        uri: &str,
+        stream: Box<dyn HostStreamHandle>,
         ext_hint: Option<&str>,
     ) -> Result<RuntimeDecoderSessionHandle> {
-        let uri = uri.trim();
-        if uri.is_empty() {
-            return Err(crate::op_error!("decoder uri is empty"));
-        }
-
         self.reconcile_runtime()?;
-        let host_stream = {
+        let rep = {
             let state = self.component.store.data_mut();
-            let stream = state
-                .stream_service
-                .open_uri(uri)
-                .map_err(|error| crate::op_error!("host-stream.open-uri failed: {error:#}"))?;
             let rep = state.alloc_rep();
             state.streams.insert(rep, stream);
-            Resource::new_own(rep)
+            rep
         };
+        let host_stream = Resource::new_own(rep);
         let decoder = self.component.plugin.stellatune_plugin_decoder();
-        let session = map_decoder_plugin_error(
-            decoder.call_open(&mut self.component.store, host_stream, ext_hint)?,
-            "decoder.open",
-        )?;
+        let open_result = decoder.call_open(&mut self.component.store, host_stream, ext_hint);
+        let session = match open_result {
+            Ok(result) => match map_decoder_plugin_error(result, "decoder.open") {
+                Ok(session) => session,
+                Err(error) => {
+                    self.component.store.data_mut().streams.remove(&rep);
+                    return Err(error);
+                },
+            },
+            Err(error) => {
+                self.component.store.data_mut().streams.remove(&rep);
+                return Err(error.into());
+            },
+        };
         let handle = self.alloc_session_handle();
         self.sessions.insert(handle, session);
         Ok(RuntimeDecoderSessionHandle(handle))
@@ -403,17 +406,21 @@ impl WasmtimePluginController {
         self.ensure_plugin_active(plugin_id)?;
 
         let component_path = plugin.root_dir.join(&capability.component_rel_path);
-        let component = Component::from_file(&self.engine, &component_path).map_err(|error| {
-            crate::op_error!(
-                "failed to load component for plugin `{}` component `{}`: {error:#}",
-                plugin_id,
-                capability.component_id
-            )
-        })?;
+        let component = self
+            .load_component_cached(&component_path)
+            .map_err(|error| {
+                crate::op_error!(
+                    "failed to load component for plugin `{}` component `{}`: {error:#}",
+                    plugin_id,
+                    capability.component_id
+                )
+            })?;
 
         let (tx, rx) = mpsc::channel::<RuntimePluginDirective>();
         let component = match classify_world(&capability.world) {
-            WorldKind::Decoder => self.instantiate_decoder_component(&component, rx)?,
+            WorldKind::Decoder => {
+                self.instantiate_decoder_component(&plugin.root_dir, &component, rx)?
+            },
             _ => {
                 return Err(crate::op_error!(
                     "capability world `{}` is not a decoder world",

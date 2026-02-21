@@ -12,9 +12,94 @@ pub trait HostStreamHandle: Send {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StreamOpenKind {
+    File,
+    Http,
+    Tcp,
+    Udp,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HttpMethod {
+    Get,
+    Post,
+    Put,
+    Delete,
+    Head,
+    Patch,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StreamHeader {
+    pub name: String,
+    pub value: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostStreamOpenRequest {
+    pub kind: StreamOpenKind,
+    pub target: String,
+    pub method: Option<HttpMethod>,
+    pub headers: Vec<StreamHeader>,
+    pub body: Option<Vec<u8>>,
+    pub connect_timeout_ms: Option<u32>,
+    pub read_timeout_ms: Option<u32>,
+}
+
+impl HostStreamOpenRequest {
+    pub fn file(path: impl Into<String>) -> Self {
+        Self {
+            kind: StreamOpenKind::File,
+            target: path.into(),
+            method: None,
+            headers: Vec::new(),
+            body: None,
+            connect_timeout_ms: None,
+            read_timeout_ms: None,
+        }
+    }
+
+    pub fn http(url: impl Into<String>) -> Self {
+        Self {
+            kind: StreamOpenKind::Http,
+            target: url.into(),
+            method: Some(HttpMethod::Get),
+            headers: Vec::new(),
+            body: None,
+            connect_timeout_ms: None,
+            read_timeout_ms: None,
+        }
+    }
+
+    pub fn tcp(target: impl Into<String>) -> Self {
+        Self {
+            kind: StreamOpenKind::Tcp,
+            target: target.into(),
+            method: None,
+            headers: Vec::new(),
+            body: None,
+            connect_timeout_ms: None,
+            read_timeout_ms: None,
+        }
+    }
+
+    pub fn udp(target: impl Into<String>) -> Self {
+        Self {
+            kind: StreamOpenKind::Udp,
+            target: target.into(),
+            method: None,
+            headers: Vec::new(),
+            body: None,
+            connect_timeout_ms: None,
+            read_timeout_ms: None,
+        }
+    }
+}
+
 pub trait HostStreamClient {
     type Handle: HostStreamHandle;
-    fn open_uri(&mut self, uri: &str) -> SdkResult<Self::Handle>;
+    fn open(&mut self, request: &HostStreamOpenRequest) -> SdkResult<Self::Handle>;
 }
 
 pub struct HostStreamReader<'a, T: HostStreamHandle + ?Sized> {

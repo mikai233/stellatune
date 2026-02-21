@@ -1,14 +1,10 @@
-use crossbeam_channel::{Receiver, TryRecvError};
 use stellatune_audio_core::pipeline::context::{AudioBlock, PipelineContext, StreamSpec};
 use stellatune_audio_core::pipeline::error::PipelineError;
 use stellatune_audio_core::pipeline::stages::StageStatus;
 use stellatune_audio_core::pipeline::stages::sink::SinkStage;
-use stellatune_plugins::runtime::messages::WorkerControlMessage;
-use stellatune_plugins::runtime::worker_endpoint::OutputSinkWorkerController;
+use stellatune_wasm_plugins::host_runtime::RuntimeOutputSinkPlugin;
 
-use crate::output_sink_runtime::{
-    create_output_sink_controller_and_open, recreate_output_sink_instance, write_all_frames,
-};
+use crate::output_sink_runtime::{create_output_sink_controller_and_open, write_all_frames};
 
 const DEFAULT_WRITE_RETRY_SLEEP_MS: u64 = 2;
 const DEFAULT_WRITE_STALL_TIMEOUT_MS: u64 = 250;
@@ -55,8 +51,7 @@ fn validate_json_payload(label: &str, payload: &str) -> Result<(), String> {
 
 pub struct PluginOutputSinkStage {
     route: PluginOutputSinkRouteSpec,
-    controller: Option<OutputSinkWorkerController>,
-    control_rx: Option<Receiver<WorkerControlMessage>>,
+    sink: Option<RuntimeOutputSinkPlugin>,
     prepared_spec: Option<StreamSpec>,
     runtime_error: Option<String>,
 }
@@ -65,8 +60,7 @@ impl PluginOutputSinkStage {
     pub fn new(route: PluginOutputSinkRouteSpec) -> Self {
         Self {
             route,
-            controller: None,
-            control_rx: None,
+            sink: None,
             prepared_spec: None,
             runtime_error: None,
         }
@@ -92,8 +86,8 @@ impl PluginOutputSinkStage {
         ));
     }
 
-    fn open_controller(&mut self, spec: StreamSpec) -> Result<(), PipelineError> {
-        let (controller, control_rx) = create_output_sink_controller_and_open(
+    fn open_sink(&mut self, spec: StreamSpec) -> Result<(), PipelineError> {
+        let sink = create_output_sink_controller_and_open(
             &self.route.plugin_id,
             &self.route.type_id,
             &self.route.config_json,
@@ -102,63 +96,9 @@ impl PluginOutputSinkStage {
             spec.channels,
         )
         .map_err(|error| self.stage_failure(error))?;
-        self.controller = Some(controller);
-        self.control_rx = Some(control_rx);
+        self.sink = Some(sink);
         self.prepared_spec = Some(spec);
         self.runtime_error = None;
-        Ok(())
-    }
-
-    fn process_runtime_control(&mut self) -> Result<(), PipelineError> {
-        let route_label = self.route_label();
-        let Some(control_rx) = self.control_rx.as_ref() else {
-            return Ok(());
-        };
-        let Some(controller) = self.controller.as_mut() else {
-            return Ok(());
-        };
-
-        loop {
-            match control_rx.try_recv() {
-                Ok(message) => controller.on_control_message(message),
-                Err(TryRecvError::Empty) => break,
-                Err(TryRecvError::Disconnected) => {
-                    return Err(PipelineError::StageFailure(format!(
-                        "plugin output sink {route_label}: control channel disconnected"
-                    )));
-                },
-            }
-        }
-
-        if controller.has_pending_destroy() {
-            let _ = controller.apply_pending();
-            return Err(PipelineError::StageFailure(format!(
-                "plugin output sink {route_label}: destroyed by runtime control"
-            )));
-        }
-
-        if controller.has_pending_recreate() {
-            let spec = match self.prepared_spec {
-                Some(spec) => spec,
-                None => {
-                    return Err(PipelineError::StageFailure(format!(
-                        "plugin output sink {route_label}: has pending recreate before prepare"
-                    )));
-                },
-            };
-            recreate_output_sink_instance(
-                &self.route.plugin_id,
-                &self.route.type_id,
-                &self.route.target_json,
-                spec.sample_rate,
-                spec.channels,
-                controller,
-            )
-            .map_err(|error| {
-                PipelineError::StageFailure(format!("plugin output sink {route_label}: {error}"))
-            })?;
-        }
-
         Ok(())
     }
 }
@@ -167,30 +107,22 @@ impl SinkStage for PluginOutputSinkStage {
     fn prepare(
         &mut self,
         spec: StreamSpec,
-        _ctx: &mut PipelineContext,
+        ctx: &mut PipelineContext,
     ) -> Result<(), PipelineError> {
-        self.stop(_ctx);
-        self.open_controller(spec)
+        self.stop(ctx);
+        self.open_sink(spec)
     }
 
     fn sync_runtime_control(&mut self, _ctx: &mut PipelineContext) -> Result<(), PipelineError> {
         if let Some(error) = self.runtime_error.take() {
             return Err(PipelineError::StageFailure(error));
         }
-        self.process_runtime_control()
+        Ok(())
     }
 
     fn write(&mut self, block: &AudioBlock, _ctx: &mut PipelineContext) -> StageStatus {
-        if let Err(error) = self.process_runtime_control() {
-            self.runtime_error = Some(error.to_string());
-            return StageStatus::Fatal;
-        }
-        let Some(controller) = self.controller.as_mut() else {
+        let Some(sink) = self.sink.as_mut() else {
             self.set_runtime_error("is not prepared");
-            return StageStatus::Fatal;
-        };
-        let Some(sink) = controller.instance_mut() else {
-            self.set_runtime_error("instance is unavailable");
             return StageStatus::Fatal;
         };
 
@@ -213,10 +145,7 @@ impl SinkStage for PluginOutputSinkStage {
         if let Some(error) = self.runtime_error.take() {
             return Err(PipelineError::StageFailure(error));
         }
-        self.process_runtime_control()?;
-        if let Some(controller) = self.controller.as_mut()
-            && let Some(sink) = controller.instance_mut()
-        {
+        if let Some(sink) = self.sink.as_mut() {
             sink.flush()
                 .map_err(|e| self.stage_failure(format!("flush failed: {e}")))?;
         }
@@ -224,13 +153,10 @@ impl SinkStage for PluginOutputSinkStage {
     }
 
     fn stop(&mut self, _ctx: &mut PipelineContext) {
-        if let Some(controller) = self.controller.as_mut()
-            && let Some(sink) = controller.instance_mut()
-        {
-            sink.close();
+        if let Some(sink) = self.sink.as_mut() {
+            let _ = sink.close();
         }
-        self.controller = None;
-        self.control_rx = None;
+        self.sink = None;
         self.prepared_spec = None;
         self.runtime_error = None;
     }

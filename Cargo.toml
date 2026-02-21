@@ -9,13 +9,8 @@ members = [
   "crates/stellatune-backend-api",
   "crates/stellatune-ffi",
   "crates/stellatune-library",
-  "crates/stellatune-plugin-api",
-  "crates/plugins-native/stellatune-plugin-asio",
-  "crates/plugins-native/stellatune-plugin-netease",
-  "crates/plugins-native/stellatune-plugin-ncm",
+  "crates/plugins-native/stellatune-plugin-asio-wasm",
   "crates/plugins-native/stellatune-plugin-ncm-wasm-decoder",
-  "crates/stellatune-plugin-sdk",
-  "crates/stellatune-plugins",
   "crates/stellatune-wasm-host-bindings",
   "crates/stellatune-wasm-guest-bindings",
   "crates/stellatune-wasm-guest-bindings-worlds/stellatune-wasm-guest-bindings-decoder",
@@ -48,8 +43,6 @@ stellatune-asio-proto = { path = "crates/plugins-native/stellatune-asio-proto" }
 stellatune-backend-api = { path = "crates/stellatune-backend-api" }
 stellatune-ffi = { path = "crates/stellatune-ffi" }
 stellatune-library = { path = "crates/stellatune-library" }
-stellatune-plugin-api = { path = "crates/stellatune-plugin-api" }
-stellatune-plugins = { path = "crates/stellatune-plugins" }
 stellatune-wasm-host-bindings = { path = "crates/stellatune-wasm-host-bindings" }
 stellatune-wasm-guest-bindings = { path = "crates/stellatune-wasm-guest-bindings" }
 stellatune-wasm-guest-bindings-decoder = { path = "crates/stellatune-wasm-guest-bindings-worlds/stellatune-wasm-guest-bindings-decoder" }
@@ -59,7 +52,6 @@ stellatune-wasm-guest-bindings-output-sink = { path = "crates/stellatune-wasm-gu
 stellatune-wasm-guest-bindings-dsp = { path = "crates/stellatune-wasm-guest-bindings-worlds/stellatune-wasm-guest-bindings-dsp" }
 stellatune-wasm-plugin-sdk = { path = "crates/stellatune-wasm-plugin-sdk" }
 stellatune-wasm-plugins = { path = "crates/stellatune-wasm-plugins" }
-stellatune-plugin-sdk = { path = "crates/stellatune-plugin-sdk" }
 stellatune-runtime = { path = "crates/stellatune-runtime" }
 
 anyhow = "1.0.101"

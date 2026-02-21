@@ -11,6 +11,10 @@ use stellatune_library::{LibraryEvent, PlaylistLite, TrackLite};
 static LIBRARY_SERVICE: OnceLock<Arc<LibraryService>> = OnceLock::new();
 static LIBRARY_INIT_LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
 
+pub(crate) fn shared_library_if_initialized() -> Option<Arc<LibraryService>> {
+    LIBRARY_SERVICE.get().map(Arc::clone)
+}
+
 fn shared_library() -> Result<Arc<LibraryService>> {
     LIBRARY_SERVICE
         .get()

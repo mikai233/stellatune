@@ -1,11 +1,9 @@
 use std::collections::HashSet;
-use std::ffi::c_void;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
-use std::slice;
+use std::sync::Arc;
 
-use crossbeam_channel::Receiver;
 use serde::Deserialize;
 use serde_json::Value;
 use stellatune_audio_core::pipeline::context::{
@@ -14,22 +12,18 @@ use stellatune_audio_core::pipeline::context::{
 use stellatune_audio_core::pipeline::error::PipelineError;
 use stellatune_audio_core::pipeline::stages::StageStatus;
 use stellatune_audio_core::pipeline::stages::decoder::DecoderStage;
-use stellatune_plugin_api::{
-    ST_DECODER_INFO_FLAG_HAS_DURATION, ST_ERR_INVALID_ARG, ST_ERR_IO, StIoVTable, StSeekWhence,
-    StStatus, StStr,
-};
-use stellatune_plugins::runtime::handle::shared_runtime_service;
-use stellatune_plugins::runtime::introspection::CapabilityKind as RuntimeCapabilityKind;
-use stellatune_plugins::runtime::messages::WorkerControlMessage;
-use stellatune_plugins::runtime::worker_controller::WorkerApplyPendingOutcome;
-use stellatune_plugins::runtime::worker_endpoint::{
-    DecoderWorkerController, SourceCatalogWorkerController,
+use stellatune_wasm_plugins::error::Error as WasmPluginError;
+use stellatune_wasm_plugins::executor::plugin_instance::source::RuntimeOpenedSourceStreamHandle;
+use stellatune_wasm_plugins::host::stream::{HostStreamHandle, StreamSeekWhence};
+use stellatune_wasm_plugins::host_runtime::{
+    RuntimeCapabilityKind, RuntimeDecoderPlugin, shared_runtime_service,
 };
 
 use crate::source_plugin::PluginSourcePayload;
 use crate::source_plugin::plugin_track_token_from_source_handle;
 
 const DEFAULT_READ_FRAMES: u32 = 1024;
+const SOURCE_STREAM_READ_BYTES: u32 = 64 * 1024;
 
 pub struct PluginDecoderStage {
     forced_decoder_plugin_id: Option<String>,
@@ -133,47 +127,19 @@ impl PluginDecoderStage {
 
         let mut last_error: Option<String> = None;
         for candidate in candidates {
-            let (mut controller, control_rx) = match create_decoder_controller(
+            let stream = open_local_file_stream(path)?;
+            match open_decoder_for_stream(
                 &candidate.plugin_id,
                 &candidate.type_id,
-                &candidate.default_config_json,
+                stream,
+                ext_hint.as_str(),
             ) {
-                Ok(v) => v,
+                Ok(prepared) => return Ok(prepared),
                 Err(error) => {
                     last_error = Some(error);
-                    continue;
                 },
-            };
-
-            let mut io_owner = DecoderIoOwner::local(path)?;
-            let open_args = DecoderOpenArgs {
-                path_hint: path.to_string(),
-                ext_hint: ext_hint.clone(),
-            };
-            let opened = match open_decoder_instance(&mut controller, &open_args, &mut io_owner) {
-                Ok(v) => v,
-                Err(error) => {
-                    last_error = Some(format!(
-                        "decoder open_with_io failed for {}::{} on `{path}`: {error}",
-                        candidate.plugin_id, candidate.type_id
-                    ));
-                    continue;
-                },
-            };
-
-            return Ok(PreparedDecoderState {
-                plugin_id: candidate.plugin_id,
-                type_id: candidate.type_id,
-                controller,
-                control_rx,
-                io_owner,
-                open_args,
-                stream_spec: opened.stream_spec,
-                gapless_trim_spec: opened.gapless_trim_spec,
-                duration_ms_hint: opened.duration_ms_hint,
-            });
+            }
         }
-
         Err(last_error.unwrap_or_else(|| {
             format!("failed to open any decoder candidate for local track `{path}`")
         }))
@@ -188,128 +154,32 @@ impl PluginDecoderStage {
         } else {
             locator.path_hint.trim().to_string()
         };
-
         let (forced_plugin_id, forced_type_id) = self.decoder_selector_for_track(Some(&locator))?;
         let candidates = select_decoder_candidates(
-            &ext_hint,
+            ext_hint.as_str(),
             forced_plugin_id.as_deref(),
             forced_type_id.as_deref(),
         )?;
 
-        let mut last_error: Option<String> = None;
+        let mut last_error = None::<String>;
         for candidate in candidates {
-            let (mut controller, control_rx) = match create_decoder_controller(
+            let (stream, decoder_ext_hint) =
+                open_source_stream_for_decoder(&locator, ext_hint.as_str())?;
+            match open_decoder_for_stream(
                 &candidate.plugin_id,
                 &candidate.type_id,
-                &candidate.default_config_json,
+                stream,
+                decoder_ext_hint.as_str(),
             ) {
-                Ok(v) => v,
+                Ok(prepared) => return Ok(prepared),
                 Err(error) => {
                     last_error = Some(error);
-                    continue;
                 },
-            };
-
-            let source_lease = match SourceStreamLease::open(&locator) {
-                Ok(v) => v,
-                Err(error) => {
-                    last_error = Some(error);
-                    continue;
-                },
-            };
-            let mut io_owner = DecoderIoOwner::source(source_lease);
-            let open_args = DecoderOpenArgs {
-                path_hint: path_hint.clone(),
-                ext_hint: ext_hint.clone(),
-            };
-            let opened = match open_decoder_instance(&mut controller, &open_args, &mut io_owner) {
-                Ok(v) => v,
-                Err(error) => {
-                    last_error = Some(format!(
-                        "decoder open_with_io failed for {}::{} on source `{}`: {error}",
-                        candidate.plugin_id, candidate.type_id, path_hint
-                    ));
-                    continue;
-                },
-            };
-
-            return Ok(PreparedDecoderState {
-                plugin_id: candidate.plugin_id,
-                type_id: candidate.type_id,
-                controller,
-                control_rx,
-                io_owner,
-                open_args,
-                stream_spec: opened.stream_spec,
-                gapless_trim_spec: opened.gapless_trim_spec,
-                duration_ms_hint: opened.duration_ms_hint,
-            });
+            }
         }
-
         Err(last_error.unwrap_or_else(|| {
             format!("failed to open any decoder candidate for source track `{path_hint}`")
         }))
-    }
-
-    fn refresh_decoder_runtime_control(&mut self) -> Result<(), PipelineError> {
-        let Some(prepared) = self.prepared.as_mut() else {
-            return Ok(());
-        };
-
-        while let Ok(message) = prepared.control_rx.try_recv() {
-            prepared.controller.on_control_message(message);
-        }
-        if !prepared.controller.has_pending_recreate() && !prepared.controller.has_pending_destroy()
-        {
-            return Ok(());
-        }
-
-        let previous_state_json = prepared
-            .controller
-            .instance()
-            .and_then(|instance| instance.export_state_json().ok().flatten());
-        let outcome = prepared.controller.apply_pending().map_err(|e| {
-            PipelineError::StageFailure(format!(
-                "decoder apply_pending failed for {}::{}: {e}",
-                prepared.plugin_id, prepared.type_id
-            ))
-        })?;
-        match outcome {
-            WorkerApplyPendingOutcome::Created | WorkerApplyPendingOutcome::Recreated => {
-                let reopened = open_decoder_instance(
-                    &mut prepared.controller,
-                    &prepared.open_args,
-                    &mut prepared.io_owner,
-                )
-                .map_err(PipelineError::StageFailure)?;
-                if reopened.stream_spec != prepared.stream_spec {
-                    return Err(PipelineError::StageFailure(format!(
-                        "decoder runtime recreate changed stream spec for {}::{} ({}ch@{} -> {}ch@{})",
-                        prepared.plugin_id,
-                        prepared.type_id,
-                        prepared.stream_spec.channels,
-                        prepared.stream_spec.sample_rate,
-                        reopened.stream_spec.channels,
-                        reopened.stream_spec.sample_rate
-                    )));
-                }
-                if let Some(state_json) = previous_state_json
-                    && let Some(instance) = prepared.controller.instance_mut()
-                {
-                    let _ = instance.import_state_json(&state_json);
-                }
-                self.gapless_trim_spec = reopened.gapless_trim_spec;
-                self.duration_ms_hint = reopened.duration_ms_hint;
-                self.last_runtime_error = None;
-                Ok(())
-            },
-            WorkerApplyPendingOutcome::Destroyed | WorkerApplyPendingOutcome::Idle => {
-                Err(PipelineError::StageFailure(format!(
-                    "decoder controller has no active instance after control for {}::{}",
-                    prepared.plugin_id, prepared.type_id
-                )))
-            },
-        }
     }
 
     fn apply_pending_seek(&mut self, ctx: &PipelineContext) -> Result<(), PipelineError> {
@@ -319,25 +189,21 @@ impl PluginDecoderStage {
         let Some(prepared) = self.prepared.as_mut() else {
             return Err(PipelineError::NotPrepared);
         };
-        let Some(decoder) = prepared.controller.instance_mut() else {
-            return Err(PipelineError::StageFailure(format!(
-                "decoder instance unavailable for seek: {}::{}",
-                prepared.plugin_id, prepared.type_id
-            )));
-        };
-        decoder.seek_ms(position_ms.max(0) as u64).map_err(|e| {
-            PipelineError::StageFailure(format!(
-                "decoder seek failed for {}::{}: {e}",
-                prepared.plugin_id, prepared.type_id
-            ))
-        })?;
+        prepared
+            .decoder
+            .seek_ms(prepared.session_handle, position_ms.max(0) as u64)
+            .map_err(|error| {
+                PipelineError::StageFailure(format!(
+                    "decoder seek failed for {}::{}: {error}",
+                    prepared.plugin_id, prepared.type_id
+                ))
+            })?;
         Ok(())
     }
 
     fn clear_prepared(&mut self) {
         if let Some(mut prepared) = self.prepared.take() {
-            prepared.controller.request_destroy();
-            let _ = prepared.controller.apply_pending();
+            let _ = prepared.decoder.close(prepared.session_handle);
         }
         self.gapless_trim_spec = None;
         self.duration_ms_hint = None;
@@ -371,10 +237,6 @@ impl DecoderStage for PluginDecoderStage {
 
     fn sync_runtime_control(&mut self, ctx: &mut PipelineContext) -> Result<(), PipelineError> {
         self.last_position_ms = ctx.position_ms;
-        if let Err(error) = self.refresh_decoder_runtime_control() {
-            self.last_runtime_error = Some(error.to_string());
-            return Err(error);
-        }
         if let Err(error) = self.apply_pending_seek(ctx) {
             self.last_runtime_error = Some(error.to_string());
             return Err(error);
@@ -403,17 +265,12 @@ impl DecoderStage for PluginDecoderStage {
             self.last_runtime_error = Some("decoder is not prepared".to_string());
             return StageStatus::Fatal;
         };
-        let Some(decoder) = prepared.controller.instance_mut() else {
-            self.last_runtime_error = Some(format!(
-                "decoder instance unavailable for {}::{}",
-                prepared.plugin_id, prepared.type_id
-            ));
-            return StageStatus::Fatal;
-        };
 
-        let frames = self.read_frames.max(1);
-        let (samples, _frames_read, eof) = match decoder.read_interleaved_f32(frames) {
-            Ok(v) => v,
+        let chunk = match prepared
+            .decoder
+            .read_pcm_f32(prepared.session_handle, self.read_frames.max(1))
+        {
+            Ok(chunk) => chunk,
             Err(error) => {
                 self.last_runtime_error = Some(format!(
                     "decoder read failed for {}::{}: {error}",
@@ -422,15 +279,29 @@ impl DecoderStage for PluginDecoderStage {
                 return StageStatus::Fatal;
             },
         };
-        if samples.is_empty() {
-            if eof {
-                return StageStatus::Eof;
-            }
+        if chunk.interleaved_f32le.is_empty() {
+            return if chunk.eof {
+                StageStatus::Eof
+            } else {
+                self.last_runtime_error = Some(format!(
+                    "decoder returned 0 bytes without eof for {}::{}",
+                    prepared.plugin_id, prepared.type_id
+                ));
+                StageStatus::Fatal
+            };
+        }
+        if !chunk.interleaved_f32le.len().is_multiple_of(4) {
             self.last_runtime_error = Some(format!(
-                "decoder returned 0 frames without eof for {}::{}",
-                prepared.plugin_id, prepared.type_id
+                "decoder produced invalid byte length for {}::{}: {}",
+                prepared.plugin_id,
+                prepared.type_id,
+                chunk.interleaved_f32le.len()
             ));
             return StageStatus::Fatal;
+        }
+        let mut samples = Vec::<f32>::with_capacity(chunk.interleaved_f32le.len() / 4);
+        for bytes in chunk.interleaved_f32le.chunks_exact(4) {
+            samples.push(f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]));
         }
 
         let channels = prepared.stream_spec.channels.max(1) as usize;
@@ -444,7 +315,6 @@ impl DecoderStage for PluginDecoderStage {
             ));
             return StageStatus::Fatal;
         }
-
         out.channels = prepared.stream_spec.channels;
         out.samples = samples;
         StageStatus::Ok
@@ -483,7 +353,6 @@ pub fn probe_track_decode_info_with_decoder_selector(
             "invalid decoder selector: both plugin_id and type_id are required".to_string(),
         );
     }
-
     let track_token = track_token.trim();
     if track_token.is_empty() {
         return Err("track token is empty".to_string());
@@ -497,20 +366,19 @@ pub fn probe_track_decode_info_with_decoder_selector(
         track_token: track_token.to_string(),
     });
     let mut ctx = PipelineContext::default();
-
     let result = (|| {
         let spec = stage
             .prepare(&source, &mut ctx)
-            .map_err(|e| format!("probe prepare failed: {e}"))?;
-
+            .map_err(|error| format!("probe prepare failed: {error}"))?;
         let prepared = stage
             .prepared
             .as_mut()
             .ok_or_else(|| "decoder probe prepared state missing".to_string())?;
         let metadata_json = prepared
-            .controller
-            .instance_mut()
-            .and_then(|instance| instance.get_metadata_json().ok().flatten());
+            .decoder
+            .metadata(prepared.session_handle)
+            .ok()
+            .and_then(|metadata| serde_json::to_string(&metadata).ok());
         Ok(ProbedTrackDecodeInfo {
             sample_rate: spec.sample_rate,
             channels: spec.channels,
@@ -520,7 +388,6 @@ pub fn probe_track_decode_info_with_decoder_selector(
             decoder_type_id: prepared.type_id.clone(),
         })
     })();
-
     stage.stop(&mut ctx);
     result
 }
@@ -568,7 +435,6 @@ fn decode_track_ref_token(track_token: &str) -> Result<TrackRefToken, String> {
             locator: parsed.locator,
         });
     }
-
     Ok(TrackRefToken::for_local_path(token.to_string()))
 }
 
@@ -592,7 +458,6 @@ struct SourceStreamLocator {
 struct DecoderCandidate {
     plugin_id: String,
     type_id: String,
-    default_config_json: String,
 }
 
 fn normalize_ext_hint(raw: &str) -> String {
@@ -612,15 +477,14 @@ fn runtime_scored_decoder_candidates(ext_hint: &str) -> Vec<DecoderCandidate> {
     if ext.is_empty() {
         return Vec::new();
     }
-
     let service = shared_runtime_service();
     let mut out = Vec::new();
     let mut seen = HashSet::new();
-    for candidate in service.list_decoder_candidates_for_ext_cached(&ext) {
+    for candidate in service.list_decoder_candidates_for_ext(ext.as_str()) {
         if !seen.insert((candidate.plugin_id.clone(), candidate.type_id.clone())) {
             continue;
         }
-        let Some(capability) = service.find_capability_cached(
+        let Some(_) = service.find_capability(
             &candidate.plugin_id,
             RuntimeCapabilityKind::Decoder,
             &candidate.type_id,
@@ -630,7 +494,6 @@ fn runtime_scored_decoder_candidates(ext_hint: &str) -> Vec<DecoderCandidate> {
         out.push(DecoderCandidate {
             plugin_id: candidate.plugin_id,
             type_id: candidate.type_id,
-            default_config_json: capability.default_config_json,
         });
     }
     out
@@ -638,21 +501,17 @@ fn runtime_scored_decoder_candidates(ext_hint: &str) -> Vec<DecoderCandidate> {
 
 fn runtime_all_decoder_candidates() -> Vec<DecoderCandidate> {
     let service = shared_runtime_service();
-    let mut plugin_ids = service.cached_capability_plugin_ids();
+    let mut plugin_ids = service.decoder_capability_plugin_ids();
     plugin_ids.sort();
-
     let mut out = Vec::new();
     for plugin_id in plugin_ids {
-        let mut capabilities = service.list_capabilities_cached(&plugin_id);
-        capabilities.sort_by(|a, b| a.type_id.cmp(&b.type_id));
-        for capability in capabilities {
+        for capability in service.list_capabilities(&plugin_id) {
             if capability.kind != RuntimeCapabilityKind::Decoder {
                 continue;
             }
             out.push(DecoderCandidate {
                 plugin_id: plugin_id.clone(),
                 type_id: capability.type_id,
-                default_config_json: capability.default_config_json,
             });
         }
     }
@@ -667,18 +526,17 @@ fn select_decoder_candidates(
     match (decoder_plugin_id, decoder_type_id) {
         (Some(plugin_id), Some(type_id)) => {
             let service = shared_runtime_service();
-            let capability = service
-                .find_capability_cached(plugin_id, RuntimeCapabilityKind::Decoder, type_id)
-                .ok_or_else(|| {
-                    format!(
-                        "decoder not found: plugin_id={} type_id={}",
-                        plugin_id, type_id
-                    )
-                })?;
+            let Some(_) =
+                service.find_capability(plugin_id, RuntimeCapabilityKind::Decoder, type_id)
+            else {
+                return Err(format!(
+                    "decoder not found: plugin_id={} type_id={}",
+                    plugin_id, type_id
+                ));
+            };
             Ok(vec![DecoderCandidate {
                 plugin_id: plugin_id.to_string(),
                 type_id: type_id.to_string(),
-                default_config_json: capability.default_config_json,
             }])
         },
         (Some(value), None) | (None, Some(value)) => Err(format!(
@@ -698,332 +556,282 @@ fn select_decoder_candidates(
     }
 }
 
-fn create_decoder_controller(
-    plugin_id: &str,
-    type_id: &str,
-    config_json: &str,
-) -> Result<(DecoderWorkerController, Receiver<WorkerControlMessage>), String> {
-    let endpoint = stellatune_runtime::block_on(
-        shared_runtime_service().bind_decoder_worker_endpoint(plugin_id, type_id),
-    )
-    .map_err(|e| {
-        format!(
-            "bind_decoder_worker_endpoint failed for {}::{}: {e}",
-            plugin_id, type_id
-        )
-    })?;
-    let (mut controller, control_rx) = endpoint.into_controller(config_json.to_string());
-    match controller.apply_pending().map_err(|e| {
-        format!(
-            "decoder apply_pending failed for {}::{}: {e}",
-            plugin_id, type_id
-        )
-    })? {
-        WorkerApplyPendingOutcome::Created | WorkerApplyPendingOutcome::Recreated => {
-            Ok((controller, control_rx))
-        },
-        WorkerApplyPendingOutcome::Destroyed | WorkerApplyPendingOutcome::Idle => Err(format!(
-            "decoder controller has no instance for {}::{}",
-            plugin_id, type_id
-        )),
-    }
-}
-
-fn create_source_catalog_controller(
-    plugin_id: &str,
-    type_id: &str,
-    config_json: &str,
-) -> Result<
-    (
-        SourceCatalogWorkerController,
-        Receiver<WorkerControlMessage>,
-    ),
-    String,
-> {
-    let endpoint = stellatune_runtime::block_on(
-        shared_runtime_service().bind_source_catalog_worker_endpoint(plugin_id, type_id),
-    )
-    .map_err(|e| {
-        format!(
-            "bind_source_catalog_worker_endpoint failed for {}::{}: {e}",
-            plugin_id, type_id
-        )
-    })?;
-    let (mut controller, control_rx) = endpoint.into_controller(config_json.to_string());
-    match controller.apply_pending().map_err(|e| {
-        format!(
-            "source catalog apply_pending failed for {}::{}: {e}",
-            plugin_id, type_id
-        )
-    })? {
-        WorkerApplyPendingOutcome::Created | WorkerApplyPendingOutcome::Recreated => {
-            Ok((controller, control_rx))
-        },
-        WorkerApplyPendingOutcome::Destroyed | WorkerApplyPendingOutcome::Idle => Err(format!(
-            "source catalog controller has no instance for {}::{}",
-            plugin_id, type_id
-        )),
-    }
-}
-
-struct SourceStreamLease {
-    controller: SourceCatalogWorkerController,
-    control_rx: Receiver<WorkerControlMessage>,
-    io_vtable_addr: usize,
-    io_handle_addr: usize,
-}
-
-impl SourceStreamLease {
-    fn open(locator: &SourceStreamLocator) -> Result<Self, String> {
-        let config_json = serde_json::to_string(&locator.config)
-            .map_err(|e| format!("invalid source config json: {e}"))?;
-        let track_json = serde_json::to_string(&locator.track)
-            .map_err(|e| format!("invalid source track json: {e}"))?;
-        let (mut controller, control_rx) =
-            create_source_catalog_controller(&locator.plugin_id, &locator.type_id, &config_json)?;
-        let Some(source) = controller.instance_mut() else {
-            return Err(format!(
-                "source catalog instance missing for {}::{}",
+fn open_source_stream_for_decoder(
+    locator: &SourceStreamLocator,
+    fallback_ext_hint: &str,
+) -> Result<(Box<dyn HostStreamHandle>, String), String> {
+    let mut source = shared_runtime_service()
+        .create_source_plugin(&locator.plugin_id, &locator.type_id)
+        .map_err(|error| {
+            format!(
+                "create source plugin failed for {}::{}: {error}",
                 locator.plugin_id, locator.type_id
-            ));
-        };
-        let (stream, _meta) = stellatune_runtime::block_on(source.open_stream(track_json.as_str()))
-            .map_err(|e| {
+            )
+        })?;
+    let config_json = serde_json::to_string(&locator.config)
+        .map_err(|e| format!("invalid source config json: {e}"))?;
+    source
+        .apply_config_update_json(config_json.as_str())
+        .map_err(|error| {
+            format!(
+                "source apply_config_update_json failed for {}::{}: {error}",
+                locator.plugin_id, locator.type_id
+            )
+        })?;
+    let track_json = serde_json::to_string(&locator.track)
+        .map_err(|e| format!("invalid source track json: {e}"))?;
+    let stream = source
+        .open_stream_json(track_json.as_str())
+        .map_err(|error| {
+            format!(
+                "source open_stream_json failed for {}::{}: {error}",
+                locator.plugin_id, locator.type_id
+            )
+        })?;
+    let ext_hint = normalize_ext_hint(stream.ext_hint.as_deref().unwrap_or(fallback_ext_hint));
+    let ext_hint = if ext_hint.is_empty() {
+        normalize_ext_hint(fallback_ext_hint)
+    } else {
+        ext_hint
+    };
+    match stream.handle {
+        RuntimeOpenedSourceStreamHandle::Passthrough(handle) => Ok((handle, ext_hint)),
+        RuntimeOpenedSourceStreamHandle::Processed(stream_handle) => {
+            let mut bytes = Vec::<u8>::new();
+            let read_result = (|| -> Result<(), String> {
+                loop {
+                    let chunk = source
+                        .read(stream_handle, SOURCE_STREAM_READ_BYTES)
+                        .map_err(|error| {
+                            format!(
+                                "source stream read failed for {}::{}: {error}",
+                                locator.plugin_id, locator.type_id
+                            )
+                        })?;
+                    if !chunk.bytes.is_empty() {
+                        bytes.extend_from_slice(&chunk.bytes);
+                    }
+                    if chunk.eof {
+                        break;
+                    }
+                }
+                Ok(())
+            })();
+            let close_result = source.close_stream(stream_handle).map_err(|error| {
                 format!(
-                    "source open_stream failed for {}::{}: {e}",
+                    "source close_stream failed for {}::{}: {error}",
                     locator.plugin_id, locator.type_id
                 )
-            })?;
-        Ok(Self {
-            controller,
-            control_rx,
-            io_vtable_addr: stream.io_vtable as usize,
-            io_handle_addr: stream.io_handle as usize,
-        })
-    }
-}
-
-impl Drop for SourceStreamLease {
-    fn drop(&mut self) {
-        if self.io_handle_addr == 0 {
-            return;
-        }
-        while let Ok(message) = self.control_rx.try_recv() {
-            self.controller.on_control_message(message);
-        }
-        if self.controller.has_pending_destroy() || self.controller.has_pending_recreate() {
-            let _ = self.controller.apply_pending();
-        }
-        if let Some(source) = self.controller.instance_mut() {
-            source.close_stream(self.io_handle_addr as *mut c_void);
-        }
-        self.io_handle_addr = 0;
-    }
-}
-
-struct LocalFileIoHandle {
-    file: File,
-}
-
-enum DecoderIoOwner {
-    Local(Box<LocalFileIoHandle>),
-    Source(Box<SourceStreamLease>),
-}
-
-impl DecoderIoOwner {
-    fn local(path: &str) -> Result<Self, String> {
-        let file =
-            File::open(path).map_err(|e| format!("failed to open local file `{path}`: {e}"))?;
-        Ok(Self::Local(Box::new(LocalFileIoHandle { file })))
-    }
-
-    fn source(source: SourceStreamLease) -> Self {
-        Self::Source(Box::new(source))
-    }
-
-    fn io_vtable_ptr(&self) -> *const StIoVTable {
-        match self {
-            Self::Local(_) => &LOCAL_FILE_IO_VTABLE as *const StIoVTable,
-            Self::Source(source) => source.io_vtable_addr as *const StIoVTable,
-        }
-    }
-
-    fn io_handle_ptr(&mut self) -> *mut c_void {
-        match self {
-            Self::Local(file) => (&mut **file) as *mut LocalFileIoHandle as *mut c_void,
-            Self::Source(source) => source.io_handle_addr as *mut c_void,
-        }
-    }
-}
-
-fn status_code(code: i32) -> StStatus {
-    StStatus {
-        code,
-        message: StStr::empty(),
-    }
-}
-
-extern "C" fn local_io_read(
-    handle: *mut c_void,
-    out: *mut u8,
-    len: usize,
-    out_read: *mut usize,
-) -> StStatus {
-    if handle.is_null() || out_read.is_null() || (len > 0 && out.is_null()) {
-        return status_code(ST_ERR_INVALID_ARG);
-    }
-    let state = unsafe { &mut *(handle as *mut LocalFileIoHandle) };
-    let out_slice: &mut [u8] = if len == 0 {
-        &mut []
-    } else {
-        unsafe { slice::from_raw_parts_mut(out, len) }
-    };
-    match state.file.read(out_slice) {
-        Ok(read) => {
-            unsafe {
-                *out_read = read;
+            });
+            if let Err(error) = close_result
+                && read_result.is_ok()
+            {
+                return Err(error);
             }
-            StStatus::ok()
+            read_result?;
+            let bytes: Arc<[u8]> = bytes.into();
+            Ok((Box::new(MemoryHostStreamHandle::new(bytes)), ext_hint))
         },
-        Err(_) => status_code(ST_ERR_IO),
     }
 }
 
-extern "C" fn local_io_seek(
-    handle: *mut c_void,
-    offset: i64,
-    whence: StSeekWhence,
-    out_pos: *mut u64,
-) -> StStatus {
-    if handle.is_null() || out_pos.is_null() {
-        return status_code(ST_ERR_INVALID_ARG);
-    }
-    let state = unsafe { &mut *(handle as *mut LocalFileIoHandle) };
-    let seek_from = match whence {
-        StSeekWhence::Start => {
-            if offset < 0 {
-                return status_code(ST_ERR_INVALID_ARG);
-            }
-            SeekFrom::Start(offset as u64)
-        },
-        StSeekWhence::Current => SeekFrom::Current(offset),
-        StSeekWhence::End => SeekFrom::End(offset),
-    };
-    match state.file.seek(seek_from) {
-        Ok(position) => {
-            unsafe {
-                *out_pos = position;
-            }
-            StStatus::ok()
-        },
-        Err(_) => status_code(ST_ERR_IO),
-    }
-}
-
-extern "C" fn local_io_tell(handle: *mut c_void, out_pos: *mut u64) -> StStatus {
-    if handle.is_null() || out_pos.is_null() {
-        return status_code(ST_ERR_INVALID_ARG);
-    }
-    let state = unsafe { &mut *(handle as *mut LocalFileIoHandle) };
-    match state.file.stream_position() {
-        Ok(position) => {
-            unsafe {
-                *out_pos = position;
-            }
-            StStatus::ok()
-        },
-        Err(_) => status_code(ST_ERR_IO),
-    }
-}
-
-extern "C" fn local_io_size(handle: *mut c_void, out_size: *mut u64) -> StStatus {
-    if handle.is_null() || out_size.is_null() {
-        return status_code(ST_ERR_INVALID_ARG);
-    }
-    let state = unsafe { &mut *(handle as *mut LocalFileIoHandle) };
-    match state.file.metadata() {
-        Ok(metadata) => {
-            unsafe {
-                *out_size = metadata.len();
-            }
-            StStatus::ok()
-        },
-        Err(_) => status_code(ST_ERR_IO),
-    }
-}
-
-static LOCAL_FILE_IO_VTABLE: StIoVTable = StIoVTable {
-    read: local_io_read,
-    seek: Some(local_io_seek),
-    tell: Some(local_io_tell),
-    size: Some(local_io_size),
-};
-
-#[derive(Debug, Clone)]
-struct DecoderOpenArgs {
-    path_hint: String,
-    ext_hint: String,
-}
-
-#[derive(Debug, Clone, Copy)]
-struct OpenedDecoder {
-    stream_spec: StreamSpec,
-    gapless_trim_spec: Option<GaplessTrimSpec>,
-    duration_ms_hint: Option<u64>,
-}
-
-fn open_decoder_instance(
-    controller: &mut DecoderWorkerController,
-    open_args: &DecoderOpenArgs,
-    io_owner: &mut DecoderIoOwner,
-) -> Result<OpenedDecoder, String> {
-    let Some(decoder) = controller.instance_mut() else {
-        return Err("decoder controller has no active instance".to_string());
-    };
-    decoder
-        .open_with_io(
-            open_args.path_hint.as_str(),
-            open_args.ext_hint.as_str(),
-            io_owner.io_vtable_ptr(),
-            io_owner.io_handle_ptr(),
+fn open_local_file_stream(path: &str) -> Result<Box<dyn HostStreamHandle>, String> {
+    let file = File::open(path).map_err(|error| {
+        format!(
+            "failed to open local track stream `{}`: {error}",
+            Path::new(path).display()
         )
-        .map_err(|e| format!("decoder open_with_io failed: {e}"))?;
-    let info = decoder
-        .get_info()
-        .map_err(|e| format!("decoder get_info failed: {e}"))?;
-    if info.spec.sample_rate == 0 || info.spec.channels == 0 {
+    })?;
+    Ok(Box::new(FileHostStreamHandle::new(file)))
+}
+
+fn open_decoder_for_stream(
+    plugin_id: &str,
+    type_id: &str,
+    stream: Box<dyn HostStreamHandle>,
+    ext_hint: &str,
+) -> Result<PreparedDecoderState, String> {
+    let mut decoder = shared_runtime_service()
+        .create_decoder_plugin(plugin_id, type_id)
+        .map_err(|error| {
+            format!(
+                "create decoder plugin failed for {}::{}: {error}",
+                plugin_id, type_id
+            )
+        })?;
+    let session_handle = decoder
+        .open_stream(
+            stream,
+            (!ext_hint.trim().is_empty()).then_some(ext_hint.trim()),
+        )
+        .map_err(|error| {
+            format!(
+                "decoder open_stream failed for {}::{}: {error}",
+                plugin_id, type_id
+            )
+        })?;
+    let info = decoder.info(session_handle).map_err(|error| {
+        format!(
+            "decoder info failed for {}::{} after open_stream: {error}",
+            plugin_id, type_id
+        )
+    })?;
+    if info.sample_rate == 0 || info.channels == 0 {
+        let _ = decoder.close(session_handle);
         return Err(format!(
-            "decoder returned invalid stream spec: sample_rate={} channels={}",
-            info.spec.sample_rate, info.spec.channels
+            "decoder returned invalid stream spec for {}::{}: sample_rate={} channels={}",
+            plugin_id, type_id, info.sample_rate, info.channels
         ));
     }
-    let stream_spec = StreamSpec {
-        sample_rate: info.spec.sample_rate,
-        channels: info.spec.channels,
-    };
     let gapless = GaplessTrimSpec {
         head_frames: info.encoder_delay_frames,
         tail_frames: info.encoder_padding_frames,
     };
-    let duration_ms_hint = if info.flags & ST_DECODER_INFO_FLAG_HAS_DURATION != 0 {
-        Some(info.duration_ms)
-    } else {
-        None
-    };
-    Ok(OpenedDecoder {
-        stream_spec,
+    Ok(PreparedDecoderState {
+        plugin_id: plugin_id.to_string(),
+        type_id: type_id.to_string(),
+        decoder,
+        session_handle,
+        stream_spec: StreamSpec {
+            sample_rate: info.sample_rate,
+            channels: info.channels,
+        },
         gapless_trim_spec: (!gapless.is_disabled()).then_some(gapless),
-        duration_ms_hint,
+        duration_ms_hint: info.duration_ms,
     })
+}
+
+struct FileHostStreamHandle {
+    file: File,
+}
+
+impl FileHostStreamHandle {
+    fn new(file: File) -> Self {
+        Self { file }
+    }
+}
+
+impl HostStreamHandle for FileHostStreamHandle {
+    fn read(&mut self, max_bytes: u32) -> Result<Vec<u8>, WasmPluginError> {
+        let max_bytes = max_bytes.max(1) as usize;
+        let mut buf = vec![0u8; max_bytes];
+        let read = self.file.read(&mut buf)?;
+        buf.truncate(read);
+        Ok(buf)
+    }
+
+    fn seek(&mut self, offset: i64, whence: StreamSeekWhence) -> Result<u64, WasmPluginError> {
+        let target = match whence {
+            StreamSeekWhence::Start => {
+                if offset < 0 {
+                    return Err(WasmPluginError::invalid_input(
+                        "negative offset with seek start",
+                    ));
+                }
+                SeekFrom::Start(offset as u64)
+            },
+            StreamSeekWhence::Current => SeekFrom::Current(offset),
+            StreamSeekWhence::End => SeekFrom::End(offset),
+        };
+        self.file.seek(target).map_err(WasmPluginError::from)
+    }
+
+    fn tell(&mut self) -> Result<u64, WasmPluginError> {
+        self.file
+            .seek(SeekFrom::Current(0))
+            .map_err(WasmPluginError::from)
+    }
+
+    fn size(&mut self) -> Result<u64, WasmPluginError> {
+        let pos = self.file.seek(SeekFrom::Current(0))?;
+        let end = self.file.seek(SeekFrom::End(0))?;
+        self.file.seek(SeekFrom::Start(pos))?;
+        Ok(end)
+    }
+}
+
+struct MemoryHostStreamHandle {
+    bytes: Arc<[u8]>,
+    position: u64,
+}
+
+impl MemoryHostStreamHandle {
+    fn new(bytes: Arc<[u8]>) -> Self {
+        Self { bytes, position: 0 }
+    }
+
+    fn seek_target(&self, offset: i64, whence: StreamSeekWhence) -> Result<u64, WasmPluginError> {
+        match whence {
+            StreamSeekWhence::Start => {
+                if offset < 0 {
+                    return Err(WasmPluginError::invalid_input(
+                        "negative offset with seek start",
+                    ));
+                }
+                Ok(offset as u64)
+            },
+            StreamSeekWhence::Current => {
+                if offset >= 0 {
+                    self.position.checked_add(offset as u64).ok_or_else(|| {
+                        WasmPluginError::invalid_input("seek overflow with current base")
+                    })
+                } else {
+                    self.position
+                        .checked_sub(offset.unsigned_abs())
+                        .ok_or_else(|| {
+                            WasmPluginError::invalid_input("seek underflow with current base")
+                        })
+                }
+            },
+            StreamSeekWhence::End => {
+                let end = self.bytes.len() as u64;
+                if offset >= 0 {
+                    end.checked_add(offset as u64).ok_or_else(|| {
+                        WasmPluginError::invalid_input("seek overflow with end base")
+                    })
+                } else {
+                    end.checked_sub(offset.unsigned_abs()).ok_or_else(|| {
+                        WasmPluginError::invalid_input("seek underflow with end base")
+                    })
+                }
+            },
+        }
+    }
+}
+
+impl HostStreamHandle for MemoryHostStreamHandle {
+    fn read(&mut self, max_bytes: u32) -> Result<Vec<u8>, WasmPluginError> {
+        let max_bytes = max_bytes.max(1) as usize;
+        let len = self.bytes.len() as u64;
+        if self.position >= len {
+            return Ok(Vec::new());
+        }
+        let start = self.position as usize;
+        let end = start.saturating_add(max_bytes).min(self.bytes.len());
+        self.position = end as u64;
+        Ok(self.bytes[start..end].to_vec())
+    }
+
+    fn seek(&mut self, offset: i64, whence: StreamSeekWhence) -> Result<u64, WasmPluginError> {
+        let position = self.seek_target(offset, whence)?;
+        self.position = position;
+        Ok(position)
+    }
+
+    fn tell(&mut self) -> Result<u64, WasmPluginError> {
+        Ok(self.position)
+    }
+
+    fn size(&mut self) -> Result<u64, WasmPluginError> {
+        Ok(self.bytes.len() as u64)
+    }
 }
 
 struct PreparedDecoderState {
     plugin_id: String,
     type_id: String,
-    controller: DecoderWorkerController,
-    control_rx: Receiver<WorkerControlMessage>,
-    io_owner: DecoderIoOwner,
-    open_args: DecoderOpenArgs,
+    decoder: RuntimeDecoderPlugin,
+    session_handle: u64,
     stream_spec: StreamSpec,
     gapless_trim_spec: Option<GaplessTrimSpec>,
     duration_ms_hint: Option<u64>,

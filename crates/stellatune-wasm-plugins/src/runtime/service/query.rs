@@ -1,5 +1,4 @@
-use std::collections::BTreeSet;
-
+use crate::executor::WasmPluginController;
 use crate::manifest::AbilityKind;
 use crate::runtime::model::{
     DesiredPluginState, RuntimeCapabilityDescriptor, RuntimePluginInfo, RuntimePluginStatus,
@@ -7,16 +6,13 @@ use crate::runtime::model::{
 use crate::runtime::registry::build_plugin_statuses;
 use crate::runtime::service::WasmPluginRuntime;
 
-impl WasmPluginRuntime {
+impl<C: WasmPluginController> WasmPluginRuntime<C> {
     pub fn desired_state(&self, plugin_id: &str) -> DesiredPluginState {
         let plugin_id = plugin_id.trim();
         if plugin_id.is_empty() {
             return DesiredPluginState::Enabled;
         }
-        let state = self
-            .registry
-            .read()
-            .expect("runtime registry lock poisoned");
+        let state = self.registry.read();
         state
             .desired_states
             .get(plugin_id)
@@ -25,27 +21,17 @@ impl WasmPluginRuntime {
     }
 
     pub fn plugin_statuses(&self) -> Vec<RuntimePluginStatus> {
-        let state = self
-            .registry
-            .read()
-            .expect("runtime registry lock poisoned");
-        let discovered_ids = state
-            .active_plugins
-            .keys()
-            .cloned()
-            .collect::<BTreeSet<_>>();
+        let state = self.registry.read();
         build_plugin_statuses(
             &state.active_plugins,
-            &discovered_ids,
+            &state.last_discovered_plugin_ids,
             &state.desired_states,
+            &state.last_errors_by_plugin,
         )
     }
 
     pub fn active_plugins(&self) -> Vec<RuntimePluginInfo> {
-        let state = self
-            .registry
-            .read()
-            .expect("runtime registry lock poisoned");
+        let state = self.registry.read();
         let mut out = state
             .active_plugins
             .values()
@@ -56,10 +42,7 @@ impl WasmPluginRuntime {
     }
 
     pub fn active_ids(&self) -> Vec<String> {
-        let state = self
-            .registry
-            .read()
-            .expect("runtime registry lock poisoned");
+        let state = self.registry.read();
         let mut out = state.active_plugins.keys().cloned().collect::<Vec<_>>();
         out.sort();
         out
@@ -70,10 +53,7 @@ impl WasmPluginRuntime {
         if plugin_id.is_empty() {
             return Vec::new();
         }
-        let state = self
-            .registry
-            .read()
-            .expect("runtime registry lock poisoned");
+        let state = self.registry.read();
         let Some(plugin) = state.active_plugins.get(plugin_id) else {
             return Vec::new();
         };
@@ -91,10 +71,7 @@ impl WasmPluginRuntime {
         if plugin_id.is_empty() || type_id.is_empty() {
             return None;
         }
-        let state = self
-            .registry
-            .read()
-            .expect("runtime registry lock poisoned");
+        let state = self.registry.read();
         let plugin = state.active_plugins.get(plugin_id)?;
         plugin
             .capabilities

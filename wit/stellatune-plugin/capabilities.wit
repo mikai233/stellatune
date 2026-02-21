@@ -21,6 +21,7 @@ interface decoder {
 
 interface source {
     use common.{config-update-plan, encoded-chunk, media-metadata, plugin-error};
+    use host-stream.{host-stream-handle};
 
     resource source-stream {
         metadata: func() -> result<media-metadata, plugin-error>;
@@ -28,10 +29,21 @@ interface source {
         close: func();
     }
 
+    variant opened-stream-handle {
+        passthrough(host-stream-handle),
+        processed(source-stream),
+    }
+
+    record opened-stream {
+        handle: opened-stream-handle,
+        ext-hint: option<string>,
+        metadata: option<media-metadata>,
+    }
+
     resource catalog {
         list-items-json: func(request-json: string) -> result<string, plugin-error>;
-        open-stream-json: func(track-json: string) -> result<source-stream, plugin-error>;
-        open-uri: func(uri: string) -> result<source-stream, plugin-error>;
+        open-stream-json: func(track-json: string) -> result<opened-stream, plugin-error>;
+        open-uri: func(uri: string) -> result<opened-stream, plugin-error>;
         plan-config-update-json: func(new-config-json: string) -> result<config-update-plan, plugin-error>;
         apply-config-update-json: func(new-config-json: string) -> result<_, plugin-error>;
         export-state-json: func() -> result<option<string>, plugin-error>;

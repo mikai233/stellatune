@@ -19,6 +19,20 @@ macro_rules! export_source_component {
                 __st_bindings::stellatune::plugin::common::ConfigUpdateMode;
             type __StConfigUpdatePlan =
                 __st_bindings::exports::stellatune::plugin::source::ConfigUpdatePlan;
+            type __StOpenedStream =
+                __st_bindings::exports::stellatune::plugin::source::OpenedStream;
+            type __StOpenedStreamHandle =
+                __st_bindings::exports::stellatune::plugin::source::OpenedStreamHandle;
+            type __StHostStreamHandle =
+                __st_bindings::stellatune::plugin::host_stream::HostStreamHandle;
+            type __StHostStreamOpenRequest =
+                __st_bindings::stellatune::plugin::host_stream::OpenRequest;
+            type __StHostStreamHeader =
+                __st_bindings::stellatune::plugin::host_stream::Header;
+            type __StHostStreamOpenKind =
+                __st_bindings::stellatune::plugin::host_stream::StreamOpenKind;
+            type __StHostStreamHttpMethod =
+                __st_bindings::stellatune::plugin::host_stream::HttpMethod;
             type __StMediaMetadata = __st_bindings::exports::stellatune::plugin::source::MediaMetadata;
             type __StEncodedChunk = __st_bindings::exports::stellatune::plugin::source::EncodedChunk;
             type __StEncodedAudioFormat =
@@ -46,6 +60,34 @@ macro_rules! export_source_component {
                     $crate::SdkError::Unsupported(message) => __StPluginError::Unsupported(message),
                     $crate::SdkError::Denied(message) => __StPluginError::Denied(message),
                     $crate::SdkError::Internal(message) => __StPluginError::Internal(message),
+                }
+            }
+
+            fn __map_host_stream_error(
+                error: __st_bindings::stellatune::plugin::host_stream::PluginError,
+            ) -> $crate::SdkError {
+                match error {
+                    __st_bindings::stellatune::plugin::host_stream::PluginError::InvalidArg(message) => {
+                        $crate::SdkError::InvalidArg(message)
+                    }
+                    __st_bindings::stellatune::plugin::host_stream::PluginError::NotFound(message) => {
+                        $crate::SdkError::NotFound(message)
+                    }
+                    __st_bindings::stellatune::plugin::host_stream::PluginError::Io(message) => {
+                        $crate::SdkError::Io(message)
+                    }
+                    __st_bindings::stellatune::plugin::host_stream::PluginError::Timeout(message) => {
+                        $crate::SdkError::Timeout(message)
+                    }
+                    __st_bindings::stellatune::plugin::host_stream::PluginError::Unsupported(message) => {
+                        $crate::SdkError::Unsupported(message)
+                    }
+                    __st_bindings::stellatune::plugin::host_stream::PluginError::Denied(message) => {
+                        $crate::SdkError::Denied(message)
+                    }
+                    __st_bindings::stellatune::plugin::host_stream::PluginError::Internal(message) => {
+                        $crate::SdkError::Internal(message)
+                    }
                 }
             }
 
@@ -138,6 +180,68 @@ macro_rules! export_source_component {
                 }
             }
 
+            fn __new_processed_opened_stream(
+                stream: <<__StPlugin as $crate::SourcePlugin>::Catalog as $crate::SourceCatalog>::Stream,
+                ext_hint: Option<String>,
+                metadata: Option<$crate::common::MediaMetadata>,
+            ) -> __StOpenedStream {
+                let stream = __st_bindings::exports::stellatune::plugin::source::SourceStream::new(
+                    __StSourceStream {
+                        inner: Mutex::new(stream),
+                    },
+                );
+                __StOpenedStream {
+                    handle: __StOpenedStreamHandle::Processed(stream.into()),
+                    ext_hint,
+                    metadata: metadata.map(__map_media_metadata),
+                }
+            }
+
+            fn __new_passthrough_opened_stream(
+                handle: __StHostStreamHandle,
+                ext_hint: Option<String>,
+                metadata: Option<$crate::common::MediaMetadata>,
+            ) -> __StOpenedStream {
+                __StOpenedStream {
+                    handle: __StOpenedStreamHandle::Passthrough(handle),
+                    ext_hint,
+                    metadata: metadata.map(__map_media_metadata),
+                }
+            }
+
+            fn __map_host_stream_open_request(
+                request: $crate::host_stream::HostStreamOpenRequest,
+            ) -> __StHostStreamOpenRequest {
+                __StHostStreamOpenRequest {
+                    kind: match request.kind {
+                        $crate::host_stream::StreamOpenKind::File => __StHostStreamOpenKind::File,
+                        $crate::host_stream::StreamOpenKind::Http => __StHostStreamOpenKind::Http,
+                        $crate::host_stream::StreamOpenKind::Tcp => __StHostStreamOpenKind::Tcp,
+                        $crate::host_stream::StreamOpenKind::Udp => __StHostStreamOpenKind::Udp,
+                    },
+                    target: request.target,
+                    method: request.method.map(|method| match method {
+                        $crate::host_stream::HttpMethod::Get => __StHostStreamHttpMethod::Get,
+                        $crate::host_stream::HttpMethod::Post => __StHostStreamHttpMethod::Post,
+                        $crate::host_stream::HttpMethod::Put => __StHostStreamHttpMethod::Put,
+                        $crate::host_stream::HttpMethod::Delete => __StHostStreamHttpMethod::Delete,
+                        $crate::host_stream::HttpMethod::Head => __StHostStreamHttpMethod::Head,
+                        $crate::host_stream::HttpMethod::Patch => __StHostStreamHttpMethod::Patch,
+                    }),
+                    headers: request
+                        .headers
+                        .into_iter()
+                        .map(|header| __StHostStreamHeader {
+                            name: header.name,
+                            value: header.value,
+                        })
+                        .collect::<Vec<_>>(),
+                    body: request.body,
+                    connect_timeout_ms: request.connect_timeout_ms,
+                    read_timeout_ms: request.read_timeout_ms,
+                }
+            }
+
             fn __plugin_guard() -> Result<MutexGuard<'static, __StPlugin>, __StPluginError> {
                 if __ST_PLUGIN.get().is_none() {
                     let plugin = ($create)().map_err(__map_error)?;
@@ -213,31 +317,58 @@ macro_rules! export_source_component {
                 fn open_stream_json(
                     &self,
                     track_json: String,
-                ) -> Result<__st_bindings::exports::stellatune::plugin::source::SourceStream, __StPluginError>
+                ) -> Result<__StOpenedStream, __StPluginError>
                 {
                     let mut catalog = self.inner.lock();
-                    let stream = catalog
-                        .open_stream_json(track_json.as_str())
-                        .map_err(__map_error)?;
-                    Ok(__st_bindings::exports::stellatune::plugin::source::SourceStream::new(
-                        __StSourceStream {
-                            inner: Mutex::new(stream),
+                    match catalog
+                        .open_stream_opened_json(track_json.as_str())
+                        .map_err(__map_error)?
+                    {
+                        $crate::OpenedSourceStream::Processed {
+                            stream,
+                            ext_hint,
+                            metadata,
+                        } => Ok(__new_processed_opened_stream(stream, ext_hint, metadata)),
+                        $crate::OpenedSourceStream::PassthroughRequest {
+                            request,
+                            ext_hint,
+                            metadata,
+                        } => {
+                            let request = __map_host_stream_open_request(request);
+                            let handle = __st_bindings::stellatune::plugin::host_stream::open(
+                                &request,
+                            )
+                            .map_err(|error| __map_error(__map_host_stream_error(error)))?;
+                            Ok(__new_passthrough_opened_stream(handle, ext_hint, metadata))
                         },
-                    ))
+                    }
                 }
 
                 fn open_uri(
                     &self,
                     uri: String,
-                ) -> Result<__st_bindings::exports::stellatune::plugin::source::SourceStream, __StPluginError>
+                ) -> Result<__StOpenedStream, __StPluginError>
                 {
                     let mut catalog = self.inner.lock();
-                    let stream = catalog.open_uri(uri.as_str()).map_err(__map_error)?;
-                    Ok(__st_bindings::exports::stellatune::plugin::source::SourceStream::new(
-                        __StSourceStream {
-                            inner: Mutex::new(stream),
+                    match catalog.open_uri_opened(uri.as_str()).map_err(__map_error)? {
+                        $crate::OpenedSourceStream::Processed {
+                            stream,
+                            ext_hint,
+                            metadata,
+                        } => Ok(__new_processed_opened_stream(stream, ext_hint, metadata)),
+                        $crate::OpenedSourceStream::PassthroughRequest {
+                            request,
+                            ext_hint,
+                            metadata,
+                        } => {
+                            let request = __map_host_stream_open_request(request);
+                            let handle = __st_bindings::stellatune::plugin::host_stream::open(
+                                &request,
+                            )
+                            .map_err(|error| __map_error(__map_host_stream_error(error)))?;
+                            Ok(__new_passthrough_opened_stream(handle, ext_hint, metadata))
                         },
-                    ))
+                    }
                 }
 
                 fn plan_config_update_json(

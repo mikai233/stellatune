@@ -5,14 +5,11 @@ edition = "2024"
 license.workspace = true
 
 [dependencies]
-crossbeam-channel.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 stellatune-audio-core.workspace = true
 stellatune-audio.workspace = true
-stellatune-plugin-api.workspace = true
-stellatune-plugins.workspace = true
-stellatune-runtime.workspace = true
+stellatune-wasm-plugins.workspace = true
 
 [lints]
 workspace = true

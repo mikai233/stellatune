@@ -64,7 +64,6 @@ The `runtime` module is the integration surface for shared runtime state:
   - `runtime_set_output_sink_route(...)`
   - `runtime_clear_output_sink_route()`
 - lifecycle:
-  - `runtime_prepare_hot_restart()`
   - `runtime_shutdown()`
 - plugin runtime state:
   - `plugin_runtime_apply_state(...)`

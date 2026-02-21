@@ -12,7 +12,19 @@
       "abilities": [
         {
           "kind": "decoder",
-          "type_id": "ncm-wasm"
+          "type_id": "ncm-wasm",
+          "display_name": "NCM Decoder (Wasm)",
+          "config_schema_json": "{}",
+          "default_config_json": "{}",
+          "decoder": {
+            "ext_scores": [
+              {
+                "ext": "ncm",
+                "score": 100
+              }
+            ],
+            "wildcard_score": 0
+          }
         }
       ]
     }

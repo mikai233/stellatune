@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
-use std::sync::RwLock;
 use std::sync::mpsc::{self, Receiver, Sender};
+
+use parking_lot::RwLock;
 
 use crate::runtime::model::RuntimePluginDirective;
 
@@ -19,10 +20,7 @@ impl PluginDirectiveHub {
             return None;
         }
         let (tx, rx) = mpsc::channel::<RuntimePluginDirective>();
-        let mut state = self
-            .subscriptions
-            .write()
-            .expect("plugin subscriptions lock poisoned");
+        let mut state = self.subscriptions.write();
         state.entry(plugin_id.to_string()).or_default().push(tx);
         Some(rx)
     }
@@ -32,10 +30,7 @@ impl PluginDirectiveHub {
         if plugin_id.is_empty() {
             return;
         }
-        let mut subscriptions = self
-            .subscriptions
-            .write()
-            .expect("plugin subscriptions lock poisoned");
+        let mut subscriptions = self.subscriptions.write();
         let Some(list) = subscriptions.get_mut(plugin_id) else {
             return;
         };

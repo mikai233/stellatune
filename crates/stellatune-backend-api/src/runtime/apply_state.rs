@@ -116,7 +116,6 @@ pub(super) fn snapshot_status_json(snapshot: &ApplyStateStatusSnapshot) -> Strin
         "last_finished_at_ms": snapshot.last_finished_at_ms,
         "last_loaded": snapshot.last_report.loaded,
         "last_deactivated": snapshot.last_report.deactivated,
-        "last_reclaimed_leases": snapshot.last_report.reclaimed_leases,
         "last_error_count": snapshot.last_report.errors.len(),
         "last_errors": snapshot.last_report.errors,
         "last_plan_discovered": snapshot.last_report.plan_discovered,

@@ -1,11 +1,12 @@
 use std::collections::BTreeMap;
 
 use crate::error::{Error, Result};
+use crate::executor::WasmPluginController;
 
 use crate::runtime::model::{DesiredPluginState, PluginDisableReason, RuntimePluginDirective};
 use crate::runtime::service::WasmPluginRuntime;
 
-impl WasmPluginRuntime {
+impl<C: WasmPluginController> WasmPluginRuntime<C> {
     pub fn set_desired_state(
         &self,
         plugin_id: &str,
@@ -15,13 +16,16 @@ impl WasmPluginRuntime {
         if plugin_id.is_empty() {
             return Ok(());
         }
+        tracing::info!(
+            target: "stellatune_wasm_plugins::runtime",
+            plugin_id = %plugin_id,
+            desired_state = ?desired_state,
+            "plugin desired state update requested"
+        );
 
         if desired_state == DesiredPluginState::Disabled {
             let is_active = {
-                let state = self
-                    .registry
-                    .read()
-                    .expect("runtime registry lock poisoned");
+                let state = self.registry.read();
                 state.active_plugins.contains_key(plugin_id)
             };
             if is_active {
@@ -36,16 +40,19 @@ impl WasmPluginRuntime {
             }
         }
 
-        let mut state = self
-            .registry
-            .write()
-            .expect("runtime registry lock poisoned");
+        let mut state = self.registry.write();
         state
             .desired_states
             .insert(plugin_id.to_string(), desired_state);
         if desired_state == DesiredPluginState::Disabled {
             state.active_plugins.remove(plugin_id);
         }
+        tracing::info!(
+            target: "stellatune_wasm_plugins::runtime",
+            plugin_id = %plugin_id,
+            desired_state = ?desired_state,
+            "plugin desired state updated"
+        );
         Ok(())
     }
 
@@ -61,12 +68,14 @@ impl WasmPluginRuntime {
             }
             normalized.insert(plugin_id.to_string(), state_value);
         }
+        tracing::info!(
+            target: "stellatune_wasm_plugins::runtime",
+            desired_entries = normalized.len(),
+            "plugin desired state replacement requested"
+        );
 
         let active_ids = {
-            let state = self
-                .registry
-                .read()
-                .expect("runtime registry lock poisoned");
+            let state = self.registry.read();
             state.active_plugins.keys().cloned().collect::<Vec<_>>()
         };
 
@@ -102,18 +111,24 @@ impl WasmPluginRuntime {
             }
         }
 
-        let mut state = self
-            .registry
-            .write()
-            .expect("runtime registry lock poisoned");
+        let mut state = self.registry.write();
         state.desired_states = normalized;
         for plugin_id in deactivated_ids {
             state.active_plugins.remove(&plugin_id);
         }
 
         if deactivation_errors.is_empty() {
+            tracing::info!(
+                target: "stellatune_wasm_plugins::runtime",
+                "plugin desired state replacement completed"
+            );
             return Ok(());
         }
+        tracing::warn!(
+            target: "stellatune_wasm_plugins::runtime",
+            error_count = deactivation_errors.len(),
+            "plugin desired state replacement completed with errors"
+        );
         Err(Error::aggregate(
             "replace_desired_states",
             deactivation_errors,
@@ -125,14 +140,21 @@ impl WasmPluginRuntime {
         if plugin_id.is_empty() {
             return Ok(false);
         }
+        tracing::info!(
+            target: "stellatune_wasm_plugins::runtime",
+            plugin_id = %plugin_id,
+            "plugin uninstall requested"
+        );
         let is_active = {
-            let state = self
-                .registry
-                .read()
-                .expect("runtime registry lock poisoned");
+            let state = self.registry.read();
             state.active_plugins.contains_key(plugin_id)
         };
         if !is_active {
+            tracing::debug!(
+                target: "stellatune_wasm_plugins::runtime",
+                plugin_id = %plugin_id,
+                "plugin uninstall skipped because plugin is not active"
+            );
             return Ok(false);
         }
         self.controller
@@ -144,19 +166,20 @@ impl WasmPluginRuntime {
             },
         );
 
-        let mut state = self
-            .registry
-            .write()
-            .expect("runtime registry lock poisoned");
-        Ok(state.active_plugins.remove(plugin_id).is_some())
+        let mut state = self.registry.write();
+        let removed = state.active_plugins.remove(plugin_id).is_some();
+        tracing::info!(
+            target: "stellatune_wasm_plugins::runtime",
+            plugin_id = %plugin_id,
+            removed,
+            "plugin uninstall completed"
+        );
+        Ok(removed)
     }
 
     pub fn shutdown(&self) -> Result<Vec<String>> {
         let active_ids = {
-            let state = self
-                .registry
-                .read()
-                .expect("runtime registry lock poisoned");
+            let state = self.registry.read();
             let mut ids = state.active_plugins.keys().cloned().collect::<Vec<_>>();
             ids.sort();
             ids
@@ -164,6 +187,11 @@ impl WasmPluginRuntime {
 
         let mut deactivated = Vec::<String>::new();
         let mut errors = Vec::<String>::new();
+        tracing::info!(
+            target: "stellatune_wasm_plugins::runtime",
+            active_before = active_ids.len(),
+            "plugin runtime shutdown requested"
+        );
         for plugin_id in &active_ids {
             match self
                 .controller
@@ -188,17 +216,25 @@ impl WasmPluginRuntime {
             errors.push(format!("runtime host shutdown failed: {:#}", error));
         }
 
-        let mut state = self
-            .registry
-            .write()
-            .expect("runtime registry lock poisoned");
+        let mut state = self.registry.write();
         for plugin_id in &deactivated {
             state.active_plugins.remove(plugin_id);
         }
 
         if errors.is_empty() {
+            tracing::info!(
+                target: "stellatune_wasm_plugins::runtime",
+                deactivated = deactivated.len(),
+                "plugin runtime shutdown completed"
+            );
             Ok(deactivated)
         } else {
+            tracing::warn!(
+                target: "stellatune_wasm_plugins::runtime",
+                deactivated = deactivated.len(),
+                errors = errors.len(),
+                "plugin runtime shutdown completed with errors"
+            );
             Err(Error::aggregate("shutdown", errors))
         }
     }
