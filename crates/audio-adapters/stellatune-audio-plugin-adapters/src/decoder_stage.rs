@@ -737,13 +737,11 @@ impl HostStreamHandle for FileHostStreamHandle {
     }
 
     fn tell(&mut self) -> Result<u64, WasmPluginError> {
-        self.file
-            .seek(SeekFrom::Current(0))
-            .map_err(WasmPluginError::from)
+        self.file.stream_position().map_err(WasmPluginError::from)
     }
 
     fn size(&mut self) -> Result<u64, WasmPluginError> {
-        let pos = self.file.seek(SeekFrom::Current(0))?;
+        let pos = self.file.stream_position()?;
         let end = self.file.seek(SeekFrom::End(0))?;
         self.file.seek(SeekFrom::Start(pos))?;
         Ok(end)

@@ -73,13 +73,12 @@ impl OutputSinkSession for AsioWasmSession {
         desired: AudioSpec,
     ) -> SdkResult<NegotiatedSpec> {
         // Cache check
-        if let Some(ref cached) = self.negotiated_cache {
-            if cached.target_json == target_json
-                && cached.desired.sample_rate == desired.sample_rate
-                && cached.desired.channels == desired.channels
-            {
-                return Ok(cached.result.clone());
-            }
+        if let Some(ref cached) = self.negotiated_cache
+            && cached.target_json == target_json
+            && cached.desired.sample_rate == desired.sample_rate
+            && cached.desired.channels == desired.channels
+        {
+            return Ok(cached.result.clone());
         }
 
         let target: AsioOutputTarget = serde_json::from_str(target_json)
@@ -90,7 +89,7 @@ impl OutputSinkSession for AsioWasmSession {
         let caps = with_sidecar(&self.config, |client| {
             client.get_device_caps(session_id, target.id.clone())
         })?;
-        let result = build_negotiated_spec(desired.clone(), &caps, &config);
+        let result = build_negotiated_spec(desired, &caps, &config);
 
         self.negotiated_cache = Some(CachedNegotiation {
             target_json: target_json.to_string(),

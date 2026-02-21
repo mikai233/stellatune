@@ -61,7 +61,7 @@ static RUNTIME_DECODER_PLUGIN_SEQ: AtomicU64 = AtomicU64::new(0);
 
 thread_local! {
     static RUNTIME_DECODER_PLUGINS: RefCell<BTreeMap<u64, RuntimeDecoderPluginCell>> =
-        RefCell::new(BTreeMap::new());
+        const { RefCell::new(BTreeMap::new()) };
 }
 
 impl RuntimeDecoderPlugin {
@@ -234,7 +234,7 @@ static RUNTIME_DSP_PLUGIN_SEQ: AtomicU64 = AtomicU64::new(0);
 
 thread_local! {
     static RUNTIME_DSP_PLUGINS: RefCell<BTreeMap<u64, RuntimeDspPluginCell>> =
-        RefCell::new(BTreeMap::new());
+        const { RefCell::new(BTreeMap::new()) };
 }
 
 impl RuntimeDspPlugin {
@@ -378,7 +378,7 @@ static RUNTIME_OUTPUT_SINK_PLUGIN_SEQ: AtomicU64 = AtomicU64::new(0);
 
 thread_local! {
     static RUNTIME_OUTPUT_SINK_PLUGINS: RefCell<BTreeMap<u64, RuntimeOutputSinkPluginCell>> =
-        RefCell::new(BTreeMap::new());
+        const { RefCell::new(BTreeMap::new()) };
 }
 
 impl RuntimeOutputSinkPlugin {

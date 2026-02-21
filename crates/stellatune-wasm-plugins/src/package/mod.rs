@@ -350,9 +350,12 @@ fn extract_zip_to_dir(zip_path: &Path, out_dir: &Path) -> Result<()> {
     Ok(())
 }
 
+type ValidManifestCandidate = (PathBuf, WasmPluginManifest);
+type InvalidManifestCandidate = (PathBuf, String);
+
 fn find_manifest_candidates(
     root: &Path,
-) -> (Vec<(PathBuf, WasmPluginManifest)>, Vec<(PathBuf, String)>) {
+) -> (Vec<ValidManifestCandidate>, Vec<InvalidManifestCandidate>) {
     let mut valid = Vec::new();
     let mut invalid = Vec::new();
     for entry in walkdir::WalkDir::new(root)
