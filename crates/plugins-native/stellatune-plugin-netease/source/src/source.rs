@@ -569,7 +569,7 @@ fn http_get_bytes(url: &str, timeout_ms: u32) -> SdkResult<Vec<u8>> {
             break;
         }
         if out.len().saturating_add(chunk.len()) > MAX_HTTP_BODY_BYTES {
-            let _ = handle.close();
+            handle.close();
             return Err(SdkError::io(format!(
                 "HTTP response too large (> {} bytes)",
                 MAX_HTTP_BODY_BYTES
@@ -577,7 +577,7 @@ fn http_get_bytes(url: &str, timeout_ms: u32) -> SdkResult<Vec<u8>> {
         }
         out.extend_from_slice(&chunk);
     }
-    let _ = handle.close();
+    handle.close();
     Ok(out)
 }
 

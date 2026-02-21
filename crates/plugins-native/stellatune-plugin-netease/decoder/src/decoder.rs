@@ -100,7 +100,7 @@ impl StreamSymphoniaDecoderSession {
 
         let mut reader = DecoderInputReader::new(stream);
         let byte_len = reader.size().ok();
-        let seekable = reader.seek(SeekFrom::Current(0)).is_ok();
+        let seekable = reader.stream_position().is_ok();
         if seekable {
             let _ = reader.seek(SeekFrom::Start(0));
         }

@@ -12,6 +12,12 @@ use tracing::warn;
 const HTTP_STREAM_CHUNK_BYTES: usize = 64 * 1024;
 const HTTP_STREAM_BUFFER_BYTES: usize = 32 * 1024 * 1024;
 const HTTP_STREAM_QUEUE_CAPACITY: usize = HTTP_STREAM_BUFFER_BYTES / HTTP_STREAM_CHUNK_BYTES;
+type HttpStreamWorker = (
+    Receiver<HttpChunkMessage>,
+    mpsc::Sender<()>,
+    thread::JoinHandle<()>,
+    Option<u64>,
+);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StreamSeekWhence {
@@ -179,12 +185,7 @@ fn stream_http_chunks(
 fn start_http_stream_worker(
     config: &HttpStreamConfig,
     start_offset: u64,
-) -> Result<(
-    Receiver<HttpChunkMessage>,
-    mpsc::Sender<()>,
-    thread::JoinHandle<()>,
-    Option<u64>,
-)> {
+) -> Result<HttpStreamWorker> {
     let (ready_tx, ready_rx) = mpsc::sync_channel::<Result<HttpOpenState>>(1);
     let (chunk_tx, chunk_rx) = mpsc::sync_channel::<HttpChunkMessage>(HTTP_STREAM_QUEUE_CAPACITY);
     let (cancel_tx, cancel_rx) = mpsc::channel::<()>();
