@@ -1,77 +1,120 @@
-# StellaTune(星律)
+# StellaTune (星律)
 
-StellaTune is an open-source, cross-platform music player built with **Flutter** (UI) and **Rust** (core).
-
-The project aims to combine a modern, fast library experience with a **Rust-first playback engine** that is designed to be low-latency, reliable under load, and extensible through plugins.
+StellaTune is an open-source music player built with **Flutter** (UI) and **Rust** (core).
+The project focuses on a modern local-library UX plus a Rust-first playback runtime with plugin extensibility.
 
 > **Status:** Early development (WIP)
 
----
+## What Works Now
 
-## Goals
+- Desktop Flutter app skeleton with Rust backend integration.
+- Rust audio pipeline with plugin-capable decoder/source stages.
+- Native plugin crates for local decoding and NetEase-related source/decoder flows.
+- Wasm plugin runtime and host bindings under active development.
 
-### 1) A modern library experience
-- Fast browsing for large collections
-- Instant search, filtering, and sorting
-- Flexible queue management
-- Clean, keyboard-friendly workflows (planned)
-- Tag editing and batch operations (planned)
+Current playback constraints:
+- MVP path is centered on local playback and plugin integration.
+- Stereo (2-channel) output is currently the primary tested path.
+- Some advanced features (gapless, DSP UX, scripting automation) are still planned.
 
-### 2) A Rust-first audio engine
-- Decoding and playback pipeline implemented in Rust
-- Audio-thread-safe design (no blocking IO, minimal locking)
-- Gapless playback (planned)
-- Crossfade (planned)
-- Loudness normalization / ReplayGain-style gain control (planned)
-- Resampling and device format adaptation (planned)
-- EQ / DSP effect chain (planned)
-
-### 3) Extensibility
-StellaTune is designed to be “plugin-friendly”, inspired by foobar2000-style ecosystems.
-
-Planned plugin categories:
-- **Decoders / demuxers** (support more formats)
-- **DSP effects** (EQ, limiter, convolution, etc.)
-- **Output backends** (exclusive modes, alternative device APIs, etc.)
-
-A lightweight scripting layer for automation (planned: Lua) may also be added for things like queue rules and event hooks.
-
----
-
-## Development
+## Quick Start (Developers)
 
 ### Prerequisites
-- Flutter SDK
+
+- Flutter SDK (stable channel recommended)
 - Rust toolchain (stable)
-- `flutter_rust_bridge_codegen` (`cargo install flutter_rust_bridge_codegen --locked`)
+- `flutter_rust_bridge_codegen`
+- Node.js 20 (needed for NetEase sidecar packaging/smoke path)
 
-### Getting Started (Desktop)
+Install FRB codegen:
 
-1) Fetch Flutter deps
+```bash
+cargo install flutter_rust_bridge_codegen --locked
+```
+
+If you build Wasm plugins locally:
+
+```bash
+rustup target add wasm32-wasip2
+```
+
+### Run Desktop App (Windows example)
 
 ```bash
 cd apps/stellatune
 flutter pub get
-```
-
-2) Generate Flutter <-> Rust bindings (FRB)
-
-```bash
-cd apps/stellatune
 flutter_rust_bridge_codegen generate
-```
-
-3) Run the Flutter app (example: Windows desktop)
-```bash
-cd apps/stellatune
 flutter run -d windows
 ```
 
 Notes:
-- Desktop runners (Windows/Linux/macOS) auto-build the Rust library during `flutter run` / `flutter build`.
-- We intentionally do **not** use `flutter_rust_bridge_codegen integrate` (Cargokit build system); we build Rust ourselves and only use FRB for bindings/codegen.
+- Desktop runners auto-build Rust artifacts during `flutter run` / `flutter build`.
+- The repo intentionally does not use `flutter_rust_bridge_codegen integrate`; FRB is used for bindings/codegen only.
 
-MVP playback notes:
-- Supports **mp3 / flac / wav** via Symphonia.
-- Only **stereo (2 channels)** is supported for now.
-- If the track sample rate differs from the output device sample rate (WASAPI shared), Rust resamples it to match.
+## Monorepo Layout
+
+- `apps/stellatune`: Main Flutter desktop app.
+- `apps/stellatune-tui`: Rust TUI app target.
+- `crates/stellatune-audio*`: Core audio runtime and adapters.
+- `crates/stellatune-plugins`: Host-side plugin runtime and stream host services.
+- `crates/stellatune-plugin-sdk`: SDK for plugin implementations.
+- `crates/plugins-native`: Native/plugin crates (ASIO, NCM, NetEase source/decoder, etc.).
+- `tools/stellatune-ncm-sidecar`: NetEase sidecar service used by plugin flows.
+- `wit`: WIT interfaces for component/plugin boundaries.
+- `docs`: Architecture, plugin protocol, and migration notes.
+
+## Plugin Architecture (Snapshot)
+
+- Plugin categories are modeled around worlds such as `source`, `decoder`, `lyrics`, `dsp`, and `output-sink`.
+- Plugin manifests are JSON-based (`plugin.json` in each plugin crate).
+- NetEase plugin currently consists of two Wasm crates: `crates/plugins-native/stellatune-plugin-netease/source` and `crates/plugins-native/stellatune-plugin-netease/decoder`.
+- Windows packaging script for NetEase plugin:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File crates/plugins-native/stellatune-plugin-netease/scripts/package-windows.ps1
+```
+
+Useful docs:
+- `docs/wasm-plugin-sdk-quickstart.md`
+- `docs/wasm-plugin-manifest.md`
+- `docs/plugin-event-protocol.md`
+
+## CI Checks
+
+GitHub Actions currently runs:
+
+- Flutter CI (`.github/workflows/flutter.yml`)
+- `flutter analyze`
+- `flutter build windows --debug`
+- Rust CI (`.github/workflows/rust.yml`)
+- `cargo fmt --all -- --check`
+- `cargo clippy --all-targets --all-features -- -D warnings`
+- NetEase plugin Windows smoke: build Wasm source/decoder crates, package plugin artifact, verify packaged wasm + sidecar files, and run sidecar `/health` smoke check.
+
+## Recommended Local Checks Before PR
+
+```bash
+cargo fmt --all -- --check
+cargo clippy --all-targets --all-features -- -D warnings
+```
+
+For Flutter app changes:
+
+```bash
+cd apps/stellatune
+flutter analyze
+flutter build windows --debug
+```
+
+## Contributing
+
+- Use small, focused PRs.
+- Prefer Conventional Commits for commit messages.
+- Keep plugin schema/config changes synchronized with code, `plugin.json`, and plugin README docs.
+- If you touch CI-sensitive paths, run the local checks above first.
+
+## Troubleshooting
+
+- `target wasm32-wasip2 not found`: run `rustup target add wasm32-wasip2`.
+- `flutter_rust_bridge_codegen: command not found`: install with `cargo install flutter_rust_bridge_codegen --locked`.
+- NetEase packaging fails at `npm` steps: ensure Node.js 20 is installed and run in `tools/stellatune-ncm-sidecar`.
