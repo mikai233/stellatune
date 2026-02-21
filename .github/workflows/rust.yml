@@ -43,6 +43,9 @@ jobs:
         with:
           toolchain: stable
 
+      - name: Install wasm32-wasip2 target
+        run: rustup target add wasm32-wasip2
+
       - name: Install Node.js 20
         uses: actions/setup-node@v4
         with:
