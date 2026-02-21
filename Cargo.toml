@@ -67,7 +67,7 @@ clap = { version = "4.5.59", features = ["derive"] }
 cpal = "0.17.2"
 crossbeam-channel = "0.5.15"
 crossterm = "0.29.0"
-directories = "5.0.1"
+directories = "6.0.0"
 flate2 = "1.1.9"
 flutter_rust_bridge = "=2.11.1"
 futures-util = "0.3.32"
