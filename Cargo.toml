@@ -64,7 +64,7 @@ audioadapter-buffers = "2.0.0"
 axum = "0.8.8"
 base64 = "0.22.1"
 clap = { version = "4.5.59", features = ["derive"] }
-cpal = "0.17.2"
+cpal = "0.17.3"
 crossbeam-channel = "0.5.15"
 crossterm = "0.29.0"
 directories = "5.0.1"
