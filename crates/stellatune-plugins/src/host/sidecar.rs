@@ -15,7 +15,6 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use memmap2::{MmapMut, MmapOptions};
 use parking_lot::Mutex;
-use tracing::warn;
 
 #[cfg(unix)]
 use std::os::unix::net::UnixStream;
@@ -214,7 +213,7 @@ impl SidecarHost for ProcessSidecarHost {
         let kill_on_close_job = match KillOnCloseJob::attach(&child) {
             Ok(job) => Some(job),
             Err(error) => {
-                warn!(
+                tracing::warn!(
                     error = %error,
                     "failed to attach sidecar process to kill-on-close job object"
                 );
