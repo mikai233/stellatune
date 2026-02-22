@@ -221,54 +221,6 @@ pub enum Event {
 
 #[flutter_rust_bridge::frb(non_opaque)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct PluginRuntimeEvent {
-    pub plugin_id: String,
-    pub kind: PluginRuntimeKind,
-    pub payload_json: String,
-}
-
-#[flutter_rust_bridge::frb(non_opaque)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum PluginRuntimeKind {
-    Notify,
-    Control,
-    ControlResult,
-    ControlFinished,
-}
-
-impl PluginRuntimeKind {
-    #[flutter_rust_bridge::frb(ignore)]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Notify => "notify",
-            Self::Control => "control",
-            Self::ControlResult => "control_result",
-            Self::ControlFinished => "control_finished",
-        }
-    }
-}
-
-impl PluginRuntimeEvent {
-    pub fn from_payload<T: Serialize>(
-        plugin_id: impl Into<String>,
-        kind: PluginRuntimeKind,
-        payload: &T,
-    ) -> Result<Self, serde_json::Error> {
-        Ok(Self {
-            plugin_id: plugin_id.into(),
-            kind,
-            payload_json: serde_json::to_string(payload)?,
-        })
-    }
-
-    pub fn payload<T: DeserializeOwned>(&self) -> Result<T, serde_json::Error> {
-        serde_json::from_str(&self.payload_json)
-    }
-}
-
-#[flutter_rust_bridge::frb(non_opaque)]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TrackDecodeInfo {
     pub sample_rate: u32,
     pub channels: u16,

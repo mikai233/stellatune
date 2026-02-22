@@ -43,9 +43,6 @@ Future<void> stop() => StellatuneApi.instance.api.crateApiPlayerStop();
 
 Stream<Event> events() => StellatuneApi.instance.api.crateApiPlayerEvents();
 
-Stream<PluginRuntimeEvent> pluginRuntimeEventsGlobal() =>
-    StellatuneApi.instance.api.crateApiPlayerPluginRuntimeEventsGlobal();
-
 Future<void> lyricsPrepare({required LyricsQuery query}) =>
     StellatuneApi.instance.api.crateApiPlayerLyricsPrepare(query: query);
 
@@ -87,14 +84,6 @@ Stream<LyricsEvent> lyricsEvents() =>
 
 Future<List<PluginDescriptor>> pluginsList() =>
     StellatuneApi.instance.api.crateApiPlayerPluginsList();
-
-Future<void> pluginPublishEventJson({
-  String? pluginId,
-  required String eventJson,
-}) => StellatuneApi.instance.api.crateApiPlayerPluginPublishEventJson(
-  pluginId: pluginId,
-  eventJson: eventJson,
-);
 
 Future<List<DspTypeDescriptor>> dspListTypes() =>
     StellatuneApi.instance.api.crateApiPlayerDspListTypes();

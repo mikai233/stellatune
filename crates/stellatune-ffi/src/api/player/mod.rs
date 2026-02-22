@@ -37,8 +37,7 @@ use stellatune_backend_api::{LyricsDoc, LyricsEvent, LyricsQuery, LyricsSearchCa
 use types::{
     AudioBackend, AudioDevice, DspChainItem, DspTypeDescriptor, Event, LfeMode,
     LyricsProviderTypeDescriptor, OutputSinkRoute, OutputSinkTypeDescriptor, PlayerState,
-    PluginDescriptor, PluginRuntimeEvent, ResampleQuality, SourceCatalogTypeDescriptor,
-    TrackDecodeInfo, TrackRef,
+    PluginDescriptor, ResampleQuality, SourceCatalogTypeDescriptor, TrackDecodeInfo, TrackRef,
 };
 
 struct PlayerContext {
@@ -195,13 +194,6 @@ pub fn events(sink: StreamSink<Event>) -> Result<()> {
     Ok(())
 }
 
-pub fn plugin_runtime_events_global(sink: StreamSink<PluginRuntimeEvent>) -> Result<()> {
-    let _ = sink;
-    Err(anyhow!(
-        "plugin runtime host-event channel has been removed"
-    ))
-}
-
 pub async fn lyrics_prepare(query: LyricsQuery) -> Result<()> {
     lyrics().prepare(query).await
 }
@@ -266,13 +258,6 @@ pub async fn plugins_list() -> Vec<PluginDescriptor> {
             name: plugin.name,
         })
         .collect()
-}
-
-pub fn plugin_publish_event_json(plugin_id: Option<String>, event_json: String) -> Result<()> {
-    let _ = (plugin_id, event_json);
-    Err(anyhow!(
-        "plugin runtime host-event channel has been removed"
-    ))
 }
 
 pub async fn dsp_list_types() -> Vec<DspTypeDescriptor> {
