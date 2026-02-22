@@ -6,7 +6,7 @@ Stellatune plugin development moves to the Wasm component model only.
 
 The canonical contracts are:
 
-- `wit/stellatune-plugin/*.wit`
+- `crates/stellatune-world-bindings/wit/stellatune-plugin/*.wit`
 - `docs/wasm-plugin-manifest.md` (schema version `1`)
 - `docs/hot-path-core-abi.md` (`abi_version = 1`)
 

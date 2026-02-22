@@ -7,7 +7,7 @@ required.
 ## 1. Scope and Decisions
 
 - Replace `crates/stellatune-plugins` runtime loading path for production use.
-- Use WIT contract as the only host/plugin ABI (`wit/stellatune-plugin/*.wit`).
+- Use WIT contract as the only host/plugin ABI (`crates/stellatune-world-bindings/wit/stellatune-plugin/*.wit`).
 - Keep one installable plugin package id, but allow many component binaries per
   package via manifest (`plugin.json`).
 - Build each ability as an independent component:
@@ -91,7 +91,7 @@ Receipts:
 
 ## Phase 0: Contract Freeze
 
-- Finalize WIT names and worlds in `wit/stellatune-plugin/worlds.wit`.
+- Finalize WIT names and worlds in `crates/stellatune-world-bindings/wit/stellatune-plugin/worlds.wit`.
 - Finalize manifest schema in `docs/wasm-plugin-manifest.md`.
 - Define error codes and logging policy.
 

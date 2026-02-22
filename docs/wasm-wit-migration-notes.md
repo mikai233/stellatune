@@ -1,7 +1,7 @@
 # WIT Migration Notes (Legacy Plugin API -> Wasm Component API)
 
 This document maps major concepts from the current dynamic plugin API to the
-new WIT package in `wit/stellatune-plugin/`.
+new WIT package in `crates/stellatune-world-bindings/wit/stellatune-plugin/`.
 
 ## Capability Mapping
 

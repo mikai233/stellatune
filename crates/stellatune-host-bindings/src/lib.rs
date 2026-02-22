@@ -1,6 +1,6 @@
 pub mod generated;
 
-pub const WIT_DIR: &str = "../../wit/stellatune-plugin";
+pub const WIT_DIR: &str = "../stellatune-world-bindings/wit/stellatune-plugin";
 
 pub const WORLD_DECODER_PLUGIN: &str = "decoder-plugin";
 pub const WORLD_SOURCE_PLUGIN: &str = "source-plugin";
