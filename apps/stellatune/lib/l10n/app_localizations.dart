@@ -218,6 +218,12 @@ abstract class AppLocalizations {
   /// **'Log'**
   String get log;
 
+  /// No description provided for @navHome.
+  ///
+  /// In en, this message translates to:
+  /// **'Home'**
+  String get navHome;
+
   /// No description provided for @navLibrary.
   ///
   /// In en, this message translates to:
@@ -253,6 +259,78 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Library'**
   String get libraryTitle;
+
+  /// No description provided for @homeKeepListening.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep Listening'**
+  String get homeKeepListening;
+
+  /// No description provided for @homeContinueListening.
+  ///
+  /// In en, this message translates to:
+  /// **'Continue Listening'**
+  String get homeContinueListening;
+
+  /// No description provided for @homeRecentlyAdded.
+  ///
+  /// In en, this message translates to:
+  /// **'Recently Added'**
+  String get homeRecentlyAdded;
+
+  /// No description provided for @homeResume.
+  ///
+  /// In en, this message translates to:
+  /// **'Resume'**
+  String get homeResume;
+
+  /// No description provided for @homeLyrics.
+  ///
+  /// In en, this message translates to:
+  /// **'Lyrics'**
+  String get homeLyrics;
+
+  /// No description provided for @homeMore.
+  ///
+  /// In en, this message translates to:
+  /// **'More'**
+  String get homeMore;
+
+  /// No description provided for @homeLoading.
+  ///
+  /// In en, this message translates to:
+  /// **'Loading...'**
+  String get homeLoading;
+
+  /// No description provided for @homeQueueHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Start playing a queue to see quick picks here.'**
+  String get homeQueueHint;
+
+  /// No description provided for @homeNoTracksHint.
+  ///
+  /// In en, this message translates to:
+  /// **'No tracks in your library yet.'**
+  String get homeNoTracksHint;
+
+  /// No description provided for @homeLoadTracksFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to load library tracks.'**
+  String get homeLoadTracksFailed;
+
+  /// No description provided for @homeUnknownArtist.
+  ///
+  /// In en, this message translates to:
+  /// **'Unknown artist'**
+  String get homeUnknownArtist;
+
+  /// No description provided for @homeUnknownTrack.
+  ///
+  /// In en, this message translates to:
+  /// **'Unknown track'**
+  String get homeUnknownTrack;
 
   /// No description provided for @sourcesTitle.
   ///

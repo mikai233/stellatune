@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:stellatune/library/library_controller.dart';
+import 'package:stellatune/ui/pages/home_page.dart';
 import 'package:stellatune/ui/pages/library_page.dart';
 import 'package:stellatune/ui/pages/playlists_page.dart';
 import 'package:stellatune/ui/pages/settings_page.dart';
@@ -49,14 +50,16 @@ class _ShellPageState extends ConsumerState<ShellPage> {
     );
 
     final body = switch (_index) {
-      0 => LibraryPage(key: _libraryPageKey, useGlobalTopBar: !isMobile),
-      1 => PlaylistsPage(key: _playlistsPageKey, useGlobalTopBar: !isMobile),
-      2 => SettingsPage(key: _settingsPageKey, useGlobalTopBar: !isMobile),
+      0 => HomePage(onOpenLibrary: () => setState(() => _index = 1)),
+      1 => LibraryPage(key: _libraryPageKey, useGlobalTopBar: !isMobile),
+      2 => PlaylistsPage(key: _playlistsPageKey, useGlobalTopBar: !isMobile),
+      3 => SettingsPage(key: _settingsPageKey, useGlobalTopBar: !isMobile),
       _ => SettingsPage(key: _settingsPageKey, useGlobalTopBar: !isMobile),
     };
 
     final topBarActions = switch (_index) {
-      0 => <DesktopTopBarAction>[
+      0 => const <DesktopTopBarAction>[],
+      1 => <DesktopTopBarAction>[
         DesktopTopBarAction(
           icon: (_libraryPageKey.currentState?.foldersPaneCollapsed ?? false)
               ? Icons.chevron_right
@@ -89,7 +92,7 @@ class _ShellPageState extends ConsumerState<ShellPage> {
               : () => _libraryPageKey.currentState?.scanFromTopBar(force: true),
         ),
       ],
-      1 => <DesktopTopBarAction>[
+      2 => <DesktopTopBarAction>[
         DesktopTopBarAction(
           icon: (_playlistsPageKey.currentState?.isPlaylistsPanelOpen ?? false)
               ? Icons.menu_open
@@ -107,7 +110,7 @@ class _ShellPageState extends ConsumerState<ShellPage> {
               _playlistsPageKey.currentState?.createPlaylistFromTopBar(),
         ),
       ],
-      2 => const <DesktopTopBarAction>[],
+      3 => const <DesktopTopBarAction>[],
       _ => const <DesktopTopBarAction>[],
     };
 

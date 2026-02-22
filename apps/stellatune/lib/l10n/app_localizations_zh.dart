@@ -73,6 +73,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get log => '日志';
 
   @override
+  String get navHome => '主页';
+
+  @override
   String get navLibrary => '音乐库';
 
   @override
@@ -89,6 +92,42 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get libraryTitle => '音乐库';
+
+  @override
+  String get homeKeepListening => '继续聆听';
+
+  @override
+  String get homeContinueListening => '接着听';
+
+  @override
+  String get homeRecentlyAdded => '最近添加';
+
+  @override
+  String get homeResume => '继续播放';
+
+  @override
+  String get homeLyrics => '歌词';
+
+  @override
+  String get homeMore => '更多';
+
+  @override
+  String get homeLoading => '加载中...';
+
+  @override
+  String get homeQueueHint => '开始播放后，这里会显示快捷续播内容。';
+
+  @override
+  String get homeNoTracksHint => '你的音乐库里还没有曲目。';
+
+  @override
+  String get homeLoadTracksFailed => '加载音乐库曲目失败。';
+
+  @override
+  String get homeUnknownArtist => '未知艺术家';
+
+  @override
+  String get homeUnknownTrack => '未知曲目';
 
   @override
   String get sourcesTitle => '来源';

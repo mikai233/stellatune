@@ -78,6 +78,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get log => 'Log';
 
   @override
+  String get navHome => 'Home';
+
+  @override
   String get navLibrary => 'Library';
 
   @override
@@ -94,6 +97,42 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get libraryTitle => 'Library';
+
+  @override
+  String get homeKeepListening => 'Keep Listening';
+
+  @override
+  String get homeContinueListening => 'Continue Listening';
+
+  @override
+  String get homeRecentlyAdded => 'Recently Added';
+
+  @override
+  String get homeResume => 'Resume';
+
+  @override
+  String get homeLyrics => 'Lyrics';
+
+  @override
+  String get homeMore => 'More';
+
+  @override
+  String get homeLoading => 'Loading...';
+
+  @override
+  String get homeQueueHint => 'Start playing a queue to see quick picks here.';
+
+  @override
+  String get homeNoTracksHint => 'No tracks in your library yet.';
+
+  @override
+  String get homeLoadTracksFailed => 'Failed to load library tracks.';
+
+  @override
+  String get homeUnknownArtist => 'Unknown artist';
+
+  @override
+  String get homeUnknownTrack => 'Unknown track';
 
   @override
   String get sourcesTitle => 'Sources';

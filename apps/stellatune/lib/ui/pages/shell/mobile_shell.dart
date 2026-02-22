@@ -20,6 +20,11 @@ class MobileShell extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
     final destinations = <NavigationDestination>[
       NavigationDestination(
+        icon: const Icon(Icons.home_outlined),
+        selectedIcon: const Icon(Icons.home),
+        label: l10n.navHome,
+      ),
+      NavigationDestination(
         icon: const Icon(Icons.library_music_outlined),
         selectedIcon: const Icon(Icons.library_music),
         label: l10n.navLibrary,
