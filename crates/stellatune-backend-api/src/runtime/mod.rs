@@ -220,7 +220,13 @@ pub fn init_tracing() {
 
 fn add_quiet_http_directives(filter: EnvFilter) -> EnvFilter {
     let mut filter = filter;
-    for directive in ["hyper_util=info", "reqwest=info"] {
+    for directive in [
+        "hyper_util=info",
+        "reqwest=info",
+        "sqlx=warn",
+        "symphonia=warn",
+        "wasmtime=warn",
+    ] {
         if let Ok(parsed) = directive.parse::<tracing_subscriber::filter::Directive>() {
             filter = filter.add_directive(parsed);
         }

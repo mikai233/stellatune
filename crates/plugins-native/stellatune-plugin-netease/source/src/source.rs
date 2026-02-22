@@ -132,6 +132,8 @@ struct NeteaseListRequest {
     action: String,
     keywords: String,
     playlist_id: Option<u64>,
+    song_id: Option<u64>,
+    track_id: Option<String>,
     playlist_ref: Option<Value>,
     key: Option<String>,
     qrimg: Option<bool>,
@@ -147,6 +149,8 @@ impl Default for NeteaseListRequest {
             action: "search".to_string(),
             keywords: String::new(),
             playlist_id: None,
+            song_id: None,
+            track_id: None,
             playlist_ref: None,
             key: None,
             qrimg: None,
@@ -421,6 +425,14 @@ fn try_handle_control_action(
                 &params,
             )?)
         },
+        "netease.auth.session" | "auth.session" => {
+            let params = auth_cookie_query_params(request);
+            Some(sidecar_get_json::<Value>(
+                config,
+                "/v1/auth/session",
+                &params,
+            )?)
+        },
         "netease.auth.qr.start" | "auth.qr.start" => {
             let params = auth_cookie_query_params(request);
             let key_payload = sidecar_get_json::<Value>(config, "/v1/auth/qr/key", &params)?;
@@ -461,6 +473,32 @@ fn try_handle_control_action(
                 &params,
             )?)
         },
+        "netease.song.lyric" | "song.lyric" => {
+            let song_id = request_song_id(request).ok_or_else(|| {
+                SdkError::invalid_arg(
+                    "lyric action requires request.song_id, request.track_id, or request.playlist_ref.song_id",
+                )
+            })?;
+            let mut params = vec![("song_id".to_string(), song_id.to_string())];
+            append_cookie_query_param(request, &mut params);
+            Some(sidecar_get_json::<Value>(config, "/v1/lyric", &params)?)
+        },
+        "netease.song.url" | "song.url" => {
+            let song_id = request_song_id(request).ok_or_else(|| {
+                SdkError::invalid_arg(
+                    "song url action requires request.song_id, request.track_id, or request.playlist_ref.song_id",
+                )
+            })?;
+            let mut params = vec![
+                ("song_id".to_string(), song_id.to_string()),
+                (
+                    "level".to_string(),
+                    normalize_level(request.level.as_deref(), config),
+                ),
+            ];
+            append_cookie_query_param(request, &mut params);
+            Some(sidecar_get_json::<Value>(config, "/v1/song/url", &params)?)
+        },
         _ => None,
     };
 
@@ -497,6 +535,17 @@ fn auth_cookie_query_params(request: &NeteaseListRequest) -> Vec<(String, String
         .filter(|value| !value.is_empty())
         .map(|value| vec![("cookie".to_string(), value.to_string())])
         .unwrap_or_default()
+}
+
+fn append_cookie_query_param(request: &NeteaseListRequest, params: &mut Vec<(String, String)>) {
+    if let Some(cookie) = request
+        .cookie
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        params.push(("cookie".to_string(), cookie.to_string()));
+    }
 }
 
 fn request_qr_key(request: &NeteaseListRequest) -> Option<String> {
@@ -641,6 +690,33 @@ fn extract_playlist_id(request: &NeteaseListRequest) -> Option<u64> {
         .as_ref()
         .and_then(|v| v.as_object())
         .and_then(|obj| obj.get("id"))
+        .and_then(value_to_u64)
+}
+
+fn request_song_id(request: &NeteaseListRequest) -> Option<u64> {
+    if let Some(v) = request.song_id {
+        return Some(v);
+    }
+
+    if let Some(v) = request
+        .track_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .and_then(|value| value.parse::<u64>().ok())
+    {
+        return Some(v);
+    }
+
+    request
+        .playlist_ref
+        .as_ref()
+        .and_then(|value| value.as_object())
+        .and_then(|obj| {
+            obj.get("song_id")
+                .or_else(|| obj.get("track_id"))
+                .or_else(|| obj.get("id"))
+        })
         .and_then(value_to_u64)
 }
 
@@ -935,4 +1011,58 @@ fn guess_ext_hint(stream_url: &str, fallback: Option<&str>) -> Option<String> {
         }
     }
     normalized_lower_text(fallback)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn request_song_id_prefers_song_id_field() {
+        let request = NeteaseListRequest {
+            song_id: Some(123),
+            ..NeteaseListRequest::default()
+        };
+        assert_eq!(request_song_id(&request), Some(123));
+    }
+
+    #[test]
+    fn request_song_id_reads_track_id_string() {
+        let request = NeteaseListRequest {
+            track_id: Some("456".to_string()),
+            ..NeteaseListRequest::default()
+        };
+        assert_eq!(request_song_id(&request), Some(456));
+    }
+
+    #[test]
+    fn request_song_id_reads_playlist_ref_keys() {
+        let request = NeteaseListRequest {
+            playlist_ref: Some(json!({ "song_id": 789 })),
+            ..NeteaseListRequest::default()
+        };
+        assert_eq!(request_song_id(&request), Some(789));
+
+        let request = NeteaseListRequest {
+            playlist_ref: Some(json!({ "track_id": "1001" })),
+            ..NeteaseListRequest::default()
+        };
+        assert_eq!(request_song_id(&request), Some(1001));
+
+        let request = NeteaseListRequest {
+            playlist_ref: Some(json!({ "id": 1002 })),
+            ..NeteaseListRequest::default()
+        };
+        assert_eq!(request_song_id(&request), Some(1002));
+    }
+
+    #[test]
+    fn request_song_id_returns_none_for_invalid_input() {
+        let request = NeteaseListRequest {
+            track_id: Some("abc".to_string()),
+            playlist_ref: Some(json!({ "song_id": "not-a-number" })),
+            ..NeteaseListRequest::default()
+        };
+        assert_eq!(request_song_id(&request), None);
+    }
 }

@@ -172,6 +172,28 @@ export function formatActionName(action: string): string {
       return "退出登录";
     case "config.apply":
       return "应用配置";
+    case "search":
+      return "搜索歌曲";
+    case "list_playlists":
+      return "加载歌单";
+    case "playlist_tracks":
+      return "加载歌单歌曲";
+    case "netease.auth.session":
+      return "查询认证会话";
+    case "netease.song.lyric":
+      return "获取歌曲歌词";
+    case "netease.song.url":
+      return "解析歌曲 URL";
+    case "playback.play_track_ref":
+      return "立即播放指定曲目";
+    case "playback.enqueue_track_ref":
+      return "加入下一首";
+    case "playback.pause":
+      return "暂停播放";
+    case "playback.next":
+      return "切换到指定曲目";
+    case "playback.stop":
+      return "停止播放";
     default:
       return action;
   }

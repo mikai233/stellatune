@@ -216,6 +216,25 @@ pub(super) async fn invoke_plugin_action(
             }))
         },
         _ => {
+            if let Some(data) =
+                runtime_apply::invoke_action_via_host(action.as_str(), &payload).await?
+            {
+                state
+                    .publish_plugin_event(
+                        &plugin_id,
+                        format!("action.{action}.done"),
+                        json!({ "data": data.clone() }),
+                    )
+                    .await;
+                return Ok(Json(ActionInvokeResponse {
+                    plugin_id,
+                    action,
+                    accepted: true,
+                    message: "action dispatched to host playback runtime".to_string(),
+                    data,
+                }));
+            }
+
             let config = storage::read_plugin_ui_config(&plugin_root).await?;
             let Some(data) = runtime_apply::invoke_action_via_source(
                 &plugin_id,

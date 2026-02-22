@@ -13,9 +13,13 @@ import GatewayHeroCard from "./components/panels/GatewayHeroCard.vue";
 import SourceConfigPanel from "./components/panels/SourceConfigPanel.vue";
 import AuthLoginPanel from "./components/panels/AuthLoginPanel.vue";
 import EventStreamPanel from "./components/panels/EventStreamPanel.vue";
+import PlaybackControlPanel from "./components/panels/PlaybackControlPanel.vue";
+import DiscoveryPanel from "./components/panels/DiscoveryPanel.vue";
+import DiagnosticsPanel from "./components/panels/DiagnosticsPanel.vue";
 import { DEFAULT_SOURCE_CONFIG } from "./types";
 import type { ConfigFormState, SummaryField, UiEventRow } from "./view-models";
 import { buildApplySummary, buildSourceConfig, hydrateForm } from "./logic/config-form";
+import { buildPlaybackEventSummary, buildPlaybackSummary } from "./logic/playback-display";
 import {
   asNonEmptyString,
   asNumber,
@@ -41,6 +45,14 @@ interface AuthActionRunOptions {
   skipEvent?: boolean;
 }
 
+type WorkbenchSection = "overview" | "catalog" | "config" | "auth" | "playback" | "diagnostics" | "events";
+
+interface WorkbenchTab {
+  key: WorkbenchSection;
+  title: string;
+  description: string;
+}
+
 const gateway = resolveGatewayContext();
 const isBusy = ref(false);
 const message = ref("已就绪");
@@ -58,7 +70,11 @@ const authCookieLength = ref<number | null>(null);
 const authResultSummary = ref<SummaryField[]>([]);
 const authRawPayload = ref("");
 const authRawValue = ref<unknown>(null);
+const playbackStatus = ref("尚未执行播放动作");
+const playbackResultSummary = ref<SummaryField[]>([]);
+const playbackRawPayload = ref("");
 const events = ref<UiEventRow[]>([]);
+const activeSection = ref<WorkbenchSection>("overview");
 let closeEvents: (() => void) | null = null;
 
 const form = reactive<ConfigFormState>({
@@ -74,8 +90,34 @@ const hasToken = computed(() => gateway.token.length > 0);
 const hasGatewayContext = computed(() => hasToken.value);
 const authStateText = computed(() => formatAuthState(authState.value));
 const qrPollingText = computed(() => (qrPolling.value ? `自动查询中（第 ${qrPollingAttempt.value} 次）` : ""));
+const recentEventSummary = computed(() => events.value[0]?.summary ?? "暂无事件");
+const sourceConfigSnapshot = computed<Record<string, unknown>>(
+  () => buildSourceConfig(form) as unknown as Record<string, unknown>
+);
+const sectionOrder: WorkbenchSection[] = [
+  "overview",
+  "catalog",
+  "config",
+  "auth",
+  "playback",
+  "diagnostics",
+  "events"
+];
+const shortcutRangeText = computed(() => `1-${sectionOrder.length}`);
+const workbenchTabs: WorkbenchTab[] = [
+  { key: "overview", title: "总览", description: "状态总览与快捷入口" },
+  { key: "catalog", title: "内容发现", description: "搜索歌曲与浏览歌单" },
+  { key: "config", title: "音源配置", description: "Sidecar 与默认音质" },
+  { key: "auth", title: "登录认证", description: "二维码登录与状态查看" },
+  { key: "playback", title: "播放控制", description: "播放、入队、暂停、停止" },
+  { key: "diagnostics", title: "诊断工具", description: "会话、歌词、URL 测试" },
+  { key: "events", title: "事件流", description: "动作结果与实时事件" }
+];
 
 onMounted(() => {
+  hydrateSectionFromHash();
+  window.addEventListener("keydown", handleGlobalKeydown);
+  window.addEventListener("hashchange", hydrateSectionFromHash);
   if (hasGatewayContext.value) {
     void bootstrapPage();
   } else {
@@ -104,6 +146,8 @@ onMounted(() => {
 onBeforeUnmount(() => {
   stopQrPolling();
   closeEvents?.();
+  window.removeEventListener("keydown", handleGlobalKeydown);
+  window.removeEventListener("hashchange", hydrateSectionFromHash);
 });
 
 async function bootstrapPage(): Promise<void> {
@@ -430,8 +474,156 @@ async function copyAuthRaw(): Promise<void> {
   }
 }
 
+async function invokeSourceItemsAction(
+  action: string,
+  request: Record<string, unknown>
+): Promise<Record<string, unknown>[]> {
+  if (!ensureGatewayContext("执行发现操作")) {
+    return [];
+  }
+  isBusy.value = true;
+  try {
+    const response = await invokePluginAction(gateway, action, { request });
+    const items = extractSourceListItems(response.data);
+    message.value = `操作已完成：${formatActionName(action)}`;
+    pushEvent(formatActionName(action), response.data, {
+      source: "内容发现",
+      summary: `${response.message}；返回 ${items.length} 条`
+    });
+    return items;
+  } catch (error) {
+    const errorText = formatError(error);
+    message.value = `操作失败：${formatActionName(action)}`;
+    pushEvent(`${formatActionName(action)}（失败）`, { error: errorText, request }, {
+      source: "内容发现",
+      summary: errorText
+    });
+    throw error;
+  } finally {
+    isBusy.value = false;
+  }
+}
+
+function extractSourceListItems(data: unknown): Record<string, unknown>[] {
+  const payloadObj = asRecord(data);
+  const rows = Array.isArray(payloadObj?.response) ? payloadObj.response : [];
+  return rows.filter((row) => asRecord(row) !== null) as Record<string, unknown>[];
+}
+
+async function runPlaybackAction(
+  action: string,
+  payload: Record<string, unknown> = {}
+): Promise<void> {
+  if (!ensureGatewayContext("执行播放操作")) {
+    return;
+  }
+  isBusy.value = true;
+  try {
+    const response = await invokePluginAction(gateway, action, payload);
+    playbackResultSummary.value = buildPlaybackSummary(action, response.message, response.data);
+    playbackRawPayload.value = prettyJson(response.data);
+    playbackStatus.value = `${formatActionName(action)}：${response.message}`;
+    message.value = `操作已完成：${formatActionName(action)}`;
+    pushEvent(formatActionName(action), response.data, {
+      source: "播放动作",
+      summary: buildPlaybackEventSummary(response.message, playbackResultSummary.value)
+    });
+  } catch (error) {
+    const errorText = formatError(error);
+    playbackStatus.value = `${formatActionName(action)}：失败`;
+    playbackResultSummary.value = [
+      { label: "动作", value: formatActionName(action) },
+      { label: "错误信息", value: errorText }
+    ];
+    playbackRawPayload.value = errorText;
+    message.value = `操作失败：${formatActionName(action)}`;
+    pushEvent(`${formatActionName(action)}（失败）`, { error: errorText, payload }, {
+      source: "播放动作",
+      summary: errorText
+    });
+  } finally {
+    isBusy.value = false;
+  }
+}
+
+async function copyPlaybackRaw(): Promise<void> {
+  if (playbackRawPayload.value.trim().length === 0) {
+    return;
+  }
+  if (!navigator.clipboard?.writeText) {
+    message.value = "当前浏览器不支持剪贴板写入";
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(playbackRawPayload.value);
+    message.value = "已复制最近一次播放动作原始响应";
+  } catch (error) {
+    message.value = `复制失败：${formatError(error)}`;
+  }
+}
+
 function clearEvents(): void {
   events.value = [];
+}
+
+function openSection(section: WorkbenchSection): void {
+  activeSection.value = section;
+  const nextHash = `#section=${section}`;
+  if (window.location.hash !== nextHash) {
+    window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}${nextHash}`);
+  }
+}
+
+function hydrateSectionFromHash(): void {
+  const raw = window.location.hash.trim();
+  if (!raw.startsWith("#section=")) {
+    return;
+  }
+  const parsed = raw.slice("#section=".length).trim();
+  if (
+    parsed === "overview" ||
+    parsed === "catalog" ||
+    parsed === "config" ||
+    parsed === "auth" ||
+    parsed === "playback" ||
+    parsed === "diagnostics" ||
+    parsed === "events"
+  ) {
+    activeSection.value = parsed;
+  }
+}
+
+function handleGlobalKeydown(event: KeyboardEvent): void {
+  if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) {
+    return;
+  }
+  if (isTextEntryTarget(event.target)) {
+    return;
+  }
+  if (!/^[1-9]$/.test(event.key)) {
+    return;
+  }
+  const index = Number(event.key) - 1;
+  if (index < 0 || index >= sectionOrder.length) {
+    return;
+  }
+  const section = sectionOrder[index];
+  if (!section) {
+    return;
+  }
+  event.preventDefault();
+  openSection(section);
+}
+
+function isTextEntryTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+  const tagName = target.tagName.toLowerCase();
+  if (tagName === "input" || tagName === "textarea" || tagName === "select") {
+    return true;
+  }
+  return target.isContentEditable;
 }
 
 function ensureGatewayContext(operation: string): boolean {
@@ -458,52 +650,150 @@ function sleep(ms: number): Promise<void> {
 
 <template>
   <div class="page-shell">
-    <main class="board">
-      <GatewayHeroCard
-        :plugin-id="gateway.pluginId"
-        :origin="gateway.origin"
-        :has-token="hasToken"
-        :has-gateway-context="hasGatewayContext"
-        :message="message"
-      />
+    <main class="board workbench">
+      <aside class="panel nav-panel">
+        <h2>控制台导航</h2>
+        <p class="hint nav-hint">
+          按任务切换功能区，不再滚动整页找模块。可用快捷键 <code>{{ shortcutRangeText }}</code>。
+        </p>
+        <div class="nav-list">
+          <button
+            v-for="(tab, index) in workbenchTabs"
+            :key="tab.key"
+            class="nav-item"
+            :class="{ active: activeSection === tab.key }"
+            @click="openSection(tab.key)"
+          >
+            <strong>{{ tab.title }}</strong>
+            <span>{{ tab.description }}</span>
+            <em class="nav-shortcut">快捷键 {{ index + 1 }}</em>
+          </button>
+        </div>
+      </aside>
 
-      <SourceConfigPanel
-        :form="form"
-        :is-busy="isBusy"
-        :has-gateway-context="hasGatewayContext"
-        :last-apply-summary="lastApplySummary"
-        :on-reload="loadConfig"
-        :on-apply-temp="applyConfigWithoutPersist"
-        :on-save="saveConfig"
-      />
+      <section class="content-stack">
+        <GatewayHeroCard
+          :plugin-id="gateway.pluginId"
+          :origin="gateway.origin"
+          :has-token="hasToken"
+          :has-gateway-context="hasGatewayContext"
+          :message="message"
+        />
 
-      <AuthLoginPanel
-        :is-busy="isBusy"
-        :has-gateway-context="hasGatewayContext"
-        :qr-polling="qrPolling"
-        :qr-polling-text="qrPollingText"
-        :auth-state-text="authStateText"
-        :auth-user="authUser"
-        :auth-code="authCode"
-        :auth-cookie-length="authCookieLength"
-        :qr-key="qrKey"
-        :qr-image-url="qrImageUrl"
-        :qr-text-url="qrTextUrl"
-        :qr-status="qrStatus"
-        :auth-result-summary="authResultSummary"
-        :auth-raw-payload="authRawPayload"
-        :auth-raw-value="authRawValue"
-        :on-start-qr-login="startQrLoginFlow"
-        :on-refresh-status="refreshLoginStatus"
-        :on-stop-wait="stopQrPolling"
-        :on-logout="logout"
-        :on-refresh-session="refreshLoginSession"
-        :on-qr-start-only="qrStartOnly"
-        :on-qr-status-only="qrStatusOnly"
-        :on-copy-auth-raw="copyAuthRaw"
-      />
+        <Transition name="section-swap" mode="out-in">
+          <div class="section-stage" :key="activeSection">
+            <section class="panel" v-if="activeSection === 'overview'">
+              <div class="panel-head">
+                <h2>工作总览</h2>
+                <div class="actions">
+                  <button :disabled="isBusy || !hasGatewayContext" @click="refreshLoginStatus()">刷新登录状态</button>
+                  <button :disabled="isBusy || !hasGatewayContext" @click="loadConfig()">刷新配置</button>
+                </div>
+              </div>
+              <div class="overview-grid">
+                <article class="overview-item">
+                  <span>登录状态</span>
+                  <strong>{{ authStateText }}</strong>
+                </article>
+                <article class="overview-item">
+                  <span>二维码状态</span>
+                  <strong>{{ qrStatus }}</strong>
+                </article>
+                <article class="overview-item">
+                  <span>最近播放动作</span>
+                  <strong>{{ playbackStatus }}</strong>
+                </article>
+                <article class="overview-item">
+                  <span>事件总数</span>
+                  <strong>{{ events.length }}</strong>
+                </article>
+              </div>
+              <p class="hint">最近事件：{{ recentEventSummary }}</p>
+              <div class="actions">
+                <button @click="openSection('catalog')">进入内容发现</button>
+                <button @click="openSection('config')">进入音源配置</button>
+                <button @click="openSection('auth')">进入登录认证</button>
+                <button @click="openSection('playback')">进入播放控制</button>
+                <button @click="openSection('diagnostics')">进入诊断工具</button>
+                <button @click="openSection('events')">进入事件流</button>
+              </div>
+            </section>
 
-      <EventStreamPanel :events="events" :on-clear-events="clearEvents" />
+            <DiscoveryPanel
+              v-else-if="activeSection === 'catalog'"
+              :is-busy="isBusy"
+              :has-gateway-context="hasGatewayContext"
+              :plugin-id="gateway.pluginId"
+              source-type-id="netease"
+              :source-config="sourceConfigSnapshot"
+              :on-invoke-source-action="invokeSourceItemsAction"
+              :on-run-playback-action="runPlaybackAction"
+            />
+
+            <SourceConfigPanel
+              v-else-if="activeSection === 'config'"
+              :form="form"
+              :is-busy="isBusy"
+              :has-gateway-context="hasGatewayContext"
+              :last-apply-summary="lastApplySummary"
+              :on-reload="loadConfig"
+              :on-apply-temp="applyConfigWithoutPersist"
+              :on-save="saveConfig"
+            />
+
+            <AuthLoginPanel
+              v-else-if="activeSection === 'auth'"
+              :is-busy="isBusy"
+              :has-gateway-context="hasGatewayContext"
+              :qr-polling="qrPolling"
+              :qr-polling-text="qrPollingText"
+              :auth-state-text="authStateText"
+              :auth-user="authUser"
+              :auth-code="authCode"
+              :auth-cookie-length="authCookieLength"
+              :qr-key="qrKey"
+              :qr-image-url="qrImageUrl"
+              :qr-text-url="qrTextUrl"
+              :qr-status="qrStatus"
+              :auth-result-summary="authResultSummary"
+              :auth-raw-payload="authRawPayload"
+              :auth-raw-value="authRawValue"
+              :on-start-qr-login="startQrLoginFlow"
+              :on-refresh-status="refreshLoginStatus"
+              :on-stop-wait="stopQrPolling"
+              :on-logout="logout"
+              :on-refresh-session="refreshLoginSession"
+              :on-qr-start-only="qrStartOnly"
+              :on-qr-status-only="qrStatusOnly"
+              :on-copy-auth-raw="copyAuthRaw"
+            />
+
+            <PlaybackControlPanel
+              v-else-if="activeSection === 'playback'"
+              :is-busy="isBusy"
+              :has-gateway-context="hasGatewayContext"
+              :playback-status="playbackStatus"
+              :playback-result-summary="playbackResultSummary"
+              :playback-raw-payload="playbackRawPayload"
+              :on-run-action="runPlaybackAction"
+              :on-copy-playback-raw="copyPlaybackRaw"
+            />
+
+            <DiagnosticsPanel
+              v-else-if="activeSection === 'diagnostics'"
+              :is-busy="isBusy"
+              :has-gateway-context="hasGatewayContext"
+              :on-invoke-source-action="invokeSourceItemsAction"
+            />
+
+            <EventStreamPanel
+              v-else
+              :events="events"
+              :on-clear-events="clearEvents"
+            />
+          </div>
+        </Transition>
+      </section>
     </main>
   </div>
 </template>

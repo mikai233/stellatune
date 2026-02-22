@@ -33,6 +33,7 @@ class _InstalledPlugin {
     required this.dirPath,
     required this.id,
     required this.name,
+    required this.hasWebUi,
     required this.infoJson,
     required this.installState,
     required this.uninstallRetryCount,
@@ -42,6 +43,7 @@ class _InstalledPlugin {
   final String dirPath;
   final String? id;
   final String? name;
+  final bool hasWebUi;
   final String? infoJson;
   final String installState;
   final int uninstallRetryCount;
@@ -227,6 +229,9 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
       final id = (map['id'] ?? '').toString().trim();
       if (id.isEmpty) continue;
       final dirPath = (map['root_dir'] ?? '').toString().trim();
+      final resolvedDirPath = dirPath.isEmpty
+          ? p.join(_pluginDir!, id)
+          : dirPath;
       final nameRaw = (map['name'] ?? '').toString().trim();
       final infoRaw = (map['info_json'] ?? '').toString().trim();
       final installStateRaw = (map['install_state'] ?? 'installed')
@@ -242,11 +247,13 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
       final uninstallLastErrorRaw = (map['uninstall_last_error'] ?? '')
           .toString()
           .trim();
+      final hasWebUi = await _pluginHasWebUi(resolvedDirPath);
       out.add(
         _InstalledPlugin(
-          dirPath: dirPath.isEmpty ? p.join(_pluginDir!, id) : dirPath,
+          dirPath: resolvedDirPath,
           id: id,
           name: nameRaw.isEmpty ? null : nameRaw,
+          hasWebUi: hasWebUi,
           infoJson: infoRaw.isEmpty ? null : infoRaw,
           installState: installStateRaw.isEmpty ? 'installed' : installStateRaw,
           uninstallRetryCount: uninstallRetryCount < 0
@@ -260,6 +267,39 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
     }
     out.sort((a, b) => (a.nameOrDir).compareTo(b.nameOrDir));
     return out;
+  }
+
+  Future<bool> _pluginHasWebUi(String pluginDirPath) async {
+    final root = pluginDirPath.trim();
+    if (root.isEmpty) return false;
+    try {
+      final manifestPath = p.join(root, 'plugin.json');
+      final manifestFile = File(manifestPath);
+      if (!await manifestFile.exists()) return false;
+      final raw = await manifestFile.readAsString();
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return false;
+      final manifest = decoded.cast<Object?, Object?>();
+      final uiRaw = manifest['ui'];
+      if (uiRaw is! Map) return false;
+      final ui = uiRaw.cast<Object?, Object?>();
+      final mode = (ui['mode'] ?? 'web').toString().trim().toLowerCase();
+      if (mode.isNotEmpty && mode != 'web') return false;
+      final entry = (ui['entry'] ?? '').toString().trim();
+      if (entry.isEmpty) return false;
+      if (p.isAbsolute(entry)) return false;
+      final normalized = p.normalize(entry);
+      if (normalized.startsWith('..')) return false;
+      final entryFile = File(p.join(root, normalized));
+      return await entryFile.exists();
+    } catch (e, s) {
+      logger.d(
+        'failed to detect plugin web ui plugin_dir=$pluginDirPath',
+        error: e,
+        stackTrace: s,
+      );
+      return false;
+    }
   }
 
   Future<Set<String>> _listDisabledPluginIds(LibraryBridge library) async {
@@ -1451,7 +1491,7 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
                                             ? const []
                                             : (outputByPlugin[p.id] ??
                                                   const []),
-                                        onOpenWebUi: p.id == null
+                                        onOpenWebUi: p.id == null || !p.hasWebUi
                                             ? null
                                             : () => _openPluginWebUi(
                                                 pluginId: p.id!,
@@ -1677,11 +1717,12 @@ class _PluginTileState extends State<_PluginTile> {
     Widget buildActions() => Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        IconButton(
-          tooltip: 'Open Web UI',
-          onPressed: widget.onOpenWebUi,
-          icon: const Icon(Icons.web),
-        ),
+        if (widget.onOpenWebUi != null)
+          IconButton(
+            tooltip: 'Open Web UI',
+            onPressed: widget.onOpenWebUi,
+            icon: const Icon(Icons.web),
+          ),
         Switch(
           value: isEnabled,
           onChanged: !canToggleEnabled

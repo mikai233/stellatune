@@ -1,10 +1,11 @@
 use std::collections::BTreeSet;
 
 use anyhow::anyhow;
+use axum::http::StatusCode;
 use serde_json::{Map, Value, json};
 
 use crate::plugin_ui_gateway::model::{ConfigApplyOutcome, ConfigApplyReport};
-use crate::runtime::shared_plugin_runtime;
+use crate::runtime::{shared_plugin_runtime, shared_runtime_engine};
 use stellatune_plugins::host_runtime::RuntimeCapabilityKind;
 
 const KIND_DECODER: &str = "decoder";
@@ -12,6 +13,11 @@ const KIND_SOURCE: &str = "source";
 const KIND_LYRICS: &str = "lyrics";
 const KIND_OUTPUT_SINK: &str = "output_sink";
 const KIND_DSP: &str = "dsp";
+const ACTION_PLAYBACK_PLAY_TRACK_REF: &str = "playback.play_track_ref";
+const ACTION_PLAYBACK_ENQUEUE_TRACK_REF: &str = "playback.enqueue_track_ref";
+const ACTION_PLAYBACK_PAUSE: &str = "playback.pause";
+const ACTION_PLAYBACK_NEXT: &str = "playback.next";
+const ACTION_PLAYBACK_STOP: &str = "playback.stop";
 
 pub(super) fn validate_config_payload(config: &Value) -> Result<(), String> {
     let Some(root) = config.as_object() else {
@@ -262,8 +268,103 @@ pub(super) fn normalize_action_payload(payload: Value) -> Value {
 
 pub(super) fn build_unknown_action_error(action: &str) -> String {
     format!(
-        "unsupported action `{action}`; supported: config.apply, config.get, or source-dispatchable custom actions"
+        "unsupported action `{action}`; supported: config.apply, config.get, playback.* host actions, or source-dispatchable custom actions"
     )
+}
+
+pub(super) async fn invoke_action_via_host(
+    action: &str,
+    payload: &Value,
+) -> Result<Option<Value>, (StatusCode, String)> {
+    let action = action.trim();
+    if action.is_empty() {
+        return Ok(None);
+    }
+
+    let engine = shared_runtime_engine();
+    match action {
+        ACTION_PLAYBACK_PLAY_TRACK_REF => {
+            let track_token = extract_track_token_from_payload(payload, action)?;
+            engine
+                .switch_track_token(track_token.clone(), true)
+                .await
+                .map_err(|error| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        format!("host action `{action}` failed: {error}"),
+                    )
+                })?;
+            Ok(Some(json!({
+                "dispatch": "host.playback",
+                "action": action,
+                "autoplay": true,
+                "track_token": track_token,
+            })))
+        },
+        ACTION_PLAYBACK_ENQUEUE_TRACK_REF => {
+            let track_token = extract_track_token_from_payload(payload, action)?;
+            engine
+                .queue_next_track_token(track_token.clone())
+                .await
+                .map_err(|error| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        format!("host action `{action}` failed: {error}"),
+                    )
+                })?;
+            Ok(Some(json!({
+                "dispatch": "host.playback",
+                "action": action,
+                "queued": true,
+                "track_token": track_token,
+            })))
+        },
+        ACTION_PLAYBACK_PAUSE => {
+            engine.pause().await.map_err(|error| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("host action `{action}` failed: {error}"),
+                )
+            })?;
+            Ok(Some(json!({
+                "dispatch": "host.playback",
+                "action": action,
+                "paused": true,
+            })))
+        },
+        ACTION_PLAYBACK_NEXT => {
+            let track_token = extract_track_token_from_payload(payload, action)?;
+            engine
+                .switch_track_token(track_token.clone(), true)
+                .await
+                .map_err(|error| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        format!("host action `{action}` failed: {error}"),
+                    )
+                })?;
+            Ok(Some(json!({
+                "dispatch": "host.playback",
+                "action": action,
+                "mode": "explicit_track",
+                "track_token": track_token,
+            })))
+        },
+        ACTION_PLAYBACK_STOP => {
+            engine.stop().await.map_err(|error| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("host action `{action}` failed: {error}"),
+                )
+            })?;
+            Ok(Some(json!({
+                "dispatch": "host.playback",
+                "action": action,
+                "stopped": true,
+            })))
+        },
+        _ => Ok(None),
+    }
 }
 
 pub(super) async fn invoke_action_via_source(
@@ -396,4 +497,218 @@ fn action_payload_type_id(payload: &Value) -> Option<&str> {
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty())
+}
+
+fn extract_track_token_from_payload(
+    payload: &Value,
+    action: &str,
+) -> Result<String, (StatusCode, String)> {
+    let request = build_action_request(payload);
+    if let Some(token) = request
+        .get("track_token")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return Ok(token.to_string());
+    }
+
+    let Some(track_ref) = request.get("track_ref").or_else(|| request.get("track")) else {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            format!("host action `{action}` requires payload.track_ref or payload.track_token"),
+        ));
+    };
+
+    if let Some(token) = track_ref
+        .as_str()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return Ok(token.to_string());
+    }
+
+    let Some(track_obj) = track_ref.as_object() else {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            format!(
+                "host action `{action}` expects `track_ref` as string token or object {{source_id, track_id, locator}}"
+            ),
+        ));
+    };
+
+    let source_id = track_obj
+        .get("source_id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            (
+                StatusCode::BAD_REQUEST,
+                format!("host action `{action}` track_ref.source_id is required"),
+            )
+        })?;
+    let track_id = track_obj
+        .get("track_id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            (
+                StatusCode::BAD_REQUEST,
+                format!("host action `{action}` track_ref.track_id is required"),
+            )
+        })?;
+    let locator = track_obj
+        .get("locator")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            (
+                StatusCode::BAD_REQUEST,
+                format!("host action `{action}` track_ref.locator is required"),
+            )
+        })?;
+
+    if !source_id.eq_ignore_ascii_case("local") {
+        validate_source_locator_json(locator, action)?;
+    }
+
+    serde_json::to_string(&json!({
+        "source_id": source_id,
+        "track_id": track_id,
+        "locator": locator,
+    }))
+    .map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("failed to encode track_ref token: {error}"),
+        )
+    })
+}
+
+fn validate_source_locator_json(locator: &str, action: &str) -> Result<(), (StatusCode, String)> {
+    let parsed = serde_json::from_str::<Value>(locator).map_err(|error| {
+        (
+            StatusCode::BAD_REQUEST,
+            format!(
+                "host action `{action}` track_ref.locator must be source locator JSON: {error}"
+            ),
+        )
+    })?;
+    let Some(obj) = parsed.as_object() else {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            format!("host action `{action}` track_ref.locator must be a JSON object"),
+        ));
+    };
+    for required in ["plugin_id", "type_id", "config", "track"] {
+        if !obj.contains_key(required) {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!(
+                    "host action `{action}` track_ref.locator missing required field `{required}`"
+                ),
+            ));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn build_action_request_prefers_request_object() {
+        let payload = json!({
+            "request": {
+                "keywords": "test",
+                "limit": 10
+            },
+            "ignored": true
+        });
+        let request = build_action_request(&payload);
+        assert_eq!(
+            request.get("keywords"),
+            Some(&Value::String("test".to_string()))
+        );
+        assert_eq!(request.get("limit"), Some(&Value::Number(10.into())));
+        assert_eq!(request.get("ignored"), None);
+    }
+
+    #[test]
+    fn extract_track_token_accepts_direct_token() {
+        let payload = json!({
+            "request": {
+                "track_token": "token-123"
+            }
+        });
+        let token = extract_track_token_from_payload(&payload, "playback.play_track_ref")
+            .expect("direct token should parse");
+        assert_eq!(token, "token-123");
+    }
+
+    #[test]
+    fn extract_track_token_accepts_track_ref_object() {
+        let locator = json!({
+            "plugin_id": "dev.stellatune.source.netease",
+            "type_id": "netease",
+            "config": {},
+            "track": { "song_id": 33894312, "level": "standard" },
+            "ext_hint": "mp3",
+            "path_hint": "netease:33894312.mp3"
+        })
+        .to_string();
+        let payload = json!({
+            "track_ref": {
+                "source_id": "netease",
+                "track_id": "33894312",
+                "locator": locator
+            }
+        });
+        let token = extract_track_token_from_payload(&payload, "playback.play_track_ref")
+            .expect("track_ref object should encode token");
+        let decoded: Value =
+            serde_json::from_str(token.as_str()).expect("token should be serialized JSON");
+        assert_eq!(decoded["source_id"], "netease");
+        assert_eq!(decoded["track_id"], "33894312");
+        assert!(decoded["locator"].as_str().is_some());
+    }
+
+    #[test]
+    fn extract_track_token_rejects_missing_locator() {
+        let payload = json!({
+            "request": {
+                "track_ref": {
+                    "source_id": "netease",
+                    "track_id": "33894312"
+                }
+            }
+        });
+        let error = extract_track_token_from_payload(&payload, "playback.play_track_ref")
+            .expect_err("missing locator should fail");
+        assert_eq!(error.0, StatusCode::BAD_REQUEST);
+        assert!(error.1.contains("track_ref.locator is required"));
+    }
+
+    #[test]
+    fn extract_track_token_rejects_non_json_locator_for_source_track() {
+        let payload = json!({
+            "track_ref": {
+                "source_id": "netease",
+                "track_id": "33894312",
+                "locator": "netease:33894312.mp3"
+            }
+        });
+        let error = extract_track_token_from_payload(&payload, "playback.play_track_ref")
+            .expect_err("source locator shorthand should fail early");
+        assert_eq!(error.0, StatusCode::BAD_REQUEST);
+        assert!(
+            error
+                .1
+                .contains("track_ref.locator must be source locator JSON")
+        );
+    }
 }

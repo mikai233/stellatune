@@ -69,7 +69,18 @@
       "action.netease.auth.login_refresh",
       "action.netease.auth.qr.start",
       "action.netease.auth.qr.status",
-      "action.netease.auth.logout"
+      "action.netease.auth.logout",
+      "action.netease.auth.session",
+      "action.search",
+      "action.list_playlists",
+      "action.playlist_tracks",
+      "action.netease.song.lyric",
+      "action.netease.song.url",
+      "action.playback.play_track_ref",
+      "action.playback.enqueue_track_ref",
+      "action.playback.pause",
+      "action.playback.next",
+      "action.playback.stop"
     ],
     "mobile_support": "limited"
   }

@@ -46,8 +46,7 @@ async fn main() -> Result<()> {
 }
 
 fn init_tui_tracing_to_file(log_path: &Path) -> Result<()> {
-    let filter =
-        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info,sqlx=warn"));
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
     let filter = add_quiet_http_directives(filter);
     let file = std::fs::OpenOptions::new()
         .create(true)
@@ -66,7 +65,13 @@ fn init_tui_tracing_to_file(log_path: &Path) -> Result<()> {
 
 fn add_quiet_http_directives(filter: EnvFilter) -> EnvFilter {
     let mut filter = filter;
-    for directive in ["hyper_util=info", "reqwest=info"] {
+    for directive in [
+        "hyper_util=info",
+        "reqwest=info",
+        "sqlx=warn",
+        "symphonia=warn",
+        "wasmtime=warn",
+    ] {
         if let Ok(parsed) = directive.parse::<tracing_subscriber::filter::Directive>() {
             filter = filter.add_directive(parsed);
         }
