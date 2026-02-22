@@ -47,6 +47,14 @@ class LibraryPageState extends ConsumerState<LibraryPage> {
   final Map<String, String?> _playabilityCache = <String, String?>{};
   Map<int, String> _blockedReasonByTrackId = const <int, String>{};
 
+  void _syncSearchController(String query) {
+    if (_searchController.text == query) return;
+    _searchController.value = TextEditingValue(
+      text: query,
+      selection: TextSelection.collapsed(offset: query.length),
+    );
+  }
+
   bool get foldersPaneCollapsed => _foldersPaneCollapsed;
 
   void toggleFoldersPane() {
@@ -230,6 +238,8 @@ class LibraryPageState extends ConsumerState<LibraryPage> {
     final selectedFolder = ref.watch(
       libraryControllerProvider.select((s) => s.selectedFolder),
     );
+    final query = ref.watch(libraryControllerProvider.select((s) => s.query));
+    _syncSearchController(query);
     final playlists = ref.watch(
       libraryControllerProvider.select((s) => s.playlists),
     );
@@ -559,6 +569,19 @@ class LibraryPageState extends ConsumerState<LibraryPage> {
                           controller: _searchController,
                           decoration: InputDecoration(
                             prefixIcon: const Icon(Icons.search),
+                            suffixIcon: _searchController.text.trim().isEmpty
+                                ? null
+                                : IconButton(
+                                    onPressed: () {
+                                      _searchController.clear();
+                                      ref
+                                          .read(
+                                            libraryControllerProvider.notifier,
+                                          )
+                                          .setQuery('');
+                                    },
+                                    icon: const Icon(Icons.close_rounded),
+                                  ),
                             hintText: l10n.searchHint,
                             filled: true,
                             fillColor: theme.colorScheme.surfaceContainerLowest

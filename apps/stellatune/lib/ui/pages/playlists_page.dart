@@ -179,7 +179,8 @@ class PlaylistsPageState extends ConsumerState<PlaylistsPage> {
   static const int _pluginPlaylistPageSize = 500;
   static const int _pluginPlaylistEagerLoadThreshold = 10000;
 
-  final _searchController = TextEditingController();
+  final _librarySearchController = TextEditingController();
+  final _pluginSearchController = TextEditingController();
   bool _playlistsPanelOpen = false;
   bool _autoSelecting = false;
   int _playabilityRequestSeq = 0;
@@ -218,8 +219,17 @@ class PlaylistsPageState extends ConsumerState<PlaylistsPage> {
 
   @override
   void dispose() {
-    _searchController.dispose();
+    _librarySearchController.dispose();
+    _pluginSearchController.dispose();
     super.dispose();
+  }
+
+  void _syncSearchController(TextEditingController controller, String query) {
+    if (controller.text == query) return;
+    controller.value = TextEditingValue(
+      text: query,
+      selection: TextSelection.collapsed(offset: query.length),
+    );
   }
 
   String _trackCacheKey(TrackLite t) => '${t.id}|${t.path}';
@@ -1027,6 +1037,10 @@ class PlaylistsPageState extends ConsumerState<PlaylistsPage> {
     final selectedPlaylistId = ref.watch(
       libraryControllerProvider.select((s) => s.selectedPlaylistId),
     );
+    final libraryQuery = ref.watch(
+      libraryControllerProvider.select((s) => s.query),
+    );
+    _syncSearchController(_librarySearchController, libraryQuery);
     final results = ref.watch(
       libraryControllerProvider.select((s) => s.results),
     );
@@ -1070,8 +1084,10 @@ class PlaylistsPageState extends ConsumerState<PlaylistsPage> {
     final queueSourceLabel = (queueSourceSnapshot ?? '').trim().isEmpty
         ? l10n.queueSourceUnset
         : queueSourceSnapshot!.trim();
-    final pluginFilterActive = _searchController.text.trim().isNotEmpty;
-    final pluginVisibleTracks = _filteredPluginTracks(_searchController.text);
+    final pluginFilterActive = _pluginSearchController.text.trim().isNotEmpty;
+    final pluginVisibleTracks = _filteredPluginTracks(
+      _pluginSearchController.text,
+    );
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -1086,7 +1102,7 @@ class PlaylistsPageState extends ConsumerState<PlaylistsPage> {
                   padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
                   child: selectedPluginPlaylist == null
                       ? _PlaylistTracksPane(
-                          searchController: _searchController,
+                          searchController: _librarySearchController,
                           queueSourceLabel: queueSourceLabel,
                           selectedLabel: selectedPlaylist == null
                               ? l10n.queueSourceUnset
@@ -1177,7 +1193,7 @@ class PlaylistsPageState extends ConsumerState<PlaylistsPage> {
                           onViewportRangeChanged: _onViewportRangeChanged,
                         )
                       : _PluginPlaylistTracksPane(
-                          searchController: _searchController,
+                          searchController: _pluginSearchController,
                           queueSourceLabel: queueSourceLabel,
                           selectedLabel:
                               '${selectedPluginPlaylist.sourceLabel} - ${selectedPluginPlaylist.title}',
@@ -2247,6 +2263,15 @@ class _PlaylistTracksPane extends StatelessWidget {
           controller: searchController,
           decoration: InputDecoration(
             prefixIcon: const Icon(Icons.search),
+            suffixIcon: searchController.text.trim().isEmpty
+                ? null
+                : IconButton(
+                    onPressed: () {
+                      searchController.clear();
+                      onSearchChanged('');
+                    },
+                    icon: const Icon(Icons.close_rounded),
+                  ),
             hintText: l10n.searchHint,
             filled: true,
             fillColor: theme.colorScheme.surfaceContainerLowest.withValues(
@@ -2518,6 +2543,15 @@ class _PluginPlaylistTracksPaneState extends State<_PluginPlaylistTracksPane> {
           controller: widget.searchController,
           decoration: InputDecoration(
             prefixIcon: const Icon(Icons.search),
+            suffixIcon: widget.searchController.text.trim().isEmpty
+                ? null
+                : IconButton(
+                    onPressed: () {
+                      widget.searchController.clear();
+                      widget.onSearchChanged('');
+                    },
+                    icon: const Icon(Icons.close_rounded),
+                  ),
             hintText: l10n.searchHint,
             filled: true,
             fillColor: theme.colorScheme.surfaceContainerLowest.withValues(

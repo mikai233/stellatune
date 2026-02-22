@@ -99,15 +99,20 @@ class _TrackListState extends State<TrackList> {
       return;
     }
     final currentFp = _trackOrderFingerprint(widget.items);
-    if (_pendingReorderFingerprint != null &&
-        currentFp == _pendingReorderFingerprint) {
+    final localFp = _trackOrderFingerprint(local);
+    final pendingFp = _pendingReorderFingerprint;
+    if (pendingFp == null) {
+      _reorderViewItems = null;
+      return;
+    }
+    if (currentFp == pendingFp) {
       _reorderViewItems = null;
       _pendingReorderFingerprint = null;
       return;
     }
-    if (_pendingReorderFingerprint == null &&
-        currentFp != _trackOrderFingerprint(local)) {
-      _reorderViewItems = List<TrackLite>.from(widget.items);
+    if (currentFp != localFp) {
+      _reorderViewItems = null;
+      _pendingReorderFingerprint = null;
     }
   }
 
