@@ -401,6 +401,54 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
     return '${raw.substring(0, 180)}...';
   }
 
+  bool _jsonTextsEquivalent(String left, String right) {
+    final leftTrimmed = left.trim();
+    final rightTrimmed = right.trim();
+    if (leftTrimmed == rightTrimmed) {
+      return true;
+    }
+    final leftCanonical = _canonicalizeJsonText(leftTrimmed);
+    final rightCanonical = _canonicalizeJsonText(rightTrimmed);
+    if (leftCanonical == null || rightCanonical == null) {
+      return false;
+    }
+    return leftCanonical == rightCanonical;
+  }
+
+  String? _canonicalizeJsonText(String raw) {
+    if (raw.isEmpty) {
+      return null;
+    }
+    try {
+      final decoded = jsonDecode(raw);
+      final normalized = _normalizeJsonValue(decoded);
+      return jsonEncode(normalized);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Object? _normalizeJsonValue(Object? value) {
+    if (value is Map) {
+      final entries = value.entries
+          .map(
+            (entry) => MapEntry(
+              entry.key.toString(),
+              _normalizeJsonValue(entry.value),
+            ),
+          )
+          .toList();
+      entries.sort((a, b) => a.key.compareTo(b.key));
+      return <String, Object?>{
+        for (final entry in entries) entry.key: entry.value,
+      };
+    }
+    if (value is List) {
+      return value.map(_normalizeJsonValue).toList(growable: false);
+    }
+    return value;
+  }
+
   void _logOutputSinkTargets(
     String stage, {
     required String pluginId,
@@ -435,13 +483,24 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
   Future<void> _saveSourceConfig(SourceCatalogTypeDescriptor t) async {
     final key = _sourceTypeKey(t);
     final value = _sourceConfigDrafts[key] ?? t.defaultConfigJson;
-    await ref
-        .read(settingsStoreProvider)
-        .setSourceConfigFor(
-          pluginId: t.pluginId,
-          typeId: t.typeId,
-          configJson: value,
-        );
+    final store = ref.read(settingsStoreProvider);
+    final currentValue = store.sourceConfigFor(
+      pluginId: t.pluginId,
+      typeId: t.typeId,
+      defaultValue: t.defaultConfigJson,
+    );
+    if (_jsonTextsEquivalent(currentValue, value)) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No config changes detected.')),
+      );
+      return;
+    }
+    await store.setSourceConfigFor(
+      pluginId: t.pluginId,
+      typeId: t.typeId,
+      configJson: value,
+    );
     if (!mounted) return;
     final l10n = AppLocalizations.of(context)!;
     ScaffoldMessenger.of(
@@ -755,6 +814,28 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
       configJson = '{}';
       _outputSinkConfigController.text = configJson;
     }
+
+    final route = OutputSinkRoute(
+      pluginId: parts[0],
+      typeId: parts[1],
+      configJson: configJson,
+      targetJson: targetJson,
+    );
+    final currentRoute = settings.outputSinkRoute;
+    final unchanged =
+        currentRoute != null &&
+        currentRoute.pluginId == route.pluginId &&
+        currentRoute.typeId == route.typeId &&
+        _jsonTextsEquivalent(currentRoute.configJson, route.configJson) &&
+        _jsonTextsEquivalent(currentRoute.targetJson, route.targetJson);
+    if (unchanged) {
+      logger.d(
+        'skip output sink route apply: no config/target changes '
+        'plugin=${route.pluginId} type=${route.typeId}',
+      );
+      return;
+    }
+
     _outputSinkConfigDrafts[selectedKey] = configJson;
     logger.i(
       'apply output sink route start plugin=${parts[0]} type=${parts[1]} '
@@ -801,12 +882,6 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
       );
     }
 
-    final route = OutputSinkRoute(
-      pluginId: parts[0],
-      typeId: parts[1],
-      configJson: configJson,
-      targetJson: targetJson,
-    );
     await bridge.setOutputSinkRoute(route);
     await settings.setOutputSinkRoute(route);
     logger.i(
