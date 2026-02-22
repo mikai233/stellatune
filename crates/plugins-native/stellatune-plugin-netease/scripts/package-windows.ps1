@@ -62,6 +62,7 @@ $DecoderManifestPath = Join-Path $PluginCrateDir "decoder\Cargo.toml"
 $PluginJsonPath = Join-Path $PluginCrateDir "plugin.json"
 $RepoRoot = (Resolve-Path (Join-Path $PluginCrateDir "..\..\..")).Path
 $SidecarRoot = Join-Path $RepoRoot "tools\stellatune-ncm-sidecar"
+$UiWebRoot = Join-Path $PluginCrateDir "ui-web"
 $CargoTargetDir = Join-Path $RepoRoot "target"
 $ProfileDir = Get-ProfileDir -Configuration $Configuration
 
@@ -93,6 +94,19 @@ if (-not $pluginManifest.version) {
 if (-not $pluginManifest.components -or $pluginManifest.components.Count -eq 0) {
     throw "plugin.json has no components"
 }
+$hasUi = $null -ne $pluginManifest.ui
+$uiEntryRelative = ""
+$uiEntrySourcePath = ""
+$uiRootRelative = ""
+if ($hasUi) {
+    $uiEntryRelative = [string]$pluginManifest.ui.entry
+    if ([string]::IsNullOrWhiteSpace($uiEntryRelative)) {
+        throw "plugin.json ui.entry is empty"
+    }
+    $uiEntryRelative = $uiEntryRelative.Replace("/", "\")
+    $uiEntrySourcePath = Join-Path $PluginCrateDir $uiEntryRelative
+    $uiRootRelative = Split-Path -Parent $uiEntryRelative
+}
 
 $prevCargoTargetDir = $env:CARGO_TARGET_DIR
 $env:CARGO_TARGET_DIR = $CargoTargetDir
@@ -117,6 +131,26 @@ try {
         }
         finally {
             Pop-Location
+        }
+
+        if ($hasUi) {
+            if (-not (Test-Path $UiWebRoot)) {
+                throw "ui-web directory not found: $UiWebRoot"
+            }
+            Push-Location $UiWebRoot
+            try {
+                $lockPath = Join-Path $UiWebRoot "package-lock.json"
+                if (Test-Path $lockPath) {
+                    Invoke-Npm -CommandArgs @("ci")
+                }
+                else {
+                    Invoke-Npm -CommandArgs @("install")
+                }
+                Invoke-Npm -CommandArgs @("run", "build")
+            }
+            finally {
+                Pop-Location
+            }
         }
     }
 
@@ -152,6 +186,29 @@ try {
             New-Item -ItemType Directory -Force -Path $destinationDir | Out-Null
         }
         Copy-Item -Path $sourcePath -Destination $destinationPath -Force
+    }
+
+    if ($hasUi) {
+        if (-not (Test-Path $uiEntrySourcePath)) {
+            throw "plugin ui entry not found: $uiEntrySourcePath"
+        }
+
+        if ([string]::IsNullOrWhiteSpace($uiRootRelative) -or $uiRootRelative -eq ".") {
+            $uiEntryDestinationPath = Join-Path $stageDir $uiEntryRelative
+            $uiEntryDestinationDir = Split-Path -Parent $uiEntryDestinationPath
+            if (-not (Test-Path $uiEntryDestinationDir)) {
+                New-Item -ItemType Directory -Force -Path $uiEntryDestinationDir | Out-Null
+            }
+            Copy-Item -Path $uiEntrySourcePath -Destination $uiEntryDestinationPath -Force
+        }
+        else {
+            $uiSourceDir = Join-Path $PluginCrateDir $uiRootRelative
+            if (-not (Test-Path $uiSourceDir)) {
+                throw "plugin ui root dir not found: $uiSourceDir"
+            }
+            $uiDestinationDir = Join-Path $stageDir $uiRootRelative
+            Copy-Item -Path $uiSourceDir -Destination $uiDestinationDir -Recurse -Force
+        }
     }
 
     Copy-Item -Path $sidecarExe -Destination (Join-Path $stageDir "bin\stellatune-ncm-sidecar.exe") -Force

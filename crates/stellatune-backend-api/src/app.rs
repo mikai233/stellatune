@@ -1,6 +1,9 @@
 use anyhow::Result;
 
 use crate::player;
+use crate::plugin_ui_gateway::{
+    PluginUiGatewayHandle, PluginUiGatewayOptions, start_plugin_ui_gateway,
+};
 use crate::runtime::init_tracing;
 use crate::session::{BackendSession, BackendSessionOptions};
 
@@ -35,5 +38,12 @@ impl BackendApp {
 
     pub fn plugins_uninstall_by_id(&self, plugins_dir: String, plugin_id: String) -> Result<()> {
         player::plugins_uninstall_by_id(plugins_dir, plugin_id)
+    }
+
+    pub async fn plugin_ui_gateway_start(
+        &self,
+        options: PluginUiGatewayOptions,
+    ) -> Result<PluginUiGatewayHandle> {
+        start_plugin_ui_gateway(options).await
     }
 }

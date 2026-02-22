@@ -3,6 +3,7 @@ pub mod library;
 pub mod lyrics_service;
 pub mod lyrics_types;
 pub mod player;
+pub mod plugin_ui_gateway;
 pub mod runtime;
 pub mod session;
 

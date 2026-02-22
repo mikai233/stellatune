@@ -2,6 +2,8 @@ use std::collections::BTreeMap;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::mem;
+#[cfg(windows)]
+use std::mem::size_of;
 use std::net::{Shutdown, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
@@ -13,9 +15,22 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use memmap2::{MmapMut, MmapOptions};
 use parking_lot::Mutex;
+use tracing::warn;
 
 #[cfg(unix)]
 use std::os::unix::net::UnixStream;
+#[cfg(windows)]
+use std::os::windows::io::AsRawHandle;
+#[cfg(windows)]
+use windows::Win32::Foundation::{CloseHandle, HANDLE};
+#[cfg(windows)]
+use windows::Win32::System::JobObjects::{
+    AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+    JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
+    SetInformationJobObject,
+};
+#[cfg(windows)]
+use windows::core::PCWSTR;
 
 use crate::error::{Error, Result};
 
@@ -195,6 +210,17 @@ impl SidecarHost for ProcessSidecarHost {
         let mut child = command
             .spawn()
             .map_err(|error| Error::operation("sidecar.launch", error.to_string()))?;
+        #[cfg(windows)]
+        let kill_on_close_job = match KillOnCloseJob::attach(&child) {
+            Ok(job) => Some(job),
+            Err(error) => {
+                warn!(
+                    error = %error,
+                    "failed to attach sidecar process to kill-on-close job object"
+                );
+                None
+            },
+        };
         let stdin = child
             .stdin
             .take()
@@ -214,6 +240,8 @@ impl SidecarHost for ProcessSidecarHost {
             data_preferred: spec.preferred_data.clone(),
             env_map,
             created_ring_paths,
+            #[cfg(windows)]
+            _kill_on_close_job: kill_on_close_job,
         }))
     }
 }
@@ -230,6 +258,69 @@ struct ProcessHandle {
     data_preferred: Vec<SidecarTransportOption>,
     env_map: BTreeMap<String, String>,
     created_ring_paths: Vec<PathBuf>,
+    #[cfg(windows)]
+    _kill_on_close_job: Option<KillOnCloseJob>,
+}
+
+#[cfg(windows)]
+struct KillOnCloseJob {
+    handle: HANDLE,
+}
+
+#[cfg(windows)]
+impl KillOnCloseJob {
+    fn attach(child: &Child) -> Result<Self> {
+        let job = unsafe {
+            CreateJobObjectW(None, PCWSTR::null())
+                .map_err(|error| Error::operation("sidecar.launch.job-object", error.to_string()))?
+        };
+
+        let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+        limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        let limits_ptr = (&limits as *const JOBOBJECT_EXTENDED_LIMIT_INFORMATION).cast();
+        let limits_size = size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32;
+        if let Err(error) = unsafe {
+            SetInformationJobObject(
+                job,
+                JobObjectExtendedLimitInformation,
+                limits_ptr,
+                limits_size,
+            )
+        } {
+            unsafe {
+                let _ = CloseHandle(job);
+            }
+            return Err(Error::operation(
+                "sidecar.launch.job-object",
+                error.to_string(),
+            ));
+        }
+
+        let process_handle = HANDLE(child.as_raw_handle());
+        if let Err(error) = unsafe { AssignProcessToJobObject(job, process_handle) } {
+            unsafe {
+                let _ = CloseHandle(job);
+            }
+            return Err(Error::operation(
+                "sidecar.launch.job-object",
+                error.to_string(),
+            ));
+        }
+
+        Ok(Self { handle: job })
+    }
+}
+
+#[cfg(windows)]
+unsafe impl Send for KillOnCloseJob {}
+
+#[cfg(windows)]
+impl Drop for KillOnCloseJob {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = CloseHandle(self.handle);
+        }
+    }
 }
 
 enum ChannelIo {

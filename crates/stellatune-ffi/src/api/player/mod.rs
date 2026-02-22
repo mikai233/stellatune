@@ -9,6 +9,7 @@ use tracing::{debug, warn};
 
 use crate::api::library::shared_library_if_initialized;
 
+mod plugin_ui_gateway;
 pub(crate) mod types;
 use stellatune_audio::config::engine::{
     Event as V2Event, LfeMode as V2LfeMode, PlayerState as V2PlayerState,
@@ -573,6 +574,26 @@ pub async fn plugins_uninstall_by_id(plugins_dir: String, plugin_id: String) -> 
         .await
         .map_err(|e| anyhow!("JoinError: {e}"))??;
     reconcile_plugin_runtime_state_after_package_change("uninstall").await
+}
+
+pub async fn plugin_ui_gateway_start(plugins_dir: String, port: Option<u16>) -> Result<String> {
+    plugin_ui_gateway::start(plugins_dir, port).await
+}
+
+pub async fn plugin_ui_gateway_stop() -> Result<()> {
+    plugin_ui_gateway::stop().await
+}
+
+pub async fn plugin_ui_gateway_base_url() -> Option<String> {
+    plugin_ui_gateway::base_url().await
+}
+
+pub async fn plugin_ui_gateway_session_token() -> Option<String> {
+    plugin_ui_gateway::session_token().await
+}
+
+pub async fn plugin_ui_gateway_plugin_ui_url(plugin_id: String) -> Option<String> {
+    plugin_ui_gateway::plugin_ui_url(plugin_id).await
 }
 
 async fn reconcile_plugin_runtime_state_after_package_change(operation: &str) -> Result<()> {

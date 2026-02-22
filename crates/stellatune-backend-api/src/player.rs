@@ -3,6 +3,10 @@ use anyhow::{Result, anyhow};
 use crate::runtime::shared_plugin_runtime;
 
 pub fn plugins_install_from_file(plugins_dir: String, artifact_path: String) -> Result<String> {
+    let target_plugin_id = stellatune_plugins::package::inspect_artifact_plugin_id(&artifact_path)
+        .map_err(|e| anyhow!(e.to_string()))?;
+    ensure_plugin_runtime_unloaded_for_uninstall(&target_plugin_id)?;
+
     let installed =
         stellatune_plugins::package::install_from_artifact(&plugins_dir, &artifact_path)
             .map_err(|e| anyhow!(e.to_string()))?;

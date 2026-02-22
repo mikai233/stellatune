@@ -1,6 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::fs::File;
 use std::hash::{Hash, Hasher};
-use std::path::PathBuf;
+use std::io::Read;
+use std::path::{Path, PathBuf};
 
 use crate::manifest::{AbilityKind, ComponentSpec, DecoderAbilitySpec, WasmPluginManifest};
 use crate::runtime::model::{
@@ -69,6 +71,7 @@ pub(crate) fn active_plugin_from_manifest(
     manifest_path: PathBuf,
     manifest: WasmPluginManifest,
 ) -> ActivePlugin {
+    let signature = plugin_signature(&manifest, root_dir.as_path());
     let info = RuntimePluginInfo {
         id: manifest.id.clone(),
         name: manifest.name.clone(),
@@ -82,7 +85,6 @@ pub(crate) fn active_plugin_from_manifest(
         .iter()
         .flat_map(|component| capabilities_from_component(&manifest.id, component))
         .collect::<Vec<_>>();
-    let signature = plugin_signature(&manifest);
     ActivePlugin {
         info,
         capabilities,
@@ -158,10 +160,48 @@ fn decoder_rules_for_ability(
     (ext_scores, wildcard)
 }
 
-fn plugin_signature(manifest: &WasmPluginManifest) -> String {
+fn plugin_signature(manifest: &WasmPluginManifest, root_dir: &Path) -> String {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     manifest.hash(&mut hasher);
+    let mut component_paths = manifest
+        .components
+        .iter()
+        .map(|component| component.path.as_str())
+        .collect::<Vec<_>>();
+    component_paths.sort_unstable();
+    for component_path in component_paths {
+        component_path.hash(&mut hasher);
+        hash_component_bytes(root_dir, component_path, &mut hasher);
+    }
     format!("stdhash64:{:016x}", hasher.finish())
+}
+
+fn hash_component_bytes<H: Hasher>(root_dir: &Path, component_path: &str, hasher: &mut H) {
+    let full_path = root_dir.join(component_path);
+    let mut file = match File::open(full_path.as_path()) {
+        Ok(file) => file,
+        Err(error) => {
+            0_u8.hash(hasher);
+            component_path.hash(hasher);
+            error.kind().hash(hasher);
+            return;
+        },
+    };
+    1_u8.hash(hasher);
+
+    let mut buf = [0_u8; 8 * 1024];
+    loop {
+        match file.read(&mut buf) {
+            Ok(0) => break,
+            Ok(read) => buf[..read].hash(hasher),
+            Err(error) => {
+                2_u8.hash(hasher);
+                component_path.hash(hasher);
+                error.kind().hash(hasher);
+                break;
+            },
+        }
+    }
 }
 
 #[cfg(test)]
@@ -239,22 +279,41 @@ mod tests {
                     }),
                 }],
             }],
+            ui: None,
         }
     }
 
     #[test]
     fn plugin_signature_is_stable_for_same_manifest() {
+        let dir = tempfile::tempdir().expect("create tempdir");
+        std::fs::write(dir.path().join("plugin.wasm"), b"same").expect("write component");
         let manifest = test_manifest("dev.stellatune.test", "1.0.0");
-        let a = plugin_signature(&manifest);
-        let b = plugin_signature(&manifest);
+        let a = plugin_signature(&manifest, dir.path());
+        let b = plugin_signature(&manifest, dir.path());
         assert_eq!(a, b);
         assert!(a.starts_with("stdhash64:"));
     }
 
     #[test]
     fn plugin_signature_changes_when_manifest_changes() {
-        let a = plugin_signature(&test_manifest("dev.stellatune.test", "1.0.0"));
-        let b = plugin_signature(&test_manifest("dev.stellatune.test", "1.0.1"));
+        let dir = tempfile::tempdir().expect("create tempdir");
+        std::fs::write(dir.path().join("plugin.wasm"), b"same").expect("write component");
+        let a = plugin_signature(&test_manifest("dev.stellatune.test", "1.0.0"), dir.path());
+        let b = plugin_signature(&test_manifest("dev.stellatune.test", "1.0.1"), dir.path());
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn plugin_signature_changes_when_component_bytes_change() {
+        let dir = tempfile::tempdir().expect("create tempdir");
+        let component_path = dir.path().join("plugin.wasm");
+        std::fs::write(&component_path, b"v1").expect("write component");
+
+        let manifest = test_manifest("dev.stellatune.test", "1.0.0");
+        let a = plugin_signature(&manifest, dir.path());
+
+        std::fs::write(&component_path, b"v2").expect("rewrite component");
+        let b = plugin_signature(&manifest, dir.path());
         assert_ne!(a, b);
     }
 }

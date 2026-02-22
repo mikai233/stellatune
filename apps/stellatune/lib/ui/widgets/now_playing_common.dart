@@ -372,8 +372,9 @@ class _NowPlayingProgressBarState extends State<NowPlayingProgressBar>
   bool get _shouldTick {
     final d = widget.durationMs;
     if (_dragging) return false;
-    if (!widget.enabled || !widget.audioStarted || d == null || d <= 0)
+    if (!widget.enabled || !widget.audioStarted || d == null || d <= 0) {
       return false;
+    }
     return widget.playerState == PlayerState.playing;
   }
 
@@ -387,8 +388,9 @@ class _NowPlayingProgressBarState extends State<NowPlayingProgressBar>
 
   double _targetValue() {
     final d = widget.durationMs;
-    if (!widget.enabled || !widget.audioStarted || d == null || d <= 0)
+    if (!widget.enabled || !widget.audioStarted || d == null || d <= 0) {
       return 0;
+    }
     final pendingMs = _pendingSeekMs;
     final pendingAt = _pendingSeekAt;
     final pendingFromMs = _pendingSeekFromMs;

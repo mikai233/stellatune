@@ -58,5 +58,19 @@
         }
       ]
     }
-  ]
+  ],
+  "ui": {
+    "mode": "web",
+    "entry": "ui/index.html",
+    "permissions": [
+      "config.read",
+      "config.write",
+      "action.netease.auth.login_status",
+      "action.netease.auth.login_refresh",
+      "action.netease.auth.qr.start",
+      "action.netease.auth.qr.status",
+      "action.netease.auth.logout"
+    ],
+    "mobile_support": "limited"
+  }
 }

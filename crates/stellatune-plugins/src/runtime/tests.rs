@@ -113,6 +113,7 @@ fn install_test_plugin_with_ability(
                 decoder: None,
             }],
         }],
+        ui: None,
     };
     let manifest_text = serde_json::to_string_pretty(&manifest)?;
     std::fs::write(plugin_root.join(PLUGIN_MANIFEST_FILE_NAME), manifest_text)?;

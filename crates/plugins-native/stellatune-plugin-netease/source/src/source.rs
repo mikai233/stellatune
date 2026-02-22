@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Value, json};
 use stellatune_plugin_sdk::__private::parking_lot::{Mutex, MutexGuard};
 use stellatune_plugin_sdk::__private::stellatune_world_source::stellatune::plugin::{
     host_stream, sidecar,
@@ -133,6 +133,9 @@ struct NeteaseListRequest {
     keywords: String,
     playlist_id: Option<u64>,
     playlist_ref: Option<Value>,
+    key: Option<String>,
+    qrimg: Option<bool>,
+    cookie: Option<String>,
     limit: u32,
     offset: u32,
     level: Option<String>,
@@ -145,6 +148,9 @@ impl Default for NeteaseListRequest {
             keywords: String::new(),
             playlist_id: None,
             playlist_ref: None,
+            key: None,
+            qrimg: None,
+            cookie: None,
             limit: 30,
             offset: 0,
             level: None,
@@ -329,6 +335,9 @@ fn list_items(
     }
 
     let action = request.action.trim().to_ascii_lowercase();
+    if let Some(control_result) = try_handle_control_action(config, request, action.as_str())? {
+        return Ok(vec![control_result]);
+    }
     if action == "ensure_sidecar" {
         ensure_sidecar_running(config)?;
         return Ok(Vec::new());
@@ -380,6 +389,152 @@ fn list_items(
             }
         })
         .collect())
+}
+
+fn try_handle_control_action(
+    config: &NeteaseSourceConfig,
+    request: &NeteaseListRequest,
+    action: &str,
+) -> SdkResult<Option<NeteaseListItem>> {
+    let payload = match action {
+        "netease.auth.login_status" | "auth.login_status" => {
+            let params = auth_cookie_query_params(request);
+            Some(sidecar_get_json::<Value>(
+                config,
+                "/v1/auth/login_status",
+                &params,
+            )?)
+        },
+        "netease.auth.login_refresh" | "auth.login_refresh" => {
+            let params = auth_cookie_query_params(request);
+            Some(sidecar_get_json::<Value>(
+                config,
+                "/v1/auth/login_refresh",
+                &params,
+            )?)
+        },
+        "netease.auth.logout" | "auth.logout" => {
+            let params = auth_cookie_query_params(request);
+            Some(sidecar_get_json::<Value>(
+                config,
+                "/v1/auth/logout",
+                &params,
+            )?)
+        },
+        "netease.auth.qr.start" | "auth.qr.start" => {
+            let params = auth_cookie_query_params(request);
+            let key_payload = sidecar_get_json::<Value>(config, "/v1/auth/qr/key", &params)?;
+            let Some(qr_key) = extract_qr_key(&key_payload) else {
+                return Err(SdkError::internal(
+                    "sidecar /v1/auth/qr/key response missing qr key",
+                ));
+            };
+            let mut create_params = auth_cookie_query_params(request);
+            create_params.push(("key".to_string(), qr_key.clone()));
+            create_params.push((
+                "qrimg".to_string(),
+                if request.qrimg.unwrap_or(true) {
+                    "true".to_string()
+                } else {
+                    "false".to_string()
+                },
+            ));
+            let create_payload =
+                sidecar_get_json::<Value>(config, "/v1/auth/qr/create", &create_params)?;
+            Some(json!({
+                "key": qr_key,
+                "key_payload": key_payload,
+                "create_payload": create_payload
+            }))
+        },
+        "netease.auth.qr.status" | "auth.qr.status" => {
+            let qr_key = request_qr_key(request).ok_or_else(|| {
+                SdkError::invalid_arg(
+                    "qr status action requires request.key or request.playlist_ref.key",
+                )
+            })?;
+            let mut params = auth_cookie_query_params(request);
+            params.push(("key".to_string(), qr_key));
+            Some(sidecar_get_json::<Value>(
+                config,
+                "/v1/auth/qr/check",
+                &params,
+            )?)
+        },
+        _ => None,
+    };
+
+    Ok(payload.map(|value| action_result_item(action, value)))
+}
+
+fn action_result_item(action: &str, payload: Value) -> NeteaseListItem {
+    NeteaseListItem {
+        kind: "control_result".to_string(),
+        item_id: action.to_string(),
+        source_id: SOURCE_TYPE_ID.to_string(),
+        source_label: Some(SOURCE_DISPLAY_NAME.to_string()),
+        track_id: None,
+        playlist_id: None,
+        title: action.to_string(),
+        subtitle: Some("source control action result".to_string()),
+        artist: None,
+        album: None,
+        duration_ms: None,
+        track_count: None,
+        cover: None,
+        ext_hint: None,
+        path_hint: None,
+        playlist_ref: Some(payload),
+        track: None,
+    }
+}
+
+fn auth_cookie_query_params(request: &NeteaseListRequest) -> Vec<(String, String)> {
+    request
+        .cookie
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| vec![("cookie".to_string(), value.to_string())])
+        .unwrap_or_default()
+}
+
+fn request_qr_key(request: &NeteaseListRequest) -> Option<String> {
+    request
+        .key
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+        .or_else(|| {
+            request
+                .playlist_ref
+                .as_ref()
+                .and_then(|value| value.as_object())
+                .and_then(|obj| obj.get("key"))
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToString::to_string)
+        })
+}
+
+fn extract_qr_key(payload: &Value) -> Option<String> {
+    payload
+        .as_object()
+        .and_then(|obj| obj.get("body"))
+        .and_then(Value::as_object)
+        .and_then(|body| body.get("data"))
+        .and_then(Value::as_object)
+        .and_then(|data| {
+            data.get("unikey")
+                .or_else(|| data.get("key"))
+                .or_else(|| data.get("qrkey"))
+        })
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
 }
 
 fn fetch_song_items(

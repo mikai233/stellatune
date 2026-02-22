@@ -64,6 +64,32 @@ pub struct ComponentSpec {
     pub abilities: Vec<AbilitySpec>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PluginUiMode {
+    Web,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum PluginUiMobileSupport {
+    Full,
+    #[default]
+    Limited,
+    None,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct PluginUiSpec {
+    #[serde(default = "default_plugin_ui_mode")]
+    pub mode: PluginUiMode,
+    pub entry: String,
+    #[serde(default)]
+    pub permissions: Vec<String>,
+    #[serde(default)]
+    pub mobile_support: PluginUiMobileSupport,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct WasmPluginManifest {
     pub schema_version: u32,
@@ -72,6 +98,8 @@ pub struct WasmPluginManifest {
     pub version: String,
     pub api_version: u32,
     pub components: Vec<ComponentSpec>,
+    #[serde(default)]
+    pub ui: Option<PluginUiSpec>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -108,6 +136,10 @@ pub struct PendingUninstallPlugin {
 
 fn default_pending_uninstall_state() -> PluginInstallState {
     PluginInstallState::PendingUninstall
+}
+
+fn default_plugin_ui_mode() -> PluginUiMode {
+    PluginUiMode::Web
 }
 
 pub fn receipt_path_for_plugin_root(root: &Path) -> PathBuf {
@@ -260,6 +292,65 @@ pub fn validate_manifest(manifest: &WasmPluginManifest, root_dir: &Path) -> Resu
                     type_id
                 ));
             }
+        }
+    }
+
+    if let Some(ui) = manifest.ui.as_ref() {
+        validate_ui_spec(ui, root_dir)?;
+    }
+
+    Ok(())
+}
+
+fn validate_ui_spec(ui: &PluginUiSpec, root_dir: &Path) -> Result<()> {
+    if !matches!(ui.mode, PluginUiMode::Web) {
+        return Err(crate::op_error!("unsupported plugin ui mode"));
+    }
+
+    let entry = ui.entry.trim();
+    if entry.is_empty() {
+        return Err(crate::op_error!("ui.entry is empty"));
+    }
+    let rel = Path::new(entry);
+    if rel.is_absolute()
+        || rel
+            .components()
+            .any(|part| matches!(part, std::path::Component::ParentDir))
+    {
+        return Err(crate::op_error!("ui.entry path is unsafe: {}", ui.entry));
+    }
+    let resolved = root_dir.join(rel);
+    if !resolved.exists() {
+        return Err(crate::op_error!(
+            "ui.entry path not found: {}",
+            resolved.display()
+        ));
+    }
+    if !resolved.is_file() {
+        return Err(crate::op_error!(
+            "ui.entry must be a file path: {}",
+            resolved.display()
+        ));
+    }
+
+    let mut seen_permissions = HashSet::<String>::new();
+    for raw_permission in &ui.permissions {
+        let permission = raw_permission.trim();
+        if permission.is_empty() {
+            return Err(crate::op_error!("ui.permissions contains empty item"));
+        }
+        if permission
+            .chars()
+            .any(|ch| !(ch.is_ascii_alphanumeric() || ch == '.' || ch == '_' || ch == '-'))
+        {
+            return Err(crate::op_error!(
+                "ui.permissions contains unsupported value: {raw_permission}"
+            ));
+        }
+        if !seen_permissions.insert(permission.to_string()) {
+            return Err(crate::op_error!(
+                "ui.permissions contains duplicate value: {permission}"
+            ));
         }
     }
 

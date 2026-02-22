@@ -25,93 +25,107 @@ pub struct InstalledPlugin {
     pub uninstall_last_error: Option<String>,
 }
 
+pub fn inspect_artifact_plugin_id(artifact_path: impl AsRef<Path>) -> Result<String> {
+    let artifact_path = artifact_path.as_ref();
+    let (_, manifest, _) = stage_artifact_with_manifest(artifact_path)?;
+    Ok(manifest.id)
+}
+
 pub fn install_from_artifact(
     plugins_dir: impl AsRef<Path>,
     artifact_path: impl AsRef<Path>,
 ) -> Result<InstalledPlugin> {
     let plugins_dir = plugins_dir.as_ref();
     let artifact_path = artifact_path.as_ref();
-    if !artifact_path.exists() {
-        return Err(crate::op_error!(
-            "artifact not found: {}",
-            artifact_path.display()
-        ));
-    }
     std::fs::create_dir_all(plugins_dir)
         .with_context(|| format!("create {}", plugins_dir.display()))?;
 
-    let temp = tempfile::tempdir().context("create plugin install temp dir")?;
-    let staging_root = temp.path().join("staging");
-    std::fs::create_dir_all(&staging_root)
-        .with_context(|| format!("create {}", staging_root.display()))?;
-
-    if artifact_path.is_dir() {
-        copy_dir_recursive(artifact_path, &staging_root)?;
-    } else {
-        let ext = artifact_path
-            .extension()
-            .and_then(|v| v.to_str())
-            .unwrap_or_default()
-            .to_ascii_lowercase();
-        if ext != "zip" {
-            return Err(crate::op_error!(
-                "unsupported plugin artifact: {} (expect directory or .zip)",
-                artifact_path.display()
-            ));
-        }
-        extract_zip_to_dir(artifact_path, &staging_root)?;
-    }
-
-    let (mut valid, invalid) = find_manifest_candidates(&staging_root);
-    let (manifest_path, manifest) = match valid.len() {
-        0 => {
-            if !invalid.is_empty() {
-                let details = invalid
-                    .iter()
-                    .take(3)
-                    .map(|(path, error)| format!("{} => {}", path.display(), error))
-                    .collect::<Vec<_>>()
-                    .join(" | ");
-                return Err(crate::op_error!(
-                    "no valid wasm plugin manifest found in artifact: {}; invalid manifest candidates: {}",
-                    artifact_path.display(),
-                    details
-                ));
-            }
-            return Err(crate::op_error!(
-                "no valid wasm plugin manifest found in artifact: {}",
-                artifact_path.display()
-            ));
-        },
-        1 => valid.pop().expect("single manifest"),
-        _ => {
-            let ids = valid
-                .iter()
-                .map(|(_, m)| m.id.as_str())
-                .collect::<Vec<_>>()
-                .join(", ");
-            return Err(crate::op_error!(
-                "artifact contains multiple plugin manifests ({ids}); one artifact must contain exactly one plugin"
-            ));
-        },
-    };
-    let package_root = manifest_path
-        .parent()
-        .ok_or_else(|| crate::op_error!("invalid manifest path: {}", manifest_path.display()))?;
-    validate_manifest(&manifest, package_root)?;
+    let (_temp, manifest, package_root) = stage_artifact_with_manifest(artifact_path)?;
 
     let install_root = plugins_dir.join(&manifest.id);
-    if install_root.exists() {
-        std::fs::remove_dir_all(&install_root)
-            .with_context(|| format!("remove {}", install_root.display()))?;
+    let temp_install_root = unique_staging_root(plugins_dir, "install", &manifest.id);
+    copy_dir_recursive(&package_root, &temp_install_root)?;
+
+    let backup_root = if install_root.exists() {
+        let backup_root = unique_staging_root(plugins_dir, "backup", &manifest.id);
+        std::fs::rename(&install_root, &backup_root).with_context(|| {
+            format!(
+                "backup existing plugin root {} -> {}",
+                install_root.display(),
+                backup_root.display()
+            )
+        })?;
+        Some(backup_root)
+    } else {
+        None
+    };
+
+    if let Err(error) = std::fs::rename(&temp_install_root, &install_root) {
+        let _ = std::fs::remove_dir_all(&temp_install_root);
+        let rollback_error = if let Some(ref backup) = backup_root {
+            std::fs::rename(backup, &install_root).err()
+        } else {
+            None
+        };
+        return Err(match rollback_error {
+            Some(rollback_error) => crate::op_error!(
+                "failed to promote plugin install root {} -> {}: {}; rollback {} -> {} also failed: {}",
+                temp_install_root.display(),
+                install_root.display(),
+                error,
+                backup_root
+                    .as_ref()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|| "<none>".to_string()),
+                install_root.display(),
+                rollback_error
+            ),
+            None => crate::op_error!(
+                "failed to promote plugin install root {} -> {}: {}",
+                temp_install_root.display(),
+                install_root.display(),
+                error
+            ),
+        });
     }
-    copy_dir_recursive(package_root, &install_root)?;
 
     let receipt = PluginInstallReceipt {
         manifest: manifest.clone(),
         manifest_rel_path: PLUGIN_MANIFEST_FILE_NAME.to_string(),
     };
-    write_receipt(&install_root, &receipt)?;
+    if let Err(error) = write_receipt(&install_root, &receipt) {
+        let mut rollback_error = None;
+        if let Some(ref backup) = backup_root {
+            let _ = std::fs::remove_dir_all(&install_root);
+            rollback_error = std::fs::rename(backup, &install_root).err();
+        }
+        return Err(match rollback_error {
+            Some(rollback_error) => crate::op_error!(
+                "failed to finalize plugin install receipt under {}: {}; rollback {} -> {} also failed: {}",
+                install_root.display(),
+                error,
+                backup_root
+                    .as_ref()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|| "<none>".to_string()),
+                install_root.display(),
+                rollback_error
+            ),
+            None => error,
+        });
+    }
+
+    if let Some(backup_root) = backup_root
+        && let Err(remove_err) = std::fs::remove_dir_all(&backup_root)
+    {
+        write_pending_uninstall_marker(&backup_root, manifest.id.as_str(), remove_err.to_string())?;
+        warn!(
+            target: "stellatune_plugins::install",
+            plugin_id = %manifest.id,
+            root = %backup_root.display(),
+            "failed to cleanup old plugin backup root after successful install; deferred cleanup"
+        );
+    }
 
     let info = InstalledPlugin {
         id: manifest.id.clone(),
@@ -250,6 +264,105 @@ fn now_unix_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0)
+}
+
+fn unique_staging_root(plugins_dir: &Path, purpose: &str, plugin_id: &str) -> PathBuf {
+    let pid = std::process::id();
+    for attempt in 0..128_u32 {
+        let path = plugins_dir.join(format!(
+            ".{purpose}-{plugin_id}-{pid}-{}-{attempt}",
+            now_unix_ms()
+        ));
+        if !path.exists() {
+            return path;
+        }
+    }
+    plugins_dir.join(format!(".{purpose}-{plugin_id}-{pid}-{}", now_unix_ms()))
+}
+
+fn write_pending_uninstall_marker(root: &Path, plugin_id: &str, last_error: String) -> Result<()> {
+    let marker_path = pending_marker_path_for_plugin_root(root);
+    let marker = UninstallPendingMarker {
+        plugin_id: plugin_id.to_string(),
+        queued_at_ms: now_unix_ms(),
+        retry_count: 0,
+        last_error: Some(last_error),
+        state: PluginInstallState::PendingUninstall,
+    };
+    write_uninstall_pending_marker(&marker_path, &marker)
+}
+
+fn stage_artifact_with_manifest(
+    artifact_path: &Path,
+) -> Result<(tempfile::TempDir, WasmPluginManifest, PathBuf)> {
+    if !artifact_path.exists() {
+        return Err(crate::op_error!(
+            "artifact not found: {}",
+            artifact_path.display()
+        ));
+    }
+
+    let temp = tempfile::tempdir().context("create plugin install temp dir")?;
+    let staging_root = temp.path().join("staging");
+    std::fs::create_dir_all(&staging_root)
+        .with_context(|| format!("create {}", staging_root.display()))?;
+
+    if artifact_path.is_dir() {
+        copy_dir_recursive(artifact_path, &staging_root)?;
+    } else {
+        let ext = artifact_path
+            .extension()
+            .and_then(|v| v.to_str())
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        if ext != "zip" {
+            return Err(crate::op_error!(
+                "unsupported plugin artifact: {} (expect directory or .zip)",
+                artifact_path.display()
+            ));
+        }
+        extract_zip_to_dir(artifact_path, &staging_root)?;
+    }
+
+    let (mut valid, invalid) = find_manifest_candidates(&staging_root);
+    let (manifest_path, manifest) = match valid.len() {
+        0 => {
+            if !invalid.is_empty() {
+                let details = invalid
+                    .iter()
+                    .take(3)
+                    .map(|(path, error)| format!("{} => {}", path.display(), error))
+                    .collect::<Vec<_>>()
+                    .join(" | ");
+                return Err(crate::op_error!(
+                    "no valid wasm plugin manifest found in artifact: {}; invalid manifest candidates: {}",
+                    artifact_path.display(),
+                    details
+                ));
+            }
+            return Err(crate::op_error!(
+                "no valid wasm plugin manifest found in artifact: {}",
+                artifact_path.display()
+            ));
+        },
+        1 => valid.pop().expect("single manifest"),
+        _ => {
+            let ids = valid
+                .iter()
+                .map(|(_, m)| m.id.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
+            return Err(crate::op_error!(
+                "artifact contains multiple plugin manifests ({ids}); one artifact must contain exactly one plugin"
+            ));
+        },
+    };
+    let package_root = manifest_path
+        .parent()
+        .ok_or_else(|| crate::op_error!("invalid manifest path: {}", manifest_path.display()))?;
+    validate_manifest(&manifest, package_root)?;
+
+    Ok((temp, manifest, package_root.to_path_buf()))
 }
 
 fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {

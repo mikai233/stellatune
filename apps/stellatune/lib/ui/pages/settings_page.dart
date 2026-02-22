@@ -10,6 +10,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as p;
 import 'package:stellatune/app/providers.dart';
 import 'package:stellatune/app/plugin_paths.dart';
+import 'package:stellatune/app/plugin_ui_gateway_service.dart';
 import 'package:stellatune/app/settings_store.dart';
 import 'package:stellatune/bridge/bridge.dart';
 import 'package:stellatune/l10n/app_localizations.dart';
@@ -446,6 +447,51 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
     ).showSnackBar(SnackBar(content: Text(l10n.settingsSourceConfigSaved)));
   }
 
+  Future<void> _openPluginWebUi({
+    required String pluginId,
+    required String pluginName,
+  }) async {
+    await _ensurePluginDir();
+    final pluginsDir = (_pluginDir ?? '').trim();
+    if (!mounted || pluginsDir.isEmpty) {
+      return;
+    }
+    try {
+      final url = await PluginUiGatewayService.instance.pluginUiUrl(
+        pluginId: pluginId,
+        pluginsDir: pluginsDir,
+      );
+      final raw = (url ?? '').trim();
+      if (raw.isEmpty) {
+        throw StateError('plugin does not expose a web ui entry');
+      }
+      final uri = Uri.tryParse(raw);
+      if (uri == null) {
+        throw StateError('invalid plugin ui url: $raw');
+      }
+
+      var opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!opened) {
+        opened = await launchUrl(uri);
+      }
+      if (!opened) {
+        throw StateError('failed to launch browser for plugin web ui');
+      }
+    } catch (e, s) {
+      logger.w(
+        'failed to open plugin web ui in browser plugin=$pluginId',
+        error: e,
+        stackTrace: s,
+      );
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to open "$pluginName" Web UI: $e')),
+      );
+    }
+  }
+
   Future<void> _setPluginEnabled({
     required _InstalledPlugin plugin,
     required bool enabled,
@@ -481,7 +527,6 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
 
   Future<void> _uninstallPlugin(_InstalledPlugin plugin) async {
     await _ensurePluginDir();
-    final library = ref.read(libraryBridgeProvider);
     final pluginId = plugin.id?.trim();
     if (pluginId != null && pluginId.isNotEmpty) {
       await _shutdownNeteaseSidecarResident(
@@ -489,15 +534,14 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
         silent: true,
       );
     }
-    if (plugin.id != null && plugin.id!.trim().isNotEmpty) {
+    if (pluginId != null && pluginId.isNotEmpty) {
       await ref
           .read(playerBridgeProvider)
-          .pluginsUninstallById(dir: _pluginDir!, pluginId: plugin.id!);
-      await library.pluginEnable(pluginId: plugin.id!);
+          .pluginsUninstallById(dir: _pluginDir!, pluginId: pluginId);
     } else {
       await Directory(plugin.dirPath).delete(recursive: true);
+      await ref.read(libraryBridgeProvider).pluginApplyState();
     }
-    await library.pluginApplyState();
     await _refreshDecoderExtensionSupportCache();
     if (!mounted) return;
     setState(_refresh);
@@ -2330,6 +2374,12 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
                                             ? const []
                                             : (outputByPlugin[p.id] ??
                                                   const []),
+                                        onOpenWebUi: p.id == null
+                                            ? null
+                                            : () => _openPluginWebUi(
+                                                pluginId: p.id!,
+                                                pluginName: p.nameOrDir,
+                                              ),
                                         onToggleEnabled: (v) =>
                                             _setPluginEnabled(
                                               plugin: p,
@@ -2435,6 +2485,7 @@ class _PluginTile extends StatefulWidget {
   final bool loadedKnown;
   final List<SourceCatalogTypeDescriptor> pluginSourceTypes;
   final List<OutputSinkTypeDescriptor> pluginOutputSinkTypes;
+  final Future<void> Function()? onOpenWebUi;
   final Future<void> Function(bool) onToggleEnabled;
   final Future<void> Function() onUninstall;
   final String? Function(SourceCatalogTypeDescriptor) sourceConfigForType;
@@ -2452,6 +2503,7 @@ class _PluginTile extends StatefulWidget {
     required this.loadedKnown,
     required this.pluginSourceTypes,
     required this.pluginOutputSinkTypes,
+    required this.onOpenWebUi,
     required this.onToggleEnabled,
     required this.onUninstall,
     required this.sourceConfigForType,
@@ -2548,6 +2600,11 @@ class _PluginTileState extends State<_PluginTile> {
     Widget buildActions() => Row(
       mainAxisSize: MainAxisSize.min,
       children: [
+        IconButton(
+          tooltip: 'Open Web UI',
+          onPressed: widget.onOpenWebUi,
+          icon: const Icon(Icons.web),
+        ),
         Switch(
           value: isEnabled,
           onChanged: !canToggleEnabled

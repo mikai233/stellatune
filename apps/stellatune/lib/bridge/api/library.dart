@@ -7,7 +7,7 @@ import '../frb_generated.dart';
 import '../third_party/stellatune_library.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `shared_library`
+// These functions are ignored because they are not marked as `pub`: `shared_library_if_initialized`, `shared_library`
 
 Future<void> createLibrary({required String dbPath}) =>
     StellatuneApi.instance.api.crateApiLibraryCreateLibrary(dbPath: dbPath);

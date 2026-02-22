@@ -4207,7 +4207,10 @@ dependencies = [
  "anyhow",
  "arc-swap",
  "async-trait",
+ "axum",
  "flutter_rust_bridge",
+ "futures-util",
+ "rand 0.10.0",
  "reqwest",
  "serde",
  "serde_json",
@@ -4357,6 +4360,7 @@ dependencies = [
  "wasmtime",
  "wasmtime-wasi",
  "wat",
+ "windows",
 ]
 
 [[package]]

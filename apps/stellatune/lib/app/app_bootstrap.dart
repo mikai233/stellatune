@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import 'package:stellatune/app/plugin_paths.dart';
+import 'package:stellatune/app/plugin_ui_gateway_service.dart';
 import 'package:stellatune/app/settings_store.dart';
 import 'package:stellatune/bridge/api/runtime.dart' as runtime_api;
 import 'package:stellatune/bridge/bridge.dart';
@@ -32,11 +33,13 @@ class _BootstrapPaths {
     required this.dbPath,
     required this.coverDir,
     required this.lyricsDbPath,
+    required this.pluginDir,
   });
 
   final String dbPath;
   final String coverDir;
   final String lyricsDbPath;
+  final String pluginDir;
 }
 
 bool _isExitInProgress = false;
@@ -99,6 +102,7 @@ Future<AppBootstrapResult> bootstrapApp() async {
 
   await _applyPersistedOutputSettings(bridge: bridge, settings: settings);
   await _setupLyricsCacheDb(bridge: bridge, lyricsDbPath: paths.lyricsDbPath);
+  await _startPluginUiGateway(pluginDir: paths.pluginDir);
 
   if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
     TrayService.instance.onExitRequested = () => _exitApp(bridge);
@@ -126,6 +130,15 @@ Future<void> _exitApp(PlayerBridge bridge) async {
     );
   }
   try {
+    await PluginUiGatewayService.instance.stopIfStarted();
+  } catch (e, s) {
+    logger.w(
+      'failed to stop plugin ui gateway before exit',
+      error: e,
+      stackTrace: s,
+    );
+  }
+  try {
     await runtime_api.shutdown();
   } catch (e, s) {
     logger.w(
@@ -148,7 +161,20 @@ Future<_BootstrapPaths> _resolvePaths() async {
     dbPath: dbPath,
     coverDir: p.join(baseDir, 'covers'),
     lyricsDbPath: p.join(baseDir, 'lyrics_cache.sqlite'),
+    pluginDir: pluginDir,
   );
+}
+
+Future<void> _startPluginUiGateway({required String pluginDir}) async {
+  try {
+    await PluginUiGatewayService.instance.ensureStarted(pluginsDir: pluginDir);
+  } catch (e, s) {
+    logger.w(
+      'failed to start plugin ui gateway during bootstrap',
+      error: e,
+      stackTrace: s,
+    );
+  }
 }
 
 Future<void> _applyPersistedOutputSettings({
