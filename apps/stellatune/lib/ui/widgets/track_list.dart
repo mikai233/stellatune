@@ -69,8 +69,9 @@ class _TrackListState extends State<TrackList> {
   int _desktopWheelBurstTicks = 0;
   int _desktopWheelBurstStartMicros = 0;
   int _desktopWheelBurstLastMicros = 0;
+  List<TrackLite>? _reorderViewItems;
+  String? _pendingReorderFingerprint;
   final Set<int> _selectedTrackIds = <int>{};
-  int? _hoveredTrackId;
   int? _pressedTrackId;
   int _lastViewportStart = -1;
   int _lastViewportEnd = -1;
@@ -86,6 +87,27 @@ class _TrackListState extends State<TrackList> {
     if (!identical(oldWidget.items, widget.items)) {
       _lastViewportStart = -1;
       _lastViewportEnd = -1;
+    }
+    if (widget.currentPlaylistId == null ||
+        widget.onMoveInCurrentPlaylist == null) {
+      _reorderViewItems = null;
+      _pendingReorderFingerprint = null;
+      return;
+    }
+    final local = _reorderViewItems;
+    if (local == null) {
+      return;
+    }
+    final currentFp = _trackOrderFingerprint(widget.items);
+    if (_pendingReorderFingerprint != null &&
+        currentFp == _pendingReorderFingerprint) {
+      _reorderViewItems = null;
+      _pendingReorderFingerprint = null;
+      return;
+    }
+    if (_pendingReorderFingerprint == null &&
+        currentFp != _trackOrderFingerprint(local)) {
+      _reorderViewItems = List<TrackLite>.from(widget.items);
     }
   }
 
@@ -144,7 +166,11 @@ class _TrackListState extends State<TrackList> {
     if (index < 0 || index >= widget.items.length) {
       return null;
     }
-    final track = widget.items[index];
+    final items = _effectiveTrackItems();
+    if (index >= items.length) {
+      return null;
+    }
+    final track = items[index];
     final isBlocked = widget.blockedReasonByTrackId.containsKey(
       track.id.toInt(),
     );
@@ -284,6 +310,12 @@ class _TrackListState extends State<TrackList> {
     return false;
   }
 
+  List<TrackLite> _effectiveTrackItems() => _reorderViewItems ?? widget.items;
+
+  String _trackOrderFingerprint(List<TrackLite> items) {
+    return items.map((t) => '${t.id}|${t.path}').join('\u0001');
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -310,31 +342,50 @@ class _TrackListState extends State<TrackList> {
         widget.currentPlaylistId != null &&
         widget.onMoveInCurrentPlaylist != null &&
         !isSelectionMode;
+    final reorderItems = canReorderCurrentPlaylist
+        ? _effectiveTrackItems()
+        : widget.items;
     final body = canReorderCurrentPlaylist
         ? NotificationListener<ScrollNotification>(
             onNotification: _onScrollNotification,
             child: ReorderableListView.builder(
               scrollController: _controller,
               buildDefaultDragHandles: false,
-              itemCount: widget.items.length,
+              itemCount: reorderItems.length,
               itemExtent: _itemExtent,
               onReorder: (oldIndex, newIndex) async {
                 if (newIndex > oldIndex) {
                   newIndex -= 1;
                 }
                 if (oldIndex == newIndex) return;
-                final t = widget.items[oldIndex];
-                await widget.onMoveInCurrentPlaylist!(t, newIndex);
+                final next = List<TrackLite>.from(reorderItems);
+                final moved = next.removeAt(oldIndex);
+                next.insert(newIndex, moved);
+                setState(() {
+                  _reorderViewItems = next;
+                  _pendingReorderFingerprint = _trackOrderFingerprint(next);
+                });
+                try {
+                  await widget.onMoveInCurrentPlaylist!(moved, newIndex);
+                } catch (_) {
+                  if (!mounted) return;
+                  setState(() {
+                    _reorderViewItems = null;
+                    _pendingReorderFingerprint = null;
+                  });
+                  rethrow;
+                }
               },
               itemBuilder: (context, i) {
-                final t = widget.items[i];
+                final t = reorderItems[i];
                 return KeyedSubtree(
-                  key: ValueKey('playlist-track-${t.id}-$i'),
+                  key: ObjectKey(t),
                   child: _buildTrackTile(
                     context,
                     l10n,
                     i,
                     t,
+                    activateItems: reorderItems,
                     reorderIndex: i,
                     deferHeavy: _deferHeavy,
                     selectionMode: false,
@@ -360,6 +411,7 @@ class _TrackListState extends State<TrackList> {
                       l10n,
                       i,
                       t,
+                      activateItems: widget.items,
                       deferHeavy: _deferHeavy,
                       selectionMode: isSelectionMode,
                     );
@@ -402,6 +454,7 @@ class _TrackListState extends State<TrackList> {
     AppLocalizations l10n,
     int i,
     TrackLite t, {
+    required List<TrackLite> activateItems,
     int? reorderIndex,
     required bool deferHeavy,
     required bool selectionMode,
@@ -420,76 +473,63 @@ class _TrackListState extends State<TrackList> {
     final isBlocked = blockedReason != null;
     final selected = _selectedTrackIds.contains(trackId);
     final theme = Theme.of(context);
-    final hovered = _hoveredTrackId == trackId;
     final pressed = _pressedTrackId == trackId;
     final rowBg = selected
-        ? theme.colorScheme.secondaryContainer.withValues(alpha: 0.52)
-        : hovered
-        ? theme.colorScheme.surfaceContainerHigh.withValues(alpha: 0.42)
-        : Colors.transparent;
-    final rowBorderColor = selected
-        ? theme.colorScheme.secondary.withValues(alpha: 0.34)
-        : theme.colorScheme.onSurface.withValues(alpha: hovered ? 0.12 : 0.08);
-    final rowShadow = hovered
-        ? [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.045),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
-            ),
-          ]
-        : const <BoxShadow>[];
+        ? theme.colorScheme.secondaryContainer.withValues(alpha: 0.92)
+        : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.28);
+    final rowBorder = selected
+        ? Border.all(color: theme.colorScheme.secondary.withValues(alpha: 0.70))
+        : null;
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 1.5),
-      child: MouseRegion(
-        onEnter: (_) {
-          if (_hoveredTrackId == trackId) return;
-          setState(() => _hoveredTrackId = trackId);
+      padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 4),
+      child: Listener(
+        onPointerDown: (_) {
+          if (_pressedTrackId == trackId) return;
+          setState(() => _pressedTrackId = trackId);
         },
-        onExit: (_) {
-          if (_hoveredTrackId != trackId) return;
-          setState(() => _hoveredTrackId = null);
+        onPointerUp: (_) {
+          if (_pressedTrackId != trackId) return;
+          setState(() => _pressedTrackId = null);
         },
-        child: Listener(
-          onPointerDown: (_) {
-            if (_pressedTrackId == trackId) return;
-            setState(() => _pressedTrackId = trackId);
-          },
-          onPointerUp: (_) {
-            if (_pressedTrackId != trackId) return;
-            setState(() => _pressedTrackId = null);
-          },
-          onPointerCancel: (_) {
-            if (_pressedTrackId != trackId) return;
-            setState(() => _pressedTrackId = null);
-          },
-          child: AnimatedScale(
-            duration: const Duration(milliseconds: 90),
-            curve: Curves.easeOutCubic,
-            scale: pressed ? 0.995 : 1.0,
-            child: AnimatedContainer(
-              duration: _rowAnimDuration,
-              curve: _rowAnimCurve,
-              decoration: BoxDecoration(
-                color: rowBg,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: rowBorderColor, width: 0.8),
-                boxShadow: rowShadow,
-              ),
-              child: GestureDetector(
-                onSecondaryTapDown: !_isDesktopPlatform || deferHeavy
-                    ? null
-                    : (details) => _showTrackActionMenu(
-                        globalPosition: details.globalPosition,
-                        index: i,
-                        track: t,
-                        isBlocked: isBlocked,
-                      ),
+        onPointerCancel: (_) {
+          if (_pressedTrackId != trackId) return;
+          setState(() => _pressedTrackId = null);
+        },
+        child: AnimatedScale(
+          duration: const Duration(milliseconds: 90),
+          curve: Curves.easeOutCubic,
+          scale: pressed ? 0.995 : 1.0,
+          child: AnimatedContainer(
+            duration: _rowAnimDuration,
+            curve: _rowAnimCurve,
+            decoration: BoxDecoration(
+              color: rowBg,
+              borderRadius: BorderRadius.circular(14),
+              border: rowBorder,
+            ),
+            child: GestureDetector(
+              onSecondaryTapDown: !_isDesktopPlatform || deferHeavy
+                  ? null
+                  : (details) => _showTrackActionMenu(
+                      globalPosition: details.globalPosition,
+                      index: i,
+                      track: t,
+                      activateItems: activateItems,
+                      isBlocked: isBlocked,
+                    ),
+              child: Material(
+                type: MaterialType.transparency,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                clipBehavior: Clip.antiAlias,
                 child: ListTile(
                   dense: true,
+                  hoverColor: theme.colorScheme.surfaceContainerHighest
+                      .withValues(alpha: 0.42),
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(14),
                   ),
                   leading: deferHeavy
                       ? const _CoverPlaceholder()
@@ -566,6 +606,7 @@ class _TrackListState extends State<TrackList> {
                               action: action,
                               index: i,
                               track: t,
+                              activateItems: activateItems,
                               isBlocked: isBlocked,
                             ),
                             itemBuilder: (context) =>
@@ -589,7 +630,7 @@ class _TrackListState extends State<TrackList> {
                       return;
                     }
                     if (isBlocked) return;
-                    widget.onActivate(i, widget.items);
+                    widget.onActivate(i, activateItems);
                   },
                   onLongPress: widget.currentPlaylistId == null
                       ? null
@@ -725,6 +766,7 @@ class _TrackListState extends State<TrackList> {
     required Offset globalPosition,
     required int index,
     required TrackLite track,
+    required List<TrackLite> activateItems,
     required bool isBlocked,
   }) async {
     if (!mounted) return;
@@ -745,6 +787,7 @@ class _TrackListState extends State<TrackList> {
           globalPosition: pendingRequest.globalPosition,
           index: pendingRequest.index,
           track: pendingRequest.track,
+          activateItems: _effectiveTrackItems(),
           isBlocked: pendingRequest.isBlocked,
         ),
       );
@@ -757,6 +800,7 @@ class _TrackListState extends State<TrackList> {
       action: action,
       index: index,
       track: track,
+      activateItems: activateItems,
       isBlocked: isBlocked,
     );
   }
@@ -766,6 +810,7 @@ class _TrackListState extends State<TrackList> {
     required _TrackAction action,
     required int index,
     required TrackLite track,
+    required List<TrackLite> activateItems,
     required bool isBlocked,
   }) async {
     if (action == _TrackAction.enqueue) {
@@ -775,7 +820,7 @@ class _TrackListState extends State<TrackList> {
     }
     if (action == _TrackAction.play) {
       if (isBlocked) return;
-      await widget.onActivate(index, widget.items);
+      await widget.onActivate(index, activateItems);
       return;
     }
     if (action == _TrackAction.addToPlaylist) {
