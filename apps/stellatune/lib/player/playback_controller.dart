@@ -209,17 +209,20 @@ class PlaybackController extends Notifier<PlaybackState> {
       }
     }
 
+    // Reflect persisted resume state in UI immediately, even if backend restore
+    // work is delayed or fails during startup.
+    state = state.copyWith(
+      currentPath: track.locator,
+      positionMs: pos,
+      lastError: null,
+    );
+
     final bridge = ref.read(playerBridgeProvider);
     try {
       await bridge.switchTrackRef(track, lazy: true);
       if (pos > 0) {
         await bridge.seekMs(pos);
       }
-      state = state.copyWith(
-        currentPath: track.locator,
-        positionMs: pos,
-        lastError: null,
-      );
       unawaited(
         bridge.preloadTrackRef(track, positionMs: pos).catchError((Object e) {
           ref.read(loggerProvider).d('resume preload failed: $e');

@@ -388,7 +388,7 @@ class _NowPlayingProgressBarState extends State<NowPlayingProgressBar>
 
   double _targetValue() {
     final d = widget.durationMs;
-    if (!widget.enabled || !widget.audioStarted || d == null || d <= 0) {
+    if (!widget.enabled || d == null || d <= 0) {
       return 0;
     }
     final pendingMs = _pendingSeekMs;
@@ -791,6 +791,7 @@ class VolumePopupButton extends StatefulWidget {
     required this.onChanged,
     this.foregroundColor,
     this.iconSize = 24.0,
+    this.buttonSize = 48.0,
     this.enableHover = false,
     this.onToggleMute,
   });
@@ -799,6 +800,7 @@ class VolumePopupButton extends StatefulWidget {
   final ValueChanged<double> onChanged;
   final Color? foregroundColor;
   final double iconSize;
+  final double buttonSize;
   final bool enableHover;
   final VoidCallback? onToggleMute;
 
@@ -1044,6 +1046,9 @@ class _VolumePopupButtonState extends State<VolumePopupButton>
         : widget.volume < 0.5
         ? Icons.volume_down
         : Icons.volume_up;
+    final visualIconSize = iconData == Icons.volume_down
+        ? widget.iconSize + 2
+        : widget.iconSize;
 
     final color =
         widget.foregroundColor ??
@@ -1068,7 +1073,11 @@ class _VolumePopupButtonState extends State<VolumePopupButton>
         child: IconButton(
           tooltip: null,
           icon: Icon(iconData),
-          iconSize: widget.iconSize,
+          iconSize: visualIconSize,
+          constraints: BoxConstraints.tightFor(
+            width: widget.buttonSize,
+            height: widget.buttonSize,
+          ),
           color: color,
           onPressed: _onPressed,
         ),

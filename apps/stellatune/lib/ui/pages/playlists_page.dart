@@ -1224,28 +1224,6 @@ class PlaylistsPageState extends ConsumerState<PlaylistsPage> {
                                 .read(playbackControllerProvider.notifier)
                                 .enqueueItems([item]);
                           },
-                          onPlayAll: pluginVisibleTracks.isEmpty
-                              ? null
-                              : () async {
-                                  final source = QueueSource(
-                                    type: QueueSourceType.all,
-                                    label: selectionSourceLabel,
-                                  );
-                                  await ref
-                                      .read(playbackControllerProvider.notifier)
-                                      .setQueueAndPlayItems(
-                                        pluginVisibleTracks,
-                                        startIndex: 0,
-                                        source: source,
-                                      );
-                                },
-                          onEnqueueAll: pluginVisibleTracks.isEmpty
-                              ? null
-                              : () async {
-                                  await ref
-                                      .read(playbackControllerProvider.notifier)
-                                      .enqueueItems(pluginVisibleTracks);
-                                },
                         ),
                 ),
                 if (_playlistsPanelOpen)
@@ -2407,8 +2385,6 @@ class _PluginPlaylistTracksPane extends StatefulWidget {
     required this.onLoadMore,
     required this.onActivate,
     required this.onEnqueue,
-    this.onPlayAll,
-    this.onEnqueueAll,
   });
 
   final TextEditingController searchController;
@@ -2425,8 +2401,6 @@ class _PluginPlaylistTracksPane extends StatefulWidget {
   final Future<void> Function() onLoadMore;
   final Future<void> Function(int index, List<QueueItem> items) onActivate;
   final Future<void> Function(QueueItem item) onEnqueue;
-  final Future<void> Function()? onPlayAll;
-  final Future<void> Function()? onEnqueueAll;
 
   @override
   State<_PluginPlaylistTracksPane> createState() =>
@@ -2435,13 +2409,14 @@ class _PluginPlaylistTracksPane extends StatefulWidget {
 
 class _PluginPlaylistTracksPaneState extends State<_PluginPlaylistTracksPane> {
   static const double _loadMoreThreshold = 320;
-  static const double _itemExtent = 70;
+  static const double _itemExtent = 72;
   final ScrollController _scrollController = ScrollController();
   Future<void>? _pendingLoadMore;
   Timer? _settleTimer;
   bool _deferHeavy = false;
   double _lastPixels = 0.0;
   int _lastMicros = 0;
+  String? _pressedTrackKey;
 
   @override
   void initState() {
@@ -2533,9 +2508,6 @@ class _PluginPlaylistTracksPaneState extends State<_PluginPlaylistTracksPane> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
-    final hasPendingRows =
-        widget.loadingMore || (!widget.filterActive && widget.hasMore);
-    final listCount = widget.tracks.length;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -2563,51 +2535,82 @@ class _PluginPlaylistTracksPaneState extends State<_PluginPlaylistTracksPane> {
                 color: theme.colorScheme.onSurface.withValues(alpha: 0.10),
               ),
             ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+              borderSide: BorderSide(
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.10),
+              ),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+              borderSide: BorderSide(color: theme.colorScheme.primary),
+            ),
           ),
           onChanged: widget.onSearchChanged,
         ),
         const SizedBox(height: 12),
-        Text(
-          widget.selectedLabel,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: theme.textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.w600,
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                theme.colorScheme.surfaceContainerHigh.withValues(alpha: 0.74),
+                theme.colorScheme.surfaceContainer.withValues(alpha: 0.58),
+              ],
+            ),
+            border: Border.all(
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.08),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.045),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
+              ),
+            ],
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                Icons.queue_music,
+                size: 18,
+                color: theme.colorScheme.primary,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      l10n.queueSourceTitle,
+                      style: theme.textTheme.labelMedium,
+                    ),
+                    Text(
+                      widget.queueSourceLabel,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodyMedium,
+                    ),
+                    Text(
+                      l10n.queueSourceHint,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ),
-        const SizedBox(height: 4),
-        Text(
-          widget.sourceLabel,
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
-          ),
-        ),
-        const SizedBox(height: 10),
-        Row(
-          children: [
-            FilledButton.icon(
-              onPressed: widget.onPlayAll == null
-                  ? null
-                  : () => widget.onPlayAll!(),
-              icon: const Icon(Icons.play_arrow),
-              label: const Text('Play All'),
-            ),
-            const SizedBox(width: 8),
-            OutlinedButton.icon(
-              onPressed: widget.onEnqueueAll == null
-                  ? null
-                  : () => widget.onEnqueueAll!(),
-              icon: const Icon(Icons.queue_music),
-              label: const Text('Enqueue All'),
-            ),
-            const Spacer(),
-            Text(
-              hasPendingRows ? '$listCount+' : '$listCount',
-              style: theme.textTheme.bodySmall,
-            ),
-          ],
-        ),
-        const SizedBox(height: 10),
+        const SizedBox(height: 12),
+        const SizedBox(height: 6),
         Expanded(
           child: widget.loading
               ? const Center(child: CircularProgressIndicator())
@@ -2633,6 +2636,7 @@ class _PluginPlaylistTracksPaneState extends State<_PluginPlaylistTracksPane> {
                         itemCount: widget.tracks.length,
                         itemBuilder: (context, index) {
                           final item = widget.tracks[index];
+                          final trackKey = item.stableTrackKey;
                           final title = item.title?.trim().isNotEmpty == true
                               ? item.title!.trim()
                               : item.track.trackId;
@@ -2641,49 +2645,102 @@ class _PluginPlaylistTracksPaneState extends State<_PluginPlaylistTracksPane> {
                           final subtitle = artist.isEmpty
                               ? album
                               : (album.isEmpty ? artist : '$artist · $album');
-                          return DecoratedBox(
-                            decoration: BoxDecoration(
-                              border: Border(
-                                bottom: BorderSide(
-                                  color: Theme.of(
-                                    context,
-                                  ).dividerColor.withValues(alpha: 0.55),
-                                  width: 0.7,
+                          final rowBg = theme
+                              .colorScheme
+                              .surfaceContainerHighest
+                              .withValues(alpha: 0.28);
+                          final pressed = _pressedTrackKey == trackKey;
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 2,
+                              vertical: 4,
+                            ),
+                            child: Listener(
+                              onPointerDown: (_) {
+                                if (_pressedTrackKey == trackKey) return;
+                                setState(() => _pressedTrackKey = trackKey);
+                              },
+                              onPointerUp: (_) {
+                                if (_pressedTrackKey != trackKey) return;
+                                setState(() => _pressedTrackKey = null);
+                              },
+                              onPointerCancel: (_) {
+                                if (_pressedTrackKey != trackKey) return;
+                                setState(() => _pressedTrackKey = null);
+                              },
+                              child: AnimatedScale(
+                                duration: const Duration(milliseconds: 90),
+                                curve: Curves.easeOutCubic,
+                                scale: pressed ? 0.995 : 1.0,
+                                child: AnimatedContainer(
+                                  duration: const Duration(milliseconds: 180),
+                                  curve: Curves.easeOutCubic,
+                                  decoration: BoxDecoration(
+                                    color: rowBg,
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                  child: Material(
+                                    type: MaterialType.transparency,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(14),
+                                    ),
+                                    clipBehavior: Clip.antiAlias,
+                                    child: ListTile(
+                                      dense: true,
+                                      hoverColor: theme
+                                          .colorScheme
+                                          .surfaceContainerHighest
+                                          .withValues(alpha: 0.42),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(14),
+                                      ),
+                                      contentPadding:
+                                          const EdgeInsets.symmetric(
+                                            horizontal: 12,
+                                          ),
+                                      leading: _PluginTrackCover(
+                                        cover: item.cover,
+                                        deferHeavy: _deferHeavy,
+                                      ),
+                                      title: Text(
+                                        title,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      subtitle: _deferHeavy || subtitle.isEmpty
+                                          ? null
+                                          : Text(
+                                              subtitle,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                      onTap: () => widget.onActivate(
+                                        index,
+                                        widget.tracks,
+                                      ),
+                                      trailing: _deferHeavy
+                                          ? const SizedBox(width: 72)
+                                          : Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                _PluginDurationText(
+                                                  ms: item.durationMs?.toInt(),
+                                                ),
+                                                const SizedBox(width: 4),
+                                                IconButton(
+                                                  tooltip: l10n.menuEnqueue,
+                                                  onPressed: () =>
+                                                      widget.onEnqueue(item),
+                                                  icon: const Icon(
+                                                    Icons.add_to_queue_outlined,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                    ),
+                                  ),
                                 ),
                               ),
-                            ),
-                            child: ListTile(
-                              dense: true,
-                              contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                              ),
-                              leading: _PluginTrackCover(
-                                cover: item.cover,
-                                deferHeavy: _deferHeavy,
-                              ),
-                              title: Text(
-                                title,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              subtitle: _deferHeavy || subtitle.isEmpty
-                                  ? null
-                                  : Text(
-                                      subtitle,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                              onTap: () =>
-                                  widget.onActivate(index, widget.tracks),
-                              trailing: _deferHeavy
-                                  ? const SizedBox(width: 24)
-                                  : IconButton(
-                                      tooltip: 'Enqueue',
-                                      onPressed: () => widget.onEnqueue(item),
-                                      icon: const Icon(
-                                        Icons.add_to_queue_outlined,
-                                      ),
-                                    ),
                             ),
                           );
                         },
@@ -2718,15 +2775,6 @@ class _PluginPlaylistTracksPaneState extends State<_PluginPlaylistTracksPane> {
                       ),
                   ],
                 ),
-        ),
-        const SizedBox(height: 6),
-        Text(
-          widget.queueSourceLabel,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
-          ),
         ),
       ],
     );
@@ -2837,6 +2885,33 @@ class _PluginTrackCoverState extends State<_PluginTrackCover> {
       cover: widget.cover,
       placeholder: placeholder,
       size: 40,
+    );
+  }
+}
+
+class _PluginDurationText extends StatelessWidget {
+  const _PluginDurationText({required this.ms});
+
+  final int? ms;
+
+  @override
+  Widget build(BuildContext context) {
+    final value = ms;
+    if (value == null || value <= 0) {
+      return const SizedBox(width: 40);
+    }
+    final totalSeconds = (value / 1000).floor();
+    final minutes = (totalSeconds / 60).floor();
+    final seconds = totalSeconds % 60;
+    final text =
+        '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+    return SizedBox(
+      width: 40,
+      child: Text(
+        text,
+        textAlign: TextAlign.right,
+        style: Theme.of(context).textTheme.bodySmall,
+      ),
     );
   }
 }

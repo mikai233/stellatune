@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 
 class AudioFormatBadge extends StatelessWidget {
@@ -8,7 +10,7 @@ class AudioFormatBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final extension = _getExtension(path);
+    final extension = _resolveExtension(path);
     if (extension.isEmpty) return const SizedBox.shrink();
 
     final theme = Theme.of(context);
@@ -64,10 +66,64 @@ class AudioFormatBadge extends StatelessWidget {
     return isHiRes && ext == 'FLAC' ? 'HI-RES' : ext;
   }
 
-  String _getExtension(String path) {
-    final parts = path.split('.');
-    if (parts.length < 2) return '';
-    return parts.last.toUpperCase();
+  String _resolveExtension(String rawPath) {
+    final text = rawPath.trim();
+    if (text.isEmpty) return '';
+
+    final fromLocator = _extensionFromLocator(text);
+    if (fromLocator.isNotEmpty) return fromLocator;
+    return _normalizeExtension(text);
+  }
+
+  String _extensionFromLocator(String text) {
+    if (!text.startsWith('{') || !text.endsWith('}')) return '';
+    try {
+      final decoded = jsonDecode(text);
+      if (decoded is! Map) return '';
+      final map = decoded.cast<Object?, Object?>();
+
+      final extHint = _asText(map['ext_hint']);
+      final normalizedExtHint = _normalizeExtension(extHint ?? '');
+      if (normalizedExtHint.isNotEmpty) return normalizedExtHint;
+
+      final pathHint = _asText(map['path_hint']);
+      final normalizedPathHint = _normalizeExtension(pathHint ?? '');
+      if (normalizedPathHint.isNotEmpty) return normalizedPathHint;
+    } catch (_) {
+      // Fallback to plain-path parsing below.
+    }
+    return '';
+  }
+
+  String? _asText(Object? value) {
+    if (value == null) return null;
+    final text = value.toString().trim();
+    return text.isEmpty ? null : text;
+  }
+
+  String _normalizeExtension(String source) {
+    var text = source.trim();
+    if (text.isEmpty) return '';
+
+    final queryStart = text.indexOf('?');
+    if (queryStart >= 0) {
+      text = text.substring(0, queryStart);
+    }
+    final fragmentStart = text.indexOf('#');
+    if (fragmentStart >= 0) {
+      text = text.substring(0, fragmentStart);
+    }
+
+    final slash = text.lastIndexOf(RegExp(r'[\\/]'));
+    if (slash >= 0 && slash + 1 < text.length) {
+      text = text.substring(slash + 1);
+    }
+
+    final dot = text.lastIndexOf('.');
+    if (dot < 0 || dot + 1 >= text.length) return '';
+    final ext = text.substring(dot + 1).toUpperCase();
+    if (!RegExp(r'^[A-Z0-9]{1,10}$').hasMatch(ext)) return '';
+    return ext;
   }
 
   bool _isHiRes(String ext) {

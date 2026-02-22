@@ -47,16 +47,14 @@ class NowPlayingBar extends ConsumerWidget {
     final isPlaying =
         playback.playerState == PlayerState.playing ||
         playback.playerState == PlayerState.buffering;
+    const rightControlButtonSize = 50.0;
+    const rightControlIconSize = 24.0;
     final localizedPlaybackError = playback.lastError == null
         ? null
         : localizePlaybackError(l10n, playback.lastError!);
     final totalDurationMs =
         queue.currentItem?.durationMs ??
         playback.trackInfo?.durationMs?.toInt();
-    final timeLabel = (totalDurationMs != null && totalDurationMs > 0)
-        ? '${NowPlayingCommon.formatMs(playback.positionMs)} / ${NowPlayingCommon.formatMs(totalDurationMs)}'
-        : NowPlayingCommon.formatMs(playback.positionMs);
-
     return DecoratedBox(
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -89,111 +87,102 @@ class NowPlayingBar extends ConsumerWidget {
                 Row(
                   children: [
                     const SizedBox(width: 12),
-                    OpenContainer(
-                      closedElevation: 0,
-                      openElevation: 0,
-                      closedColor: Colors.black,
-                      openColor: Colors.black,
-                      closedShape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      openShape: const RoundedRectangleBorder(
-                        borderRadius: BorderRadius.zero,
-                      ),
-                      transitionDuration: const Duration(milliseconds: 400),
-                      transitionType: ContainerTransitionType.fade,
-                      openBuilder: (context, close) => const MusicDetailPage(),
-                      closedBuilder: (context, open) => Consumer(
-                        builder: (context, ref, child) {
-                          final innerQueue = ref.watch(queueControllerProvider);
-                          final innerCoverDir = ref.watch(coverDirProvider);
-                          final innerTrackId = innerQueue.currentItem?.id;
-                          final cover = innerQueue.currentItem?.cover;
-                          return NowPlayingCover(
-                            coverDir: innerCoverDir,
-                            trackId: innerTrackId,
-                            cover: cover,
-                            primaryColor: theme.colorScheme.primary,
-                            onTap: innerQueue.currentItem != null ? open : null,
-                          );
-                        },
-                      ),
-                    ),
-                    const SizedBox(width: 12),
                     Expanded(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                      child: Row(
                         children: [
-                          MarqueeText(
-                            text: currentTitle,
-                            style: theme.textTheme.bodyMedium,
+                          OpenContainer(
+                            closedElevation: 0,
+                            openElevation: 0,
+                            closedColor: Colors.black,
+                            openColor: Colors.black,
+                            closedShape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            openShape: const RoundedRectangleBorder(
+                              borderRadius: BorderRadius.zero,
+                            ),
+                            transitionDuration: const Duration(
+                              milliseconds: 400,
+                            ),
+                            transitionType: ContainerTransitionType.fade,
+                            openBuilder: (context, close) =>
+                                const MusicDetailPage(),
+                            closedBuilder: (context, open) => Consumer(
+                              builder: (context, ref, child) {
+                                final innerQueue = ref.watch(
+                                  queueControllerProvider,
+                                );
+                                final innerCoverDir = ref.watch(
+                                  coverDirProvider,
+                                );
+                                final innerTrackId = innerQueue.currentItem?.id;
+                                final cover = innerQueue.currentItem?.cover;
+                                return NowPlayingCover(
+                                  coverDir: innerCoverDir,
+                                  trackId: innerTrackId,
+                                  cover: cover,
+                                  primaryColor: theme.colorScheme.primary,
+                                  onTap: innerQueue.currentItem != null
+                                      ? open
+                                      : null,
+                                );
+                              },
+                            ),
                           ),
-                          if (currentSubtitle.isNotEmpty)
-                            Row(
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                if (playback.currentPath != null) ...[
-                                  AudioFormatBadge(
-                                    path: playback.currentPath!,
-                                    sampleRate: playback.trackInfo?.sampleRate,
-                                  ),
-                                  const SizedBox(width: 4),
-                                ],
-                                Expanded(
-                                  child: MarqueeText(
-                                    text: currentSubtitle,
-                                    style: theme.textTheme.bodySmall,
-                                  ),
+                                MarqueeText(
+                                  text: currentTitle,
+                                  style: theme.textTheme.bodyMedium,
                                 ),
+                                if (currentSubtitle.isNotEmpty)
+                                  Row(
+                                    children: [
+                                      if (playback.currentPath != null) ...[
+                                        AudioFormatBadge(
+                                          path: playback.currentPath!,
+                                          sampleRate:
+                                              playback.trackInfo?.sampleRate,
+                                        ),
+                                        const SizedBox(width: 4),
+                                      ],
+                                      Expanded(
+                                        child: MarqueeText(
+                                          text: currentSubtitle,
+                                          style: theme.textTheme.bodySmall,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                               ],
                             ),
+                          ),
                         ],
                       ),
                     ),
-                    const SizedBox(width: 14),
-                    Text(timeLabel, style: theme.textTheme.titleMedium),
-                    if (localizedPlaybackError != null) ...[
-                      const SizedBox(width: 8),
-                      IconButton(
-                        tooltip: localizedPlaybackError,
-                        onPressed: () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text(localizedPlaybackError)),
-                          );
-                        },
-                        icon: Icon(
-                          Icons.error_outline,
-                          color: theme.colorScheme.error,
-                        ),
-                      ),
-                    ],
-                    const SizedBox(width: 14),
-                    Container(
-                      height: 40,
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.surface.withValues(
-                          alpha: 0.54,
-                        ),
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(
-                          color: theme.colorScheme.onSurface.withValues(
-                            alpha: 0.08,
-                          ),
-                        ),
-                      ),
+                    SizedBox(
+                      width: 194,
                       child: Row(
-                        mainAxisSize: MainAxisSize.min,
+                        mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           IconButton(
-                            visualDensity: VisualDensity.compact,
                             tooltip: l10n.tooltipPrevious,
                             onPressed: () => ref
                                 .read(playbackControllerProvider.notifier)
                                 .previous(),
+                            iconSize: 30,
+                            constraints: const BoxConstraints.tightFor(
+                              width: 50,
+                              height: 50,
+                            ),
                             icon: const Icon(Icons.skip_previous),
                           ),
+                          const SizedBox(width: 2),
                           IconButton(
-                            visualDensity: VisualDensity.compact,
                             tooltip: isPlaying ? l10n.pause : l10n.play,
                             onPressed: () => isPlaying
                                 ? ref
@@ -202,49 +191,60 @@ class NowPlayingBar extends ConsumerWidget {
                                 : ref
                                       .read(playbackControllerProvider.notifier)
                                       .play(),
+                            iconSize: 38,
+                            constraints: const BoxConstraints.tightFor(
+                              width: 58,
+                              height: 58,
+                            ),
                             icon: Icon(
                               isPlaying ? Icons.pause : Icons.play_arrow,
                             ),
                           ),
+                          const SizedBox(width: 2),
                           IconButton(
-                            visualDensity: VisualDensity.compact,
-                            tooltip: l10n.stop,
-                            onPressed: () => ref
-                                .read(playbackControllerProvider.notifier)
-                                .stop(),
-                            icon: const Icon(Icons.stop),
-                          ),
-                          IconButton(
-                            visualDensity: VisualDensity.compact,
                             tooltip: l10n.tooltipNext,
                             onPressed: () => ref
                                 .read(playbackControllerProvider.notifier)
                                 .next(),
+                            iconSize: 30,
+                            constraints: const BoxConstraints.tightFor(
+                              width: 50,
+                              height: 50,
+                            ),
                             icon: const Icon(Icons.skip_next),
                           ),
                         ],
                       ),
                     ),
-                    const SizedBox(width: 10),
-                    Container(
-                      height: 40,
-                      padding: const EdgeInsets.symmetric(horizontal: 2),
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.surface.withValues(
-                          alpha: 0.54,
-                        ),
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(
-                          color: theme.colorScheme.onSurface.withValues(
-                            alpha: 0.08,
-                          ),
-                        ),
-                      ),
+                    Expanded(
                       child: Row(
-                        mainAxisSize: MainAxisSize.min,
+                        mainAxisAlignment: MainAxisAlignment.end,
                         children: [
+                          if (localizedPlaybackError != null)
+                            IconButton(
+                              tooltip: localizedPlaybackError,
+                              onPressed: () {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(localizedPlaybackError),
+                                  ),
+                                );
+                              },
+                              icon: Icon(
+                                Icons.error_outline,
+                                color: theme.colorScheme.error,
+                              ),
+                              iconSize: 24,
+                              constraints: const BoxConstraints.tightFor(
+                                width: 46,
+                                height: 46,
+                              ),
+                            ),
+                          const SizedBox(width: 6),
                           VolumePopupButton(
                             volume: playback.desiredVolume,
+                            iconSize: rightControlIconSize,
+                            buttonSize: rightControlButtonSize,
                             enableHover: true, // Desktop behavior
                             onChanged: (v) => ref
                                 .read(playbackControllerProvider.notifier)
@@ -254,11 +254,15 @@ class NowPlayingBar extends ConsumerWidget {
                                 .toggleMute(),
                           ),
                           IconButton(
-                            visualDensity: VisualDensity.compact,
                             tooltip: playModeLabel,
                             onPressed: () => ref
                                 .read(queueControllerProvider.notifier)
                                 .cyclePlayMode(),
+                            iconSize: rightControlIconSize,
+                            constraints: const BoxConstraints.tightFor(
+                              width: 50,
+                              height: 50,
+                            ),
                             icon: Icon(
                               switch (queue.playMode) {
                                 PlayMode.sequential => Icons.playlist_play,
@@ -272,7 +276,6 @@ class NowPlayingBar extends ConsumerWidget {
                             ),
                           ),
                           IconButton(
-                            visualDensity: VisualDensity.compact,
                             tooltip: selectedRenderer == null
                                 ? 'DLNA'
                                 : 'DLNA: ${selectedRenderer.friendlyName}',
@@ -300,9 +303,15 @@ class NowPlayingBar extends ConsumerWidget {
                             },
                             icon: Icon(
                               Icons.cast,
+                              size: 22,
                               color: selectedRenderer == null
                                   ? null
                                   : theme.colorScheme.primary,
+                            ),
+                            iconSize: rightControlIconSize,
+                            constraints: const BoxConstraints.tightFor(
+                              width: 50,
+                              height: 50,
                             ),
                           ),
                         ],
