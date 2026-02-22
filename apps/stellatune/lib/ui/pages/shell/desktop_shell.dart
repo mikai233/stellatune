@@ -225,30 +225,37 @@ class _DesktopGlobalTopBar extends StatelessWidget {
           ),
           const SizedBox(width: 8),
           if (actions.isNotEmpty)
-            Container(
-              height: 34,
-              padding: const EdgeInsets.symmetric(horizontal: 4),
-              decoration: BoxDecoration(
-                color: Color.alphaBlend(
-                  theme.colorScheme.primary.withValues(alpha: 0.10),
-                  theme.colorScheme.primaryContainer.withValues(alpha: 0.66),
+            if (actions.length == 1)
+              _TopBarActionButton(
+                icon: actions.first.icon,
+                tooltip: actions.first.tooltip,
+                onPressed: actions.first.onPressed,
+              )
+            else
+              Container(
+                height: 34,
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                decoration: BoxDecoration(
+                  color: Color.alphaBlend(
+                    theme.colorScheme.primary.withValues(alpha: 0.10),
+                    theme.colorScheme.primaryContainer.withValues(alpha: 0.66),
+                  ),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: theme.colorScheme.primary.withValues(alpha: 0.26),
+                  ),
                 ),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: theme.colorScheme.primary.withValues(alpha: 0.26),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: actions.map((action) {
+                    return _TopBarActionButton(
+                      icon: action.icon,
+                      tooltip: action.tooltip,
+                      onPressed: action.onPressed,
+                    );
+                  }).toList(),
                 ),
               ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: actions.map((action) {
-                  return _TopBarActionButton(
-                    icon: action.icon,
-                    tooltip: action.tooltip,
-                    onPressed: action.onPressed,
-                  );
-                }).toList(),
-              ),
-            ),
           Expanded(child: DragToMoveArea(child: const SizedBox.expand())),
           WindowButton(
             icon: Icons.minimize,

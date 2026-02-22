@@ -24,29 +24,32 @@ class LyricsMoreMenuButton extends ConsumerStatefulWidget {
 }
 
 class _LyricsMoreMenuButtonState extends ConsumerState<LyricsMoreMenuButton> {
-  final GlobalKey<PopupMenuButtonState> _popupKey = GlobalKey();
+  final GlobalKey _anchorKey = GlobalKey();
 
-  @override
-  Widget build(BuildContext context) {
+  Future<void> _openMenu(BuildContext context, bool enabled) async {
+    final anchorRenderObject = _anchorKey.currentContext?.findRenderObject();
+    final overlayRenderObject = Overlay.of(context).context.findRenderObject();
+    if (anchorRenderObject is! RenderBox || overlayRenderObject is! RenderBox) {
+      return;
+    }
+
     final l10n = AppLocalizations.of(context)!;
-    final enabled = ref.watch(
-      lyricsControllerProvider.select((s) => s.enabled),
+    final anchorTopLeft = anchorRenderObject.localToGlobal(
+      Offset.zero,
+      ancestor: overlayRenderObject,
+    );
+    final anchorBottomRight = anchorRenderObject.localToGlobal(
+      anchorRenderObject.size.bottomRight(Offset.zero),
+      ancestor: overlayRenderObject,
     );
 
-    return PopupMenuButton<_LyricsMoreAction>(
-      key: _popupKey,
-      tooltip: l10n.menuMore,
-      onSelected: (action) async {
-        switch (action) {
-          case _LyricsMoreAction.toggleLyrics:
-            ref.read(lyricsControllerProvider.notifier).setEnabled(!enabled);
-            break;
-          case _LyricsMoreAction.chooseCandidate:
-            await showLyricsCandidatePicker(context: context, ref: ref);
-            break;
-        }
-      },
-      itemBuilder: (context) => [
+    final action = await showMenu<_LyricsMoreAction>(
+      context: context,
+      position: RelativeRect.fromRect(
+        Rect.fromPoints(anchorTopLeft, anchorBottomRight),
+        Offset.zero & overlayRenderObject.size,
+      ),
+      items: [
         PopupMenuItem<_LyricsMoreAction>(
           value: _LyricsMoreAction.toggleLyrics,
           child: Row(
@@ -70,13 +73,33 @@ class _LyricsMoreMenuButtonState extends ConsumerState<LyricsMoreMenuButton> {
           ),
         ),
       ],
-      child: TitleBarButton(
-        icon: Icons.more_vert,
-        onPressed: () => _popupKey.currentState?.showButtonMenu(),
-        color: widget.foregroundColor,
-        height: widget.height,
-        tooltip: l10n.menuMore,
-      ),
+    );
+
+    if (!mounted || !context.mounted || action == null) return;
+    switch (action) {
+      case _LyricsMoreAction.toggleLyrics:
+        ref.read(lyricsControllerProvider.notifier).setEnabled(!enabled);
+        break;
+      case _LyricsMoreAction.chooseCandidate:
+        await showLyricsCandidatePicker(context: context, ref: ref);
+        break;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final enabled = ref.watch(
+      lyricsControllerProvider.select((s) => s.enabled),
+    );
+
+    return TitleBarButton(
+      key: _anchorKey,
+      icon: Icons.more_vert,
+      onPressed: () => _openMenu(context, enabled),
+      color: widget.foregroundColor,
+      height: widget.height,
+      tooltip: l10n.menuMore,
     );
   }
 }
