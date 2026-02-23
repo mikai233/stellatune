@@ -6,6 +6,7 @@ import 'package:stellatune/bridge/bridge.dart';
 import 'package:stellatune/l10n/app_localizations.dart';
 import 'package:stellatune/player/playback_controller.dart';
 import 'package:stellatune/player/queue_controller.dart';
+import 'package:stellatune/player/queue_models.dart';
 import 'package:stellatune/ui/pages/music_detail_page.dart';
 import 'package:stellatune/ui/widgets/marquee_text.dart';
 import 'package:stellatune/ui/widgets/now_playing_common.dart';
@@ -19,6 +20,7 @@ class MobileNowPlayingBar extends ConsumerWidget {
     final theme = Theme.of(context);
     final playback = ref.watch(playbackControllerProvider);
     final queue = ref.watch(queueControllerProvider);
+    final coverDir = ref.watch(coverDirProvider);
 
     final currentTitle = queue.currentItem?.displayTitle ?? l10n.nowPlayingNone;
     final String currentSubtitle;
@@ -35,6 +37,10 @@ class MobileNowPlayingBar extends ConsumerWidget {
     final totalDurationMs =
         queue.currentItem?.durationMs ??
         playback.trackInfo?.durationMs?.toInt();
+    final progressEnabled =
+        queue.currentItem != null &&
+        playback.currentPath != null &&
+        playback.currentPath!.isNotEmpty;
 
     return Material(
       elevation: 4,
@@ -65,72 +71,20 @@ class MobileNowPlayingBar extends ConsumerWidget {
                   transitionDuration: const Duration(milliseconds: 400),
                   transitionType: ContainerTransitionType.fade,
                   openBuilder: (context, close) => const MusicDetailPage(),
-                  closedBuilder: (context, open) => Consumer(
-                    builder: (context, ref, child) {
-                      final innerQueue = ref.watch(queueControllerProvider);
-                      final innerCoverDir = ref.watch(coverDirProvider);
-                      final innerTrackId = innerQueue.currentItem?.id;
-                      final cover = innerQueue.currentItem?.cover;
-                      return Padding(
-                        padding: const EdgeInsets.all(4),
-                        child: NowPlayingCover(
-                          coverDir: innerCoverDir,
-                          trackId: innerTrackId,
-                          cover: cover,
-                          primaryColor: theme.colorScheme.primary,
-                          onTap: innerQueue.currentItem != null ? open : null,
-                        ),
-                      );
-                    },
+                  closedBuilder: (context, open) => _MobileNowPlayingCover(
+                    theme: theme,
+                    coverDir: coverDir,
+                    currentItem: queue.currentItem,
+                    onOpenDetail: open,
                   ),
                 ),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: GestureDetector(
-                    onTap: () {
-                      if (queue.currentItem != null) {
-                        Navigator.of(context).push(
-                          PageRouteBuilder(
-                            pageBuilder:
-                                (context, animation, secondaryAnimation) =>
-                                    const MusicDetailPage(),
-                            transitionsBuilder:
-                                (
-                                  context,
-                                  animation,
-                                  secondaryAnimation,
-                                  child,
-                                ) {
-                                  return FadeThroughTransition(
-                                    animation: animation,
-                                    secondaryAnimation: secondaryAnimation,
-                                    child: child,
-                                  );
-                                },
-                          ),
-                        );
-                      }
-                    },
-                    behavior: HitTestBehavior.translucent,
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        MarqueeText(
-                          text: currentTitle,
-                          style: theme.textTheme.titleMedium,
-                        ),
-                        if (currentSubtitle.isNotEmpty)
-                          Text(
-                            currentSubtitle,
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                      ],
-                    ),
+                  child: _MobileNowPlayingTextSection(
+                    theme: theme,
+                    currentItem: queue.currentItem,
+                    currentTitle: currentTitle,
+                    currentSubtitle: currentSubtitle,
                   ),
                 ),
                 IconButton(
@@ -151,15 +105,94 @@ class MobileNowPlayingBar extends ConsumerWidget {
           NowPlayingProgressBar(
             durationMs: totalDurationMs,
             positionMs: playback.positionMs,
-            enabled:
-                queue.currentItem != null &&
-                playback.currentPath != null &&
-                playback.currentPath!.isNotEmpty,
+            enabled: progressEnabled,
             audioStarted: playback.audioStarted,
             playerState: playback.playerState,
             onSeekMs: (ms) =>
                 ref.read(playbackControllerProvider.notifier).seekMs(ms),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MobileNowPlayingCover extends StatelessWidget {
+  const _MobileNowPlayingCover({
+    required this.theme,
+    required this.coverDir,
+    required this.currentItem,
+    required this.onOpenDetail,
+  });
+
+  final ThemeData theme;
+  final String coverDir;
+  final QueueItem? currentItem;
+  final VoidCallback onOpenDetail;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(4),
+      child: NowPlayingCover(
+        coverDir: coverDir,
+        trackId: currentItem?.id,
+        cover: currentItem?.cover,
+        primaryColor: theme.colorScheme.primary,
+        onTap: currentItem != null ? onOpenDetail : null,
+      ),
+    );
+  }
+}
+
+class _MobileNowPlayingTextSection extends StatelessWidget {
+  const _MobileNowPlayingTextSection({
+    required this.theme,
+    required this.currentItem,
+    required this.currentTitle,
+    required this.currentSubtitle,
+  });
+
+  final ThemeData theme;
+  final QueueItem? currentItem;
+  final String currentTitle;
+  final String currentSubtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: () {
+        if (currentItem == null) return;
+        Navigator.of(context).push(
+          PageRouteBuilder(
+            pageBuilder: (context, animation, secondaryAnimation) =>
+                const MusicDetailPage(),
+            transitionsBuilder:
+                (context, animation, secondaryAnimation, child) {
+                  return FadeThroughTransition(
+                    animation: animation,
+                    secondaryAnimation: secondaryAnimation,
+                    child: child,
+                  );
+                },
+          ),
+        );
+      },
+      behavior: HitTestBehavior.translucent,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          MarqueeText(text: currentTitle, style: theme.textTheme.titleMedium),
+          if (currentSubtitle.isNotEmpty)
+            Text(
+              currentSubtitle,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
         ],
       ),
     );

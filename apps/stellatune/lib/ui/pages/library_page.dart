@@ -13,7 +13,8 @@ import 'package:stellatune/player/playability_messages.dart';
 import 'package:stellatune/player/queue_controller.dart';
 import 'package:stellatune/player/queue_models.dart';
 import 'package:stellatune/ui/widgets/folder_tree.dart';
-import 'package:stellatune/ui/widgets/track_list.dart';
+import 'package:stellatune/player/track_playability_utils.dart';
+import 'package:stellatune/ui/pages/library/widgets/library_tracks_content.dart';
 
 class LibraryPage extends ConsumerStatefulWidget {
   const LibraryPage({super.key, this.useGlobalTopBar = false});
@@ -26,8 +27,6 @@ class LibraryPage extends ConsumerStatefulWidget {
 
 class LibraryPageState extends ConsumerState<LibraryPage> {
   static const double _minFoldersPaneWidth = 220.0;
-  static const int _playabilityProbeMargin = 40;
-  static const int _playabilityCacheMaxEntries = 12000;
 
   final _searchController = TextEditingController();
   bool _foldersPaneCollapsed = false;
@@ -40,12 +39,10 @@ class LibraryPageState extends ConsumerState<LibraryPage> {
   bool _dividerHovering = false;
   bool _dividerRearmPending = false;
   double _dividerDragLastX = 0.0;
-  int _playabilityRequestSeq = 0;
-  int _viewportStart = 0;
-  int _viewportEnd = -1;
-  String _resultsKey = '';
-  final Map<String, String?> _playabilityCache = <String, String?>{};
+  final TrackPlayabilityProbe _playabilityProbe = TrackPlayabilityProbe();
   Map<int, String> _blockedReasonByTrackId = const <int, String>{};
+
+  void _updateUi(VoidCallback updater) => setState(updater);
 
   void _syncSearchController(String query) {
     if (_searchController.text == query) return;
@@ -58,7 +55,7 @@ class LibraryPageState extends ConsumerState<LibraryPage> {
   bool get foldersPaneCollapsed => _foldersPaneCollapsed;
 
   void toggleFoldersPane() {
-    setState(() {
+    _updateUi(() {
       _foldersPaneCollapsed = !_foldersPaneCollapsed;
       if (!_foldersPaneCollapsed && _foldersPaneWidth.value <= 0) {
         _foldersPaneWidth.value = _minFoldersPaneWidth;
@@ -95,59 +92,15 @@ class LibraryPageState extends ConsumerState<LibraryPage> {
     super.dispose();
   }
 
-  String _trackCacheKey(TrackLite t) => '${t.id}|${t.path}';
-
-  String _buildResultsKey(List<TrackLite> items) {
-    if (items.isEmpty) return '';
-    final buf = StringBuffer();
-    for (final t in items) {
-      buf
-        ..write(t.id)
-        ..write('|')
-        ..write(t.path)
-        ..write(';');
-    }
-    return buf.toString();
-  }
-
-  void _evictPlayabilityCacheIfNeeded() {
-    while (_playabilityCache.length > _playabilityCacheMaxEntries) {
-      if (_playabilityCache.isEmpty) return;
-      _playabilityCache.remove(_playabilityCache.keys.first);
-    }
-  }
-
-  bool _sameBlockedReasonMap(Map<int, String> next) {
-    final current = _blockedReasonByTrackId;
-    if (identical(current, next)) return true;
-    if (current.length != next.length) return false;
-    for (final entry in current.entries) {
-      if (next[entry.key] != entry.value) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  void _rebuildBlockedReasonByTrackId(List<TrackLite> items) {
-    final l10n = AppLocalizations.of(context);
-    if (l10n == null) return;
-    final blocked = <int, String>{};
-    for (final t in items) {
-      final reason = _playabilityCache[_trackCacheKey(t)];
-      if (reason == null) continue;
-      blocked[t.id.toInt()] = localizePlayabilityReason(l10n, reason);
-    }
-    if (_sameBlockedReasonMap(blocked)) return;
-    setState(() => _blockedReasonByTrackId = blocked);
+  void _applyBlockedReasonByTrackId(Map<int, String> blocked) {
+    if (hasSameTrackBlockedReasons(_blockedReasonByTrackId, blocked)) return;
+    _updateUi(() => _blockedReasonByTrackId = blocked);
   }
 
   void _onViewportRangeChanged(int startIndex, int endIndex) {
-    if (_viewportStart == startIndex && _viewportEnd == endIndex) {
+    if (!_playabilityProbe.updateViewportRange(startIndex, endIndex)) {
       return;
     }
-    _viewportStart = startIndex;
-    _viewportEnd = endIndex;
     final results = ref.read(libraryControllerProvider).results;
     unawaited(_refreshTrackPlayability(results));
   }
@@ -164,71 +117,58 @@ class LibraryPageState extends ConsumerState<LibraryPage> {
     List<TrackLite> items, {
     bool force = false,
   }) async {
-    final key = _buildResultsKey(items);
-    if (_resultsKey != key) {
-      _resultsKey = key;
-      _viewportStart = 0;
-      _viewportEnd = -1;
-    }
+    final l10n = AppLocalizations.of(context);
+    if (l10n == null) return;
+    String localizeReason(String rawReason) =>
+        localizePlayabilityReason(l10n, rawReason);
 
     if (items.isEmpty) {
       if (!mounted) return;
-      setState(() => _blockedReasonByTrackId = const <int, String>{});
+      _applyBlockedReasonByTrackId(const <int, String>{});
       return;
     }
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      _rebuildBlockedReasonByTrackId(items);
+      _applyBlockedReasonByTrackId(
+        _playabilityProbe.buildBlockedReasons(
+          items,
+          localizeReason: localizeReason,
+        ),
+      );
     });
 
-    final maxIndex = items.length - 1;
-    final initialEnd = (items.length - 1).clamp(0, 19).toInt();
-    var probeStart = _viewportEnd >= 0 ? _viewportStart : 0;
-    var probeEnd = _viewportEnd >= 0 ? _viewportEnd : initialEnd;
-    probeStart = (probeStart - _playabilityProbeMargin)
-        .clamp(0, maxIndex)
-        .toInt();
-    probeEnd = (probeEnd + _playabilityProbeMargin).clamp(0, maxIndex).toInt();
-    if (probeEnd < probeStart) {
-      probeEnd = probeStart;
-    }
-
-    final pending = <(String, String)>[];
-    for (var i = probeStart; i <= probeEnd; i++) {
-      final t = items[i];
-      final cacheKey = _trackCacheKey(t);
-      if (!force && _playabilityCache.containsKey(cacheKey)) {
-        continue;
-      }
-      pending.add((cacheKey, t.path));
-    }
-    if (pending.isEmpty) {
-      return;
-    }
-
-    final requestSeq = ++_playabilityRequestSeq;
-    await _refreshDecoderExtensionSupport();
-    final snapshot = DecoderExtensionSupportCache.instance.snapshotOrNull;
-    if (snapshot == null) {
-      return;
-    }
-    if (!mounted || requestSeq != _playabilityRequestSeq) return;
-
-    for (final item in pending) {
-      _playabilityCache[item.$1] = snapshot.canPlayLocalPath(item.$2)
-          ? null
-          : 'no_decoder_for_local_track';
-    }
-    _evictPlayabilityCacheIfNeeded();
-    _rebuildBlockedReasonByTrackId(items);
+    final blocked = await _playabilityProbe.refreshBlockedReasons(
+      items: items,
+      force: force,
+      localizeReason: localizeReason,
+      ensureDecoderSupport: _refreshDecoderExtensionSupport,
+      readDecoderSnapshot: () =>
+          DecoderExtensionSupportCache.instance.snapshotOrNull,
+    );
+    if (!mounted || blocked == null) return;
+    _applyBlockedReasonByTrackId(blocked);
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => _buildLibraryPage(context);
+
+  Future<void> _pickAndAddFolder(BuildContext context) async {
+    final l10n = AppLocalizations.of(context)!;
+    final dir = await FilePicker.platform.getDirectoryPath(
+      dialogTitle: l10n.dialogSelectMusicFolder,
+    );
+    if (dir == null || dir.trim().isEmpty) return;
+    await ref
+        .read(libraryControllerProvider.notifier)
+        .addRoot(dir, scanAfter: true);
+  }
+}
+
+extension _LibraryLayout on LibraryPageState {
+  Widget _buildLibraryPage(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
-    const minFoldersWidth = _minFoldersPaneWidth;
 
     // Avoid rebuilding the whole page on unrelated state changes.
     final roots = ref.watch(libraryControllerProvider.select((s) => s.roots));
@@ -274,16 +214,52 @@ class LibraryPageState extends ConsumerState<LibraryPage> {
     final lastError = ref.watch(
       libraryControllerProvider.select((s) => s.lastError),
     );
+
     final selectionSourceLabel = selectedFolder.isEmpty
         ? l10n.libraryAllMusic
         : includeSubfolders
         ? '$selectedFolder • ${l10n.includeSubfolders}'
         : selectedFolder;
-    final queueSourceLabel = (queueSourceSnapshot ?? '').trim().isEmpty
+    final queueSourceLabelRaw = (queueSourceSnapshot ?? '').trim();
+    final queueSourceLabel = queueSourceLabelRaw.isEmpty
         ? l10n.queueSourceUnset
-        : queueSourceSnapshot!.trim();
+        : queueSourceLabelRaw;
 
-    final appBar = AppBar(
+    final appBar = _buildLibraryAppBar(l10n: l10n, isScanning: isScanning);
+    final pageBody = _buildLibraryBody(
+      l10n: l10n,
+      theme: theme,
+      roots: roots,
+      folders: folders,
+      excludedFolders: excludedFolders,
+      selectedFolder: selectedFolder,
+      includeSubfolders: includeSubfolders,
+      hasSubfolders: hasSubfolders,
+      queueSourceLabel: queueSourceLabel,
+      results: results,
+      playlists: playlists,
+      likedTrackIds: likedTrackIds,
+      selectionSourceLabel: selectionSourceLabel,
+      isScanning: isScanning,
+      scanned: progress.scanned,
+      updated: progress.updated,
+      skipped: progress.skipped,
+      errors: progress.errors,
+      lastFinishedMs: lastFinishedMs,
+      lastError: lastError,
+    );
+
+    if (widget.useGlobalTopBar) {
+      return pageBody;
+    }
+    return Scaffold(appBar: appBar, body: pageBody);
+  }
+
+  AppBar _buildLibraryAppBar({
+    required AppLocalizations l10n,
+    required bool isScanning,
+  }) {
+    return AppBar(
       automaticallyImplyLeading: false,
       leading: IconButton(
         tooltip: _foldersPaneCollapsed ? l10n.expand : l10n.collapse,
@@ -318,8 +294,33 @@ class LibraryPageState extends ConsumerState<LibraryPage> {
         const SizedBox(width: 8),
       ],
     );
+  }
 
-    final pageBody = Stack(
+  Widget _buildLibraryBody({
+    required AppLocalizations l10n,
+    required ThemeData theme,
+    required List<String> roots,
+    required List<String> folders,
+    required List<String> excludedFolders,
+    required String selectedFolder,
+    required bool includeSubfolders,
+    required bool hasSubfolders,
+    required String queueSourceLabel,
+    required List<TrackLite> results,
+    required List<PlaylistLite> playlists,
+    required Set<int> likedTrackIds,
+    required String selectionSourceLabel,
+    required bool isScanning,
+    required int scanned,
+    required int updated,
+    required int skipped,
+    required int errors,
+    required int? lastFinishedMs,
+    required String? lastError,
+  }) {
+    const minFoldersWidth = LibraryPageState._minFoldersPaneWidth;
+
+    return Stack(
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
@@ -367,7 +368,7 @@ class LibraryPageState extends ConsumerState<LibraryPage> {
                                                 ? Icons.check
                                                 : Icons.edit_outlined,
                                           ),
-                                          onPressed: () => setState(() {
+                                          onPressed: () => _updateUi(() {
                                             _foldersEditMode =
                                                 !_foldersEditMode;
                                           }),
@@ -500,7 +501,7 @@ class LibraryPageState extends ConsumerState<LibraryPage> {
                               _dividerRearmPending = false;
                               _dividerDragLastX = details.globalPosition.dx;
                               if (_foldersPaneCollapsed) {
-                                setState(() => _foldersPaneCollapsed = false);
+                                _updateUi(() => _foldersPaneCollapsed = false);
                               }
                               if (_foldersPaneWidth.value <= 0) {
                                 _foldersPaneWidth.value =
@@ -562,247 +563,83 @@ class LibraryPageState extends ConsumerState<LibraryPage> {
                     },
                   ),
                   Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        TextField(
-                          controller: _searchController,
-                          decoration: InputDecoration(
-                            prefixIcon: const Icon(Icons.search),
-                            suffixIcon: _searchController.text.trim().isEmpty
-                                ? null
-                                : IconButton(
-                                    onPressed: () {
-                                      _searchController.clear();
-                                      ref
-                                          .read(
-                                            libraryControllerProvider.notifier,
-                                          )
-                                          .setQuery('');
-                                    },
-                                    icon: const Icon(Icons.close_rounded),
-                                  ),
-                            hintText: l10n.searchHint,
-                            filled: true,
-                            fillColor: theme.colorScheme.surfaceContainerLowest
-                                .withValues(alpha: 0.72),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(14),
-                              borderSide: BorderSide(
-                                color: theme.colorScheme.onSurface.withValues(
-                                  alpha: 0.10,
-                                ),
-                              ),
-                            ),
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(14),
-                              borderSide: BorderSide(
-                                color: theme.colorScheme.onSurface.withValues(
-                                  alpha: 0.10,
-                                ),
-                              ),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(14),
-                              borderSide: BorderSide(
-                                color: theme.colorScheme.primary,
-                              ),
-                            ),
-                          ),
-                          onChanged: (q) => ref
-                              .read(libraryControllerProvider.notifier)
-                              .setQuery(q),
-                        ),
-                        const SizedBox(height: 12),
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 10,
-                          ),
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                              colors: [
-                                theme.colorScheme.surfaceContainerHigh
-                                    .withValues(alpha: 0.74),
-                                theme.colorScheme.surfaceContainer.withValues(
-                                  alpha: 0.58,
-                                ),
-                              ],
-                            ),
-                            border: Border.all(
-                              color: theme.colorScheme.onSurface.withValues(
-                                alpha: 0.08,
-                              ),
-                            ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withValues(alpha: 0.045),
-                                blurRadius: 8,
-                                offset: const Offset(0, 2),
-                              ),
-                            ],
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                          child: Row(
-                            children: [
-                              Icon(
-                                Icons.queue_music,
-                                size: 18,
-                                color: theme.colorScheme.primary,
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      l10n.queueSourceTitle,
-                                      style: theme.textTheme.labelMedium,
-                                    ),
-                                    Text(
-                                      queueSourceLabel,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: theme.textTheme.bodyMedium,
-                                    ),
-                                    Text(
-                                      l10n.queueSourceHint,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: theme.textTheme.bodySmall
-                                          ?.copyWith(
-                                            color: theme
-                                                .colorScheme
-                                                .onSurfaceVariant,
-                                          ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        if (selectedFolder.isNotEmpty)
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  selectedFolder,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: theme.textTheme.titleSmall,
-                                ),
-                              ),
-                              if (hasSubfolders) ...[
-                                const SizedBox(width: 12),
-                                Row(
-                                  children: [
-                                    Text(l10n.includeSubfolders),
-                                    const SizedBox(width: 8),
-                                    Switch(
-                                      value: includeSubfolders,
-                                      onChanged: (_) => ref
-                                          .read(
-                                            libraryControllerProvider.notifier,
-                                          )
-                                          .toggleIncludeSubfolders(),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ],
-                          ),
-                        if (selectedFolder.isNotEmpty)
-                          const SizedBox(height: 12),
-                        if (isScanning || lastFinishedMs != null)
-                          _ScanStatusCard(
-                            isScanning: isScanning,
-                            scanned: progress.scanned,
-                            updated: progress.updated,
-                            skipped: progress.skipped,
-                            errors: progress.errors,
-                            durationMs: lastFinishedMs,
-                          ),
-                        if (lastError != null)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 8),
-                            child: Text(
-                              lastError,
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                color: theme.colorScheme.error,
-                              ),
-                            ),
-                          ),
-                        const SizedBox(height: 12),
-                        Expanded(
-                          child: TrackList(
-                            coverDir: ref.watch(coverDirProvider),
-                            items: results,
-                            likedTrackIds: likedTrackIds,
-                            playlists: playlists,
-                            currentPlaylistId: null,
-                            onActivate: (index, items) async {
-                              final source = QueueSource(
-                                type: selectedFolder.isEmpty
-                                    ? QueueSourceType.all
-                                    : QueueSourceType.folder,
-                                folderPath: selectedFolder,
-                                includeSubfolders: includeSubfolders,
-                                label: selectionSourceLabel,
-                              );
-                              await ref
-                                  .read(playbackControllerProvider.notifier)
-                                  .setQueueAndPlayTracks(
-                                    items,
-                                    startIndex: index,
-                                    source: source,
-                                  );
-                            },
-                            onEnqueue: (track) async {
-                              await ref
-                                  .read(playbackControllerProvider.notifier)
-                                  .enqueueTracks([track]);
-                            },
-                            onSetLiked: (track, liked) async {
-                              await ref
-                                  .read(libraryControllerProvider.notifier)
-                                  .setTrackLiked(track.id.toInt(), liked);
-                            },
-                            onAddToPlaylist: (track, playlistId) async {
-                              await ref
-                                  .read(libraryControllerProvider.notifier)
-                                  .addTrackToPlaylist(
-                                    playlistId,
-                                    track.id.toInt(),
-                                  );
-                            },
-                            onRemoveFromPlaylist: (track, playlistId) async {
-                              await ref
-                                  .read(libraryControllerProvider.notifier)
-                                  .removeTrackFromPlaylist(
-                                    playlistId,
-                                    track.id.toInt(),
-                                  );
-                            },
-                            onBatchAddToPlaylist: (tracks, playlistId) async {
-                              await ref
-                                  .read(libraryControllerProvider.notifier)
-                                  .addTracksToPlaylist(
-                                    playlistId: playlistId,
-                                    trackIds: tracks
-                                        .map((t) => t.id.toInt())
-                                        .toList(),
-                                  );
-                            },
-                            blockedReasonByTrackId: _blockedReasonByTrackId,
-                            onViewportRangeChanged: _onViewportRangeChanged,
-                          ),
-                        ),
-                      ],
+                    child: LibraryTracksContent(
+                      l10n: l10n,
+                      searchController: _searchController,
+                      onSearchChanged: (q) => ref
+                          .read(libraryControllerProvider.notifier)
+                          .setQuery(q),
+                      queueSourceLabel: queueSourceLabel,
+                      selectedFolder: selectedFolder,
+                      hasSubfolders: hasSubfolders,
+                      includeSubfolders: includeSubfolders,
+                      onToggleIncludeSubfolders: () => ref
+                          .read(libraryControllerProvider.notifier)
+                          .toggleIncludeSubfolders(),
+                      isScanning: isScanning,
+                      scanned: scanned,
+                      updated: updated,
+                      skipped: skipped,
+                      errors: errors,
+                      lastFinishedMs: lastFinishedMs,
+                      lastError: lastError,
+                      coverDir: ref.watch(coverDirProvider),
+                      results: results,
+                      likedTrackIds: likedTrackIds,
+                      playlists: playlists,
+                      selectionSourceLabel: selectionSourceLabel,
+                      onActivate: (index, items) async {
+                        final source = QueueSource(
+                          type: selectedFolder.isEmpty
+                              ? QueueSourceType.all
+                              : QueueSourceType.folder,
+                          folderPath: selectedFolder,
+                          includeSubfolders: includeSubfolders,
+                          label: selectionSourceLabel,
+                        );
+                        await ref
+                            .read(playbackControllerProvider.notifier)
+                            .setQueueAndPlayTracks(
+                              items,
+                              startIndex: index,
+                              source: source,
+                            );
+                      },
+                      onEnqueue: (track) async {
+                        await ref
+                            .read(playbackControllerProvider.notifier)
+                            .enqueueTracks([track]);
+                      },
+                      onSetLiked: (track, liked) async {
+                        await ref
+                            .read(libraryControllerProvider.notifier)
+                            .setTrackLiked(track.id.toInt(), liked);
+                      },
+                      onAddToPlaylist: (track, playlistId) async {
+                        await ref
+                            .read(libraryControllerProvider.notifier)
+                            .addTrackToPlaylist(playlistId, track.id.toInt());
+                      },
+                      onRemoveFromPlaylist: (track, playlistId) async {
+                        await ref
+                            .read(libraryControllerProvider.notifier)
+                            .removeTrackFromPlaylist(
+                              playlistId,
+                              track.id.toInt(),
+                            );
+                      },
+                      onBatchAddToPlaylist: (tracks, playlistId) async {
+                        await ref
+                            .read(libraryControllerProvider.notifier)
+                            .addTracksToPlaylist(
+                              playlistId: playlistId,
+                              trackIds: tracks
+                                  .map((t) => t.id.toInt())
+                                  .toList(),
+                            );
+                      },
+                      blockedReasonByTrackId: _blockedReasonByTrackId,
+                      onViewportRangeChanged: _onViewportRangeChanged,
                     ),
                   ),
                 ],
@@ -824,112 +661,6 @@ class LibraryPageState extends ConsumerState<LibraryPage> {
           },
         ),
       ],
-    );
-
-    if (widget.useGlobalTopBar) {
-      return pageBody;
-    }
-
-    return Scaffold(appBar: appBar, body: pageBody);
-  }
-
-  Future<void> _pickAndAddFolder(BuildContext context) async {
-    final l10n = AppLocalizations.of(context)!;
-    final dir = await FilePicker.platform.getDirectoryPath(
-      dialogTitle: l10n.dialogSelectMusicFolder,
-    );
-    if (dir == null || dir.trim().isEmpty) return;
-    await ref
-        .read(libraryControllerProvider.notifier)
-        .addRoot(dir, scanAfter: true);
-  }
-}
-
-class _ScanStatusCard extends StatelessWidget {
-  const _ScanStatusCard({
-    required this.isScanning,
-    required this.scanned,
-    required this.updated,
-    required this.skipped,
-    required this.errors,
-    required this.durationMs,
-  });
-
-  final bool isScanning;
-  final int scanned;
-  final int updated;
-  final int skipped;
-  final int errors;
-  final int? durationMs;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    final title = isScanning
-        ? l10n.scanStatusScanning
-        : l10n.scanStatusFinished;
-    final subtitle = durationMs == null
-        ? null
-        : l10n.scanDurationMs(durationMs!);
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Row(
-          children: [
-            if (isScanning)
-              const SizedBox(
-                width: 18,
-                height: 18,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            else
-              const Icon(Icons.check_circle_outline),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title, style: Theme.of(context).textTheme.titleMedium),
-                  if (subtitle != null)
-                    Text(
-                      subtitle,
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                ],
-              ),
-            ),
-            _Stat(label: l10n.scanLabelScanned, value: scanned),
-            _Stat(label: l10n.scanLabelUpdated, value: updated),
-            _Stat(label: l10n.scanLabelSkipped, value: skipped),
-            _Stat(label: l10n.scanLabelErrors, value: errors),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _Stat extends StatelessWidget {
-  const _Stat({required this.label, required this.value});
-
-  final String label;
-  final int value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(left: 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          Text(
-            value.toString(),
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-          Text(label, style: Theme.of(context).textTheme.bodySmall),
-        ],
-      ),
     );
   }
 }

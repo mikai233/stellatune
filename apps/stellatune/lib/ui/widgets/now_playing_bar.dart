@@ -1,8 +1,4 @@
-import 'dart:async';
-
-import 'package:animations/animations.dart';
 import 'package:flutter/material.dart';
-
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:stellatune/app/providers.dart';
 import 'package:stellatune/bridge/bridge.dart';
@@ -12,9 +8,7 @@ import 'package:stellatune/player/playback_controller.dart';
 import 'package:stellatune/player/playability_messages.dart';
 import 'package:stellatune/player/queue_controller.dart';
 import 'package:stellatune/player/queue_models.dart';
-import 'package:stellatune/ui/pages/music_detail_page.dart';
-import 'package:stellatune/ui/widgets/audio_format_badge.dart';
-import 'package:stellatune/ui/widgets/marquee_text.dart';
+import 'package:stellatune/ui/widgets/now_playing_bar/widgets/now_playing_bar_sections.dart';
 import 'package:stellatune/ui/widgets/now_playing_common.dart';
 
 class NowPlayingBar extends ConsumerWidget {
@@ -27,6 +21,7 @@ class NowPlayingBar extends ConsumerWidget {
     final playback = ref.watch(playbackControllerProvider);
     final queue = ref.watch(queueControllerProvider);
     final selectedRenderer = ref.watch(dlnaSelectedRendererProvider);
+    final coverDir = ref.watch(coverDirProvider);
 
     final currentTitle = queue.currentItem?.displayTitle ?? l10n.nowPlayingNone;
     final String currentSubtitle;
@@ -55,6 +50,11 @@ class NowPlayingBar extends ConsumerWidget {
     final totalDurationMs =
         queue.currentItem?.durationMs ??
         playback.trackInfo?.durationMs?.toInt();
+    final progressEnabled =
+        queue.currentItem != null &&
+        playback.currentPath != null &&
+        playback.currentPath!.isNotEmpty;
+
     return DecoratedBox(
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -80,539 +80,58 @@ class NowPlayingBar extends ConsumerWidget {
       ),
       child: SizedBox(
         height: 76,
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            return Stack(
-              children: [
-                Row(
-                  children: [
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Row(
-                        children: [
-                          OpenContainer(
-                            closedElevation: 0,
-                            openElevation: 0,
-                            closedColor: Colors.black,
-                            openColor: Colors.black,
-                            closedShape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            openShape: const RoundedRectangleBorder(
-                              borderRadius: BorderRadius.zero,
-                            ),
-                            transitionDuration: const Duration(
-                              milliseconds: 400,
-                            ),
-                            transitionType: ContainerTransitionType.fade,
-                            openBuilder: (context, close) =>
-                                const MusicDetailPage(),
-                            closedBuilder: (context, open) => Consumer(
-                              builder: (context, ref, child) {
-                                final innerQueue = ref.watch(
-                                  queueControllerProvider,
-                                );
-                                final innerCoverDir = ref.watch(
-                                  coverDirProvider,
-                                );
-                                final innerTrackId = innerQueue.currentItem?.id;
-                                final cover = innerQueue.currentItem?.cover;
-                                return NowPlayingCover(
-                                  coverDir: innerCoverDir,
-                                  trackId: innerTrackId,
-                                  cover: cover,
-                                  primaryColor: theme.colorScheme.primary,
-                                  onTap: innerQueue.currentItem != null
-                                      ? open
-                                      : null,
-                                );
-                              },
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                MarqueeText(
-                                  text: currentTitle,
-                                  style: theme.textTheme.bodyMedium,
-                                ),
-                                if (currentSubtitle.isNotEmpty)
-                                  Row(
-                                    children: [
-                                      if (playback.currentPath != null) ...[
-                                        AudioFormatBadge(
-                                          path: playback.currentPath!,
-                                          sampleRate:
-                                              playback.trackInfo?.sampleRate,
-                                        ),
-                                        const SizedBox(width: 4),
-                                      ],
-                                      Expanded(
-                                        child: MarqueeText(
-                                          text: currentSubtitle,
-                                          style: theme.textTheme.bodySmall,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    SizedBox(
-                      width: 194,
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          IconButton(
-                            tooltip: l10n.tooltipPrevious,
-                            onPressed: () => ref
-                                .read(playbackControllerProvider.notifier)
-                                .previous(),
-                            iconSize: 30,
-                            constraints: const BoxConstraints.tightFor(
-                              width: 50,
-                              height: 50,
-                            ),
-                            icon: const Icon(Icons.skip_previous),
-                          ),
-                          const SizedBox(width: 2),
-                          IconButton(
-                            tooltip: isPlaying ? l10n.pause : l10n.play,
-                            onPressed: () => isPlaying
-                                ? ref
-                                      .read(playbackControllerProvider.notifier)
-                                      .pause()
-                                : ref
-                                      .read(playbackControllerProvider.notifier)
-                                      .play(),
-                            iconSize: 38,
-                            constraints: const BoxConstraints.tightFor(
-                              width: 58,
-                              height: 58,
-                            ),
-                            icon: Icon(
-                              isPlaying ? Icons.pause : Icons.play_arrow,
-                            ),
-                          ),
-                          const SizedBox(width: 2),
-                          IconButton(
-                            tooltip: l10n.tooltipNext,
-                            onPressed: () => ref
-                                .read(playbackControllerProvider.notifier)
-                                .next(),
-                            iconSize: 30,
-                            constraints: const BoxConstraints.tightFor(
-                              width: 50,
-                              height: 50,
-                            ),
-                            icon: const Icon(Icons.skip_next),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Expanded(
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          if (localizedPlaybackError != null)
-                            IconButton(
-                              tooltip: localizedPlaybackError,
-                              onPressed: () {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(localizedPlaybackError),
-                                  ),
-                                );
-                              },
-                              icon: Icon(
-                                Icons.error_outline,
-                                color: theme.colorScheme.error,
-                              ),
-                              iconSize: 24,
-                              constraints: const BoxConstraints.tightFor(
-                                width: 46,
-                                height: 46,
-                              ),
-                            ),
-                          const SizedBox(width: 6),
-                          VolumePopupButton(
-                            volume: playback.desiredVolume,
-                            iconSize: rightControlIconSize,
-                            buttonSize: rightControlButtonSize,
-                            enableHover: true, // Desktop behavior
-                            onChanged: (v) => ref
-                                .read(playbackControllerProvider.notifier)
-                                .setVolume(v),
-                            onToggleMute: () => ref
-                                .read(playbackControllerProvider.notifier)
-                                .toggleMute(),
-                          ),
-                          IconButton(
-                            tooltip: playModeLabel,
-                            onPressed: () => ref
-                                .read(queueControllerProvider.notifier)
-                                .cyclePlayMode(),
-                            iconSize: rightControlIconSize,
-                            constraints: const BoxConstraints.tightFor(
-                              width: 50,
-                              height: 50,
-                            ),
-                            icon: Icon(
-                              switch (queue.playMode) {
-                                PlayMode.sequential => Icons.playlist_play,
-                                PlayMode.shuffle => Icons.shuffle,
-                                PlayMode.repeatAll => Icons.repeat,
-                                PlayMode.repeatOne => Icons.repeat_one,
-                              },
-                              color: queue.playMode == PlayMode.sequential
-                                  ? null
-                                  : theme.colorScheme.primary,
-                            ),
-                          ),
-                          IconButton(
-                            tooltip: selectedRenderer == null
-                                ? 'DLNA'
-                                : 'DLNA: ${selectedRenderer.friendlyName}',
-                            onPressed: () async {
-                              final chosen =
-                                  await showDialog<_DlnaActionResult>(
-                                    context: context,
-                                    builder: (context) =>
-                                        _DlnaDialog(selected: selectedRenderer),
-                                  );
-                              if (chosen == null) return;
-
-                              if (chosen.applySelection) {
-                                ref
-                                    .read(dlnaSelectedRendererProvider.notifier)
-                                    .set(chosen.selected);
-                              }
-
-                              final message = chosen.message;
-                              if (message != null && context.mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(content: Text(message)),
-                                );
-                              }
-                            },
-                            icon: Icon(
-                              Icons.cast,
-                              size: 22,
-                              color: selectedRenderer == null
-                                  ? null
-                                  : theme.colorScheme.primary,
-                            ),
-                            iconSize: rightControlIconSize,
-                            constraints: const BoxConstraints.tightFor(
-                              width: 50,
-                              height: 50,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                  ],
-                ),
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  top: 0,
-                  child: NowPlayingProgressBar(
-                    durationMs: totalDurationMs,
-                    positionMs: playback.positionMs,
-                    enabled:
-                        queue.currentItem != null &&
-                        playback.currentPath != null &&
-                        playback.currentPath!.isNotEmpty,
-                    audioStarted: playback.audioStarted,
-                    playerState: playback.playerState,
-                    onSeekMs: (ms) => ref
-                        .read(playbackControllerProvider.notifier)
-                        .seekMs(ms),
-                  ),
-                ),
-              ],
-            );
-          },
-        ),
-      ),
-    );
-  }
-}
-
-class _DlnaActionResult {
-  const _DlnaActionResult({
-    this.applySelection = false,
-    this.selected,
-    this.message,
-  });
-
-  final bool applySelection;
-  final DlnaRenderer? selected;
-  final String? message;
-}
-
-class _DlnaDialog extends StatefulWidget {
-  const _DlnaDialog({required this.selected});
-
-  final DlnaRenderer? selected;
-
-  @override
-  State<_DlnaDialog> createState() => _DlnaDialogState();
-}
-
-class _DlnaDialogState extends State<_DlnaDialog> {
-  late Future<List<DlnaRenderer>> _future;
-  DlnaRenderer? _selected;
-
-  @override
-  void initState() {
-    super.initState();
-    _selected = widget.selected;
-    _future = const DlnaBridge().discoverRenderers(
-      timeout: const Duration(milliseconds: 1200),
-    );
-  }
-
-  void _refresh() {
-    setState(() {
-      _future = const DlnaBridge().discoverRenderers(
-        timeout: const Duration(milliseconds: 1200),
-      );
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
-
-    final okLabel = MaterialLocalizations.of(context).okButtonLabel;
-    final cancelLabel = MaterialLocalizations.of(context).cancelButtonLabel;
-    final screenH = MediaQuery.sizeOf(context).height;
-    final listHeight = (screenH * 0.45).clamp(260.0, 420.0);
-
-    return Dialog(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 560),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 20, 24, 16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Row(
-                children: [
-                  Icon(Icons.cast, color: theme.colorScheme.primary),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(l10n.dlna, style: theme.textTheme.titleLarge),
-                  ),
-                  IconButton(
-                    tooltip: l10n.refresh,
-                    onPressed: _refresh,
-                    icon: const Icon(Icons.refresh),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  l10n.settingsOutputTitle,
-                  style: theme.textTheme.labelMedium?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              SizedBox(
-                height: listHeight,
-                child: FutureBuilder<List<DlnaRenderer>>(
-                  future: _future,
-                  builder: (context, snapshot) {
-                    final data = snapshot.data;
-                    if (snapshot.connectionState != ConnectionState.done) {
-                      return const Center(child: CircularProgressIndicator());
-                    }
-                    if (snapshot.hasError) {
-                      return _DlnaEmptyState(
-                        icon: Icons.error_outline,
-                        title: l10n.dlnaSearchFailed(snapshot.error.toString()),
-                        subtitle: '${snapshot.error}',
-                        onRetry: _refresh,
-                      );
-                    }
-
-                    final devices = data ?? const [];
-                    if (devices.isEmpty) {
-                      return _DlnaEmptyState(
-                        icon: Icons.wifi_off,
-                        title: l10n.dlnaNoDevices,
-                        subtitle: l10n.dlnaNoDevicesSubtitle,
-                        onRetry: _refresh,
-                      );
-                    }
-
-                    return Container(
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.surfaceContainerLow,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                          color: theme.colorScheme.outlineVariant,
-                        ),
-                      ),
-                      clipBehavior: Clip.antiAlias,
-                      child: ListView.separated(
-                        shrinkWrap: true,
-                        itemCount: devices.length + 1,
-                        separatorBuilder: (context, index) =>
-                            const Divider(height: 1),
-                        itemBuilder: (context, i) {
-                          if (i == 0) {
-                            final selected = _selected == null;
-                            return ListTile(
-                              dense: true,
-                              leading: const Icon(Icons.computer),
-                              title: Text(l10n.deviceLocal),
-                              subtitle: Text(l10n.deviceLocalSubtitle),
-                              trailing: selected
-                                  ? Icon(
-                                      Icons.check_circle,
-                                      color: theme.colorScheme.primary,
-                                    )
-                                  : null,
-                              selected: selected,
-                              onTap: () => setState(() => _selected = null),
-                            );
-                          }
-
-                          final d = devices[i - 1];
-                          final ok = d.avTransportControlUrl != null;
-                          final selected = _selected?.usn == d.usn;
-                          final volOk = d.renderingControlUrl != null;
-                          final subtitle = ok
-                              ? (volOk ? null : l10n.dlnaNoVolumeSupport)
-                              : l10n.dlnaNoAvTransportSupport;
-                          return ListTile(
-                            dense: true,
-                            enabled: ok,
-                            leading: const Icon(Icons.speaker),
-                            title: Text(d.friendlyName),
-                            subtitle: subtitle == null ? null : Text(subtitle),
-                            trailing: selected
-                                ? Icon(
-                                    Icons.check_circle,
-                                    color: theme.colorScheme.primary,
-                                  )
-                                : null,
-                            selected: selected,
-                            onTap: ok
-                                ? () => setState(() => _selected = d)
-                                : null,
-                          );
-                        },
-                      ),
-                    );
-                  },
-                ),
-              ),
-              const SizedBox(height: 16),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  TextButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    child: Text(cancelLabel),
-                  ),
-                  const SizedBox(width: 8),
-                  FilledButton(
-                    onPressed: () {
-                      final d = _selected;
-                      if (d == null) {
-                        Navigator.of(context).pop(
-                          _DlnaActionResult(
-                            applySelection: true,
-                            selected: null,
-                            message: l10n.dlnaSwitchedToLocal,
-                          ),
-                        );
-                        return;
-                      }
-                      if (d.avTransportControlUrl == null) {
-                        Navigator.of(context).pop(
-                          _DlnaActionResult(
-                            applySelection: false,
-                            message: l10n.dlnaNoAvTransportSupport,
-                          ),
-                        );
-                        return;
-                      }
-                      Navigator.of(context).pop(
-                        _DlnaActionResult(
-                          applySelection: true,
-                          selected: d,
-                          message: l10n.dlnaSelected(d.friendlyName),
-                        ),
-                      );
-                    },
-                    child: Text(okLabel),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _DlnaEmptyState extends StatelessWidget {
-  const _DlnaEmptyState({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.onRetry,
-  });
-
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final VoidCallback onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
+        child: Stack(
           children: [
-            Icon(icon, size: 36, color: theme.colorScheme.onSurfaceVariant),
-            const SizedBox(height: 12),
-            Text(title, style: theme.textTheme.titleMedium),
-            const SizedBox(height: 4),
-            Text(
-              subtitle,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-              textAlign: TextAlign.center,
+            Row(
+              children: [
+                const SizedBox(width: 12),
+                Expanded(
+                  child: NowPlayingTrackInfoSection(
+                    theme: theme,
+                    coverDir: coverDir,
+                    currentItem: queue.currentItem,
+                    currentTitle: currentTitle,
+                    currentSubtitle: currentSubtitle,
+                    currentPath: playback.currentPath,
+                    sampleRate: playback.trackInfo?.sampleRate,
+                  ),
+                ),
+                SizedBox(
+                  width: 194,
+                  child: NowPlayingTransportControls(
+                    l10n: l10n,
+                    isPlaying: isPlaying,
+                  ),
+                ),
+                Expanded(
+                  child: NowPlayingRightControls(
+                    l10n: l10n,
+                    theme: theme,
+                    playback: playback,
+                    queue: queue,
+                    selectedRenderer: selectedRenderer,
+                    localizedPlaybackError: localizedPlaybackError,
+                    playModeLabel: playModeLabel,
+                    rightControlButtonSize: rightControlButtonSize,
+                    rightControlIconSize: rightControlIconSize,
+                  ),
+                ),
+                const SizedBox(width: 12),
+              ],
             ),
-            const SizedBox(height: 12),
-            FilledButton.tonalIcon(
-              onPressed: onRetry,
-              icon: const Icon(Icons.refresh),
-              label: Text(l10n.refresh),
+            Positioned(
+              left: 0,
+              right: 0,
+              top: 0,
+              child: NowPlayingProgressBar(
+                durationMs: totalDurationMs,
+                positionMs: playback.positionMs,
+                enabled: progressEnabled,
+                audioStarted: playback.audioStarted,
+                playerState: playback.playerState,
+                onSeekMs: (ms) =>
+                    ref.read(playbackControllerProvider.notifier).seekMs(ms),
+              ),
             ),
           ],
         ),

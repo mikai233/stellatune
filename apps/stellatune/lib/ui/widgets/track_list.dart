@@ -1,12 +1,14 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:animations/animations.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:stellatune/bridge/bridge.dart';
 import 'package:stellatune/l10n/app_localizations.dart';
-import 'package:stellatune/ui/widgets/audio_format_badge.dart';
+import 'package:stellatune/ui/widgets/track_list/models/track_list_models.dart';
+import 'package:stellatune/ui/widgets/track_list/widgets/track_list_context_menu.dart';
+import 'package:stellatune/ui/widgets/track_list/widgets/track_list_shared_widgets.dart';
+import 'package:stellatune/ui/widgets/track_list/widgets/track_list_tile.dart';
 
 class TrackList extends StatefulWidget {
   const TrackList({
@@ -53,8 +55,6 @@ class TrackList extends StatefulWidget {
 }
 
 class _TrackListState extends State<TrackList> {
-  static const _rowAnimDuration = Duration(milliseconds: 220);
-  static const _rowAnimCurve = Cubic(0.22, 1.0, 0.36, 1.0);
   static const _itemExtent = 72.0;
 
   final ScrollController _controller = ScrollController();
@@ -77,7 +77,7 @@ class _TrackListState extends State<TrackList> {
   int _lastViewportEnd = -1;
   bool _globalPointerRouteAttached = false;
   bool _desktopTrackMenuVisible = false;
-  _PendingTrackMenuRequest? _pendingTrackMenuRequest;
+  PendingTrackMenuRequest? _pendingTrackMenuRequest;
   bool get _isDesktopPlatform =>
       Platform.isWindows || Platform.isLinux || Platform.isMacOS;
 
@@ -151,7 +151,7 @@ class _TrackListState extends State<TrackList> {
     Navigator.of(context).maybePop();
   }
 
-  _PendingTrackMenuRequest? _resolveTrackMenuRequest(Offset globalPosition) {
+  PendingTrackMenuRequest? _resolveTrackMenuRequest(Offset globalPosition) {
     if (!_controller.hasClients) {
       return null;
     }
@@ -179,7 +179,7 @@ class _TrackListState extends State<TrackList> {
     final isBlocked = widget.blockedReasonByTrackId.containsKey(
       track.id.toInt(),
     );
-    return _PendingTrackMenuRequest(
+    return PendingTrackMenuRequest(
       globalPosition: globalPosition,
       index: index,
       track: track,
@@ -433,7 +433,7 @@ class _TrackListState extends State<TrackList> {
 
     return Column(
       children: [
-        _SelectionBar(
+        TrackListSelectionBar(
           selectedCount: _selectedTrackIds.length,
           allCount: widget.items.length,
           onCancel: () => setState(() => _selectedTrackIds.clear()),
@@ -464,217 +464,100 @@ class _TrackListState extends State<TrackList> {
     required bool deferHeavy,
     required bool selectionMode,
   }) {
-    final title = (t.title ?? '').trim();
-    final artist = (t.artist ?? '').trim();
-    final album = (t.album ?? '').trim();
-    final isLiked = widget.likedTrackIds.contains(t.id.toInt());
-
-    final line1 = title.isNotEmpty ? title : _basename(t.path);
-    final line2 = [artist, album].where((s) => s.isNotEmpty).join(' • ');
-    final coverPath = '${widget.coverDir}${Platform.pathSeparator}${t.id}';
-
     final trackId = t.id.toInt();
     final blockedReason = widget.blockedReasonByTrackId[trackId];
     final isBlocked = blockedReason != null;
     final selected = _selectedTrackIds.contains(trackId);
-    final theme = Theme.of(context);
     final pressed = _pressedTrackId == trackId;
-    final rowBg = selected
-        ? theme.colorScheme.secondaryContainer.withValues(alpha: 0.92)
-        : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.28);
-    final rowBorder = selected
-        ? Border.all(color: theme.colorScheme.secondary.withValues(alpha: 0.70))
-        : null;
+    final isLiked = widget.likedTrackIds.contains(trackId);
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 4),
-      child: Listener(
-        onPointerDown: (_) {
-          if (_pressedTrackId == trackId) return;
-          setState(() => _pressedTrackId = trackId);
-        },
-        onPointerUp: (_) {
-          if (_pressedTrackId != trackId) return;
-          setState(() => _pressedTrackId = null);
-        },
-        onPointerCancel: (_) {
-          if (_pressedTrackId != trackId) return;
-          setState(() => _pressedTrackId = null);
-        },
-        child: AnimatedScale(
-          duration: const Duration(milliseconds: 90),
-          curve: Curves.easeOutCubic,
-          scale: pressed ? 0.995 : 1.0,
-          child: AnimatedContainer(
-            duration: _rowAnimDuration,
-            curve: _rowAnimCurve,
-            decoration: BoxDecoration(
-              color: rowBg,
-              borderRadius: BorderRadius.circular(14),
-              border: rowBorder,
-            ),
-            child: GestureDetector(
-              onSecondaryTapDown: !_isDesktopPlatform || deferHeavy
-                  ? null
-                  : (details) => _showTrackActionMenu(
-                      globalPosition: details.globalPosition,
-                      index: i,
-                      track: t,
-                      activateItems: activateItems,
-                      isBlocked: isBlocked,
-                    ),
-              child: Material(
-                type: MaterialType.transparency,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                clipBehavior: Clip.antiAlias,
-                child: ListTile(
-                  dense: true,
-                  hoverColor: theme.colorScheme.surfaceContainerHighest
-                      .withValues(alpha: 0.42),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  leading: deferHeavy
-                      ? const _CoverPlaceholder()
-                      : _CoverThumb(path: coverPath),
-                  title: Text(
-                    line1,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: isBlocked
-                        ? theme.textTheme.bodyLarge?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant,
-                          )
-                        : null,
-                  ),
-                  subtitle: deferHeavy
-                      ? const _SubtitlePlaceholder()
-                      : Row(
-                          children: [
-                            AudioFormatBadge(path: t.path),
-                            Expanded(
-                              child: Text(
-                                line2.isNotEmpty ? line2 : t.path,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: isBlocked
-                                    ? theme.textTheme.bodyMedium?.copyWith(
-                                        color:
-                                            theme.colorScheme.onSurfaceVariant,
-                                      )
-                                    : null,
-                              ),
-                            ),
-                          ],
-                        ),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (isBlocked)
-                        Padding(
-                          padding: const EdgeInsets.only(right: 4),
-                          child: Tooltip(
-                            message: blockedReason,
-                            child: Icon(
-                              Icons.block,
-                              size: 18,
-                              color: theme.colorScheme.error,
-                            ),
-                          ),
-                        ),
-                      if (selectionMode)
-                        Checkbox(
-                          value: selected,
-                          onChanged: (_) => _toggleSelected(trackId),
-                        ),
-                      if (deferHeavy && !selectionMode) ...[
-                        const _TrackTrailingPlaceholder(),
-                      ] else ...[
-                        IconButton(
-                          tooltip: isLiked
-                              ? l10n.likedRemoveTooltip
-                              : l10n.likedAddTooltip,
-                          onPressed: () => widget.onSetLiked(t, !isLiked),
-                          icon: Icon(
-                            isLiked ? Icons.favorite : Icons.favorite_border,
-                            color: isLiked ? theme.colorScheme.error : null,
-                          ),
-                        ),
-                        _DurationText(ms: t.durationMs?.toInt()),
-                        if (!_isDesktopPlatform) ...[
-                          const SizedBox(width: 8),
-                          PopupMenuButton<_TrackAction>(
-                            onSelected: (action) => _handleTrackAction(
-                              context: context,
-                              action: action,
-                              index: i,
-                              track: t,
-                              activateItems: activateItems,
-                              isBlocked: isBlocked,
-                            ),
-                            itemBuilder: (context) =>
-                                _buildTrackActionMenuItems(context, isBlocked),
-                          ),
-                        ],
-                      ],
-                      if (reorderIndex != null)
-                        ReorderableDragStartListener(
-                          index: reorderIndex,
-                          child: const Padding(
-                            padding: EdgeInsets.only(left: 4),
-                            child: Icon(Icons.drag_handle),
-                          ),
-                        ),
-                    ],
-                  ),
-                  onTap: () {
-                    if (selectionMode) {
-                      _toggleSelected(trackId);
-                      return;
-                    }
-                    if (isBlocked) return;
-                    widget.onActivate(i, activateItems);
-                  },
-                  onLongPress: widget.currentPlaylistId == null
-                      ? null
-                      : () => _toggleSelected(trackId),
-                ),
-              ),
-            ),
-          ),
-        ),
+    return TrackListTile(
+      l10n: l10n,
+      index: i,
+      track: t,
+      coverDir: widget.coverDir,
+      deferHeavy: deferHeavy,
+      selectionMode: selectionMode,
+      selected: selected,
+      pressed: pressed,
+      isLiked: isLiked,
+      isBlocked: isBlocked,
+      isDesktopPlatform: _isDesktopPlatform,
+      blockedReason: blockedReason,
+      reorderIndex: reorderIndex,
+      onPressedDown: () {
+        if (_pressedTrackId == trackId) return;
+        setState(() => _pressedTrackId = trackId);
+      },
+      onPressedUp: () {
+        if (_pressedTrackId != trackId) return;
+        setState(() => _pressedTrackId = null);
+      },
+      onPressedCancel: () {
+        if (_pressedTrackId != trackId) return;
+        setState(() => _pressedTrackId = null);
+      },
+      onToggleLike: () => widget.onSetLiked(t, !isLiked),
+      onToggleSelected: () => _toggleSelected(trackId),
+      onTapTrack: () {
+        if (selectionMode) {
+          _toggleSelected(trackId);
+          return;
+        }
+        if (isBlocked) return;
+        widget.onActivate(i, activateItems);
+      },
+      onTrackAction: (action) => _handleTrackAction(
+        context: context,
+        action: action,
+        index: i,
+        track: t,
+        activateItems: activateItems,
+        isBlocked: isBlocked,
       ),
+      buildTrackActionMenuItems: (context) =>
+          _buildTrackActionMenuItems(context, isBlocked),
+      onDesktopContextMenuRequested: !_isDesktopPlatform
+          ? null
+          : (globalPosition) => _showTrackActionMenu(
+              globalPosition: globalPosition,
+              index: i,
+              track: t,
+              activateItems: activateItems,
+              isBlocked: isBlocked,
+            ),
+      onLongPressSelect: widget.currentPlaylistId == null
+          ? null
+          : () => _toggleSelected(trackId),
     );
   }
 
-  List<_TrackActionSpec> _buildTrackActionSpecs(
+  List<TrackListActionSpec> _buildTrackActionSpecs(
     BuildContext context,
     bool isBlocked,
   ) {
     final l10n = AppLocalizations.of(context)!;
-    return <_TrackActionSpec>[
-      _TrackActionSpec(
-        action: _TrackAction.play,
+    return <TrackListActionSpec>[
+      TrackListActionSpec(
+        action: TrackListAction.play,
         label: l10n.menuPlay,
         icon: Icons.play_arrow_rounded,
         enabled: !isBlocked,
       ),
-      _TrackActionSpec(
-        action: _TrackAction.enqueue,
+      TrackListActionSpec(
+        action: TrackListAction.enqueue,
         label: l10n.menuEnqueue,
         icon: Icons.queue_music_rounded,
         enabled: !isBlocked,
       ),
-      _TrackActionSpec(
-        action: _TrackAction.addToPlaylist,
+      TrackListActionSpec(
+        action: TrackListAction.addToPlaylist,
         label: l10n.menuAddToPlaylist,
         icon: Icons.playlist_add_rounded,
       ),
       if (widget.currentPlaylistId != null)
-        _TrackActionSpec(
-          action: _TrackAction.removeFromCurrentPlaylist,
+        TrackListActionSpec(
+          action: TrackListAction.removeFromCurrentPlaylist,
           label: l10n.menuRemoveFromCurrentPlaylist,
           icon: Icons.remove_circle_outline_rounded,
           showDividerBefore: true,
@@ -682,36 +565,22 @@ class _TrackListState extends State<TrackList> {
     ];
   }
 
-  List<PopupMenuEntry<_TrackAction>> _buildTrackActionMenuItems(
+  List<PopupMenuEntry<TrackListAction>> _buildTrackActionMenuItems(
     BuildContext context,
     bool isBlocked,
   ) {
     final items = _buildTrackActionSpecs(context, isBlocked);
-    return items
-        .map((item) {
-          return PopupMenuItem<_TrackAction>(
-            value: item.action,
-            enabled: item.enabled,
-            child: Row(
-              children: [
-                Icon(item.icon, size: 18),
-                const SizedBox(width: 10),
-                Expanded(child: Text(item.label)),
-              ],
-            ),
-          );
-        })
-        .toList(growable: false);
+    return buildTrackListActionMenuItems(items);
   }
 
-  Future<_TrackAction?> _showAnimatedTrackActionMenu({
+  Future<TrackListAction?> _showAnimatedTrackActionMenu({
     required Offset globalPosition,
     required bool isBlocked,
   }) {
     final context = this.context;
     final render = Overlay.of(context).context.findRenderObject();
     if (render is! RenderBox) {
-      return Future<_TrackAction?>.value(null);
+      return Future<TrackListAction?>.value(null);
     }
     final menuItems = _buildTrackActionSpecs(context, isBlocked);
     const menuWidth = 250.0;
@@ -730,7 +599,7 @@ class _TrackListState extends State<TrackList> {
       render.size.height - menuHeight - safePadding,
     );
 
-    return showGeneralDialog<_TrackAction>(
+    return showGeneralDialog<TrackListAction>(
       context: context,
       barrierDismissible: true,
       barrierLabel: MaterialLocalizations.of(context).modalBarrierDismissLabel,
@@ -755,7 +624,7 @@ class _TrackListState extends State<TrackList> {
               left: left.toDouble(),
               top: top.toDouble(),
               width: menuWidth,
-              child: _TrackContextMenuCard(
+              child: TrackListContextMenuCard(
                 animation: menuAnimation,
                 items: menuItems,
                 onSelected: (action) => Navigator.of(dialogContext).pop(action),
@@ -812,23 +681,23 @@ class _TrackListState extends State<TrackList> {
 
   Future<void> _handleTrackAction({
     required BuildContext context,
-    required _TrackAction action,
+    required TrackListAction action,
     required int index,
     required TrackLite track,
     required List<TrackLite> activateItems,
     required bool isBlocked,
   }) async {
-    if (action == _TrackAction.enqueue) {
+    if (action == TrackListAction.enqueue) {
       if (isBlocked) return;
       await widget.onEnqueue(track);
       return;
     }
-    if (action == _TrackAction.play) {
+    if (action == TrackListAction.play) {
       if (isBlocked) return;
       await widget.onActivate(index, activateItems);
       return;
     }
-    if (action == _TrackAction.addToPlaylist) {
+    if (action == TrackListAction.addToPlaylist) {
       final playlistId = await _pickPlaylistId(context);
       if (playlistId != null) {
         await widget.onAddToPlaylist(track, playlistId);
@@ -929,340 +798,5 @@ class _TrackListState extends State<TrackList> {
       return l10n.likedPlaylistName;
     }
     return playlist.name;
-  }
-
-  static String _basename(String path) {
-    final parts = path.split(RegExp(r'[\\/]+'));
-    return parts.isEmpty ? path : parts.last;
-  }
-}
-
-enum _TrackAction { play, enqueue, addToPlaylist, removeFromCurrentPlaylist }
-
-class _TrackActionSpec {
-  const _TrackActionSpec({
-    required this.action,
-    required this.label,
-    required this.icon,
-    this.enabled = true,
-    this.showDividerBefore = false,
-  });
-
-  final _TrackAction action;
-  final String label;
-  final IconData icon;
-  final bool enabled;
-  final bool showDividerBefore;
-}
-
-class _TrackContextMenuCard extends StatelessWidget {
-  const _TrackContextMenuCard({
-    required this.animation,
-    required this.items,
-    required this.onSelected,
-  });
-
-  final Animation<double> animation;
-  final List<_TrackActionSpec> items;
-  final ValueChanged<_TrackAction> onSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final iconColor = theme.colorScheme.onSurfaceVariant;
-    final menuColor = Color.alphaBlend(
-      theme.colorScheme.primary.withValues(alpha: 0.025),
-      theme.colorScheme.surface,
-    );
-    final enabledTextStyle = theme.textTheme.bodyMedium;
-    final disabledTextStyle = enabledTextStyle?.copyWith(
-      color: theme.colorScheme.onSurface.withValues(alpha: 0.42),
-    );
-    final menuAnimation = animation;
-    final baseMenu = Material(
-      elevation: 14,
-      shadowColor: Colors.black.withValues(alpha: 0.18),
-      color: menuColor,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(14),
-        side: BorderSide(
-          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.42),
-        ),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            for (final item in items) ...[
-              if (item.showDividerBefore)
-                Divider(
-                  height: 9,
-                  thickness: 0.8,
-                  color: theme.colorScheme.outlineVariant.withValues(
-                    alpha: 0.60,
-                  ),
-                ),
-              InkWell(
-                onTap: item.enabled ? () => onSelected(item.action) : null,
-                hoverColor: theme.colorScheme.primary.withValues(alpha: 0.08),
-                highlightColor: theme.colorScheme.primary.withValues(
-                  alpha: 0.12,
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 10,
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        item.icon,
-                        size: 19,
-                        color: item.enabled
-                            ? iconColor
-                            : iconColor.withValues(alpha: 0.36),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          item.label,
-                          style: item.enabled
-                              ? enabledTextStyle
-                              : disabledTextStyle,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-
-    return FadeScaleTransition(
-      animation: menuAnimation,
-      child: AnimatedBuilder(
-        animation: menuAnimation,
-        child: baseMenu,
-        builder: (context, child) {
-          final dy = (1 - menuAnimation.value) * 8;
-          return Transform.translate(offset: Offset(0, dy), child: child);
-        },
-      ),
-    );
-  }
-}
-
-class _PendingTrackMenuRequest {
-  _PendingTrackMenuRequest({
-    required this.globalPosition,
-    required this.index,
-    required this.track,
-    required this.isBlocked,
-  });
-
-  final Offset globalPosition;
-  final int index;
-  final TrackLite track;
-  final bool isBlocked;
-}
-
-class _SelectionBar extends StatelessWidget {
-  const _SelectionBar({
-    required this.selectedCount,
-    required this.allCount,
-    required this.onCancel,
-    required this.onSelectAll,
-    required this.onAddToPlaylist,
-    required this.onRemoveFromCurrentPlaylist,
-  });
-
-  final int selectedCount;
-  final int allCount;
-  final VoidCallback onCancel;
-  final VoidCallback? onSelectAll;
-  final Future<void> Function() onAddToPlaylist;
-  final Future<void> Function()? onRemoveFromCurrentPlaylist;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    return Material(
-      color: Theme.of(context).colorScheme.surfaceContainerHigh,
-      child: SizedBox(
-        height: 52,
-        child: Row(
-          children: [
-            const SizedBox(width: 8),
-            Text(l10n.playlistSelectionCount(selectedCount)),
-            const SizedBox(width: 8),
-            TextButton(
-              onPressed: onSelectAll,
-              child: Text(
-                selectedCount >= allCount
-                    ? l10n.playlistAllSelected
-                    : l10n.playlistSelectAll,
-              ),
-            ),
-            const Spacer(),
-            TextButton(
-              onPressed: onAddToPlaylist,
-              child: Text(l10n.playlistBatchAddToPlaylist),
-            ),
-            if (onRemoveFromCurrentPlaylist != null)
-              TextButton(
-                onPressed: onRemoveFromCurrentPlaylist,
-                child: Text(l10n.playlistBatchRemoveFromCurrent),
-              ),
-            TextButton(onPressed: onCancel, child: Text(l10n.cancel)),
-            const SizedBox(width: 4),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _CoverPlaceholder extends StatelessWidget {
-  const _CoverPlaceholder();
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Container(
-      width: 40,
-      height: 40,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(8),
-        color: theme.colorScheme.surfaceContainerHighest,
-      ),
-      child: Icon(Icons.music_note, color: theme.colorScheme.onSurfaceVariant),
-    );
-  }
-}
-
-class _CoverThumb extends StatelessWidget {
-  const _CoverThumb({required this.path});
-
-  final String path;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final placeholder = Container(
-      width: 40,
-      height: 40,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(8),
-        color: theme.colorScheme.primary.withValues(alpha: 0.10),
-        border: Border.all(
-          color: theme.colorScheme.primary.withValues(alpha: 0.15),
-        ),
-      ),
-      child: Icon(Icons.music_note, color: theme.colorScheme.primary),
-    );
-
-    final provider = ResizeImage(
-      FileImage(File(path)),
-      width: 80,
-      height: 80,
-      allowUpscaling: false,
-    );
-
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(8),
-      child: Image(
-        image: provider,
-        width: 40,
-        height: 40,
-        fit: BoxFit.cover,
-        filterQuality: FilterQuality.low,
-        gaplessPlayback: true,
-        errorBuilder: (context, error, stackTrace) => placeholder,
-      ),
-    );
-  }
-}
-
-class _SubtitlePlaceholder extends StatelessWidget {
-  const _SubtitlePlaceholder();
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Row(
-      children: [
-        Container(
-          width: 46,
-          height: 16,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(6),
-            color: theme.colorScheme.surfaceContainerHighest,
-          ),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Container(
-            height: 12,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(6),
-              color: theme.colorScheme.surfaceContainerHighest,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _TrackTrailingPlaceholder extends StatelessWidget {
-  const _TrackTrailingPlaceholder();
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final blockColor = theme.colorScheme.surfaceContainerHighest;
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 18,
-          height: 18,
-          decoration: BoxDecoration(shape: BoxShape.circle, color: blockColor),
-        ),
-        const SizedBox(width: 10),
-        Container(
-          width: 36,
-          height: 12,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(6),
-            color: blockColor,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _DurationText extends StatelessWidget {
-  const _DurationText({required this.ms});
-
-  final int? ms;
-
-  @override
-  Widget build(BuildContext context) {
-    final v = ms;
-    if (v == null || v <= 0) return const SizedBox.shrink();
-    final totalSeconds = (v / 1000).floor();
-    final minutes = (totalSeconds / 60).floor();
-    final seconds = totalSeconds % 60;
-    return Text(
-      '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}',
-      style: Theme.of(context).textTheme.bodySmall,
-    );
   }
 }

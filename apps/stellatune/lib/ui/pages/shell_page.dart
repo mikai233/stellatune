@@ -27,6 +27,10 @@ class _ShellPageState extends ConsumerState<ShellPage> {
   final _playlistsPageKey = GlobalKey<PlaylistsPageState>();
   final _settingsPageKey = GlobalKey<SettingsPageState>();
 
+  void _updateUi(VoidCallback updater) => setState(updater);
+
+  void _setTabIndex(int index) => _updateUi(() => _index = index);
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -49,84 +53,120 @@ class _ShellPageState extends ConsumerState<ShellPage> {
       libraryControllerProvider.select((s) => s.isScanning),
     );
 
-    final body = switch (_index) {
-      0 => HomePage(onOpenLibrary: () => setState(() => _index = 1)),
+    final body = _buildShellBody(isMobile: isMobile);
+    final topBarActions = _buildTopBarActions(
+      l10n: l10n,
+      isScanning: isScanning,
+    );
+    final shell = _buildShell(
+      isMobile: isMobile,
+      body: body,
+      topBarActions: topBarActions,
+    );
+
+    return Stack(children: [shell, const OpenContainerShaderWarmup()]);
+  }
+
+  Widget _buildShellBody({required bool isMobile}) {
+    return switch (_index) {
+      0 => HomePage(onOpenLibrary: () => _setTabIndex(1)),
       1 => LibraryPage(key: _libraryPageKey, useGlobalTopBar: !isMobile),
       2 => PlaylistsPage(key: _playlistsPageKey, useGlobalTopBar: !isMobile),
       3 => SettingsPage(key: _settingsPageKey, useGlobalTopBar: !isMobile),
       _ => SettingsPage(key: _settingsPageKey, useGlobalTopBar: !isMobile),
     };
+  }
 
-    final topBarActions = switch (_index) {
+  List<DesktopTopBarAction> _buildTopBarActions({
+    required AppLocalizations l10n,
+    required bool isScanning,
+  }) {
+    return switch (_index) {
       0 => const <DesktopTopBarAction>[],
-      1 => <DesktopTopBarAction>[
-        DesktopTopBarAction(
-          icon: (_libraryPageKey.currentState?.foldersPaneCollapsed ?? false)
-              ? Icons.chevron_right
-              : Icons.chevron_left,
-          tooltip: (_libraryPageKey.currentState?.foldersPaneCollapsed ?? false)
-              ? l10n.expand
-              : l10n.collapse,
-          onPressed: () {
-            _libraryPageKey.currentState?.toggleFoldersPane();
-            setState(() {});
-          },
-        ),
-        DesktopTopBarAction(
-          icon: Icons.create_new_folder_outlined,
-          tooltip: l10n.tooltipAddFolder,
-          onPressed: () => _libraryPageKey.currentState?.addFolderFromTopBar(),
-        ),
-        DesktopTopBarAction(
-          icon: Icons.refresh,
-          tooltip: l10n.tooltipScan,
-          onPressed: isScanning
-              ? null
-              : () => _libraryPageKey.currentState?.scanFromTopBar(),
-        ),
-        DesktopTopBarAction(
-          icon: Icons.restart_alt,
-          tooltip: l10n.tooltipForceScan,
-          onPressed: isScanning
-              ? null
-              : () => _libraryPageKey.currentState?.scanFromTopBar(force: true),
-        ),
-      ],
-      2 => <DesktopTopBarAction>[
-        DesktopTopBarAction(
-          icon: (_playlistsPageKey.currentState?.isPlaylistsPanelOpen ?? false)
-              ? Icons.menu_open
-              : Icons.menu,
-          tooltip: l10n.playlistSectionTitle,
-          onPressed: () {
-            _playlistsPageKey.currentState?.togglePlaylistsPanel();
-            setState(() {});
-          },
-        ),
-        DesktopTopBarAction(
-          icon: Icons.playlist_add_outlined,
-          tooltip: l10n.playlistCreateTooltip,
-          onPressed: () =>
-              _playlistsPageKey.currentState?.createPlaylistFromTopBar(),
-        ),
-      ],
+      1 => _buildLibraryTopBarActions(l10n: l10n, isScanning: isScanning),
+      2 => _buildPlaylistsTopBarActions(l10n),
       3 => const <DesktopTopBarAction>[],
       _ => const <DesktopTopBarAction>[],
     };
+  }
 
-    final shell = isMobile
-        ? MobileShell(
-            selectedIndex: _index,
-            onDestinationSelected: (v) => setState(() => _index = v),
-            child: body,
-          )
-        : DesktopShell(
-            selectedIndex: _index,
-            onDestinationSelected: (v) => setState(() => _index = v),
-            topBarActions: topBarActions,
-            child: body,
-          );
+  List<DesktopTopBarAction> _buildLibraryTopBarActions({
+    required AppLocalizations l10n,
+    required bool isScanning,
+  }) {
+    final foldersPaneCollapsed =
+        _libraryPageKey.currentState?.foldersPaneCollapsed ?? false;
+    return <DesktopTopBarAction>[
+      DesktopTopBarAction(
+        icon: foldersPaneCollapsed ? Icons.chevron_right : Icons.chevron_left,
+        tooltip: foldersPaneCollapsed ? l10n.expand : l10n.collapse,
+        onPressed: () {
+          _libraryPageKey.currentState?.toggleFoldersPane();
+          _updateUi(() {});
+        },
+      ),
+      DesktopTopBarAction(
+        icon: Icons.create_new_folder_outlined,
+        tooltip: l10n.tooltipAddFolder,
+        onPressed: () => _libraryPageKey.currentState?.addFolderFromTopBar(),
+      ),
+      DesktopTopBarAction(
+        icon: Icons.refresh,
+        tooltip: l10n.tooltipScan,
+        onPressed: isScanning
+            ? null
+            : () => _libraryPageKey.currentState?.scanFromTopBar(),
+      ),
+      DesktopTopBarAction(
+        icon: Icons.restart_alt,
+        tooltip: l10n.tooltipForceScan,
+        onPressed: isScanning
+            ? null
+            : () => _libraryPageKey.currentState?.scanFromTopBar(force: true),
+      ),
+    ];
+  }
 
-    return Stack(children: [shell, const OpenContainerShaderWarmup()]);
+  List<DesktopTopBarAction> _buildPlaylistsTopBarActions(
+    AppLocalizations l10n,
+  ) {
+    final playlistsPanelOpen =
+        _playlistsPageKey.currentState?.isPlaylistsPanelOpen ?? false;
+    return <DesktopTopBarAction>[
+      DesktopTopBarAction(
+        icon: playlistsPanelOpen ? Icons.menu_open : Icons.menu,
+        tooltip: l10n.playlistSectionTitle,
+        onPressed: () {
+          _playlistsPageKey.currentState?.togglePlaylistsPanel();
+          _updateUi(() {});
+        },
+      ),
+      DesktopTopBarAction(
+        icon: Icons.playlist_add_outlined,
+        tooltip: l10n.playlistCreateTooltip,
+        onPressed: () =>
+            _playlistsPageKey.currentState?.createPlaylistFromTopBar(),
+      ),
+    ];
+  }
+
+  Widget _buildShell({
+    required bool isMobile,
+    required Widget body,
+    required List<DesktopTopBarAction> topBarActions,
+  }) {
+    if (isMobile) {
+      return MobileShell(
+        selectedIndex: _index,
+        onDestinationSelected: _setTabIndex,
+        child: body,
+      );
+    }
+    return DesktopShell(
+      selectedIndex: _index,
+      onDestinationSelected: _setTabIndex,
+      topBarActions: topBarActions,
+      child: body,
+    );
   }
 }

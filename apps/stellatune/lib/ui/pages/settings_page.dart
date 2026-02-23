@@ -6,7 +6,6 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:path/path.dart' as p;
 import 'package:stellatune/app/providers.dart';
 import 'package:stellatune/app/plugin_paths.dart';
 import 'package:stellatune/app/plugin_ui_gateway_service.dart';
@@ -16,8 +15,28 @@ import 'package:stellatune/l10n/app_localizations.dart';
 import 'package:stellatune/lyrics/lyrics_controller.dart';
 import 'package:stellatune/player/decoder_extension_support.dart';
 import 'package:stellatune/player/playback_controller.dart';
-import 'package:stellatune/ui/forms/schema_form.dart';
 import 'package:stellatune/app/logging.dart';
+import 'package:stellatune/ui/pages/settings/logic/settings_plugin_runtime_service.dart';
+import 'package:stellatune/ui/pages/settings/models/installed_plugin.dart';
+import 'package:stellatune/ui/pages/settings/settings_value_utils.dart';
+import 'package:stellatune/ui/pages/settings/widgets/settings_appearance_section.dart';
+import 'package:stellatune/ui/pages/settings/widgets/settings_lyrics_cache_section.dart';
+import 'package:stellatune/ui/pages/settings/widgets/settings_plugins_list.dart';
+import 'package:stellatune/ui/pages/settings/widgets/settings_section_card.dart';
+
+class _PluginRuntimeSnapshot {
+  const _PluginRuntimeSnapshot({
+    required this.installedPlugins,
+    required this.disabledPluginIds,
+    required this.loadedPluginIds,
+    required this.sourceTypes,
+  });
+
+  final List<InstalledPlugin> installedPlugins;
+  final Set<String> disabledPluginIds;
+  final Set<String> loadedPluginIds;
+  final List<SourceCatalogTypeDescriptor> sourceTypes;
+}
 
 class SettingsPage extends ConsumerStatefulWidget {
   const SettingsPage({super.key, this.useGlobalTopBar = false});
@@ -28,43 +47,18 @@ class SettingsPage extends ConsumerStatefulWidget {
   ConsumerState<SettingsPage> createState() => SettingsPageState();
 }
 
-class _InstalledPlugin {
-  const _InstalledPlugin({
-    required this.dirPath,
-    required this.id,
-    required this.name,
-    required this.hasWebUi,
-    required this.infoJson,
-    required this.installState,
-    required this.uninstallRetryCount,
-    required this.uninstallLastError,
-  });
-
-  final String dirPath;
-  final String? id;
-  final String? name;
-  final bool hasWebUi;
-  final String? infoJson;
-  final String installState;
-  final int uninstallRetryCount;
-  final String? uninstallLastError;
-
-  String get nameOrDir => name ?? p.basename(dirPath);
-  bool get isInstalled => installState == 'installed';
-  bool get isPendingUninstall => installState == 'pending_uninstall';
-  bool get isDeleteFailed => installState == 'delete_failed';
-}
-
 class SettingsPageState extends ConsumerState<SettingsPage> {
-  static const Duration _bridgeQueryTimeout = Duration(seconds: 8);
-
   Future<List<PluginDescriptor>>? _pluginsFuture;
   Future<List<OutputSinkTypeDescriptor>>? _outputSinkTypesFuture;
   Future<List<SourceCatalogTypeDescriptor>>? _sourceTypesFuture;
-  Future<List<_InstalledPlugin>>? _installedPluginsFuture;
+  Future<List<InstalledPlugin>>? _installedPluginsFuture;
   Future<Set<String>>? _disabledPluginIdsFuture;
+  Future<_PluginRuntimeSnapshot>? _pluginRuntimeSnapshotFuture;
+  Future<String>? _pluginDirFuture;
   String? _pluginDir;
   late final OutputSettingsUiSession _outputUiSession;
+  final SettingsPluginRuntimeService _pluginRuntimeService =
+      const SettingsPluginRuntimeService();
 
   String? _selectedOutputBackendKey;
   String? _selectedOutputSinkTypeKey;
@@ -81,6 +75,8 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
   bool _cachedLoadedPluginIdsReady = false;
   Set<String> _cachedDisabledPluginIds = <String>{};
   bool _cachedDisabledPluginIdsReady = false;
+  List<InstalledPlugin> _cachedInstalledPlugins = const [];
+  bool _cachedInstalledPluginsReady = false;
   List<OutputSinkTypeDescriptor> _cachedOutputSinkTypes = const [];
   bool _cachedOutputSinkTypesReady = false;
   List<SourceCatalogTypeDescriptor> _cachedSourceTypes = const [];
@@ -106,6 +102,8 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
     _outputSinkTargetController.dispose();
     super.dispose();
   }
+
+  void _updateUi(VoidCallback updater) => setState(updater);
 
   void _restoreOutputUiSessionOrSettings() {
     final session = _outputUiSession;
@@ -166,175 +164,99 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
   void _refresh() {
     final bridge = ref.read(playerBridgeProvider);
     final library = ref.read(libraryBridgeProvider);
-    _pluginsFuture = _listLoadedPlugins(bridge);
+    _pluginsFuture = _pluginRuntimeService.listLoadedPlugins(bridge);
     _outputSinkTypesFuture = null;
     _cachedOutputSinkTypes = const [];
     _cachedOutputSinkTypesReady = false;
-    _sourceTypesFuture = _listSourceTypes(bridge);
+    _sourceTypesFuture = _pluginRuntimeService.listSourceTypes(bridge);
     _installedPluginsFuture = _listInstalledPlugins();
-    _disabledPluginIdsFuture = _listDisabledPluginIds(library);
+    _disabledPluginIdsFuture = _pluginRuntimeService.listDisabledPluginIds(
+      library,
+    );
+    _pluginRuntimeSnapshotFuture = null;
   }
 
   void _refreshPluginRuntimeState() {
     final bridge = ref.read(playerBridgeProvider);
     final library = ref.read(libraryBridgeProvider);
-    _pluginsFuture = _listLoadedPlugins(bridge);
+    _pluginsFuture = _pluginRuntimeService.listLoadedPlugins(bridge);
     _outputSinkTypesFuture = null;
     _cachedOutputSinkTypes = const [];
     _cachedOutputSinkTypesReady = false;
-    _sourceTypesFuture = _listSourceTypes(bridge);
-    _disabledPluginIdsFuture = _listDisabledPluginIds(library);
-  }
-
-  Future<List<PluginDescriptor>> _listLoadedPlugins(PlayerBridge bridge) async {
-    try {
-      return await bridge.pluginsList().timeout(_bridgeQueryTimeout);
-    } on TimeoutException catch (e, s) {
-      logger.w('pluginsList timed out', error: e, stackTrace: s);
-      return const <PluginDescriptor>[];
-    } catch (e, s) {
-      logger.w('pluginsList failed', error: e, stackTrace: s);
-      return const <PluginDescriptor>[];
-    }
-  }
-
-  Future<List<SourceCatalogTypeDescriptor>> _listSourceTypes(
-    PlayerBridge bridge,
-  ) async {
-    try {
-      return await bridge.sourceListTypes().timeout(_bridgeQueryTimeout);
-    } on TimeoutException catch (e, s) {
-      logger.w('sourceListTypes timed out', error: e, stackTrace: s);
-      return const <SourceCatalogTypeDescriptor>[];
-    } catch (e, s) {
-      logger.w('sourceListTypes failed', error: e, stackTrace: s);
-      return const <SourceCatalogTypeDescriptor>[];
-    }
+    _sourceTypesFuture = _pluginRuntimeService.listSourceTypes(bridge);
+    _disabledPluginIdsFuture = _pluginRuntimeService.listDisabledPluginIds(
+      library,
+    );
+    _pluginRuntimeSnapshotFuture = null;
   }
 
   Future<void> _ensurePluginDir() async {
-    _pluginDir ??= await defaultPluginDir();
+    _pluginDir ??= await (_pluginDirFuture ??= defaultPluginDir());
   }
 
-  Future<List<_InstalledPlugin>> _listInstalledPlugins() async {
+  Future<List<InstalledPlugin>> _listInstalledPlugins() async {
     await _ensurePluginDir();
+    return _pluginRuntimeService.listInstalledPlugins(
+      bridge: ref.read(playerBridgeProvider),
+      pluginDir: _pluginDir!,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final bridge = ref.read(playerBridgeProvider);
-    final raw = await bridge.pluginsListInstalledJson(dir: _pluginDir!);
-    final decoded = jsonDecode(raw);
-    if (decoded is! List) return const [];
-    final out = <_InstalledPlugin>[];
-    for (final item in decoded) {
-      if (item is! Map) continue;
-      final map = item.cast<Object?, Object?>();
-      final id = (map['id'] ?? '').toString().trim();
-      if (id.isEmpty) continue;
-      final dirPath = (map['root_dir'] ?? '').toString().trim();
-      final resolvedDirPath = dirPath.isEmpty
-          ? p.join(_pluginDir!, id)
-          : dirPath;
-      final nameRaw = (map['name'] ?? '').toString().trim();
-      final infoRaw = (map['info_json'] ?? '').toString().trim();
-      final installStateRaw = (map['install_state'] ?? 'installed')
-          .toString()
-          .trim();
-      final uninstallRetryCountRaw = map['uninstall_retry_count'];
-      final uninstallRetryCount = switch (uninstallRetryCountRaw) {
-        int v => v,
-        num v => v.toInt(),
-        String v => int.tryParse(v) ?? 0,
-        _ => 0,
-      };
-      final uninstallLastErrorRaw = (map['uninstall_last_error'] ?? '')
-          .toString()
-          .trim();
-      final hasWebUi = await _pluginHasWebUi(resolvedDirPath);
-      out.add(
-        _InstalledPlugin(
-          dirPath: resolvedDirPath,
-          id: id,
-          name: nameRaw.isEmpty ? null : nameRaw,
-          hasWebUi: hasWebUi,
-          infoJson: infoRaw.isEmpty ? null : infoRaw,
-          installState: installStateRaw.isEmpty ? 'installed' : installStateRaw,
-          uninstallRetryCount: uninstallRetryCount < 0
-              ? 0
-              : uninstallRetryCount,
-          uninstallLastError: uninstallLastErrorRaw.isEmpty
-              ? null
-              : uninstallLastErrorRaw,
-        ),
-      );
+    _pluginsFuture ??= _pluginRuntimeService.listLoadedPlugins(bridge);
+    _sourceTypesFuture ??= _pluginRuntimeService.listSourceTypes(bridge);
+    _outputSinkTypesFuture ??= bridge.outputSinkListTypes();
+    _installedPluginsFuture ??= _listInstalledPlugins();
+    _pluginDirFuture ??= defaultPluginDir();
+    _pluginRuntimeSnapshotFuture ??= _createPluginRuntimeSnapshotFuture();
+
+    final devices = ref.watch(audioDevicesProvider).value ?? const [];
+    _persistOutputUiSession();
+
+    final appBar = AppBar(title: Text(l10n.settingsTitle));
+
+    final pageBody = ListView(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+      children: [
+        _buildAppearanceCard(l10n),
+        const SizedBox(height: 12),
+        _buildOutputCard(l10n, devices),
+        const SizedBox(height: 12),
+        _buildPluginsCard(l10n),
+        const SizedBox(height: 12),
+        _buildLyricsCacheCard(l10n),
+      ],
+    );
+
+    if (widget.useGlobalTopBar) {
+      return pageBody;
     }
-    out.sort((a, b) => (a.nameOrDir).compareTo(b.nameOrDir));
-    return out;
-  }
 
-  Future<bool> _pluginHasWebUi(String pluginDirPath) async {
-    final root = pluginDirPath.trim();
-    if (root.isEmpty) return false;
-    try {
-      final manifestPath = p.join(root, 'plugin.json');
-      final manifestFile = File(manifestPath);
-      if (!await manifestFile.exists()) return false;
-      final raw = await manifestFile.readAsString();
-      final decoded = jsonDecode(raw);
-      if (decoded is! Map) return false;
-      final manifest = decoded.cast<Object?, Object?>();
-      final uiRaw = manifest['ui'];
-      if (uiRaw is! Map) return false;
-      final ui = uiRaw.cast<Object?, Object?>();
-      final mode = (ui['mode'] ?? 'web').toString().trim().toLowerCase();
-      if (mode.isNotEmpty && mode != 'web') return false;
-      final entry = (ui['entry'] ?? '').toString().trim();
-      if (entry.isEmpty) return false;
-      if (p.isAbsolute(entry)) return false;
-      final normalized = p.normalize(entry);
-      if (normalized.startsWith('..')) return false;
-      final entryFile = File(p.join(root, normalized));
-      return await entryFile.exists();
-    } catch (e, s) {
-      logger.d(
-        'failed to detect plugin web ui plugin_dir=$pluginDirPath',
-        error: e,
-        stackTrace: s,
-      );
-      return false;
-    }
+    return Scaffold(appBar: appBar, body: pageBody);
   }
+}
 
-  Future<Set<String>> _listDisabledPluginIds(LibraryBridge library) async {
-    final ids = await library.listDisabledPluginIds();
-    return ids.map((id) => id.trim()).where((id) => id.isNotEmpty).toSet();
-  }
-
+extension _SettingsHelpers on SettingsPageState {
   String _sourceTypeKey(SourceCatalogTypeDescriptor t) =>
-      '${t.pluginId}::${t.typeId}';
+      SettingsValueUtils.sourceTypeKey(t);
 
   String _outputSinkTypeKey(OutputSinkTypeDescriptor t) =>
-      '${t.pluginId}::${t.typeId}';
+      SettingsValueUtils.outputSinkTypeKey(t);
 
-  String _localBackendKey(AudioBackend backend) => 'local:${backend.name}';
+  String _localBackendKey(AudioBackend backend) =>
+      SettingsValueUtils.localBackendKey(backend);
 
   String _pluginBackendKey(String pluginId, String typeId) =>
-      'plugin:$pluginId::$typeId';
+      SettingsValueUtils.pluginBackendKey(pluginId, typeId);
 
-  AudioBackend? _parseLocalBackendKey(String? key) {
-    if (key == null || !key.startsWith('local:')) return null;
-    final raw = key.substring('local:'.length);
-    for (final backend in AudioBackend.values) {
-      if (backend.name == raw) return backend;
-    }
-    return null;
-  }
+  AudioBackend? _parseLocalBackendKey(String? key) =>
+      SettingsValueUtils.parseLocalBackendKey(key);
 
-  String? _parsePluginTypeKey(String? key) {
-    if (key == null || !key.startsWith('plugin:')) return null;
-    final raw = key.substring('plugin:'.length);
-    final parts = raw.split('::');
-    if (parts.length != 2) return null;
-    if (parts[0].trim().isEmpty || parts[1].trim().isEmpty) return null;
-    return '${parts[0]}::${parts[1]}';
-  }
+  String? _parsePluginTypeKey(String? key) =>
+      SettingsValueUtils.parsePluginTypeKey(key);
 
   String _outputSinkConfigForType(OutputSinkTypeDescriptor t) {
     final key = _outputSinkTypeKey(t);
@@ -352,102 +274,16 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
   }
 
   String _targetValueOf(Object? target) =>
-      target is String ? target : jsonEncode(target);
+      SettingsValueUtils.targetValueOf(target);
 
-  String _targetLabelOf(Object? target) {
-    if (target is Map) {
-      final map = target.cast<Object?, Object?>();
-      final name = (map['name'] ?? '').toString().trim();
-      if (name.isNotEmpty) return name;
-      final id = (map['id'] ?? '').toString().trim();
-      if (id.isNotEmpty) return id;
-    }
-    final text = _targetValueOf(target);
-    return text.length <= 96 ? text : '${text.substring(0, 93)}...';
-  }
+  String _targetLabelOf(Object? target) =>
+      SettingsValueUtils.targetLabelOf(target);
 
-  Map<String, Object?>? _targetAsMap(Object? target) {
-    if (target is Map) {
-      return target.map((k, v) => MapEntry(k.toString(), v));
-    }
-    if (target is String) {
-      final raw = target.trim();
-      if (raw.startsWith('{') && raw.endsWith('}')) {
-        try {
-          final decoded = jsonDecode(raw);
-          if (decoded is Map) {
-            return decoded.map((k, v) => MapEntry(k.toString(), v));
-          }
-        } catch (_) {
-          // Ignore parse failures and fallback to plain text.
-        }
-      }
-    }
-    return null;
-  }
+  String _targetDebugSummary(Object? target) =>
+      SettingsValueUtils.targetDebugSummary(target);
 
-  String _targetDebugSummary(Object? target) {
-    final map = _targetAsMap(target);
-    if (map != null) {
-      return 'id=${map['id']} session=${map['selection_session_id']} name=${map['name']}';
-    }
-    final raw = (target ?? '')
-        .toString()
-        .replaceAll(RegExp(r'\s+'), ' ')
-        .trim();
-    if (raw.length <= 180) {
-      return raw;
-    }
-    return '${raw.substring(0, 180)}...';
-  }
-
-  bool _jsonTextsEquivalent(String left, String right) {
-    final leftTrimmed = left.trim();
-    final rightTrimmed = right.trim();
-    if (leftTrimmed == rightTrimmed) {
-      return true;
-    }
-    final leftCanonical = _canonicalizeJsonText(leftTrimmed);
-    final rightCanonical = _canonicalizeJsonText(rightTrimmed);
-    if (leftCanonical == null || rightCanonical == null) {
-      return false;
-    }
-    return leftCanonical == rightCanonical;
-  }
-
-  String? _canonicalizeJsonText(String raw) {
-    if (raw.isEmpty) {
-      return null;
-    }
-    try {
-      final decoded = jsonDecode(raw);
-      final normalized = _normalizeJsonValue(decoded);
-      return jsonEncode(normalized);
-    } catch (_) {
-      return null;
-    }
-  }
-
-  Object? _normalizeJsonValue(Object? value) {
-    if (value is Map) {
-      final entries = value.entries
-          .map(
-            (entry) => MapEntry(
-              entry.key.toString(),
-              _normalizeJsonValue(entry.value),
-            ),
-          )
-          .toList();
-      entries.sort((a, b) => a.key.compareTo(b.key));
-      return <String, Object?>{
-        for (final entry in entries) entry.key: entry.value,
-      };
-    }
-    if (value is List) {
-      return value.map(_normalizeJsonValue).toList(growable: false);
-    }
-    return value;
-  }
+  bool _jsonTextsEquivalent(String left, String right) =>
+      SettingsValueUtils.jsonTextsEquivalent(left, right);
 
   void _logOutputSinkTargets(
     String stage, {
@@ -552,9 +388,29 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
       );
     }
   }
+}
+
+extension _SettingsRuntimeOps on SettingsPageState {
+  Future<void> _applyOutputOptions({
+    bool? matchTrackSampleRate,
+    bool? gaplessPlayback,
+    bool? seekTrackFade,
+    ResampleQuality? resampleQuality,
+  }) async {
+    final store = ref.read(settingsStoreProvider);
+    await ref
+        .read(playerBridgeProvider)
+        .setOutputOptions(
+          matchTrackSampleRate:
+              matchTrackSampleRate ?? store.matchTrackSampleRate,
+          gaplessPlayback: gaplessPlayback ?? store.gaplessPlayback,
+          seekTrackFade: seekTrackFade ?? store.seekTrackFade,
+          resampleQuality: resampleQuality ?? store.resampleQuality,
+        );
+  }
 
   Future<void> _setPluginEnabled({
-    required _InstalledPlugin plugin,
+    required InstalledPlugin plugin,
     required bool enabled,
   }) async {
     final id = plugin.id?.trim();
@@ -574,11 +430,11 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
     }
     if (mounted) {
       _loadFromSettings();
-      setState(_refreshPluginRuntimeState);
+      _updateUi(_refreshPluginRuntimeState);
     }
   }
 
-  Future<void> _uninstallPlugin(_InstalledPlugin plugin) async {
+  Future<void> _uninstallPlugin(InstalledPlugin plugin) async {
     await _ensurePluginDir();
     final pluginId = plugin.id?.trim();
     if (pluginId != null && pluginId.isNotEmpty) {
@@ -591,7 +447,7 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
     }
     await _refreshDecoderExtensionSupportCache();
     if (!mounted) return;
-    setState(_refresh);
+    _updateUi(_refresh);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(AppLocalizations.of(context)!.settingsPluginUninstalled),
@@ -674,7 +530,7 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
       );
     } finally {
       if (mounted) {
-        setState(_refresh);
+        _updateUi(_refresh);
       }
     }
   }
@@ -729,7 +585,7 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
     _selectedOutputSinkTypeKey = selectedKey;
     final parts = selectedKey.split('::');
     if (parts.length != 2) return;
-    setState(() => _loadingOutputSinkTargets = true);
+    _updateUi(() => _loadingOutputSinkTargets = true);
     try {
       final raw = await ref
           .read(playerBridgeProvider)
@@ -747,7 +603,7 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
         selectedTargetJson: _outputSinkTargetController.text.trim(),
       );
       if (!mounted) return;
-      setState(() => _outputSinkTargets = targets);
+      _updateUi(() => _outputSinkTargets = targets);
       if (targets.isNotEmpty) {
         final targetValues = targets.map(_targetValueOf).toSet();
         final current = _outputSinkTargetController.text.trim();
@@ -764,7 +620,7 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
       );
     } finally {
       if (mounted) {
-        setState(() => _loadingOutputSinkTargets = false);
+        _updateUi(() => _loadingOutputSinkTargets = false);
       }
     }
   }
@@ -777,28 +633,86 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
 
     final localBackend = _parseLocalBackendKey(selectedBackendKey);
     if (localBackend != null) {
-      await settings.setSelectedBackend(localBackend);
-      await bridge.clearOutputSinkRoute();
-      await settings.clearOutputSinkRoute();
-      await bridge.setOutputDevice(
-        backend: localBackend,
-        deviceId: settings.selectedDeviceId,
+      await _applyLocalBackendRoute(
+        bridge: bridge,
+        settings: settings,
+        localBackend: localBackend,
+        showFeedback: showFeedback,
       );
-      if (showFeedback && mounted) {
-        final l10n = AppLocalizations.of(context)!;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('${l10n.settingsBackend}: 已切换为系统后端')),
-        );
-      }
       return;
     }
 
+    final pluginRouteSelection = _buildPluginRouteSelection(selectedBackendKey);
+    if (pluginRouteSelection == null) return;
+    final selectedKey = pluginRouteSelection.selectedKey;
+    final route = pluginRouteSelection.route;
+    if (_isUnchangedOutputSinkRoute(settings.outputSinkRoute, route)) {
+      logger.d(
+        'skip output sink route apply: no config/target changes '
+        'plugin=${route.pluginId} type=${route.typeId}',
+      );
+      return;
+    }
+
+    _outputSinkConfigDrafts[selectedKey] = route.configJson;
+    logger.i(
+      'apply output sink route start plugin=${route.pluginId} type=${route.typeId} '
+      'target=${_targetDebugSummary(route.targetJson)} config_len=${route.configJson.length}',
+    );
+    await _revalidateOutputSinkRouteTarget(bridge: bridge, route: route);
+
+    await bridge.setOutputSinkRoute(route);
+    await settings.setOutputSinkRoute(route);
+    logger.i(
+      'apply output sink route success plugin=${route.pluginId} type=${route.typeId} '
+      'target=${_targetDebugSummary(route.targetJson)}',
+    );
+    if (!showFeedback || !mounted) return;
+    final l10n = AppLocalizations.of(context)!;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(l10n.settingsSinkRouteApplied)));
+  }
+
+  Future<void> _applyLocalBackendRoute({
+    required PlayerBridge bridge,
+    required SettingsStore settings,
+    required AudioBackend localBackend,
+    required bool showFeedback,
+  }) async {
+    await settings.setSelectedBackend(localBackend);
+    await bridge.clearOutputSinkRoute();
+    await settings.clearOutputSinkRoute();
+    await bridge.setOutputDevice(
+      backend: localBackend,
+      deviceId: settings.selectedDeviceId,
+    );
+    if (!showFeedback || !mounted) return;
+    final l10n = AppLocalizations.of(context)!;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('${l10n.settingsBackend}: 已切换为系统后端')),
+    );
+  }
+
+  ({String selectedKey, OutputSinkRoute route})? _buildPluginRouteSelection(
+    String selectedBackendKey,
+  ) {
     final selectedKey = _parsePluginTypeKey(selectedBackendKey);
-    if (selectedKey == null || selectedKey.isEmpty) return;
+    if (selectedKey == null || selectedKey.isEmpty) return null;
     _selectedOutputSinkTypeKey = selectedKey;
     final parts = selectedKey.split('::');
-    if (parts.length != 2) return;
+    if (parts.length != 2) return null;
 
+    final route = OutputSinkRoute(
+      pluginId: parts[0],
+      typeId: parts[1],
+      configJson: _normalizedOutputSinkConfigJson(),
+      targetJson: _normalizedOutputSinkTargetJson(),
+    );
+    return (selectedKey: selectedKey, route: route);
+  }
+
+  String _normalizedOutputSinkTargetJson() {
     var targetJson = _outputSinkTargetController.text.trim();
     if (targetJson.isEmpty && _outputSinkTargets.isNotEmpty) {
       targetJson = _targetValueOf(_outputSinkTargets.first);
@@ -808,70 +722,62 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
       targetJson = '{}';
       _outputSinkTargetController.text = targetJson;
     }
+    return targetJson;
+  }
 
+  String _normalizedOutputSinkConfigJson() {
     var configJson = _outputSinkConfigController.text.trim();
     if (configJson.isEmpty) {
       configJson = '{}';
       _outputSinkConfigController.text = configJson;
     }
+    return configJson;
+  }
 
-    final route = OutputSinkRoute(
-      pluginId: parts[0],
-      typeId: parts[1],
-      configJson: configJson,
-      targetJson: targetJson,
-    );
-    final currentRoute = settings.outputSinkRoute;
-    final unchanged =
-        currentRoute != null &&
-        currentRoute.pluginId == route.pluginId &&
-        currentRoute.typeId == route.typeId &&
-        _jsonTextsEquivalent(currentRoute.configJson, route.configJson) &&
-        _jsonTextsEquivalent(currentRoute.targetJson, route.targetJson);
-    if (unchanged) {
-      logger.d(
-        'skip output sink route apply: no config/target changes '
-        'plugin=${route.pluginId} type=${route.typeId}',
-      );
-      return;
-    }
+  bool _isUnchangedOutputSinkRoute(
+    OutputSinkRoute? currentRoute,
+    OutputSinkRoute nextRoute,
+  ) {
+    return currentRoute != null &&
+        currentRoute.pluginId == nextRoute.pluginId &&
+        currentRoute.typeId == nextRoute.typeId &&
+        _jsonTextsEquivalent(currentRoute.configJson, nextRoute.configJson) &&
+        _jsonTextsEquivalent(currentRoute.targetJson, nextRoute.targetJson);
+  }
 
-    _outputSinkConfigDrafts[selectedKey] = configJson;
-    logger.i(
-      'apply output sink route start plugin=${parts[0]} type=${parts[1]} '
-      'target=${_targetDebugSummary(targetJson)} config_len=${configJson.length}',
-    );
-
+  Future<void> _revalidateOutputSinkRouteTarget({
+    required PlayerBridge bridge,
+    required OutputSinkRoute route,
+  }) async {
+    final pluginKey = '${route.pluginId}::${route.typeId}';
     // Revalidate target against latest runtime snapshot before applying route.
     // This prevents stale persisted/session target_json from repeatedly failing
     // negotiate_spec when device topology changed.
     final rawTargets = await bridge.outputSinkListTargetsJson(
-      pluginId: parts[0],
-      typeId: parts[1],
-      configJson: configJson,
+      pluginId: route.pluginId,
+      typeId: route.typeId,
+      configJson: route.configJson,
     );
     final latestTargets = _parseOutputSinkTargets(rawTargets);
     _logOutputSinkTargets(
       'apply_revalidate',
-      pluginId: parts[0],
-      typeId: parts[1],
+      pluginId: route.pluginId,
+      typeId: route.typeId,
       targets: latestTargets,
-      selectedTargetJson: targetJson,
+      selectedTargetJson: route.targetJson,
     );
     if (mounted) {
-      setState(() => _outputSinkTargets = latestTargets);
+      _updateUi(() => _outputSinkTargets = latestTargets);
     } else {
       _outputSinkTargets = latestTargets;
     }
     if (latestTargets.isEmpty) {
-      throw StateError(
-        'No output sink targets available for ${parts[0]}::${parts[1]}',
-      );
+      throw StateError('No output sink targets available for $pluginKey');
     }
     final latestTargetValues = latestTargets.map(_targetValueOf).toSet();
-    if (!latestTargetValues.contains(targetJson)) {
+    if (!latestTargetValues.contains(route.targetJson)) {
       final available = latestTargets.map(_targetDebugSummary).join(' || ');
-      final selected = _targetDebugSummary(targetJson);
+      final selected = _targetDebugSummary(route.targetJson);
       logger.e(
         'apply output sink route target missing after revalidate '
         'selected=$selected available=[$available]',
@@ -880,19 +786,6 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
         'Selected output sink target is no longer available. '
         'selected=$selected; available=[$available]',
       );
-    }
-
-    await bridge.setOutputSinkRoute(route);
-    await settings.setOutputSinkRoute(route);
-    logger.i(
-      'apply output sink route success plugin=${route.pluginId} type=${route.typeId} '
-      'target=${_targetDebugSummary(route.targetJson)}',
-    );
-    if (showFeedback && mounted) {
-      final l10n = AppLocalizations.of(context)!;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(l10n.settingsSinkRouteApplied)));
     }
   }
 
@@ -912,1102 +805,654 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
       );
     }
   }
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    final bridge = ref.read(playerBridgeProvider);
-    _pluginsFuture ??= _listLoadedPlugins(bridge);
-    _sourceTypesFuture ??= _listSourceTypes(bridge);
-    _outputSinkTypesFuture ??= bridge.outputSinkListTypes();
-    _installedPluginsFuture ??= _listInstalledPlugins();
-
-    final devices = ref.watch(audioDevicesProvider).value ?? const [];
-    _persistOutputUiSession();
-
-    final appBar = AppBar(title: Text(l10n.settingsTitle));
-
-    final pageBody = ListView(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-      children: [
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  l10n.settingsAppearanceTitle,
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<Locale?>(
-                  decoration: InputDecoration(
-                    labelText: l10n.settingsLanguage,
-                    border: const OutlineInputBorder(),
-                    isDense: true,
-                  ),
-                  initialValue: ref.watch(settingsStoreProvider).locale,
-                  items: [
-                    DropdownMenuItem(
-                      value: null,
-                      child: Text(l10n.settingsLocaleSystem),
-                    ),
-                    DropdownMenuItem(
-                      value: const Locale('zh'),
-                      child: Text(l10n.settingsLocaleZh),
-                    ),
-                    DropdownMenuItem(
-                      value: const Locale('en'),
-                      child: Text(l10n.settingsLocaleEn),
-                    ),
-                  ],
-                  onChanged: (v) async {
-                    await ref.read(settingsStoreProvider).setLocale(v);
-                    setState(() {});
-                  },
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<ThemeMode>(
-                  decoration: InputDecoration(
-                    labelText: l10n.settingsThemeMode,
-                    border: const OutlineInputBorder(),
-                    isDense: true,
-                  ),
-                  initialValue: ref.watch(settingsStoreProvider).themeMode,
-                  items: [
-                    DropdownMenuItem(
-                      value: ThemeMode.system,
-                      child: Text(l10n.settingsThemeSystem),
-                    ),
-                    DropdownMenuItem(
-                      value: ThemeMode.light,
-                      child: Text(l10n.settingsThemeLight),
-                    ),
-                    DropdownMenuItem(
-                      value: ThemeMode.dark,
-                      child: Text(l10n.settingsThemeDark),
-                    ),
-                  ],
-                  onChanged: (v) async {
-                    if (v == null) return;
-                    await ref.read(settingsStoreProvider).setThemeMode(v);
-                    setState(() {});
-                  },
-                ),
-                if (Platform.isWindows || Platform.isLinux || Platform.isMacOS)
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: Text(l10n.settingsCloseToTray),
-                    subtitle: Text(l10n.settingsCloseToTraySubtitle),
-                    value: ref.watch(settingsStoreProvider).closeToTray,
-                    onChanged: (v) async {
-                      await ref.read(settingsStoreProvider).setCloseToTray(v);
-                      setState(() {});
-                    },
-                  ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 12),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  l10n.settingsOutputTitle,
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                const SizedBox(height: 8),
-                FutureBuilder<List<OutputSinkTypeDescriptor>>(
-                  future: _outputSinkTypesFuture,
-                  builder: (context, snap) {
-                    if (snap.data != null) {
-                      _cachedOutputSinkTypes = snap.data!;
-                      _cachedOutputSinkTypesReady = true;
-                    } else if (snap.connectionState == ConnectionState.done) {
-                      _cachedOutputSinkTypes = const [];
-                      _cachedOutputSinkTypesReady = true;
-                    }
-                    final sinkTypes =
-                        snap.data ??
-                        (_cachedOutputSinkTypesReady
-                            ? _cachedOutputSinkTypes
-                            : const <OutputSinkTypeDescriptor>[]);
-                    final settings = ref.watch(settingsStoreProvider);
-                    final route = settings.outputSinkRoute;
-                    final selected =
-                        _selectedOutputBackendKey ??
-                        (route == null
-                            ? _localBackendKey(settings.selectedBackend)
-                            : _pluginBackendKey(route.pluginId, route.typeId));
-                    final values = <String>{
-                      _localBackendKey(AudioBackend.shared),
-                      _localBackendKey(AudioBackend.wasapiExclusive),
-                      ...sinkTypes.map(
-                        (t) => _pluginBackendKey(t.pluginId, t.typeId),
-                      ),
-                    };
-                    final value = values.contains(selected) ? selected : null;
-                    if (value == null &&
-                        selected.startsWith('plugin:') &&
-                        snap.connectionState == ConnectionState.done) {
-                      WidgetsBinding.instance.addPostFrameCallback((_) {
-                        if (!mounted) return;
-                        setState(() {
-                          _selectedOutputBackendKey = _localBackendKey(
-                            settings.selectedBackend,
-                          );
-                          _selectedOutputSinkTypeKey = null;
-                          _outputSinkTargets = const [];
-                        });
-                      });
-                    }
-                    return DropdownButtonFormField<String>(
-                      decoration: InputDecoration(
-                        labelText: l10n.settingsBackend,
-                        border: const OutlineInputBorder(),
-                        isDense: true,
-                      ),
-                      initialValue: value,
-                      items: [
-                        DropdownMenuItem(
-                          value: _localBackendKey(AudioBackend.shared),
-                          child: Text(l10n.settingsBackendShared),
-                        ),
-                        DropdownMenuItem(
-                          value: _localBackendKey(AudioBackend.wasapiExclusive),
-                          child: Text(l10n.settingsBackendWasapiExclusive),
-                        ),
-                        for (final t in sinkTypes)
-                          DropdownMenuItem(
-                            value: _pluginBackendKey(t.pluginId, t.typeId),
-                            child: Text(
-                              'Plugin: ${t.displayName} (${t.pluginName})',
-                            ),
-                          ),
-                      ],
-                      onChanged: (v) async {
-                        if (v == null) return;
-                        final messenger = ScaffoldMessenger.of(context);
-                        final local = _parseLocalBackendKey(v);
-                        setState(() {
-                          _selectedOutputBackendKey = v;
-                          if (local != null) {
-                            _selectedOutputSinkTypeKey = null;
-                            _outputSinkTargets = const [];
-                          } else {
-                            final sinkKey = _parsePluginTypeKey(v);
-                            _selectedOutputSinkTypeKey = sinkKey;
-                            _outputSinkTargets = const [];
-                            OutputSinkTypeDescriptor? sink;
-                            for (final t in sinkTypes) {
-                              if (_outputSinkTypeKey(t) == sinkKey) {
-                                sink = t;
-                                break;
-                              }
-                            }
-                            if (sink != null) {
-                              _outputSinkConfigController.text =
-                                  _outputSinkConfigForType(sink);
-                            } else {
-                              _outputSinkConfigController.text = '{}';
-                            }
-                            final active = settings.outputSinkRoute;
-                            if (active != null &&
-                                sinkKey ==
-                                    '${active.pluginId}::${active.typeId}') {
-                              _outputSinkTargetController.text =
-                                  active.targetJson;
-                            } else {
-                              _outputSinkTargetController.text = '{}';
-                            }
-                          }
-                        });
-                        try {
-                          if (local == null) {
-                            await _loadOutputSinkTargets();
-                          }
-                          await _applyOutputSinkRoute();
-                        } catch (e, s) {
-                          logger.e(
-                            'failed to apply backend',
-                            error: e,
-                            stackTrace: s,
-                          );
-                          messenger.showSnackBar(
-                            SnackBar(content: Text('Apply backend failed: $e')),
-                          );
-                        } finally {
-                          try {
-                            final refreshedDevices = await ref.refresh(
-                              audioDevicesProvider.future,
-                            );
-                            logger.d(
-                              'refreshed devices after backend change: ${refreshedDevices.length}',
-                            );
-                          } catch (e, s) {
-                            logger.w(
-                              'failed to refresh devices after backend change',
-                              error: e,
-                              stackTrace: s,
-                            );
-                          }
-                        }
-                      },
-                    );
-                  },
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<String?>(
-                  decoration: InputDecoration(
-                    labelText: l10n.settingsDevice,
-                    border: const OutlineInputBorder(),
-                    isDense: true,
-                  ),
-                  initialValue: () {
-                    final selectedBackendKey =
-                        _selectedOutputBackendKey ??
-                        _localBackendKey(
-                          ref.read(settingsStoreProvider).selectedBackend,
-                        );
-                    final localBackend = _parseLocalBackendKey(
-                      selectedBackendKey,
-                    );
-                    if (localBackend != null) {
-                      final selected = ref
-                          .watch(settingsStoreProvider)
-                          .selectedDeviceId;
-                      final available = devices
-                          .where((d) => d.backend == localBackend)
-                          .toList();
-                      final availableIds = available.map((d) => d.id).toSet();
-                      if (selected != null &&
-                          !availableIds.contains(selected)) {
-                        return null;
-                      }
-                      return selected;
-                    }
-                    final targetValue = _outputSinkTargetController.text.trim();
-                    final targetValues = _outputSinkTargets
-                        .map(_targetValueOf)
-                        .toSet();
-                    return targetValues.contains(targetValue)
-                        ? targetValue
-                        : null;
-                  }(),
-                  items: () {
-                    final selectedBackendKey =
-                        _selectedOutputBackendKey ??
-                        _localBackendKey(
-                          ref.read(settingsStoreProvider).selectedBackend,
-                        );
-                    final localBackend = _parseLocalBackendKey(
-                      selectedBackendKey,
-                    );
-                    if (localBackend != null) {
-                      return <DropdownMenuItem<String?>>[
-                        DropdownMenuItem(
-                          value: null,
-                          child: Text(l10n.settingsDeviceDefault),
-                        ),
-                        ...devices
-                            .where((d) => d.backend == localBackend)
-                            .map(
-                              (d) => DropdownMenuItem(
-                                value: d.id,
-                                child: Text(d.name),
-                              ),
-                            ),
-                      ];
-                    }
-                    return <DropdownMenuItem<String?>>[
-                      for (final item in _outputSinkTargets)
-                        DropdownMenuItem(
-                          value: _targetValueOf(item),
-                          child: Text(_targetLabelOf(item)),
-                        ),
-                    ];
-                  }(),
-                  onChanged: (v) async {
-                    final messenger = ScaffoldMessenger.of(context);
-                    final localBackend = _parseLocalBackendKey(
-                      _selectedOutputBackendKey ??
-                          _localBackendKey(
-                            ref.read(settingsStoreProvider).selectedBackend,
-                          ),
-                    );
-                    if (localBackend == null) {
-                      setState(() {
-                        _outputSinkTargetController.text = v ?? '{}';
-                      });
-                      try {
-                        await _applyOutputSinkRoute();
-                      } catch (e, s) {
-                        logger.e(
-                          'failed to apply output sink route',
-                          error: e,
-                          stackTrace: s,
-                        );
-                        messenger.showSnackBar(
-                          SnackBar(
-                            content: Text('Apply output sink route failed: $e'),
-                          ),
-                        );
-                      }
-                      return;
-                    }
-                    final settings = ref.read(settingsStoreProvider);
-                    await settings.setSelectedDeviceId(v);
-                    final bridge = ref.read(playerBridgeProvider);
-                    await bridge.setOutputDevice(
-                      backend: localBackend,
-                      deviceId: v,
-                    );
-                    setState(() {});
-                  },
-                ),
-                const SizedBox(height: 12),
-                Builder(
-                  builder: (context) {
-                    final settings = ref.watch(settingsStoreProvider);
-                    final backend = _parseLocalBackendKey(
-                      _selectedOutputBackendKey ??
-                          _localBackendKey(settings.selectedBackend),
-                    );
-                    final enabled = backend == AudioBackend.wasapiExclusive;
-                    if (!enabled) return const SizedBox.shrink();
-                    return Column(
-                      children: [
-                        SwitchListTile(
-                          dense: true,
-                          contentPadding: EdgeInsets.zero,
-                          title: Text(l10n.settingsMatchTrackSampleRate),
-                          value: settings.matchTrackSampleRate,
-                          onChanged: (v) async {
-                            final store = ref.read(settingsStoreProvider);
-                            await store.setMatchTrackSampleRate(v);
-                            await ref
-                                .read(playerBridgeProvider)
-                                .setOutputOptions(
-                                  matchTrackSampleRate: v,
-                                  gaplessPlayback: store.gaplessPlayback,
-                                  seekTrackFade: store.seekTrackFade,
-                                  resampleQuality: store.resampleQuality,
-                                );
-                            setState(() {});
-                          },
-                        ),
-                        SwitchListTile(
-                          dense: true,
-                          contentPadding: EdgeInsets.zero,
-                          title: Text(l10n.settingsGaplessPlayback),
-                          value: settings.gaplessPlayback,
-                          onChanged: (v) async {
-                            final store = ref.read(settingsStoreProvider);
-                            await store.setGaplessPlayback(v);
-                            await ref
-                                .read(playerBridgeProvider)
-                                .setOutputOptions(
-                                  matchTrackSampleRate:
-                                      store.matchTrackSampleRate,
-                                  gaplessPlayback: v,
-                                  seekTrackFade: store.seekTrackFade,
-                                  resampleQuality: store.resampleQuality,
-                                );
-                            setState(() {});
-                          },
-                        ),
-                      ],
-                    );
-                  },
-                ),
-                SwitchListTile(
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                  title: Text(l10n.settingsSeekTrackFade),
-                  value: ref.watch(settingsStoreProvider).seekTrackFade,
-                  onChanged: (v) async {
-                    final store = ref.read(settingsStoreProvider);
-                    await store.setSeekTrackFade(v);
-                    await ref
-                        .read(playerBridgeProvider)
-                        .setOutputOptions(
-                          matchTrackSampleRate: store.matchTrackSampleRate,
-                          gaplessPlayback: store.gaplessPlayback,
-                          seekTrackFade: v,
-                          resampleQuality: store.resampleQuality,
-                        );
-                    setState(() {});
-                  },
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 8.0),
-                  child: DropdownButtonFormField<ResampleQuality>(
-                    decoration: InputDecoration(
-                      labelText: l10n.settingsResampleQuality,
-                      border: const OutlineInputBorder(),
-                      isDense: true,
-                    ),
-                    initialValue: _resampleQuality,
-                    items: [
-                      DropdownMenuItem(
-                        value: ResampleQuality.fast,
-                        child: Text(l10n.settingsResampleQualityFast),
-                      ),
-                      DropdownMenuItem(
-                        value: ResampleQuality.balanced,
-                        child: Text(l10n.settingsResampleQualityBalanced),
-                      ),
-                      DropdownMenuItem(
-                        value: ResampleQuality.high,
-                        child: Text(l10n.settingsResampleQualityHigh),
-                      ),
-                      DropdownMenuItem(
-                        value: ResampleQuality.ultra,
-                        child: Text(l10n.settingsResampleQualityUltra),
-                      ),
-                    ],
-                    onChanged: (v) async {
-                      if (v == null) return;
-                      final store = ref.read(settingsStoreProvider);
-                      await store.setResampleQuality(v);
-                      setState(() {
-                        _resampleQuality = v;
-                        _persistOutputUiSession();
-                      });
-                      await ref
-                          .read(playerBridgeProvider)
-                          .setOutputOptions(
-                            matchTrackSampleRate: store.matchTrackSampleRate,
-                            gaplessPlayback: store.gaplessPlayback,
-                            seekTrackFade: store.seekTrackFade,
-                            resampleQuality: v,
-                          );
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 12),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Text(
-                      l10n.settingsPluginsTitle,
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const Spacer(),
-                    IconButton(
-                      visualDensity: VisualDensity.compact,
-                      tooltip: l10n.settingsInstallPlugin,
-                      onPressed: _installPluginArtifact,
-                      icon: const Icon(Icons.add),
-                    ),
-                    IconButton(
-                      visualDensity: VisualDensity.compact,
-                      tooltip: l10n.refresh,
-                      onPressed: () => setState(_refresh),
-                      icon: const Icon(Icons.refresh),
-                    ),
-                    FutureBuilder<String>(
-                      future: defaultPluginDir(),
-                      builder: (context, snap) {
-                        final dir = snap.data;
-                        if (dir == null) return const SizedBox.shrink();
-                        return IconButton(
-                          visualDensity: VisualDensity.compact,
-                          tooltip: l10n.settingsOpenPluginDir,
-                          onPressed: () async {
-                            final uri = Uri.directory(dir);
-                            if (await canLaunchUrl(uri)) {
-                              await launchUrl(uri);
-                            }
-                          },
-                          icon: const Icon(Icons.folder_open_outlined),
-                        );
-                      },
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                FutureBuilder<String>(
-                  future: defaultPluginDir(),
-                  builder: (context, snap) {
-                    final dir = snap.data;
-                    if (dir == null) return const SizedBox.shrink();
-                    return Text(
-                      '${l10n.settingsPluginDir}: $dir',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    );
-                  },
-                ),
-                const SizedBox(height: 8),
-                FutureBuilder<List<_InstalledPlugin>>(
-                  future: _installedPluginsFuture,
-                  builder: (context, snap) {
-                    final items = snap.data ?? const <_InstalledPlugin>[];
-                    if (snap.connectionState != ConnectionState.done &&
-                        items.isEmpty) {
-                      return const LinearProgressIndicator();
-                    }
-                    if (items.isEmpty) {
-                      return Text(l10n.settingsNoPlugins);
-                    }
-
-                    return FutureBuilder<Set<String>>(
-                      future: _disabledPluginIdsFuture,
-                      builder: (context, disabledSnap) {
-                        final disabledData = disabledSnap.data;
-                        if (disabledData != null) {
-                          _cachedDisabledPluginIds = disabledData;
-                          _cachedDisabledPluginIdsReady = true;
-                        } else if (disabledSnap.connectionState ==
-                            ConnectionState.done) {
-                          _cachedDisabledPluginIds = <String>{};
-                          _cachedDisabledPluginIdsReady = true;
-                        }
-                        final disabled = _cachedDisabledPluginIdsReady
-                            ? _cachedDisabledPluginIds
-                            : <String>{};
-
-                        return FutureBuilder<List<PluginDescriptor>>(
-                          future: _pluginsFuture,
-                          builder: (context, loadedSnap) {
-                            final loadedData = loadedSnap.data;
-                            if (loadedData != null) {
-                              _cachedLoadedPluginIds = loadedData
-                                  .map((p) => p.id)
-                                  .toSet();
-                              _cachedLoadedPluginIdsReady = true;
-                            } else if (loadedSnap.connectionState ==
-                                ConnectionState.done) {
-                              _cachedLoadedPluginIds = <String>{};
-                              _cachedLoadedPluginIdsReady = true;
-                            }
-                            final loadedKnown = _cachedLoadedPluginIdsReady;
-                            final loadedIds = _cachedLoadedPluginIds;
-
-                            return FutureBuilder<
-                              List<SourceCatalogTypeDescriptor>
-                            >(
-                              future: _sourceTypesFuture,
-                              builder: (context, sourceSnap) {
-                                final sourceData = sourceSnap.data;
-                                if (sourceData != null) {
-                                  _cachedSourceTypes = sourceData;
-                                  _cachedSourceTypesReady = true;
-                                } else if (sourceSnap.connectionState ==
-                                    ConnectionState.done) {
-                                  _cachedSourceTypes = const [];
-                                  _cachedSourceTypesReady = true;
-                                }
-                                final sourceTypes =
-                                    sourceData ??
-                                    (_cachedSourceTypesReady
-                                        ? _cachedSourceTypes
-                                        : const <
-                                            SourceCatalogTypeDescriptor
-                                          >[]);
-                                final sourceByPlugin =
-                                    <
-                                      String,
-                                      List<SourceCatalogTypeDescriptor>
-                                    >{};
-                                for (final t in sourceTypes) {
-                                  sourceByPlugin
-                                      .putIfAbsent(
-                                        t.pluginId,
-                                        () => <SourceCatalogTypeDescriptor>[],
-                                      )
-                                      .add(t);
-                                }
-                                final outputTypes = _cachedOutputSinkTypesReady
-                                    ? _cachedOutputSinkTypes
-                                    : const <OutputSinkTypeDescriptor>[];
-                                final outputByPlugin =
-                                    <String, List<OutputSinkTypeDescriptor>>{};
-                                for (final t in outputTypes) {
-                                  outputByPlugin
-                                      .putIfAbsent(
-                                        t.pluginId,
-                                        () => <OutputSinkTypeDescriptor>[],
-                                      )
-                                      .add(t);
-                                }
-
-                                return Column(
-                                  children: [
-                                    for (final p in items)
-                                      _PluginTile(
-                                        plugin: p,
-                                        isDisabled: p.id != null
-                                            ? disabled.contains(p.id)
-                                            : false,
-                                        isLoaded: p.id != null
-                                            ? loadedIds.contains(p.id)
-                                            : false,
-                                        loadedKnown: loadedKnown,
-                                        pluginSourceTypes: p.id == null
-                                            ? const []
-                                            : (sourceByPlugin[p.id] ??
-                                                  const []),
-                                        pluginOutputSinkTypes: p.id == null
-                                            ? const []
-                                            : (outputByPlugin[p.id] ??
-                                                  const []),
-                                        onOpenWebUi: p.id == null || !p.hasWebUi
-                                            ? null
-                                            : () => _openPluginWebUi(
-                                                pluginId: p.id!,
-                                                pluginName: p.nameOrDir,
-                                              ),
-                                        onToggleEnabled: (v) =>
-                                            _setPluginEnabled(
-                                              plugin: p,
-                                              enabled: v,
-                                            ),
-                                        onUninstall: () => _uninstallPlugin(p),
-                                        sourceConfigForType:
-                                            _sourceConfigForType,
-                                        outputSinkConfigForType:
-                                            _outputSinkConfigForType,
-                                        onSourceConfigChanged: (t, json) =>
-                                            _sourceConfigDrafts[_sourceTypeKey(
-                                                  t,
-                                                )] =
-                                                json,
-                                        onOutputSinkConfigChanged: (t, json) {
-                                          final key = _outputSinkTypeKey(t);
-                                          _outputSinkConfigDrafts[key] = json;
-                                          if (_selectedOutputSinkTypeKey ==
-                                              key) {
-                                            _outputSinkConfigController.text =
-                                                json;
-                                            _outputSinkConfigApplyDebounce
-                                                ?.cancel();
-                                            _outputSinkConfigApplyDebounce = Timer(
-                                              const Duration(milliseconds: 350),
-                                              () async {
-                                                if (!mounted) return;
-                                                try {
-                                                  await _loadOutputSinkTargets();
-                                                  await _applyOutputSinkRoute();
-                                                } catch (e, s) {
-                                                  logger.e(
-                                                    'failed to apply output sink route in debounce',
-                                                    error: e,
-                                                    stackTrace: s,
-                                                  );
-                                                }
-                                              },
-                                            );
-                                          }
-                                        },
-                                        onSaveSourceConfig: _saveSourceConfig,
-                                      ),
-                                  ],
-                                );
-                              },
-                            );
-                          },
-                        );
-                      },
-                    );
-                  },
-                ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 12),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  l10n.settingsLyricsTitle,
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  l10n.settingsLyricsCacheSubtitle,
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
-                const SizedBox(height: 10),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: OutlinedButton.icon(
-                    onPressed: _clearLyricsCache,
-                    icon: const Icon(Icons.delete_sweep_outlined),
-                    label: Text(l10n.settingsClearLyricsCache),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-
-    if (widget.useGlobalTopBar) {
-      return pageBody;
-    }
-
-    return Scaffold(appBar: appBar, body: pageBody);
-  }
 }
 
-class _PluginTile extends StatefulWidget {
-  final _InstalledPlugin plugin;
-  final bool isDisabled;
-  final bool isLoaded;
-  final bool loadedKnown;
-  final List<SourceCatalogTypeDescriptor> pluginSourceTypes;
-  final List<OutputSinkTypeDescriptor> pluginOutputSinkTypes;
-  final Future<void> Function()? onOpenWebUi;
-  final Future<void> Function(bool) onToggleEnabled;
-  final Future<void> Function() onUninstall;
-  final String? Function(SourceCatalogTypeDescriptor) sourceConfigForType;
-  final String? Function(OutputSinkTypeDescriptor) outputSinkConfigForType;
-  final void Function(SourceCatalogTypeDescriptor, String)
-  onSourceConfigChanged;
-  final void Function(OutputSinkTypeDescriptor, String)
-  onOutputSinkConfigChanged;
-  final Future<void> Function(SourceCatalogTypeDescriptor) onSaveSourceConfig;
-
-  const _PluginTile({
-    required this.plugin,
-    required this.isDisabled,
-    required this.isLoaded,
-    required this.loadedKnown,
-    required this.pluginSourceTypes,
-    required this.pluginOutputSinkTypes,
-    required this.onOpenWebUi,
-    required this.onToggleEnabled,
-    required this.onUninstall,
-    required this.sourceConfigForType,
-    required this.outputSinkConfigForType,
-    required this.onSourceConfigChanged,
-    required this.onOutputSinkConfigChanged,
-    required this.onSaveSourceConfig,
-  });
-
-  @override
-  State<_PluginTile> createState() => _PluginTileState();
-}
-
-class _PluginTileState extends State<_PluginTile> {
-  String _uninstallErrorMessage(
-    AppLocalizations l10n,
-    _InstalledPlugin plugin,
-    Object error,
-  ) {
-    final raw = error.toString();
-    final lower = raw.toLowerCase();
-    final pluginName = plugin.nameOrDir;
-    final isZh = Localizations.localeOf(context).languageCode == 'zh';
-    final looksBusy =
-        lower.contains('still in use') ||
-        lower.contains('draining generation') ||
-        lower.contains('retired lease') ||
-        lower.contains('busy');
-    if (looksBusy) {
-      if (isZh) {
-        return '插件“$pluginName”当前仍在使用中（可能正在播放当前歌曲）。请先停止播放或切换歌曲后重试卸载。';
-      }
-      return 'Plugin "$pluginName" is still in use (possibly by the current playback). Stop playback or switch tracks, then retry uninstall.';
-    }
-    final accessDenied =
-        lower.contains('拒绝访问') ||
-        lower.contains('access is denied') ||
-        lower.contains('os error 5');
-    if (accessDenied) {
-      if (isZh) {
-        return '无法卸载插件“$pluginName”：文件仍被占用。请先停止播放后重试。';
-      }
-      return 'Cannot uninstall plugin "$pluginName": files are still in use. Stop playback and retry.';
-    }
-    return l10n.settingsUninstallPluginFailed;
+extension _SettingsBuildSections on SettingsPageState {
+  Widget _buildAppearanceCard(AppLocalizations l10n) {
+    final settings = ref.watch(settingsStoreProvider);
+    return SettingsAppearanceSection(
+      l10n: l10n,
+      locale: settings.locale,
+      themeMode: settings.themeMode,
+      closeToTray: settings.closeToTray,
+      onLocaleChanged: (locale) async {
+        await ref.read(settingsStoreProvider).setLocale(locale);
+        _updateUi(() {});
+      },
+      onThemeModeChanged: (mode) async {
+        await ref.read(settingsStoreProvider).setThemeMode(mode);
+        _updateUi(() {});
+      },
+      onCloseToTrayChanged: (enabled) async {
+        await ref.read(settingsStoreProvider).setCloseToTray(enabled);
+        _updateUi(() {});
+      },
+    );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final p = widget.plugin;
-    final l10n = AppLocalizations.of(context)!;
-    final hasCustomUi =
-        widget.pluginSourceTypes.isNotEmpty ||
-        widget.pluginOutputSinkTypes.isNotEmpty;
-    final canToggleEnabled = p.id != null && p.isInstalled;
-    final isEnabled = p.isInstalled && !widget.isDisabled;
-    final canUninstall = !isEnabled || p.isPendingUninstall || p.isDeleteFailed;
-
-    final (statusText, statusIsError) = switch ((
-      p.id,
-      p.installState,
-      widget.isDisabled,
-      widget.loadedKnown,
-      widget.isLoaded,
-    )) {
-      (null, _, _, _, _) => ('插件 ID 缺失', true),
-      (_, 'pending_uninstall', _, _, _) => (
-        '卸载中（后台重试中，${p.uninstallRetryCount} 次）',
-        false,
-      ),
-      (_, 'delete_failed', _, _, _) => (
-        '卸载失败（后台重试中，${p.uninstallRetryCount} 次）',
-        true,
-      ),
-      (_, _, true, _, _) => ('已禁用', false),
-      (_, _, false, false, _) => ('正在检查加载状态...', false),
-      (_, _, false, true, true) => ('已加载', false),
-      (_, _, false, true, false) => ('未加载（可能加载失败，请检查日志）', true),
-    };
-
-    final Color? pluginIconColor;
-    if (p.isPendingUninstall) {
-      pluginIconColor = Colors.orange.shade700;
-    } else if (p.isDeleteFailed) {
-      pluginIconColor = Theme.of(context).colorScheme.error;
-    } else if (widget.isDisabled) {
-      pluginIconColor = null;
-    } else if (statusIsError) {
-      pluginIconColor = Theme.of(context).colorScheme.error;
-    } else {
-      pluginIconColor = Colors.green.shade600;
-    }
-
-    Widget buildActions() => Row(
-      mainAxisSize: MainAxisSize.min,
+  Widget _buildOutputCard(AppLocalizations l10n, List<AudioDevice> devices) {
+    return SettingsSectionCard(
+      title: l10n.settingsOutputTitle,
+      headerBottomSpacing: 8,
       children: [
-        if (widget.onOpenWebUi != null)
-          IconButton(
-            tooltip: 'Open Web UI',
-            onPressed: widget.onOpenWebUi,
-            icon: const Icon(Icons.web),
-          ),
-        Switch(
-          value: isEnabled,
-          onChanged: !canToggleEnabled
-              ? null
-              : (v) async {
-                  try {
-                    await widget.onToggleEnabled(v);
-                  } catch (e, s) {
-                    logger.e(
-                      'failed to toggle plugin state',
-                      error: e,
-                      stackTrace: s,
-                    );
-                    if (!context.mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Failed to reload: $e')),
-                    );
-                  }
-                },
-        ),
-        IconButton(
-          tooltip: l10n.settingsUninstallPlugin,
-          onPressed: canUninstall
-              ? () async {
-                  final ok = await showDialog<bool>(
-                    context: context,
-                    builder: (context) => AlertDialog(
-                      title: Text(l10n.settingsUninstallPlugin),
-                      content: Text(
-                        l10n.settingsUninstallPluginConfirm(p.nameOrDir),
-                      ),
-                      actions: [
-                        TextButton(
-                          onPressed: () => Navigator.of(context).pop(false),
-                          child: Text(l10n.cancel),
-                        ),
-                        FilledButton(
-                          onPressed: () => Navigator.of(context).pop(true),
-                          child: Text(l10n.uninstall),
-                        ),
-                      ],
-                    ),
-                  );
-                  if (ok == true) {
-                    try {
-                      await widget.onUninstall();
-                    } catch (e, s) {
-                      logger.e(
-                        'failed to uninstall plugin',
-                        error: e,
-                        stackTrace: s,
-                      );
-                      if (!context.mounted) return;
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(_uninstallErrorMessage(l10n, p, e)),
-                        ),
-                      );
-                    }
-                  }
-                }
-              : null,
-          icon: Icon(
-            Icons.delete_outline,
-            color: canUninstall
-                ? Theme.of(context).colorScheme.error
-                : Theme.of(context).disabledColor,
-          ),
-        ),
+        _buildOutputBackendField(l10n),
+        const SizedBox(height: 12),
+        _buildOutputDeviceField(l10n, devices),
+        const SizedBox(height: 12),
+        _buildWasapiExclusiveOptions(l10n),
+        _buildSeekTrackFadeOption(l10n),
+        _buildResampleQualityField(l10n),
       ],
     );
+  }
 
-    final subtitle = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          p.id ?? p.dirPath,
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-            color: Theme.of(
-              context,
-            ).colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
+  Widget _buildOutputBackendField(AppLocalizations l10n) {
+    return FutureBuilder<List<OutputSinkTypeDescriptor>>(
+      future: _outputSinkTypesFuture,
+      builder: (context, snap) {
+        _updateOutputSinkTypeCache(snap);
+        final sinkTypes = _resolvedOutputSinkTypes(snap);
+        final settings = ref.watch(settingsStoreProvider);
+        final selected = _selectedBackendKeyFromSettings(settings);
+        final value = _validatedSelectedBackend(
+          selected: selected,
+          sinkTypes: sinkTypes,
+        );
+        if (value == null) {
+          _resetInvalidPluginBackendSelectionIfNeeded(
+            selected: selected,
+            settings: settings,
+            connectionState: snap.connectionState,
+          );
+        }
+
+        return DropdownButtonFormField<String>(
+          decoration: InputDecoration(
+            labelText: l10n.settingsBackend,
+            border: const OutlineInputBorder(),
+            isDense: true,
           ),
-        ),
-        if (p.infoJson != null && p.infoJson!.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.only(top: 2),
-            child: Text(
-              p.infoJson!,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
+          initialValue: value,
+          items: [
+            DropdownMenuItem(
+              value: _localBackendKey(AudioBackend.shared),
+              child: Text(l10n.settingsBackendShared),
             ),
-          ),
-        if (p.uninstallLastError != null && p.uninstallLastError!.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.only(top: 2),
-            child: Text(
-              p.uninstallLastError!,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Theme.of(context).colorScheme.error,
-              ),
+            DropdownMenuItem(
+              value: _localBackendKey(AudioBackend.wasapiExclusive),
+              child: Text(l10n.settingsBackendWasapiExclusive),
             ),
-          ),
-        Text(
-          statusText,
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-            color: statusIsError
-                ? Theme.of(context).colorScheme.error
-                : Theme.of(context).colorScheme.onSurfaceVariant,
-          ),
-        ),
-      ],
-    );
-
-    if (!hasCustomUi) {
-      return Card(
-        margin: const EdgeInsets.only(bottom: 8),
-        child: ListTile(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          contentPadding: const EdgeInsets.fromLTRB(16, 4, 8, 4),
-          leading: Icon(Icons.extension, color: pluginIconColor),
-          title: Text(p.nameOrDir),
-          subtitle: subtitle,
-          trailing: buildActions(),
-        ),
-      );
-    }
-
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      child: Theme(
-        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-        child: ExpansionTile(
-          onExpansionChanged: (v) {},
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          collapsedShape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          tilePadding: const EdgeInsets.fromLTRB(16, 4, 8, 4),
-          leading: Icon(Icons.extension, color: pluginIconColor),
-          title: Text(p.nameOrDir),
-          subtitle: subtitle,
-          trailing: buildActions(),
-          childrenPadding: const EdgeInsets.fromLTRB(16, 0, 8, 12),
-          children: [
-            for (final t in widget.pluginSourceTypes)
-              Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Source: ${t.displayName}',
-                      style: Theme.of(context).textTheme.titleSmall,
-                    ),
-                    const SizedBox(height: 6),
-                    SchemaForm(
-                      key: ValueKey(
-                        'settings-source-config:${t.pluginId}:${t.typeId}',
-                      ),
-                      schemaJson: t.configSchemaJson,
-                      initialValueJson: widget.sourceConfigForType(t) ?? '',
-                      onChangedJson: (json) =>
-                          widget.onSourceConfigChanged(t, json),
-                    ),
-                    const SizedBox(height: 6),
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: FilledButton.tonal(
-                          onPressed: () => widget.onSaveSourceConfig(t),
-                          child: Text(l10n.apply),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            for (final t in widget.pluginOutputSinkTypes)
-              Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Output: ${t.displayName}',
-                      style: Theme.of(context).textTheme.titleSmall,
-                    ),
-                    const SizedBox(height: 6),
-                    SchemaForm(
-                      key: ValueKey(
-                        'settings-output-config:${t.pluginId}:${t.typeId}',
-                      ),
-                      schemaJson: t.configSchemaJson,
-                      initialValueJson: widget.outputSinkConfigForType(t) ?? '',
-                      onChangedJson: (json) =>
-                          widget.onOutputSinkConfigChanged(t, json),
-                    ),
-                  ],
-                ),
+            for (final t in sinkTypes)
+              DropdownMenuItem(
+                value: _pluginBackendKey(t.pluginId, t.typeId),
+                child: Text('Plugin: ${t.displayName} (${t.pluginName})'),
               ),
           ],
-        ),
+          onChanged: (v) => _handleOutputBackendChanged(
+            v: v,
+            sinkTypes: sinkTypes,
+            settings: settings,
+            context: context,
+          ),
+        );
+      },
+    );
+  }
+
+  void _updateOutputSinkTypeCache(
+    AsyncSnapshot<List<OutputSinkTypeDescriptor>> snap,
+  ) {
+    if (snap.data != null) {
+      _cachedOutputSinkTypes = snap.data!;
+      _cachedOutputSinkTypesReady = true;
+      return;
+    }
+    if (snap.connectionState == ConnectionState.done) {
+      _cachedOutputSinkTypes = const [];
+      _cachedOutputSinkTypesReady = true;
+    }
+  }
+
+  List<OutputSinkTypeDescriptor> _resolvedOutputSinkTypes(
+    AsyncSnapshot<List<OutputSinkTypeDescriptor>> snap,
+  ) {
+    return snap.data ??
+        (_cachedOutputSinkTypesReady
+            ? _cachedOutputSinkTypes
+            : const <OutputSinkTypeDescriptor>[]);
+  }
+
+  String _selectedBackendKeyFromSettings(SettingsStore settings) {
+    final route = settings.outputSinkRoute;
+    return _selectedOutputBackendKey ??
+        (route == null
+            ? _localBackendKey(settings.selectedBackend)
+            : _pluginBackendKey(route.pluginId, route.typeId));
+  }
+
+  String? _validatedSelectedBackend({
+    required String selected,
+    required List<OutputSinkTypeDescriptor> sinkTypes,
+  }) {
+    final values = <String>{
+      _localBackendKey(AudioBackend.shared),
+      _localBackendKey(AudioBackend.wasapiExclusive),
+      ...sinkTypes.map((t) => _pluginBackendKey(t.pluginId, t.typeId)),
+    };
+    return values.contains(selected) ? selected : null;
+  }
+
+  void _resetInvalidPluginBackendSelectionIfNeeded({
+    required String selected,
+    required SettingsStore settings,
+    required ConnectionState connectionState,
+  }) {
+    if (!selected.startsWith('plugin:') ||
+        connectionState != ConnectionState.done) {
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _updateUi(() {
+        _selectedOutputBackendKey = _localBackendKey(settings.selectedBackend);
+        _selectedOutputSinkTypeKey = null;
+        _outputSinkTargets = const [];
+      });
+    });
+  }
+
+  Future<void> _handleOutputBackendChanged({
+    required String? v,
+    required List<OutputSinkTypeDescriptor> sinkTypes,
+    required SettingsStore settings,
+    required BuildContext context,
+  }) async {
+    if (v == null) return;
+    final messenger = ScaffoldMessenger.of(context);
+    final local = _parseLocalBackendKey(v);
+    _updateUi(() {
+      _selectedOutputBackendKey = v;
+      if (local != null) {
+        _selectedOutputSinkTypeKey = null;
+        _outputSinkTargets = const [];
+      } else {
+        _applyPluginSinkSelection(
+          backendKey: v,
+          sinkTypes: sinkTypes,
+          activeRoute: settings.outputSinkRoute,
+        );
+      }
+    });
+    try {
+      if (local == null) {
+        await _loadOutputSinkTargets();
+      }
+      await _applyOutputSinkRoute();
+    } catch (e, s) {
+      logger.e('failed to apply backend', error: e, stackTrace: s);
+      messenger.showSnackBar(
+        SnackBar(content: Text('Apply backend failed: $e')),
+      );
+    } finally {
+      try {
+        final refreshedDevices = await ref.refresh(audioDevicesProvider.future);
+        logger.d(
+          'refreshed devices after backend change: ${refreshedDevices.length}',
+        );
+      } catch (e, s) {
+        logger.w(
+          'failed to refresh devices after backend change',
+          error: e,
+          stackTrace: s,
+        );
+      }
+    }
+  }
+
+  void _applyPluginSinkSelection({
+    required String backendKey,
+    required List<OutputSinkTypeDescriptor> sinkTypes,
+    required OutputSinkRoute? activeRoute,
+  }) {
+    final sinkKey = _parsePluginTypeKey(backendKey);
+    _selectedOutputSinkTypeKey = sinkKey;
+    _outputSinkTargets = const [];
+
+    OutputSinkTypeDescriptor? sink;
+    for (final t in sinkTypes) {
+      if (_outputSinkTypeKey(t) == sinkKey) {
+        sink = t;
+        break;
+      }
+    }
+    _outputSinkConfigController.text = sink == null
+        ? '{}'
+        : _outputSinkConfigForType(sink);
+
+    if (activeRoute != null &&
+        sinkKey == '${activeRoute.pluginId}::${activeRoute.typeId}') {
+      _outputSinkTargetController.text = activeRoute.targetJson;
+    } else {
+      _outputSinkTargetController.text = '{}';
+    }
+  }
+
+  Widget _buildOutputDeviceField(
+    AppLocalizations l10n,
+    List<AudioDevice> devices,
+  ) {
+    final selectedBackendKey = _currentSelectedBackendKey();
+    final localBackend = _parseLocalBackendKey(selectedBackendKey);
+    return DropdownButtonFormField<String?>(
+      decoration: InputDecoration(
+        labelText: l10n.settingsDevice,
+        border: const OutlineInputBorder(),
+        isDense: true,
       ),
+      initialValue: _resolvedOutputDeviceValue(
+        devices: devices,
+        localBackend: localBackend,
+      ),
+      items: _buildOutputDeviceItems(
+        l10n: l10n,
+        devices: devices,
+        localBackend: localBackend,
+      ),
+      onChanged: (v) => _handleOutputDeviceChanged(
+        v: v,
+        localBackend: localBackend,
+        context: context,
+      ),
+    );
+  }
+
+  String _currentSelectedBackendKey() {
+    return _selectedOutputBackendKey ??
+        _localBackendKey(ref.read(settingsStoreProvider).selectedBackend);
+  }
+
+  String? _resolvedOutputDeviceValue({
+    required List<AudioDevice> devices,
+    required AudioBackend? localBackend,
+  }) {
+    if (localBackend != null) {
+      final selectedDeviceId = ref.watch(
+        settingsStoreProvider.select((s) => s.selectedDeviceId),
+      );
+      final availableIds = devices
+          .where((d) => d.backend == localBackend)
+          .map((d) => d.id)
+          .toSet();
+      if (selectedDeviceId != null &&
+          !availableIds.contains(selectedDeviceId)) {
+        return null;
+      }
+      return selectedDeviceId;
+    }
+    final targetValue = _outputSinkTargetController.text.trim();
+    final targetValues = _outputSinkTargets.map(_targetValueOf).toSet();
+    return targetValues.contains(targetValue) ? targetValue : null;
+  }
+
+  List<DropdownMenuItem<String?>> _buildOutputDeviceItems({
+    required AppLocalizations l10n,
+    required List<AudioDevice> devices,
+    required AudioBackend? localBackend,
+  }) {
+    if (localBackend != null) {
+      return <DropdownMenuItem<String?>>[
+        DropdownMenuItem(value: null, child: Text(l10n.settingsDeviceDefault)),
+        ...devices
+            .where((d) => d.backend == localBackend)
+            .map((d) => DropdownMenuItem(value: d.id, child: Text(d.name))),
+      ];
+    }
+    return <DropdownMenuItem<String?>>[
+      for (final item in _outputSinkTargets)
+        DropdownMenuItem(
+          value: _targetValueOf(item),
+          child: Text(_targetLabelOf(item)),
+        ),
+    ];
+  }
+
+  Future<void> _handleOutputDeviceChanged({
+    required String? v,
+    required AudioBackend? localBackend,
+    required BuildContext context,
+  }) async {
+    if (localBackend == null) {
+      final messenger = ScaffoldMessenger.of(context);
+      _updateUi(() {
+        _outputSinkTargetController.text = v ?? '{}';
+      });
+      try {
+        await _applyOutputSinkRoute();
+      } catch (e, s) {
+        logger.e('failed to apply output sink route', error: e, stackTrace: s);
+        messenger.showSnackBar(
+          SnackBar(content: Text('Apply output sink route failed: $e')),
+        );
+      }
+      return;
+    }
+    final settings = ref.read(settingsStoreProvider);
+    await settings.setSelectedDeviceId(v);
+    await ref
+        .read(playerBridgeProvider)
+        .setOutputDevice(backend: localBackend, deviceId: v);
+    _updateUi(() {});
+  }
+
+  Widget _buildWasapiExclusiveOptions(AppLocalizations l10n) {
+    final settings = ref.watch(settingsStoreProvider);
+    final backend = _parseLocalBackendKey(
+      _selectedOutputBackendKey ?? _localBackendKey(settings.selectedBackend),
+    );
+    if (backend != AudioBackend.wasapiExclusive) {
+      return const SizedBox.shrink();
+    }
+    return Column(
+      children: [
+        SwitchListTile(
+          dense: true,
+          contentPadding: EdgeInsets.zero,
+          title: Text(l10n.settingsMatchTrackSampleRate),
+          value: settings.matchTrackSampleRate,
+          onChanged: (v) async {
+            final store = ref.read(settingsStoreProvider);
+            await store.setMatchTrackSampleRate(v);
+            await _applyOutputOptions(matchTrackSampleRate: v);
+            _updateUi(() {});
+          },
+        ),
+        SwitchListTile(
+          dense: true,
+          contentPadding: EdgeInsets.zero,
+          title: Text(l10n.settingsGaplessPlayback),
+          value: settings.gaplessPlayback,
+          onChanged: (v) async {
+            final store = ref.read(settingsStoreProvider);
+            await store.setGaplessPlayback(v);
+            await _applyOutputOptions(gaplessPlayback: v);
+            _updateUi(() {});
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSeekTrackFadeOption(AppLocalizations l10n) {
+    return SwitchListTile(
+      dense: true,
+      contentPadding: EdgeInsets.zero,
+      title: Text(l10n.settingsSeekTrackFade),
+      value: ref.watch(settingsStoreProvider).seekTrackFade,
+      onChanged: (v) async {
+        final store = ref.read(settingsStoreProvider);
+        await store.setSeekTrackFade(v);
+        await _applyOutputOptions(seekTrackFade: v);
+        _updateUi(() {});
+      },
+    );
+  }
+
+  Widget _buildResampleQualityField(AppLocalizations l10n) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      child: DropdownButtonFormField<ResampleQuality>(
+        decoration: InputDecoration(
+          labelText: l10n.settingsResampleQuality,
+          border: const OutlineInputBorder(),
+          isDense: true,
+        ),
+        initialValue: _resampleQuality,
+        items: [
+          DropdownMenuItem(
+            value: ResampleQuality.fast,
+            child: Text(l10n.settingsResampleQualityFast),
+          ),
+          DropdownMenuItem(
+            value: ResampleQuality.balanced,
+            child: Text(l10n.settingsResampleQualityBalanced),
+          ),
+          DropdownMenuItem(
+            value: ResampleQuality.high,
+            child: Text(l10n.settingsResampleQualityHigh),
+          ),
+          DropdownMenuItem(
+            value: ResampleQuality.ultra,
+            child: Text(l10n.settingsResampleQualityUltra),
+          ),
+        ],
+        onChanged: (v) async {
+          if (v == null) return;
+          final store = ref.read(settingsStoreProvider);
+          await store.setResampleQuality(v);
+          _updateUi(() {
+            _resampleQuality = v;
+            _persistOutputUiSession();
+          });
+          await _applyOutputOptions(resampleQuality: v);
+        },
+      ),
+    );
+  }
+
+  Widget _buildPluginsCard(AppLocalizations l10n) {
+    return SettingsSectionCard(
+      title: l10n.settingsPluginsTitle,
+      headerBottomSpacing: 6,
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            visualDensity: VisualDensity.compact,
+            tooltip: l10n.settingsInstallPlugin,
+            onPressed: _installPluginArtifact,
+            icon: const Icon(Icons.add),
+          ),
+          IconButton(
+            visualDensity: VisualDensity.compact,
+            tooltip: l10n.refresh,
+            onPressed: () => _updateUi(_refresh),
+            icon: const Icon(Icons.refresh),
+          ),
+          FutureBuilder<String>(
+            future: _pluginDirFuture,
+            builder: (context, snap) {
+              final dir = snap.data;
+              if (dir == null) return const SizedBox.shrink();
+              return IconButton(
+                visualDensity: VisualDensity.compact,
+                tooltip: l10n.settingsOpenPluginDir,
+                onPressed: () async {
+                  final uri = Uri.directory(dir);
+                  if (await canLaunchUrl(uri)) {
+                    await launchUrl(uri);
+                  }
+                },
+                icon: const Icon(Icons.folder_open_outlined),
+              );
+            },
+          ),
+        ],
+      ),
+      children: [
+        FutureBuilder<String>(
+          future: _pluginDirFuture,
+          builder: (context, snap) {
+            final dir = snap.data;
+            if (dir == null) return const SizedBox.shrink();
+            return Text(
+              '${l10n.settingsPluginDir}: $dir',
+              style: Theme.of(context).textTheme.bodySmall,
+            );
+          },
+        ),
+        const SizedBox(height: 8),
+        _buildPluginsList(l10n),
+      ],
+    );
+  }
+
+  Widget _buildPluginsList(AppLocalizations l10n) {
+    return FutureBuilder<_PluginRuntimeSnapshot>(
+      future: _pluginRuntimeSnapshotFuture,
+      builder: (context, snap) {
+        final runtime = snap.data;
+        if (runtime != null) {
+          _updatePluginRuntimeCache(runtime);
+        }
+        final items =
+            runtime?.installedPlugins ??
+            (_cachedInstalledPluginsReady
+                ? _cachedInstalledPlugins
+                : const <InstalledPlugin>[]);
+        final disabled =
+            runtime?.disabledPluginIds ??
+            (_cachedDisabledPluginIdsReady
+                ? _cachedDisabledPluginIds
+                : <String>{});
+        final loadedIds =
+            runtime?.loadedPluginIds ??
+            (_cachedLoadedPluginIdsReady ? _cachedLoadedPluginIds : <String>{});
+        final loadedKnown = runtime != null || _cachedLoadedPluginIdsReady;
+        final sourceTypes =
+            runtime?.sourceTypes ??
+            (_cachedSourceTypesReady
+                ? _cachedSourceTypes
+                : const <SourceCatalogTypeDescriptor>[]);
+        if (snap.connectionState != ConnectionState.done && items.isEmpty) {
+          return const LinearProgressIndicator();
+        }
+        if (items.isEmpty) {
+          return Text(l10n.settingsNoPlugins);
+        }
+        return _buildPluginTiles(
+          items: items,
+          disabled: disabled,
+          loadedIds: loadedIds,
+          loadedKnown: loadedKnown,
+          sourceTypes: sourceTypes,
+        );
+      },
+    );
+  }
+
+  Future<_PluginRuntimeSnapshot> _createPluginRuntimeSnapshotFuture() async {
+    final installedPlugins = await _awaitOrDefault<List<InstalledPlugin>>(
+      _installedPluginsFuture,
+      const <InstalledPlugin>[],
+      label: 'installed plugins',
+    );
+    final disabledPluginIds = await _awaitOrDefault<Set<String>>(
+      _disabledPluginIdsFuture,
+      const <String>{},
+      label: 'disabled plugin ids',
+    );
+    final loadedPlugins = await _awaitOrDefault<List<PluginDescriptor>>(
+      _pluginsFuture,
+      const <PluginDescriptor>[],
+      label: 'loaded plugins',
+    );
+    final sourceTypes =
+        await _awaitOrDefault<List<SourceCatalogTypeDescriptor>>(
+          _sourceTypesFuture,
+          const <SourceCatalogTypeDescriptor>[],
+          label: 'source types',
+        );
+    return _PluginRuntimeSnapshot(
+      installedPlugins: installedPlugins,
+      disabledPluginIds: disabledPluginIds,
+      loadedPluginIds: loadedPlugins.map((p) => p.id).toSet(),
+      sourceTypes: sourceTypes,
+    );
+  }
+
+  Future<T> _awaitOrDefault<T>(
+    Future<T>? future,
+    T fallback, {
+    required String label,
+  }) async {
+    if (future == null) return fallback;
+    try {
+      return await future;
+    } catch (e, s) {
+      logger.w('failed to load $label', error: e, stackTrace: s);
+      return fallback;
+    }
+  }
+
+  void _updatePluginRuntimeCache(_PluginRuntimeSnapshot runtime) {
+    _cachedInstalledPlugins = runtime.installedPlugins;
+    _cachedInstalledPluginsReady = true;
+    _cachedDisabledPluginIds = runtime.disabledPluginIds;
+    _cachedDisabledPluginIdsReady = true;
+    _cachedLoadedPluginIds = runtime.loadedPluginIds;
+    _cachedLoadedPluginIdsReady = true;
+    _cachedSourceTypes = runtime.sourceTypes;
+    _cachedSourceTypesReady = true;
+  }
+
+  Widget _buildPluginTiles({
+    required List<InstalledPlugin> items,
+    required Set<String> disabled,
+    required Set<String> loadedIds,
+    required bool loadedKnown,
+    required List<SourceCatalogTypeDescriptor> sourceTypes,
+  }) {
+    return SettingsPluginsList(
+      plugins: items,
+      disabledPluginIds: disabled,
+      loadedPluginIds: loadedIds,
+      loadedKnown: loadedKnown,
+      sourceTypes: sourceTypes,
+      outputTypes: _cachedOutputSinkTypesReady
+          ? _cachedOutputSinkTypes
+          : const <OutputSinkTypeDescriptor>[],
+      onOpenWebUi: _openPluginWebUi,
+      onToggleEnabled: _setPluginEnabled,
+      onUninstall: _uninstallPlugin,
+      sourceConfigForType: _sourceConfigForType,
+      outputSinkConfigForType: _outputSinkConfigForType,
+      onSourceConfigChanged: (t, json) =>
+          _sourceConfigDrafts[_sourceTypeKey(t)] = json,
+      onOutputSinkConfigChanged: _handleOutputSinkConfigChanged,
+      onSaveSourceConfig: _saveSourceConfig,
+    );
+  }
+
+  void _handleOutputSinkConfigChanged(OutputSinkTypeDescriptor t, String json) {
+    final key = _outputSinkTypeKey(t);
+    _outputSinkConfigDrafts[key] = json;
+    if (_selectedOutputSinkTypeKey != key) {
+      return;
+    }
+    _outputSinkConfigController.text = json;
+    _outputSinkConfigApplyDebounce?.cancel();
+    _outputSinkConfigApplyDebounce = Timer(
+      const Duration(milliseconds: 350),
+      () async {
+        if (!mounted) return;
+        try {
+          await _loadOutputSinkTargets();
+          await _applyOutputSinkRoute();
+        } catch (e, s) {
+          logger.e(
+            'failed to apply output sink route in debounce',
+            error: e,
+            stackTrace: s,
+          );
+        }
+      },
+    );
+  }
+
+  Widget _buildLyricsCacheCard(AppLocalizations l10n) {
+    return SettingsLyricsCacheSection(
+      l10n: l10n,
+      onClearLyricsCache: _clearLyricsCache,
     );
   }
 }
