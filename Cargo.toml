@@ -131,7 +131,7 @@ url = "2.5.8"
 walkdir = "2.5.0"
 wasapi = "0.22.0"
 wasmtime = { version = "41.0.3", features = ["component-model", "cache"] }
-wasmtime-wasi = "41.0.3"
+wasmtime-wasi = "42.0.0"
 wat = "1.245.1"
 windows = { version = "0.62.2", features = [
   "Win32_System_Threading",
