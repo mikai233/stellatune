@@ -3,6 +3,7 @@ pub mod generated;
 pub const WIT_DIR: &str = "wit/stellatune-plugin";
 
 pub const WORLD_DECODER_PLUGIN: &str = "decoder-plugin";
+pub const WORLD_ENCODER_PLUGIN: &str = "encoder-plugin";
 pub const WORLD_SOURCE_PLUGIN: &str = "source-plugin";
 pub const WORLD_LYRICS_PLUGIN: &str = "lyrics-plugin";
 pub const WORLD_OUTPUT_SINK_PLUGIN: &str = "output-sink-plugin";

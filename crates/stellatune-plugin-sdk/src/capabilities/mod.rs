@@ -1,10 +1,12 @@
 mod decoder;
+mod encoder;
 mod dsp;
 mod lyrics;
 mod output_sink;
 mod source;
 
 pub use decoder::*;
+pub use encoder::*;
 pub use dsp::*;
 pub use lyrics::*;
 pub use output_sink::*;
@@ -16,6 +18,7 @@ use crate::error::SdkResult;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AbilityKind {
     Decoder,
+    Encoder,
     Source,
     Lyrics,
     OutputSink,

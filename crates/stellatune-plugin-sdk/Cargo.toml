@@ -7,6 +7,7 @@ license.workspace = true
 [dependencies]
 stellatune-world-bindings.workspace = true
 stellatune-world-decoder.workspace = true
+stellatune-world-encoder.workspace = true
 stellatune-world-source.workspace = true
 stellatune-world-lyrics.workspace = true
 stellatune-world-output-sink.workspace = true

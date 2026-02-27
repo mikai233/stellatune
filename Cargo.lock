@@ -4552,6 +4552,7 @@ dependencies = [
  "stellatune-audio-plugin-adapters",
  "stellatune-backend-api",
  "stellatune-library",
+ "stellatune-plugins",
  "stellatune-runtime",
  "tokio",
  "tokio-util",
@@ -4637,6 +4638,7 @@ dependencies = [
  "stellatune-world-bindings",
  "stellatune-world-decoder",
  "stellatune-world-dsp",
+ "stellatune-world-encoder",
  "stellatune-world-lyrics",
  "stellatune-world-output-sink",
  "stellatune-world-source",
@@ -4701,6 +4703,7 @@ version = "0.1.0"
 dependencies = [
  "stellatune-world-decoder",
  "stellatune-world-dsp",
+ "stellatune-world-encoder",
  "stellatune-world-lyrics",
  "stellatune-world-output-sink",
  "stellatune-world-source",
@@ -4715,6 +4718,13 @@ dependencies = [
 
 [[package]]
 name = "stellatune-world-dsp"
+version = "0.1.0"
+dependencies = [
+ "wit-bindgen 0.53.1",
+]
+
+[[package]]
+name = "stellatune-world-encoder"
 version = "0.1.0"
 dependencies = [
  "wit-bindgen 0.53.1",

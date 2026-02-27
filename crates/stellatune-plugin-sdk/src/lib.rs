@@ -20,6 +20,7 @@ pub use stellatune_world_bindings as guest_bindings;
 pub mod __private {
     pub use parking_lot;
     pub use stellatune_world_decoder;
+    pub use stellatune_world_encoder;
     pub use stellatune_world_dsp;
     pub use stellatune_world_lyrics;
     pub use stellatune_world_output_sink;

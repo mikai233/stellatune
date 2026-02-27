@@ -4,7 +4,7 @@ param(
   [Parameter(Mandatory = $true)]
   [string]$PluginId,
   [Parameter(Mandatory = $true)]
-  [ValidateSet("decoder", "source", "lyrics", "output-sink", "dsp")]
+  [ValidateSet("decoder", "encoder", "source", "lyrics", "output-sink", "dsp")]
   [string]$Ability,
   [Parameter(Mandatory = $true)]
   [string]$TypeId,
@@ -72,6 +72,78 @@ impl DecoderPlugin for Plugin {
 
     fn open(&mut self, _input: DecoderInput<'_>) -> SdkResult<Self::Session> {
         Ok(Session)
+    }
+}
+
+fn create_plugin() -> SdkResult<Plugin> {
+    Ok(Plugin)
+}
+
+stellatune_wasm_plugin_sdk::__MACRO__! {
+    export: generated_export,
+    plugin_type: crate::Plugin,
+    create: crate::create_plugin,
+    plugin_id: "__PLUGIN_ID__",
+    component_id: "__COMPONENT_ID__",
+    type_id: "__TYPE_ID__",
+    display_name: "__NAME__",
+}
+"@
+  }
+  "encoder" {
+    $world = "stellatune:plugin/encoder-plugin@0.1.0"
+    $macroName = "export_encoder_plugin"
+    $libCode = @"
+use stellatune_wasm_plugin_sdk::prelude::*;
+
+pub struct Plugin;
+pub struct Session {
+    input: AudioSpec,
+    target: EncodeTarget,
+    eof: bool,
+}
+
+impl PluginLifecycle for Plugin {}
+impl ConfigStateOps for Session {}
+
+impl EncoderSession for Session {
+    fn input_spec(&self) -> AudioSpec {
+        self.input
+    }
+
+    fn output_format(&self) -> SdkResult<EncodedAudioFormat> {
+        Ok(self.target.format.clone())
+    }
+
+    fn write_pcm_f32(&mut self, chunk: PcmF32Chunk) -> SdkResult<u32> {
+        self.eof = self.eof || chunk.eof;
+        Ok(chunk.frames)
+    }
+
+    fn read_encoded(&mut self, _max_bytes: u32) -> SdkResult<EncodedChunk> {
+        Ok(EncodedChunk {
+            bytes: Vec::new(),
+            eof: self.eof,
+        })
+    }
+}
+
+impl EncoderPlugin for Plugin {
+    type Session = Session;
+    const TYPE_ID: &'static str = "__TYPE_ID__";
+    const DISPLAY_NAME: &'static str = "__NAME__";
+
+    fn create_session(
+        &mut self,
+        input: AudioSpec,
+        target: EncodeTarget,
+        _metadata: Option<MediaMetadata>,
+    ) -> SdkResult<Self::Session> {
+        Ok(Session {
+            input,
+            target,
+            eof: false,
+        })
     }
 }
 

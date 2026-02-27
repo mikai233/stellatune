@@ -7,6 +7,12 @@ world decoder-plugin {
     export decoder;
 }
 
+world encoder-plugin {
+    import sidecar;
+    export lifecycle;
+    export encoder;
+}
+
 world source-plugin {
     import host-stream;
     import sidecar;

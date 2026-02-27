@@ -7,6 +7,13 @@ pub mod decoder_plugin {
     });
 }
 
+pub mod encoder_plugin {
+    wasmtime::component::bindgen!({
+        path: "../stellatune-world-bindings/wit/stellatune-plugin",
+        world: "encoder-plugin",
+    });
+}
+
 pub mod source_plugin {
     wasmtime::component::bindgen!({
         path: "../stellatune-world-bindings/wit/stellatune-plugin",

@@ -1,8 +1,8 @@
 pub use crate::capabilities::{
     AbilityDescriptor, AbilityKind, ConfigStateOps, DecoderInput, DecoderInputStream,
-    DecoderPlugin, DecoderSession, DspPlugin, DspProcessor, LyricsPlugin, LyricsProvider,
-    OpenedSourceStream, OutputSinkPlugin, OutputSinkSession, SourceCatalog, SourcePlugin,
-    SourceStream,
+    DecoderPlugin, DecoderSession, DspPlugin, DspProcessor, EncodeTarget, EncoderPlugin,
+    EncoderSession, LyricsPlugin, LyricsProvider, OpenedSourceStream, OutputSinkPlugin,
+    OutputSinkSession, SourceCatalog, SourcePlugin, SourceStream,
 };
 pub use crate::common::{
     AudioSpec, AudioTags, BufferLayout, ConfigUpdateMode, ConfigUpdatePlan, CoreModuleSpec,

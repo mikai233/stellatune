@@ -16,6 +16,7 @@ members = [
   "crates/stellatune-host-bindings",
   "crates/stellatune-world-bindings",
   "crates/guest-worlds/decoder",
+  "crates/guest-worlds/encoder",
   "crates/guest-worlds/source",
   "crates/guest-worlds/lyrics",
   "crates/guest-worlds/output-sink",
@@ -49,6 +50,7 @@ stellatune-library = { path = "crates/stellatune-library" }
 stellatune-host-bindings = { path = "crates/stellatune-host-bindings" }
 stellatune-world-bindings = { path = "crates/stellatune-world-bindings" }
 stellatune-world-decoder = { path = "crates/guest-worlds/decoder" }
+stellatune-world-encoder = { path = "crates/guest-worlds/encoder" }
 stellatune-world-source = { path = "crates/guest-worlds/source" }
 stellatune-world-lyrics = { path = "crates/guest-worlds/lyrics" }
 stellatune-world-output-sink = { path = "crates/guest-worlds/output-sink" }

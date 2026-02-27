@@ -84,6 +84,31 @@ macro_rules! export_decoder_plugin {
 }
 
 #[macro_export]
+macro_rules! export_encoder_plugin {
+    (
+        export: $export:ident,
+        plugin_type: $plugin_ty:ty,
+        create: $create:path,
+        plugin_id: $plugin_id:literal,
+        component_id: $component_id:literal,
+        type_id: $type_id:literal,
+        display_name: $display_name:literal $(,)?
+    ) => {
+        $crate::__st_define_component_export! {
+            export: $export,
+            plugin_type: $plugin_ty,
+            create: $create,
+            plugin_id: $plugin_id,
+            component_id: $component_id,
+            type_id: $type_id,
+            display_name: $display_name,
+            ability_kind: $crate::capabilities::AbilityKind::Encoder,
+            world: $crate::guest_bindings::WORLD_ENCODER_PLUGIN,
+        }
+    };
+}
+
+#[macro_export]
 macro_rules! export_source_plugin {
     (
         export: $export:ident,

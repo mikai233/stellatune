@@ -1,4 +1,5 @@
 mod decoder;
+mod encoder;
 mod dsp;
 mod lyrics;
 mod metadata;
