@@ -10,7 +10,7 @@ part 'types.freezed.dart';
 
 // These functions are ignored because they have generic arguments: `config`, `config`, `metadata`, `set_metadata`, `target`, `with_config_target`, `with_config`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `TrackPlayability`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
 
 enum AudioBackend { shared, wasapiExclusive }
 
@@ -92,6 +92,45 @@ class DspTypeDescriptor {
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is DspTypeDescriptor &&
+          runtimeType == other.runtimeType &&
+          pluginId == other.pluginId &&
+          pluginName == other.pluginName &&
+          typeId == other.typeId &&
+          displayName == other.displayName &&
+          configSchemaJson == other.configSchemaJson &&
+          defaultConfigJson == other.defaultConfigJson;
+}
+
+class EncoderTypeDescriptor {
+  final String pluginId;
+  final String pluginName;
+  final String typeId;
+  final String displayName;
+  final String configSchemaJson;
+  final String defaultConfigJson;
+
+  const EncoderTypeDescriptor({
+    required this.pluginId,
+    required this.pluginName,
+    required this.typeId,
+    required this.displayName,
+    required this.configSchemaJson,
+    required this.defaultConfigJson,
+  });
+
+  @override
+  int get hashCode =>
+      pluginId.hashCode ^
+      pluginName.hashCode ^
+      typeId.hashCode ^
+      displayName.hashCode ^
+      configSchemaJson.hashCode ^
+      defaultConfigJson.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is EncoderTypeDescriptor &&
           runtimeType == other.runtimeType &&
           pluginId == other.pluginId &&
           pluginName == other.pluginName &&
@@ -383,4 +422,59 @@ class TrackRef {
           sourceId == other.sourceId &&
           trackId == other.trackId &&
           locator == other.locator;
+}
+
+class TranscodeProgressEvent {
+  final String phase;
+  final String? message;
+  final String? sourcePath;
+  final String? outputPath;
+  final BigInt processedFrames;
+  final BigInt? totalFrames;
+  final BigInt writtenBytes;
+  final int? sampleRate;
+  final int? channels;
+  final BigInt? elapsedMs;
+
+  const TranscodeProgressEvent({
+    required this.phase,
+    this.message,
+    this.sourcePath,
+    this.outputPath,
+    required this.processedFrames,
+    this.totalFrames,
+    required this.writtenBytes,
+    this.sampleRate,
+    this.channels,
+    this.elapsedMs,
+  });
+
+  @override
+  int get hashCode =>
+      phase.hashCode ^
+      message.hashCode ^
+      sourcePath.hashCode ^
+      outputPath.hashCode ^
+      processedFrames.hashCode ^
+      totalFrames.hashCode ^
+      writtenBytes.hashCode ^
+      sampleRate.hashCode ^
+      channels.hashCode ^
+      elapsedMs.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is TranscodeProgressEvent &&
+          runtimeType == other.runtimeType &&
+          phase == other.phase &&
+          message == other.message &&
+          sourcePath == other.sourcePath &&
+          outputPath == other.outputPath &&
+          processedFrames == other.processedFrames &&
+          totalFrames == other.totalFrames &&
+          writtenBytes == other.writtenBytes &&
+          sampleRate == other.sampleRate &&
+          channels == other.channels &&
+          elapsedMs == other.elapsedMs;
 }

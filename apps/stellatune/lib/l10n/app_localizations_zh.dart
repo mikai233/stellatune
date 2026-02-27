@@ -372,10 +372,107 @@ class AppLocalizationsZh extends AppLocalizations {
   String get menuEnqueue => '加入队列';
 
   @override
+  String get menuTranscode => '转码';
+
+  @override
   String get menuAddToPlaylist => '添加到歌单';
 
   @override
   String get menuRemoveFromCurrentPlaylist => '从当前歌单移除';
+
+  @override
+  String get transcodeSelectEncoderTitle => '转码到...';
+
+  @override
+  String get transcodeNoEncoders => '没有可用编码器。';
+
+  @override
+  String get transcodeLoadEncodersFailed => '加载编码器列表失败';
+
+  @override
+  String get transcodeNotReady => '转码任务入口暂未接入';
+
+  @override
+  String get transcodeSaveDialogTitle => '选择转码输出文件';
+
+  @override
+  String get transcodeProgressDialogTitle => '正在转码';
+
+  @override
+  String transcodeProgressDialogSubtitle(String encoder) {
+    return '编码器：$encoder';
+  }
+
+  @override
+  String get transcodeStatePreparing => '准备中...';
+
+  @override
+  String get transcodeStateProcessing => '处理中...';
+
+  @override
+  String get transcodeStateCompleted => '已完成';
+
+  @override
+  String get transcodeStateCanceled => '已取消';
+
+  @override
+  String get transcodeStateFailed => '失败';
+
+  @override
+  String get transcodeCancel => '取消任务';
+
+  @override
+  String get transcodeCanceling => '正在取消...';
+
+  @override
+  String get transcodeCanceled => '转码已取消';
+
+  @override
+  String get transcodeStatProcessed => '已处理帧';
+
+  @override
+  String get transcodeStatWritten => '已写入';
+
+  @override
+  String get transcodeStatElapsed => '耗时';
+
+  @override
+  String get transcodeParamsDialogTitle => '转码参数';
+
+  @override
+  String get transcodeParamsConfigLabel => '编码器配置 JSON';
+
+  @override
+  String get transcodeParamsOptionsLabel => '附加选项 JSON（可选）';
+
+  @override
+  String get transcodeParamsOptionsHint => '留空表示不传 options_json。';
+
+  @override
+  String get transcodeParamsInvalidJson => 'JSON 格式无效，请检查后重试。';
+
+  @override
+  String get transcodeParamsConfirm => '开始转码';
+
+  @override
+  String transcodeSucceededWithPath(String path) {
+    return '转码完成：$path';
+  }
+
+  @override
+  String transcodeFailedWithError(String error) {
+    return '转码失败：$error';
+  }
+
+  @override
+  String transcodeStartFailed(String error) {
+    return '无法启动转码：$error';
+  }
+
+  @override
+  String transcodeCancelFailed(String error) {
+    return '取消转码失败：$error';
+  }
 
   @override
   String get playlistSectionTitle => '歌单';

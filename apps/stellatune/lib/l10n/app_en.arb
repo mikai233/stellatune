@@ -165,8 +165,72 @@
 
   "menuPlay": "Play",
   "menuEnqueue": "Enqueue",
+  "menuTranscode": "Transcode",
   "menuAddToPlaylist": "Add to playlist",
   "menuRemoveFromCurrentPlaylist": "Remove from current playlist",
+  "transcodeSelectEncoderTitle": "Transcode to...",
+  "transcodeNoEncoders": "No encoders are available.",
+  "transcodeLoadEncodersFailed": "Failed to load encoder list",
+  "transcodeNotReady": "Transcode action is not wired yet",
+  "transcodeSaveDialogTitle": "Choose output file",
+  "transcodeProgressDialogTitle": "Transcoding",
+  "transcodeProgressDialogSubtitle": "Encoder: {encoder}",
+  "@transcodeProgressDialogSubtitle": {
+    "placeholders": {
+      "encoder": {
+        "type": "String"
+      }
+    }
+  },
+  "transcodeStatePreparing": "Preparing...",
+  "transcodeStateProcessing": "Processing...",
+  "transcodeStateCompleted": "Completed",
+  "transcodeStateCanceled": "Canceled",
+  "transcodeStateFailed": "Failed",
+  "transcodeCancel": "Cancel",
+  "transcodeCanceling": "Canceling...",
+  "transcodeCanceled": "Transcode canceled",
+  "transcodeStatProcessed": "Frames",
+  "transcodeStatWritten": "Written",
+  "transcodeStatElapsed": "Elapsed",
+  "transcodeParamsDialogTitle": "Transcode Parameters",
+  "transcodeParamsConfigLabel": "Encoder config JSON",
+  "transcodeParamsOptionsLabel": "Extra options JSON (optional)",
+  "transcodeParamsOptionsHint": "Leave blank to skip options_json.",
+  "transcodeParamsInvalidJson": "Invalid JSON format. Please check and retry.",
+  "transcodeParamsConfirm": "Start",
+  "transcodeSucceededWithPath": "Transcode completed: {path}",
+  "@transcodeSucceededWithPath": {
+    "placeholders": {
+      "path": {
+        "type": "String"
+      }
+    }
+  },
+  "transcodeFailedWithError": "Transcode failed: {error}",
+  "@transcodeFailedWithError": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "transcodeStartFailed": "Failed to start transcode: {error}",
+  "@transcodeStartFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "transcodeCancelFailed": "Failed to cancel transcode: {error}",
+  "@transcodeCancelFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
 
   "playlistSectionTitle": "Playlists",
   "foldersSectionTitle": "Folders",

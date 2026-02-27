@@ -43,6 +43,10 @@ abstract class StellatuneApiApiImplPlatform
   );
 
   @protected
+  RustStreamSink<TranscodeProgressEvent>
+  dco_decode_StreamSink_transcode_progress_event_Sse(dynamic raw);
+
+  @protected
   String dco_decode_String(dynamic raw);
 
   @protected
@@ -76,7 +80,14 @@ abstract class StellatuneApiApiImplPlatform
   TrackRef dco_decode_box_autoadd_track_ref(dynamic raw);
 
   @protected
+  TranscodeTrackLocalRequest
+  dco_decode_box_autoadd_transcode_track_local_request(dynamic raw);
+
+  @protected
   int dco_decode_box_autoadd_u_16(dynamic raw);
+
+  @protected
+  int dco_decode_box_autoadd_u_32(dynamic raw);
 
   @protected
   BigInt dco_decode_box_autoadd_u_64(dynamic raw);
@@ -101,6 +112,9 @@ abstract class StellatuneApiApiImplPlatform
 
   @protected
   DspTypeDescriptor dco_decode_dsp_type_descriptor(dynamic raw);
+
+  @protected
+  EncoderTypeDescriptor dco_decode_encoder_type_descriptor(dynamic raw);
 
   @protected
   Event dco_decode_event(dynamic raw);
@@ -137,6 +151,11 @@ abstract class StellatuneApiApiImplPlatform
 
   @protected
   List<DspTypeDescriptor> dco_decode_list_dsp_type_descriptor(dynamic raw);
+
+  @protected
+  List<EncoderTypeDescriptor> dco_decode_list_encoder_type_descriptor(
+    dynamic raw,
+  );
 
   @protected
   List<LyricLine> dco_decode_list_lyric_line(dynamic raw);
@@ -207,6 +226,9 @@ abstract class StellatuneApiApiImplPlatform
   int? dco_decode_opt_box_autoadd_u_16(dynamic raw);
 
   @protected
+  int? dco_decode_opt_box_autoadd_u_32(dynamic raw);
+
+  @protected
   BigInt? dco_decode_opt_box_autoadd_u_64(dynamic raw);
 
   @protected
@@ -242,6 +264,14 @@ abstract class StellatuneApiApiImplPlatform
   TrackRef dco_decode_track_ref(dynamic raw);
 
   @protected
+  TranscodeProgressEvent dco_decode_transcode_progress_event(dynamic raw);
+
+  @protected
+  TranscodeTrackLocalRequest dco_decode_transcode_track_local_request(
+    dynamic raw,
+  );
+
+  @protected
   int dco_decode_u_16(dynamic raw);
 
   @protected
@@ -271,6 +301,12 @@ abstract class StellatuneApiApiImplPlatform
 
   @protected
   RustStreamSink<LyricsEvent> sse_decode_StreamSink_lyrics_event_Sse(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  RustStreamSink<TranscodeProgressEvent>
+  sse_decode_StreamSink_transcode_progress_event_Sse(
     SseDeserializer deserializer,
   );
 
@@ -314,7 +350,16 @@ abstract class StellatuneApiApiImplPlatform
   TrackRef sse_decode_box_autoadd_track_ref(SseDeserializer deserializer);
 
   @protected
+  TranscodeTrackLocalRequest
+  sse_decode_box_autoadd_transcode_track_local_request(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   int sse_decode_box_autoadd_u_16(SseDeserializer deserializer);
+
+  @protected
+  int sse_decode_box_autoadd_u_32(SseDeserializer deserializer);
 
   @protected
   BigInt sse_decode_box_autoadd_u_64(SseDeserializer deserializer);
@@ -343,6 +388,11 @@ abstract class StellatuneApiApiImplPlatform
 
   @protected
   DspTypeDescriptor sse_decode_dsp_type_descriptor(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  EncoderTypeDescriptor sse_decode_encoder_type_descriptor(
     SseDeserializer deserializer,
   );
 
@@ -387,6 +437,11 @@ abstract class StellatuneApiApiImplPlatform
 
   @protected
   List<DspTypeDescriptor> sse_decode_list_dsp_type_descriptor(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<EncoderTypeDescriptor> sse_decode_list_encoder_type_descriptor(
     SseDeserializer deserializer,
   );
 
@@ -467,6 +522,9 @@ abstract class StellatuneApiApiImplPlatform
   int? sse_decode_opt_box_autoadd_u_16(SseDeserializer deserializer);
 
   @protected
+  int? sse_decode_opt_box_autoadd_u_32(SseDeserializer deserializer);
+
+  @protected
   BigInt? sse_decode_opt_box_autoadd_u_64(SseDeserializer deserializer);
 
   @protected
@@ -504,6 +562,16 @@ abstract class StellatuneApiApiImplPlatform
   TrackRef sse_decode_track_ref(SseDeserializer deserializer);
 
   @protected
+  TranscodeProgressEvent sse_decode_transcode_progress_event(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  TranscodeTrackLocalRequest sse_decode_transcode_track_local_request(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   int sse_decode_u_16(SseDeserializer deserializer);
 
   @protected
@@ -539,6 +607,12 @@ abstract class StellatuneApiApiImplPlatform
   @protected
   void sse_encode_StreamSink_lyrics_event_Sse(
     RustStreamSink<LyricsEvent> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_StreamSink_transcode_progress_event_Sse(
+    RustStreamSink<TranscodeProgressEvent> self,
     SseSerializer serializer,
   );
 
@@ -597,7 +671,16 @@ abstract class StellatuneApiApiImplPlatform
   );
 
   @protected
+  void sse_encode_box_autoadd_transcode_track_local_request(
+    TranscodeTrackLocalRequest self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_box_autoadd_u_16(int self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_box_autoadd_u_32(int self, SseSerializer serializer);
 
   @protected
   void sse_encode_box_autoadd_u_64(BigInt self, SseSerializer serializer);
@@ -635,6 +718,12 @@ abstract class StellatuneApiApiImplPlatform
   @protected
   void sse_encode_dsp_type_descriptor(
     DspTypeDescriptor self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_encoder_type_descriptor(
+    EncoderTypeDescriptor self,
     SseSerializer serializer,
   );
 
@@ -686,6 +775,12 @@ abstract class StellatuneApiApiImplPlatform
   @protected
   void sse_encode_list_dsp_type_descriptor(
     List<DspTypeDescriptor> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_encoder_type_descriptor(
+    List<EncoderTypeDescriptor> self,
     SseSerializer serializer,
   );
 
@@ -792,6 +887,9 @@ abstract class StellatuneApiApiImplPlatform
   void sse_encode_opt_box_autoadd_u_16(int? self, SseSerializer serializer);
 
   @protected
+  void sse_encode_opt_box_autoadd_u_32(int? self, SseSerializer serializer);
+
+  @protected
   void sse_encode_opt_box_autoadd_u_64(BigInt? self, SseSerializer serializer);
 
   @protected
@@ -841,6 +939,18 @@ abstract class StellatuneApiApiImplPlatform
 
   @protected
   void sse_encode_track_ref(TrackRef self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_transcode_progress_event(
+    TranscodeProgressEvent self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_transcode_track_local_request(
+    TranscodeTrackLocalRequest self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_u_16(int self, SseSerializer serializer);

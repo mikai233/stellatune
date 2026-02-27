@@ -8,9 +8,9 @@ import '../third_party/stellatune_backend_api/lyrics_types.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'player/types.dart';
 
-// These functions are ignored because they are not marked as `pub`: `clear_cached_track_info`, `clear_pending_preload_seek`, `decode_track_token_path`, `encode_track_ref_token`, `engine`, `extract_lyrics_fetch_id`, `extract_lyrics_search_keyword`, `lyrics`, `map_lfe_mode`, `map_player_state`, `map_resample_quality`, `map_v2_event_to_ffi`, `next_position_session_id`, `normalize_json_payload`, `normalize_json_string_payload`, `reconcile_plugin_runtime_state_after_package_change`, `set_pending_preload_seek`, `shared_player_context`, `take_pending_preload_seek_for_event`
-// These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `CachedTrackDecodeInfo`, `FfiEventMapperState`, `PendingPreloadSeek`, `PlayerContext`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`
+// These functions are ignored because they are not marked as `pub`: `clear_cached_track_info`, `clear_pending_preload_seek`, `clear_transcode_cancel_flag`, `decode_track_token_path`, `emit_transcode_event`, `encode_track_ref_token`, `engine`, `ensure_transcode_not_canceled`, `estimate_total_frames`, `extract_lyrics_fetch_id`, `extract_lyrics_search_keyword`, `lyrics`, `map_lfe_mode`, `map_player_state`, `map_resample_quality`, `map_v2_event_to_ffi`, `new`, `next_position_session_id`, `normalize_json_payload`, `normalize_json_string_payload`, `normalize_optional_json_opt`, `normalize_optional_json`, `reconcile_plugin_runtime_state_after_package_change`, `register_transcode_cancel_flag`, `run_transcode_track_local_blocking`, `set_pending_preload_seek`, `shared_player_context`, `shared_transcode_cancel_flags`, `take_pending_preload_seek_for_event`
+// These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `CachedTrackDecodeInfo`, `FfiEventMapperState`, `PendingPreloadSeek`, `PlayerContext`, `TranscodeTaskContext`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`
 // These functions are ignored (category: IgnoreBecauseOwnerTyShouldIgnore): `default`
 
 Future<void> switchTrackRef({required TrackRef track, required bool lazy}) =>
@@ -96,6 +96,9 @@ Future<List<LyricsProviderTypeDescriptor>> lyricsProviderListTypes() =>
 
 Future<List<OutputSinkTypeDescriptor>> outputSinkListTypes() =>
     StellatuneApi.instance.api.crateApiPlayerOutputSinkListTypes();
+
+Future<List<EncoderTypeDescriptor>> encoderListTypes() =>
+    StellatuneApi.instance.api.crateApiPlayerEncoderListTypes();
 
 Future<String> sourceListItemsJson({
   required String pluginId,
@@ -229,5 +232,57 @@ Future<void> preloadTrackRef({
   positionMs: positionMs,
 );
 
+Stream<TranscodeProgressEvent> transcodeTrackLocal({
+  required TranscodeTrackLocalRequest request,
+}) => StellatuneApi.instance.api.crateApiPlayerTranscodeTrackLocal(
+  request: request,
+);
+
+Future<void> transcodeCancel({required String taskId}) =>
+    StellatuneApi.instance.api.crateApiPlayerTranscodeCancel(taskId: taskId);
+
 Future<List<String>> decoderSupportedExtensions() =>
     StellatuneApi.instance.api.crateApiPlayerDecoderSupportedExtensions();
+
+class TranscodeTrackLocalRequest {
+  final String taskId;
+  final String sourcePath;
+  final String outputPath;
+  final String encoderPluginId;
+  final String encoderTypeId;
+  final String encoderConfigJson;
+  final String? encoderOptionsJson;
+
+  const TranscodeTrackLocalRequest({
+    required this.taskId,
+    required this.sourcePath,
+    required this.outputPath,
+    required this.encoderPluginId,
+    required this.encoderTypeId,
+    required this.encoderConfigJson,
+    this.encoderOptionsJson,
+  });
+
+  @override
+  int get hashCode =>
+      taskId.hashCode ^
+      sourcePath.hashCode ^
+      outputPath.hashCode ^
+      encoderPluginId.hashCode ^
+      encoderTypeId.hashCode ^
+      encoderConfigJson.hashCode ^
+      encoderOptionsJson.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is TranscodeTrackLocalRequest &&
+          runtimeType == other.runtimeType &&
+          taskId == other.taskId &&
+          sourcePath == other.sourcePath &&
+          outputPath == other.outputPath &&
+          encoderPluginId == other.encoderPluginId &&
+          encoderTypeId == other.encoderTypeId &&
+          encoderConfigJson == other.encoderConfigJson &&
+          encoderOptionsJson == other.encoderOptionsJson;
+}

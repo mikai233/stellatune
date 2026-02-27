@@ -1,7 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:stellatune/bridge/bridge.dart';
 
-enum TrackListAction { play, enqueue, addToPlaylist, removeFromCurrentPlaylist }
+enum TrackListAction {
+  play,
+  enqueue,
+  transcode,
+  addToPlaylist,
+  removeFromCurrentPlaylist,
+}
 
 class TrackListActionSpec {
   const TrackListActionSpec({

@@ -9,6 +9,7 @@ import 'package:stellatune/ui/widgets/track_list.dart';
 class LibraryTracksContent extends StatelessWidget {
   const LibraryTracksContent({
     super.key,
+    required this.bridge,
     required this.l10n,
     required this.searchController,
     required this.onSearchChanged,
@@ -39,6 +40,7 @@ class LibraryTracksContent extends StatelessWidget {
     this.onViewportRangeChanged,
   });
 
+  final PlayerBridge bridge;
   final AppLocalizations l10n;
   final TextEditingController searchController;
   final ValueChanged<String> onSearchChanged;
@@ -132,6 +134,7 @@ class LibraryTracksContent extends StatelessWidget {
         const SizedBox(height: 12),
         Expanded(
           child: TrackList(
+            bridge: bridge,
             coverDir: coverDir,
             items: results,
             likedTrackIds: likedTrackIds,

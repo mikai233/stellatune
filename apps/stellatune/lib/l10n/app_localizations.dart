@@ -800,6 +800,12 @@ abstract class AppLocalizations {
   /// **'Enqueue'**
   String get menuEnqueue;
 
+  /// No description provided for @menuTranscode.
+  ///
+  /// In en, this message translates to:
+  /// **'Transcode'**
+  String get menuTranscode;
+
   /// No description provided for @menuAddToPlaylist.
   ///
   /// In en, this message translates to:
@@ -811,6 +817,174 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Remove from current playlist'**
   String get menuRemoveFromCurrentPlaylist;
+
+  /// No description provided for @transcodeSelectEncoderTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Transcode to...'**
+  String get transcodeSelectEncoderTitle;
+
+  /// No description provided for @transcodeNoEncoders.
+  ///
+  /// In en, this message translates to:
+  /// **'No encoders are available.'**
+  String get transcodeNoEncoders;
+
+  /// No description provided for @transcodeLoadEncodersFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to load encoder list'**
+  String get transcodeLoadEncodersFailed;
+
+  /// No description provided for @transcodeNotReady.
+  ///
+  /// In en, this message translates to:
+  /// **'Transcode action is not wired yet'**
+  String get transcodeNotReady;
+
+  /// No description provided for @transcodeSaveDialogTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose output file'**
+  String get transcodeSaveDialogTitle;
+
+  /// No description provided for @transcodeProgressDialogTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Transcoding'**
+  String get transcodeProgressDialogTitle;
+
+  /// No description provided for @transcodeProgressDialogSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Encoder: {encoder}'**
+  String transcodeProgressDialogSubtitle(String encoder);
+
+  /// No description provided for @transcodeStatePreparing.
+  ///
+  /// In en, this message translates to:
+  /// **'Preparing...'**
+  String get transcodeStatePreparing;
+
+  /// No description provided for @transcodeStateProcessing.
+  ///
+  /// In en, this message translates to:
+  /// **'Processing...'**
+  String get transcodeStateProcessing;
+
+  /// No description provided for @transcodeStateCompleted.
+  ///
+  /// In en, this message translates to:
+  /// **'Completed'**
+  String get transcodeStateCompleted;
+
+  /// No description provided for @transcodeStateCanceled.
+  ///
+  /// In en, this message translates to:
+  /// **'Canceled'**
+  String get transcodeStateCanceled;
+
+  /// No description provided for @transcodeStateFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed'**
+  String get transcodeStateFailed;
+
+  /// No description provided for @transcodeCancel.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get transcodeCancel;
+
+  /// No description provided for @transcodeCanceling.
+  ///
+  /// In en, this message translates to:
+  /// **'Canceling...'**
+  String get transcodeCanceling;
+
+  /// No description provided for @transcodeCanceled.
+  ///
+  /// In en, this message translates to:
+  /// **'Transcode canceled'**
+  String get transcodeCanceled;
+
+  /// No description provided for @transcodeStatProcessed.
+  ///
+  /// In en, this message translates to:
+  /// **'Frames'**
+  String get transcodeStatProcessed;
+
+  /// No description provided for @transcodeStatWritten.
+  ///
+  /// In en, this message translates to:
+  /// **'Written'**
+  String get transcodeStatWritten;
+
+  /// No description provided for @transcodeStatElapsed.
+  ///
+  /// In en, this message translates to:
+  /// **'Elapsed'**
+  String get transcodeStatElapsed;
+
+  /// No description provided for @transcodeParamsDialogTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Transcode Parameters'**
+  String get transcodeParamsDialogTitle;
+
+  /// No description provided for @transcodeParamsConfigLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Encoder config JSON'**
+  String get transcodeParamsConfigLabel;
+
+  /// No description provided for @transcodeParamsOptionsLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Extra options JSON (optional)'**
+  String get transcodeParamsOptionsLabel;
+
+  /// No description provided for @transcodeParamsOptionsHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Leave blank to skip options_json.'**
+  String get transcodeParamsOptionsHint;
+
+  /// No description provided for @transcodeParamsInvalidJson.
+  ///
+  /// In en, this message translates to:
+  /// **'Invalid JSON format. Please check and retry.'**
+  String get transcodeParamsInvalidJson;
+
+  /// No description provided for @transcodeParamsConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'Start'**
+  String get transcodeParamsConfirm;
+
+  /// No description provided for @transcodeSucceededWithPath.
+  ///
+  /// In en, this message translates to:
+  /// **'Transcode completed: {path}'**
+  String transcodeSucceededWithPath(String path);
+
+  /// No description provided for @transcodeFailedWithError.
+  ///
+  /// In en, this message translates to:
+  /// **'Transcode failed: {error}'**
+  String transcodeFailedWithError(String error);
+
+  /// No description provided for @transcodeStartFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to start transcode: {error}'**
+  String transcodeStartFailed(String error);
+
+  /// No description provided for @transcodeCancelFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to cancel transcode: {error}'**
+  String transcodeCancelFailed(String error);
 
   /// No description provided for @playlistSectionTitle.
   ///

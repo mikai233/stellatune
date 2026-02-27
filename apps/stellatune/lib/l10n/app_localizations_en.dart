@@ -384,10 +384,108 @@ class AppLocalizationsEn extends AppLocalizations {
   String get menuEnqueue => 'Enqueue';
 
   @override
+  String get menuTranscode => 'Transcode';
+
+  @override
   String get menuAddToPlaylist => 'Add to playlist';
 
   @override
   String get menuRemoveFromCurrentPlaylist => 'Remove from current playlist';
+
+  @override
+  String get transcodeSelectEncoderTitle => 'Transcode to...';
+
+  @override
+  String get transcodeNoEncoders => 'No encoders are available.';
+
+  @override
+  String get transcodeLoadEncodersFailed => 'Failed to load encoder list';
+
+  @override
+  String get transcodeNotReady => 'Transcode action is not wired yet';
+
+  @override
+  String get transcodeSaveDialogTitle => 'Choose output file';
+
+  @override
+  String get transcodeProgressDialogTitle => 'Transcoding';
+
+  @override
+  String transcodeProgressDialogSubtitle(String encoder) {
+    return 'Encoder: $encoder';
+  }
+
+  @override
+  String get transcodeStatePreparing => 'Preparing...';
+
+  @override
+  String get transcodeStateProcessing => 'Processing...';
+
+  @override
+  String get transcodeStateCompleted => 'Completed';
+
+  @override
+  String get transcodeStateCanceled => 'Canceled';
+
+  @override
+  String get transcodeStateFailed => 'Failed';
+
+  @override
+  String get transcodeCancel => 'Cancel';
+
+  @override
+  String get transcodeCanceling => 'Canceling...';
+
+  @override
+  String get transcodeCanceled => 'Transcode canceled';
+
+  @override
+  String get transcodeStatProcessed => 'Frames';
+
+  @override
+  String get transcodeStatWritten => 'Written';
+
+  @override
+  String get transcodeStatElapsed => 'Elapsed';
+
+  @override
+  String get transcodeParamsDialogTitle => 'Transcode Parameters';
+
+  @override
+  String get transcodeParamsConfigLabel => 'Encoder config JSON';
+
+  @override
+  String get transcodeParamsOptionsLabel => 'Extra options JSON (optional)';
+
+  @override
+  String get transcodeParamsOptionsHint => 'Leave blank to skip options_json.';
+
+  @override
+  String get transcodeParamsInvalidJson =>
+      'Invalid JSON format. Please check and retry.';
+
+  @override
+  String get transcodeParamsConfirm => 'Start';
+
+  @override
+  String transcodeSucceededWithPath(String path) {
+    return 'Transcode completed: $path';
+  }
+
+  @override
+  String transcodeFailedWithError(String error) {
+    return 'Transcode failed: $error';
+  }
+
+  @override
+  String transcodeStartFailed(String error) {
+    return 'Failed to start transcode: $error';
+  }
+
+  @override
+  String transcodeCancelFailed(String error) {
+    return 'Failed to cancel transcode: $error';
+  }
 
   @override
   String get playlistSectionTitle => 'Playlists';

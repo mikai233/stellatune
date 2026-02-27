@@ -165,8 +165,72 @@
 
   "menuPlay": "播放",
   "menuEnqueue": "加入队列",
+  "menuTranscode": "转码",
   "menuAddToPlaylist": "添加到歌单",
   "menuRemoveFromCurrentPlaylist": "从当前歌单移除",
+  "transcodeSelectEncoderTitle": "转码到...",
+  "transcodeNoEncoders": "没有可用编码器。",
+  "transcodeLoadEncodersFailed": "加载编码器列表失败",
+  "transcodeNotReady": "转码任务入口暂未接入",
+  "transcodeSaveDialogTitle": "选择转码输出文件",
+  "transcodeProgressDialogTitle": "正在转码",
+  "transcodeProgressDialogSubtitle": "编码器：{encoder}",
+  "@transcodeProgressDialogSubtitle": {
+    "placeholders": {
+      "encoder": {
+        "type": "String"
+      }
+    }
+  },
+  "transcodeStatePreparing": "准备中...",
+  "transcodeStateProcessing": "处理中...",
+  "transcodeStateCompleted": "已完成",
+  "transcodeStateCanceled": "已取消",
+  "transcodeStateFailed": "失败",
+  "transcodeCancel": "取消任务",
+  "transcodeCanceling": "正在取消...",
+  "transcodeCanceled": "转码已取消",
+  "transcodeStatProcessed": "已处理帧",
+  "transcodeStatWritten": "已写入",
+  "transcodeStatElapsed": "耗时",
+  "transcodeParamsDialogTitle": "转码参数",
+  "transcodeParamsConfigLabel": "编码器配置 JSON",
+  "transcodeParamsOptionsLabel": "附加选项 JSON（可选）",
+  "transcodeParamsOptionsHint": "留空表示不传 options_json。",
+  "transcodeParamsInvalidJson": "JSON 格式无效，请检查后重试。",
+  "transcodeParamsConfirm": "开始转码",
+  "transcodeSucceededWithPath": "转码完成：{path}",
+  "@transcodeSucceededWithPath": {
+    "placeholders": {
+      "path": {
+        "type": "String"
+      }
+    }
+  },
+  "transcodeFailedWithError": "转码失败：{error}",
+  "@transcodeFailedWithError": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "transcodeStartFailed": "无法启动转码：{error}",
+  "@transcodeStartFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "transcodeCancelFailed": "取消转码失败：{error}",
+  "@transcodeCancelFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
 
   "playlistSectionTitle": "歌单",
   "foldersSectionTitle": "文件夹",

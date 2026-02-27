@@ -564,6 +564,7 @@ extension _LibraryLayout on LibraryPageState {
                   ),
                   Expanded(
                     child: LibraryTracksContent(
+                      bridge: ref.read(playerBridgeProvider),
                       l10n: l10n,
                       searchController: _searchController,
                       onSearchChanged: (q) => ref

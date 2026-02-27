@@ -18,11 +18,13 @@ export 'api/player/types.dart'
         TrackRef,
         SourceCatalogTypeDescriptor,
         LyricsProviderTypeDescriptor,
+        EncoderTypeDescriptor,
         OutputSinkTypeDescriptor,
         OutputSinkRoute,
         PluginDescriptor,
         PlayerState,
         TrackDecodeInfo,
+        TranscodeProgressEvent,
         ResampleQuality;
 export 'third_party/stellatune_library.dart'
     show LibraryEvent, LibraryEventPatterns, PlaylistLite, TrackLite;
@@ -111,6 +113,9 @@ class PlayerBridge {
   Future<List<OutputSinkTypeDescriptor>> outputSinkListTypes() =>
       api.outputSinkListTypes();
 
+  Future<List<EncoderTypeDescriptor>> encoderListTypes() =>
+      api.encoderListTypes();
+
   Future<String> sourceListItemsJson({
     required String pluginId,
     required String typeId,
@@ -197,6 +202,29 @@ class PlayerBridge {
 
   Future<void> preloadTrackRef(TrackRef track, {int positionMs = 0}) =>
       api.preloadTrackRef(track: track, positionMs: BigInt.from(positionMs));
+
+  Stream<TranscodeProgressEvent> transcodeTrackLocal({
+    required String taskId,
+    required String sourcePath,
+    required String outputPath,
+    required String encoderPluginId,
+    required String encoderTypeId,
+    required String encoderConfigJson,
+    String? encoderOptionsJson,
+  }) => api.transcodeTrackLocal(
+    request: api.TranscodeTrackLocalRequest(
+      taskId: taskId,
+      sourcePath: sourcePath,
+      outputPath: outputPath,
+      encoderPluginId: encoderPluginId,
+      encoderTypeId: encoderTypeId,
+      encoderConfigJson: encoderConfigJson,
+      encoderOptionsJson: encoderOptionsJson,
+    ),
+  );
+
+  Future<void> transcodeCancel({required String taskId}) =>
+      api.transcodeCancel(taskId: taskId);
 
   Future<List<String>> decoderSupportedExtensions() =>
       api.decoderSupportedExtensions();

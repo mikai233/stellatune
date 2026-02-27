@@ -220,6 +220,7 @@ class PlaylistsPageState extends ConsumerState<PlaylistsPage> {
                   padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
                   child: selectedPluginPlaylist == null
                       ? PlaylistTracksPane(
+                          bridge: ref.read(playerBridgeProvider),
                           searchController: _librarySearchController,
                           queueSourceLabel: queueSourceLabel,
                           selectedLabel: selectedPlaylist == null

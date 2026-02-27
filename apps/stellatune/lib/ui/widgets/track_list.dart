@@ -1,10 +1,14 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:path/path.dart' as p;
 import 'package:stellatune/bridge/bridge.dart';
 import 'package:stellatune/l10n/app_localizations.dart';
+import 'package:stellatune/ui/forms/schema_form.dart';
 import 'package:stellatune/ui/widgets/track_list/models/track_list_models.dart';
 import 'package:stellatune/ui/widgets/track_list/widgets/track_list_context_menu.dart';
 import 'package:stellatune/ui/widgets/track_list/widgets/track_list_shared_widgets.dart';
@@ -13,6 +17,7 @@ import 'package:stellatune/ui/widgets/track_list/widgets/track_list_tile.dart';
 class TrackList extends StatefulWidget {
   const TrackList({
     super.key,
+    required this.bridge,
     required this.coverDir,
     required this.items,
     required this.likedTrackIds,
@@ -26,10 +31,12 @@ class TrackList extends StatefulWidget {
     this.onMoveInCurrentPlaylist,
     this.onBatchAddToPlaylist,
     this.onBatchRemoveFromCurrentPlaylist,
+    this.onTranscodeSelected,
     this.blockedReasonByTrackId = const <int, String>{},
     this.onViewportRangeChanged,
   });
 
+  final PlayerBridge bridge;
   final String coverDir;
   final List<TrackLite> items;
   final Set<int> likedTrackIds;
@@ -47,6 +54,8 @@ class TrackList extends StatefulWidget {
   onBatchAddToPlaylist;
   final Future<void> Function(List<TrackLite> tracks, int playlistId)?
   onBatchRemoveFromCurrentPlaylist;
+  final Future<void> Function(TrackLite track, EncoderTypeDescriptor encoder)?
+  onTranscodeSelected;
   final Map<int, String> blockedReasonByTrackId;
   final void Function(int startIndex, int endIndex)? onViewportRangeChanged;
 
@@ -78,6 +87,7 @@ class _TrackListState extends State<TrackList> {
   bool _globalPointerRouteAttached = false;
   bool _desktopTrackMenuVisible = false;
   PendingTrackMenuRequest? _pendingTrackMenuRequest;
+  List<EncoderTypeDescriptor>? _encoderTypesCache;
   bool get _isDesktopPlatform =>
       Platform.isWindows || Platform.isLinux || Platform.isMacOS;
 
@@ -508,7 +518,6 @@ class _TrackListState extends State<TrackList> {
         widget.onActivate(i, activateItems);
       },
       onTrackAction: (action) => _handleTrackAction(
-        context: context,
         action: action,
         index: i,
         track: t,
@@ -549,6 +558,11 @@ class _TrackListState extends State<TrackList> {
         label: l10n.menuEnqueue,
         icon: Icons.queue_music_rounded,
         enabled: !isBlocked,
+      ),
+      TrackListActionSpec(
+        action: TrackListAction.transcode,
+        label: l10n.menuTranscode,
+        icon: Icons.transform_rounded,
       ),
       TrackListActionSpec(
         action: TrackListAction.addToPlaylist,
@@ -670,23 +684,24 @@ class _TrackListState extends State<TrackList> {
     if (action == null) return;
     if (!mounted) return;
     await _handleTrackAction(
-      context: context,
       action: action,
       index: index,
       track: track,
       activateItems: activateItems,
       isBlocked: isBlocked,
+      menuGlobalPosition: globalPosition,
     );
   }
 
   Future<void> _handleTrackAction({
-    required BuildContext context,
     required TrackListAction action,
     required int index,
     required TrackLite track,
     required List<TrackLite> activateItems,
     required bool isBlocked,
+    Offset? menuGlobalPosition,
   }) async {
+    final context = this.context;
     if (action == TrackListAction.enqueue) {
       if (isBlocked) return;
       await widget.onEnqueue(track);
@@ -695,6 +710,27 @@ class _TrackListState extends State<TrackList> {
     if (action == TrackListAction.play) {
       if (isBlocked) return;
       await widget.onActivate(index, activateItems);
+      return;
+    }
+    if (action == TrackListAction.transcode) {
+      final encoder = await _pickEncoder(
+        anchorGlobalPosition: menuGlobalPosition,
+      );
+      if (encoder == null) return;
+
+      final onTranscodeSelected = widget.onTranscodeSelected;
+      if (onTranscodeSelected != null) {
+        await onTranscodeSelected(track, encoder);
+        return;
+      }
+      final params = await _editTranscodeParams(encoder);
+      if (params == null) return;
+      await _runDefaultTranscodeFlow(
+        track: track,
+        encoder: encoder,
+        encoderConfigJson: params.encoderConfigJson,
+        encoderOptionsJson: params.encoderOptionsJson,
+      );
       return;
     }
     if (action == TrackListAction.addToPlaylist) {
@@ -708,6 +744,536 @@ class _TrackListState extends State<TrackList> {
     if (playlistId != null) {
       await widget.onRemoveFromPlaylist(track, playlistId);
     }
+  }
+
+  Future<List<EncoderTypeDescriptor>> _listEncoderTypes() async {
+    final cached = _encoderTypesCache;
+    if (cached != null) {
+      return cached;
+    }
+    final loaded = await widget.bridge.encoderListTypes();
+    loaded.sort((a, b) {
+      final byDisplayName = a.displayName.toLowerCase().compareTo(
+        b.displayName.toLowerCase(),
+      );
+      if (byDisplayName != 0) return byDisplayName;
+      final byPluginName = a.pluginName.toLowerCase().compareTo(
+        b.pluginName.toLowerCase(),
+      );
+      if (byPluginName != 0) return byPluginName;
+      final byTypeId = a.typeId.compareTo(b.typeId);
+      if (byTypeId != 0) return byTypeId;
+      return a.pluginId.compareTo(b.pluginId);
+    });
+    _encoderTypesCache = List<EncoderTypeDescriptor>.unmodifiable(loaded);
+    return _encoderTypesCache!;
+  }
+
+  String _encoderMenuSubtitle(EncoderTypeDescriptor encoder) {
+    return '${encoder.pluginName} (${encoder.pluginId}) · ${encoder.typeId}';
+  }
+
+  Future<EncoderTypeDescriptor?> _pickEncoder({
+    Offset? anchorGlobalPosition,
+  }) async {
+    final context = this.context;
+    List<EncoderTypeDescriptor> encoders;
+    try {
+      encoders = await _listEncoderTypes();
+    } catch (error) {
+      if (!context.mounted) return null;
+      final l10n = AppLocalizations.of(context)!;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${l10n.transcodeLoadEncodersFailed}: $error')),
+      );
+      return null;
+    }
+    if (!context.mounted) return null;
+    final l10n = AppLocalizations.of(context)!;
+    if (encoders.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(l10n.transcodeNoEncoders)));
+      return null;
+    }
+    if (_isDesktopPlatform && anchorGlobalPosition != null) {
+      return _showEncoderPickerMenu(
+        context: context,
+        globalPosition: anchorGlobalPosition,
+        encoders: encoders,
+      );
+    }
+    return _showEncoderPickerBottomSheet(context: context, encoders: encoders);
+  }
+
+  Future<EncoderTypeDescriptor?> _showEncoderPickerMenu({
+    required BuildContext context,
+    required Offset globalPosition,
+    required List<EncoderTypeDescriptor> encoders,
+  }) {
+    final overlay = Overlay.of(context).context.findRenderObject();
+    if (overlay is! RenderBox) {
+      return Future<EncoderTypeDescriptor?>.value(null);
+    }
+    final position = RelativeRect.fromLTRB(
+      globalPosition.dx,
+      globalPosition.dy,
+      overlay.size.width - globalPosition.dx,
+      overlay.size.height - globalPosition.dy,
+    );
+    final theme = Theme.of(context);
+    final subtitleStyle = theme.textTheme.bodySmall?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+    );
+    return showMenu<EncoderTypeDescriptor>(
+      context: context,
+      position: position,
+      constraints: const BoxConstraints(maxWidth: 420, maxHeight: 460),
+      items: encoders
+          .map(
+            (encoder) => PopupMenuItem<EncoderTypeDescriptor>(
+              value: encoder,
+              child: Row(
+                children: [
+                  const Icon(Icons.file_upload_outlined, size: 18),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          encoder.displayName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          _encoderMenuSubtitle(encoder),
+                          style: subtitleStyle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          )
+          .toList(growable: false),
+    );
+  }
+
+  Future<EncoderTypeDescriptor?> _showEncoderPickerBottomSheet({
+    required BuildContext context,
+    required List<EncoderTypeDescriptor> encoders,
+  }) {
+    final l10n = AppLocalizations.of(context)!;
+    final estimatedHeight = (encoders.length * 64.0 + 104.0)
+        .clamp(220.0, 460.0)
+        .toDouble();
+    return showModalBottomSheet<EncoderTypeDescriptor>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) {
+        final theme = Theme.of(context);
+        return SafeArea(
+          child: SizedBox(
+            height: estimatedHeight,
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      l10n.transcodeSelectEncoderTitle,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: ListView.separated(
+                    itemCount: encoders.length,
+                    separatorBuilder: (_, _) => const Divider(height: 1),
+                    itemBuilder: (context, index) {
+                      final encoder = encoders[index];
+                      return ListTile(
+                        leading: const Icon(Icons.file_upload_outlined),
+                        title: Text(encoder.displayName),
+                        subtitle: Text(_encoderMenuSubtitle(encoder)),
+                        onTap: () => Navigator.of(context).pop(encoder),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<_TranscodeLaunchParams?> _editTranscodeParams(
+    EncoderTypeDescriptor encoder,
+  ) async {
+    final context = this.context;
+    final l10n = AppLocalizations.of(context)!;
+    var configDraft = _normalizeJsonString(
+      encoder.defaultConfigJson,
+      fallbackJson: '{}',
+    );
+    final optionsController = TextEditingController();
+    String? errorText;
+    final result = await showDialog<_TranscodeLaunchParams>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (dialogContext, setState) {
+            final theme = Theme.of(dialogContext);
+            return AlertDialog(
+              title: Text(l10n.transcodeParamsDialogTitle),
+              content: SizedBox(
+                width: 620,
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        encoder.displayName,
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        _encoderMenuSubtitle(encoder),
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      SchemaForm(
+                        schemaJson: encoder.configSchemaJson,
+                        initialValueJson: configDraft,
+                        fallbackLabel: l10n.transcodeParamsConfigLabel,
+                        onChangedJson: (json) {
+                          configDraft = json;
+                        },
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: optionsController,
+                        minLines: 2,
+                        maxLines: 6,
+                        decoration: InputDecoration(
+                          border: const OutlineInputBorder(),
+                          labelText: l10n.transcodeParamsOptionsLabel,
+                          helperText: l10n.transcodeParamsOptionsHint,
+                        ),
+                      ),
+                      if (errorText != null) ...[
+                        const SizedBox(height: 10),
+                        Text(
+                          errorText!,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.error,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: Text(l10n.cancel),
+                ),
+                FilledButton(
+                  onPressed: () {
+                    try {
+                      final normalizedConfig = _normalizeJsonString(
+                        configDraft,
+                        fallbackJson: '{}',
+                      );
+                      final normalizedOptions = _normalizeOptionalJsonString(
+                        optionsController.text,
+                      );
+                      Navigator.of(dialogContext).pop(
+                        _TranscodeLaunchParams(
+                          encoderConfigJson: normalizedConfig,
+                          encoderOptionsJson: normalizedOptions,
+                        ),
+                      );
+                    } catch (_) {
+                      setState(() {
+                        errorText = l10n.transcodeParamsInvalidJson;
+                      });
+                    }
+                  },
+                  child: Text(l10n.transcodeParamsConfirm),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+    optionsController.dispose();
+    return result;
+  }
+
+  String _normalizeJsonString(String raw, {required String fallbackJson}) {
+    final trimmed = raw.trim();
+    final source = trimmed.isEmpty ? fallbackJson : trimmed;
+    final decoded = jsonDecode(source);
+    return jsonEncode(decoded);
+  }
+
+  String? _normalizeOptionalJsonString(String raw) {
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty) return null;
+    final decoded = jsonDecode(trimmed);
+    return jsonEncode(decoded);
+  }
+
+  Future<void> _runDefaultTranscodeFlow({
+    required TrackLite track,
+    required EncoderTypeDescriptor encoder,
+    required String encoderConfigJson,
+    required String? encoderOptionsJson,
+  }) async {
+    final context = this.context;
+    final l10n = AppLocalizations.of(context)!;
+    final sourcePath = track.path.trim();
+    if (sourcePath.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(l10n.transcodeStartFailed('source path is empty')),
+        ),
+      );
+      return;
+    }
+
+    String? outputPath;
+    try {
+      outputPath = await FilePicker.platform.saveFile(
+        dialogTitle: l10n.transcodeSaveDialogTitle,
+        fileName: _buildDefaultTranscodeFileName(track, encoder),
+        lockParentWindow: true,
+      );
+    } catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(l10n.transcodeStartFailed(error.toString()))),
+      );
+      return;
+    }
+    if (outputPath == null || outputPath.trim().isEmpty) {
+      return;
+    }
+    outputPath = outputPath.trim();
+
+    final taskId = _buildTranscodeTaskId(track, encoder);
+    if (!context.mounted) return;
+    final progressNotifier = ValueNotifier<TranscodeProgressEvent?>(null);
+    final cancelingNotifier = ValueNotifier<bool>(false);
+    var cancelRequested = false;
+    Future<void> requestCancel() async {
+      if (cancelRequested) return;
+      cancelRequested = true;
+      cancelingNotifier.value = true;
+      try {
+        await widget.bridge.transcodeCancel(taskId: taskId);
+      } catch (error) {
+        cancelRequested = false;
+        cancelingNotifier.value = false;
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(l10n.transcodeCancelFailed(error.toString()))),
+        );
+      }
+    }
+
+    final dialogFuture = showGeneralDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      barrierLabel: l10n.transcodeProgressDialogTitle,
+      barrierColor: Colors.black.withValues(alpha: 0.38),
+      transitionDuration: const Duration(milliseconds: 180),
+      pageBuilder: (dialogContext, animation, secondaryAnimation) {
+        return SafeArea(
+          child: Center(
+            child: _TranscodeProgressDialogCard(
+              progressListenable: progressNotifier,
+              cancelingListenable: cancelingNotifier,
+              encoderName: encoder.displayName,
+              sourceName: _trackDisplayName(track),
+              onCancelPressed: requestCancel,
+            ),
+          ),
+        );
+      },
+      transitionBuilder: (context, animation, secondaryAnimation, child) {
+        final curved = CurvedAnimation(
+          parent: animation,
+          curve: Curves.easeOutCubic,
+          reverseCurve: Curves.easeInCubic,
+        );
+        return FadeTransition(
+          opacity: curved,
+          child: ScaleTransition(
+            scale: Tween<double>(begin: 0.94, end: 1.0).animate(curved),
+            child: child,
+          ),
+        );
+      },
+    );
+
+    var finalOutputPath = outputPath;
+    String? failureMessage;
+    var succeeded = false;
+    var canceled = false;
+    final done = Completer<void>();
+    late final StreamSubscription<TranscodeProgressEvent> subscription;
+    try {
+      subscription = widget.bridge
+          .transcodeTrackLocal(
+            taskId: taskId,
+            sourcePath: sourcePath,
+            outputPath: outputPath,
+            encoderPluginId: encoder.pluginId,
+            encoderTypeId: encoder.typeId,
+            encoderConfigJson: encoderConfigJson,
+            encoderOptionsJson: encoderOptionsJson,
+          )
+          .listen(
+            (event) {
+              progressNotifier.value = event;
+              final eventOutputPath = event.outputPath;
+              if (eventOutputPath != null &&
+                  eventOutputPath.trim().isNotEmpty) {
+                finalOutputPath = eventOutputPath.trim();
+              }
+              final phase = event.phase.trim().toLowerCase();
+              if (phase == 'completed') {
+                succeeded = true;
+              } else if (phase == 'canceled') {
+                canceled = true;
+              } else if (phase == 'failed') {
+                final raw = event.message?.trim();
+                failureMessage = (raw == null || raw.isEmpty)
+                    ? l10n.error
+                    : raw;
+              } else {
+                return;
+              }
+              if (!done.isCompleted) {
+                done.complete();
+              }
+            },
+            onError: (Object error, StackTrace stackTrace) {
+              failureMessage = error.toString();
+              if (!done.isCompleted) {
+                done.complete();
+              }
+            },
+            onDone: () {
+              if (!done.isCompleted) {
+                done.complete();
+              }
+            },
+            cancelOnError: false,
+          );
+      await done.future;
+      await subscription.cancel();
+
+      if (!succeeded && !canceled && (failureMessage?.isEmpty ?? true)) {
+        failureMessage = l10n.error;
+      }
+    } catch (error) {
+      failureMessage = error.toString();
+    } finally {
+      if (context.mounted) {
+        await Navigator.of(context, rootNavigator: true).maybePop();
+      }
+      await dialogFuture;
+      progressNotifier.dispose();
+      cancelingNotifier.dispose();
+    }
+
+    if (!context.mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.showSnackBar(
+      SnackBar(
+        behavior: SnackBarBehavior.floating,
+        content: Text(
+          succeeded
+              ? l10n.transcodeSucceededWithPath(finalOutputPath)
+              : canceled
+              ? l10n.transcodeCanceled
+              : l10n.transcodeFailedWithError(failureMessage ?? l10n.error),
+        ),
+      ),
+    );
+  }
+
+  String _buildTranscodeTaskId(TrackLite track, EncoderTypeDescriptor encoder) {
+    final ts = DateTime.now().microsecondsSinceEpoch;
+    final source =
+        '${track.id}:${track.path}:${encoder.pluginId}:${encoder.typeId}';
+    final fingerprint = source.hashCode.abs();
+    return 'transcode_${ts}_$fingerprint';
+  }
+
+  String _trackDisplayName(TrackLite track) {
+    final title = track.title?.trim();
+    if (title != null && title.isNotEmpty) {
+      return title;
+    }
+    final filename = p.basenameWithoutExtension(track.path).trim();
+    if (filename.isNotEmpty) {
+      return filename;
+    }
+    return 'Track';
+  }
+
+  String _buildDefaultTranscodeFileName(
+    TrackLite track,
+    EncoderTypeDescriptor encoder,
+  ) {
+    final extension = _inferEncoderExtension(encoder);
+    final baseName = _sanitizeFileName(_trackDisplayName(track));
+    return '$baseName.$extension';
+  }
+
+  String _inferEncoderExtension(EncoderTypeDescriptor encoder) {
+    final normalized = encoder.typeId.toLowerCase();
+    final segments = normalized
+        .split(RegExp(r'[^a-z0-9]+'))
+        .where((segment) => segment.isNotEmpty)
+        .toList(growable: false);
+    const ignored = <String>{'encoder', 'encode', 'audio', 'plugin'};
+    for (final segment in segments.reversed) {
+      if (ignored.contains(segment)) continue;
+      if (segment.length >= 2 && segment.length <= 8) {
+        return segment;
+      }
+    }
+    return 'out';
+  }
+
+  String _sanitizeFileName(String raw) {
+    final sanitized = raw.replaceAll(RegExp(r'[\\\\/:*?"<>|]'), '_').trim();
+    if (sanitized.isEmpty) {
+      return 'track';
+    }
+    return sanitized;
   }
 
   void _toggleSelected(int trackId) {
@@ -798,5 +1364,392 @@ class _TrackListState extends State<TrackList> {
       return l10n.likedPlaylistName;
     }
     return playlist.name;
+  }
+}
+
+class _TranscodeProgressDialogCard extends StatelessWidget {
+  const _TranscodeProgressDialogCard({
+    required this.progressListenable,
+    required this.cancelingListenable,
+    required this.encoderName,
+    required this.sourceName,
+    required this.onCancelPressed,
+  });
+
+  final ValueNotifier<TranscodeProgressEvent?> progressListenable;
+  final ValueNotifier<bool> cancelingListenable;
+  final String encoderName;
+  final String sourceName;
+  final Future<void> Function() onCancelPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final l10n = AppLocalizations.of(context)!;
+    final surfaceTop = colorScheme.surfaceContainerHighest.withValues(
+      alpha: 0.98,
+    );
+    final surfaceBottom = colorScheme.surface.withValues(alpha: 0.98);
+    final borderColor = colorScheme.outlineVariant.withValues(alpha: 0.42);
+
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 560),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+        child: Material(
+          color: Colors.transparent,
+          child: ValueListenableBuilder<TranscodeProgressEvent?>(
+            valueListenable: progressListenable,
+            builder: (context, event, child) {
+              return ValueListenableBuilder<bool>(
+                valueListenable: cancelingListenable,
+                builder: (context, canceling, _) {
+                  final phase = event?.phase.trim().toLowerCase() ?? 'started';
+                  final processed = event?.processedFrames ?? BigInt.zero;
+                  final total = event?.totalFrames;
+                  final writtenBytes = event?.writtenBytes ?? BigInt.zero;
+                  final elapsedMs = event?.elapsedMs;
+                  final progress = _progressRatio(processed, total);
+                  final statusColor = switch (phase) {
+                    'failed' => colorScheme.error,
+                    'canceled' => colorScheme.error,
+                    'completed' => colorScheme.primary,
+                    _ => colorScheme.primary,
+                  };
+                  final progressText = progress == null
+                      ? '...'
+                      : '${(progress * 100).clamp(0, 100).toStringAsFixed(1)}%';
+                  final isTerminal =
+                      phase == 'failed' ||
+                      phase == 'completed' ||
+                      phase == 'canceled';
+
+                  return AnimatedContainer(
+                    duration: const Duration(milliseconds: 220),
+                    curve: Curves.easeOutCubic,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(24),
+                      border: Border.all(color: borderColor),
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [surfaceTop, surfaceBottom],
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.18),
+                          blurRadius: 28,
+                          offset: const Offset(0, 12),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+                          decoration: BoxDecoration(
+                            borderRadius: const BorderRadius.vertical(
+                              top: Radius.circular(24),
+                            ),
+                            gradient: LinearGradient(
+                              colors: [
+                                colorScheme.primary.withValues(alpha: 0.20),
+                                colorScheme.primary.withValues(alpha: 0.08),
+                              ],
+                            ),
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Container(
+                                width: 42,
+                                height: 42,
+                                decoration: BoxDecoration(
+                                  color: colorScheme.primary.withValues(
+                                    alpha: 0.16,
+                                  ),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Icon(
+                                  Icons.transform_rounded,
+                                  color: colorScheme.primary,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      l10n.transcodeProgressDialogTitle,
+                                      style: theme.textTheme.titleMedium
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      l10n.transcodeProgressDialogSubtitle(
+                                        encoderName,
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: theme.textTheme.bodySmall
+                                          ?.copyWith(
+                                            color: colorScheme.onSurfaceVariant,
+                                          ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      sourceName,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: theme.textTheme.bodySmall
+                                          ?.copyWith(
+                                            color: colorScheme.onSurfaceVariant,
+                                          ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      _phaseLabel(l10n, phase),
+                                      style: theme.textTheme.bodyMedium
+                                          ?.copyWith(
+                                            color: statusColor,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                    ),
+                                  ),
+                                  Text(
+                                    progressText,
+                                    style: theme.textTheme.bodyMedium?.copyWith(
+                                      fontFeatures: const [
+                                        FontFeature.tabularFigures(),
+                                      ],
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 10),
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(999),
+                                child: SizedBox(
+                                  height: 10,
+                                  child: progress == null
+                                      ? LinearProgressIndicator(
+                                          value: null,
+                                          backgroundColor: colorScheme
+                                              .surfaceContainerHighest,
+                                          valueColor:
+                                              AlwaysStoppedAnimation<Color>(
+                                                colorScheme.primary,
+                                              ),
+                                        )
+                                      : TweenAnimationBuilder<double>(
+                                          tween: Tween<double>(
+                                            begin: 0,
+                                            end: progress,
+                                          ),
+                                          duration: const Duration(
+                                            milliseconds: 260,
+                                          ),
+                                          curve: Curves.easeOutCubic,
+                                          builder: (context, value, child) {
+                                            return LinearProgressIndicator(
+                                              value: value,
+                                              backgroundColor: colorScheme
+                                                  .surfaceContainerHighest,
+                                              valueColor:
+                                                  AlwaysStoppedAnimation<Color>(
+                                                    statusColor,
+                                                  ),
+                                            );
+                                          },
+                                        ),
+                                ),
+                              ),
+                              const SizedBox(height: 14),
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: [
+                                  _TranscodeMetricChip(
+                                    label: l10n.transcodeStatProcessed,
+                                    value: _formatFrames(processed, total),
+                                  ),
+                                  _TranscodeMetricChip(
+                                    label: l10n.transcodeStatWritten,
+                                    value: _formatBytes(writtenBytes),
+                                  ),
+                                  _TranscodeMetricChip(
+                                    label: l10n.transcodeStatElapsed,
+                                    value: _formatElapsed(elapsedMs),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 14),
+                              Align(
+                                alignment: Alignment.centerRight,
+                                child: TextButton.icon(
+                                  onPressed: canceling || isTerminal
+                                      ? null
+                                      : () {
+                                          unawaited(onCancelPressed());
+                                        },
+                                  icon: canceling
+                                      ? const SizedBox(
+                                          width: 14,
+                                          height: 14,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
+                                        )
+                                      : const Icon(Icons.close_rounded),
+                                  label: Text(
+                                    canceling
+                                        ? l10n.transcodeCanceling
+                                        : l10n.transcodeCancel,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _phaseLabel(AppLocalizations l10n, String phase) {
+    return switch (phase) {
+      'failed' => l10n.transcodeStateFailed,
+      'canceled' => l10n.transcodeStateCanceled,
+      'completed' => l10n.transcodeStateCompleted,
+      'progress' => l10n.transcodeStateProcessing,
+      _ => l10n.transcodeStatePreparing,
+    };
+  }
+
+  double? _progressRatio(BigInt processed, BigInt? total) {
+    if (total == null || total <= BigInt.zero) return null;
+    final capped = processed > total ? total : processed;
+    final numerator = capped.toDouble();
+    final denominator = total.toDouble();
+    if (denominator <= 0) return null;
+    return numerator / denominator;
+  }
+
+  String _formatFrames(BigInt processed, BigInt? total) {
+    final processedText = _groupDigits(processed);
+    if (total == null || total <= BigInt.zero) {
+      return processedText;
+    }
+    return '$processedText / ${_groupDigits(total)}';
+  }
+
+  String _formatBytes(BigInt bytes) {
+    final value = bytes < BigInt.zero ? BigInt.zero : bytes;
+    final units = <String>['B', 'KB', 'MB', 'GB', 'TB'];
+    var v = value.toDouble();
+    var idx = 0;
+    while (v >= 1024 && idx < units.length - 1) {
+      v /= 1024;
+      idx += 1;
+    }
+    final digits = v >= 100 ? 0 : (v >= 10 ? 1 : 2);
+    return '${v.toStringAsFixed(digits)} ${units[idx]}';
+  }
+
+  String _formatElapsed(BigInt? elapsedMs) {
+    final ms = elapsedMs?.toInt() ?? 0;
+    final totalSeconds = (ms / 1000).floor().clamp(0, 24 * 60 * 60 * 99);
+    final minutes = (totalSeconds / 60).floor();
+    final seconds = totalSeconds % 60;
+    return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+  }
+
+  String _groupDigits(BigInt value) {
+    final raw = value.toString();
+    final buffer = StringBuffer();
+    for (var i = 0; i < raw.length; i += 1) {
+      final idxFromEnd = raw.length - i;
+      buffer.write(raw[i]);
+      if (idxFromEnd > 1 && idxFromEnd % 3 == 1) {
+        buffer.write(',');
+      }
+    }
+    return buffer.toString();
+  }
+}
+
+class _TranscodeLaunchParams {
+  const _TranscodeLaunchParams({
+    required this.encoderConfigJson,
+    required this.encoderOptionsJson,
+  });
+
+  final String encoderConfigJson;
+  final String? encoderOptionsJson;
+}
+
+class _TranscodeMetricChip extends StatelessWidget {
+  const _TranscodeMetricChip({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(999),
+        color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.72),
+        border: Border.all(
+          color: colorScheme.outlineVariant.withValues(alpha: 0.38),
+        ),
+      ),
+      child: RichText(
+        text: TextSpan(
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: colorScheme.onSurface,
+            fontFeatures: const [FontFeature.tabularFigures()],
+          ),
+          children: [
+            TextSpan(
+              text: '$label: ',
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+            TextSpan(text: value),
+          ],
+        ),
+      ),
+    );
   }
 }

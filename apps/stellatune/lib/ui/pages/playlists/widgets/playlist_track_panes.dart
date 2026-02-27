@@ -12,6 +12,7 @@ import 'package:stellatune/ui/widgets/track_list.dart';
 class PlaylistTracksPane extends StatelessWidget {
   const PlaylistTracksPane({
     super.key,
+    required this.bridge,
     required this.searchController,
     required this.queueSourceLabel,
     required this.selectedLabel,
@@ -33,6 +34,7 @@ class PlaylistTracksPane extends StatelessWidget {
     this.onBatchRemoveFromCurrentPlaylist,
   });
 
+  final PlayerBridge bridge;
   final TextEditingController searchController;
   final String queueSourceLabel;
   final String selectedLabel;
@@ -81,6 +83,7 @@ class PlaylistTracksPane extends StatelessWidget {
         const SizedBox(height: 12),
         Expanded(
           child: TrackList(
+            bridge: bridge,
             coverDir: coverDir,
             items: results,
             likedTrackIds: likedTrackIds,
