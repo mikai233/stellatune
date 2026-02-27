@@ -36,6 +36,7 @@ stellatune-audio-plugin-adapters.workspace = true
 stellatune-audio.workspace = true
 stellatune-library.workspace = true
 stellatune-runtime.workspace = true
+stellatune-plugins.workspace = true
 
 [lints]
 workspace = true

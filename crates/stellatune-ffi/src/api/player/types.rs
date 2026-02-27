@@ -157,6 +157,17 @@ pub struct OutputSinkTypeDescriptor {
 
 #[flutter_rust_bridge::frb(non_opaque)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EncoderTypeDescriptor {
+    pub plugin_id: String,
+    pub plugin_name: String,
+    pub type_id: String,
+    pub display_name: String,
+    pub config_schema_json: String,
+    pub default_config_json: String,
+}
+
+#[flutter_rust_bridge::frb(non_opaque)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct OutputSinkRoute {
     pub plugin_id: String,
     pub type_id: String,
@@ -228,6 +239,21 @@ pub struct TrackDecodeInfo {
     pub metadata_json: Option<String>,
     pub decoder_plugin_id: Option<String>,
     pub decoder_type_id: Option<String>,
+}
+
+#[flutter_rust_bridge::frb(non_opaque)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TranscodeProgressEvent {
+    pub phase: String,
+    pub message: Option<String>,
+    pub source_path: Option<String>,
+    pub output_path: Option<String>,
+    pub processed_frames: u64,
+    pub total_frames: Option<u64>,
+    pub written_bytes: u64,
+    pub sample_rate: Option<u32>,
+    pub channels: Option<u16>,
+    pub elapsed_ms: Option<u64>,
 }
 
 impl TrackDecodeInfo {
