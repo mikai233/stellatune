@@ -48,6 +48,9 @@ pub struct RuntimeLyricCandidate {
 pub struct RuntimeDecoderSessionHandle(pub u64);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct RuntimeEncoderSessionHandle(pub u64);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct RuntimeSourceCatalogHandle(pub u64);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -120,6 +123,13 @@ pub struct RuntimePcmF32Chunk {
     pub interleaved_f32le: Vec<u8>,
     pub frames: u32,
     pub eof: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RuntimeEncodeTarget {
+    pub format: RuntimeEncodedAudioFormat,
+    pub ext_hint: Option<String>,
+    pub options_json: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

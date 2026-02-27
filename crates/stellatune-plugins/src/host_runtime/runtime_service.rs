@@ -17,11 +17,12 @@ use anyhow::{Result, anyhow};
 
 use super::{
     RUNTIME_DECODER_PLUGIN_SEQ, RUNTIME_DECODER_PLUGINS, RUNTIME_DSP_PLUGIN_SEQ,
-    RUNTIME_DSP_PLUGINS, RUNTIME_OUTPUT_SINK_PLUGIN_SEQ, RUNTIME_OUTPUT_SINK_PLUGINS,
-    RuntimeCapabilityDescriptor, RuntimeCapabilityKind, RuntimeDecoderCandidate,
-    RuntimeDecoderPlugin, RuntimeDecoderPluginCell, RuntimeDspPlugin, RuntimeDspPluginCell,
-    RuntimeLyricsPlugin, RuntimeOutputSinkPlugin, RuntimeOutputSinkPluginCell, RuntimeSourcePlugin,
-    WasmPluginError,
+    RUNTIME_DSP_PLUGINS, RUNTIME_ENCODER_PLUGIN_SEQ, RUNTIME_ENCODER_PLUGINS,
+    RUNTIME_OUTPUT_SINK_PLUGIN_SEQ, RUNTIME_OUTPUT_SINK_PLUGINS, RuntimeCapabilityDescriptor,
+    RuntimeCapabilityKind, RuntimeDecoderCandidate, RuntimeDecoderPlugin, RuntimeDecoderPluginCell,
+    RuntimeDspPlugin, RuntimeDspPluginCell, RuntimeEncoderPlugin, RuntimeEncoderPluginCell,
+    RuntimeLyricsPlugin, RuntimeOutputSinkPlugin, RuntimeOutputSinkPluginCell,
+    RuntimeSourcePlugin, WasmPluginError,
 };
 
 #[derive(Debug, Clone)]
@@ -242,6 +243,10 @@ impl SharedPluginRuntime {
         self.list_capabilities_of_kind(plugin_id, RuntimeCapabilityKind::Decoder)
     }
 
+    pub fn list_encoder_capabilities(&self, plugin_id: &str) -> Vec<RuntimeCapabilityDescriptor> {
+        self.list_capabilities_of_kind(plugin_id, RuntimeCapabilityKind::Encoder)
+    }
+
     pub fn list_dsp_capabilities(&self, plugin_id: &str) -> Vec<RuntimeCapabilityDescriptor> {
         self.list_capabilities_of_kind(plugin_id, RuntimeCapabilityKind::Dsp)
     }
@@ -293,6 +298,24 @@ impl SharedPluginRuntime {
             map.insert(id, RuntimeDecoderPluginCell { inner: decoder });
         });
         Ok(RuntimeDecoderPlugin { id })
+    }
+
+    pub fn create_encoder_plugin(
+        &self,
+        plugin_id: &str,
+        type_id: &str,
+    ) -> Result<RuntimeEncoderPlugin> {
+        let encoder = self
+            .runtime
+            .controller()
+            .create_encoder_plugin(plugin_id, type_id)
+            .map_err(|error| anyhow!(error.to_string()))?;
+        let id = RUNTIME_ENCODER_PLUGIN_SEQ.fetch_add(1, Ordering::Relaxed) + 1;
+        RUNTIME_ENCODER_PLUGINS.with(|map| {
+            let mut map = map.borrow_mut();
+            map.insert(id, RuntimeEncoderPluginCell { inner: encoder });
+        });
+        Ok(RuntimeEncoderPlugin { id })
     }
 
     pub fn create_source_plugin(
@@ -634,6 +657,7 @@ fn decoder_score_for_ext(
 fn map_ability_kind(kind: AbilityKind) -> RuntimeCapabilityKind {
     match kind {
         AbilityKind::Decoder => RuntimeCapabilityKind::Decoder,
+        AbilityKind::Encoder => RuntimeCapabilityKind::Encoder,
         AbilityKind::Dsp => RuntimeCapabilityKind::Dsp,
         AbilityKind::Source => RuntimeCapabilityKind::SourceCatalog,
         AbilityKind::Lyrics => RuntimeCapabilityKind::LyricsProvider,

@@ -9,6 +9,7 @@ use crate::runtime::{shared_plugin_runtime, shared_runtime_engine};
 use stellatune_plugins::host_runtime::RuntimeCapabilityKind;
 
 const KIND_DECODER: &str = "decoder";
+const KIND_ENCODER: &str = "encoder";
 const KIND_SOURCE: &str = "source";
 const KIND_LYRICS: &str = "lyrics";
 const KIND_OUTPUT_SINK: &str = "output_sink";
@@ -25,6 +26,7 @@ pub(super) fn validate_config_payload(config: &Value) -> Result<(), String> {
     };
     let allowed_keys = BTreeSet::from([
         KIND_DECODER,
+        KIND_ENCODER,
         KIND_SOURCE,
         KIND_LYRICS,
         KIND_OUTPUT_SINK,
@@ -33,7 +35,7 @@ pub(super) fn validate_config_payload(config: &Value) -> Result<(), String> {
     for (kind_key, type_map) in root {
         if !allowed_keys.contains(kind_key.as_str()) {
             return Err(format!(
-                "unsupported config kind `{kind_key}` (allowed: decoder/source/lyrics/output_sink/dsp)"
+                "unsupported config kind `{kind_key}` (allowed: decoder/encoder/source/lyrics/output_sink/dsp)"
             ));
         }
         let Some(type_map) = type_map.as_object() else {
@@ -135,6 +137,7 @@ fn apply_config_best_effort_blocking(
                 );
             },
             RuntimeCapabilityKind::Decoder
+            | RuntimeCapabilityKind::Encoder
             | RuntimeCapabilityKind::LyricsProvider
             | RuntimeCapabilityKind::Dsp => {
                 report.skipped += 1;
@@ -226,6 +229,7 @@ fn lookup_kind_type_config<'a>(
 fn capability_kind_key(kind: RuntimeCapabilityKind) -> &'static str {
     match kind {
         RuntimeCapabilityKind::Decoder => KIND_DECODER,
+        RuntimeCapabilityKind::Encoder => KIND_ENCODER,
         RuntimeCapabilityKind::SourceCatalog => KIND_SOURCE,
         RuntimeCapabilityKind::LyricsProvider => KIND_LYRICS,
         RuntimeCapabilityKind::OutputSink => KIND_OUTPUT_SINK,

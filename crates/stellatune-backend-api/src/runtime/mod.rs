@@ -19,12 +19,21 @@ mod apply_state;
 mod engine;
 mod hybrid_decoder_stage;
 mod pipeline;
+mod transcode_decoder;
+mod transcode_encoder;
 
 pub use hybrid_decoder_stage::{
     HybridDecoderStage, HybridProbedTrackDecodeInfo, SharedUserDecoderProvider,
     UserDecoderImplementation, UserDecoderProvider, decoder_supported_extensions_hybrid,
     decoder_supported_extensions_hybrid_with_user_decoders, default_user_decoder_providers,
     probe_track_decode_info_hybrid, probe_track_decode_info_hybrid_with_user_decoders,
+};
+pub use transcode_decoder::{
+    TranscodeDecoderInfo, TranscodeDecoderSession, open_local_transcode_decoder,
+};
+pub use transcode_encoder::{
+    TranscodeEncoderDescriptor, TranscodeEncoderSession, list_local_transcode_encoders,
+    open_local_transcode_encoder,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

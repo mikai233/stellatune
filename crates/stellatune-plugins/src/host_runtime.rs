@@ -7,6 +7,7 @@ pub mod runtime_service;
 
 use crate::error::Error as WasmPluginError;
 use crate::executor::plugin_instance::decoder::{DecoderPluginApi, WasmtimeDecoderPlugin};
+use crate::executor::plugin_instance::encoder::{EncoderPluginApi, WasmtimeEncoderPlugin};
 use crate::executor::plugin_instance::dsp::{DspPluginApi, WasmtimeDspPlugin};
 use crate::executor::plugin_instance::lyrics::{LyricsPluginApi, WasmtimeLyricsPlugin};
 use crate::executor::plugin_instance::output_sink::{
@@ -18,14 +19,16 @@ use crate::executor::plugin_instance::source::{
 
 use crate::host::stream::{HostStreamHandle, open_local_file_stream};
 use crate::runtime::model::{
-    RuntimeAudioSpec, RuntimeDecoderSessionHandle, RuntimeDspProcessorHandle, RuntimeEncodedChunk,
-    RuntimeMediaMetadata, RuntimeNegotiatedSpec, RuntimeOutputSinkStatus, RuntimePcmF32Chunk,
-    RuntimeSourceStreamHandle,
+    RuntimeAudioSpec, RuntimeConfigUpdatePlan, RuntimeDecoderSessionHandle, RuntimeDspProcessorHandle,
+    RuntimeEncodeTarget, RuntimeEncodedAudioFormat, RuntimeEncodedChunk,
+    RuntimeEncoderSessionHandle, RuntimeMediaMetadata, RuntimeNegotiatedSpec,
+    RuntimeOutputSinkStatus, RuntimePcmF32Chunk, RuntimeSourceStreamHandle,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeCapabilityKind {
     Decoder,
+    Encoder,
     Dsp,
     SourceCatalog,
     LyricsProvider,
@@ -156,6 +159,145 @@ impl RuntimeDecoderPlugin {
 impl Drop for RuntimeDecoderPlugin {
     fn drop(&mut self) {
         RUNTIME_DECODER_PLUGINS.with(|map| {
+            let mut map = map.borrow_mut();
+            map.remove(&self.id);
+        });
+    }
+}
+
+struct RuntimeEncoderPluginCell {
+    inner: WasmtimeEncoderPlugin,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct RuntimeEncoderPlugin {
+    id: u64,
+}
+
+static RUNTIME_ENCODER_PLUGIN_SEQ: AtomicU64 = AtomicU64::new(0);
+
+thread_local! {
+    static RUNTIME_ENCODER_PLUGINS: RefCell<BTreeMap<u64, RuntimeEncoderPluginCell>> =
+        const { RefCell::new(BTreeMap::new()) };
+}
+
+impl RuntimeEncoderPlugin {
+    fn with_cell<T>(
+        &self,
+        mut apply: impl FnMut(&mut RuntimeEncoderPluginCell) -> std::result::Result<T, WasmPluginError>,
+    ) -> std::result::Result<T, WasmPluginError> {
+        RUNTIME_ENCODER_PLUGINS.with(|map| {
+            let mut map = map.borrow_mut();
+            let Some(cell) = map.get_mut(&self.id) else {
+                return Err(WasmPluginError::operation(
+                    "runtime.encoder",
+                    format!("encoder handle `{}` not found in current thread", self.id),
+                ));
+            };
+            apply(cell)
+        })
+    }
+
+    pub fn create(
+        &mut self,
+        input: RuntimeAudioSpec,
+        target: RuntimeEncodeTarget,
+        metadata: Option<RuntimeMediaMetadata>,
+    ) -> std::result::Result<u64, WasmPluginError> {
+        self.with_cell(|cell| {
+            cell.inner
+                .create(input, target.clone(), metadata.clone())
+                .map(|handle: RuntimeEncoderSessionHandle| handle.0)
+        })
+    }
+
+    pub fn input_spec(
+        &mut self,
+        session_handle: u64,
+    ) -> std::result::Result<RuntimeAudioSpec, WasmPluginError> {
+        self.with_cell(|cell| cell.inner.input_spec(RuntimeEncoderSessionHandle(session_handle)))
+    }
+
+    pub fn output_format(
+        &mut self,
+        session_handle: u64,
+    ) -> std::result::Result<RuntimeEncodedAudioFormat, WasmPluginError> {
+        self.with_cell(|cell| cell.inner.output_format(RuntimeEncoderSessionHandle(session_handle)))
+    }
+
+    pub fn write_pcm_f32(
+        &mut self,
+        session_handle: u64,
+        chunk: RuntimePcmF32Chunk,
+    ) -> std::result::Result<u32, WasmPluginError> {
+        self.with_cell(|cell| {
+            cell.inner
+                .write_pcm_f32(RuntimeEncoderSessionHandle(session_handle), chunk.clone())
+        })
+    }
+
+    pub fn read_encoded(
+        &mut self,
+        session_handle: u64,
+        max_bytes: u32,
+    ) -> std::result::Result<RuntimeEncodedChunk, WasmPluginError> {
+        self.with_cell(|cell| {
+            cell.inner
+                .read_encoded(RuntimeEncoderSessionHandle(session_handle), max_bytes)
+        })
+    }
+
+    pub fn plan_config_update_json(
+        &mut self,
+        session_handle: u64,
+        config_json: &str,
+    ) -> std::result::Result<RuntimeConfigUpdatePlan, WasmPluginError> {
+        self.with_cell(|cell| {
+            cell.inner.plan_config_update_json(
+                RuntimeEncoderSessionHandle(session_handle),
+                config_json,
+            )
+        })
+    }
+
+    pub fn apply_config_update_json(
+        &mut self,
+        session_handle: u64,
+        config_json: &str,
+    ) -> std::result::Result<(), WasmPluginError> {
+        self.with_cell(|cell| {
+            cell.inner.apply_config_update_json(
+                RuntimeEncoderSessionHandle(session_handle),
+                config_json,
+            )
+        })
+    }
+
+    pub fn export_state_json(
+        &mut self,
+        session_handle: u64,
+    ) -> std::result::Result<Option<String>, WasmPluginError> {
+        self.with_cell(|cell| cell.inner.export_state_json(RuntimeEncoderSessionHandle(session_handle)))
+    }
+
+    pub fn import_state_json(
+        &mut self,
+        session_handle: u64,
+        state_json: &str,
+    ) -> std::result::Result<(), WasmPluginError> {
+        self.with_cell(|cell| {
+            cell.inner.import_state_json(RuntimeEncoderSessionHandle(session_handle), state_json)
+        })
+    }
+
+    pub fn close(&mut self, session_handle: u64) -> std::result::Result<(), WasmPluginError> {
+        self.with_cell(|cell| cell.inner.close(RuntimeEncoderSessionHandle(session_handle)))
+    }
+}
+
+impl Drop for RuntimeEncoderPlugin {
+    fn drop(&mut self) {
+        RUNTIME_ENCODER_PLUGINS.with(|map| {
             let mut map = map.borrow_mut();
             map.remove(&self.id);
         });

@@ -22,6 +22,7 @@ pub enum PluginInstallState {
 #[serde(rename_all = "snake_case")]
 pub enum AbilityKind {
     Decoder,
+    Encoder,
     Source,
     Lyrics,
     OutputSink,

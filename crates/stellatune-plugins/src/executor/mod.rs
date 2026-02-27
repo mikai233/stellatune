@@ -14,6 +14,8 @@ use wasmtime_wasi::{ResourceTable, WasiCtx, WasiCtxBuilder};
 use stellatune_host_bindings as wasm_host;
 use stellatune_host_bindings::generated::decoder_plugin::DecoderPlugin as DecoderPluginBinding;
 use stellatune_host_bindings::generated::decoder_plugin::exports::stellatune::plugin::lifecycle as decoder_lifecycle;
+use stellatune_host_bindings::generated::encoder_plugin::EncoderPlugin as EncoderPluginBinding;
+use stellatune_host_bindings::generated::encoder_plugin::exports::stellatune::plugin::lifecycle as encoder_lifecycle;
 use stellatune_host_bindings::generated::dsp_plugin::DspPlugin as DspPluginBinding;
 use stellatune_host_bindings::generated::dsp_plugin::exports::stellatune::plugin::lifecycle as dsp_lifecycle;
 use stellatune_host_bindings::generated::lyrics_plugin::LyricsPlugin as LyricsPluginBinding;
@@ -50,6 +52,7 @@ pub trait WasmPluginController: Send + Sync {
 
 mod stores;
 use stores::decoder::DecoderStoreData;
+use stores::encoder::EncoderStoreData;
 use stores::dsp::DspStoreData;
 use stores::lyrics::LyricsStoreData;
 use stores::output_sink::OutputSinkStoreData;
@@ -76,6 +79,7 @@ pub struct WasmtimePluginController {
     plugins: RwLock<BTreeMap<String, ActivePluginRecord>>,
     component_cache: RwLock<BTreeMap<PathBuf, Component>>,
     decoder_linker: Linker<DecoderStoreData>,
+    encoder_linker: Linker<EncoderStoreData>,
     source_linker: Linker<SourceStoreData>,
     lyrics_linker: Linker<LyricsStoreData>,
     output_sink_linker: Linker<OutputSinkStoreData>,
@@ -116,6 +120,13 @@ impl WasmtimePluginController {
         )?;
         add_to_linker_sync(&mut decoder_linker)?;
 
+        let mut encoder_linker: Linker<EncoderStoreData> = Linker::new(&engine);
+        EncoderPluginBinding::add_to_linker::<_, HasSelf<EncoderStoreData>>(
+            &mut encoder_linker,
+            |state| state,
+        )?;
+        add_to_linker_sync(&mut encoder_linker)?;
+
         let mut source_linker: Linker<SourceStoreData> = Linker::new(&engine);
         SourcePluginBinding::add_to_linker::<_, HasSelf<SourceStoreData>>(
             &mut source_linker,
@@ -153,6 +164,7 @@ impl WasmtimePluginController {
             plugins: RwLock::new(BTreeMap::new()),
             component_cache: RwLock::new(BTreeMap::new()),
             decoder_linker,
+            encoder_linker,
             source_linker,
             lyrics_linker,
             output_sink_linker,
@@ -173,6 +185,16 @@ impl WasmtimePluginController {
             stream_service: self.stream_service.clone(),
             next_rep: 1,
             streams: BTreeMap::new(),
+            sidecar: SidecarState::new(plugin_id.to_string(), self.sidecar_registry.clone()),
+            plugin_root: plugin_root.to_path_buf(),
+            wasi_ctx,
+            wasi_table,
+        }
+    }
+
+    fn new_encoder_store_data(&self, plugin_id: &str, plugin_root: &Path) -> EncoderStoreData {
+        let (wasi_ctx, wasi_table) = create_store_wasi_state();
+        EncoderStoreData {
             sidecar: SidecarState::new(plugin_id.to_string(), self.sidecar_registry.clone()),
             plugin_root: plugin_root.to_path_buf(),
             wasi_ctx,
@@ -365,6 +387,26 @@ impl WasmtimePluginController {
         Ok(PluginCell::new(store, instance, rx))
     }
 
+    fn instantiate_encoder_component(
+        &self,
+        plugin_id: &str,
+        plugin_root: &Path,
+        component: &Component,
+        rx: Receiver<RuntimePluginDirective>,
+    ) -> Result<PluginCell<Store<EncoderStoreData>, EncoderPluginBinding>> {
+        let mut store = Store::new(
+            &self.engine,
+            self.new_encoder_store_data(plugin_id, plugin_root),
+        );
+        let instance =
+            EncoderPluginBinding::instantiate(&mut store, component, &self.encoder_linker)
+                .map_err(|error| {
+                    crate::op_error!("failed to instantiate encoder component: {error:#}")
+                })?;
+        call_encoder_on_enable(&instance, &mut store)?;
+        Ok(PluginCell::new(store, instance, rx))
+    }
+
     fn instantiate_source_component(
         &self,
         plugin_id: &str,
@@ -431,6 +473,15 @@ fn map_disable_reason_decoder(reason: PluginDisableReason) -> decoder_lifecycle:
     }
 }
 
+fn map_disable_reason_encoder(reason: PluginDisableReason) -> encoder_lifecycle::DisableReason {
+    match reason {
+        PluginDisableReason::HostDisable => encoder_lifecycle::DisableReason::HostDisable,
+        PluginDisableReason::Unload => encoder_lifecycle::DisableReason::Unload,
+        PluginDisableReason::Shutdown => encoder_lifecycle::DisableReason::Shutdown,
+        PluginDisableReason::Reload => encoder_lifecycle::DisableReason::Reload,
+    }
+}
+
 fn map_disable_reason_lyrics(reason: PluginDisableReason) -> lyrics_lifecycle::DisableReason {
     match reason {
         PluginDisableReason::HostDisable => lyrics_lifecycle::DisableReason::HostDisable,
@@ -485,6 +536,31 @@ pub(crate) fn call_decoder_on_disable(
     plugin: &DecoderPluginBinding,
     store: &mut Store<DecoderStoreData>,
     reason: decoder_lifecycle::DisableReason,
+) -> Result<()> {
+    let on_disable = plugin
+        .stellatune_plugin_lifecycle()
+        .call_on_disable(store, reason)
+        .map_err(|error| crate::op_error!("lifecycle.on-disable call failed: {error:#}"))?;
+    on_disable.map_err(|error| crate::op_error!("lifecycle.on-disable plugin error: {error:?}"))?;
+    Ok(())
+}
+
+pub(crate) fn call_encoder_on_enable(
+    plugin: &EncoderPluginBinding,
+    store: &mut Store<EncoderStoreData>,
+) -> Result<()> {
+    let on_enable = plugin
+        .stellatune_plugin_lifecycle()
+        .call_on_enable(store)
+        .map_err(|error| crate::op_error!("lifecycle.on-enable call failed: {error:#}"))?;
+    on_enable.map_err(|error| crate::op_error!("lifecycle.on-enable plugin error: {error:?}"))?;
+    Ok(())
+}
+
+pub(crate) fn call_encoder_on_disable(
+    plugin: &EncoderPluginBinding,
+    store: &mut Store<EncoderStoreData>,
+    reason: encoder_lifecycle::DisableReason,
 ) -> Result<()> {
     let on_disable = plugin
         .stellatune_plugin_lifecycle()
@@ -599,6 +675,7 @@ mod controller;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum WorldKind {
     Decoder,
+    Encoder,
     Source,
     Lyrics,
     OutputSink,
@@ -610,6 +687,7 @@ fn classify_world(world: &str) -> WorldKind {
     let normalized = normalize_world_name(world);
     match normalized {
         wasm_host::WORLD_DECODER_PLUGIN => WorldKind::Decoder,
+        wasm_host::WORLD_ENCODER_PLUGIN => WorldKind::Encoder,
         wasm_host::WORLD_SOURCE_PLUGIN => WorldKind::Source,
         wasm_host::WORLD_LYRICS_PLUGIN => WorldKind::Lyrics,
         wasm_host::WORLD_OUTPUT_SINK_PLUGIN => WorldKind::OutputSink,
