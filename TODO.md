@@ -16,12 +16,6 @@
 - Support form state persistence per plugin/type and schema version.
 - Add runtime validation feedback (field-level errors and submit-level errors).
 
-### 3) Remove `plugin.toml`, move to direct DLL metadata discovery
-- Change plugin installation format to standalone DLL-based discovery.
-- Read plugin metadata directly through exported plugin interface calls.
-- Replace manifest-based discovery with binary scanning + metadata handshake.
-- Keep install flow simple: copy DLL -> reload plugins -> show metadata and status.
-- Add safety checks for duplicate plugin ids, invalid metadata, and ABI mismatch reporting.
 
 ## Capability Completion Roadmap
 
@@ -41,6 +35,12 @@
 - Integrate plugin lyrics providers into the active lyrics pipeline (not only built-in online providers).
 - Add provider selection policy (auto/manual, priority order, source filtering).
 - Cache and conflict resolution rules for multiple providers.
+
+### D) Encoder plugins (custom transcode/export)
+- Flesh out standard presets for target formats (FLAC/MP3/AAC/WAV).
+- Expose encoder progress events to handle long-running batch transcodes.
+- Add tag rewriting layer to mapped output streams.
+
 
 ## Technical Hardening
 - Standardize plugin API error code mapping across host, FFI, and Dart UI.

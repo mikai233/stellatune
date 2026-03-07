@@ -730,6 +730,8 @@ class _TrackListState extends State<TrackList> {
         encoder: encoder,
         encoderConfigJson: params.encoderConfigJson,
         encoderOptionsJson: params.encoderOptionsJson,
+        targetFormatExt: params.targetFormatExt,
+        targetBitrateKbps: params.targetBitrateKbps,
       );
       return;
     }
@@ -923,11 +925,22 @@ class _TrackListState extends State<TrackList> {
   ) async {
     final context = this.context;
     final l10n = AppLocalizations.of(context)!;
+    final presets = _transcodeFormatPresetsForEncoder(encoder);
+    var selectedPreset = presets.first;
+    var selectedBitrateKbps = _defaultBitrateForPreset(selectedPreset);
     var configDraft = _normalizeJsonString(
       encoder.defaultConfigJson,
       fallbackJson: '{}',
     );
-    final optionsController = TextEditingController();
+    final optionsDraftByExt = <String, String>{
+      for (final preset in presets)
+        preset.ext:
+            _normalizeOptionalJsonString(preset.defaultOptionsJson) ?? '',
+    };
+    final optionsController = TextEditingController(
+      text: optionsDraftByExt[selectedPreset.ext] ?? '',
+    );
+    var showAdvanced = false;
     String? errorText;
     final result = await showDialog<_TranscodeLaunchParams>(
       context: context,
@@ -957,25 +970,145 @@ class _TrackListState extends State<TrackList> {
                         ),
                       ),
                       const SizedBox(height: 14),
-                      SchemaForm(
-                        schemaJson: encoder.configSchemaJson,
-                        initialValueJson: configDraft,
-                        fallbackLabel: l10n.transcodeParamsConfigLabel,
-                        onChangedJson: (json) {
-                          configDraft = json;
+                      DropdownButtonFormField<_TranscodeFormatPreset>(
+                        initialValue: selectedPreset,
+                        decoration: const InputDecoration(
+                          border: OutlineInputBorder(),
+                          labelText: '目标格式',
+                        ),
+                        items: presets
+                            .map(
+                              (
+                                preset,
+                              ) => DropdownMenuItem<_TranscodeFormatPreset>(
+                                value: preset,
+                                child: Text(
+                                  '${preset.label.toUpperCase()} (.${preset.ext})',
+                                ),
+                              ),
+                            )
+                            .toList(growable: false),
+                        onChanged: (value) {
+                          if (value == null) return;
+                          setState(() {
+                            if (!selectedPreset.hasStructuredOptions) {
+                              optionsDraftByExt[selectedPreset.ext] =
+                                  optionsController.text;
+                            }
+                            selectedPreset = value;
+                            selectedBitrateKbps = _defaultBitrateForPreset(
+                              value,
+                            );
+                            optionsController.text =
+                                optionsDraftByExt[selectedPreset.ext] ?? '';
+                          });
                         },
                       ),
-                      const SizedBox(height: 10),
-                      TextField(
-                        controller: optionsController,
-                        minLines: 2,
-                        maxLines: 6,
-                        decoration: InputDecoration(
-                          border: const OutlineInputBorder(),
-                          labelText: l10n.transcodeParamsOptionsLabel,
-                          helperText: l10n.transcodeParamsOptionsHint,
+                      if (selectedPreset.bitrateChoicesKbps.isNotEmpty) ...[
+                        const SizedBox(height: 10),
+                        DropdownButtonFormField<int?>(
+                          initialValue: selectedBitrateKbps,
+                          decoration: const InputDecoration(
+                            border: OutlineInputBorder(),
+                            labelText: '码率',
+                          ),
+                          items: selectedPreset.bitrateChoicesKbps
+                              .map(
+                                (bitrate) => DropdownMenuItem<int?>(
+                                  value: bitrate,
+                                  child: Text('$bitrate kbps'),
+                                ),
+                              )
+                              .toList(growable: false),
+                          onChanged: (value) {
+                            setState(() {
+                              selectedBitrateKbps = value;
+                            });
+                          },
+                        ),
+                      ],
+                      const SizedBox(height: 12),
+                      InkWell(
+                        onTap: () {
+                          setState(() {
+                            showAdvanced = !showAdvanced;
+                          });
+                        },
+                        child: Row(
+                          children: [
+                            Icon(
+                              showAdvanced
+                                  ? Icons.expand_less_rounded
+                                  : Icons.expand_more_rounded,
+                              size: 18,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              '高级选项',
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
+                      if (showAdvanced) ...[
+                        const SizedBox(height: 10),
+                        Text(
+                          l10n.transcodeParamsConfigLabel,
+                          style: theme.textTheme.labelLarge?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        SchemaForm(
+                          schemaJson: encoder.configSchemaJson,
+                          initialValueJson: configDraft,
+                          fallbackLabel: l10n.transcodeParamsConfigLabel,
+                          onChangedJson: (json) {
+                            configDraft = json;
+                          },
+                        ),
+                        const SizedBox(height: 10),
+                        Text(
+                          l10n.transcodeParamsOptionsLabel,
+                          style: theme.textTheme.labelLarge?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        if (selectedPreset.hasStructuredOptions)
+                          SchemaForm(
+                            key: ValueKey(
+                              'transcode_options_${selectedPreset.ext}',
+                            ),
+                            schemaJson: selectedPreset.optionsSchemaJson!,
+                            initialValueJson:
+                                optionsDraftByExt[selectedPreset.ext]
+                                        ?.trim()
+                                        .isNotEmpty ==
+                                    true
+                                ? optionsDraftByExt[selectedPreset.ext]!
+                                : '{}',
+                            fallbackLabel: l10n.transcodeParamsOptionsLabel,
+                            onChangedJson: (json) {
+                              optionsDraftByExt[selectedPreset.ext] = json;
+                            },
+                          )
+                        else
+                          TextField(
+                            controller: optionsController,
+                            minLines: 2,
+                            maxLines: 6,
+                            onChanged: (text) {
+                              optionsDraftByExt[selectedPreset.ext] = text;
+                            },
+                            decoration: InputDecoration(
+                              border: const OutlineInputBorder(),
+                              helperText: l10n.transcodeParamsOptionsHint,
+                            ),
+                          ),
+                      ],
                       if (errorText != null) ...[
                         const SizedBox(height: 10),
                         Text(
@@ -997,17 +1130,23 @@ class _TrackListState extends State<TrackList> {
                 FilledButton(
                   onPressed: () {
                     try {
+                      if (!selectedPreset.hasStructuredOptions) {
+                        optionsDraftByExt[selectedPreset.ext] =
+                            optionsController.text;
+                      }
                       final normalizedConfig = _normalizeJsonString(
                         configDraft,
                         fallbackJson: '{}',
                       );
-                      final normalizedOptions = _normalizeOptionalJsonString(
-                        optionsController.text,
+                      final normalizedOptions = _buildEncoderOptionsJson(
+                        optionsDraftByExt[selectedPreset.ext] ?? '',
                       );
                       Navigator.of(dialogContext).pop(
                         _TranscodeLaunchParams(
                           encoderConfigJson: normalizedConfig,
                           encoderOptionsJson: normalizedOptions,
+                          targetFormatExt: selectedPreset.ext,
+                          targetBitrateKbps: selectedBitrateKbps,
                         ),
                       );
                     } catch (_) {
@@ -1035,11 +1174,108 @@ class _TrackListState extends State<TrackList> {
     return jsonEncode(decoded);
   }
 
-  String? _normalizeOptionalJsonString(String raw) {
+  String? _normalizeOptionalJsonString(String? raw) {
+    if (raw == null) {
+      return null;
+    }
     final trimmed = raw.trim();
-    if (trimmed.isEmpty) return null;
+    if (trimmed.isEmpty) {
+      return null;
+    }
+    try {
+      final decoded = jsonDecode(trimmed);
+      return jsonEncode(decoded);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  List<_TranscodeFormatPreset> _transcodeFormatPresetsForEncoder(
+    EncoderTypeDescriptor encoder,
+  ) {
+    if (encoder.targetFormats.isNotEmpty) {
+      return encoder.targetFormats
+          .map((format) {
+            final normalizedExt = format.ext
+                .trim()
+                .replaceFirst(RegExp(r'^\.+'), '')
+                .toLowerCase();
+            final label = format.label.trim().isEmpty
+                ? normalizedExt.toUpperCase()
+                : format.label.trim();
+            final bitrateChoices = format.bitrateChoicesKbps
+                .where((value) => value > 0)
+                .toList(growable: false);
+            return _TranscodeFormatPreset(
+              ext: normalizedExt.isEmpty
+                  ? _inferEncoderExtension(encoder)
+                  : normalizedExt,
+              label: label,
+              lossless: format.lossless,
+              bitrateChoicesKbps: bitrateChoices,
+              defaultBitrateKbps: format.defaultBitrateKbps,
+              optionsSchemaJson: format.optionsSchemaJson,
+              defaultOptionsJson: format.defaultOptionsJson,
+            );
+          })
+          .toList(growable: false);
+    }
+    return <_TranscodeFormatPreset>[
+      _TranscodeFormatPreset(
+        ext: _inferEncoderExtension(encoder),
+        label: encoder.displayName,
+        lossless: false,
+        bitrateChoicesKbps: const <int>[96, 128, 160, 192, 256, 320],
+        defaultBitrateKbps: 192,
+        optionsSchemaJson: null,
+        defaultOptionsJson: null,
+      ),
+    ];
+  }
+
+  int? _defaultBitrateForPreset(_TranscodeFormatPreset preset) {
+    if (preset.lossless) {
+      return null;
+    }
+    final fromPreset = preset.defaultBitrateKbps;
+    if (fromPreset != null && fromPreset > 0) {
+      return fromPreset;
+    }
+    if (preset.bitrateChoicesKbps.isNotEmpty) {
+      return preset.bitrateChoicesKbps.first;
+    }
+    return null;
+  }
+
+  String? _buildEncoderOptionsJson(String rawOptionsText) {
+    final trimmed = rawOptionsText.trim();
+    if (trimmed.isEmpty) {
+      return null;
+    }
     final decoded = jsonDecode(trimmed);
     return jsonEncode(decoded);
+  }
+
+  String _normalizeOutputPathForFormat(String outputPath, String ext) {
+    final normalizedExt = ext
+        .trim()
+        .replaceFirst(RegExp(r'^\.+'), '')
+        .toLowerCase();
+    if (normalizedExt.isEmpty) {
+      return outputPath;
+    }
+    final current = p
+        .extension(outputPath)
+        .trim()
+        .replaceFirst(RegExp(r'^\.+'), '')
+        .toLowerCase();
+    if (current == normalizedExt) {
+      return outputPath;
+    }
+    if (current.isEmpty) {
+      return '$outputPath.$normalizedExt';
+    }
+    return p.setExtension(outputPath, '.$normalizedExt');
   }
 
   Future<void> _runDefaultTranscodeFlow({
@@ -1047,6 +1283,8 @@ class _TrackListState extends State<TrackList> {
     required EncoderTypeDescriptor encoder,
     required String encoderConfigJson,
     required String? encoderOptionsJson,
+    required String targetFormatExt,
+    required int? targetBitrateKbps,
   }) async {
     final context = this.context;
     final l10n = AppLocalizations.of(context)!;
@@ -1064,7 +1302,10 @@ class _TrackListState extends State<TrackList> {
     try {
       outputPath = await FilePicker.platform.saveFile(
         dialogTitle: l10n.transcodeSaveDialogTitle,
-        fileName: _buildDefaultTranscodeFileName(track, encoder),
+        fileName: _buildDefaultTranscodeFileName(
+          track,
+          extension: targetFormatExt,
+        ),
         lockParentWindow: true,
       );
     } catch (error) {
@@ -1077,7 +1318,10 @@ class _TrackListState extends State<TrackList> {
     if (outputPath == null || outputPath.trim().isEmpty) {
       return;
     }
-    outputPath = outputPath.trim();
+    outputPath = _normalizeOutputPathForFormat(
+      outputPath.trim(),
+      targetFormatExt,
+    );
 
     final taskId = _buildTranscodeTaskId(track, encoder);
     if (!context.mounted) return;
@@ -1149,6 +1393,8 @@ class _TrackListState extends State<TrackList> {
             outputPath: outputPath,
             encoderPluginId: encoder.pluginId,
             encoderTypeId: encoder.typeId,
+            targetFormatExt: targetFormatExt,
+            targetBitrateKbps: targetBitrateKbps,
             encoderConfigJson: encoderConfigJson,
             encoderOptionsJson: encoderOptionsJson,
           )
@@ -1244,10 +1490,9 @@ class _TrackListState extends State<TrackList> {
   }
 
   String _buildDefaultTranscodeFileName(
-    TrackLite track,
-    EncoderTypeDescriptor encoder,
-  ) {
-    final extension = _inferEncoderExtension(encoder);
+    TrackLite track, {
+    required String extension,
+  }) {
     final baseName = _sanitizeFileName(_trackDisplayName(track));
     return '$baseName.$extension';
   }
@@ -1710,10 +1955,37 @@ class _TranscodeLaunchParams {
   const _TranscodeLaunchParams({
     required this.encoderConfigJson,
     required this.encoderOptionsJson,
+    required this.targetFormatExt,
+    required this.targetBitrateKbps,
   });
 
   final String encoderConfigJson;
   final String? encoderOptionsJson;
+  final String targetFormatExt;
+  final int? targetBitrateKbps;
+}
+
+class _TranscodeFormatPreset {
+  const _TranscodeFormatPreset({
+    required this.ext,
+    required this.label,
+    required this.lossless,
+    required this.bitrateChoicesKbps,
+    required this.defaultBitrateKbps,
+    required this.optionsSchemaJson,
+    required this.defaultOptionsJson,
+  });
+
+  final String ext;
+  final String label;
+  final bool lossless;
+  final List<int> bitrateChoicesKbps;
+  final int? defaultBitrateKbps;
+  final String? optionsSchemaJson;
+  final String? defaultOptionsJson;
+
+  bool get hasStructuredOptions =>
+      optionsSchemaJson != null && optionsSchemaJson!.trim().isNotEmpty;
 }
 
 class _TranscodeMetricChip extends StatelessWidget {

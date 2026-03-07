@@ -3938,8 +3938,8 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   EncoderTypeDescriptor dco_decode_encoder_type_descriptor(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 6)
-      throw Exception('unexpected arr length: expect 6 but see ${arr.length}');
+    if (arr.length != 7)
+      throw Exception('unexpected arr length: expect 7 but see ${arr.length}');
     return EncoderTypeDescriptor(
       pluginId: dco_decode_String(arr[0]),
       pluginName: dco_decode_String(arr[1]),
@@ -3947,6 +3947,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
       displayName: dco_decode_String(arr[3]),
       configSchemaJson: dco_decode_String(arr[4]),
       defaultConfigJson: dco_decode_String(arr[5]),
+      targetFormats: dco_decode_list_transcode_target_format_descriptor(arr[6]),
     );
   }
 
@@ -4138,6 +4139,12 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   }
 
   @protected
+  Uint32List dco_decode_list_prim_u_32_strict(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw as Uint32List;
+  }
+
+  @protected
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as Uint8List;
@@ -4156,6 +4163,15 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   List<TrackLite> dco_decode_list_track_lite(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return (raw as List<dynamic>).map(dco_decode_track_lite).toList();
+  }
+
+  @protected
+  List<TranscodeTargetFormatDescriptor>
+  dco_decode_list_transcode_target_format_descriptor(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>)
+        .map(dco_decode_transcode_target_format_descriptor)
+        .toList();
   }
 
   @protected
@@ -4451,21 +4467,42 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   }
 
   @protected
-  TranscodeTrackLocalRequest dco_decode_transcode_track_local_request(
+  TranscodeTargetFormatDescriptor dco_decode_transcode_target_format_descriptor(
     dynamic raw,
   ) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
     if (arr.length != 7)
       throw Exception('unexpected arr length: expect 7 but see ${arr.length}');
+    return TranscodeTargetFormatDescriptor(
+      ext: dco_decode_String(arr[0]),
+      label: dco_decode_String(arr[1]),
+      lossless: dco_decode_bool(arr[2]),
+      bitrateChoicesKbps: dco_decode_list_prim_u_32_strict(arr[3]),
+      defaultBitrateKbps: dco_decode_opt_box_autoadd_u_32(arr[4]),
+      optionsSchemaJson: dco_decode_opt_String(arr[5]),
+      defaultOptionsJson: dco_decode_opt_String(arr[6]),
+    );
+  }
+
+  @protected
+  TranscodeTrackLocalRequest dco_decode_transcode_track_local_request(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 9)
+      throw Exception('unexpected arr length: expect 9 but see ${arr.length}');
     return TranscodeTrackLocalRequest(
       taskId: dco_decode_String(arr[0]),
       sourcePath: dco_decode_String(arr[1]),
       outputPath: dco_decode_String(arr[2]),
       encoderPluginId: dco_decode_String(arr[3]),
       encoderTypeId: dco_decode_String(arr[4]),
-      encoderConfigJson: dco_decode_String(arr[5]),
-      encoderOptionsJson: dco_decode_opt_String(arr[6]),
+      targetFormatExt: dco_decode_String(arr[5]),
+      targetBitrateKbps: dco_decode_opt_box_autoadd_u_32(arr[6]),
+      encoderConfigJson: dco_decode_String(arr[7]),
+      encoderOptionsJson: dco_decode_opt_String(arr[8]),
     );
   }
 
@@ -4762,6 +4799,9 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
     var var_displayName = sse_decode_String(deserializer);
     var var_configSchemaJson = sse_decode_String(deserializer);
     var var_defaultConfigJson = sse_decode_String(deserializer);
+    var var_targetFormats = sse_decode_list_transcode_target_format_descriptor(
+      deserializer,
+    );
     return EncoderTypeDescriptor(
       pluginId: var_pluginId,
       pluginName: var_pluginName,
@@ -4769,6 +4809,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
       displayName: var_displayName,
       configSchemaJson: var_configSchemaJson,
       defaultConfigJson: var_defaultConfigJson,
+      targetFormats: var_targetFormats,
     );
   }
 
@@ -5068,6 +5109,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   }
 
   @protected
+  Uint32List sse_decode_list_prim_u_32_strict(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var len_ = sse_decode_i_32(deserializer);
+    return deserializer.buffer.getUint32List(len_);
+  }
+
+  @protected
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var len_ = sse_decode_i_32(deserializer);
@@ -5095,6 +5143,21 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
     var ans_ = <TrackLite>[];
     for (var idx_ = 0; idx_ < len_; ++idx_) {
       ans_.add(sse_decode_track_lite(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  List<TranscodeTargetFormatDescriptor>
+  sse_decode_list_transcode_target_format_descriptor(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <TranscodeTargetFormatDescriptor>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_transcode_target_format_descriptor(deserializer));
     }
     return ans_;
   }
@@ -5459,6 +5522,29 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   }
 
   @protected
+  TranscodeTargetFormatDescriptor sse_decode_transcode_target_format_descriptor(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_ext = sse_decode_String(deserializer);
+    var var_label = sse_decode_String(deserializer);
+    var var_lossless = sse_decode_bool(deserializer);
+    var var_bitrateChoicesKbps = sse_decode_list_prim_u_32_strict(deserializer);
+    var var_defaultBitrateKbps = sse_decode_opt_box_autoadd_u_32(deserializer);
+    var var_optionsSchemaJson = sse_decode_opt_String(deserializer);
+    var var_defaultOptionsJson = sse_decode_opt_String(deserializer);
+    return TranscodeTargetFormatDescriptor(
+      ext: var_ext,
+      label: var_label,
+      lossless: var_lossless,
+      bitrateChoicesKbps: var_bitrateChoicesKbps,
+      defaultBitrateKbps: var_defaultBitrateKbps,
+      optionsSchemaJson: var_optionsSchemaJson,
+      defaultOptionsJson: var_defaultOptionsJson,
+    );
+  }
+
+  @protected
   TranscodeTrackLocalRequest sse_decode_transcode_track_local_request(
     SseDeserializer deserializer,
   ) {
@@ -5468,6 +5554,8 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
     var var_outputPath = sse_decode_String(deserializer);
     var var_encoderPluginId = sse_decode_String(deserializer);
     var var_encoderTypeId = sse_decode_String(deserializer);
+    var var_targetFormatExt = sse_decode_String(deserializer);
+    var var_targetBitrateKbps = sse_decode_opt_box_autoadd_u_32(deserializer);
     var var_encoderConfigJson = sse_decode_String(deserializer);
     var var_encoderOptionsJson = sse_decode_opt_String(deserializer);
     return TranscodeTrackLocalRequest(
@@ -5476,6 +5564,8 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
       outputPath: var_outputPath,
       encoderPluginId: var_encoderPluginId,
       encoderTypeId: var_encoderTypeId,
+      targetFormatExt: var_targetFormatExt,
+      targetBitrateKbps: var_targetBitrateKbps,
       encoderConfigJson: var_encoderConfigJson,
       encoderOptionsJson: var_encoderOptionsJson,
     );
@@ -5792,6 +5882,10 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
     sse_encode_String(self.displayName, serializer);
     sse_encode_String(self.configSchemaJson, serializer);
     sse_encode_String(self.defaultConfigJson, serializer);
+    sse_encode_list_transcode_target_format_descriptor(
+      self.targetFormats,
+      serializer,
+    );
   }
 
   @protected
@@ -6060,6 +6154,16 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   }
 
   @protected
+  void sse_encode_list_prim_u_32_strict(
+    Uint32List self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    serializer.buffer.putUint32List(self);
+  }
+
+  @protected
   void sse_encode_list_prim_u_8_strict(
     Uint8List self,
     SseSerializer serializer,
@@ -6090,6 +6194,18 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
     sse_encode_i_32(self.length, serializer);
     for (final item in self) {
       sse_encode_track_lite(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_transcode_target_format_descriptor(
+    List<TranscodeTargetFormatDescriptor> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_transcode_target_format_descriptor(item, serializer);
     }
   }
 
@@ -6369,6 +6485,21 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   }
 
   @protected
+  void sse_encode_transcode_target_format_descriptor(
+    TranscodeTargetFormatDescriptor self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.ext, serializer);
+    sse_encode_String(self.label, serializer);
+    sse_encode_bool(self.lossless, serializer);
+    sse_encode_list_prim_u_32_strict(self.bitrateChoicesKbps, serializer);
+    sse_encode_opt_box_autoadd_u_32(self.defaultBitrateKbps, serializer);
+    sse_encode_opt_String(self.optionsSchemaJson, serializer);
+    sse_encode_opt_String(self.defaultOptionsJson, serializer);
+  }
+
+  @protected
   void sse_encode_transcode_track_local_request(
     TranscodeTrackLocalRequest self,
     SseSerializer serializer,
@@ -6379,6 +6510,8 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
     sse_encode_String(self.outputPath, serializer);
     sse_encode_String(self.encoderPluginId, serializer);
     sse_encode_String(self.encoderTypeId, serializer);
+    sse_encode_String(self.targetFormatExt, serializer);
+    sse_encode_opt_box_autoadd_u_32(self.targetBitrateKbps, serializer);
     sse_encode_String(self.encoderConfigJson, serializer);
     sse_encode_opt_String(self.encoderOptionsJson, serializer);
   }

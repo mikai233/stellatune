@@ -79,11 +79,33 @@ pub struct MetadataEntry {
     pub value: MetadataValue,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ArtworkKind {
+    FrontCover,
+    BackCover,
+    Leaflet,
+    Media,
+    Artist,
+    Other,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Artwork {
+    pub kind: ArtworkKind,
+    pub mime: String,
+    pub description: Option<String>,
+    pub width: Option<u32>,
+    pub height: Option<u32>,
+    pub data: Vec<u8>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MediaMetadata {
     pub tags: AudioTags,
     pub duration_ms: Option<u64>,
     pub format: EncodedAudioFormat,
+    pub artworks: Vec<Artwork>,
     pub extras: Vec<MetadataEntry>,
 }
 

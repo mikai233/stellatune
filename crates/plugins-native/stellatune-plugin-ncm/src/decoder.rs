@@ -409,7 +409,16 @@ fn build_metadata(
     codec: String,
 ) -> MediaMetadata {
     let mut extras = Vec::<MetadataEntry>::new();
+    let mut artworks = Vec::<Artwork>::new();
     if let Some(cover) = tags.cover {
+        artworks.push(Artwork {
+            kind: ArtworkKind::FrontCover,
+            mime: "image/jpeg".to_string(),
+            description: None,
+            width: None,
+            height: None,
+            data: cover.clone(),
+        });
         extras.push(MetadataEntry {
             key: "cover".to_string(),
             value: MetadataValue::Bytes(cover),
@@ -430,6 +439,7 @@ fn build_metadata(
             bitrate_kbps: None,
             container: Some("ncm".to_string()),
         },
+        artworks,
         extras,
     }
 }

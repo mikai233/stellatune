@@ -20,6 +20,18 @@ pub struct TranscodeEncoderDescriptor {
     pub display_name: String,
     pub config_schema_json: String,
     pub default_config_json: String,
+    pub target_formats: Vec<TranscodeTargetFormatDescriptor>,
+}
+
+#[derive(Debug, Clone)]
+pub struct TranscodeTargetFormatDescriptor {
+    pub ext: String,
+    pub label: String,
+    pub lossless: bool,
+    pub bitrate_choices_kbps: Vec<u32>,
+    pub default_bitrate_kbps: Option<u32>,
+    pub options_schema_json: Option<String>,
+    pub default_options_json: Option<String>,
 }
 
 pub trait TranscodeEncoderSession: Send {
@@ -39,13 +51,20 @@ pub fn list_local_transcode_encoders() -> Vec<TranscodeEncoderDescriptor> {
         let mut capabilities = service.list_encoder_capabilities(plugin.id.as_str());
         capabilities.sort_by(|a, b| a.type_id.cmp(&b.type_id));
         for capability in capabilities {
+            let type_id = capability.type_id;
+            let display_name = capability.display_name;
+            let config_schema_json = capability.config_schema_json;
+            let default_config_json = capability.default_config_json;
+            let target_formats =
+                normalize_target_formats(capability.encoder_formats, type_id.as_str(), out.len());
             out.push(TranscodeEncoderDescriptor {
                 plugin_id: plugin.id.clone(),
                 plugin_name: plugin.name.clone(),
-                type_id: capability.type_id,
-                display_name: capability.display_name,
-                config_schema_json: capability.config_schema_json,
-                default_config_json: capability.default_config_json,
+                type_id,
+                display_name,
+                config_schema_json,
+                default_config_json,
+                target_formats,
             });
         }
     }
@@ -75,6 +94,8 @@ pub fn open_local_transcode_encoder(
     metadata: Option<RuntimeMediaMetadata>,
     encoder_config_json: &str,
     encoder_options_json: Option<&str>,
+    target_format_ext: Option<&str>,
+    target_bitrate_kbps: Option<u32>,
 ) -> Result<Box<dyn TranscodeEncoderSession>, String> {
     let output_path = output_path.trim();
     if output_path.is_empty() {
@@ -104,6 +125,8 @@ pub fn open_local_transcode_encoder(
         metadata,
         encoder_config_json,
         encoder_options_json,
+        target_format_ext,
+        target_bitrate_kbps,
     )
     .map(|encoder| Box::new(encoder) as Box<dyn TranscodeEncoderSession>)
 }
@@ -118,6 +141,8 @@ fn open_plugin_transcode_encoder(
     metadata: Option<RuntimeMediaMetadata>,
     encoder_config_json: &str,
     encoder_options_json: Option<&str>,
+    target_format_ext: Option<&str>,
+    target_bitrate_kbps: Option<u32>,
 ) -> Result<PluginTranscodeEncoder, String> {
     let service = shared_plugin_runtime();
     let mut encoder = service
@@ -129,7 +154,10 @@ fn open_plugin_transcode_encoder(
             )
         })?;
 
-    let target_ext = output_path_extension(output_path);
+    let target_ext = target_format_ext
+        .map(normalize_extension)
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| output_path_extension(output_path));
     let target_codec = if target_ext.is_empty() {
         type_id.to_string()
     } else {
@@ -151,7 +179,7 @@ fn open_plugin_transcode_encoder(
                     codec: target_codec,
                     sample_rate: Some(sample_rate),
                     channels: Some(channels),
-                    bitrate_kbps: None,
+                    bitrate_kbps: target_bitrate_kbps.filter(|value| *value > 0),
                     container: (!target_ext.is_empty()).then_some(target_ext.clone()),
                 },
                 ext_hint: (!target_ext.is_empty()).then_some(target_ext),
@@ -282,4 +310,164 @@ fn output_path_extension(path: &str) -> String {
         .and_then(|ext| ext.to_str())
         .map(normalize_extension)
         .unwrap_or_default()
+}
+
+fn normalize_target_formats(
+    raw_formats: Vec<stellatune_plugins::host_runtime::RuntimeEncoderFormatDescriptor>,
+    type_id: &str,
+    fallback_order: usize,
+) -> Vec<TranscodeTargetFormatDescriptor> {
+    if !raw_formats.is_empty() {
+        return raw_formats
+            .into_iter()
+            .map(|item| TranscodeTargetFormatDescriptor {
+                ext: normalize_extension(item.ext.as_str()),
+                label: item.label.trim().to_string(),
+                lossless: item.lossless,
+                bitrate_choices_kbps: item
+                    .bitrate_choices_kbps
+                    .into_iter()
+                    .filter(|value| *value > 0)
+                    .collect(),
+                default_bitrate_kbps: item.default_bitrate_kbps.filter(|value| *value > 0),
+                options_schema_json: item.options_schema_json,
+                default_options_json: item.default_options_json,
+            })
+            .filter(|item| !item.ext.is_empty())
+            .collect();
+    }
+
+    let ignored = ["encoder", "encode", "audio", "plugin"];
+    let mut fallback_ext = type_id
+        .split(|ch: char| !ch.is_ascii_alphanumeric())
+        .filter(|segment| !segment.is_empty())
+        .map(normalize_extension)
+        .rev()
+        .find(|segment| !ignored.contains(&segment.as_str()))
+        .unwrap_or_else(|| format!("out{}", fallback_order + 1));
+    if fallback_ext.is_empty() {
+        fallback_ext = "out".to_string();
+    }
+    vec![TranscodeTargetFormatDescriptor {
+        ext: fallback_ext.clone(),
+        label: fallback_ext.to_ascii_uppercase(),
+        lossless: true,
+        bitrate_choices_kbps: Vec::new(),
+        default_bitrate_kbps: None,
+        options_schema_json: None,
+        default_options_json: None,
+    }]
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+    use std::process::Command;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use serde_json::Value;
+
+    use crate::runtime::transcode_decoder::open_local_transcode_decoder;
+    use crate::runtime::transcode_encoder::open_local_transcode_encoder;
+
+    #[test]
+    fn debug_transcode_mp3_tags_from_env() {
+        let Some(source_path) = std::env::var_os("STELLATUNE_DEBUG_METADATA_PATH") else {
+            eprintln!("skip: STELLATUNE_DEBUG_METADATA_PATH is not set");
+            return;
+        };
+        let source_path = source_path.to_string_lossy().to_string();
+        let plugin_id = std::env::var("STELLATUNE_DEBUG_ENCODER_PLUGIN")
+            .unwrap_or_else(|_| "dev.stellatune.codec.ffmpeg".to_string());
+        let type_id = std::env::var("STELLATUNE_DEBUG_ENCODER_TYPE")
+            .unwrap_or_else(|_| "ffmpeg_encode".to_string());
+        let output_path = std::env::var("STELLATUNE_DEBUG_TRANSCODE_OUTPUT").unwrap_or_else(|_| {
+            let ts = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|v| v.as_millis())
+                .unwrap_or(0);
+            let mut p = std::env::temp_dir();
+            p.push(format!("stellatune_debug_transcode_{ts}.mp3"));
+            p.to_string_lossy().to_string()
+        });
+        let _ = std::fs::remove_file(output_path.as_str());
+
+        let mut decoder = open_local_transcode_decoder(source_path.as_str())
+            .expect("open local transcode decoder");
+        let info = decoder.info();
+        let metadata = info.metadata.clone();
+        assert!(metadata.is_some(), "decoder metadata is empty");
+
+        let mut encoder = match open_local_transcode_encoder(
+            output_path.as_str(),
+            plugin_id.as_str(),
+            type_id.as_str(),
+            info.sample_rate,
+            info.channels,
+            metadata,
+            "{}",
+            None,
+            Some("mp3"),
+            Some(320),
+        ) {
+            Ok(encoder) => encoder,
+            Err(error) => {
+                if error.contains("is not installed") {
+                    eprintln!("skip: encoder plugin is not installed: {error}");
+                    return;
+                }
+                panic!("open local transcode encoder failed: {error}");
+            },
+        };
+
+        loop {
+            let chunk = decoder.read_pcm_f32(8192).expect("decoder read");
+            let consumed = encoder.write_pcm_f32(chunk.clone()).expect("encoder write");
+            assert_eq!(consumed, chunk.frames, "encoder partial consume");
+            if chunk.eof {
+                break;
+            }
+        }
+        encoder.finish().expect("encoder finish");
+        encoder.close().expect("encoder close");
+        decoder.close().expect("decoder close");
+
+        let probe = Command::new("ffprobe")
+            .args([
+                "-v",
+                "error",
+                "-print_format",
+                "json",
+                "-show_format",
+                output_path.as_str(),
+            ])
+            .output()
+            .expect("run ffprobe");
+        assert!(
+            probe.status.success(),
+            "ffprobe failed: status={:?} stderr={}",
+            probe.status.code(),
+            String::from_utf8_lossy(probe.stderr.as_slice())
+        );
+        let json: Value = serde_json::from_slice(probe.stdout.as_slice()).expect("parse ffprobe");
+        let tags = json
+            .get("format")
+            .and_then(|v| v.get("tags"))
+            .and_then(Value::as_object)
+            .cloned()
+            .unwrap_or_default();
+        eprintln!(
+            "debug output={} tags={}",
+            PathBuf::from(output_path.as_str()).display(),
+            Value::Object(tags.clone())
+        );
+
+        let has_title = tags.contains_key("title") || tags.contains_key("TITLE");
+        let has_artist = tags.contains_key("artist") || tags.contains_key("ARTIST");
+        let has_album = tags.contains_key("album") || tags.contains_key("ALBUM");
+        assert!(
+            has_title && has_artist && has_album,
+            "missing expected tags in output mp3"
+        );
+    }
 }

@@ -29,6 +29,7 @@ impl DecoderSession for ExampleDecoderSession {
                 bitrate_kbps: None,
                 container: None,
             },
+            artworks: Vec::new(),
             extras: Vec::new(),
         })
     }
@@ -90,6 +91,7 @@ impl SourceStream for ExampleSourceStream {
                 bitrate_kbps: None,
                 container: None,
             },
+            artworks: Vec::new(),
             extras: Vec::new(),
         })
     }

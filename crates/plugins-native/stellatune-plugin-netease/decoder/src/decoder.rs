@@ -393,6 +393,7 @@ fn build_metadata(
             bitrate_kbps: None,
             container: None,
         },
+        artworks: Vec::new(),
         extras: Vec::new(),
     }
 }

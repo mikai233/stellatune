@@ -1,13 +1,13 @@
 mod decoder;
-mod encoder;
 mod dsp;
+mod encoder;
 mod lyrics;
 mod output_sink;
 mod source;
 
 pub use decoder::*;
-pub use encoder::*;
 pub use dsp::*;
+pub use encoder::*;
 pub use lyrics::*;
 pub use output_sink::*;
 pub use source::*;

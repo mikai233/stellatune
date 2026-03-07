@@ -18,8 +18,9 @@ use crate::executor::{
 };
 use crate::manifest::AbilityKind;
 use crate::runtime::model::{
-    PluginDisableReason, RuntimeAudioSpec, RuntimeCapabilityDescriptor, RuntimeConfigUpdateMode,
-    RuntimeConfigUpdatePlan, RuntimeEncodeTarget, RuntimeEncodedAudioFormat, RuntimeEncodedChunk,
+    PluginDisableReason, RuntimeArtwork, RuntimeArtworkKind, RuntimeAudioSpec,
+    RuntimeCapabilityDescriptor, RuntimeConfigUpdateMode, RuntimeConfigUpdatePlan,
+    RuntimeEncodeTarget, RuntimeEncodedAudioFormat, RuntimeEncodedChunk,
     RuntimeEncoderSessionHandle, RuntimeMediaMetadata, RuntimeMetadataValue, RuntimePcmF32Chunk,
     RuntimePluginDirective, RuntimePluginInfo,
 };
@@ -58,10 +59,8 @@ pub trait EncoderPluginApi {
         session: RuntimeEncoderSessionHandle,
         config_json: &str,
     ) -> Result<()>;
-    fn export_state_json(
-        &mut self,
-        session: RuntimeEncoderSessionHandle,
-    ) -> Result<Option<String>>;
+    fn export_state_json(&mut self, session: RuntimeEncoderSessionHandle)
+    -> Result<Option<String>>;
     fn import_state_json(
         &mut self,
         session: RuntimeEncoderSessionHandle,
@@ -118,7 +117,9 @@ impl WasmtimeEncoderPlugin {
         }
     }
 
-    fn runtime_config_update_plan_from(plan: encoder_exports::ConfigUpdatePlan) -> RuntimeConfigUpdatePlan {
+    fn runtime_config_update_plan_from(
+        plan: encoder_exports::ConfigUpdatePlan,
+    ) -> RuntimeConfigUpdatePlan {
         RuntimeConfigUpdatePlan {
             mode: match plan.mode {
                 encoder_common::ConfigUpdateMode::HotApply => RuntimeConfigUpdateMode::HotApply,
@@ -129,7 +130,9 @@ impl WasmtimeEncoderPlugin {
         }
     }
 
-    fn encoded_audio_format_into(format: RuntimeEncodedAudioFormat) -> encoder_common::EncodedAudioFormat {
+    fn encoded_audio_format_into(
+        format: RuntimeEncodedAudioFormat,
+    ) -> encoder_common::EncodedAudioFormat {
         encoder_common::EncodedAudioFormat {
             codec: format.codec,
             sample_rate: format.sample_rate,
@@ -168,6 +171,11 @@ impl WasmtimeEncoderPlugin {
             },
             duration_ms: metadata.duration_ms,
             format: Self::encoded_audio_format_into(metadata.format),
+            artworks: metadata
+                .artworks
+                .into_iter()
+                .map(Self::artwork_into)
+                .collect::<Vec<_>>(),
             extras: metadata
                 .extras
                 .into_iter()
@@ -176,6 +184,28 @@ impl WasmtimeEncoderPlugin {
                     value: Self::metadata_value_into(entry.value),
                 })
                 .collect::<Vec<_>>(),
+        }
+    }
+
+    fn artwork_kind_into(kind: RuntimeArtworkKind) -> encoder_common::ArtworkKind {
+        match kind {
+            RuntimeArtworkKind::FrontCover => encoder_common::ArtworkKind::FrontCover,
+            RuntimeArtworkKind::BackCover => encoder_common::ArtworkKind::BackCover,
+            RuntimeArtworkKind::Leaflet => encoder_common::ArtworkKind::Leaflet,
+            RuntimeArtworkKind::Media => encoder_common::ArtworkKind::Media,
+            RuntimeArtworkKind::Artist => encoder_common::ArtworkKind::Artist,
+            RuntimeArtworkKind::Other => encoder_common::ArtworkKind::Other,
+        }
+    }
+
+    fn artwork_into(artwork: RuntimeArtwork) -> encoder_common::Artwork {
+        encoder_common::Artwork {
+            kind: Self::artwork_kind_into(artwork.kind),
+            mime: artwork.mime,
+            description: artwork.description,
+            width: artwork.width,
+            height: artwork.height,
+            data: artwork.data,
         }
     }
 
@@ -364,9 +394,11 @@ impl EncoderPluginApi for WasmtimeEncoderPlugin {
         self.reconcile_runtime()?;
         let encoder = self.encoder_api();
         let chunk = map_decoder_plugin_error(
-            encoder
-                .session()
-                .call_read_encoded(&mut self.component.store, session_ref, max_bytes)?,
+            encoder.session().call_read_encoded(
+                &mut self.component.store,
+                session_ref,
+                max_bytes,
+            )?,
             "encoder.session.read-encoded",
         )?;
         Ok(RuntimeEncodedChunk {

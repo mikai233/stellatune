@@ -1,0 +1,164 @@
+{
+  "schema_version": 1,
+  "id": "dev.stellatune.codec.ffmpeg",
+  "name": "FFmpeg Codec Pack",
+  "version": "0.1.0",
+  "api_version": 1,
+  "components": [
+    {
+      "id": "decoder-ffmpeg",
+      "path": "wasm/stellatune_plugin_ffmpeg_decoder.wasm",
+      "world": "stellatune:plugin/decoder-plugin@0.1.0",
+      "abilities": [
+        {
+          "kind": "decoder",
+          "type_id": "ffmpeg_decode",
+          "display_name": "FFmpeg Decoder (Sidecar)",
+          "config_schema_json": "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"ffmpeg_path\":{\"type\":[\"string\",\"null\"],\"default\":\"bin/ffmpeg\"},\"ffprobe_path\":{\"type\":[\"string\",\"null\"],\"default\":\"bin/ffprobe\"},\"ffmpeg_args\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},\"default\":[]},\"ffprobe_args\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},\"default\":[]},\"probe_timeout_ms\":{\"type\":\"integer\",\"minimum\":200,\"maximum\":30000,\"default\":3000}}}",
+          "default_config_json": "{\"ffmpeg_path\":\"bin/ffmpeg\",\"ffprobe_path\":\"bin/ffprobe\",\"ffmpeg_args\":[],\"ffprobe_args\":[],\"probe_timeout_ms\":3000}",
+          "decoder": {
+            "ext_scores": [
+              {
+                "ext": "mp3",
+                "score": 90
+              },
+              {
+                "ext": "flac",
+                "score": 90
+              },
+              {
+                "ext": "wav",
+                "score": 90
+              },
+              {
+                "ext": "m4a",
+                "score": 85
+              },
+              {
+                "ext": "aac",
+                "score": 85
+              },
+              {
+                "ext": "opus",
+                "score": 85
+              },
+              {
+                "ext": "ogg",
+                "score": 85
+              },
+              {
+                "ext": "wma",
+                "score": 80
+              },
+              {
+                "ext": "alac",
+                "score": 80
+              },
+              {
+                "ext": "aiff",
+                "score": 80
+              }
+            ],
+            "wildcard_score": 30
+          }
+        }
+      ]
+    },
+    {
+      "id": "encoder-ffmpeg",
+      "path": "wasm/stellatune_plugin_ffmpeg_encoder.wasm",
+      "world": "stellatune:plugin/encoder-plugin@0.1.0",
+      "abilities": [
+        {
+          "kind": "encoder",
+          "type_id": "ffmpeg_encode",
+          "display_name": "FFmpeg Encoder (Sidecar)",
+          "config_schema_json": "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"ffmpeg_path\":{\"type\":[\"string\",\"null\"],\"default\":\"bin/ffmpeg\"},\"ffprobe_path\":{\"type\":[\"string\",\"null\"],\"default\":\"bin/ffprobe\"},\"ffmpeg_args\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},\"default\":[]},\"ffprobe_args\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},\"default\":[]},\"probe_timeout_ms\":{\"type\":\"integer\",\"minimum\":200,\"maximum\":30000,\"default\":3000}}}",
+          "default_config_json": "{\"ffmpeg_path\":\"bin/ffmpeg\",\"ffprobe_path\":\"bin/ffprobe\",\"ffmpeg_args\":[],\"ffprobe_args\":[],\"probe_timeout_ms\":3000}",
+          "encoder": {
+            "formats": [
+              {
+                "ext": "mp3",
+                "label": "MP3",
+                "lossless": false,
+                "bitrate_choices_kbps": [
+                  96,
+                  128,
+                  160,
+                  192,
+                  256,
+                  320
+                ],
+                "default_bitrate_kbps": 192,
+                "options_schema_json": "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"sample_rate\":{\"type\":\"integer\",\"enum\":[8000,11025,12000,16000,22050,24000,32000,44100,48000],\"default\":48000,\"title\":\"Sample Rate (Hz)\",\"x-order\":10},\"channels\":{\"type\":\"integer\",\"enum\":[1,2],\"title\":\"Channels\",\"x-order\":20},\"ffmpeg_args\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},\"title\":\"Extra FFmpeg Args\",\"x-order\":90}}}",
+                "default_options_json": "{\"sample_rate\":48000}"
+              },
+              {
+                "ext": "m4a",
+                "label": "AAC",
+                "lossless": false,
+                "bitrate_choices_kbps": [
+                  96,
+                  128,
+                  160,
+                  192,
+                  256,
+                  320
+                ],
+                "default_bitrate_kbps": 192,
+                "options_schema_json": "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"sample_rate\":{\"type\":\"integer\",\"enum\":[32000,44100,48000,88200,96000,192000],\"title\":\"Sample Rate (Hz)\",\"x-order\":10},\"channels\":{\"type\":\"integer\",\"enum\":[1,2],\"title\":\"Channels\",\"x-order\":20},\"ffmpeg_args\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},\"title\":\"Extra FFmpeg Args\",\"x-order\":90}}}",
+                "default_options_json": "{}"
+              },
+              {
+                "ext": "opus",
+                "label": "Opus",
+                "lossless": false,
+                "bitrate_choices_kbps": [
+                  64,
+                  96,
+                  128,
+                  160,
+                  192,
+                  256
+                ],
+                "default_bitrate_kbps": 160,
+                "options_schema_json": "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"sample_rate\":{\"type\":\"integer\",\"enum\":[8000,12000,16000,24000,48000],\"title\":\"Sample Rate (Hz)\",\"x-order\":10},\"channels\":{\"type\":\"integer\",\"enum\":[1,2],\"title\":\"Channels\",\"x-order\":20},\"ffmpeg_args\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},\"title\":\"Extra FFmpeg Args\",\"x-order\":90}}}",
+                "default_options_json": "{}"
+              },
+              {
+                "ext": "ogg",
+                "label": "Vorbis",
+                "lossless": false,
+                "bitrate_choices_kbps": [
+                  96,
+                  128,
+                  160,
+                  192,
+                  256,
+                  320
+                ],
+                "default_bitrate_kbps": 192,
+                "options_schema_json": "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"sample_rate\":{\"type\":\"integer\",\"enum\":[32000,44100,48000,88200,96000,192000],\"title\":\"Sample Rate (Hz)\",\"x-order\":10},\"channels\":{\"type\":\"integer\",\"enum\":[1,2],\"title\":\"Channels\",\"x-order\":20},\"ffmpeg_args\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},\"title\":\"Extra FFmpeg Args\",\"x-order\":90}}}",
+                "default_options_json": "{}"
+              },
+              {
+                "ext": "flac",
+                "label": "FLAC",
+                "lossless": true,
+                "options_schema_json": "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"sample_rate\":{\"type\":\"integer\",\"enum\":[32000,44100,48000,88200,96000,192000],\"title\":\"Sample Rate (Hz)\",\"x-order\":10},\"channels\":{\"type\":\"integer\",\"enum\":[1,2],\"title\":\"Channels\",\"x-order\":20},\"flac_compression_level\":{\"type\":\"integer\",\"enum\":[0,1,2,3,4,5,6,7,8,9,10,11,12],\"default\":5,\"title\":\"FLAC Compression Level\",\"x-order\":30},\"ffmpeg_args\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},\"title\":\"Extra FFmpeg Args\",\"x-order\":90}}}",
+                "default_options_json": "{\"flac_compression_level\":5}"
+              },
+              {
+                "ext": "wav",
+                "label": "WAV",
+                "lossless": true,
+                "options_schema_json": "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"sample_rate\":{\"type\":\"integer\",\"enum\":[32000,44100,48000,88200,96000,192000],\"title\":\"Sample Rate (Hz)\",\"x-order\":10},\"channels\":{\"type\":\"integer\",\"enum\":[1,2],\"title\":\"Channels\",\"x-order\":20},\"ffmpeg_args\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},\"title\":\"Extra FFmpeg Args\",\"x-order\":90}}}",
+                "default_options_json": "{}"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -10,7 +10,7 @@ part 'types.freezed.dart';
 
 // These functions are ignored because they have generic arguments: `config`, `config`, `metadata`, `set_metadata`, `target`, `with_config_target`, `with_config`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `TrackPlayability`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
 
 enum AudioBackend { shared, wasapiExclusive }
 
@@ -108,6 +108,7 @@ class EncoderTypeDescriptor {
   final String displayName;
   final String configSchemaJson;
   final String defaultConfigJson;
+  final List<TranscodeTargetFormatDescriptor> targetFormats;
 
   const EncoderTypeDescriptor({
     required this.pluginId,
@@ -116,6 +117,7 @@ class EncoderTypeDescriptor {
     required this.displayName,
     required this.configSchemaJson,
     required this.defaultConfigJson,
+    required this.targetFormats,
   });
 
   @override
@@ -125,7 +127,8 @@ class EncoderTypeDescriptor {
       typeId.hashCode ^
       displayName.hashCode ^
       configSchemaJson.hashCode ^
-      defaultConfigJson.hashCode;
+      defaultConfigJson.hashCode ^
+      targetFormats.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -137,7 +140,8 @@ class EncoderTypeDescriptor {
           typeId == other.typeId &&
           displayName == other.displayName &&
           configSchemaJson == other.configSchemaJson &&
-          defaultConfigJson == other.defaultConfigJson;
+          defaultConfigJson == other.defaultConfigJson &&
+          targetFormats == other.targetFormats;
 }
 
 @freezed
@@ -477,4 +481,47 @@ class TranscodeProgressEvent {
           sampleRate == other.sampleRate &&
           channels == other.channels &&
           elapsedMs == other.elapsedMs;
+}
+
+class TranscodeTargetFormatDescriptor {
+  final String ext;
+  final String label;
+  final bool lossless;
+  final Uint32List bitrateChoicesKbps;
+  final int? defaultBitrateKbps;
+  final String? optionsSchemaJson;
+  final String? defaultOptionsJson;
+
+  const TranscodeTargetFormatDescriptor({
+    required this.ext,
+    required this.label,
+    required this.lossless,
+    required this.bitrateChoicesKbps,
+    this.defaultBitrateKbps,
+    this.optionsSchemaJson,
+    this.defaultOptionsJson,
+  });
+
+  @override
+  int get hashCode =>
+      ext.hashCode ^
+      label.hashCode ^
+      lossless.hashCode ^
+      bitrateChoicesKbps.hashCode ^
+      defaultBitrateKbps.hashCode ^
+      optionsSchemaJson.hashCode ^
+      defaultOptionsJson.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is TranscodeTargetFormatDescriptor &&
+          runtimeType == other.runtimeType &&
+          ext == other.ext &&
+          label == other.label &&
+          lossless == other.lossless &&
+          bitrateChoicesKbps == other.bitrateChoicesKbps &&
+          defaultBitrateKbps == other.defaultBitrateKbps &&
+          optionsSchemaJson == other.optionsSchemaJson &&
+          defaultOptionsJson == other.defaultOptionsJson;
 }

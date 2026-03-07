@@ -34,7 +34,9 @@ fn encoder_plugin_error_internal(error: impl std::fmt::Display) -> encoder_sidec
     encoder_sidecar::PluginError::Internal(error.to_string())
 }
 
-fn encoder_transport_option_from(option: encoder_sidecar::TransportOption) -> SidecarTransportOption {
+fn encoder_transport_option_from(
+    option: encoder_sidecar::TransportOption,
+) -> SidecarTransportOption {
     SidecarTransportOption {
         kind: match option.kind {
             encoder_sidecar::TransportKind::Stdio => SidecarTransportKind::Stdio,

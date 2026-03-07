@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::mem;
@@ -14,7 +14,7 @@ use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use memmap2::{MmapMut, MmapOptions};
-use parking_lot::Mutex;
+use parking_lot::{Condvar, Mutex};
 
 #[cfg(unix)]
 use std::os::unix::net::UnixStream;
@@ -228,15 +228,19 @@ impl SidecarHost for ProcessSidecarHost {
             .stdout
             .take()
             .ok_or_else(|| Error::operation("sidecar.launch", "missing stdout pipe"))?;
+        let stdout_state = Arc::new(StdioStdoutState::default());
+        let stdout_pump = spawn_stdio_stdout_pump(stdout, stdout_state.clone());
 
         Ok(Box::new(ProcessHandle {
             inner: Arc::new(Mutex::new(ChildIo {
                 child,
                 stdin: Some(stdin),
-                stdout,
             })),
+            stdout_state,
+            stdout_pump: Some(stdout_pump),
             control_preferred: spec.preferred_control.clone(),
             data_preferred: spec.preferred_data.clone(),
+            scope: spec.scope,
             env_map,
             created_ring_paths,
             #[cfg(windows)]
@@ -248,17 +252,108 @@ impl SidecarHost for ProcessSidecarHost {
 struct ChildIo {
     child: Child,
     stdin: Option<ChildStdin>,
-    stdout: ChildStdout,
 }
 
 struct ProcessHandle {
     inner: Arc<Mutex<ChildIo>>,
+    stdout_state: Arc<StdioStdoutState>,
+    stdout_pump: Option<thread::JoinHandle<()>>,
     control_preferred: Vec<SidecarTransportOption>,
     data_preferred: Vec<SidecarTransportOption>,
+    scope: SidecarLaunchScope,
     env_map: BTreeMap<String, String>,
     created_ring_paths: Vec<PathBuf>,
     #[cfg(windows)]
     _kill_on_close_job: Option<KillOnCloseJob>,
+}
+
+#[derive(Default)]
+struct StdioStdoutState {
+    inner: Mutex<StdioStdoutBuffer>,
+    available: Condvar,
+}
+
+#[derive(Default)]
+struct StdioStdoutBuffer {
+    bytes: VecDeque<u8>,
+    eof: bool,
+    read_error: Option<String>,
+}
+
+impl StdioStdoutState {
+    fn push_chunk(&self, chunk: &[u8]) {
+        if chunk.is_empty() {
+            return;
+        }
+        let mut inner = self.inner.lock();
+        inner.bytes.extend(chunk.iter().copied());
+        self.available.notify_all();
+    }
+
+    fn mark_eof(&self) {
+        let mut inner = self.inner.lock();
+        inner.eof = true;
+        self.available.notify_all();
+    }
+
+    fn mark_error(&self, error: String) {
+        let mut inner = self.inner.lock();
+        inner.read_error = Some(error);
+        self.available.notify_all();
+    }
+
+    fn read_blocking(&self, max_bytes: u32) -> Result<Vec<u8>> {
+        if max_bytes == 0 {
+            return Ok(Vec::new());
+        }
+        let mut inner = self.inner.lock();
+        loop {
+            if !inner.bytes.is_empty() {
+                let take = (max_bytes as usize).min(inner.bytes.len());
+                let mut out = Vec::with_capacity(take);
+                for _ in 0..take {
+                    if let Some(byte) = inner.bytes.pop_front() {
+                        out.push(byte);
+                    }
+                }
+                return Ok(out);
+            }
+            if let Some(error) = inner.read_error.as_ref() {
+                return Err(Error::operation(
+                    "sidecar.channel.read",
+                    format!("sidecar stdout pump failed: {error}"),
+                ));
+            }
+            if inner.eof {
+                return Ok(Vec::new());
+            }
+            self.available.wait(&mut inner);
+        }
+    }
+}
+
+fn spawn_stdio_stdout_pump(
+    mut stdout: ChildStdout,
+    state: Arc<StdioStdoutState>,
+) -> thread::JoinHandle<()> {
+    thread::spawn(move || {
+        let mut buffer = vec![0_u8; 64 * 1024];
+        loop {
+            match stdout.read(buffer.as_mut_slice()) {
+                Ok(0) => {
+                    state.mark_eof();
+                    break;
+                },
+                Ok(size) => {
+                    state.push_chunk(&buffer[..size]);
+                },
+                Err(error) => {
+                    state.mark_error(error.to_string());
+                    break;
+                },
+            }
+        }
+    })
 }
 
 #[cfg(windows)]
@@ -323,7 +418,7 @@ impl Drop for KillOnCloseJob {
 }
 
 enum ChannelIo {
-    Stdio(Arc<Mutex<ChildIo>>),
+    Stdio(Arc<Mutex<ChildIo>>, Arc<StdioStdoutState>),
     Tcp(TcpStream),
     #[cfg(unix)]
     Unix(UnixStream),
@@ -335,14 +430,20 @@ struct ChannelHandle {
     transport: SidecarTransportKind,
     io: ChannelIo,
     closed: bool,
+    close_stdio_stdin_on_close: bool,
 }
 
 impl ChannelHandle {
-    fn stdio(inner: Arc<Mutex<ChildIo>>) -> Self {
+    fn stdio(
+        inner: Arc<Mutex<ChildIo>>,
+        stdout_state: Arc<StdioStdoutState>,
+        close_stdio_stdin_on_close: bool,
+    ) -> Self {
         Self {
             transport: SidecarTransportKind::Stdio,
-            io: ChannelIo::Stdio(inner),
+            io: ChannelIo::Stdio(inner, stdout_state),
             closed: false,
+            close_stdio_stdin_on_close,
         }
     }
 
@@ -351,6 +452,7 @@ impl ChannelHandle {
             transport,
             io,
             closed: false,
+            close_stdio_stdin_on_close: false,
         }
     }
 }
@@ -361,6 +463,12 @@ impl ProcessHandle {
         // protocol-agnostic graceful shutdown signal before force kill.
         if let Some(mut stdin) = inner.stdin.take() {
             let _ = stdin.flush();
+        }
+    }
+
+    fn join_stdout_pump(&mut self) {
+        if let Some(handle) = self.stdout_pump.take() {
+            let _ = handle.join();
         }
     }
 
@@ -390,7 +498,11 @@ impl ProcessHandle {
         kind: SidecarTransportKind,
     ) -> Result<Box<dyn SidecarChannelHandle>> {
         match kind {
-            SidecarTransportKind::Stdio => Ok(Box::new(ChannelHandle::stdio(self.inner.clone()))),
+            SidecarTransportKind::Stdio => Ok(Box::new(ChannelHandle::stdio(
+                self.inner.clone(),
+                self.stdout_state.clone(),
+                self.scope == SidecarLaunchScope::Instance,
+            ))),
             SidecarTransportKind::LoopbackTcp => {
                 let endpoint = self.resolve_endpoint(role, kind).ok_or_else(|| {
                     Error::unsupported(format!(
@@ -539,7 +651,10 @@ impl SidecarProcessHandle for ProcessHandle {
                     .child
                     .wait()
                     .map_err(|error| Error::operation("sidecar.wait-exit", error.to_string()))?;
-                Ok(status.code())
+                let code = status.code();
+                drop(inner);
+                self.join_stdout_pump();
+                Ok(code)
             },
             Some(timeout) => {
                 let deadline = Instant::now() + Duration::from_millis(timeout as u64);
@@ -548,7 +663,10 @@ impl SidecarProcessHandle for ProcessHandle {
                         Error::operation("sidecar.wait-exit", error.to_string())
                     })?;
                     if let Some(status) = status {
-                        return Ok(status.code());
+                        let code = status.code();
+                        drop(inner);
+                        self.join_stdout_pump();
+                        return Ok(code);
                     }
                     if Instant::now() >= deadline {
                         return Ok(None);
@@ -566,6 +684,8 @@ impl SidecarProcessHandle for ProcessHandle {
             .try_wait()
             .map_err(|error| Error::operation("sidecar.terminate", error.to_string()))?
         {
+            drop(inner);
+            self.join_stdout_pump();
             return Ok(());
         }
 
@@ -575,6 +695,8 @@ impl SidecarProcessHandle for ProcessHandle {
             .try_wait()
             .map_err(|error| Error::operation("sidecar.terminate", error.to_string()))?
         {
+            drop(inner);
+            self.join_stdout_pump();
             return Ok(());
         }
 
@@ -586,6 +708,8 @@ impl SidecarProcessHandle for ProcessHandle {
                     .try_wait()
                     .map_err(|error| Error::operation("sidecar.terminate", error.to_string()))?
                 {
+                    drop(inner);
+                    self.join_stdout_pump();
                     return Ok(());
                 }
                 if Instant::now() >= deadline {
@@ -600,6 +724,8 @@ impl SidecarProcessHandle for ProcessHandle {
             .kill()
             .map_err(|error| Error::operation("sidecar.terminate", error.to_string()))?;
         let _ = inner.child.wait();
+        drop(inner);
+        self.join_stdout_pump();
         Ok(())
     }
 }
@@ -627,7 +753,7 @@ impl SidecarChannelHandle for ChannelHandle {
         }
 
         match &mut self.io {
-            ChannelIo::Stdio(inner) => {
+            ChannelIo::Stdio(inner, _) => {
                 let mut inner = inner.lock();
                 let stdin = inner.stdin.as_mut().ok_or_else(|| {
                     Error::operation("sidecar.channel.write", "sidecar stdin is closed")
@@ -673,38 +799,39 @@ impl SidecarChannelHandle for ChannelHandle {
         if self.closed || max_bytes == 0 {
             return Ok(Vec::new());
         }
-
-        let mut buffer = vec![0_u8; max_bytes as usize];
-        let size = match &mut self.io {
-            ChannelIo::Stdio(inner) => {
-                let mut inner = inner.lock();
-                inner
-                    .stdout
-                    .read(&mut buffer)
-                    .map_err(|error| Error::operation("sidecar.channel.read", error.to_string()))?
-            },
+        match &mut self.io {
+            ChannelIo::Stdio(_, stdout_state) => stdout_state.read_blocking(max_bytes),
             ChannelIo::Tcp(stream) => {
+                let mut buffer = vec![0_u8; max_bytes as usize];
                 let _ =
                     stream.set_read_timeout(timeout_ms.map(|ms| Duration::from_millis(ms as u64)));
-                stream
+                let size = stream
                     .read(&mut buffer)
-                    .map_err(|error| Error::operation("sidecar.channel.read", error.to_string()))?
+                    .map_err(|error| Error::operation("sidecar.channel.read", error.to_string()))?;
+                buffer.truncate(size);
+                Ok(buffer)
             },
             #[cfg(unix)]
             ChannelIo::Unix(stream) => {
+                let mut buffer = vec![0_u8; max_bytes as usize];
                 let _ =
                     stream.set_read_timeout(timeout_ms.map(|ms| Duration::from_millis(ms as u64)));
-                stream
+                let size = stream
                     .read(&mut buffer)
-                    .map_err(|error| Error::operation("sidecar.channel.read", error.to_string()))?
+                    .map_err(|error| Error::operation("sidecar.channel.read", error.to_string()))?;
+                buffer.truncate(size);
+                Ok(buffer)
             },
-            ChannelIo::File(file) => file
-                .read(&mut buffer)
-                .map_err(|error| Error::operation("sidecar.channel.read", error.to_string()))?,
-            ChannelIo::SharedMemory(shared) => return shared.read(max_bytes, timeout_ms),
-        };
-        buffer.truncate(size);
-        Ok(buffer)
+            ChannelIo::File(file) => {
+                let mut buffer = vec![0_u8; max_bytes as usize];
+                let size = file
+                    .read(&mut buffer)
+                    .map_err(|error| Error::operation("sidecar.channel.read", error.to_string()))?;
+                buffer.truncate(size);
+                Ok(buffer)
+            },
+            ChannelIo::SharedMemory(shared) => shared.read(max_bytes, timeout_ms),
+        }
     }
 
     fn close(&mut self) {
@@ -720,7 +847,16 @@ impl SidecarChannelHandle for ChannelHandle {
             ChannelIo::Unix(stream) => {
                 let _ = stream.shutdown(Shutdown::Both);
             },
-            ChannelIo::Stdio(_) | ChannelIo::File(_) | ChannelIo::SharedMemory(_) => {},
+            ChannelIo::Stdio(inner, _) => {
+                if !self.close_stdio_stdin_on_close {
+                    return;
+                }
+                let mut inner = inner.lock();
+                if let Some(mut stdin) = inner.stdin.take() {
+                    let _ = stdin.flush();
+                }
+            },
+            ChannelIo::File(_) | ChannelIo::SharedMemory(_) => {},
         }
     }
 }

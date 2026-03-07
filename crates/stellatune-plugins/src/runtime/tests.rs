@@ -111,6 +111,7 @@ fn install_test_plugin_with_ability(
                 config_schema_json: None,
                 default_config_json: None,
                 decoder: None,
+                encoder: None,
             }],
         }],
         ui: None,

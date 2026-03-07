@@ -31,6 +31,8 @@ macro_rules! export_decoder_component {
             type __StAudioTags = __st_bindings::stellatune::plugin::common::AudioTags;
             type __StMetadataEntry = __st_bindings::stellatune::plugin::common::MetadataEntry;
             type __StMetadataValue = __st_bindings::stellatune::plugin::common::MetadataValue;
+            type __StArtworkKind = __st_bindings::stellatune::plugin::common::ArtworkKind;
+            type __StArtwork = __st_bindings::stellatune::plugin::common::Artwork;
 
             static __ST_PLUGIN: OnceLock<Mutex<__StPlugin>> = OnceLock::new();
 
@@ -162,11 +164,34 @@ macro_rules! export_decoder_component {
                 }
             }
 
+            fn __map_artwork_kind(kind: $crate::common::ArtworkKind) -> __StArtworkKind {
+                match kind {
+                    $crate::common::ArtworkKind::FrontCover => __StArtworkKind::FrontCover,
+                    $crate::common::ArtworkKind::BackCover => __StArtworkKind::BackCover,
+                    $crate::common::ArtworkKind::Leaflet => __StArtworkKind::Leaflet,
+                    $crate::common::ArtworkKind::Media => __StArtworkKind::Media,
+                    $crate::common::ArtworkKind::Artist => __StArtworkKind::Artist,
+                    $crate::common::ArtworkKind::Other => __StArtworkKind::Other,
+                }
+            }
+
+            fn __map_artwork(artwork: $crate::common::Artwork) -> __StArtwork {
+                __StArtwork {
+                    kind: __map_artwork_kind(artwork.kind),
+                    mime: artwork.mime,
+                    description: artwork.description,
+                    width: artwork.width,
+                    height: artwork.height,
+                    data: artwork.data,
+                }
+            }
+
             fn __map_media_metadata(metadata: $crate::common::MediaMetadata) -> __StMediaMetadata {
                 __StMediaMetadata {
                     tags: __map_audio_tags(metadata.tags),
                     duration_ms: metadata.duration_ms,
                     format: __map_encoded_audio_format(metadata.format),
+                    artworks: metadata.artworks.into_iter().map(__map_artwork).collect(),
                     extras: metadata.extras.into_iter().map(__map_metadata_entry).collect(),
                 }
             }

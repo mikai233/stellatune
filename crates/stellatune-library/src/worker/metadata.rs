@@ -456,7 +456,8 @@ fn apply_runtime_metadata_json(metadata: &JsonValue, out: &mut ExtractedMetadata
         out.duration_ms = metadata.get("duration_ms").and_then(json_u64_to_i64);
     }
     if out.cover.is_none() {
-        out.cover = extract_cover_from_runtime_extras_json(metadata);
+        out.cover = extract_cover_from_runtime_artworks_json(metadata)
+            .or_else(|| extract_cover_from_runtime_extras_json(metadata));
     }
 }
 
@@ -489,6 +490,40 @@ fn extract_cover_from_runtime_extras_json(metadata: &JsonValue) -> Option<Vec<u8
         }
     }
     None
+}
+
+fn extract_cover_from_runtime_artworks_json(metadata: &JsonValue) -> Option<Vec<u8>> {
+    let artworks = metadata.get("artworks")?.as_array()?;
+    let mut fallback = None::<Vec<u8>>;
+    for artwork in artworks {
+        let Some(data) = artwork.get("data").and_then(JsonValue::as_array) else {
+            continue;
+        };
+        let mut bytes = Vec::with_capacity(data.len());
+        for item in data {
+            let byte = item.as_u64()?;
+            if byte > u8::MAX as u64 {
+                return None;
+            }
+            bytes.push(byte as u8);
+        }
+        if bytes.is_empty() || (bytes.len() as u64) > COVER_BYTES_LIMIT {
+            continue;
+        }
+        let kind = artwork
+            .get("kind")
+            .and_then(JsonValue::as_str)
+            .unwrap_or_default()
+            .trim()
+            .to_ascii_lowercase();
+        if kind == "front_cover" || kind == "front-cover" {
+            return Some(bytes);
+        }
+        if fallback.is_none() {
+            fallback = Some(bytes);
+        }
+    }
+    fallback
 }
 
 fn extract_cover_bytes_from_runtime_value(value: &JsonValue) -> Option<Vec<u8>> {

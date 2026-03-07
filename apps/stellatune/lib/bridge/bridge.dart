@@ -209,6 +209,8 @@ class PlayerBridge {
     required String outputPath,
     required String encoderPluginId,
     required String encoderTypeId,
+    required String targetFormatExt,
+    int? targetBitrateKbps,
     required String encoderConfigJson,
     String? encoderOptionsJson,
   }) => api.transcodeTrackLocal(
@@ -218,6 +220,8 @@ class PlayerBridge {
       outputPath: outputPath,
       encoderPluginId: encoderPluginId,
       encoderTypeId: encoderTypeId,
+      targetFormatExt: targetFormatExt,
+      targetBitrateKbps: targetBitrateKbps,
       encoderConfigJson: encoderConfigJson,
       encoderOptionsJson: encoderOptionsJson,
     ),

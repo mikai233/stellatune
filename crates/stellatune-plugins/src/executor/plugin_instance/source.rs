@@ -19,9 +19,10 @@ use crate::executor::{
 use crate::host::stream::HostStreamHandle;
 use crate::manifest::AbilityKind;
 use crate::runtime::model::{
-    PluginDisableReason, RuntimeAudioTags, RuntimeCapabilityDescriptor, RuntimeEncodedAudioFormat,
-    RuntimeEncodedChunk, RuntimeMediaMetadata, RuntimeMetadataEntry, RuntimeMetadataValue,
-    RuntimePluginDirective, RuntimePluginInfo, RuntimeSourceStreamHandle,
+    PluginDisableReason, RuntimeArtwork, RuntimeArtworkKind, RuntimeAudioTags,
+    RuntimeCapabilityDescriptor, RuntimeEncodedAudioFormat, RuntimeEncodedChunk,
+    RuntimeMediaMetadata, RuntimeMetadataEntry, RuntimeMetadataValue, RuntimePluginDirective,
+    RuntimePluginInfo, RuntimeSourceStreamHandle,
 };
 
 use crate::executor::plugin_instance::common::reconcile_with;
@@ -205,6 +206,25 @@ impl WasmtimeSourcePlugin {
                 bitrate_kbps: meta.format.bitrate_kbps,
                 container: meta.format.container,
             },
+            artworks: meta
+                .artworks
+                .into_iter()
+                .map(|artwork| RuntimeArtwork {
+                    kind: match artwork.kind {
+                        source_common::ArtworkKind::FrontCover => RuntimeArtworkKind::FrontCover,
+                        source_common::ArtworkKind::BackCover => RuntimeArtworkKind::BackCover,
+                        source_common::ArtworkKind::Leaflet => RuntimeArtworkKind::Leaflet,
+                        source_common::ArtworkKind::Media => RuntimeArtworkKind::Media,
+                        source_common::ArtworkKind::Artist => RuntimeArtworkKind::Artist,
+                        source_common::ArtworkKind::Other => RuntimeArtworkKind::Other,
+                    },
+                    mime: artwork.mime,
+                    description: artwork.description,
+                    width: artwork.width,
+                    height: artwork.height,
+                    data: artwork.data,
+                })
+                .collect::<Vec<_>>(),
             extras: meta
                 .extras
                 .into_iter()

@@ -4602,6 +4602,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "stellatune-plugin-ffmpeg-common"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "stellatune-plugin-ffmpeg-decoder"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "stellatune-plugin-ffmpeg-common",
+ "stellatune-plugin-sdk",
+]
+
+[[package]]
+name = "stellatune-plugin-ffmpeg-encoder"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "stellatune-plugin-ffmpeg-common",
+ "stellatune-plugin-sdk",
+]
+
+[[package]]
 name = "stellatune-plugin-ncm"
 version = "0.1.0"
 dependencies = [

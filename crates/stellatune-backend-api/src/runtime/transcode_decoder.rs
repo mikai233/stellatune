@@ -3,11 +3,14 @@ use std::collections::HashSet;
 use std::path::Path;
 
 use stellatune_audio_builtin_adapters::builtin_decoder::{
-    BuiltinDecoder, builtin_decoder_score_for_ext, extension_from_path,
+    BuiltinDecoder, BuiltinDecoderMetadata, builtin_decoder_score_for_ext, extension_from_path,
 };
 use stellatune_plugins::host_runtime::RuntimeCapabilityKind;
 use stellatune_plugins::host_runtime::RuntimeDecoderPlugin;
-use stellatune_plugins::runtime::model::{RuntimeMediaMetadata, RuntimePcmF32Chunk};
+use stellatune_plugins::runtime::model::{
+    RuntimeArtwork, RuntimeArtworkKind, RuntimeAudioTags, RuntimeEncodedAudioFormat,
+    RuntimeMediaMetadata, RuntimePcmF32Chunk,
+};
 
 use super::shared_plugin_runtime;
 
@@ -183,34 +186,42 @@ fn runtime_all_plugin_candidates() -> Vec<TranscodeDecoderCandidate> {
 
 fn sort_candidates(candidates: &mut [TranscodeDecoderCandidate]) {
     candidates.sort_by(|a, b| {
-        b.score().cmp(&a.score()).then_with(|| match (a, b) {
-            (
-                TranscodeDecoderCandidate::Builtin { .. },
-                TranscodeDecoderCandidate::Plugin { .. },
-            ) => Ordering::Less,
-            (
-                TranscodeDecoderCandidate::Plugin { .. },
-                TranscodeDecoderCandidate::Builtin { .. },
-            ) => Ordering::Greater,
-            (
-                TranscodeDecoderCandidate::Builtin { .. },
-                TranscodeDecoderCandidate::Builtin { .. },
-            ) => Ordering::Equal,
-            (
-                TranscodeDecoderCandidate::Plugin {
-                    plugin_id: left_plugin_id,
-                    type_id: left_type_id,
-                    ..
-                },
-                TranscodeDecoderCandidate::Plugin {
-                    plugin_id: right_plugin_id,
-                    type_id: right_type_id,
-                    ..
-                },
-            ) => left_plugin_id
-                .cmp(right_plugin_id)
-                .then_with(|| left_type_id.cmp(right_type_id)),
-        })
+        let kind_rank = |value: &TranscodeDecoderCandidate| match value {
+            TranscodeDecoderCandidate::Builtin { .. } => 0_u8,
+            TranscodeDecoderCandidate::Plugin { .. } => 1_u8,
+        };
+
+        kind_rank(a)
+            .cmp(&kind_rank(b))
+            .then_with(|| b.score().cmp(&a.score()))
+            .then_with(|| match (a, b) {
+                (
+                    TranscodeDecoderCandidate::Builtin { .. },
+                    TranscodeDecoderCandidate::Plugin { .. },
+                ) => Ordering::Less,
+                (
+                    TranscodeDecoderCandidate::Plugin { .. },
+                    TranscodeDecoderCandidate::Builtin { .. },
+                ) => Ordering::Greater,
+                (
+                    TranscodeDecoderCandidate::Builtin { .. },
+                    TranscodeDecoderCandidate::Builtin { .. },
+                ) => Ordering::Equal,
+                (
+                    TranscodeDecoderCandidate::Plugin {
+                        plugin_id: left_plugin_id,
+                        type_id: left_type_id,
+                        ..
+                    },
+                    TranscodeDecoderCandidate::Plugin {
+                        plugin_id: right_plugin_id,
+                        type_id: right_type_id,
+                        ..
+                    },
+                ) => left_plugin_id
+                    .cmp(right_plugin_id)
+                    .then_with(|| left_type_id.cmp(right_type_id)),
+            })
     });
 }
 
@@ -218,6 +229,7 @@ fn open_builtin_decoder(path: &str) -> Result<BuiltinTranscodeDecoder, String> {
     let decoder = BuiltinDecoder::open(path)?;
     let spec = decoder.spec();
     let duration_ms = decoder.duration_ms_hint();
+    let metadata = map_builtin_decoder_metadata(path, spec, duration_ms, decoder.metadata());
     if spec.sample_rate == 0 || spec.channels == 0 {
         return Err(format!(
             "builtin decoder returned invalid stream spec: sample_rate={} channels={}",
@@ -230,10 +242,83 @@ fn open_builtin_decoder(path: &str) -> Result<BuiltinTranscodeDecoder, String> {
             sample_rate: spec.sample_rate,
             channels: spec.channels,
             duration_ms,
-            metadata: None,
+            metadata,
             decoder_plugin_id: None,
             decoder_type_id: None,
         },
+    })
+}
+
+fn map_builtin_decoder_metadata(
+    path: &str,
+    spec: stellatune_audio_core::pipeline::context::StreamSpec,
+    duration_ms: Option<u64>,
+    metadata: BuiltinDecoderMetadata,
+) -> Option<RuntimeMediaMetadata> {
+    let has_tags = metadata.title.is_some()
+        || metadata.album.is_some()
+        || !metadata.artists.is_empty()
+        || !metadata.album_artists.is_empty()
+        || !metadata.genres.is_empty()
+        || metadata.track_number.is_some()
+        || metadata.track_total.is_some()
+        || metadata.disc_number.is_some()
+        || metadata.disc_total.is_some()
+        || metadata.year.is_some()
+        || metadata.comment.is_some();
+    let has_cover = metadata
+        .cover_data
+        .as_ref()
+        .is_some_and(|bytes| !bytes.is_empty());
+
+    if !has_tags && !has_cover {
+        return None;
+    }
+
+    let artworks = match metadata.cover_data {
+        Some(bytes) if !bytes.is_empty() => vec![RuntimeArtwork {
+            kind: RuntimeArtworkKind::FrontCover,
+            mime: metadata
+                .cover_mime
+                .filter(|v| !v.trim().is_empty())
+                .unwrap_or_else(|| "image/jpeg".to_string()),
+            description: None,
+            width: None,
+            height: None,
+            data: bytes,
+        }],
+        _ => Vec::new(),
+    };
+    let ext = extension_from_path(path);
+    let codec = if ext.is_empty() {
+        "builtin".to_string()
+    } else {
+        ext.clone()
+    };
+    Some(RuntimeMediaMetadata {
+        tags: RuntimeAudioTags {
+            title: metadata.title,
+            album: metadata.album,
+            artists: metadata.artists,
+            album_artists: metadata.album_artists,
+            genres: metadata.genres,
+            track_number: metadata.track_number,
+            track_total: metadata.track_total,
+            disc_number: metadata.disc_number,
+            disc_total: metadata.disc_total,
+            year: metadata.year,
+            comment: metadata.comment,
+        },
+        duration_ms,
+        format: RuntimeEncodedAudioFormat {
+            codec,
+            sample_rate: Some(spec.sample_rate),
+            channels: Some(spec.channels),
+            bitrate_kbps: None,
+            container: (!ext.is_empty()).then_some(ext),
+        },
+        artworks,
+        extras: Vec::new(),
     })
 }
 
@@ -380,5 +465,48 @@ impl TranscodeDecoderSession for PluginTranscodeDecoder {
 impl Drop for PluginTranscodeDecoder {
     fn drop(&mut self) {
         let _ = self.close();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::open_local_transcode_decoder;
+
+    #[test]
+    fn debug_transcode_decoder_from_env() {
+        let Some(path) = std::env::var_os("STELLATUNE_DEBUG_METADATA_PATH") else {
+            eprintln!("skip: STELLATUNE_DEBUG_METADATA_PATH is not set");
+            return;
+        };
+        let path = path.to_string_lossy().to_string();
+        let mut decoder = open_local_transcode_decoder(path.as_str()).expect("open decoder");
+        let info = decoder.info();
+        eprintln!(
+            "decoder plugin={:?} type={:?} sample_rate={} channels={} duration_ms={:?}",
+            info.decoder_plugin_id,
+            info.decoder_type_id,
+            info.sample_rate,
+            info.channels,
+            info.duration_ms
+        );
+        let metadata = info.metadata.as_ref();
+        eprintln!(
+            "metadata present={} title={:?} album={:?} artists={:?} track={:?}/{:?} disc={:?}/{:?} year={:?} comment_len={} artworks={}",
+            metadata.is_some(),
+            metadata.and_then(|m| m.tags.title.clone()),
+            metadata.and_then(|m| m.tags.album.clone()),
+            metadata.map(|m| m.tags.artists.clone()).unwrap_or_default(),
+            metadata.and_then(|m| m.tags.track_number),
+            metadata.and_then(|m| m.tags.track_total),
+            metadata.and_then(|m| m.tags.disc_number),
+            metadata.and_then(|m| m.tags.disc_total),
+            metadata.and_then(|m| m.tags.year),
+            metadata
+                .and_then(|m| m.tags.comment.as_ref().map(|v| v.len()))
+                .unwrap_or(0),
+            metadata.map(|m| m.artworks.len()).unwrap_or(0)
+        );
+        assert!(metadata.is_some(), "transcode decoder metadata is empty");
+        decoder.close().expect("close decoder");
     }
 }

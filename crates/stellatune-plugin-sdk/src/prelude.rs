@@ -5,10 +5,10 @@ pub use crate::capabilities::{
     OutputSinkSession, SourceCatalog, SourcePlugin, SourceStream,
 };
 pub use crate::common::{
-    AudioSpec, AudioTags, BufferLayout, ConfigUpdateMode, ConfigUpdatePlan, CoreModuleSpec,
-    DecoderInfo, DisableReason, EncodedAudioFormat, EncodedChunk, HotPathRole, LyricCandidate,
-    MediaMetadata, MetadataEntry, MetadataValue, NegotiatedSpec, OutputSinkStatus, PcmF32Chunk,
-    SampleFormat, SeekWhence,
+    Artwork, ArtworkKind, AudioSpec, AudioTags, BufferLayout, ConfigUpdateMode, ConfigUpdatePlan,
+    CoreModuleSpec, DecoderInfo, DisableReason, EncodedAudioFormat, EncodedChunk, HotPathRole,
+    LyricCandidate, MediaMetadata, MetadataEntry, MetadataValue, NegotiatedSpec, OutputSinkStatus,
+    PcmF32Chunk, SampleFormat, SeekWhence,
 };
 pub use crate::error::{SdkError, SdkResult};
 pub use crate::export::{ComponentExport, ComponentExportMetadata};

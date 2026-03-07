@@ -382,6 +382,19 @@ pub async fn encoder_list_types() -> Vec<EncoderTypeDescriptor> {
             display_name: item.display_name,
             config_schema_json: item.config_schema_json,
             default_config_json: item.default_config_json,
+            target_formats: item
+                .target_formats
+                .into_iter()
+                .map(|format| types::TranscodeTargetFormatDescriptor {
+                    ext: format.ext,
+                    label: format.label,
+                    lossless: format.lossless,
+                    bitrate_choices_kbps: format.bitrate_choices_kbps,
+                    default_bitrate_kbps: format.default_bitrate_kbps,
+                    options_schema_json: format.options_schema_json,
+                    default_options_json: format.default_options_json,
+                })
+                .collect(),
         })
         .collect()
 }
@@ -747,17 +760,22 @@ pub struct TranscodeTrackLocalRequest {
     pub output_path: String,
     pub encoder_plugin_id: String,
     pub encoder_type_id: String,
+    pub target_format_ext: String,
+    pub target_bitrate_kbps: Option<u32>,
     pub encoder_config_json: String,
     pub encoder_options_json: Option<String>,
 }
 
 impl TranscodeTrackLocalRequest {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         task_id: String,
         source_path: String,
         output_path: String,
         encoder_plugin_id: String,
         encoder_type_id: String,
+        target_format_ext: String,
+        target_bitrate_kbps: Option<u32>,
         encoder_config_json: String,
         encoder_options_json: Option<String>,
     ) -> Result<Self> {
@@ -766,6 +784,10 @@ impl TranscodeTrackLocalRequest {
         let output_path = output_path.trim().to_string();
         let encoder_plugin_id = encoder_plugin_id.trim().to_string();
         let encoder_type_id = encoder_type_id.trim().to_string();
+        let target_format_ext = target_format_ext
+            .trim()
+            .trim_start_matches('.')
+            .to_ascii_lowercase();
         if task_id.is_empty() {
             return Err(anyhow!("task_id is empty"));
         }
@@ -781,12 +803,17 @@ impl TranscodeTrackLocalRequest {
         if encoder_type_id.is_empty() {
             return Err(anyhow!("encoder_type_id is empty"));
         }
+        if target_format_ext.is_empty() {
+            return Err(anyhow!("target_format_ext is empty"));
+        }
         Ok(Self {
             task_id,
             source_path,
             output_path,
             encoder_plugin_id,
             encoder_type_id,
+            target_format_ext,
+            target_bitrate_kbps: target_bitrate_kbps.filter(|value| *value > 0),
             encoder_config_json,
             encoder_options_json,
         })
@@ -809,6 +836,8 @@ pub fn transcode_track_local(
         request.output_path,
         request.encoder_plugin_id,
         request.encoder_type_id,
+        request.target_format_ext,
+        request.target_bitrate_kbps,
         request.encoder_config_json,
         request.encoder_options_json,
     )?;
@@ -859,6 +888,8 @@ fn run_transcode_track_local_blocking(context: TranscodeTaskContext) {
                 output_path,
                 encoder_plugin_id,
                 encoder_type_id,
+                target_format_ext,
+                target_bitrate_kbps,
                 encoder_config_json,
                 encoder_options_json,
             },
@@ -916,6 +947,8 @@ fn run_transcode_track_local_blocking(context: TranscodeTaskContext) {
             decoder_info.metadata.clone(),
             encoder_config_json.as_str(),
             encoder_options_json.as_deref(),
+            Some(target_format_ext.as_str()),
+            target_bitrate_kbps,
         )
         .map_err(|error| anyhow!("failed to open local transcode encoder: {error}"))?;
 

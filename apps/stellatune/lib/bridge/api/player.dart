@@ -250,6 +250,8 @@ class TranscodeTrackLocalRequest {
   final String outputPath;
   final String encoderPluginId;
   final String encoderTypeId;
+  final String targetFormatExt;
+  final int? targetBitrateKbps;
   final String encoderConfigJson;
   final String? encoderOptionsJson;
 
@@ -259,6 +261,8 @@ class TranscodeTrackLocalRequest {
     required this.outputPath,
     required this.encoderPluginId,
     required this.encoderTypeId,
+    required this.targetFormatExt,
+    this.targetBitrateKbps,
     required this.encoderConfigJson,
     this.encoderOptionsJson,
   });
@@ -270,6 +274,8 @@ class TranscodeTrackLocalRequest {
       outputPath.hashCode ^
       encoderPluginId.hashCode ^
       encoderTypeId.hashCode ^
+      targetFormatExt.hashCode ^
+      targetBitrateKbps.hashCode ^
       encoderConfigJson.hashCode ^
       encoderOptionsJson.hashCode;
 
@@ -283,6 +289,8 @@ class TranscodeTrackLocalRequest {
           outputPath == other.outputPath &&
           encoderPluginId == other.encoderPluginId &&
           encoderTypeId == other.encoderTypeId &&
+          targetFormatExt == other.targetFormatExt &&
+          targetBitrateKbps == other.targetBitrateKbps &&
           encoderConfigJson == other.encoderConfigJson &&
           encoderOptionsJson == other.encoderOptionsJson;
 }

@@ -54,10 +54,29 @@ interface common {
         value: metadata-value,
     }
 
+    enum artwork-kind {
+        front-cover,
+        back-cover,
+        leaflet,
+        media,
+        artist,
+        other,
+    }
+
+    record artwork {
+        kind: artwork-kind,
+        mime: string,
+        description: option<string>,
+        width: option<u32>,
+        height: option<u32>,
+        data: list<u8>,
+    }
+
     record media-metadata {
         tags: audio-tags,
         duration-ms: option<u64>,
         format: encoded-audio-format,
+        artworks: list<artwork>,
         extras: list<metadata-entry>,
     }
 

@@ -19,10 +19,10 @@ use crate::executor::{
 };
 use crate::manifest::AbilityKind;
 use crate::runtime::model::{
-    PluginDisableReason, RuntimeAudioTags, RuntimeCapabilityDescriptor, RuntimeDecoderInfo,
-    RuntimeDecoderSessionHandle, RuntimeEncodedAudioFormat, RuntimeMediaMetadata,
-    RuntimeMetadataEntry, RuntimeMetadataValue, RuntimePcmF32Chunk, RuntimePluginDirective,
-    RuntimePluginInfo,
+    PluginDisableReason, RuntimeArtwork, RuntimeArtworkKind, RuntimeAudioTags,
+    RuntimeCapabilityDescriptor, RuntimeDecoderInfo, RuntimeDecoderSessionHandle,
+    RuntimeEncodedAudioFormat, RuntimeMediaMetadata, RuntimeMetadataEntry, RuntimeMetadataValue,
+    RuntimePcmF32Chunk, RuntimePluginDirective, RuntimePluginInfo,
 };
 
 use crate::executor::plugin_instance::common::{map_decoder_plugin_error, reconcile_with};
@@ -77,6 +77,25 @@ macro_rules! runtime_media_metadata_from_decoder {
                 bitrate_kbps: meta.format.bitrate_kbps,
                 container: meta.format.container,
             },
+            artworks: meta
+                .artworks
+                .into_iter()
+                .map(|artwork| RuntimeArtwork {
+                    kind: match artwork.kind {
+                        decoder_common::ArtworkKind::FrontCover => RuntimeArtworkKind::FrontCover,
+                        decoder_common::ArtworkKind::BackCover => RuntimeArtworkKind::BackCover,
+                        decoder_common::ArtworkKind::Leaflet => RuntimeArtworkKind::Leaflet,
+                        decoder_common::ArtworkKind::Media => RuntimeArtworkKind::Media,
+                        decoder_common::ArtworkKind::Artist => RuntimeArtworkKind::Artist,
+                        decoder_common::ArtworkKind::Other => RuntimeArtworkKind::Other,
+                    },
+                    mime: artwork.mime,
+                    description: artwork.description,
+                    width: artwork.width,
+                    height: artwork.height,
+                    data: artwork.data,
+                })
+                .collect::<Vec<_>>(),
             extras: meta
                 .extras
                 .into_iter()

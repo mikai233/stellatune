@@ -26,7 +26,7 @@
 // Section: imports
 
 use flutter_rust_bridge::for_generated::byteorder::{NativeEndian, ReadBytesExt, WriteBytesExt};
-use flutter_rust_bridge::for_generated::{transform_result_dco, Lifetimeable, Lockable};
+use flutter_rust_bridge::for_generated::{Lifetimeable, Lockable, transform_result_dco};
 use flutter_rust_bridge::{Handler, IntoIntoDart};
 
 // Section: boilerplate
@@ -4232,6 +4232,10 @@ impl SseDecode for crate::api::player::types::EncoderTypeDescriptor {
         let mut var_displayName = <String>::sse_decode(deserializer);
         let mut var_configSchemaJson = <String>::sse_decode(deserializer);
         let mut var_defaultConfigJson = <String>::sse_decode(deserializer);
+        let mut var_targetFormats =
+            <Vec<crate::api::player::types::TranscodeTargetFormatDescriptor>>::sse_decode(
+                deserializer,
+            );
         return crate::api::player::types::EncoderTypeDescriptor {
             plugin_id: var_pluginId,
             plugin_name: var_pluginName,
@@ -4239,6 +4243,7 @@ impl SseDecode for crate::api::player::types::EncoderTypeDescriptor {
             display_name: var_displayName,
             config_schema_json: var_configSchemaJson,
             default_config_json: var_defaultConfigJson,
+            target_formats: var_targetFormats,
         };
     }
 }
@@ -4578,6 +4583,18 @@ impl SseDecode for Vec<i64> {
     }
 }
 
+impl SseDecode for Vec<u32> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = vec![];
+        for idx_ in 0..len_ {
+            ans_.push(<u32>::sse_decode(deserializer));
+        }
+        return ans_;
+    }
+}
+
 impl SseDecode for Vec<u8> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -4611,6 +4628,22 @@ impl SseDecode for Vec<stellatune_library::TrackLite> {
         let mut ans_ = vec![];
         for idx_ in 0..len_ {
             ans_.push(<stellatune_library::TrackLite>::sse_decode(deserializer));
+        }
+        return ans_;
+    }
+}
+
+impl SseDecode for Vec<crate::api::player::types::TranscodeTargetFormatDescriptor> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = vec![];
+        for idx_ in 0..len_ {
+            ans_.push(
+                <crate::api::player::types::TranscodeTargetFormatDescriptor>::sse_decode(
+                    deserializer,
+                ),
+            );
         }
         return ans_;
     }
@@ -5019,6 +5052,28 @@ impl SseDecode for crate::api::player::types::TranscodeProgressEvent {
     }
 }
 
+impl SseDecode for crate::api::player::types::TranscodeTargetFormatDescriptor {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_ext = <String>::sse_decode(deserializer);
+        let mut var_label = <String>::sse_decode(deserializer);
+        let mut var_lossless = <bool>::sse_decode(deserializer);
+        let mut var_bitrateChoicesKbps = <Vec<u32>>::sse_decode(deserializer);
+        let mut var_defaultBitrateKbps = <Option<u32>>::sse_decode(deserializer);
+        let mut var_optionsSchemaJson = <Option<String>>::sse_decode(deserializer);
+        let mut var_defaultOptionsJson = <Option<String>>::sse_decode(deserializer);
+        return crate::api::player::types::TranscodeTargetFormatDescriptor {
+            ext: var_ext,
+            label: var_label,
+            lossless: var_lossless,
+            bitrate_choices_kbps: var_bitrateChoicesKbps,
+            default_bitrate_kbps: var_defaultBitrateKbps,
+            options_schema_json: var_optionsSchemaJson,
+            default_options_json: var_defaultOptionsJson,
+        };
+    }
+}
+
 impl SseDecode for crate::api::player::TranscodeTrackLocalRequest {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -5027,6 +5082,8 @@ impl SseDecode for crate::api::player::TranscodeTrackLocalRequest {
         let mut var_outputPath = <String>::sse_decode(deserializer);
         let mut var_encoderPluginId = <String>::sse_decode(deserializer);
         let mut var_encoderTypeId = <String>::sse_decode(deserializer);
+        let mut var_targetFormatExt = <String>::sse_decode(deserializer);
+        let mut var_targetBitrateKbps = <Option<u32>>::sse_decode(deserializer);
         let mut var_encoderConfigJson = <String>::sse_decode(deserializer);
         let mut var_encoderOptionsJson = <Option<String>>::sse_decode(deserializer);
         return crate::api::player::TranscodeTrackLocalRequest {
@@ -5035,6 +5092,8 @@ impl SseDecode for crate::api::player::TranscodeTrackLocalRequest {
             output_path: var_outputPath,
             encoder_plugin_id: var_encoderPluginId,
             encoder_type_id: var_encoderTypeId,
+            target_format_ext: var_targetFormatExt,
+            target_bitrate_kbps: var_targetBitrateKbps,
             encoder_config_json: var_encoderConfigJson,
             encoder_options_json: var_encoderOptionsJson,
         };
@@ -5685,6 +5744,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::player::types::EncoderTypeDes
             self.display_name.into_into_dart().into_dart(),
             self.config_schema_json.into_into_dart().into_dart(),
             self.default_config_json.into_into_dart().into_dart(),
+            self.target_formats.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -6277,6 +6337,32 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::player::types::TranscodeProgr
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::player::types::TranscodeTargetFormatDescriptor {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.ext.into_into_dart().into_dart(),
+            self.label.into_into_dart().into_dart(),
+            self.lossless.into_into_dart().into_dart(),
+            self.bitrate_choices_kbps.into_into_dart().into_dart(),
+            self.default_bitrate_kbps.into_into_dart().into_dart(),
+            self.options_schema_json.into_into_dart().into_dart(),
+            self.default_options_json.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::player::types::TranscodeTargetFormatDescriptor
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::player::types::TranscodeTargetFormatDescriptor>
+    for crate::api::player::types::TranscodeTargetFormatDescriptor
+{
+    fn into_into_dart(self) -> crate::api::player::types::TranscodeTargetFormatDescriptor {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::api::player::TranscodeTrackLocalRequest {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
@@ -6285,6 +6371,8 @@ impl flutter_rust_bridge::IntoDart for crate::api::player::TranscodeTrackLocalRe
             self.output_path.into_into_dart().into_dart(),
             self.encoder_plugin_id.into_into_dart().into_dart(),
             self.encoder_type_id.into_into_dart().into_dart(),
+            self.target_format_ext.into_into_dart().into_dart(),
+            self.target_bitrate_kbps.into_into_dart().into_dart(),
             self.encoder_config_json.into_into_dart().into_dart(),
             self.encoder_options_json.into_into_dart().into_dart(),
         ]
@@ -6469,6 +6557,10 @@ impl SseEncode for crate::api::player::types::EncoderTypeDescriptor {
         <String>::sse_encode(self.display_name, serializer);
         <String>::sse_encode(self.config_schema_json, serializer);
         <String>::sse_encode(self.default_config_json, serializer);
+        <Vec<crate::api::player::types::TranscodeTargetFormatDescriptor>>::sse_encode(
+            self.target_formats,
+            serializer,
+        );
     }
 }
 
@@ -6751,6 +6843,16 @@ impl SseEncode for Vec<i64> {
     }
 }
 
+impl SseEncode for Vec<u32> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <u32>::sse_encode(item, serializer);
+        }
+    }
+}
+
 impl SseEncode for Vec<u8> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -6777,6 +6879,18 @@ impl SseEncode for Vec<stellatune_library::TrackLite> {
         <i32>::sse_encode(self.len() as _, serializer);
         for item in self {
             <stellatune_library::TrackLite>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<crate::api::player::types::TranscodeTargetFormatDescriptor> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::player::types::TranscodeTargetFormatDescriptor>::sse_encode(
+                item, serializer,
+            );
         }
     }
 }
@@ -7070,6 +7184,19 @@ impl SseEncode for crate::api::player::types::TranscodeProgressEvent {
     }
 }
 
+impl SseEncode for crate::api::player::types::TranscodeTargetFormatDescriptor {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.ext, serializer);
+        <String>::sse_encode(self.label, serializer);
+        <bool>::sse_encode(self.lossless, serializer);
+        <Vec<u32>>::sse_encode(self.bitrate_choices_kbps, serializer);
+        <Option<u32>>::sse_encode(self.default_bitrate_kbps, serializer);
+        <Option<String>>::sse_encode(self.options_schema_json, serializer);
+        <Option<String>>::sse_encode(self.default_options_json, serializer);
+    }
+}
+
 impl SseEncode for crate::api::player::TranscodeTrackLocalRequest {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -7078,6 +7205,8 @@ impl SseEncode for crate::api::player::TranscodeTrackLocalRequest {
         <String>::sse_encode(self.output_path, serializer);
         <String>::sse_encode(self.encoder_plugin_id, serializer);
         <String>::sse_encode(self.encoder_type_id, serializer);
+        <String>::sse_encode(self.target_format_ext, serializer);
+        <Option<u32>>::sse_encode(self.target_bitrate_kbps, serializer);
         <String>::sse_encode(self.encoder_config_json, serializer);
         <Option<String>>::sse_encode(self.encoder_options_json, serializer);
     }
@@ -7127,7 +7256,7 @@ mod io {
     use flutter_rust_bridge::for_generated::byteorder::{
         NativeEndian, ReadBytesExt, WriteBytesExt,
     };
-    use flutter_rust_bridge::for_generated::{transform_result_dco, Lifetimeable, Lockable};
+    use flutter_rust_bridge::for_generated::{Lifetimeable, Lockable, transform_result_dco};
     use flutter_rust_bridge::{Handler, IntoIntoDart};
 
     // Section: boilerplate
@@ -7151,7 +7280,7 @@ mod web {
     };
     use flutter_rust_bridge::for_generated::wasm_bindgen;
     use flutter_rust_bridge::for_generated::wasm_bindgen::prelude::*;
-    use flutter_rust_bridge::for_generated::{transform_result_dco, Lifetimeable, Lockable};
+    use flutter_rust_bridge::for_generated::{Lifetimeable, Lockable, transform_result_dco};
     use flutter_rust_bridge::{Handler, IntoIntoDart};
 
     // Section: boilerplate

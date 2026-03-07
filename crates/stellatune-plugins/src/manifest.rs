@@ -8,6 +8,7 @@ use tracing::warn;
 pub const PLUGIN_MANIFEST_FILE_NAME: &str = "plugin.json";
 pub const INSTALL_RECEIPT_FILE_NAME: &str = ".install.json";
 pub const UNINSTALL_PENDING_MARKER_FILE_NAME: &str = ".uninstall-pending";
+pub const SUPPORTED_PLUGIN_API_VERSION: u32 = 1;
 const DELETE_FAILED_RETRY_THRESHOLD: u32 = 3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -44,6 +45,29 @@ pub struct DecoderAbilitySpec {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct EncoderFormatSpec {
+    pub ext: String,
+    #[serde(default)]
+    pub label: Option<String>,
+    #[serde(default)]
+    pub lossless: bool,
+    #[serde(default)]
+    pub bitrate_choices_kbps: Vec<u32>,
+    #[serde(default)]
+    pub default_bitrate_kbps: Option<u32>,
+    #[serde(default)]
+    pub options_schema_json: Option<String>,
+    #[serde(default)]
+    pub default_options_json: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub struct EncoderAbilitySpec {
+    #[serde(default)]
+    pub formats: Vec<EncoderFormatSpec>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct AbilitySpec {
     pub kind: AbilityKind,
     pub type_id: String,
@@ -55,6 +79,8 @@ pub struct AbilitySpec {
     pub default_config_json: Option<String>,
     #[serde(default)]
     pub decoder: Option<DecoderAbilitySpec>,
+    #[serde(default)]
+    pub encoder: Option<EncoderAbilitySpec>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -175,6 +201,13 @@ pub fn validate_manifest(manifest: &WasmPluginManifest, root_dir: &Path) -> Resu
     if manifest.version.trim().is_empty() {
         return Err(crate::op_error!("manifest.version is empty"));
     }
+    if manifest.api_version != SUPPORTED_PLUGIN_API_VERSION {
+        return Err(crate::op_error!(
+            "unsupported plugin api_version: {} (supported={})",
+            manifest.api_version,
+            SUPPORTED_PLUGIN_API_VERSION
+        ));
+    }
     if manifest.components.is_empty() {
         return Err(crate::op_error!("manifest.components is empty"));
     }
@@ -281,6 +314,77 @@ pub fn validate_manifest(manifest: &WasmPluginManifest, root_dir: &Path) -> Resu
                         return Err(crate::op_error!(
                             "component `{component_id}` decoder ability `{type_id}` has duplicate decoder rule ext `{normalized}`"
                         ));
+                    }
+                }
+            }
+            if ability.kind != AbilityKind::Encoder {
+                if ability.encoder.is_some() {
+                    return Err(crate::op_error!(
+                        "component `{component_id}` ability `{type_id}` has encoder rules but kind is not encoder"
+                    ));
+                }
+            } else if let Some(encoder) = ability.encoder.as_ref() {
+                let mut seen_ext = HashSet::<String>::new();
+                for format in &encoder.formats {
+                    let ext = format
+                        .ext
+                        .trim()
+                        .trim_start_matches('.')
+                        .to_ascii_lowercase();
+                    if ext.is_empty() || ext == "*" {
+                        return Err(crate::op_error!(
+                            "component `{component_id}` encoder ability `{type_id}` has invalid format ext `{}`",
+                            format.ext
+                        ));
+                    }
+                    if !seen_ext.insert(ext.clone()) {
+                        return Err(crate::op_error!(
+                            "component `{component_id}` encoder ability `{type_id}` has duplicate format ext `{ext}`"
+                        ));
+                    }
+                    if format
+                        .label
+                        .as_ref()
+                        .is_some_and(|label| label.trim().is_empty())
+                    {
+                        return Err(crate::op_error!(
+                            "component `{component_id}` encoder ability `{type_id}` has empty format label for `{ext}`"
+                        ));
+                    }
+                    if let Some(default_bitrate) = format.default_bitrate_kbps {
+                        if default_bitrate == 0 {
+                            return Err(crate::op_error!(
+                                "component `{component_id}` encoder ability `{type_id}` has invalid default bitrate for `{ext}`"
+                            ));
+                        }
+                        if !format.bitrate_choices_kbps.is_empty()
+                            && !format.bitrate_choices_kbps.contains(&default_bitrate)
+                        {
+                            return Err(crate::op_error!(
+                                "component `{component_id}` encoder ability `{type_id}` default bitrate is not in bitrate_choices for `{ext}`"
+                            ));
+                        }
+                    }
+                    if format.bitrate_choices_kbps.contains(&0) {
+                        return Err(crate::op_error!(
+                            "component `{component_id}` encoder ability `{type_id}` has invalid bitrate choice 0 for `{ext}`"
+                        ));
+                    }
+                    if let Some(schema) = format.options_schema_json.as_deref() {
+                        serde_json::from_str::<serde_json::Value>(schema).map_err(|error| {
+                            crate::op_error!(
+                                "component `{component_id}` encoder ability `{type_id}` options_schema_json is not valid json for `{ext}`: {error}"
+                            )
+                        })?;
+                    }
+                    if let Some(default_options) = format.default_options_json.as_deref() {
+                        serde_json::from_str::<serde_json::Value>(default_options).map_err(
+                            |error| {
+                                crate::op_error!(
+                                    "component `{component_id}` encoder ability `{type_id}` default_options_json is not valid json for `{ext}`: {error}"
+                                )
+                            },
+                        )?;
                     }
                 }
             }

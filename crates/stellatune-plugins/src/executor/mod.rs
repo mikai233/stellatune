@@ -14,10 +14,10 @@ use wasmtime_wasi::{ResourceTable, WasiCtx, WasiCtxBuilder};
 use stellatune_host_bindings as wasm_host;
 use stellatune_host_bindings::generated::decoder_plugin::DecoderPlugin as DecoderPluginBinding;
 use stellatune_host_bindings::generated::decoder_plugin::exports::stellatune::plugin::lifecycle as decoder_lifecycle;
-use stellatune_host_bindings::generated::encoder_plugin::EncoderPlugin as EncoderPluginBinding;
-use stellatune_host_bindings::generated::encoder_plugin::exports::stellatune::plugin::lifecycle as encoder_lifecycle;
 use stellatune_host_bindings::generated::dsp_plugin::DspPlugin as DspPluginBinding;
 use stellatune_host_bindings::generated::dsp_plugin::exports::stellatune::plugin::lifecycle as dsp_lifecycle;
+use stellatune_host_bindings::generated::encoder_plugin::EncoderPlugin as EncoderPluginBinding;
+use stellatune_host_bindings::generated::encoder_plugin::exports::stellatune::plugin::lifecycle as encoder_lifecycle;
 use stellatune_host_bindings::generated::lyrics_plugin::LyricsPlugin as LyricsPluginBinding;
 use stellatune_host_bindings::generated::lyrics_plugin::exports::stellatune::plugin::lifecycle as lyrics_lifecycle;
 use stellatune_host_bindings::generated::output_sink_plugin::OutputSinkPlugin as OutputSinkPluginBinding;
@@ -52,8 +52,8 @@ pub trait WasmPluginController: Send + Sync {
 
 mod stores;
 use stores::decoder::DecoderStoreData;
-use stores::encoder::EncoderStoreData;
 use stores::dsp::DspStoreData;
+use stores::encoder::EncoderStoreData;
 use stores::lyrics::LyricsStoreData;
 use stores::output_sink::OutputSinkStoreData;
 use stores::source::SourceStoreData;

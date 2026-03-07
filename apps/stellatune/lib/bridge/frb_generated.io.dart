@@ -184,6 +184,9 @@ abstract class StellatuneApiApiImplPlatform
   Int64List dco_decode_list_prim_i_64_strict(dynamic raw);
 
   @protected
+  Uint32List dco_decode_list_prim_u_32_strict(dynamic raw);
+
+  @protected
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw);
 
   @protected
@@ -192,6 +195,10 @@ abstract class StellatuneApiApiImplPlatform
 
   @protected
   List<TrackLite> dco_decode_list_track_lite(dynamic raw);
+
+  @protected
+  List<TranscodeTargetFormatDescriptor>
+  dco_decode_list_transcode_target_format_descriptor(dynamic raw);
 
   @protected
   LyricLine dco_decode_lyric_line(dynamic raw);
@@ -265,6 +272,11 @@ abstract class StellatuneApiApiImplPlatform
 
   @protected
   TranscodeProgressEvent dco_decode_transcode_progress_event(dynamic raw);
+
+  @protected
+  TranscodeTargetFormatDescriptor dco_decode_transcode_target_format_descriptor(
+    dynamic raw,
+  );
 
   @protected
   TranscodeTrackLocalRequest dco_decode_transcode_track_local_request(
@@ -476,6 +488,9 @@ abstract class StellatuneApiApiImplPlatform
   Int64List sse_decode_list_prim_i_64_strict(SseDeserializer deserializer);
 
   @protected
+  Uint32List sse_decode_list_prim_u_32_strict(SseDeserializer deserializer);
+
+  @protected
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer);
 
   @protected
@@ -484,6 +499,12 @@ abstract class StellatuneApiApiImplPlatform
 
   @protected
   List<TrackLite> sse_decode_list_track_lite(SseDeserializer deserializer);
+
+  @protected
+  List<TranscodeTargetFormatDescriptor>
+  sse_decode_list_transcode_target_format_descriptor(
+    SseDeserializer deserializer,
+  );
 
   @protected
   LyricLine sse_decode_lyric_line(SseDeserializer deserializer);
@@ -563,6 +584,11 @@ abstract class StellatuneApiApiImplPlatform
 
   @protected
   TranscodeProgressEvent sse_decode_transcode_progress_event(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  TranscodeTargetFormatDescriptor sse_decode_transcode_target_format_descriptor(
     SseDeserializer deserializer,
   );
 
@@ -827,6 +853,12 @@ abstract class StellatuneApiApiImplPlatform
   );
 
   @protected
+  void sse_encode_list_prim_u_32_strict(
+    Uint32List self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_prim_u_8_strict(
     Uint8List self,
     SseSerializer serializer,
@@ -841,6 +873,12 @@ abstract class StellatuneApiApiImplPlatform
   @protected
   void sse_encode_list_track_lite(
     List<TrackLite> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_transcode_target_format_descriptor(
+    List<TranscodeTargetFormatDescriptor> self,
     SseSerializer serializer,
   );
 
@@ -943,6 +981,12 @@ abstract class StellatuneApiApiImplPlatform
   @protected
   void sse_encode_transcode_progress_event(
     TranscodeProgressEvent self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_transcode_target_format_descriptor(
+    TranscodeTargetFormatDescriptor self,
     SseSerializer serializer,
   );
 

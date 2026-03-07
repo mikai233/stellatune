@@ -947,6 +947,7 @@ fn build_track_metadata(track: &NeteaseTrack, codec: &str) -> MediaMetadata {
             bitrate_kbps: None,
             container: None,
         },
+        artworks: Vec::new(),
         extras: vec![MetadataEntry {
             key: "song_id".to_string(),
             value: MetadataValue::Uint64(track.song_id),

@@ -1,0 +1,17 @@
+[package]
+name = "stellatune-plugin-ffmpeg-encoder"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+stellatune-plugin-ffmpeg-common = { path = "../common" }
+stellatune-plugin-sdk.workspace = true
+
+[lints]
+workspace = true

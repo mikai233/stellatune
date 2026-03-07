@@ -10,7 +10,7 @@ use symphonia::core::errors::Error as SymphoniaError;
 use symphonia::core::formats::{FormatOptions, FormatReader};
 use symphonia::core::formats::{SeekMode, SeekTo};
 use symphonia::core::io::{MediaSourceStream, MediaSourceStreamOptions};
-use symphonia::core::meta::MetadataOptions;
+use symphonia::core::meta::{MetadataOptions, StandardVisualKey, Value};
 use symphonia::core::probe::Hint;
 use symphonia::core::units::{Time, TimeBase};
 
@@ -148,12 +148,30 @@ pub fn builtin_decoder_supported_extensions() -> Vec<String> {
     out
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct BuiltinDecoderMetadata {
+    pub title: Option<String>,
+    pub album: Option<String>,
+    pub artists: Vec<String>,
+    pub album_artists: Vec<String>,
+    pub genres: Vec<String>,
+    pub track_number: Option<u32>,
+    pub track_total: Option<u32>,
+    pub disc_number: Option<u32>,
+    pub disc_total: Option<u32>,
+    pub year: Option<u32>,
+    pub comment: Option<String>,
+    pub cover_data: Option<Vec<u8>>,
+    pub cover_mime: Option<String>,
+}
+
 pub struct BuiltinDecoder {
     format: Box<dyn FormatReader>,
     decoder: Box<dyn SymphoniaDecoder>,
     track_id: u32,
     spec: StreamSpec,
     duration_ms_hint: Option<u64>,
+    metadata: BuiltinDecoderMetadata,
     encoder_delay_frames: u32,
     encoder_padding_frames: u32,
     sample_buf: Option<SampleBuffer<f32>>,
@@ -180,7 +198,7 @@ impl BuiltinDecoder {
         let file = File::open(path).map_err(|e| format!("failed to open `{path}`: {e}"))?;
         let mss = MediaSourceStream::new(Box::new(file), MediaSourceStreamOptions::default());
 
-        let probed = symphonia::default::get_probe()
+        let mut probed = symphonia::default::get_probe()
             .format(
                 &hint,
                 mss,
@@ -189,7 +207,20 @@ impl BuiltinDecoder {
             )
             .map_err(|e| format!("symphonia probe failed: {e}"))?;
 
+        let mut metadata = BuiltinDecoderMetadata::default();
+        if let Some(mut m) = probed.metadata.get()
+            && let Some(rev) = m.skip_to_latest()
+        {
+            apply_metadata_revision(rev, &mut metadata);
+        }
+
         let mut format = probed.format;
+        {
+            let mut m = format.metadata();
+            if let Some(rev) = m.skip_to_latest() {
+                apply_metadata_revision(rev, &mut metadata);
+            }
+        }
         let track = format
             .default_track()
             .ok_or_else(|| "missing default audio track".to_string())?;
@@ -278,6 +309,7 @@ impl BuiltinDecoder {
                 channels,
             },
             duration_ms_hint,
+            metadata,
             encoder_delay_frames: params.delay.unwrap_or(0),
             encoder_padding_frames: params.padding.unwrap_or(0),
             sample_buf,
@@ -291,6 +323,10 @@ impl BuiltinDecoder {
 
     pub fn duration_ms_hint(&self) -> Option<u64> {
         self.duration_ms_hint
+    }
+
+    pub fn metadata(&self) -> BuiltinDecoderMetadata {
+        self.metadata.clone()
     }
 
     pub fn gapless_trim_spec(&self) -> Option<GaplessTrimSpec> {
@@ -409,4 +445,162 @@ fn estimate_duration_ms_by_seek(
         .ok()?;
     let end_ts = seeked.actual_ts.max(seeked.required_ts);
     Some(duration_ms_from_time_base(tb, end_ts))
+}
+
+fn apply_metadata_revision(
+    rev: &symphonia::core::meta::MetadataRevision,
+    out: &mut BuiltinDecoderMetadata,
+) {
+    for tag in rev.tags() {
+        let key = tag.key.trim().to_ascii_lowercase();
+        let value = match value_to_string(&tag.value) {
+            Some(value) => value,
+            None => continue,
+        };
+
+        match key.as_str() {
+            "title" | "tracktitle" | "tit2" => {
+                if out.title.is_none() {
+                    out.title = Some(value);
+                }
+            },
+            "artist" | "tpe1" => {
+                if out.artists.is_empty() {
+                    out.artists.push(value);
+                }
+            },
+            "album" | "talb" => {
+                if out.album.is_none() {
+                    out.album = Some(value);
+                }
+            },
+            "albumartist" | "album_artist" | "tpe2" => {
+                if out.album_artists.is_empty() {
+                    out.album_artists.push(value);
+                }
+            },
+            "genre" | "tcon" => {
+                if out.genres.is_empty() {
+                    out.genres.push(value);
+                }
+            },
+            "track" | "tracknumber" | "track_num" | "trck" => {
+                apply_number_pair(value.as_str(), &mut out.track_number, &mut out.track_total);
+            },
+            "disc" | "discnumber" | "disc_num" | "tpos" => {
+                apply_number_pair(value.as_str(), &mut out.disc_number, &mut out.disc_total);
+            },
+            "date" | "year" | "tyer" | "tdrc" => {
+                if out.year.is_none() {
+                    out.year = parse_year(value.as_str());
+                }
+            },
+            "comment" | "description" | "comm" => {
+                if out.comment.is_none() {
+                    out.comment = Some(value);
+                }
+            },
+            _ => {},
+        }
+    }
+
+    if out.cover_data.is_none() {
+        let front = rev
+            .visuals()
+            .iter()
+            .find(|v| v.usage == Some(StandardVisualKey::FrontCover));
+        let any = rev.visuals().first();
+        if let Some(v) = front.or(any).filter(|v| !v.data.is_empty()) {
+            out.cover_data = Some(v.data.as_ref().to_vec());
+            let mime = v.media_type.trim();
+            if !mime.is_empty() {
+                out.cover_mime = Some(mime.to_string());
+            }
+        }
+    }
+}
+
+fn value_to_string(v: &Value) -> Option<String> {
+    let s = match v {
+        Value::String(s) => s.clone(),
+        _ => v.to_string(),
+    };
+    let s = s.trim().to_string();
+    if s.is_empty() { None } else { Some(s) }
+}
+
+fn apply_number_pair(raw: &str, first_out: &mut Option<u32>, second_out: &mut Option<u32>) {
+    let (first, second) = parse_number_pair(raw);
+    if first_out.is_none() {
+        *first_out = first;
+    }
+    if second_out.is_none() {
+        *second_out = second;
+    }
+}
+
+fn parse_number_pair(raw: &str) -> (Option<u32>, Option<u32>) {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return (None, None);
+    }
+    if let Some((left, right)) = trimmed.split_once('/') {
+        return (parse_u32(left), parse_u32(right));
+    }
+    (parse_u32(trimmed), None)
+}
+
+fn parse_u32(raw: &str) -> Option<u32> {
+    raw.trim().parse::<u32>().ok().filter(|v| *v > 0)
+}
+
+fn parse_year(raw: &str) -> Option<u32> {
+    let s = raw.trim();
+    if s.is_empty() {
+        return None;
+    }
+    let year4 = s.chars().take(4).collect::<String>();
+    parse_u32(year4.as_str())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::BuiltinDecoder;
+
+    #[test]
+    fn debug_builtin_metadata_from_env() {
+        let Some(path) = std::env::var_os("STELLATUNE_DEBUG_METADATA_PATH") else {
+            eprintln!("skip: STELLATUNE_DEBUG_METADATA_PATH is not set");
+            return;
+        };
+        let path = path.to_string_lossy().to_string();
+        let decoder = BuiltinDecoder::open(path.as_str()).expect("open builtin decoder");
+        let metadata = decoder.metadata();
+        eprintln!("path={path}");
+        eprintln!(
+            "title={:?} album={:?} artists={:?} album_artists={:?} genres={:?} track={:?}/{:?} disc={:?}/{:?} year={:?} comment={:?} cover_bytes={}",
+            metadata.title,
+            metadata.album,
+            metadata.artists,
+            metadata.album_artists,
+            metadata.genres,
+            metadata.track_number,
+            metadata.track_total,
+            metadata.disc_number,
+            metadata.disc_total,
+            metadata.year,
+            metadata.comment,
+            metadata.cover_data.as_ref().map(|v| v.len()).unwrap_or(0)
+        );
+        assert!(
+            metadata.title.is_some()
+                || metadata.album.is_some()
+                || !metadata.artists.is_empty()
+                || metadata.track_number.is_some()
+                || metadata.disc_number.is_some()
+                || metadata.comment.is_some()
+                || metadata.cover_data.is_some(),
+            "builtin metadata is empty"
+        );
+    }
 }

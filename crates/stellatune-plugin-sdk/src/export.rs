@@ -1,6 +1,6 @@
 mod decoder;
-mod encoder;
 mod dsp;
+mod encoder;
 mod lyrics;
 mod metadata;
 mod output_sink;

@@ -98,7 +98,7 @@ Component fields:
 
 Ability fields:
 
-- `kind`: `decoder | source | lyrics | output-sink | dsp`.
+- `kind`: `decoder | encoder | source | lyrics | output-sink | dsp`.
 - `type_id`: Existing type id concept used by capability routing.
 - `display_name` (optional): UI-facing name.
 - `config_schema_json` (optional): JSON schema string for config editing.
@@ -106,10 +106,21 @@ Ability fields:
 - `decoder` (required when `kind=decoder`):
   - `ext_scores`: exact extension score rules.
   - `wildcard_score`: fallback score for unmatched extension.
+- `encoder` (optional, only allowed when `kind=encoder`):
+  - `formats`: list of target formats for transcode UI/runtime planning.
+  - per format:
+    - `ext`: target extension (`mp3`, `flac`, ...)
+    - `label` (optional): UI display label.
+    - `lossless` (optional): whether format is lossless.
+    - `bitrate_choices_kbps` (optional): selectable bitrate list for lossy formats.
+    - `default_bitrate_kbps` (optional): default bitrate.
+    - `options_schema_json` (optional): JSON schema string for format-level advanced options.
+    - `default_options_json` (optional): default JSON string for format-level advanced options.
 
 ## Validation Rules
 
 - `id`, `name`, `version` must be non-empty.
+- `api_version` must match the host supported plugin API version.
 - each component `path` must be safe relative path under plugin root.
 - each component `world` must be non-empty.
 - `(kind, type_id)` cannot collide within the same plugin package.
@@ -117,6 +128,11 @@ Ability fields:
 - `config_schema_json` and `default_config_json` must be valid JSON when provided.
 - decoder abilities must provide decoder rules.
 - decoder rules must not contain empty/`*` ext entries and must not duplicate extensions.
+- encoder rules are only valid for `kind=encoder`.
+- encoder format `ext` must be non-empty and unique per ability.
+- encoder bitrate choices must be positive; default bitrate must be positive and
+  inside `bitrate_choices_kbps` when choices are provided.
+- encoder `options_schema_json` / `default_options_json` must be valid JSON when provided.
 
 ## Runtime Rules
 

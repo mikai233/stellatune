@@ -157,6 +157,18 @@ pub struct OutputSinkTypeDescriptor {
 
 #[flutter_rust_bridge::frb(non_opaque)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TranscodeTargetFormatDescriptor {
+    pub ext: String,
+    pub label: String,
+    pub lossless: bool,
+    pub bitrate_choices_kbps: Vec<u32>,
+    pub default_bitrate_kbps: Option<u32>,
+    pub options_schema_json: Option<String>,
+    pub default_options_json: Option<String>,
+}
+
+#[flutter_rust_bridge::frb(non_opaque)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EncoderTypeDescriptor {
     pub plugin_id: String,
     pub plugin_name: String,
@@ -164,6 +176,7 @@ pub struct EncoderTypeDescriptor {
     pub display_name: String,
     pub config_schema_json: String,
     pub default_config_json: String,
+    pub target_formats: Vec<TranscodeTargetFormatDescriptor>,
 }
 
 #[flutter_rust_bridge::frb(non_opaque)]

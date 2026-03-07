@@ -21,7 +21,7 @@ class _SchemaField {
   final String? description;
   final _SchemaFieldKind kind;
   final bool required;
-  final List<String> enumValues;
+  final List<Object> enumValues;
   final Object? defaultValue;
   final int order;
 }
@@ -99,7 +99,7 @@ class _SchemaFormState extends State<SchemaForm> {
         }
       }
       for (final f in fields) {
-        if (_usesTextController(f.kind)) {
+        if (f.enumValues.isEmpty && _usesTextController(f.kind)) {
           _controllers[f.key] = TextEditingController(
             text: _valueToText(_values[f.key], f.kind),
           );
@@ -172,41 +172,31 @@ class _SchemaFormState extends State<SchemaForm> {
       final description = (field['description'] as String?)?.trim();
       final type = _readType(field['type']);
 
-      final enumValues = <String>[];
+      final enumValues = <Object>[];
       final enumRaw = field['enum'];
       if (enumRaw is List) {
         for (final v in enumRaw) {
-          enumValues.add(v.toString());
+          if (v is String || v is num || v is bool) {
+            enumValues.add(v);
+          }
         }
       }
 
       final order = _readOrder(field);
 
-      _SchemaFieldKind kind;
-      if (enumValues.isNotEmpty) {
-        kind = _SchemaFieldKind.string;
-      } else {
-        switch (type) {
-          case 'string':
-            kind = _SchemaFieldKind.string;
-            break;
-          case 'number':
-            kind = _SchemaFieldKind.number;
-            break;
-          case 'integer':
-            kind = _SchemaFieldKind.integer;
-            break;
-          case 'boolean':
-            kind = _SchemaFieldKind.boolean;
-            break;
-          case 'object':
-          case 'array':
-            kind = _SchemaFieldKind.json;
-            break;
-          default:
-            kind = _SchemaFieldKind.json;
-            break;
-        }
+      final kind = switch (type) {
+        'string' => _SchemaFieldKind.string,
+        'number' => _SchemaFieldKind.number,
+        'integer' => _SchemaFieldKind.integer,
+        'boolean' => _SchemaFieldKind.boolean,
+        'object' || 'array' => _SchemaFieldKind.json,
+        _ => _inferEnumKind(enumValues) ?? _SchemaFieldKind.json,
+      };
+
+      if (enumValues.isNotEmpty && !_enumValuesMatchKind(enumValues, kind)) {
+        throw FormatException(
+          'schema enum type mismatch for `$key`: type=$type enum=$enumValues',
+        );
       }
 
       fields.add(
@@ -263,6 +253,28 @@ class _SchemaFormState extends State<SchemaForm> {
       return fallback;
     }
     return null;
+  }
+
+  static _SchemaFieldKind? _inferEnumKind(List<Object> enumValues) {
+    if (enumValues.isEmpty) return null;
+    if (enumValues.every((v) => v is bool)) return _SchemaFieldKind.boolean;
+    if (enumValues.every((v) => v is int)) return _SchemaFieldKind.integer;
+    if (enumValues.every((v) => v is num)) return _SchemaFieldKind.number;
+    if (enumValues.every((v) => v is String)) return _SchemaFieldKind.string;
+    return null;
+  }
+
+  static bool _enumValuesMatchKind(
+    List<Object> enumValues,
+    _SchemaFieldKind kind,
+  ) {
+    return switch (kind) {
+      _SchemaFieldKind.string => enumValues.every((v) => v is String),
+      _SchemaFieldKind.number => enumValues.every((v) => v is num),
+      _SchemaFieldKind.integer => enumValues.every((v) => v is int),
+      _SchemaFieldKind.boolean => enumValues.every((v) => v is bool),
+      _SchemaFieldKind.json => true,
+    };
   }
 
   static String _valueToText(Object? value, _SchemaFieldKind kind) {
@@ -353,9 +365,14 @@ class _SchemaFormState extends State<SchemaForm> {
 
     if (f.enumValues.isNotEmpty) {
       final raw = _values[f.key];
-      final current = raw?.toString();
-      final normalized = f.enumValues.contains(current) ? current : null;
-      return DropdownButtonFormField<String>(
+      Object? normalized;
+      for (final option in f.enumValues) {
+        if (option == raw) {
+          normalized = option;
+          break;
+        }
+      }
+      return DropdownButtonFormField<Object>(
         initialValue: normalized,
         decoration: InputDecoration(
           labelText: label,
@@ -365,7 +382,7 @@ class _SchemaFormState extends State<SchemaForm> {
         ),
         items: [
           for (final opt in f.enumValues)
-            DropdownMenuItem(value: opt, child: Text(opt)),
+            DropdownMenuItem<Object>(value: opt, child: Text(opt.toString())),
         ],
         onChanged: (v) {
           setState(() => _setFieldValue(f, v));

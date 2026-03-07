@@ -21,6 +21,20 @@ pub struct RuntimeDecoderExtScore {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RuntimeEncoderFormatSpec {
+    pub ext: String,
+    pub label: String,
+    pub lossless: bool,
+    #[serde(default)]
+    pub bitrate_choices_kbps: Vec<u32>,
+    pub default_bitrate_kbps: Option<u32>,
+    #[serde(default)]
+    pub options_schema_json: Option<String>,
+    #[serde(default)]
+    pub default_options_json: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RuntimeCapabilityDescriptor {
     pub plugin_id: String,
     pub component_id: String,
@@ -35,6 +49,8 @@ pub struct RuntimeCapabilityDescriptor {
     pub decoder_ext_scores: Vec<RuntimeDecoderExtScore>,
     #[serde(default)]
     pub decoder_wildcard_score: u16,
+    #[serde(default)]
+    pub encoder_formats: Vec<RuntimeEncoderFormatSpec>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -80,6 +96,27 @@ pub struct RuntimeMetadataEntry {
     pub value: RuntimeMetadataValue,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeArtworkKind {
+    FrontCover,
+    BackCover,
+    Leaflet,
+    Media,
+    Artist,
+    Other,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RuntimeArtwork {
+    pub kind: RuntimeArtworkKind,
+    pub mime: String,
+    pub description: Option<String>,
+    pub width: Option<u32>,
+    pub height: Option<u32>,
+    pub data: Vec<u8>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RuntimeEncodedAudioFormat {
     pub codec: String,
@@ -109,6 +146,7 @@ pub struct RuntimeMediaMetadata {
     pub tags: RuntimeAudioTags,
     pub duration_ms: Option<u64>,
     pub format: RuntimeEncodedAudioFormat,
+    pub artworks: Vec<RuntimeArtwork>,
     pub extras: Vec<RuntimeMetadataEntry>,
 }
 

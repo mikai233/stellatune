@@ -20,9 +20,9 @@ use super::{
     RUNTIME_DSP_PLUGINS, RUNTIME_ENCODER_PLUGIN_SEQ, RUNTIME_ENCODER_PLUGINS,
     RUNTIME_OUTPUT_SINK_PLUGIN_SEQ, RUNTIME_OUTPUT_SINK_PLUGINS, RuntimeCapabilityDescriptor,
     RuntimeCapabilityKind, RuntimeDecoderCandidate, RuntimeDecoderPlugin, RuntimeDecoderPluginCell,
-    RuntimeDspPlugin, RuntimeDspPluginCell, RuntimeEncoderPlugin, RuntimeEncoderPluginCell,
-    RuntimeLyricsPlugin, RuntimeOutputSinkPlugin, RuntimeOutputSinkPluginCell,
-    RuntimeSourcePlugin, WasmPluginError,
+    RuntimeDspPlugin, RuntimeDspPluginCell, RuntimeEncoderFormatDescriptor, RuntimeEncoderPlugin,
+    RuntimeEncoderPluginCell, RuntimeLyricsPlugin, RuntimeOutputSinkPlugin,
+    RuntimeOutputSinkPluginCell, RuntimeSourcePlugin, WasmPluginError,
 };
 
 #[derive(Debug, Clone)]
@@ -218,6 +218,19 @@ impl SharedPluginRuntime {
                 display_name: cap.display_name,
                 config_schema_json: cap.config_schema_json,
                 default_config_json: cap.default_config_json,
+                encoder_formats: cap
+                    .encoder_formats
+                    .into_iter()
+                    .map(|item| RuntimeEncoderFormatDescriptor {
+                        ext: item.ext,
+                        label: item.label,
+                        lossless: item.lossless,
+                        bitrate_choices_kbps: item.bitrate_choices_kbps,
+                        default_bitrate_kbps: item.default_bitrate_kbps,
+                        options_schema_json: item.options_schema_json,
+                        default_options_json: item.default_options_json,
+                    })
+                    .collect(),
             })
             .collect::<Vec<_>>();
         out.sort_by(|a, b| a.type_id.cmp(&b.type_id));

@@ -4,10 +4,12 @@ use std::hash::{Hash, Hasher};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
-use crate::manifest::{AbilityKind, ComponentSpec, DecoderAbilitySpec, WasmPluginManifest};
+use crate::manifest::{
+    AbilityKind, ComponentSpec, DecoderAbilitySpec, EncoderAbilitySpec, WasmPluginManifest,
+};
 use crate::runtime::model::{
-    DesiredPluginState, RuntimeCapabilityDescriptor, RuntimeDecoderExtScore, RuntimePluginInfo,
-    RuntimePluginLifecycleState, RuntimePluginStatus,
+    DesiredPluginState, RuntimeCapabilityDescriptor, RuntimeDecoderExtScore,
+    RuntimeEncoderFormatSpec, RuntimePluginInfo, RuntimePluginLifecycleState, RuntimePluginStatus,
 };
 
 #[derive(Debug, Clone)]
@@ -101,6 +103,7 @@ fn capabilities_from_component(
         .iter()
         .map(|ability| {
             let (decoder_ext_scores, decoder_wildcard_score) = decoder_rules_for_ability(ability);
+            let encoder_formats = encoder_formats_for_ability(ability);
             RuntimeCapabilityDescriptor {
                 plugin_id: plugin_id.to_string(),
                 component_id: component.id.clone(),
@@ -122,6 +125,7 @@ fn capabilities_from_component(
                     .unwrap_or_else(|| "{}".to_string()),
                 decoder_ext_scores,
                 decoder_wildcard_score,
+                encoder_formats,
             }
         })
         .collect()
@@ -158,6 +162,52 @@ fn decoder_rules_for_ability(
         .collect::<Vec<_>>();
     let wildcard = wildcard_score.unwrap_or(0);
     (ext_scores, wildcard)
+}
+
+fn encoder_formats_for_ability(
+    ability: &crate::manifest::AbilitySpec,
+) -> Vec<RuntimeEncoderFormatSpec> {
+    if ability.kind != AbilityKind::Encoder {
+        return Vec::new();
+    }
+    let Some(EncoderAbilitySpec { formats }) = ability.encoder.as_ref() else {
+        return Vec::new();
+    };
+
+    formats
+        .iter()
+        .filter_map(|format| {
+            let ext = format
+                .ext
+                .trim()
+                .trim_start_matches('.')
+                .to_ascii_lowercase();
+            if ext.is_empty() || ext == "*" {
+                return None;
+            }
+            let label = format
+                .label
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+                .unwrap_or_else(|| ext.to_ascii_uppercase());
+            Some(RuntimeEncoderFormatSpec {
+                ext,
+                label,
+                lossless: format.lossless,
+                bitrate_choices_kbps: format
+                    .bitrate_choices_kbps
+                    .iter()
+                    .copied()
+                    .filter(|value| *value > 0)
+                    .collect(),
+                default_bitrate_kbps: format.default_bitrate_kbps.filter(|value| *value > 0),
+                options_schema_json: format.options_schema_json.clone(),
+                default_options_json: format.default_options_json.clone(),
+            })
+        })
+        .collect()
 }
 
 fn plugin_signature(manifest: &WasmPluginManifest, root_dir: &Path) -> String {
@@ -218,6 +268,7 @@ mod tests {
             config_schema_json: None,
             default_config_json: None,
             decoder: None,
+            encoder: None,
         };
         let (ext_scores, wildcard) = decoder_rules_for_ability(&ability);
         assert!(ext_scores.is_empty());
@@ -245,6 +296,7 @@ mod tests {
                 ],
                 wildcard_score: Some(9),
             }),
+            encoder: None,
         };
         let (ext_scores, wildcard) = decoder_rules_for_ability(&ability);
         assert_eq!(wildcard, 9);
@@ -277,6 +329,7 @@ mod tests {
                         }],
                         wildcard_score: Some(1),
                     }),
+                    encoder: None,
                 }],
             }],
             ui: None,
