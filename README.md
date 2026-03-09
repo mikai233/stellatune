@@ -15,7 +15,7 @@ StellaTune is not just another music player; it is an open-source, extensible au
 
 ## 📸 Screenshots
 
-*(Coming soon: Screenshots of the beautiful player interface)*
+![StellaTune Player Interface](docs/assets/app-screenshot.png)
 
 ---
 
