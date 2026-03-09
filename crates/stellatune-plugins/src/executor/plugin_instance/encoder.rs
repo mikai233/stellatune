@@ -58,10 +58,8 @@ pub trait EncoderPluginApi {
         session: RuntimeEncoderSessionHandle,
         config_json: &str,
     ) -> Result<()>;
-    fn export_state_json(
-        &mut self,
-        session: RuntimeEncoderSessionHandle,
-    ) -> Result<Option<String>>;
+    fn export_state_json(&mut self, session: RuntimeEncoderSessionHandle)
+    -> Result<Option<String>>;
     fn import_state_json(
         &mut self,
         session: RuntimeEncoderSessionHandle,
@@ -118,7 +116,9 @@ impl WasmtimeEncoderPlugin {
         }
     }
 
-    fn runtime_config_update_plan_from(plan: encoder_exports::ConfigUpdatePlan) -> RuntimeConfigUpdatePlan {
+    fn runtime_config_update_plan_from(
+        plan: encoder_exports::ConfigUpdatePlan,
+    ) -> RuntimeConfigUpdatePlan {
         RuntimeConfigUpdatePlan {
             mode: match plan.mode {
                 encoder_common::ConfigUpdateMode::HotApply => RuntimeConfigUpdateMode::HotApply,
@@ -129,7 +129,9 @@ impl WasmtimeEncoderPlugin {
         }
     }
 
-    fn encoded_audio_format_into(format: RuntimeEncodedAudioFormat) -> encoder_common::EncodedAudioFormat {
+    fn encoded_audio_format_into(
+        format: RuntimeEncodedAudioFormat,
+    ) -> encoder_common::EncodedAudioFormat {
         encoder_common::EncodedAudioFormat {
             codec: format.codec,
             sample_rate: format.sample_rate,
@@ -364,9 +366,11 @@ impl EncoderPluginApi for WasmtimeEncoderPlugin {
         self.reconcile_runtime()?;
         let encoder = self.encoder_api();
         let chunk = map_decoder_plugin_error(
-            encoder
-                .session()
-                .call_read_encoded(&mut self.component.store, session_ref, max_bytes)?,
+            encoder.session().call_read_encoded(
+                &mut self.component.store,
+                session_ref,
+                max_bytes,
+            )?,
             "encoder.session.read-encoded",
         )?;
         Ok(RuntimeEncodedChunk {

@@ -7,8 +7,8 @@ pub mod runtime_service;
 
 use crate::error::Error as WasmPluginError;
 use crate::executor::plugin_instance::decoder::{DecoderPluginApi, WasmtimeDecoderPlugin};
-use crate::executor::plugin_instance::encoder::{EncoderPluginApi, WasmtimeEncoderPlugin};
 use crate::executor::plugin_instance::dsp::{DspPluginApi, WasmtimeDspPlugin};
+use crate::executor::plugin_instance::encoder::{EncoderPluginApi, WasmtimeEncoderPlugin};
 use crate::executor::plugin_instance::lyrics::{LyricsPluginApi, WasmtimeLyricsPlugin};
 use crate::executor::plugin_instance::output_sink::{
     OutputSinkPluginApi, WasmtimeOutputSinkPlugin,
@@ -19,8 +19,8 @@ use crate::executor::plugin_instance::source::{
 
 use crate::host::stream::{HostStreamHandle, open_local_file_stream};
 use crate::runtime::model::{
-    RuntimeAudioSpec, RuntimeConfigUpdatePlan, RuntimeDecoderSessionHandle, RuntimeDspProcessorHandle,
-    RuntimeEncodeTarget, RuntimeEncodedAudioFormat, RuntimeEncodedChunk,
+    RuntimeAudioSpec, RuntimeConfigUpdatePlan, RuntimeDecoderSessionHandle,
+    RuntimeDspProcessorHandle, RuntimeEncodeTarget, RuntimeEncodedAudioFormat, RuntimeEncodedChunk,
     RuntimeEncoderSessionHandle, RuntimeMediaMetadata, RuntimeNegotiatedSpec,
     RuntimeOutputSinkStatus, RuntimePcmF32Chunk, RuntimeSourceStreamHandle,
 };
@@ -215,14 +215,20 @@ impl RuntimeEncoderPlugin {
         &mut self,
         session_handle: u64,
     ) -> std::result::Result<RuntimeAudioSpec, WasmPluginError> {
-        self.with_cell(|cell| cell.inner.input_spec(RuntimeEncoderSessionHandle(session_handle)))
+        self.with_cell(|cell| {
+            cell.inner
+                .input_spec(RuntimeEncoderSessionHandle(session_handle))
+        })
     }
 
     pub fn output_format(
         &mut self,
         session_handle: u64,
     ) -> std::result::Result<RuntimeEncodedAudioFormat, WasmPluginError> {
-        self.with_cell(|cell| cell.inner.output_format(RuntimeEncoderSessionHandle(session_handle)))
+        self.with_cell(|cell| {
+            cell.inner
+                .output_format(RuntimeEncoderSessionHandle(session_handle))
+        })
     }
 
     pub fn write_pcm_f32(
@@ -253,10 +259,8 @@ impl RuntimeEncoderPlugin {
         config_json: &str,
     ) -> std::result::Result<RuntimeConfigUpdatePlan, WasmPluginError> {
         self.with_cell(|cell| {
-            cell.inner.plan_config_update_json(
-                RuntimeEncoderSessionHandle(session_handle),
-                config_json,
-            )
+            cell.inner
+                .plan_config_update_json(RuntimeEncoderSessionHandle(session_handle), config_json)
         })
     }
 
@@ -266,10 +270,8 @@ impl RuntimeEncoderPlugin {
         config_json: &str,
     ) -> std::result::Result<(), WasmPluginError> {
         self.with_cell(|cell| {
-            cell.inner.apply_config_update_json(
-                RuntimeEncoderSessionHandle(session_handle),
-                config_json,
-            )
+            cell.inner
+                .apply_config_update_json(RuntimeEncoderSessionHandle(session_handle), config_json)
         })
     }
 
@@ -277,7 +279,10 @@ impl RuntimeEncoderPlugin {
         &mut self,
         session_handle: u64,
     ) -> std::result::Result<Option<String>, WasmPluginError> {
-        self.with_cell(|cell| cell.inner.export_state_json(RuntimeEncoderSessionHandle(session_handle)))
+        self.with_cell(|cell| {
+            cell.inner
+                .export_state_json(RuntimeEncoderSessionHandle(session_handle))
+        })
     }
 
     pub fn import_state_json(
@@ -286,12 +291,16 @@ impl RuntimeEncoderPlugin {
         state_json: &str,
     ) -> std::result::Result<(), WasmPluginError> {
         self.with_cell(|cell| {
-            cell.inner.import_state_json(RuntimeEncoderSessionHandle(session_handle), state_json)
+            cell.inner
+                .import_state_json(RuntimeEncoderSessionHandle(session_handle), state_json)
         })
     }
 
     pub fn close(&mut self, session_handle: u64) -> std::result::Result<(), WasmPluginError> {
-        self.with_cell(|cell| cell.inner.close(RuntimeEncoderSessionHandle(session_handle)))
+        self.with_cell(|cell| {
+            cell.inner
+                .close(RuntimeEncoderSessionHandle(session_handle))
+        })
     }
 }
 

@@ -21,8 +21,8 @@ use super::{
     RUNTIME_OUTPUT_SINK_PLUGIN_SEQ, RUNTIME_OUTPUT_SINK_PLUGINS, RuntimeCapabilityDescriptor,
     RuntimeCapabilityKind, RuntimeDecoderCandidate, RuntimeDecoderPlugin, RuntimeDecoderPluginCell,
     RuntimeDspPlugin, RuntimeDspPluginCell, RuntimeEncoderPlugin, RuntimeEncoderPluginCell,
-    RuntimeLyricsPlugin, RuntimeOutputSinkPlugin, RuntimeOutputSinkPluginCell,
-    RuntimeSourcePlugin, WasmPluginError,
+    RuntimeLyricsPlugin, RuntimeOutputSinkPlugin, RuntimeOutputSinkPluginCell, RuntimeSourcePlugin,
+    WasmPluginError,
 };
 
 #[derive(Debug, Clone)]
