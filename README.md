@@ -1,4 +1,6 @@
-# StellaTune (星律)
+# StellaTune
+
+English | [简体中文](README_zh.md)
 
 > A next-generation, cross-platform music player designed for audiophiles and tinkerers alike.
 
