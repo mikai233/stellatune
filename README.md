@@ -8,20 +8,25 @@ StellaTune is not just another music player; it is an open-source, extensible au
 
 ---
 
-## ✨ Key Features
+## Key Features
 
-- 🎧 **Audiophile Grade Audio**: Pursuing true high-fidelity and low-latency playback. The Rust-first audio pipeline ensures that your music is delivered exactly as it was meant to be heard, without compromise.
-- 🚀 **Cross-Platform Excellence**: Built from the ground up to be truly cross-platform. Enjoy a fluid, responsive, and native-feeling UI across desktop (Windows, macOS, Linux) and mobile platforms, all unified under a robust Rust core.
-- 🧩 **Powerful Plugin Ecosystem**: Limitless extensibility. StellaTune features a highly versatile WebAssembly (Wasm) and Native plugin system. Tailor the player to your exact needs by dropping in bespoke audio sources, decoders, lyrics providers, DSPs, and output sinks.
-- 🗂️ **Modern Local Library**: A carefully crafted, aesthetically pleasing user experience designed for the modern music lover to effortlessly build, organize, and enjoy their local collection.
+- **Audiophile Grade Audio**: Pursuing true high-fidelity and low-latency playback. The Rust-first audio pipeline
+  ensures that your music is delivered exactly as it was meant to be heard, without compromise.
+- **Cross-Platform Excellence**: Built from the ground up to be truly cross-platform. Enjoy a fluid, responsive, and
+  native-feeling UI across desktop (Windows, macOS, Linux) and mobile platforms, all unified under a robust Rust core.
+- **Powerful Plugin Ecosystem**: Limitless extensibility. StellaTune features a highly versatile WebAssembly (Wasm) and
+  Native plugin system. Tailor the player to your exact needs by dropping in bespoke audio sources, decoders, lyrics
+  providers, DSPs, and output sinks.
+- **Modern Local Library**: A carefully crafted, aesthetically pleasing user experience designed for the modern music
+  lover to effortlessly build, organize, and enjoy their local collection.
 
-## 📸 Screenshots
+## Screenshots
 
 ![StellaTune Player Interface](docs/assets/app-screenshot.png)
 
 ---
 
-## 🚀 Getting Started
+## Getting Started
 
 ### For Users
 *(Pre-compiled binaries and installers for Windows, macOS, and Linux will be available in the Releases page soon.)*
@@ -56,7 +61,7 @@ flutter run -d windows
 
 ---
 
-## 🧩 Plugin Development
+## Plugin Development
 
 StellaTune's true power lies in its modular architecture. Plugins can be written in Rust (and other languages compiling to Wasm), and loaded dynamically at runtime. The plugin worlds include: `source`, `decoder`, `lyrics`, `dsp`, and `output-sink`.
 
@@ -67,7 +72,7 @@ Want to build your own extension? Check out our technical guides:
 
 ---
 
-## 🏗️ Architecture & Monorepo
+## Architecture & Monorepo
 
 The StellaTune monorepo is thoughtfully structured to separate concerns while making development straightforward:
 
@@ -81,7 +86,7 @@ The StellaTune monorepo is thoughtfully structured to separate concerns while ma
 
 ---
 
-## 🤝 Contributing
+## Contributing
 
 We welcome contributions of all sizes! Whether it's reporting bugs, discussing new features, or submitting code, your help is appreciated.
 
@@ -101,6 +106,6 @@ flutter analyze
 flutter build windows --debug
 ```
 
-## 📜 License
+## License
 
 [MIT License](LICENSE) (or see individual crate licenses where applicable).

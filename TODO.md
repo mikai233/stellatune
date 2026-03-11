@@ -16,13 +16,6 @@
 - Support form state persistence per plugin/type and schema version.
 - Add runtime validation feedback (field-level errors and submit-level errors).
 
-### 3) Remove `plugin.toml`, move to direct DLL metadata discovery
-- Change plugin installation format to standalone DLL-based discovery.
-- Read plugin metadata directly through exported plugin interface calls.
-- Replace manifest-based discovery with binary scanning + metadata handshake.
-- Keep install flow simple: copy DLL -> reload plugins -> show metadata and status.
-- Add safety checks for duplicate plugin ids, invalid metadata, and ABI mismatch reporting.
-
 ## Capability Completion Roadmap
 
 ### A) Source plugins (custom input)
@@ -47,4 +40,3 @@
 - Expand tests for plugin load/reload, source open_stream decode path, and output sink write loop.
 - Add regression tests for ABI mismatch, partial load failure, and poisoned lock recovery.
 - Improve logging correlation (request id / track id / plugin id) for end-to-end debugging.
-
