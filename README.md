@@ -6,6 +6,8 @@ English | [简体中文](README_zh.md)
 
 StellaTune is not just another music player; it is an open-source, extensible audio platform built with a beautiful **Flutter** user interface and a blazing-fast, memory-safe **Rust** core. Whether you are managing a massive local library or streaming through custom plugins, StellaTune delivers an uncompromising audio experience.
 
+The project is evolving toward a multi-frontend strategy: a polished everyday **Flutter** app, a terminal-first **TUI**, and a dedicated high-fidelity **GUI frontend** focused on advanced rendering, shaders, and audio-reactive visuals.
+
 ---
 
 ## Key Features
@@ -23,6 +25,16 @@ StellaTune is not just another music player; it is an open-source, extensible au
 ## Screenshots
 
 ![StellaTune Player Interface](docs/assets/app-screenshot.png)
+
+---
+
+## Frontend Roadmap
+
+StellaTune is intentionally splitting its frontend experience into distinct products built on the same Rust backend:
+
+- **`apps/stellatune`**: A modern Flutter frontend for desktop and mobile, aimed at being the primary everyday experience with a cleaner and more restrained visual style. *(in progress)*
+- **`apps/stellatune-gui`**: A Rust-native graphics frontend focused on experimental rendering, shaders, particles, and audio-reactive motion. *(early stage)*
+- **`apps/stellatune-tui`**: A terminal-first frontend optimized for keyboard workflows, remote sessions, and low-dependency environments. *(in progress)*
 
 ---
 
@@ -77,6 +89,7 @@ Want to build your own extension? Check out our technical guides:
 The StellaTune monorepo is thoughtfully structured to separate concerns while making development straightforward:
 
 - **`apps/stellatune`**: The main user-facing application (Flutter desktop/mobile).
+- **`apps/stellatune-gui`**: A Rust-native graphics frontend focused on custom rendering and visual effects.
 - **`apps/stellatune-tui`**: A terminal user interface (Rust TUI) leveraging the same core.
 - **`crates/stellatune-audio*`**: The core audio runtime, pipeline, and playback adapters.
 - **`crates/stellatune-plugins`**: The host-side plugin runtime and service coordinators.

@@ -6,6 +6,8 @@
 
 StellaTune 不仅仅是一个音乐播放器；它是一个开源、可扩展的音频平台，拥有由 **Flutter** 构建的精美用户界面，以及由 **Rust** 编写的极速、内存安全的核心引擎。无论您是管理庞大的本地音乐库，还是通过自定义插件进行流媒体播放，StellaTune 都能为您带来不妥协的音频体验。
 
+项目正在逐步演进为多前端形态：一个适合作为日常主力的 **Flutter** 应用、一个面向终端工作流的 **TUI**，以及一个专注高级渲染、Shader 与音频响应式视觉效果的 **GUI 前端**。
+
 ---
 
 ## 核心特性
@@ -20,6 +22,16 @@ StellaTune 不仅仅是一个音乐播放器；它是一个开源、可扩展的
 ## 界面预览
 
 ![StellaTune Player Interface](docs/assets/app-screenshot.png)
+
+---
+
+## 前端路线图
+
+StellaTune 正在有意识地将前端体验拆分为建立在同一套 Rust 后端之上的不同产品形态：
+
+- **`apps/stellatune`**：面向桌面端与移动端的现代 Flutter 前端，目标是提供更适合作为日常主力的体验，并保持相对克制的视觉风格。*（进行中）*
+- **`apps/stellatune-gui`**：Rust 原生图形前端，聚焦实验性渲染、Shader、粒子系统与音频响应式动画。*（早期）*
+- **`apps/stellatune-tui`**：面向终端的前端，强调键盘工作流、远程会话可用性以及低依赖环境。*（进行中）*
 
 ---
 
@@ -74,6 +86,7 @@ StellaTune 真正的力量在于其模块化的架构体系。插件可以使用
 StellaTune 采用 Monorepo 库结构，通过精心设计的结构分离关注点，同时使开发变得简单直接：
 
 - **`apps/stellatune`**: 面向用户的主要应用程序（Flutter 桌面端/移动端）。
+- **`apps/stellatune-gui`**: Rust 原生图形前端，面向自定义渲染与强视觉效果。
 - **`apps/stellatune-tui`**: 终端用户界面（Rust TUI 版本），复用同一核心。
 - **`crates/stellatune-audio*`**: 核心音频运行时、音频管线及播放适配器。
 - **`crates/stellatune-plugins`**: 宿主端插件运行时及服务协调器。
