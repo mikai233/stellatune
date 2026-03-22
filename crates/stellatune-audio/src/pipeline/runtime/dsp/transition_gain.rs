@@ -5,8 +5,8 @@ use stellatune_audio_core::pipeline::context::{
     TransitionTimePolicy,
 };
 use stellatune_audio_core::pipeline::error::PipelineError;
-use stellatune_audio_core::pipeline::stages::StageFlow;
 use stellatune_audio_core::pipeline::stages::transform::TransformStage;
+use stellatune_audio_core::pipeline::stages::{Stage, StageControlResult, StageFlow};
 
 use crate::pipeline::runtime::dsp::control::{TRANSITION_GAIN_STAGE_KEY, TransitionGainControl};
 
@@ -129,21 +129,23 @@ impl TransitionGainStage {
     }
 }
 
-impl TransformStage for TransitionGainStage {
-    fn key(&self) -> &str {
-        TRANSITION_GAIN_STAGE_KEY
-    }
-
+impl Stage for TransitionGainStage {
     fn apply_control(
         &mut self,
         control: &dyn Any,
         _ctx: &mut PipelineContext,
-    ) -> Result<bool, PipelineError> {
+    ) -> Result<StageControlResult, PipelineError> {
         if let Some(control) = control.downcast_ref::<TransitionGainControl>() {
             self.configure_transition(control.request);
-            return Ok(true);
+            return Ok(StageControlResult::Applied);
         }
-        Ok(false)
+        Ok(StageControlResult::Ignored)
+    }
+}
+
+impl TransformStage for TransitionGainStage {
+    fn key(&self) -> &str {
+        TRANSITION_GAIN_STAGE_KEY
     }
 
     fn prepare(
@@ -159,11 +161,6 @@ impl TransformStage for TransitionGainStage {
         self.transition_total_frames = 0;
         self.transition_remaining_frames = 0;
         Ok(spec)
-    }
-
-    fn sync_runtime_control(&mut self, ctx: &mut PipelineContext) -> Result<(), PipelineError> {
-        let _ = ctx;
-        Ok(())
     }
 
     fn process(
@@ -195,8 +192,8 @@ mod tests {
         AudioBlock, GainTransitionRequest, PipelineContext, StreamSpec, TransitionCurve,
         TransitionTimePolicy,
     };
-    use stellatune_audio_core::pipeline::stages::StageFlow;
     use stellatune_audio_core::pipeline::stages::transform::TransformStage;
+    use stellatune_audio_core::pipeline::stages::{Stage, StageFlow};
 
     fn mono_block(samples: &[f32]) -> AudioBlock {
         AudioBlock {

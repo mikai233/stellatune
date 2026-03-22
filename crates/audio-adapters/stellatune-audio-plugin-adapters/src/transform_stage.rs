@@ -4,8 +4,8 @@ use stellatune_audio::pipeline::assembly::OpaqueTransformStageSpec;
 use stellatune_audio::pipeline::graph::TransformGraph;
 use stellatune_audio_core::pipeline::context::{AudioBlock, PipelineContext, StreamSpec};
 use stellatune_audio_core::pipeline::error::PipelineError;
-use stellatune_audio_core::pipeline::stages::StageFlow;
 use stellatune_audio_core::pipeline::stages::transform::TransformStage;
+use stellatune_audio_core::pipeline::stages::{Stage, StageControlResult, StageFlow};
 use stellatune_plugins::host_runtime::{RuntimeDspPlugin, shared_runtime_service};
 
 use crate::bridge::PluginTransformStagePayload;
@@ -189,25 +189,27 @@ impl PluginTransformStage {
     }
 }
 
-impl TransformStage for PluginTransformStage {
-    fn key(&self) -> &str {
-        self.stage_key.as_str()
-    }
-
+impl Stage for PluginTransformStage {
     fn apply_control(
         &mut self,
         control: &dyn Any,
         _ctx: &mut PipelineContext,
-    ) -> Result<bool, PipelineError> {
+    ) -> Result<StageControlResult, PipelineError> {
         if let Some(control) = control.downcast_ref::<PluginTransformConfigControl>() {
             self.apply_config_control(control)?;
-            return Ok(true);
+            return Ok(StageControlResult::Applied);
         }
         if let Some(control) = control.downcast_ref::<PluginTransformLifecycleControl>() {
             self.apply_lifecycle_control(*control)?;
-            return Ok(true);
+            return Ok(StageControlResult::Applied);
         }
-        Ok(false)
+        Ok(StageControlResult::Ignored)
+    }
+}
+
+impl TransformStage for PluginTransformStage {
+    fn key(&self) -> &str {
+        self.stage_key.as_str()
     }
 
     fn prepare(
@@ -222,10 +224,6 @@ impl TransformStage for PluginTransformStage {
             .map_err(PipelineError::StageFailure)?;
         self.instance = Some(instance);
         Ok(spec)
-    }
-
-    fn sync_runtime_control(&mut self, _ctx: &mut PipelineContext) -> Result<(), PipelineError> {
-        Ok(())
     }
 
     fn process(

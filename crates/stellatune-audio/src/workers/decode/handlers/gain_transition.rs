@@ -6,7 +6,9 @@ use stellatune_audio_core::pipeline::error::PipelineError;
 
 use crate::config::gain::GainTransitionConfig;
 use crate::pipeline::runtime::dsp::control::{TRANSITION_GAIN_STAGE_KEY, TransitionGainControl};
-use crate::pipeline::runtime::runner::{PipelineRunner, RunnerState, StepResult};
+use crate::pipeline::runtime::runner::{
+    PipelineRunner, RunnerState, StepResult, TransformControlDispatchResult,
+};
 use crate::pipeline::runtime::sink_session::SinkSession;
 
 const MAX_IDLE_STEPS: u32 = 2048;
@@ -71,7 +73,7 @@ fn request_fade_in_with_runner_inner(
         let prime_control = TransitionGainControl::new(prime_request);
         let handled =
             runner.apply_transform_control_to(TRANSITION_GAIN_STAGE_KEY, &prime_control, ctx)?;
-        if !handled {
+        if handled == TransformControlDispatchResult::StageNotFound {
             return Err(PipelineError::StageFailure(
                 "transition gain stage missing for fade-in prime request".to_string(),
             ));
@@ -85,7 +87,7 @@ fn request_fade_in_with_runner_inner(
     let request = build_request(config, 1.0, ramp_ms, None, false);
     let control = TransitionGainControl::new(request);
     let handled = runner.apply_transform_control_to(TRANSITION_GAIN_STAGE_KEY, &control, ctx)?;
-    if !handled {
+    if handled == TransformControlDispatchResult::StageNotFound {
         return Err(PipelineError::StageFailure(
             "transition gain stage missing for fade-in request".to_string(),
         ));
@@ -112,7 +114,7 @@ pub(crate) fn run_interrupt_fade_out(
     let request = build_request(config, 0.0, ramp_ms, available_frames_hint, true);
     let control = TransitionGainControl::new(request);
     let handled = runner.apply_transform_control_to(TRANSITION_GAIN_STAGE_KEY, &control, ctx)?;
-    if !handled {
+    if handled == TransformControlDispatchResult::StageNotFound {
         return Err(PipelineError::StageFailure(
             "transition gain stage missing for fade-out request".to_string(),
         ));
@@ -188,13 +190,15 @@ mod tests {
         AudioBlock, InputRef, PipelineContext, SourceHandle, StreamSpec,
     };
     use stellatune_audio_core::pipeline::error::PipelineError;
-    use stellatune_audio_core::pipeline::stages::StageFlow;
     use stellatune_audio_core::pipeline::stages::decoder::DecoderStage;
     use stellatune_audio_core::pipeline::stages::sink::SinkStage;
     use stellatune_audio_core::pipeline::stages::source::SourceStage;
+    use stellatune_audio_core::pipeline::stages::{Stage, StageFlow};
 
     #[derive(Default)]
     struct TestSource;
+
+    impl Stage for TestSource {}
 
     impl SourceStage for TestSource {
         fn prepare(
@@ -204,19 +208,13 @@ mod tests {
         ) -> Result<SourceHandle, PipelineError> {
             Ok(SourceHandle::new(()))
         }
-
-        fn sync_runtime_control(
-            &mut self,
-            _ctx: &mut PipelineContext,
-        ) -> Result<(), PipelineError> {
-            Ok(())
-        }
-
         fn stop(&mut self, _ctx: &mut PipelineContext) {}
     }
 
     #[derive(Default)]
     struct TestDecoder;
+
+    impl Stage for TestDecoder {}
 
     impl DecoderStage for TestDecoder {
         fn prepare(
@@ -229,14 +227,6 @@ mod tests {
                 channels: 2,
             })
         }
-
-        fn sync_runtime_control(
-            &mut self,
-            _ctx: &mut PipelineContext,
-        ) -> Result<(), PipelineError> {
-            Ok(())
-        }
-
         fn next_block(
             &mut self,
             _out: &mut AudioBlock,
@@ -255,6 +245,8 @@ mod tests {
     #[derive(Default)]
     struct TestSink;
 
+    impl Stage for TestSink {}
+
     impl SinkStage for TestSink {
         fn prepare(
             &mut self,
@@ -263,14 +255,6 @@ mod tests {
         ) -> Result<(), PipelineError> {
             Ok(())
         }
-
-        fn sync_runtime_control(
-            &mut self,
-            _ctx: &mut PipelineContext,
-        ) -> Result<(), PipelineError> {
-            Ok(())
-        }
-
         fn write(
             &mut self,
             _block: &AudioBlock,

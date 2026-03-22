@@ -1,5 +1,6 @@
 use stellatune_audio_core::pipeline::context::{InputRef, PipelineContext, SourceHandle};
 use stellatune_audio_core::pipeline::error::PipelineError;
+use stellatune_audio_core::pipeline::stages::Stage;
 use stellatune_audio_core::pipeline::stages::source::SourceStage;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -18,6 +19,8 @@ impl LocalSourceStage {
         }
     }
 }
+
+impl Stage for LocalSourceStage {}
 
 impl SourceStage for LocalSourceStage {
     fn prepare(

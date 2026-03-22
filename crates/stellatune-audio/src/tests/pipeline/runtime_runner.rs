@@ -6,14 +6,16 @@ use stellatune_audio_core::pipeline::context::{
     AudioBlock, GaplessTrimSpec, InputRef, PipelineContext, SourceHandle, StreamSpec,
 };
 use stellatune_audio_core::pipeline::error::PipelineError;
-use stellatune_audio_core::pipeline::stages::StageFlow;
 use stellatune_audio_core::pipeline::stages::decoder::DecoderStage;
 use stellatune_audio_core::pipeline::stages::sink::SinkStage;
 use stellatune_audio_core::pipeline::stages::source::SourceStage;
 use stellatune_audio_core::pipeline::stages::transform::TransformStage;
+use stellatune_audio_core::pipeline::stages::{Stage, StageFlow};
 
 #[derive(Default)]
 struct TestSource;
+
+impl Stage for TestSource {}
 
 impl SourceStage for TestSource {
     fn prepare(
@@ -23,11 +25,6 @@ impl SourceStage for TestSource {
     ) -> Result<SourceHandle, PipelineError> {
         Ok(SourceHandle::new(()))
     }
-
-    fn sync_runtime_control(&mut self, _ctx: &mut PipelineContext) -> Result<(), PipelineError> {
-        Ok(())
-    }
-
     fn stop(&mut self, _ctx: &mut PipelineContext) {}
 }
 
@@ -45,6 +42,8 @@ impl TestDecoder {
     }
 }
 
+impl Stage for TestDecoder {}
+
 impl DecoderStage for TestDecoder {
     fn prepare(
         &mut self,
@@ -56,11 +55,6 @@ impl DecoderStage for TestDecoder {
             channels: 1,
         })
     }
-
-    fn sync_runtime_control(&mut self, _ctx: &mut PipelineContext) -> Result<(), PipelineError> {
-        Ok(())
-    }
-
     fn current_gapless_trim_spec(&self) -> Option<GaplessTrimSpec> {
         self.gapless_trim_spec
     }
@@ -87,6 +81,8 @@ impl DecoderStage for TestDecoder {
 #[derive(Default)]
 struct TestSink;
 
+impl Stage for TestSink {}
+
 impl SinkStage for TestSink {
     fn prepare(
         &mut self,
@@ -95,11 +91,6 @@ impl SinkStage for TestSink {
     ) -> Result<(), PipelineError> {
         Ok(())
     }
-
-    fn sync_runtime_control(&mut self, _ctx: &mut PipelineContext) -> Result<(), PipelineError> {
-        Ok(())
-    }
-
     fn write(
         &mut self,
         _block: &AudioBlock,

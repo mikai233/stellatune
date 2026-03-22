@@ -3,6 +3,7 @@ use std::any::Any;
 use crossbeam_channel::Sender;
 
 use crate::error::DecodeError;
+use crate::pipeline::runtime::runner::TransformControlDispatchResult;
 use crate::workers::decode::state::DecodeWorkerState;
 
 pub(crate) fn handle(
@@ -15,7 +16,7 @@ pub(crate) fn handle(
         if let Some(runner) = state.runner.as_mut() {
             let handled =
                 runner.apply_transform_control_to(&stage_key, control.as_ref(), &mut state.ctx)?;
-            if !handled {
+            if handled == TransformControlDispatchResult::StageNotFound {
                 return Err(DecodeError::TransformStageNotFound {
                     stage_key: stage_key.clone(),
                 });

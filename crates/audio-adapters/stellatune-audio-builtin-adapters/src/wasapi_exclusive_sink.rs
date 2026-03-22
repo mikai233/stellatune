@@ -1,7 +1,7 @@
 use stellatune_audio_core::pipeline::context::{AudioBlock, PipelineContext, StreamSpec};
 use stellatune_audio_core::pipeline::error::PipelineError;
-use stellatune_audio_core::pipeline::stages::StageFlow;
 use stellatune_audio_core::pipeline::stages::sink::SinkStage;
+use stellatune_audio_core::pipeline::stages::{Stage, StageFlow};
 
 use crate::device_sink::{
     DeviceSinkControl, DeviceSinkMetricsSnapshot, DeviceSinkStage, OutputBackend,
@@ -109,6 +109,12 @@ impl Default for WasapiExclusiveSinkStage {
     }
 }
 
+impl Stage for WasapiExclusiveSinkStage {
+    fn sync_runtime_control(&mut self, ctx: &mut PipelineContext) -> Result<(), PipelineError> {
+        self.inner.sync_runtime_control(ctx)
+    }
+}
+
 impl SinkStage for WasapiExclusiveSinkStage {
     fn prepare(
         &mut self,
@@ -116,10 +122,6 @@ impl SinkStage for WasapiExclusiveSinkStage {
         ctx: &mut PipelineContext,
     ) -> Result<(), PipelineError> {
         self.inner.prepare(spec, ctx)
-    }
-
-    fn sync_runtime_control(&mut self, ctx: &mut PipelineContext) -> Result<(), PipelineError> {
-        self.inner.sync_runtime_control(ctx)
     }
 
     fn write(

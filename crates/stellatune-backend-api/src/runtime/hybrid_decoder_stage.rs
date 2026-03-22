@@ -12,8 +12,8 @@ use stellatune_audio_core::pipeline::context::{
     AudioBlock, GaplessTrimSpec, PipelineContext, SourceHandle, StreamSpec,
 };
 use stellatune_audio_core::pipeline::error::PipelineError;
-use stellatune_audio_core::pipeline::stages::StageFlow;
 use stellatune_audio_core::pipeline::stages::decoder::DecoderStage;
+use stellatune_audio_core::pipeline::stages::{Stage, StageFlow};
 use stellatune_audio_plugin_adapters::stages::{
     PluginDecoderStage, plugin_track_token_from_source_handle,
     probe_track_decode_info_with_decoder_selector,
@@ -273,6 +273,24 @@ impl HybridDecoderStage {
     }
 }
 
+impl Stage for HybridDecoderStage {
+    fn sync_runtime_control(&mut self, ctx: &mut PipelineContext) -> Result<(), PipelineError> {
+        self.last_position_ms = ctx.position_ms;
+        match self.active.as_mut() {
+            Some(ActiveHybridDecoder::UserImplementation { decoder }) => {
+                if let Some(position_ms) = ctx.pending_seek_ms
+                    && let Err(error) = decoder.seek_ms(position_ms.max(0) as u64)
+                {
+                    return Err(PipelineError::StageFailure(error));
+                }
+                Ok(())
+            },
+            Some(ActiveHybridDecoder::Plugin { stage }) => stage.sync_runtime_control(ctx),
+            None => Err(PipelineError::NotPrepared),
+        }
+    }
+}
+
 impl DecoderStage for HybridDecoderStage {
     fn prepare(
         &mut self,
@@ -288,22 +306,6 @@ impl DecoderStage for HybridDecoderStage {
         }
         .map_err(PipelineError::StageFailure)?;
         Ok(spec)
-    }
-
-    fn sync_runtime_control(&mut self, ctx: &mut PipelineContext) -> Result<(), PipelineError> {
-        self.last_position_ms = ctx.position_ms;
-        match self.active.as_mut() {
-            Some(ActiveHybridDecoder::UserImplementation { decoder }) => {
-                if let Some(position_ms) = ctx.pending_seek_ms
-                    && let Err(error) = decoder.seek_ms(position_ms.max(0) as u64)
-                {
-                    return Err(PipelineError::StageFailure(error));
-                }
-                Ok(())
-            },
-            Some(ActiveHybridDecoder::Plugin { stage }) => stage.sync_runtime_control(ctx),
-            None => Err(PipelineError::NotPrepared),
-        }
     }
 
     fn current_gapless_trim_spec(&self) -> Option<GaplessTrimSpec> {

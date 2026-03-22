@@ -7,7 +7,7 @@ use stellatune_audio_core::pipeline::context::PipelineContext;
 use crate::error::DecodeError;
 use crate::pipeline::assembly::{PipelineAssembler, PipelineRuntime};
 use crate::pipeline::runtime::dsp::control::{MASTER_GAIN_STAGE_KEY, MasterGainControl};
-use crate::pipeline::runtime::runner::PipelineRunner;
+use crate::pipeline::runtime::runner::{PipelineRunner, TransformControlDispatchResult};
 use crate::workers::decode::DecodeWorkerEventCallback;
 use crate::workers::decode::handlers::reconfigure_active;
 use crate::workers::decode::state::DecodeWorkerState;
@@ -32,8 +32,8 @@ pub(crate) fn replay_persisted_stage_controls_to_runner(
     entries.sort_by(|(left, _), (right, _)| left.cmp(right));
     for (stage_key, control) in entries {
         match runner.apply_transform_control_to(stage_key, control.as_ref(), ctx) {
-            Ok(true) => {},
-            Ok(false) => {},
+            Ok(TransformControlDispatchResult::Applied) => {},
+            Ok(TransformControlDispatchResult::StageNotFound) => {},
             Err(error) => {
                 return Err(DecodeError::PersistedStageControlApplyFailed {
                     stage_key: stage_key.to_string(),

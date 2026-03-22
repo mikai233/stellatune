@@ -17,6 +17,12 @@ pub(crate) enum SinkActivationMode {
     ForceRecreate,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SinkActivationResult {
+    Reused,
+    Started,
+}
+
 pub(crate) struct SinkSession {
     sink_worker: Option<SinkWorker>,
     sink_spec: Option<StreamSpec>,
@@ -49,7 +55,7 @@ impl SinkSession {
         sink_plan: &mut Option<Box<dyn SinkPlan>>,
         ctx: &PipelineContext,
         mode: SinkActivationMode,
-    ) -> Result<bool, PipelineError> {
+    ) -> Result<SinkActivationResult, PipelineError> {
         if matches!(mode, SinkActivationMode::ForceRecreate) {
             self.shutdown(false);
         }
@@ -71,7 +77,7 @@ impl SinkSession {
             && self.sink_spec == Some(spec)
             && self.sink_route_fingerprint == Some(route_fingerprint)
         {
-            return Ok(true);
+            return Ok(SinkActivationResult::Reused);
         }
 
         self.shutdown(false);
@@ -84,7 +90,7 @@ impl SinkSession {
         self.sink_worker = Some(sink_worker);
         self.sink_spec = Some(spec);
         self.sink_route_fingerprint = Some(route_fingerprint);
-        Ok(false)
+        Ok(SinkActivationResult::Started)
     }
 
     pub(crate) fn try_send_block(&mut self, block: AudioBlock) -> Result<(), SinkWriteError> {
@@ -134,16 +140,20 @@ mod tests {
 
     use stellatune_audio_core::pipeline::context::{AudioBlock, PipelineContext, StreamSpec};
     use stellatune_audio_core::pipeline::error::PipelineError;
-    use stellatune_audio_core::pipeline::stages::StageFlow;
     use stellatune_audio_core::pipeline::stages::sink::SinkStage;
+    use stellatune_audio_core::pipeline::stages::{Stage, StageFlow};
 
     use crate::config::sink::SinkLatencyConfig;
     use crate::pipeline::assembly::{SinkPlan, StaticSinkPlan};
-    use crate::pipeline::runtime::sink_session::{SinkActivationMode, SinkSession};
+    use crate::pipeline::runtime::sink_session::{
+        SinkActivationMode, SinkActivationResult, SinkSession,
+    };
     use crate::workers::sink::worker::SinkWriteError;
 
     #[derive(Default)]
     struct TestSink;
+
+    impl Stage for TestSink {}
 
     impl SinkStage for TestSink {
         fn prepare(
@@ -153,14 +163,6 @@ mod tests {
         ) -> Result<(), PipelineError> {
             Ok(())
         }
-
-        fn sync_runtime_control(
-            &mut self,
-            _ctx: &mut PipelineContext,
-        ) -> Result<(), PipelineError> {
-            Ok(())
-        }
-
         fn write(
             &mut self,
             _block: &AudioBlock,
@@ -199,7 +201,7 @@ mod tests {
                 SinkActivationMode::ImmediateCutover,
             )
             .expect("initial activation should succeed");
-        assert!(!reused);
+        assert_eq!(reused, SinkActivationResult::Started);
         assert!(session.is_active_for(spec, 7));
 
         let mut no_plan: Option<Box<dyn SinkPlan>> = None;
@@ -212,7 +214,7 @@ mod tests {
                 SinkActivationMode::ImmediateCutover,
             )
             .expect("reuse activation should succeed");
-        assert!(reused);
+        assert_eq!(reused, SinkActivationResult::Reused);
         session.shutdown(false);
     }
 
@@ -263,7 +265,7 @@ mod tests {
                 SinkActivationMode::ForceRecreate,
             )
             .expect("force recreate with replacement sink plan should succeed");
-        assert!(!reused);
+        assert_eq!(reused, SinkActivationResult::Started);
         session.shutdown(false);
     }
 

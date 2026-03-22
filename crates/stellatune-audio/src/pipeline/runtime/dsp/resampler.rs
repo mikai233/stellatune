@@ -2,8 +2,8 @@ use audioadapter_buffers::direct::InterleavedSlice;
 use rubato::{Async, FixedAsync, Resampler, SincInterpolationParameters, SincInterpolationType};
 use stellatune_audio_core::pipeline::context::{AudioBlock, PipelineContext, StreamSpec};
 use stellatune_audio_core::pipeline::error::PipelineError;
-use stellatune_audio_core::pipeline::stages::StageFlow;
 use stellatune_audio_core::pipeline::stages::transform::TransformStage;
+use stellatune_audio_core::pipeline::stages::{Stage, StageFlow};
 
 use crate::config::engine::ResampleQuality;
 use crate::pipeline::assembly::ResamplerPlan;
@@ -125,6 +125,8 @@ impl ResamplerStage {
     }
 }
 
+impl Stage for ResamplerStage {}
+
 impl TransformStage for ResamplerStage {
     fn key(&self) -> &str {
         RESAMPLER_STAGE_KEY
@@ -150,10 +152,6 @@ impl TransformStage for ResamplerStage {
             self.resampler = None;
             Ok(spec)
         }
-    }
-
-    fn sync_runtime_control(&mut self, _ctx: &mut PipelineContext) -> Result<(), PipelineError> {
-        Ok(())
     }
 
     fn process(

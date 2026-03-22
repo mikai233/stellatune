@@ -9,8 +9,8 @@ use stellatune_audio_core::pipeline::context::{
     AudioBlock, GaplessTrimSpec, PipelineContext, SourceHandle, StreamSpec,
 };
 use stellatune_audio_core::pipeline::error::PipelineError;
-use stellatune_audio_core::pipeline::stages::StageFlow;
 use stellatune_audio_core::pipeline::stages::decoder::DecoderStage;
+use stellatune_audio_core::pipeline::stages::{Stage, StageFlow};
 use stellatune_plugins::error::Error as WasmPluginError;
 use stellatune_plugins::executor::plugin_instance::source::RuntimeOpenedSourceStreamHandle;
 use stellatune_plugins::host::stream::{HostStreamHandle, StreamSeekWhence};
@@ -210,6 +210,13 @@ impl PluginDecoderStage {
     }
 }
 
+impl Stage for PluginDecoderStage {
+    fn sync_runtime_control(&mut self, ctx: &mut PipelineContext) -> Result<(), PipelineError> {
+        self.last_position_ms = ctx.position_ms;
+        self.apply_pending_seek(ctx)
+    }
+}
+
 impl DecoderStage for PluginDecoderStage {
     fn prepare(
         &mut self,
@@ -231,11 +238,6 @@ impl DecoderStage for PluginDecoderStage {
         self.duration_ms_hint = prepared.duration_ms_hint;
         self.prepared = Some(prepared);
         Ok(spec)
-    }
-
-    fn sync_runtime_control(&mut self, ctx: &mut PipelineContext) -> Result<(), PipelineError> {
-        self.last_position_ms = ctx.position_ms;
-        self.apply_pending_seek(ctx)
     }
 
     fn current_gapless_trim_spec(&self) -> Option<GaplessTrimSpec> {

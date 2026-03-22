@@ -4,8 +4,8 @@ use stellatune_audio_core::pipeline::context::{
     AudioBlock, MasterGainCurve, PipelineContext, StreamSpec,
 };
 use stellatune_audio_core::pipeline::error::PipelineError;
-use stellatune_audio_core::pipeline::stages::StageFlow;
 use stellatune_audio_core::pipeline::stages::transform::TransformStage;
+use stellatune_audio_core::pipeline::stages::{Stage, StageControlResult, StageFlow};
 
 use crate::pipeline::runtime::dsp::control::{
     MASTER_GAIN_STAGE_KEY, MasterGainControl, SharedMasterGainHotControl,
@@ -81,16 +81,12 @@ impl MasterGainStage {
     }
 }
 
-impl TransformStage for MasterGainStage {
-    fn key(&self) -> &str {
-        MASTER_GAIN_STAGE_KEY
-    }
-
+impl Stage for MasterGainStage {
     fn apply_control(
         &mut self,
         control: &dyn Any,
         _ctx: &mut PipelineContext,
-    ) -> Result<bool, PipelineError> {
+    ) -> Result<StageControlResult, PipelineError> {
         if let Some(control) = control.downcast_ref::<MasterGainControl>() {
             if let Some(curve) = control.curve {
                 self.curve = curve;
@@ -98,24 +94,9 @@ impl TransformStage for MasterGainStage {
             self.level = control.level.clamp(0.0, 1.0);
             let target_gain = self.curve.level_to_gain(self.level).clamp(0.0, 1.0);
             self.apply_target_gain(target_gain, control.ramp_ms);
-            return Ok(true);
+            return Ok(StageControlResult::Applied);
         }
-        Ok(false)
-    }
-
-    fn prepare(
-        &mut self,
-        spec: StreamSpec,
-        _ctx: &mut PipelineContext,
-    ) -> Result<StreamSpec, PipelineError> {
-        self.sample_rate = spec.sample_rate.max(1);
-        self.channels = spec.channels.max(1) as usize;
-        self.level = self.level.clamp(0.0, 1.0);
-        let gain = self.curve.level_to_gain(self.level).clamp(0.0, 1.0);
-        self.current_gain = gain;
-        self.target_gain = gain;
-        self.ramp_remaining_frames = 0;
-        Ok(spec)
+        Ok(StageControlResult::Ignored)
     }
 
     fn sync_runtime_control(&mut self, _ctx: &mut PipelineContext) -> Result<(), PipelineError> {
@@ -135,6 +116,27 @@ impl TransformStage for MasterGainStage {
         self.apply_target_gain(target_gain, state.ramp_ms);
         self.last_seen_hot_version = version;
         Ok(())
+    }
+}
+
+impl TransformStage for MasterGainStage {
+    fn key(&self) -> &str {
+        MASTER_GAIN_STAGE_KEY
+    }
+
+    fn prepare(
+        &mut self,
+        spec: StreamSpec,
+        _ctx: &mut PipelineContext,
+    ) -> Result<StreamSpec, PipelineError> {
+        self.sample_rate = spec.sample_rate.max(1);
+        self.channels = spec.channels.max(1) as usize;
+        self.level = self.level.clamp(0.0, 1.0);
+        let gain = self.curve.level_to_gain(self.level).clamp(0.0, 1.0);
+        self.current_gain = gain;
+        self.target_gain = gain;
+        self.ramp_remaining_frames = 0;
+        Ok(spec)
     }
 
     fn process(
@@ -182,8 +184,8 @@ mod tests {
     use stellatune_audio_core::pipeline::context::{
         AudioBlock, MasterGainCurve, PipelineContext, StreamSpec,
     };
-    use stellatune_audio_core::pipeline::stages::StageFlow;
     use stellatune_audio_core::pipeline::stages::transform::TransformStage;
+    use stellatune_audio_core::pipeline::stages::{Stage, StageFlow};
 
     fn mono_block(samples: &[f32]) -> AudioBlock {
         AudioBlock {

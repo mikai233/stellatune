@@ -20,13 +20,14 @@ use std::sync::{Arc, Mutex};
 use stellatune_audio_core::pipeline::context::GainTransitionRequest;
 use stellatune_audio_core::pipeline::context::{GaplessTrimSpec, PipelineContext};
 use stellatune_audio_core::pipeline::error::PipelineError;
+use stellatune_audio_core::pipeline::stages::StageControlResult;
 use stellatune_audio_core::pipeline::stages::transform::TransformStage;
 
 #[cfg(test)]
 use crate::pipeline::runtime::dsp::control::TransitionGainControl;
 use crate::pipeline::runtime::dsp::control::{GAPLESS_TRIM_STAGE_KEY, GaplessTrimControl};
 
-use crate::pipeline::runtime::runner::PipelineRunner;
+use crate::pipeline::runtime::runner::{PipelineRunner, TransformControlDispatchResult};
 use crate::pipeline::runtime::sink_session::SinkSession;
 
 impl PipelineRunner {
@@ -62,7 +63,7 @@ impl PipelineRunner {
         stage_key: &str,
         control: &dyn Any,
         ctx: &mut PipelineContext,
-    ) -> Result<bool, PipelineError> {
+    ) -> Result<TransformControlDispatchResult, PipelineError> {
         self.ensure_decode_prepared()?;
         self.apply_transform_control_internal(stage_key, control, ctx)
     }
@@ -76,9 +77,9 @@ impl PipelineRunner {
         stage_key: &str,
         control: &dyn Any,
         ctx: &mut PipelineContext,
-    ) -> Result<bool, PipelineError> {
+    ) -> Result<TransformControlDispatchResult, PipelineError> {
         let Some(target_index) = self.transform_control_routes.get(stage_key).copied() else {
-            return Ok(false);
+            return Ok(TransformControlDispatchResult::StageNotFound);
         };
         let transforms_len = self.transforms.len();
         let transform = self.transforms.get_mut(target_index).ok_or_else(|| {
@@ -87,7 +88,7 @@ impl PipelineRunner {
             ))
         })?;
         let handled = transform.apply_control(control, ctx)?;
-        if !handled {
+        if handled == StageControlResult::Ignored {
             return Err(PipelineError::StageFailure(format!(
                 "transform control target rejected control: key={stage_key}, index={target_index}"
             )));
@@ -100,7 +101,7 @@ impl PipelineRunner {
                 .expect("transition request log sink mutex poisoned")
                 .push(control.request);
         }
-        Ok(true)
+        Ok(TransformControlDispatchResult::Applied)
     }
 
     fn scale_decoder_frames_to_output_domain(&self, frames: u64) -> u64 {

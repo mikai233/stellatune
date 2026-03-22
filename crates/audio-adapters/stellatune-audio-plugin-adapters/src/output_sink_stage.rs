@@ -1,7 +1,7 @@
 use stellatune_audio_core::pipeline::context::{AudioBlock, PipelineContext, StreamSpec};
 use stellatune_audio_core::pipeline::error::PipelineError;
-use stellatune_audio_core::pipeline::stages::StageFlow;
 use stellatune_audio_core::pipeline::stages::sink::SinkStage;
+use stellatune_audio_core::pipeline::stages::{Stage, StageFlow};
 use stellatune_plugins::host_runtime::RuntimeOutputSinkPlugin;
 
 use crate::output_sink_runtime::{create_output_sink_controller_and_open, write_all_frames};
@@ -92,6 +92,8 @@ impl PluginOutputSinkStage {
     }
 }
 
+impl Stage for PluginOutputSinkStage {}
+
 impl SinkStage for PluginOutputSinkStage {
     fn prepare(
         &mut self,
@@ -100,10 +102,6 @@ impl SinkStage for PluginOutputSinkStage {
     ) -> Result<(), PipelineError> {
         self.stop(ctx);
         self.open_sink(spec)
-    }
-
-    fn sync_runtime_control(&mut self, _ctx: &mut PipelineContext) -> Result<(), PipelineError> {
-        Ok(())
     }
 
     fn write(

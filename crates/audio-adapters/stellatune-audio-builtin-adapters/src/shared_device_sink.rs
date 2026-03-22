@@ -8,8 +8,8 @@ use ringbuf::{HeapCons, HeapProd, HeapRb};
 
 use stellatune_audio_core::pipeline::context::{AudioBlock, PipelineContext, StreamSpec};
 use stellatune_audio_core::pipeline::error::PipelineError;
-use stellatune_audio_core::pipeline::stages::StageFlow;
 use stellatune_audio_core::pipeline::stages::sink::SinkStage;
+use stellatune_audio_core::pipeline::stages::{Stage, StageFlow};
 
 const RING_BUFFER_CAPACITY_MS: usize = 40;
 const WRITE_BACKPRESSURE_TIMEOUT_MS: u64 = 30;
@@ -421,17 +421,7 @@ impl Default for SharedDeviceSinkStage {
     }
 }
 
-impl SinkStage for SharedDeviceSinkStage {
-    fn prepare(
-        &mut self,
-        spec: StreamSpec,
-        _ctx: &mut PipelineContext,
-    ) -> Result<(), PipelineError> {
-        self.stop(_ctx);
-        self.prepared_spec = Some(spec);
-        self.rebuild_from_control()
-    }
-
+impl Stage for SharedDeviceSinkStage {
     fn sync_runtime_control(&mut self, _ctx: &mut PipelineContext) -> Result<(), PipelineError> {
         let stream_error = self.take_callback_error();
         if stream_error.is_some() || self.control.needs_reconfigure() {
@@ -446,6 +436,18 @@ impl SinkStage for SharedDeviceSinkStage {
             });
         }
         Ok(())
+    }
+}
+
+impl SinkStage for SharedDeviceSinkStage {
+    fn prepare(
+        &mut self,
+        spec: StreamSpec,
+        _ctx: &mut PipelineContext,
+    ) -> Result<(), PipelineError> {
+        self.stop(_ctx);
+        self.prepared_spec = Some(spec);
+        self.rebuild_from_control()
     }
 
     fn write(

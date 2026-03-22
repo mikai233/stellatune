@@ -6,11 +6,11 @@ use stellatune_audio_core::pipeline::context::{
     AudioBlock, InputRef, PipelineContext, SourceHandle, StreamSpec,
 };
 use stellatune_audio_core::pipeline::error::PipelineError;
-use stellatune_audio_core::pipeline::stages::StageFlow;
 use stellatune_audio_core::pipeline::stages::decoder::DecoderStage;
 use stellatune_audio_core::pipeline::stages::sink::SinkStage;
 use stellatune_audio_core::pipeline::stages::source::SourceStage;
 use stellatune_audio_core::pipeline::stages::transform::TransformStage;
+use stellatune_audio_core::pipeline::stages::{Stage, StageFlow};
 
 use crate::config::engine::{LfeMode, ResampleQuality, StopBehavior};
 use crate::config::sink::SinkLatencyConfig;
@@ -25,6 +25,8 @@ use crate::pipeline::assembly::{
 #[derive(Default)]
 struct TestSource;
 
+impl Stage for TestSource {}
+
 impl SourceStage for TestSource {
     fn prepare(
         &mut self,
@@ -33,11 +35,6 @@ impl SourceStage for TestSource {
     ) -> Result<SourceHandle, PipelineError> {
         Ok(SourceHandle::new(()))
     }
-
-    fn sync_runtime_control(&mut self, _ctx: &mut PipelineContext) -> Result<(), PipelineError> {
-        Ok(())
-    }
-
     fn stop(&mut self, _ctx: &mut PipelineContext) {}
 }
 
@@ -57,6 +54,8 @@ impl TestDecoder {
     }
 }
 
+impl Stage for TestDecoder {}
+
 impl DecoderStage for TestDecoder {
     fn prepare(
         &mut self,
@@ -68,11 +67,6 @@ impl DecoderStage for TestDecoder {
             channels: self.channels,
         })
     }
-
-    fn sync_runtime_control(&mut self, _ctx: &mut PipelineContext) -> Result<(), PipelineError> {
-        Ok(())
-    }
-
     fn next_block(
         &mut self,
         out: &mut AudioBlock,
@@ -98,6 +92,8 @@ impl DecoderStage for TestDecoder {
 #[derive(Default)]
 struct TestSink;
 
+impl Stage for TestSink {}
+
 impl SinkStage for TestSink {
     fn prepare(
         &mut self,
@@ -106,11 +102,6 @@ impl SinkStage for TestSink {
     ) -> Result<(), PipelineError> {
         Ok(())
     }
-
-    fn sync_runtime_control(&mut self, _ctx: &mut PipelineContext) -> Result<(), PipelineError> {
-        Ok(())
-    }
-
     fn write(
         &mut self,
         _block: &AudioBlock,
@@ -130,6 +121,8 @@ struct CaptureSink {
     written: Arc<Mutex<Vec<AudioBlock>>>,
 }
 
+impl Stage for CaptureSink {}
+
 impl CaptureSink {
     fn new(written: Arc<Mutex<Vec<AudioBlock>>>) -> Self {
         Self { written }
@@ -144,11 +137,6 @@ impl SinkStage for CaptureSink {
     ) -> Result<(), PipelineError> {
         Ok(())
     }
-
-    fn sync_runtime_control(&mut self, _ctx: &mut PipelineContext) -> Result<(), PipelineError> {
-        Ok(())
-    }
-
     fn write(
         &mut self,
         block: &AudioBlock,
@@ -173,6 +161,8 @@ struct SpecTap {
     seen: Arc<Mutex<Vec<StreamSpec>>>,
 }
 
+impl Stage for SpecTap {}
+
 impl SpecTap {
     fn new(key: &'static str, seen: Arc<Mutex<Vec<StreamSpec>>>) -> Self {
         Self { key, seen }
@@ -195,11 +185,6 @@ impl TransformStage for SpecTap {
             .push(spec);
         Ok(spec)
     }
-
-    fn sync_runtime_control(&mut self, _ctx: &mut PipelineContext) -> Result<(), PipelineError> {
-        Ok(())
-    }
-
     fn process(
         &mut self,
         _block: &mut AudioBlock,
@@ -221,6 +206,8 @@ struct FlushTailTap {
     pending_samples: Vec<f32>,
     emit_on_empty_process: bool,
 }
+
+impl Stage for FlushTailTap {}
 
 impl FlushTailTap {
     fn new(key: &'static str, pending_samples: Vec<f32>) -> Self {
@@ -246,11 +233,6 @@ impl TransformStage for FlushTailTap {
         self.channels = spec.channels.max(1);
         Ok(spec)
     }
-
-    fn sync_runtime_control(&mut self, _ctx: &mut PipelineContext) -> Result<(), PipelineError> {
-        Ok(())
-    }
-
     fn process(
         &mut self,
         block: &mut AudioBlock,
@@ -278,6 +260,8 @@ struct KeyedNoopTransform {
     key: &'static str,
 }
 
+impl Stage for KeyedNoopTransform {}
+
 impl KeyedNoopTransform {
     fn new(key: &'static str) -> Self {
         Self { key }
@@ -296,11 +280,6 @@ impl TransformStage for KeyedNoopTransform {
     ) -> Result<StreamSpec, PipelineError> {
         Ok(spec)
     }
-
-    fn sync_runtime_control(&mut self, _ctx: &mut PipelineContext) -> Result<(), PipelineError> {
-        Ok(())
-    }
-
     fn process(
         &mut self,
         _block: &mut AudioBlock,

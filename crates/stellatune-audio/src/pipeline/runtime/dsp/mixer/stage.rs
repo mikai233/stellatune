@@ -1,7 +1,7 @@
 use stellatune_audio_core::pipeline::context::{AudioBlock, PipelineContext, StreamSpec};
 use stellatune_audio_core::pipeline::error::PipelineError;
-use stellatune_audio_core::pipeline::stages::StageFlow;
 use stellatune_audio_core::pipeline::stages::transform::TransformStage;
+use stellatune_audio_core::pipeline::stages::{Stage, StageFlow};
 
 use crate::pipeline::assembly::MixerPlan;
 use crate::pipeline::runtime::dsp::mixer::layout::ChannelLayout;
@@ -43,6 +43,8 @@ impl MixerStage {
     }
 }
 
+impl Stage for MixerStage {}
+
 impl TransformStage for MixerStage {
     fn key(&self) -> &str {
         MIXER_STAGE_KEY
@@ -58,10 +60,6 @@ impl TransformStage for MixerStage {
             sample_rate: spec.sample_rate,
             channels: self.out_channels as u16,
         })
-    }
-
-    fn sync_runtime_control(&mut self, _ctx: &mut PipelineContext) -> Result<(), PipelineError> {
-        Ok(())
     }
 
     fn process(

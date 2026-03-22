@@ -4,8 +4,8 @@ use stellatune_audio_core::pipeline::context::{
     AudioBlock, GaplessTrimSpec, PipelineContext, StreamSpec,
 };
 use stellatune_audio_core::pipeline::error::PipelineError;
-use stellatune_audio_core::pipeline::stages::StageFlow;
 use stellatune_audio_core::pipeline::stages::transform::TransformStage;
+use stellatune_audio_core::pipeline::stages::{Stage, StageControlResult, StageFlow};
 
 use crate::pipeline::runtime::dsp::control::{GAPLESS_TRIM_STAGE_KEY, GaplessTrimControl};
 
@@ -147,25 +147,34 @@ impl GaplessTrimStage {
     }
 }
 
-impl TransformStage for GaplessTrimStage {
-    fn key(&self) -> &str {
-        GAPLESS_TRIM_STAGE_KEY
-    }
-
+impl Stage for GaplessTrimStage {
     fn apply_control(
         &mut self,
         control: &dyn std::any::Any,
         _ctx: &mut PipelineContext,
-    ) -> Result<bool, PipelineError> {
+    ) -> Result<StageControlResult, PipelineError> {
         if let Some(control) = control.downcast_ref::<GaplessTrimControl>() {
             let spec = StreamSpec {
                 sample_rate: self.sample_rate.max(1),
                 channels: self.channels.max(1) as u16,
             };
             self.configure(spec, control.spec, control.position_ms);
-            return Ok(true);
+            return Ok(StageControlResult::Applied);
         }
-        Ok(false)
+        Ok(StageControlResult::Ignored)
+    }
+
+    fn sync_runtime_control(&mut self, ctx: &mut PipelineContext) -> Result<(), PipelineError> {
+        if let Some(seek_ms) = ctx.pending_seek_ms {
+            self.reset_for_seek(seek_ms);
+        }
+        Ok(())
+    }
+}
+
+impl TransformStage for GaplessTrimStage {
+    fn key(&self) -> &str {
+        GAPLESS_TRIM_STAGE_KEY
     }
 
     fn prepare(
@@ -175,13 +184,6 @@ impl TransformStage for GaplessTrimStage {
     ) -> Result<StreamSpec, PipelineError> {
         self.configure(spec, self.spec, ctx.position_ms);
         Ok(spec)
-    }
-
-    fn sync_runtime_control(&mut self, ctx: &mut PipelineContext) -> Result<(), PipelineError> {
-        if let Some(seek_ms) = ctx.pending_seek_ms {
-            self.reset_for_seek(seek_ms);
-        }
-        Ok(())
     }
 
     fn process(
@@ -221,8 +223,8 @@ mod tests {
     use stellatune_audio_core::pipeline::context::{
         AudioBlock, GaplessTrimSpec, PipelineContext, StreamSpec,
     };
-    use stellatune_audio_core::pipeline::stages::StageFlow;
     use stellatune_audio_core::pipeline::stages::transform::TransformStage;
+    use stellatune_audio_core::pipeline::stages::{Stage, StageFlow};
 
     fn block(samples: &[f32]) -> AudioBlock {
         AudioBlock {

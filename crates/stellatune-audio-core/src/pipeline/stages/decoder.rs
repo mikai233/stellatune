@@ -3,16 +3,14 @@ use crate::pipeline::context::{
 };
 use crate::pipeline::error::PipelineError;
 
-use super::StageFlow;
+use super::{Stage, StageFlow};
 
-pub trait DecoderStage: Send {
+pub trait DecoderStage: Stage {
     fn prepare(
         &mut self,
         source: &SourceHandle,
         ctx: &mut PipelineContext,
     ) -> Result<StreamSpec, PipelineError>;
-
-    fn sync_runtime_control(&mut self, ctx: &mut PipelineContext) -> Result<(), PipelineError>;
 
     fn current_gapless_trim_spec(&self) -> Option<GaplessTrimSpec> {
         None

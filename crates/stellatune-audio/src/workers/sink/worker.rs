@@ -386,10 +386,12 @@ mod tests {
     use std::time::Duration;
     use stellatune_audio_core::pipeline::context::{AudioBlock, PipelineContext, StreamSpec};
     use stellatune_audio_core::pipeline::error::PipelineError;
-    use stellatune_audio_core::pipeline::stages::StageFlow;
     use stellatune_audio_core::pipeline::stages::sink::SinkStage;
+    use stellatune_audio_core::pipeline::stages::{Stage, StageFlow};
 
     struct FatalOnWriteSink;
+
+    impl Stage for FatalOnWriteSink {}
 
     impl SinkStage for FatalOnWriteSink {
         fn prepare(
@@ -399,14 +401,6 @@ mod tests {
         ) -> Result<(), PipelineError> {
             Ok(())
         }
-
-        fn sync_runtime_control(
-            &mut self,
-            _ctx: &mut PipelineContext,
-        ) -> Result<(), PipelineError> {
-            Ok(())
-        }
-
         fn write(
             &mut self,
             _block: &AudioBlock,

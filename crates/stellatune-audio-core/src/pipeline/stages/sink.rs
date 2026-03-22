@@ -1,13 +1,11 @@
 use crate::pipeline::context::{AudioBlock, PipelineContext, StreamSpec};
 use crate::pipeline::error::PipelineError;
 
-use super::StageFlow;
+use super::{Stage, StageFlow};
 
-pub trait SinkStage: Send {
+pub trait SinkStage: Stage {
     fn prepare(&mut self, spec: StreamSpec, ctx: &mut PipelineContext)
     -> Result<(), PipelineError>;
-
-    fn sync_runtime_control(&mut self, ctx: &mut PipelineContext) -> Result<(), PipelineError>;
 
     fn write(
         &mut self,

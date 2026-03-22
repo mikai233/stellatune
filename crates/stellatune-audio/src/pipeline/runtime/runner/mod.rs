@@ -53,6 +53,12 @@ pub(crate) enum StepResult {
     Eof,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TransformControlDispatchResult {
+    Applied,
+    StageNotFound,
+}
+
 const MAX_DRAIN_TAIL_ITERATIONS: usize = 32;
 const MAX_PENDING_SINK_FLUSH_ATTEMPTS: usize = 32;
 

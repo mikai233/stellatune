@@ -9,7 +9,9 @@ use stellatune_audio_core::pipeline::stages::transform::TransformStage;
 use crate::config::engine::{PauseBehavior, StopBehavior};
 use crate::pipeline::assembly::SinkPlan;
 use crate::pipeline::runtime::runner::{PipelineRunner, RunnerState};
-use crate::pipeline::runtime::sink_session::{SinkActivationMode, SinkSession};
+use crate::pipeline::runtime::sink_session::{
+    SinkActivationMode, SinkActivationResult, SinkSession,
+};
 
 impl PipelineRunner {
     #[allow(dead_code)]
@@ -80,7 +82,7 @@ impl PipelineRunner {
         sink_session: &mut SinkSession,
         ctx: &PipelineContext,
         mode: SinkActivationMode,
-    ) -> Result<bool, PipelineError> {
+    ) -> Result<SinkActivationResult, PipelineError> {
         self.ensure_decode_prepared()?;
         let spec = self.output_spec.ok_or(PipelineError::NotPrepared)?;
         let reused = sink_session.activate(

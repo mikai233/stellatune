@@ -9,10 +9,10 @@ use stellatune_audio_core::pipeline::context::{
     StreamSpec, TransitionCurve, TransitionTimePolicy,
 };
 use stellatune_audio_core::pipeline::error::PipelineError;
-use stellatune_audio_core::pipeline::stages::StageFlow;
 use stellatune_audio_core::pipeline::stages::decoder::DecoderStage;
 use stellatune_audio_core::pipeline::stages::sink::SinkStage;
 use stellatune_audio_core::pipeline::stages::source::SourceStage;
+use stellatune_audio_core::pipeline::stages::{Stage, StageControlResult, StageFlow};
 
 use crate::config::engine::{
     EngineConfig, LfeMode, PauseBehavior, PlayerState, ResampleQuality, StopBehavior,
@@ -233,6 +233,8 @@ struct TestSource {
     prepared: bool,
 }
 
+impl Stage for TestSource {}
+
 impl SourceStage for TestSource {
     fn prepare(
         &mut self,
@@ -242,11 +244,6 @@ impl SourceStage for TestSource {
         self.prepared = true;
         Ok(SourceHandle::new(()))
     }
-
-    fn sync_runtime_control(&mut self, _ctx: &mut PipelineContext) -> Result<(), PipelineError> {
-        Ok(())
-    }
-
     fn stop(&mut self, _ctx: &mut PipelineContext) {
         self.prepared = false;
     }
@@ -283,6 +280,8 @@ impl TestDecoder {
     }
 }
 
+impl Stage for TestDecoder {}
+
 impl DecoderStage for TestDecoder {
     fn prepare(
         &mut self,
@@ -294,11 +293,6 @@ impl DecoderStage for TestDecoder {
             channels: self.channels,
         })
     }
-
-    fn sync_runtime_control(&mut self, _ctx: &mut PipelineContext) -> Result<(), PipelineError> {
-        Ok(())
-    }
-
     fn current_gapless_trim_spec(&self) -> Option<GaplessTrimSpec> {
         self.gapless_trim_spec
     }
@@ -333,6 +327,8 @@ impl DecoderStage for TestDecoder {
 #[derive(Default)]
 struct TestSink;
 
+impl Stage for TestSink {}
+
 impl SinkStage for TestSink {
     fn prepare(
         &mut self,
@@ -341,11 +337,6 @@ impl SinkStage for TestSink {
     ) -> Result<(), PipelineError> {
         Ok(())
     }
-
-    fn sync_runtime_control(&mut self, _ctx: &mut PipelineContext) -> Result<(), PipelineError> {
-        Ok(())
-    }
-
     fn write(
         &mut self,
         _block: &AudioBlock,
@@ -381,6 +372,20 @@ struct ProbeControlStage {
     apply_count: Arc<AtomicUsize>,
 }
 
+impl Stage for ProbeControlStage {
+    fn apply_control(
+        &mut self,
+        control: &dyn Any,
+        _ctx: &mut PipelineContext,
+    ) -> Result<StageControlResult, PipelineError> {
+        if control.downcast_ref::<ProbeControl>().is_some() {
+            self.apply_count.fetch_add(1, Ordering::SeqCst);
+            return Ok(StageControlResult::Applied);
+        }
+        Ok(StageControlResult::Ignored)
+    }
+}
+
 impl ProbeControlStage {
     fn new(stage_key: String, apply_count: Arc<AtomicUsize>) -> Self {
         Self {
@@ -399,28 +404,12 @@ impl stellatune_audio_core::pipeline::stages::transform::TransformStage for Prob
         &self.stage_key
     }
 
-    fn apply_control(
-        &mut self,
-        control: &dyn Any,
-        _ctx: &mut PipelineContext,
-    ) -> Result<bool, PipelineError> {
-        if control.downcast_ref::<ProbeControl>().is_some() {
-            self.apply_count.fetch_add(1, Ordering::SeqCst);
-            return Ok(true);
-        }
-        Ok(false)
-    }
-
     fn prepare(
         &mut self,
         spec: StreamSpec,
         _ctx: &mut PipelineContext,
     ) -> Result<StreamSpec, PipelineError> {
         Ok(spec)
-    }
-
-    fn sync_runtime_control(&mut self, _ctx: &mut PipelineContext) -> Result<(), PipelineError> {
-        Ok(())
     }
 
     fn process(
