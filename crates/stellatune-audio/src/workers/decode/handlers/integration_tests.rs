@@ -395,8 +395,8 @@ impl ProbeControlStage {
 }
 
 impl stellatune_audio_core::pipeline::stages::transform::TransformStage for ProbeControlStage {
-    fn key(&self) -> Option<&str> {
-        Some(&self.stage_key)
+    fn key(&self) -> &str {
+        &self.stage_key
     }
 
     fn apply_control(

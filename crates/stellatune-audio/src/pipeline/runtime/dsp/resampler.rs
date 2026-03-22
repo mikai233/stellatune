@@ -9,6 +9,7 @@ use crate::config::engine::ResampleQuality;
 use crate::pipeline::assembly::ResamplerPlan;
 
 const RESAMPLE_CHUNK_FRAMES: usize = 1024;
+const RESAMPLER_STAGE_KEY: &str = "builtin.resampler";
 
 #[derive(Debug, Clone, Copy)]
 struct ResampleParams {
@@ -125,6 +126,10 @@ impl ResamplerStage {
 }
 
 impl TransformStage for ResamplerStage {
+    fn key(&self) -> &str {
+        RESAMPLER_STAGE_KEY
+    }
+
     fn prepare(
         &mut self,
         spec: StreamSpec,

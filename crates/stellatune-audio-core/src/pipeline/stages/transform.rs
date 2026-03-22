@@ -6,9 +6,7 @@ use crate::pipeline::error::PipelineError;
 use super::StageFlow;
 
 pub trait TransformStage: Send {
-    fn key(&self) -> Option<&str> {
-        None
-    }
+    fn key(&self) -> &str;
 
     fn apply_control(
         &mut self,

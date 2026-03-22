@@ -82,8 +82,8 @@ impl MasterGainStage {
 }
 
 impl TransformStage for MasterGainStage {
-    fn key(&self) -> Option<&str> {
-        Some(MASTER_GAIN_STAGE_KEY)
+    fn key(&self) -> &str {
+        MASTER_GAIN_STAGE_KEY
     }
 
     fn apply_control(

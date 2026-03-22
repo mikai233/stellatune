@@ -130,8 +130,8 @@ impl TransitionGainStage {
 }
 
 impl TransformStage for TransitionGainStage {
-    fn key(&self) -> Option<&str> {
-        Some(TRANSITION_GAIN_STAGE_KEY)
+    fn key(&self) -> &str {
+        TRANSITION_GAIN_STAGE_KEY
     }
 
     fn apply_control(

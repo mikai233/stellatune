@@ -165,19 +165,17 @@ impl PipelineRunner {
     ) -> Result<HashMap<String, usize>, PipelineError> {
         let mut routes = HashMap::new();
         for (index, transform) in transforms.iter().enumerate() {
-            if let Some(stage_key) = transform.key() {
-                let key = stage_key.trim();
-                if key.is_empty() {
-                    return Err(PipelineError::StageFailure(
-                        "transform stage key must not be empty".to_string(),
-                    ));
-                }
-                // Reject collisions early so control dispatch never becomes ambiguous.
-                if routes.insert(key.to_string(), index).is_some() {
-                    return Err(PipelineError::StageFailure(format!(
-                        "duplicate transform stage key: {key}"
-                    )));
-                }
+            let key = transform.key().trim();
+            if key.is_empty() {
+                return Err(PipelineError::StageFailure(
+                    "transform stage key must not be empty".to_string(),
+                ));
+            }
+            // Reject collisions early so control dispatch never becomes ambiguous.
+            if routes.insert(key.to_string(), index).is_some() {
+                return Err(PipelineError::StageFailure(format!(
+                    "duplicate transform stage key: {key}"
+                )));
             }
         }
         Ok(routes)

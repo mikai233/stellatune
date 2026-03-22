@@ -190,8 +190,8 @@ impl PluginTransformStage {
 }
 
 impl TransformStage for PluginTransformStage {
-    fn key(&self) -> Option<&str> {
-        Some(self.stage_key.as_str())
+    fn key(&self) -> &str {
+        self.stage_key.as_str()
     }
 
     fn apply_control(
@@ -404,7 +404,7 @@ mod tests {
         assert_eq!(set.post_mix.len(), 1);
         assert_eq!(
             set.main[0].key(),
-            Some("plugin.transform.main.plugin-b.limiter.0")
+            "plugin.transform.main.plugin-b.limiter.0"
         );
     }
 

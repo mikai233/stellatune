@@ -148,8 +148,8 @@ impl GaplessTrimStage {
 }
 
 impl TransformStage for GaplessTrimStage {
-    fn key(&self) -> Option<&str> {
-        Some(GAPLESS_TRIM_STAGE_KEY)
+    fn key(&self) -> &str {
+        GAPLESS_TRIM_STAGE_KEY
     }
 
     fn apply_control(

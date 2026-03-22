@@ -169,16 +169,21 @@ impl SinkStage for CaptureSink {
 }
 
 struct SpecTap {
+    key: &'static str,
     seen: Arc<Mutex<Vec<StreamSpec>>>,
 }
 
 impl SpecTap {
-    fn new(seen: Arc<Mutex<Vec<StreamSpec>>>) -> Self {
-        Self { seen }
+    fn new(key: &'static str, seen: Arc<Mutex<Vec<StreamSpec>>>) -> Self {
+        Self { key, seen }
     }
 }
 
 impl TransformStage for SpecTap {
+    fn key(&self) -> &str {
+        self.key
+    }
+
     fn prepare(
         &mut self,
         spec: StreamSpec,
@@ -211,14 +216,16 @@ impl TransformStage for SpecTap {
 }
 
 struct FlushTailTap {
+    key: &'static str,
     channels: u16,
     pending_samples: Vec<f32>,
     emit_on_empty_process: bool,
 }
 
 impl FlushTailTap {
-    fn new(pending_samples: Vec<f32>) -> Self {
+    fn new(key: &'static str, pending_samples: Vec<f32>) -> Self {
         Self {
+            key,
             channels: 1,
             pending_samples,
             emit_on_empty_process: false,
@@ -227,6 +234,10 @@ impl FlushTailTap {
 }
 
 impl TransformStage for FlushTailTap {
+    fn key(&self) -> &str {
+        self.key
+    }
+
     fn prepare(
         &mut self,
         spec: StreamSpec,
@@ -274,8 +285,8 @@ impl KeyedNoopTransform {
 }
 
 impl TransformStage for KeyedNoopTransform {
-    fn key(&self) -> Option<&str> {
-        Some(self.key)
+    fn key(&self) -> &str {
+        self.key
     }
 
     fn prepare(
@@ -316,8 +327,14 @@ fn pre_post_transform_chain_wraps_mixer_and_resampler() {
             decoder: Box::new(TestDecoder::new(vec![vec![0.0, 1.0, 2.0, 3.0]], 1, 48_000)),
             transforms: Vec::new(),
             transform_chain: TransformChain {
-                pre_mix: vec![Box::new(SpecTap::new(Arc::clone(&pre_seen)))],
-                post_mix: vec![Box::new(SpecTap::new(Arc::clone(&post_seen)))],
+                pre_mix: vec![Box::new(SpecTap::new(
+                    "test.spec_tap.pre",
+                    Arc::clone(&pre_seen),
+                ))],
+                post_mix: vec![Box::new(SpecTap::new(
+                    "test.spec_tap.post",
+                    Arc::clone(&post_seen),
+                ))],
             },
             mixer: Some(MixerPlan::new(2, LfeMode::Mute)),
             resampler: Some(ResamplerPlan::new(24_000, ResampleQuality::Balanced)),
@@ -374,7 +391,10 @@ fn stop_drain_flushes_transform_tail_into_sink() {
         AssembledDecodePipeline {
             source: Box::new(TestSource),
             decoder: Box::new(TestDecoder::new(Vec::new(), 1, 48_000)),
-            transforms: vec![Box::new(FlushTailTap::new(vec![0.25, 0.5]))],
+            transforms: vec![Box::new(FlushTailTap::new(
+                "test.flush_tail",
+                vec![0.25, 0.5],
+            ))],
             transform_chain: TransformChain::default(),
             mixer: None,
             resampler: None,

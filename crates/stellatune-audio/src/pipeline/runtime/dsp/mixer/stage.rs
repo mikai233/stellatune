@@ -7,6 +7,8 @@ use crate::pipeline::assembly::MixerPlan;
 use crate::pipeline::runtime::dsp::mixer::layout::ChannelLayout;
 use crate::pipeline::runtime::dsp::mixer::matrix::MixMatrix;
 
+const MIXER_STAGE_KEY: &str = "builtin.mixer";
+
 #[derive(Debug, Clone)]
 pub(crate) struct MixerStage {
     plan: MixerPlan,
@@ -42,6 +44,10 @@ impl MixerStage {
 }
 
 impl TransformStage for MixerStage {
+    fn key(&self) -> &str {
+        MIXER_STAGE_KEY
+    }
+
     fn prepare(
         &mut self,
         spec: StreamSpec,
