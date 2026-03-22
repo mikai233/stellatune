@@ -4,7 +4,7 @@ use stellatune_audio_core::pipeline::context::{
     AudioBlock, MasterGainCurve, PipelineContext, StreamSpec,
 };
 use stellatune_audio_core::pipeline::error::PipelineError;
-use stellatune_audio_core::pipeline::stages::StageStatus;
+use stellatune_audio_core::pipeline::stages::StageFlow;
 use stellatune_audio_core::pipeline::stages::transform::TransformStage;
 
 use crate::pipeline::runtime::dsp::control::{
@@ -82,7 +82,7 @@ impl MasterGainStage {
 }
 
 impl TransformStage for MasterGainStage {
-    fn stage_key(&self) -> Option<&str> {
+    fn key(&self) -> Option<&str> {
         Some(MASTER_GAIN_STAGE_KEY)
     }
 
@@ -137,16 +137,20 @@ impl TransformStage for MasterGainStage {
         Ok(())
     }
 
-    fn process(&mut self, block: &mut AudioBlock, _ctx: &mut PipelineContext) -> StageStatus {
+    fn process(
+        &mut self,
+        block: &mut AudioBlock,
+        _ctx: &mut PipelineContext,
+    ) -> Result<StageFlow, PipelineError> {
         if block.is_empty() {
-            return StageStatus::Ok;
+            return Ok(StageFlow::Continue);
         }
         if self.ramp_remaining_frames == 0 && self.current_gain <= 0.0 {
             block.samples.fill(0.0);
-            return StageStatus::Ok;
+            return Ok(StageFlow::Continue);
         }
         if self.ramp_remaining_frames == 0 && (self.current_gain - 1.0).abs() < f32::EPSILON {
-            return StageStatus::Ok;
+            return Ok(StageFlow::Continue);
         }
 
         let channels = usize::from(block.channels.max(1));
@@ -158,7 +162,7 @@ impl TransformStage for MasterGainStage {
                 block.samples[base + ch] *= gain;
             }
         }
-        StageStatus::Ok
+        Ok(StageFlow::Continue)
     }
 
     fn flush(&mut self, _ctx: &mut PipelineContext) -> Result<(), PipelineError> {
@@ -178,7 +182,7 @@ mod tests {
     use stellatune_audio_core::pipeline::context::{
         AudioBlock, MasterGainCurve, PipelineContext, StreamSpec,
     };
-    use stellatune_audio_core::pipeline::stages::StageStatus;
+    use stellatune_audio_core::pipeline::stages::StageFlow;
     use stellatune_audio_core::pipeline::stages::transform::TransformStage;
 
     fn mono_block(samples: &[f32]) -> AudioBlock {
@@ -210,7 +214,10 @@ mod tests {
             .expect("sync_runtime_control failed");
 
         let mut block = mono_block(&[1.0]);
-        assert_eq!(stage.process(&mut block, &mut ctx), StageStatus::Ok);
+        assert!(matches!(
+            stage.process(&mut block, &mut ctx),
+            Ok(StageFlow::Continue)
+        ));
         assert!((block.samples[0] - 0.17782794).abs() < 1e-6);
     }
 
@@ -239,7 +246,10 @@ mod tests {
             .expect("sync_runtime_control failed");
 
         let mut block = mono_block(&[1.0, 0.5]);
-        assert_eq!(stage.process(&mut block, &mut ctx), StageStatus::Ok);
+        assert!(matches!(
+            stage.process(&mut block, &mut ctx),
+            Ok(StageFlow::Continue)
+        ));
         assert!((block.samples[0] - 0.5).abs() < 1e-6);
         assert!((block.samples[1] - 0.25).abs() < 1e-6);
     }
@@ -266,12 +276,18 @@ mod tests {
             .expect("sync_runtime_control failed");
 
         let mut first = mono_block(&[1.0, 1.0]);
-        assert_eq!(stage.process(&mut first, &mut ctx), StageStatus::Ok);
+        assert!(matches!(
+            stage.process(&mut first, &mut ctx),
+            Ok(StageFlow::Continue)
+        ));
         assert!((first.samples[0] - 0.75).abs() < 1e-6);
         assert!((first.samples[1] - 0.5).abs() < 1e-6);
 
         let mut second = mono_block(&[1.0, 1.0]);
-        assert_eq!(stage.process(&mut second, &mut ctx), StageStatus::Ok);
+        assert!(matches!(
+            stage.process(&mut second, &mut ctx),
+            Ok(StageFlow::Continue)
+        ));
         assert!((second.samples[0] - 0.25).abs() < 1e-6);
         assert!((second.samples[1] - 0.0).abs() < 1e-6);
     }

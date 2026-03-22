@@ -4,7 +4,7 @@ use stellatune_audio_core::pipeline::context::{
     AudioBlock, GaplessTrimSpec, PipelineContext, StreamSpec,
 };
 use stellatune_audio_core::pipeline::error::PipelineError;
-use stellatune_audio_core::pipeline::stages::StageStatus;
+use stellatune_audio_core::pipeline::stages::StageFlow;
 use stellatune_audio_core::pipeline::stages::transform::TransformStage;
 
 use crate::pipeline::runtime::dsp::control::{GAPLESS_TRIM_STAGE_KEY, GaplessTrimControl};
@@ -148,7 +148,7 @@ impl GaplessTrimStage {
 }
 
 impl TransformStage for GaplessTrimStage {
-    fn stage_key(&self) -> Option<&str> {
+    fn key(&self) -> Option<&str> {
         Some(GAPLESS_TRIM_STAGE_KEY)
     }
 
@@ -184,15 +184,19 @@ impl TransformStage for GaplessTrimStage {
         Ok(())
     }
 
-    fn process(&mut self, block: &mut AudioBlock, ctx: &mut PipelineContext) -> StageStatus {
+    fn process(
+        &mut self,
+        block: &mut AudioBlock,
+        ctx: &mut PipelineContext,
+    ) -> Result<StageFlow, PipelineError> {
         let _ = ctx;
         if block.is_empty() {
-            return StageStatus::Ok;
+            return Ok(StageFlow::Continue);
         }
         let incoming = std::mem::take(&mut block.samples);
         self.push_decoded_samples(incoming);
         self.drain_pending_into_block(block);
-        StageStatus::Ok
+        Ok(StageFlow::Continue)
     }
 
     fn flush(&mut self, _ctx: &mut PipelineContext) -> Result<(), PipelineError> {
@@ -217,7 +221,7 @@ mod tests {
     use stellatune_audio_core::pipeline::context::{
         AudioBlock, GaplessTrimSpec, PipelineContext, StreamSpec,
     };
-    use stellatune_audio_core::pipeline::stages::StageStatus;
+    use stellatune_audio_core::pipeline::stages::StageFlow;
     use stellatune_audio_core::pipeline::stages::transform::TransformStage;
 
     fn block(samples: &[f32]) -> AudioBlock {
@@ -254,11 +258,17 @@ mod tests {
             .expect("apply_control failed");
 
         let mut first = block(&[0.0, 1.0, 2.0, 3.0, 4.0, 5.0]);
-        assert_eq!(stage.process(&mut first, &mut ctx), StageStatus::Ok);
+        assert!(matches!(
+            stage.process(&mut first, &mut ctx),
+            Ok(StageFlow::Continue)
+        ));
         assert_eq!(first.samples, vec![2.0, 3.0]);
 
         let mut second = block(&[6.0, 7.0, 8.0]);
-        assert_eq!(stage.process(&mut second, &mut ctx), StageStatus::Ok);
+        assert!(matches!(
+            stage.process(&mut second, &mut ctx),
+            Ok(StageFlow::Continue)
+        ));
         assert_eq!(second.samples, vec![4.0, 5.0, 6.0]);
     }
 
@@ -289,7 +299,10 @@ mod tests {
             .expect("apply_control failed");
 
         let mut a = block(&[0.0, 1.0]);
-        assert_eq!(stage.process(&mut a, &mut ctx), StageStatus::Ok);
+        assert!(matches!(
+            stage.process(&mut a, &mut ctx),
+            Ok(StageFlow::Continue)
+        ));
         assert_eq!(a.samples, vec![1.0]);
 
         ctx.pending_seek_ms = Some(500);
@@ -297,7 +310,10 @@ mod tests {
             .sync_runtime_control(&mut ctx)
             .expect("sync_runtime_control failed");
         let mut b = block(&[10.0, 11.0]);
-        assert_eq!(stage.process(&mut b, &mut ctx), StageStatus::Ok);
+        assert!(matches!(
+            stage.process(&mut b, &mut ctx),
+            Ok(StageFlow::Continue)
+        ));
         assert_eq!(b.samples, vec![10.0, 11.0]);
 
         ctx.pending_seek_ms = Some(0);
@@ -305,7 +321,10 @@ mod tests {
             .sync_runtime_control(&mut ctx)
             .expect("sync_runtime_control failed");
         let mut c = block(&[20.0, 21.0]);
-        assert_eq!(stage.process(&mut c, &mut ctx), StageStatus::Ok);
+        assert!(matches!(
+            stage.process(&mut c, &mut ctx),
+            Ok(StageFlow::Continue)
+        ));
         assert_eq!(c.samples, vec![21.0]);
     }
 }

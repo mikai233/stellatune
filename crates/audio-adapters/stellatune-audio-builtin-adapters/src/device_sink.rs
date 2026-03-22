@@ -11,7 +11,7 @@ use crate::output_runtime::{
 };
 use stellatune_audio_core::pipeline::context::{AudioBlock, PipelineContext, StreamSpec};
 use stellatune_audio_core::pipeline::error::PipelineError;
-use stellatune_audio_core::pipeline::stages::StageStatus;
+use stellatune_audio_core::pipeline::stages::StageFlow;
 use stellatune_audio_core::pipeline::stages::sink::SinkStage;
 
 const RING_BUFFER_CAPACITY_MS: usize = 40;
@@ -435,12 +435,18 @@ impl SinkStage for DeviceSinkStage {
         Ok(())
     }
 
-    fn write(&mut self, block: &AudioBlock, _ctx: &mut PipelineContext) -> StageStatus {
-        if self.take_callback_error().is_some() {
-            return StageStatus::Fatal;
+    fn write(
+        &mut self,
+        block: &AudioBlock,
+        _ctx: &mut PipelineContext,
+    ) -> Result<StageFlow, PipelineError> {
+        if let Some(error) = self.take_callback_error() {
+            return Err(PipelineError::StageFailure(error));
         }
         let Some(producer) = self.producer.as_mut() else {
-            return StageStatus::Fatal;
+            return Err(PipelineError::StageFailure(
+                "device sink is not prepared".to_string(),
+            ));
         };
 
         let samples = block.samples.as_slice();
@@ -462,7 +468,7 @@ impl SinkStage for DeviceSinkStage {
         if offset < samples.len() {
             self.control.note_dropped_samples(samples.len() - offset);
         }
-        StageStatus::Ok
+        Ok(StageFlow::Continue)
     }
 
     fn flush(&mut self, _ctx: &mut PipelineContext) -> Result<(), PipelineError> {

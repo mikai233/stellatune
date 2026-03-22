@@ -9,7 +9,7 @@ use stellatune_audio_core::pipeline::context::{
     StreamSpec, TransitionCurve, TransitionTimePolicy,
 };
 use stellatune_audio_core::pipeline::error::PipelineError;
-use stellatune_audio_core::pipeline::stages::StageStatus;
+use stellatune_audio_core::pipeline::stages::StageFlow;
 use stellatune_audio_core::pipeline::stages::decoder::DecoderStage;
 use stellatune_audio_core::pipeline::stages::sink::SinkStage;
 use stellatune_audio_core::pipeline::stages::source::SourceStage;
@@ -307,14 +307,18 @@ impl DecoderStage for TestDecoder {
         Some(self.remaining_frames())
     }
 
-    fn next_block(&mut self, out: &mut AudioBlock, _ctx: &mut PipelineContext) -> StageStatus {
+    fn next_block(
+        &mut self,
+        out: &mut AudioBlock,
+        _ctx: &mut PipelineContext,
+    ) -> Result<StageFlow, PipelineError> {
         let Some(samples) = self.blocks.pop_front() else {
-            return StageStatus::Eof;
+            return Ok(StageFlow::Eof);
         };
         out.channels = self.channels;
         out.samples.clear();
         out.samples.extend(samples);
-        StageStatus::Ok
+        Ok(StageFlow::Continue)
     }
 
     fn flush(&mut self, _ctx: &mut PipelineContext) -> Result<(), PipelineError> {
@@ -342,8 +346,12 @@ impl SinkStage for TestSink {
         Ok(())
     }
 
-    fn write(&mut self, _block: &AudioBlock, _ctx: &mut PipelineContext) -> StageStatus {
-        StageStatus::Ok
+    fn write(
+        &mut self,
+        _block: &AudioBlock,
+        _ctx: &mut PipelineContext,
+    ) -> Result<StageFlow, PipelineError> {
+        Ok(StageFlow::Continue)
     }
 
     fn flush(&mut self, _ctx: &mut PipelineContext) -> Result<(), PipelineError> {
@@ -387,7 +395,7 @@ impl ProbeControlStage {
 }
 
 impl stellatune_audio_core::pipeline::stages::transform::TransformStage for ProbeControlStage {
-    fn stage_key(&self) -> Option<&str> {
+    fn key(&self) -> Option<&str> {
         Some(&self.stage_key)
     }
 
@@ -415,8 +423,12 @@ impl stellatune_audio_core::pipeline::stages::transform::TransformStage for Prob
         Ok(())
     }
 
-    fn process(&mut self, _block: &mut AudioBlock, _ctx: &mut PipelineContext) -> StageStatus {
-        StageStatus::Ok
+    fn process(
+        &mut self,
+        _block: &mut AudioBlock,
+        _ctx: &mut PipelineContext,
+    ) -> Result<StageFlow, PipelineError> {
+        Ok(StageFlow::Continue)
     }
 
     fn flush(&mut self, _ctx: &mut PipelineContext) -> Result<(), PipelineError> {

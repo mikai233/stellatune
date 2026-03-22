@@ -2,7 +2,7 @@
 
 use stellatune_audio_core::pipeline::context::{AudioBlock, PipelineContext, StreamSpec};
 use stellatune_audio_core::pipeline::error::PipelineError;
-use stellatune_audio_core::pipeline::stages::StageStatus;
+use stellatune_audio_core::pipeline::stages::StageFlow;
 
 use crate::pipeline::runtime::runner::{
     MAX_DRAIN_TAIL_ITERATIONS, MAX_PENDING_SINK_FLUSH_ATTEMPTS, PipelineRunner, RunnerState,
@@ -38,20 +38,11 @@ impl PipelineRunner {
         }
         let mut block = AudioBlock::new(out_spec.channels);
 
-        match self.decoder.next_block(&mut block, ctx) {
-            StageStatus::Ok => {},
-            StageStatus::Eof => {
+        match self.decoder.next_block(&mut block, ctx)? {
+            StageFlow::Continue => {},
+            StageFlow::Eof => {
                 self.playable_remaining_frames_hint = Some(0);
                 return Ok(StepResult::Eof);
-            },
-            StageStatus::Fatal => {
-                let detail = self
-                    .decoder
-                    .runtime_error_detail()
-                    .unwrap_or("decoder returned fatal status");
-                return Err(PipelineError::StageFailure(format!(
-                    "decoder fatal: {detail}"
-                )));
             },
         }
         self.refresh_playable_remaining_frames_hint();
@@ -60,14 +51,11 @@ impl PipelineRunner {
         }
 
         for transform in &mut self.transforms {
-            match transform.process(&mut block, ctx) {
-                StageStatus::Ok => {},
-                StageStatus::Eof => {
+            match transform.process(&mut block, ctx)? {
+                StageFlow::Continue => {},
+                StageFlow::Eof => {
                     self.playable_remaining_frames_hint = Some(0);
                     return Ok(StepResult::Eof);
-                },
-                StageStatus::Fatal => {
-                    return Err(PipelineError::StageFailure("transform fatal".to_string()));
                 },
             }
         }
@@ -158,12 +146,9 @@ impl PipelineRunner {
         for _ in 0..MAX_DRAIN_TAIL_ITERATIONS {
             let mut block = AudioBlock::new(out_spec.channels);
             for transform in &mut self.transforms {
-                match transform.process(&mut block, ctx) {
-                    StageStatus::Ok => {},
-                    StageStatus::Eof => return Ok(()),
-                    StageStatus::Fatal => {
-                        return Err(PipelineError::StageFailure("transform fatal".to_string()));
-                    },
+                match transform.process(&mut block, ctx)? {
+                    StageFlow::Continue => {},
+                    StageFlow::Eof => return Ok(()),
                 }
             }
 

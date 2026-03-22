@@ -13,7 +13,7 @@ use ringbuf::traits::{Consumer as _, Producer as _, Split as _};
 use ringbuf::{HeapCons, HeapProd, HeapRb};
 use stellatune_audio_core::pipeline::context::{AudioBlock, PipelineContext, StreamSpec};
 use stellatune_audio_core::pipeline::error::PipelineError;
-use stellatune_audio_core::pipeline::stages::StageStatus;
+use stellatune_audio_core::pipeline::stages::StageFlow;
 use stellatune_audio_core::pipeline::stages::sink::SinkStage;
 
 enum SinkControl {
@@ -289,13 +289,10 @@ fn write_block(
     ctx: &mut PipelineContext,
 ) -> Result<(), PipelineError> {
     for sink in sinks {
-        match sink.write(block, ctx) {
-            StageStatus::Ok => {},
-            StageStatus::Eof => {
+        match sink.write(block, ctx)? {
+            StageFlow::Continue => {},
+            StageFlow::Eof => {
                 return Err(PipelineError::StageFailure("sink reached eof".to_string()));
-            },
-            StageStatus::Fatal => {
-                return Err(PipelineError::StageFailure("sink fatal".to_string()));
             },
         }
     }
@@ -389,7 +386,7 @@ mod tests {
     use std::time::Duration;
     use stellatune_audio_core::pipeline::context::{AudioBlock, PipelineContext, StreamSpec};
     use stellatune_audio_core::pipeline::error::PipelineError;
-    use stellatune_audio_core::pipeline::stages::StageStatus;
+    use stellatune_audio_core::pipeline::stages::StageFlow;
     use stellatune_audio_core::pipeline::stages::sink::SinkStage;
 
     struct FatalOnWriteSink;
@@ -410,8 +407,12 @@ mod tests {
             Ok(())
         }
 
-        fn write(&mut self, _block: &AudioBlock, _ctx: &mut PipelineContext) -> StageStatus {
-            StageStatus::Fatal
+        fn write(
+            &mut self,
+            _block: &AudioBlock,
+            _ctx: &mut PipelineContext,
+        ) -> Result<StageFlow, PipelineError> {
+            Err(PipelineError::StageFailure("fatal test sink".to_string()))
         }
 
         fn flush(&mut self, _ctx: &mut PipelineContext) -> Result<(), PipelineError> {

@@ -4,14 +4,13 @@ pub mod source;
 pub mod transform;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum StageStatus {
-    Ok,
+pub enum StageFlow {
+    Continue,
     Eof,
-    Fatal,
 }
 
-impl StageStatus {
+impl StageFlow {
     pub fn is_terminal(self) -> bool {
-        matches!(self, Self::Eof | Self::Fatal)
+        matches!(self, Self::Eof)
     }
 }

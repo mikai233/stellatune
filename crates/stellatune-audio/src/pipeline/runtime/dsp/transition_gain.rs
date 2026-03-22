@@ -5,7 +5,7 @@ use stellatune_audio_core::pipeline::context::{
     TransitionTimePolicy,
 };
 use stellatune_audio_core::pipeline::error::PipelineError;
-use stellatune_audio_core::pipeline::stages::StageStatus;
+use stellatune_audio_core::pipeline::stages::StageFlow;
 use stellatune_audio_core::pipeline::stages::transform::TransformStage;
 
 use crate::pipeline::runtime::dsp::control::{TRANSITION_GAIN_STAGE_KEY, TransitionGainControl};
@@ -130,7 +130,7 @@ impl TransitionGainStage {
 }
 
 impl TransformStage for TransitionGainStage {
-    fn stage_key(&self) -> Option<&str> {
+    fn key(&self) -> Option<&str> {
         Some(TRANSITION_GAIN_STAGE_KEY)
     }
 
@@ -166,9 +166,13 @@ impl TransformStage for TransitionGainStage {
         Ok(())
     }
 
-    fn process(&mut self, block: &mut AudioBlock, _ctx: &mut PipelineContext) -> StageStatus {
+    fn process(
+        &mut self,
+        block: &mut AudioBlock,
+        _ctx: &mut PipelineContext,
+    ) -> Result<StageFlow, PipelineError> {
         self.apply_in_place(block);
-        StageStatus::Ok
+        Ok(StageFlow::Continue)
     }
 
     fn flush(&mut self, _ctx: &mut PipelineContext) -> Result<(), PipelineError> {
@@ -191,7 +195,7 @@ mod tests {
         AudioBlock, GainTransitionRequest, PipelineContext, StreamSpec, TransitionCurve,
         TransitionTimePolicy,
     };
-    use stellatune_audio_core::pipeline::stages::StageStatus;
+    use stellatune_audio_core::pipeline::stages::StageFlow;
     use stellatune_audio_core::pipeline::stages::transform::TransformStage;
 
     fn mono_block(samples: &[f32]) -> AudioBlock {
@@ -231,12 +235,18 @@ mod tests {
             .expect("sync_runtime_control failed");
 
         let mut first = mono_block(&[1.0, 1.0]);
-        assert_eq!(stage.process(&mut first, &mut ctx), StageStatus::Ok);
+        assert!(matches!(
+            stage.process(&mut first, &mut ctx),
+            Ok(StageFlow::Continue)
+        ));
         assert!((first.samples[0] - 0.75).abs() < 1e-6);
         assert!((first.samples[1] - 0.5).abs() < 1e-6);
 
         let mut second = mono_block(&[1.0, 1.0]);
-        assert_eq!(stage.process(&mut second, &mut ctx), StageStatus::Ok);
+        assert!(matches!(
+            stage.process(&mut second, &mut ctx),
+            Ok(StageFlow::Continue)
+        ));
         assert!((second.samples[0] - 0.25).abs() < 1e-6);
         assert!((second.samples[1] - 0.0).abs() < 1e-6);
     }
@@ -271,7 +281,10 @@ mod tests {
             .expect("sync_runtime_control failed");
 
         let mut block = mono_block(&[1.0, 1.0, 1.0, 1.0]);
-        assert_eq!(stage.process(&mut block, &mut ctx), StageStatus::Ok);
+        assert!(matches!(
+            stage.process(&mut block, &mut ctx),
+            Ok(StageFlow::Continue)
+        ));
         assert!((block.samples[0] - 0.70710677).abs() < 1e-5);
         assert!((block.samples[1] - 0.0).abs() < 1e-6);
         assert!((block.samples[2] - 0.0).abs() < 1e-6);

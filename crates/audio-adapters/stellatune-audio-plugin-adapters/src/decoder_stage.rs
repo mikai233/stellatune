@@ -9,7 +9,7 @@ use stellatune_audio_core::pipeline::context::{
     AudioBlock, GaplessTrimSpec, PipelineContext, SourceHandle, StreamSpec,
 };
 use stellatune_audio_core::pipeline::error::PipelineError;
-use stellatune_audio_core::pipeline::stages::StageStatus;
+use stellatune_audio_core::pipeline::stages::StageFlow;
 use stellatune_audio_core::pipeline::stages::decoder::DecoderStage;
 use stellatune_plugins::error::Error as WasmPluginError;
 use stellatune_plugins::executor::plugin_instance::source::RuntimeOpenedSourceStreamHandle;
@@ -33,7 +33,6 @@ pub struct PluginDecoderStage {
     gapless_trim_spec: Option<GaplessTrimSpec>,
     duration_ms_hint: Option<u64>,
     last_position_ms: i64,
-    last_runtime_error: Option<String>,
 }
 
 impl Default for PluginDecoderStage {
@@ -52,7 +51,6 @@ impl PluginDecoderStage {
             gapless_trim_spec: None,
             duration_ms_hint: None,
             last_position_ms: 0,
-            last_runtime_error: None,
         }
     }
 
@@ -69,10 +67,6 @@ impl PluginDecoderStage {
     pub fn with_read_frames(mut self, read_frames: u32) -> Self {
         self.read_frames = read_frames.max(1);
         self
-    }
-
-    pub fn last_runtime_error(&self) -> Option<&str> {
-        self.last_runtime_error.as_deref()
     }
 
     fn resolve_track_ref(source: &SourceHandle) -> Result<TrackRefToken, PipelineError> {
@@ -213,7 +207,6 @@ impl PluginDecoderStage {
         }
         self.gapless_trim_spec = None;
         self.duration_ms_hint = None;
-        self.last_runtime_error = None;
     }
 }
 
@@ -236,18 +229,13 @@ impl DecoderStage for PluginDecoderStage {
         let spec = prepared.stream_spec;
         self.gapless_trim_spec = prepared.gapless_trim_spec;
         self.duration_ms_hint = prepared.duration_ms_hint;
-        self.last_runtime_error = None;
         self.prepared = Some(prepared);
         Ok(spec)
     }
 
     fn sync_runtime_control(&mut self, ctx: &mut PipelineContext) -> Result<(), PipelineError> {
         self.last_position_ms = ctx.position_ms;
-        if let Err(error) = self.apply_pending_seek(ctx) {
-            self.last_runtime_error = Some(error.to_string());
-            return Err(error);
-        }
-        Ok(())
+        self.apply_pending_seek(ctx)
     }
 
     fn current_gapless_trim_spec(&self) -> Option<GaplessTrimSpec> {
@@ -265,15 +253,14 @@ impl DecoderStage for PluginDecoderStage {
         Some(frames.min(u64::MAX as u128) as u64)
     }
 
-    fn runtime_error_detail(&self) -> Option<&str> {
-        self.last_runtime_error()
-    }
-
-    fn next_block(&mut self, out: &mut AudioBlock, ctx: &mut PipelineContext) -> StageStatus {
+    fn next_block(
+        &mut self,
+        out: &mut AudioBlock,
+        ctx: &mut PipelineContext,
+    ) -> Result<StageFlow, PipelineError> {
         self.last_position_ms = ctx.position_ms;
         let Some(prepared) = self.prepared.as_mut() else {
-            self.last_runtime_error = Some("decoder is not prepared".to_string());
-            return StageStatus::Fatal;
+            return Err(PipelineError::NotPrepared);
         };
 
         let chunk = match prepared
@@ -282,32 +269,29 @@ impl DecoderStage for PluginDecoderStage {
         {
             Ok(chunk) => chunk,
             Err(error) => {
-                self.last_runtime_error = Some(format!(
+                return Err(PipelineError::StageFailure(format!(
                     "decoder read failed for {}::{}: {error}",
                     prepared.plugin_id, prepared.type_id
-                ));
-                return StageStatus::Fatal;
+                )));
             },
         };
         if chunk.interleaved_f32le.is_empty() {
             return if chunk.eof {
-                StageStatus::Eof
+                Ok(StageFlow::Eof)
             } else {
-                self.last_runtime_error = Some(format!(
+                Err(PipelineError::StageFailure(format!(
                     "decoder returned 0 bytes without eof for {}::{}",
                     prepared.plugin_id, prepared.type_id
-                ));
-                StageStatus::Fatal
+                )))
             };
         }
         if !chunk.interleaved_f32le.len().is_multiple_of(4) {
-            self.last_runtime_error = Some(format!(
+            return Err(PipelineError::StageFailure(format!(
                 "decoder produced invalid byte length for {}::{}: {}",
                 prepared.plugin_id,
                 prepared.type_id,
                 chunk.interleaved_f32le.len()
-            ));
-            return StageStatus::Fatal;
+            )));
         }
         let mut samples = Vec::<f32>::with_capacity(chunk.interleaved_f32le.len() / 4);
         for bytes in chunk.interleaved_f32le.chunks_exact(4) {
@@ -316,18 +300,17 @@ impl DecoderStage for PluginDecoderStage {
 
         let channels = prepared.stream_spec.channels.max(1) as usize;
         if !samples.len().is_multiple_of(channels) {
-            self.last_runtime_error = Some(format!(
+            return Err(PipelineError::StageFailure(format!(
                 "decoder produced misaligned sample block for {}::{}: samples={} channels={}",
                 prepared.plugin_id,
                 prepared.type_id,
                 samples.len(),
                 channels
-            ));
-            return StageStatus::Fatal;
+            )));
         }
         out.channels = prepared.stream_spec.channels;
         out.samples = samples;
-        StageStatus::Ok
+        Ok(StageFlow::Continue)
     }
 
     fn flush(&mut self, _ctx: &mut PipelineContext) -> Result<(), PipelineError> {

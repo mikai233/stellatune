@@ -3,10 +3,10 @@ use std::any::Any;
 use crate::pipeline::context::{AudioBlock, PipelineContext, StreamSpec};
 use crate::pipeline::error::PipelineError;
 
-use super::StageStatus;
+use super::StageFlow;
 
 pub trait TransformStage: Send {
-    fn stage_key(&self) -> Option<&str> {
+    fn key(&self) -> Option<&str> {
         None
     }
 
@@ -26,7 +26,11 @@ pub trait TransformStage: Send {
 
     fn sync_runtime_control(&mut self, ctx: &mut PipelineContext) -> Result<(), PipelineError>;
 
-    fn process(&mut self, block: &mut AudioBlock, ctx: &mut PipelineContext) -> StageStatus;
+    fn process(
+        &mut self,
+        block: &mut AudioBlock,
+        ctx: &mut PipelineContext,
+    ) -> Result<StageFlow, PipelineError>;
 
     fn flush(&mut self, ctx: &mut PipelineContext) -> Result<(), PipelineError>;
 

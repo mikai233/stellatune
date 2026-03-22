@@ -3,7 +3,7 @@ use crate::pipeline::context::{
 };
 use crate::pipeline::error::PipelineError;
 
-use super::StageStatus;
+use super::StageFlow;
 
 pub trait DecoderStage: Send {
     fn prepare(
@@ -22,15 +22,11 @@ pub trait DecoderStage: Send {
         None
     }
 
-    /// Returns optional runtime error detail after a fatal stage status.
-    ///
-    /// Implementations can expose richer context for diagnostics when
-    /// `next_block` reports [`StageStatus::Fatal`].
-    fn runtime_error_detail(&self) -> Option<&str> {
-        None
-    }
-
-    fn next_block(&mut self, out: &mut AudioBlock, ctx: &mut PipelineContext) -> StageStatus;
+    fn next_block(
+        &mut self,
+        out: &mut AudioBlock,
+        ctx: &mut PipelineContext,
+    ) -> Result<StageFlow, PipelineError>;
 
     fn flush(&mut self, ctx: &mut PipelineContext) -> Result<(), PipelineError>;
 

@@ -165,7 +165,7 @@ impl PipelineRunner {
     ) -> Result<HashMap<String, usize>, PipelineError> {
         let mut routes = HashMap::new();
         for (index, transform) in transforms.iter().enumerate() {
-            if let Some(stage_key) = transform.stage_key() {
+            if let Some(stage_key) = transform.key() {
                 let key = stage_key.trim();
                 if key.is_empty() {
                     return Err(PipelineError::StageFailure(

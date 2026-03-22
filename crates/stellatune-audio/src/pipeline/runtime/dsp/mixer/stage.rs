@@ -1,6 +1,6 @@
 use stellatune_audio_core::pipeline::context::{AudioBlock, PipelineContext, StreamSpec};
 use stellatune_audio_core::pipeline::error::PipelineError;
-use stellatune_audio_core::pipeline::stages::StageStatus;
+use stellatune_audio_core::pipeline::stages::StageFlow;
 use stellatune_audio_core::pipeline::stages::transform::TransformStage;
 
 use crate::pipeline::assembly::MixerPlan;
@@ -58,22 +58,29 @@ impl TransformStage for MixerStage {
         Ok(())
     }
 
-    fn process(&mut self, block: &mut AudioBlock, _ctx: &mut PipelineContext) -> StageStatus {
+    fn process(
+        &mut self,
+        block: &mut AudioBlock,
+        _ctx: &mut PipelineContext,
+    ) -> Result<StageFlow, PipelineError> {
         if block.is_empty() {
-            return StageStatus::Ok;
+            return Ok(StageFlow::Continue);
         }
         let in_channels = block.channels.max(1) as usize;
         if in_channels != self.in_channels {
             self.reconfigure(in_channels);
         }
         if !block.samples.len().is_multiple_of(in_channels) {
-            return StageStatus::Fatal;
+            return Err(PipelineError::StageFailure(format!(
+                "mixer input block is misaligned: samples={} channels={in_channels}",
+                block.samples.len()
+            )));
         }
         if let Some(matrix) = self.matrix.as_ref() {
             block.samples = matrix.apply(&block.samples);
             block.channels = self.out_channels as u16;
         }
-        StageStatus::Ok
+        Ok(StageFlow::Continue)
     }
 
     fn flush(&mut self, _ctx: &mut PipelineContext) -> Result<(), PipelineError> {
@@ -89,7 +96,7 @@ mod tests {
     use crate::pipeline::assembly::MixerPlan;
     use crate::pipeline::runtime::dsp::mixer::stage::MixerStage;
     use stellatune_audio_core::pipeline::context::{AudioBlock, PipelineContext, StreamSpec};
-    use stellatune_audio_core::pipeline::stages::StageStatus;
+    use stellatune_audio_core::pipeline::stages::StageFlow;
     use stellatune_audio_core::pipeline::stages::transform::TransformStage;
 
     fn block(samples: &[f32], channels: u16) -> AudioBlock {
@@ -115,7 +122,10 @@ mod tests {
         assert_eq!(out.channels, 2);
 
         let mut mono = block(&[0.5, 1.0], 1);
-        assert_eq!(stage.process(&mut mono, &mut ctx), StageStatus::Ok);
+        assert!(matches!(
+            stage.process(&mut mono, &mut ctx),
+            Ok(StageFlow::Continue)
+        ));
         assert_eq!(mono.channels, 2);
         assert_eq!(mono.samples, vec![0.5, 0.5, 1.0, 1.0]);
     }
@@ -136,7 +146,10 @@ mod tests {
         assert_eq!(out.channels, 1);
 
         let mut stereo = block(&[0.8, 0.2, 0.4, 0.6], 2);
-        assert_eq!(stage.process(&mut stereo, &mut ctx), StageStatus::Ok);
+        assert!(matches!(
+            stage.process(&mut stereo, &mut ctx),
+            Ok(StageFlow::Continue)
+        ));
         assert_eq!(stereo.channels, 1);
         assert_eq!(stereo.samples, vec![0.5, 0.5]);
     }

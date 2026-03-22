@@ -134,7 +134,7 @@ mod tests {
 
     use stellatune_audio_core::pipeline::context::{AudioBlock, PipelineContext, StreamSpec};
     use stellatune_audio_core::pipeline::error::PipelineError;
-    use stellatune_audio_core::pipeline::stages::StageStatus;
+    use stellatune_audio_core::pipeline::stages::StageFlow;
     use stellatune_audio_core::pipeline::stages::sink::SinkStage;
 
     use crate::config::sink::SinkLatencyConfig;
@@ -161,8 +161,12 @@ mod tests {
             Ok(())
         }
 
-        fn write(&mut self, _block: &AudioBlock, _ctx: &mut PipelineContext) -> StageStatus {
-            StageStatus::Ok
+        fn write(
+            &mut self,
+            _block: &AudioBlock,
+            _ctx: &mut PipelineContext,
+        ) -> Result<StageFlow, PipelineError> {
+            Ok(StageFlow::Continue)
         }
 
         fn flush(&mut self, _ctx: &mut PipelineContext) -> Result<(), PipelineError> {

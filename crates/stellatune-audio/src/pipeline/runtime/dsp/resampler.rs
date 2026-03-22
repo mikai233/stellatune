@@ -2,7 +2,7 @@ use audioadapter_buffers::direct::InterleavedSlice;
 use rubato::{Async, FixedAsync, Resampler, SincInterpolationParameters, SincInterpolationType};
 use stellatune_audio_core::pipeline::context::{AudioBlock, PipelineContext, StreamSpec};
 use stellatune_audio_core::pipeline::error::PipelineError;
-use stellatune_audio_core::pipeline::stages::StageStatus;
+use stellatune_audio_core::pipeline::stages::StageFlow;
 use stellatune_audio_core::pipeline::stages::transform::TransformStage;
 
 use crate::config::engine::ResampleQuality;
@@ -151,18 +151,29 @@ impl TransformStage for ResamplerStage {
         Ok(())
     }
 
-    fn process(&mut self, block: &mut AudioBlock, _ctx: &mut PipelineContext) -> StageStatus {
+    fn process(
+        &mut self,
+        block: &mut AudioBlock,
+        _ctx: &mut PipelineContext,
+    ) -> Result<StageFlow, PipelineError> {
         if !self.active || block.is_empty() {
-            return StageStatus::Ok;
+            return Ok(StageFlow::Continue);
         }
 
         let channels = block.channels.max(1) as usize;
         if channels != self.channels || !block.samples.len().is_multiple_of(channels) {
-            return StageStatus::Fatal;
+            return Err(PipelineError::StageFailure(format!(
+                "resampler input shape mismatch: block_channels={} prepared_channels={} samples={}",
+                channels,
+                self.channels,
+                block.samples.len()
+            )));
         }
 
         let Some(resampler) = self.resampler.as_mut() else {
-            return StageStatus::Fatal;
+            return Err(PipelineError::StageFailure(
+                "resampler active without initialized state".to_string(),
+            ));
         };
 
         let input = std::mem::take(&mut block.samples);
@@ -176,15 +187,12 @@ impl TransformStage for ResamplerStage {
             }
             let chunk_samples = chunk_frames * channels;
             let chunk = &input[offset..offset + chunk_samples];
-            let resampled = match Self::process_chunk(resampler, channels, chunk) {
-                Ok(samples) => samples,
-                Err(_) => return StageStatus::Fatal,
-            };
+            let resampled = Self::process_chunk(resampler, channels, chunk)?;
             output.extend(resampled);
             offset += chunk_samples;
         }
         block.samples = output;
-        StageStatus::Ok
+        Ok(StageFlow::Continue)
     }
 
     fn flush(&mut self, _ctx: &mut PipelineContext) -> Result<(), PipelineError> {
@@ -207,7 +215,7 @@ mod tests {
     use crate::pipeline::assembly::ResamplerPlan;
     use crate::pipeline::runtime::dsp::resampler::ResamplerStage;
     use stellatune_audio_core::pipeline::context::{AudioBlock, PipelineContext, StreamSpec};
-    use stellatune_audio_core::pipeline::stages::StageStatus;
+    use stellatune_audio_core::pipeline::stages::StageFlow;
     use stellatune_audio_core::pipeline::stages::transform::TransformStage;
 
     fn block(samples: &[f32], channels: u16) -> AudioBlock {
@@ -233,7 +241,10 @@ mod tests {
         assert_eq!(out.sample_rate, 24_000);
 
         let mut input = block(&[0.0, 0.0, 1.0, 1.0, 2.0, 2.0, 3.0, 3.0], 2);
-        assert_eq!(stage.process(&mut input, &mut ctx), StageStatus::Ok);
+        assert!(matches!(
+            stage.process(&mut input, &mut ctx),
+            Ok(StageFlow::Continue)
+        ));
         assert_eq!(input.channels, 2);
         assert!(!input.samples.is_empty());
         assert!(input.samples.len().is_multiple_of(2));
@@ -255,7 +266,10 @@ mod tests {
         assert_eq!(out.sample_rate, 48_000);
 
         let mut input = block(&[0.2, 0.4, 0.6], 1);
-        assert_eq!(stage.process(&mut input, &mut ctx), StageStatus::Ok);
+        assert!(matches!(
+            stage.process(&mut input, &mut ctx),
+            Ok(StageFlow::Continue)
+        ));
         assert_eq!(input.samples, vec![0.2, 0.4, 0.6]);
     }
 }

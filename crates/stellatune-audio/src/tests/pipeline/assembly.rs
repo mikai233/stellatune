@@ -6,7 +6,7 @@ use stellatune_audio_core::pipeline::context::{
     AudioBlock, InputRef, PipelineContext, SourceHandle, StreamSpec,
 };
 use stellatune_audio_core::pipeline::error::PipelineError;
-use stellatune_audio_core::pipeline::stages::StageStatus;
+use stellatune_audio_core::pipeline::stages::StageFlow;
 use stellatune_audio_core::pipeline::stages::decoder::DecoderStage;
 use stellatune_audio_core::pipeline::stages::sink::SinkStage;
 use stellatune_audio_core::pipeline::stages::source::SourceStage;
@@ -73,13 +73,17 @@ impl DecoderStage for TestDecoder {
         Ok(())
     }
 
-    fn next_block(&mut self, out: &mut AudioBlock, _ctx: &mut PipelineContext) -> StageStatus {
+    fn next_block(
+        &mut self,
+        out: &mut AudioBlock,
+        _ctx: &mut PipelineContext,
+    ) -> Result<StageFlow, PipelineError> {
         let Some(samples) = self.blocks.pop_front() else {
-            return StageStatus::Eof;
+            return Ok(StageFlow::Eof);
         };
         out.channels = self.channels;
         out.samples = samples;
-        StageStatus::Ok
+        Ok(StageFlow::Continue)
     }
 
     fn flush(&mut self, _ctx: &mut PipelineContext) -> Result<(), PipelineError> {
@@ -107,8 +111,12 @@ impl SinkStage for TestSink {
         Ok(())
     }
 
-    fn write(&mut self, _block: &AudioBlock, _ctx: &mut PipelineContext) -> StageStatus {
-        StageStatus::Ok
+    fn write(
+        &mut self,
+        _block: &AudioBlock,
+        _ctx: &mut PipelineContext,
+    ) -> Result<StageFlow, PipelineError> {
+        Ok(StageFlow::Continue)
     }
 
     fn flush(&mut self, _ctx: &mut PipelineContext) -> Result<(), PipelineError> {
@@ -141,12 +149,16 @@ impl SinkStage for CaptureSink {
         Ok(())
     }
 
-    fn write(&mut self, block: &AudioBlock, _ctx: &mut PipelineContext) -> StageStatus {
+    fn write(
+        &mut self,
+        block: &AudioBlock,
+        _ctx: &mut PipelineContext,
+    ) -> Result<StageFlow, PipelineError> {
         self.written
             .lock()
             .expect("capture sink mutex poisoned")
             .push(block.clone());
-        StageStatus::Ok
+        Ok(StageFlow::Continue)
     }
 
     fn flush(&mut self, _ctx: &mut PipelineContext) -> Result<(), PipelineError> {
@@ -183,8 +195,12 @@ impl TransformStage for SpecTap {
         Ok(())
     }
 
-    fn process(&mut self, _block: &mut AudioBlock, _ctx: &mut PipelineContext) -> StageStatus {
-        StageStatus::Ok
+    fn process(
+        &mut self,
+        _block: &mut AudioBlock,
+        _ctx: &mut PipelineContext,
+    ) -> Result<StageFlow, PipelineError> {
+        Ok(StageFlow::Continue)
     }
 
     fn flush(&mut self, _ctx: &mut PipelineContext) -> Result<(), PipelineError> {
@@ -224,12 +240,16 @@ impl TransformStage for FlushTailTap {
         Ok(())
     }
 
-    fn process(&mut self, block: &mut AudioBlock, _ctx: &mut PipelineContext) -> StageStatus {
+    fn process(
+        &mut self,
+        block: &mut AudioBlock,
+        _ctx: &mut PipelineContext,
+    ) -> Result<StageFlow, PipelineError> {
         if block.is_empty() && self.emit_on_empty_process && !self.pending_samples.is_empty() {
             block.channels = self.channels;
             block.samples = std::mem::take(&mut self.pending_samples);
         }
-        StageStatus::Ok
+        Ok(StageFlow::Continue)
     }
 
     fn flush(&mut self, _ctx: &mut PipelineContext) -> Result<(), PipelineError> {
@@ -254,7 +274,7 @@ impl KeyedNoopTransform {
 }
 
 impl TransformStage for KeyedNoopTransform {
-    fn stage_key(&self) -> Option<&str> {
+    fn key(&self) -> Option<&str> {
         Some(self.key)
     }
 
@@ -270,8 +290,12 @@ impl TransformStage for KeyedNoopTransform {
         Ok(())
     }
 
-    fn process(&mut self, _block: &mut AudioBlock, _ctx: &mut PipelineContext) -> StageStatus {
-        StageStatus::Ok
+    fn process(
+        &mut self,
+        _block: &mut AudioBlock,
+        _ctx: &mut PipelineContext,
+    ) -> Result<StageFlow, PipelineError> {
+        Ok(StageFlow::Continue)
     }
 
     fn flush(&mut self, _ctx: &mut PipelineContext) -> Result<(), PipelineError> {

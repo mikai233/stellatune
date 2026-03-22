@@ -1,6 +1,6 @@
 use stellatune_audio_core::pipeline::context::{AudioBlock, PipelineContext, StreamSpec};
 use stellatune_audio_core::pipeline::error::PipelineError;
-use stellatune_audio_core::pipeline::stages::StageStatus;
+use stellatune_audio_core::pipeline::stages::StageFlow;
 use stellatune_audio_core::pipeline::stages::sink::SinkStage;
 use stellatune_plugins::host_runtime::RuntimeOutputSinkPlugin;
 
@@ -53,7 +53,6 @@ pub struct PluginOutputSinkStage {
     route: PluginOutputSinkRouteSpec,
     sink: Option<RuntimeOutputSinkPlugin>,
     prepared_spec: Option<StreamSpec>,
-    runtime_error: Option<String>,
 }
 
 impl PluginOutputSinkStage {
@@ -62,7 +61,6 @@ impl PluginOutputSinkStage {
             route,
             sink: None,
             prepared_spec: None,
-            runtime_error: None,
         }
     }
 
@@ -78,14 +76,6 @@ impl PluginOutputSinkStage {
         ))
     }
 
-    fn set_runtime_error(&mut self, detail: impl Into<String>) {
-        self.runtime_error = Some(format!(
-            "plugin output sink {}: {}",
-            self.route_label(),
-            detail.into()
-        ));
-    }
-
     fn open_sink(&mut self, spec: StreamSpec) -> Result<(), PipelineError> {
         let sink = create_output_sink_controller_and_open(
             &self.route.plugin_id,
@@ -98,7 +88,6 @@ impl PluginOutputSinkStage {
         .map_err(|error| self.stage_failure(error))?;
         self.sink = Some(sink);
         self.prepared_spec = Some(spec);
-        self.runtime_error = None;
         Ok(())
     }
 }
@@ -114,16 +103,16 @@ impl SinkStage for PluginOutputSinkStage {
     }
 
     fn sync_runtime_control(&mut self, _ctx: &mut PipelineContext) -> Result<(), PipelineError> {
-        if let Some(error) = self.runtime_error.take() {
-            return Err(PipelineError::StageFailure(error));
-        }
         Ok(())
     }
 
-    fn write(&mut self, block: &AudioBlock, _ctx: &mut PipelineContext) -> StageStatus {
+    fn write(
+        &mut self,
+        block: &AudioBlock,
+        _ctx: &mut PipelineContext,
+    ) -> Result<StageFlow, PipelineError> {
         let Some(sink) = self.sink.as_mut() else {
-            self.set_runtime_error("is not prepared");
-            return StageStatus::Fatal;
+            return Err(self.stage_failure("is not prepared"));
         };
 
         match write_all_frames(
@@ -133,18 +122,12 @@ impl SinkStage for PluginOutputSinkStage {
             DEFAULT_WRITE_RETRY_SLEEP_MS,
             DEFAULT_WRITE_STALL_TIMEOUT_MS,
         ) {
-            Ok(()) => StageStatus::Ok,
-            Err(error) => {
-                self.set_runtime_error(format!("write failed: {error}"));
-                StageStatus::Fatal
-            },
+            Ok(()) => Ok(StageFlow::Continue),
+            Err(error) => Err(self.stage_failure(format!("write failed: {error}"))),
         }
     }
 
     fn flush(&mut self, _ctx: &mut PipelineContext) -> Result<(), PipelineError> {
-        if let Some(error) = self.runtime_error.take() {
-            return Err(PipelineError::StageFailure(error));
-        }
         if let Some(sink) = self.sink.as_mut() {
             sink.flush()
                 .map_err(|e| self.stage_failure(format!("flush failed: {e}")))?;
@@ -158,7 +141,6 @@ impl SinkStage for PluginOutputSinkStage {
         }
         self.sink = None;
         self.prepared_spec = None;
-        self.runtime_error = None;
     }
 }
 

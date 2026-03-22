@@ -1,6 +1,6 @@
 use stellatune_audio_core::pipeline::context::{AudioBlock, PipelineContext, StreamSpec};
 use stellatune_audio_core::pipeline::error::PipelineError;
-use stellatune_audio_core::pipeline::stages::StageStatus;
+use stellatune_audio_core::pipeline::stages::StageFlow;
 use stellatune_audio_core::pipeline::stages::sink::SinkStage;
 
 use crate::device_sink::{
@@ -122,7 +122,11 @@ impl SinkStage for WasapiExclusiveSinkStage {
         self.inner.sync_runtime_control(ctx)
     }
 
-    fn write(&mut self, block: &AudioBlock, ctx: &mut PipelineContext) -> StageStatus {
+    fn write(
+        &mut self,
+        block: &AudioBlock,
+        ctx: &mut PipelineContext,
+    ) -> Result<StageFlow, PipelineError> {
         self.inner.write(block, ctx)
     }
 

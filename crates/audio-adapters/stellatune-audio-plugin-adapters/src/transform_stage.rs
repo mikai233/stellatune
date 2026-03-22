@@ -4,7 +4,7 @@ use stellatune_audio::pipeline::assembly::OpaqueTransformStageSpec;
 use stellatune_audio::pipeline::graph::TransformGraph;
 use stellatune_audio_core::pipeline::context::{AudioBlock, PipelineContext, StreamSpec};
 use stellatune_audio_core::pipeline::error::PipelineError;
-use stellatune_audio_core::pipeline::stages::StageStatus;
+use stellatune_audio_core::pipeline::stages::StageFlow;
 use stellatune_audio_core::pipeline::stages::transform::TransformStage;
 use stellatune_plugins::host_runtime::{RuntimeDspPlugin, shared_runtime_service};
 
@@ -43,7 +43,6 @@ pub struct PluginTransformStage {
     worker_spec: TransformWorkerSpec,
     target_spec: Option<StreamSpec>,
     instance: Option<RuntimeTransformInstance>,
-    last_runtime_error: Option<String>,
 }
 
 impl PluginTransformStage {
@@ -69,7 +68,6 @@ impl PluginTransformStage {
             worker_spec,
             target_spec: None,
             instance: None,
-            last_runtime_error: None,
         })
     }
 
@@ -83,10 +81,6 @@ impl PluginTransformStage {
                 config_json: payload.config_json,
             },
         )
-    }
-
-    pub fn last_runtime_error(&self) -> Option<&str> {
-        self.last_runtime_error.as_deref()
     }
 
     fn create_instance_for_spec(
@@ -142,7 +136,6 @@ impl PluginTransformStage {
             let _ = next.plugin.import_state_json(&state_json);
         }
         self.instance = Some(next);
-        self.last_runtime_error = None;
         Ok(())
     }
 
@@ -176,7 +169,6 @@ impl PluginTransformStage {
             )));
         }
 
-        self.last_runtime_error = None;
         Ok(())
     }
 
@@ -193,13 +185,12 @@ impl PluginTransformStage {
                 self.clear_instance();
             },
         }
-        self.last_runtime_error = None;
         Ok(())
     }
 }
 
 impl TransformStage for PluginTransformStage {
-    fn stage_key(&self) -> Option<&str> {
+    fn key(&self) -> Option<&str> {
         Some(self.stage_key.as_str())
     }
 
@@ -230,45 +221,41 @@ impl TransformStage for PluginTransformStage {
             .create_instance_for_spec(spec)
             .map_err(PipelineError::StageFailure)?;
         self.instance = Some(instance);
-        self.last_runtime_error = None;
         Ok(spec)
     }
 
     fn sync_runtime_control(&mut self, _ctx: &mut PipelineContext) -> Result<(), PipelineError> {
-        if let Some(error) = self.last_runtime_error.take() {
-            return Err(PipelineError::StageFailure(error));
-        }
         Ok(())
     }
 
-    fn process(&mut self, block: &mut AudioBlock, _ctx: &mut PipelineContext) -> StageStatus {
+    fn process(
+        &mut self,
+        block: &mut AudioBlock,
+        _ctx: &mut PipelineContext,
+    ) -> Result<StageFlow, PipelineError> {
         if block.is_empty() {
-            return StageStatus::Ok;
+            return Ok(StageFlow::Continue);
         }
         let Some(instance) = self.instance.as_mut() else {
-            return StageStatus::Ok;
+            return Ok(StageFlow::Continue);
         };
 
         if instance.spec.channels != block.channels {
-            self.last_runtime_error = Some(format!(
+            return Err(PipelineError::StageFailure(format!(
                 "plugin transform '{}' channel mismatch: prepared={} block={}",
                 self.stage_key, instance.spec.channels, block.channels
-            ));
-            return StageStatus::Fatal;
+            )));
         }
 
         match instance
             .plugin
             .process_interleaved_f32_in_place(block.channels, &mut block.samples)
         {
-            Ok(()) => StageStatus::Ok,
-            Err(error) => {
-                self.last_runtime_error = Some(format!(
-                    "plugin transform '{}' process failed: {error}",
-                    self.stage_key
-                ));
-                StageStatus::Fatal
-            },
+            Ok(()) => Ok(StageFlow::Continue),
+            Err(error) => Err(PipelineError::StageFailure(format!(
+                "plugin transform '{}' process failed: {error}",
+                self.stage_key
+            ))),
         }
     }
 
@@ -279,7 +266,6 @@ impl TransformStage for PluginTransformStage {
     fn stop(&mut self, _ctx: &mut PipelineContext) {
         self.clear_instance();
         self.target_spec = None;
-        self.last_runtime_error = None;
     }
 }
 
@@ -417,7 +403,7 @@ mod tests {
         assert_eq!(set.main.len(), 1);
         assert_eq!(set.post_mix.len(), 1);
         assert_eq!(
-            set.main[0].stage_key(),
+            set.main[0].key(),
             Some("plugin.transform.main.plugin-b.limiter.0")
         );
     }

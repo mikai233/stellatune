@@ -6,7 +6,7 @@ use stellatune_audio_core::pipeline::context::{
     AudioBlock, GaplessTrimSpec, InputRef, PipelineContext, SourceHandle, StreamSpec,
 };
 use stellatune_audio_core::pipeline::error::PipelineError;
-use stellatune_audio_core::pipeline::stages::StageStatus;
+use stellatune_audio_core::pipeline::stages::StageFlow;
 use stellatune_audio_core::pipeline::stages::decoder::DecoderStage;
 use stellatune_audio_core::pipeline::stages::sink::SinkStage;
 use stellatune_audio_core::pipeline::stages::source::SourceStage;
@@ -69,8 +69,12 @@ impl DecoderStage for TestDecoder {
         Some(self.remaining_frames)
     }
 
-    fn next_block(&mut self, _out: &mut AudioBlock, _ctx: &mut PipelineContext) -> StageStatus {
-        StageStatus::Eof
+    fn next_block(
+        &mut self,
+        _out: &mut AudioBlock,
+        _ctx: &mut PipelineContext,
+    ) -> Result<StageFlow, PipelineError> {
+        Ok(StageFlow::Eof)
     }
 
     fn flush(&mut self, _ctx: &mut PipelineContext) -> Result<(), PipelineError> {
@@ -96,8 +100,12 @@ impl SinkStage for TestSink {
         Ok(())
     }
 
-    fn write(&mut self, _block: &AudioBlock, _ctx: &mut PipelineContext) -> StageStatus {
-        StageStatus::Ok
+    fn write(
+        &mut self,
+        _block: &AudioBlock,
+        _ctx: &mut PipelineContext,
+    ) -> Result<StageFlow, PipelineError> {
+        Ok(StageFlow::Continue)
     }
 
     fn flush(&mut self, _ctx: &mut PipelineContext) -> Result<(), PipelineError> {

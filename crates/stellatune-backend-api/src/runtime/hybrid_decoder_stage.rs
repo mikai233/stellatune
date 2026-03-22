@@ -12,7 +12,7 @@ use stellatune_audio_core::pipeline::context::{
     AudioBlock, GaplessTrimSpec, PipelineContext, SourceHandle, StreamSpec,
 };
 use stellatune_audio_core::pipeline::error::PipelineError;
-use stellatune_audio_core::pipeline::stages::StageStatus;
+use stellatune_audio_core::pipeline::stages::StageFlow;
 use stellatune_audio_core::pipeline::stages::decoder::DecoderStage;
 use stellatune_audio_plugin_adapters::stages::{
     PluginDecoderStage, plugin_track_token_from_source_handle,
@@ -72,7 +72,6 @@ pub fn decoder_supported_extensions_hybrid_with_user_decoders(
 pub struct HybridDecoderStage {
     read_frames: u32,
     active: Option<ActiveHybridDecoder>,
-    last_runtime_error: Option<String>,
     last_position_ms: i64,
     user_decoder_providers: Vec<SharedUserDecoderProvider>,
 }
@@ -113,7 +112,6 @@ impl HybridDecoderStage {
         Self {
             read_frames: DEFAULT_READ_FRAMES,
             active: None,
-            last_runtime_error: None,
             last_position_ms: 0,
             user_decoder_providers,
         }
@@ -139,7 +137,6 @@ impl HybridDecoderStage {
             stage.stop(ctx);
         }
         self.active = None;
-        self.last_runtime_error = None;
     }
 
     fn resolve_track_ref(source: &SourceHandle) -> Result<TrackRefToken, PipelineError> {
@@ -193,7 +190,6 @@ impl HybridDecoderStage {
                         Ok(decoder) => {
                             let spec = decoder.spec();
                             self.active = Some(ActiveHybridDecoder::UserImplementation { decoder });
-                            self.last_runtime_error = None;
                             return Ok(spec);
                         },
                         Err(error) => errors.push(format!(
@@ -212,7 +208,6 @@ impl HybridDecoderStage {
                             self.active = Some(ActiveHybridDecoder::Plugin {
                                 stage: Box::new(stage),
                             });
-                            self.last_runtime_error = None;
                             return Ok(spec);
                         },
                         Err(error) => {
@@ -260,7 +255,6 @@ impl HybridDecoderStage {
                     self.active = Some(ActiveHybridDecoder::Plugin {
                         stage: Box::new(stage),
                     });
-                    self.last_runtime_error = None;
                     return Ok(spec);
                 },
                 Err(error) => {
@@ -303,18 +297,11 @@ impl DecoderStage for HybridDecoderStage {
                 if let Some(position_ms) = ctx.pending_seek_ms
                     && let Err(error) = decoder.seek_ms(position_ms.max(0) as u64)
                 {
-                    self.last_runtime_error = Some(error.clone());
                     return Err(PipelineError::StageFailure(error));
                 }
                 Ok(())
             },
-            Some(ActiveHybridDecoder::Plugin { stage }) => {
-                if let Err(error) = stage.sync_runtime_control(ctx) {
-                    self.last_runtime_error = Some(error.to_string());
-                    return Err(error);
-                }
-                Ok(())
-            },
+            Some(ActiveHybridDecoder::Plugin { stage }) => stage.sync_runtime_control(ctx),
             None => Err(PipelineError::NotPrepared),
         }
     }
@@ -345,17 +332,11 @@ impl DecoderStage for HybridDecoderStage {
         }
     }
 
-    fn runtime_error_detail(&self) -> Option<&str> {
-        if let Some(error) = self.last_runtime_error.as_deref() {
-            return Some(error);
-        }
-        match self.active.as_ref() {
-            Some(ActiveHybridDecoder::Plugin { stage }) => stage.runtime_error_detail(),
-            _ => None,
-        }
-    }
-
-    fn next_block(&mut self, out: &mut AudioBlock, ctx: &mut PipelineContext) -> StageStatus {
+    fn next_block(
+        &mut self,
+        out: &mut AudioBlock,
+        ctx: &mut PipelineContext,
+    ) -> Result<StageFlow, PipelineError> {
         self.last_position_ms = ctx.position_ms;
         match self.active.as_mut() {
             Some(ActiveHybridDecoder::UserImplementation { decoder }) => {
@@ -363,28 +344,21 @@ impl DecoderStage for HybridDecoderStage {
                     Ok(Some(samples)) => {
                         let channels = decoder.spec().channels.max(1) as usize;
                         if !samples.len().is_multiple_of(channels) {
-                            self.last_runtime_error = Some(format!(
+                            return Err(PipelineError::StageFailure(format!(
                                 "user decoder produced misaligned block: samples={} channels={channels}",
                                 samples.len()
-                            ));
-                            return StageStatus::Fatal;
+                            )));
                         }
                         out.channels = decoder.spec().channels;
                         out.samples = samples;
-                        StageStatus::Ok
+                        Ok(StageFlow::Continue)
                     },
-                    Ok(None) => StageStatus::Eof,
-                    Err(error) => {
-                        self.last_runtime_error = Some(error);
-                        StageStatus::Fatal
-                    },
+                    Ok(None) => Ok(StageFlow::Eof),
+                    Err(error) => Err(PipelineError::StageFailure(error)),
                 }
             },
             Some(ActiveHybridDecoder::Plugin { stage }) => stage.next_block(out, ctx),
-            None => {
-                self.last_runtime_error = Some("decoder is not prepared".to_string());
-                StageStatus::Fatal
-            },
+            None => Err(PipelineError::NotPrepared),
         }
     }
 
