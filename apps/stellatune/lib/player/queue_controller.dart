@@ -47,7 +47,7 @@ class QueueController extends Notifier<QueueState> {
         repeatMode: state.repeatMode,
         source: null,
       );
-      unawaited(ref.read(settingsStoreProvider).setQueueSource(null));
+      unawaited(ref.read(settingsStoreProvider.notifier).setQueueSource(null));
       return;
     }
 
@@ -66,7 +66,7 @@ class QueueController extends Notifier<QueueState> {
       orderPos: _orderPosFor(order, idx),
       source: source,
     );
-    unawaited(ref.read(settingsStoreProvider).setQueueSource(source));
+    unawaited(ref.read(settingsStoreProvider.notifier).setQueueSource(source));
   }
 
   void enqueue(List<QueueItem> items) {
@@ -200,7 +200,7 @@ class QueueController extends Notifier<QueueState> {
   }
 
   void setPlayMode(PlayMode mode) {
-    unawaited(ref.read(settingsStoreProvider).setPlayMode(mode));
+    unawaited(ref.read(settingsStoreProvider.notifier).setPlayMode(mode));
     final desiredShuffle = mode == PlayMode.shuffle;
     final desiredRepeat = switch (mode) {
       PlayMode.sequential => RepeatMode.off,
@@ -248,7 +248,7 @@ class QueueController extends Notifier<QueueState> {
       repeatMode: state.repeatMode,
       source: null,
     );
-    unawaited(ref.read(settingsStoreProvider).setQueueSource(null));
+    unawaited(ref.read(settingsStoreProvider.notifier).setQueueSource(null));
   }
 
   int removeIndices(Set<int> indices) {
@@ -277,7 +277,7 @@ class QueueController extends Notifier<QueueState> {
         repeatMode: state.repeatMode,
         source: null,
       );
-      unawaited(ref.read(settingsStoreProvider).setQueueSource(null));
+      unawaited(ref.read(settingsStoreProvider.notifier).setQueueSource(null));
       return removed;
     }
 

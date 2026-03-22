@@ -46,6 +46,21 @@ class _DesktopMusicDetailPageState
   bool _queuePanelOpen = false;
 
   @override
+  void initState() {
+    super.initState();
+
+    ref.listenManual<int?>(
+      queueControllerProvider.select((s) => s.currentItem?.id),
+      (previous, next) {
+        if (next != null) {
+          _updatePalette(ref.read(coverDirProvider), next);
+        }
+      },
+      fireImmediately: true,
+    );
+  }
+
+  @override
   void dispose() {
     _lyricDelayTimer?.cancel();
     _lyricDelayTimer = null;
@@ -190,23 +205,6 @@ class _DesktopMusicDetailPageState
           _slideDirection = queue.orderPos > _previousOrderPos! ? 1 : -1;
         }
       }
-    }
-
-    // Trigger palette update and other side effects when track changes
-    ref.listen(queueControllerProvider.select((s) => s.currentItem?.id), (
-      previous,
-      next,
-    ) {
-      if (next != null) {
-        _updatePalette(ref.read(coverDirProvider), next);
-      }
-    });
-
-    // Initial palette load if needed
-    if (_lastLoadedCover == null && trackId != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _updatePalette(coverDir, trackId);
-      });
     }
 
     final isPlaying =

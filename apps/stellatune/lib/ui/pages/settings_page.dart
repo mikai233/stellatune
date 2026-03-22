@@ -9,7 +9,6 @@ import 'package:file_picker/file_picker.dart';
 import 'package:stellatune/app/providers.dart';
 import 'package:stellatune/app/plugin_paths.dart';
 import 'package:stellatune/app/plugin_ui_gateway_service.dart';
-import 'package:stellatune/app/settings_store.dart';
 import 'package:stellatune/bridge/bridge.dart';
 import 'package:stellatune/l10n/app_localizations.dart';
 import 'package:stellatune/lyrics/lyrics_controller.dart';
@@ -86,7 +85,7 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
   @override
   void initState() {
     super.initState();
-    _outputUiSession = ref.read(settingsStoreProvider).outputSettingsUiSession;
+    _outputUiSession = ref.read(settingsUiSessionProvider);
     _restoreOutputUiSessionOrSettings();
     _refresh();
     if (_parsePluginTypeKey(_selectedOutputBackendKey) != null) {
@@ -306,8 +305,8 @@ extension _SettingsHelpers on SettingsPageState {
     final key = _sourceTypeKey(t);
     final draft = _sourceConfigDrafts[key];
     if (draft != null) return draft;
-    final store = ref.read(settingsStoreProvider);
-    final value = store.sourceConfigFor(
+    final settings = ref.read(settingsStoreProvider);
+    final value = settings.sourceConfigFor(
       pluginId: t.pluginId,
       typeId: t.typeId,
       defaultValue: t.defaultConfigJson,
@@ -319,8 +318,8 @@ extension _SettingsHelpers on SettingsPageState {
   Future<void> _saveSourceConfig(SourceCatalogTypeDescriptor t) async {
     final key = _sourceTypeKey(t);
     final value = _sourceConfigDrafts[key] ?? t.defaultConfigJson;
-    final store = ref.read(settingsStoreProvider);
-    final currentValue = store.sourceConfigFor(
+    final settings = ref.read(settingsStoreProvider);
+    final currentValue = settings.sourceConfigFor(
       pluginId: t.pluginId,
       typeId: t.typeId,
       defaultValue: t.defaultConfigJson,
@@ -332,11 +331,13 @@ extension _SettingsHelpers on SettingsPageState {
       );
       return;
     }
-    await store.setSourceConfigFor(
-      pluginId: t.pluginId,
-      typeId: t.typeId,
-      configJson: value,
-    );
+    await ref
+        .read(settingsStoreProvider.notifier)
+        .setSourceConfigFor(
+          pluginId: t.pluginId,
+          typeId: t.typeId,
+          configJson: value,
+        );
     if (!mounted) return;
     final l10n = AppLocalizations.of(context)!;
     ScaffoldMessenger.of(
@@ -397,15 +398,15 @@ extension _SettingsRuntimeOps on SettingsPageState {
     bool? seekTrackFade,
     ResampleQuality? resampleQuality,
   }) async {
-    final store = ref.read(settingsStoreProvider);
+    final settings = ref.read(settingsStoreProvider);
     await ref
         .read(playerBridgeProvider)
         .setOutputOptions(
           matchTrackSampleRate:
-              matchTrackSampleRate ?? store.matchTrackSampleRate,
-          gaplessPlayback: gaplessPlayback ?? store.gaplessPlayback,
-          seekTrackFade: seekTrackFade ?? store.seekTrackFade,
-          resampleQuality: resampleQuality ?? store.resampleQuality,
+              matchTrackSampleRate ?? settings.matchTrackSampleRate,
+          gaplessPlayback: gaplessPlayback ?? settings.gaplessPlayback,
+          seekTrackFade: seekTrackFade ?? settings.seekTrackFade,
+          resampleQuality: resampleQuality ?? settings.resampleQuality,
         );
   }
 
@@ -662,7 +663,7 @@ extension _SettingsRuntimeOps on SettingsPageState {
     await _revalidateOutputSinkRouteTarget(bridge: bridge, route: route);
 
     await bridge.setOutputSinkRoute(route);
-    await settings.setOutputSinkRoute(route);
+    await ref.read(settingsStoreProvider.notifier).setOutputSinkRoute(route);
     logger.i(
       'apply output sink route success plugin=${route.pluginId} type=${route.typeId} '
       'target=${_targetDebugSummary(route.targetJson)}',
@@ -676,13 +677,15 @@ extension _SettingsRuntimeOps on SettingsPageState {
 
   Future<void> _applyLocalBackendRoute({
     required PlayerBridge bridge,
-    required SettingsStore settings,
+    required SettingsState settings,
     required AudioBackend localBackend,
     required bool showFeedback,
   }) async {
-    await settings.setSelectedBackend(localBackend);
+    await ref
+        .read(settingsStoreProvider.notifier)
+        .setSelectedBackend(localBackend);
     await bridge.clearOutputSinkRoute();
-    await settings.clearOutputSinkRoute();
+    await ref.read(settingsStoreProvider.notifier).clearOutputSinkRoute();
     await bridge.setOutputDevice(
       backend: localBackend,
       deviceId: settings.selectedDeviceId,
@@ -816,15 +819,15 @@ extension _SettingsBuildSections on SettingsPageState {
       themeMode: settings.themeMode,
       closeToTray: settings.closeToTray,
       onLocaleChanged: (locale) async {
-        await ref.read(settingsStoreProvider).setLocale(locale);
+        await ref.read(settingsStoreProvider.notifier).setLocale(locale);
         _updateUi(() {});
       },
       onThemeModeChanged: (mode) async {
-        await ref.read(settingsStoreProvider).setThemeMode(mode);
+        await ref.read(settingsStoreProvider.notifier).setThemeMode(mode);
         _updateUi(() {});
       },
       onCloseToTrayChanged: (enabled) async {
-        await ref.read(settingsStoreProvider).setCloseToTray(enabled);
+        await ref.read(settingsStoreProvider.notifier).setCloseToTray(enabled);
         _updateUi(() {});
       },
     );
@@ -922,7 +925,7 @@ extension _SettingsBuildSections on SettingsPageState {
             : const <OutputSinkTypeDescriptor>[]);
   }
 
-  String _selectedBackendKeyFromSettings(SettingsStore settings) {
+  String _selectedBackendKeyFromSettings(SettingsState settings) {
     final route = settings.outputSinkRoute;
     return _selectedOutputBackendKey ??
         (route == null
@@ -944,7 +947,7 @@ extension _SettingsBuildSections on SettingsPageState {
 
   void _resetInvalidPluginBackendSelectionIfNeeded({
     required String selected,
-    required SettingsStore settings,
+    required SettingsState settings,
     required ConnectionState connectionState,
   }) {
     if (!selected.startsWith('plugin:') ||
@@ -964,7 +967,7 @@ extension _SettingsBuildSections on SettingsPageState {
   Future<void> _handleOutputBackendChanged({
     required String? v,
     required List<OutputSinkTypeDescriptor> sinkTypes,
-    required SettingsStore settings,
+    required SettingsState settings,
     required BuildContext context,
   }) async {
     if (v == null) return;
@@ -1136,8 +1139,7 @@ extension _SettingsBuildSections on SettingsPageState {
       }
       return;
     }
-    final settings = ref.read(settingsStoreProvider);
-    await settings.setSelectedDeviceId(v);
+    await ref.read(settingsStoreProvider.notifier).setSelectedDeviceId(v);
     await ref
         .read(playerBridgeProvider)
         .setOutputDevice(backend: localBackend, deviceId: v);
@@ -1160,8 +1162,9 @@ extension _SettingsBuildSections on SettingsPageState {
           title: Text(l10n.settingsMatchTrackSampleRate),
           value: settings.matchTrackSampleRate,
           onChanged: (v) async {
-            final store = ref.read(settingsStoreProvider);
-            await store.setMatchTrackSampleRate(v);
+            await ref
+                .read(settingsStoreProvider.notifier)
+                .setMatchTrackSampleRate(v);
             await _applyOutputOptions(matchTrackSampleRate: v);
             _updateUi(() {});
           },
@@ -1172,8 +1175,9 @@ extension _SettingsBuildSections on SettingsPageState {
           title: Text(l10n.settingsGaplessPlayback),
           value: settings.gaplessPlayback,
           onChanged: (v) async {
-            final store = ref.read(settingsStoreProvider);
-            await store.setGaplessPlayback(v);
+            await ref
+                .read(settingsStoreProvider.notifier)
+                .setGaplessPlayback(v);
             await _applyOutputOptions(gaplessPlayback: v);
             _updateUi(() {});
           },
@@ -1189,8 +1193,7 @@ extension _SettingsBuildSections on SettingsPageState {
       title: Text(l10n.settingsSeekTrackFade),
       value: ref.watch(settingsStoreProvider).seekTrackFade,
       onChanged: (v) async {
-        final store = ref.read(settingsStoreProvider);
-        await store.setSeekTrackFade(v);
+        await ref.read(settingsStoreProvider.notifier).setSeekTrackFade(v);
         await _applyOutputOptions(seekTrackFade: v);
         _updateUi(() {});
       },
@@ -1227,8 +1230,7 @@ extension _SettingsBuildSections on SettingsPageState {
         ],
         onChanged: (v) async {
           if (v == null) return;
-          final store = ref.read(settingsStoreProvider);
-          await store.setResampleQuality(v);
+          await ref.read(settingsStoreProvider.notifier).setResampleQuality(v);
           _updateUi(() {
             _resampleQuality = v;
             _persistOutputUiSession();

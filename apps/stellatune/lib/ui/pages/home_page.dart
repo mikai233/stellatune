@@ -37,9 +37,9 @@ class HomePage extends ConsumerWidget {
     final coverDir = ref.watch(coverDirProvider);
     final allTracksAsync = ref.watch(homeAllTracksProvider);
 
-    final recentlyAdded = allTracksAsync.valueOrNull == null
+    final recentlyAdded = allTracksAsync.value == null
         ? const <TrackLite>[]
-        : _buildRecentlyAdded(allTracksAsync.valueOrNull!);
+        : _buildRecentlyAdded(allTracksAsync.value!);
     final continueListening = _buildContinueListening(queue, maxItems: 10);
 
     final fallbackTrack = recentlyAdded.isEmpty ? null : recentlyAdded.first;

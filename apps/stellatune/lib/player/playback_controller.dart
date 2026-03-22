@@ -278,7 +278,7 @@ class PlaybackController extends Notifier<PlaybackState> {
       final currentItem = ref.read(queueControllerProvider).currentItem;
       unawaited(
         ref
-            .read(settingsStoreProvider)
+            .read(settingsStoreProvider.notifier)
             .setResume(
               track: track,
               positionMs: ms,
@@ -302,7 +302,7 @@ class PlaybackController extends Notifier<PlaybackState> {
 
     final currentItem = ref.read(queueControllerProvider).currentItem;
     await ref
-        .read(settingsStoreProvider)
+        .read(settingsStoreProvider.notifier)
         .setResume(
           track: track,
           positionMs: ms,
@@ -766,7 +766,7 @@ class PlaybackController extends Notifier<PlaybackState> {
     // Debounce persistence only (doesn't affect loudness).
     _volumePersistDebounce?.cancel();
     _volumePersistDebounce = Timer(const Duration(milliseconds: 250), () {
-      unawaited(ref.read(settingsStoreProvider).setVolume(v));
+      unawaited(ref.read(settingsStoreProvider.notifier).setVolume(v));
     });
   }
 

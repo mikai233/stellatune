@@ -73,7 +73,7 @@ class WindowCloseHandler extends WindowListener {
 
   @override
   void onWindowClose() async {
-    if (settings.closeToTray) {
+    if (settings.readState().closeToTray) {
       await windowManager.hide();
     } else {
       await _exitApp(bridge);
@@ -183,8 +183,9 @@ Future<void> _applyPersistedOutputSettings({
 }) async {
   // Best-effort: don't block startup on restore failures.
   try {
-    final backend = settings.selectedBackend;
-    var localDeviceId = settings.selectedDeviceId;
+    final persisted = settings.readState();
+    final backend = persisted.selectedBackend;
+    var localDeviceId = persisted.selectedDeviceId;
     try {
       await bridge.setOutputDevice(backend: backend, deviceId: localDeviceId);
     } catch (e, s) {
@@ -200,13 +201,13 @@ Future<void> _applyPersistedOutputSettings({
     }
 
     await bridge.setOutputOptions(
-      matchTrackSampleRate: settings.matchTrackSampleRate,
-      gaplessPlayback: settings.gaplessPlayback,
-      seekTrackFade: settings.seekTrackFade,
-      resampleQuality: settings.resampleQuality,
+      matchTrackSampleRate: persisted.matchTrackSampleRate,
+      gaplessPlayback: persisted.gaplessPlayback,
+      seekTrackFade: persisted.seekTrackFade,
+      resampleQuality: persisted.resampleQuality,
     );
 
-    final route = settings.outputSinkRoute;
+    final route = settings.readState().outputSinkRoute;
     if (route == null) {
       await bridge.clearOutputSinkRoute();
     } else {

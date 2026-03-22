@@ -1,13 +1,14 @@
 import 'dart:convert';
 import 'dart:ui';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:flutter/material.dart' show ThemeMode;
-
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-import 'package:stellatune/player/queue_models.dart';
-import 'package:stellatune/bridge/bridge.dart';
 import 'package:stellatune/app/logging.dart';
+import 'package:stellatune/bridge/bridge.dart';
+import 'package:stellatune/player/queue_models.dart';
+
+const _unset = Object();
 
 class OutputSettingsUiSession {
   bool initialized = false;
@@ -23,17 +24,141 @@ class OutputSettingsUiSession {
   ResampleQuality resampleQuality = ResampleQuality.high;
 }
 
-class SettingsStore extends Notifier<SettingsStore> {
-  SettingsStore();
-  final OutputSettingsUiSession outputSettingsUiSession =
-      OutputSettingsUiSession();
+class SettingsState {
+  SettingsState({
+    required this.volume,
+    required this.playMode,
+    required this.resumeTrack,
+    required this.resumePath,
+    required this.resumePositionMs,
+    required this.resumeTrackId,
+    required this.resumeTitle,
+    required this.resumeArtist,
+    required this.resumeAlbum,
+    required this.resumeDurationMs,
+    required this.selectedBackend,
+    required this.selectedDeviceId,
+    required this.matchTrackSampleRate,
+    required this.gaplessPlayback,
+    required this.seekTrackFade,
+    required this.resampleQuality,
+    required this.outputSinkRoute,
+    required Map<String, String> sourceConfigs,
+    required this.queueSource,
+    required this.locale,
+    required this.themeMode,
+    required this.closeToTray,
+  }) : sourceConfigs = Map.unmodifiable(sourceConfigs);
 
-  @override
-  SettingsStore build() {
-    return this;
+  final double volume;
+  final PlayMode playMode;
+  final TrackRef? resumeTrack;
+  final String? resumePath;
+  final int resumePositionMs;
+  final int? resumeTrackId;
+  final String? resumeTitle;
+  final String? resumeArtist;
+  final String? resumeAlbum;
+  final int? resumeDurationMs;
+  final AudioBackend selectedBackend;
+  final String? selectedDeviceId;
+  final bool matchTrackSampleRate;
+  final bool gaplessPlayback;
+  final bool seekTrackFade;
+  final ResampleQuality resampleQuality;
+  final OutputSinkRoute? outputSinkRoute;
+  final Map<String, String> sourceConfigs;
+  final QueueSource? queueSource;
+  final Locale? locale;
+  final ThemeMode themeMode;
+  final bool closeToTray;
+
+  String sourceConfigFor({
+    required String pluginId,
+    required String typeId,
+    String defaultValue = '{}',
+  }) {
+    final key = '${pluginId.trim()}::${typeId.trim()}';
+    if (key == '::') return defaultValue;
+    return sourceConfigs[key] ?? defaultValue;
   }
 
-  Box get _box => Hive.box(_boxName);
+  SettingsState copyWith({
+    double? volume,
+    PlayMode? playMode,
+    Object? resumeTrack = _unset,
+    Object? resumePath = _unset,
+    int? resumePositionMs,
+    Object? resumeTrackId = _unset,
+    Object? resumeTitle = _unset,
+    Object? resumeArtist = _unset,
+    Object? resumeAlbum = _unset,
+    Object? resumeDurationMs = _unset,
+    AudioBackend? selectedBackend,
+    Object? selectedDeviceId = _unset,
+    bool? matchTrackSampleRate,
+    bool? gaplessPlayback,
+    bool? seekTrackFade,
+    ResampleQuality? resampleQuality,
+    Object? outputSinkRoute = _unset,
+    Map<String, String>? sourceConfigs,
+    Object? queueSource = _unset,
+    Object? locale = _unset,
+    ThemeMode? themeMode,
+    bool? closeToTray,
+  }) {
+    return SettingsState(
+      volume: volume ?? this.volume,
+      playMode: playMode ?? this.playMode,
+      resumeTrack: identical(resumeTrack, _unset)
+          ? this.resumeTrack
+          : resumeTrack as TrackRef?,
+      resumePath: identical(resumePath, _unset)
+          ? this.resumePath
+          : resumePath as String?,
+      resumePositionMs: resumePositionMs ?? this.resumePositionMs,
+      resumeTrackId: identical(resumeTrackId, _unset)
+          ? this.resumeTrackId
+          : resumeTrackId as int?,
+      resumeTitle: identical(resumeTitle, _unset)
+          ? this.resumeTitle
+          : resumeTitle as String?,
+      resumeArtist: identical(resumeArtist, _unset)
+          ? this.resumeArtist
+          : resumeArtist as String?,
+      resumeAlbum: identical(resumeAlbum, _unset)
+          ? this.resumeAlbum
+          : resumeAlbum as String?,
+      resumeDurationMs: identical(resumeDurationMs, _unset)
+          ? this.resumeDurationMs
+          : resumeDurationMs as int?,
+      selectedBackend: selectedBackend ?? this.selectedBackend,
+      selectedDeviceId: identical(selectedDeviceId, _unset)
+          ? this.selectedDeviceId
+          : selectedDeviceId as String?,
+      matchTrackSampleRate: matchTrackSampleRate ?? this.matchTrackSampleRate,
+      gaplessPlayback: gaplessPlayback ?? this.gaplessPlayback,
+      seekTrackFade: seekTrackFade ?? this.seekTrackFade,
+      resampleQuality: resampleQuality ?? this.resampleQuality,
+      outputSinkRoute: identical(outputSinkRoute, _unset)
+          ? this.outputSinkRoute
+          : outputSinkRoute as OutputSinkRoute?,
+      sourceConfigs: sourceConfigs ?? this.sourceConfigs,
+      queueSource: identical(queueSource, _unset)
+          ? this.queueSource
+          : queueSource as QueueSource?,
+      locale: identical(locale, _unset) ? this.locale : locale as Locale?,
+      themeMode: themeMode ?? this.themeMode,
+      closeToTray: closeToTray ?? this.closeToTray,
+    );
+  }
+}
+
+class SettingsStore {
+  SettingsStore();
+
+  final OutputSettingsUiSession outputSettingsUiSession =
+      OutputSettingsUiSession();
 
   static const _boxName = 'settings';
   static const _keyVolume = 'volume';
@@ -62,6 +187,35 @@ class SettingsStore extends Notifier<SettingsStore> {
   static Future<void> initHive() async {
     await Hive.initFlutter();
     await Hive.openBox(_boxName);
+  }
+
+  Box get _box => Hive.box(_boxName);
+
+  SettingsState readState() {
+    return SettingsState(
+      volume: volume,
+      playMode: playMode,
+      resumeTrack: resumeTrack,
+      resumePath: resumePath,
+      resumePositionMs: resumePositionMs,
+      resumeTrackId: resumeTrackId,
+      resumeTitle: resumeTitle,
+      resumeArtist: resumeArtist,
+      resumeAlbum: resumeAlbum,
+      resumeDurationMs: resumeDurationMs,
+      selectedBackend: selectedBackend,
+      selectedDeviceId: selectedDeviceId,
+      matchTrackSampleRate: matchTrackSampleRate,
+      gaplessPlayback: gaplessPlayback,
+      seekTrackFade: seekTrackFade,
+      resampleQuality: resampleQuality,
+      outputSinkRoute: outputSinkRoute,
+      sourceConfigs: sourceConfigs,
+      queueSource: queueSource,
+      locale: locale,
+      themeMode: themeMode,
+      closeToTray: closeToTray,
+    );
   }
 
   double get volume {
@@ -196,9 +350,8 @@ class SettingsStore extends Notifier<SettingsStore> {
     return null;
   }
 
-  Future<void> setSelectedDeviceId(String? id) async {
-    await _box.put(_keySelectedDeviceId, id);
-  }
+  Future<void> setSelectedDeviceId(String? id) =>
+      _box.put(_keySelectedDeviceId, id);
 
   bool get matchTrackSampleRate {
     final v = _box.get(_keyMatchTrackSampleRate, defaultValue: false);
@@ -292,16 +445,6 @@ class SettingsStore extends Notifier<SettingsStore> {
     }
   }
 
-  String sourceConfigFor({
-    required String pluginId,
-    required String typeId,
-    String defaultValue = '{}',
-  }) {
-    final key = '${pluginId.trim()}::${typeId.trim()}';
-    if (key == '::') return defaultValue;
-    return sourceConfigs[key] ?? defaultValue;
-  }
-
   Future<void> setSourceConfigFor({
     required String pluginId,
     required String typeId,
@@ -352,7 +495,6 @@ class SettingsStore extends Notifier<SettingsStore> {
     } else {
       await _box.put(_keyLocale, locale.toString());
     }
-    state = this; // trigger update
   }
 
   ThemeMode get themeMode {
@@ -365,10 +507,8 @@ class SettingsStore extends Notifier<SettingsStore> {
     return ThemeMode.system;
   }
 
-  Future<void> setThemeMode(ThemeMode mode) async {
-    await _box.put(_keyThemeMode, mode.name);
-    state = this; // trigger update
-  }
+  Future<void> setThemeMode(ThemeMode mode) =>
+      _box.put(_keyThemeMode, mode.name);
 
   bool get closeToTray {
     final v = _box.get(_keyCloseToTray, defaultValue: true);
@@ -376,8 +516,113 @@ class SettingsStore extends Notifier<SettingsStore> {
     return true;
   }
 
-  Future<void> setCloseToTray(bool v) async {
-    await _box.put(_keyCloseToTray, v);
-    state = this; // trigger update
-  }
+  Future<void> setCloseToTray(bool v) => _box.put(_keyCloseToTray, v);
 }
+
+final settingsStoreServiceProvider = Provider<SettingsStore>((ref) {
+  throw UnimplementedError(
+    'settingsStoreServiceProvider must be overridden in main()',
+  );
+});
+
+final settingsUiSessionProvider = Provider<OutputSettingsUiSession>((ref) {
+  return ref.watch(settingsStoreServiceProvider).outputSettingsUiSession;
+});
+
+class SettingsController extends Notifier<SettingsState> {
+  SettingsStore get _store => ref.read(settingsStoreServiceProvider);
+
+  @override
+  SettingsState build() {
+    return _store.readState();
+  }
+
+  Future<void> _persist(
+    Future<void> Function(SettingsStore store) action,
+  ) async {
+    await action(_store);
+    state = _store.readState();
+  }
+
+  Future<void> setVolume(double v) => _persist((store) => store.setVolume(v));
+
+  Future<void> setPlayMode(PlayMode mode) =>
+      _persist((store) => store.setPlayMode(mode));
+
+  Future<void> setResume({
+    required TrackRef track,
+    required int positionMs,
+    int? trackId,
+    String? title,
+    String? artist,
+    String? album,
+    int? durationMs,
+  }) {
+    return _persist(
+      (store) => store.setResume(
+        track: track,
+        positionMs: positionMs,
+        trackId: trackId,
+        title: title,
+        artist: artist,
+        album: album,
+        durationMs: durationMs,
+      ),
+    );
+  }
+
+  Future<void> clearResume() => _persist((store) => store.clearResume());
+
+  Future<void> setSelectedBackend(AudioBackend backend) =>
+      _persist((store) => store.setSelectedBackend(backend));
+
+  Future<void> setSelectedDeviceId(String? id) =>
+      _persist((store) => store.setSelectedDeviceId(id));
+
+  Future<void> setMatchTrackSampleRate(bool v) =>
+      _persist((store) => store.setMatchTrackSampleRate(v));
+
+  Future<void> setGaplessPlayback(bool v) =>
+      _persist((store) => store.setGaplessPlayback(v));
+
+  Future<void> setSeekTrackFade(bool v) =>
+      _persist((store) => store.setSeekTrackFade(v));
+
+  Future<void> setResampleQuality(ResampleQuality v) =>
+      _persist((store) => store.setResampleQuality(v));
+
+  Future<void> setOutputSinkRoute(OutputSinkRoute route) =>
+      _persist((store) => store.setOutputSinkRoute(route));
+
+  Future<void> clearOutputSinkRoute() =>
+      _persist((store) => store.clearOutputSinkRoute());
+
+  Future<void> setSourceConfigFor({
+    required String pluginId,
+    required String typeId,
+    required String configJson,
+  }) {
+    return _persist(
+      (store) => store.setSourceConfigFor(
+        pluginId: pluginId,
+        typeId: typeId,
+        configJson: configJson,
+      ),
+    );
+  }
+
+  Future<void> setQueueSource(QueueSource? source) =>
+      _persist((store) => store.setQueueSource(source));
+
+  Future<void> setLocale(Locale? locale) =>
+      _persist((store) => store.setLocale(locale));
+
+  Future<void> setThemeMode(ThemeMode mode) =>
+      _persist((store) => store.setThemeMode(mode));
+
+  Future<void> setCloseToTray(bool v) =>
+      _persist((store) => store.setCloseToTray(v));
+}
+
+final settingsStoreProvider =
+    NotifierProvider<SettingsController, SettingsState>(SettingsController.new);

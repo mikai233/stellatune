@@ -33,7 +33,7 @@ class PlaylistsPluginBridgeService {
 
   Future<PluginPlaylistRefreshResult> fetchPlaylists({
     required PlayerBridge bridge,
-    required SettingsStore settings,
+    required SettingsState settings,
   }) async {
     final sourceTypes = await bridge.sourceListTypes();
     logger.d('plugin playlists refresh: source_types=${sourceTypes.length}');
