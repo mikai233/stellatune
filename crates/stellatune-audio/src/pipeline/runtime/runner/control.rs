@@ -11,7 +11,6 @@
 //! state and sink-visible context. The runtime-update path is also where stage-key routing
 //! is validated so dispatch can remain stable even if transform ordering changes.
 
-use std::any::Any;
 use std::collections::HashMap;
 use std::sync::Arc;
 #[cfg(test)]
@@ -23,12 +22,14 @@ use stellatune_audio_core::pipeline::context::{GaplessTrimSpec, PipelineContext}
 use stellatune_audio_core::pipeline::error::PipelineError;
 use stellatune_audio_core::pipeline::stages::transform::TransformStage;
 use stellatune_audio_core::pipeline::stages::{
-    StageRuntimeUpdateDispatchResult, StageRuntimeUpdateResult, StageTarget,
+    StageRuntimeUpdate, StageRuntimeUpdateDispatchResult, StageRuntimeUpdateResult, StageTarget,
 };
 
 #[cfg(test)]
 use crate::pipeline::runtime::dsp::control::TransitionGainControl;
 use crate::pipeline::runtime::dsp::control::{GAPLESS_TRIM_STAGE_KEY, GaplessTrimControl};
+#[cfg(test)]
+use stellatune_audio_core::pipeline::stages::downcast_runtime_update;
 
 use crate::pipeline::runtime::runner::PipelineRunner;
 use crate::pipeline::runtime::sink_session::SinkSession;
@@ -64,7 +65,7 @@ impl PipelineRunner {
     pub(crate) fn apply_stage_runtime_update_to(
         &mut self,
         target: &StageTarget,
-        update: Arc<dyn Any + Send + Sync>,
+        update: Arc<dyn StageRuntimeUpdate>,
         sink_session: Option<&SinkSession>,
         ctx: &mut PipelineContext,
     ) -> Result<StageRuntimeUpdateDispatchResult, PipelineError> {
@@ -79,7 +80,7 @@ impl PipelineRunner {
     fn apply_stage_runtime_update_internal(
         &mut self,
         target: &StageTarget,
-        update: Arc<dyn Any + Send + Sync>,
+        update: Arc<dyn StageRuntimeUpdate>,
         sink_session: Option<&SinkSession>,
         ctx: &mut PipelineContext,
     ) -> Result<StageRuntimeUpdateDispatchResult, PipelineError> {
@@ -111,7 +112,7 @@ impl PipelineRunner {
             )));
         }
         #[cfg(test)]
-        if let Some(update) = update.as_ref().downcast_ref::<TransitionGainControl>()
+        if let Some(update) = downcast_runtime_update::<TransitionGainControl>(update.as_ref())
             && let Some(sink) = self.transition_request_log_sink.as_ref()
         {
             sink.lock()

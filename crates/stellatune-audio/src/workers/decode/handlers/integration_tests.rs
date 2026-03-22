@@ -13,7 +13,8 @@ use stellatune_audio_core::pipeline::stages::decoder::DecoderStage;
 use stellatune_audio_core::pipeline::stages::sink::SinkStage;
 use stellatune_audio_core::pipeline::stages::source::SourceStage;
 use stellatune_audio_core::pipeline::stages::{
-    Stage, StageFlow, StageRuntimeUpdateResult, StageTarget,
+    Stage, StageFlow, StageRuntimeUpdate, StageRuntimeUpdateResult, StageTarget,
+    downcast_runtime_update,
 };
 
 use crate::config::engine::{
@@ -381,14 +382,16 @@ impl Stage for ProbeControlStage {
 
     fn apply_runtime_update(
         &mut self,
-        update: &dyn Any,
+        update: &dyn StageRuntimeUpdate,
         _ctx: &mut PipelineContext,
     ) -> Result<StageRuntimeUpdateResult, PipelineError> {
-        if update.downcast_ref::<ProbeControl>().is_some() {
-            self.apply_count.fetch_add(1, Ordering::SeqCst);
-            return Ok(StageRuntimeUpdateResult::Applied);
+        match downcast_runtime_update::<ProbeControl>(update) {
+            Some(_) => {
+                self.apply_count.fetch_add(1, Ordering::SeqCst);
+                Ok(StageRuntimeUpdateResult::Applied)
+            },
+            None => Ok(StageRuntimeUpdateResult::Ignored),
         }
-        Ok(StageRuntimeUpdateResult::Ignored)
     }
 }
 
@@ -630,7 +633,7 @@ impl TestHarness {
         update: T,
     ) -> Result<(), DecodeError>
     where
-        T: Any + Send + Sync + 'static,
+        T: StageRuntimeUpdate + 'static,
     {
         let (resp_tx, resp_rx) = bounded(1);
         let should_break = handle_command(

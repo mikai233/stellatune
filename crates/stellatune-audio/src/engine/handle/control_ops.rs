@@ -1,4 +1,3 @@
-use std::any::Any;
 use std::sync::Arc;
 
 use crate::config::engine::{Event, LfeMode, ResampleQuality};
@@ -7,7 +6,7 @@ use crate::engine::messages::{
     ApplyStageRuntimeUpdateMessage, SetLfeModeMessage, SetResampleQualityMessage,
 };
 use crate::error::EngineError;
-use stellatune_audio_core::pipeline::stages::StageTarget;
+use stellatune_audio_core::pipeline::stages::{StageRuntimeUpdate, StageTarget};
 
 impl EngineHandle {
     /// Updates the hot master-gain target used by the runtime.
@@ -75,7 +74,7 @@ impl EngineHandle {
         update: T,
     ) -> Result<(), EngineError>
     where
-        T: Any + Send + Sync + 'static,
+        T: StageRuntimeUpdate + 'static,
     {
         self.actor_ref
             .call_async(

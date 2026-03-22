@@ -1,11 +1,11 @@
-use std::any::Any;
-
 use stellatune_audio::pipeline::assembly::OpaqueTransformStageSpec;
 use stellatune_audio::pipeline::graph::TransformGraph;
 use stellatune_audio_core::pipeline::context::{AudioBlock, PipelineContext, StreamSpec};
 use stellatune_audio_core::pipeline::error::PipelineError;
 use stellatune_audio_core::pipeline::stages::transform::TransformStage;
-use stellatune_audio_core::pipeline::stages::{Stage, StageFlow, StageRuntimeUpdateResult};
+use stellatune_audio_core::pipeline::stages::{
+    Stage, StageFlow, StageRuntimeUpdate, StageRuntimeUpdateResult, downcast_runtime_update,
+};
 use stellatune_plugins::host_runtime::{RuntimeDspPlugin, shared_runtime_service};
 
 use crate::bridge::PluginTransformStagePayload;
@@ -196,18 +196,26 @@ impl Stage for PluginTransformStage {
 
     fn apply_runtime_update(
         &mut self,
-        update: &dyn Any,
+        update: &dyn StageRuntimeUpdate,
         _ctx: &mut PipelineContext,
     ) -> Result<StageRuntimeUpdateResult, PipelineError> {
-        if let Some(update) = update.downcast_ref::<PluginTransformConfigControl>() {
-            self.apply_config_control(update)?;
-            return Ok(StageRuntimeUpdateResult::Applied);
+        match (
+            downcast_runtime_update::<PluginTransformConfigControl>(update),
+            downcast_runtime_update::<PluginTransformLifecycleControl>(update),
+        ) {
+            (Some(update), None) => {
+                self.apply_config_control(update)?;
+                Ok(StageRuntimeUpdateResult::Applied)
+            },
+            (None, Some(update)) => {
+                self.apply_lifecycle_control(*update)?;
+                Ok(StageRuntimeUpdateResult::Applied)
+            },
+            (None, None) => Ok(StageRuntimeUpdateResult::Ignored),
+            (Some(_), Some(_)) => {
+                unreachable!("runtime update should downcast to at most one control type")
+            },
         }
-        if let Some(update) = update.downcast_ref::<PluginTransformLifecycleControl>() {
-            self.apply_lifecycle_control(*update)?;
-            return Ok(StageRuntimeUpdateResult::Applied);
-        }
-        Ok(StageRuntimeUpdateResult::Ignored)
     }
 }
 

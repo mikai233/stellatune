@@ -1,10 +1,11 @@
-use std::any::Any;
 use std::sync::Arc;
 use std::time::Duration;
 
 use stellatune_audio_core::pipeline::context::{AudioBlock, PipelineContext, StreamSpec};
 use stellatune_audio_core::pipeline::error::PipelineError;
-use stellatune_audio_core::pipeline::stages::StageRuntimeUpdateDispatchResult;
+use stellatune_audio_core::pipeline::stages::{
+    StageRuntimeUpdate, StageRuntimeUpdateDispatchResult,
+};
 
 use crate::config::sink::SinkLatencyConfig;
 use crate::pipeline::assembly::SinkPlan;
@@ -115,7 +116,7 @@ impl SinkSession {
     pub(crate) fn apply_stage_runtime_update(
         &self,
         stage_key: &str,
-        update: Arc<dyn Any + Send + Sync>,
+        update: Arc<dyn StageRuntimeUpdate>,
     ) -> Result<StageRuntimeUpdateDispatchResult, PipelineError> {
         let Some(worker) = self.sink_worker.as_ref() else {
             return Ok(StageRuntimeUpdateDispatchResult::StageNotFound);

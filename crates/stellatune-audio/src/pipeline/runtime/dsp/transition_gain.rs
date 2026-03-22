@@ -1,12 +1,12 @@
-use std::any::Any;
-
 use stellatune_audio_core::pipeline::context::{
     AudioBlock, GainTransitionRequest, PipelineContext, StreamSpec, TransitionCurve,
     TransitionTimePolicy,
 };
 use stellatune_audio_core::pipeline::error::PipelineError;
 use stellatune_audio_core::pipeline::stages::transform::TransformStage;
-use stellatune_audio_core::pipeline::stages::{Stage, StageFlow, StageRuntimeUpdateResult};
+use stellatune_audio_core::pipeline::stages::{
+    Stage, StageFlow, StageRuntimeUpdate, StageRuntimeUpdateResult, downcast_runtime_update,
+};
 
 use crate::pipeline::runtime::dsp::control::{TRANSITION_GAIN_STAGE_KEY, TransitionGainControl};
 
@@ -136,14 +136,16 @@ impl Stage for TransitionGainStage {
 
     fn apply_runtime_update(
         &mut self,
-        update: &dyn Any,
+        update: &dyn StageRuntimeUpdate,
         _ctx: &mut PipelineContext,
     ) -> Result<StageRuntimeUpdateResult, PipelineError> {
-        if let Some(update) = update.downcast_ref::<TransitionGainControl>() {
-            self.configure_transition(update.request);
-            return Ok(StageRuntimeUpdateResult::Applied);
+        match downcast_runtime_update::<TransitionGainControl>(update) {
+            Some(update) => {
+                self.configure_transition(update.request);
+                Ok(StageRuntimeUpdateResult::Applied)
+            },
+            None => Ok(StageRuntimeUpdateResult::Ignored),
         }
-        Ok(StageRuntimeUpdateResult::Ignored)
     }
 }
 

@@ -1,9 +1,10 @@
-use std::any::Any;
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use stellatune_audio_core::pipeline::context::PipelineContext;
-use stellatune_audio_core::pipeline::stages::{StageRuntimeUpdateDispatchResult, StageTarget};
+use stellatune_audio_core::pipeline::stages::{
+    StageRuntimeUpdate, StageRuntimeUpdateDispatchResult, StageTarget,
+};
 
 use crate::error::DecodeError;
 use crate::pipeline::assembly::{PipelineAssembler, PipelineRuntime};
@@ -31,7 +32,7 @@ pub(crate) fn apply_master_gain_level_to_runner(
 }
 
 pub(crate) fn replay_persisted_stage_runtime_updates_to_runner(
-    stage_runtime_updates: &HashMap<StageTarget, Arc<dyn Any + Send + Sync>>,
+    stage_runtime_updates: &HashMap<StageTarget, Arc<dyn StageRuntimeUpdate>>,
     runner: &mut PipelineRunner,
     sink_session: Option<&SinkSession>,
     ctx: &mut PipelineContext,

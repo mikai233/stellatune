@@ -1,4 +1,3 @@
-use std::any::Any;
 use std::sync::Arc;
 
 use crossbeam_channel::Sender;
@@ -7,7 +6,7 @@ use stellatune_audio_core::pipeline::context::InputRef;
 use crate::config::engine::{LfeMode, PauseBehavior, ResampleQuality, StopBehavior};
 use crate::error::DecodeError;
 use crate::pipeline::assembly::{PipelineMutation, PipelinePlan};
-use stellatune_audio_core::pipeline::stages::StageTarget;
+use stellatune_audio_core::pipeline::stages::{StageRuntimeUpdate, StageTarget};
 
 pub(crate) enum DecodeWorkerCommand {
     Open {
@@ -52,7 +51,7 @@ pub(crate) enum DecodeWorkerCommand {
     },
     ApplyStageRuntimeUpdate {
         target: StageTarget,
-        update: Arc<dyn Any + Send + Sync>,
+        update: Arc<dyn StageRuntimeUpdate>,
         resp_tx: Sender<Result<(), DecodeError>>,
     },
     Shutdown {

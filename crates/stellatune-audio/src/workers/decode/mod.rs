@@ -25,14 +25,13 @@ mod util;
 #[path = "loop.rs"]
 mod worker_loop;
 
-use std::any::Any;
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::Duration;
 
 use crossbeam_channel::{SendTimeoutError, Sender};
 use stellatune_audio_core::pipeline::context::InputRef;
-use stellatune_audio_core::pipeline::stages::StageTarget;
+use stellatune_audio_core::pipeline::stages::{StageRuntimeUpdate, StageTarget};
 
 use crate::config::engine::{
     EngineConfig, LfeMode, PauseBehavior, PlayerState, ResampleQuality, StopBehavior,
@@ -206,7 +205,7 @@ impl DecodeWorker {
     pub(crate) fn apply_stage_runtime_update(
         &self,
         target: StageTarget,
-        update: Arc<dyn Any + Send + Sync>,
+        update: Arc<dyn StageRuntimeUpdate>,
         timeout: Duration,
     ) -> Result<(), DecodeError> {
         let (resp_tx, resp_rx) = crossbeam_channel::bounded(1);

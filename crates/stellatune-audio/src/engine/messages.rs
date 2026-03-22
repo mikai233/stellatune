@@ -1,11 +1,10 @@
-use std::any::Any;
 use std::sync::Arc;
 
 use crate::config::engine::{LfeMode, PauseBehavior, ResampleQuality, StopBehavior};
 use crate::error::EngineError;
 use crate::pipeline::assembly::{PipelineMutation, PipelinePlan};
 use crate::workers::decode::{DecodeWorker, DecodeWorkerEvent};
-use stellatune_audio_core::pipeline::stages::StageTarget;
+use stellatune_audio_core::pipeline::stages::{StageRuntimeUpdate, StageTarget};
 use stellatune_runtime::thread_actor::Message;
 
 pub(crate) struct InstallDecodeWorkerMessage {
@@ -39,7 +38,7 @@ pub(crate) struct SetResampleQualityMessage {
 }
 pub(crate) struct ApplyStageRuntimeUpdateMessage {
     pub(crate) target: StageTarget,
-    pub(crate) update: Arc<dyn Any + Send + Sync>,
+    pub(crate) update: Arc<dyn StageRuntimeUpdate>,
 }
 
 pub(crate) struct GetSnapshotMessage;

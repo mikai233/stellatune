@@ -1,4 +1,3 @@
-use std::any::Any;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -13,7 +12,7 @@ use crate::pipeline::assembly::PipelinePlan;
 use crate::pipeline::runtime::dsp::control::SharedMasterGainHotControl;
 use crate::pipeline::runtime::runner::PipelineRunner;
 use crate::pipeline::runtime::sink_session::SinkSession;
-use stellatune_audio_core::pipeline::stages::StageTarget;
+use stellatune_audio_core::pipeline::stages::{StageRuntimeUpdate, StageTarget};
 
 pub(crate) struct PrewarmedNext {
     pub(crate) input: InputRef,
@@ -36,7 +35,7 @@ pub(crate) struct DecodeWorkerState {
     pub(crate) sink_session: SinkSession,
     pub(crate) lfe_mode: LfeMode,
     pub(crate) resample_quality: ResampleQuality,
-    pub(crate) persisted_stage_runtime_updates: HashMap<StageTarget, Arc<dyn Any + Send + Sync>>,
+    pub(crate) persisted_stage_runtime_updates: HashMap<StageTarget, Arc<dyn StageRuntimeUpdate>>,
     pub(crate) recovery_attempts: u32,
     pub(crate) recovery_retry_at: Option<Instant>,
     pub(crate) audio_start_sent: bool,

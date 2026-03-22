@@ -1,11 +1,11 @@
-use std::any::Any;
-
 use stellatune_audio_core::pipeline::context::{
     AudioBlock, MasterGainCurve, PipelineContext, StreamSpec,
 };
 use stellatune_audio_core::pipeline::error::PipelineError;
 use stellatune_audio_core::pipeline::stages::transform::TransformStage;
-use stellatune_audio_core::pipeline::stages::{Stage, StageFlow, StageRuntimeUpdateResult};
+use stellatune_audio_core::pipeline::stages::{
+    Stage, StageFlow, StageRuntimeUpdate, StageRuntimeUpdateResult, downcast_runtime_update,
+};
 
 use crate::pipeline::runtime::dsp::control::{
     MASTER_GAIN_STAGE_KEY, MasterGainControl, SharedMasterGainHotControl,
@@ -88,19 +88,21 @@ impl Stage for MasterGainStage {
 
     fn apply_runtime_update(
         &mut self,
-        update: &dyn Any,
+        update: &dyn StageRuntimeUpdate,
         _ctx: &mut PipelineContext,
     ) -> Result<StageRuntimeUpdateResult, PipelineError> {
-        if let Some(update) = update.downcast_ref::<MasterGainControl>() {
-            if let Some(curve) = update.curve {
-                self.curve = curve;
-            }
-            self.level = update.level.clamp(0.0, 1.0);
-            let target_gain = self.curve.level_to_gain(self.level).clamp(0.0, 1.0);
-            self.apply_target_gain(target_gain, update.ramp_ms);
-            return Ok(StageRuntimeUpdateResult::Applied);
+        match downcast_runtime_update::<MasterGainControl>(update) {
+            Some(update) => {
+                if let Some(curve) = update.curve {
+                    self.curve = curve;
+                }
+                self.level = update.level.clamp(0.0, 1.0);
+                let target_gain = self.curve.level_to_gain(self.level).clamp(0.0, 1.0);
+                self.apply_target_gain(target_gain, update.ramp_ms);
+                Ok(StageRuntimeUpdateResult::Applied)
+            },
+            None => Ok(StageRuntimeUpdateResult::Ignored),
         }
-        Ok(StageRuntimeUpdateResult::Ignored)
     }
 
     fn sync_runtime_control(&mut self, _ctx: &mut PipelineContext) -> Result<(), PipelineError> {

@@ -1,15 +1,16 @@
-use std::any::Any;
 use std::sync::Arc;
 
 use crossbeam_channel::Sender;
-use stellatune_audio_core::pipeline::stages::{StageRuntimeUpdateDispatchResult, StageTarget};
+use stellatune_audio_core::pipeline::stages::{
+    StageRuntimeUpdate, StageRuntimeUpdateDispatchResult, StageTarget,
+};
 
 use crate::error::DecodeError;
 use crate::workers::decode::state::DecodeWorkerState;
 
 pub(crate) fn handle(
     target: StageTarget,
-    update: Arc<dyn Any + Send + Sync>,
+    update: Arc<dyn StageRuntimeUpdate>,
     resp_tx: Sender<Result<(), DecodeError>>,
     state: &mut DecodeWorkerState,
 ) -> bool {

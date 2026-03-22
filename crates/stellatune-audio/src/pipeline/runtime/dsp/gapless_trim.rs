@@ -5,7 +5,9 @@ use stellatune_audio_core::pipeline::context::{
 };
 use stellatune_audio_core::pipeline::error::PipelineError;
 use stellatune_audio_core::pipeline::stages::transform::TransformStage;
-use stellatune_audio_core::pipeline::stages::{Stage, StageFlow, StageRuntimeUpdateResult};
+use stellatune_audio_core::pipeline::stages::{
+    Stage, StageFlow, StageRuntimeUpdate, StageRuntimeUpdateResult, downcast_runtime_update,
+};
 
 use crate::pipeline::runtime::dsp::control::{GAPLESS_TRIM_STAGE_KEY, GaplessTrimControl};
 
@@ -154,18 +156,20 @@ impl Stage for GaplessTrimStage {
 
     fn apply_runtime_update(
         &mut self,
-        update: &dyn std::any::Any,
+        update: &dyn StageRuntimeUpdate,
         _ctx: &mut PipelineContext,
     ) -> Result<StageRuntimeUpdateResult, PipelineError> {
-        if let Some(update) = update.downcast_ref::<GaplessTrimControl>() {
-            let spec = StreamSpec {
-                sample_rate: self.sample_rate.max(1),
-                channels: self.channels.max(1) as u16,
-            };
-            self.configure(spec, update.spec, update.position_ms);
-            return Ok(StageRuntimeUpdateResult::Applied);
+        match downcast_runtime_update::<GaplessTrimControl>(update) {
+            Some(update) => {
+                let spec = StreamSpec {
+                    sample_rate: self.sample_rate.max(1),
+                    channels: self.channels.max(1) as u16,
+                };
+                self.configure(spec, update.spec, update.position_ms);
+                Ok(StageRuntimeUpdateResult::Applied)
+            },
+            None => Ok(StageRuntimeUpdateResult::Ignored),
         }
-        Ok(StageRuntimeUpdateResult::Ignored)
     }
 
     fn sync_runtime_control(&mut self, ctx: &mut PipelineContext) -> Result<(), PipelineError> {

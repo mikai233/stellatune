@@ -62,6 +62,14 @@ pub enum StageRuntimeUpdateDispatchResult {
     StageNotFound,
 }
 
+pub trait StageRuntimeUpdate: Any + Send + Sync {}
+
+impl<T> StageRuntimeUpdate for T where T: Any + Send + Sync {}
+
+pub fn downcast_runtime_update<T: Any>(update: &dyn StageRuntimeUpdate) -> Option<&T> {
+    (update as &dyn Any).downcast_ref::<T>()
+}
+
 pub trait Stage: Send {
     fn key(&self) -> &str {
         std::any::type_name::<Self>()
@@ -69,7 +77,7 @@ pub trait Stage: Send {
 
     fn apply_runtime_update(
         &mut self,
-        _update: &dyn Any,
+        _update: &dyn StageRuntimeUpdate,
         _ctx: &mut PipelineContext,
     ) -> Result<StageRuntimeUpdateResult, PipelineError> {
         Ok(StageRuntimeUpdateResult::Ignored)

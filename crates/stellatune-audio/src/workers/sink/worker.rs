@@ -3,7 +3,6 @@
 //! This module decouples decode-thread production from sink I/O timing by using
 //! a bounded ring buffer and a control mailbox.
 
-use std::any::Any;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::JoinHandle;
@@ -16,7 +15,7 @@ use stellatune_audio_core::pipeline::context::{AudioBlock, PipelineContext, Stre
 use stellatune_audio_core::pipeline::error::PipelineError;
 use stellatune_audio_core::pipeline::stages::sink::SinkStage;
 use stellatune_audio_core::pipeline::stages::{
-    StageFlow, StageRuntimeUpdateDispatchResult, StageRuntimeUpdateResult,
+    StageFlow, StageRuntimeUpdate, StageRuntimeUpdateDispatchResult, StageRuntimeUpdateResult,
 };
 
 enum SinkControl {
@@ -32,7 +31,7 @@ enum SinkControl {
     },
     ApplyStageRuntimeUpdate {
         stage_key: String,
-        update: Arc<dyn Any + Send + Sync>,
+        update: Arc<dyn StageRuntimeUpdate>,
         resp_tx: Sender<Result<StageRuntimeUpdateDispatchResult, PipelineError>>,
     },
     Shutdown {
@@ -151,7 +150,7 @@ impl SinkWorker {
     pub(crate) fn apply_stage_runtime_update(
         &self,
         stage_key: &str,
-        update: Arc<dyn Any + Send + Sync>,
+        update: Arc<dyn StageRuntimeUpdate>,
         timeout: Duration,
     ) -> Result<StageRuntimeUpdateDispatchResult, PipelineError> {
         let (resp_tx, resp_rx) = crossbeam_channel::bounded(1);
@@ -460,7 +459,7 @@ fn apply_stage_runtime_update(
     sinks: &mut [Box<dyn SinkStage>],
     sink_control_routes: &std::collections::HashMap<String, usize>,
     stage_key: &str,
-    update: &dyn Any,
+    update: &dyn StageRuntimeUpdate,
     ctx: &mut PipelineContext,
 ) -> Result<StageRuntimeUpdateDispatchResult, PipelineError> {
     let Some(target_index) = sink_control_routes.get(stage_key).copied() else {
