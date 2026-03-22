@@ -156,11 +156,11 @@ fn rebuild_active_runner(
         .clone()
         .ok_or(DecodeError::NoActiveInputForRecovery)?;
     let resume_position_ms = state.ctx.position_ms.max(0);
-    let plan = match state.pinned_plan.as_ref() {
-        Some(plan) => Arc::clone(plan),
-        None => assembler.plan(&input)?,
+    let blueprint = match state.pinned_blueprint.as_ref() {
+        Some(blueprint) => Arc::clone(blueprint),
+        None => assembler.build_blueprint(&input)?,
     };
-    let mut assembled = pipeline_runtime.ensure(plan.as_ref())?;
+    let mut assembled = pipeline_runtime.assemble(blueprint.as_ref())?;
     apply_decode_policies(&mut assembled, state);
     let mut next_ctx = state.fresh_context();
     let mut next_runner =

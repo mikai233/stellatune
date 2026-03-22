@@ -3,16 +3,16 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex, OnceLock};
 
-use stellatune_audio::config::engine::{LfeMode, ResampleQuality};
+use stellatune_audio::config::engine::LfeMode;
 use stellatune_audio::pipeline::assembly::{
     AssembledDecodePipeline, AssembledPipeline, BuiltinTransformSlot, BuiltinTransformSlots,
-    MixerPlan, OpaqueTransformStageSpec, PipelineAssembler, PipelineMutation, PipelinePlan,
-    PipelineRuntime, ResamplerPlan, StaticSinkPlan, TransformChain,
+    MixerPlan, OpaqueTransformStageSpec, PipelineAssembler, PipelineBlueprint, PipelineMutation,
+    PipelineOutputBackend, PipelineRuntime, PipelineSinkRoute, ResamplerPlan, StaticSinkPlan,
+    TransformChain,
 };
 use stellatune_audio::pipeline::graph::TransformGraph;
 use stellatune_audio_builtin_adapters::device_sink::{
-    DeviceSinkControl, DeviceSinkStage, OutputBackend, default_output_spec_for_backend,
-    output_spec_for_route,
+    DeviceSinkControl, DeviceSinkStage, OutputBackend,
 };
 use stellatune_audio_builtin_adapters::wasapi_exclusive_sink::WasapiExclusiveSinkStage;
 use stellatune_audio_core::pipeline::context::InputRef;
@@ -23,6 +23,7 @@ use stellatune_audio_plugin_adapters::stages::{
     build_plugin_transform_stage_set_from_graph,
 };
 
+use super::engine::current_blueprint_output_spec;
 use super::hybrid_decoder_stage::HybridDecoderStage;
 
 const FALLBACK_OUTPUT_SAMPLE_RATE: u32 = 48_000;
@@ -95,17 +96,21 @@ impl RuntimeSinkRouteControl {
 }
 
 #[derive(Debug, Clone)]
-struct V2RuntimePlan {
-    track_token: String,
+struct RuntimeBlueprint {
+    transform_graph: TransformGraph<OpaqueTransformStageSpec>,
+    mixer: Option<MixerPlan>,
+    resampler: Option<ResamplerPlan>,
+    builtin_slots: BuiltinTransformSlots,
+    sink_route: PipelineSinkRoute,
 }
 
 #[derive(Debug, Clone)]
-pub struct V2BackendAssembler {
+pub struct BackendAssembler {
     fallback_output_sample_rate: u32,
     fallback_output_channels: u16,
 }
 
-impl Default for V2BackendAssembler {
+impl Default for BackendAssembler {
     fn default() -> Self {
         Self {
             fallback_output_sample_rate: FALLBACK_OUTPUT_SAMPLE_RATE,
@@ -114,111 +119,161 @@ impl Default for V2BackendAssembler {
     }
 }
 
-impl PipelineAssembler for V2BackendAssembler {
-    fn plan(&self, input: &InputRef) -> Result<Arc<dyn PipelinePlan>, PipelineError> {
+impl PipelineAssembler for BackendAssembler {
+    fn build_blueprint(
+        &self,
+        input: &InputRef,
+    ) -> Result<Arc<dyn PipelineBlueprint>, PipelineError> {
         let InputRef::TrackToken(track_token) = input;
         if track_token.trim().is_empty() {
             return Err(PipelineError::StageFailure(
                 "track token must not be empty".to_string(),
             ));
         }
-        Ok(Arc::new(V2RuntimePlan {
-            track_token: track_token.clone(),
-        }))
+        Ok(Arc::new(self.default_runtime_blueprint()))
+    }
+
+    fn apply_pipeline_mutation(
+        &self,
+        current: Option<&dyn PipelineBlueprint>,
+        mutation: PipelineMutation,
+    ) -> Result<Arc<dyn PipelineBlueprint>, PipelineError> {
+        let mut blueprint = match current {
+            Some(current) => (current as &dyn Any)
+                .downcast_ref::<RuntimeBlueprint>()
+                .cloned()
+                .ok_or_else(|| {
+                    PipelineError::StageFailure("unexpected runtime blueprint type".to_string())
+                })?,
+            None => self.default_runtime_blueprint(),
+        };
+        match mutation {
+            PipelineMutation::MutateTransformGraph { mutation } => {
+                blueprint
+                    .transform_graph
+                    .apply_mutation(mutation)
+                    .map_err(|error| PipelineError::StageFailure(error.to_string()))?;
+                blueprint
+                    .transform_graph
+                    .validate_unique_stage_keys()
+                    .map_err(|error| PipelineError::StageFailure(error.to_string()))?;
+            },
+            PipelineMutation::SetMixerPlan { mixer } => {
+                blueprint.mixer = mixer;
+            },
+            PipelineMutation::SetResamplerPlan { resampler } => {
+                blueprint.resampler = resampler;
+            },
+            PipelineMutation::SetBuiltinTransformSlot { slot, enabled } => match slot {
+                BuiltinTransformSlot::GaplessTrim => blueprint.builtin_slots.gapless_trim = enabled,
+                BuiltinTransformSlot::TransitionGain => {
+                    blueprint.builtin_slots.transition_gain = enabled
+                },
+                BuiltinTransformSlot::MasterGain => blueprint.builtin_slots.master_gain = enabled,
+            },
+            PipelineMutation::SetSinkRoute { route } => {
+                blueprint.sink_route = route;
+            },
+        }
+        Ok(Arc::new(blueprint))
     }
 
     fn create_runtime(&self) -> Box<dyn PipelineRuntime> {
-        Box::new(V2BackendRuntime::new(
-            self.fallback_output_sample_rate,
-            self.fallback_output_channels,
-        ))
+        Box::new(BackendRuntime)
     }
 }
 
-struct V2BackendRuntime {
-    transform_graph: TransformGraph<OpaqueTransformStageSpec>,
-    mixer: Option<MixerPlan>,
-    resampler: Option<ResamplerPlan>,
-    builtin_slots: BuiltinTransformSlots,
-    fallback_output_sample_rate: u32,
-    fallback_output_channels: u16,
-}
+struct BackendRuntime;
 
-impl V2BackendRuntime {
-    fn new(fallback_output_sample_rate: u32, fallback_output_channels: u16) -> Self {
-        let mut runtime = Self {
-            transform_graph: TransformGraph::default(),
-            mixer: None,
-            resampler: None,
-            builtin_slots: BuiltinTransformSlots::default(),
-            fallback_output_sample_rate: fallback_output_sample_rate.max(1),
-            fallback_output_channels: fallback_output_channels.max(1),
-        };
-        runtime.reset_output_plans();
-        runtime
-    }
-
-    fn reset_output_plans(&mut self) {
-        let control = shared_device_sink_control();
-        let (backend, device_id) = control.desired_route();
-        let output = output_spec_for_route(backend, device_id.as_deref())
-            .or_else(|_| default_output_spec_for_backend(backend))
-            .unwrap_or(
-                stellatune_audio_builtin_adapters::device_sink::OutputDeviceSpec {
-                    sample_rate: self.fallback_output_sample_rate,
-                    channels: self.fallback_output_channels,
-                },
-            );
-        self.mixer = Some(MixerPlan::new(output.channels, LfeMode::Mute));
-        self.resampler = Some(ResamplerPlan::new(
-            output.sample_rate,
-            ResampleQuality::High,
+impl BackendAssembler {
+    fn default_runtime_blueprint(&self) -> RuntimeBlueprint {
+        let sink_route = current_sink_route_plan();
+        let (output, plugin_prefers_track_rate) = current_blueprint_output_spec().unwrap_or((
+            stellatune_audio_builtin_adapters::device_sink::OutputDeviceSpec {
+                sample_rate: self.fallback_output_sample_rate.max(1),
+                channels: self.fallback_output_channels.max(1),
+            },
+            None,
         ));
+        let output_options = super::engine::snapshot_runtime_output_options();
+        let resampler =
+            if plugin_prefers_track_rate.unwrap_or(output_options.match_track_sample_rate) {
+                None
+            } else {
+                Some(ResamplerPlan::new(
+                    output.sample_rate,
+                    output_options.resample_quality,
+                ))
+            };
+        RuntimeBlueprint {
+            transform_graph: TransformGraph::default(),
+            mixer: Some(MixerPlan::new(output.channels, LfeMode::Mute)),
+            resampler,
+            builtin_slots: BuiltinTransformSlots::default(),
+            sink_route,
+        }
     }
 }
 
-impl PipelineRuntime for V2BackendRuntime {
-    fn ensure(&mut self, plan: &dyn PipelinePlan) -> Result<AssembledPipeline, PipelineError> {
-        let Some(plan) = (plan as &dyn Any).downcast_ref::<V2RuntimePlan>() else {
+impl PipelineRuntime for BackendRuntime {
+    fn assemble(
+        &mut self,
+        blueprint: &dyn PipelineBlueprint,
+    ) -> Result<AssembledPipeline, PipelineError> {
+        let Some(blueprint) = (blueprint as &dyn Any).downcast_ref::<RuntimeBlueprint>() else {
             return Err(PipelineError::StageFailure(
-                "unexpected v2 runtime plan type".to_string(),
+                "unexpected runtime blueprint type".to_string(),
             ));
         };
-        let plugin_stages = build_plugin_transform_stage_set_from_graph(&self.transform_graph)
+        let plugin_stages = build_plugin_transform_stage_set_from_graph(&blueprint.transform_graph)
             .map_err(PipelineError::StageFailure)?;
 
         let decode = AssembledDecodePipeline {
-            source: build_plugin_source(plan.track_token.clone()),
+            source: build_plugin_source(),
             decoder: Box::new(HybridDecoderStage::new()),
             transforms: plugin_stages.main,
             transform_chain: TransformChain {
                 pre_mix: plugin_stages.pre_mix,
                 post_mix: plugin_stages.post_mix,
             },
-            mixer: self.mixer,
-            resampler: self.resampler,
-            builtin_slots: self.builtin_slots,
+            mixer: blueprint.mixer,
+            resampler: blueprint.resampler,
+            builtin_slots: blueprint.builtin_slots,
         };
         let control = shared_device_sink_control();
-        let route_control = shared_runtime_sink_route_control();
         let (sink_stage, sink_route_fingerprint): (Box<dyn SinkStage>, u64) =
-            if let Some(plugin_route) = route_control.current_plugin_route() {
-                let route_fingerprint = fingerprint_plugin_output_route(&plugin_route);
-                (
-                    Box::new(PluginOutputSinkStage::new(plugin_route)),
-                    route_fingerprint,
-                )
-            } else {
-                let (backend, device_id) = control.desired_route();
-                let route_fingerprint =
-                    fingerprint_builtin_output_route(backend, device_id.as_deref());
-                let stage: Box<dyn SinkStage> = match backend {
-                    OutputBackend::Shared => Box::new(DeviceSinkStage::with_control(control)),
-                    OutputBackend::WasapiExclusive => {
-                        Box::new(WasapiExclusiveSinkStage::with_device_sink_control(control))
-                    },
-                };
-                (stage, route_fingerprint)
+            match &blueprint.sink_route {
+                PipelineSinkRoute::Plugin {
+                    plugin_id,
+                    type_id,
+                    config_json,
+                    target_json,
+                } => {
+                    let route = PluginOutputSinkRouteSpec::new(
+                        plugin_id.clone(),
+                        type_id.clone(),
+                        config_json.clone(),
+                        target_json.clone(),
+                    )
+                    .map_err(PipelineError::StageFailure)?;
+                    let route_fingerprint = fingerprint_plugin_output_route(&route);
+                    (
+                        Box::new(PluginOutputSinkStage::new(route)),
+                        route_fingerprint,
+                    )
+                },
+                PipelineSinkRoute::Builtin { backend, device_id } => {
+                    let backend = map_pipeline_output_backend(*backend);
+                    let route_fingerprint =
+                        fingerprint_builtin_output_route(backend, device_id.as_deref());
+                    let stage: Box<dyn SinkStage> = match backend {
+                        OutputBackend::Shared => Box::new(DeviceSinkStage::with_control(control)),
+                        OutputBackend::WasapiExclusive => {
+                            Box::new(WasapiExclusiveSinkStage::with_device_sink_control(control))
+                        },
+                    };
+                    (stage, route_fingerprint)
+                },
             };
         Ok(AssembledPipeline::from_parts(
             decode,
@@ -228,41 +283,36 @@ impl PipelineRuntime for V2BackendRuntime {
             )),
         ))
     }
+}
 
-    fn apply_pipeline_mutation(&mut self, mutation: PipelineMutation) -> Result<(), PipelineError> {
-        match mutation {
-            PipelineMutation::MutateTransformGraph { mutation } => {
-                self.transform_graph
-                    .apply_mutation(mutation)
-                    .map_err(|error| PipelineError::StageFailure(error.to_string()))?;
-                self.transform_graph
-                    .validate_unique_stage_keys()
-                    .map_err(|error| PipelineError::StageFailure(error.to_string()))
-            },
-            PipelineMutation::SetMixerPlan { mixer } => {
-                self.mixer = mixer;
-                Ok(())
-            },
-            PipelineMutation::SetResamplerPlan { resampler } => {
-                self.resampler = resampler;
-                Ok(())
-            },
-            PipelineMutation::SetBuiltinTransformSlot { slot, enabled } => {
-                match slot {
-                    BuiltinTransformSlot::GaplessTrim => self.builtin_slots.gapless_trim = enabled,
-                    BuiltinTransformSlot::TransitionGain => {
-                        self.builtin_slots.transition_gain = enabled
-                    },
-                    BuiltinTransformSlot::MasterGain => self.builtin_slots.master_gain = enabled,
-                }
-                Ok(())
-            },
-        }
+fn current_sink_route_plan() -> PipelineSinkRoute {
+    let route_control = shared_runtime_sink_route_control();
+    if let Some(route) = route_control.current_plugin_route() {
+        return PipelineSinkRoute::Plugin {
+            plugin_id: route.plugin_id,
+            type_id: route.type_id,
+            config_json: route.config_json,
+            target_json: route.target_json,
+        };
     }
+    let control = shared_device_sink_control();
+    let (backend, device_id) = control.desired_route();
+    PipelineSinkRoute::Builtin {
+        backend: map_output_backend_to_pipeline(backend),
+        device_id,
+    }
+}
 
-    fn reset(&mut self) {
-        self.transform_graph = TransformGraph::default();
-        self.builtin_slots = BuiltinTransformSlots::default();
-        self.reset_output_plans();
+fn map_output_backend_to_pipeline(backend: OutputBackend) -> PipelineOutputBackend {
+    match backend {
+        OutputBackend::Shared => PipelineOutputBackend::Shared,
+        OutputBackend::WasapiExclusive => PipelineOutputBackend::WasapiExclusive,
+    }
+}
+
+fn map_pipeline_output_backend(backend: PipelineOutputBackend) -> OutputBackend {
+    match backend {
+        PipelineOutputBackend::Shared => OutputBackend::Shared,
+        PipelineOutputBackend::WasapiExclusive => OutputBackend::WasapiExclusive,
     }
 }

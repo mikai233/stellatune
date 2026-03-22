@@ -1,6 +1,6 @@
 //! Pipeline assembly contracts used by the runtime.
 //!
-//! This module defines immutable plans and mutable runtime hooks used to build,
+//! This module defines immutable blueprints and runtime hooks used to build,
 //! mutate, and instantiate decode/sink pipeline graphs.
 
 use std::any::Any;
@@ -281,10 +281,13 @@ impl AssembledPipeline {
     }
 }
 
-/// Opaque marker trait for pipeline plans accepted by runtime implementations.
-pub trait PipelinePlan: Any + Send + Sync {}
+/// Opaque marker trait for pipeline blueprints accepted by runtime implementations.
+///
+/// Blueprints are immutable plans. Runtime mutations should produce a new
+/// blueprint and then re-assemble from that updated value.
+pub trait PipelineBlueprint: Any + Send + Sync {}
 
-impl<T> PipelinePlan for T where T: Any + Send + Sync {}
+impl<T> PipelineBlueprint for T where T: Any + Send + Sync + 'static {}
 
 /// Type-erased payload used by opaque transform stage specifications.
 pub type PipelineStagePayload = Arc<dyn Any + Send + Sync>;
@@ -346,7 +349,29 @@ pub enum BuiltinTransformSlot {
     MasterGain,
 }
 
-/// Runtime mutation operations supported by pipeline runtimes.
+/// Built-in output backend selection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PipelineOutputBackend {
+    Shared,
+    WasapiExclusive,
+}
+
+/// Sink-route blueprint used during pipeline assembly.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PipelineSinkRoute {
+    Builtin {
+        backend: PipelineOutputBackend,
+        device_id: Option<String>,
+    },
+    Plugin {
+        plugin_id: String,
+        type_id: String,
+        config_json: String,
+        target_json: String,
+    },
+}
+
+/// Runtime mutation operations supported by pipeline blueprints.
 #[derive(Debug, Clone)]
 pub enum PipelineMutation {
     /// Applies a graph mutation on plugin/opaque transforms.
@@ -371,23 +396,38 @@ pub enum PipelineMutation {
         /// Whether the slot should be enabled.
         enabled: bool,
     },
+    /// Replaces the sink-route blueprint.
+    SetSinkRoute {
+        /// New sink route used when assembling sink stages.
+        route: PipelineSinkRoute,
+    },
 }
 
-/// Mutable runtime contract for applying plans and mutations.
+/// Runtime contract for materializing blueprints into concrete pipelines.
 pub trait PipelineRuntime: Send {
-    /// Ensures a concrete assembled pipeline for the provided plan.
-    fn ensure(&mut self, plan: &dyn PipelinePlan) -> Result<AssembledPipeline, PipelineError>;
-    /// Applies an in-place runtime mutation.
-    fn apply_pipeline_mutation(&mut self, mutation: PipelineMutation) -> Result<(), PipelineError>;
-    /// Resets runtime-local planning state.
+    /// Materializes a concrete assembled pipeline for the provided blueprint.
+    fn assemble(
+        &mut self,
+        blueprint: &dyn PipelineBlueprint,
+    ) -> Result<AssembledPipeline, PipelineError>;
+    /// Resets runtime-local caches or factories.
     fn reset(&mut self) {}
 }
 
 /// Planner contract used by engine startup and decode worker open flows.
 pub trait PipelineAssembler: Send + Sync {
-    /// Builds a plan for the specified input reference.
-    fn plan(&self, input: &InputRef) -> Result<Arc<dyn PipelinePlan>, PipelineError>;
-    /// Creates a fresh runtime instance used to materialize plans.
+    /// Builds a blueprint for the specified input reference.
+    fn build_blueprint(
+        &self,
+        input: &InputRef,
+    ) -> Result<Arc<dyn PipelineBlueprint>, PipelineError>;
+    /// Applies a mutation and returns the next immutable blueprint snapshot.
+    fn apply_pipeline_mutation(
+        &self,
+        current: Option<&dyn PipelineBlueprint>,
+        mutation: PipelineMutation,
+    ) -> Result<Arc<dyn PipelineBlueprint>, PipelineError>;
+    /// Creates a fresh runtime instance used to materialize blueprints.
     fn create_runtime(&self) -> Box<dyn PipelineRuntime>;
 }
 

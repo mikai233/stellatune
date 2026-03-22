@@ -114,8 +114,8 @@ impl Stage for WasapiExclusiveSinkStage {
         "builtin.sink.wasapi_exclusive"
     }
 
-    fn sync_runtime_control(&mut self, ctx: &mut PipelineContext) -> Result<(), PipelineError> {
-        self.inner.sync_runtime_control(ctx)
+    fn refresh_runtime_state(&mut self, ctx: &mut PipelineContext) -> Result<(), PipelineError> {
+        self.inner.refresh_runtime_state(ctx)
     }
 }
 

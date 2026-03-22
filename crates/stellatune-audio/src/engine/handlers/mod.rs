@@ -1,5 +1,5 @@
+mod apply_pipeline_blueprint;
 mod apply_pipeline_mutation;
-mod apply_pipeline_plan;
 mod apply_stage_runtime_update;
 mod get_snapshot;
 mod install_decode_worker;

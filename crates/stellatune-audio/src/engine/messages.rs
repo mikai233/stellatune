@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::config::engine::{LfeMode, PauseBehavior, ResampleQuality, StopBehavior};
 use crate::error::EngineError;
-use crate::pipeline::assembly::{PipelineMutation, PipelinePlan};
+use crate::pipeline::assembly::{PipelineBlueprint, PipelineMutation};
 use crate::workers::decode::{DecodeWorker, DecodeWorkerEvent};
 use stellatune_audio_core::pipeline::stages::{StageRuntimeUpdate, StageTarget};
 use stellatune_runtime::thread_actor::Message;
@@ -43,8 +43,8 @@ pub(crate) struct ApplyStageRuntimeUpdateMessage {
 
 pub(crate) struct GetSnapshotMessage;
 pub(crate) struct ShutdownMessage;
-pub(crate) struct ApplyPipelinePlanMessage {
-    pub(crate) plan: Arc<dyn PipelinePlan>,
+pub(crate) struct ApplyPipelineBlueprintMessage {
+    pub(crate) blueprint: Arc<dyn PipelineBlueprint>,
 }
 pub(crate) struct ApplyPipelineMutationMessage {
     pub(crate) mutation: PipelineMutation,
@@ -102,7 +102,7 @@ impl Message for ShutdownMessage {
     type Response = Result<(), EngineError>;
 }
 
-impl Message for ApplyPipelinePlanMessage {
+impl Message for ApplyPipelineBlueprintMessage {
     type Response = Result<(), EngineError>;
 }
 

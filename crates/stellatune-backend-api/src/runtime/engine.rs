@@ -4,7 +4,9 @@ use std::time::{Duration, Instant};
 
 use stellatune_audio::config::engine::{LfeMode, ResampleQuality};
 use stellatune_audio::engine::{EngineHandle, start_engine};
-use stellatune_audio::pipeline::assembly::{MixerPlan, PipelineMutation, ResamplerPlan};
+use stellatune_audio::pipeline::assembly::{
+    MixerPlan, PipelineMutation, PipelineOutputBackend, PipelineSinkRoute, ResamplerPlan,
+};
 use stellatune_audio_builtin_adapters::device_sink::{
     OutputBackend as AdapterOutputBackend, OutputDeviceSpec, default_output_spec_for_backend,
     list_output_devices, output_spec_for_route,
@@ -14,7 +16,7 @@ use stellatune_audio_plugin_adapters::stages::{
 };
 
 use super::pipeline::{
-    V2BackendAssembler, shared_device_sink_control, shared_runtime_sink_route_control,
+    BackendAssembler, shared_device_sink_control, shared_runtime_sink_route_control,
 };
 use super::{
     DeviceSinkMetricsSnapshot, OutputBackend, OutputDeviceDescriptor,
@@ -69,9 +71,9 @@ impl OutputSinkMonitorState {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct RuntimeOutputOptions {
-    match_track_sample_rate: bool,
-    resample_quality: ResampleQuality,
+pub(super) struct RuntimeOutputOptions {
+    pub(super) match_track_sample_rate: bool,
+    pub(super) resample_quality: ResampleQuality,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -154,7 +156,7 @@ fn ensure_output_sink_monitor_started() {
     });
 }
 
-fn snapshot_runtime_output_options() -> RuntimeOutputOptions {
+pub(super) fn snapshot_runtime_output_options() -> RuntimeOutputOptions {
     runtime_output_options()
         .lock()
         .map(|guard| *guard)
@@ -282,7 +284,7 @@ fn new_runtime_engine() -> Arc<EngineHandle> {
         .fetch_add(1, Ordering::Relaxed)
         + 1;
 
-    let assembler = Arc::new(V2BackendAssembler::default());
+    let assembler = Arc::new(BackendAssembler::default());
     let engine =
         start_engine(assembler).unwrap_or_else(|e| panic!("failed to start v2 runtime: {e}"));
 
@@ -628,10 +630,21 @@ fn resolve_current_output_spec_for_output_options() -> Result<ResolvedOutputSpec
     resolve_current_output_spec()
 }
 
+pub(super) fn current_blueprint_output_spec() -> Result<(OutputDeviceSpec, Option<bool>), String> {
+    let resolved = resolve_current_output_spec_for_output_options()?;
+    Ok((resolved.spec, resolved.plugin_prefers_track_rate))
+}
+
 async fn apply_output_spec_mutations(
     engine: &EngineHandle,
     resolved: ResolvedOutputSpec,
 ) -> Result<(), String> {
+    engine
+        .apply_pipeline_mutation(PipelineMutation::SetSinkRoute {
+            route: current_pipeline_sink_route(),
+        })
+        .await
+        .map_err(|error| error.to_string())?;
     let spec = resolved.spec;
     let output_options = snapshot_runtime_output_options();
     let match_track_sample_rate = resolve_match_track_policy(
@@ -656,6 +669,27 @@ async fn apply_output_spec_mutations(
         .apply_pipeline_mutation(PipelineMutation::SetResamplerPlan { resampler })
         .await
         .map_err(|error| error.to_string())
+}
+
+fn current_pipeline_sink_route() -> PipelineSinkRoute {
+    let route_control = shared_runtime_sink_route_control();
+    if let Some(route) = route_control.current_plugin_route() {
+        return PipelineSinkRoute::Plugin {
+            plugin_id: route.plugin_id,
+            type_id: route.type_id,
+            config_json: route.config_json,
+            target_json: route.target_json,
+        };
+    }
+    let control = shared_device_sink_control();
+    let (backend, device_id) = control.desired_route();
+    PipelineSinkRoute::Builtin {
+        backend: match backend {
+            AdapterOutputBackend::Shared => PipelineOutputBackend::Shared,
+            AdapterOutputBackend::WasapiExclusive => PipelineOutputBackend::WasapiExclusive,
+        },
+        device_id,
+    }
 }
 
 fn resolve_match_track_policy(

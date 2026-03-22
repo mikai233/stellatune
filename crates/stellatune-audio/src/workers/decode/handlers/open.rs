@@ -66,11 +66,11 @@ pub(crate) fn open_input(
     state.recovery_attempts = 0;
     state.recovery_retry_at = None;
 
-    let plan = match state.pinned_plan.as_ref() {
-        Some(plan) => Arc::clone(plan),
-        None => assembler.plan(&input)?,
+    let blueprint = match state.pinned_blueprint.as_ref() {
+        Some(blueprint) => Arc::clone(blueprint),
+        None => assembler.build_blueprint(&input)?,
     };
-    let mut assembled = pipeline_runtime.ensure(plan.as_ref())?;
+    let mut assembled = pipeline_runtime.assemble(blueprint.as_ref())?;
     apply_decode_policies(&mut assembled, state);
     let build_result = (|| -> Result<_, DecodeError> {
         let mut next_runner =
@@ -140,11 +140,11 @@ pub(crate) fn prewarm_input(
     pipeline_runtime: &mut dyn PipelineRuntime,
     state: &DecodeWorkerState,
 ) -> Result<PrewarmedNext, DecodeError> {
-    let plan = match state.pinned_plan.as_ref() {
-        Some(plan) => Arc::clone(plan),
-        None => assembler.plan(&input)?,
+    let blueprint = match state.pinned_blueprint.as_ref() {
+        Some(blueprint) => Arc::clone(blueprint),
+        None => assembler.build_blueprint(&input)?,
     };
-    let mut assembled = pipeline_runtime.ensure(plan.as_ref())?;
+    let mut assembled = pipeline_runtime.assemble(blueprint.as_ref())?;
     apply_decode_policies(&mut assembled, state);
     let mut next_runner =
         assembled.into_runner(Some(Arc::clone(&state.master_gain_hot_control)))?;

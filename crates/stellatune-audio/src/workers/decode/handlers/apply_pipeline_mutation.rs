@@ -17,7 +17,9 @@ pub(crate) fn handle(
     state: &mut DecodeWorkerState,
 ) -> bool {
     let result = (|| -> Result<(), DecodeError> {
-        pipeline_runtime.apply_pipeline_mutation(mutation)?;
+        let next_blueprint =
+            assembler.apply_pipeline_mutation(state.pinned_blueprint.as_deref(), mutation)?;
+        state.pinned_blueprint = Some(next_blueprint);
         control_apply::apply_policy_rebuild(assembler, callback, pipeline_runtime, state)?;
         Ok(())
     })();

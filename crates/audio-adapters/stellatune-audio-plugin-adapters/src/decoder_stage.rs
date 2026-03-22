@@ -190,7 +190,7 @@ impl PluginDecoderStage {
             if matches!(error, WasmPluginError::Unsupported { .. }) {
                 // Streaming decoders may not support random access; ignore seek
                 // request instead of failing the whole playback pipeline.
-                ctx.pending_seek_ms = None;
+                let _ = ctx.clear_pending_seek();
                 return Ok(());
             }
             return Err(PipelineError::StageFailure(format!(
@@ -211,7 +211,7 @@ impl PluginDecoderStage {
 }
 
 impl Stage for PluginDecoderStage {
-    fn sync_runtime_control(&mut self, ctx: &mut PipelineContext) -> Result<(), PipelineError> {
+    fn refresh_runtime_state(&mut self, ctx: &mut PipelineContext) -> Result<(), PipelineError> {
         self.last_position_ms = ctx.position_ms;
         self.apply_pending_seek(ctx)
     }

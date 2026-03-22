@@ -17,12 +17,12 @@ use crate::config::engine::EngineConfig;
 use crate::error::DecodeError;
 use crate::pipeline::assembly::{
     AssembledDecodePipeline, AssembledPipeline, BuiltinTransformSlots, PipelineAssembler,
-    PipelineMutation, PipelinePlan, PipelineRuntime, StaticSinkPlan, TransformChain,
+    PipelineBlueprint, PipelineMutation, PipelineRuntime, StaticSinkPlan, TransformChain,
 };
 use crate::pipeline::runtime::dsp::control::MasterGainHotControl;
 use crate::workers::decode::{DecodeWorker, DecodeWorkerEvent, DecodeWorkerEventCallback};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct TestPlan {
     track_token: String,
 }
@@ -70,11 +70,32 @@ struct TestAssembler {
 }
 
 impl PipelineAssembler for TestAssembler {
-    fn plan(&self, input: &InputRef) -> Result<Arc<dyn PipelinePlan>, PipelineError> {
+    fn build_blueprint(
+        &self,
+        input: &InputRef,
+    ) -> Result<Arc<dyn PipelineBlueprint>, PipelineError> {
         let track_token = match input {
             InputRef::TrackToken(track_token) => track_token.clone(),
         };
         Ok(Arc::new(TestPlan { track_token }))
+    }
+
+    fn apply_pipeline_mutation(
+        &self,
+        current: Option<&dyn PipelineBlueprint>,
+        _mutation: PipelineMutation,
+    ) -> Result<Arc<dyn PipelineBlueprint>, PipelineError> {
+        if let Some(current) = current {
+            return Ok(Arc::new(
+                (current as &dyn Any)
+                    .downcast_ref::<TestPlan>()
+                    .expect("unexpected test blueprint type")
+                    .clone(),
+            ));
+        }
+        Ok(Arc::new(TestPlan {
+            track_token: "default-track".to_string(),
+        }))
     }
 
     fn create_runtime(&self) -> Box<dyn PipelineRuntime> {
@@ -89,15 +110,18 @@ struct TestRuntime {
 }
 
 impl PipelineRuntime for TestRuntime {
-    fn ensure(&mut self, plan: &dyn PipelinePlan) -> Result<AssembledPipeline, PipelineError> {
-        let Some(plan) = (plan as &dyn Any).downcast_ref::<TestPlan>() else {
+    fn assemble(
+        &mut self,
+        blueprint: &dyn PipelineBlueprint,
+    ) -> Result<AssembledPipeline, PipelineError> {
+        let Some(blueprint) = (blueprint as &dyn Any).downcast_ref::<TestPlan>() else {
             return Err(PipelineError::StageFailure(
-                "unexpected test plan type".to_string(),
+                "unexpected test blueprint type".to_string(),
             ));
         };
 
         let mut state = self.state.lock().expect("runtime state mutex poisoned");
-        let track_token = plan.track_token.clone();
+        let track_token = blueprint.track_token.clone();
         let next_call = state
             .ensure_calls
             .entry(track_token.clone())
@@ -131,13 +155,6 @@ impl PipelineRuntime for TestRuntime {
             },
             Box::new(StaticSinkPlan::new(vec![Box::new(TestSink)])),
         ))
-    }
-
-    fn apply_pipeline_mutation(
-        &mut self,
-        _mutation: PipelineMutation,
-    ) -> Result<(), PipelineError> {
-        Ok(())
     }
 }
 

@@ -105,12 +105,12 @@ impl SinkSession {
         worker.try_send_block(block)
     }
 
-    pub(crate) fn sync_runtime_control(&self, ctx: &PipelineContext) -> Result<(), PipelineError> {
+    pub(crate) fn refresh_runtime_state(&self, ctx: &PipelineContext) -> Result<(), PipelineError> {
         let worker = self
             .sink_worker
             .as_ref()
             .ok_or(PipelineError::NotPrepared)?;
-        worker.sync_runtime_control(ctx, self.sink_control_timeout)
+        worker.refresh_runtime_state(ctx, self.sink_control_timeout)
     }
 
     pub(crate) fn apply_stage_runtime_update(
@@ -294,7 +294,7 @@ mod tests {
         };
 
         assert!(matches!(
-            session.sync_runtime_control(&ctx),
+            session.refresh_runtime_state(&ctx),
             Err(PipelineError::NotPrepared)
         ));
         assert!(matches!(

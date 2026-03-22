@@ -14,19 +14,38 @@ use crate::config::engine::EngineConfig;
 use crate::config::sink::SinkRecoveryConfig;
 use crate::pipeline::assembly::{
     AssembledDecodePipeline, AssembledPipeline, BuiltinTransformSlots, PipelineAssembler,
-    PipelineMutation, PipelinePlan, PipelineRuntime, StaticSinkPlan, TransformChain,
+    PipelineBlueprint, PipelineMutation, PipelineRuntime, StaticSinkPlan, TransformChain,
 };
 use crate::pipeline::runtime::dsp::control::MasterGainHotControl;
 use crate::workers::decode::state::DecodeWorkerState;
 use crate::workers::decode::{DecodeWorkerEvent, DecodeWorkerEventCallback};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct TestPlan;
 
 pub(super) struct SuccessAssembler;
 
 impl PipelineAssembler for SuccessAssembler {
-    fn plan(&self, _input: &InputRef) -> Result<Arc<dyn PipelinePlan>, PipelineError> {
+    fn build_blueprint(
+        &self,
+        _input: &InputRef,
+    ) -> Result<Arc<dyn PipelineBlueprint>, PipelineError> {
+        Ok(Arc::new(TestPlan))
+    }
+
+    fn apply_pipeline_mutation(
+        &self,
+        current: Option<&dyn PipelineBlueprint>,
+        _mutation: PipelineMutation,
+    ) -> Result<Arc<dyn PipelineBlueprint>, PipelineError> {
+        if let Some(current) = current {
+            return Ok(Arc::new(
+                (current as &dyn std::any::Any)
+                    .downcast_ref::<TestPlan>()
+                    .expect("unexpected test blueprint type")
+                    .clone(),
+            ));
+        }
         Ok(Arc::new(TestPlan))
     }
 
@@ -38,8 +57,27 @@ impl PipelineAssembler for SuccessAssembler {
 pub(super) struct FailingAssembler;
 
 impl PipelineAssembler for FailingAssembler {
-    fn plan(&self, _input: &InputRef) -> Result<Arc<dyn PipelinePlan>, PipelineError> {
-        Err(PipelineError::StageFailure("plan failed".to_string()))
+    fn build_blueprint(
+        &self,
+        _input: &InputRef,
+    ) -> Result<Arc<dyn PipelineBlueprint>, PipelineError> {
+        Err(PipelineError::StageFailure("blueprint failed".to_string()))
+    }
+
+    fn apply_pipeline_mutation(
+        &self,
+        current: Option<&dyn PipelineBlueprint>,
+        _mutation: PipelineMutation,
+    ) -> Result<Arc<dyn PipelineBlueprint>, PipelineError> {
+        if let Some(current) = current {
+            return Ok(Arc::new(
+                (current as &dyn std::any::Any)
+                    .downcast_ref::<TestPlan>()
+                    .expect("unexpected test blueprint type")
+                    .clone(),
+            ));
+        }
+        Ok(Arc::new(TestPlan))
     }
 
     fn create_runtime(&self) -> Box<dyn PipelineRuntime> {
@@ -50,30 +88,22 @@ impl PipelineAssembler for FailingAssembler {
 pub(super) struct SuccessRuntime;
 
 impl PipelineRuntime for SuccessRuntime {
-    fn ensure(&mut self, _plan: &dyn PipelinePlan) -> Result<AssembledPipeline, PipelineError> {
-        Ok(test_pipeline())
-    }
-
-    fn apply_pipeline_mutation(
+    fn assemble(
         &mut self,
-        _mutation: PipelineMutation,
-    ) -> Result<(), PipelineError> {
-        Ok(())
+        _blueprint: &dyn PipelineBlueprint,
+    ) -> Result<AssembledPipeline, PipelineError> {
+        Ok(test_pipeline())
     }
 }
 
 pub(super) struct FailingRuntime;
 
 impl PipelineRuntime for FailingRuntime {
-    fn ensure(&mut self, _plan: &dyn PipelinePlan) -> Result<AssembledPipeline, PipelineError> {
-        Err(PipelineError::StageFailure("ensure failed".to_string()))
-    }
-
-    fn apply_pipeline_mutation(
+    fn assemble(
         &mut self,
-        _mutation: PipelineMutation,
-    ) -> Result<(), PipelineError> {
-        Ok(())
+        _blueprint: &dyn PipelineBlueprint,
+    ) -> Result<AssembledPipeline, PipelineError> {
+        Err(PipelineError::StageFailure("assemble failed".to_string()))
     }
 }
 

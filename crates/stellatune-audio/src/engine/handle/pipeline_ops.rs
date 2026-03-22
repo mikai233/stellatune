@@ -5,26 +5,29 @@ use tokio::sync::broadcast;
 use crate::config::engine::{EngineSnapshot, Event};
 use crate::engine::handle::EngineHandle;
 use crate::engine::messages::{
-    ApplyPipelineMutationMessage, ApplyPipelinePlanMessage, GetSnapshotMessage, ShutdownMessage,
+    ApplyPipelineBlueprintMessage, ApplyPipelineMutationMessage, GetSnapshotMessage,
+    ShutdownMessage,
 };
 use crate::error::EngineError;
-use crate::pipeline::assembly::{PipelineMutation, PipelinePlan};
+use crate::pipeline::assembly::{PipelineBlueprint, PipelineMutation};
 
 impl EngineHandle {
-    /// Replaces the pinned pipeline plan used for subsequent opens/rebuilds.
+    /// Replaces the pinned pipeline blueprint used for subsequent opens/rebuilds.
     ///
     /// # Errors
     ///
     /// Returns [`EngineError`] when the control actor call fails or the decode
-    /// worker cannot apply the supplied plan.
-    pub async fn apply_pipeline_plan(
+    /// worker cannot apply the supplied blueprint.
+    pub async fn apply_pipeline_blueprint(
         &self,
-        plan: Arc<dyn PipelinePlan>,
+        blueprint: Arc<dyn PipelineBlueprint>,
     ) -> Result<(), EngineError> {
         self.actor_ref
-            .call_async(ApplyPipelinePlanMessage { plan }, self.timeout)
+            .call_async(ApplyPipelineBlueprintMessage { blueprint }, self.timeout)
             .await
-            .map_err(|error| Self::map_call_error("apply_pipeline_plan", self.timeout, error))?
+            .map_err(|error| {
+                Self::map_call_error("apply_pipeline_blueprint", self.timeout, error)
+            })?
     }
 
     /// Applies a runtime pipeline mutation.

@@ -274,7 +274,7 @@ impl HybridDecoderStage {
 }
 
 impl Stage for HybridDecoderStage {
-    fn sync_runtime_control(&mut self, ctx: &mut PipelineContext) -> Result<(), PipelineError> {
+    fn refresh_runtime_state(&mut self, ctx: &mut PipelineContext) -> Result<(), PipelineError> {
         self.last_position_ms = ctx.position_ms;
         match self.active.as_mut() {
             Some(ActiveHybridDecoder::UserImplementation { decoder }) => {
@@ -285,7 +285,7 @@ impl Stage for HybridDecoderStage {
                 }
                 Ok(())
             },
-            Some(ActiveHybridDecoder::Plugin { stage }) => stage.sync_runtime_control(ctx),
+            Some(ActiveHybridDecoder::Plugin { stage }) => stage.refresh_runtime_state(ctx),
             None => Err(PipelineError::NotPrepared),
         }
     }

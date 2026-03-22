@@ -9,7 +9,7 @@
 //! # Design Notes
 //!
 //! - Audio transport uses a bounded queue to express backpressure explicitly.
-//! - Control RPCs (`drain`, `drop_queued`, `sync_runtime_control`) use a separate
+//! - Control RPCs (`drain`, `drop_queued`, `refresh_runtime_state`) use a separate
 //!   mailbox so they are not blocked behind audio block traffic.
 
 pub(crate) mod worker;

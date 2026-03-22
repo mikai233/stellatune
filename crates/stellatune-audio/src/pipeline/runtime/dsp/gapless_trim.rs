@@ -172,7 +172,7 @@ impl Stage for GaplessTrimStage {
         }
     }
 
-    fn sync_runtime_control(&mut self, ctx: &mut PipelineContext) -> Result<(), PipelineError> {
+    fn refresh_runtime_state(&mut self, ctx: &mut PipelineContext) -> Result<(), PipelineError> {
         if let Some(seek_ms) = ctx.pending_seek_ms {
             self.reset_for_seek(seek_ms);
         }
@@ -313,8 +313,8 @@ mod tests {
 
         ctx.pending_seek_ms = Some(500);
         stage
-            .sync_runtime_control(&mut ctx)
-            .expect("sync_runtime_control failed");
+            .refresh_runtime_state(&mut ctx)
+            .expect("refresh_runtime_state failed");
         let mut b = block(&[10.0, 11.0]);
         assert!(matches!(
             stage.process(&mut b, &mut ctx),
@@ -324,8 +324,8 @@ mod tests {
 
         ctx.pending_seek_ms = Some(0);
         stage
-            .sync_runtime_control(&mut ctx)
-            .expect("sync_runtime_control failed");
+            .refresh_runtime_state(&mut ctx)
+            .expect("refresh_runtime_state failed");
         let mut c = block(&[20.0, 21.0]);
         assert!(matches!(
             stage.process(&mut c, &mut ctx),

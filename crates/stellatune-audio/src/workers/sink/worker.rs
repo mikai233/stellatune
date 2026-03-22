@@ -19,7 +19,7 @@ use stellatune_audio_core::pipeline::stages::{
 };
 
 enum SinkControl {
-    SyncRuntimeControl {
+    RefreshRuntimeState {
         ctx: PipelineContext,
         resp_tx: Sender<Result<(), PipelineError>>,
     },
@@ -125,13 +125,13 @@ impl SinkWorker {
         }
     }
 
-    pub(crate) fn sync_runtime_control(
+    pub(crate) fn refresh_runtime_state(
         &self,
         ctx: &PipelineContext,
         timeout: Duration,
     ) -> Result<(), PipelineError> {
         self.call_control(
-            |resp_tx| SinkControl::SyncRuntimeControl {
+            |resp_tx| SinkControl::RefreshRuntimeState {
                 ctx: ctx.clone(),
                 resp_tx,
             },
@@ -380,12 +380,12 @@ fn drain_audio_ring_to_sinks(
     Ok(())
 }
 
-fn sync_runtime_control(
+fn refresh_runtime_state(
     sinks: &mut [Box<dyn SinkStage>],
     ctx: &mut PipelineContext,
 ) -> Result<(), PipelineError> {
     for sink in sinks {
-        sink.sync_runtime_control(ctx)?;
+        sink.refresh_runtime_state(ctx)?;
     }
     Ok(())
 }
@@ -407,13 +407,13 @@ fn handle_control(
     ctx: &mut PipelineContext,
 ) -> bool {
     match control {
-        SinkControl::SyncRuntimeControl {
+        SinkControl::RefreshRuntimeState {
             ctx: next_ctx,
             resp_tx,
         } => {
             // Caller sends a full context snapshot; sink thread adopts it atomically.
             *ctx = next_ctx;
-            let _ = resp_tx.send(sync_runtime_control(sinks, ctx));
+            let _ = resp_tx.send(refresh_runtime_state(sinks, ctx));
             false
         },
         SinkControl::Drain { resp_tx } => {
@@ -540,7 +540,7 @@ mod tests {
         let mut disconnected = false;
         for _ in 0..30 {
             match worker
-                .sync_runtime_control(&PipelineContext::default(), Duration::from_millis(20))
+                .refresh_runtime_state(&PipelineContext::default(), Duration::from_millis(20))
             {
                 Err(PipelineError::SinkDisconnected) => {
                     disconnected = true;
@@ -555,7 +555,7 @@ mod tests {
 
         assert!(
             disconnected,
-            "sync_runtime_control should eventually return SinkDisconnected after sink loop exits"
+            "refresh_runtime_state should eventually return SinkDisconnected after sink loop exits"
         );
 
         match worker.try_send_block(AudioBlock {

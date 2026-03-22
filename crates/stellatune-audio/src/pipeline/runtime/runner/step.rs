@@ -14,7 +14,7 @@ use crate::workers::sink::worker::SinkWriteError;
 impl PipelineRunner {
     /// Executes one playback iteration and pushes at most one block to sink.
     ///
-    /// The step synchronizes runtime control, handles pending seeks, runs
+    /// The step refreshes runtime state, handles pending seeks, runs
     /// decoder plus transform stages, and emits a [`StepResult`].
     pub(crate) fn step(
         &mut self,
@@ -26,7 +26,7 @@ impl PipelineRunner {
             return Ok(StepResult::Idle);
         }
 
-        self.sync_runtime_control(sink_session, ctx)?;
+        self.refresh_runtime_state(sink_session, ctx)?;
         if let Some(seek_ms) = ctx.clear_pending_seek() {
             ctx.position_ms = seek_ms;
         }

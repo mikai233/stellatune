@@ -5,7 +5,7 @@ use stellatune_audio_core::pipeline::context::InputRef;
 
 use crate::config::engine::{LfeMode, PauseBehavior, ResampleQuality, StopBehavior};
 use crate::error::DecodeError;
-use crate::pipeline::assembly::{PipelineMutation, PipelinePlan};
+use crate::pipeline::assembly::{PipelineBlueprint, PipelineMutation};
 use stellatune_audio_core::pipeline::stages::{StageRuntimeUpdate, StageTarget};
 
 pub(crate) enum DecodeWorkerCommand {
@@ -33,8 +33,8 @@ pub(crate) enum DecodeWorkerCommand {
         behavior: StopBehavior,
         resp_tx: Sender<Result<(), DecodeError>>,
     },
-    ApplyPipelinePlan {
-        plan: Arc<dyn PipelinePlan>,
+    ApplyPipelineBlueprint {
+        blueprint: Arc<dyn PipelineBlueprint>,
         resp_tx: Sender<Result<(), DecodeError>>,
     },
     ApplyPipelineMutation {

@@ -17,8 +17,8 @@ use crate::engine::messages::{
 use crate::error::DecodeError;
 use crate::infra::event_hub::EventHub;
 use crate::pipeline::assembly::{
-    AssembledPipeline, BuiltinTransformSlot, PipelineAssembler, PipelineMutation, PipelinePlan,
-    PipelineRuntime,
+    AssembledPipeline, BuiltinTransformSlot, PipelineAssembler, PipelineBlueprint,
+    PipelineMutation, PipelineRuntime,
 };
 use crate::pipeline::runtime::dsp::control::MasterGainHotControl;
 use crate::workers::decode::{DecodeWorker, DecodeWorkerEvent, DecodeWorkerEventCallback};
@@ -36,11 +36,33 @@ fn test_config() -> EngineConfig {
 #[derive(Default)]
 struct DummyAssembler;
 
+#[derive(Clone)]
+struct DummyPlan;
+
 impl PipelineAssembler for DummyAssembler {
-    fn plan(&self, _input: &InputRef) -> Result<Arc<dyn PipelinePlan>, PipelineError> {
+    fn build_blueprint(
+        &self,
+        _input: &InputRef,
+    ) -> Result<Arc<dyn PipelineBlueprint>, PipelineError> {
         Err(PipelineError::StageFailure(
-            "dummy assembler plan should not be called in control tests".to_string(),
+            "dummy assembler blueprint should not be called in control tests".to_string(),
         ))
+    }
+
+    fn apply_pipeline_mutation(
+        &self,
+        current: Option<&dyn PipelineBlueprint>,
+        _mutation: PipelineMutation,
+    ) -> Result<Arc<dyn PipelineBlueprint>, PipelineError> {
+        if let Some(current) = current {
+            return Ok(Arc::new(
+                (current as &dyn std::any::Any)
+                    .downcast_ref::<DummyPlan>()
+                    .expect("unexpected dummy blueprint type")
+                    .clone(),
+            ));
+        }
+        Ok(Arc::new(DummyPlan))
     }
 
     fn create_runtime(&self) -> Box<dyn PipelineRuntime> {
@@ -51,17 +73,13 @@ impl PipelineAssembler for DummyAssembler {
 struct DummyRuntime;
 
 impl PipelineRuntime for DummyRuntime {
-    fn ensure(&mut self, _plan: &dyn PipelinePlan) -> Result<AssembledPipeline, PipelineError> {
-        Err(PipelineError::StageFailure(
-            "dummy runtime ensure should not be called in control tests".to_string(),
-        ))
-    }
-
-    fn apply_pipeline_mutation(
+    fn assemble(
         &mut self,
-        _mutation: PipelineMutation,
-    ) -> Result<(), PipelineError> {
-        Ok(())
+        _blueprint: &dyn PipelineBlueprint,
+    ) -> Result<AssembledPipeline, PipelineError> {
+        Err(PipelineError::StageFailure(
+            "dummy runtime assemble should not be called in control tests".to_string(),
+        ))
     }
 }
 

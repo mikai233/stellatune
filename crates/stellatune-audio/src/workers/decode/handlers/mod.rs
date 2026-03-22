@@ -1,5 +1,5 @@
+mod apply_pipeline_blueprint;
 mod apply_pipeline_mutation;
-mod apply_pipeline_plan;
 mod apply_stage_runtime_update;
 mod control_apply;
 mod gain_transition;
@@ -62,8 +62,8 @@ pub(crate) fn handle_command(
         DecodeWorkerCommand::Stop { behavior, resp_tx } => {
             stop::handle(behavior, resp_tx, callback, pipeline_runtime, state)
         },
-        DecodeWorkerCommand::ApplyPipelinePlan { plan, resp_tx } => {
-            apply_pipeline_plan::handle(plan, resp_tx, callback, pipeline_runtime, state)
+        DecodeWorkerCommand::ApplyPipelineBlueprint { blueprint, resp_tx } => {
+            apply_pipeline_blueprint::handle(blueprint, resp_tx, callback, pipeline_runtime, state)
         },
         DecodeWorkerCommand::ApplyPipelineMutation { mutation, resp_tx } => {
             apply_pipeline_mutation::handle(

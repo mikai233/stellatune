@@ -4,7 +4,7 @@ use crossbeam_channel::Sender;
 
 use crate::config::engine::PlayerState;
 use crate::error::DecodeError;
-use crate::pipeline::assembly::{PipelinePlan, PipelineRuntime};
+use crate::pipeline::assembly::{PipelineBlueprint, PipelineRuntime};
 use crate::pipeline::runtime::runner::RunnerState;
 use crate::pipeline::runtime::sink_session::SinkActivationMode;
 use crate::workers::decode::handlers::control_apply;
@@ -15,13 +15,13 @@ use crate::workers::decode::util::update_state;
 use crate::workers::decode::{DecodeWorkerEvent, DecodeWorkerEventCallback};
 
 pub(crate) fn handle(
-    plan: Arc<dyn PipelinePlan>,
+    blueprint: Arc<dyn PipelineBlueprint>,
     resp_tx: Sender<Result<(), DecodeError>>,
     callback: &DecodeWorkerEventCallback,
     pipeline_runtime: &mut dyn PipelineRuntime,
     state: &mut DecodeWorkerState,
 ) -> bool {
-    state.pinned_plan = Some(Arc::clone(&plan));
+    state.pinned_blueprint = Some(Arc::clone(&blueprint));
     let Some(input) = state.active_input.clone() else {
         let _ = resp_tx.send(Ok(()));
         return false;
@@ -38,7 +38,7 @@ pub(crate) fn handle(
     state.prewarmed_next = None;
 
     let result = (|| -> Result<(), DecodeError> {
-        let mut assembled = pipeline_runtime.ensure(plan.as_ref())?;
+        let mut assembled = pipeline_runtime.assemble(blueprint.as_ref())?;
         apply_decode_policies(&mut assembled, state);
         let mut next_runner =
             assembled.into_runner(Some(Arc::clone(&state.master_gain_hot_control)))?;

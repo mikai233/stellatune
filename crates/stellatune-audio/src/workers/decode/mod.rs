@@ -37,7 +37,7 @@ use crate::config::engine::{
     EngineConfig, LfeMode, PauseBehavior, PlayerState, ResampleQuality, StopBehavior,
 };
 use crate::error::DecodeError;
-use crate::pipeline::assembly::{PipelineAssembler, PipelineMutation, PipelinePlan};
+use crate::pipeline::assembly::{PipelineAssembler, PipelineBlueprint, PipelineMutation};
 use crate::pipeline::runtime::dsp::control::SharedMasterGainHotControl;
 use crate::workers::decode::command::DecodeWorkerCommand;
 use crate::workers::decode::util::recv_result;
@@ -158,14 +158,14 @@ impl DecodeWorker {
         )
     }
 
-    pub(crate) fn apply_pipeline_plan(
+    pub(crate) fn apply_pipeline_blueprint(
         &self,
-        plan: Arc<dyn PipelinePlan>,
+        blueprint: Arc<dyn PipelineBlueprint>,
         timeout: Duration,
     ) -> Result<(), DecodeError> {
         let (resp_tx, resp_rx) = crossbeam_channel::bounded(1);
         self.send_command(
-            DecodeWorkerCommand::ApplyPipelinePlan { plan, resp_tx },
+            DecodeWorkerCommand::ApplyPipelineBlueprint { blueprint, resp_tx },
             timeout,
         )?;
         recv_result(resp_rx, timeout)

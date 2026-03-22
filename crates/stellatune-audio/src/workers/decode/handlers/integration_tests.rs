@@ -23,7 +23,7 @@ use crate::config::engine::{
 use crate::error::DecodeError;
 use crate::pipeline::assembly::{
     AssembledDecodePipeline, AssembledPipeline, BuiltinTransformSlots, OpaqueTransformStageSpec,
-    PipelineAssembler, PipelineMutation, PipelinePlan, PipelineRuntime, ResamplerPlan,
+    PipelineAssembler, PipelineBlueprint, PipelineMutation, PipelineRuntime, ResamplerPlan,
     StaticSinkPlan, TransformChain,
 };
 use crate::pipeline::graph::{
@@ -49,38 +49,88 @@ impl TestAssembler {
 }
 
 impl PipelineAssembler for TestAssembler {
-    fn plan(&self, input: &InputRef) -> Result<Arc<dyn PipelinePlan>, PipelineError> {
+    fn build_blueprint(
+        &self,
+        input: &InputRef,
+    ) -> Result<Arc<dyn PipelineBlueprint>, PipelineError> {
         let track_token = match input {
             InputRef::TrackToken(track_token) => track_token.clone(),
         };
-        Ok(Arc::new(TestPlan { track_token }))
+        Ok(Arc::new(TestPlan {
+            track_token,
+            pipeline_config: self.pipeline_config.clone(),
+        }))
+    }
+
+    fn apply_pipeline_mutation(
+        &self,
+        current: Option<&dyn PipelineBlueprint>,
+        mutation: PipelineMutation,
+    ) -> Result<Arc<dyn PipelineBlueprint>, PipelineError> {
+        let mut blueprint = match current {
+            Some(current) => (current as &dyn Any)
+                .downcast_ref::<TestPlan>()
+                .cloned()
+                .ok_or_else(|| {
+                    PipelineError::StageFailure(
+                        "unexpected pipeline blueprint type in test assembler".to_string(),
+                    )
+                })?,
+            None => TestPlan {
+                track_token: "default-track".to_string(),
+                pipeline_config: self.pipeline_config.clone(),
+            },
+        };
+        match mutation {
+            PipelineMutation::SetResamplerPlan { resampler } => {
+                blueprint.pipeline_config.resampler_target_sample_rate =
+                    resampler.map(|next| next.target_sample_rate);
+            },
+            PipelineMutation::MutateTransformGraph { mutation } => {
+                let typed = decode_probe_graph_mutation(mutation)?;
+                blueprint
+                    .pipeline_config
+                    .probe_graph
+                    .apply_mutation(typed)
+                    .map_err(|error| PipelineError::StageFailure(error.to_string()))?;
+                blueprint
+                    .pipeline_config
+                    .probe_graph
+                    .validate_unique_stage_keys()
+                    .map_err(|error| PipelineError::StageFailure(error.to_string()))?;
+            },
+            PipelineMutation::SetMixerPlan { .. } => {},
+            PipelineMutation::SetBuiltinTransformSlot { .. } => {},
+            PipelineMutation::SetSinkRoute { .. } => {},
+        }
+        Ok(Arc::new(blueprint))
     }
 
     fn create_runtime(&self) -> Box<dyn PipelineRuntime> {
-        Box::new(TestRuntime {
-            pipeline_config: self.pipeline_config.clone(),
-        })
+        Box::new(TestRuntime)
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct TestPlan {
     track_token: String,
-}
-
-struct TestRuntime {
     pipeline_config: HarnessPipelineConfig,
 }
 
+struct TestRuntime;
+
 impl PipelineRuntime for TestRuntime {
-    fn ensure(&mut self, plan: &dyn PipelinePlan) -> Result<AssembledPipeline, PipelineError> {
-        let Some(plan) = (plan as &dyn Any).downcast_ref::<TestPlan>() else {
+    fn assemble(
+        &mut self,
+        blueprint: &dyn PipelineBlueprint,
+    ) -> Result<AssembledPipeline, PipelineError> {
+        let Some(blueprint) = (blueprint as &dyn Any).downcast_ref::<TestPlan>() else {
             return Err(PipelineError::StageFailure(
-                "unexpected pipeline plan type in test runtime".to_string(),
+                "unexpected pipeline blueprint type in test runtime".to_string(),
             ));
         };
-        let blocks = near_eof_blocks_for_track(&plan.track_token);
-        let resampler = self
+        let blocks = near_eof_blocks_for_track(&blueprint.track_token);
+        let resampler = blueprint
             .pipeline_config
             .resampler_target_sample_rate
             .map(|target_rate| ResamplerPlan::new(target_rate, ResampleQuality::Balanced));
@@ -88,7 +138,8 @@ impl PipelineRuntime for TestRuntime {
             Box<dyn stellatune_audio_core::pipeline::stages::transform::TransformStage>,
         > = Vec::new();
         transforms.extend(
-            self.pipeline_config
+            blueprint
+                .pipeline_config
                 .probe_graph
                 .main
                 .iter()
@@ -102,7 +153,8 @@ impl PipelineRuntime for TestRuntime {
         );
         let mut transform_chain = TransformChain::default();
         transform_chain.pre_mix.extend(
-            self.pipeline_config
+            blueprint
+                .pipeline_config
                 .probe_graph
                 .pre_mix
                 .iter()
@@ -115,7 +167,8 @@ impl PipelineRuntime for TestRuntime {
                 }),
         );
         transform_chain.post_mix.extend(
-            self.pipeline_config
+            blueprint
+                .pipeline_config
                 .probe_graph
                 .post_mix
                 .iter()
@@ -133,45 +186,21 @@ impl PipelineRuntime for TestRuntime {
                 decoder: Box::new(TestDecoder::new(
                     blocks,
                     1,
-                    self.pipeline_config.decoder_sample_rate,
-                    self.pipeline_config.gapless_trim_spec,
+                    blueprint.pipeline_config.decoder_sample_rate,
+                    blueprint.pipeline_config.gapless_trim_spec,
                 )),
                 transforms,
                 transform_chain,
                 mixer: None,
                 resampler,
                 builtin_slots: BuiltinTransformSlots {
-                    gapless_trim: self.pipeline_config.gapless_trim_spec.is_some(),
+                    gapless_trim: blueprint.pipeline_config.gapless_trim_spec.is_some(),
                     transition_gain: true,
                     master_gain: false,
                 },
             },
             Box::new(StaticSinkPlan::new(vec![Box::new(TestSink)])),
         ))
-    }
-
-    fn apply_pipeline_mutation(&mut self, mutation: PipelineMutation) -> Result<(), PipelineError> {
-        match mutation {
-            PipelineMutation::SetResamplerPlan { resampler } => {
-                self.pipeline_config.resampler_target_sample_rate =
-                    resampler.map(|plan| plan.target_sample_rate);
-                Ok(())
-            },
-            PipelineMutation::MutateTransformGraph { mutation } => {
-                let typed = decode_probe_graph_mutation(mutation)?;
-                self.pipeline_config
-                    .probe_graph
-                    .apply_mutation(typed)
-                    .map_err(|error| PipelineError::StageFailure(error.to_string()))?;
-                self.pipeline_config
-                    .probe_graph
-                    .validate_unique_stage_keys()
-                    .map_err(|error| PipelineError::StageFailure(error.to_string()))?;
-                Ok(())
-            },
-            PipelineMutation::SetMixerPlan { .. } => Ok(()),
-            PipelineMutation::SetBuiltinTransformSlot { .. } => Ok(()),
-        }
     }
 }
 
@@ -440,7 +469,7 @@ struct TestHarness {
     transition_requests: Arc<Mutex<Vec<GainTransitionRequest>>>,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 struct HarnessPipelineConfig {
     decoder_sample_rate: u32,
     resampler_target_sample_rate: Option<u32>,
@@ -697,10 +726,13 @@ impl TestHarness {
         resp_rx.recv().expect("play response channel closed")
     }
 
-    fn apply_pipeline_plan(&mut self, plan: Arc<dyn PipelinePlan>) -> Result<(), DecodeError> {
+    fn apply_pipeline_blueprint(
+        &mut self,
+        blueprint: Arc<dyn PipelineBlueprint>,
+    ) -> Result<(), DecodeError> {
         let (resp_tx, resp_rx) = bounded(1);
         let should_break = handle_command(
-            DecodeWorkerCommand::ApplyPipelinePlan { plan, resp_tx },
+            DecodeWorkerCommand::ApplyPipelineBlueprint { blueprint, resp_tx },
             &self.assembler,
             &self.callback,
             self.runtime.as_mut(),
@@ -709,7 +741,7 @@ impl TestHarness {
         assert!(!should_break);
         resp_rx
             .recv()
-            .expect("apply_pipeline_plan response channel closed")
+            .expect("apply_pipeline_blueprint response channel closed")
     }
 
     fn shutdown(&mut self) -> bool {
@@ -1151,30 +1183,31 @@ fn queue_next_command_sets_queued_and_prewarmed_next() {
 }
 
 #[test]
-fn apply_pipeline_plan_no_active_input_only_pins_plan() {
+fn apply_pipeline_blueprint_no_active_input_only_pins_blueprint() {
     let mut harness = TestHarness::new();
-    let plan: Arc<dyn PipelinePlan> = Arc::new(TestPlan {
+    let blueprint: Arc<dyn PipelineBlueprint> = Arc::new(TestPlan {
         track_token: "track-a".to_string(),
+        pipeline_config: HarnessPipelineConfig::default(),
     });
 
     harness
-        .apply_pipeline_plan(Arc::clone(&plan))
-        .expect("apply_pipeline_plan should succeed");
+        .apply_pipeline_blueprint(Arc::clone(&blueprint))
+        .expect("apply_pipeline_blueprint should succeed");
 
     assert!(harness.state.runner.is_none());
     let pinned = harness
         .state
-        .pinned_plan
+        .pinned_blueprint
         .as_ref()
-        .expect("pinned plan should exist");
-    let pinned_test_plan = (pinned.as_ref() as &dyn Any)
+        .expect("pinned blueprint should exist");
+    let pinned_test_blueprint = (pinned.as_ref() as &dyn Any)
         .downcast_ref::<TestPlan>()
-        .expect("pinned plan type should be TestPlan");
-    assert_eq!(pinned_test_plan.track_token, "track-a");
+        .expect("pinned blueprint type should be TestPlan");
+    assert_eq!(pinned_test_blueprint.track_token, "track-a");
 }
 
 #[test]
-fn apply_pipeline_plan_rebuilds_active_runner_and_keeps_state() {
+fn apply_pipeline_blueprint_rebuilds_active_runner_and_keeps_state() {
     let mut harness = TestHarness::new();
     harness
         .open("track-a", true)
@@ -1182,12 +1215,13 @@ fn apply_pipeline_plan_rebuilds_active_runner_and_keeps_state() {
     assert_eq!(harness.state.state, PlayerState::Playing);
     assert!(harness.state.runner.is_some());
 
-    let plan: Arc<dyn PipelinePlan> = Arc::new(TestPlan {
+    let blueprint: Arc<dyn PipelineBlueprint> = Arc::new(TestPlan {
         track_token: "track-a".to_string(),
+        pipeline_config: HarnessPipelineConfig::default(),
     });
     harness
-        .apply_pipeline_plan(plan)
-        .expect("apply_pipeline_plan should succeed");
+        .apply_pipeline_blueprint(blueprint)
+        .expect("apply_pipeline_blueprint should succeed");
 
     assert_eq!(harness.state.state, PlayerState::Playing);
     assert!(harness.state.runner.is_some());

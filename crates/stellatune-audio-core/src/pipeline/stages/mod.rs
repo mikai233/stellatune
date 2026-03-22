@@ -15,12 +15,6 @@ pub enum StageFlow {
     Eof,
 }
 
-impl StageFlow {
-    pub fn is_terminal(self) -> bool {
-        matches!(self, Self::Eof)
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StageRuntimeUpdateResult {
     Applied,
@@ -83,7 +77,7 @@ pub trait Stage: Send {
         Ok(StageRuntimeUpdateResult::Ignored)
     }
 
-    fn sync_runtime_control(&mut self, _ctx: &mut PipelineContext) -> Result<(), PipelineError> {
+    fn refresh_runtime_state(&mut self, _ctx: &mut PipelineContext) -> Result<(), PipelineError> {
         Ok(())
     }
 }

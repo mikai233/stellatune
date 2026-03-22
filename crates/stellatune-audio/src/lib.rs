@@ -10,7 +10,7 @@
 //! - [`config`]: user-visible runtime configuration and event types.
 //! - [`engine`]: control actor startup and the [`engine::EngineHandle`] API.
 //! - [`error`]: typed error enums for engine and decode worker operations.
-//! - [`pipeline`]: pipeline plans, mutations, and graph management.
+//! - [`pipeline`]: pipeline blueprints, mutations, and graph management.
 //!
 //! Internal modules such as `infra` and `workers` are intentionally private.
 //!

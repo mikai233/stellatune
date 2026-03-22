@@ -1,8 +1,8 @@
-//! Runtime-control synchronization and stage runtime-update routing helpers.
+//! Runtime-state refresh and stage runtime-update routing helpers.
 //!
 //! # Why This Layer Exists
 //!
-//! Runtime controls are sourced from multiple places:
+//! Runtime state is sourced from multiple places:
 //! - actor commands (for explicit stage runtime updates),
 //! - hot control snapshots (for gain and trim metadata),
 //! - stage-local runtime updates during stepping.
@@ -35,19 +35,19 @@ use crate::pipeline::runtime::runner::PipelineRunner;
 use crate::pipeline::runtime::sink_session::SinkSession;
 
 impl PipelineRunner {
-    /// Synchronizes runtime control across all active stages and updates gapless trim state.
+    /// Refreshes runtime state across all active stages and updates gapless trim state.
     ///
-    /// This is the control-plane checkpoint called from playback stepping. Any
+    /// This is the runtime-state checkpoint called from playback stepping. Any
     /// drift between decoder-provided trim metadata and transform trim state is
     /// reconciled here before new audio is produced.
-    pub(crate) fn sync_runtime_control(
+    pub(crate) fn refresh_runtime_state(
         &mut self,
         sink_session: &mut SinkSession,
         ctx: &mut PipelineContext,
     ) -> Result<(), PipelineError> {
         self.ensure_sink_prepared(sink_session)?;
-        self.source.sync_runtime_control(ctx)?;
-        self.decoder.sync_runtime_control(ctx)?;
+        self.source.refresh_runtime_state(ctx)?;
+        self.decoder.refresh_runtime_state(ctx)?;
         let next_gapless_trim_spec =
             Self::normalize_gapless_trim_spec(self.decoder.current_gapless_trim_spec());
         if next_gapless_trim_spec != self.decoder_gapless_trim_spec {
@@ -56,9 +56,9 @@ impl PipelineRunner {
             self.apply_gapless_trim_control(ctx)?;
         }
         for transform in &mut self.transforms {
-            transform.sync_runtime_control(ctx)?;
+            transform.refresh_runtime_state(ctx)?;
         }
-        sink_session.sync_runtime_control(ctx)?;
+        sink_session.refresh_runtime_state(ctx)?;
         Ok(())
     }
 

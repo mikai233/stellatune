@@ -8,15 +8,11 @@ pub struct LocalSourcePayload {
     pub track_token: String,
 }
 
-pub struct LocalSourceStage {
-    payload: LocalSourcePayload,
-}
+pub struct LocalSourceStage;
 
 impl LocalSourceStage {
-    pub fn new(track_token: String) -> Self {
-        Self {
-            payload: LocalSourcePayload { track_token },
-        }
+    pub fn new() -> Self {
+        Self
     }
 }
 
@@ -25,17 +21,26 @@ impl Stage for LocalSourceStage {}
 impl SourceStage for LocalSourceStage {
     fn prepare(
         &mut self,
-        _input: &InputRef,
+        input: &InputRef,
         _ctx: &mut PipelineContext,
     ) -> Result<SourceHandle, PipelineError> {
-        Ok(SourceHandle::new(self.payload.clone()))
+        let InputRef::TrackToken(track_token) = input;
+        let track_token = track_token.trim();
+        if track_token.is_empty() {
+            return Err(PipelineError::StageFailure(
+                "track token must not be empty".to_string(),
+            ));
+        }
+        Ok(SourceHandle::new(LocalSourcePayload {
+            track_token: track_token.to_string(),
+        }))
     }
 
     fn stop(&mut self, _ctx: &mut PipelineContext) {}
 }
 
-pub fn build_local_source(track_token: String) -> Box<dyn SourceStage> {
-    Box::new(LocalSourceStage::new(track_token))
+pub fn build_local_source() -> Box<dyn SourceStage> {
+    Box::new(LocalSourceStage::new())
 }
 
 pub fn local_track_token_from_source_handle(source: &SourceHandle) -> Option<&str> {

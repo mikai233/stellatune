@@ -230,8 +230,8 @@ mod tests {
             )
             .expect("apply_runtime_update failed");
         stage
-            .sync_runtime_control(&mut ctx)
-            .expect("sync_runtime_control failed");
+            .refresh_runtime_state(&mut ctx)
+            .expect("refresh_runtime_state failed");
 
         let mut first = mono_block(&[1.0, 1.0]);
         assert!(matches!(
@@ -276,8 +276,8 @@ mod tests {
             )
             .expect("apply_runtime_update failed");
         stage
-            .sync_runtime_control(&mut ctx)
-            .expect("sync_runtime_control failed");
+            .refresh_runtime_state(&mut ctx)
+            .expect("refresh_runtime_state failed");
 
         let mut block = mono_block(&[1.0, 1.0, 1.0, 1.0]);
         assert!(matches!(

@@ -105,7 +105,7 @@ impl Stage for MasterGainStage {
         }
     }
 
-    fn sync_runtime_control(&mut self, _ctx: &mut PipelineContext) -> Result<(), PipelineError> {
+    fn refresh_runtime_state(&mut self, _ctx: &mut PipelineContext) -> Result<(), PipelineError> {
         let Some(hot_control) = self.hot_control.as_ref() else {
             return Ok(());
         };
@@ -214,8 +214,8 @@ mod tests {
             .apply_runtime_update(&MasterGainControl::new(0.5, 0), &mut ctx)
             .expect("apply_runtime_update failed");
         stage
-            .sync_runtime_control(&mut ctx)
-            .expect("sync_runtime_control failed");
+            .refresh_runtime_state(&mut ctx)
+            .expect("refresh_runtime_state failed");
 
         let mut block = mono_block(&[1.0]);
         assert!(matches!(
@@ -246,8 +246,8 @@ mod tests {
             )
             .expect("apply_runtime_update failed");
         stage
-            .sync_runtime_control(&mut ctx)
-            .expect("sync_runtime_control failed");
+            .refresh_runtime_state(&mut ctx)
+            .expect("refresh_runtime_state failed");
 
         let mut block = mono_block(&[1.0, 0.5]);
         assert!(matches!(
@@ -276,8 +276,8 @@ mod tests {
             .apply_runtime_update(&MasterGainControl::new(0.0, 4), &mut ctx)
             .expect("apply_runtime_update failed");
         stage
-            .sync_runtime_control(&mut ctx)
-            .expect("sync_runtime_control failed");
+            .refresh_runtime_state(&mut ctx)
+            .expect("refresh_runtime_state failed");
 
         let mut first = mono_block(&[1.0, 1.0]);
         assert!(matches!(
