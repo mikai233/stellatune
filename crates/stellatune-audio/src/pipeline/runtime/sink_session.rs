@@ -1,7 +1,10 @@
+use std::any::Any;
+use std::sync::Arc;
 use std::time::Duration;
 
 use stellatune_audio_core::pipeline::context::{AudioBlock, PipelineContext, StreamSpec};
 use stellatune_audio_core::pipeline::error::PipelineError;
+use stellatune_audio_core::pipeline::stages::StageDispatchResult;
 
 use crate::config::sink::SinkLatencyConfig;
 use crate::pipeline::assembly::SinkPlan;
@@ -107,6 +110,17 @@ impl SinkSession {
             .as_ref()
             .ok_or(PipelineError::NotPrepared)?;
         worker.sync_runtime_control(ctx, self.sink_control_timeout)
+    }
+
+    pub(crate) fn apply_stage_control(
+        &self,
+        stage_key: &str,
+        control: Arc<dyn Any + Send + Sync>,
+    ) -> Result<StageDispatchResult, PipelineError> {
+        let Some(worker) = self.sink_worker.as_ref() else {
+            return Ok(StageDispatchResult::StageNotFound);
+        };
+        worker.apply_stage_control(stage_key, control, self.sink_control_timeout)
     }
 
     pub(crate) fn drop_queued(&self) -> Result<(), PipelineError> {

@@ -190,6 +190,10 @@ impl PluginTransformStage {
 }
 
 impl Stage for PluginTransformStage {
+    fn key(&self) -> &str {
+        self.stage_key.as_str()
+    }
+
     fn apply_control(
         &mut self,
         control: &dyn Any,
@@ -208,10 +212,6 @@ impl Stage for PluginTransformStage {
 }
 
 impl TransformStage for PluginTransformStage {
-    fn key(&self) -> &str {
-        self.stage_key.as_str()
-    }
-
     fn prepare(
         &mut self,
         spec: StreamSpec,

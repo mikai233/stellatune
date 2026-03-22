@@ -12,7 +12,7 @@ impl Handler<ApplyStageControlMessage> for ControlActor {
     ) -> Result<(), EngineError> {
         let timeout = self.config.decode_command_timeout;
         let worker = self.ensure_worker()?;
-        worker.apply_stage_control(message.stage_key, message.control, timeout)?;
+        worker.apply_stage_control(message.target, message.control, timeout)?;
         Ok(())
     }
 }

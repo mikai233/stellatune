@@ -13,6 +13,7 @@ use crate::pipeline::assembly::PipelinePlan;
 use crate::pipeline::runtime::dsp::control::SharedMasterGainHotControl;
 use crate::pipeline::runtime::runner::PipelineRunner;
 use crate::pipeline::runtime::sink_session::SinkSession;
+use stellatune_audio_core::pipeline::stages::StageTarget;
 
 pub(crate) struct PrewarmedNext {
     pub(crate) input: InputRef,
@@ -35,7 +36,7 @@ pub(crate) struct DecodeWorkerState {
     pub(crate) sink_session: SinkSession,
     pub(crate) lfe_mode: LfeMode,
     pub(crate) resample_quality: ResampleQuality,
-    pub(crate) persisted_stage_controls: HashMap<String, Box<dyn Any + Send>>,
+    pub(crate) persisted_stage_controls: HashMap<StageTarget, Arc<dyn Any + Send + Sync>>,
     pub(crate) recovery_attempts: u32,
     pub(crate) recovery_retry_at: Option<Instant>,
     pub(crate) audio_start_sent: bool,

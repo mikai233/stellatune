@@ -161,7 +161,11 @@ struct SpecTap {
     seen: Arc<Mutex<Vec<StreamSpec>>>,
 }
 
-impl Stage for SpecTap {}
+impl Stage for SpecTap {
+    fn key(&self) -> &str {
+        self.key
+    }
+}
 
 impl SpecTap {
     fn new(key: &'static str, seen: Arc<Mutex<Vec<StreamSpec>>>) -> Self {
@@ -170,10 +174,6 @@ impl SpecTap {
 }
 
 impl TransformStage for SpecTap {
-    fn key(&self) -> &str {
-        self.key
-    }
-
     fn prepare(
         &mut self,
         spec: StreamSpec,
@@ -207,7 +207,11 @@ struct FlushTailTap {
     emit_on_empty_process: bool,
 }
 
-impl Stage for FlushTailTap {}
+impl Stage for FlushTailTap {
+    fn key(&self) -> &str {
+        self.key
+    }
+}
 
 impl FlushTailTap {
     fn new(key: &'static str, pending_samples: Vec<f32>) -> Self {
@@ -221,10 +225,6 @@ impl FlushTailTap {
 }
 
 impl TransformStage for FlushTailTap {
-    fn key(&self) -> &str {
-        self.key
-    }
-
     fn prepare(
         &mut self,
         spec: StreamSpec,
@@ -260,7 +260,11 @@ struct KeyedNoopTransform {
     key: &'static str,
 }
 
-impl Stage for KeyedNoopTransform {}
+impl Stage for KeyedNoopTransform {
+    fn key(&self) -> &str {
+        self.key
+    }
+}
 
 impl KeyedNoopTransform {
     fn new(key: &'static str) -> Self {
@@ -269,10 +273,6 @@ impl KeyedNoopTransform {
 }
 
 impl TransformStage for KeyedNoopTransform {
-    fn key(&self) -> &str {
-        self.key
-    }
-
     fn prepare(
         &mut self,
         spec: StreamSpec,

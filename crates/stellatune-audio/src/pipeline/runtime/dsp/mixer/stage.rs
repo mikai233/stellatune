@@ -43,13 +43,13 @@ impl MixerStage {
     }
 }
 
-impl Stage for MixerStage {}
-
-impl TransformStage for MixerStage {
+impl Stage for MixerStage {
     fn key(&self) -> &str {
         MIXER_STAGE_KEY
     }
+}
 
+impl TransformStage for MixerStage {
     fn prepare(
         &mut self,
         spec: StreamSpec,

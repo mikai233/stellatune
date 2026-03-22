@@ -4,8 +4,6 @@ use crate::pipeline::error::PipelineError;
 use super::{Stage, StageFlow};
 
 pub trait TransformStage: Stage {
-    fn key(&self) -> &str;
-
     fn prepare(
         &mut self,
         spec: StreamSpec,

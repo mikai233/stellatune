@@ -96,6 +96,7 @@ pub(crate) fn open_input(
     control_apply::replay_persisted_stage_controls_to_runner(
         &state.persisted_stage_controls,
         &mut next_runner,
+        Some(&state.sink_session),
         &mut state.ctx,
     )?;
     if start_playing {
@@ -152,6 +153,7 @@ pub(crate) fn prewarm_input(
     control_apply::replay_persisted_stage_controls_to_runner(
         &state.persisted_stage_controls,
         &mut next_runner,
+        None,
         &mut next_ctx,
     )?;
     Ok(PrewarmedNext {

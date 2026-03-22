@@ -110,6 +110,10 @@ impl Default for WasapiExclusiveSinkStage {
 }
 
 impl Stage for WasapiExclusiveSinkStage {
+    fn key(&self) -> &str {
+        "builtin.sink.wasapi_exclusive"
+    }
+
     fn sync_runtime_control(&mut self, ctx: &mut PipelineContext) -> Result<(), PipelineError> {
         self.inner.sync_runtime_control(ctx)
     }

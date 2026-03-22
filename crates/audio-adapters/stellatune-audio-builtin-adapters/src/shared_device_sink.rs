@@ -422,6 +422,10 @@ impl Default for SharedDeviceSinkStage {
 }
 
 impl Stage for SharedDeviceSinkStage {
+    fn key(&self) -> &str {
+        "builtin.sink.shared_device"
+    }
+
     fn sync_runtime_control(&mut self, _ctx: &mut PipelineContext) -> Result<(), PipelineError> {
         let stream_error = self.take_callback_error();
         if stream_error.is_some() || self.control.needs_reconfigure() {

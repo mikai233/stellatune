@@ -32,6 +32,7 @@ use std::time::Duration;
 
 use crossbeam_channel::{SendTimeoutError, Sender};
 use stellatune_audio_core::pipeline::context::InputRef;
+use stellatune_audio_core::pipeline::stages::StageTarget;
 
 use crate::config::engine::{
     EngineConfig, LfeMode, PauseBehavior, PlayerState, ResampleQuality, StopBehavior,
@@ -204,14 +205,14 @@ impl DecodeWorker {
 
     pub(crate) fn apply_stage_control(
         &self,
-        stage_key: impl Into<String>,
-        control: Box<dyn Any + Send>,
+        target: StageTarget,
+        control: Arc<dyn Any + Send + Sync>,
         timeout: Duration,
     ) -> Result<(), DecodeError> {
         let (resp_tx, resp_rx) = crossbeam_channel::bounded(1);
         self.send_command(
             DecodeWorkerCommand::ApplyStageControl {
-                stage_key: stage_key.into(),
+                target,
                 control,
                 resp_tx,
             },

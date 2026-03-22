@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use stellatune_audio_core::pipeline::context::InputRef;
 use stellatune_audio_core::pipeline::error::PipelineError;
+use stellatune_audio_core::pipeline::stages::StageTarget;
 use stellatune_runtime::thread_actor::{ActorRef, spawn_actor_named};
 
 use crate::config::engine::{EngineConfig, LfeMode, PlayerState, ResampleQuality, StopBehavior};
@@ -256,8 +257,8 @@ fn apply_stage_control_message_reaches_decode_worker() {
     let result = actor_ref
         .call(
             ApplyStageControlMessage {
-                stage_key: "builtin.transition_gain".to_string(),
-                control: Box::new(123_u32),
+                target: StageTarget::transform("builtin.transition_gain"),
+                control: Arc::new(123_u32),
             },
             TEST_TIMEOUT,
         )

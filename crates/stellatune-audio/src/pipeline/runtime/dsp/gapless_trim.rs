@@ -148,6 +148,10 @@ impl GaplessTrimStage {
 }
 
 impl Stage for GaplessTrimStage {
+    fn key(&self) -> &str {
+        GAPLESS_TRIM_STAGE_KEY
+    }
+
     fn apply_control(
         &mut self,
         control: &dyn std::any::Any,
@@ -173,10 +177,6 @@ impl Stage for GaplessTrimStage {
 }
 
 impl TransformStage for GaplessTrimStage {
-    fn key(&self) -> &str {
-        GAPLESS_TRIM_STAGE_KEY
-    }
-
     fn prepare(
         &mut self,
         spec: StreamSpec,

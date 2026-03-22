@@ -7,6 +7,7 @@
 use thiserror::Error;
 
 use stellatune_audio_core::pipeline::error::PipelineError;
+use stellatune_audio_core::pipeline::stages::StageTarget;
 use stellatune_runtime::thread_actor::CallError;
 
 /// Errors produced by decode worker command and runtime flows.
@@ -45,17 +46,17 @@ pub enum DecodeError {
     /// Sink recovery was requested without an active input.
     #[error("no active input for sink recovery")]
     NoActiveInputForRecovery,
-    /// Target transform stage key does not exist.
-    #[error("transform stage not found for stage key: {stage_key}")]
-    TransformStageNotFound {
-        /// Missing stage key.
-        stage_key: String,
+    /// Target stage does not exist in the active runtime dispatch graph.
+    #[error("stage target not found: {target}")]
+    StageTargetNotFound {
+        /// Missing stage target.
+        target: StageTarget,
     },
     /// Persisted stage control replay failed.
-    #[error("failed to apply persisted stage control for '{stage_key}': {source}")]
+    #[error("failed to apply persisted stage control for '{target}': {source}")]
     PersistedStageControlApplyFailed {
-        /// Stage key that failed during replay.
-        stage_key: String,
+        /// Stage target that failed during replay.
+        target: StageTarget,
         /// Underlying pipeline error.
         #[source]
         source: PipelineError,

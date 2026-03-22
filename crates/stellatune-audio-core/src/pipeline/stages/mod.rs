@@ -4,6 +4,7 @@ pub mod source;
 pub mod transform;
 
 use std::any::Any;
+use std::fmt;
 
 use crate::pipeline::context::PipelineContext;
 use crate::pipeline::error::PipelineError;
@@ -26,7 +27,46 @@ pub enum StageControlResult {
     Ignored,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum StageTarget {
+    Source,
+    Decoder,
+    Transform(String),
+    Sink(String),
+}
+
+impl StageTarget {
+    pub fn transform(key: impl Into<String>) -> Self {
+        Self::Transform(key.into())
+    }
+
+    pub fn sink(key: impl Into<String>) -> Self {
+        Self::Sink(key.into())
+    }
+}
+
+impl fmt::Display for StageTarget {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Source => write!(f, "source"),
+            Self::Decoder => write!(f, "decoder"),
+            Self::Transform(key) => write!(f, "transform:{key}"),
+            Self::Sink(key) => write!(f, "sink:{key}"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StageDispatchResult {
+    Applied,
+    StageNotFound,
+}
+
 pub trait Stage: Send {
+    fn key(&self) -> &str {
+        std::any::type_name::<Self>()
+    }
+
     fn apply_control(
         &mut self,
         _control: &dyn Any,

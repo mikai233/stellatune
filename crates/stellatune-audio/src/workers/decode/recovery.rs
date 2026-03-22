@@ -180,6 +180,7 @@ fn rebuild_active_runner(
     replay_persisted_stage_controls_to_runner(
         &state.persisted_stage_controls,
         &mut next_runner,
+        Some(&state.sink_session),
         &mut next_ctx,
     )?;
     if resume_position_ms > 0 {

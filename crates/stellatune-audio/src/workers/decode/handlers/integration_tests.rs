@@ -12,7 +12,7 @@ use stellatune_audio_core::pipeline::error::PipelineError;
 use stellatune_audio_core::pipeline::stages::decoder::DecoderStage;
 use stellatune_audio_core::pipeline::stages::sink::SinkStage;
 use stellatune_audio_core::pipeline::stages::source::SourceStage;
-use stellatune_audio_core::pipeline::stages::{Stage, StageControlResult, StageFlow};
+use stellatune_audio_core::pipeline::stages::{Stage, StageControlResult, StageFlow, StageTarget};
 
 use crate::config::engine::{
     EngineConfig, LfeMode, PauseBehavior, PlayerState, ResampleQuality, StopBehavior,
@@ -373,6 +373,10 @@ struct ProbeControlStage {
 }
 
 impl Stage for ProbeControlStage {
+    fn key(&self) -> &str {
+        &self.stage_key
+    }
+
     fn apply_control(
         &mut self,
         control: &dyn Any,
@@ -400,10 +404,6 @@ impl ProbeControlStage {
 }
 
 impl stellatune_audio_core::pipeline::stages::transform::TransformStage for ProbeControlStage {
-    fn key(&self) -> &str {
-        &self.stage_key
-    }
-
     fn prepare(
         &mut self,
         spec: StreamSpec,
@@ -500,15 +500,16 @@ impl TestHarness {
 
     fn force_full_transition_gain(&mut self) {
         if let Some(active_runner) = self.state.runner.as_mut() {
-            let _ = active_runner.apply_transform_control_to(
-                TRANSITION_GAIN_STAGE_KEY,
-                &TransitionGainControl::new(GainTransitionRequest {
+            let _ = active_runner.apply_stage_control_to(
+                &StageTarget::transform(TRANSITION_GAIN_STAGE_KEY),
+                Arc::new(TransitionGainControl::new(GainTransitionRequest {
                     target_gain: 1.0,
                     ramp_ms: 0,
                     available_frames_hint: None,
                     curve: TransitionCurve::Linear,
                     time_policy: TransitionTimePolicy::Exact,
-                }),
+                })),
+                None,
                 &mut self.state.ctx,
             );
         }
@@ -623,13 +624,13 @@ impl TestHarness {
 
     fn apply_stage_control<T>(&mut self, stage_key: &str, control: T) -> Result<(), DecodeError>
     where
-        T: Any + Send + 'static,
+        T: Any + Send + Sync + 'static,
     {
         let (resp_tx, resp_rx) = bounded(1);
         let should_break = handle_command(
             DecodeWorkerCommand::ApplyStageControl {
-                stage_key: stage_key.to_string(),
-                control: Box::new(control),
+                target: StageTarget::transform(stage_key),
+                control: Arc::new(control),
                 resp_tx,
             },
             &self.assembler,
@@ -955,8 +956,9 @@ fn apply_stage_control_reports_missing_stage_key() {
     let error = result.expect_err("expected missing stage key error");
     assert!(matches!(
         error,
-        DecodeError::TransformStageNotFound { ref stage_key }
-            if stage_key == "custom.unknown.stage"
+        DecodeError::StageTargetNotFound {
+            target: StageTarget::Transform(ref stage_key)
+        } if stage_key == "custom.unknown.stage"
     ));
 }
 

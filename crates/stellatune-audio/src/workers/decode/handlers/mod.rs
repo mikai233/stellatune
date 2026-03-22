@@ -89,10 +89,10 @@ pub(crate) fn handle_command(
             )
         },
         DecodeWorkerCommand::ApplyStageControl {
-            stage_key,
+            target,
             control,
             resp_tx,
-        } => apply_stage_control::handle(stage_key, control, resp_tx, state),
+        } => apply_stage_control::handle(target, control, resp_tx, state),
         DecodeWorkerCommand::Shutdown { ack_tx } => {
             shutdown::handle(ack_tx, callback, pipeline_runtime, state)
         },

@@ -125,13 +125,13 @@ impl ResamplerStage {
     }
 }
 
-impl Stage for ResamplerStage {}
-
-impl TransformStage for ResamplerStage {
+impl Stage for ResamplerStage {
     fn key(&self) -> &str {
         RESAMPLER_STAGE_KEY
     }
+}
 
+impl TransformStage for ResamplerStage {
     fn prepare(
         &mut self,
         spec: StreamSpec,

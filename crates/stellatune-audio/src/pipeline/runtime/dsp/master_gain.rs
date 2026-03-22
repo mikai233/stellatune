@@ -82,6 +82,10 @@ impl MasterGainStage {
 }
 
 impl Stage for MasterGainStage {
+    fn key(&self) -> &str {
+        MASTER_GAIN_STAGE_KEY
+    }
+
     fn apply_control(
         &mut self,
         control: &dyn Any,
@@ -120,10 +124,6 @@ impl Stage for MasterGainStage {
 }
 
 impl TransformStage for MasterGainStage {
-    fn key(&self) -> &str {
-        MASTER_GAIN_STAGE_KEY
-    }
-
     fn prepare(
         &mut self,
         spec: StreamSpec,

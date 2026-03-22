@@ -92,7 +92,11 @@ impl PluginOutputSinkStage {
     }
 }
 
-impl Stage for PluginOutputSinkStage {}
+impl Stage for PluginOutputSinkStage {
+    fn key(&self) -> &str {
+        "plugin.output_sink"
+    }
+}
 
 impl SinkStage for PluginOutputSinkStage {
     fn prepare(

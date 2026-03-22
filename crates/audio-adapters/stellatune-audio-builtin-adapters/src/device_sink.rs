@@ -409,6 +409,10 @@ impl Default for DeviceSinkStage {
 }
 
 impl Stage for DeviceSinkStage {
+    fn key(&self) -> &str {
+        "builtin.sink.device"
+    }
+
     fn sync_runtime_control(&mut self, _ctx: &mut PipelineContext) -> Result<(), PipelineError> {
         let stream_error = self.take_callback_error();
         if stream_error.is_some() || self.control.needs_reconfigure() {

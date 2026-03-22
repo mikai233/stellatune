@@ -60,6 +60,7 @@ pub(crate) fn handle(
     control_apply::replay_persisted_stage_controls_to_runner(
         &state.persisted_stage_controls,
         &mut next_runner,
+        Some(&state.sink_session),
         &mut state.ctx,
     )?;
     if resume_position_ms > 0 {

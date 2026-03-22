@@ -3,6 +3,7 @@
 //! This module decouples decode-thread production from sink I/O timing by using
 //! a bounded ring buffer and a control mailbox.
 
+use std::any::Any;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::JoinHandle;
@@ -13,8 +14,8 @@ use ringbuf::traits::{Consumer as _, Producer as _, Split as _};
 use ringbuf::{HeapCons, HeapProd, HeapRb};
 use stellatune_audio_core::pipeline::context::{AudioBlock, PipelineContext, StreamSpec};
 use stellatune_audio_core::pipeline::error::PipelineError;
-use stellatune_audio_core::pipeline::stages::StageFlow;
 use stellatune_audio_core::pipeline::stages::sink::SinkStage;
+use stellatune_audio_core::pipeline::stages::{StageControlResult, StageDispatchResult, StageFlow};
 
 enum SinkControl {
     SyncRuntimeControl {
@@ -26,6 +27,11 @@ enum SinkControl {
     },
     DropQueued {
         resp_tx: Sender<Result<(), PipelineError>>,
+    },
+    ApplyStageControl {
+        stage_key: String,
+        control: Arc<dyn Any + Send + Sync>,
+        resp_tx: Sender<Result<StageDispatchResult, PipelineError>>,
     },
     Shutdown {
         drain: bool,
@@ -54,6 +60,7 @@ impl SinkWorker {
         initial_ctx: PipelineContext,
         queue_capacity: usize,
     ) -> Result<Self, PipelineError> {
+        let sink_control_routes = build_sink_control_routes(&sinks)?;
         let capacity = queue_capacity.max(1);
         let rb = HeapRb::<AudioBlock>::new(capacity);
         let (audio_prod, audio_cons) = rb.split();
@@ -68,6 +75,7 @@ impl SinkWorker {
             .spawn(move || {
                 sink_thread_main(SinkThreadArgs {
                     sinks,
+                    sink_control_routes,
                     spec,
                     ctx: initial_ctx,
                     startup_tx,
@@ -136,6 +144,29 @@ impl SinkWorker {
 
     pub(crate) fn drop_queued(&self, timeout: Duration) -> Result<(), PipelineError> {
         self.call_control(|resp_tx| SinkControl::DropQueued { resp_tx }, timeout)
+    }
+
+    pub(crate) fn apply_stage_control(
+        &self,
+        stage_key: &str,
+        control: Arc<dyn Any + Send + Sync>,
+        timeout: Duration,
+    ) -> Result<StageDispatchResult, PipelineError> {
+        let (resp_tx, resp_rx) = crossbeam_channel::bounded(1);
+        self.ctrl_tx
+            .send(SinkControl::ApplyStageControl {
+                stage_key: stage_key.to_string(),
+                control,
+                resp_tx,
+            })
+            .map_err(|_| PipelineError::SinkDisconnected)?;
+        resp_rx.recv_timeout(timeout).map_err(|error| match error {
+            RecvTimeoutError::Timeout => PipelineError::StageFailure(format!(
+                "sink loop control timed out after {}ms",
+                timeout.as_millis()
+            )),
+            RecvTimeoutError::Disconnected => PipelineError::SinkDisconnected,
+        })?
     }
 
     pub(crate) fn shutdown(mut self, drain: bool, timeout: Duration) -> Result<(), PipelineError> {
@@ -213,6 +244,7 @@ impl Drop for RunningFlagGuard {
 
 struct SinkThreadArgs {
     sinks: Vec<Box<dyn SinkStage>>,
+    sink_control_routes: std::collections::HashMap<String, usize>,
     spec: StreamSpec,
     ctx: PipelineContext,
     startup_tx: Sender<Result<(), PipelineError>>,
@@ -229,6 +261,7 @@ struct SinkThreadArgs {
 fn sink_thread_main(args: SinkThreadArgs) {
     let SinkThreadArgs {
         mut sinks,
+        sink_control_routes,
         spec,
         mut ctx,
         startup_tx,
@@ -254,7 +287,13 @@ fn sink_thread_main(args: SinkThreadArgs) {
                     break;
                 };
                 // Control commands are handled eagerly to keep external RPCs responsive.
-                if handle_control(control, &mut sinks, &mut audio_cons, &mut ctx) {
+                if handle_control(
+                    control,
+                    &mut sinks,
+                    &sink_control_routes,
+                    &mut audio_cons,
+                    &mut ctx,
+                ) {
                     break;
                 }
             }
@@ -270,6 +309,26 @@ fn sink_thread_main(args: SinkThreadArgs) {
     }
 
     stop_sinks(&mut sinks, &mut ctx);
+}
+
+fn build_sink_control_routes(
+    sinks: &[Box<dyn SinkStage>],
+) -> Result<std::collections::HashMap<String, usize>, PipelineError> {
+    let mut routes = std::collections::HashMap::new();
+    for (index, sink) in sinks.iter().enumerate() {
+        let key = sink.key().trim();
+        if key.is_empty() {
+            return Err(PipelineError::StageFailure(
+                "sink stage key must not be empty".to_string(),
+            ));
+        }
+        if routes.insert(key.to_string(), index).is_some() {
+            return Err(PipelineError::StageFailure(format!(
+                "duplicate sink stage key: {key}"
+            )));
+        }
+    }
+    Ok(routes)
 }
 
 fn prepare_sinks(
@@ -342,6 +401,7 @@ fn stop_sinks(sinks: &mut [Box<dyn SinkStage>], ctx: &mut PipelineContext) {
 fn handle_control(
     control: SinkControl,
     sinks: &mut [Box<dyn SinkStage>],
+    sink_control_routes: &std::collections::HashMap<String, usize>,
     audio_cons: &mut HeapCons<AudioBlock>,
     ctx: &mut PipelineContext,
 ) -> bool {
@@ -366,6 +426,21 @@ fn handle_control(
             let _ = resp_tx.send(Ok(()));
             false
         },
+        SinkControl::ApplyStageControl {
+            stage_key,
+            control,
+            resp_tx,
+        } => {
+            let result = apply_stage_control(
+                sinks,
+                sink_control_routes,
+                stage_key.as_str(),
+                control.as_ref(),
+                ctx,
+            );
+            let _ = resp_tx.send(result);
+            false
+        },
         SinkControl::Shutdown { drain, resp_tx } => {
             if !drain {
                 let _ = audio_cons.clear();
@@ -376,6 +451,30 @@ fn handle_control(
             let _ = resp_tx.send(Ok(()));
             true
         },
+    }
+}
+
+fn apply_stage_control(
+    sinks: &mut [Box<dyn SinkStage>],
+    sink_control_routes: &std::collections::HashMap<String, usize>,
+    stage_key: &str,
+    control: &dyn Any,
+    ctx: &mut PipelineContext,
+) -> Result<StageDispatchResult, PipelineError> {
+    let Some(target_index) = sink_control_routes.get(stage_key).copied() else {
+        return Ok(StageDispatchResult::StageNotFound);
+    };
+    let sinks_len = sinks.len();
+    let sink = sinks.get_mut(target_index).ok_or_else(|| {
+        PipelineError::StageFailure(format!(
+            "sink control target out of bounds: key={stage_key}, index={target_index}, len={sinks_len}"
+        ))
+    })?;
+    match sink.apply_control(control, ctx)? {
+        StageControlResult::Applied => Ok(StageDispatchResult::Applied),
+        StageControlResult::Ignored => Err(PipelineError::StageFailure(format!(
+            "sink control target rejected control: key={stage_key}, index={target_index}"
+        ))),
     }
 }
 

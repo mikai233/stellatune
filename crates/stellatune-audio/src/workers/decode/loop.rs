@@ -226,6 +226,7 @@ fn promote_prewarmed_next(
     replay_persisted_stage_controls_to_runner(
         &state.persisted_stage_controls,
         &mut prewarmed_next.runner,
+        Some(&state.sink_session),
         &mut prewarmed_next.ctx,
     )?;
     request_fade_in_from_silence_with_runner(

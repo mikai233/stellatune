@@ -13,21 +13,24 @@
 
 use std::any::Any;
 use std::collections::HashMap;
+use std::sync::Arc;
 #[cfg(test)]
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 #[cfg(test)]
 use stellatune_audio_core::pipeline::context::GainTransitionRequest;
 use stellatune_audio_core::pipeline::context::{GaplessTrimSpec, PipelineContext};
 use stellatune_audio_core::pipeline::error::PipelineError;
-use stellatune_audio_core::pipeline::stages::StageControlResult;
 use stellatune_audio_core::pipeline::stages::transform::TransformStage;
+use stellatune_audio_core::pipeline::stages::{
+    StageControlResult, StageDispatchResult, StageTarget,
+};
 
 #[cfg(test)]
 use crate::pipeline::runtime::dsp::control::TransitionGainControl;
 use crate::pipeline::runtime::dsp::control::{GAPLESS_TRIM_STAGE_KEY, GaplessTrimControl};
 
-use crate::pipeline::runtime::runner::{PipelineRunner, TransformControlDispatchResult};
+use crate::pipeline::runtime::runner::PipelineRunner;
 use crate::pipeline::runtime::sink_session::SinkSession;
 
 impl PipelineRunner {
@@ -58,50 +61,64 @@ impl PipelineRunner {
         Ok(())
     }
 
-    pub(crate) fn apply_transform_control_to(
+    pub(crate) fn apply_stage_control_to(
         &mut self,
-        stage_key: &str,
-        control: &dyn Any,
+        target: &StageTarget,
+        control: Arc<dyn Any + Send + Sync>,
+        sink_session: Option<&SinkSession>,
         ctx: &mut PipelineContext,
-    ) -> Result<TransformControlDispatchResult, PipelineError> {
+    ) -> Result<StageDispatchResult, PipelineError> {
         self.ensure_decode_prepared()?;
-        self.apply_transform_control_internal(stage_key, control, ctx)
+        self.apply_stage_control_internal(target, control, sink_session, ctx)
     }
 
-    /// Applies typed control to a routed transform stage with strict mismatch checks.
+    /// Applies typed control to a routed stage target with strict mismatch checks.
     ///
-    /// The function is intentionally strict: once a key resolves to a transform,
+    /// The function is intentionally strict: once a target resolves to a stage,
     /// rejection of the payload is treated as a contract error instead of a soft no-op.
-    fn apply_transform_control_internal(
+    fn apply_stage_control_internal(
         &mut self,
-        stage_key: &str,
-        control: &dyn Any,
+        target: &StageTarget,
+        control: Arc<dyn Any + Send + Sync>,
+        sink_session: Option<&SinkSession>,
         ctx: &mut PipelineContext,
-    ) -> Result<TransformControlDispatchResult, PipelineError> {
-        let Some(target_index) = self.transform_control_routes.get(stage_key).copied() else {
-            return Ok(TransformControlDispatchResult::StageNotFound);
+    ) -> Result<StageDispatchResult, PipelineError> {
+        let handled = match target {
+            StageTarget::Source => self.source.apply_control(control.as_ref(), ctx)?,
+            StageTarget::Decoder => self.decoder.apply_control(control.as_ref(), ctx)?,
+            StageTarget::Transform(_) => {
+                let Some(target_index) = self.transform_control_routes.get(target).copied() else {
+                    return Ok(StageDispatchResult::StageNotFound);
+                };
+                let transforms_len = self.transforms.len();
+                let transform = self.transforms.get_mut(target_index).ok_or_else(|| {
+                    PipelineError::StageFailure(format!(
+                        "stage control target out of bounds: target={target}, index={target_index}, len={transforms_len}"
+                    ))
+                })?;
+                transform.apply_control(control.as_ref(), ctx)?
+            },
+            StageTarget::Sink(stage_key) => {
+                let Some(sink_session) = sink_session else {
+                    return Ok(StageDispatchResult::StageNotFound);
+                };
+                return sink_session.apply_stage_control(stage_key, control);
+            },
         };
-        let transforms_len = self.transforms.len();
-        let transform = self.transforms.get_mut(target_index).ok_or_else(|| {
-            PipelineError::StageFailure(format!(
-                "transform control target out of bounds: key={stage_key}, index={target_index}, len={transforms_len}"
-            ))
-        })?;
-        let handled = transform.apply_control(control, ctx)?;
         if handled == StageControlResult::Ignored {
             return Err(PipelineError::StageFailure(format!(
-                "transform control target rejected control: key={stage_key}, index={target_index}"
+                "stage control target rejected control: target={target}"
             )));
         }
         #[cfg(test)]
-        if let Some(control) = control.downcast_ref::<TransitionGainControl>()
+        if let Some(control) = control.as_ref().downcast_ref::<TransitionGainControl>()
             && let Some(sink) = self.transition_request_log_sink.as_ref()
         {
             sink.lock()
                 .expect("transition request log sink mutex poisoned")
                 .push(control.request);
         }
-        Ok(TransformControlDispatchResult::Applied)
+        Ok(StageDispatchResult::Applied)
     }
 
     fn scale_decoder_frames_to_output_domain(&self, frames: u64) -> u64 {
@@ -147,7 +164,12 @@ impl PipelineRunner {
             return Ok(());
         }
         let control = GaplessTrimControl::new(self.decoder_gapless_trim_spec, ctx.position_ms);
-        let _ = self.apply_transform_control_internal(GAPLESS_TRIM_STAGE_KEY, &control, ctx)?;
+        let _ = self.apply_stage_control_internal(
+            &StageTarget::transform(GAPLESS_TRIM_STAGE_KEY),
+            Arc::new(control),
+            None,
+            ctx,
+        )?;
         Ok(())
     }
 
@@ -163,7 +185,7 @@ impl PipelineRunner {
     /// dispatch O(1) during playback.
     pub(crate) fn build_transform_control_routes(
         transforms: &[Box<dyn TransformStage>],
-    ) -> Result<HashMap<String, usize>, PipelineError> {
+    ) -> Result<HashMap<StageTarget, usize>, PipelineError> {
         let mut routes = HashMap::new();
         for (index, transform) in transforms.iter().enumerate() {
             let key = transform.key().trim();
@@ -173,7 +195,7 @@ impl PipelineRunner {
                 ));
             }
             // Reject collisions early so control dispatch never becomes ambiguous.
-            if routes.insert(key.to_string(), index).is_some() {
+            if routes.insert(StageTarget::transform(key), index).is_some() {
                 return Err(PipelineError::StageFailure(format!(
                     "duplicate transform stage key: {key}"
                 )));

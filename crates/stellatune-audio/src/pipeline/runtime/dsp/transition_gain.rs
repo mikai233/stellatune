@@ -130,6 +130,10 @@ impl TransitionGainStage {
 }
 
 impl Stage for TransitionGainStage {
+    fn key(&self) -> &str {
+        TRANSITION_GAIN_STAGE_KEY
+    }
+
     fn apply_control(
         &mut self,
         control: &dyn Any,
@@ -144,10 +148,6 @@ impl Stage for TransitionGainStage {
 }
 
 impl TransformStage for TransitionGainStage {
-    fn key(&self) -> &str {
-        TRANSITION_GAIN_STAGE_KEY
-    }
-
     fn prepare(
         &mut self,
         spec: StreamSpec,

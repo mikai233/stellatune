@@ -1,4 +1,5 @@
 use std::any::Any;
+use std::sync::Arc;
 
 use crate::config::engine::{Event, LfeMode, ResampleQuality};
 use crate::engine::handle::EngineHandle;
@@ -6,6 +7,7 @@ use crate::engine::messages::{
     ApplyStageControlMessage, SetLfeModeMessage, SetResampleQualityMessage,
 };
 use crate::error::EngineError;
+use stellatune_audio_core::pipeline::stages::StageTarget;
 
 impl EngineHandle {
     /// Updates the hot master-gain target used by the runtime.
@@ -59,27 +61,27 @@ impl EngineHandle {
             .map_err(|error| Self::map_call_error("set_resample_quality", self.timeout, error))?
     }
 
-    /// Applies a typed control payload to a transform stage by key.
+    /// Applies a typed control payload to a stage target.
     ///
     /// The payload type must match what the target stage expects at runtime.
     ///
     /// # Errors
     ///
-    /// Returns [`EngineError`] when the control actor call fails, the stage key
+    /// Returns [`EngineError`] when the control actor call fails, the stage target
     /// does not exist, or the payload type is unsupported for that stage.
     pub async fn apply_stage_control<T>(
         &self,
-        stage_key: impl Into<String>,
+        target: StageTarget,
         control: T,
     ) -> Result<(), EngineError>
     where
-        T: Any + Send + 'static,
+        T: Any + Send + Sync + 'static,
     {
         self.actor_ref
             .call_async(
                 ApplyStageControlMessage {
-                    stage_key: stage_key.into(),
-                    control: Box::new(control),
+                    target,
+                    control: Arc::new(control),
                 },
                 self.timeout,
             )
