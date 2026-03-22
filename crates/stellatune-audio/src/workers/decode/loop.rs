@@ -26,7 +26,7 @@ use crate::workers::decode::command::DecodeWorkerCommand;
 use crate::workers::decode::handlers::handle_command;
 use crate::workers::decode::handlers::open::open_input;
 use crate::workers::decode::handlers::{
-    apply_master_gain_level_to_runner, replay_persisted_stage_controls_to_runner,
+    apply_master_gain_level_to_runner, replay_persisted_stage_runtime_updates_to_runner,
     request_fade_in_from_silence_with_runner,
 };
 use crate::workers::decode::recovery;
@@ -205,7 +205,7 @@ pub(crate) fn decode_worker_main(
 
 /// Promotes a prewarmed runner into the active playback slot.
 ///
-/// This preserves sink routing, reapplies persisted stage controls, and emits
+/// This preserves sink routing, reapplies persisted stage runtime updates, and emits
 /// track/state notifications as part of the cutover.
 fn promote_prewarmed_next(
     mut prewarmed_next: crate::workers::decode::state::PrewarmedNext,
@@ -223,8 +223,8 @@ fn promote_prewarmed_next(
         state.master_gain_hot_control.snapshot().level,
         0,
     )?;
-    replay_persisted_stage_controls_to_runner(
-        &state.persisted_stage_controls,
+    replay_persisted_stage_runtime_updates_to_runner(
+        &state.persisted_stage_runtime_updates,
         &mut prewarmed_next.runner,
         Some(&state.sink_session),
         &mut prewarmed_next.ctx,

@@ -1,6 +1,6 @@
 mod apply_pipeline_mutation;
 mod apply_pipeline_plan;
-mod apply_stage_control;
+mod apply_stage_runtime_update;
 mod control_apply;
 mod gain_transition;
 #[cfg(test)]
@@ -24,7 +24,7 @@ use crate::workers::decode::command::DecodeWorkerCommand;
 use crate::workers::decode::state::DecodeWorkerState;
 
 pub(crate) use control_apply::apply_master_gain_level_to_runner;
-pub(crate) use control_apply::replay_persisted_stage_controls_to_runner;
+pub(crate) use control_apply::replay_persisted_stage_runtime_updates_to_runner;
 pub(crate) use gain_transition::request_fade_in_from_silence_with_runner;
 
 pub(crate) fn handle_command(
@@ -88,11 +88,11 @@ pub(crate) fn handle_command(
                 state,
             )
         },
-        DecodeWorkerCommand::ApplyStageControl {
+        DecodeWorkerCommand::ApplyStageRuntimeUpdate {
             target,
-            control,
+            update,
             resp_tx,
-        } => apply_stage_control::handle(target, control, resp_tx, state),
+        } => apply_stage_runtime_update::handle(target, update, resp_tx, state),
         DecodeWorkerCommand::Shutdown { ack_tx } => {
             shutdown::handle(ack_tx, callback, pipeline_runtime, state)
         },

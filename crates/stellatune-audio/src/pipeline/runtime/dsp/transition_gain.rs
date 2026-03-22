@@ -6,7 +6,7 @@ use stellatune_audio_core::pipeline::context::{
 };
 use stellatune_audio_core::pipeline::error::PipelineError;
 use stellatune_audio_core::pipeline::stages::transform::TransformStage;
-use stellatune_audio_core::pipeline::stages::{Stage, StageControlResult, StageFlow};
+use stellatune_audio_core::pipeline::stages::{Stage, StageFlow, StageRuntimeUpdateResult};
 
 use crate::pipeline::runtime::dsp::control::{TRANSITION_GAIN_STAGE_KEY, TransitionGainControl};
 
@@ -134,16 +134,16 @@ impl Stage for TransitionGainStage {
         TRANSITION_GAIN_STAGE_KEY
     }
 
-    fn apply_control(
+    fn apply_runtime_update(
         &mut self,
-        control: &dyn Any,
+        update: &dyn Any,
         _ctx: &mut PipelineContext,
-    ) -> Result<StageControlResult, PipelineError> {
-        if let Some(control) = control.downcast_ref::<TransitionGainControl>() {
-            self.configure_transition(control.request);
-            return Ok(StageControlResult::Applied);
+    ) -> Result<StageRuntimeUpdateResult, PipelineError> {
+        if let Some(update) = update.downcast_ref::<TransitionGainControl>() {
+            self.configure_transition(update.request);
+            return Ok(StageRuntimeUpdateResult::Applied);
         }
-        Ok(StageControlResult::Ignored)
+        Ok(StageRuntimeUpdateResult::Ignored)
     }
 }
 
@@ -216,7 +216,7 @@ mod tests {
             )
             .expect("prepare failed");
         stage
-            .apply_control(
+            .apply_runtime_update(
                 &TransitionGainControl::new(GainTransitionRequest {
                     target_gain: 0.0,
                     ramp_ms: 4,
@@ -226,7 +226,7 @@ mod tests {
                 }),
                 &mut ctx,
             )
-            .expect("apply_control failed");
+            .expect("apply_runtime_update failed");
         stage
             .sync_runtime_control(&mut ctx)
             .expect("sync_runtime_control failed");
@@ -262,7 +262,7 @@ mod tests {
             )
             .expect("prepare failed");
         stage
-            .apply_control(
+            .apply_runtime_update(
                 &TransitionGainControl::new(GainTransitionRequest {
                     target_gain: 0.0,
                     ramp_ms: 100,
@@ -272,7 +272,7 @@ mod tests {
                 }),
                 &mut ctx,
             )
-            .expect("apply_control failed");
+            .expect("apply_runtime_update failed");
         stage
             .sync_runtime_control(&mut ctx)
             .expect("sync_runtime_control failed");

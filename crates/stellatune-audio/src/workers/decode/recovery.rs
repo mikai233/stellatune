@@ -16,7 +16,7 @@ use crate::pipeline::assembly::{PipelineAssembler, PipelineRuntime};
 use crate::pipeline::runtime::runner::RunnerState;
 use crate::pipeline::runtime::sink_session::SinkActivationMode;
 use crate::workers::decode::handlers::{
-    apply_master_gain_level_to_runner, replay_persisted_stage_controls_to_runner,
+    apply_master_gain_level_to_runner, replay_persisted_stage_runtime_updates_to_runner,
 };
 use crate::workers::decode::pipeline_policies::apply_decode_policies;
 use crate::workers::decode::state::DecodeWorkerState;
@@ -177,8 +177,8 @@ fn rebuild_active_runner(
         state.master_gain_hot_control.snapshot().level,
         0,
     )?;
-    replay_persisted_stage_controls_to_runner(
-        &state.persisted_stage_controls,
+    replay_persisted_stage_runtime_updates_to_runner(
+        &state.persisted_stage_runtime_updates,
         &mut next_runner,
         Some(&state.sink_session),
         &mut next_ctx,

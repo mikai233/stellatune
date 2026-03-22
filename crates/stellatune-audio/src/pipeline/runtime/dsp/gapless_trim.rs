@@ -5,7 +5,7 @@ use stellatune_audio_core::pipeline::context::{
 };
 use stellatune_audio_core::pipeline::error::PipelineError;
 use stellatune_audio_core::pipeline::stages::transform::TransformStage;
-use stellatune_audio_core::pipeline::stages::{Stage, StageControlResult, StageFlow};
+use stellatune_audio_core::pipeline::stages::{Stage, StageFlow, StageRuntimeUpdateResult};
 
 use crate::pipeline::runtime::dsp::control::{GAPLESS_TRIM_STAGE_KEY, GaplessTrimControl};
 
@@ -152,20 +152,20 @@ impl Stage for GaplessTrimStage {
         GAPLESS_TRIM_STAGE_KEY
     }
 
-    fn apply_control(
+    fn apply_runtime_update(
         &mut self,
-        control: &dyn std::any::Any,
+        update: &dyn std::any::Any,
         _ctx: &mut PipelineContext,
-    ) -> Result<StageControlResult, PipelineError> {
-        if let Some(control) = control.downcast_ref::<GaplessTrimControl>() {
+    ) -> Result<StageRuntimeUpdateResult, PipelineError> {
+        if let Some(update) = update.downcast_ref::<GaplessTrimControl>() {
             let spec = StreamSpec {
                 sample_rate: self.sample_rate.max(1),
                 channels: self.channels.max(1) as u16,
             };
-            self.configure(spec, control.spec, control.position_ms);
-            return Ok(StageControlResult::Applied);
+            self.configure(spec, update.spec, update.position_ms);
+            return Ok(StageRuntimeUpdateResult::Applied);
         }
-        Ok(StageControlResult::Ignored)
+        Ok(StageRuntimeUpdateResult::Ignored)
     }
 
     fn sync_runtime_control(&mut self, ctx: &mut PipelineContext) -> Result<(), PipelineError> {
@@ -247,7 +247,7 @@ mod tests {
             )
             .expect("prepare failed");
         stage
-            .apply_control(
+            .apply_runtime_update(
                 &GaplessTrimControl::new(
                     Some(GaplessTrimSpec {
                         head_frames: 2,
@@ -257,7 +257,7 @@ mod tests {
                 ),
                 &mut ctx,
             )
-            .expect("apply_control failed");
+            .expect("apply_runtime_update failed");
 
         let mut first = block(&[0.0, 1.0, 2.0, 3.0, 4.0, 5.0]);
         assert!(matches!(
@@ -288,7 +288,7 @@ mod tests {
             )
             .expect("prepare failed");
         stage
-            .apply_control(
+            .apply_runtime_update(
                 &GaplessTrimControl::new(
                     Some(GaplessTrimSpec {
                         head_frames: 1,
@@ -298,7 +298,7 @@ mod tests {
                 ),
                 &mut ctx,
             )
-            .expect("apply_control failed");
+            .expect("apply_runtime_update failed");
 
         let mut a = block(&[0.0, 1.0]);
         assert!(matches!(

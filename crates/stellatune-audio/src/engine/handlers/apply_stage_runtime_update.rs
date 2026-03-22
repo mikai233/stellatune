@@ -1,18 +1,18 @@
 use stellatune_runtime::thread_actor::{ActorContext, Handler};
 
 use crate::engine::actor::ControlActor;
-use crate::engine::messages::ApplyStageControlMessage;
+use crate::engine::messages::ApplyStageRuntimeUpdateMessage;
 use crate::error::EngineError;
 
-impl Handler<ApplyStageControlMessage> for ControlActor {
+impl Handler<ApplyStageRuntimeUpdateMessage> for ControlActor {
     fn handle(
         &mut self,
-        message: ApplyStageControlMessage,
+        message: ApplyStageRuntimeUpdateMessage,
         _ctx: &mut ActorContext<Self>,
     ) -> Result<(), EngineError> {
         let timeout = self.config.decode_command_timeout;
         let worker = self.ensure_worker()?;
-        worker.apply_stage_control(message.target, message.control, timeout)?;
+        worker.apply_stage_runtime_update(message.target, message.update, timeout)?;
         Ok(())
     }
 }

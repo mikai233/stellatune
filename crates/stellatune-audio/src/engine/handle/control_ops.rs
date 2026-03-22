@@ -4,7 +4,7 @@ use std::sync::Arc;
 use crate::config::engine::{Event, LfeMode, ResampleQuality};
 use crate::engine::handle::EngineHandle;
 use crate::engine::messages::{
-    ApplyStageControlMessage, SetLfeModeMessage, SetResampleQualityMessage,
+    ApplyStageRuntimeUpdateMessage, SetLfeModeMessage, SetResampleQualityMessage,
 };
 use crate::error::EngineError;
 use stellatune_audio_core::pipeline::stages::StageTarget;
@@ -61,7 +61,7 @@ impl EngineHandle {
             .map_err(|error| Self::map_call_error("set_resample_quality", self.timeout, error))?
     }
 
-    /// Applies a typed control payload to a stage target.
+    /// Applies a typed runtime-update payload to a stage target.
     ///
     /// The payload type must match what the target stage expects at runtime.
     ///
@@ -69,23 +69,25 @@ impl EngineHandle {
     ///
     /// Returns [`EngineError`] when the control actor call fails, the stage target
     /// does not exist, or the payload type is unsupported for that stage.
-    pub async fn apply_stage_control<T>(
+    pub async fn apply_stage_runtime_update<T>(
         &self,
         target: StageTarget,
-        control: T,
+        update: T,
     ) -> Result<(), EngineError>
     where
         T: Any + Send + Sync + 'static,
     {
         self.actor_ref
             .call_async(
-                ApplyStageControlMessage {
+                ApplyStageRuntimeUpdateMessage {
                     target,
-                    control: Arc::new(control),
+                    update: Arc::new(update),
                 },
                 self.timeout,
             )
             .await
-            .map_err(|error| Self::map_call_error("apply_stage_control", self.timeout, error))?
+            .map_err(|error| {
+                Self::map_call_error("apply_stage_runtime_update", self.timeout, error)
+            })?
     }
 }

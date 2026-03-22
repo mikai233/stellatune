@@ -12,7 +12,9 @@ use stellatune_audio_core::pipeline::error::PipelineError;
 use stellatune_audio_core::pipeline::stages::decoder::DecoderStage;
 use stellatune_audio_core::pipeline::stages::sink::SinkStage;
 use stellatune_audio_core::pipeline::stages::source::SourceStage;
-use stellatune_audio_core::pipeline::stages::{Stage, StageControlResult, StageFlow, StageTarget};
+use stellatune_audio_core::pipeline::stages::{
+    Stage, StageFlow, StageRuntimeUpdateResult, StageTarget,
+};
 
 use crate::config::engine::{
     EngineConfig, LfeMode, PauseBehavior, PlayerState, ResampleQuality, StopBehavior,
@@ -377,16 +379,16 @@ impl Stage for ProbeControlStage {
         &self.stage_key
     }
 
-    fn apply_control(
+    fn apply_runtime_update(
         &mut self,
-        control: &dyn Any,
+        update: &dyn Any,
         _ctx: &mut PipelineContext,
-    ) -> Result<StageControlResult, PipelineError> {
-        if control.downcast_ref::<ProbeControl>().is_some() {
+    ) -> Result<StageRuntimeUpdateResult, PipelineError> {
+        if update.downcast_ref::<ProbeControl>().is_some() {
             self.apply_count.fetch_add(1, Ordering::SeqCst);
-            return Ok(StageControlResult::Applied);
+            return Ok(StageRuntimeUpdateResult::Applied);
         }
-        Ok(StageControlResult::Ignored)
+        Ok(StageRuntimeUpdateResult::Ignored)
     }
 }
 
@@ -500,7 +502,7 @@ impl TestHarness {
 
     fn force_full_transition_gain(&mut self) {
         if let Some(active_runner) = self.state.runner.as_mut() {
-            let _ = active_runner.apply_stage_control_to(
+            let _ = active_runner.apply_stage_runtime_update_to(
                 &StageTarget::transform(TRANSITION_GAIN_STAGE_KEY),
                 Arc::new(TransitionGainControl::new(GainTransitionRequest {
                     target_gain: 1.0,
@@ -622,15 +624,19 @@ impl TestHarness {
             .expect("set_resample_quality response channel closed")
     }
 
-    fn apply_stage_control<T>(&mut self, stage_key: &str, control: T) -> Result<(), DecodeError>
+    fn apply_stage_runtime_update<T>(
+        &mut self,
+        stage_key: &str,
+        update: T,
+    ) -> Result<(), DecodeError>
     where
         T: Any + Send + Sync + 'static,
     {
         let (resp_tx, resp_rx) = bounded(1);
         let should_break = handle_command(
-            DecodeWorkerCommand::ApplyStageControl {
+            DecodeWorkerCommand::ApplyStageRuntimeUpdate {
                 target: StageTarget::transform(stage_key),
-                control: Arc::new(control),
+                update: Arc::new(update),
                 resp_tx,
             },
             &self.assembler,
@@ -641,7 +647,7 @@ impl TestHarness {
         assert!(!should_break);
         resp_rx
             .recv()
-            .expect("apply_stage_control response channel closed")
+            .expect("apply_stage_runtime_update response channel closed")
     }
 
     fn apply_pipeline_mutation(&mut self, mutation: PipelineMutation) -> Result<(), DecodeError> {
@@ -916,7 +922,7 @@ fn set_resample_quality_updates_policy_and_keeps_active_runner_playing() {
 }
 
 #[test]
-fn apply_stage_control_routes_to_transition_gain_stage() {
+fn apply_stage_runtime_update_routes_to_transition_gain_stage() {
     let mut harness = TestHarness::new();
     harness
         .open("track-a", true)
@@ -924,7 +930,7 @@ fn apply_stage_control_routes_to_transition_gain_stage() {
     harness.clear_transition_requests();
 
     harness
-        .apply_stage_control(
+        .apply_stage_runtime_update(
             TRANSITION_GAIN_STAGE_KEY,
             TransitionGainControl::new(GainTransitionRequest {
                 target_gain: 0.25,
@@ -934,7 +940,7 @@ fn apply_stage_control_routes_to_transition_gain_stage() {
                 time_policy: TransitionTimePolicy::FitToAvailable,
             }),
         )
-        .expect("apply_stage_control should succeed");
+        .expect("apply_stage_runtime_update should succeed");
 
     let requests = harness.transition_requests();
     assert_eq!(requests.len(), 1);
@@ -943,27 +949,27 @@ fn apply_stage_control_routes_to_transition_gain_stage() {
 }
 
 #[test]
-fn apply_stage_control_reports_missing_stage_key() {
+fn apply_stage_runtime_update_reports_missing_stage_key() {
     let mut harness = TestHarness::new();
     harness
         .open("track-a", true)
         .expect("open command should succeed");
 
-    let result = harness.apply_stage_control(
+    let result = harness.apply_stage_runtime_update(
         "custom.unknown.stage",
         TransitionGainControl::new(GainTransitionRequest::default()),
     );
     let error = result.expect_err("expected missing stage key error");
     assert!(matches!(
         error,
-        DecodeError::StageTargetNotFound {
+        DecodeError::StageRuntimeUpdateTargetNotFound {
             target: StageTarget::Transform(ref stage_key)
         } if stage_key == "custom.unknown.stage"
     ));
 }
 
 #[test]
-fn apply_stage_control_persists_and_replays_across_runner_rebuilds() {
+fn apply_stage_runtime_update_persists_and_replays_across_runner_rebuilds() {
     let apply_count = Arc::new(AtomicUsize::new(0));
     let mut pipeline_config = HarnessPipelineConfig::default();
     pipeline_config.probe_graph.main.push(ProbeStageConfig {
@@ -973,8 +979,8 @@ fn apply_stage_control_persists_and_replays_across_runner_rebuilds() {
     let mut harness = TestHarness::with_pipeline_config(pipeline_config);
 
     harness
-        .apply_stage_control("external.probe", ProbeControl)
-        .expect("apply_stage_control should succeed without active runner");
+        .apply_stage_runtime_update("external.probe", ProbeControl)
+        .expect("apply_stage_runtime_update should succeed without active runner");
     assert_eq!(apply_count.load(Ordering::SeqCst), 0);
 
     harness
@@ -1024,8 +1030,8 @@ fn apply_pipeline_mutation_supports_insert_move_replace_and_remove() {
         .expect("open command should succeed");
 
     harness
-        .apply_stage_control("external.a", ProbeControl)
-        .expect("control apply for stage a should succeed");
+        .apply_stage_runtime_update("external.a", ProbeControl)
+        .expect("runtime update for stage a should succeed");
     assert_eq!(apply_count_a.load(Ordering::SeqCst), 1);
 
     harness
@@ -1044,8 +1050,8 @@ fn apply_pipeline_mutation_supports_insert_move_replace_and_remove() {
         })
         .expect("insert stage mutation should succeed");
     harness
-        .apply_stage_control("external.b", ProbeControl)
-        .expect("control apply for inserted stage b should succeed");
+        .apply_stage_runtime_update("external.b", ProbeControl)
+        .expect("runtime update for inserted stage b should succeed");
     assert_eq!(apply_count_b.load(Ordering::SeqCst), 1);
 
     harness
@@ -1058,8 +1064,8 @@ fn apply_pipeline_mutation_supports_insert_move_replace_and_remove() {
         })
         .expect("move stage mutation should succeed");
     harness
-        .apply_stage_control("external.b", ProbeControl)
-        .expect("control apply for moved stage b should succeed");
+        .apply_stage_runtime_update("external.b", ProbeControl)
+        .expect("runtime update for moved stage b should succeed");
     assert_eq!(apply_count_b.load(Ordering::SeqCst), 3);
 
     harness
@@ -1076,11 +1082,11 @@ fn apply_pipeline_mutation_supports_insert_move_replace_and_remove() {
             },
         })
         .expect("replace stage mutation should succeed");
-    let removed_b = harness.apply_stage_control("external.b", ProbeControl);
+    let removed_b = harness.apply_stage_runtime_update("external.b", ProbeControl);
     assert!(removed_b.is_err());
     harness
-        .apply_stage_control("external.c", ProbeControl)
-        .expect("control apply for replaced stage c should succeed");
+        .apply_stage_runtime_update("external.c", ProbeControl)
+        .expect("runtime update for replaced stage c should succeed");
     assert_eq!(apply_count_c.load(Ordering::SeqCst), 1);
 
     harness
@@ -1090,7 +1096,7 @@ fn apply_pipeline_mutation_supports_insert_move_replace_and_remove() {
             },
         })
         .expect("remove stage mutation should succeed");
-    let removed_a = harness.apply_stage_control("external.a", ProbeControl);
+    let removed_a = harness.apply_stage_runtime_update("external.a", ProbeControl);
     assert!(removed_a.is_err());
 }
 

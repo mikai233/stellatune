@@ -47,14 +47,14 @@ pub enum DecodeError {
     #[error("no active input for sink recovery")]
     NoActiveInputForRecovery,
     /// Target stage does not exist in the active runtime dispatch graph.
-    #[error("stage target not found: {target}")]
-    StageTargetNotFound {
+    #[error("stage runtime-update target not found: {target}")]
+    StageRuntimeUpdateTargetNotFound {
         /// Missing stage target.
         target: StageTarget,
     },
-    /// Persisted stage control replay failed.
-    #[error("failed to apply persisted stage control for '{target}': {source}")]
-    PersistedStageControlApplyFailed {
+    /// Persisted stage runtime-update replay failed.
+    #[error("failed to apply persisted stage runtime update for '{target}': {source}")]
+    PersistedStageRuntimeUpdateApplyFailed {
         /// Stage target that failed during replay.
         target: StageTarget,
         /// Underlying pipeline error.

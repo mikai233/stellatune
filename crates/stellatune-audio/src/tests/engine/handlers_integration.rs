@@ -10,7 +10,7 @@ use stellatune_runtime::thread_actor::{ActorRef, spawn_actor_named};
 use crate::config::engine::{EngineConfig, LfeMode, PlayerState, ResampleQuality, StopBehavior};
 use crate::engine::actor::ControlActor;
 use crate::engine::messages::{
-    ApplyPipelineMutationMessage, ApplyStageControlMessage, GetSnapshotMessage,
+    ApplyPipelineMutationMessage, ApplyStageRuntimeUpdateMessage, GetSnapshotMessage,
     InstallDecodeWorkerMessage, OnDecodeWorkerEventMessage, SetLfeModeMessage,
     SetResampleQualityMessage, ShutdownMessage, StopMessage,
 };
@@ -249,20 +249,20 @@ fn set_resample_quality_message_forwards_to_decode_worker() {
 }
 
 #[test]
-fn apply_stage_control_message_reaches_decode_worker() {
+fn apply_stage_runtime_update_message_reaches_decode_worker() {
     let config = test_config();
     let (actor_ref, join) = spawn_control_actor(config.clone());
     install_decode_worker(&actor_ref, &config);
 
     let result = actor_ref
         .call(
-            ApplyStageControlMessage {
+            ApplyStageRuntimeUpdateMessage {
                 target: StageTarget::transform("builtin.transition_gain"),
-                control: Arc::new(123_u32),
+                update: Arc::new(123_u32),
             },
             TEST_TIMEOUT,
         )
-        .expect("failed to call apply stage control");
+        .expect("failed to call apply stage runtime update");
     assert!(result.is_ok());
 
     shutdown_and_join(actor_ref, join);

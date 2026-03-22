@@ -37,9 +37,9 @@ pub(crate) struct SetLfeModeMessage {
 pub(crate) struct SetResampleQualityMessage {
     pub(crate) quality: ResampleQuality,
 }
-pub(crate) struct ApplyStageControlMessage {
+pub(crate) struct ApplyStageRuntimeUpdateMessage {
     pub(crate) target: StageTarget,
-    pub(crate) control: Arc<dyn Any + Send + Sync>,
+    pub(crate) update: Arc<dyn Any + Send + Sync>,
 }
 
 pub(crate) struct GetSnapshotMessage;
@@ -91,7 +91,7 @@ impl Message for SetResampleQualityMessage {
     type Response = Result<(), EngineError>;
 }
 
-impl Message for ApplyStageControlMessage {
+impl Message for ApplyStageRuntimeUpdateMessage {
     type Response = Result<(), EngineError>;
 }
 

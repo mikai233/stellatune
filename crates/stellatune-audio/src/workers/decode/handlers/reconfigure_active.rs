@@ -57,8 +57,8 @@ pub(crate) fn handle(
         state.master_gain_hot_control.snapshot().level,
         0,
     )?;
-    control_apply::replay_persisted_stage_controls_to_runner(
-        &state.persisted_stage_controls,
+    control_apply::replay_persisted_stage_runtime_updates_to_runner(
+        &state.persisted_stage_runtime_updates,
         &mut next_runner,
         Some(&state.sink_session),
         &mut state.ctx,

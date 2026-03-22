@@ -50,9 +50,9 @@ pub(crate) enum DecodeWorkerCommand {
         quality: ResampleQuality,
         resp_tx: Sender<Result<(), DecodeError>>,
     },
-    ApplyStageControl {
+    ApplyStageRuntimeUpdate {
         target: StageTarget,
-        control: Arc<dyn Any + Send + Sync>,
+        update: Arc<dyn Any + Send + Sync>,
         resp_tx: Sender<Result<(), DecodeError>>,
     },
     Shutdown {

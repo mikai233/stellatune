@@ -1,14 +1,14 @@
-//! Runtime-control synchronization and transform-control routing helpers.
+//! Runtime-control synchronization and stage runtime-update routing helpers.
 //!
 //! # Why This Layer Exists
 //!
 //! Runtime controls are sourced from multiple places:
-//! - actor commands (for explicit stage control),
+//! - actor commands (for explicit stage runtime updates),
 //! - hot control snapshots (for gain and trim metadata),
 //! - stage-local runtime updates during stepping.
 //!
 //! Centralizing this in the runner prevents drift between source/decoder/transform
-//! state and sink-visible context. The control path is also where stage-key routing
+//! state and sink-visible context. The runtime-update path is also where stage-key routing
 //! is validated so dispatch can remain stable even if transform ordering changes.
 
 use std::any::Any;
@@ -23,7 +23,7 @@ use stellatune_audio_core::pipeline::context::{GaplessTrimSpec, PipelineContext}
 use stellatune_audio_core::pipeline::error::PipelineError;
 use stellatune_audio_core::pipeline::stages::transform::TransformStage;
 use stellatune_audio_core::pipeline::stages::{
-    StageControlResult, StageDispatchResult, StageTarget,
+    StageRuntimeUpdateDispatchResult, StageRuntimeUpdateResult, StageTarget,
 };
 
 #[cfg(test)]
@@ -61,64 +61,64 @@ impl PipelineRunner {
         Ok(())
     }
 
-    pub(crate) fn apply_stage_control_to(
+    pub(crate) fn apply_stage_runtime_update_to(
         &mut self,
         target: &StageTarget,
-        control: Arc<dyn Any + Send + Sync>,
+        update: Arc<dyn Any + Send + Sync>,
         sink_session: Option<&SinkSession>,
         ctx: &mut PipelineContext,
-    ) -> Result<StageDispatchResult, PipelineError> {
+    ) -> Result<StageRuntimeUpdateDispatchResult, PipelineError> {
         self.ensure_decode_prepared()?;
-        self.apply_stage_control_internal(target, control, sink_session, ctx)
+        self.apply_stage_runtime_update_internal(target, update, sink_session, ctx)
     }
 
-    /// Applies typed control to a routed stage target with strict mismatch checks.
+    /// Applies a typed runtime update to a routed stage target with strict mismatch checks.
     ///
     /// The function is intentionally strict: once a target resolves to a stage,
     /// rejection of the payload is treated as a contract error instead of a soft no-op.
-    fn apply_stage_control_internal(
+    fn apply_stage_runtime_update_internal(
         &mut self,
         target: &StageTarget,
-        control: Arc<dyn Any + Send + Sync>,
+        update: Arc<dyn Any + Send + Sync>,
         sink_session: Option<&SinkSession>,
         ctx: &mut PipelineContext,
-    ) -> Result<StageDispatchResult, PipelineError> {
+    ) -> Result<StageRuntimeUpdateDispatchResult, PipelineError> {
         let handled = match target {
-            StageTarget::Source => self.source.apply_control(control.as_ref(), ctx)?,
-            StageTarget::Decoder => self.decoder.apply_control(control.as_ref(), ctx)?,
+            StageTarget::Source => self.source.apply_runtime_update(update.as_ref(), ctx)?,
+            StageTarget::Decoder => self.decoder.apply_runtime_update(update.as_ref(), ctx)?,
             StageTarget::Transform(_) => {
                 let Some(target_index) = self.transform_control_routes.get(target).copied() else {
-                    return Ok(StageDispatchResult::StageNotFound);
+                    return Ok(StageRuntimeUpdateDispatchResult::StageNotFound);
                 };
                 let transforms_len = self.transforms.len();
                 let transform = self.transforms.get_mut(target_index).ok_or_else(|| {
                     PipelineError::StageFailure(format!(
-                        "stage control target out of bounds: target={target}, index={target_index}, len={transforms_len}"
+                        "stage runtime update target out of bounds: target={target}, index={target_index}, len={transforms_len}"
                     ))
                 })?;
-                transform.apply_control(control.as_ref(), ctx)?
+                transform.apply_runtime_update(update.as_ref(), ctx)?
             },
             StageTarget::Sink(stage_key) => {
                 let Some(sink_session) = sink_session else {
-                    return Ok(StageDispatchResult::StageNotFound);
+                    return Ok(StageRuntimeUpdateDispatchResult::StageNotFound);
                 };
-                return sink_session.apply_stage_control(stage_key, control);
+                return sink_session.apply_stage_runtime_update(stage_key, update);
             },
         };
-        if handled == StageControlResult::Ignored {
+        if handled == StageRuntimeUpdateResult::Ignored {
             return Err(PipelineError::StageFailure(format!(
-                "stage control target rejected control: target={target}"
+                "stage runtime update target rejected update: target={target}"
             )));
         }
         #[cfg(test)]
-        if let Some(control) = control.as_ref().downcast_ref::<TransitionGainControl>()
+        if let Some(update) = update.as_ref().downcast_ref::<TransitionGainControl>()
             && let Some(sink) = self.transition_request_log_sink.as_ref()
         {
             sink.lock()
                 .expect("transition request log sink mutex poisoned")
-                .push(control.request);
+                .push(update.request);
         }
-        Ok(StageDispatchResult::Applied)
+        Ok(StageRuntimeUpdateDispatchResult::Applied)
     }
 
     fn scale_decoder_frames_to_output_domain(&self, frames: u64) -> u64 {
@@ -163,10 +163,10 @@ impl PipelineRunner {
         if !self.supports_gapless_trim {
             return Ok(());
         }
-        let control = GaplessTrimControl::new(self.decoder_gapless_trim_spec, ctx.position_ms);
-        let _ = self.apply_stage_control_internal(
+        let update = GaplessTrimControl::new(self.decoder_gapless_trim_spec, ctx.position_ms);
+        let _ = self.apply_stage_runtime_update_internal(
             &StageTarget::transform(GAPLESS_TRIM_STAGE_KEY),
-            Arc::new(control),
+            Arc::new(update),
             None,
             ctx,
         )?;
@@ -179,7 +179,7 @@ impl PipelineRunner {
         spec.filter(|v| !v.is_disabled())
     }
 
-    /// Builds and validates stage-key routes used by typed transform controls.
+    /// Builds and validates stage-key routes used by typed transform runtime updates.
     ///
     /// Route construction is done once during runner creation to keep control
     /// dispatch O(1) during playback.

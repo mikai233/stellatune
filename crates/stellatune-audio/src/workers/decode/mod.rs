@@ -203,17 +203,17 @@ impl DecodeWorker {
         )
     }
 
-    pub(crate) fn apply_stage_control(
+    pub(crate) fn apply_stage_runtime_update(
         &self,
         target: StageTarget,
-        control: Arc<dyn Any + Send + Sync>,
+        update: Arc<dyn Any + Send + Sync>,
         timeout: Duration,
     ) -> Result<(), DecodeError> {
         let (resp_tx, resp_rx) = crossbeam_channel::bounded(1);
         self.send_command(
-            DecodeWorkerCommand::ApplyStageControl {
+            DecodeWorkerCommand::ApplyStageRuntimeUpdate {
                 target,
-                control,
+                update,
                 resp_tx,
             },
             timeout,

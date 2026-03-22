@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use stellatune_audio_core::pipeline::context::PipelineContext;
-use stellatune_audio_core::pipeline::stages::{StageDispatchResult, StageTarget};
+use stellatune_audio_core::pipeline::stages::{StageRuntimeUpdateDispatchResult, StageTarget};
 
 use crate::error::DecodeError;
 use crate::pipeline::assembly::{PipelineAssembler, PipelineRuntime};
@@ -20,30 +20,30 @@ pub(crate) fn apply_master_gain_level_to_runner(
     level: f32,
     ramp_ms: u32,
 ) -> Result<(), DecodeError> {
-    let control = MasterGainControl::new(level, ramp_ms);
-    runner.apply_stage_control_to(
+    let update = MasterGainControl::new(level, ramp_ms);
+    runner.apply_stage_runtime_update_to(
         &StageTarget::transform(MASTER_GAIN_STAGE_KEY),
-        Arc::new(control),
+        Arc::new(update),
         None,
         ctx,
     )?;
     Ok(())
 }
 
-pub(crate) fn replay_persisted_stage_controls_to_runner(
-    stage_controls: &HashMap<StageTarget, Arc<dyn Any + Send + Sync>>,
+pub(crate) fn replay_persisted_stage_runtime_updates_to_runner(
+    stage_runtime_updates: &HashMap<StageTarget, Arc<dyn Any + Send + Sync>>,
     runner: &mut PipelineRunner,
     sink_session: Option<&SinkSession>,
     ctx: &mut PipelineContext,
 ) -> Result<(), DecodeError> {
-    let mut entries = stage_controls.iter().collect::<Vec<_>>();
+    let mut entries = stage_runtime_updates.iter().collect::<Vec<_>>();
     entries.sort_by(|(left, _), (right, _)| left.cmp(right));
-    for (target, control) in entries {
-        match runner.apply_stage_control_to(target, Arc::clone(control), sink_session, ctx) {
-            Ok(StageDispatchResult::Applied) => {},
-            Ok(StageDispatchResult::StageNotFound) => {},
+    for (target, update) in entries {
+        match runner.apply_stage_runtime_update_to(target, Arc::clone(update), sink_session, ctx) {
+            Ok(StageRuntimeUpdateDispatchResult::Applied) => {},
+            Ok(StageRuntimeUpdateDispatchResult::StageNotFound) => {},
             Err(error) => {
-                return Err(DecodeError::PersistedStageControlApplyFailed {
+                return Err(DecodeError::PersistedStageRuntimeUpdateApplyFailed {
                     target: target.clone(),
                     source: error,
                 });

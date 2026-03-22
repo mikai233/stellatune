@@ -93,8 +93,8 @@ pub(crate) fn open_input(
         state.master_gain_hot_control.snapshot().level,
         0,
     )?;
-    control_apply::replay_persisted_stage_controls_to_runner(
-        &state.persisted_stage_controls,
+    control_apply::replay_persisted_stage_runtime_updates_to_runner(
+        &state.persisted_stage_runtime_updates,
         &mut next_runner,
         Some(&state.sink_session),
         &mut state.ctx,
@@ -150,8 +150,8 @@ pub(crate) fn prewarm_input(
         assembled.into_runner(Some(Arc::clone(&state.master_gain_hot_control)))?;
     let mut next_ctx = state.fresh_context();
     next_runner.prepare_decode(&input, &mut next_ctx)?;
-    control_apply::replay_persisted_stage_controls_to_runner(
-        &state.persisted_stage_controls,
+    control_apply::replay_persisted_stage_runtime_updates_to_runner(
+        &state.persisted_stage_runtime_updates,
         &mut next_runner,
         None,
         &mut next_ctx,

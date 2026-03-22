@@ -15,7 +15,9 @@ use ringbuf::{HeapCons, HeapProd, HeapRb};
 use stellatune_audio_core::pipeline::context::{AudioBlock, PipelineContext, StreamSpec};
 use stellatune_audio_core::pipeline::error::PipelineError;
 use stellatune_audio_core::pipeline::stages::sink::SinkStage;
-use stellatune_audio_core::pipeline::stages::{StageControlResult, StageDispatchResult, StageFlow};
+use stellatune_audio_core::pipeline::stages::{
+    StageFlow, StageRuntimeUpdateDispatchResult, StageRuntimeUpdateResult,
+};
 
 enum SinkControl {
     SyncRuntimeControl {
@@ -28,10 +30,10 @@ enum SinkControl {
     DropQueued {
         resp_tx: Sender<Result<(), PipelineError>>,
     },
-    ApplyStageControl {
+    ApplyStageRuntimeUpdate {
         stage_key: String,
-        control: Arc<dyn Any + Send + Sync>,
-        resp_tx: Sender<Result<StageDispatchResult, PipelineError>>,
+        update: Arc<dyn Any + Send + Sync>,
+        resp_tx: Sender<Result<StageRuntimeUpdateDispatchResult, PipelineError>>,
     },
     Shutdown {
         drain: bool,
@@ -146,17 +148,17 @@ impl SinkWorker {
         self.call_control(|resp_tx| SinkControl::DropQueued { resp_tx }, timeout)
     }
 
-    pub(crate) fn apply_stage_control(
+    pub(crate) fn apply_stage_runtime_update(
         &self,
         stage_key: &str,
-        control: Arc<dyn Any + Send + Sync>,
+        update: Arc<dyn Any + Send + Sync>,
         timeout: Duration,
-    ) -> Result<StageDispatchResult, PipelineError> {
+    ) -> Result<StageRuntimeUpdateDispatchResult, PipelineError> {
         let (resp_tx, resp_rx) = crossbeam_channel::bounded(1);
         self.ctrl_tx
-            .send(SinkControl::ApplyStageControl {
+            .send(SinkControl::ApplyStageRuntimeUpdate {
                 stage_key: stage_key.to_string(),
-                control,
+                update,
                 resp_tx,
             })
             .map_err(|_| PipelineError::SinkDisconnected)?;
@@ -426,16 +428,16 @@ fn handle_control(
             let _ = resp_tx.send(Ok(()));
             false
         },
-        SinkControl::ApplyStageControl {
+        SinkControl::ApplyStageRuntimeUpdate {
             stage_key,
-            control,
+            update,
             resp_tx,
         } => {
-            let result = apply_stage_control(
+            let result = apply_stage_runtime_update(
                 sinks,
                 sink_control_routes,
                 stage_key.as_str(),
-                control.as_ref(),
+                update.as_ref(),
                 ctx,
             );
             let _ = resp_tx.send(result);
@@ -454,26 +456,26 @@ fn handle_control(
     }
 }
 
-fn apply_stage_control(
+fn apply_stage_runtime_update(
     sinks: &mut [Box<dyn SinkStage>],
     sink_control_routes: &std::collections::HashMap<String, usize>,
     stage_key: &str,
-    control: &dyn Any,
+    update: &dyn Any,
     ctx: &mut PipelineContext,
-) -> Result<StageDispatchResult, PipelineError> {
+) -> Result<StageRuntimeUpdateDispatchResult, PipelineError> {
     let Some(target_index) = sink_control_routes.get(stage_key).copied() else {
-        return Ok(StageDispatchResult::StageNotFound);
+        return Ok(StageRuntimeUpdateDispatchResult::StageNotFound);
     };
     let sinks_len = sinks.len();
     let sink = sinks.get_mut(target_index).ok_or_else(|| {
         PipelineError::StageFailure(format!(
-            "sink control target out of bounds: key={stage_key}, index={target_index}, len={sinks_len}"
+            "sink runtime-update target out of bounds: key={stage_key}, index={target_index}, len={sinks_len}"
         ))
     })?;
-    match sink.apply_control(control, ctx)? {
-        StageControlResult::Applied => Ok(StageDispatchResult::Applied),
-        StageControlResult::Ignored => Err(PipelineError::StageFailure(format!(
-            "sink control target rejected control: key={stage_key}, index={target_index}"
+    match sink.apply_runtime_update(update, ctx)? {
+        StageRuntimeUpdateResult::Applied => Ok(StageRuntimeUpdateDispatchResult::Applied),
+        StageRuntimeUpdateResult::Ignored => Err(PipelineError::StageFailure(format!(
+            "sink runtime-update target rejected update: key={stage_key}, index={target_index}"
         ))),
     }
 }

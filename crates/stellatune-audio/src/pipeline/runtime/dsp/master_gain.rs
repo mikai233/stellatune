@@ -5,7 +5,7 @@ use stellatune_audio_core::pipeline::context::{
 };
 use stellatune_audio_core::pipeline::error::PipelineError;
 use stellatune_audio_core::pipeline::stages::transform::TransformStage;
-use stellatune_audio_core::pipeline::stages::{Stage, StageControlResult, StageFlow};
+use stellatune_audio_core::pipeline::stages::{Stage, StageFlow, StageRuntimeUpdateResult};
 
 use crate::pipeline::runtime::dsp::control::{
     MASTER_GAIN_STAGE_KEY, MasterGainControl, SharedMasterGainHotControl,
@@ -86,21 +86,21 @@ impl Stage for MasterGainStage {
         MASTER_GAIN_STAGE_KEY
     }
 
-    fn apply_control(
+    fn apply_runtime_update(
         &mut self,
-        control: &dyn Any,
+        update: &dyn Any,
         _ctx: &mut PipelineContext,
-    ) -> Result<StageControlResult, PipelineError> {
-        if let Some(control) = control.downcast_ref::<MasterGainControl>() {
-            if let Some(curve) = control.curve {
+    ) -> Result<StageRuntimeUpdateResult, PipelineError> {
+        if let Some(update) = update.downcast_ref::<MasterGainControl>() {
+            if let Some(curve) = update.curve {
                 self.curve = curve;
             }
-            self.level = control.level.clamp(0.0, 1.0);
+            self.level = update.level.clamp(0.0, 1.0);
             let target_gain = self.curve.level_to_gain(self.level).clamp(0.0, 1.0);
-            self.apply_target_gain(target_gain, control.ramp_ms);
-            return Ok(StageControlResult::Applied);
+            self.apply_target_gain(target_gain, update.ramp_ms);
+            return Ok(StageRuntimeUpdateResult::Applied);
         }
-        Ok(StageControlResult::Ignored)
+        Ok(StageRuntimeUpdateResult::Ignored)
     }
 
     fn sync_runtime_control(&mut self, _ctx: &mut PipelineContext) -> Result<(), PipelineError> {
@@ -209,8 +209,8 @@ mod tests {
             .expect("prepare failed");
 
         stage
-            .apply_control(&MasterGainControl::new(0.5, 0), &mut ctx)
-            .expect("apply_control failed");
+            .apply_runtime_update(&MasterGainControl::new(0.5, 0), &mut ctx)
+            .expect("apply_runtime_update failed");
         stage
             .sync_runtime_control(&mut ctx)
             .expect("sync_runtime_control failed");
@@ -238,11 +238,11 @@ mod tests {
             .expect("prepare failed");
 
         stage
-            .apply_control(
+            .apply_runtime_update(
                 &MasterGainControl::with_curve(0.5, 0, MasterGainCurve::Linear),
                 &mut ctx,
             )
-            .expect("apply_control failed");
+            .expect("apply_runtime_update failed");
         stage
             .sync_runtime_control(&mut ctx)
             .expect("sync_runtime_control failed");
@@ -271,8 +271,8 @@ mod tests {
             .expect("prepare failed");
 
         stage
-            .apply_control(&MasterGainControl::new(0.0, 4), &mut ctx)
-            .expect("apply_control failed");
+            .apply_runtime_update(&MasterGainControl::new(0.0, 4), &mut ctx)
+            .expect("apply_runtime_update failed");
         stage
             .sync_runtime_control(&mut ctx)
             .expect("sync_runtime_control failed");

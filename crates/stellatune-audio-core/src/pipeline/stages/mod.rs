@@ -22,7 +22,7 @@ impl StageFlow {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum StageControlResult {
+pub enum StageRuntimeUpdateResult {
     Applied,
     Ignored,
 }
@@ -57,7 +57,7 @@ impl fmt::Display for StageTarget {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum StageDispatchResult {
+pub enum StageRuntimeUpdateDispatchResult {
     Applied,
     StageNotFound,
 }
@@ -67,12 +67,12 @@ pub trait Stage: Send {
         std::any::type_name::<Self>()
     }
 
-    fn apply_control(
+    fn apply_runtime_update(
         &mut self,
-        _control: &dyn Any,
+        _update: &dyn Any,
         _ctx: &mut PipelineContext,
-    ) -> Result<StageControlResult, PipelineError> {
-        Ok(StageControlResult::Ignored)
+    ) -> Result<StageRuntimeUpdateResult, PipelineError> {
+        Ok(StageRuntimeUpdateResult::Ignored)
     }
 
     fn sync_runtime_control(&mut self, _ctx: &mut PipelineContext) -> Result<(), PipelineError> {

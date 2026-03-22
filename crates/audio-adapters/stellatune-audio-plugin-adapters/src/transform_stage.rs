@@ -5,7 +5,7 @@ use stellatune_audio::pipeline::graph::TransformGraph;
 use stellatune_audio_core::pipeline::context::{AudioBlock, PipelineContext, StreamSpec};
 use stellatune_audio_core::pipeline::error::PipelineError;
 use stellatune_audio_core::pipeline::stages::transform::TransformStage;
-use stellatune_audio_core::pipeline::stages::{Stage, StageControlResult, StageFlow};
+use stellatune_audio_core::pipeline::stages::{Stage, StageFlow, StageRuntimeUpdateResult};
 use stellatune_plugins::host_runtime::{RuntimeDspPlugin, shared_runtime_service};
 
 use crate::bridge::PluginTransformStagePayload;
@@ -194,20 +194,20 @@ impl Stage for PluginTransformStage {
         self.stage_key.as_str()
     }
 
-    fn apply_control(
+    fn apply_runtime_update(
         &mut self,
-        control: &dyn Any,
+        update: &dyn Any,
         _ctx: &mut PipelineContext,
-    ) -> Result<StageControlResult, PipelineError> {
-        if let Some(control) = control.downcast_ref::<PluginTransformConfigControl>() {
-            self.apply_config_control(control)?;
-            return Ok(StageControlResult::Applied);
+    ) -> Result<StageRuntimeUpdateResult, PipelineError> {
+        if let Some(update) = update.downcast_ref::<PluginTransformConfigControl>() {
+            self.apply_config_control(update)?;
+            return Ok(StageRuntimeUpdateResult::Applied);
         }
-        if let Some(control) = control.downcast_ref::<PluginTransformLifecycleControl>() {
-            self.apply_lifecycle_control(*control)?;
-            return Ok(StageControlResult::Applied);
+        if let Some(update) = update.downcast_ref::<PluginTransformLifecycleControl>() {
+            self.apply_lifecycle_control(*update)?;
+            return Ok(StageRuntimeUpdateResult::Applied);
         }
-        Ok(StageControlResult::Ignored)
+        Ok(StageRuntimeUpdateResult::Ignored)
     }
 }
 

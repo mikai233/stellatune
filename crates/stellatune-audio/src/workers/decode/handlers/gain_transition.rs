@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 use stellatune_audio_core::pipeline::context::TransitionTimePolicy;
 use stellatune_audio_core::pipeline::context::{GainTransitionRequest, PipelineContext};
 use stellatune_audio_core::pipeline::error::PipelineError;
-use stellatune_audio_core::pipeline::stages::{StageDispatchResult, StageTarget};
+use stellatune_audio_core::pipeline::stages::{StageRuntimeUpdateDispatchResult, StageTarget};
 
 use crate::config::gain::GainTransitionConfig;
 use crate::pipeline::runtime::dsp::control::{TRANSITION_GAIN_STAGE_KEY, TransitionGainControl};
@@ -71,13 +71,13 @@ fn request_fade_in_with_runner_inner(
             time_policy: TransitionTimePolicy::Exact,
         };
         let prime_control = TransitionGainControl::new(prime_request);
-        let handled = runner.apply_stage_control_to(
+        let handled = runner.apply_stage_runtime_update_to(
             &StageTarget::transform(TRANSITION_GAIN_STAGE_KEY),
             Arc::new(prime_control),
             None,
             ctx,
         )?;
-        if handled == StageDispatchResult::StageNotFound {
+        if handled == StageRuntimeUpdateDispatchResult::StageNotFound {
             return Err(PipelineError::StageFailure(
                 "transition gain stage missing for fade-in prime request".to_string(),
             ));
@@ -90,13 +90,13 @@ fn request_fade_in_with_runner_inner(
 
     let request = build_request(config, 1.0, ramp_ms, None, false);
     let control = TransitionGainControl::new(request);
-    let handled = runner.apply_stage_control_to(
+    let handled = runner.apply_stage_runtime_update_to(
         &StageTarget::transform(TRANSITION_GAIN_STAGE_KEY),
         Arc::new(control),
         None,
         ctx,
     )?;
-    if handled == StageDispatchResult::StageNotFound {
+    if handled == StageRuntimeUpdateDispatchResult::StageNotFound {
         return Err(PipelineError::StageFailure(
             "transition gain stage missing for fade-in request".to_string(),
         ));
@@ -122,13 +122,13 @@ pub(crate) fn run_interrupt_fade_out(
 
     let request = build_request(config, 0.0, ramp_ms, available_frames_hint, true);
     let control = TransitionGainControl::new(request);
-    let handled = runner.apply_stage_control_to(
+    let handled = runner.apply_stage_runtime_update_to(
         &StageTarget::transform(TRANSITION_GAIN_STAGE_KEY),
         Arc::new(control),
         None,
         ctx,
     )?;
-    if handled == StageDispatchResult::StageNotFound {
+    if handled == StageRuntimeUpdateDispatchResult::StageNotFound {
         return Err(PipelineError::StageFailure(
             "transition gain stage missing for fade-out request".to_string(),
         ));

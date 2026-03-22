@@ -11,7 +11,7 @@
 //! # Control/Data Split
 //!
 //! Runtime execution is intentionally split into two planes:
-//! - Control plane: command handlers mutate runner/session state and stage controls.
+//! - Control plane: command handlers mutate runner/session state and stage runtime updates.
 //! - Data plane: [`runner`] produces audio blocks and pushes them into sink runtime.
 //!
 //! This split keeps high-frequency data flow off the actor command path while still
