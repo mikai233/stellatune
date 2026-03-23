@@ -16,6 +16,12 @@ impl LocalSourceStage {
     }
 }
 
+impl Default for LocalSourceStage {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Stage for LocalSourceStage {}
 
 impl SourceStage for LocalSourceStage {

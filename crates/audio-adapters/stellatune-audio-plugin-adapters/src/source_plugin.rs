@@ -16,6 +16,12 @@ impl PluginSourceStage {
     }
 }
 
+impl Default for PluginSourceStage {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Stage for PluginSourceStage {}
 
 impl SourceStage for PluginSourceStage {

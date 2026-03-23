@@ -145,12 +145,12 @@ pub fn render_png(request: &RenderRequest) -> Result<Data> {
 
 pub fn write_png(request: &RenderRequest, output: impl AsRef<Path>) -> Result<()> {
     let output = output.as_ref();
-    if let Some(parent) = output.parent() {
-        if !parent.as_os_str().is_empty() {
-            fs::create_dir_all(parent).with_context(|| {
-                format!("failed to create parent directory for {}", output.display())
-            })?;
-        }
+    if let Some(parent) = output.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        fs::create_dir_all(parent).with_context(|| {
+            format!("failed to create parent directory for {}", output.display())
+        })?;
     }
 
     let data = render_png(request)?;
