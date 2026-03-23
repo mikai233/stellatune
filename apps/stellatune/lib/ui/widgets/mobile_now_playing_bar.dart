@@ -34,9 +34,7 @@ class MobileNowPlayingBar extends ConsumerWidget {
     final isPlaying =
         playback.playerState == PlayerState.playing ||
         playback.playerState == PlayerState.buffering;
-    final totalDurationMs =
-        queue.currentItem?.durationMs ??
-        playback.trackInfo?.durationMs?.toInt();
+    final totalDurationMs = playback.trackInfo?.durationMs?.toInt();
     final progressEnabled =
         queue.currentItem != null &&
         playback.currentPath != null &&

@@ -238,10 +238,6 @@ class LyricsController extends Notifier<LyricsState> {
       return null;
     }
 
-    if (queue.repeatMode != RepeatMode.all) {
-      return null;
-    }
-
     if (queue.shuffle) {
       return null;
     }

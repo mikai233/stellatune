@@ -124,7 +124,7 @@ fn new_runner(
 }
 
 #[test]
-fn remaining_frames_hint_ignores_gapless_tail_without_gapless_stage() {
+fn remaining_frames_hint_trusts_decoder_estimate_without_gapless_stage() {
     let mut runner = new_runner(
         Vec::new(),
         3,
@@ -143,7 +143,7 @@ fn remaining_frames_hint_ignores_gapless_tail_without_gapless_stage() {
 }
 
 #[test]
-fn remaining_frames_hint_applies_gapless_tail_with_gapless_stage() {
+fn remaining_frames_hint_trusts_decoder_estimate_with_gapless_stage() {
     let mut runner = new_runner(
         Vec::new(),
         3,
@@ -158,5 +158,5 @@ fn remaining_frames_hint_applies_gapless_tail_with_gapless_stage() {
         .prepare_decode(&InputRef::TrackToken("track-a".to_string()), &mut ctx)
         .expect("prepare_decode failed");
 
-    assert_eq!(runner.playable_remaining_frames_hint(), Some(2));
+    assert_eq!(runner.playable_remaining_frames_hint(), Some(3));
 }

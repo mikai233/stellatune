@@ -2,9 +2,11 @@ use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::path::Path;
 
+use stellatune_audio::gapless::gapless_trimmed_duration_ms;
 use stellatune_audio_builtin_adapters::builtin_decoder::{
     BuiltinDecoder, builtin_decoder_score_for_ext, extension_from_path,
 };
+use stellatune_audio_core::pipeline::context::GaplessTrimSpec;
 use stellatune_plugins::host_runtime::RuntimeCapabilityKind;
 use stellatune_plugins::host_runtime::RuntimeDecoderPlugin;
 use stellatune_plugins::runtime::model::{RuntimeMediaMetadata, RuntimePcmF32Chunk};
@@ -217,7 +219,7 @@ fn sort_candidates(candidates: &mut [TranscodeDecoderCandidate]) {
 fn open_builtin_decoder(path: &str) -> Result<BuiltinTranscodeDecoder, String> {
     let decoder = BuiltinDecoder::open(path)?;
     let spec = decoder.spec();
-    let duration_ms = decoder.duration_ms_hint();
+    let duration_ms = decoder.effective_duration_ms_hint();
     if spec.sample_rate == 0 || spec.channels == 0 {
         return Err(format!(
             "builtin decoder returned invalid stream spec: sample_rate={} channels={}",
@@ -284,6 +286,16 @@ fn open_plugin_decoder(
         ));
     }
     let metadata = decoder.metadata(session_handle).ok();
+    let gapless_trim_spec = Some(GaplessTrimSpec {
+        head_frames: decoder_info.encoder_delay_frames,
+        tail_frames: decoder_info.encoder_padding_frames,
+    })
+    .filter(|spec| !spec.is_disabled());
+    let duration_ms = gapless_trimmed_duration_ms(
+        decoder_info.duration_ms,
+        decoder_info.sample_rate,
+        gapless_trim_spec,
+    );
 
     Ok(PluginTranscodeDecoder {
         decoder,
@@ -291,7 +303,7 @@ fn open_plugin_decoder(
         info: TranscodeDecoderInfo {
             sample_rate: decoder_info.sample_rate,
             channels: decoder_info.channels,
-            duration_ms: decoder_info.duration_ms,
+            duration_ms,
             metadata,
             decoder_plugin_id: Some(plugin_id.to_string()),
             decoder_type_id: Some(type_id.to_string()),

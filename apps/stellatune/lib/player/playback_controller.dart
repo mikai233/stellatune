@@ -170,7 +170,6 @@ class PlaybackController extends Notifier<PlaybackState> {
             title: settings.resumeTitle,
             artist: settings.resumeArtist,
             album: settings.resumeAlbum,
-            durationMs: settings.resumeDurationMs,
           ),
         ], startIndex: 0);
       }
@@ -286,7 +285,6 @@ class PlaybackController extends Notifier<PlaybackState> {
               title: currentItem?.title,
               artist: currentItem?.artist,
               album: currentItem?.album,
-              durationMs: currentItem?.durationMs,
             ),
       );
     });
@@ -310,7 +308,6 @@ class PlaybackController extends Notifier<PlaybackState> {
           title: currentItem?.title,
           artist: currentItem?.artist,
           album: currentItem?.album,
-          durationMs: currentItem?.durationMs,
         );
   }
 
@@ -1111,6 +1108,7 @@ class PlaybackController extends Notifier<PlaybackState> {
           currentPath: path,
           positionMs: 0,
           audioStarted: false,
+          trackInfo: null,
         );
         unawaited(
           _persistResumeNow(

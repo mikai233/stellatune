@@ -20,11 +20,7 @@ class PlaybackQueueUtils {
       return null;
     }
 
-    if (queue.repeatMode != RepeatMode.all) {
-      return null;
-    }
-
-    // Repeat-all with shuffle rebuilds order dynamically; skip preload to avoid wrong guesses.
+    // Shuffle rebuilds order dynamically at wraparound; skip preload to avoid wrong guesses.
     if (queue.shuffle) {
       return null;
     }

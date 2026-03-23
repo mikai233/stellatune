@@ -29,13 +29,11 @@ class SettingsState {
     required this.volume,
     required this.playMode,
     required this.resumeTrack,
-    required this.resumePath,
     required this.resumePositionMs,
     required this.resumeTrackId,
     required this.resumeTitle,
     required this.resumeArtist,
     required this.resumeAlbum,
-    required this.resumeDurationMs,
     required this.selectedBackend,
     required this.selectedDeviceId,
     required this.matchTrackSampleRate,
@@ -53,13 +51,11 @@ class SettingsState {
   final double volume;
   final PlayMode playMode;
   final TrackRef? resumeTrack;
-  final String? resumePath;
   final int resumePositionMs;
   final int? resumeTrackId;
   final String? resumeTitle;
   final String? resumeArtist;
   final String? resumeAlbum;
-  final int? resumeDurationMs;
   final AudioBackend selectedBackend;
   final String? selectedDeviceId;
   final bool matchTrackSampleRate;
@@ -87,13 +83,11 @@ class SettingsState {
     double? volume,
     PlayMode? playMode,
     Object? resumeTrack = _unset,
-    Object? resumePath = _unset,
     int? resumePositionMs,
     Object? resumeTrackId = _unset,
     Object? resumeTitle = _unset,
     Object? resumeArtist = _unset,
     Object? resumeAlbum = _unset,
-    Object? resumeDurationMs = _unset,
     AudioBackend? selectedBackend,
     Object? selectedDeviceId = _unset,
     bool? matchTrackSampleRate,
@@ -113,9 +107,6 @@ class SettingsState {
       resumeTrack: identical(resumeTrack, _unset)
           ? this.resumeTrack
           : resumeTrack as TrackRef?,
-      resumePath: identical(resumePath, _unset)
-          ? this.resumePath
-          : resumePath as String?,
       resumePositionMs: resumePositionMs ?? this.resumePositionMs,
       resumeTrackId: identical(resumeTrackId, _unset)
           ? this.resumeTrackId
@@ -129,9 +120,6 @@ class SettingsState {
       resumeAlbum: identical(resumeAlbum, _unset)
           ? this.resumeAlbum
           : resumeAlbum as String?,
-      resumeDurationMs: identical(resumeDurationMs, _unset)
-          ? this.resumeDurationMs
-          : resumeDurationMs as int?,
       selectedBackend: selectedBackend ?? this.selectedBackend,
       selectedDeviceId: identical(selectedDeviceId, _unset)
           ? this.selectedDeviceId
@@ -164,13 +152,11 @@ class SettingsStore {
   static const _keyVolume = 'volume';
   static const _keyPlayMode = 'play_mode';
   static const _keyResumeTrackRef = 'resume_track_ref';
-  static const _keyResumePath = 'resume_path';
   static const _keyResumePositionMs = 'resume_position_ms';
   static const _keyResumeTrackId = 'resume_track_id';
   static const _keyResumeTitle = 'resume_title';
   static const _keyResumeArtist = 'resume_artist';
   static const _keyResumeAlbum = 'resume_album';
-  static const _keyResumeDurationMs = 'resume_duration_ms';
   static const _keySelectedBackend = 'selected_backend';
   static const _keySelectedDeviceId = 'selected_device_id';
   static const _keyMatchTrackSampleRate = 'match_track_sample_rate';
@@ -196,13 +182,11 @@ class SettingsStore {
       volume: volume,
       playMode: playMode,
       resumeTrack: resumeTrack,
-      resumePath: resumePath,
       resumePositionMs: resumePositionMs,
       resumeTrackId: resumeTrackId,
       resumeTitle: resumeTitle,
       resumeArtist: resumeArtist,
       resumeAlbum: resumeAlbum,
-      resumeDurationMs: resumeDurationMs,
       selectedBackend: selectedBackend,
       selectedDeviceId: selectedDeviceId,
       matchTrackSampleRate: matchTrackSampleRate,
@@ -260,19 +244,6 @@ class SettingsStore {
         logger.w('failed to decode resume track', error: e, stackTrace: s);
       }
     }
-
-    final legacyPath = resumePath;
-    if (legacyPath == null) return null;
-    return TrackRef(
-      sourceId: 'local',
-      trackId: legacyPath,
-      locator: legacyPath,
-    );
-  }
-
-  String? get resumePath {
-    final v = _box.get(_keyResumePath);
-    if (v is String && v.trim().isNotEmpty) return v;
     return null;
   }
 
@@ -287,8 +258,6 @@ class SettingsStore {
   String? get resumeTitle => _box.get(_keyResumeTitle);
   String? get resumeArtist => _box.get(_keyResumeArtist);
   String? get resumeAlbum => _box.get(_keyResumeAlbum);
-  int? get resumeDurationMs => _box.get(_keyResumeDurationMs);
-
   Future<void> setResume({
     required TrackRef track,
     required int positionMs,
@@ -296,7 +265,6 @@ class SettingsStore {
     String? title,
     String? artist,
     String? album,
-    int? durationMs,
   }) async {
     await _box.put(
       _keyResumeTrackRef,
@@ -306,24 +274,20 @@ class SettingsStore {
         'locator': track.locator,
       }),
     );
-    await _box.put(_keyResumePath, track.locator);
     await _box.put(_keyResumePositionMs, positionMs);
     await _box.put(_keyResumeTrackId, trackId);
     await _box.put(_keyResumeTitle, title);
     await _box.put(_keyResumeArtist, artist);
     await _box.put(_keyResumeAlbum, album);
-    await _box.put(_keyResumeDurationMs, durationMs);
   }
 
   Future<void> clearResume() async {
     await _box.delete(_keyResumeTrackRef);
-    await _box.delete(_keyResumePath);
     await _box.delete(_keyResumePositionMs);
     await _box.delete(_keyResumeTrackId);
     await _box.delete(_keyResumeTitle);
     await _box.delete(_keyResumeArtist);
     await _box.delete(_keyResumeAlbum);
-    await _box.delete(_keyResumeDurationMs);
   }
 
   AudioBackend get selectedBackend {
@@ -556,7 +520,6 @@ class SettingsController extends Notifier<SettingsState> {
     String? title,
     String? artist,
     String? album,
-    int? durationMs,
   }) {
     return _persist(
       (store) => store.setResume(
@@ -566,7 +529,6 @@ class SettingsController extends Notifier<SettingsState> {
         title: title,
         artist: artist,
         album: album,
-        durationMs: durationMs,
       ),
     );
   }

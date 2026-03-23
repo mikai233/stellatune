@@ -188,12 +188,21 @@ pub(super) fn extract_metadata(path: &Path) -> Result<ExtractedMetadata> {
         let track_id = track.id;
         let time_base = track.codec_params.time_base;
         let n_frames = track.codec_params.n_frames;
+        let sample_rate = track.codec_params.sample_rate.unwrap_or(0);
+        let encoder_delay_frames = track.codec_params.delay.unwrap_or(0);
+        let encoder_padding_frames = track.codec_params.padding.unwrap_or(0);
         out.duration_ms = duration_ms_from_track_params(time_base, n_frames);
         if out.duration_ms.is_none() {
             // TODO: Re-evaluate whether this seek-based duration fallback should be removed.
             out.duration_ms =
                 estimate_duration_ms_by_seek(probed.format.as_mut(), track_id, time_base);
         }
+        out.duration_ms = trim_duration_ms_i64(
+            out.duration_ms,
+            sample_rate,
+            encoder_delay_frames,
+            encoder_padding_frames,
+        );
     }
 
     if out.cover.is_none() {
@@ -283,7 +292,6 @@ pub(super) fn extract_metadata_with_plugins(path: &Path) -> Result<ExtractedMeta
         .trim()
         .to_ascii_lowercase();
     let builtin_score = builtin_decoder_score_for_ext(&ext).unwrap_or(0);
-    let symphonia_supported = builtin_score > 0;
     let prefer_plugin = if ext.is_empty() {
         false
     } else {
@@ -297,29 +305,7 @@ pub(super) fn extract_metadata_with_plugins(path: &Path) -> Result<ExtractedMeta
             ext = %ext,
             "using v2 plugin metadata extractor"
         );
-        match extract_plugin_metadata_from_plugin(path) {
-            Ok(metadata) => return Ok(metadata),
-            Err(error) => {
-                if symphonia_supported {
-                    debug!(
-                        target: "stellatune_library::metadata",
-                        path = %path.display(),
-                        ext = %ext,
-                        err = %error,
-                        "v2 plugin metadata extractor failed, fallback to symphonia"
-                    );
-                } else {
-                    debug!(
-                        target: "stellatune_library::metadata",
-                        path = %path.display(),
-                        ext = %ext,
-                        err = %error,
-                        "v2 plugin metadata extractor failed, no symphonia fallback for unsupported ext"
-                    );
-                    return Err(error);
-                }
-            },
-        }
+        return extract_plugin_metadata_from_plugin(path);
     }
 
     extract_metadata(path)
@@ -338,6 +324,47 @@ fn duration_ms_from_time_base(tb: TimeBase, ts: u64) -> i64 {
     let t = tb.calc_time(ts);
     let ms = (t.seconds as f64 * 1000.0) + (t.frac * 1000.0);
     ms.round() as i64
+}
+
+fn gapless_trim_delta_ms(
+    sample_rate: u32,
+    encoder_delay_frames: u32,
+    encoder_padding_frames: u32,
+) -> u64 {
+    let sample_rate = sample_rate.max(1) as u128;
+    let trimmed_frames =
+        (encoder_delay_frames as u128).saturating_add(encoder_padding_frames as u128);
+    if trimmed_frames == 0 {
+        return 0;
+    }
+
+    trimmed_frames
+        .saturating_mul(1000)
+        .saturating_add(sample_rate / 2)
+        .saturating_div(sample_rate)
+        .min(u64::MAX as u128) as u64
+}
+
+fn trim_duration_ms_i64(
+    duration_ms: Option<i64>,
+    sample_rate: u32,
+    encoder_delay_frames: u32,
+    encoder_padding_frames: u32,
+) -> Option<i64> {
+    let duration_ms = duration_ms?;
+    let delta_ms = gapless_trim_delta_ms(sample_rate, encoder_delay_frames, encoder_padding_frames);
+    Some(duration_ms.saturating_sub(delta_ms.min(i64::MAX as u64) as i64))
+}
+
+fn trim_duration_ms_u64_to_i64(
+    duration_ms: Option<u64>,
+    sample_rate: u32,
+    encoder_delay_frames: u32,
+    encoder_padding_frames: u32,
+) -> Option<i64> {
+    let duration_ms = duration_ms?;
+    let delta_ms = gapless_trim_delta_ms(sample_rate, encoder_delay_frames, encoder_padding_frames);
+    Some(duration_ms.saturating_sub(delta_ms).min(i64::MAX as u64) as i64)
 }
 
 fn estimate_duration_ms_by_seek(
@@ -405,7 +432,12 @@ fn extract_plugin_metadata_from_plugin(path: &Path) -> Result<ExtractedMetadata>
             let info = info?;
 
             let mut out = ExtractedMetadata {
-                duration_ms: info.duration_ms.map(|ms| ms.min(i64::MAX as u64) as i64),
+                duration_ms: trim_duration_ms_u64_to_i64(
+                    info.duration_ms,
+                    info.sample_rate,
+                    info.encoder_delay_frames,
+                    info.encoder_padding_frames,
+                ),
                 ..Default::default()
             };
             if let Some(metadata) = metadata.as_ref() {
@@ -452,9 +484,6 @@ fn apply_runtime_metadata_json(metadata: &JsonValue, out: &mut ExtractedMetadata
             .and_then(JsonValue::as_str)
             .and_then(normalize_text_field);
     }
-    if out.duration_ms.is_none() {
-        out.duration_ms = metadata.get("duration_ms").and_then(json_u64_to_i64);
-    }
     if out.cover.is_none() {
         out.cover = extract_cover_from_runtime_extras_json(metadata);
     }
@@ -463,10 +492,6 @@ fn apply_runtime_metadata_json(metadata: &JsonValue, out: &mut ExtractedMetadata
 fn normalize_text_field(raw: &str) -> Option<String> {
     let text = raw.trim().to_string();
     if text.is_empty() { None } else { Some(text) }
-}
-
-fn json_u64_to_i64(value: &JsonValue) -> Option<i64> {
-    value.as_u64().map(|v| v.min(i64::MAX as u64) as i64)
 }
 
 fn extract_cover_from_runtime_extras_json(metadata: &JsonValue) -> Option<Vec<u8>> {
@@ -780,4 +805,24 @@ pub(super) fn write_cover_bytes(cover_dir: &Path, track_id: i64, bytes: &[u8]) -
         .with_context(|| format!("failed to rename cover: {}", final_path.display()))?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{trim_duration_ms_i64, trim_duration_ms_u64_to_i64};
+
+    #[test]
+    fn trims_gapless_padding_from_i64_duration() {
+        assert_eq!(trim_duration_ms_i64(Some(10), 1000, 3, 2), Some(5));
+    }
+
+    #[test]
+    fn trims_gapless_padding_from_u64_duration() {
+        assert_eq!(trim_duration_ms_u64_to_i64(Some(10), 1000, 1, 4), Some(5));
+    }
+
+    #[test]
+    fn leaves_duration_unchanged_without_gapless_padding() {
+        assert_eq!(trim_duration_ms_i64(Some(10), 44100, 0, 0), Some(10));
+    }
 }

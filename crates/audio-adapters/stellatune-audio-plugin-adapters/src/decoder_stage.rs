@@ -5,6 +5,7 @@ use std::path::Path;
 
 use serde::Deserialize;
 use serde_json::Value;
+use stellatune_audio::gapless::gapless_trimmed_duration_ms;
 use stellatune_audio_core::pipeline::context::{
     AudioBlock, GaplessTrimSpec, PipelineContext, SourceHandle, StreamSpec,
 };
@@ -703,6 +704,7 @@ fn open_decoder_for_stream(
         head_frames: info.encoder_delay_frames,
         tail_frames: info.encoder_padding_frames,
     };
+    let gapless_trim_spec = (!gapless.is_disabled()).then_some(gapless);
     Ok(PreparedDecoderState {
         plugin_id: plugin_id.to_string(),
         type_id: type_id.to_string(),
@@ -712,8 +714,12 @@ fn open_decoder_for_stream(
             sample_rate: info.sample_rate,
             channels: info.channels,
         },
-        gapless_trim_spec: (!gapless.is_disabled()).then_some(gapless),
-        duration_ms_hint: info.duration_ms,
+        gapless_trim_spec,
+        duration_ms_hint: gapless_trimmed_duration_ms(
+            info.duration_ms,
+            info.sample_rate,
+            gapless_trim_spec,
+        ),
     })
 }
 

@@ -17,6 +17,42 @@ class QueueController extends Notifier<QueueState> {
     return pos >= 0 ? pos : 0;
   }
 
+  QueueItem? _moveToOrderPosition(List<int> order, int orderPos) {
+    if (orderPos < 0 || orderPos >= order.length) return null;
+    final nextIndex = order[orderPos];
+    if (nextIndex < 0 || nextIndex >= state.items.length) return null;
+    state = state.copyWith(
+      currentIndex: nextIndex,
+      order: order,
+      orderPos: orderPos,
+    );
+    return state.currentItem;
+  }
+
+  QueueItem? _wrapNext() {
+    if (state.items.isEmpty) return null;
+
+    if (state.shuffle) {
+      final currentIndex = state.currentIndex;
+      if (currentIndex == null ||
+          currentIndex < 0 ||
+          currentIndex >= state.items.length) {
+        return null;
+      }
+
+      final order = buildOrder(
+        length: state.items.length,
+        startIndex: currentIndex,
+        shuffle: true,
+        random: _random,
+      );
+      final nextPos = order.length > 1 ? 1 : 0;
+      return _moveToOrderPosition(order, nextPos);
+    }
+
+    return _moveToOrderPosition(state.order, 0);
+  }
+
   @override
   QueueState build() {
     final settings = ref.read(settingsStoreProvider);
@@ -126,21 +162,8 @@ class QueueController extends Notifier<QueueState> {
       return state.currentItem;
     }
 
-    // End of order.
-    if (state.repeatMode == RepeatMode.all) {
-      final startIndex = state.shuffle ? state.order.last : 0;
-      final order = buildOrder(
-        length: state.items.length,
-        startIndex: startIndex.clamp(0, state.items.length - 1),
-        shuffle: state.shuffle,
-        random: _random,
-      );
-      state = state.copyWith(currentIndex: order[0], order: order, orderPos: 0);
-      return state.currentItem;
-    }
-
-    // repeat off
-    return null;
+    // End of order: all modes except repeat-one wrap around.
+    return _wrapNext();
   }
 
   QueueItem? previous() {

@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:stellatune/bridge/bridge.dart';
 
+const Object _playbackStateSentinel = Object();
+
 @immutable
 class PlaybackState {
   const PlaybackState({
@@ -45,7 +47,7 @@ class PlaybackState {
     String? lastError,
     String? lastLog,
     bool? audioStarted,
-    TrackDecodeInfo? trackInfo,
+    Object? trackInfo = _playbackStateSentinel,
   }) {
     return PlaybackState(
       playerState: playerState ?? this.playerState,
@@ -56,7 +58,9 @@ class PlaybackState {
       lastError: lastError ?? this.lastError,
       lastLog: lastLog ?? this.lastLog,
       audioStarted: audioStarted ?? this.audioStarted,
-      trackInfo: trackInfo ?? this.trackInfo,
+      trackInfo: identical(trackInfo, _playbackStateSentinel)
+          ? this.trackInfo
+          : trackInfo as TrackDecodeInfo?,
     );
   }
 }

@@ -47,9 +47,7 @@ class NowPlayingBar extends ConsumerWidget {
     final localizedPlaybackError = playback.lastError == null
         ? null
         : localizePlaybackError(l10n, playback.lastError!);
-    final totalDurationMs =
-        queue.currentItem?.durationMs ??
-        playback.trackInfo?.durationMs?.toInt();
+    final totalDurationMs = playback.trackInfo?.durationMs?.toInt();
     final progressEnabled =
         queue.currentItem != null &&
         playback.currentPath != null &&

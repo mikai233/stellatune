@@ -895,7 +895,7 @@ fn seek_command_uses_resampled_remaining_frames_hint_for_near_eof_fade_out() {
 }
 
 #[test]
-fn stop_command_applies_gapless_tail_before_resampled_hint_scaling() {
+fn stop_command_uses_trimmed_decoder_hint_before_resampled_scaling() {
     let pipeline_config = HarnessPipelineConfig {
         resampler_target_sample_rate: Some(2_000),
         gapless_trim_spec: Some(GaplessTrimSpec {
@@ -909,7 +909,7 @@ fn stop_command_applies_gapless_tail_before_resampled_hint_scaling() {
         .open("track-a", true)
         .expect("open command should succeed");
     harness.force_full_transition_gain();
-    assert_eq!(harness.playable_remaining_frames_hint(), Some(4));
+    assert_eq!(harness.playable_remaining_frames_hint(), Some(6));
 
     harness.clear_transition_requests();
     harness
@@ -917,7 +917,7 @@ fn stop_command_applies_gapless_tail_before_resampled_hint_scaling() {
         .expect("stop command should succeed after fade-out");
 
     let requests = harness.transition_requests();
-    assert_has_near_eof_fade_out_request(&requests, 4);
+    assert_has_near_eof_fade_out_request(&requests, 6);
 }
 
 #[test]

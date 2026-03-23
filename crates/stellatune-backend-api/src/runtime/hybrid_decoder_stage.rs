@@ -835,7 +835,7 @@ impl UserDecoderImplementation for PrebuiltUserDecoderInstance {
     }
 
     fn duration_ms_hint(&self) -> Option<u64> {
-        self.decoder.duration_ms_hint()
+        self.decoder.effective_duration_ms_hint()
     }
 
     fn gapless_trim_spec(&self) -> Option<GaplessTrimSpec> {

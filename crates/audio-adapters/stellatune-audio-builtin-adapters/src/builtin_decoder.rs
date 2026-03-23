@@ -2,6 +2,7 @@ use std::fs::File;
 use std::io;
 use std::path::Path;
 
+use stellatune_audio::gapless::gapless_trimmed_duration_ms;
 use stellatune_audio_core::pipeline::context::{GaplessTrimSpec, StreamSpec};
 use symphonia::core::audio::SampleBuffer;
 use symphonia::core::audio::{AudioBufferRef, SignalSpec};
@@ -291,6 +292,14 @@ impl BuiltinDecoder {
 
     pub fn duration_ms_hint(&self) -> Option<u64> {
         self.duration_ms_hint
+    }
+
+    pub fn effective_duration_ms_hint(&self) -> Option<u64> {
+        gapless_trimmed_duration_ms(
+            self.duration_ms_hint,
+            self.spec.sample_rate,
+            self.gapless_trim_spec(),
+        )
     }
 
     pub fn gapless_trim_spec(&self) -> Option<GaplessTrimSpec> {

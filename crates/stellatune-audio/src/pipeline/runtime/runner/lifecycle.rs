@@ -121,10 +121,6 @@ impl PipelineRunner {
         self.supports_transition_gain
     }
 
-    pub(crate) fn supports_gapless_trim(&self) -> bool {
-        self.supports_gapless_trim
-    }
-
     pub(crate) fn playable_remaining_frames_hint(&self) -> Option<u64> {
         self.playable_remaining_frames_hint
     }

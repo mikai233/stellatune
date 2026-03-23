@@ -138,22 +138,17 @@ impl PipelineRunner {
         scaled.min(u64::MAX as u128) as u64
     }
 
-    /// Refreshes playable-remaining hint in output-rate domain, including gapless tail trimming.
+    /// Refreshes playable-remaining hint in output-rate domain.
     ///
-    /// The hint is approximate and is used for policy decisions and transition timing,
+    /// Decoder duration hints are expected to already represent playable
+    /// duration after any gapless trim metadata is applied. The hint is
+    /// approximate and is used for policy decisions and transition timing,
     /// not as an exact playback position source.
     pub(crate) fn refresh_playable_remaining_frames_hint(&mut self) {
-        let tail_frames = if self.supports_gapless_trim() {
-            self.decoder_gapless_trim_spec
-                .map(|v| v.tail_frames as u64)
-                .unwrap_or(0)
-        } else {
-            0
-        };
-        let hint = self.decoder.estimated_remaining_frames().map(|frames| {
-            let playable_decoder_frames = frames.saturating_sub(tail_frames);
-            self.scale_decoder_frames_to_output_domain(playable_decoder_frames)
-        });
+        let hint = self
+            .decoder
+            .estimated_remaining_frames()
+            .map(|frames| self.scale_decoder_frames_to_output_domain(frames));
         self.playable_remaining_frames_hint = hint;
     }
 

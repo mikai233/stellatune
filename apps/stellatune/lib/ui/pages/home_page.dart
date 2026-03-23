@@ -33,6 +33,7 @@ class HomePage extends ConsumerWidget {
     final l10n = AppLocalizations.of(context)!;
     final desktopWide = MediaQuery.sizeOf(context).width >= 900;
     final listTopPadding = desktopWide ? 84.0 : 24.0;
+    final playback = ref.watch(playbackControllerProvider);
     final queue = ref.watch(queueControllerProvider);
     final coverDir = ref.watch(coverDirProvider);
     final allTracksAsync = ref.watch(homeAllTracksProvider);
@@ -50,7 +51,9 @@ class HomePage extends ConsumerWidget {
         ? _subtitle(currentItem.artist, currentItem.album, l10n)
         : _subtitle(fallbackTrack?.artist, fallbackTrack?.album, l10n);
     final heroDurationMs =
-        currentItem?.durationMs ??
+        (currentItem == null
+            ? null
+            : playback.trackInfo?.durationMs?.toInt()) ??
         (fallbackTrack?.durationMs == null
             ? null
             : fallbackTrack!.durationMs!.toInt());
