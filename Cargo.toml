@@ -2,6 +2,7 @@
 resolver = "3"
 members = [
   "apps/stellatune-tui",
+  "crates/stellatune-icon",
   "crates/stellatune-audio-core",
   "crates/audio-adapters/stellatune-audio-builtin-adapters",
   "crates/audio-adapters/stellatune-audio-plugin-adapters",
@@ -91,6 +92,7 @@ roxmltree = "0.21.1"
 rubato = "1.0.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1.0.149"
+skia-safe = "0.93.1"
 socket2 = "0.6.3"
 sqlx = { version = "0.8.6", default-features = false, features = [
   "runtime-tokio",

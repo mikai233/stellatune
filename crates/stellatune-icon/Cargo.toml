@@ -1,0 +1,14 @@
+[package]
+name = "stellatune-icon"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+
+[[bin]]
+name = "stellatune-icon"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+skia-safe.workspace = true
