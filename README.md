@@ -3,6 +3,9 @@
 English | [简体中文](README_zh.md)
 
 > A next-generation, cross-platform music player designed for audiophiles and tinkerers alike.
+>
+> Status: Early stage / WIP. StellaTune is under active development, and APIs, plugin interfaces, and user-facing features may change frequently.
+> Platform support priority currently focuses on Windows first, then the rest of the desktop platforms, and mobile platforms last.
 
 StellaTune is not just another music player; it is an open-source, extensible audio platform built with a beautiful **Flutter** user interface and a blazing-fast, memory-safe **Rust** core. Whether you are managing a massive local library or streaming through custom plugins, StellaTune delivers an uncompromising audio experience.
 
