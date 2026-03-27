@@ -5,7 +5,6 @@ pub(crate) struct RuntimeState {
     pub(crate) stream: Option<StreamState>,
     pub(crate) active_device_id: Option<String>,
     pub(crate) device_snapshot: Vec<DeviceSnapshotEntry>,
-    pub(crate) last_live_device_ids: Vec<String>,
     pub(crate) data_ingress: Option<DataIngressPump>,
 }
 
@@ -15,7 +14,6 @@ impl RuntimeState {
             stream: None,
             active_device_id: None,
             device_snapshot: Vec::new(),
-            last_live_device_ids: Vec::new(),
             data_ingress,
         }
     }

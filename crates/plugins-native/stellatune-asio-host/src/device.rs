@@ -6,6 +6,7 @@ use std::time::Duration;
 use cpal::traits::{DeviceTrait, HostTrait};
 use stellatune_asio_proto::{AudioSpec, DeviceCaps, DeviceInfo, SampleFormat};
 
+use crate::platform::device::asio_host;
 use crate::state::{DeviceSnapshotEntry, RuntimeState};
 
 pub(crate) const OPEN_RECONFIGURE_SETTLE_MS: u64 = 25;
@@ -18,21 +19,6 @@ fn device_id_string(dev: &cpal::Device) -> String {
         .map(|id| id.to_string())
         .or_else(|| dev.description().ok().map(|d| d.to_string()))
         .unwrap_or_else(|| "unknown".to_string())
-}
-
-fn asio_device_id_from_driver_name(name: &str) -> String {
-    format!("asio:{name}")
-}
-
-fn asio_host() -> Result<cpal::Host, String> {
-    #[cfg(all(windows, feature = "asio"))]
-    {
-        return cpal::host_from_id(cpal::HostId::Asio).map_err(|e| e.to_string());
-    }
-    #[cfg(not(all(windows, feature = "asio")))]
-    {
-        Err("ASIO support not built (enable `stellatune-asio-host` feature `asio`)".to_string())
-    }
 }
 
 fn sort_dedup_device_meta(devices: &mut Vec<(String, String)>) {
@@ -62,93 +48,11 @@ fn enumerate_output_device_meta_live() -> Result<Vec<(String, String)>, String> 
     Ok(out)
 }
 
-#[cfg(all(windows, feature = "asio"))]
-fn enumerate_output_device_meta_catalog() -> Result<Vec<(String, String)>, String> {
-    let mut out = asio_sys::Asio::new()
-        .driver_names()
-        .into_iter()
-        .map(|name| name.trim().to_string())
-        .filter(|name| !name.is_empty())
-        .map(|name| (asio_device_id_from_driver_name(&name), name))
-        .collect::<Vec<_>>();
-    sort_dedup_device_meta(&mut out);
-    Ok(out)
-}
-
-#[cfg(not(all(windows, feature = "asio")))]
-fn enumerate_output_device_meta_catalog() -> Result<Vec<(String, String)>, String> {
-    enumerate_output_device_meta_live()
-}
-
-fn filter_catalog_by_live_cache(
-    mut catalog: Vec<(String, String)>,
-    live_ids: &[String],
-    active_device_id: Option<&str>,
-) -> Vec<(String, String)> {
-    if live_ids.is_empty() {
-        return catalog;
-    }
-    catalog.retain(|(id, _)| {
-        live_ids.iter().any(|live| device_id_matches(id, live))
-            || active_device_id
-                .map(|active| device_id_matches(id, active))
-                .unwrap_or(false)
-    });
-    catalog
-}
-
 fn enumerate_output_device_meta_for_state(
     state: &mut RuntimeState,
 ) -> Result<Vec<(String, String)>, String> {
-    #[cfg(all(windows, feature = "asio"))]
-    {
-        // When idle, prefer CPAL live enumeration because it excludes stale registry-only
-        // ASIO driver names that cannot actually be opened.
-        if state.stream.is_none() {
-            match enumerate_output_device_meta_live() {
-                Ok(live) if !live.is_empty() => {
-                    state.last_live_device_ids = live.iter().map(|(id, _)| id.clone()).collect();
-                    return Ok(live);
-                },
-                Ok(_) => {
-                    eprintln!(
-                        "asio host ListDevices live enumeration returned empty; falling back to catalog"
-                    );
-                },
-                Err(error) => {
-                    eprintln!(
-                        "asio host ListDevices live enumeration failed; falling back to catalog: {error}"
-                    );
-                },
-            }
-        }
-
-        let catalog = enumerate_output_device_meta_catalog()?;
-        let filtered = filter_catalog_by_live_cache(
-            catalog.clone(),
-            &state.last_live_device_ids,
-            state.active_device_id.as_deref(),
-        );
-        if filtered.is_empty() {
-            return Ok(catalog);
-        }
-        if filtered.len() != catalog.len() {
-            let removed = catalog.len().saturating_sub(filtered.len());
-            eprintln!(
-                "asio host ListDevices filtered stale catalog entries: removed={} kept={} active_device={:?}",
-                removed,
-                filtered.len(),
-                state.active_device_id
-            );
-        }
-        return Ok(filtered);
-    }
-
-    #[cfg(not(all(windows, feature = "asio")))]
-    {
-        let _ = state;
-        enumerate_output_device_meta_live()
-    }
+    let _ = state;
+    enumerate_output_device_meta_live()
 }
 
 fn build_device_caps_for_device(dev: &cpal::Device) -> Result<DeviceCaps, String> {
@@ -288,7 +192,7 @@ pub(crate) fn validate_selection_session(
         ));
     }
 
-    let current_devices = enumerate_output_device_meta_catalog()?;
+    let current_devices = enumerate_output_device_meta_live()?;
     let Some((current_id, current_name)) = current_devices
         .iter()
         .find(|(id, _)| device_id_matches(id, device_id))

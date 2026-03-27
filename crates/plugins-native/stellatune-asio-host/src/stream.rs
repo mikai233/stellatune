@@ -10,15 +10,7 @@ use ringbuf::{HeapCons, HeapProd, HeapRb};
 use stellatune_asio_proto::AudioSpec;
 
 use crate::device::find_live_device;
-
-#[cfg(windows)]
-use windows::Win32::Foundation::HANDLE;
-#[cfg(windows)]
-use windows::Win32::System::Threading::{
-    AVRT_PRIORITY_HIGH, AvSetMmThreadCharacteristicsW, AvSetMmThreadPriority,
-};
-#[cfg(windows)]
-use windows::core::HSTRING;
+use crate::platform::stream::OutputCallbackPlatformState;
 
 const DEFAULT_QUEUE_MS: u32 = 80;
 const MIN_QUEUE_MS: u32 = 20;
@@ -168,13 +160,11 @@ impl StreamState {
                 let queue_cb = Arc::clone(&queue);
                 let running_cb = Arc::clone(&running);
                 let metrics_cb = Arc::clone(&metrics);
-                #[cfg(windows)]
-                let mut mmcss_state = MmcssState::default();
+                let mut platform_state = OutputCallbackPlatformState::default();
                 dev.build_output_stream(
                     &cfg,
                     move |out: &mut [f32], _| {
-                        #[cfg(windows)]
-                        mmcss_state.ensure_pro_audio("f32");
+                        platform_state.on_callback_start("f32");
                         fill_queue_f32(out, &queue_cb, &running_cb, &metrics_cb)
                     },
                     err_fn,
@@ -187,13 +177,11 @@ impl StreamState {
                 let queue_cb = Arc::clone(&queue);
                 let running_cb = Arc::clone(&running);
                 let metrics_cb = Arc::clone(&metrics);
-                #[cfg(windows)]
-                let mut mmcss_state = MmcssState::default();
+                let mut platform_state = OutputCallbackPlatformState::default();
                 dev.build_output_stream(
                     &cfg,
                     move |out: &mut [i16], _| {
-                        #[cfg(windows)]
-                        mmcss_state.ensure_pro_audio("i16");
+                        platform_state.on_callback_start("i16");
                         fill_queue_i16(out, &queue_cb, &running_cb, &metrics_cb, &mut tmp)
                     },
                     err_fn,
@@ -206,13 +194,11 @@ impl StreamState {
                 let queue_cb = Arc::clone(&queue);
                 let running_cb = Arc::clone(&running);
                 let metrics_cb = Arc::clone(&metrics);
-                #[cfg(windows)]
-                let mut mmcss_state = MmcssState::default();
+                let mut platform_state = OutputCallbackPlatformState::default();
                 dev.build_output_stream(
                     &cfg,
                     move |out: &mut [i32], _| {
-                        #[cfg(windows)]
-                        mmcss_state.ensure_pro_audio("i32");
+                        platform_state.on_callback_start("i32");
                         fill_queue_i32(out, &queue_cb, &running_cb, &metrics_cb, &mut tmp)
                     },
                     err_fn,
@@ -225,13 +211,11 @@ impl StreamState {
                 let queue_cb = Arc::clone(&queue);
                 let running_cb = Arc::clone(&running);
                 let metrics_cb = Arc::clone(&metrics);
-                #[cfg(windows)]
-                let mut mmcss_state = MmcssState::default();
+                let mut platform_state = OutputCallbackPlatformState::default();
                 dev.build_output_stream(
                     &cfg,
                     move |out: &mut [u16], _| {
-                        #[cfg(windows)]
-                        mmcss_state.ensure_pro_audio("u16");
+                        platform_state.on_callback_start("u16");
                         fill_queue_u16(out, &queue_cb, &running_cb, &metrics_cb, &mut tmp)
                     },
                     err_fn,
@@ -312,44 +296,6 @@ fn queue_capacity_samples(
     let min_samples = channels.saturating_mul(MIN_QUEUE_FRAMES as u64);
     let samples = frames.saturating_mul(channels).max(min_samples);
     samples.min(MAX_QUEUE_SAMPLES as u64).min(usize::MAX as u64) as usize
-}
-
-#[cfg(windows)]
-struct MmcssGuard(#[allow(dead_code)] HANDLE);
-
-#[cfg(windows)]
-unsafe impl Send for MmcssGuard {}
-
-#[cfg(windows)]
-#[derive(Default)]
-struct MmcssState {
-    attempted: bool,
-    guard: Option<MmcssGuard>,
-}
-
-#[cfg(windows)]
-impl MmcssState {
-    fn ensure_pro_audio(&mut self, format_label: &str) {
-        if self.attempted {
-            return;
-        }
-        self.attempted = true;
-        self.guard = enable_mmcss_pro_audio();
-        if self.guard.is_some() {
-            eprintln!("asio host mmcss: Pro Audio enabled ({format_label})");
-        } else {
-            eprintln!("asio host mmcss: failed to enable Pro Audio ({format_label})");
-        }
-    }
-}
-
-#[cfg(windows)]
-fn enable_mmcss_pro_audio() -> Option<MmcssGuard> {
-    let mut task_index = 0u32;
-    let task = HSTRING::from("Pro Audio");
-    let handle = unsafe { AvSetMmThreadCharacteristicsW(&task, &mut task_index) }.ok()?;
-    let _ = unsafe { AvSetMmThreadPriority(handle, AVRT_PRIORITY_HIGH) };
-    Some(MmcssGuard(handle))
 }
 
 #[derive(Default)]

@@ -7,6 +7,7 @@ members = [
   "crates/audio-adapters/stellatune-audio-builtin-adapters",
   "crates/audio-adapters/stellatune-audio-plugin-adapters",
   "crates/plugins-native/stellatune-asio-proto",
+  "crates/plugins-native/stellatune-asio-host",
   "crates/stellatune-backend-api",
   "crates/stellatune-ffi",
   "crates/stellatune-library",
@@ -26,9 +27,6 @@ members = [
   "crates/stellatune-plugins",
   "crates/stellatune-runtime",
   "crates/stellatune-audio",
-]
-exclude = [
-  "crates/plugins-native/stellatune-asio-host",
 ]
 
 [workspace.package]

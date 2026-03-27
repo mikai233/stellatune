@@ -10,17 +10,8 @@ use std::time::{Duration, Instant};
 
 use memmap2::{MmapMut, MmapOptions};
 
+use crate::platform::data_channel::{DataIngressThreadPlatformState, ReaderPlatformState};
 use crate::stream::StreamIngress;
-
-#[cfg(windows)]
-use windows::Win32::Foundation::{CloseHandle, HANDLE, WAIT_OBJECT_0, WAIT_TIMEOUT};
-#[cfg(windows)]
-use windows::Win32::System::Threading::{
-    AVRT_PRIORITY_HIGH, AvSetMmThreadCharacteristicsW, AvSetMmThreadPriority, EVENT_MODIFY_STATE,
-    OpenEventW, ResetEvent, SYNCHRONIZATION_SYNCHRONIZE, SetEvent, WaitForSingleObject,
-};
-#[cfg(windows)]
-use windows::core::HSTRING;
 
 const DATA_FRAME_MAX_BYTES: usize = 16 * 1024 * 1024;
 const DATA_POLL_INTERVAL: Duration = Duration::from_millis(1);
@@ -79,10 +70,8 @@ fn run_data_ingress(
     current_ingress: Arc<Mutex<Option<StreamIngress>>>,
     stop: Arc<AtomicBool>,
 ) {
-    #[cfg(windows)]
-    let mut mmcss_state = MmcssState::default();
-    #[cfg(windows)]
-    mmcss_state.ensure_pro_audio();
+    let mut platform_state = DataIngressThreadPlatformState::default();
+    platform_state.on_thread_start();
 
     let mut len_bytes = [0_u8; 4];
     let mut payload = Vec::<u8>::new();
@@ -150,8 +139,7 @@ fn run_data_ingress(
 
 struct SharedMemoryDataReader {
     ring: SharedByteRingMapped,
-    #[cfg(windows)]
-    events: Option<SharedMemoryEvents>,
+    platform: ReaderPlatformState,
 }
 
 impl SharedMemoryDataReader {
@@ -164,11 +152,7 @@ impl SharedMemoryDataReader {
         let ring = SharedByteRingMapped::open(Path::new(config.host_to_sidecar_path.as_str()))?;
         Ok(Some(Self {
             ring,
-            #[cfg(windows)]
-            events: SharedMemoryEvents::open(
-                config.host_to_sidecar_data_event.as_deref(),
-                config.host_to_sidecar_space_event.as_deref(),
-            )?,
+            platform: ReaderPlatformState::open(&config)?,
         }))
     }
 
@@ -193,10 +177,7 @@ impl SharedMemoryDataReader {
             let read = self.ring.read_bytes(&mut out[offset..]);
             if read > 0 {
                 offset += read;
-                #[cfg(windows)]
-                if let Some(events) = self.events.as_ref() {
-                    events.sync_after_ring_change(self.ring.occupied_len(), self.ring.free_len())?;
-                }
+                self.platform.sync_after_ring_change(&self.ring)?;
                 continue;
             }
 
@@ -207,13 +188,8 @@ impl SharedMemoryDataReader {
                 return Err("timed out waiting for shared-memory data frame".to_string());
             }
 
-            #[cfg(windows)]
-            if let Some(events) = self.events.as_ref() {
-                let wait_ms = deadline
-                    .saturating_duration_since(Instant::now())
-                    .as_millis()
-                    .min(u32::MAX as u128) as u32;
-                if events.wait_for_data(Some(wait_ms))? {
+            if let Some(got_data) = self.platform.wait_for_data_until(deadline)? {
+                if got_data {
                     continue;
                 }
                 return Ok(false);
@@ -242,10 +218,10 @@ fn resolve_data_endpoint() -> Option<String> {
     })
 }
 
-struct SharedMemoryEndpoint {
-    host_to_sidecar_path: String,
-    host_to_sidecar_data_event: Option<String>,
-    host_to_sidecar_space_event: Option<String>,
+pub(crate) struct SharedMemoryEndpoint {
+    pub(crate) host_to_sidecar_path: String,
+    pub(crate) host_to_sidecar_data_event: Option<String>,
+    pub(crate) host_to_sidecar_space_event: Option<String>,
 }
 
 fn parse_shared_memory_endpoint(endpoint: &str) -> Result<SharedMemoryEndpoint, String> {
@@ -274,14 +250,14 @@ fn parse_shared_memory_endpoint(endpoint: &str) -> Result<SharedMemoryEndpoint, 
         match key.as_str() {
             "tx" => {
                 host_to_sidecar_path = Some(value.to_string());
-            }
+            },
             "tx_data_event" => {
                 host_to_sidecar_data_event = Some(value.to_string());
-            }
+            },
             "tx_space_event" => {
                 host_to_sidecar_space_event = Some(value.to_string());
-            }
-            _ => {}
+            },
+            _ => {},
         }
     }
 
@@ -304,7 +280,7 @@ struct SharedByteRingHeader {
     read_pos: AtomicU64,
 }
 
-struct SharedByteRingMapped {
+pub(crate) struct SharedByteRingMapped {
     map: MmapMut,
     capacity_bytes: usize,
 }
@@ -398,7 +374,7 @@ impl SharedByteRingMapped {
         count
     }
 
-    fn occupied_len(&self) -> usize {
+    pub(crate) fn occupied_len(&self) -> usize {
         let header = self.header();
         let write_pos = header.write_pos.load(Ordering::Acquire);
         let read_pos = header.read_pos.load(Ordering::Relaxed);
@@ -407,124 +383,7 @@ impl SharedByteRingMapped {
             .min(self.capacity_bytes as u64) as usize
     }
 
-    fn free_len(&self) -> usize {
+    pub(crate) fn free_len(&self) -> usize {
         self.capacity_bytes.saturating_sub(self.occupied_len())
     }
-}
-
-#[cfg(windows)]
-struct NamedEventHandle(HANDLE);
-
-#[cfg(windows)]
-unsafe impl Send for NamedEventHandle {}
-
-#[cfg(windows)]
-impl Drop for NamedEventHandle {
-    fn drop(&mut self) {
-        unsafe {
-            let _ = CloseHandle(self.0);
-        }
-    }
-}
-
-#[cfg(windows)]
-struct SharedMemoryEvents {
-    data_available: NamedEventHandle,
-    space_available: NamedEventHandle,
-}
-
-#[cfg(windows)]
-impl SharedMemoryEvents {
-    fn open(data_event: Option<&str>, space_event: Option<&str>) -> Result<Option<Self>, String> {
-        let Some(data_event) = data_event else {
-            return Ok(None);
-        };
-        let Some(space_event) = space_event else {
-            return Ok(None);
-        };
-        let access = EVENT_MODIFY_STATE | SYNCHRONIZATION_SYNCHRONIZE;
-        let data_available = unsafe {
-            OpenEventW(access, false, &HSTRING::from(data_event))
-                .map_err(|error| format!("open shared-memory data event: {error}"))?
-        };
-        let space_available = unsafe {
-            OpenEventW(access, false, &HSTRING::from(space_event))
-                .map_err(|error| format!("open shared-memory space event: {error}"))?
-        };
-        Ok(Some(Self {
-            data_available: NamedEventHandle(data_available),
-            space_available: NamedEventHandle(space_available),
-        }))
-    }
-
-    fn sync_after_ring_change(&self, occupied_bytes: usize, free_bytes: usize) -> Result<(), String> {
-        unsafe {
-            if occupied_bytes > 0 {
-                SetEvent(self.data_available.0)
-                    .map_err(|error| format!("set shared-memory data event: {error}"))?;
-            } else {
-                ResetEvent(self.data_available.0)
-                    .map_err(|error| format!("reset shared-memory data event: {error}"))?;
-            }
-
-            if free_bytes > 0 {
-                SetEvent(self.space_available.0)
-                    .map_err(|error| format!("set shared-memory space event: {error}"))?;
-            } else {
-                ResetEvent(self.space_available.0)
-                    .map_err(|error| format!("reset shared-memory space event: {error}"))?;
-            }
-        }
-        Ok(())
-    }
-
-    fn wait_for_data(&self, timeout_ms: Option<u32>) -> Result<bool, String> {
-        let timeout = timeout_ms.unwrap_or(u32::MAX);
-        let result = unsafe { WaitForSingleObject(self.data_available.0, timeout) };
-        if result == WAIT_OBJECT_0 {
-            Ok(true)
-        } else if result == WAIT_TIMEOUT {
-            Ok(false)
-        } else {
-            Err(format!("unexpected wait result: {result:?}"))
-        }
-    }
-}
-
-#[cfg(windows)]
-struct MmcssGuard(#[allow(dead_code)] HANDLE);
-
-#[cfg(windows)]
-unsafe impl Send for MmcssGuard {}
-
-#[cfg(windows)]
-#[derive(Default)]
-struct MmcssState {
-    attempted: bool,
-    guard: Option<MmcssGuard>,
-}
-
-#[cfg(windows)]
-impl MmcssState {
-    fn ensure_pro_audio(&mut self) {
-        if self.attempted {
-            return;
-        }
-        self.attempted = true;
-        self.guard = enable_mmcss_pro_audio();
-        if self.guard.is_some() {
-            eprintln!("asio host data ingress mmcss: Pro Audio enabled");
-        } else {
-            eprintln!("asio host data ingress mmcss: failed to enable Pro Audio");
-        }
-    }
-}
-
-#[cfg(windows)]
-fn enable_mmcss_pro_audio() -> Option<MmcssGuard> {
-    let mut task_index = 0u32;
-    let task = HSTRING::from("Pro Audio");
-    let handle = unsafe { AvSetMmThreadCharacteristicsW(&task, &mut task_index) }.ok()?;
-    let _ = unsafe { AvSetMmThreadPriority(handle, AVRT_PRIORITY_HIGH) };
-    Some(MmcssGuard(handle))
 }

@@ -951,6 +951,7 @@ impl SharedByteRingMapped {
         count
     }
 
+    #[cfg_attr(not(windows), allow(dead_code))]
     fn occupied_len(&self) -> usize {
         let header = self.header();
         let write_pos = header.write_pos.load(Ordering::Acquire);
@@ -960,6 +961,7 @@ impl SharedByteRingMapped {
             .min(self.capacity_bytes as u64) as usize
     }
 
+    #[cfg_attr(not(windows), allow(dead_code))]
     fn free_len(&self) -> usize {
         self.capacity_bytes.saturating_sub(self.occupied_len())
     }
@@ -1058,6 +1060,7 @@ impl SharedMemoryChannelIo {
     }
 }
 
+#[cfg_attr(not(windows), allow(dead_code))]
 struct SharedMemoryEndpoint {
     tx_path: String,
     rx_path: String,
