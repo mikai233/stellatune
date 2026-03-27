@@ -1,11 +1,24 @@
+use crate::data_channel::DataIngressPump;
 use crate::stream::StreamState;
 
-#[derive(Default)]
 pub(crate) struct RuntimeState {
     pub(crate) stream: Option<StreamState>,
     pub(crate) active_device_id: Option<String>,
     pub(crate) device_snapshot: Vec<DeviceSnapshotEntry>,
     pub(crate) last_live_device_ids: Vec<String>,
+    pub(crate) data_ingress: Option<DataIngressPump>,
+}
+
+impl RuntimeState {
+    pub(crate) fn new(data_ingress: Option<DataIngressPump>) -> Self {
+        Self {
+            stream: None,
+            active_device_id: None,
+            device_snapshot: Vec::new(),
+            last_live_device_ids: Vec::new(),
+            data_ingress,
+        }
+    }
 }
 
 pub(crate) struct DeviceSnapshotEntry {

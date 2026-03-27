@@ -44,6 +44,70 @@ function Get-SafeFileName {
     return $safe
 }
 
+function Test-AsioSdkRoot {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    if (-not (Test-Path $Path)) {
+        return $false
+    }
+
+    $required = @(
+        (Join-Path $Path "host\asiodrivers.h"),
+        (Join-Path $Path "common\asio.h"),
+        (Join-Path $Path "common\asiosys.h")
+    )
+
+    foreach ($item in $required) {
+        if (-not (Test-Path $item)) {
+            return $false
+        }
+    }
+
+    return $true
+}
+
+function Prepare-AsioSdk {
+    $explicitSdkDir = $null
+    if (-not [string]::IsNullOrWhiteSpace($env:CPAL_ASIO_DIR)) {
+        $explicitSdkDir = $env:CPAL_ASIO_DIR
+    }
+    elseif (-not [string]::IsNullOrWhiteSpace($env:ASIO_SDK_DIR)) {
+        $explicitSdkDir = $env:ASIO_SDK_DIR
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($explicitSdkDir)) {
+        if (-not (Test-Path $explicitSdkDir)) {
+            throw "Configured ASIO SDK path does not exist: $explicitSdkDir"
+        }
+        $resolved = (Resolve-Path $explicitSdkDir).Path
+        if (-not (Test-AsioSdkRoot -Path $resolved)) {
+            throw @(
+                "Configured ASIO SDK is incomplete: $resolved",
+                "Expected files:",
+                "  host\\asiodrivers.h",
+                "  common\\asio.h",
+                "  common\\asiosys.h"
+            ) -join [Environment]::NewLine
+        }
+        $env:CPAL_ASIO_DIR = $resolved
+        Write-Host "Using ASIO SDK from environment: $resolved"
+        return
+    }
+
+    $tempSdkDir = Join-Path ([System.IO.Path]::GetTempPath()) "asio_sdk"
+    if (Test-Path $tempSdkDir) {
+        $resolvedTemp = (Resolve-Path $tempSdkDir).Path
+        if (Test-AsioSdkRoot -Path $resolvedTemp) {
+            Write-Host "Using cached ASIO SDK: $resolvedTemp"
+            return
+        }
+
+        Write-Warning "Detected incomplete cached ASIO SDK at $resolvedTemp"
+        Write-Host "Removing stale cache so asio-sys can download a fresh SDK during build..."
+        Remove-Item -Recurse -Force $resolvedTemp
+    }
+}
+
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $PluginCrateDir = (Resolve-Path (Join-Path $ScriptDir "..")).Path
 $PluginManifestPath = Join-Path $PluginCrateDir "Cargo.toml"
@@ -83,9 +147,12 @@ if (-not $pluginManifest.components -or $pluginManifest.components.Count -eq 0) 
 
 $prevCargoTargetDir = $env:CARGO_TARGET_DIR
 $env:CARGO_TARGET_DIR = $CargoTargetDir
+$prevCpalAsioDir = $env:CPAL_ASIO_DIR
 
 try {
     Push-Location $RepoRoot
+
+    Prepare-AsioSdk
 
     $wasmBuildArgs = @("build", "--manifest-path", $PluginManifestPath, "--target", $BuildTarget)
     if ($Configuration -eq "Release") {
@@ -173,5 +240,12 @@ finally {
     }
     else {
         $env:CARGO_TARGET_DIR = $prevCargoTargetDir
+    }
+
+    if ($null -eq $prevCpalAsioDir) {
+        Remove-Item Env:CPAL_ASIO_DIR -ErrorAction SilentlyContinue
+    }
+    else {
+        $env:CPAL_ASIO_DIR = $prevCpalAsioDir
     }
 }

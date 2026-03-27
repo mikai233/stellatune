@@ -74,6 +74,7 @@ impl SinkWorker {
         let join = std::thread::Builder::new()
             .name("stellatune-audio-sink-loop".to_string())
             .spawn(move || {
+                let _rt_guard = crate::infra::realtime::enable_realtime_audio_thread();
                 sink_thread_main(SinkThreadArgs {
                     sinks,
                     sink_control_routes,

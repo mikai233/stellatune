@@ -1,4 +1,3 @@
-use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -6,6 +5,8 @@ use std::thread::{self, Builder, JoinHandle};
 use std::time::Duration;
 
 use cpal::traits::{DeviceTrait, StreamTrait};
+use ringbuf::traits::{Consumer as _, Observer as _, Producer as _, Split as _};
+use ringbuf::{HeapCons, HeapProd, HeapRb};
 use stellatune_asio_proto::AudioSpec;
 
 use crate::device::find_live_device;
@@ -25,53 +26,80 @@ const MIN_QUEUE_FRAMES: u32 = 1024;
 const MAX_QUEUE_SAMPLES: usize = 4 * 1024 * 1024;
 
 struct LocalSampleQueue {
-    inner: Mutex<VecDeque<f32>>,
-    capacity_samples: usize,
+    producer: Mutex<HeapProd<f32>>,
+    consumer: Mutex<HeapCons<f32>>,
 }
 
 impl LocalSampleQueue {
     fn new(capacity_samples: usize) -> Self {
+        let rb = HeapRb::<f32>::new(capacity_samples.max(1));
+        let (producer, consumer) = rb.split();
         Self {
-            inner: Mutex::new(VecDeque::with_capacity(capacity_samples.min(16_384))),
-            capacity_samples,
+            producer: Mutex::new(producer),
+            consumer: Mutex::new(consumer),
         }
     }
 
     fn write_samples(&self, input: &[f32]) -> usize {
-        let Ok(mut guard) = self.inner.lock() else {
+        let Ok(mut producer) = self.producer.lock() else {
             return 0;
         };
-        let available = self.capacity_samples.saturating_sub(guard.len());
-        let count = available.min(input.len());
-        if count == 0 {
-            return 0;
-        }
-        guard.extend(input.iter().take(count).copied());
-        count
+        producer.push_slice(input)
     }
 
     fn read_samples(&self, out: &mut [f32]) -> usize {
-        let Ok(mut guard) = self.inner.try_lock() else {
+        let Ok(mut consumer) = self.consumer.lock() else {
             return 0;
         };
-        let count = out.len().min(guard.len());
-        for slot in out.iter_mut().take(count) {
-            *slot = guard.pop_front().unwrap_or(0.0);
-        }
-        count
+        consumer.pop_slice(out)
     }
 
     fn queued_samples(&self) -> u32 {
-        let Ok(guard) = self.inner.lock() else {
+        let Ok(producer) = self.producer.lock() else {
             return 0;
         };
-        guard.len().min(u32::MAX as usize) as u32
+        producer.occupied_len().min(u32::MAX as usize) as u32
     }
 
     fn reset(&self) {
-        if let Ok(mut guard) = self.inner.lock() {
-            guard.clear();
+        if let Ok(mut consumer) = self.consumer.lock() {
+            let _ = consumer.clear();
         }
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct StreamIngress {
+    queue: Arc<LocalSampleQueue>,
+    channels: u16,
+}
+
+impl StreamIngress {
+    pub(crate) fn bytes_per_frame(&self) -> usize {
+        self.channels.max(1) as usize * std::mem::size_of::<f32>()
+    }
+
+    pub(crate) fn write_interleaved_f32le(&self, interleaved_f32le: &[u8]) -> Result<u32, String> {
+        if !interleaved_f32le
+            .len()
+            .is_multiple_of(std::mem::size_of::<f32>())
+        {
+            return Err("interleaved_f32le length must be a multiple of 4".to_string());
+        }
+
+        let channels = self.channels.max(1) as usize;
+        let sample_count = interleaved_f32le.len() / std::mem::size_of::<f32>();
+        if !sample_count.is_multiple_of(channels) {
+            return Err("samples not aligned to channels".to_string());
+        }
+
+        let mut samples = Vec::<f32>::with_capacity(sample_count);
+        for bytes in interleaved_f32le.chunks_exact(4) {
+            samples.push(f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]));
+        }
+
+        let accepted_samples = self.queue.write_samples(samples.as_slice());
+        Ok((accepted_samples / channels) as u32)
     }
 }
 
@@ -241,24 +269,15 @@ impl StreamState {
         self.running.load(Ordering::Acquire)
     }
 
+    pub(crate) fn ingress(&self) -> StreamIngress {
+        StreamIngress {
+            queue: Arc::clone(&self.queue),
+            channels: self.channels,
+        }
+    }
+
     pub(crate) fn write_interleaved_f32le(&self, interleaved_f32le: &[u8]) -> Result<u32, String> {
-        if !interleaved_f32le.len().is_multiple_of(std::mem::size_of::<f32>()) {
-            return Err("interleaved_f32le length must be a multiple of 4".to_string());
-        }
-
-        let channels = self.channels.max(1) as usize;
-        let sample_count = interleaved_f32le.len() / std::mem::size_of::<f32>();
-        if !sample_count.is_multiple_of(channels) {
-            return Err("samples not aligned to channels".to_string());
-        }
-
-        let mut samples = Vec::<f32>::with_capacity(sample_count);
-        for bytes in interleaved_f32le.chunks_exact(4) {
-            samples.push(f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]));
-        }
-
-        let accepted_samples = self.queue.write_samples(samples.as_slice());
-        Ok((accepted_samples / channels) as u32)
+        self.ingress().write_interleaved_f32le(interleaved_f32le)
     }
 }
 
@@ -287,7 +306,9 @@ fn queue_capacity_samples(
         .unwrap_or(MIN_QUEUE_FRAMES)
         .max(MIN_QUEUE_FRAMES)
         .saturating_mul(2) as u64;
-    let frames = by_time_frames.max(by_buffer_frames).max(MIN_QUEUE_FRAMES as u64);
+    let frames = by_time_frames
+        .max(by_buffer_frames)
+        .max(MIN_QUEUE_FRAMES as u64);
     let min_samples = channels.saturating_mul(MIN_QUEUE_FRAMES as u64);
     let samples = frames.saturating_mul(channels).max(min_samples);
     samples.min(MAX_QUEUE_SAMPLES as u64).min(usize::MAX as u64) as usize

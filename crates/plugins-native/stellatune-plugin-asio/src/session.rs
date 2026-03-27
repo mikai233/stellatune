@@ -22,6 +22,7 @@ pub struct AsioWasmSession {
     channels: u16,
     started: bool,
     start_prefill_samples: usize,
+    pending_start_samples: usize,
     flush_timeout_ms: u64,
     negotiated_cache: Option<CachedNegotiation>,
 }
@@ -34,6 +35,7 @@ impl AsioWasmSession {
             channels: 0,
             started: false,
             start_prefill_samples: 0,
+            pending_start_samples: 0,
             flush_timeout_ms: AsioOutputConfig::default().flush_timeout_ms.max(1),
             negotiated_cache: None,
         })
@@ -129,6 +131,7 @@ impl OutputSinkSession for AsioWasmSession {
         self.channels = spec.channels;
         self.started = false;
         self.start_prefill_samples = start_prefill_samples;
+        self.pending_start_samples = 0;
         self.flush_timeout_ms = flush_timeout_ms;
         self.invalidate_negotiate_cache();
         Ok(())
@@ -165,21 +168,32 @@ impl OutputSinkSession for AsioWasmSession {
 
         let started = self.started;
         let start_prefill_samples = self.start_prefill_samples;
-        let (frames_written, started_now) = with_sidecar(&self.config, |client| {
-            let frames_written = client.write_samples(interleaved_f32le)?;
-            let mut started_now = started;
-            if !started_now && frames_written > 0 {
-                let (queued_samples, running) = client.query_status().unwrap_or((0, false));
-                if running {
-                    started_now = true;
-                } else if queued_samples as usize >= start_prefill_samples {
-                    client.start()?;
-                    started_now = true;
+        let pending_start_samples = self.pending_start_samples;
+        let expected_frames = (samples_len / channels_usize) as u32;
+        let (frames_written, started_now, pending_start_samples) =
+            with_sidecar(&self.config, |client| {
+                let frames_written = client.write_samples(interleaved_f32le, expected_frames)?;
+                let mut started_now = started;
+                let mut pending_start_samples = pending_start_samples;
+                if !started_now && frames_written > 0 {
+                    pending_start_samples = pending_start_samples
+                        .saturating_add(frames_written as usize * channels_usize);
+                    if pending_start_samples >= start_prefill_samples {
+                        let (queued_samples, running) = client.query_status().unwrap_or((0, false));
+                        if running {
+                            started_now = true;
+                            pending_start_samples = 0;
+                        } else if queued_samples as usize >= start_prefill_samples {
+                            client.start()?;
+                            started_now = true;
+                            pending_start_samples = 0;
+                        }
+                    }
                 }
-            }
-            Ok((frames_written, started_now))
-        })?;
+                Ok((frames_written, started_now, pending_start_samples))
+            })?;
         self.started = started_now;
+        self.pending_start_samples = pending_start_samples;
 
         Ok(frames_written)
     }
@@ -239,6 +253,7 @@ impl OutputSinkSession for AsioWasmSession {
         if self.opened {
             let _ = with_sidecar(&self.config, |client| client.reset());
             self.started = false;
+            self.pending_start_samples = 0;
         }
         Ok(())
     }
@@ -251,6 +266,7 @@ impl OutputSinkSession for AsioWasmSession {
         self.started = false;
         self.channels = 0;
         self.start_prefill_samples = 0;
+        self.pending_start_samples = 0;
         Ok(())
     }
 }

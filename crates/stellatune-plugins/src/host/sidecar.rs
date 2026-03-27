@@ -21,7 +21,7 @@ use std::os::unix::net::UnixStream;
 #[cfg(windows)]
 use std::os::windows::io::AsRawHandle;
 #[cfg(windows)]
-use windows::Win32::Foundation::{CloseHandle, HANDLE};
+use windows::Win32::Foundation::{CloseHandle, HANDLE, WAIT_TIMEOUT};
 #[cfg(windows)]
 use windows::Win32::System::JobObjects::{
     AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
@@ -29,7 +29,12 @@ use windows::Win32::System::JobObjects::{
     SetInformationJobObject,
 };
 #[cfg(windows)]
-use windows::core::PCWSTR;
+use windows::Win32::System::Threading::{
+    CreateEventW, EVENT_MODIFY_STATE, OpenEventW, ResetEvent, SYNCHRONIZATION_SYNCHRONIZE,
+    SetEvent, WaitForSingleObject,
+};
+#[cfg(windows)]
+use windows::core::{HSTRING, PCWSTR};
 
 use crate::error::{Error, Result};
 
@@ -179,6 +184,8 @@ impl SidecarHost for ProcessSidecarHost {
         let mut env = spec.env.clone();
         let mut env_map = build_env_map(&env);
         let mut created_ring_paths = Vec::<PathBuf>::new();
+        #[cfg(windows)]
+        let mut created_event_handles = Vec::<NamedEventHandle>::new();
         prepare_shared_memory_env(
             &spec.preferred_control,
             "STELLATUNE_SIDECAR_CONTROL_SHARED_MEMORY_RING",
@@ -186,6 +193,8 @@ impl SidecarHost for ProcessSidecarHost {
             &mut env,
             &mut env_map,
             &mut created_ring_paths,
+            #[cfg(windows)]
+            &mut created_event_handles,
         )?;
         prepare_shared_memory_env(
             &spec.preferred_data,
@@ -194,6 +203,8 @@ impl SidecarHost for ProcessSidecarHost {
             &mut env,
             &mut env_map,
             &mut created_ring_paths,
+            #[cfg(windows)]
+            &mut created_event_handles,
         )?;
 
         let mut command = Command::new(executable);
@@ -240,6 +251,8 @@ impl SidecarHost for ProcessSidecarHost {
             env_map,
             created_ring_paths,
             #[cfg(windows)]
+            _created_event_handles: created_event_handles,
+            #[cfg(windows)]
             _kill_on_close_job: kill_on_close_job,
         }))
     }
@@ -258,12 +271,31 @@ struct ProcessHandle {
     env_map: BTreeMap<String, String>,
     created_ring_paths: Vec<PathBuf>,
     #[cfg(windows)]
+    _created_event_handles: Vec<NamedEventHandle>,
+    #[cfg(windows)]
     _kill_on_close_job: Option<KillOnCloseJob>,
 }
 
 #[cfg(windows)]
 struct KillOnCloseJob {
     handle: HANDLE,
+}
+
+#[cfg(windows)]
+struct NamedEventHandle {
+    handle: HANDLE,
+}
+
+#[cfg(windows)]
+unsafe impl Send for NamedEventHandle {}
+
+#[cfg(windows)]
+impl Drop for NamedEventHandle {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = CloseHandle(self.handle);
+        }
+    }
 }
 
 #[cfg(windows)]
@@ -918,11 +950,28 @@ impl SharedByteRingMapped {
             .store(read_pos + count as u64, Ordering::Release);
         count
     }
+
+    fn occupied_len(&self) -> usize {
+        let header = self.header();
+        let write_pos = header.write_pos.load(Ordering::Acquire);
+        let read_pos = header.read_pos.load(Ordering::Relaxed);
+        write_pos
+            .saturating_sub(read_pos)
+            .min(self.capacity_bytes as u64) as usize
+    }
+
+    fn free_len(&self) -> usize {
+        self.capacity_bytes.saturating_sub(self.occupied_len())
+    }
 }
 
 struct SharedMemoryChannelIo {
     tx: SharedByteRingMapped,
     rx: SharedByteRingMapped,
+    #[cfg(windows)]
+    tx_events: Option<SharedMemoryEvents>,
+    #[cfg(windows)]
+    rx_events: Option<SharedMemoryEvents>,
 }
 
 impl SharedMemoryChannelIo {
@@ -930,11 +979,36 @@ impl SharedMemoryChannelIo {
         let config = parse_shared_memory_endpoint(endpoint)?;
         let tx = SharedByteRingMapped::open(Path::new(config.tx_path.as_str()))?;
         let rx = SharedByteRingMapped::open(Path::new(config.rx_path.as_str()))?;
-        Ok(Self { tx, rx })
+        Ok(Self {
+            tx,
+            rx,
+            #[cfg(windows)]
+            tx_events: SharedMemoryEvents::open(
+                config.tx_data_event.as_deref(),
+                config.tx_space_event.as_deref(),
+            )?,
+            #[cfg(windows)]
+            rx_events: SharedMemoryEvents::open(
+                config.rx_data_event.as_deref(),
+                config.rx_space_event.as_deref(),
+            )?,
+        })
     }
 
     fn write(&mut self, data: &[u8]) -> Result<u32> {
-        Ok(self.tx.write_bytes(data) as u32)
+        if data.is_empty() {
+            return Ok(0);
+        }
+
+        let wrote = self.tx.write_bytes(data);
+        #[cfg(windows)]
+        if let Some(events) = self.tx_events.as_ref() {
+            events.sync_after_ring_change(self.tx.occupied_len(), self.tx.free_len())?;
+            if wrote == 0 {
+                let _ = events.wait_for_space(Some(1))?;
+            }
+        }
+        Ok(wrote as u32)
     }
 
     fn read(&mut self, max_bytes: u32, timeout_ms: Option<u32>) -> Result<Vec<u8>> {
@@ -945,12 +1019,14 @@ impl SharedMemoryChannelIo {
 
         let deadline = timeout_ms.map(|ms| Instant::now() + Duration::from_millis(ms as u64));
         let mut out = vec![0_u8; max_bytes];
-        let mut spins = 0;
-        let mut yields = 0;
 
         loop {
             let read = self.rx.read_bytes(&mut out);
             if read > 0 {
+                #[cfg(windows)]
+                if let Some(events) = self.rx_events.as_ref() {
+                    events.sync_after_ring_change(self.rx.occupied_len(), self.rx.free_len())?;
+                }
                 out.truncate(read);
                 return Ok(out);
             }
@@ -963,15 +1039,21 @@ impl SharedMemoryChannelIo {
                 return Ok(Vec::new());
             }
 
-            if spins < 10 {
-                std::hint::spin_loop();
-                spins += 1;
-            } else if yields < 50 {
-                thread::yield_now();
-                yields += 1;
-            } else {
-                thread::sleep(SHM_POLL_INTERVAL);
+            #[cfg(windows)]
+            if let Some(events) = self.rx_events.as_ref() {
+                let wait_ms = deadline.map(|deadline| {
+                    deadline
+                        .saturating_duration_since(Instant::now())
+                        .as_millis()
+                        .min(u32::MAX as u128) as u32
+                });
+                if events.wait_for_data(wait_ms)? {
+                    continue;
+                }
+                return Ok(Vec::new());
             }
+
+            thread::sleep(SHM_POLL_INTERVAL);
         }
     }
 }
@@ -979,6 +1061,10 @@ impl SharedMemoryChannelIo {
 struct SharedMemoryEndpoint {
     tx_path: String,
     rx_path: String,
+    tx_data_event: Option<String>,
+    tx_space_event: Option<String>,
+    rx_data_event: Option<String>,
+    rx_space_event: Option<String>,
 }
 
 fn parse_shared_memory_endpoint(endpoint: &str) -> Result<SharedMemoryEndpoint> {
@@ -991,11 +1077,19 @@ fn parse_shared_memory_endpoint(endpoint: &str) -> Result<SharedMemoryEndpoint> 
         return Ok(SharedMemoryEndpoint {
             tx_path: endpoint.to_string(),
             rx_path: endpoint.to_string(),
+            tx_data_event: None,
+            tx_space_event: None,
+            rx_data_event: None,
+            rx_space_event: None,
         });
     }
 
     let mut tx_path = None::<String>;
     let mut rx_path = None::<String>;
+    let mut tx_data_event = None::<String>;
+    let mut tx_space_event = None::<String>;
+    let mut rx_data_event = None::<String>;
+    let mut rx_space_event = None::<String>;
     for part in endpoint.split([';', ',']) {
         let part = part.trim();
         if part.is_empty() {
@@ -1013,6 +1107,14 @@ fn parse_shared_memory_endpoint(endpoint: &str) -> Result<SharedMemoryEndpoint> 
             tx_path = Some(value.to_string());
         } else if key == "rx" || key == "read" || key == "sidecar_to_host" {
             rx_path = Some(value.to_string());
+        } else if key == "tx_data_event" || key == "host_to_sidecar_data_event" {
+            tx_data_event = Some(value.to_string());
+        } else if key == "tx_space_event" || key == "host_to_sidecar_space_event" {
+            tx_space_event = Some(value.to_string());
+        } else if key == "rx_data_event" || key == "sidecar_to_host_data_event" {
+            rx_data_event = Some(value.to_string());
+        } else if key == "rx_space_event" || key == "sidecar_to_host_space_event" {
+            rx_space_event = Some(value.to_string());
         } else if key == "path" || key == "ring" {
             let value = value.to_string();
             if tx_path.is_none() {
@@ -1030,7 +1132,14 @@ fn parse_shared_memory_endpoint(endpoint: &str) -> Result<SharedMemoryEndpoint> 
     let rx_path = rx_path
         .or_else(|| Some(tx_path.clone()))
         .ok_or_else(|| Error::invalid_input("shared-memory endpoint missing `rx` or `path`"))?;
-    Ok(SharedMemoryEndpoint { tx_path, rx_path })
+    Ok(SharedMemoryEndpoint {
+        tx_path,
+        rx_path,
+        tx_data_event,
+        tx_space_event,
+        rx_data_event,
+        rx_space_event,
+    })
 }
 
 fn prepare_shared_memory_env(
@@ -1040,6 +1149,7 @@ fn prepare_shared_memory_env(
     env: &mut Vec<(String, String)>,
     env_map: &mut BTreeMap<String, String>,
     created_ring_paths: &mut Vec<PathBuf>,
+    #[cfg(windows)] created_event_handles: &mut Vec<NamedEventHandle>,
 ) -> Result<()> {
     if !preferred
         .iter()
@@ -1064,7 +1174,12 @@ fn prepare_shared_memory_env(
         .max()
         .unwrap_or(SHM_DEFAULT_CAPACITY)
         .clamp(SHM_MIN_CAPACITY, SHM_MAX_CAPACITY);
-    let endpoint = create_shared_memory_endpoint(capacity, created_ring_paths)?;
+    let endpoint = create_shared_memory_endpoint(
+        capacity,
+        created_ring_paths,
+        #[cfg(windows)]
+        created_event_handles,
+    )?;
 
     ensure_env_entry(env, full_key, endpoint.as_str());
     ensure_env_entry(env, short_key, endpoint.as_str());
@@ -1076,6 +1191,7 @@ fn prepare_shared_memory_env(
 fn create_shared_memory_endpoint(
     capacity_bytes: usize,
     created_ring_paths: &mut Vec<PathBuf>,
+    #[cfg(windows)] created_event_handles: &mut Vec<NamedEventHandle>,
 ) -> Result<String> {
     let base_dir = std::env::temp_dir().join("stellatune-sidecar-shm");
     std::fs::create_dir_all(base_dir.as_path())
@@ -1088,11 +1204,139 @@ fn create_shared_memory_endpoint(
     created_ring_paths.push(tx_path.clone());
     created_ring_paths.push(rx_path.clone());
 
-    Ok(format!(
-        "tx={};rx={}",
-        tx_path.to_string_lossy(),
-        rx_path.to_string_lossy()
-    ))
+    #[cfg(windows)]
+    {
+        let tx_data_event = unique_event_name("tx-data");
+        let tx_space_event = unique_event_name("tx-space");
+        let rx_data_event = unique_event_name("rx-data");
+        let rx_space_event = unique_event_name("rx-space");
+        created_event_handles.push(create_named_event(tx_data_event.as_str(), false)?);
+        created_event_handles.push(create_named_event(tx_space_event.as_str(), true)?);
+        created_event_handles.push(create_named_event(rx_data_event.as_str(), false)?);
+        created_event_handles.push(create_named_event(rx_space_event.as_str(), true)?);
+
+        return Ok(format!(
+            "tx={};rx={};tx_data_event={};tx_space_event={};rx_data_event={};rx_space_event={}",
+            tx_path.to_string_lossy(),
+            rx_path.to_string_lossy(),
+            tx_data_event,
+            tx_space_event,
+            rx_data_event,
+            rx_space_event
+        ));
+    }
+
+    #[cfg(not(windows))]
+    {
+        Ok(format!(
+            "tx={};rx={}",
+            tx_path.to_string_lossy(),
+            rx_path.to_string_lossy()
+        ))
+    }
+}
+
+#[cfg(windows)]
+fn unique_event_name(direction: &str) -> String {
+    let pid = std::process::id();
+    let epoch_ns = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+    format!("Local\\stellatune-sidecar-{pid}-{epoch_ns}-{direction}")
+}
+
+#[cfg(windows)]
+fn create_named_event(name: &str, initial_state: bool) -> Result<NamedEventHandle> {
+    let handle = unsafe {
+        CreateEventW(None, true, initial_state, &HSTRING::from(name))
+            .map_err(|error| Error::operation("sidecar.shm.create-event", error.to_string()))?
+    };
+    Ok(NamedEventHandle { handle })
+}
+
+#[cfg(windows)]
+struct SharedMemoryEvents {
+    data_available: NamedEventHandle,
+    space_available: NamedEventHandle,
+}
+
+#[cfg(windows)]
+impl SharedMemoryEvents {
+    fn open(data_event: Option<&str>, space_event: Option<&str>) -> Result<Option<Self>> {
+        let Some(data_event) = data_event else {
+            return Ok(None);
+        };
+        let Some(space_event) = space_event else {
+            return Ok(None);
+        };
+        let access = EVENT_MODIFY_STATE | SYNCHRONIZATION_SYNCHRONIZE;
+        let data_available = unsafe {
+            OpenEventW(access, false, &HSTRING::from(data_event))
+                .map_err(|error| Error::operation("sidecar.shm.open-event", error.to_string()))?
+        };
+        let space_available = unsafe {
+            OpenEventW(access, false, &HSTRING::from(space_event))
+                .map_err(|error| Error::operation("sidecar.shm.open-event", error.to_string()))?
+        };
+        Ok(Some(Self {
+            data_available: NamedEventHandle {
+                handle: data_available,
+            },
+            space_available: NamedEventHandle {
+                handle: space_available,
+            },
+        }))
+    }
+
+    fn sync_after_ring_change(&self, occupied_bytes: usize, free_bytes: usize) -> Result<()> {
+        unsafe {
+            if occupied_bytes > 0 {
+                SetEvent(self.data_available.handle).map_err(|error| {
+                    Error::operation("sidecar.shm.set-event", error.to_string())
+                })?;
+            } else {
+                ResetEvent(self.data_available.handle).map_err(|error| {
+                    Error::operation("sidecar.shm.reset-event", error.to_string())
+                })?;
+            }
+
+            if free_bytes > 0 {
+                SetEvent(self.space_available.handle).map_err(|error| {
+                    Error::operation("sidecar.shm.set-event", error.to_string())
+                })?;
+            } else {
+                ResetEvent(self.space_available.handle).map_err(|error| {
+                    Error::operation("sidecar.shm.reset-event", error.to_string())
+                })?;
+            }
+        }
+        Ok(())
+    }
+
+    fn wait_for_data(&self, timeout_ms: Option<u32>) -> Result<bool> {
+        wait_for_named_event(self.data_available.handle, timeout_ms)
+    }
+
+    fn wait_for_space(&self, timeout_ms: Option<u32>) -> Result<bool> {
+        wait_for_named_event(self.space_available.handle, timeout_ms)
+    }
+}
+
+#[cfg(windows)]
+fn wait_for_named_event(handle: HANDLE, timeout_ms: Option<u32>) -> Result<bool> {
+    let timeout = timeout_ms.unwrap_or(u32::MAX);
+    let result = unsafe { WaitForSingleObject(handle, timeout) };
+    if result == windows::Win32::Foundation::WAIT_OBJECT_0 {
+        Ok(true)
+    } else if result == WAIT_TIMEOUT {
+        Ok(false)
+    } else {
+        Err(Error::operation(
+            "sidecar.shm.wait-event",
+            format!("unexpected wait result: {result:?}"),
+        ))
+    }
 }
 
 fn unique_ring_path(base_dir: &Path, direction: &str) -> PathBuf {

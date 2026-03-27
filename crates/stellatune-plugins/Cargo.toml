@@ -25,7 +25,7 @@ reqwest = { workspace = true, features = ["blocking", "rustls-tls", "gzip"] }
 wat.workspace = true
 
 [target.'cfg(windows)'.dependencies]
-windows = { workspace = true, features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects"] }
+windows = { workspace = true, features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading"] }
 
 [lints]
 workspace = true

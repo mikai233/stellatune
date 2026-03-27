@@ -1,7 +1,14 @@
+use std::sync::OnceLock;
+
 #[cfg(windows)]
 use windows::Win32::System::Threading::{
     AVRT_PRIORITY_HIGH, AvRevertMmThreadCharacteristics, AvSetMmThreadCharacteristicsW,
-    AvSetMmThreadPriority,
+    AvSetMmThreadPriority, GetCurrentProcess, GetCurrentThread,
+    PROCESS_POWER_THROTTLING_CURRENT_VERSION, PROCESS_POWER_THROTTLING_EXECUTION_SPEED,
+    PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION, PROCESS_POWER_THROTTLING_STATE,
+    ProcessPowerThrottling, SetProcessInformation, SetThreadInformation,
+    THREAD_POWER_THROTTLING_CURRENT_VERSION, THREAD_POWER_THROTTLING_EXECUTION_SPEED,
+    THREAD_POWER_THROTTLING_STATE, ThreadPowerThrottling,
 };
 
 /// Best-effort realtime hint for audio-critical worker threads.
@@ -16,6 +23,8 @@ pub(crate) struct RealtimeThreadGuard {
 pub(crate) fn enable_realtime_audio_thread() -> RealtimeThreadGuard {
     #[cfg(windows)]
     {
+        configure_audio_process_for_background_playback();
+        disable_current_thread_power_throttling();
         RealtimeThreadGuard {
             _mmcss: enable_mmcss_pro_audio(),
         }
@@ -44,4 +53,42 @@ fn enable_mmcss_pro_audio() -> Option<MmcssGuard> {
     let handle = unsafe { AvSetMmThreadCharacteristicsW(&task, &mut task_index) }.ok()?;
     let _ = unsafe { AvSetMmThreadPriority(handle, AVRT_PRIORITY_HIGH) };
     Some(MmcssGuard(handle))
+}
+
+#[cfg(windows)]
+fn configure_audio_process_for_background_playback() {
+    static INIT: OnceLock<()> = OnceLock::new();
+    INIT.get_or_init(|| {
+        let state = PROCESS_POWER_THROTTLING_STATE {
+            Version: PROCESS_POWER_THROTTLING_CURRENT_VERSION,
+            ControlMask: PROCESS_POWER_THROTTLING_EXECUTION_SPEED
+                | PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION,
+            StateMask: 0,
+        };
+        let _ = unsafe {
+            SetProcessInformation(
+                GetCurrentProcess(),
+                ProcessPowerThrottling,
+                (&state as *const PROCESS_POWER_THROTTLING_STATE).cast(),
+                std::mem::size_of::<PROCESS_POWER_THROTTLING_STATE>() as u32,
+            )
+        };
+    });
+}
+
+#[cfg(windows)]
+fn disable_current_thread_power_throttling() {
+    let state = THREAD_POWER_THROTTLING_STATE {
+        Version: THREAD_POWER_THROTTLING_CURRENT_VERSION,
+        ControlMask: THREAD_POWER_THROTTLING_EXECUTION_SPEED,
+        StateMask: 0,
+    };
+    let _ = unsafe {
+        SetThreadInformation(
+            GetCurrentThread(),
+            ThreadPowerThrottling,
+            (&state as *const THREAD_POWER_THROTTLING_STATE).cast(),
+            std::mem::size_of::<THREAD_POWER_THROTTLING_STATE>() as u32,
+        )
+    };
 }

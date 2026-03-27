@@ -186,6 +186,9 @@ fn handle_open<W: Write>(
             // Drop current stream before opening the next one to avoid
             // transient double-open races during rapid track switches.
             if state.stream.take().is_some() {
+                if let Some(data_ingress) = state.data_ingress.as_ref() {
+                    data_ingress.set_ingress(None);
+                }
                 eprintln!(
                     "asio host request Open dropping previous stream: active_device={:?}",
                     state.active_device_id
@@ -195,10 +198,14 @@ fn handle_open<W: Write>(
             }
             match StreamState::open(&device_id, spec, buffer_size_frames, queue_capacity_ms) {
                 Ok(next_state) => {
+                    let next_ingress = next_state.ingress();
                     eprintln!(
                         "asio host request Open ok: device={} session={} spec={}Hz/{}ch",
                         device_id, selection_session_id, requested_sample_rate, requested_channels
                     );
+                    if let Some(data_ingress) = state.data_ingress.as_ref() {
+                        data_ingress.set_ingress(Some(next_ingress));
+                    }
                     state.stream = Some(next_state);
                     state.active_device_id = Some(device_id.clone());
                     write_frame(writer, &Response::Ok)
@@ -257,6 +264,9 @@ fn handle_start<W: Write>(state: &RuntimeState, writer: &mut W) -> Result<(), Pr
 }
 
 fn handle_stop<W: Write>(state: &mut RuntimeState, writer: &mut W) -> Result<(), ProtoError> {
+    if let Some(data_ingress) = state.data_ingress.as_ref() {
+        data_ingress.set_ingress(None);
+    }
     let _ = state.stream.take();
     state.active_device_id = None;
     eprintln!("asio host request Stop: stream_active=false");
@@ -324,6 +334,9 @@ fn handle_query_status<W: Write>(state: &RuntimeState, writer: &mut W) -> Result
 }
 
 fn handle_close<W: Write>(state: &mut RuntimeState, writer: &mut W) -> Result<(), ProtoError> {
+    if let Some(data_ingress) = state.data_ingress.as_ref() {
+        data_ingress.set_ingress(None);
+    }
     let _ = state.stream.take();
     state.active_device_id = None;
     eprintln!("asio host request Close: stream_active=false");

@@ -1,3 +1,6 @@
+use std::thread;
+use std::time::{Duration, Instant};
+
 use std::sync::OnceLock;
 use stellatune_asio_proto::{
     AudioSpec, DeviceCaps, DeviceInfo, PROTOCOL_VERSION, Request, Response,
@@ -10,12 +13,16 @@ use crate::config::AsioOutputConfig;
 
 const DEFAULT_SIDECAR_EXE: &str = "stellatune-asio-host";
 const CONTROL_LOCK_NAME: &str = "asio-control";
+const DATA_CHANNEL_ROLE: &str = "samples";
+const DATA_CHANNEL_CAPACITY_BYTES: u32 = 256 * 1024;
+const DATA_WRITE_TIMEOUT_MS: u64 = 250;
 
 /// Communication channel wrapper using WASM sidecar guest bindings.
 ///
 /// - Control channel (stdio): postcard-framed `Request`/`Response`
 pub(crate) struct AsioSidecarClient {
     control_channel: sidecar::Channel,
+    data_channel: Option<sidecar::Channel>,
     _process: sidecar::Process,
 }
 
@@ -35,7 +42,11 @@ impl AsioSidecarClient {
                 priority: 10,
                 max_frame_bytes: None,
             }],
-            preferred_data: Vec::new(),
+            preferred_data: vec![sidecar::TransportOption {
+                kind: sidecar::TransportKind::SharedMemoryRing,
+                priority: 20,
+                max_frame_bytes: Some(DATA_CHANNEL_CAPACITY_BYTES),
+            }],
             env: Vec::new(),
         };
 
@@ -45,9 +56,20 @@ impl AsioSidecarClient {
         let control_channel = process
             .open_control()
             .map_err(|e| SdkError::io(format!("open control channel: {e:?}")))?;
+        let data_channel = process
+            .open_data(
+                DATA_CHANNEL_ROLE,
+                &[sidecar::TransportOption {
+                    kind: sidecar::TransportKind::SharedMemoryRing,
+                    priority: 20,
+                    max_frame_bytes: Some(DATA_CHANNEL_CAPACITY_BYTES),
+                }],
+            )
+            .ok();
 
         let mut client = Self {
             control_channel,
+            data_channel,
             _process: process,
         };
 
@@ -86,9 +108,43 @@ impl AsioSidecarClient {
         let mut buf = Vec::<u8>::new();
         stellatune_asio_proto::write_frame(&mut buf, req)
             .map_err(|e| SdkError::io(format!("write_frame: {e}")))?;
-        channel
-            .write(&buf)
-            .map_err(|e| SdkError::io(format!("channel write: {e:?}")))?;
+        self.send_all(channel, &buf)?;
+        Ok(())
+    }
+
+    fn send_all(&self, channel: &sidecar::Channel, payload: &[u8]) -> SdkResult<()> {
+        let deadline = Instant::now() + Duration::from_millis(DATA_WRITE_TIMEOUT_MS);
+        let mut offset = 0usize;
+
+        while offset < payload.len() {
+            let written = channel
+                .write(&payload[offset..])
+                .map_err(|e| SdkError::io(format!("channel write: {e:?}")))?
+                as usize;
+            if written > 0 {
+                offset += written;
+                continue;
+            }
+
+            if Instant::now() >= deadline {
+                return Err(SdkError::io(format!(
+                    "channel write timed out after {DATA_WRITE_TIMEOUT_MS}ms"
+                )));
+            }
+
+            thread::sleep(Duration::from_millis(1));
+        }
+
+        Ok(())
+    }
+
+    fn send_data_frame(&self, channel: &sidecar::Channel, payload: &[u8]) -> SdkResult<()> {
+        let len: u32 = payload
+            .len()
+            .try_into()
+            .map_err(|_| SdkError::io("data frame too large"))?;
+        self.send_all(channel, &len.to_le_bytes())?;
+        self.send_all(channel, payload)?;
         Ok(())
     }
 
@@ -190,7 +246,12 @@ impl AsioSidecarClient {
         self.expect_ok(Request::Reset)
     }
 
-    pub fn write_samples(&mut self, data: &[u8]) -> SdkResult<u32> {
+    pub fn write_samples(&mut self, data: &[u8], expected_frames: u32) -> SdkResult<u32> {
+        if let Some(channel) = self.data_channel.as_ref() {
+            self.send_data_frame(channel, data)?;
+            return Ok(expected_frames);
+        }
+
         match self.control_request(Request::WriteSamples {
             interleaved_f32le: data.to_vec(),
         })? {
