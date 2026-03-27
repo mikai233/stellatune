@@ -1215,7 +1215,7 @@ fn create_shared_memory_endpoint(
         created_event_handles.push(create_named_event(rx_data_event.as_str(), false)?);
         created_event_handles.push(create_named_event(rx_space_event.as_str(), true)?);
 
-        return Ok(format!(
+        Ok(format!(
             "tx={};rx={};tx_data_event={};tx_space_event={};rx_data_event={};rx_space_event={}",
             tx_path.to_string_lossy(),
             rx_path.to_string_lossy(),
@@ -1223,7 +1223,7 @@ fn create_shared_memory_endpoint(
             tx_space_event,
             rx_data_event,
             rx_space_event
-        ));
+        ))
     }
 
     #[cfg(not(windows))]
@@ -1484,6 +1484,8 @@ mod tests {
         let mut env = Vec::<(String, String)>::new();
         let mut env_map = BTreeMap::<String, String>::new();
         let mut created_paths = Vec::new();
+        #[cfg(windows)]
+        let mut created_event_handles = Vec::new();
 
         prepare_shared_memory_env(
             &preferred,
@@ -1492,6 +1494,8 @@ mod tests {
             &mut env,
             &mut env_map,
             &mut created_paths,
+            #[cfg(windows)]
+            &mut created_event_handles,
         )
         .expect("prepare env");
 
