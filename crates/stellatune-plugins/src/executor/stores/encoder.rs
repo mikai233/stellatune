@@ -6,8 +6,8 @@ use wasmtime_wasi::{ResourceTable, WasiCtx, WasiCtxView, WasiView};
 use stellatune_host_bindings::generated::encoder_plugin::stellatune::plugin::common as encoder_common;
 use stellatune_host_bindings::generated::encoder_plugin::stellatune::plugin::sidecar as encoder_sidecar;
 
-use crate::executor::sidecar_state::SidecarState;
-use crate::host::sidecar::{
+use crate::executor::sidecar_state::state::SidecarState;
+use crate::host::sidecar::types::{
     SidecarLaunchScope, SidecarLaunchSpec, SidecarTransportKind, SidecarTransportOption,
     resolve_sidecar_executable,
 };

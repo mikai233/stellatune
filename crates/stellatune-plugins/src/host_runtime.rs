@@ -3,7 +3,9 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::atomic::AtomicU64;
 
-pub mod runtime_service;
+pub mod models;
+pub mod service;
+mod utils;
 
 use crate::error::Error as WasmPluginError;
 use crate::executor::plugin_instance::decoder::{DecoderPluginApi, WasmtimeDecoderPlugin};
@@ -648,6 +650,6 @@ impl Drop for RuntimeOutputSinkPlugin {
     }
 }
 
-pub fn shared_runtime_service() -> runtime_service::SharedPluginRuntime {
-    runtime_service::shared_runtime_service()
+pub fn shared_runtime_service() -> service::SharedPluginRuntime {
+    utils::shared_runtime_service()
 }

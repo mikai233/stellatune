@@ -9,8 +9,8 @@ use stellatune_host_bindings::generated::decoder_plugin::stellatune::plugin::com
 use stellatune_host_bindings::generated::decoder_plugin::stellatune::plugin::host_stream as decoder_host_stream;
 use stellatune_host_bindings::generated::decoder_plugin::stellatune::plugin::sidecar as decoder_sidecar;
 
-use crate::executor::sidecar_state::SidecarState;
-use crate::host::sidecar::{
+use crate::executor::sidecar_state::state::SidecarState;
+use crate::host::sidecar::types::{
     SidecarLaunchScope, SidecarLaunchSpec, SidecarTransportKind, SidecarTransportOption,
     resolve_sidecar_executable,
 };

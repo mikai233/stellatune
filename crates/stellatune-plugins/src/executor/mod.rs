@@ -26,7 +26,8 @@ use stellatune_host_bindings::generated::source_plugin::SourcePlugin as SourcePl
 use stellatune_host_bindings::generated::source_plugin::exports::stellatune::plugin::lifecycle as source_lifecycle;
 
 use crate::host::http::HttpClientHost;
-use crate::host::sidecar::{SidecarHost, default_sidecar_host};
+use crate::host::sidecar::process::default_sidecar_host;
+use crate::host::sidecar::types::SidecarHost;
 use crate::host::stream::HostStreamService;
 use crate::manifest::AbilityKind;
 use crate::runtime::model::{
@@ -37,7 +38,8 @@ pub mod plugin_cell;
 use plugin_cell::PluginCell;
 pub mod plugin_instance;
 mod sidecar_state;
-use sidecar_state::{PackageSidecarRegistry, SidecarState};
+use sidecar_state::registry::PackageSidecarRegistry;
+use sidecar_state::state::SidecarState;
 
 pub trait WasmPluginController: Send + Sync {
     fn install_plugin(

@@ -13,7 +13,7 @@ use stellatune_audio::engine::EngineHandle;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::time::LocalTime;
 
-use stellatune_plugins::host_runtime::runtime_service::SharedPluginRuntime;
+use stellatune_plugins::host_runtime::service::SharedPluginRuntime;
 
 mod apply_state;
 mod engine;

@@ -1,20 +1,23 @@
-use std::collections::{BTreeMap, BTreeSet, HashSet};
-use std::path::Path;
+use std::collections::{BTreeSet, HashSet};
 use std::sync::atomic::Ordering;
-use std::sync::{Arc, OnceLock};
-use std::thread;
+
+use anyhow::{Result, anyhow};
 
 use crate::executor::WasmtimePluginController;
-use crate::host::http::HttpClientHost;
-use crate::host::stream::DefaultHostStreamService;
-use crate::manifest::AbilityKind;
 use crate::runtime::model::{
     DesiredPluginState, RuntimePluginLifecycleState, RuntimePluginTransitionOutcome,
     RuntimePluginTransitionTrigger,
 };
 use crate::runtime::service::WasmPluginRuntime;
-use anyhow::{Result, anyhow};
 
+use super::models::{
+    RuntimeActivePluginDescriptor, RuntimeLoadReport, RuntimeSyncActionOutcome,
+    RuntimeSyncPlanSummary, RuntimeSyncReport,
+};
+use super::utils::{
+    build_shared_runtime, decoder_score_for_ext, map_ability_kind, normalize_disabled_ids,
+    normalize_ext,
+};
 use super::{
     RUNTIME_DECODER_PLUGIN_SEQ, RUNTIME_DECODER_PLUGINS, RUNTIME_DSP_PLUGIN_SEQ,
     RUNTIME_DSP_PLUGINS, RUNTIME_ENCODER_PLUGIN_SEQ, RUNTIME_ENCODER_PLUGINS,
@@ -22,49 +25,7 @@ use super::{
     RuntimeCapabilityKind, RuntimeDecoderCandidate, RuntimeDecoderPlugin, RuntimeDecoderPluginCell,
     RuntimeDspPlugin, RuntimeDspPluginCell, RuntimeEncoderPlugin, RuntimeEncoderPluginCell,
     RuntimeLyricsPlugin, RuntimeOutputSinkPlugin, RuntimeOutputSinkPluginCell, RuntimeSourcePlugin,
-    WasmPluginError,
 };
-
-#[derive(Debug, Clone)]
-pub struct RuntimeActivePluginDescriptor {
-    pub id: String,
-    pub name: String,
-    pub version: String,
-}
-
-#[derive(Debug, Default)]
-pub struct RuntimeLoadReport {
-    pub loaded: Vec<String>,
-    pub deactivated: Vec<String>,
-    pub errors: Vec<anyhow::Error>,
-}
-
-#[derive(Debug, Default)]
-pub struct RuntimeSyncPlanSummary {
-    pub discovered: usize,
-    pub disabled: usize,
-    pub actions_total: usize,
-    pub load_new: usize,
-    pub reload_changed: usize,
-    pub deactivate: usize,
-}
-
-#[derive(Debug, Clone)]
-pub struct RuntimeSyncActionOutcome {
-    pub action: String,
-    pub plugin_id: String,
-    pub outcome: String,
-}
-
-#[derive(Debug, Default)]
-pub struct RuntimeSyncReport {
-    pub load_report: RuntimeLoadReport,
-    pub plan: RuntimeSyncPlanSummary,
-    pub actions: Vec<RuntimeSyncActionOutcome>,
-    pub plan_ms: u64,
-    pub execute_ms: u64,
-    pub total_ms: u64,
-}
 
 #[derive(Clone)]
 pub struct SharedPluginRuntime {
@@ -73,14 +34,13 @@ pub struct SharedPluginRuntime {
 
 impl SharedPluginRuntime {
     pub fn new() -> Result<Self> {
-        let controller = WasmtimePluginController::shared(
-            Arc::new(BackendHttpClient),
-            Arc::new(DefaultHostStreamService),
-        )
-        .map_err(|error| anyhow!("failed to create wasmtime plugin controller: {error:#}"))?;
-        Ok(Self {
+        build_shared_runtime()
+    }
+
+    pub(super) fn from_controller(controller: std::sync::Arc<WasmtimePluginController>) -> Self {
+        Self {
             runtime: WasmPluginRuntime::new(controller),
-        })
+        }
     }
 
     pub async fn set_disabled_plugin_ids(&self, disabled_ids: HashSet<String>) {
@@ -95,15 +55,10 @@ impl SharedPluginRuntime {
             disabled_plugins = ?normalized_ids,
             "host runtime apply disabled plugin ids"
         );
-        let mut desired = BTreeMap::<String, DesiredPluginState>::new();
-        for plugin_id in disabled_ids {
-            let plugin_id = plugin_id.trim();
-            if plugin_id.is_empty() {
-                continue;
-            }
-            desired.insert(plugin_id.to_string(), DesiredPluginState::Disabled);
-        }
-        if let Err(error) = self.runtime.replace_desired_states(desired) {
+        if let Err(error) = self
+            .runtime
+            .replace_desired_states(normalize_disabled_ids(disabled_ids))
+        {
             tracing::warn!(
                 error = %error,
                 "failed to apply desired plugin states for wasm runtime"
@@ -135,7 +90,7 @@ impl SharedPluginRuntime {
         let mut out = Vec::<RuntimeDecoderCandidate>::new();
         for plugin_id in self.decoder_capability_plugin_ids() {
             for cap in self.runtime.capabilities_of(&plugin_id) {
-                if cap.kind != AbilityKind::Decoder {
+                if cap.kind != crate::manifest::AbilityKind::Decoder {
                     continue;
                 }
                 let score = decoder_score_for_ext(&cap, ext.as_str());
@@ -162,7 +117,7 @@ impl SharedPluginRuntime {
         let mut out = BTreeSet::<String>::new();
         for plugin_id in self.decoder_capability_plugin_ids() {
             for cap in self.runtime.capabilities_of(&plugin_id) {
-                if cap.kind != AbilityKind::Decoder {
+                if cap.kind != crate::manifest::AbilityKind::Decoder {
                     continue;
                 }
                 for rule in cap.decoder_ext_scores {
@@ -180,7 +135,7 @@ impl SharedPluginRuntime {
     pub fn decoder_has_wildcard_candidate(&self) -> bool {
         for plugin_id in self.decoder_capability_plugin_ids() {
             for cap in self.runtime.capabilities_of(&plugin_id) {
-                if cap.kind != AbilityKind::Decoder {
+                if cap.kind != crate::manifest::AbilityKind::Decoder {
                     continue;
                 }
                 if cap.decoder_wildcard_score > 0 {
@@ -197,7 +152,7 @@ impl SharedPluginRuntime {
             self.runtime
                 .capabilities_of(plugin_id)
                 .into_iter()
-                .any(|cap| cap.kind == AbilityKind::Decoder)
+                .any(|cap| cap.kind == crate::manifest::AbilityKind::Decoder)
         });
         out.sort();
         out
@@ -389,19 +344,11 @@ impl SharedPluginRuntime {
 
     pub fn sync_dir_with_disabled_ids(
         &self,
-        dir: impl AsRef<Path>,
+        dir: impl AsRef<std::path::Path>,
         disabled_ids: HashSet<String>,
     ) -> Result<()> {
-        let mut desired = BTreeMap::<String, DesiredPluginState>::new();
-        for plugin_id in disabled_ids {
-            let plugin_id = plugin_id.trim();
-            if plugin_id.is_empty() {
-                continue;
-            }
-            desired.insert(plugin_id.to_string(), DesiredPluginState::Disabled);
-        }
         self.runtime
-            .replace_desired_states(desired)
+            .replace_desired_states(normalize_disabled_ids(disabled_ids))
             .map_err(|error| anyhow!(error.to_string()))?;
         self.runtime
             .sync_plugins(dir)
@@ -467,7 +414,7 @@ impl SharedPluginRuntime {
 
     pub async fn reload_dir_detailed_from_state(
         &self,
-        dir: impl AsRef<Path>,
+        dir: impl AsRef<std::path::Path>,
     ) -> Result<RuntimeSyncReport> {
         let dir = dir.as_ref();
         tracing::debug!(
@@ -623,85 +570,5 @@ impl SharedPluginRuntime {
             })
             .to_string(),
         )
-    }
-}
-
-pub fn shared_runtime_service() -> SharedPluginRuntime {
-    static SHARED: OnceLock<SharedPluginRuntime> = OnceLock::new();
-    SHARED
-        .get_or_init(|| {
-            SharedPluginRuntime::new().expect("failed to initialize shared wasm plugin runtime")
-        })
-        .clone()
-}
-
-fn normalize_ext(raw: &str) -> String {
-    raw.trim().trim_start_matches('.').to_ascii_lowercase()
-}
-
-fn decoder_score_for_ext(
-    capability: &crate::runtime::model::RuntimeCapabilityDescriptor,
-    ext: &str,
-) -> u16 {
-    if ext.is_empty() {
-        return capability.decoder_wildcard_score;
-    }
-    capability
-        .decoder_ext_scores
-        .iter()
-        .find(|rule| rule.ext == ext)
-        .map(|rule| rule.score)
-        .unwrap_or(capability.decoder_wildcard_score)
-}
-
-fn map_ability_kind(kind: AbilityKind) -> RuntimeCapabilityKind {
-    match kind {
-        AbilityKind::Decoder => RuntimeCapabilityKind::Decoder,
-        AbilityKind::Encoder => RuntimeCapabilityKind::Encoder,
-        AbilityKind::Dsp => RuntimeCapabilityKind::Dsp,
-        AbilityKind::Source => RuntimeCapabilityKind::SourceCatalog,
-        AbilityKind::Lyrics => RuntimeCapabilityKind::LyricsProvider,
-        AbilityKind::OutputSink => RuntimeCapabilityKind::OutputSink,
-    }
-}
-
-#[derive(Default)]
-struct BackendHttpClient;
-
-impl HttpClientHost for BackendHttpClient {
-    fn fetch_json(&self, url: &str) -> std::result::Result<String, WasmPluginError> {
-        let url = url.trim();
-        if url.is_empty() {
-            return Err(WasmPluginError::invalid_input("url is empty"));
-        }
-        let url = url.to_string();
-        let worker = thread::Builder::new()
-            .name("stellatune-http-client".to_string())
-            .spawn(move || {
-                reqwest::blocking::get(url)
-                    .map_err(|error| {
-                        WasmPluginError::operation("http_client.fetch_json", error.to_string())
-                    })?
-                    .error_for_status()
-                    .map_err(|error| {
-                        WasmPluginError::operation("http_client.fetch_json", error.to_string())
-                    })?
-                    .text()
-                    .map_err(|error| {
-                        WasmPluginError::operation("http_client.fetch_json", error.to_string())
-                    })
-            })
-            .map_err(|error| {
-                WasmPluginError::operation(
-                    "http_client.fetch_json",
-                    format!("spawn blocking worker failed: {error}"),
-                )
-            })?;
-        worker.join().map_err(|_| {
-            WasmPluginError::operation(
-                "http_client.fetch_json",
-                "blocking worker panicked".to_string(),
-            )
-        })?
     }
 }

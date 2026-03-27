@@ -4582,6 +4582,7 @@ name = "stellatune-asio-host"
 version = "0.1.0"
 dependencies = [
  "cpal",
+ "libc",
  "memmap2",
  "ringbuf",
  "stellatune-asio-proto",
@@ -4809,6 +4810,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "flate2",
+ "libc",
  "memmap2",
  "parking_lot",
  "rawzip",

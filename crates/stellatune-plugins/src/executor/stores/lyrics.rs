@@ -8,9 +8,9 @@ use stellatune_host_bindings::generated::lyrics_plugin::stellatune::plugin::comm
 use stellatune_host_bindings::generated::lyrics_plugin::stellatune::plugin::http_client as lyrics_http_client;
 use stellatune_host_bindings::generated::lyrics_plugin::stellatune::plugin::sidecar as lyrics_sidecar;
 
-use crate::executor::sidecar_state::SidecarState;
+use crate::executor::sidecar_state::state::SidecarState;
 use crate::host::http::HttpClientHost;
-use crate::host::sidecar::{
+use crate::host::sidecar::types::{
     SidecarLaunchScope, SidecarLaunchSpec, SidecarTransportKind, SidecarTransportOption,
     resolve_sidecar_executable,
 };
