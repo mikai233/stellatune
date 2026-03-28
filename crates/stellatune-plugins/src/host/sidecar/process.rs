@@ -2,7 +2,9 @@ use std::collections::BTreeMap;
 #[cfg(unix)]
 use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
-use std::process::{Child, Command, Stdio};
+#[cfg(windows)]
+use std::process::Child;
+use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -29,9 +31,11 @@ use windows::core::PCWSTR;
 use crate::error::{Error, Result};
 
 use super::channel::{ChannelHandle, ChannelIo, ChildIo};
+#[cfg(windows)]
+use super::shm::NamedEventHandle;
 #[cfg(unix)]
 use super::shm::unlink_named_semaphore;
-use super::shm::{NamedEventHandle, SharedMemoryChannelIo, prepare_shared_memory_env};
+use super::shm::{SharedMemoryChannelIo, prepare_shared_memory_env};
 use super::types::{
     SidecarChannelHandle, SidecarHost, SidecarLaunchSpec, SidecarProcessHandle,
     SidecarTransportKind, SidecarTransportOption, normalize_role_key, ordered_kinds,
