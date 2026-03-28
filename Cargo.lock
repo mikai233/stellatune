@@ -197,7 +197,8 @@ checksum = "7c02d123df017efcdfbd739ef81735b36c5ba83ec3c59c80a9d7ecc718f92e50"
 [[package]]
 name = "asio-sys"
 version = "0.2.6"
-source = "git+https://github.com/RustAudio/cpal.git#e172208edd47f0077077d47b9f6991bdc248fd36"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "826194e1612938c9be09b78b58323fbb2e326de3d491b4230186cf6e832d8ded"
 dependencies = [
  "bindgen",
  "cc",
@@ -832,8 +833,9 @@ dependencies = [
 
 [[package]]
 name = "cpal"
-version = "0.18.0"
-source = "git+https://github.com/RustAudio/cpal.git#e172208edd47f0077077d47b9f6991bdc248fd36"
+version = "0.17.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d8942da362c0f0d895d7cac616263f2f9424edc5687364dfd1d25ef7eba506d7"
 dependencies = [
  "alsa",
  "asio-sys",
