@@ -189,11 +189,7 @@ class PlaybackController extends Notifier<PlaybackState> {
       if (pos > 0) {
         await bridge.seekMs(pos);
       }
-      unawaited(
-        bridge.preloadTrackRef(track, positionMs: pos).catchError((Object e) {
-          ref.read(loggerProvider).d('resume preload failed: $e');
-        }),
-      );
+      unawaited(_requestPreloadNext());
     } catch (e) {
       ref.read(loggerProvider).w('resume failed: $e');
     }
@@ -1102,6 +1098,14 @@ class PlaybackController extends Notifier<PlaybackState> {
         }
       },
       trackChanged: (path) {
+        final queue = ref.read(queueControllerProvider);
+        final currentQueuePath = queue.currentItem?.path;
+        if (path.isNotEmpty && currentQueuePath != path) {
+          final nextIndex = queue.items.indexWhere((item) => item.path == path);
+          if (nextIndex >= 0) {
+            ref.read(queueControllerProvider.notifier).selectIndex(nextIndex);
+          }
+        }
         _activePositionPath = path;
         _activePositionSessionId = null;
         state = state.copyWith(
@@ -1122,6 +1126,20 @@ class PlaybackController extends Notifier<PlaybackState> {
       playbackEnded: (path) {
         ref.read(loggerProvider).i('playback ended: $path');
         state = state.copyWith(audioStarted: false);
+        final currentQueuePath = ref
+            .read(queueControllerProvider)
+            .currentItem
+            ?.path;
+        if (path.isNotEmpty &&
+            currentQueuePath != null &&
+            currentQueuePath != path) {
+          ref
+              .read(loggerProvider)
+              .d(
+                'ignore playbackEnded after trackChanged sync: ended=$path current=$currentQueuePath',
+              );
+          return;
+        }
         unawaited(next(auto: true));
       },
       audioStart: () {
