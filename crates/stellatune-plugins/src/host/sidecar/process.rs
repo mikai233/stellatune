@@ -12,6 +12,9 @@ use parking_lot::Mutex;
 use std::mem::size_of;
 #[cfg(windows)]
 use std::os::windows::io::AsRawHandle;
+use stellatune_sidecar_support::env::{
+    SIDECAR_LOG_DIR_ENV, SIDECAR_LOG_FILE_PREFIX_ENV, SIDECAR_LOG_LEVEL_ENV,
+};
 #[cfg(windows)]
 use windows::Win32::Foundation::{CloseHandle, HANDLE};
 #[cfg(windows)]
@@ -50,6 +53,7 @@ impl SidecarHost for ProcessSidecarHost {
 
         let mut env = spec.env.clone();
         let mut env_map = build_env_map(&env);
+        apply_sidecar_log_env(spec, &mut env, &mut env_map);
         let mut created_ring_paths = Vec::<PathBuf>::new();
         #[cfg(unix)]
         let mut created_semaphore_names = Vec::<String>::new();
@@ -542,4 +546,47 @@ fn build_env_map(env: &[(String, String)]) -> BTreeMap<String, String> {
         map.insert(key.to_ascii_uppercase(), value.clone());
     }
     map
+}
+
+fn apply_sidecar_log_env(
+    spec: &SidecarLaunchSpec,
+    env: &mut Vec<(String, String)>,
+    env_map: &mut BTreeMap<String, String>,
+) {
+    set_env_var(
+        env,
+        env_map,
+        SIDECAR_LOG_DIR_ENV,
+        spec.logging.dir.display().to_string(),
+    );
+    set_env_var(
+        env,
+        env_map,
+        SIDECAR_LOG_FILE_PREFIX_ENV,
+        spec.logging.file_prefix.clone(),
+    );
+    set_env_var(
+        env,
+        env_map,
+        SIDECAR_LOG_LEVEL_ENV,
+        spec.logging.level.clone(),
+    );
+}
+
+fn set_env_var(
+    env: &mut Vec<(String, String)>,
+    env_map: &mut BTreeMap<String, String>,
+    key: &str,
+    value: String,
+) {
+    let normalized = key.to_ascii_uppercase();
+    if let Some((_, existing)) = env
+        .iter_mut()
+        .find(|(existing_key, _)| existing_key.eq_ignore_ascii_case(key))
+    {
+        *existing = value.clone();
+    } else {
+        env.push((key.to_string(), value.clone()));
+    }
+    env_map.insert(normalized, value);
 }

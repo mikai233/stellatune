@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-pub const PROTOCOL_VERSION: u32 = 6;
+pub const PROTOCOL_VERSION: u32 = 8;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AudioSpec {
@@ -45,7 +45,12 @@ pub enum Request {
         selection_session_id: String,
         device_id: String,
     },
+    PrepareDeviceSwitch {
+        selection_session_id: String,
+        device_id: String,
+    },
     Open {
+        prepared_switch_id: u64,
         selection_session_id: String,
         device_id: String,
         spec: AudioSpec,
@@ -74,6 +79,10 @@ pub enum Response {
         devices: Vec<DeviceInfo>,
     },
     DeviceCaps {
+        caps: DeviceCaps,
+    },
+    PreparedDeviceSwitch {
+        prepared_switch_id: u64,
         caps: DeviceCaps,
     },
     Ok,

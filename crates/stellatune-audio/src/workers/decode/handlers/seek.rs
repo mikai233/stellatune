@@ -55,7 +55,10 @@ pub(crate) fn handle(
             Err(error) => Err(error),
         }
     } else {
-        Err(DecodeError::NoActivePipeline { operation: "seek" })
+        Err(DecodeError::NoActivePipeline {
+            operation: "seek",
+            reason: state.current_no_active_pipeline_reason(),
+        })
     };
     let _ = resp_tx.send(result);
     false

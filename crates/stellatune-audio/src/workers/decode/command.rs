@@ -41,6 +41,10 @@ pub(crate) enum DecodeWorkerCommand {
         mutation: PipelineMutation,
         resp_tx: Sender<Result<(), DecodeError>>,
     },
+    ApplyPipelineMutations {
+        mutations: Vec<PipelineMutation>,
+        resp_tx: Sender<Result<(), DecodeError>>,
+    },
     SetLfeMode {
         mode: LfeMode,
         resp_tx: Sender<Result<(), DecodeError>>,

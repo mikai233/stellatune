@@ -1,6 +1,5 @@
 import 'dart:io';
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -88,9 +87,6 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
     _outputUiSession = ref.read(settingsUiSessionProvider);
     _restoreOutputUiSessionOrSettings();
     _refresh();
-    if (_parsePluginTypeKey(_selectedOutputBackendKey) != null) {
-      unawaited(_loadOutputSinkTargets());
-    }
   }
 
   @override
@@ -551,33 +547,10 @@ extension _SettingsRuntimeOps on SettingsPageState {
     }
   }
 
-  List<Object?> _parseOutputSinkTargets(String raw) {
-    dynamic decoded;
-    try {
-      decoded = jsonDecode(raw);
-    } catch (e, s) {
-      logger.w(
-        'failed to decode output sink targets JSON',
-        error: e,
-        stackTrace: s,
-      );
-      return const [];
-    }
-    if (decoded is List) {
-      return decoded.cast<Object?>();
-    }
-    if (decoded is Map) {
-      for (final key in ['targets', 'items', 'list', 'data', 'results']) {
-        final v = decoded[key];
-        if (v is List) {
-          return v.cast<Object?>();
-        }
-      }
-    }
-    return const [];
-  }
-
-  Future<void> _loadOutputSinkTargets() async {
+  Future<void> _loadOutputSinkTargets({
+    bool selectFirst = false,
+    bool showErrorFeedback = true,
+  }) async {
     if (_loadingOutputSinkTargets) return;
     final selectedKey =
         _parsePluginTypeKey(_selectedOutputBackendKey) ??
@@ -595,7 +568,7 @@ extension _SettingsRuntimeOps on SettingsPageState {
             typeId: parts[1],
             configJson: _outputSinkConfigController.text.trim(),
           );
-      final targets = _parseOutputSinkTargets(raw);
+      final targets = SettingsValueUtils.parseOutputSinkTargetsJson(raw);
       _logOutputSinkTargets(
         'load',
         pluginId: parts[0],
@@ -608,13 +581,15 @@ extension _SettingsRuntimeOps on SettingsPageState {
       if (targets.isNotEmpty) {
         final targetValues = targets.map(_targetValueOf).toSet();
         final current = _outputSinkTargetController.text.trim();
-        if (!targetValues.contains(current)) {
+        if (selectFirst || !targetValues.contains(current)) {
           _outputSinkTargetController.text = _targetValueOf(targets.first);
         }
+      } else {
+        _outputSinkTargetController.text = '';
       }
     } catch (e, s) {
       logger.e('failed to load output sink targets', error: e, stackTrace: s);
-      if (!mounted) return;
+      if (!showErrorFeedback || !mounted) return;
       final l10n = AppLocalizations.of(context)!;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(l10n.settingsSinkLoadTargetsFailed)),
@@ -624,6 +599,35 @@ extension _SettingsRuntimeOps on SettingsPageState {
         _updateUi(() => _loadingOutputSinkTargets = false);
       }
     }
+  }
+
+  Future<void> _refreshSelectedOutputDevices({bool selectFirst = false}) async {
+    final selectedBackendKey = _currentSelectedBackendKey();
+    final localBackend = _parseLocalBackendKey(selectedBackendKey);
+    if (localBackend != null) {
+      final devices = await ref.refresh(audioDevicesProvider.future);
+      final backendDevices = devices
+          .where((d) => d.backend == localBackend)
+          .toList();
+      final currentDeviceId = ref.read(settingsStoreProvider).selectedDeviceId;
+      String? nextDeviceId;
+      if (backendDevices.isEmpty) {
+        nextDeviceId = null;
+      } else if (selectFirst) {
+        nextDeviceId = null;
+      } else if (currentDeviceId == null) {
+        nextDeviceId = null;
+      } else if (!backendDevices.any((d) => d.id == currentDeviceId)) {
+        nextDeviceId = null;
+      } else {
+        nextDeviceId = currentDeviceId;
+      }
+      await ref
+          .read(settingsStoreProvider.notifier)
+          .setSelectedDeviceId(nextDeviceId);
+      return;
+    }
+    await _loadOutputSinkTargets(selectFirst: selectFirst);
   }
 
   Future<void> _applyOutputSinkRoute({bool showFeedback = false}) async {
@@ -660,8 +664,6 @@ extension _SettingsRuntimeOps on SettingsPageState {
       'apply output sink route start plugin=${route.pluginId} type=${route.typeId} '
       'target=${_targetDebugSummary(route.targetJson)} config_len=${route.configJson.length}',
     );
-    await _revalidateOutputSinkRouteTarget(bridge: bridge, route: route);
-
     await bridge.setOutputSinkRoute(route);
     await ref.read(settingsStoreProvider.notifier).setOutputSinkRoute(route);
     logger.i(
@@ -705,25 +707,27 @@ extension _SettingsRuntimeOps on SettingsPageState {
     _selectedOutputSinkTypeKey = selectedKey;
     final parts = selectedKey.split('::');
     if (parts.length != 2) return null;
+    final targetJson = _normalizedOutputSinkTargetJson();
+    if (targetJson == null) return null;
 
     final route = OutputSinkRoute(
       pluginId: parts[0],
       typeId: parts[1],
       configJson: _normalizedOutputSinkConfigJson(),
-      targetJson: _normalizedOutputSinkTargetJson(),
+      targetJson: targetJson,
     );
     return (selectedKey: selectedKey, route: route);
   }
 
-  String _normalizedOutputSinkTargetJson() {
+  String? _normalizedOutputSinkTargetJson() {
     var targetJson = _outputSinkTargetController.text.trim();
     if (targetJson.isEmpty && _outputSinkTargets.isNotEmpty) {
       targetJson = _targetValueOf(_outputSinkTargets.first);
       _outputSinkTargetController.text = targetJson;
     }
-    if (targetJson.isEmpty) {
-      targetJson = '{}';
-      _outputSinkTargetController.text = targetJson;
+    if (targetJson.isEmpty || targetJson == '{}') {
+      _outputSinkTargetController.text = '';
+      return null;
     }
     return targetJson;
   }
@@ -746,50 +750,6 @@ extension _SettingsRuntimeOps on SettingsPageState {
         currentRoute.typeId == nextRoute.typeId &&
         _jsonTextsEquivalent(currentRoute.configJson, nextRoute.configJson) &&
         _jsonTextsEquivalent(currentRoute.targetJson, nextRoute.targetJson);
-  }
-
-  Future<void> _revalidateOutputSinkRouteTarget({
-    required PlayerBridge bridge,
-    required OutputSinkRoute route,
-  }) async {
-    final pluginKey = '${route.pluginId}::${route.typeId}';
-    // Revalidate target against latest runtime snapshot before applying route.
-    // This prevents stale persisted/session target_json from repeatedly failing
-    // negotiate_spec when device topology changed.
-    final rawTargets = await bridge.outputSinkListTargetsJson(
-      pluginId: route.pluginId,
-      typeId: route.typeId,
-      configJson: route.configJson,
-    );
-    final latestTargets = _parseOutputSinkTargets(rawTargets);
-    _logOutputSinkTargets(
-      'apply_revalidate',
-      pluginId: route.pluginId,
-      typeId: route.typeId,
-      targets: latestTargets,
-      selectedTargetJson: route.targetJson,
-    );
-    if (mounted) {
-      _updateUi(() => _outputSinkTargets = latestTargets);
-    } else {
-      _outputSinkTargets = latestTargets;
-    }
-    if (latestTargets.isEmpty) {
-      throw StateError('No output sink targets available for $pluginKey');
-    }
-    final latestTargetValues = latestTargets.map(_targetValueOf).toSet();
-    if (!latestTargetValues.contains(route.targetJson)) {
-      final available = latestTargets.map(_targetDebugSummary).join(' || ');
-      final selected = _targetDebugSummary(route.targetJson);
-      logger.e(
-        'apply output sink route target missing after revalidate '
-        'selected=$selected available=[$available]',
-      );
-      throw StateError(
-        'Selected output sink target is no longer available. '
-        'selected=$selected; available=[$available]',
-      );
-    }
   }
 
   Future<void> _clearLyricsCache() async {
@@ -840,7 +800,7 @@ extension _SettingsBuildSections on SettingsPageState {
       children: [
         _buildOutputBackendField(l10n),
         const SizedBox(height: 12),
-        _buildOutputDeviceField(l10n, devices),
+        _buildOutputDeviceField(l10n: l10n, devices: devices),
         const SizedBox(height: 12),
         _buildWasapiExclusiveOptions(l10n),
         _buildSeekTrackFadeOption(l10n),
@@ -987,8 +947,10 @@ extension _SettingsBuildSections on SettingsPageState {
       }
     });
     try {
-      if (local == null) {
-        await _loadOutputSinkTargets();
+      await _refreshSelectedOutputDevices(selectFirst: true);
+      if (local == null && _normalizedOutputSinkTargetJson() == null) {
+        messenger.showSnackBar(const SnackBar(content: Text('当前后端没有可用的输出设备。')));
+        return;
       }
       await _applyOutputSinkRoute();
     } catch (e, s) {
@@ -996,19 +958,6 @@ extension _SettingsBuildSections on SettingsPageState {
       messenger.showSnackBar(
         SnackBar(content: Text('Apply backend failed: $e')),
       );
-    } finally {
-      try {
-        final refreshedDevices = await ref.refresh(audioDevicesProvider.future);
-        logger.d(
-          'refreshed devices after backend change: ${refreshedDevices.length}',
-        );
-      } catch (e, s) {
-        logger.w(
-          'failed to refresh devices after backend change',
-          error: e,
-          stackTrace: s,
-        );
-      }
     }
   }
 
@@ -1040,10 +989,10 @@ extension _SettingsBuildSections on SettingsPageState {
     }
   }
 
-  Widget _buildOutputDeviceField(
-    AppLocalizations l10n,
-    List<AudioDevice> devices,
-  ) {
+  Widget _buildOutputDeviceField({
+    required AppLocalizations l10n,
+    required List<AudioDevice> devices,
+  }) {
     final selectedBackendKey = _currentSelectedBackendKey();
     final localBackend = _parseLocalBackendKey(selectedBackendKey);
     return DropdownButtonFormField<String?>(
@@ -1438,7 +1387,6 @@ extension _SettingsBuildSections on SettingsPageState {
       () async {
         if (!mounted) return;
         try {
-          await _loadOutputSinkTargets();
           await _applyOutputSinkRoute();
         } catch (e, s) {
           logger.e(

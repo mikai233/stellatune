@@ -363,7 +363,7 @@ impl SharedDeviceSinkStage {
                 let metrics = self.control.clone();
                 let mut consumer = consumer;
                 device.build_output_stream(
-                    &stream_config,
+                    stream_config,
                     move |data: &mut [f32], _| {
                         let provided = write_f32_samples(data, &mut consumer);
                         metrics.note_callback(data.len(), provided);
@@ -376,7 +376,7 @@ impl SharedDeviceSinkStage {
                 let metrics = self.control.clone();
                 let mut consumer = consumer;
                 device.build_output_stream(
-                    &stream_config,
+                    stream_config,
                     move |data: &mut [i16], _| {
                         let provided = write_i16_samples(data, &mut consumer);
                         metrics.note_callback(data.len(), provided);
@@ -389,7 +389,7 @@ impl SharedDeviceSinkStage {
                 let metrics = self.control.clone();
                 let mut consumer = consumer;
                 device.build_output_stream(
-                    &stream_config,
+                    stream_config,
                     move |data: &mut [u16], _| {
                         let provided = write_u16_samples(data, &mut consumer);
                         metrics.note_callback(data.len(), provided);

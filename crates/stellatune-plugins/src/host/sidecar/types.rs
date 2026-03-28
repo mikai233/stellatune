@@ -1,5 +1,7 @@
 use std::path::{Path, PathBuf};
 
+use stellatune_sidecar_support::env::{SidecarLogConfig, build_sidecar_log_config};
+
 use crate::error::{Error, Result};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -27,12 +29,16 @@ pub(crate) enum SidecarLaunchScope {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SidecarLaunchSpec {
     pub scope: SidecarLaunchScope,
+    pub plugin_root: PathBuf,
+    pub logging: SidecarLogConfig,
     pub executable: String,
     pub args: Vec<String>,
     pub preferred_control: Vec<SidecarTransportOption>,
     pub preferred_data: Vec<SidecarTransportOption>,
     pub env: Vec<(String, String)>,
 }
+
+const HOST_SIDECAR_LOG_LEVEL: &str = "info";
 
 pub(crate) trait SidecarChannelHandle: Send {
     fn transport(&self) -> SidecarTransportKind;
@@ -115,6 +121,30 @@ pub(crate) fn resolve_sidecar_executable(
             plugin_root.display()
         ),
     ))
+}
+
+pub(crate) fn resolve_sidecar_logging(
+    plugin_root: &Path,
+    executable: &str,
+) -> Result<SidecarLogConfig> {
+    let plugins_dir = plugin_root.parent().ok_or_else(|| {
+        Error::invalid_input(format!(
+            "plugin root has no parent directory: {}",
+            plugin_root.display()
+        ))
+    })?;
+    let plugin_id = plugin_root
+        .file_name()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| {
+            Error::invalid_input(format!(
+                "unable to derive plugin id from plugin root: {}",
+                plugin_root.display()
+            ))
+        })?;
+    build_sidecar_log_config(executable, plugins_dir, plugin_id, HOST_SIDECAR_LOG_LEVEL)
+        .map_err(|error| Error::operation("sidecar.log-config", error.to_string()))
 }
 
 fn is_safe_relative_sidecar_path(path: &Path) -> bool {

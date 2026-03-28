@@ -197,8 +197,7 @@ checksum = "7c02d123df017efcdfbd739ef81735b36c5ba83ec3c59c80a9d7ecc718f92e50"
 [[package]]
 name = "asio-sys"
 version = "0.2.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "826194e1612938c9be09b78b58323fbb2e326de3d491b4230186cf6e832d8ded"
+source = "git+https://github.com/RustAudio/cpal.git#e172208edd47f0077077d47b9f6991bdc248fd36"
 dependencies = [
  "bindgen",
  "cc",
@@ -833,9 +832,8 @@ dependencies = [
 
 [[package]]
 name = "cpal"
-version = "0.17.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d8942da362c0f0d895d7cac616263f2f9424edc5687364dfd1d25ef7eba506d7"
+version = "0.18.0"
+source = "git+https://github.com/RustAudio/cpal.git#e172208edd47f0077077d47b9f6991bdc248fd36"
 dependencies = [
  "alsa",
  "asio-sys",
@@ -4586,6 +4584,8 @@ dependencies = [
  "memmap2",
  "ringbuf",
  "stellatune-asio-proto",
+ "stellatune-sidecar-support",
+ "tracing",
  "windows",
 ]
 
@@ -4758,6 +4758,7 @@ dependencies = [
  "serde_json",
  "stellatune-asio-proto",
  "stellatune-plugin-sdk",
+ "tracing",
 ]
 
 [[package]]
@@ -4809,6 +4810,7 @@ name = "stellatune-plugins"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "directories",
  "flate2",
  "libc",
  "memmap2",
@@ -4818,6 +4820,7 @@ dependencies = [
  "serde",
  "serde_json",
  "stellatune-host-bindings",
+ "stellatune-sidecar-support",
  "tempfile",
  "thiserror 2.0.18",
  "tracing",
@@ -4836,6 +4839,14 @@ dependencies = [
  "crossbeam-channel",
  "futures-util",
  "tokio",
+]
+
+[[package]]
+name = "stellatune-sidecar-support"
+version = "0.1.0"
+dependencies = [
+ "tracing-appender",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -5615,6 +5626,18 @@ dependencies = [
  "pin-project-lite",
  "tracing-attributes",
  "tracing-core",
+]
+
+[[package]]
+name = "tracing-appender"
+version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "786d480bce6247ab75f005b14ae1624ad978d3029d9113f0a22fa1ac773faeaf"
+dependencies = [
+ "crossbeam-channel",
+ "thiserror 2.0.18",
+ "time",
+ "tracing-subscriber",
 ]
 
 [[package]]

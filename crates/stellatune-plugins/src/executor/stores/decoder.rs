@@ -12,7 +12,7 @@ use stellatune_host_bindings::generated::decoder_plugin::stellatune::plugin::sid
 use crate::executor::sidecar_state::state::SidecarState;
 use crate::host::sidecar::types::{
     SidecarLaunchScope, SidecarLaunchSpec, SidecarTransportKind, SidecarTransportOption,
-    resolve_sidecar_executable,
+    resolve_sidecar_executable, resolve_sidecar_logging,
 };
 use crate::host::stream::{
     HostStreamHandle, HostStreamOpenRequest, HostStreamService, StreamHeader, StreamHttpMethod,
@@ -244,12 +244,17 @@ impl decoder_sidecar::Host for DecoderStoreData {
         &mut self,
         spec: decoder_sidecar::LaunchSpec,
     ) -> std::result::Result<Resource<decoder_sidecar::Process>, decoder_sidecar::PluginError> {
+        let executable = resolve_sidecar_executable(&self.plugin_root, &spec.executable)
+            .map_err(decoder_plugin_error_internal)?;
+        let logging = resolve_sidecar_logging(&self.plugin_root, executable.as_str())
+            .map_err(decoder_plugin_error_internal)?;
         let process_rep = self
             .sidecar
             .launch(&SidecarLaunchSpec {
                 scope: decoder_launch_scope_from(spec.scope),
-                executable: resolve_sidecar_executable(&self.plugin_root, &spec.executable)
-                    .map_err(decoder_plugin_error_internal)?,
+                plugin_root: self.plugin_root.clone(),
+                logging,
+                executable,
                 args: spec.args,
                 preferred_control: spec
                     .preferred_control

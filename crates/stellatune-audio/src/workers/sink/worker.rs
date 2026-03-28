@@ -256,6 +256,11 @@ struct SinkThreadArgs {
     running: Arc<AtomicBool>,
 }
 
+struct ControlOutcome {
+    break_loop: bool,
+    sinks_stopped: bool,
+}
+
 /// Entry point for the sink thread.
 ///
 /// The loop waits for either control commands or wake events and processes
@@ -282,6 +287,8 @@ fn sink_thread_main(args: SinkThreadArgs) {
         return;
     }
 
+    let mut sinks_stopped = false;
+
     loop {
         crossbeam_channel::select! {
             recv(ctrl_rx) -> msg => {
@@ -289,13 +296,15 @@ fn sink_thread_main(args: SinkThreadArgs) {
                     break;
                 };
                 // Control commands are handled eagerly to keep external RPCs responsive.
-                if handle_control(
+                let outcome = handle_control(
                     control,
                     &mut sinks,
                     &sink_control_routes,
                     &mut audio_cons,
                     &mut ctx,
-                ) {
+                );
+                sinks_stopped |= outcome.sinks_stopped;
+                if outcome.break_loop {
                     break;
                 }
             }
@@ -310,7 +319,9 @@ fn sink_thread_main(args: SinkThreadArgs) {
         }
     }
 
-    stop_sinks(&mut sinks, &mut ctx);
+    if !sinks_stopped {
+        stop_sinks(&mut sinks, &mut ctx);
+    }
 }
 
 fn build_sink_control_routes(
@@ -406,7 +417,7 @@ fn handle_control(
     sink_control_routes: &std::collections::HashMap<String, usize>,
     audio_cons: &mut HeapCons<AudioBlock>,
     ctx: &mut PipelineContext,
-) -> bool {
+) -> ControlOutcome {
     match control {
         SinkControl::RefreshRuntimeState {
             ctx: next_ctx,
@@ -415,18 +426,27 @@ fn handle_control(
             // Caller sends a full context snapshot; sink thread adopts it atomically.
             *ctx = next_ctx;
             let _ = resp_tx.send(refresh_runtime_state(sinks, ctx));
-            false
+            ControlOutcome {
+                break_loop: false,
+                sinks_stopped: false,
+            }
         },
         SinkControl::Drain { resp_tx } => {
             let result = drain_audio_ring_to_sinks(sinks, audio_cons, ctx)
                 .and_then(|_| flush_sinks(sinks, ctx));
             let _ = resp_tx.send(result);
-            false
+            ControlOutcome {
+                break_loop: false,
+                sinks_stopped: false,
+            }
         },
         SinkControl::DropQueued { resp_tx } => {
             let _ = audio_cons.clear();
             let _ = resp_tx.send(Ok(()));
-            false
+            ControlOutcome {
+                break_loop: false,
+                sinks_stopped: false,
+            }
         },
         SinkControl::ApplyStageRuntimeUpdate {
             stage_key,
@@ -441,7 +461,10 @@ fn handle_control(
                 ctx,
             );
             let _ = resp_tx.send(result);
-            false
+            ControlOutcome {
+                break_loop: false,
+                sinks_stopped: false,
+            }
         },
         SinkControl::Shutdown { drain, resp_tx } => {
             if !drain {
@@ -450,8 +473,12 @@ fn handle_control(
                 let _ = drain_audio_ring_to_sinks(sinks, audio_cons, ctx);
                 let _ = flush_sinks(sinks, ctx);
             }
+            stop_sinks(sinks, ctx);
             let _ = resp_tx.send(Ok(()));
-            true
+            ControlOutcome {
+                break_loop: true,
+                sinks_stopped: true,
+            }
         },
     }
 }

@@ -5,8 +5,8 @@ use tokio::sync::broadcast;
 use crate::config::engine::{EngineSnapshot, Event};
 use crate::engine::handle::EngineHandle;
 use crate::engine::messages::{
-    ApplyPipelineBlueprintMessage, ApplyPipelineMutationMessage, GetSnapshotMessage,
-    ShutdownMessage,
+    ApplyPipelineBlueprintMessage, ApplyPipelineMutationMessage, ApplyPipelineMutationsMessage,
+    GetSnapshotMessage, ShutdownMessage,
 };
 use crate::error::EngineError;
 use crate::pipeline::assembly::{PipelineBlueprint, PipelineMutation};
@@ -47,6 +47,22 @@ impl EngineHandle {
             .call_async(ApplyPipelineMutationMessage { mutation }, self.timeout)
             .await
             .map_err(|error| Self::map_call_error("apply_pipeline_mutation", self.timeout, error))?
+    }
+
+    /// Applies multiple runtime pipeline mutations as a single rebuild batch.
+    ///
+    /// Mutations are folded into the pinned blueprint first, then the active
+    /// pipeline is rebuilt once from the final result.
+    pub async fn apply_pipeline_mutations(
+        &self,
+        mutations: Vec<PipelineMutation>,
+    ) -> Result<(), EngineError> {
+        self.actor_ref
+            .call_async(ApplyPipelineMutationsMessage { mutations }, self.timeout)
+            .await
+            .map_err(|error| {
+                Self::map_call_error("apply_pipeline_mutations", self.timeout, error)
+            })?
     }
 
     /// Returns the latest engine snapshot.

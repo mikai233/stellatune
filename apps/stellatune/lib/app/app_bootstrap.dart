@@ -1,11 +1,10 @@
 import 'dart:io';
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import 'package:stellatune/app/plugin_paths.dart';
 import 'package:stellatune/app/plugin_ui_gateway_service.dart';
 import 'package:stellatune/app/settings_store.dart';
+import 'package:stellatune/ui/pages/settings/settings_value_utils.dart';
 import 'package:stellatune/bridge/api/runtime.dart' as runtime_api;
 import 'package:stellatune/bridge/bridge.dart';
 import 'package:stellatune/library/library_paths.dart';
@@ -40,6 +39,184 @@ class _BootstrapPaths {
   final String coverDir;
   final String lyricsDbPath;
   final String pluginDir;
+}
+
+class _ResolvedPluginRoute {
+  const _ResolvedPluginRoute({required this.route, required this.targets});
+
+  final OutputSinkRoute route;
+  final List<Object?> targets;
+}
+
+class _PersistedOutputSettingsRestorer {
+  _PersistedOutputSettingsRestorer({
+    required this.bridge,
+    required this.settings,
+  }) : persisted = settings.readState(),
+       session = settings.outputSettingsUiSession;
+
+  final PlayerBridge bridge;
+  final SettingsStore settings;
+  final SettingsState persisted;
+  final OutputSettingsUiSession session;
+
+  String? localDeviceId;
+
+  Future<void> restore() async {
+    localDeviceId = persisted.selectedDeviceId;
+    _primeLocalSession();
+    await _restoreLocalOutputDevice();
+    await _restoreOutputOptions();
+    await _restoreOutputRoute();
+    await _refreshDevicesBestEffort();
+  }
+
+  Future<void> _restoreLocalOutputDevice() async {
+    final backend = persisted.selectedBackend;
+    try {
+      await bridge.setOutputDevice(backend: backend, deviceId: localDeviceId);
+    } catch (e, s) {
+      logger.w(
+        'failed to set persisted output device, falling back to default',
+        error: e,
+        stackTrace: s,
+      );
+      localDeviceId = null;
+      await settings.setSelectedDeviceId(null);
+      _primeLocalSession();
+      await bridge.setOutputDevice(backend: backend, deviceId: null);
+    }
+  }
+
+  Future<void> _restoreOutputOptions() {
+    return bridge.setOutputOptions(
+      matchTrackSampleRate: persisted.matchTrackSampleRate,
+      gaplessPlayback: persisted.gaplessPlayback,
+      seekTrackFade: persisted.seekTrackFade,
+      resampleQuality: persisted.resampleQuality,
+    );
+  }
+
+  Future<void> _restoreOutputRoute() async {
+    final route = settings.readState().outputSinkRoute;
+    if (route == null) {
+      await bridge.clearOutputSinkRoute();
+      _primeLocalSession();
+      return;
+    }
+
+    if (!await _sinkTypeExists(route)) {
+      await _fallbackToLocal(clearPersistedRoute: true);
+      return;
+    }
+
+    final resolved = await _resolvePluginRoute(route);
+    try {
+      await bridge.setOutputSinkRoute(resolved.route);
+      if (resolved.route != route) {
+        await settings.setOutputSinkRoute(resolved.route);
+      }
+      _primePluginSession(resolved);
+    } catch (e, s) {
+      logger.e(
+        'failed to set output sink route, falling back to local',
+        error: e,
+        stackTrace: s,
+      );
+      await _fallbackToLocal(clearPersistedRoute: true);
+    }
+  }
+
+  Future<bool> _sinkTypeExists(OutputSinkRoute route) async {
+    final sinkTypes = await bridge.outputSinkListTypes();
+    return sinkTypes.any(
+      (t) => t.pluginId == route.pluginId && t.typeId == route.typeId,
+    );
+  }
+
+  Future<_ResolvedPluginRoute> _resolvePluginRoute(
+    OutputSinkRoute route,
+  ) async {
+    try {
+      final rawTargets = await bridge.outputSinkListTargetsJson(
+        pluginId: route.pluginId,
+        typeId: route.typeId,
+        configJson: route.configJson,
+      );
+      final targets = SettingsValueUtils.parseOutputSinkTargetsJson(rawTargets);
+      if (targets.isEmpty) {
+        return _ResolvedPluginRoute(route: route, targets: targets);
+      }
+
+      final persistedTarget = route.targetJson.trim();
+      final targetValues = targets
+          .map(SettingsValueUtils.targetValueOf)
+          .toSet();
+      if (targetValues.contains(persistedTarget)) {
+        return _ResolvedPluginRoute(route: route, targets: targets);
+      }
+
+      return _ResolvedPluginRoute(
+        route: OutputSinkRoute(
+          pluginId: route.pluginId,
+          typeId: route.typeId,
+          configJson: route.configJson,
+          targetJson: SettingsValueUtils.targetValueOf(targets.first),
+        ),
+        targets: targets,
+      );
+    } catch (e, s) {
+      logger.w('failed to probe output sink targets', error: e, stackTrace: s);
+      return _ResolvedPluginRoute(route: route, targets: const []);
+    }
+  }
+
+  Future<void> _fallbackToLocal({required bool clearPersistedRoute}) async {
+    await bridge.clearOutputSinkRoute();
+    if (clearPersistedRoute) {
+      await settings.clearOutputSinkRoute();
+    }
+    _primeLocalSession();
+  }
+
+  Future<void> _refreshDevicesBestEffort() async {
+    try {
+      await bridge.refreshDevices();
+    } catch (e, s) {
+      logger.w('failed to refresh output devices', error: e, stackTrace: s);
+      // Non-fatal. Device probing is best-effort during bootstrap.
+    }
+  }
+
+  void _primeLocalSession() {
+    session.initialized = true;
+    session.selectedOutputBackendKey = SettingsValueUtils.localBackendKey(
+      persisted.selectedBackend,
+    );
+    session.selectedOutputSinkTypeKey = null;
+    session.outputSinkConfigJson = '{}';
+    session.outputSinkTargetJson = '{}';
+    session.outputSinkTargets = const [];
+    session.loadingOutputSinkTargets = false;
+    session.resampleQuality = persisted.resampleQuality;
+  }
+
+  void _primePluginSession(_ResolvedPluginRoute resolved) {
+    final route = resolved.route;
+    final typeKey = '${route.pluginId}::${route.typeId}';
+    session.initialized = true;
+    session.selectedOutputBackendKey = SettingsValueUtils.pluginBackendKey(
+      route.pluginId,
+      route.typeId,
+    );
+    session.selectedOutputSinkTypeKey = typeKey;
+    session.outputSinkConfigJson = route.configJson;
+    session.outputSinkTargetJson = route.targetJson;
+    session.outputSinkTargets = List<Object?>.from(resolved.targets);
+    session.loadingOutputSinkTargets = false;
+    session.outputSinkConfigDrafts[typeKey] = route.configJson;
+    session.resampleQuality = persisted.resampleQuality;
+  }
 }
 
 bool _isExitInProgress = false;
@@ -183,95 +360,11 @@ Future<void> _applyPersistedOutputSettings({
 }) async {
   // Best-effort: don't block startup on restore failures.
   try {
-    final persisted = settings.readState();
-    final backend = persisted.selectedBackend;
-    var localDeviceId = persisted.selectedDeviceId;
-    try {
-      await bridge.setOutputDevice(backend: backend, deviceId: localDeviceId);
-    } catch (e, s) {
-      logger.w(
-        'failed to set persisted output device, falling back to default',
-        error: e,
-        stackTrace: s,
-      );
-      // Persisted local device may no longer exist; fallback to system default.
-      localDeviceId = null;
-      await settings.setSelectedDeviceId(null);
-      await bridge.setOutputDevice(backend: backend, deviceId: null);
-    }
-
-    await bridge.setOutputOptions(
-      matchTrackSampleRate: persisted.matchTrackSampleRate,
-      gaplessPlayback: persisted.gaplessPlayback,
-      seekTrackFade: persisted.seekTrackFade,
-      resampleQuality: persisted.resampleQuality,
+    final restorer = _PersistedOutputSettingsRestorer(
+      bridge: bridge,
+      settings: settings,
     );
-
-    final route = settings.readState().outputSinkRoute;
-    if (route == null) {
-      await bridge.clearOutputSinkRoute();
-    } else {
-      final sinkTypes = await bridge.outputSinkListTypes();
-      final sinkTypeExists = sinkTypes.any(
-        (t) => t.pluginId == route.pluginId && t.typeId == route.typeId,
-      );
-      if (!sinkTypeExists) {
-        await bridge.clearOutputSinkRoute();
-        await settings.clearOutputSinkRoute();
-      } else {
-        var effectiveRoute = route;
-        try {
-          final rawTargets = await bridge.outputSinkListTargetsJson(
-            pluginId: route.pluginId,
-            typeId: route.typeId,
-            configJson: route.configJson,
-          );
-          final targets = _parseOutputSinkTargets(rawTargets);
-          if (targets.isNotEmpty) {
-            final persistedTarget = route.targetJson.trim();
-            final targetValues = targets.map(_targetValueOf).toSet();
-            if (!targetValues.contains(persistedTarget)) {
-              effectiveRoute = OutputSinkRoute(
-                pluginId: route.pluginId,
-                typeId: route.typeId,
-                configJson: route.configJson,
-                targetJson: _targetValueOf(targets.first),
-              );
-            }
-          }
-        } catch (e, s) {
-          logger.w(
-            'failed to probe output sink targets',
-            error: e,
-            stackTrace: s,
-          );
-          // Target probing failed. Keep route and let runtime apply decide fallback.
-        }
-
-        try {
-          await bridge.setOutputSinkRoute(effectiveRoute);
-          if (effectiveRoute != route) {
-            await settings.setOutputSinkRoute(effectiveRoute);
-          }
-        } catch (e, s) {
-          logger.e(
-            'failed to set output sink route, falling back to local',
-            error: e,
-            stackTrace: s,
-          );
-          // Plugin route unusable (plugin disabled/unavailable/target invalid): fallback local output.
-          await bridge.clearOutputSinkRoute();
-          await settings.clearOutputSinkRoute();
-        }
-      }
-    }
-
-    try {
-      await bridge.refreshDevices();
-    } catch (e, s) {
-      logger.w('failed to refresh output devices', error: e, stackTrace: s);
-      // Non-fatal. Device probing is best-effort during bootstrap.
-    }
+    await restorer.restore();
   } catch (e, s) {
     logger.e(
       'failed to apply persisted output settings',
@@ -280,35 +373,6 @@ Future<void> _applyPersistedOutputSettings({
     );
   }
 }
-
-List<Object?> _parseOutputSinkTargets(String raw) {
-  dynamic decoded;
-  try {
-    decoded = jsonDecode(raw);
-  } catch (e, s) {
-    logger.w(
-      'failed to decode output sink targets JSON',
-      error: e,
-      stackTrace: s,
-    );
-    return const [];
-  }
-  if (decoded is List) {
-    return decoded.cast<Object?>();
-  }
-  if (decoded is Map) {
-    for (final key in ['targets', 'items', 'list', 'data', 'results']) {
-      final v = decoded[key];
-      if (v is List) {
-        return v.cast<Object?>();
-      }
-    }
-  }
-  return const [];
-}
-
-String _targetValueOf(Object? target) =>
-    target is String ? target : jsonEncode(target);
 
 Future<void> _setupLyricsCacheDb({
   required PlayerBridge bridge,

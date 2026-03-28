@@ -299,7 +299,7 @@ impl OutputHandle {
                     cpal::SampleFormat::F32 => {
                         let on_error = Arc::clone(&on_error);
                         device.build_output_stream(
-                            &stream_config,
+                            stream_config,
                             move |data: &mut [f32], _| {
                                 #[cfg(windows)]
                                 let _ = mmcss::ensure_mmcss_pro_audio_for_current_thread();
@@ -312,7 +312,7 @@ impl OutputHandle {
                     cpal::SampleFormat::I16 => {
                         let on_error = Arc::clone(&on_error);
                         device.build_output_stream(
-                            &stream_config,
+                            stream_config,
                             move |data: &mut [i16], _| {
                                 #[cfg(windows)]
                                 let _ = mmcss::ensure_mmcss_pro_audio_for_current_thread();
@@ -325,7 +325,7 @@ impl OutputHandle {
                     cpal::SampleFormat::U16 => {
                         let on_error = Arc::clone(&on_error);
                         device.build_output_stream(
-                            &stream_config,
+                            stream_config,
                             move |data: &mut [u16], _| {
                                 #[cfg(windows)]
                                 let _ = mmcss::ensure_mmcss_pro_audio_for_current_thread();

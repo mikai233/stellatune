@@ -2,6 +2,7 @@ use std::error::Error;
 use std::io::{ErrorKind, stdin, stdout};
 
 use stellatune_asio_proto::{ProtoError, Request, Response, read_frame, write_frame};
+use stellatune_sidecar_support::logging::init_daily_file_tracing_from_env;
 
 mod data_channel;
 mod device;
@@ -15,6 +16,8 @@ use request_handler::dispatch_request;
 use state::RuntimeState;
 
 fn main() -> Result<(), Box<dyn Error>> {
+    init_daily_file_tracing_from_env()?;
+
     let stdin = stdin();
     let stdout = stdout();
     let mut r = stdin.lock();
@@ -25,7 +28,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let data_ingress = match data_channel::DataIngressPump::from_env() {
         Ok(data_ingress) => data_ingress,
         Err(error) => {
-            eprintln!("asio host data ingress unavailable: {error}");
+            tracing::warn!("asio host data ingress unavailable: {error}");
             None
         },
     };

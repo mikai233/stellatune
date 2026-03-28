@@ -71,6 +71,7 @@ fn add_quiet_http_directives(filter: EnvFilter) -> EnvFilter {
         "sqlx=warn",
         "symphonia=warn",
         "wasmtime=warn",
+        "wasapi=info",
     ] {
         if let Ok(parsed) = directive.parse::<tracing_subscriber::filter::Directive>() {
             filter = filter.add_directive(parsed);

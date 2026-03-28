@@ -8,6 +8,7 @@ use stellatune_audio_core::pipeline::context::{InputRef, PipelineContext};
 use crate::config::engine::{LfeMode, PlayerState, ResampleQuality};
 use crate::config::gain::GainTransitionConfig;
 use crate::config::sink::{SinkLatencyConfig, SinkRecoveryConfig};
+use crate::error::NoActivePipelineReason;
 use crate::pipeline::assembly::PipelineBlueprint;
 use crate::pipeline::runtime::dsp::control::SharedMasterGainHotControl;
 use crate::pipeline::runtime::runner::PipelineRunner;
@@ -39,6 +40,7 @@ pub(crate) struct DecodeWorkerState {
     pub(crate) recovery_attempts: u32,
     pub(crate) recovery_retry_at: Option<Instant>,
     pub(crate) audio_start_sent: bool,
+    pub(crate) pipeline_unavailable_reason: Option<NoActivePipelineReason>,
 }
 
 impl DecodeWorkerState {
@@ -69,6 +71,7 @@ impl DecodeWorkerState {
             recovery_attempts: 0,
             recovery_retry_at: None,
             audio_start_sent: false,
+            pipeline_unavailable_reason: None,
         }
     }
 
@@ -86,5 +89,22 @@ impl DecodeWorkerState {
 
     pub(crate) fn set_resample_quality(&mut self, quality: ResampleQuality) {
         self.resample_quality = quality;
+    }
+
+    pub(crate) fn clear_pipeline_unavailable_reason(&mut self) {
+        self.pipeline_unavailable_reason = None;
+    }
+
+    pub(crate) fn set_pipeline_unavailable_reason(&mut self, reason: NoActivePipelineReason) {
+        self.pipeline_unavailable_reason = Some(reason);
+    }
+
+    pub(crate) fn current_no_active_pipeline_reason(&self) -> NoActivePipelineReason {
+        if self.active_input.is_none() {
+            return NoActivePipelineReason::NoTrackLoaded;
+        }
+        self.pipeline_unavailable_reason
+            .clone()
+            .unwrap_or(NoActivePipelineReason::RunnerMissing)
     }
 }

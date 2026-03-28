@@ -22,9 +22,9 @@ impl OutputCallbackPlatformState {
         self.attempted = true;
         self.guard = enable_mmcss_pro_audio();
         if self.guard.is_some() {
-            eprintln!("asio host mmcss: Pro Audio enabled ({format_label})");
+            tracing::info!("asio host mmcss: Pro Audio enabled ({format_label})");
         } else {
-            eprintln!("asio host mmcss: failed to enable Pro Audio ({format_label})");
+            tracing::warn!("asio host mmcss: failed to enable Pro Audio ({format_label})");
         }
     }
 }

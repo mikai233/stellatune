@@ -10,6 +10,47 @@ use stellatune_audio_core::pipeline::error::PipelineError;
 use stellatune_audio_core::pipeline::stages::StageTarget;
 use stellatune_runtime::thread_actor::CallError;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NoActivePipelineReason {
+    NoTrackLoaded,
+    SinkRecoveryInProgress {
+        next_attempt: u32,
+        last_error: Option<String>,
+    },
+    PipelineRebuildFailed {
+        context: &'static str,
+        error: String,
+    },
+    RunnerMissing,
+}
+
+impl std::fmt::Display for NoActivePipelineReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NoTrackLoaded => f.write_str("no track is loaded"),
+            Self::SinkRecoveryInProgress {
+                next_attempt,
+                last_error,
+            } => {
+                write!(
+                    f,
+                    "sink recovery in progress (retry {next_attempt} pending)"
+                )?;
+                if let Some(last_error) = last_error {
+                    write!(f, ": {last_error}")?;
+                }
+                Ok(())
+            },
+            Self::PipelineRebuildFailed { context, error } => {
+                write!(f, "pipeline rebuild failed during {context}: {error}")
+            },
+            Self::RunnerMissing => {
+                f.write_str("an input is selected, but no playback runner is available")
+            },
+        }
+    }
+}
+
 /// Errors produced by decode worker command and runtime flows.
 #[derive(Debug, Clone, Error)]
 pub enum DecodeError {
@@ -38,10 +79,12 @@ pub enum DecodeError {
     #[error("decode worker thread panicked")]
     WorkerPanicked,
     /// Operation requires an active pipeline but none exists.
-    #[error("no active pipeline to {operation}")]
+    #[error("no active pipeline to {operation}: {reason}")]
     NoActivePipeline {
         /// Operation name that required an active pipeline.
         operation: &'static str,
+        /// Why an active pipeline is unavailable.
+        reason: NoActivePipelineReason,
     },
     /// Sink recovery was requested without an active input.
     #[error("no active input for sink recovery")]

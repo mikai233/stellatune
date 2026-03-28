@@ -11,7 +11,7 @@ use stellatune_audio_core::pipeline::error::PipelineError;
 use tracing::{info, warn};
 
 use crate::config::engine::EngineConfig;
-use crate::error::DecodeError;
+use crate::error::{DecodeError, NoActivePipelineReason};
 use crate::pipeline::assembly::{PipelineAssembler, PipelineRuntime};
 use crate::pipeline::runtime::runner::RunnerState;
 use crate::pipeline::runtime::sink_session::SinkActivationMode;
@@ -93,15 +93,16 @@ pub(crate) fn try_sink_recovery_tick(
         );
         state.recovery_retry_at = None;
         state.recovery_attempts = 0;
+        state.clear_pipeline_unavailable_reason();
         return true;
     }
 
-    let message =
-        recover_result
-            .err()
-            .unwrap_or(DecodeError::Pipeline(PipelineError::StageFailure(
-                "sink recovery failed".to_string(),
-            )));
+    let (failure_context, message) = recover_result.err().unwrap_or((
+        "sink_recovery.unknown",
+        DecodeError::Pipeline(PipelineError::StageFailure(
+            "sink recovery failed".to_string(),
+        )),
+    ));
     warn!(
         attempt,
         message = %message,
@@ -118,6 +119,10 @@ pub(crate) fn try_sink_recovery_tick(
             "sink recovery exhausted; stopping playback"
         );
         state.recovery_retry_at = None;
+        state.set_pipeline_unavailable_reason(NoActivePipelineReason::PipelineRebuildFailed {
+            context: failure_context,
+            error: message.to_string(),
+        });
         callback(DecodeWorkerEvent::Error(message));
         return false;
     }
@@ -131,6 +136,10 @@ pub(crate) fn try_sink_recovery_tick(
         "sink recovery retry scheduled"
     );
     state.recovery_retry_at = Some(Instant::now() + backoff);
+    state.set_pipeline_unavailable_reason(NoActivePipelineReason::SinkRecoveryInProgress {
+        next_attempt,
+        last_error: Some(format!("{failure_context}: {message}")),
+    });
     callback(DecodeWorkerEvent::Recovering {
         attempt: next_attempt,
         backoff_ms: backoff.as_millis() as u64,
@@ -150,43 +159,64 @@ fn rebuild_active_runner(
     assembler: &Arc<dyn PipelineAssembler>,
     pipeline_runtime: &mut dyn PipelineRuntime,
     state: &mut DecodeWorkerState,
-) -> Result<(), DecodeError> {
-    let input = state
-        .active_input
-        .clone()
-        .ok_or(DecodeError::NoActiveInputForRecovery)?;
+) -> Result<(), (&'static str, DecodeError)> {
+    let input = state.active_input.clone().ok_or((
+        "sink_recovery.active_input",
+        DecodeError::NoActiveInputForRecovery,
+    ))?;
     let resume_position_ms = state.ctx.position_ms.max(0);
+    let mut failure_context = "sink_recovery.blueprint";
     let blueprint = match state.pinned_blueprint.as_ref() {
         Some(blueprint) => Arc::clone(blueprint),
-        None => assembler.build_blueprint(&input)?,
+        None => assembler
+            .build_blueprint(&input)
+            .map_err(|error| (failure_context, error.into()))?,
     };
-    let mut assembled = pipeline_runtime.assemble(blueprint.as_ref())?;
+    failure_context = "sink_recovery.assemble";
+    let mut assembled = pipeline_runtime
+        .assemble(blueprint.as_ref())
+        .map_err(|error| (failure_context, error.into()))?;
     apply_decode_policies(&mut assembled, state);
+    failure_context = "sink_recovery.into_runner";
     let mut next_ctx = state.fresh_context();
-    let mut next_runner =
-        assembled.into_runner(Some(Arc::clone(&state.master_gain_hot_control)))?;
-    next_runner.prepare_decode(&input, &mut next_ctx)?;
-    next_runner.activate_sink(
-        &mut state.sink_session,
-        &next_ctx,
-        SinkActivationMode::ImmediateCutover,
-    )?;
+    let mut next_runner = assembled
+        .into_runner(Some(Arc::clone(&state.master_gain_hot_control)))
+        .map_err(|error| (failure_context, error.into()))?;
+    failure_context = "sink_recovery.prepare_decode";
+    next_runner
+        .prepare_decode(&input, &mut next_ctx)
+        .map_err(|error| (failure_context, error.into()))?;
+    failure_context = "sink_recovery.activate_sink";
+    next_runner
+        .activate_sink(
+            &mut state.sink_session,
+            &next_ctx,
+            SinkActivationMode::ImmediateCutover,
+        )
+        .map_err(|error| (failure_context, error.into()))?;
+    failure_context = "sink_recovery.apply_master_gain";
     apply_master_gain_level_to_runner(
         &mut next_runner,
         &mut next_ctx,
         state.master_gain_hot_control.snapshot().level,
         0,
-    )?;
+    )
+    .map_err(|error| (failure_context, error))?;
+    failure_context = "sink_recovery.replay_stage_updates";
     replay_persisted_stage_runtime_updates_to_runner(
         &state.persisted_stage_runtime_updates,
         &mut next_runner,
         Some(&state.sink_session),
         &mut next_ctx,
-    )?;
+    )
+    .map_err(|error| (failure_context, error))?;
     if resume_position_ms > 0 {
+        failure_context = "sink_recovery.seek";
         // Resume seeks are applied after sink activation so transport and sink
         // observe the same timeline origin for the rebuilt runner.
-        next_runner.seek(resume_position_ms, &mut state.sink_session, &mut next_ctx)?;
+        next_runner
+            .seek(resume_position_ms, &mut state.sink_session, &mut next_ctx)
+            .map_err(|error| (failure_context, error.into()))?;
         next_ctx.position_ms = resume_position_ms;
     }
     next_runner.set_state(RunnerState::Playing);

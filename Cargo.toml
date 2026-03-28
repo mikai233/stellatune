@@ -8,6 +8,7 @@ members = [
   "crates/audio-adapters/stellatune-audio-plugin-adapters",
   "crates/plugins-native/stellatune-asio-proto",
   "crates/plugins-native/stellatune-asio-host",
+  "crates/plugins-native/stellatune-sidecar-support",
   "crates/stellatune-backend-api",
   "crates/stellatune-ffi",
   "crates/stellatune-library",
@@ -44,6 +45,7 @@ stellatune-audio-builtin-adapters = { path = "crates/audio-adapters/stellatune-a
 stellatune-audio-plugin-adapters = { path = "crates/audio-adapters/stellatune-audio-plugin-adapters" }
 stellatune-audio = { path = "crates/stellatune-audio" }
 stellatune-asio-proto = { path = "crates/plugins-native/stellatune-asio-proto" }
+stellatune-sidecar-support = { path = "crates/plugins-native/stellatune-sidecar-support" }
 stellatune-backend-api = { path = "crates/stellatune-backend-api" }
 stellatune-library = { path = "crates/stellatune-library" }
 stellatune-host-bindings = { path = "crates/stellatune-host-bindings" }
@@ -65,7 +67,7 @@ audioadapter-buffers = "2.0.0"
 axum = "0.8.8"
 base64 = "0.22.1"
 clap = { version = "4.6.0", features = ["derive"] }
-cpal = "0.17.3"
+cpal = { git = "https://github.com/RustAudio/cpal.git" }
 crossbeam-channel = "0.5.15"
 crossterm = "0.29.0"
 directories = "6.0.0"
@@ -126,6 +128,7 @@ tokio = { version = "1.50.0", features = [
 ] }
 tokio-util = "0.7.18"
 tracing = "0.1.44"
+tracing-appender = "0.2.4"
 tracing-subscriber = { version = "0.3.23", features = [
   "env-filter",
   "local-time",

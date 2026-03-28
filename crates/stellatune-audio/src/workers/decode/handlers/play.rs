@@ -34,7 +34,10 @@ pub(crate) fn handle(
             Ok(())
         }
     } else {
-        Err(DecodeError::NoActivePipeline { operation: "play" })
+        Err(DecodeError::NoActivePipeline {
+            operation: "play",
+            reason: state.current_no_active_pipeline_reason(),
+        })
     };
     let _ = resp_tx.send(result);
     false

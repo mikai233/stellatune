@@ -1,5 +1,6 @@
 mod apply_pipeline_blueprint;
 mod apply_pipeline_mutation;
+mod apply_pipeline_mutations;
 mod apply_stage_runtime_update;
 mod control_apply;
 mod gain_transition;
@@ -68,6 +69,16 @@ pub(crate) fn handle_command(
         DecodeWorkerCommand::ApplyPipelineMutation { mutation, resp_tx } => {
             apply_pipeline_mutation::handle(
                 mutation,
+                resp_tx,
+                assembler,
+                callback,
+                pipeline_runtime,
+                state,
+            )
+        },
+        DecodeWorkerCommand::ApplyPipelineMutations { mutations, resp_tx } => {
+            apply_pipeline_mutations::handle(
+                mutations,
                 resp_tx,
                 assembler,
                 callback,

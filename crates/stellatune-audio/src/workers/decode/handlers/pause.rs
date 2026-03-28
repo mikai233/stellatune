@@ -34,7 +34,10 @@ pub(crate) fn handle(
             Err(error) => Err(DecodeError::from(error)),
         }
     } else {
-        Err(DecodeError::NoActivePipeline { operation: "pause" })
+        Err(DecodeError::NoActivePipeline {
+            operation: "pause",
+            reason: state.current_no_active_pipeline_reason(),
+        })
     };
     let _ = resp_tx.send(result);
     false

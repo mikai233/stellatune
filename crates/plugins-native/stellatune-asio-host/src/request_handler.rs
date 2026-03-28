@@ -1,11 +1,10 @@
 use std::io::Write;
-use std::thread;
-use std::time::Duration;
+use std::time::Instant;
 
 use stellatune_asio_proto::{PROTOCOL_VERSION, ProtoError, Request, Response, write_frame};
 
 use crate::device::{
-    OPEN_RECONFIGURE_SETTLE_MS, get_device_caps, list_devices, validate_selection_session,
+    get_device_caps, list_devices, prepare_device_switch, validate_selection_session,
 };
 use crate::state::RuntimeState;
 use crate::stream::StreamState;
@@ -28,7 +27,14 @@ pub(crate) fn dispatch_request<W: Write>(
         } => {
             handle_get_device_caps(state, writer, &selection_session_id, &device_id)?;
         },
+        Request::PrepareDeviceSwitch {
+            selection_session_id,
+            device_id,
+        } => {
+            handle_prepare_device_switch(state, writer, &selection_session_id, &device_id)?;
+        },
         Request::Open {
+            prepared_switch_id,
             selection_session_id,
             device_id,
             spec,
@@ -38,11 +44,14 @@ pub(crate) fn dispatch_request<W: Write>(
             handle_open(
                 state,
                 writer,
-                selection_session_id,
-                device_id,
-                spec,
-                buffer_size_frames,
-                queue_capacity_ms,
+                OpenRequest {
+                    prepared_switch_id,
+                    selection_session_id,
+                    device_id,
+                    spec,
+                    buffer_size_frames,
+                    queue_capacity_ms,
+                },
             )?;
         },
         Request::Start => {
@@ -102,7 +111,7 @@ fn handle_list_devices<W: Write>(
                 })
                 .collect::<Vec<_>>()
                 .join(" || ");
-            eprintln!(
+            tracing::debug!(
                 "asio host request ListDevices ok: count={} active_device={:?} stream_active={} preview=[{}]",
                 devices.len(),
                 state.active_device_id,
@@ -112,7 +121,7 @@ fn handle_list_devices<W: Write>(
             write_frame(writer, &Response::Devices { devices })
         },
         Err(error) => {
-            eprintln!("asio host request ListDevices err: {error}");
+            tracing::warn!("asio host request ListDevices err: {error}");
             write_frame(
                 writer,
                 &Response::Err {
@@ -131,7 +140,7 @@ fn handle_get_device_caps<W: Write>(
 ) -> Result<(), ProtoError> {
     match get_device_caps(state, selection_session_id, device_id) {
         Ok(caps) => {
-            eprintln!(
+            tracing::debug!(
                 "asio host request GetDeviceCaps ok: device={} session={} default={}Hz/{}ch rates={} chans={} fmts={}",
                 device_id,
                 selection_session_id,
@@ -144,9 +153,11 @@ fn handle_get_device_caps<W: Write>(
             write_frame(writer, &Response::DeviceCaps { caps })
         },
         Err(error) => {
-            eprintln!(
+            tracing::warn!(
                 "asio host request GetDeviceCaps err: device={} session={} err={}",
-                device_id, selection_session_id, error
+                device_id,
+                selection_session_id,
+                error
             );
             write_frame(
                 writer,
@@ -158,16 +169,64 @@ fn handle_get_device_caps<W: Write>(
     }
 }
 
+fn handle_prepare_device_switch<W: Write>(
+    state: &mut RuntimeState,
+    writer: &mut W,
+    selection_session_id: &str,
+    device_id: &str,
+) -> Result<(), ProtoError> {
+    match prepare_device_switch(state, selection_session_id, device_id) {
+        Ok((prepared_switch_id, caps)) => {
+            tracing::debug!(
+                "asio host request PrepareDeviceSwitch ok: device={} session={} prepared_switch_id={} default={}Hz/{}ch",
+                device_id,
+                selection_session_id,
+                prepared_switch_id,
+                caps.default_spec.sample_rate,
+                caps.default_spec.channels
+            );
+            write_frame(
+                writer,
+                &Response::PreparedDeviceSwitch {
+                    prepared_switch_id,
+                    caps,
+                },
+            )
+        },
+        Err(error) => {
+            tracing::warn!(
+                "asio host request PrepareDeviceSwitch err: device={} session={} err={}",
+                device_id,
+                selection_session_id,
+                error
+            );
+            write_frame(
+                writer,
+                &Response::Err {
+                    message: format!(
+                        "PrepareDeviceSwitch failed for device `{device_id}`: {error}"
+                    ),
+                },
+            )
+        },
+    }
+}
+
 fn handle_open<W: Write>(
     state: &mut RuntimeState,
     writer: &mut W,
-    selection_session_id: String,
-    device_id: String,
-    spec: stellatune_asio_proto::AudioSpec,
-    buffer_size_frames: Option<u32>,
-    queue_capacity_ms: Option<u32>,
+    request: OpenRequest,
 ) -> Result<(), ProtoError> {
-    eprintln!(
+    let OpenRequest {
+        prepared_switch_id,
+        selection_session_id,
+        device_id,
+        spec,
+        buffer_size_frames,
+        queue_capacity_ms,
+    } = request;
+    let request_started_at = Instant::now();
+    tracing::info!(
         "asio host request Open begin: device={} session={} spec={}Hz/{}ch buffer_size_frames={:?} queue_capacity_ms={:?}",
         device_id,
         selection_session_id,
@@ -182,38 +241,68 @@ fn handle_open<W: Write>(
 
     match validate_selection_session(state, &selection_session_id, &device_id) {
         Ok(()) => {
-            // ASIO backends generally allow one active stream per device.
-            // Drop current stream before opening the next one to avoid
-            // transient double-open races during rapid track switches.
-            if state.stream.take().is_some() {
-                if let Some(data_ingress) = state.data_ingress.as_ref() {
-                    data_ingress.set_ingress(None);
-                }
-                eprintln!(
-                    "asio host request Open dropping previous stream: active_device={:?}",
-                    state.active_device_id
+            if let Err(error) =
+                state.consume_prepared_switch(prepared_switch_id, &selection_session_id, &device_id)
+            {
+                tracing::warn!(
+                    "asio host request Open rejected: device={} session={} prepared_switch_id={} err={}",
+                    device_id,
+                    selection_session_id,
+                    prepared_switch_id,
+                    error
                 );
-                state.active_device_id = None;
-                thread::sleep(Duration::from_millis(OPEN_RECONFIGURE_SETTLE_MS));
+                return write_frame(
+                    writer,
+                    &Response::Err {
+                        message: format!("Open rejected for device `{device_id}`: {error}"),
+                    },
+                );
+            }
+            if state.stream.is_some() {
+                tracing::warn!(
+                    "asio host request Open rejected: device={} session={} prepared_switch_id={} err=active stream still present after prepare-device-switch",
+                    device_id,
+                    selection_session_id,
+                    prepared_switch_id
+                );
+                return write_frame(
+                    writer,
+                    &Response::Err {
+                        message: format!(
+                            "Open rejected for device `{device_id}`: active stream still present after prepare-device-switch"
+                        ),
+                    },
+                );
             }
             match StreamState::open(&device_id, spec, buffer_size_frames, queue_capacity_ms) {
                 Ok(next_state) => {
                     let next_ingress = next_state.ingress();
-                    eprintln!(
+                    tracing::info!(
                         "asio host request Open ok: device={} session={} spec={}Hz/{}ch",
-                        device_id, selection_session_id, requested_sample_rate, requested_channels
+                        device_id,
+                        selection_session_id,
+                        requested_sample_rate,
+                        requested_channels
                     );
                     if let Some(data_ingress) = state.data_ingress.as_ref() {
                         data_ingress.set_ingress(Some(next_ingress));
                     }
                     state.stream = Some(next_state);
                     state.active_device_id = Some(device_id.clone());
+                    tracing::debug!(
+                        "asio host request Open end: device={} elapsed_ms={}",
+                        device_id,
+                        request_started_at.elapsed().as_millis()
+                    );
                     write_frame(writer, &Response::Ok)
                 },
                 Err(error) => {
-                    eprintln!(
-                        "asio host request Open err: device={} session={} err={}",
-                        device_id, selection_session_id, error
+                    tracing::warn!(
+                        "asio host request Open err: device={} session={} err={} elapsed_ms={}",
+                        device_id,
+                        selection_session_id,
+                        error,
+                        request_started_at.elapsed().as_millis()
                     );
                     write_frame(
                         writer,
@@ -228,9 +317,11 @@ fn handle_open<W: Write>(
             }
         },
         Err(error) => {
-            eprintln!(
+            tracing::warn!(
                 "asio host request Open rejected: device={} session={} err={}",
-                device_id, selection_session_id, error
+                device_id,
+                selection_session_id,
+                error
             );
             write_frame(
                 writer,
@@ -240,6 +331,15 @@ fn handle_open<W: Write>(
             )
         },
     }
+}
+
+struct OpenRequest {
+    prepared_switch_id: u64,
+    selection_session_id: String,
+    device_id: String,
+    spec: stellatune_asio_proto::AudioSpec,
+    buffer_size_frames: Option<u32>,
+    queue_capacity_ms: Option<u32>,
 }
 
 fn handle_start<W: Write>(state: &RuntimeState, writer: &mut W) -> Result<(), ProtoError> {
@@ -264,19 +364,35 @@ fn handle_start<W: Write>(state: &RuntimeState, writer: &mut W) -> Result<(), Pr
 }
 
 fn handle_stop<W: Write>(state: &mut RuntimeState, writer: &mut W) -> Result<(), ProtoError> {
-    if let Some(data_ingress) = state.data_ingress.as_ref() {
-        data_ingress.set_ingress(None);
+    let started_at = Instant::now();
+    let had_stream = state.stream.is_some();
+    tracing::debug!(
+        "asio host request Stop begin: had_stream={} active_device={:?}",
+        had_stream,
+        state.active_device_id
+    );
+    match state.clear_active_stream() {
+        Ok(_) => {
+            tracing::debug!(
+                "asio host request Stop end: had_stream={} elapsed_ms={}",
+                had_stream,
+                started_at.elapsed().as_millis()
+            );
+            write_frame(writer, &Response::Ok)
+        },
+        Err(error) => write_frame(
+            writer,
+            &Response::Err {
+                message: format!("Stop failed: {error}"),
+            },
+        ),
     }
-    let _ = state.stream.take();
-    state.active_device_id = None;
-    eprintln!("asio host request Stop: stream_active=false");
-    write_frame(writer, &Response::Ok)
 }
 
 fn handle_reset<W: Write>(state: &mut RuntimeState, writer: &mut W) -> Result<(), ProtoError> {
     if let Some(stream) = state.stream.as_ref() {
         stream.reset();
-        eprintln!("asio host request Reset: queue_cleared=true");
+        tracing::debug!("asio host request Reset: queue_cleared=true");
         write_frame(writer, &Response::Ok)
     } else {
         write_frame(
@@ -334,11 +450,16 @@ fn handle_query_status<W: Write>(state: &RuntimeState, writer: &mut W) -> Result
 }
 
 fn handle_close<W: Write>(state: &mut RuntimeState, writer: &mut W) -> Result<(), ProtoError> {
-    if let Some(data_ingress) = state.data_ingress.as_ref() {
-        data_ingress.set_ingress(None);
+    match state.clear_active_stream() {
+        Ok(_) => {
+            tracing::debug!("asio host request Close: stream_active=false");
+            write_frame(writer, &Response::Ok)
+        },
+        Err(error) => write_frame(
+            writer,
+            &Response::Err {
+                message: format!("Close failed: {error}"),
+            },
+        ),
     }
-    let _ = state.stream.take();
-    state.active_device_id = None;
-    eprintln!("asio host request Close: stream_active=false");
-    write_frame(writer, &Response::Ok)
 }

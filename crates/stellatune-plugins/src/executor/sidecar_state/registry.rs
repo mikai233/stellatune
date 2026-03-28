@@ -400,8 +400,17 @@ fn launch_signature(spec: &SidecarLaunchSpec) -> String {
         SidecarLaunchScope::Package => "package",
     };
     format!(
-        "scope={};exe={};args={:?};control={:?};data={:?};env={:?}",
-        scope, spec.executable, spec.args, spec.preferred_control, spec.preferred_data, env
+        "scope={};plugin_root={};log_dir={};log_level={};log_prefix={};exe={};args={:?};control={:?};data={:?};env={:?}",
+        scope,
+        spec.plugin_root.display(),
+        spec.logging.dir.display(),
+        spec.logging.level,
+        spec.logging.file_prefix,
+        spec.executable,
+        spec.args,
+        spec.preferred_control,
+        spec.preferred_data,
+        env
     )
 }
 

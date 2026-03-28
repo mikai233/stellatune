@@ -1142,8 +1142,31 @@ fn play_command_requires_active_pipeline() {
     let error = result.expect_err("play without active pipeline should fail");
     assert!(matches!(
         error,
-        DecodeError::NoActivePipeline { operation: "play" }
+        DecodeError::NoActivePipeline {
+            operation: "play",
+            reason: crate::error::NoActivePipelineReason::NoTrackLoaded,
+        }
     ));
+}
+
+#[test]
+fn play_command_reports_pipeline_rebuild_failure_reason() {
+    let mut harness = TestHarness::new();
+    harness.state.active_input = Some(InputRef::TrackToken("track-a".to_string()));
+    harness.state.pipeline_unavailable_reason = Some(
+        crate::error::NoActivePipelineReason::PipelineRebuildFailed {
+            context: "sink_recovery",
+            error: "activate_sink failed".to_string(),
+        },
+    );
+
+    let error = harness
+        .play()
+        .expect_err("play without runner should surface rebuild failure");
+    assert_eq!(
+        error.to_string(),
+        "no active pipeline to play: pipeline rebuild failed during sink_recovery: activate_sink failed"
+    );
 }
 
 #[test]

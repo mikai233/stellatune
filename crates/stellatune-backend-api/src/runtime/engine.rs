@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use stellatune_audio::config::engine::{LfeMode, ResampleQuality};
+use stellatune_audio::config::engine::{EngineSnapshot, LfeMode, PlayerState, ResampleQuality};
 use stellatune_audio::engine::{EngineHandle, start_engine};
 use stellatune_audio::pipeline::assembly::{
     MixerPlan, PipelineMutation, PipelineOutputBackend, PipelineSinkRoute, ResamplerPlan,
@@ -639,24 +639,16 @@ async fn apply_output_spec_mutations(
     engine: &EngineHandle,
     resolved: ResolvedOutputSpec,
 ) -> Result<(), String> {
-    engine
-        .apply_pipeline_mutation(PipelineMutation::SetSinkRoute {
-            route: current_pipeline_sink_route(),
-        })
+    let previous_snapshot = engine
+        .snapshot()
         .await
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| format!("snapshot before output mutation failed: {error}"))?;
     let spec = resolved.spec;
     let output_options = snapshot_runtime_output_options();
     let match_track_sample_rate = resolve_match_track_policy(
         resolved.plugin_prefers_track_rate,
         output_options.match_track_sample_rate,
     );
-    engine
-        .apply_pipeline_mutation(PipelineMutation::SetMixerPlan {
-            mixer: Some(MixerPlan::new(spec.channels, LfeMode::Mute)),
-        })
-        .await
-        .map_err(|error| error.to_string())?;
     let resampler = if match_track_sample_rate {
         None
     } else {
@@ -666,9 +658,61 @@ async fn apply_output_spec_mutations(
         ))
     };
     engine
-        .apply_pipeline_mutation(PipelineMutation::SetResamplerPlan { resampler })
+        .apply_pipeline_mutations(vec![
+            PipelineMutation::SetSinkRoute {
+                route: current_pipeline_sink_route(),
+            },
+            PipelineMutation::SetMixerPlan {
+                mixer: Some(MixerPlan::new(spec.channels, LfeMode::Mute)),
+            },
+            PipelineMutation::SetResamplerPlan { resampler },
+        ])
         .await
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.to_string())?;
+    restore_active_track_after_output_mutation(engine, &previous_snapshot).await
+}
+
+async fn restore_active_track_after_output_mutation(
+    engine: &EngineHandle,
+    previous_snapshot: &EngineSnapshot,
+) -> Result<(), String> {
+    let Some(track_token) = previous_snapshot.current_track.clone() else {
+        return Ok(());
+    };
+    let current_snapshot = engine
+        .snapshot()
+        .await
+        .map_err(|error| format!("snapshot after output mutation failed: {error}"))?;
+    if current_snapshot.current_track.is_some() {
+        return Ok(());
+    }
+
+    tracing::warn!(
+        track_token,
+        position_ms = previous_snapshot.position_ms,
+        state = ?previous_snapshot.state,
+        "active track missing after output mutation; restoring track"
+    );
+
+    engine
+        .switch_track_token(track_token.clone(), false)
+        .await
+        .map_err(|error| format!("restore current track after output mutation failed: {error}"))?;
+
+    let position_ms = previous_snapshot.position_ms.max(0);
+    if position_ms > 0 {
+        engine.seek_ms(position_ms).await.map_err(|error| {
+            format!("restore current position after output mutation failed: {error}")
+        })?;
+    }
+
+    if previous_snapshot.state == PlayerState::Playing {
+        engine.play().await.map_err(|error| {
+            format!("restore playing state after output mutation failed: {error}")
+        })?;
+    }
+
+    Ok(())
 }
 
 fn current_pipeline_sink_route() -> PipelineSinkRoute {

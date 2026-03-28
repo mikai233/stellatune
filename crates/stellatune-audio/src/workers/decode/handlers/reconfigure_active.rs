@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::config::engine::PlayerState;
-use crate::error::DecodeError;
+use crate::error::{DecodeError, NoActivePipelineReason};
 use crate::pipeline::assembly::{PipelineAssembler, PipelineRuntime};
 use crate::pipeline::runtime::runner::RunnerState;
 use crate::pipeline::runtime::sink_session::SinkActivationMode;
@@ -29,69 +29,89 @@ pub(crate) fn handle(
     state.prewarmed_next = None;
     state.recovery_attempts = 0;
     state.recovery_retry_at = None;
-
-    let blueprint = match state.pinned_blueprint.as_ref() {
-        Some(blueprint) => Arc::clone(blueprint),
-        None => assembler.build_blueprint(&input)?,
-    };
-    let mut assembled = pipeline_runtime.assemble(blueprint.as_ref())?;
-    apply_decode_policies(&mut assembled, state);
-    let build_result = (|| -> Result<_, DecodeError> {
-        let mut next_runner =
-            assembled.into_runner(Some(Arc::clone(&state.master_gain_hot_control)))?;
-        next_runner.prepare_decode(&input, &mut state.ctx)?;
-        next_runner.activate_sink(
-            &mut state.sink_session,
-            &state.ctx,
-            SinkActivationMode::ImmediateCutover,
-        )?;
-        Ok(next_runner)
-    })();
     if let Some(mut previous_runner) = previous_runner {
         previous_runner.stop_decode_only(&mut state.ctx);
     }
-    let mut next_runner = build_result?;
-    control_apply::apply_master_gain_level_to_runner(
-        &mut next_runner,
-        &mut state.ctx,
-        state.master_gain_hot_control.snapshot().level,
-        0,
-    )?;
-    control_apply::replay_persisted_stage_runtime_updates_to_runner(
-        &state.persisted_stage_runtime_updates,
-        &mut next_runner,
-        Some(&state.sink_session),
-        &mut state.ctx,
-    )?;
-    if resume_position_ms > 0 {
-        next_runner.seek(resume_position_ms, &mut state.sink_session, &mut state.ctx)?;
-        state.ctx.position_ms = resume_position_ms;
-        callback(DecodeWorkerEvent::Position {
-            position_ms: resume_position_ms,
-        });
-    }
-    if resume_playing {
-        gain_transition::request_fade_in_from_silence_with_runner(
+
+    let mut failure_context = "reconfigure_active.assemble";
+    let result = (|| -> Result<(), DecodeError> {
+        failure_context = "reconfigure_active.blueprint";
+        let blueprint = match state.pinned_blueprint.as_ref() {
+            Some(blueprint) => Arc::clone(blueprint),
+            None => assembler.build_blueprint(&input)?,
+        };
+        failure_context = "reconfigure_active.assemble";
+        let mut assembled = pipeline_runtime.assemble(blueprint.as_ref())?;
+        apply_decode_policies(&mut assembled, state);
+        failure_context = "reconfigure_active.into_runner";
+        let build_result = (|| -> Result<_, DecodeError> {
+            let mut next_runner =
+                assembled.into_runner(Some(Arc::clone(&state.master_gain_hot_control)))?;
+            failure_context = "reconfigure_active.prepare_decode";
+            next_runner.prepare_decode(&input, &mut state.ctx)?;
+            failure_context = "reconfigure_active.activate_sink";
+            next_runner.activate_sink(
+                &mut state.sink_session,
+                &state.ctx,
+                SinkActivationMode::ImmediateCutover,
+            )?;
+            Ok(next_runner)
+        })();
+        let mut next_runner = build_result?;
+        failure_context = "reconfigure_active.apply_master_gain";
+        control_apply::apply_master_gain_level_to_runner(
             &mut next_runner,
             &mut state.ctx,
-            state.gain_transition,
-            state.gain_transition.play_fade_in_ms,
+            state.master_gain_hot_control.snapshot().level,
+            0,
         )?;
-    }
-    next_runner.set_state(if resume_playing {
-        RunnerState::Playing
-    } else {
-        RunnerState::Paused
-    });
-    state.runner = Some(next_runner);
-    update_state(
-        callback,
-        &mut state.state,
+        failure_context = "reconfigure_active.replay_stage_updates";
+        control_apply::replay_persisted_stage_runtime_updates_to_runner(
+            &state.persisted_stage_runtime_updates,
+            &mut next_runner,
+            Some(&state.sink_session),
+            &mut state.ctx,
+        )?;
+        if resume_position_ms > 0 {
+            failure_context = "reconfigure_active.seek";
+            next_runner.seek(resume_position_ms, &mut state.sink_session, &mut state.ctx)?;
+            state.ctx.position_ms = resume_position_ms;
+            callback(DecodeWorkerEvent::Position {
+                position_ms: resume_position_ms,
+            });
+        }
         if resume_playing {
-            PlayerState::Playing
+            failure_context = "reconfigure_active.fade_in";
+            gain_transition::request_fade_in_from_silence_with_runner(
+                &mut next_runner,
+                &mut state.ctx,
+                state.gain_transition,
+                state.gain_transition.play_fade_in_ms,
+            )?;
+        }
+        next_runner.set_state(if resume_playing {
+            RunnerState::Playing
         } else {
-            PlayerState::Paused
-        },
-    );
-    Ok(())
+            RunnerState::Paused
+        });
+        state.runner = Some(next_runner);
+        state.clear_pipeline_unavailable_reason();
+        update_state(
+            callback,
+            &mut state.state,
+            if resume_playing {
+                PlayerState::Playing
+            } else {
+                PlayerState::Paused
+            },
+        );
+        Ok(())
+    })();
+    if let Err(error) = &result {
+        state.set_pipeline_unavailable_reason(NoActivePipelineReason::PipelineRebuildFailed {
+            context: failure_context,
+            error: error.to_string(),
+        });
+    }
+    result
 }

@@ -184,6 +184,19 @@ impl DecodeWorker {
         recv_result(resp_rx, timeout)
     }
 
+    pub(crate) fn apply_pipeline_mutations(
+        &self,
+        mutations: Vec<PipelineMutation>,
+        timeout: Duration,
+    ) -> Result<(), DecodeError> {
+        let (resp_tx, resp_rx) = crossbeam_channel::bounded(1);
+        self.send_command(
+            DecodeWorkerCommand::ApplyPipelineMutations { mutations, resp_tx },
+            timeout,
+        )?;
+        recv_result(resp_rx, timeout)
+    }
+
     pub(crate) fn set_lfe_mode(&self, mode: LfeMode, timeout: Duration) -> Result<(), DecodeError> {
         self.call_simple(
             |resp_tx| DecodeWorkerCommand::SetLfeMode { mode, resp_tx },

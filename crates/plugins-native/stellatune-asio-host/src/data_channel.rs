@@ -22,9 +22,17 @@ const SHM_MIN_CAPACITY: usize = 4 * 1024;
 const SHM_MAX_CAPACITY: usize = 64 * 1024 * 1024;
 
 pub(crate) struct DataIngressPump {
-    current_ingress: Arc<Mutex<Option<StreamIngress>>>,
+    current_ingress: Arc<Mutex<IngressSlot>>,
+    reset_requested: Arc<AtomicU64>,
+    reset_completed: Arc<AtomicU64>,
     stop: Arc<AtomicBool>,
     join: Option<JoinHandle<()>>,
+}
+
+#[derive(Default)]
+struct IngressSlot {
+    generation: u64,
+    ingress: Option<StreamIngress>,
 }
 
 impl DataIngressPump {
@@ -33,17 +41,31 @@ impl DataIngressPump {
             return Ok(None);
         };
 
-        let current_ingress = Arc::new(Mutex::new(None));
+        let current_ingress = Arc::new(Mutex::new(IngressSlot::default()));
+        let reset_requested = Arc::new(AtomicU64::new(0));
+        let reset_completed = Arc::new(AtomicU64::new(0));
         let stop = Arc::new(AtomicBool::new(false));
         let ingress_ref = Arc::clone(&current_ingress);
+        let reset_ref = Arc::clone(&reset_requested);
+        let reset_completed_ref = Arc::clone(&reset_completed);
         let stop_ref = Arc::clone(&stop);
         let join = Builder::new()
             .name("stellatune-asio-data".to_string())
-            .spawn(move || run_data_ingress(&mut reader, ingress_ref, stop_ref))
+            .spawn(move || {
+                run_data_ingress(
+                    &mut reader,
+                    ingress_ref,
+                    reset_ref,
+                    reset_completed_ref,
+                    stop_ref,
+                )
+            })
             .map_err(|error| format!("spawn asio data ingress thread: {error}"))?;
 
         Ok(Some(Self {
             current_ingress,
+            reset_requested,
+            reset_completed,
             stop,
             join: Some(join),
         }))
@@ -51,8 +73,27 @@ impl DataIngressPump {
 
     pub(crate) fn set_ingress(&self, ingress: Option<StreamIngress>) {
         if let Ok(mut slot) = self.current_ingress.lock() {
-            *slot = ingress;
+            slot.generation = slot.generation.wrapping_add(1);
+            slot.ingress = ingress;
         }
+    }
+
+    pub(crate) fn request_reset_and_wait(&self, timeout: Duration) -> Result<(), String> {
+        let reset_id = self.reset_requested.fetch_add(1, Ordering::AcqRel) + 1;
+        let deadline = Instant::now() + timeout;
+        while self.reset_completed.load(Ordering::Acquire) < reset_id {
+            if self.stop.load(Ordering::Acquire) {
+                return Err("data ingress pump stopped while waiting for reset".to_string());
+            }
+            if Instant::now() >= deadline {
+                return Err(format!(
+                    "timed out waiting for data ingress reset after {}ms",
+                    timeout.as_millis()
+                ));
+            }
+            thread::sleep(Duration::from_millis(1));
+        }
+        Ok(())
     }
 }
 
@@ -67,7 +108,9 @@ impl Drop for DataIngressPump {
 
 fn run_data_ingress(
     reader: &mut SharedMemoryDataReader,
-    current_ingress: Arc<Mutex<Option<StreamIngress>>>,
+    current_ingress: Arc<Mutex<IngressSlot>>,
+    reset_requested: Arc<AtomicU64>,
+    reset_completed: Arc<AtomicU64>,
     stop: Arc<AtomicBool>,
 ) {
     let mut platform_state = DataIngressThreadPlatformState::default();
@@ -75,12 +118,23 @@ fn run_data_ingress(
 
     let mut len_bytes = [0_u8; 4];
     let mut payload = Vec::<u8>::new();
+    let mut last_completed_reset = 0_u64;
 
     while !stop.load(Ordering::Acquire) {
+        let requested_reset = reset_requested.load(Ordering::Acquire);
+        if requested_reset > last_completed_reset {
+            let _ = reader.discard_pending_data();
+            payload.clear();
+            last_completed_reset = requested_reset;
+            reset_completed.store(last_completed_reset, Ordering::Release);
+        }
+
         let got_len = match reader.read_exact(&mut len_bytes, &stop, Duration::from_millis(100)) {
             Ok(got_frame) => got_frame,
             Err(error) => {
-                eprintln!("asio host data ingress stopped while reading frame length: {error}");
+                tracing::warn!(
+                    "asio host data ingress stopped while reading frame length: {error}"
+                );
                 break;
             },
         };
@@ -90,8 +144,9 @@ fn run_data_ingress(
 
         let frame_len = u32::from_le_bytes(len_bytes) as usize;
         if frame_len > DATA_FRAME_MAX_BYTES {
-            eprintln!("asio host data ingress rejected oversized frame: {frame_len} bytes");
-            break;
+            tracing::warn!("asio host data ingress rejected oversized frame: {frame_len} bytes");
+            let _ = reader.discard_pending_data();
+            continue;
         }
 
         payload.resize(frame_len, 0);
@@ -100,21 +155,49 @@ fn run_data_ingress(
                 Ok(true) => {},
                 Ok(false) => continue,
                 Err(error) => {
-                    eprintln!("asio host data ingress stopped while reading payload: {error}");
+                    tracing::warn!("asio host data ingress stopped while reading payload: {error}");
                     break;
                 },
             }
         }
 
         let mut payload_offset = 0usize;
+        let mut payload_generation = None::<u64>;
         while payload_offset < payload.len() && !stop.load(Ordering::Acquire) {
-            let ingress = current_ingress
+            let requested_reset = reset_requested.load(Ordering::Acquire);
+            if requested_reset > last_completed_reset {
+                let _ = reader.discard_pending_data();
+                payload.clear();
+                last_completed_reset = requested_reset;
+                reset_completed.store(last_completed_reset, Ordering::Release);
+                break;
+            }
+            let (generation, ingress) = current_ingress
                 .lock()
                 .ok()
-                .and_then(|slot| slot.as_ref().cloned());
+                .map(|slot| (slot.generation, slot.ingress.clone()))
+                .unwrap_or((0, None));
             let Some(ingress) = ingress else {
-                thread::sleep(DATA_POLL_INTERVAL);
-                continue;
+                tracing::warn!(
+                    "asio host data ingress dropped frame while no active ingress: remaining_bytes={}",
+                    payload.len().saturating_sub(payload_offset)
+                );
+                let _ = reader.discard_pending_data();
+                break;
+            };
+            if let Some(expected_generation) = payload_generation {
+                if generation != expected_generation {
+                    tracing::warn!(
+                        "asio host data ingress dropped frame after ingress switch: remaining_bytes={} old_generation={} new_generation={}",
+                        payload.len().saturating_sub(payload_offset),
+                        expected_generation,
+                        generation
+                    );
+                    let _ = reader.discard_pending_data();
+                    break;
+                }
+            } else {
+                payload_generation = Some(generation);
             };
 
             let bytes_per_frame = ingress.bytes_per_frame();
@@ -129,7 +212,8 @@ fn run_data_ingress(
                     payload_offset = payload_offset.saturating_add(accepted_bytes);
                 },
                 Err(error) => {
-                    eprintln!("asio host data ingress write failed: {error}");
+                    tracing::warn!("asio host data ingress write failed: {error}");
+                    let _ = reader.discard_pending_data();
                     break;
                 },
             }
@@ -199,6 +283,11 @@ impl SharedMemoryDataReader {
         }
 
         Ok(true)
+    }
+
+    fn discard_pending_data(&mut self) -> Result<(), String> {
+        self.ring.discard_all();
+        self.platform.sync_after_ring_change(&self.ring)
     }
 }
 
@@ -372,6 +461,12 @@ impl SharedByteRingMapped {
             .read_pos
             .store(read_pos + count as u64, Ordering::Release);
         count
+    }
+
+    fn discard_all(&self) {
+        let header = self.header();
+        let write_pos = header.write_pos.load(Ordering::Acquire);
+        header.read_pos.store(write_pos, Ordering::Release);
     }
 
     pub(crate) fn occupied_len(&self) -> usize {

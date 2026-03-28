@@ -10,7 +10,7 @@ use stellatune_host_bindings::generated::output_sink_plugin::stellatune::plugin:
 use crate::executor::sidecar_state::state::SidecarState;
 use crate::host::sidecar::types::{
     SidecarLaunchScope, SidecarLaunchSpec, SidecarTransportKind, SidecarTransportOption,
-    resolve_sidecar_executable,
+    resolve_sidecar_executable, resolve_sidecar_logging,
 };
 
 pub(crate) struct OutputSinkStoreData {
@@ -98,12 +98,17 @@ impl output_sink_sidecar::Host for OutputSinkStoreData {
         spec: output_sink_sidecar::LaunchSpec,
     ) -> std::result::Result<Resource<output_sink_sidecar::Process>, output_sink_sidecar::PluginError>
     {
+        let executable = resolve_sidecar_executable(&self.plugin_root, &spec.executable)
+            .map_err(output_sink_plugin_error_internal)?;
+        let logging = resolve_sidecar_logging(&self.plugin_root, executable.as_str())
+            .map_err(output_sink_plugin_error_internal)?;
         let process_rep = self
             .sidecar
             .launch(&SidecarLaunchSpec {
                 scope: output_sink_launch_scope_from(spec.scope),
-                executable: resolve_sidecar_executable(&self.plugin_root, &spec.executable)
-                    .map_err(output_sink_plugin_error_internal)?,
+                plugin_root: self.plugin_root.clone(),
+                logging,
+                executable,
                 args: spec.args,
                 preferred_control: spec
                     .preferred_control

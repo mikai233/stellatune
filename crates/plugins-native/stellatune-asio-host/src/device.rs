@@ -233,7 +233,7 @@ pub(crate) fn find_live_device(device_id: &str) -> Result<cpal::Device, String> 
             }
             available.push(format!("{id} ({name})"));
         }
-        eprintln!(
+        tracing::debug!(
             "asio host live lookup miss: attempt={}/{} target={} available=[{}]",
             attempt + 1,
             LIVE_DEVICE_LOOKUP_ATTEMPTS,
@@ -258,33 +258,72 @@ pub(crate) fn get_device_caps(
     device_id: &str,
 ) -> Result<DeviceCaps, String> {
     validate_selection_session(state, selection_session_id, device_id)?;
-    match find_live_device(device_id) {
-        Ok(dev) => build_device_caps_for_device(&dev),
-        Err(first_error) => {
-            let should_switch = state.stream.is_some()
-                && state
-                    .active_device_id
-                    .as_deref()
-                    .map(|active| !device_id_matches(active, device_id))
-                    .unwrap_or(true);
-            if !should_switch {
-                return Err(first_error);
-            }
+    let dev = find_live_device(device_id)?;
+    build_device_caps_for_device(&dev)
+}
 
-            eprintln!(
-                "asio host GetDeviceCaps switching driver context: active_device={:?} target={}",
-                state.active_device_id, device_id
-            );
-            let _ = state.stream.take();
-            state.active_device_id = None;
-            thread::sleep(Duration::from_millis(OPEN_RECONFIGURE_SETTLE_MS));
+pub(crate) fn prepare_device_switch(
+    state: &mut RuntimeState,
+    selection_session_id: &str,
+    device_id: &str,
+) -> Result<(u64, DeviceCaps), String> {
+    let needs_driver_context_switch = state.stream.is_some()
+        && state
+            .active_device_id
+            .as_deref()
+            .map(|active| !device_id_matches(active, device_id))
+            .unwrap_or(true);
+    let had_stream = state.stream.is_some();
+    let needs_prevalidation_release =
+        needs_driver_context_switch && state.device_snapshot.is_empty();
 
-            let dev = find_live_device(device_id).map_err(|second_error| {
-                format!(
-                    "device not found before and after stream release; before={first_error}; after={second_error}"
-                )
-            })?;
-            build_device_caps_for_device(&dev)
-        },
+    if needs_prevalidation_release {
+        tracing::debug!(
+            "asio host PrepareDeviceSwitch pre-validate release: active_device={:?} target={}",
+            state.active_device_id,
+            device_id
+        );
+        let _ = state.clear_active_stream()?;
+        thread::sleep(Duration::from_millis(OPEN_RECONFIGURE_SETTLE_MS));
     }
+
+    validate_selection_session(state, selection_session_id, device_id)?;
+
+    if needs_driver_context_switch {
+        tracing::debug!(
+            "asio host PrepareDeviceSwitch begin: active_device={:?} target={}",
+            state.active_device_id,
+            device_id
+        );
+    }
+
+    if had_stream && !needs_prevalidation_release {
+        let _ = state.clear_active_stream()?;
+    } else if !had_stream && let Some(data_ingress) = state.data_ingress.as_ref() {
+        data_ingress.request_reset_and_wait(Duration::from_millis(500))?;
+    }
+
+    if had_stream && !needs_prevalidation_release {
+        thread::sleep(Duration::from_millis(OPEN_RECONFIGURE_SETTLE_MS));
+    }
+
+    let dev = find_live_device(device_id).map_err(|error| {
+        if needs_driver_context_switch {
+            format!("device not found after prepare-device-switch: {error}")
+        } else {
+            error
+        }
+    })?;
+    let caps = build_device_caps_for_device(&dev)?;
+    let prepared_switch_id = state.allocate_prepared_switch(selection_session_id, device_id);
+    if needs_driver_context_switch {
+        tracing::debug!(
+            "asio host PrepareDeviceSwitch end: target={} prepared_switch_id={} default={}Hz/{}ch",
+            device_id,
+            prepared_switch_id,
+            caps.default_spec.sample_rate,
+            caps.default_spec.channels
+        );
+    }
+    Ok((prepared_switch_id, caps))
 }

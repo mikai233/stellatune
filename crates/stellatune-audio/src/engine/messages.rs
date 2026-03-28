@@ -49,6 +49,9 @@ pub(crate) struct ApplyPipelineBlueprintMessage {
 pub(crate) struct ApplyPipelineMutationMessage {
     pub(crate) mutation: PipelineMutation,
 }
+pub(crate) struct ApplyPipelineMutationsMessage {
+    pub(crate) mutations: Vec<PipelineMutation>,
+}
 
 pub(crate) struct OnDecodeWorkerEventMessage {
     pub(crate) event: DecodeWorkerEvent,
@@ -107,6 +110,10 @@ impl Message for ApplyPipelineBlueprintMessage {
 }
 
 impl Message for ApplyPipelineMutationMessage {
+    type Response = Result<(), EngineError>;
+}
+
+impl Message for ApplyPipelineMutationsMessage {
     type Response = Result<(), EngineError>;
 }
 

@@ -12,6 +12,7 @@ use crate::config::{
 #[derive(Debug, Clone)]
 struct CachedNegotiation {
     target_json: String,
+    prepared_switch_id: u64,
     desired: AudioSpec,
     result: NegotiatedSpec,
 }
@@ -88,13 +89,14 @@ impl OutputSinkSession for AsioWasmSession {
         let session_id = target.required_selection_session_id()?.to_string();
 
         let config = self.config.clone();
-        let caps = with_sidecar(&self.config, |client| {
-            client.get_device_caps(session_id, target.id.clone())
+        let (prepared_switch_id, caps) = with_sidecar(&self.config, |client| {
+            client.prepare_device_switch(session_id, target.id.clone())
         })?;
         let result = build_negotiated_spec(desired, &caps, &config);
 
         self.negotiated_cache = Some(CachedNegotiation {
             target_json: target_json.to_string(),
+            prepared_switch_id,
             desired,
             result: result.clone(),
         });
@@ -116,16 +118,33 @@ impl OutputSinkSession for AsioWasmSession {
         let flush_timeout_ms = self.config.flush_timeout_ms.max(1);
         let buffer_size_frames = self.config.buffer_size_frames;
         let queue_capacity_ms = Some(self.config.ring_capacity_ms.max(20));
+        let prepared_switch_id = if let Some(cached) = self
+            .negotiated_cache
+            .as_ref()
+            .filter(|cached| cached.target_json == target_json)
+        {
+            cached.prepared_switch_id
+        } else {
+            with_sidecar(&self.config, |client| {
+                client
+                    .prepare_device_switch(session_id.clone(), target.id.clone())
+                    .map(|(prepared_switch_id, _)| prepared_switch_id)
+            })?
+        };
 
-        with_sidecar(&self.config, |client| {
+        if let Err(error) = with_sidecar(&self.config, |client| {
             client.open(
+                prepared_switch_id,
                 session_id,
                 target.id,
                 proto_spec,
                 buffer_size_frames,
                 queue_capacity_ms,
             )
-        })?;
+        }) {
+            self.invalidate_negotiate_cache();
+            return Err(error);
+        }
 
         self.opened = true;
         self.channels = spec.channels;
@@ -260,7 +279,18 @@ impl OutputSinkSession for AsioWasmSession {
 
     fn close(&mut self) -> SdkResult<()> {
         if self.opened {
+            let started_at = Instant::now();
+            tracing::debug!(
+                "asio output session close begin: channels={} started={} pending_start_samples={}",
+                self.channels,
+                self.started,
+                self.pending_start_samples
+            );
             let _ = with_sidecar(&self.config, |client| client.stop());
+            tracing::debug!(
+                "asio output session close end: elapsed_ms={}",
+                started_at.elapsed().as_millis()
+            );
         }
         self.opened = false;
         self.started = false;

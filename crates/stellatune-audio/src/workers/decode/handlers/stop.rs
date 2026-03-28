@@ -45,6 +45,7 @@ pub(crate) fn handle(
     state.prewarmed_next = None;
     state.recovery_attempts = 0;
     state.recovery_retry_at = None;
+    state.clear_pipeline_unavailable_reason();
     update_state(callback, &mut state.state, PlayerState::Stopped);
     callback(DecodeWorkerEvent::Position { position_ms: 0 });
     let _ = resp_tx.send(match stop_error {

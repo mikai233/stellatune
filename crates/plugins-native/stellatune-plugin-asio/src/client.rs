@@ -200,16 +200,19 @@ impl AsioSidecarClient {
         }
     }
 
-    pub fn get_device_caps(
+    pub fn prepare_device_switch(
         &mut self,
         selection_session_id: String,
         device_id: String,
-    ) -> SdkResult<DeviceCaps> {
-        match self.control_request(Request::GetDeviceCaps {
+    ) -> SdkResult<(u64, DeviceCaps)> {
+        match self.control_request(Request::PrepareDeviceSwitch {
             selection_session_id,
             device_id,
         })? {
-            Response::DeviceCaps { caps } => Ok(caps),
+            Response::PreparedDeviceSwitch {
+                prepared_switch_id,
+                caps,
+            } => Ok((prepared_switch_id, caps)),
             Response::Err { message } => Err(SdkError::internal(message)),
             other => Err(SdkError::internal(format!(
                 "unexpected response: {other:?}"
@@ -219,6 +222,7 @@ impl AsioSidecarClient {
 
     pub fn open(
         &mut self,
+        prepared_switch_id: u64,
         selection_session_id: String,
         device_id: String,
         spec: AudioSpec,
@@ -226,6 +230,7 @@ impl AsioSidecarClient {
         queue_capacity_ms: Option<u32>,
     ) -> SdkResult<()> {
         self.expect_ok(Request::Open {
+            prepared_switch_id,
             selection_session_id,
             device_id,
             spec,

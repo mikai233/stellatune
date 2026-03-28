@@ -1,5 +1,8 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+
+use stellatune_sidecar_support::env::SidecarLogConfig;
 
 use crate::error::Result;
 use crate::host::sidecar::types::{
@@ -81,12 +84,22 @@ fn create_state() -> SidecarState {
     SidecarState::new("dev.stellatune.test".to_string(), registry)
 }
 
+fn test_logging() -> SidecarLogConfig {
+    SidecarLogConfig {
+        dir: PathBuf::from("plugins/demo/.stellatune/logs/sidecars/demo"),
+        level: "info".to_string(),
+        file_prefix: "demo".to_string(),
+    }
+}
+
 #[test]
 fn launch_and_io_path_works() {
     let mut state = create_state();
     let process_rep = state
         .launch(&SidecarLaunchSpec {
             scope: SidecarLaunchScope::Package,
+            plugin_root: PathBuf::from("plugins/demo"),
+            logging: test_logging(),
             executable: "demo.exe".to_string(),
             args: Vec::new(),
             preferred_control: Vec::new(),
@@ -129,6 +142,8 @@ fn data_channel_transport_follows_preferred_kind() {
         let process_rep = state
             .launch(&SidecarLaunchSpec {
                 scope: SidecarLaunchScope::Package,
+                plugin_root: PathBuf::from("plugins/demo"),
+                logging: test_logging(),
                 executable: "demo.exe".to_string(),
                 args: Vec::new(),
                 preferred_control: Vec::new(),
@@ -189,6 +204,8 @@ fn share_sidecar_process_within_same_plugin() {
 
     let spec = SidecarLaunchSpec {
         scope: SidecarLaunchScope::Package,
+        plugin_root: PathBuf::from("plugins/demo"),
+        logging: test_logging(),
         executable: "demo.exe".to_string(),
         args: vec!["--api".to_string()],
         preferred_control: Vec::new(),
@@ -216,6 +233,8 @@ fn instance_scope_does_not_share_process() {
 
     let spec = SidecarLaunchSpec {
         scope: SidecarLaunchScope::Instance,
+        plugin_root: PathBuf::from("plugins/demo"),
+        logging: test_logging(),
         executable: "demo.exe".to_string(),
         args: vec!["--api".to_string()],
         preferred_control: Vec::new(),

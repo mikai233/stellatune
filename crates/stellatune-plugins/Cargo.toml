@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+stellatune-sidecar-support.workspace = true
 stellatune-host-bindings.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -19,6 +20,7 @@ tempfile.workspace = true
 wasmtime.workspace = true
 wasmtime-wasi.workspace = true
 parking_lot.workspace = true
+directories.workspace = true
 reqwest = { workspace = true, features = ["blocking", "rustls-tls", "gzip"] }
 
 [dev-dependencies]

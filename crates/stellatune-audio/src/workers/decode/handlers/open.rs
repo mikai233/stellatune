@@ -65,6 +65,7 @@ pub(crate) fn open_input(
     state.prewarmed_next = None;
     state.recovery_attempts = 0;
     state.recovery_retry_at = None;
+    state.clear_pipeline_unavailable_reason();
 
     let blueprint = match state.pinned_blueprint.as_ref() {
         Some(blueprint) => Arc::clone(blueprint),
@@ -114,6 +115,7 @@ pub(crate) fn open_input(
     });
     state.runner = Some(next_runner);
     state.active_input = Some(input.clone());
+    state.clear_pipeline_unavailable_reason();
     state.last_position_emit_at = std::time::Instant::now();
     state.audio_start_sent = false;
     callback(DecodeWorkerEvent::Position { position_ms: 0 });

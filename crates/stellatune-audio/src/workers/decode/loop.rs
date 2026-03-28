@@ -17,7 +17,7 @@ use stellatune_audio_core::pipeline::error::PipelineError;
 use tracing::warn;
 
 use crate::config::engine::{EngineConfig, PlayerState, StopBehavior};
-use crate::error::DecodeError;
+use crate::error::{DecodeError, NoActivePipelineReason};
 use crate::pipeline::assembly::PipelineAssembler;
 use crate::pipeline::runtime::dsp::control::SharedMasterGainHotControl;
 use crate::pipeline::runtime::runner::{RunnerState, StepResult};
@@ -122,7 +122,13 @@ pub(crate) fn decode_worker_main(
                     state.queued_next_input = None;
                     let promote_result =
                         promote_prewarmed_next(prewarmed_next, &callback, &mut state);
-                    if let Err(error) = promote_result {
+                    if let Err((failure_context, error)) = promote_result {
+                        state.set_pipeline_unavailable_reason(
+                            NoActivePipelineReason::PipelineRebuildFailed {
+                                context: failure_context,
+                                error: error.to_string(),
+                            },
+                        );
                         warn!(message = %error, "failed to promote prewarmed next track");
                         update_state(&callback, &mut state.state, PlayerState::Stopped);
                         callback(DecodeWorkerEvent::Error(error));
@@ -153,6 +159,7 @@ pub(crate) fn decode_worker_main(
                     state.runner = None;
                     state.reset_context();
                     state.active_input = None;
+                    state.clear_pipeline_unavailable_reason();
                     update_state(&callback, &mut state.state, PlayerState::Stopped);
                     callback(DecodeWorkerEvent::Eof);
                 }
@@ -171,6 +178,12 @@ pub(crate) fn decode_worker_main(
                     }
                     state.runner = None;
                     if recovery::schedule_sink_recovery(&callback, &mut state) {
+                        state.set_pipeline_unavailable_reason(
+                            NoActivePipelineReason::SinkRecoveryInProgress {
+                                next_attempt: 1,
+                                last_error: Some(error.to_string()),
+                            },
+                        );
                         continue;
                     }
                 } else {
@@ -190,6 +203,7 @@ pub(crate) fn decode_worker_main(
                 state.prewarmed_next = None;
                 state.recovery_attempts = 0;
                 state.recovery_retry_at = None;
+                state.clear_pipeline_unavailable_reason();
                 update_state(&callback, &mut state.state, PlayerState::Stopped);
                 callback(DecodeWorkerEvent::Error(DecodeError::Pipeline(error)));
             },
@@ -211,30 +225,40 @@ fn promote_prewarmed_next(
     mut prewarmed_next: crate::workers::decode::state::PrewarmedNext,
     callback: &DecodeWorkerEventCallback,
     state: &mut DecodeWorkerState,
-) -> Result<(), DecodeError> {
-    prewarmed_next.runner.activate_sink(
-        &mut state.sink_session,
-        &prewarmed_next.ctx,
-        SinkActivationMode::PreserveQueued,
-    )?;
+) -> Result<(), (&'static str, DecodeError)> {
+    let mut failure_context = "next_track_promotion.activate_sink";
+    prewarmed_next
+        .runner
+        .activate_sink(
+            &mut state.sink_session,
+            &prewarmed_next.ctx,
+            SinkActivationMode::PreserveQueued,
+        )
+        .map_err(|error| (failure_context, error.into()))?;
+    failure_context = "next_track_promotion.apply_master_gain";
     apply_master_gain_level_to_runner(
         &mut prewarmed_next.runner,
         &mut prewarmed_next.ctx,
         state.master_gain_hot_control.snapshot().level,
         0,
-    )?;
+    )
+    .map_err(|error| (failure_context, error))?;
+    failure_context = "next_track_promotion.replay_stage_updates";
     replay_persisted_stage_runtime_updates_to_runner(
         &state.persisted_stage_runtime_updates,
         &mut prewarmed_next.runner,
         Some(&state.sink_session),
         &mut prewarmed_next.ctx,
-    )?;
+    )
+    .map_err(|error| (failure_context, error))?;
+    failure_context = "next_track_promotion.fade_in";
     request_fade_in_from_silence_with_runner(
         &mut prewarmed_next.runner,
         &mut prewarmed_next.ctx,
         state.gain_transition,
         state.gain_transition.open_fade_in_ms,
-    )?;
+    )
+    .map_err(|error| (failure_context, error.into()))?;
     prewarmed_next.runner.set_state(RunnerState::Playing);
 
     state.ctx = prewarmed_next.ctx;
@@ -242,6 +266,7 @@ fn promote_prewarmed_next(
     state.runner = Some(prewarmed_next.runner);
     state.recovery_attempts = 0;
     state.recovery_retry_at = None;
+    state.clear_pipeline_unavailable_reason();
     state.last_position_emit_at = Instant::now();
     state.audio_start_sent = false;
     // Cutover always starts from the new input origin in the promoted context.

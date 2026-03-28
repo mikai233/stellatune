@@ -9,7 +9,7 @@ use stellatune_host_bindings::generated::encoder_plugin::stellatune::plugin::sid
 use crate::executor::sidecar_state::state::SidecarState;
 use crate::host::sidecar::types::{
     SidecarLaunchScope, SidecarLaunchSpec, SidecarTransportKind, SidecarTransportOption,
-    resolve_sidecar_executable,
+    resolve_sidecar_executable, resolve_sidecar_logging,
 };
 
 pub(crate) struct EncoderStoreData {
@@ -87,12 +87,17 @@ impl encoder_sidecar::Host for EncoderStoreData {
         &mut self,
         spec: encoder_sidecar::LaunchSpec,
     ) -> std::result::Result<Resource<encoder_sidecar::Process>, encoder_sidecar::PluginError> {
+        let executable = resolve_sidecar_executable(&self.plugin_root, &spec.executable)
+            .map_err(encoder_plugin_error_internal)?;
+        let logging = resolve_sidecar_logging(&self.plugin_root, executable.as_str())
+            .map_err(encoder_plugin_error_internal)?;
         let process_rep = self
             .sidecar
             .launch(&SidecarLaunchSpec {
                 scope: encoder_launch_scope_from(spec.scope),
-                executable: resolve_sidecar_executable(&self.plugin_root, &spec.executable)
-                    .map_err(encoder_plugin_error_internal)?,
+                plugin_root: self.plugin_root.clone(),
+                logging,
+                executable,
                 args: spec.args,
                 preferred_control: spec
                     .preferred_control

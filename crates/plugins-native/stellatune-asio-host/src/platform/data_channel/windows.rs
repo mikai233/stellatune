@@ -108,9 +108,9 @@ impl DataIngressThreadPlatformState {
         self.attempted = true;
         self.guard = enable_mmcss_pro_audio();
         if self.guard.is_some() {
-            eprintln!("asio host data ingress mmcss: Pro Audio enabled");
+            tracing::info!("asio host data ingress mmcss: Pro Audio enabled");
         } else {
-            eprintln!("asio host data ingress mmcss: failed to enable Pro Audio");
+            tracing::warn!("asio host data ingress mmcss: failed to enable Pro Audio");
         }
     }
 }

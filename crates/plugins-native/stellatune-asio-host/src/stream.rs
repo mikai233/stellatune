@@ -153,7 +153,7 @@ impl StreamState {
         }
         let chosen_format = chosen_format.unwrap_or(cpal::SampleFormat::F32);
 
-        let err_fn = |e| eprintln!("cpal stream error: {e}");
+        let err_fn = |e| tracing::error!("cpal stream error: {e}");
 
         let stream = match chosen_format {
             cpal::SampleFormat::F32 => {
@@ -162,7 +162,7 @@ impl StreamState {
                 let metrics_cb = Arc::clone(&metrics);
                 let mut platform_state = OutputCallbackPlatformState::default();
                 dev.build_output_stream(
-                    &cfg,
+                    cfg,
                     move |out: &mut [f32], _| {
                         platform_state.on_callback_start("f32");
                         fill_queue_f32(out, &queue_cb, &running_cb, &metrics_cb)
@@ -179,7 +179,7 @@ impl StreamState {
                 let metrics_cb = Arc::clone(&metrics);
                 let mut platform_state = OutputCallbackPlatformState::default();
                 dev.build_output_stream(
-                    &cfg,
+                    cfg,
                     move |out: &mut [i16], _| {
                         platform_state.on_callback_start("i16");
                         fill_queue_i16(out, &queue_cb, &running_cb, &metrics_cb, &mut tmp)
@@ -196,7 +196,7 @@ impl StreamState {
                 let metrics_cb = Arc::clone(&metrics);
                 let mut platform_state = OutputCallbackPlatformState::default();
                 dev.build_output_stream(
-                    &cfg,
+                    cfg,
                     move |out: &mut [i32], _| {
                         platform_state.on_callback_start("i32");
                         fill_queue_i32(out, &queue_cb, &running_cb, &metrics_cb, &mut tmp)
@@ -213,7 +213,7 @@ impl StreamState {
                 let metrics_cb = Arc::clone(&metrics);
                 let mut platform_state = OutputCallbackPlatformState::default();
                 dev.build_output_stream(
-                    &cfg,
+                    cfg,
                     move |out: &mut [u16], _| {
                         platform_state.on_callback_start("u16");
                         fill_queue_u16(out, &queue_cb, &running_cb, &metrics_cb, &mut tmp)
@@ -270,6 +270,7 @@ impl Drop for StreamState {
         self.running.store(false, Ordering::Release);
         self.metrics.stop.store(true, Ordering::Release);
         if let Some(join) = self.metrics_join.take() {
+            join.thread().unpark();
             let _ = join.join();
         }
     }
@@ -343,7 +344,10 @@ fn start_underrun_reporter(
             let mut last_samples = 0u64;
             let mut last_delivered = 0u64;
             while !metrics.stop.load(Ordering::Acquire) {
-                thread::sleep(Duration::from_secs(1));
+                thread::park_timeout(Duration::from_secs(1));
+                if metrics.stop.load(Ordering::Acquire) {
+                    break;
+                }
                 let callbacks = metrics.underrun_callbacks.load(Ordering::Relaxed);
                 let samples = metrics.underrun_samples.load(Ordering::Relaxed);
                 let delivered = metrics.delivered_samples.load(Ordering::Relaxed);
@@ -375,7 +379,7 @@ fn start_underrun_reporter(
                     0
                 };
 
-                eprintln!(
+                tracing::warn!(
                     "asio underrun stats: +{} callbacks +{} samples (~{}ms) delivered_samples={} total_callbacks={} total_samples={} max_shortfall_samples={} (~{}ms)",
                     delta_callbacks,
                     delta_samples,

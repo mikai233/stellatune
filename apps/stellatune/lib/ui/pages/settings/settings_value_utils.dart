@@ -36,6 +36,27 @@ class SettingsValueUtils {
   static String targetValueOf(Object? target) =>
       target is String ? target : jsonEncode(target);
 
+  static List<Object?> parseOutputSinkTargetsJson(String raw) {
+    dynamic decoded;
+    try {
+      decoded = jsonDecode(raw);
+    } catch (_) {
+      return const [];
+    }
+    if (decoded is List) {
+      return decoded.cast<Object?>();
+    }
+    if (decoded is Map) {
+      for (final key in ['targets', 'items', 'list', 'data', 'results']) {
+        final value = decoded[key];
+        if (value is List) {
+          return value.cast<Object?>();
+        }
+      }
+    }
+    return const [];
+  }
+
   static String targetLabelOf(Object? target) {
     if (target is Map) {
       final map = target.cast<Object?, Object?>();
