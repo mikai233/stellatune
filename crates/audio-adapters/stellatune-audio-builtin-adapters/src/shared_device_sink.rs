@@ -1,5 +1,6 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::thread::Thread;
 use std::time::{Duration, Instant};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -12,8 +13,7 @@ use stellatune_audio_core::pipeline::stages::sink::SinkStage;
 use stellatune_audio_core::pipeline::stages::{Stage, StageFlow};
 
 const RING_BUFFER_CAPACITY_MS: usize = 40;
-const WRITE_BACKPRESSURE_TIMEOUT_MS: u64 = 30;
-const WRITE_BACKPRESSURE_SLEEP_MS: u64 = 1;
+const WRITE_BACKPRESSURE_PARK_TIMEOUT_MS: u64 = 250;
 const FLUSH_TIMEOUT_MS: u64 = 350;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -78,6 +78,68 @@ struct SharedDeviceSinkControlInner {
     applied_device_id: Mutex<Option<String>>,
     applied_revision: AtomicU64,
     metrics: SharedDeviceSinkMetrics,
+}
+
+#[derive(Debug)]
+struct SharedDeviceSinkBackpressure {
+    high_watermark_samples: usize,
+    resume_watermark_samples: usize,
+    waiting_writer: Mutex<Option<Thread>>,
+}
+
+impl SharedDeviceSinkBackpressure {
+    fn new(capacity_samples: usize) -> Self {
+        let high_watermark_samples = ((capacity_samples * 3) / 4).max(1);
+        let resume_watermark_samples = (capacity_samples / 2).min(high_watermark_samples);
+        Self {
+            high_watermark_samples,
+            resume_watermark_samples,
+            waiting_writer: Mutex::new(None),
+        }
+    }
+
+    fn allowed_write_samples(&self, occupied_samples: usize, remaining_samples: usize) -> usize {
+        self.high_watermark_samples
+            .saturating_sub(occupied_samples)
+            .min(remaining_samples)
+    }
+
+    fn should_wait_for_capacity(&self, occupied_samples: usize) -> bool {
+        occupied_samples >= self.high_watermark_samples
+    }
+
+    fn wait_for_capacity(&self, occupied_samples: usize) {
+        if occupied_samples <= self.resume_watermark_samples {
+            return;
+        }
+
+        if let Ok(mut guard) = self.waiting_writer.lock() {
+            *guard = Some(std::thread::current());
+        }
+        std::thread::park_timeout(Duration::from_millis(WRITE_BACKPRESSURE_PARK_TIMEOUT_MS));
+        if let Ok(mut guard) = self.waiting_writer.lock() {
+            guard.take();
+        }
+    }
+
+    fn notify_capacity_available(&self, occupied_samples: usize) {
+        if occupied_samples > self.resume_watermark_samples {
+            return;
+        }
+        if let Ok(guard) = self.waiting_writer.lock()
+            && let Some(writer) = guard.as_ref()
+        {
+            writer.unpark();
+        }
+    }
+
+    fn notify_writer(&self) {
+        if let Ok(guard) = self.waiting_writer.lock()
+            && let Some(writer) = guard.as_ref()
+        {
+            writer.unpark();
+        }
+    }
 }
 
 impl Default for SharedDeviceSinkControlInner {
@@ -161,13 +223,6 @@ impl SharedDeviceSinkControl {
         self.inner
             .metrics
             .written_samples
-            .fetch_add(samples as u64, Ordering::Relaxed);
-    }
-
-    fn note_dropped_samples(&self, samples: usize) {
-        self.inner
-            .metrics
-            .dropped_samples
             .fetch_add(samples as u64, Ordering::Relaxed);
     }
 
@@ -259,6 +314,7 @@ pub struct SharedDeviceSinkStage {
     producer: Option<HeapProd<f32>>,
     stream: Option<cpal::Stream>,
     callback_error: Arc<Mutex<Option<String>>>,
+    backpressure: Option<Arc<SharedDeviceSinkBackpressure>>,
     prepared_spec: Option<StreamSpec>,
 }
 
@@ -273,6 +329,7 @@ impl SharedDeviceSinkStage {
             producer: None,
             stream: None,
             callback_error: Arc::new(Mutex::new(None)),
+            backpressure: None,
             prepared_spec: None,
         }
     }
@@ -304,6 +361,7 @@ impl SharedDeviceSinkStage {
         self.control.note_reconfigure_attempt();
         self.producer = None;
         self.stream = None;
+        self.backpressure = None;
         self.clear_callback_error();
 
         match self.open_stream(spec) {
@@ -346,27 +404,32 @@ impl SharedDeviceSinkStage {
         let capacity_samples =
             ((spec.sample_rate as usize * spec.channels as usize * RING_BUFFER_CAPACITY_MS) / 1000)
                 .max(spec.channels as usize * 1024);
+        let backpressure = Arc::new(SharedDeviceSinkBackpressure::new(capacity_samples));
         let rb = HeapRb::<f32>::new(capacity_samples.max(1024));
         let (producer, consumer) = rb.split();
 
         let callback_error = Arc::clone(&self.callback_error);
         let error_metrics = self.control.clone();
+        let error_backpressure = Arc::clone(&backpressure);
         let on_error = move |error: cpal::StreamError| {
             error_metrics.note_callback_error();
             if let Ok(mut slot) = callback_error.lock() {
                 *slot = Some(format!("output stream error: {error}"));
             }
+            error_backpressure.notify_writer();
         };
 
         let stream = match default_config.sample_format() {
             cpal::SampleFormat::F32 => {
                 let metrics = self.control.clone();
+                let backpressure = Arc::clone(&backpressure);
                 let mut consumer = consumer;
                 device.build_output_stream(
                     &stream_config,
                     move |data: &mut [f32], _| {
                         let provided = write_f32_samples(data, &mut consumer);
                         metrics.note_callback(data.len(), provided);
+                        backpressure.notify_capacity_available(consumer.occupied_len());
                     },
                     on_error,
                     Some(Duration::from_millis(200)),
@@ -374,12 +437,14 @@ impl SharedDeviceSinkStage {
             },
             cpal::SampleFormat::I16 => {
                 let metrics = self.control.clone();
+                let backpressure = Arc::clone(&backpressure);
                 let mut consumer = consumer;
                 device.build_output_stream(
                     &stream_config,
                     move |data: &mut [i16], _| {
                         let provided = write_i16_samples(data, &mut consumer);
                         metrics.note_callback(data.len(), provided);
+                        backpressure.notify_capacity_available(consumer.occupied_len());
                     },
                     on_error,
                     Some(Duration::from_millis(200)),
@@ -387,12 +452,14 @@ impl SharedDeviceSinkStage {
             },
             cpal::SampleFormat::U16 => {
                 let metrics = self.control.clone();
+                let backpressure = Arc::clone(&backpressure);
                 let mut consumer = consumer;
                 device.build_output_stream(
                     &stream_config,
                     move |data: &mut [u16], _| {
                         let provided = write_u16_samples(data, &mut consumer);
                         metrics.note_callback(data.len(), provided);
+                        backpressure.notify_capacity_available(consumer.occupied_len());
                     },
                     on_error,
                     Some(Duration::from_millis(200)),
@@ -411,6 +478,7 @@ impl SharedDeviceSinkStage {
             .map_err(|e| PipelineError::StageFailure(format!("play output stream failed: {e}")))?;
         self.producer = Some(producer);
         self.stream = Some(stream);
+        self.backpressure = Some(backpressure);
         Ok(applied_device_id)
     }
 }
@@ -462,31 +530,47 @@ impl SinkStage for SharedDeviceSinkStage {
         if let Some(error) = self.take_callback_error() {
             return Err(PipelineError::StageFailure(error));
         }
-        let Some(producer) = self.producer.as_mut() else {
-            return Err(PipelineError::StageFailure(
-                "shared device sink is not prepared".to_string(),
-            ));
-        };
-
         let samples = block.samples.as_slice();
+        let backpressure = self.backpressure.as_ref().ok_or_else(|| {
+            PipelineError::StageFailure(
+                "shared device sink backpressure is not prepared".to_string(),
+            )
+        })?;
         let mut offset = 0usize;
-        let deadline = Instant::now() + Duration::from_millis(WRITE_BACKPRESSURE_TIMEOUT_MS);
         while offset < samples.len() {
-            let pushed = producer.push_slice(&samples[offset..]);
+            if let Some(error) = self.take_callback_error() {
+                self.control.note_written_samples(offset);
+                return Err(PipelineError::StageFailure(error));
+            }
+
+            let Some(producer) = self.producer.as_mut() else {
+                self.control.note_written_samples(offset);
+                return Err(PipelineError::StageFailure(
+                    "shared device sink is not prepared".to_string(),
+                ));
+            };
+
+            let occupied = producer.occupied_len();
+            if backpressure.should_wait_for_capacity(occupied) {
+                backpressure.wait_for_capacity(occupied);
+                continue;
+            }
+
+            let allowed = backpressure.allowed_write_samples(occupied, samples.len() - offset);
+            if allowed == 0 {
+                backpressure.wait_for_capacity(occupied);
+                continue;
+            }
+
+            let pushed = producer.push_slice(&samples[offset..offset + allowed]);
             if pushed > 0 {
                 offset = offset.saturating_add(pushed);
                 continue;
             }
-            if Instant::now() >= deadline {
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(WRITE_BACKPRESSURE_SLEEP_MS));
+            backpressure.wait_for_capacity(producer.occupied_len());
         }
 
         self.control.note_written_samples(offset);
-        if offset < samples.len() {
-            self.control.note_dropped_samples(samples.len() - offset);
-        }
         Ok(StageFlow::Continue)
     }
 
@@ -508,8 +592,12 @@ impl SinkStage for SharedDeviceSinkStage {
     }
 
     fn stop(&mut self, _ctx: &mut PipelineContext) {
+        if let Some(backpressure) = &self.backpressure {
+            backpressure.notify_writer();
+        }
         self.producer = None;
         self.stream = None;
+        self.backpressure = None;
         self.prepared_spec = None;
         self.clear_callback_error();
     }
