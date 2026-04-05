@@ -4,10 +4,10 @@ use std::time::Instant;
 use anyhow::{Context, Result};
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalSize, PhysicalSize};
-use winit::event::WindowEvent;
+use winit::event::{ElementState, MouseButton, WindowEvent};
 use winit::event_loop::ActiveEventLoop;
 use winit::keyboard::{Key, NamedKey};
-use winit::window::{Window, WindowAttributes, WindowId};
+use winit::window::{Cursor, CursorIcon, Window, WindowAttributes, WindowId};
 
 use crate::debug::overlay::DebugOverlay;
 use crate::gpu::context::GpuContext;
@@ -18,15 +18,20 @@ use crate::render::composer::FrameComposer;
 use crate::resources::fonts::{FontCatalog, FontHandle};
 use crate::resources::textures::{TextureCatalog, TextureHandle};
 use crate::scene::DemoScene;
+use crate::ui::layout::geometry::LayoutPoint;
+use crate::ui::layout::hit_test::hit_test;
+use crate::ui::layout::node::LaidOutNode;
+use crate::ui::node::NodeId;
 use crate::ui::transition::UiTransitionResolver;
-use crate::view::build_demo_routes;
+use crate::view::{
+    RouteAction, RouteActionBinding, RouteCursor, RouteInteractionState, build_demo_routes,
+};
 
 #[derive(Debug, Clone, Copy)]
 pub struct FrameState {
     pub frame_index: u64,
     pub elapsed_seconds: f32,
     pub delta_seconds: f32,
-    pub smoothed_fps: f32,
     pub physical_size: PhysicalSize<u32>,
     pub scale_factor: f64,
 }
@@ -65,12 +70,7 @@ impl FrameClock {
         }
     }
 
-    fn tick(
-        &mut self,
-        smoothed_fps: f32,
-        physical_size: PhysicalSize<u32>,
-        scale_factor: f64,
-    ) -> FrameState {
+    fn tick(&mut self, physical_size: PhysicalSize<u32>, scale_factor: f64) -> FrameState {
         let now = Instant::now();
         let delta_seconds = now
             .saturating_duration_since(self.last_frame_at)
@@ -83,7 +83,6 @@ impl FrameClock {
             frame_index: self.frame_index,
             elapsed_seconds,
             delta_seconds,
-            smoothed_fps,
             physical_size,
             scale_factor,
         }
@@ -102,6 +101,12 @@ pub struct RenderApp {
     scene: DemoScene,
     navigation: NavigationState,
     transitions: UiTransitionResolver,
+    hovered_node: Option<NodeId>,
+    pressed_node: Option<NodeId>,
+    cursor_position: Option<LayoutPoint>,
+    destination_layout: Option<LaidOutNode>,
+    destination_actions: Vec<RouteActionBinding>,
+    active_cursor: RouteCursor,
     overlay: DebugOverlay,
     clock: FrameClock,
 }
@@ -132,6 +137,12 @@ impl RenderApp {
             scene: DemoScene::new(),
             navigation: NavigationState::default(),
             transitions: UiTransitionResolver::default(),
+            hovered_node: None,
+            pressed_node: None,
+            cursor_position: None,
+            destination_layout: None,
+            destination_actions: Vec::new(),
+            active_cursor: RouteCursor::Default,
             overlay: DebugOverlay::default(),
             clock: FrameClock::new(),
         })
@@ -166,28 +177,69 @@ impl RenderApp {
         self.navigation.toggle_demo_route(elapsed);
     }
 
+    fn update_hover_at(&mut self, point: LayoutPoint) -> bool {
+        self.cursor_position = Some(point);
+        let hovered = self
+            .destination_layout
+            .as_ref()
+            .and_then(|layout| hit_test(layout, point));
+        if hovered != self.hovered_node {
+            self.hovered_node = hovered;
+            return true;
+        }
+        false
+    }
+
+    fn clear_hover(&mut self) -> bool {
+        self.cursor_position = None;
+        if self.hovered_node.take().is_some() {
+            return true;
+        }
+        false
+    }
+
+    fn destination_action_for(&self, target: NodeId) -> Option<RouteActionBinding> {
+        self.destination_actions
+            .iter()
+            .copied()
+            .find(|binding| binding.target == target)
+    }
+
+    fn sync_cursor(&mut self) {
+        let next_cursor = self
+            .hovered_node
+            .and_then(|node| self.destination_action_for(node))
+            .map(|binding| binding.cursor)
+            .unwrap_or(RouteCursor::Default);
+        if next_cursor == self.active_cursor {
+            return;
+        }
+
+        let cursor = match next_cursor {
+            RouteCursor::Default => Cursor::Icon(CursorIcon::Default),
+            RouteCursor::Pointer => Cursor::Icon(CursorIcon::Pointer),
+        };
+        self.window.set_cursor(cursor);
+        self.active_cursor = next_cursor;
+    }
+
+    fn handle_route_action(&mut self, action: RouteAction) {
+        match action {
+            RouteAction::Navigate(route) => self.navigate_to(route),
+            RouteAction::Pop => self.pop_route(),
+        }
+    }
+
     fn render(&mut self) -> std::result::Result<(), RenderFrameError> {
         if self.gpu.is_zero_sized() {
             return Ok(());
         }
 
-        let smoothed_fps = self.overlay.observe_frame(Instant::now());
-        let frame = self.clock.tick(
-            smoothed_fps,
-            self.gpu.surface_size(),
-            self.gpu.scale_factor(),
-        );
+        let _smoothed_fps = self.overlay.observe_frame(Instant::now());
+        let frame = self
+            .clock
+            .tick(self.gpu.surface_size(), self.gpu.scale_factor());
         self.navigation.update_demo_timeline(frame.elapsed_seconds);
-        let demo_cover = self
-            .textures
-            .get(self.demo_cover_texture)
-            .expect("demo cover texture should be available");
-        let metadata = demo_cover.metadata();
-        debug_assert_eq!(metadata.format, wgpu::TextureFormat::Rgba8UnormSrgb);
-        let ui_font = self
-            .fonts
-            .get(self.ui_font)
-            .expect("UI font should be available");
         let active_transition = self.navigation.active_transition(frame.elapsed_seconds);
         let page_transition = active_transition
             .map(|transition| {
@@ -198,15 +250,48 @@ impl RenderApp {
                 )
             })
             .unwrap_or_else(ResolvedPageTransition::identity);
+        let ui_font_family = self
+            .fonts
+            .get(self.ui_font)
+            .expect("UI font should be available")
+            .family_name()
+            .to_string();
         let route_views = build_demo_routes(
             self.navigation.top_route(),
             active_transition,
             &frame,
-            ui_font.family_name(),
+            &ui_font_family,
+            RouteInteractionState {
+                hovered: self.hovered_node,
+                pressed: self.pressed_node,
+            },
         );
+        self.destination_layout = Some(route_views.destination.layout.clone());
+        self.destination_actions = route_views.destination.actions.clone();
+        if let Some(cursor_position) = self.cursor_position {
+            let hovered = self
+                .destination_layout
+                .as_ref()
+                .and_then(|layout| hit_test(layout, cursor_position));
+            if hovered != self.hovered_node {
+                self.hovered_node = hovered;
+                self.window.request_redraw();
+            }
+        }
+        self.sync_cursor();
+        let demo_cover = self
+            .textures
+            .get(self.demo_cover_texture)
+            .expect("demo cover texture should be available");
+        let metadata = demo_cover.metadata();
+        debug_assert_eq!(metadata.format, wgpu::TextureFormat::Rgba8UnormSrgb);
+        let ui_font = self
+            .fonts
+            .get(self.ui_font)
+            .expect("UI font should be available");
         let resolved_ui = self.transitions.resolve_navigation(
-            route_views.source.as_ref(),
-            &route_views.destination,
+            route_views.source.as_ref().map(|page| &page.node),
+            &route_views.destination.node,
             active_transition,
             frame.elapsed_seconds,
         );
@@ -216,16 +301,14 @@ impl RenderApp {
             &resolved_ui.plan,
             ui_font,
         );
-        self.composer
-            .render(
-                &self.gpu,
-                &self.targets,
-                scene_frame,
-                demo_cover,
-                &frame,
-                page_transition,
-            )
-            .map_err(RenderFrameError::from)
+        self.composer.render(
+            &self.gpu,
+            &self.targets,
+            scene_frame,
+            demo_cover,
+            &frame,
+            page_transition,
+        )
     }
 }
 
@@ -321,6 +404,42 @@ impl ApplicationHandler for StellatuneGuiApp {
                 app.resize(app.window().inner_size());
                 app.window().request_redraw();
             },
+            WindowEvent::CursorMoved { position, .. } => {
+                if app.update_hover_at(LayoutPoint::new(position.x as f32, position.y as f32)) {
+                    app.window().request_redraw();
+                }
+            },
+            WindowEvent::CursorLeft { .. } => {
+                if app.clear_hover() {
+                    app.window().request_redraw();
+                }
+            },
+            WindowEvent::MouseInput {
+                state,
+                button: MouseButton::Left,
+                ..
+            } => match state {
+                ElementState::Pressed => {
+                    let next_pressed = app.hovered_node;
+                    if app.pressed_node != next_pressed {
+                        app.pressed_node = next_pressed;
+                        app.window().request_redraw();
+                    }
+                },
+                ElementState::Released => {
+                    let released = app.pressed_node.take();
+                    if let Some(pressed) = released {
+                        let action = app
+                            .destination_action_for(pressed)
+                            .map(|binding| binding.action)
+                            .filter(|_| app.hovered_node == Some(pressed));
+                        if let Some(action) = action {
+                            app.handle_route_action(action);
+                        }
+                    }
+                    app.window().request_redraw();
+                },
+            },
             WindowEvent::KeyboardInput { event, .. }
                 if matches!(event.logical_key, Key::Named(NamedKey::Escape)) =>
             {
@@ -331,6 +450,19 @@ impl ApplicationHandler for StellatuneGuiApp {
             {
                 app.toggle_route();
                 app.window().request_redraw();
+            },
+            WindowEvent::KeyboardInput { event, .. }
+                if event.state == ElementState::Pressed
+                    && matches!(event.logical_key, Key::Named(NamedKey::Enter)) =>
+            {
+                if let Some(action) = app
+                    .hovered_node
+                    .and_then(|node| app.destination_action_for(node))
+                    .map(|binding| binding.action)
+                {
+                    app.handle_route_action(action);
+                    app.window().request_redraw();
+                }
             },
             WindowEvent::KeyboardInput { event, .. }
                 if matches!(event.logical_key, Key::Named(NamedKey::Backspace)) =>

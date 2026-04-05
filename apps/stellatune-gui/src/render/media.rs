@@ -20,6 +20,16 @@ pub struct MediaRenderer {
     uniform_buffer: wgpu::Buffer,
 }
 
+pub struct MediaPass<'a> {
+    pub device: &'a wgpu::Device,
+    pub queue: &'a wgpu::Queue,
+    pub encoder: &'a mut wgpu::CommandEncoder,
+    pub target: &'a wgpu::TextureView,
+    pub source: &'a TextureResource,
+    pub cover_rect: Rect,
+    pub frame: &'a FrameState,
+}
+
 impl MediaRenderer {
     pub fn new(device: &wgpu::Device, target_format: wgpu::TextureFormat) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -102,43 +112,35 @@ impl MediaRenderer {
         }
     }
 
-    pub fn render(
-        &self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        encoder: &mut wgpu::CommandEncoder,
-        target: &wgpu::TextureView,
-        source: &TextureResource,
-        cover_rect: Rect,
-        frame: &FrameState,
-    ) {
+    pub fn render(&self, pass: MediaPass<'_>) {
         let uniforms = MediaUniforms {
             resolution_and_origin: [
-                frame.physical_size.width.max(1) as f32,
-                frame.physical_size.height.max(1) as f32,
-                cover_rect.x0 as f32,
-                cover_rect.y0 as f32,
+                pass.frame.physical_size.width.max(1) as f32,
+                pass.frame.physical_size.height.max(1) as f32,
+                pass.cover_rect.x0 as f32,
+                pass.cover_rect.y0 as f32,
             ],
             rect_size_and_radius: [
-                cover_rect.width() as f32,
-                cover_rect.height() as f32,
+                pass.cover_rect.width() as f32,
+                pass.cover_rect.height() as f32,
                 28.0,
                 0.0,
             ],
         };
-        queue.write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
+        pass.queue
+            .write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
 
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        let bind_group = pass.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("stellatune-gui-media-bind-group"),
             layout: &self.bind_group_layout,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: wgpu::BindingResource::Sampler(source.sampler()),
+                    resource: wgpu::BindingResource::Sampler(pass.source.sampler()),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::TextureView(source.view()),
+                    resource: wgpu::BindingResource::TextureView(pass.source.view()),
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
@@ -147,10 +149,10 @@ impl MediaRenderer {
             ],
         });
 
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        let mut render_pass = pass.encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("stellatune-gui-media-pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: target,
+                view: pass.target,
                 depth_slice: None,
                 resolve_target: None,
                 ops: wgpu::Operations {
@@ -163,8 +165,8 @@ impl MediaRenderer {
             timestamp_writes: None,
             multiview_mask: None,
         });
-        pass.set_pipeline(&self.pipeline);
-        pass.set_bind_group(0, &bind_group, &[]);
-        pass.draw(0..3, 0..1);
+        render_pass.set_pipeline(&self.pipeline);
+        render_pass.set_bind_group(0, &bind_group, &[]);
+        render_pass.draw(0..3, 0..1);
     }
 }

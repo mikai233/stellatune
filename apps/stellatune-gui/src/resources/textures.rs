@@ -7,7 +7,6 @@ pub struct TextureHandle(u64);
 
 #[derive(Debug, Clone, Copy)]
 pub struct TextureMetadata {
-    pub size: winit::dpi::PhysicalSize<u32>,
     pub format: wgpu::TextureFormat,
 }
 
@@ -31,11 +30,6 @@ impl TextureResource {
     pub fn metadata(&self) -> TextureMetadata {
         self.metadata
     }
-}
-
-#[derive(Debug, Clone, Copy, Default)]
-pub struct TextureCatalogStats {
-    pub count: usize,
 }
 
 #[derive(Debug, Default)]
@@ -111,7 +105,6 @@ impl TextureCatalog {
         });
         let handle = self.next_handle();
         let metadata = TextureMetadata {
-            size: winit::dpi::PhysicalSize::new(width, height),
             format: wgpu::TextureFormat::Rgba8UnormSrgb,
         };
 
@@ -164,13 +157,6 @@ impl TextureCatalog {
     pub fn get(&self, handle: TextureHandle) -> Option<&TextureResource> {
         self.textures.get(&handle)
     }
-
-    pub fn stats(&self) -> TextureCatalogStats {
-        TextureCatalogStats {
-            count: self.textures.len(),
-        }
-    }
-
     fn next_handle(&mut self) -> TextureHandle {
         let handle = TextureHandle(self.next_id);
         self.next_id = self.next_id.saturating_add(1);

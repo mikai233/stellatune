@@ -1,7 +1,8 @@
 use crate::page_transition::PageTransitionPreset;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum RouteId {
+    #[default]
     Library,
     HeroDemo,
 }
@@ -33,12 +34,6 @@ pub struct NavigationState {
     stack: Vec<RouteEntry>,
     active_transition: Option<RouteTransition>,
     last_demo_bucket: Option<i32>,
-}
-
-impl Default for RouteId {
-    fn default() -> Self {
-        Self::Library
-    }
 }
 
 impl RouteEntry {
@@ -211,11 +206,11 @@ impl RouteTransition {
         self.operation
     }
 
-    pub fn from_route(self) -> RouteId {
+    pub fn source_route(self) -> RouteId {
         self.from.id()
     }
 
-    pub fn to_route(self) -> RouteId {
+    pub fn destination_route(self) -> RouteId {
         self.to.id()
     }
 

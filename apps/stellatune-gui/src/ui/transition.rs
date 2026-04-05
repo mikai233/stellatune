@@ -395,7 +395,7 @@ fn collect_shared_media_slots(
         overlays.push(ResolvedTransitionOverlayEntry {
             kind: TransitionOverlayKind::PromotedNode,
             source_id: node.id,
-            rect: node_bounds(node, transform).unwrap_or_else(|| Rect::ZERO),
+            rect: node_bounds(node, transform).unwrap_or(Rect::ZERO),
             progress: transition_progress(active_transition, now_seconds),
             phase: transition_overlay_phase(active_transition),
         });

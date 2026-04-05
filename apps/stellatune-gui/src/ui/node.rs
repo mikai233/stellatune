@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use vello::kurbo::{Affine, Circle, Rect, RoundedRect};
 use vello::peniko::Color;
 

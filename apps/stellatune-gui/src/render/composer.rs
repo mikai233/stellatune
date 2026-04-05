@@ -7,7 +7,7 @@ use crate::gpu::frame::FrameTargets;
 use crate::page_transition::ResolvedPageTransition;
 use crate::render::effects::EffectsRenderer;
 use crate::render::layers::FrameLayers;
-use crate::render::media::MediaRenderer;
+use crate::render::media::{MediaPass, MediaRenderer};
 use crate::render::vello_renderer::VelloRenderer;
 use crate::resources::textures::TextureResource;
 use crate::scene::DemoSceneFrame;
@@ -36,6 +36,18 @@ struct CompositeRenderer {
     bind_group_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
     settings_buffer: wgpu::Buffer,
+}
+
+struct CompositePass<'a> {
+    device: &'a wgpu::Device,
+    queue: &'a wgpu::Queue,
+    encoder: &'a mut wgpu::CommandEncoder,
+    surface_view: &'a wgpu::TextureView,
+    effect_view: &'a wgpu::TextureView,
+    media_view: &'a wgpu::TextureView,
+    source_vector_view: &'a wgpu::TextureView,
+    destination_vector_view: &'a wgpu::TextureView,
+    page_transition: ResolvedPageTransition,
 }
 
 impl CompositeRenderer {
@@ -164,37 +176,27 @@ impl CompositeRenderer {
         }
     }
 
-    fn render(
-        &self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        encoder: &mut wgpu::CommandEncoder,
-        surface_view: &wgpu::TextureView,
-        effect_view: &wgpu::TextureView,
-        media_view: &wgpu::TextureView,
-        source_vector_view: &wgpu::TextureView,
-        destination_vector_view: &wgpu::TextureView,
-        page_transition: ResolvedPageTransition,
-    ) {
+    fn render(&self, pass: CompositePass<'_>) {
         let settings = CompositeSettings {
-            source_opacity: page_transition.source.opacity,
-            destination_opacity: page_transition.destination.opacity,
-            source_translate_x: page_transition.source.translation_uv[0],
-            source_translate_y: page_transition.source.translation_uv[1],
-            source_scale: page_transition.source.scale,
-            destination_translate_x: page_transition.destination.translation_uv[0],
-            destination_translate_y: page_transition.destination.translation_uv[1],
-            destination_scale: page_transition.destination.scale,
-            media_on_top: if page_transition.media_on_top {
+            source_opacity: pass.page_transition.source.opacity,
+            destination_opacity: pass.page_transition.destination.opacity,
+            source_translate_x: pass.page_transition.source.translation_uv[0],
+            source_translate_y: pass.page_transition.source.translation_uv[1],
+            source_scale: pass.page_transition.source.scale,
+            destination_translate_x: pass.page_transition.destination.translation_uv[0],
+            destination_translate_y: pass.page_transition.destination.translation_uv[1],
+            destination_scale: pass.page_transition.destination.scale,
+            media_on_top: if pass.page_transition.media_on_top {
                 1.0
             } else {
                 0.0
             },
             _padding: [0.0; 3],
         };
-        queue.write_buffer(&self.settings_buffer, 0, bytemuck::bytes_of(&settings));
+        pass.queue
+            .write_buffer(&self.settings_buffer, 0, bytemuck::bytes_of(&settings));
 
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        let bind_group = pass.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("stellatune-gui-composite-bind-group"),
             layout: &self.bind_group_layout,
             entries: &[
@@ -204,19 +206,19 @@ impl CompositeRenderer {
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::TextureView(effect_view),
+                    resource: wgpu::BindingResource::TextureView(pass.effect_view),
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
-                    resource: wgpu::BindingResource::TextureView(media_view),
+                    resource: wgpu::BindingResource::TextureView(pass.media_view),
                 },
                 wgpu::BindGroupEntry {
                     binding: 3,
-                    resource: wgpu::BindingResource::TextureView(source_vector_view),
+                    resource: wgpu::BindingResource::TextureView(pass.source_vector_view),
                 },
                 wgpu::BindGroupEntry {
                     binding: 4,
-                    resource: wgpu::BindingResource::TextureView(destination_vector_view),
+                    resource: wgpu::BindingResource::TextureView(pass.destination_vector_view),
                 },
                 wgpu::BindGroupEntry {
                     binding: 5,
@@ -225,10 +227,10 @@ impl CompositeRenderer {
             ],
         });
 
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        let mut render_pass = pass.encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("stellatune-gui-composite-pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: surface_view,
+                view: pass.surface_view,
                 depth_slice: None,
                 resolve_target: None,
                 ops: wgpu::Operations {
@@ -241,9 +243,9 @@ impl CompositeRenderer {
             timestamp_writes: None,
             multiview_mask: None,
         });
-        pass.set_pipeline(&self.pipeline);
-        pass.set_bind_group(0, &bind_group, &[]);
-        pass.draw(0..3, 0..1);
+        render_pass.set_pipeline(&self.pipeline);
+        render_pass.set_bind_group(0, &bind_group, &[]);
+        render_pass.draw(0..3, 0..1);
     }
 }
 
@@ -305,15 +307,15 @@ impl FrameComposer {
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                     label: Some("stellatune-gui-media-encoder"),
                 });
-            self.media.render(
-                &gpu.device,
-                &gpu.queue,
-                &mut encoder,
-                layers.view(crate::render::layers::OffscreenLayer::Media),
-                cover_texture,
-                scene_frame.cover_rect,
+            self.media.render(MediaPass {
+                device: &gpu.device,
+                queue: &gpu.queue,
+                encoder: &mut encoder,
+                target: layers.view(crate::render::layers::OffscreenLayer::Media),
+                source: cover_texture,
+                cover_rect: scene_frame.cover_rect,
                 frame,
-            );
+            });
             gpu.queue.submit(Some(encoder.finish()));
         }
 
@@ -341,21 +343,21 @@ impl FrameComposer {
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                     label: Some("stellatune-gui-composite-encoder"),
                 });
-            self.composite.render(
-                &gpu.device,
-                &gpu.queue,
-                &mut encoder,
-                &surface_view,
-                composite_layers.background,
-                composite_layers.media,
-                composite_layers.source_foreground,
-                composite_layers.destination_foreground,
-                ResolvedPageTransition {
+            self.composite.render(CompositePass {
+                device: &gpu.device,
+                queue: &gpu.queue,
+                encoder: &mut encoder,
+                surface_view: &surface_view,
+                effect_view: composite_layers.background,
+                media_view: composite_layers.media,
+                source_vector_view: composite_layers.source_foreground,
+                destination_vector_view: composite_layers.destination_foreground,
+                page_transition: ResolvedPageTransition {
                     media_on_top: scene_frame.cover_layer == UiLayer::Overlay
                         || page_transition.media_on_top,
                     ..page_transition
                 },
-            );
+            });
             gpu.queue.submit(Some(encoder.finish()));
         }
 

@@ -1,3 +1,5 @@
+#![allow(dead_code, clippy::needless_range_loop)]
+
 use winit::dpi::PhysicalSize;
 
 use crate::ui::node::{NodeId, UiEffectHint, UiLayer, UiNode, UiStroke, UiTransitionHint};
