@@ -15,6 +15,7 @@ import 'package:stellatune/player/playability_messages.dart';
 import 'package:stellatune/player/queue_controller.dart';
 import 'package:stellatune/player/queue_models.dart';
 import 'package:stellatune/player/playback_resume_queue_utils.dart';
+import 'package:stellatune/platform/directory_access_service.dart';
 
 final playbackControllerProvider =
     NotifierProvider<PlaybackController, PlaybackState>(PlaybackController.new);
@@ -32,6 +33,7 @@ class PlaybackController extends Notifier<PlaybackState> {
   int _nextVolumeSeq = 1;
   int _latestVolumeCommandSeq = 0;
   int _latestVolumeAckSeq = 0;
+  DirectoryAccessLease? _activeDlnaTrackLease;
   String? _dlnaLastPath;
   Timer? _dlnaPollTimer;
   bool _dlnaPollInFlight = false;
@@ -54,6 +56,7 @@ class PlaybackController extends Notifier<PlaybackState> {
     _resumePersistTimer?.cancel();
     _resumePersistTimer = null;
     _resumePendingTrack = null;
+    unawaited(_releaseDlnaTrackLease());
     _dlnaPollTimer?.cancel();
     _dlnaPollTimer = null;
     _dlnaPollInFlight = false;
@@ -83,6 +86,7 @@ class PlaybackController extends Notifier<PlaybackState> {
       _volumePersistDebounce?.cancel();
       _resumePersistTimer?.cancel();
       _dlnaPollTimer?.cancel();
+      unawaited(_releaseDlnaTrackLease());
     });
 
     final savedVolume = ref.read(settingsStoreProvider).volume.clamp(0.0, 1.0);
@@ -575,12 +579,14 @@ class PlaybackController extends Notifier<PlaybackState> {
             );
       }
       _dlnaLastPath = null;
+      await _releaseDlnaTrackLease();
       state = state.copyWith(playerState: PlayerState.stopped, positionMs: 0);
     }
 
     if (next?.avTransportControlUrl != null) {
       // Switching to DLNA: stop local engine to avoid double playback.
       await ref.read(playerBridgeProvider).stop();
+      await _releaseDlnaTrackLease();
       _reportedNoDlnaVolume = false;
       _dlnaVolumeMismatchCount = 0;
       _dlnaLastReportedDlnaVolume = null;
@@ -776,6 +782,7 @@ class PlaybackController extends Notifier<PlaybackState> {
   Future<void> stop() async {
     if (!_dlnaActive) {
       await ref.read(playerBridgeProvider).stop();
+      await _releaseDlnaTrackLease();
       state = state.copyWith(positionMs: 0);
       _lastPreloadedNextTrackKey = null;
       final track = _resolveCurrentTrackForResume();
@@ -799,6 +806,7 @@ class PlaybackController extends Notifier<PlaybackState> {
     }
     unawaited(_dlna.httpUnpublishAll());
     _dlnaLastPath = null;
+    await _releaseDlnaTrackLease();
     state = state.copyWith(
       playerState: PlayerState.stopped,
       positionMs: 0,
@@ -863,6 +871,12 @@ class PlaybackController extends Notifier<PlaybackState> {
 
   TrackRef _localTrackRef(String path) =>
       TrackRef(sourceId: 'local', trackId: path, locator: path);
+
+  Future<void> _releaseDlnaTrackLease() async {
+    final lease = _activeDlnaTrackLease;
+    _activeDlnaTrackLease = null;
+    await lease?.release();
+  }
 
   Future<Set<String>> _loadDisabledPluginIdSet() async {
     try {
@@ -1039,19 +1053,33 @@ class PlaybackController extends Notifier<PlaybackState> {
       }
       final renderer = ref.read(dlnaSelectedRendererProvider);
       if (renderer == null) return false;
+      final nextLease = await DirectoryAccessService.instance.acquireLocalPath(
+        path: path,
+        store: ref.read(settingsStoreServiceProvider),
+      );
+      final previousLease = _activeDlnaTrackLease;
       final coverPath = item.id == null
           ? null
           : p.join(ref.read(coverDirProvider), item.id.toString());
       final coverExists = coverPath != null && File(coverPath).existsSync();
-      await ref.read(playerBridgeProvider).stop();
-      await _dlna.playLocalTrack(
-        renderer: renderer,
-        path: path,
-        title: item.title,
-        artist: item.artist,
-        album: item.album,
-        coverPath: coverExists ? coverPath : null,
-      );
+      try {
+        await ref.read(playerBridgeProvider).stop();
+        await _dlna.playLocalTrack(
+          renderer: renderer,
+          path: path,
+          title: item.title,
+          artist: item.artist,
+          album: item.album,
+          coverPath: coverExists ? coverPath : null,
+        );
+        _activeDlnaTrackLease = nextLease;
+        if (previousLease != null && !identical(previousLease, nextLease)) {
+          await previousLease.release();
+        }
+      } catch (_) {
+        await nextLease?.release();
+        rethrow;
+      }
       _dlnaLastPath = path;
       _dlnaLastPlayStartedAt = DateTime.now();
       _ensureDlnaPoller();

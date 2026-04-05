@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart'
     as frb;
+import 'package:stellatune/platform/directory_access_service.dart';
+import 'package:stellatune/platform/directory_access_store.dart';
 import 'api.dart' as api;
 import 'api/dlna/types.dart';
 import 'api/player/types.dart';
@@ -52,10 +54,20 @@ class PlayerBridge {
 
   Stream<Event>? _eventBroadcast;
   Stream<LyricsEvent>? _lyricsEventBroadcast;
+  DirectoryAccessStore? _directoryAccessStore;
+  DirectoryAccessLease? _activeTrackLease;
+  DirectoryAccessLease? _preloadedTrackLease;
 
   static Future<PlayerBridge> create() async => PlayerBridge._();
 
-  Future<void> dispose() async {}
+  void bindDirectoryAccessStore(DirectoryAccessStore store) {
+    _directoryAccessStore = store;
+  }
+
+  Future<void> dispose() async {
+    await _releaseActiveTrackLease();
+    await _releasePreloadedTrackLease();
+  }
 
   Stream<Event> events() =>
       _eventBroadcast ??= api.events().asBroadcastStream();
@@ -63,8 +75,20 @@ class PlayerBridge {
   Stream<LyricsEvent> lyricsEvents() =>
       _lyricsEventBroadcast ??= api.lyricsEvents().asBroadcastStream();
 
-  Future<void> switchTrackRef(TrackRef track, {required bool lazy}) =>
-      api.switchTrackRef(track: track, lazy: lazy);
+  Future<void> switchTrackRef(TrackRef track, {required bool lazy}) async {
+    final nextLease = await _acquireTrackLease(track);
+    final previousLease = _activeTrackLease;
+    try {
+      await api.switchTrackRef(track: track, lazy: lazy);
+      _activeTrackLease = nextLease;
+      if (previousLease != null && !identical(previousLease, nextLease)) {
+        await previousLease.release();
+      }
+    } catch (_) {
+      await nextLease?.release();
+      rethrow;
+    }
+  }
 
   Future<void> play() => api.play();
   Future<void> pause() => api.pause();
@@ -75,7 +99,11 @@ class PlayerBridge {
     required int seq,
     required int rampMs,
   }) => api.setVolume(volume: volume, seq: BigInt.from(seq), rampMs: rampMs);
-  Future<void> stop() => api.stop();
+  Future<void> stop() async {
+    await api.stop();
+    await _releaseActiveTrackLease();
+    await _releasePreloadedTrackLease();
+  }
 
   Future<void> lyricsPrepare(LyricsQuery query) =>
       api.lyricsPrepare(query: query);
@@ -197,11 +225,38 @@ class PlayerBridge {
     resampleQuality: resampleQuality,
   );
 
-  Future<void> preloadTrack(String path, {int positionMs = 0}) =>
-      api.preloadTrack(path: path, positionMs: BigInt.from(positionMs));
+  Future<void> preloadTrack(String path, {int positionMs = 0}) async {
+    final nextLease = await _acquireLocalPathLease(path);
+    final previousLease = _preloadedTrackLease;
+    try {
+      await api.preloadTrack(path: path, positionMs: BigInt.from(positionMs));
+      _preloadedTrackLease = nextLease;
+      if (previousLease != null && !identical(previousLease, nextLease)) {
+        await previousLease.release();
+      }
+    } catch (_) {
+      await nextLease?.release();
+      rethrow;
+    }
+  }
 
-  Future<void> preloadTrackRef(TrackRef track, {int positionMs = 0}) =>
-      api.preloadTrackRef(track: track, positionMs: BigInt.from(positionMs));
+  Future<void> preloadTrackRef(TrackRef track, {int positionMs = 0}) async {
+    final nextLease = await _acquireTrackLease(track);
+    final previousLease = _preloadedTrackLease;
+    try {
+      await api.preloadTrackRef(
+        track: track,
+        positionMs: BigInt.from(positionMs),
+      );
+      _preloadedTrackLease = nextLease;
+      if (previousLease != null && !identical(previousLease, nextLease)) {
+        await previousLease.release();
+      }
+    } catch (_) {
+      await nextLease?.release();
+      rethrow;
+    }
+  }
 
   Stream<TranscodeProgressEvent> transcodeTrackLocal({
     required String taskId,
@@ -228,6 +283,40 @@ class PlayerBridge {
 
   Future<List<String>> decoderSupportedExtensions() =>
       api.decoderSupportedExtensions();
+
+  Future<DirectoryAccessLease?> _acquireTrackLease(TrackRef track) {
+    final store = _directoryAccessStore;
+    if (store == null) {
+      return Future.value(null);
+    }
+    return DirectoryAccessService.instance.acquireTrackRef(
+      track: track,
+      store: store,
+    );
+  }
+
+  Future<DirectoryAccessLease?> _acquireLocalPathLease(String path) {
+    final store = _directoryAccessStore;
+    if (store == null) {
+      return Future.value(null);
+    }
+    return DirectoryAccessService.instance.acquireLocalPath(
+      path: path,
+      store: store,
+    );
+  }
+
+  Future<void> _releaseActiveTrackLease() async {
+    final lease = _activeTrackLease;
+    _activeTrackLease = null;
+    await lease?.release();
+  }
+
+  Future<void> _releasePreloadedTrackLease() async {
+    final lease = _preloadedTrackLease;
+    _preloadedTrackLease = null;
+    await lease?.release();
+  }
 }
 
 TrackRef buildPluginSourceTrackRef({

@@ -5,6 +5,7 @@ import 'package:stellatune/app/logging.dart';
 import 'package:stellatune/app/providers.dart';
 import 'package:stellatune/bridge/bridge.dart';
 import 'package:stellatune/library/library_state.dart';
+import 'package:stellatune/platform/directory_access_service.dart';
 
 final libraryControllerProvider =
     NotifierProvider<LibraryController, LibraryState>(LibraryController.new);
@@ -41,27 +42,42 @@ class LibraryController extends Notifier<LibraryState> {
 
   Future<void> addRoot(String path, {bool scanAfter = true}) async {
     if (path.trim().isEmpty) return;
-    final norm = _normalizePath(path);
-    if (state.roots.contains(norm)) return;
-
-    state = state.copyWith(
-      roots: [...state.roots, norm],
-      lastError: null,
-      lastLog: '',
+    final store = ref.read(settingsStoreServiceProvider);
+    final grantedPath = await DirectoryAccessService.instance.registerDirectory(
+      path: path,
+      store: store,
     );
-
-    await ref.read(libraryBridgeProvider).addRoot(path);
-    if (scanAfter) await scanAll();
+    final norm = _normalizePath(grantedPath);
+    if (state.roots.contains(norm)) return;
+    try {
+      await ref.read(libraryBridgeProvider).addRoot(grantedPath);
+      state = state.copyWith(
+        roots: [...state.roots, norm],
+        lastError: null,
+        lastLog: '',
+      );
+      if (scanAfter) await scanAll();
+    } catch (_) {
+      await DirectoryAccessService.instance.forgetDirectory(
+        path: grantedPath,
+        store: store,
+      );
+      rethrow;
+    }
   }
 
   Future<void> removeRoot(String path) async {
     final norm = _normalizePath(path);
+    await ref.read(libraryBridgeProvider).removeRoot(path);
+    await DirectoryAccessService.instance.forgetDirectory(
+      path: path,
+      store: ref.read(settingsStoreServiceProvider),
+    );
     state = state.copyWith(
       roots: state.roots.where((r) => r != norm).toList(),
       lastError: null,
       lastLog: '',
     );
-    await ref.read(libraryBridgeProvider).removeRoot(path);
     unawaited(_refreshFolders());
   }
 
@@ -73,10 +89,29 @@ class LibraryController extends Notifier<LibraryState> {
       lastError: null,
       lastLog: '',
     );
-    if (force) {
-      await ref.read(libraryBridgeProvider).scanAllForce();
-    } else {
-      await ref.read(libraryBridgeProvider).scanAll();
+    final store = ref.read(settingsStoreServiceProvider);
+    DirectoryAccessLease? lease;
+    try {
+      await DirectoryAccessService.instance.ensureRootsAuthorized(
+        roots: state.roots,
+        store: store,
+      );
+      lease = await DirectoryAccessService.instance.acquireRoots(
+        roots: state.roots,
+        store: store,
+      );
+      if (force) {
+        await ref.read(libraryBridgeProvider).scanAllForce();
+      } else {
+        await ref.read(libraryBridgeProvider).scanAll();
+      }
+    } catch (e, s) {
+      ref
+          .read(loggerProvider)
+          .w('library scan failed: $e', error: e, stackTrace: s);
+      state = state.copyWith(isScanning: false, lastError: e.toString());
+    } finally {
+      await lease?.release();
     }
   }
 
@@ -167,6 +202,10 @@ class LibraryController extends Notifier<LibraryState> {
 
   Future<void> _refreshRoots() async {
     final roots = await ref.read(libraryBridgeProvider).listRoots();
+    await DirectoryAccessService.instance.syncStoredDirectories(
+      paths: roots,
+      store: ref.read(settingsStoreServiceProvider),
+    );
     state = state.copyWith(
       roots: roots.map(_normalizePath).toList(),
       lastError: null,

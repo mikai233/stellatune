@@ -8,6 +8,7 @@ import 'package:stellatune/ui/pages/settings/settings_value_utils.dart';
 import 'package:stellatune/bridge/api/runtime.dart' as runtime_api;
 import 'package:stellatune/bridge/bridge.dart';
 import 'package:stellatune/library/library_paths.dart';
+import 'package:stellatune/platform/directory_access_service.dart';
 import 'package:stellatune/platform/rust_runtime.dart';
 import 'package:stellatune/platform/tray_service.dart';
 import 'package:window_manager/window_manager.dart';
@@ -264,9 +265,14 @@ Future<AppBootstrapResult> bootstrapApp() async {
   final bridge = await PlayerBridge.create();
   await SettingsStore.initHive();
   final settings = SettingsStore();
+  bridge.bindDirectoryAccessStore(settings);
   final paths = await _resolvePaths();
 
   final library = await LibraryBridge.create(dbPath: paths.dbPath);
+  await DirectoryAccessService.instance.syncStoredDirectories(
+    paths: await library.listRoots(),
+    store: settings,
+  );
   try {
     await library.pluginApplyState();
   } catch (e, s) {

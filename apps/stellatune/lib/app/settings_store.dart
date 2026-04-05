@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:stellatune/app/logging.dart';
 import 'package:stellatune/bridge/bridge.dart';
+import 'package:stellatune/platform/directory_access_store.dart';
 import 'package:stellatune/player/queue_models.dart';
 
 const _unset = Object();
@@ -142,7 +143,7 @@ class SettingsState {
   }
 }
 
-class SettingsStore {
+class SettingsStore implements DirectoryAccessStore {
   SettingsStore();
 
   final OutputSettingsUiSession outputSettingsUiSession =
@@ -169,6 +170,7 @@ class SettingsStore {
   static const _keyLocale = 'locale';
   static const _keyThemeMode = 'theme_mode';
   static const _keyCloseToTray = 'close_to_tray';
+  static const _keyMacosDirectoryBookmarks = 'macos_directory_bookmarks';
 
   static Future<void> initHive() async {
     await Hive.initFlutter();
@@ -481,6 +483,68 @@ class SettingsStore {
   }
 
   Future<void> setCloseToTray(bool v) => _box.put(_keyCloseToTray, v);
+
+  @override
+  Map<String, String> get macosDirectoryBookmarks {
+    final raw = _box.get(_keyMacosDirectoryBookmarks, defaultValue: '{}');
+    final text = raw is String ? raw : '{}';
+    try {
+      final decoded = jsonDecode(text);
+      if (decoded is! Map) return const <String, String>{};
+      final out = <String, String>{};
+      for (final entry in decoded.entries) {
+        final key = entry.key.toString().trim();
+        final value = (entry.value ?? '').toString().trim();
+        if (key.isEmpty || value.isEmpty) continue;
+        out[key] = value;
+      }
+      return out;
+    } catch (e, s) {
+      logger.w(
+        'failed to parse macos directory bookmarks',
+        error: e,
+        stackTrace: s,
+      );
+      return const <String, String>{};
+    }
+  }
+
+  @override
+  String? macosDirectoryBookmarkForPath(String path) {
+    final normalized = _normalizeBookmarkPath(path);
+    if (normalized.isEmpty) return null;
+    return macosDirectoryBookmarks[normalized];
+  }
+
+  @override
+  Future<void> setMacosDirectoryBookmark({
+    required String path,
+    required String bookmark,
+  }) async {
+    final normalized = _normalizeBookmarkPath(path);
+    final trimmedBookmark = bookmark.trim();
+    if (normalized.isEmpty || trimmedBookmark.isEmpty) return;
+    final next = Map<String, String>.from(macosDirectoryBookmarks);
+    next[normalized] = trimmedBookmark;
+    await _box.put(_keyMacosDirectoryBookmarks, jsonEncode(next));
+  }
+
+  @override
+  Future<void> removeMacosDirectoryBookmark(String path) async {
+    final normalized = _normalizeBookmarkPath(path);
+    if (normalized.isEmpty) return;
+    final next = Map<String, String>.from(macosDirectoryBookmarks);
+    if (next.remove(normalized) == null) return;
+    await _box.put(_keyMacosDirectoryBookmarks, jsonEncode(next));
+  }
+
+  static String _normalizeBookmarkPath(String path) {
+    var value = path.trim().replaceAll('\\', '/');
+    while (value.length > 1 && value.endsWith('/')) {
+      value = value.substring(0, value.length - 1);
+    }
+    return value;
+  }
 }
 
 final settingsStoreServiceProvider = Provider<SettingsStore>((ref) {
