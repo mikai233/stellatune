@@ -39,7 +39,9 @@ class TrayService with TrayListener {
       await trayManager.setIcon(iconPath);
     }
 
-    await trayManager.setToolTip('Stellatune');
+    if (Platform.isWindows || Platform.isMacOS) {
+      await trayManager.setToolTip('Stellatune');
+    }
 
     // Default English menu until setLocaleStrings is called
     await setLocaleStrings(restoreLabel: 'Restore', exitLabel: 'Exit');
