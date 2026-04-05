@@ -1,8 +1,16 @@
+import 'dart:io';
 import 'dart:convert';
 
 import 'package:stellatune/bridge/bridge.dart';
 
 class SettingsValueUtils {
+  static bool get supportsWasapiExclusive => Platform.isWindows;
+
+  static List<AudioBackend> availableLocalBackends() => [
+    AudioBackend.shared,
+    if (supportsWasapiExclusive) AudioBackend.wasapiExclusive,
+  ];
+
   static String sourceTypeKey(SourceCatalogTypeDescriptor t) =>
       '${t.pluginId}::${t.typeId}';
 

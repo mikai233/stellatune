@@ -180,6 +180,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsBackend => '音频后端';
 
   @override
+  String get settingsBackendSharedGeneric => '共享';
+
+  @override
   String get settingsBackendShared => '共享 (WASAPI Shared)';
 
   @override

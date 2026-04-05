@@ -78,6 +78,7 @@
   },
   "settingsOutputTitle": "Output Device",
   "settingsBackend": "Audio Backend",
+  "settingsBackendSharedGeneric": "Shared",
   "settingsBackendShared": "Shared (WASAPI Shared)",
   "settingsBackendWasapiExclusive": "Exclusive (WASAPI Exclusive)",
   "settingsDevice": "Device",

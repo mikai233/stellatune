@@ -428,6 +428,12 @@ abstract class AppLocalizations {
   /// **'Audio Backend'**
   String get settingsBackend;
 
+  /// No description provided for @settingsBackendSharedGeneric.
+  ///
+  /// In en, this message translates to:
+  /// **'Shared'**
+  String get settingsBackendSharedGeneric;
+
   /// No description provided for @settingsBackendShared.
   ///
   /// In en, this message translates to:

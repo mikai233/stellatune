@@ -250,6 +250,19 @@ extension _SettingsHelpers on SettingsPageState {
   AudioBackend? _parseLocalBackendKey(String? key) =>
       SettingsValueUtils.parseLocalBackendKey(key);
 
+  List<AudioBackend> _availableLocalBackends() =>
+      SettingsValueUtils.availableLocalBackends();
+
+  String _localBackendLabel(AppLocalizations l10n, AudioBackend backend) {
+    return switch (backend) {
+      AudioBackend.shared =>
+        Platform.isWindows
+            ? l10n.settingsBackendShared
+            : l10n.settingsBackendSharedGeneric,
+      AudioBackend.wasapiExclusive => l10n.settingsBackendWasapiExclusive,
+    };
+  }
+
   String? _parsePluginTypeKey(String? key) =>
       SettingsValueUtils.parsePluginTypeKey(key);
 
@@ -837,14 +850,11 @@ extension _SettingsBuildSections on SettingsPageState {
           ),
           initialValue: value,
           items: [
-            DropdownMenuItem(
-              value: _localBackendKey(AudioBackend.shared),
-              child: Text(l10n.settingsBackendShared),
-            ),
-            DropdownMenuItem(
-              value: _localBackendKey(AudioBackend.wasapiExclusive),
-              child: Text(l10n.settingsBackendWasapiExclusive),
-            ),
+            for (final backend in _availableLocalBackends())
+              DropdownMenuItem(
+                value: _localBackendKey(backend),
+                child: Text(_localBackendLabel(l10n, backend)),
+              ),
             for (final t in sinkTypes)
               DropdownMenuItem(
                 value: _pluginBackendKey(t.pluginId, t.typeId),
@@ -898,8 +908,7 @@ extension _SettingsBuildSections on SettingsPageState {
     required List<OutputSinkTypeDescriptor> sinkTypes,
   }) {
     final values = <String>{
-      _localBackendKey(AudioBackend.shared),
-      _localBackendKey(AudioBackend.wasapiExclusive),
+      ..._availableLocalBackends().map(_localBackendKey),
       ...sinkTypes.map((t) => _pluginBackendKey(t.pluginId, t.typeId)),
     };
     return values.contains(selected) ? selected : null;
@@ -1096,6 +1105,9 @@ extension _SettingsBuildSections on SettingsPageState {
   }
 
   Widget _buildWasapiExclusiveOptions(AppLocalizations l10n) {
+    if (!SettingsValueUtils.supportsWasapiExclusive) {
+      return const SizedBox.shrink();
+    }
     final settings = ref.watch(settingsStoreProvider);
     final backend = _parseLocalBackendKey(
       _selectedOutputBackendKey ?? _localBackendKey(settings.selectedBackend),

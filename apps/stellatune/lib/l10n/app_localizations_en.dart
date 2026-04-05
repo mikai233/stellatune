@@ -186,6 +186,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsBackend => 'Audio Backend';
 
   @override
+  String get settingsBackendSharedGeneric => 'Shared';
+
+  @override
   String get settingsBackendShared => 'Shared (WASAPI Shared)';
 
   @override
