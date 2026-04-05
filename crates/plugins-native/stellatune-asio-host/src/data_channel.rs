@@ -113,7 +113,7 @@ fn run_data_ingress(
     reset_completed: Arc<AtomicU64>,
     stop: Arc<AtomicBool>,
 ) {
-    let mut platform_state = DataIngressThreadPlatformState::default();
+    let mut platform_state = DataIngressThreadPlatformState;
     platform_state.on_thread_start();
 
     let mut len_bytes = [0_u8; 4];

@@ -118,11 +118,11 @@ impl ReaderPlatformState {
     pub(crate) fn wait_for_data_until(&self, deadline: Instant) -> Result<Option<bool>, String> {
         #[cfg(unix)]
         {
-            return self
+            self
                 .events
                 .as_ref()
                 .map(|events| events.wait_for_data_until(deadline))
-                .transpose();
+                .transpose()
         }
 
         #[cfg(not(unix))]
