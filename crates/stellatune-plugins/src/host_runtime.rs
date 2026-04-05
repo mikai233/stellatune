@@ -160,7 +160,12 @@ impl RuntimeDecoderPlugin {
 
 impl Drop for RuntimeDecoderPlugin {
     fn drop(&mut self) {
-        RUNTIME_DECODER_PLUGINS.with(|map| {
+        // Best-effort cleanup only: this handle is backed by a thread-local registry, and
+        // Drop may run while another TLS destructor is already in progress during thread
+        // shutdown. In that phase `with(...)` can panic with `AccessError`, so we must treat
+        // registry removal as optional. A more complete fix is to stop modeling ownership as
+        // "lightweight handle + TLS registry" and move plugin lifetime into an explicit owner.
+        let _ = RUNTIME_DECODER_PLUGINS.try_with(|map| {
             let mut map = map.borrow_mut();
             map.remove(&self.id);
         });
@@ -308,7 +313,10 @@ impl RuntimeEncoderPlugin {
 
 impl Drop for RuntimeEncoderPlugin {
     fn drop(&mut self) {
-        RUNTIME_ENCODER_PLUGINS.with(|map| {
+        // See RuntimeDecoderPlugin::drop: this is a stopgap for TLS destructor ordering during
+        // thread teardown. Long-term, these runtime plugin handles should not depend on another
+        // thread-local registry to release their real owned state.
+        let _ = RUNTIME_ENCODER_PLUGINS.try_with(|map| {
             let mut map = map.borrow_mut();
             map.remove(&self.id);
         });
@@ -511,7 +519,8 @@ impl RuntimeDspPlugin {
 
 impl Drop for RuntimeDspPlugin {
     fn drop(&mut self) {
-        RUNTIME_DSP_PLUGINS.with(|map| {
+        // See RuntimeDecoderPlugin::drop for why this must be best-effort during TLS teardown.
+        let _ = RUNTIME_DSP_PLUGINS.try_with(|map| {
             let mut map = map.borrow_mut();
             map.remove(&self.id);
         });
@@ -643,7 +652,8 @@ impl RuntimeOutputSinkPlugin {
 
 impl Drop for RuntimeOutputSinkPlugin {
     fn drop(&mut self) {
-        RUNTIME_OUTPUT_SINK_PLUGINS.with(|map| {
+        // See RuntimeDecoderPlugin::drop for why this must be best-effort during TLS teardown.
+        let _ = RUNTIME_OUTPUT_SINK_PLUGINS.try_with(|map| {
             let mut map = map.borrow_mut();
             map.remove(&self.id);
         });
