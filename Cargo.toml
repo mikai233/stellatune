@@ -28,6 +28,7 @@ members = [
   "crates/stellatune-plugins",
   "crates/stellatune-runtime",
   "crates/stellatune-audio",
+  "apps/stellatune-gui",
 ]
 
 [workspace.package]
