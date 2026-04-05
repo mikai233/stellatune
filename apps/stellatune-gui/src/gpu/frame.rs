@@ -45,7 +45,8 @@ impl OffscreenTarget {
 pub struct FrameTargets {
     effect: OffscreenTarget,
     media: OffscreenTarget,
-    vector: OffscreenTarget,
+    source_vector: OffscreenTarget,
+    destination_vector: OffscreenTarget,
 }
 
 impl FrameTargets {
@@ -62,16 +63,23 @@ impl FrameTargets {
             size,
             wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
         );
-        let vector = OffscreenTarget::new(
+        let source_vector = OffscreenTarget::new(
             device,
-            "stellatune-gui-vector-target",
+            "stellatune-gui-source-vector-target",
+            size,
+            wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::STORAGE_BINDING,
+        );
+        let destination_vector = OffscreenTarget::new(
+            device,
+            "stellatune-gui-destination-vector-target",
             size,
             wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::STORAGE_BINDING,
         );
         Self {
             effect,
             media,
-            vector,
+            source_vector,
+            destination_vector,
         }
     }
 
@@ -83,8 +91,12 @@ impl FrameTargets {
         self.effect.view()
     }
 
-    pub fn vector_view(&self) -> &wgpu::TextureView {
-        self.vector.view()
+    pub fn source_vector_view(&self) -> &wgpu::TextureView {
+        self.source_vector.view()
+    }
+
+    pub fn destination_vector_view(&self) -> &wgpu::TextureView {
+        self.destination_vector.view()
     }
 
     pub fn media_view(&self) -> &wgpu::TextureView {

@@ -20,6 +20,7 @@ pub fn draw_simple_line(
     font_size: f32,
     origin: (f32, f32),
     color: Color,
+    transform: Affine,
 ) -> Option<TextLayoutMetrics> {
     let font_data = font.font_data();
     let font_ref = skrifa::FontRef::from_index(font_data.data.as_ref(), font_data.index).ok()?;
@@ -52,7 +53,8 @@ pub fn draw_simple_line(
         .draw_glyphs(font_data)
         .font_size(font_size)
         .transform(
-            Affine::translate((origin.0 as f64, (origin.1 + metrics.ascent) as f64))
+            transform
+                * Affine::translate((origin.0 as f64, (origin.1 + metrics.ascent) as f64))
                 * Affine::scale_non_uniform(1.0, -1.0),
         )
         .brush(color)

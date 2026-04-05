@@ -1,22 +1,41 @@
 use anyhow::Result;
+use bytemuck::{Pod, Zeroable};
 
 use crate::app::{FrameState, RenderFrameError};
 use crate::gpu::context::GpuContext;
 use crate::gpu::frame::FrameTargets;
+use crate::page_transition::ResolvedPageTransition;
 use crate::render::effects::EffectsRenderer;
 use crate::render::layers::FrameLayers;
 use crate::render::media::MediaRenderer;
 use crate::render::vello_renderer::VelloRenderer;
 use crate::resources::textures::TextureResource;
 use crate::scene::DemoSceneFrame;
+use crate::ui::node::UiLayer;
 
 const COMPOSITE_SHADER: &str = include_str!("shaders/composite.wgsl");
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Pod, Zeroable)]
+struct CompositeSettings {
+    source_opacity: f32,
+    destination_opacity: f32,
+    source_translate_x: f32,
+    source_translate_y: f32,
+    source_scale: f32,
+    destination_translate_x: f32,
+    destination_translate_y: f32,
+    destination_scale: f32,
+    media_on_top: f32,
+    _padding: [f32; 3],
+}
 
 #[derive(Debug)]
 struct CompositeRenderer {
     pipeline: wgpu::RenderPipeline,
     bind_group_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
+    settings_buffer: wgpu::Buffer,
 }
 
 impl CompositeRenderer {
@@ -65,6 +84,31 @@ impl CompositeRenderer {
                     },
                     count: None,
                 },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 4,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 5,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: Some(
+                            std::num::NonZeroU64::new(
+                                std::mem::size_of::<CompositeSettings>() as u64
+                            )
+                            .expect("composite settings should have a non-zero size"),
+                        ),
+                    },
+                    count: None,
+                },
             ],
         });
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -73,6 +117,12 @@ impl CompositeRenderer {
             min_filter: wgpu::FilterMode::Linear,
             mipmap_filter: wgpu::MipmapFilterMode::Nearest,
             ..Default::default()
+        });
+        let settings_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("stellatune-gui-composite-settings-buffer"),
+            size: std::mem::size_of::<CompositeSettings>() as u64,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::UNIFORM,
+            mapped_at_creation: false,
         });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("stellatune-gui-composite-pipeline-layout"),
@@ -110,18 +160,40 @@ impl CompositeRenderer {
             pipeline,
             bind_group_layout,
             sampler,
+            settings_buffer,
         }
     }
 
     fn render(
         &self,
         device: &wgpu::Device,
+        queue: &wgpu::Queue,
         encoder: &mut wgpu::CommandEncoder,
         surface_view: &wgpu::TextureView,
         effect_view: &wgpu::TextureView,
         media_view: &wgpu::TextureView,
-        vector_view: &wgpu::TextureView,
+        source_vector_view: &wgpu::TextureView,
+        destination_vector_view: &wgpu::TextureView,
+        page_transition: ResolvedPageTransition,
     ) {
+        let settings = CompositeSettings {
+            source_opacity: page_transition.source.opacity,
+            destination_opacity: page_transition.destination.opacity,
+            source_translate_x: page_transition.source.translation_uv[0],
+            source_translate_y: page_transition.source.translation_uv[1],
+            source_scale: page_transition.source.scale,
+            destination_translate_x: page_transition.destination.translation_uv[0],
+            destination_translate_y: page_transition.destination.translation_uv[1],
+            destination_scale: page_transition.destination.scale,
+            media_on_top: if page_transition.media_on_top {
+                1.0
+            } else {
+                0.0
+            },
+            _padding: [0.0; 3],
+        };
+        queue.write_buffer(&self.settings_buffer, 0, bytemuck::bytes_of(&settings));
+
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("stellatune-gui-composite-bind-group"),
             layout: &self.bind_group_layout,
@@ -140,7 +212,15 @@ impl CompositeRenderer {
                 },
                 wgpu::BindGroupEntry {
                     binding: 3,
-                    resource: wgpu::BindingResource::TextureView(vector_view),
+                    resource: wgpu::BindingResource::TextureView(source_vector_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::TextureView(destination_vector_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: self.settings_buffer.as_entire_binding(),
                 },
             ],
         });
@@ -191,6 +271,7 @@ impl FrameComposer {
         scene_frame: DemoSceneFrame<'_>,
         cover_texture: &TextureResource,
         frame: &FrameState,
+        page_transition: ResolvedPageTransition,
     ) -> std::result::Result<(), RenderFrameError> {
         let surface_texture = gpu.surface.get_current_texture()?;
         let surface_view = surface_texture
@@ -199,7 +280,8 @@ impl FrameComposer {
         let layers = FrameLayers::new(
             targets.effect_view(),
             targets.media_view(),
-            targets.vector_view(),
+            targets.source_vector_view(),
+            targets.destination_vector_view(),
         );
 
         {
@@ -238,8 +320,16 @@ impl FrameComposer {
         self.vello.render(
             &gpu.device,
             &gpu.queue,
-            scene_frame.scene,
-            layers.view(crate::render::layers::OffscreenLayer::VectorUi),
+            scene_frame.source_scene,
+            layers.view(crate::render::layers::OffscreenLayer::SourceVectorUi),
+            gpu.surface_size(),
+        )?;
+
+        self.vello.render(
+            &gpu.device,
+            &gpu.queue,
+            scene_frame.destination_scene,
+            layers.view(crate::render::layers::OffscreenLayer::DestinationVectorUi),
             gpu.surface_size(),
         )?;
 
@@ -253,11 +343,18 @@ impl FrameComposer {
                 });
             self.composite.render(
                 &gpu.device,
+                &gpu.queue,
                 &mut encoder,
                 &surface_view,
                 composite_layers.background,
                 composite_layers.media,
-                composite_layers.foreground,
+                composite_layers.source_foreground,
+                composite_layers.destination_foreground,
+                ResolvedPageTransition {
+                    media_on_top: scene_frame.cover_layer == UiLayer::Overlay
+                        || page_transition.media_on_top,
+                    ..page_transition
+                },
             );
             gpu.queue.submit(Some(encoder.finish()));
         }

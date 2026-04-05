@@ -1,317 +1,347 @@
 mod text;
 
-use std::f64::consts::TAU;
-
 use vello::Scene;
-use vello::kurbo::{Affine, Circle, Rect, RoundedRect, Stroke};
+use vello::kurbo::{Affine, Rect, RoundedRect, Stroke};
 use vello::peniko::{Color, Fill};
 
 use crate::resources::fonts::FontResource;
 use crate::scene::text::draw_simple_line;
-use crate::view::home::HomeViewModel;
+use crate::ui::node::{NodeId, UiEffectHint, UiLayer, UiNode, UiNodeContent};
+use crate::ui::transition::{
+    ResolvedTransitionOverlayEntry, TransitionOverlayPhase, UiTransitionPlan,
+};
 
 #[derive(Clone, Copy)]
 pub struct DemoSceneFrame<'a> {
-    pub scene: &'a Scene,
+    pub source_scene: &'a Scene,
+    pub destination_scene: &'a Scene,
     pub cover_rect: Rect,
+    pub cover_layer: UiLayer,
 }
 
 #[derive(Default)]
 pub struct DemoScene {
-    scene: Scene,
+    source_scene: Scene,
+    destination_scene: Scene,
 }
 
 impl DemoScene {
     pub fn new() -> Self {
         Self {
-            scene: Scene::new(),
+            source_scene: Scene::new(),
+            destination_scene: Scene::new(),
         }
     }
 
     pub fn rebuild(
         &mut self,
-        view_model: &HomeViewModel,
+        source_root: Option<&UiNode>,
+        destination_root: &UiNode,
+        transition_plan: &UiTransitionPlan,
         ui_font: &FontResource,
     ) -> DemoSceneFrame<'_> {
-        self.scene.reset();
+        self.source_scene.reset();
+        self.destination_scene.reset();
 
-        let width = view_model.viewport.width.max(1) as f64;
-        let height = view_model.viewport.height.max(1) as f64;
-        let cover_rect = Rect::new(
-            view_model.cover.rect[0],
-            view_model.cover.rect[1],
-            view_model.cover.rect[2],
-            view_model.cover.rect[3],
+        if let Some(source_root) = source_root {
+            render_tree_into(
+                &mut self.source_scene,
+                source_root,
+                &UiTransitionPlan::default(),
+                ui_font,
+            );
+        }
+        render_tree_into(
+            &mut self.destination_scene,
+            destination_root,
+            transition_plan,
+            ui_font,
         );
 
-        self.draw_shell(width, height, view_model);
-        self.draw_cover(width, height, view_model, cover_rect);
-        self.draw_progress(width, height, view_model);
-        self.draw_header(width, height, view_model, ui_font);
-        self.draw_lyrics(width, height, view_model);
-        self.draw_diagnostics(width, height, view_model);
+        let (cover_rect, cover_layer) =
+            if let Some(overlay) = transition_plan.primary_shared_media_overlay() {
+                debug_assert!(
+                    transition_plan
+                        .shared_media_slot_for_overlay(overlay)
+                        .is_some(),
+                    "shared media overlay should resolve back to its source slot"
+                );
+                (overlay.rect(), UiLayer::Overlay)
+            } else {
+                transition_plan
+                    .primary_shared_media_slot()
+                    .map(|slot| (slot.rect(), slot.layer()))
+                    .unwrap_or((Rect::new(0.0, 0.0, 1.0, 1.0), UiLayer::Content))
+            };
 
         DemoSceneFrame {
-            scene: &self.scene,
+            source_scene: &self.source_scene,
+            destination_scene: &self.destination_scene,
             cover_rect,
+            cover_layer,
         }
     }
+}
 
-    fn draw_shell(&mut self, width: f64, height: f64, view_model: &HomeViewModel) {
-        let shell = RoundedRect::from_rect(
-            Rect::new(
-                view_model.shell.inset[0],
-                view_model.shell.inset[1],
-                width - view_model.shell.inset[2],
-                height - view_model.shell.inset[3],
-            ),
-            36.0,
-        );
-        self.scene.fill(
-            Fill::NonZero,
+fn render_tree_into(
+    scene: &mut Scene,
+    root: &UiNode,
+    transition_plan: &UiTransitionPlan,
+    ui_font: &FontResource,
+) {
+    for layer in [UiLayer::Background, UiLayer::Content, UiLayer::Overlay] {
+        render_layer(
+            scene,
+            root,
+            transition_plan,
+            ui_font,
+            layer,
             Affine::IDENTITY,
-            Color::from_rgba8(8, 14, 18, 214),
-            None,
-            &shell,
-        );
-        self.scene.stroke(
-            &Stroke::new(2.0),
-            Affine::IDENTITY,
-            Color::from_rgba8(255, 255, 255, 26),
-            None,
-            &shell,
+            1.0,
         );
     }
+    render_transition_overlays(scene, root, transition_plan, ui_font);
+}
 
-    fn draw_cover(
-        &mut self,
-        width: f64,
-        height: f64,
-        view_model: &HomeViewModel,
-        cover_rect: Rect,
-    ) {
-        let hero = RoundedRect::from_rect(cover_rect, 28.0);
-        self.scene.fill(
-            Fill::NonZero,
-            Affine::IDENTITY,
-            Color::from_rgba8(255, 255, 255, 20),
-            None,
-            &hero,
-        );
-        self.scene.stroke(
-            &Stroke::new(2.0),
-            Affine::IDENTITY,
-            Color::from_rgba8(255, 250, 244, 38),
-            None,
-            &hero,
-        );
+fn render_layer(
+    scene: &mut Scene,
+    node: &UiNode,
+    transition_plan: &UiTransitionPlan,
+    ui_font: &FontResource,
+    layer: UiLayer,
+    parent_transform: Affine,
+    parent_opacity: f32,
+) {
+    let transform = parent_transform * node.transform;
+    let opacity = parent_opacity * node.opacity;
 
-        let hero_center = (
-            (view_model.cover.rect[0] + view_model.cover.rect[2]) * 0.5,
-            (view_model.cover.rect[1] + view_model.cover.rect[3]) * 0.5,
-        );
-        let album_disc = Circle::new(
-            hero_center,
-            cover_rect.width().min(cover_rect.height()) * 0.32,
-        );
-        self.scene.fill(
-            Fill::NonZero,
-            Affine::IDENTITY,
-            Color::from_rgba8(16, 20, 24, 230),
-            None,
-            &album_disc,
-        );
-        self.scene.stroke(
-            &Stroke::new(10.0),
-            Affine::IDENTITY,
-            Color::from_rgba8(255, 244, 228, 50),
-            None,
-            &album_disc,
-        );
+    if node.layer == layer && !transition_plan.is_promoted_node(node.id) {
+        render_node(scene, node, ui_font, transform, opacity);
+    }
 
-        for index in 0..view_model.cover.orbit_count {
-            let angle = view_model.cover.orbit_phase + (index as f64 * (TAU / 3.0));
-            let orbit = Circle::new(
-                (
-                    hero_center.0 + angle.cos() * width * 0.05,
-                    hero_center.1 + angle.sin() * height * 0.04,
-                ),
-                9.0 + index as f64 * 3.0,
-            );
-            self.scene.fill(
-                Fill::NonZero,
+    for child in &node.children {
+        render_layer(
+            scene,
+            child,
+            transition_plan,
+            ui_font,
+            layer,
+            transform,
+            opacity,
+        );
+    }
+}
+
+fn render_transition_overlays(
+    scene: &mut Scene,
+    root: &UiNode,
+    transition_plan: &UiTransitionPlan,
+    ui_font: &FontResource,
+) {
+    for overlay in transition_plan.promoted_node_overlays() {
+        debug_assert!(
+            render_promoted_node(
+                scene,
+                root,
+                overlay.source_id(),
+                ui_font,
                 Affine::IDENTITY,
-                Color::from_rgba8(255, 235, 206, 168),
-                None,
-                &orbit,
-            );
+                1.0
+            ),
+            "promoted overlay should resolve back to a source node"
+        );
+        render_overlay_decoration(scene, overlay);
+    }
+}
+
+fn render_overlay_decoration(scene: &mut Scene, overlay: &ResolvedTransitionOverlayEntry) {
+    let stroke_width = 1.0 + overlay.progress() as f64 * 1.2;
+    let stroke_color = match overlay.phase() {
+        TransitionOverlayPhase::Promoting => Color::from_rgba8(255, 248, 239, 120),
+        TransitionOverlayPhase::Settling => Color::from_rgba8(246, 196, 72, 82),
+    };
+    let glow_color = match overlay.phase() {
+        TransitionOverlayPhase::Promoting => Color::from_rgba8(255, 245, 232, 34),
+        TransitionOverlayPhase::Settling => Color::from_rgba8(246, 196, 72, 22),
+    };
+    let glow = RoundedRect::from_rect(overlay.rect().inset(10.0), 999.0);
+    let outline = RoundedRect::from_rect(overlay.rect(), 999.0);
+    scene.fill(Fill::NonZero, Affine::IDENTITY, glow_color, None, &glow);
+    scene.stroke(
+        &Stroke::new(stroke_width),
+        Affine::IDENTITY,
+        stroke_color,
+        None,
+        &outline,
+    );
+}
+
+fn render_promoted_node(
+    scene: &mut Scene,
+    node: &UiNode,
+    target_id: NodeId,
+    ui_font: &FontResource,
+    parent_transform: Affine,
+    parent_opacity: f32,
+) -> bool {
+    let transform = parent_transform * node.transform;
+    let opacity = parent_opacity * node.opacity;
+
+    if node.id == target_id {
+        render_node(scene, node, ui_font, transform, opacity);
+        return true;
+    }
+
+    for child in &node.children {
+        if render_promoted_node(scene, child, target_id, ui_font, transform, opacity) {
+            return true;
         }
     }
 
-    fn draw_progress(&mut self, width: f64, height: f64, view_model: &HomeViewModel) {
-        let rail = RoundedRect::from_rect(
-            Rect::new(width * 0.56, height * 0.28, width * 0.88, height * 0.31),
-            999.0,
-        );
-        self.scene.fill(
-            Fill::NonZero,
-            Affine::IDENTITY,
-            Color::from_rgba8(255, 255, 255, 26),
-            None,
-            &rail,
-        );
+    false
+}
 
-        let progress_bar = RoundedRect::from_rect(
-            Rect::new(
-                width * 0.56,
-                height * 0.28,
-                width * (0.56 + 0.32 * view_model.progress.value),
-                height * 0.31,
-            ),
-            999.0,
-        );
-        self.scene.fill(
-            Fill::NonZero,
-            Affine::IDENTITY,
-            Color::from_rgba8(246, 196, 72, 255),
-            None,
-            &progress_bar,
-        );
+fn render_node(
+    scene: &mut Scene,
+    node: &UiNode,
+    ui_font: &FontResource,
+    transform: Affine,
+    opacity: f32,
+) {
+    debug_assert!(!node.id.0.is_empty());
+    match &node.content {
+        UiNodeContent::Group | UiNodeContent::MediaSlot { .. } => {},
+        UiNodeContent::RoundedRect { fill, stroke, .. } => {
+            let Some(shape) = node.as_rounded_rect() else {
+                return;
+            };
+            if let Some(fill) = fill {
+                scene.fill(
+                    Fill::NonZero,
+                    transform,
+                    fill.with_alpha(opacity),
+                    None,
+                    &shape,
+                );
+            }
+            if let Some(stroke) = stroke {
+                scene.stroke(
+                    &Stroke::new(stroke.width),
+                    transform,
+                    stroke.color.with_alpha(opacity),
+                    None,
+                    &shape,
+                );
+            }
+        },
+        UiNodeContent::Circle { fill, stroke, .. } => {
+            let Some(shape) = node.as_circle() else {
+                return;
+            };
+            if let Some(fill) = fill {
+                scene.fill(
+                    Fill::NonZero,
+                    transform,
+                    fill.with_alpha(opacity),
+                    None,
+                    &shape,
+                );
+            }
+            if let Some(stroke) = stroke {
+                scene.stroke(
+                    &Stroke::new(stroke.width),
+                    transform,
+                    stroke.color.with_alpha(opacity),
+                    None,
+                    &shape,
+                );
+            }
+        },
+        UiNodeContent::Text {
+            origin,
+            text,
+            font_size,
+            color,
+        } => {
+            let metrics = draw_simple_line(
+                scene,
+                ui_font,
+                text,
+                *font_size,
+                *origin,
+                color.with_alpha(opacity),
+                transform,
+            );
+            if let Some(metrics) = metrics {
+                render_text_effect(scene, node, *origin, metrics, transform, opacity);
+            }
+        },
     }
+}
 
-    fn draw_header(
-        &mut self,
-        width: f64,
-        height: f64,
-        view_model: &HomeViewModel,
-        ui_font: &FontResource,
-    ) {
-        let title_origin = (width as f32 * 0.56, height as f32 * 0.17);
-        let subtitle_origin = (width as f32 * 0.56, height as f32 * 0.22);
-        let caption_origin = (width as f32 * 0.56, height as f32 * 0.325);
-
-        let title_metrics = draw_simple_line(
-            &mut self.scene,
-            ui_font,
-            &view_model.header.title,
-            40.0,
-            title_origin,
-            Color::from_rgba8(255, 248, 239, 255),
-        );
-        let subtitle_metrics = draw_simple_line(
-            &mut self.scene,
-            ui_font,
-            &view_model.header.subtitle,
-            18.0,
-            subtitle_origin,
-            Color::from_rgba8(255, 248, 239, 160),
-        );
-        let caption_metrics = draw_simple_line(
-            &mut self.scene,
-            ui_font,
-            &view_model.header.caption,
-            14.0,
-            caption_origin,
-            Color::from_rgba8(246, 196, 72, 220),
-        );
-
-        if let Some(title_metrics) = title_metrics {
+fn render_text_effect(
+    scene: &mut Scene,
+    node: &UiNode,
+    origin: (f32, f32),
+    metrics: text::TextLayoutMetrics,
+    transform: Affine,
+    opacity: f32,
+) {
+    match node.effect_hint {
+        Some(UiEffectHint::Halo) => {
             let glow = RoundedRect::from_rect(
                 Rect::new(
-                    width * 0.56,
-                    height * 0.255,
-                    width * 0.56 + title_metrics.width as f64 * 0.42,
-                    height * 0.261,
+                    origin.0 as f64,
+                    origin.1 as f64 + metrics.height as f64 + 12.0,
+                    origin.0 as f64 + metrics.width as f64 * 0.42,
+                    origin.1 as f64 + metrics.height as f64 + 18.0,
                 ),
                 999.0,
             );
-            self.scene.fill(
+            scene.fill(
                 Fill::NonZero,
-                Affine::IDENTITY,
-                Color::from_rgba8(255, 248, 239, 34),
+                transform,
+                Color::from_rgba8(255, 248, 239, 34).with_alpha(opacity),
                 None,
                 &glow,
             );
-        }
-
-        if let Some(subtitle_metrics) = subtitle_metrics {
+        },
+        Some(UiEffectHint::Underline) => {
             let underline = RoundedRect::from_rect(
                 Rect::new(
-                    width * 0.56,
-                    height * 0.245 + subtitle_metrics.height as f64 * 0.2,
-                    width * 0.56 + subtitle_metrics.width as f64,
-                    height * 0.245 + subtitle_metrics.height as f64 * 0.28,
+                    origin.0 as f64,
+                    origin.1 as f64 + metrics.height as f64 + 6.0,
+                    origin.0 as f64 + metrics.width as f64 * 0.36,
+                    origin.1 as f64 + metrics.height as f64 + 10.0,
                 ),
                 999.0,
             );
-            self.scene.fill(
+            scene.fill(
                 Fill::NonZero,
-                Affine::IDENTITY,
-                Color::from_rgba8(255, 248, 239, 18),
+                transform,
+                Color::from_rgba8(246, 196, 72, 210).with_alpha(opacity),
                 None,
                 &underline,
             );
-        }
-
-        if let Some(caption_metrics) = caption_metrics {
-            let tag = RoundedRect::from_rect(
+        },
+        Some(UiEffectHint::OutlineTag) => {
+            let chip = RoundedRect::from_rect(
                 Rect::new(
-                    width * 0.56 - 14.0,
-                    height * 0.325 - 8.0,
-                    width * 0.56 + caption_metrics.width as f64 + 14.0,
-                    height * 0.325 + caption_metrics.height as f64 + 6.0,
+                    origin.0 as f64 - 12.0,
+                    origin.1 as f64 - metrics.height as f64 + 6.0,
+                    origin.0 as f64 + metrics.width as f64 + 12.0,
+                    origin.1 as f64 + 8.0,
                 ),
                 999.0,
             );
-            self.scene.stroke(
-                &Stroke::new(1.0),
-                Affine::IDENTITY,
-                Color::from_rgba8(246, 196, 72, 60),
+            scene.stroke(
+                &Stroke::new(1.2),
+                transform,
+                Color::from_rgba8(255, 255, 255, 36).with_alpha(opacity),
                 None,
-                &tag,
+                &chip,
             );
-        }
-    }
-
-    fn draw_lyrics(&mut self, width: f64, height: f64, view_model: &HomeViewModel) {
-        for (row, scale) in view_model.lyrics.line_scales.iter().enumerate() {
-            let y = height * (0.38 + row as f64 * 0.065);
-            let line = RoundedRect::from_rect(
-                Rect::new(
-                    width * 0.56,
-                    y,
-                    width * (0.56 + 0.32 * *scale),
-                    y + height * 0.022,
-                ),
-                12.0,
-            );
-            let alpha = 90u8.saturating_sub((row as u8) * 6);
-            self.scene.fill(
-                Fill::NonZero,
-                Affine::IDENTITY,
-                Color::from_rgba8(255, 248, 239, alpha),
-                None,
-                &line,
-            );
-        }
-    }
-
-    fn draw_diagnostics(&mut self, width: f64, height: f64, view_model: &HomeViewModel) {
-        let badge = RoundedRect::from_rect(
-            Rect::new(
-                width * 0.79,
-                height * 0.16,
-                width * (0.79 + 0.09 * view_model.diagnostics.fps_fill.max(0.35)),
-                height * 0.195,
-            ),
-            999.0,
-        );
-        self.scene.fill(
-            Fill::NonZero,
-            Affine::IDENTITY,
-            Color::from_rgba8(16, 210, 184, 220),
-            None,
-            &badge,
-        );
+        },
+        Some(UiEffectHint::PromoteSurface) | None => {},
     }
 }

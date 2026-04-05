@@ -2,33 +2,38 @@
 pub enum OffscreenLayer {
     Effects,
     Media,
-    VectorUi,
+    SourceVectorUi,
+    DestinationVectorUi,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub struct CompositeLayers<'a> {
     pub background: &'a wgpu::TextureView,
     pub media: &'a wgpu::TextureView,
-    pub foreground: &'a wgpu::TextureView,
+    pub source_foreground: &'a wgpu::TextureView,
+    pub destination_foreground: &'a wgpu::TextureView,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub struct FrameLayers<'a> {
     effect: &'a wgpu::TextureView,
     media: &'a wgpu::TextureView,
-    vector: &'a wgpu::TextureView,
+    source_vector: &'a wgpu::TextureView,
+    destination_vector: &'a wgpu::TextureView,
 }
 
 impl<'a> FrameLayers<'a> {
     pub fn new(
         effect: &'a wgpu::TextureView,
         media: &'a wgpu::TextureView,
-        vector: &'a wgpu::TextureView,
+        source_vector: &'a wgpu::TextureView,
+        destination_vector: &'a wgpu::TextureView,
     ) -> Self {
         Self {
             effect,
             media,
-            vector,
+            source_vector,
+            destination_vector,
         }
     }
 
@@ -36,7 +41,8 @@ impl<'a> FrameLayers<'a> {
         match layer {
             OffscreenLayer::Effects => self.effect,
             OffscreenLayer::Media => self.media,
-            OffscreenLayer::VectorUi => self.vector,
+            OffscreenLayer::SourceVectorUi => self.source_vector,
+            OffscreenLayer::DestinationVectorUi => self.destination_vector,
         }
     }
 
@@ -44,7 +50,8 @@ impl<'a> FrameLayers<'a> {
         CompositeLayers {
             background: self.view(OffscreenLayer::Effects),
             media: self.view(OffscreenLayer::Media),
-            foreground: self.view(OffscreenLayer::VectorUi),
+            source_foreground: self.view(OffscreenLayer::SourceVectorUi),
+            destination_foreground: self.view(OffscreenLayer::DestinationVectorUi),
         }
     }
 }
