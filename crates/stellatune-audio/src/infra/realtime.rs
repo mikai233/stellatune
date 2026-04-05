@@ -1,6 +1,9 @@
 #[cfg(windows)]
 use std::sync::OnceLock;
 
+#[cfg(target_os = "macos")]
+use libc::{pthread_set_qos_class_self_np, qos_class_t};
+
 #[cfg(windows)]
 use windows::Win32::System::Threading::{
     AVRT_PRIORITY_HIGH, AvRevertMmThreadCharacteristics, AvSetMmThreadCharacteristicsW,
@@ -30,7 +33,13 @@ pub(crate) fn enable_realtime_audio_thread() -> RealtimeThreadGuard {
             _mmcss: enable_mmcss_pro_audio(),
         }
     }
+    #[cfg(target_os = "macos")]
+    {
+        let _ = enable_macos_audio_qos();
+        RealtimeThreadGuard {}
+    }
     #[cfg(not(windows))]
+    #[cfg(not(target_os = "macos"))]
     {
         RealtimeThreadGuard {}
     }
@@ -92,4 +101,11 @@ fn disable_current_thread_power_throttling() {
             std::mem::size_of::<THREAD_POWER_THROTTLING_STATE>() as u32,
         )
     };
+}
+
+#[cfg(target_os = "macos")]
+fn enable_macos_audio_qos() -> Result<(), i32> {
+    let result =
+        unsafe { pthread_set_qos_class_self_np(qos_class_t::QOS_CLASS_USER_INTERACTIVE, 0) };
+    if result == 0 { Ok(()) } else { Err(result) }
 }

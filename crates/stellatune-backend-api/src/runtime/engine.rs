@@ -28,6 +28,7 @@ struct RuntimeEngineMetrics {
 }
 
 const OUTPUT_SINK_MONITOR_POLL_INTERVAL: Duration = Duration::from_millis(250);
+const OUTPUT_SINK_DROPPED_LOG_INTERVAL: Duration = Duration::from_millis(500);
 const OUTPUT_SINK_UNDERRUN_LOG_INTERVAL: Duration = Duration::from_secs(1);
 const OUTPUT_SINK_ACTIVITY_TIMEOUT: Duration = Duration::from_millis(1_500);
 const OUTPUT_SINK_RING_CAPACITY_MS: i64 = 40;
@@ -45,6 +46,8 @@ enum OutputSinkWatermarkState {
 struct OutputSinkMonitorState {
     watermark_state: OutputSinkWatermarkState,
     recovery_ready_streak: u8,
+    last_dropped_total: u64,
+    last_dropped_log_at: Instant,
     last_underrun_total: u64,
     last_underrun_log_at: Instant,
     last_written_samples: u64,
@@ -57,6 +60,8 @@ impl OutputSinkMonitorState {
         Self {
             watermark_state: OutputSinkWatermarkState::Unknown,
             recovery_ready_streak: 0,
+            last_dropped_total: 0,
+            last_dropped_log_at: now,
             last_underrun_total: 0,
             last_underrun_log_at: now,
             last_written_samples: 0,
@@ -205,8 +210,31 @@ fn monitor_output_sink_metrics(state: &mut OutputSinkMonitorState) {
 
     if now.duration_since(state.last_audio_activity_at) > OUTPUT_SINK_ACTIVITY_TIMEOUT {
         state.reset_watermark();
+        state.last_dropped_total = metrics.dropped_samples;
         state.last_underrun_total = metrics.underrun_callbacks;
         return;
+    }
+
+    if metrics.dropped_samples < state.last_dropped_total {
+        state.last_dropped_total = metrics.dropped_samples;
+    } else if metrics.dropped_samples > state.last_dropped_total
+        && now.duration_since(state.last_dropped_log_at) >= OUTPUT_SINK_DROPPED_LOG_INTERVAL
+    {
+        let delta = metrics
+            .dropped_samples
+            .saturating_sub(state.last_dropped_total);
+        state.last_dropped_total = metrics.dropped_samples;
+        state.last_dropped_log_at = now;
+        tracing::warn!(
+            total = metrics.dropped_samples,
+            delta,
+            written_samples = metrics.written_samples,
+            callback_requested_samples = metrics.callback_requested_samples,
+            callback_provided_samples = metrics.callback_provided_samples,
+            underrun_callbacks = metrics.underrun_callbacks,
+            callback_errors = metrics.callback_errors,
+            "output sink dropped samples observed"
+        );
     }
 
     if metrics.underrun_callbacks < state.last_underrun_total {
@@ -239,6 +267,10 @@ fn monitor_output_sink_metrics(state: &mut OutputSinkMonitorState) {
                     buffered_ms,
                     low_watermark_ms,
                     high_watermark_ms,
+                    written_samples = metrics.written_samples,
+                    dropped_samples = metrics.dropped_samples,
+                    callback_requested_samples = metrics.callback_requested_samples,
+                    callback_provided_samples = metrics.callback_provided_samples,
                     "output sink buffer entered low-watermark region"
                 );
             } else {
@@ -253,6 +285,10 @@ fn monitor_output_sink_metrics(state: &mut OutputSinkMonitorState) {
                     buffered_ms,
                     low_watermark_ms,
                     high_watermark_ms,
+                    written_samples = metrics.written_samples,
+                    dropped_samples = metrics.dropped_samples,
+                    callback_requested_samples = metrics.callback_requested_samples,
+                    callback_provided_samples = metrics.callback_provided_samples,
                     "output sink buffer low-watermark reached"
                 );
             }
@@ -267,6 +303,10 @@ fn monitor_output_sink_metrics(state: &mut OutputSinkMonitorState) {
                         buffered_ms,
                         low_watermark_ms,
                         high_watermark_ms,
+                        written_samples = metrics.written_samples,
+                        dropped_samples = metrics.dropped_samples,
+                        callback_requested_samples = metrics.callback_requested_samples,
+                        callback_provided_samples = metrics.callback_provided_samples,
                         "output sink buffer recovered above high-watermark"
                     );
                 }
