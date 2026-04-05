@@ -160,7 +160,7 @@ impl StreamState {
                 let queue_cb = Arc::clone(&queue);
                 let running_cb = Arc::clone(&running);
                 let metrics_cb = Arc::clone(&metrics);
-                let mut platform_state = OutputCallbackPlatformState;
+                let mut platform_state = OutputCallbackPlatformState::new();
                 dev.build_output_stream(
                     &cfg,
                     move |out: &mut [f32], _| {
@@ -177,7 +177,7 @@ impl StreamState {
                 let queue_cb = Arc::clone(&queue);
                 let running_cb = Arc::clone(&running);
                 let metrics_cb = Arc::clone(&metrics);
-                let mut platform_state = OutputCallbackPlatformState;
+                let mut platform_state = OutputCallbackPlatformState::new();
                 dev.build_output_stream(
                     &cfg,
                     move |out: &mut [i16], _| {
@@ -194,7 +194,7 @@ impl StreamState {
                 let queue_cb = Arc::clone(&queue);
                 let running_cb = Arc::clone(&running);
                 let metrics_cb = Arc::clone(&metrics);
-                let mut platform_state = OutputCallbackPlatformState;
+                let mut platform_state = OutputCallbackPlatformState::new();
                 dev.build_output_stream(
                     &cfg,
                     move |out: &mut [i32], _| {
@@ -211,7 +211,7 @@ impl StreamState {
                 let queue_cb = Arc::clone(&queue);
                 let running_cb = Arc::clone(&running);
                 let metrics_cb = Arc::clone(&metrics);
-                let mut platform_state = OutputCallbackPlatformState;
+                let mut platform_state = OutputCallbackPlatformState::new();
                 dev.build_output_stream(
                     &cfg,
                     move |out: &mut [u16], _| {

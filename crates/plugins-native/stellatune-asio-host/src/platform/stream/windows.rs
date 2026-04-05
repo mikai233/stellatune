@@ -15,6 +15,10 @@ pub(crate) struct OutputCallbackPlatformState {
 }
 
 impl OutputCallbackPlatformState {
+    pub(crate) fn new() -> Self {
+        Self::default()
+    }
+
     pub(crate) fn on_callback_start(&mut self, format_label: &str) {
         if self.attempted {
             return;

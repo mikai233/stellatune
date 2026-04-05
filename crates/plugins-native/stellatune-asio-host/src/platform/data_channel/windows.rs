@@ -101,6 +101,10 @@ pub(crate) struct DataIngressThreadPlatformState {
 }
 
 impl DataIngressThreadPlatformState {
+    pub(crate) fn new() -> Self {
+        Self::default()
+    }
+
     pub(crate) fn on_thread_start(&mut self) {
         if self.attempted {
             return;
