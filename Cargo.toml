@@ -62,7 +62,7 @@ stellatune-plugins = { package = "stellatune-plugins", path = "crates/stellatune
 stellatune-runtime = { path = "crates/stellatune-runtime" }
 
 anyhow = "1.0.102"
-arc-swap = "1.9.0"
+arc-swap = "1.9.1"
 async-trait = "0.1.89"
 audioadapter-buffers = "3.0.0"
 axum = "0.8.8"
