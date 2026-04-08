@@ -472,7 +472,7 @@ extension _SettingsRuntimeOps on SettingsPageState {
 
     FilePickerResult? picked;
     try {
-      picked = await FilePicker.platform.pickFiles(
+      picked = await FilePicker.pickFiles(
         dialogTitle: l10n.settingsInstallPluginPickFolder,
         type: FileType.custom,
         allowMultiple: false,

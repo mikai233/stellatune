@@ -1062,7 +1062,7 @@ class _TrackListState extends State<TrackList> {
 
     String? outputPath;
     try {
-      outputPath = await FilePicker.platform.saveFile(
+      outputPath = await FilePicker.saveFile(
         dialogTitle: l10n.transcodeSaveDialogTitle,
         fileName: _buildDefaultTranscodeFileName(track, encoder),
         lockParentWindow: true,

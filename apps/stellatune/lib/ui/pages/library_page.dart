@@ -155,7 +155,7 @@ class LibraryPageState extends ConsumerState<LibraryPage> {
 
   Future<void> _pickAndAddFolder(BuildContext context) async {
     final l10n = AppLocalizations.of(context)!;
-    final dir = await FilePicker.platform.getDirectoryPath(
+    final dir = await FilePicker.getDirectoryPath(
       dialogTitle: l10n.dialogSelectMusicFolder,
     );
     if (dir == null || dir.trim().isEmpty) return;
