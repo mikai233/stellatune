@@ -404,15 +404,13 @@ impl ApplicationHandler for StellatuneGuiApp {
                 app.resize(app.window().inner_size());
                 app.window().request_redraw();
             },
-            WindowEvent::CursorMoved { position, .. } => {
-                if app.update_hover_at(LayoutPoint::new(position.x as f32, position.y as f32)) {
-                    app.window().request_redraw();
-                }
+            WindowEvent::CursorMoved { position, .. }
+                if app.update_hover_at(LayoutPoint::new(position.x as f32, position.y as f32)) =>
+            {
+                app.window().request_redraw();
             },
-            WindowEvent::CursorLeft { .. } => {
-                if app.clear_hover() {
-                    app.window().request_redraw();
-                }
+            WindowEvent::CursorLeft { .. } if app.clear_hover() => {
+                app.window().request_redraw();
             },
             WindowEvent::MouseInput {
                 state,

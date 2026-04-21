@@ -69,7 +69,7 @@ fn cleanup_old_logs(log_dir: &Path) -> io::Result<()> {
         candidates.push(LogEntry { path, modified });
     }
 
-    candidates.sort_by(|left, right| right.modified.cmp(&left.modified));
+    candidates.sort_by_key(|entry| std::cmp::Reverse(entry.modified));
     for entry in candidates.into_iter().skip(MAX_LOG_FILES) {
         let _ = std::fs::remove_file(entry.path);
     }

@@ -744,20 +744,14 @@ fn apply_revision(rev: &symphonia::core::meta::MetadataRevision, out: &mut Extra
         if tag.std_key.is_none() {
             let key = tag.key.trim().to_ascii_lowercase();
             match key.as_str() {
-                "title" | "tracktitle" => {
-                    if out.title.is_none() {
-                        out.title = value_to_string(&tag.value);
-                    }
+                "title" | "tracktitle" if out.title.is_none() => {
+                    out.title = value_to_string(&tag.value);
                 },
-                "artist" => {
-                    if out.artist.is_none() {
-                        out.artist = value_to_string(&tag.value);
-                    }
+                "artist" if out.artist.is_none() => {
+                    out.artist = value_to_string(&tag.value);
                 },
-                "album" => {
-                    if out.album.is_none() {
-                        out.album = value_to_string(&tag.value);
-                    }
+                "album" if out.album.is_none() => {
+                    out.album = value_to_string(&tag.value);
                 },
                 _ => {},
             }

@@ -38,7 +38,7 @@ pub(crate) fn replay_persisted_stage_runtime_updates_to_runner(
     ctx: &mut PipelineContext,
 ) -> Result<(), DecodeError> {
     let mut entries = stage_runtime_updates.iter().collect::<Vec<_>>();
-    entries.sort_by(|(left, _), (right, _)| left.cmp(right));
+    entries.sort_by_key(|(target, _)| *target);
     for (target, update) in entries {
         match runner.apply_stage_runtime_update_to(target, Arc::clone(update), sink_session, ctx) {
             Ok(StageRuntimeUpdateDispatchResult::Applied) => {},
