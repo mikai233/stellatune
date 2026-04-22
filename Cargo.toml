@@ -137,8 +137,8 @@ tracing-subscriber = { version = "0.3.23", features = [
 url = "2.5.8"
 walkdir = "2.5.0"
 wasapi = "0.23.0"
-wasmtime = { version = "43.0.0", features = ["component-model", "cache"] }
-wasmtime-wasi = "43.0.0"
+wasmtime = { version = "44.0.0", features = ["component-model", "cache"] }
+wasmtime-wasi = "44.0.0"
 wat = "1.246.2"
 windows = { version = "0.62.2", features = [
   "Win32_System_Threading",
