@@ -12,7 +12,7 @@ tracing-subscriber.workspace = true
 bytemuck = { version = "1.25.0", features = ["derive"] }
 fontdb = "0.23.0"
 pollster = "0.4.0"
-skrifa = "0.42.0"
+skrifa = "0.42.1"
 vello = "0.8.0"
 wgpu = "28.0.0"
 winit = "0.30.13"
