@@ -47,7 +47,7 @@ dependencies:
   path: ^1.9.0
   path_provider: ^2.1.5
   animations: ^2.1.1
-  window_manager: ^0.5.1
+  window_manager: ^0.5.2
   palette_generator: ^0.3.3+7
   tray_manager: ^0.5.2
   url_launcher: ^6.3.2
