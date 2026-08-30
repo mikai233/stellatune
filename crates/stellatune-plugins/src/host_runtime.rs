@@ -476,7 +476,7 @@ impl RuntimeDspPlugin {
                     ),
                 ));
             }
-            for (idx, bytes) in output.chunks_exact(4).enumerate() {
+            for (idx, bytes) in output.as_chunks::<4>().0.iter().enumerate() {
                 samples[idx] = f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
             }
             Ok(())

@@ -1,13 +1,15 @@
 use std::io::{Read, Seek, SeekFrom};
 
 use stellatune_plugin_sdk::prelude::*;
-use symphonia::core::audio::{SampleBuffer, SignalSpec};
-use symphonia::core::codecs::{Decoder as SymphoniaDecoder, DecoderOptions};
+use symphonia::core::codecs::audio::{
+    AudioDecoder as SymphoniaDecoder, AudioDecoderOptions as DecoderOptions,
+};
+use symphonia::core::common::Limit;
 use symphonia::core::errors::Error as SymphoniaError;
-use symphonia::core::formats::{FormatOptions, FormatReader, SeekMode, SeekTo};
+use symphonia::core::formats::probe::Hint;
+use symphonia::core::formats::{FormatOptions, FormatReader, SeekMode, SeekTo, TrackType};
 use symphonia::core::io::{MediaSourceStream, MediaSourceStreamOptions};
-use symphonia::core::meta::{MetadataOptions, StandardTagKey, StandardVisualKey, Value};
-use symphonia::core::probe::Hint;
+use symphonia::core::meta::{MetadataOptions, StandardTag, StandardVisualKey};
 use symphonia::core::units::Time;
 
 use crate::flac_offset::find_flac_streaminfo_start;
@@ -26,7 +28,6 @@ struct SymphoniaBackend {
     in_channels: usize,
     sample_rate: u32,
     out_channels: u16,
-    sample_buf: Option<SampleBuffer<f32>>,
     pending: Vec<f32>,
     metadata: MediaMetadata,
     duration_ms: Option<u64>,
@@ -164,20 +165,25 @@ impl NcmWasmDecoderSession {
         let src = NcmMediaSource::new(ncm, start_offset, Some(len));
         let mss = MediaSourceStream::new(Box::new(src), MediaSourceStreamOptions::default());
 
-        let meta_opts = MetadataOptions {
-            limit_visual_bytes: symphonia::core::meta::Limit::Maximum(12 * 1024 * 1024),
-            ..Default::default()
-        };
-        let mut probed = symphonia::default::get_probe()
-            .format(&hint, mss, &FormatOptions::default(), &meta_opts)
+        let meta_opts =
+            MetadataOptions::default().limit_visual_bytes(Limit::Maximum(12 * 1024 * 1024));
+        let mut format = symphonia::default::get_probe()
+            .probe(&hint, mss, FormatOptions::default(), meta_opts)
             .map_err(|e| SdkError::internal(format!("symphonia probe failed: {e}")))?;
-
-        let mut format = probed.format;
         let track = format
-            .default_track()
+            .default_track(TrackType::Audio)
             .ok_or_else(|| SdkError::internal("missing audio track"))?;
         let track_id = track.id;
-        let params = track.codec_params.clone();
+        let params = track
+            .codec_params
+            .as_ref()
+            .and_then(|params| params.audio())
+            .cloned()
+            .ok_or_else(|| SdkError::internal("missing audio codec parameters"))?;
+        let time_base = track.time_base;
+        let num_frames = track.num_frames;
+        let encoder_delay_frames = track.delay.unwrap_or(0);
+        let encoder_padding_frames = track.padding.unwrap_or(0);
 
         let sample_rate = params
             .sample_rate
@@ -189,24 +195,20 @@ impl NcmWasmDecoderSession {
         let out_channels: u16 = if in_channels == 1 { 1 } else { 2 };
 
         let decoder = symphonia::default::get_codecs()
-            .make(&params, &DecoderOptions::default())
+            .make_audio_decoder(&params, &DecoderOptions::default())
             .map_err(|e| SdkError::internal(format!("decoder init failed: {e}")))?;
 
         let duration_ms = Some(info.duration).filter(|v| *v > 0).or_else(|| {
-            params.time_base.and_then(|tb| {
-                params.n_frames.map(|n| {
-                    let t = tb.calc_time(n);
-                    let ms = (t.seconds as f64 * 1000.0) + (t.frac * 1000.0);
-                    ms.round() as u64
+            time_base.and_then(|tb| {
+                num_frames.and_then(|n| {
+                    tb.calc_time(symphonia::core::units::Timestamp::new(
+                        n.min(i64::MAX as u64) as i64,
+                    ))
+                    .map(|time| (time.as_secs_f64() * 1000.0).round() as u64)
                 })
             })
         });
 
-        if let Some(mut m) = probed.metadata.get()
-            && let Some(rev) = m.skip_to_latest()
-        {
-            apply_revision(rev, &mut tags);
-        }
         {
             let mut m = format.metadata();
             if let Some(rev) = m.skip_to_latest() {
@@ -234,13 +236,12 @@ impl NcmWasmDecoderSession {
                 in_channels,
                 sample_rate,
                 out_channels,
-                sample_buf: None,
                 pending: Vec::new(),
                 metadata,
                 duration_ms,
                 seekable: true,
-                encoder_delay_frames: params.delay.unwrap_or(0),
-                encoder_padding_frames: params.padding.unwrap_or(0),
+                encoder_delay_frames,
+                encoder_padding_frames,
             },
         })
     }
@@ -251,9 +252,7 @@ impl SymphoniaBackend {
         if !self.seekable {
             return Err(SdkError::unsupported("seek not supported"));
         }
-        let secs = position_ms / 1000;
-        let frac = (position_ms % 1000) as f64 / 1000.0;
-        let time = Time::new(secs, frac);
+        let time = Time::from_millis_u64(position_ms);
         let _ = self
             .format
             .seek(
@@ -281,34 +280,21 @@ impl SymphoniaBackend {
 
         while self.pending.len() < want {
             match self.format.next_packet() {
-                Ok(packet) => {
-                    if packet.track_id() != self.track_id {
+                Ok(Some(packet)) => {
+                    if packet.track_id != self.track_id {
                         continue;
                     }
                     match self.decoder.decode(&packet) {
                         Ok(audio_buf) => {
-                            let spec =
-                                SignalSpec::new(audio_buf.spec().rate, audio_buf.spec().channels);
-                            let duration = audio_buf.capacity() as u64;
-
-                            let needs_realloc = match self.sample_buf.as_ref() {
-                                None => true,
-                                Some(buf) => buf.capacity() < audio_buf.capacity(),
-                            };
-                            if needs_realloc {
-                                self.sample_buf = Some(SampleBuffer::<f32>::new(duration, spec));
-                            }
-
-                            let sb = self.sample_buf.as_mut().expect("sample buffer initialized");
-                            sb.copy_interleaved_ref(audio_buf);
+                            let mut samples = vec![0.0f32; audio_buf.samples_interleaved()];
+                            audio_buf.copy_to_slice_interleaved(&mut samples);
 
                             let in_ch = self.in_channels.max(1);
                             let out_ch = self.out_channels.max(1) as usize;
-                            let samples = sb.samples();
                             let frames = samples.len() / in_ch;
 
                             if in_ch == out_ch {
-                                self.pending.extend_from_slice(samples);
+                                self.pending.extend_from_slice(&samples);
                             } else if out_ch == 1 {
                                 for i in 0..frames {
                                     let l = samples[i * in_ch];
@@ -340,6 +326,7 @@ impl SymphoniaBackend {
                         Err(e) => return Err(SdkError::internal(format!("decode failed: {e}"))),
                     }
                 },
+                Ok(None) => break,
                 Err(SymphoniaError::IoError(e))
                     if e.kind() == std::io::ErrorKind::UnexpectedEof =>
                 {
@@ -361,30 +348,43 @@ impl SymphoniaBackend {
 }
 
 fn apply_revision(rev: &symphonia::core::meta::MetadataRevision, tags: &mut Tags) {
-    for tag in rev.tags() {
-        if tags.title.is_none() && matches!(tag.std_key, Some(StandardTagKey::TrackTitle)) {
-            tags.title = value_to_string(&tag.value);
-            continue;
-        }
-        if tags.album.is_none() && matches!(tag.std_key, Some(StandardTagKey::Album)) {
-            tags.album = value_to_string(&tag.value);
-            continue;
-        }
-        if tags.artists.is_empty()
-            && matches!(tag.std_key, Some(StandardTagKey::Artist))
-            && let Some(artist) = value_to_string(&tag.value)
-        {
-            tags.artists.push(artist);
-            continue;
+    for tag in rev.media.tags.iter().chain(
+        rev.per_track
+            .iter()
+            .flat_map(|track| track.metadata.tags.iter()),
+    ) {
+        match tag.std.as_ref() {
+            Some(StandardTag::TrackTitle(value)) if tags.title.is_none() => {
+                tags.title = normalize_tag_text(value.as_str());
+            },
+            Some(StandardTag::Album(value)) if tags.album.is_none() => {
+                tags.album = normalize_tag_text(value.as_str());
+            },
+            Some(StandardTag::Artist(value)) if tags.artists.is_empty() => {
+                if let Some(artist) = normalize_tag_text(value.as_str()) {
+                    tags.artists.push(artist);
+                }
+            },
+            _ => {},
         }
     }
 
     if tags.cover.is_none() {
-        let front = rev
-            .visuals()
+        let visuals = rev
+            .media
+            .visuals
             .iter()
+            .chain(
+                rev.per_track
+                    .iter()
+                    .flat_map(|track| track.metadata.visuals.iter()),
+            )
+            .collect::<Vec<_>>();
+        let front = visuals
+            .iter()
+            .copied()
             .find(|v| v.usage == Some(StandardVisualKey::FrontCover));
-        let any = rev.visuals().first();
+        let any = visuals.first().copied();
         let chosen = front.or(any);
         if let Some(bytes) = chosen.and_then(|v| (!v.data.is_empty()).then(|| v.data.to_vec())) {
             tags.cover = Some(bytes);
@@ -392,12 +392,8 @@ fn apply_revision(rev: &symphonia::core::meta::MetadataRevision, tags: &mut Tags
     }
 }
 
-fn value_to_string(v: &Value) -> Option<String> {
-    let s = match v {
-        Value::String(s) => s.clone(),
-        _ => v.to_string(),
-    };
-    let s = s.trim().to_string();
+fn normalize_tag_text(value: &str) -> Option<String> {
+    let s = value.trim().to_string();
     if s.is_empty() { None } else { Some(s) }
 }
 

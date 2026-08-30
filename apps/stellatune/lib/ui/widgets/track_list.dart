@@ -2,9 +2,10 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:file_picker/file_picker.dart';
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:path/path.dart' as p;
 import 'package:stellatune/bridge/bridge.dart';
 import 'package:stellatune/l10n/app_localizations.dart';
@@ -368,10 +369,7 @@ class _TrackListState extends State<TrackList> {
               buildDefaultDragHandles: false,
               itemCount: reorderItems.length,
               itemExtent: _itemExtent,
-              onReorder: (oldIndex, newIndex) async {
-                if (newIndex > oldIndex) {
-                  newIndex -= 1;
-                }
+              onReorderItem: (oldIndex, newIndex) async {
                 if (oldIndex == newIndex) return;
                 final next = List<TrackLite>.from(reorderItems);
                 final moved = next.removeAt(oldIndex);
@@ -415,7 +413,9 @@ class _TrackListState extends State<TrackList> {
               controller: _controller,
               // Smaller cache while scrubbing a long list keeps rebuild work low; once settled, allow
               // more cache for normal wheel/trackpad scrolling.
-              cacheExtent: _deferHeavy ? 200 : 800,
+              scrollCacheExtent: ScrollCacheExtent.pixels(
+                _deferHeavy ? 200 : 800,
+              ),
               slivers: [
                 SliverFixedExtentList(
                   itemExtent: _itemExtent,
@@ -1062,11 +1062,10 @@ class _TrackListState extends State<TrackList> {
 
     String? outputPath;
     try {
-      outputPath = await FilePicker.saveFile(
-        dialogTitle: l10n.transcodeSaveDialogTitle,
-        fileName: _buildDefaultTranscodeFileName(track, encoder),
-        lockParentWindow: true,
+      final location = await getSaveLocation(
+        suggestedName: _buildDefaultTranscodeFileName(track, encoder),
       );
+      outputPath = location?.path;
     } catch (error) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

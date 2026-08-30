@@ -61,48 +61,48 @@ stellatune-plugin-sdk = { package = "stellatune-plugin-sdk", path = "crates/stel
 stellatune-plugins = { package = "stellatune-plugins", path = "crates/stellatune-plugins" }
 stellatune-runtime = { path = "crates/stellatune-runtime" }
 
-anyhow = "1.0.102"
-arc-swap = "1.9.1"
-async-trait = "0.1.89"
-audioadapter-buffers = "3.0.0"
-axum = "0.8.8"
-base64 = "0.22.1"
-clap = { version = "4.6.0", features = ["derive"] }
-cpal = "0.17.3"
-crossbeam-channel = "0.5.15"
+anyhow = "1.0.104"
+arc-swap = "1.9.2"
+async-trait = "0.1.92"
+audioadapter-buffers = "5.2.0"
+axum = "0.8.9"
+base64 = "0.23.1"
+clap = { version = "4.6.6", features = ["derive"] }
+cpal = "0.18.2"
+crossbeam-channel = "0.5.16"
 crossterm = "0.29.0"
 directories = "6.0.0"
-flate2 = "1.1.9"
-flutter_rust_bridge = "=2.12.0"
-futures-util = "0.3.32"
+flate2 = "1.1.10"
+flutter_rust_bridge = "=2.13.0"
+futures-util = "0.3.34"
 get_if_addrs = "0.5.3"
-libc = "0.2.184"
-local-ip-address = "0.6.11"
-m3u8-rs = "6.0.0"
-memmap2 = "0.9.10"
+libc = "0.2.189"
+local-ip-address = "0.6.13"
+m3u8-rs = "6.0.1"
+memmap2 = "0.9.11"
 mime_guess = "2.0.5"
 ncmdump = "0.8.0"
 notify = "8.2.0"
 parking_lot = "0.12.5"
 postcard = { version = "1.1.3", default-features = false }
-rand = "0.10.0"
-ratatui = "0.30.0"
-rawzip = "0.4.4"
-reqwest = { version = "0.12.28", default-features = false }
-ringbuf = "0.4.8"
+rand = "0.10.2"
+ratatui = "0.30.2"
+rawzip = "0.5.1"
+reqwest = { version = "0.13.4", default-features = false }
+ringbuf = "0.5.1"
 roxmltree = "0.21.1"
-rubato = "2.0.0"
+rubato = "5.0.0"
 serde = { version = "1", features = ["derive"] }
-serde_json = "1.0.149"
-skia-safe = "0.93.1"
-socket2 = "0.6.3"
-sqlx = { version = "0.8.6", default-features = false, features = [
+serde_json = "1.0.151"
+skia-safe = "0.99.0"
+socket2 = "0.6.5"
+sqlx = { version = "0.9.0", default-features = false, features = [
   "runtime-tokio",
   "sqlite",
   "migrate",
   "macros",
 ] }
-symphonia = { version = "0.5.5", default-features = false, features = [
+symphonia = { version = "0.6.1", default-features = false, features = [
   "aac",
   "alac",
   "mp1",
@@ -120,28 +120,28 @@ symphonia = { version = "0.5.5", default-features = false, features = [
   "opt-simd",
 ] }
 tempfile = "3.27.0"
-thiserror = "2.0.18"
-tokio = { version = "1.52.1", features = [
+thiserror = "2.0.20"
+tokio = { version = "1.53.1", features = [
   "rt-multi-thread",
   "macros",
   "sync",
   "time",
 ] }
-tokio-util = "0.7.18"
+tokio-util = "0.7.19"
 tracing = "0.1.44"
-tracing-appender = "0.2.4"
+tracing-appender = "0.2.5"
 tracing-subscriber = { version = "0.3.23", features = [
   "env-filter",
   "local-time",
 ] }
 url = "2.5.8"
 walkdir = "2.5.0"
-wasapi = "0.23.0"
-wasmtime = { version = "44.0.0", features = ["component-model", "cache"] }
-wasmtime-wasi = "44.0.0"
-wat = "1.246.2"
+wasapi = "0.24.0"
+wasmtime = { version = "48.0.1", features = ["component-model", "cache"] }
+wasmtime-wasi = "48.0.1"
+wat = "1.258.0"
 windows = { version = "0.62.2", features = [
   "Win32_System_Threading",
   "Win32_Foundation",
 ] }
-wit-bindgen = "0.55.0"
+wit-bindgen = "0.61.1"

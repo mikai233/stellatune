@@ -1,6 +1,6 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // coverage:ignore-file
-// ignore_for_file: type=lint
+// ignore_for_file: type=lint, type=warning, deprecated_member_use, deprecated_member_use_from_same_package
 // ignore_for_file: unused_element, deprecated_member_use, deprecated_member_use_from_same_package, use_function_type_syntax_for_parameters, unnecessary_const, avoid_init_to_null, invalid_override_different_default_values_named, prefer_expression_function_bodies, annotate_overrides, invalid_annotation_target, unnecessary_question_mark
 
 part of 'stellatune_library.dart';
@@ -9,6 +9,7 @@ part of 'stellatune_library.dart';
 // FreezedGenerator
 // **************************************************************************
 
+// GENERATED CODE - DO NOT MODIFY BY HAND
 // dart format off
 T _$identity<T>(T value) => value;
 /// @nodoc
@@ -20,7 +21,7 @@ mixin _$LibraryEvent {
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is LibraryEvent);
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is LibraryEvent);
 }
 
 
@@ -29,7 +30,7 @@ int get hashCode => runtimeType.hashCode;
 
 @override
 String toString() {
-  return 'LibraryEvent()';
+    return 'LibraryEvent()';
 }
 
 
@@ -203,7 +204,7 @@ class LibraryEvent_Changed extends LibraryEvent {
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is LibraryEvent_Changed);
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is LibraryEvent_Changed);
 }
 
 
@@ -212,7 +213,7 @@ int get hashCode => runtimeType.hashCode;
 
 @override
 String toString() {
-  return 'LibraryEvent.changed()';
+    return 'LibraryEvent.changed()';
 }
 
 
@@ -243,16 +244,18 @@ $LibraryEvent_ScanProgressCopyWith<LibraryEvent_ScanProgress> get copyWith => _$
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is LibraryEvent_ScanProgress&&(identical(other.scanned, scanned) || other.scanned == scanned)&&(identical(other.updated, updated) || other.updated == updated)&&(identical(other.skipped, skipped) || other.skipped == skipped)&&(identical(other.errors, errors) || other.errors == errors));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is LibraryEvent_ScanProgress&&(identical(other.scanned, scanned) || other.scanned == scanned)&&(identical(other.updated, updated) || other.updated == updated)&&(identical(other.skipped, skipped) || other.skipped == skipped)&&(identical(other.errors, errors) || other.errors == errors));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,scanned,updated,skipped,errors);
+int get hashCode {
+    return Object.hash(runtimeType,scanned,updated,skipped,errors);
+}
 
 @override
 String toString() {
-  return 'LibraryEvent.scanProgress(scanned: $scanned, updated: $updated, skipped: $skipped, errors: $errors)';
+    return 'LibraryEvent.scanProgress(scanned: $scanned, updated: $updated, skipped: $skipped, errors: $errors)';
 }
 
 
@@ -316,16 +319,18 @@ $LibraryEvent_ScanFinishedCopyWith<LibraryEvent_ScanFinished> get copyWith => _$
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is LibraryEvent_ScanFinished&&(identical(other.durationMs, durationMs) || other.durationMs == durationMs)&&(identical(other.scanned, scanned) || other.scanned == scanned)&&(identical(other.updated, updated) || other.updated == updated)&&(identical(other.skipped, skipped) || other.skipped == skipped)&&(identical(other.errors, errors) || other.errors == errors));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is LibraryEvent_ScanFinished&&(identical(other.durationMs, durationMs) || other.durationMs == durationMs)&&(identical(other.scanned, scanned) || other.scanned == scanned)&&(identical(other.updated, updated) || other.updated == updated)&&(identical(other.skipped, skipped) || other.skipped == skipped)&&(identical(other.errors, errors) || other.errors == errors));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,durationMs,scanned,updated,skipped,errors);
+int get hashCode {
+    return Object.hash(runtimeType,durationMs,scanned,updated,skipped,errors);
+}
 
 @override
 String toString() {
-  return 'LibraryEvent.scanFinished(durationMs: $durationMs, scanned: $scanned, updated: $updated, skipped: $skipped, errors: $errors)';
+    return 'LibraryEvent.scanFinished(durationMs: $durationMs, scanned: $scanned, updated: $updated, skipped: $skipped, errors: $errors)';
 }
 
 
@@ -386,16 +391,18 @@ $LibraryEvent_ErrorCopyWith<LibraryEvent_Error> get copyWith => _$LibraryEvent_E
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is LibraryEvent_Error&&(identical(other.message, message) || other.message == message));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is LibraryEvent_Error&&(identical(other.message, message) || other.message == message));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,message);
+int get hashCode {
+    return Object.hash(runtimeType,message);
+}
 
 @override
 String toString() {
-  return 'LibraryEvent.error(message: $message)';
+    return 'LibraryEvent.error(message: $message)';
 }
 
 
@@ -452,16 +459,18 @@ $LibraryEvent_LogCopyWith<LibraryEvent_Log> get copyWith => _$LibraryEvent_LogCo
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is LibraryEvent_Log&&(identical(other.message, message) || other.message == message));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is LibraryEvent_Log&&(identical(other.message, message) || other.message == message));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,message);
+int get hashCode {
+    return Object.hash(runtimeType,message);
+}
 
 @override
 String toString() {
-  return 'LibraryEvent.log(message: $message)';
+    return 'LibraryEvent.log(message: $message)';
 }
 
 

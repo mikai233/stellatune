@@ -19,7 +19,8 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 version: 1.0.0+1
 
 environment:
-  sdk: ^3.10.8
+  sdk: ">=3.13.2 <4.0.0"
+  flutter: ">=3.47.2 <4.0.0"
 
 # Dependencies specify other packages that your package needs in order to work.
 # To automatically upgrade your package dependencies to the latest versions
@@ -36,9 +37,10 @@ dependencies:
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.9
-  flutter_rust_bridge: 2.12.0
+  flutter_rust_bridge: 2.13.0
   freezed_annotation: ^3.1.0
-  file_picker: ^11.0.2
+  file_picker: ^12.1.2
+  file_selector: ^1.1.0
   flutter_riverpod: ^3.3.1
   hive: ^2.2.3
   hive_flutter: ^1.1.0
@@ -46,7 +48,7 @@ dependencies:
   logger: ^2.7.0
   path: ^1.9.0
   path_provider: ^2.1.5
-  animations: ^2.1.1
+  animations: ^3.0.0
   window_manager: ^0.5.1
   palette_generator: ^0.3.3+7
   tray_manager: ^0.5.2
@@ -62,7 +64,7 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   build_runner: ^2.14.1
-  freezed: ^3.2.5
+  freezed: ^4.0.1
   flutter_lints: ^6.0.0
   icons_launcher: ^3.1.0
 

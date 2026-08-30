@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:stellatune/bridge/bridge.dart';
 import 'package:stellatune/l10n/app_localizations.dart';
 import 'package:stellatune/player/queue_models.dart';
@@ -278,7 +279,9 @@ class _PluginPlaylistTracksPaneState extends State<PluginPlaylistTracksPane> {
                       child: ListView.builder(
                         controller: _scrollController,
                         itemExtent: _itemExtent,
-                        cacheExtent: _deferHeavy ? 180 : 760,
+                        scrollCacheExtent: ScrollCacheExtent.pixels(
+                          _deferHeavy ? 180 : 760,
+                        ),
                         itemCount: widget.tracks.length,
                         itemBuilder: (context, index) {
                           final item = widget.tracks[index];

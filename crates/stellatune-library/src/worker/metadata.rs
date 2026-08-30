@@ -6,11 +6,12 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result, anyhow};
 use base64::Engine;
 use serde_json::Value as JsonValue;
-use symphonia::core::formats::{FormatOptions, FormatReader, SeekMode, SeekTo};
+use symphonia::core::common::Limit;
+use symphonia::core::formats::probe::Hint;
+use symphonia::core::formats::{FormatOptions, FormatReader, SeekMode, SeekTo, TrackType};
 use symphonia::core::io::MediaSourceStream;
-use symphonia::core::meta::{Limit, MetadataOptions, StandardTagKey, StandardVisualKey, Value};
-use symphonia::core::probe::Hint;
-use symphonia::core::units::{Time, TimeBase};
+use symphonia::core::meta::{MetadataOptions, RawValue, StandardTag, StandardVisualKey};
+use symphonia::core::units::{Time, TimeBase, Timestamp};
 use symphonia::default::get_probe;
 use tracing::debug;
 
@@ -134,12 +135,9 @@ pub(super) fn extract_metadata(path: &Path) -> Result<ExtractedMetadata> {
     let mss = MediaSourceStream::new(Box::new(src), Default::default());
 
     // Allow reasonably-sized embedded artwork without blowing up memory usage.
-    let meta_opts = MetadataOptions {
-        limit_visual_bytes: Limit::Maximum(12 * 1024 * 1024),
-        ..Default::default()
-    };
+    let meta_opts = MetadataOptions::default().limit_visual_bytes(Limit::Maximum(12 * 1024 * 1024));
 
-    let mut probed = match get_probe().format(&hint, mss, &FormatOptions::default(), &meta_opts) {
+    let mut format = match get_probe().probe(&hint, mss, FormatOptions::default(), meta_opts) {
         Ok(p) => p,
         Err(e) => {
             let (file_size, head16) = {
@@ -168,34 +166,31 @@ pub(super) fn extract_metadata(path: &Path) -> Result<ExtractedMetadata> {
 
     let mut out = ExtractedMetadata::default();
 
-    // Metadata read during probing (e.g. ID3 before container instantiation).
-    if let Some(mut m) = probed.metadata.get()
-        && let Some(rev) = m.skip_to_latest()
+    // Metadata read during probing and from the container itself.
     {
-        apply_revision(rev, &mut out);
-    }
-
-    // Metadata read from the container itself.
-    {
-        let mut m = probed.format.metadata();
+        let mut m = format.metadata();
         if let Some(rev) = m.skip_to_latest() {
             apply_revision(rev, &mut out);
         }
     }
 
     // Duration estimate from codec params (fast, no decoding), with seek-based fallback.
-    if let Some(track) = probed.format.default_track() {
+    if let Some(track) = format.default_track(TrackType::Audio) {
         let track_id = track.id;
-        let time_base = track.codec_params.time_base;
-        let n_frames = track.codec_params.n_frames;
-        let sample_rate = track.codec_params.sample_rate.unwrap_or(0);
-        let encoder_delay_frames = track.codec_params.delay.unwrap_or(0);
-        let encoder_padding_frames = track.codec_params.padding.unwrap_or(0);
+        let time_base = track.time_base;
+        let n_frames = track.num_frames;
+        let sample_rate = track
+            .codec_params
+            .as_ref()
+            .and_then(|params| params.audio())
+            .and_then(|params| params.sample_rate)
+            .unwrap_or(0);
+        let encoder_delay_frames = track.delay.unwrap_or(0);
+        let encoder_padding_frames = track.padding.unwrap_or(0);
         out.duration_ms = duration_ms_from_track_params(time_base, n_frames);
         if out.duration_ms.is_none() {
             // TODO: Re-evaluate whether this seek-based duration fallback should be removed.
-            out.duration_ms =
-                estimate_duration_ms_by_seek(probed.format.as_mut(), track_id, time_base);
+            out.duration_ms = estimate_duration_ms_by_seek(format.as_mut(), track_id, time_base);
         }
         out.duration_ms = trim_duration_ms_i64(
             out.duration_ms,
@@ -317,13 +312,16 @@ fn duration_ms_from_track_params(
 ) -> Option<i64> {
     let tb = time_base?;
     let frames = n_frames?;
-    Some(duration_ms_from_time_base(tb, frames))
+    Some(duration_ms_from_time_base(
+        tb,
+        Timestamp::new(frames.min(i64::MAX as u64) as i64),
+    ))
 }
 
-fn duration_ms_from_time_base(tb: TimeBase, ts: u64) -> i64 {
-    let t = tb.calc_time(ts);
-    let ms = (t.seconds as f64 * 1000.0) + (t.frac * 1000.0);
-    ms.round() as i64
+fn duration_ms_from_time_base(tb: TimeBase, ts: Timestamp) -> i64 {
+    tb.calc_time(ts)
+        .map(|time| (time.as_secs_f64() * 1000.0).round() as i64)
+        .unwrap_or(i64::MAX)
 }
 
 fn gapless_trim_delta_ms(
@@ -377,7 +375,7 @@ fn estimate_duration_ms_by_seek(
         .seek(
             SeekMode::Coarse,
             SeekTo::Time {
-                time: Time::new(u64::MAX, 0.0),
+                time: Time::MAX,
                 track_id: Some(track_id),
             },
         )
@@ -716,42 +714,45 @@ fn read_cover_bytes(path: &Path) -> Option<Vec<u8>> {
     if size == 0 || size > COVER_BYTES_LIMIT {
         return None;
     }
-    std::fs::read(path).ok().and_then(|b| {
-        if b.is_empty() || (b.len() as u64) > COVER_BYTES_LIMIT {
-            None
-        } else {
-            Some(b)
-        }
-    })
+    std::fs::read(path)
+        .ok()
+        .filter(|bytes| !bytes.is_empty() && (bytes.len() as u64) <= COVER_BYTES_LIMIT)
 }
 
 fn apply_revision(rev: &symphonia::core::meta::MetadataRevision, out: &mut ExtractedMetadata) {
-    for tag in rev.tags() {
-        if out.title.is_none() && matches!(tag.std_key, Some(StandardTagKey::TrackTitle)) {
-            out.title = value_to_string(&tag.value);
-            continue;
-        }
-        if out.artist.is_none() && matches!(tag.std_key, Some(StandardTagKey::Artist)) {
-            out.artist = value_to_string(&tag.value);
-            continue;
-        }
-        if out.album.is_none() && matches!(tag.std_key, Some(StandardTagKey::Album)) {
-            out.album = value_to_string(&tag.value);
-            continue;
+    for tag in rev.media.tags.iter().chain(
+        rev.per_track
+            .iter()
+            .flat_map(|track| track.metadata.tags.iter()),
+    ) {
+        match tag.std.as_ref() {
+            Some(StandardTag::TrackTitle(value)) if out.title.is_none() => {
+                out.title = normalize_text_field(value.as_str());
+                continue;
+            },
+            Some(StandardTag::Artist(value)) if out.artist.is_none() => {
+                out.artist = normalize_text_field(value.as_str());
+                continue;
+            },
+            Some(StandardTag::Album(value)) if out.album.is_none() => {
+                out.album = normalize_text_field(value.as_str());
+                continue;
+            },
+            _ => {},
         }
 
-        // Fallback for readers that don't assign std_key.
-        if tag.std_key.is_none() {
-            let key = tag.key.trim().to_ascii_lowercase();
+        // Fallback for readers that don't assign a standard tag.
+        if tag.std.is_none() {
+            let key = tag.raw.key.trim().to_ascii_lowercase();
             match key.as_str() {
                 "title" | "tracktitle" if out.title.is_none() => {
-                    out.title = value_to_string(&tag.value);
+                    out.title = raw_value_to_string(&tag.raw.value);
                 },
                 "artist" if out.artist.is_none() => {
-                    out.artist = value_to_string(&tag.value);
+                    out.artist = raw_value_to_string(&tag.raw.value);
                 },
                 "album" if out.album.is_none() => {
-                    out.album = value_to_string(&tag.value);
+                    out.album = raw_value_to_string(&tag.raw.value);
                 },
                 _ => {},
             }
@@ -759,11 +760,21 @@ fn apply_revision(rev: &symphonia::core::meta::MetadataRevision, out: &mut Extra
     }
 
     if out.cover.is_none() {
-        let front = rev
-            .visuals()
+        let visuals = rev
+            .media
+            .visuals
             .iter()
+            .chain(
+                rev.per_track
+                    .iter()
+                    .flat_map(|track| track.metadata.visuals.iter()),
+            )
+            .collect::<Vec<_>>();
+        let front = visuals
+            .iter()
+            .copied()
             .find(|v| v.usage == Some(StandardVisualKey::FrontCover));
-        let any = rev.visuals().first();
+        let any = visuals.first().copied();
         let chosen = front.or(any);
         if let Some(v) = chosen.filter(|v| !v.data.is_empty()) {
             out.cover = Some(v.data.as_ref().to_vec());
@@ -771,9 +782,9 @@ fn apply_revision(rev: &symphonia::core::meta::MetadataRevision, out: &mut Extra
     }
 }
 
-fn value_to_string(v: &Value) -> Option<String> {
+fn raw_value_to_string(v: &RawValue) -> Option<String> {
     let s = match v {
-        Value::String(s) => s.clone(),
+        RawValue::String(s) => s.to_string(),
         _ => v.to_string(),
     };
     let s = s.trim().to_string();

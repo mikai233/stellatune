@@ -1,13 +1,14 @@
 use std::io::{Seek, SeekFrom};
 
 use stellatune_plugin_sdk::prelude::*;
-use symphonia::core::audio::{SampleBuffer, SignalSpec};
-use symphonia::core::codecs::{Decoder as SymphoniaDecoder, DecoderOptions};
+use symphonia::core::codecs::audio::{
+    AudioDecoder as SymphoniaDecoder, AudioDecoderOptions as DecoderOptions,
+};
 use symphonia::core::errors::Error as SymphoniaError;
-use symphonia::core::formats::{FormatOptions, FormatReader, SeekMode, SeekTo};
+use symphonia::core::formats::probe::Hint;
+use symphonia::core::formats::{FormatOptions, FormatReader, SeekMode, SeekTo, TrackType};
 use symphonia::core::io::{MediaSourceStream, MediaSourceStreamOptions};
-use symphonia::core::meta::{MetadataOptions, StandardTagKey, Value as SymphoniaMetaValue};
-use symphonia::core::probe::Hint;
+use symphonia::core::meta::{MetadataOptions, StandardTag};
 use symphonia::core::units::Time;
 
 use crate::io::{DecoderInputReader, StreamMediaSource};
@@ -23,7 +24,6 @@ struct SymphoniaBackend {
     in_channels: usize,
     sample_rate: u32,
     out_channels: u16,
-    sample_buf: Option<SampleBuffer<f32>>,
     pending: Vec<f32>,
     metadata: MediaMetadata,
     duration_ms: Option<u64>,
@@ -113,21 +113,28 @@ impl StreamSymphoniaDecoderSession {
         let src = StreamMediaSource::new(reader, byte_len, seekable);
         let mss = MediaSourceStream::new(Box::new(src), MediaSourceStreamOptions::default());
 
-        let mut probed = symphonia::default::get_probe()
-            .format(
+        let mut format = symphonia::default::get_probe()
+            .probe(
                 &hint,
                 mss,
-                &FormatOptions::default(),
-                &MetadataOptions::default(),
+                FormatOptions::default(),
+                MetadataOptions::default(),
             )
             .map_err(|e| SdkError::internal(format!("symphonia probe failed: {e}")))?;
-
-        let mut format = probed.format;
         let track = format
-            .default_track()
+            .default_track(TrackType::Audio)
             .ok_or_else(|| SdkError::internal("missing default audio track"))?;
         let track_id = track.id;
-        let params = track.codec_params.clone();
+        let params = track
+            .codec_params
+            .as_ref()
+            .and_then(|params| params.audio())
+            .cloned()
+            .ok_or_else(|| SdkError::internal("missing audio codec parameters"))?;
+        let time_base = track.time_base;
+        let num_frames = track.num_frames;
+        let encoder_delay_frames = track.delay.unwrap_or(0);
+        let encoder_padding_frames = track.padding.unwrap_or(0);
 
         let sample_rate = params
             .sample_rate
@@ -139,23 +146,19 @@ impl StreamSymphoniaDecoderSession {
         let out_channels: u16 = if in_channels == 1 { 1 } else { 2 };
 
         let decoder = symphonia::default::get_codecs()
-            .make(&params, &DecoderOptions::default())
+            .make_audio_decoder(&params, &DecoderOptions::default())
             .map_err(|e| SdkError::internal(format!("decoder init failed: {e}")))?;
 
-        let duration_ms = params.time_base.and_then(|tb| {
-            params.n_frames.map(|n| {
-                let t = tb.calc_time(n);
-                let ms = (t.seconds as f64 * 1000.0) + (t.frac * 1000.0);
-                ms.round() as u64
+        let duration_ms = time_base.and_then(|tb| {
+            num_frames.and_then(|n| {
+                tb.calc_time(symphonia::core::units::Timestamp::new(
+                    n.min(i64::MAX as u64) as i64,
+                ))
+                .map(|time| (time.as_secs_f64() * 1000.0).round() as u64)
             })
         });
 
         let mut tags = Tags::default();
-        if let Some(mut metadata) = probed.metadata.get()
-            && let Some(rev) = metadata.skip_to_latest()
-        {
-            apply_revision(rev, &mut tags);
-        }
         {
             let mut metadata = format.metadata();
             if let Some(rev) = metadata.skip_to_latest() {
@@ -179,13 +182,12 @@ impl StreamSymphoniaDecoderSession {
                 in_channels,
                 sample_rate,
                 out_channels,
-                sample_buf: None,
                 pending: Vec::new(),
                 metadata,
                 duration_ms,
                 seekable,
-                encoder_delay_frames: params.delay.unwrap_or(0),
-                encoder_padding_frames: params.padding.unwrap_or(0),
+                encoder_delay_frames,
+                encoder_padding_frames,
             },
         })
     }
@@ -197,9 +199,7 @@ impl SymphoniaBackend {
             return Err(SdkError::unsupported("seek not supported"));
         }
 
-        let secs = position_ms / 1000;
-        let frac = (position_ms % 1000) as f64 / 1000.0;
-        let time = Time::new(secs, frac);
+        let time = Time::from_millis_u64(position_ms);
         let _ = self
             .format
             .seek(
@@ -230,32 +230,18 @@ impl SymphoniaBackend {
         let mut reached_eof = false;
         while self.pending.len() < want {
             match self.format.next_packet() {
-                Ok(packet) => {
-                    if packet.track_id() != self.track_id {
+                Ok(Some(packet)) => {
+                    if packet.track_id != self.track_id {
                         continue;
                     }
                     match self.decoder.decode(&packet) {
                         Ok(audio_buf) => {
-                            let spec =
-                                SignalSpec::new(audio_buf.spec().rate, audio_buf.spec().channels);
-                            let duration = audio_buf.capacity() as u64;
-                            let needs_realloc = self
-                                .sample_buf
-                                .as_ref()
-                                .is_none_or(|buf| buf.capacity() < audio_buf.capacity());
-                            if needs_realloc {
-                                self.sample_buf = Some(SampleBuffer::<f32>::new(duration, spec));
-                            }
-
-                            let sample_buf = self
-                                .sample_buf
-                                .as_mut()
-                                .ok_or_else(|| SdkError::internal("sample buffer unavailable"))?;
-                            sample_buf.copy_interleaved_ref(audio_buf);
+                            let mut samples = vec![0.0f32; audio_buf.samples_interleaved()];
+                            audio_buf.copy_to_slice_interleaved(&mut samples);
 
                             push_pending_samples(
                                 &mut self.pending,
-                                sample_buf.samples(),
+                                &samples,
                                 self.in_channels,
                                 out_channels,
                             );
@@ -267,6 +253,10 @@ impl SymphoniaBackend {
                         },
                         Err(e) => return Err(SdkError::internal(format!("decode failed: {e}"))),
                     }
+                },
+                Ok(None) => {
+                    reached_eof = true;
+                    break;
                 },
                 Err(SymphoniaError::IoError(e))
                     if e.kind() == std::io::ErrorKind::UnexpectedEof =>
@@ -344,30 +334,32 @@ fn push_pending_samples(
 }
 
 fn apply_revision(rev: &symphonia::core::meta::MetadataRevision, tags: &mut Tags) {
-    for tag in rev.tags() {
-        if tags.title.is_none() && matches!(tag.std_key, Some(StandardTagKey::TrackTitle)) {
-            tags.title = value_to_string(&tag.value);
-            continue;
-        }
-        if tags.album.is_none() && matches!(tag.std_key, Some(StandardTagKey::Album)) {
-            tags.album = value_to_string(&tag.value);
-            continue;
-        }
-        if matches!(tag.std_key, Some(StandardTagKey::Artist))
-            && let Some(v) = value_to_string(&tag.value)
-            && !tags.artists.iter().any(|artist| artist == &v)
-        {
-            tags.artists.push(v);
+    for tag in rev.media.tags.iter().chain(
+        rev.per_track
+            .iter()
+            .flat_map(|track| track.metadata.tags.iter()),
+    ) {
+        match tag.std.as_ref() {
+            Some(StandardTag::TrackTitle(value)) if tags.title.is_none() => {
+                tags.title = normalize_tag_text(value.as_str());
+            },
+            Some(StandardTag::Album(value)) if tags.album.is_none() => {
+                tags.album = normalize_tag_text(value.as_str());
+            },
+            Some(StandardTag::Artist(value)) => {
+                if let Some(value) = normalize_tag_text(value.as_str())
+                    && !tags.artists.iter().any(|artist| artist == &value)
+                {
+                    tags.artists.push(value);
+                }
+            },
+            _ => {},
         }
     }
 }
 
-fn value_to_string(v: &SymphoniaMetaValue) -> Option<String> {
-    let s = match v {
-        SymphoniaMetaValue::String(v) => v.clone(),
-        _ => v.to_string(),
-    };
-    let s = s.trim().to_string();
+fn normalize_tag_text(value: &str) -> Option<String> {
+    let s = value.trim().to_string();
     if s.is_empty() { None } else { Some(s) }
 }
 

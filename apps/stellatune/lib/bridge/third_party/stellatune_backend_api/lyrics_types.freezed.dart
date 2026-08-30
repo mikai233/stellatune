@@ -1,6 +1,6 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // coverage:ignore-file
-// ignore_for_file: type=lint
+// ignore_for_file: type=lint, type=warning, deprecated_member_use, deprecated_member_use_from_same_package
 // ignore_for_file: unused_element, deprecated_member_use, deprecated_member_use_from_same_package, use_function_type_syntax_for_parameters, unnecessary_const, avoid_init_to_null, invalid_override_different_default_values_named, prefer_expression_function_bodies, annotate_overrides, invalid_annotation_target, unnecessary_question_mark
 
 part of 'lyrics_types.dart';
@@ -9,6 +9,7 @@ part of 'lyrics_types.dart';
 // FreezedGenerator
 // **************************************************************************
 
+// GENERATED CODE - DO NOT MODIFY BY HAND
 // dart format off
 T _$identity<T>(T value) => value;
 /// @nodoc
@@ -25,16 +26,21 @@ $LyricsEventCopyWith<LyricsEvent> get copyWith => _$LyricsEventCopyWithImpl<Lyri
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is LyricsEvent&&(identical(other.trackKey, trackKey) || other.trackKey == trackKey));
+  final _this = this as LyricsEvent;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is LyricsEvent&&(identical(other.trackKey, _this.trackKey) || other.trackKey == _this.trackKey));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,trackKey);
+int get hashCode {
+  final _this = this as LyricsEvent;
+  return Object.hash(runtimeType,_this.trackKey);
+}
 
 @override
 String toString() {
-  return 'LyricsEvent(trackKey: $trackKey)';
+  final _this = this as LyricsEvent;
+  return 'LyricsEvent(trackKey: ${_this.trackKey})';
 }
 
 
@@ -239,16 +245,18 @@ $LyricsEvent_LoadingCopyWith<LyricsEvent_Loading> get copyWith => _$LyricsEvent_
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is LyricsEvent_Loading&&(identical(other.trackKey, trackKey) || other.trackKey == trackKey));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is LyricsEvent_Loading&&(identical(other.trackKey, trackKey) || other.trackKey == trackKey));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,trackKey);
+int get hashCode {
+    return Object.hash(runtimeType,trackKey);
+}
 
 @override
 String toString() {
-  return 'LyricsEvent.loading(trackKey: $trackKey)';
+    return 'LyricsEvent.loading(trackKey: $trackKey)';
 }
 
 
@@ -306,16 +314,18 @@ $LyricsEvent_ReadyCopyWith<LyricsEvent_Ready> get copyWith => _$LyricsEvent_Read
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is LyricsEvent_Ready&&(identical(other.trackKey, trackKey) || other.trackKey == trackKey)&&(identical(other.doc, doc) || other.doc == doc));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is LyricsEvent_Ready&&(identical(other.trackKey, trackKey) || other.trackKey == trackKey)&&(identical(other.doc, doc) || other.doc == doc));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,trackKey,doc);
+int get hashCode {
+    return Object.hash(runtimeType,trackKey,doc);
+}
 
 @override
 String toString() {
-  return 'LyricsEvent.ready(trackKey: $trackKey, doc: $doc)';
+    return 'LyricsEvent.ready(trackKey: $trackKey, doc: $doc)';
 }
 
 
@@ -374,16 +384,18 @@ $LyricsEvent_CursorCopyWith<LyricsEvent_Cursor> get copyWith => _$LyricsEvent_Cu
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is LyricsEvent_Cursor&&(identical(other.trackKey, trackKey) || other.trackKey == trackKey)&&(identical(other.lineIndex, lineIndex) || other.lineIndex == lineIndex));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is LyricsEvent_Cursor&&(identical(other.trackKey, trackKey) || other.trackKey == trackKey)&&(identical(other.lineIndex, lineIndex) || other.lineIndex == lineIndex));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,trackKey,lineIndex);
+int get hashCode {
+    return Object.hash(runtimeType,trackKey,lineIndex);
+}
 
 @override
 String toString() {
-  return 'LyricsEvent.cursor(trackKey: $trackKey, lineIndex: $lineIndex)';
+    return 'LyricsEvent.cursor(trackKey: $trackKey, lineIndex: $lineIndex)';
 }
 
 
@@ -441,16 +453,18 @@ $LyricsEvent_EmptyCopyWith<LyricsEvent_Empty> get copyWith => _$LyricsEvent_Empt
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is LyricsEvent_Empty&&(identical(other.trackKey, trackKey) || other.trackKey == trackKey));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is LyricsEvent_Empty&&(identical(other.trackKey, trackKey) || other.trackKey == trackKey));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,trackKey);
+int get hashCode {
+    return Object.hash(runtimeType,trackKey);
+}
 
 @override
 String toString() {
-  return 'LyricsEvent.empty(trackKey: $trackKey)';
+    return 'LyricsEvent.empty(trackKey: $trackKey)';
 }
 
 
@@ -508,16 +522,18 @@ $LyricsEvent_ErrorCopyWith<LyricsEvent_Error> get copyWith => _$LyricsEvent_Erro
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is LyricsEvent_Error&&(identical(other.trackKey, trackKey) || other.trackKey == trackKey)&&(identical(other.message, message) || other.message == message));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is LyricsEvent_Error&&(identical(other.trackKey, trackKey) || other.trackKey == trackKey)&&(identical(other.message, message) || other.message == message));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,trackKey,message);
+int get hashCode {
+    return Object.hash(runtimeType,trackKey,message);
+}
 
 @override
 String toString() {
-  return 'LyricsEvent.error(trackKey: $trackKey, message: $message)';
+    return 'LyricsEvent.error(trackKey: $trackKey, message: $message)';
 }
 
 

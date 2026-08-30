@@ -18,7 +18,7 @@ sqlx.workspace = true
 arc-swap.workspace = true
 flutter_rust_bridge.workspace = true
 async-trait.workspace = true
-reqwest = { workspace = true, features = ["rustls-tls", "gzip"] }
+reqwest = { workspace = true, features = ["rustls", "gzip"] }
 tokio-util = { workspace = true, features = ["io"] }
 url.workspace = true
 

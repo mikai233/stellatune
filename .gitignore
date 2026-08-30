@@ -1,3 +1,6 @@
 /target
 tools/stellatune-ncm-sidecar/node_modules/
 .history/
+
+# FVM Version Cache
+.fvm/

@@ -1,5 +1,7 @@
 use audioadapter_buffers::direct::InterleavedSlice;
-use rubato::{Async, FixedAsync, Resampler, SincInterpolationParameters, SincInterpolationType};
+use rubato::{
+    Async, FixedAsync, Resampler, Resizable, SincInterpolationParameters, SincInterpolationType,
+};
 use stellatune_audio_core::pipeline::context::{AudioBlock, PipelineContext, StreamSpec};
 use stellatune_audio_core::pipeline::error::PipelineError;
 use stellatune_audio_core::pipeline::stages::transform::TransformStage;
@@ -85,7 +87,7 @@ impl ResamplerStage {
         let params_spec = ResampleParams::from_quality(self.plan.quality);
         let params = SincInterpolationParameters {
             sinc_len: params_spec.sinc_len,
-            f_cutoff: params_spec.f_cutoff,
+            f_cutoff: Some(params_spec.f_cutoff),
             oversampling_factor: params_spec.oversampling_factor,
             interpolation: params_spec.interpolation,
             window: params_spec.window,
@@ -119,7 +121,7 @@ impl ResamplerStage {
             PipelineError::StageFailure(format!("resample input buffer error: {e}"))
         })?;
         let output = resampler
-            .process(&input, 0, None)
+            .process(&input, None)
             .map_err(|e| PipelineError::StageFailure(format!("resample error: {e}")))?;
         Ok(output.take_data())
     }

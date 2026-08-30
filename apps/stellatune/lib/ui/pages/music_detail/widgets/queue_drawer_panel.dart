@@ -6,6 +6,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:stellatune/app/providers.dart';
 import 'package:stellatune/l10n/app_localizations.dart';
@@ -207,7 +208,7 @@ class _QueueListState extends State<_QueueList> {
     return ListView.builder(
       controller: _scrollController,
       itemExtent: _itemExtent,
-      cacheExtent: _itemExtent * 8,
+      scrollCacheExtent: ScrollCacheExtent.pixels(_itemExtent * 8),
       itemCount: widget.items.length,
       itemBuilder: (context, i) {
         final item = widget.items[i];

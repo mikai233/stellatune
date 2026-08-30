@@ -442,11 +442,11 @@ fn extract_zip_to_dir(zip_path: &Path, out_dir: &Path) -> Result<()> {
             .map_err(|e| crate::op_error!("failed to get entry data: {:?}", e))?;
         let data = slice_entry.data();
         match entry.compression_method() {
-            rawzip::CompressionMethod::Store => {
+            rawzip::CompressionMethod::STORE => {
                 std::io::copy(&mut &*data, &mut out)
                     .with_context(|| format!("extract {} to {}", filename, out_path.display()))?;
             },
-            rawzip::CompressionMethod::Deflate => {
+            rawzip::CompressionMethod::DEFLATE => {
                 let mut decoder = flate2::read::DeflateDecoder::new(data);
                 std::io::copy(&mut decoder, &mut out).with_context(|| {
                     format!("extract (deflate) {} to {}", filename, out_path.display())

@@ -38,14 +38,14 @@ StellaTune 非常欢迎开发者们在其核心基础之上进行构建，或者
 #### 环境要求
 
 要从源码构建 StellaTune，您需要：
-- [Flutter SDK](https://flutter.dev/docs/get-started/install) （推荐使用 stable 稳定版分支）
-- [Rust toolchain](https://rustup.rs/) （stable 版本）
+- [Flutter SDK](https://flutter.dev/docs/get-started/install) 3.47.2 / Dart 3.13.2（也可使用 FVM）
+- [Rust toolchain](https://rustup.rs/) 1.98.0
 - [Node.js 20](https://nodejs.org/) （用于特定插件打包以及 Sidecar 服务）
 
 安装代码生成器并添加 Wasm 编译目标以准备开发环境：
 
 ```bash
-cargo install flutter_rust_bridge_codegen --locked
+cargo install flutter_rust_bridge_codegen --version 2.13.0 --locked
 rustup target add wasm32-wasip2
 ```
 

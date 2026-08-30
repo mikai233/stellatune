@@ -41,14 +41,14 @@ StellaTune welcomes developers to build upon its core foundation or create amazi
 #### Prerequisites
 
 To build StellaTune from source, you will need:
-- [Flutter SDK](https://flutter.dev/docs/get-started/install) (stable channel recommended)
-- [Rust toolchain](https://rustup.rs/) (stable)
+- [Flutter SDK](https://flutter.dev/docs/get-started/install) 3.47.2 / Dart 3.13.2 (or FVM)
+- [Rust toolchain](https://rustup.rs/) 1.98.0
 - [Node.js 20](https://nodejs.org/) (needed for specific plugin packaging and sidecar services)
 
 Prepare your environment by installing the code generator and adding the Wasm target:
 
 ```bash
-cargo install flutter_rust_bridge_codegen --locked
+cargo install flutter_rust_bridge_codegen --version 2.13.0 --locked
 rustup target add wasm32-wasip2
 ```
 

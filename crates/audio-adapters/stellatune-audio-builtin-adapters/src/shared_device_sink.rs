@@ -411,7 +411,7 @@ impl SharedDeviceSinkStage {
         let callback_error = Arc::clone(&self.callback_error);
         let error_metrics = self.control.clone();
         let error_backpressure = Arc::clone(&backpressure);
-        let on_error = move |error: cpal::StreamError| {
+        let on_error = move |error: cpal::Error| {
             error_metrics.note_callback_error();
             if let Ok(mut slot) = callback_error.lock() {
                 *slot = Some(format!("output stream error: {error}"));
@@ -425,7 +425,7 @@ impl SharedDeviceSinkStage {
                 let backpressure = Arc::clone(&backpressure);
                 let mut consumer = consumer;
                 device.build_output_stream(
-                    &stream_config,
+                    stream_config,
                     move |data: &mut [f32], _| {
                         let provided = write_f32_samples(data, &mut consumer);
                         metrics.note_callback(data.len(), provided);
@@ -440,7 +440,7 @@ impl SharedDeviceSinkStage {
                 let backpressure = Arc::clone(&backpressure);
                 let mut consumer = consumer;
                 device.build_output_stream(
-                    &stream_config,
+                    stream_config,
                     move |data: &mut [i16], _| {
                         let provided = write_i16_samples(data, &mut consumer);
                         metrics.note_callback(data.len(), provided);
@@ -455,7 +455,7 @@ impl SharedDeviceSinkStage {
                 let backpressure = Arc::clone(&backpressure);
                 let mut consumer = consumer;
                 device.build_output_stream(
-                    &stream_config,
+                    stream_config,
                     move |data: &mut [u16], _| {
                         let provided = write_u16_samples(data, &mut consumer);
                         metrics.note_callback(data.len(), provided);
@@ -629,7 +629,7 @@ fn cpal_device_label(device: &cpal::Device) -> String {
     match device.description() {
         Ok(desc) => desc
             .extended()
-            .first()
+            .next()
             .map(|v| v.trim())
             .filter(|v| !v.is_empty())
             .unwrap_or_else(|| desc.name().trim())

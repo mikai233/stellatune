@@ -198,7 +198,7 @@ class _FolderTreeState extends State<FolderTree> {
     return ClipRect(
       child: SizeTransition(
         sizeFactor: curved,
-        axisAlignment: -1,
+        alignment: Alignment.topCenter,
         child: isRemoving ? IgnorePointer(child: child) : child,
       ),
     );

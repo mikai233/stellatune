@@ -1,6 +1,6 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // coverage:ignore-file
-// ignore_for_file: type=lint
+// ignore_for_file: type=lint, type=warning, deprecated_member_use, deprecated_member_use_from_same_package
 // ignore_for_file: unused_element, deprecated_member_use, deprecated_member_use_from_same_package, use_function_type_syntax_for_parameters, unnecessary_const, avoid_init_to_null, invalid_override_different_default_values_named, prefer_expression_function_bodies, annotate_overrides, invalid_annotation_target, unnecessary_question_mark
 
 part of 'types.dart';
@@ -9,6 +9,7 @@ part of 'types.dart';
 // FreezedGenerator
 // **************************************************************************
 
+// GENERATED CODE - DO NOT MODIFY BY HAND
 // dart format off
 T _$identity<T>(T value) => value;
 /// @nodoc
@@ -20,7 +21,7 @@ mixin _$Event {
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is Event);
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is Event);
 }
 
 
@@ -29,7 +30,7 @@ int get hashCode => runtimeType.hashCode;
 
 @override
 String toString() {
-  return 'Event()';
+    return 'Event()';
 }
 
 
@@ -232,16 +233,18 @@ $Event_StateChangedCopyWith<Event_StateChanged> get copyWith => _$Event_StateCha
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is Event_StateChanged&&(identical(other.state, state) || other.state == state));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is Event_StateChanged&&(identical(other.state, state) || other.state == state));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,state);
+int get hashCode {
+    return Object.hash(runtimeType,state);
+}
 
 @override
 String toString() {
-  return 'Event.stateChanged(state: $state)';
+    return 'Event.stateChanged(state: $state)';
 }
 
 
@@ -300,16 +303,18 @@ $Event_PositionCopyWith<Event_Position> get copyWith => _$Event_PositionCopyWith
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is Event_Position&&(identical(other.ms, ms) || other.ms == ms)&&(identical(other.path, path) || other.path == path)&&(identical(other.sessionId, sessionId) || other.sessionId == sessionId));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is Event_Position&&(identical(other.ms, ms) || other.ms == ms)&&(identical(other.path, path) || other.path == path)&&(identical(other.sessionId, sessionId) || other.sessionId == sessionId));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,ms,path,sessionId);
+int get hashCode {
+    return Object.hash(runtimeType,ms,path,sessionId);
+}
 
 @override
 String toString() {
-  return 'Event.position(ms: $ms, path: $path, sessionId: $sessionId)';
+    return 'Event.position(ms: $ms, path: $path, sessionId: $sessionId)';
 }
 
 
@@ -368,16 +373,18 @@ $Event_TrackChangedCopyWith<Event_TrackChanged> get copyWith => _$Event_TrackCha
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is Event_TrackChanged&&(identical(other.path, path) || other.path == path));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is Event_TrackChanged&&(identical(other.path, path) || other.path == path));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,path);
+int get hashCode {
+    return Object.hash(runtimeType,path);
+}
 
 @override
 String toString() {
-  return 'Event.trackChanged(path: $path)';
+    return 'Event.trackChanged(path: $path)';
 }
 
 
@@ -434,16 +441,18 @@ $Event_PlaybackEndedCopyWith<Event_PlaybackEnded> get copyWith => _$Event_Playba
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is Event_PlaybackEnded&&(identical(other.path, path) || other.path == path));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is Event_PlaybackEnded&&(identical(other.path, path) || other.path == path));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,path);
+int get hashCode {
+    return Object.hash(runtimeType,path);
+}
 
 @override
 String toString() {
-  return 'Event.playbackEnded(path: $path)';
+    return 'Event.playbackEnded(path: $path)';
 }
 
 
@@ -501,16 +510,18 @@ $Event_VolumeChangedCopyWith<Event_VolumeChanged> get copyWith => _$Event_Volume
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is Event_VolumeChanged&&(identical(other.volume, volume) || other.volume == volume)&&(identical(other.seq, seq) || other.seq == seq));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is Event_VolumeChanged&&(identical(other.volume, volume) || other.volume == volume)&&(identical(other.seq, seq) || other.seq == seq));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,volume,seq);
+int get hashCode {
+    return Object.hash(runtimeType,volume,seq);
+}
 
 @override
 String toString() {
-  return 'Event.volumeChanged(volume: $volume, seq: $seq)';
+    return 'Event.volumeChanged(volume: $volume, seq: $seq)';
 }
 
 
@@ -563,7 +574,7 @@ class Event_AudioStart extends Event {
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is Event_AudioStart);
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is Event_AudioStart);
 }
 
 
@@ -572,7 +583,7 @@ int get hashCode => runtimeType.hashCode;
 
 @override
 String toString() {
-  return 'Event.audioStart()';
+    return 'Event.audioStart()';
 }
 
 
@@ -595,7 +606,7 @@ class Event_AudioEnd extends Event {
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is Event_AudioEnd);
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is Event_AudioEnd);
 }
 
 
@@ -604,7 +615,7 @@ int get hashCode => runtimeType.hashCode;
 
 @override
 String toString() {
-  return 'Event.audioEnd()';
+    return 'Event.audioEnd()';
 }
 
 
@@ -632,16 +643,18 @@ $Event_ErrorCopyWith<Event_Error> get copyWith => _$Event_ErrorCopyWithImpl<Even
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is Event_Error&&(identical(other.message, message) || other.message == message));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is Event_Error&&(identical(other.message, message) || other.message == message));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,message);
+int get hashCode {
+    return Object.hash(runtimeType,message);
+}
 
 @override
 String toString() {
-  return 'Event.error(message: $message)';
+    return 'Event.error(message: $message)';
 }
 
 
@@ -698,16 +711,18 @@ $Event_LogCopyWith<Event_Log> get copyWith => _$Event_LogCopyWithImpl<Event_Log>
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is Event_Log&&(identical(other.message, message) || other.message == message));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is Event_Log&&(identical(other.message, message) || other.message == message));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,message);
+int get hashCode {
+    return Object.hash(runtimeType,message);
+}
 
 @override
 String toString() {
-  return 'Event.log(message: $message)';
+    return 'Event.log(message: $message)';
 }
 
 

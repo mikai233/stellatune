@@ -470,14 +470,14 @@ extension _SettingsRuntimeOps on SettingsPageState {
     await _ensurePluginDir();
     final pluginDir = _pluginDir!;
 
-    FilePickerResult? picked;
+    PlatformFile? picked;
     try {
-      picked = await FilePicker.pickFiles(
+      picked = await FilePicker.pickFile(
         dialogTitle: l10n.settingsInstallPluginPickFolder,
         type: FileType.custom,
-        allowMultiple: false,
         allowedExtensions: ['zip'],
-        lockParentWindow: true,
+        windowsOptions: const WindowsOptions(lockParentWindow: true),
+        linuxOptions: const LinuxOptions(lockParentWindow: true),
       );
     } catch (e, s) {
       logger.e(
@@ -491,15 +491,14 @@ extension _SettingsRuntimeOps on SettingsPageState {
       );
       return;
     }
-    final files = picked?.files;
-    if (files == null || files.isEmpty) {
+    if (picked == null) {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('No plugin file selected.')));
       return;
     }
-    final srcPath = files.first.path?.trim();
+    final srcPath = picked.path?.trim();
     if (srcPath == null || srcPath.isEmpty) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

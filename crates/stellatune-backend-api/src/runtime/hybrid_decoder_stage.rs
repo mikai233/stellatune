@@ -586,7 +586,21 @@ fn normalize_ext_hint(raw: &str) -> String {
 }
 
 fn ext_hint_from_path(path: &str) -> String {
-    Path::new(path)
+    let trimmed = path.trim();
+    let without_query_or_fragment = trimmed.split(['?', '#']).next().unwrap_or(trimmed);
+    let path_for_ext = if let Some((scheme, remainder)) =
+        without_query_or_fragment.split_once("://")
+        && matches!(
+            scheme.to_ascii_lowercase().as_str(),
+            "http" | "https" | "file"
+        ) {
+        let slash_index = remainder.find('/').unwrap_or(remainder.len());
+        &remainder[slash_index..]
+    } else {
+        without_query_or_fragment
+    };
+
+    Path::new(path_for_ext)
         .extension()
         .and_then(|value| value.to_str())
         .map(normalize_ext_hint)

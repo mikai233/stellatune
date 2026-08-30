@@ -297,7 +297,7 @@ impl DecoderStage for PluginDecoderStage {
             )));
         }
         let mut samples = Vec::<f32>::with_capacity(chunk.interleaved_f32le.len() / 4);
-        for bytes in chunk.interleaved_f32le.chunks_exact(4) {
+        for bytes in chunk.interleaved_f32le.as_chunks::<4>().0 {
             samples.push(f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]));
         }
 
@@ -461,7 +461,21 @@ fn normalize_ext_hint(raw: &str) -> String {
 }
 
 fn ext_hint_from_path(path: &str) -> String {
-    Path::new(path)
+    let trimmed = path.trim();
+    let without_query_or_fragment = trimmed.split(['?', '#']).next().unwrap_or(trimmed);
+    let path_for_ext = if let Some((scheme, remainder)) =
+        without_query_or_fragment.split_once("://")
+        && matches!(
+            scheme.to_ascii_lowercase().as_str(),
+            "http" | "https" | "file"
+        ) {
+        let slash_index = remainder.find('/').unwrap_or(remainder.len());
+        &remainder[slash_index..]
+    } else {
+        without_query_or_fragment
+    };
+
+    Path::new(path_for_ext)
         .extension()
         .and_then(|value| value.to_str())
         .map(normalize_ext_hint)
@@ -913,5 +927,9 @@ mod tests {
     fn ext_hint_extracts_lowercase_extension_without_dot() {
         assert_eq!(ext_hint_from_path("C:/music/Track.FLAC"), "flac");
         assert_eq!(ext_hint_from_path("C:/music/noext"), "");
+        assert_eq!(
+            ext_hint_from_path("https://example.com/music/Track.FLAC?token=abc"),
+            "flac"
+        );
     }
 }

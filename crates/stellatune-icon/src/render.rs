@@ -4,7 +4,7 @@ use anyhow::{Context, Result, anyhow, ensure};
 use clap::ValueEnum;
 use skia_safe::{
     Canvas, ClipOp, Color, Color4f, Data, EncodedImageFormat, Paint, PaintStyle, Path as SkPath,
-    Point, RRect, Rect, TileMode, gradient, paint, path_utils, surfaces,
+    PathBuilder, Point, RRect, Rect, TileMode, gradient, paint, path_utils, surfaces,
 };
 
 use crate::document::{BackgroundPreset, IconDocument};
@@ -347,7 +347,7 @@ fn star_corner_notch_mask(
     stroke_paint.set_stroke_join(paint::Join::Miter);
     stroke_paint.set_stroke_miter(4.0);
 
-    let mut mask = SkPath::new();
+    let mut mask = PathBuilder::new();
     let cull_rect = ctx.canvas_rect;
     let _ = path_utils::fill_path_with_paint(
         &notch_path,
@@ -356,7 +356,7 @@ fn star_corner_notch_mask(
         Some(&cull_rect),
         None,
     );
-    mask
+    mask.detach()
 }
 
 fn move_towards(from: Point, to: Point, distance: f32) -> Point {
