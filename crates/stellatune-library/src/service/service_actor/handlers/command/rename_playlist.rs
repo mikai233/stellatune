@@ -1,25 +1,23 @@
-use super::{ActorContext, Handler, LibraryEvent, LibraryServiceActor, Message};
+use super::{ActorContext, LibraryEvent, LibraryServiceActor};
+use lattice_actor::{error::ActorError, traits::Handler};
 
+#[derive(lattice_actor::Message)]
 pub(crate) struct RenamePlaylistMessage {
     pub(crate) id: i64,
     pub(crate) name: String,
 }
 
-impl Message for RenamePlaylistMessage {
-    type Response = ();
-}
-
-#[async_trait::async_trait]
 impl Handler<RenamePlaylistMessage> for LibraryServiceActor {
     async fn handle(
         &mut self,
+        _ctx: &mut ActorContext<'_, Self>,
         message: RenamePlaylistMessage,
-        _ctx: &mut ActorContext<Self>,
-    ) -> () {
+    ) -> Result<(), ActorError> {
         if let Err(err) = self.worker.rename_playlist(message.id, message.name).await {
             self.events.emit(LibraryEvent::Error {
                 message: format!("{err:#}"),
             });
         }
+        Ok(())
     }
 }

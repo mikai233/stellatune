@@ -1,0 +1,44 @@
+{
+  "manifest_version": 2,
+  "id": "dev.stellatune.source.netease",
+  "name": "Netease Cloud Music",
+  "version": "0.2.0",
+  "runtime": {
+    "kind": "typescript",
+    "entry": "plugin.mjs",
+    "api_version": 2,
+    "protocol": "stellatune-capability-rpc/1"
+  },
+  "capabilities": [
+    {
+      "id": "netease-source",
+      "kind": "source-resolver",
+      "execution_class": "control",
+      "display_name": "Netease Source Resolver",
+      "config_schema": "source-config.schema.json"
+    },
+    {
+      "id": "netease-search",
+      "kind": "network-control",
+      "execution_class": "control",
+      "display_name": "Netease Search and Library"
+    },
+    {
+      "id": "netease-auth",
+      "kind": "auth-provider",
+      "execution_class": "control",
+      "display_name": "Netease Authentication"
+    },
+    {
+      "id": "netease-lyrics",
+      "kind": "lyrics-provider",
+      "execution_class": "control",
+      "display_name": "Netease Lyrics"
+    }
+  ],
+  "ui": {
+    "mode": "web",
+    "entry": "ui/index.html",
+    "mobile_support": "limited"
+  }
+}

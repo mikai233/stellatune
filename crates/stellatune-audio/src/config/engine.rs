@@ -14,6 +14,50 @@ pub enum PlayerState {
     Playing,
 }
 
+/// Internal state owned exclusively by the playback actor.
+///
+/// [`PlayerState`] remains the compact public compatibility view used by the
+/// Flutter API. This state models preparation, reconfiguration, draining, and
+/// recovery explicitly so those transitions do not need shadow state in
+/// workers or callers.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum PlaybackState {
+    /// No playback session is installed.
+    #[default]
+    Idle,
+    /// A source or track pipeline is being prepared.
+    Preparing,
+    /// A session is prepared and has not started producing audio.
+    Ready,
+    /// The session is actively producing audio.
+    Playing,
+    /// The session is retained but audio production is paused.
+    Paused,
+    /// The complete session is being rebuilt after a structural change.
+    Reconfiguring,
+    /// Remaining sink data is being drained.
+    Draining,
+    /// The output pipeline is being recovered.
+    Recovering,
+    /// Session resources are being torn down.
+    Stopping,
+}
+
+impl PlaybackState {
+    /// Returns the compatibility state exposed by the existing engine API.
+    pub const fn public_state(self) -> PlayerState {
+        match self {
+            Self::Playing | Self::Draining => PlayerState::Playing,
+            Self::Preparing
+            | Self::Ready
+            | Self::Paused
+            | Self::Reconfiguring
+            | Self::Recovering => PlayerState::Paused,
+            Self::Idle | Self::Stopping => PlayerState::Stopped,
+        }
+    }
+}
+
 /// Pause strategy requested by control operations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PauseBehavior {

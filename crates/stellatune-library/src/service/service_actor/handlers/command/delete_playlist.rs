@@ -1,24 +1,22 @@
-use super::{ActorContext, Handler, LibraryEvent, LibraryServiceActor, Message};
+use super::{ActorContext, LibraryEvent, LibraryServiceActor};
+use lattice_actor::{error::ActorError, traits::Handler};
 
+#[derive(lattice_actor::Message)]
 pub(crate) struct DeletePlaylistMessage {
     pub(crate) id: i64,
 }
 
-impl Message for DeletePlaylistMessage {
-    type Response = ();
-}
-
-#[async_trait::async_trait]
 impl Handler<DeletePlaylistMessage> for LibraryServiceActor {
     async fn handle(
         &mut self,
+        _ctx: &mut ActorContext<'_, Self>,
         message: DeletePlaylistMessage,
-        _ctx: &mut ActorContext<Self>,
-    ) -> () {
+    ) -> Result<(), ActorError> {
         if let Err(err) = self.worker.delete_playlist(message.id).await {
             self.events.emit(LibraryEvent::Error {
                 message: format!("{err:#}"),
             });
         }
+        Ok(())
     }
 }

@@ -1,19 +1,25 @@
-use stellatune_runtime::thread_actor::{ActorContext, Handler};
+use lattice_actor::{
+    context::HandlerContext, error::ActorError, reply::ReplyTo, traits::Responder,
+};
 
-use crate::engine::actor::ControlActor;
+use crate::engine::actor::PlaybackActor;
 use crate::engine::messages::SetLfeModeMessage;
 use crate::error::EngineError;
 
-impl Handler<SetLfeModeMessage> for ControlActor {
-    fn handle(
+impl Responder<SetLfeModeMessage> for PlaybackActor {
+    async fn respond(
         &mut self,
+        _ctx: &mut HandlerContext<'_, Self>,
         message: SetLfeModeMessage,
-        _ctx: &mut ActorContext<Self>,
-    ) -> Result<(), EngineError> {
+        reply_to: ReplyTo<Result<(), EngineError>>,
+    ) -> Result<(), ActorError> {
         let timeout = self.config.decode_command_timeout;
-        let worker = self.ensure_worker()?;
-        worker
-            .set_lfe_mode(message.mode, timeout)
-            .map_err(EngineError::from)
+        let result = self.ensure_session().and_then(|worker| {
+            worker
+                .set_lfe_mode(message.mode, timeout)
+                .map_err(EngineError::from)
+        });
+        let _ = reply_to.send(result);
+        Ok(())
     }
 }

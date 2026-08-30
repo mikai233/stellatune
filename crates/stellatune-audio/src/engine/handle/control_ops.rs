@@ -1,12 +1,7 @@
-use std::sync::Arc;
-
 use crate::config::engine::{Event, LfeMode, ResampleQuality};
 use crate::engine::handle::EngineHandle;
-use crate::engine::messages::{
-    ApplyStageRuntimeUpdateMessage, SetLfeModeMessage, SetResampleQualityMessage,
-};
+use crate::engine::messages::{SetLfeModeMessage, SetResampleQualityMessage};
 use crate::error::EngineError;
-use stellatune_audio_core::pipeline::stages::{StageRuntimeUpdate, StageTarget};
 
 impl EngineHandle {
     /// Updates the hot master-gain target used by the runtime.
@@ -42,7 +37,7 @@ impl EngineHandle {
     /// worker rejects the mode transition.
     pub async fn set_lfe_mode(&self, mode: LfeMode) -> Result<(), EngineError> {
         self.actor_ref
-            .call_async(SetLfeModeMessage { mode }, self.timeout)
+            .ask(SetLfeModeMessage { mode }, self.timeout)
             .await
             .map_err(|error| Self::map_call_error("set_lfe_mode", self.timeout, error))?
     }
@@ -55,38 +50,8 @@ impl EngineHandle {
     /// worker cannot apply the quality update.
     pub async fn set_resample_quality(&self, quality: ResampleQuality) -> Result<(), EngineError> {
         self.actor_ref
-            .call_async(SetResampleQualityMessage { quality }, self.timeout)
+            .ask(SetResampleQualityMessage { quality }, self.timeout)
             .await
             .map_err(|error| Self::map_call_error("set_resample_quality", self.timeout, error))?
-    }
-
-    /// Applies a typed runtime-update payload to a stage target.
-    ///
-    /// The payload type must match what the target stage expects at runtime.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`EngineError`] when the control actor call fails, the stage target
-    /// does not exist, or the payload type is unsupported for that stage.
-    pub async fn apply_stage_runtime_update<T>(
-        &self,
-        target: StageTarget,
-        update: T,
-    ) -> Result<(), EngineError>
-    where
-        T: StageRuntimeUpdate + 'static,
-    {
-        self.actor_ref
-            .call_async(
-                ApplyStageRuntimeUpdateMessage {
-                    target,
-                    update: Arc::new(update),
-                },
-                self.timeout,
-            )
-            .await
-            .map_err(|error| {
-                Self::map_call_error("apply_stage_runtime_update", self.timeout, error)
-            })?
     }
 }

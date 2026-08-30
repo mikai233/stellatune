@@ -4,7 +4,7 @@
 //! a bounded ring buffer and a control mailbox.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
@@ -13,10 +13,8 @@ use ringbuf::traits::{Consumer as _, Producer as _, Split as _};
 use ringbuf::{HeapCons, HeapProd, HeapRb};
 use stellatune_audio_core::pipeline::context::{AudioBlock, PipelineContext, StreamSpec};
 use stellatune_audio_core::pipeline::error::PipelineError;
+use stellatune_audio_core::pipeline::stages::StageFlow;
 use stellatune_audio_core::pipeline::stages::sink::SinkStage;
-use stellatune_audio_core::pipeline::stages::{
-    StageFlow, StageRuntimeUpdate, StageRuntimeUpdateDispatchResult, StageRuntimeUpdateResult,
-};
 
 enum SinkControl {
     RefreshRuntimeState {
@@ -28,11 +26,6 @@ enum SinkControl {
     },
     DropQueued {
         resp_tx: Sender<Result<(), PipelineError>>,
-    },
-    ApplyStageRuntimeUpdate {
-        stage_key: String,
-        update: Arc<dyn StageRuntimeUpdate>,
-        resp_tx: Sender<Result<StageRuntimeUpdateDispatchResult, PipelineError>>,
     },
     Shutdown {
         drain: bool,
@@ -51,6 +44,9 @@ pub(crate) struct SinkWorker {
     wake_tx: Sender<()>,
     ctrl_tx: Sender<SinkControl>,
     running: Arc<AtomicBool>,
+    consumed_frames: Arc<AtomicU64>,
+    position_origin_ms: Arc<AtomicI64>,
+    sample_rate: u32,
     join: Option<JoinHandle<()>>,
 }
 
@@ -61,7 +57,6 @@ impl SinkWorker {
         initial_ctx: PipelineContext,
         queue_capacity: usize,
     ) -> Result<Self, PipelineError> {
-        let sink_control_routes = build_sink_control_routes(&sinks)?;
         let capacity = queue_capacity.max(1);
         let rb = HeapRb::<AudioBlock>::new(capacity);
         let (audio_prod, audio_cons) = rb.split();
@@ -70,6 +65,9 @@ impl SinkWorker {
         let (startup_tx, startup_rx) = crossbeam_channel::bounded::<Result<(), PipelineError>>(1);
         let running = Arc::new(AtomicBool::new(true));
         let running_for_thread = Arc::clone(&running);
+        let consumed_frames = Arc::new(AtomicU64::new(0));
+        let consumed_frames_for_thread = Arc::clone(&consumed_frames);
+        let position_origin_ms = Arc::new(AtomicI64::new(initial_ctx.position_ms.max(0)));
 
         let join = std::thread::Builder::new()
             .name("stellatune-audio-sink-loop".to_string())
@@ -77,7 +75,6 @@ impl SinkWorker {
                 let _rt_guard = crate::infra::realtime::enable_realtime_audio_thread();
                 sink_thread_main(SinkThreadArgs {
                     sinks,
-                    sink_control_routes,
                     spec,
                     ctx: initial_ctx,
                     startup_tx,
@@ -85,6 +82,7 @@ impl SinkWorker {
                     wake_rx,
                     ctrl_rx,
                     running: running_for_thread,
+                    consumed_frames: consumed_frames_for_thread,
                 })
             })
             .map_err(|e| PipelineError::StageFailure(format!("spawn sink loop failed: {e}")))?;
@@ -102,6 +100,9 @@ impl SinkWorker {
             wake_tx,
             ctrl_tx,
             running,
+            consumed_frames,
+            position_origin_ms,
+            sample_rate: spec.sample_rate.max(1),
             join: Some(join),
         })
     }
@@ -148,27 +149,18 @@ impl SinkWorker {
         self.call_control(|resp_tx| SinkControl::DropQueued { resp_tx }, timeout)
     }
 
-    pub(crate) fn apply_stage_runtime_update(
-        &self,
-        stage_key: &str,
-        update: Arc<dyn StageRuntimeUpdate>,
-        timeout: Duration,
-    ) -> Result<StageRuntimeUpdateDispatchResult, PipelineError> {
-        let (resp_tx, resp_rx) = crossbeam_channel::bounded(1);
-        self.ctrl_tx
-            .send(SinkControl::ApplyStageRuntimeUpdate {
-                stage_key: stage_key.to_string(),
-                update,
-                resp_tx,
-            })
-            .map_err(|_| PipelineError::SinkDisconnected)?;
-        resp_rx.recv_timeout(timeout).map_err(|error| match error {
-            RecvTimeoutError::Timeout => PipelineError::StageFailure(format!(
-                "sink loop control timed out after {}ms",
-                timeout.as_millis()
-            )),
-            RecvTimeoutError::Disconnected => PipelineError::SinkDisconnected,
-        })?
+    pub(crate) fn reset_consumed_position(&self, position_ms: i64) {
+        self.position_origin_ms
+            .store(position_ms.max(0), Ordering::Release);
+        self.consumed_frames.store(0, Ordering::Release);
+    }
+
+    pub(crate) fn consumed_position_ms(&self) -> i64 {
+        let frames = self.consumed_frames.load(Ordering::Acquire) as u128;
+        let elapsed_ms = frames.saturating_mul(1_000) / self.sample_rate as u128;
+        self.position_origin_ms
+            .load(Ordering::Acquire)
+            .saturating_add(elapsed_ms.min(i64::MAX as u128) as i64)
     }
 
     pub(crate) fn shutdown(mut self, drain: bool, timeout: Duration) -> Result<(), PipelineError> {
@@ -246,7 +238,6 @@ impl Drop for RunningFlagGuard {
 
 struct SinkThreadArgs {
     sinks: Vec<Box<dyn SinkStage>>,
-    sink_control_routes: std::collections::HashMap<String, usize>,
     spec: StreamSpec,
     ctx: PipelineContext,
     startup_tx: Sender<Result<(), PipelineError>>,
@@ -254,6 +245,7 @@ struct SinkThreadArgs {
     wake_rx: Receiver<()>,
     ctrl_rx: Receiver<SinkControl>,
     running: Arc<AtomicBool>,
+    consumed_frames: Arc<AtomicU64>,
 }
 
 struct ControlOutcome {
@@ -268,7 +260,6 @@ struct ControlOutcome {
 fn sink_thread_main(args: SinkThreadArgs) {
     let SinkThreadArgs {
         mut sinks,
-        sink_control_routes,
         spec,
         mut ctx,
         startup_tx,
@@ -276,6 +267,7 @@ fn sink_thread_main(args: SinkThreadArgs) {
         wake_rx,
         ctrl_rx,
         running,
+        consumed_frames,
     } = args;
     let _running_guard = RunningFlagGuard::new(running);
     let startup = prepare_sinks(&mut sinks, spec, &mut ctx);
@@ -299,9 +291,9 @@ fn sink_thread_main(args: SinkThreadArgs) {
                 let outcome = handle_control(
                     control,
                     &mut sinks,
-                    &sink_control_routes,
                     &mut audio_cons,
                     &mut ctx,
+                    &consumed_frames,
                 );
                 sinks_stopped |= outcome.sinks_stopped;
                 if outcome.break_loop {
@@ -312,7 +304,12 @@ fn sink_thread_main(args: SinkThreadArgs) {
                 if msg.is_err() {
                     break;
                 }
-                if drain_audio_ring_to_sinks(&mut sinks, &mut audio_cons, &mut ctx).is_err() {
+                if drain_audio_ring_to_sinks(
+                    &mut sinks,
+                    &mut audio_cons,
+                    &mut ctx,
+                    &consumed_frames,
+                ).is_err() {
                     break;
                 }
             }
@@ -322,26 +319,6 @@ fn sink_thread_main(args: SinkThreadArgs) {
     if !sinks_stopped {
         stop_sinks(&mut sinks, &mut ctx);
     }
-}
-
-fn build_sink_control_routes(
-    sinks: &[Box<dyn SinkStage>],
-) -> Result<std::collections::HashMap<String, usize>, PipelineError> {
-    let mut routes = std::collections::HashMap::new();
-    for (index, sink) in sinks.iter().enumerate() {
-        let key = sink.key().trim();
-        if key.is_empty() {
-            return Err(PipelineError::StageFailure(
-                "sink stage key must not be empty".to_string(),
-            ));
-        }
-        if routes.insert(key.to_string(), index).is_some() {
-            return Err(PipelineError::StageFailure(format!(
-                "duplicate sink stage key: {key}"
-            )));
-        }
-    }
-    Ok(routes)
 }
 
 fn prepare_sinks(
@@ -385,9 +362,12 @@ fn drain_audio_ring_to_sinks(
     sinks: &mut [Box<dyn SinkStage>],
     audio_cons: &mut HeapCons<AudioBlock>,
     ctx: &mut PipelineContext,
+    consumed_frames: &AtomicU64,
 ) -> Result<(), PipelineError> {
     while let Some(block) = audio_cons.try_pop() {
         write_block(sinks, &block, ctx)?;
+        let channels = usize::from(block.channels.max(1));
+        consumed_frames.fetch_add((block.samples.len() / channels) as u64, Ordering::AcqRel);
     }
     Ok(())
 }
@@ -414,9 +394,9 @@ fn stop_sinks(sinks: &mut [Box<dyn SinkStage>], ctx: &mut PipelineContext) {
 fn handle_control(
     control: SinkControl,
     sinks: &mut [Box<dyn SinkStage>],
-    sink_control_routes: &std::collections::HashMap<String, usize>,
     audio_cons: &mut HeapCons<AudioBlock>,
     ctx: &mut PipelineContext,
+    consumed_frames: &AtomicU64,
 ) -> ControlOutcome {
     match control {
         SinkControl::RefreshRuntimeState {
@@ -432,7 +412,7 @@ fn handle_control(
             }
         },
         SinkControl::Drain { resp_tx } => {
-            let result = drain_audio_ring_to_sinks(sinks, audio_cons, ctx)
+            let result = drain_audio_ring_to_sinks(sinks, audio_cons, ctx, consumed_frames)
                 .and_then(|_| flush_sinks(sinks, ctx));
             let _ = resp_tx.send(result);
             ControlOutcome {
@@ -448,29 +428,11 @@ fn handle_control(
                 sinks_stopped: false,
             }
         },
-        SinkControl::ApplyStageRuntimeUpdate {
-            stage_key,
-            update,
-            resp_tx,
-        } => {
-            let result = apply_stage_runtime_update(
-                sinks,
-                sink_control_routes,
-                stage_key.as_str(),
-                update.as_ref(),
-                ctx,
-            );
-            let _ = resp_tx.send(result);
-            ControlOutcome {
-                break_loop: false,
-                sinks_stopped: false,
-            }
-        },
         SinkControl::Shutdown { drain, resp_tx } => {
             if !drain {
                 let _ = audio_cons.clear();
             } else {
-                let _ = drain_audio_ring_to_sinks(sinks, audio_cons, ctx);
+                let _ = drain_audio_ring_to_sinks(sinks, audio_cons, ctx, consumed_frames);
                 let _ = flush_sinks(sinks, ctx);
             }
             stop_sinks(sinks, ctx);
@@ -480,30 +442,6 @@ fn handle_control(
                 sinks_stopped: true,
             }
         },
-    }
-}
-
-fn apply_stage_runtime_update(
-    sinks: &mut [Box<dyn SinkStage>],
-    sink_control_routes: &std::collections::HashMap<String, usize>,
-    stage_key: &str,
-    update: &dyn StageRuntimeUpdate,
-    ctx: &mut PipelineContext,
-) -> Result<StageRuntimeUpdateDispatchResult, PipelineError> {
-    let Some(target_index) = sink_control_routes.get(stage_key).copied() else {
-        return Ok(StageRuntimeUpdateDispatchResult::StageNotFound);
-    };
-    let sinks_len = sinks.len();
-    let sink = sinks.get_mut(target_index).ok_or_else(|| {
-        PipelineError::StageFailure(format!(
-            "sink runtime-update target out of bounds: key={stage_key}, index={target_index}, len={sinks_len}"
-        ))
-    })?;
-    match sink.apply_runtime_update(update, ctx)? {
-        StageRuntimeUpdateResult::Applied => Ok(StageRuntimeUpdateDispatchResult::Applied),
-        StageRuntimeUpdateResult::Ignored => Err(PipelineError::StageFailure(format!(
-            "sink runtime-update target rejected update: key={stage_key}, index={target_index}"
-        ))),
     }
 }
 
@@ -518,6 +456,33 @@ mod tests {
     use stellatune_audio_core::pipeline::stages::{Stage, StageFlow};
 
     struct FatalOnWriteSink;
+    struct AcceptingSink;
+
+    impl Stage for AcceptingSink {}
+
+    impl SinkStage for AcceptingSink {
+        fn prepare(
+            &mut self,
+            _spec: StreamSpec,
+            _ctx: &mut PipelineContext,
+        ) -> Result<(), PipelineError> {
+            Ok(())
+        }
+
+        fn write(
+            &mut self,
+            _block: &AudioBlock,
+            _ctx: &mut PipelineContext,
+        ) -> Result<StageFlow, PipelineError> {
+            Ok(StageFlow::Continue)
+        }
+
+        fn flush(&mut self, _ctx: &mut PipelineContext) -> Result<(), PipelineError> {
+            Ok(())
+        }
+
+        fn stop(&mut self, _ctx: &mut PipelineContext) {}
+    }
 
     impl Stage for FatalOnWriteSink {}
 
@@ -596,5 +561,42 @@ mod tests {
             },
             Ok(()) => panic!("expected disconnected after sink loop exit"),
         }
+    }
+
+    #[test]
+    fn consumed_position_tracks_written_frames_and_seek_origin() {
+        let ctx = PipelineContext {
+            position_ms: 500,
+            ..PipelineContext::default()
+        };
+        let mut worker = SinkWorker::start(
+            vec![Box::new(AcceptingSink)],
+            StreamSpec {
+                sample_rate: 1_000,
+                channels: 2,
+            },
+            ctx,
+            2,
+        )
+        .unwrap();
+        worker
+            .try_send_block(AudioBlock {
+                channels: 2,
+                samples: vec![0.0; 200],
+            })
+            .unwrap();
+        worker.drain(Duration::from_millis(100)).unwrap();
+        assert_eq!(worker.consumed_position_ms(), 600);
+
+        worker.reset_consumed_position(2_000);
+        worker
+            .try_send_block(AudioBlock {
+                channels: 2,
+                samples: vec![0.0; 100],
+            })
+            .unwrap();
+        worker.drain(Duration::from_millis(100)).unwrap();
+        assert_eq!(worker.consumed_position_ms(), 2_050);
+        worker.shutdown(false, Duration::from_millis(100)).unwrap();
     }
 }

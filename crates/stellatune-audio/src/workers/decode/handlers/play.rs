@@ -1,5 +1,3 @@
-use crossbeam_channel::Sender;
-
 use crate::config::engine::PlayerState;
 use crate::error::DecodeError;
 use crate::pipeline::runtime::runner::RunnerState;
@@ -9,13 +7,12 @@ use crate::workers::decode::state::DecodeWorkerState;
 use crate::workers::decode::util::update_state;
 
 pub(crate) fn handle(
-    resp_tx: Sender<Result<(), DecodeError>>,
     callback: &DecodeWorkerEventCallback,
     state: &mut DecodeWorkerState,
-) -> bool {
+) -> Result<(), DecodeError> {
     let transition = state.gain_transition;
-    let result = if let Some(active_runner) = state.runner.as_mut() {
-        if state.state != PlayerState::Playing {
+    if let Some(active_runner) = state.runner.as_mut() {
+        if !state.pumping {
             if let Err(error) = gain_transition::request_fade_in_with_runner(
                 active_runner,
                 &mut state.ctx,
@@ -25,12 +22,12 @@ pub(crate) fn handle(
                 Err(DecodeError::from(error))
             } else {
                 active_runner.set_state(RunnerState::Playing);
-                update_state(callback, &mut state.state, PlayerState::Playing);
+                update_state(callback, &mut state.pumping, PlayerState::Playing);
                 Ok(())
             }
         } else {
             active_runner.set_state(RunnerState::Playing);
-            update_state(callback, &mut state.state, PlayerState::Playing);
+            update_state(callback, &mut state.pumping, PlayerState::Playing);
             Ok(())
         }
     } else {
@@ -38,7 +35,5 @@ pub(crate) fn handle(
             operation: "play",
             reason: state.current_no_active_pipeline_reason(),
         })
-    };
-    let _ = resp_tx.send(result);
-    false
+    }
 }

@@ -7,6 +7,7 @@ mod actor;
 mod handle;
 mod handlers;
 mod messages;
+mod session;
 mod startup;
 
 /// Handle type for interacting with the running audio engine.
@@ -30,19 +31,19 @@ pub type EngineHandle = handle::EngineHandle;
 /// use std::sync::Arc;
 ///
 /// use stellatune_audio::engine::start_engine;
-/// use stellatune_audio::pipeline::assembly::PipelineAssembler;
+/// use stellatune_audio::pipeline::assembly::PipelineFactory;
 ///
-/// # fn assembler() -> Arc<dyn PipelineAssembler> { todo!() }
+/// # fn factory() -> Arc<dyn PipelineFactory> { todo!() }
 /// # async fn boot() -> Result<(), stellatune_audio::error::EngineError> {
-/// let engine = start_engine(assembler())?;
+/// let engine = start_engine(factory())?;
 /// let _ = engine.snapshot().await?;
 /// # Ok(())
 /// # }
 /// ```
 pub fn start_engine(
-    assembler: std::sync::Arc<dyn crate::pipeline::assembly::PipelineAssembler>,
+    factory: std::sync::Arc<dyn crate::pipeline::assembly::PipelineFactory>,
 ) -> Result<EngineHandle, crate::error::EngineError> {
-    startup::start_engine(assembler)
+    startup::start_engine(factory)
 }
 
 /// Starts the audio engine with an explicit [`crate::config::engine::EngineConfig`].
@@ -62,18 +63,18 @@ pub fn start_engine(
 ///
 /// use stellatune_audio::config::engine::EngineConfig;
 /// use stellatune_audio::engine::start_engine_with_config;
-/// use stellatune_audio::pipeline::assembly::PipelineAssembler;
+/// use stellatune_audio::pipeline::assembly::PipelineFactory;
 ///
-/// # fn assembler() -> Arc<dyn PipelineAssembler> { todo!() }
+/// # fn factory() -> Arc<dyn PipelineFactory> { todo!() }
 /// # fn config() -> EngineConfig { EngineConfig::default() }
 /// # fn boot() -> Result<(), stellatune_audio::error::EngineError> {
-/// let _engine = start_engine_with_config(assembler(), config())?;
+/// let _engine = start_engine_with_config(factory(), config())?;
 /// # Ok(())
 /// # }
 /// ```
 pub fn start_engine_with_config(
-    assembler: std::sync::Arc<dyn crate::pipeline::assembly::PipelineAssembler>,
+    factory: std::sync::Arc<dyn crate::pipeline::assembly::PipelineFactory>,
     config: crate::config::engine::EngineConfig,
 ) -> Result<EngineHandle, crate::error::EngineError> {
-    startup::start_engine_with_config(assembler, config)
+    startup::start_engine_with_config(factory, config)
 }

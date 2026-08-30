@@ -1,53 +1,64 @@
 use std::sync::Arc;
 
-use stellatune_runtime::thread_actor::spawn_actor_named;
+use lattice_actor::{
+    mailbox::MailboxConfig,
+    runtime::{ActorExecutionPolicy, ActorRuntime, ActorSpawnOptions},
+};
 
 use crate::config::engine::EngineConfig;
 use crate::error::EngineError;
 use crate::infra::event_hub::EventHub;
-use crate::pipeline::assembly::PipelineAssembler;
+use crate::pipeline::assembly::PipelineFactory;
 use crate::pipeline::runtime::dsp::control::MasterGainHotControl;
-use crate::workers::decode::{DecodeWorker, DecodeWorkerEventCallback};
+use lattice_actor::traits::ActorLifecycleState;
 
-use crate::engine::actor::ControlActor;
+use crate::engine::actor::PlaybackActor;
 use crate::engine::handle::EngineHandle;
-use crate::engine::messages::{InstallDecodeWorkerMessage, OnDecodeWorkerEventMessage};
 
-pub(crate) fn start_engine(
-    assembler: Arc<dyn PipelineAssembler>,
-) -> Result<EngineHandle, EngineError> {
-    start_engine_with_config(assembler, EngineConfig::default())
+pub(crate) fn start_engine(factory: Arc<dyn PipelineFactory>) -> Result<EngineHandle, EngineError> {
+    start_engine_with_config(factory, EngineConfig::default())
 }
 
 pub(crate) fn start_engine_with_config(
-    assembler: Arc<dyn PipelineAssembler>,
+    factory: Arc<dyn PipelineFactory>,
     config: EngineConfig,
 ) -> Result<EngineHandle, EngineError> {
     let events = Arc::new(EventHub::new(config.event_capacity));
     let master_gain_hot_control = Arc::new(MasterGainHotControl::default());
-    let actor = ControlActor::new(Arc::clone(&events), config.clone());
-    let (actor_ref, _join) = spawn_actor_named(actor, "stellatune-audio-control")
-        .map_err(|source| EngineError::SpawnControlActor { source })?;
-
-    let worker_actor_ref = actor_ref.clone();
-    let worker_callback: DecodeWorkerEventCallback = Arc::new(move |event| {
-        let _ = worker_actor_ref.cast(OnDecodeWorkerEventMessage { event });
-    });
-    let worker = DecodeWorker::start(
-        assembler,
+    let actor = PlaybackActor::new(
+        Arc::clone(&events),
         config.clone(),
-        worker_callback,
+        factory,
         Arc::clone(&master_gain_hot_control),
     );
-
-    actor_ref
-        .call(
-            InstallDecodeWorkerMessage { worker },
-            config.command_timeout,
+    let actor_ref = ActorRuntime::default()
+        .spawn_actor(
+            actor,
+            ActorSpawnOptions {
+                mailbox: MailboxConfig::bounded(config.decode_command_capacity),
+                execution: Some(ActorExecutionPolicy::DedicatedThreadPool { worker_count: 1 }),
+                ..ActorSpawnOptions::default()
+            },
         )
-        .map_err(|error| {
-            EngineError::from_call_error("install_decode_worker", config.command_timeout, error)
-        })??;
+        .map_err(|error| EngineError::SpawnPlaybackActor {
+            message: error.to_string(),
+        })?;
+
+    let start_deadline = std::time::Instant::now() + config.command_timeout;
+    while actor_ref.lifecycle_state() == ActorLifecycleState::Starting {
+        if std::time::Instant::now() >= start_deadline {
+            return Err(EngineError::ControlCommandTimedOut {
+                operation: "start_playback_actor",
+                timeout_ms: config.command_timeout.as_millis(),
+            });
+        }
+        std::thread::yield_now();
+    }
+    if actor_ref.lifecycle_state() != ActorLifecycleState::Running {
+        return Err(EngineError::ControlActorExited {
+            operation: "start_playback_actor",
+        });
+    }
 
     Ok(EngineHandle::new(
         actor_ref,

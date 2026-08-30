@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "sidecarBaseUrl": { "type": "string", "default": "http://127.0.0.1:46321" },
+    "sidecarPath": { "type": ["string", "null"] },
+    "sidecarArgs": { "type": "array", "items": { "type": "string" }, "default": [] },
+    "requestTimeoutMs": { "type": "integer", "minimum": 500, "default": 8000 },
+    "defaultLevel": { "type": "string", "default": "standard" }
+  }
+}

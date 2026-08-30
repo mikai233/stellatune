@@ -12,12 +12,10 @@ use tracing::{info, warn};
 
 use crate::config::engine::EngineConfig;
 use crate::error::{DecodeError, NoActivePipelineReason};
-use crate::pipeline::assembly::{PipelineAssembler, PipelineRuntime};
+use crate::pipeline::assembly::PipelineFactory;
 use crate::pipeline::runtime::runner::RunnerState;
 use crate::pipeline::runtime::sink_session::SinkActivationMode;
-use crate::workers::decode::handlers::{
-    apply_master_gain_level_to_runner, replay_persisted_stage_runtime_updates_to_runner,
-};
+use crate::workers::decode::handlers::apply_master_gain_level_to_runner;
 use crate::workers::decode::pipeline_policies::apply_decode_policies;
 use crate::workers::decode::state::DecodeWorkerState;
 use crate::workers::decode::{DecodeWorkerEvent, DecodeWorkerEventCallback};
@@ -58,9 +56,8 @@ pub(crate) fn schedule_sink_recovery(
 ///
 /// Returns `true` while recovery handling should continue in the caller loop.
 pub(crate) fn try_sink_recovery_tick(
-    assembler: &Arc<dyn PipelineAssembler>,
+    factory: &Arc<dyn PipelineFactory>,
     callback: &DecodeWorkerEventCallback,
-    pipeline_runtime: &mut dyn PipelineRuntime,
     state: &mut DecodeWorkerState,
     config: &EngineConfig,
 ) -> bool {
@@ -83,7 +80,7 @@ pub(crate) fn try_sink_recovery_tick(
         return false;
     }
 
-    let recover_result = rebuild_active_runner(assembler, pipeline_runtime, state);
+    let recover_result = rebuild_active_runner(factory, state);
     if recover_result.is_ok() {
         info!(
             attempt,
@@ -156,8 +153,7 @@ pub(crate) fn active_input_for_log(state: &DecodeWorkerState) -> String {
 
 /// Reassembles and reactivates the current track runner at the last known position.
 fn rebuild_active_runner(
-    assembler: &Arc<dyn PipelineAssembler>,
-    pipeline_runtime: &mut dyn PipelineRuntime,
+    factory: &Arc<dyn PipelineFactory>,
     state: &mut DecodeWorkerState,
 ) -> Result<(), (&'static str, DecodeError)> {
     let input = state.active_input.clone().ok_or((
@@ -165,16 +161,9 @@ fn rebuild_active_runner(
         DecodeError::NoActiveInputForRecovery,
     ))?;
     let resume_position_ms = state.ctx.position_ms.max(0);
-    let mut failure_context = "sink_recovery.blueprint";
-    let blueprint = match state.pinned_blueprint.as_ref() {
-        Some(blueprint) => Arc::clone(blueprint),
-        None => assembler
-            .build_blueprint(&input)
-            .map_err(|error| (failure_context, error.into()))?,
-    };
-    failure_context = "sink_recovery.assemble";
-    let mut assembled = pipeline_runtime
-        .assemble(blueprint.as_ref())
+    let mut failure_context = "sink_recovery.assemble";
+    let mut assembled = factory
+        .build_pipeline(&input)
         .map_err(|error| (failure_context, error.into()))?;
     apply_decode_policies(&mut assembled, state);
     failure_context = "sink_recovery.into_runner";
@@ -200,14 +189,6 @@ fn rebuild_active_runner(
         &mut next_ctx,
         state.master_gain_hot_control.snapshot().level,
         0,
-    )
-    .map_err(|error| (failure_context, error))?;
-    failure_context = "sink_recovery.replay_stage_updates";
-    replay_persisted_stage_runtime_updates_to_runner(
-        &state.persisted_stage_runtime_updates,
-        &mut next_runner,
-        Some(&state.sink_session),
-        &mut next_ctx,
     )
     .map_err(|error| (failure_context, error))?;
     if resume_position_ms > 0 {
@@ -252,7 +233,3 @@ fn truncate_for_log(text: &str, max_chars: usize) -> String {
     }
     out
 }
-
-#[cfg(test)]
-#[path = "../../tests/workers/decode/recovery/mod.rs"]
-mod tests;

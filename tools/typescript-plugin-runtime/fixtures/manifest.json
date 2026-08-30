@@ -1,0 +1,26 @@
+{
+  "manifest_version": 2,
+  "id": "dev.stellatune.fixture.http-source",
+  "name": "HTTP Source Fixture",
+  "version": "0.1.0",
+  "runtime": {
+    "kind": "typescript",
+    "entry": "http-source-plugin.mjs",
+    "api_version": 2,
+    "protocol": "stellatune-capability-rpc/1"
+  },
+  "capabilities": [
+    {
+      "id": "fixture-source",
+      "kind": "source-resolver",
+      "execution_class": "control",
+      "display_name": "Fixture HTTP Source"
+    },
+    {
+      "id": "fixture-search",
+      "kind": "network-control",
+      "execution_class": "control",
+      "display_name": "Fixture Search"
+    }
+  ]
+}

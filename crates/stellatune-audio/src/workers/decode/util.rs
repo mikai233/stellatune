@@ -2,34 +2,17 @@
 
 use std::time::{Duration, Instant};
 
-use crossbeam_channel::Receiver;
 use stellatune_audio_core::pipeline::context::PipelineContext;
 
 use crate::config::engine::PlayerState;
-use crate::error::DecodeError;
 use crate::workers::decode::{DecodeWorkerEvent, DecodeWorkerEventCallback};
 
-pub(crate) fn recv_result(
-    resp_rx: Receiver<Result<(), DecodeError>>,
-    timeout: Duration,
-) -> Result<(), DecodeError> {
-    resp_rx
-        .recv_timeout(timeout)
-        .map_err(|_| DecodeError::CommandTimedOut {
-            timeout_ms: timeout.as_millis(),
-        })?
-}
-
 pub(crate) fn update_state(
-    callback: &DecodeWorkerEventCallback,
-    current_state: &mut PlayerState,
+    _callback: &DecodeWorkerEventCallback,
+    pumping: &mut bool,
     next_state: PlayerState,
 ) {
-    if *current_state == next_state {
-        return;
-    }
-    *current_state = next_state;
-    callback(DecodeWorkerEvent::StateChanged(next_state));
+    *pumping = next_state == PlayerState::Playing;
 }
 
 pub(crate) fn maybe_emit_position(

@@ -4,11 +4,9 @@ use stellatune_audio_core::pipeline::context::{
 };
 use stellatune_audio_core::pipeline::error::PipelineError;
 use stellatune_audio_core::pipeline::stages::transform::TransformStage;
-use stellatune_audio_core::pipeline::stages::{
-    Stage, StageFlow, StageRuntimeUpdate, StageRuntimeUpdateResult, downcast_runtime_update,
-};
+use stellatune_audio_core::pipeline::stages::{Stage, StageFlow};
 
-use crate::pipeline::runtime::dsp::control::{TRANSITION_GAIN_STAGE_KEY, TransitionGainControl};
+use crate::pipeline::runtime::dsp::control::TRANSITION_GAIN_STAGE_KEY;
 
 #[derive(Debug)]
 pub(crate) struct TransitionGainStage {
@@ -133,23 +131,17 @@ impl Stage for TransitionGainStage {
     fn key(&self) -> &str {
         TRANSITION_GAIN_STAGE_KEY
     }
-
-    fn apply_runtime_update(
-        &mut self,
-        update: &dyn StageRuntimeUpdate,
-        _ctx: &mut PipelineContext,
-    ) -> Result<StageRuntimeUpdateResult, PipelineError> {
-        match downcast_runtime_update::<TransitionGainControl>(update) {
-            Some(update) => {
-                self.configure_transition(update.request);
-                Ok(StageRuntimeUpdateResult::Applied)
-            },
-            None => Ok(StageRuntimeUpdateResult::Ignored),
-        }
-    }
 }
 
 impl TransformStage for TransitionGainStage {
+    fn set_transition_gain(
+        &mut self,
+        request: GainTransitionRequest,
+    ) -> Result<bool, PipelineError> {
+        self.configure_transition(request);
+        Ok(true)
+    }
+
     fn prepare(
         &mut self,
         spec: StreamSpec,
@@ -188,7 +180,6 @@ impl TransformStage for TransitionGainStage {
 
 #[cfg(test)]
 mod tests {
-    use crate::pipeline::runtime::dsp::control::TransitionGainControl;
     use crate::pipeline::runtime::dsp::transition_gain::TransitionGainStage;
     use stellatune_audio_core::pipeline::context::{
         AudioBlock, GainTransitionRequest, PipelineContext, StreamSpec, TransitionCurve,
@@ -218,17 +209,14 @@ mod tests {
             )
             .expect("prepare failed");
         stage
-            .apply_runtime_update(
-                &TransitionGainControl::new(GainTransitionRequest {
-                    target_gain: 0.0,
-                    ramp_ms: 4,
-                    available_frames_hint: None,
-                    curve: TransitionCurve::Linear,
-                    time_policy: TransitionTimePolicy::Exact,
-                }),
-                &mut ctx,
-            )
-            .expect("apply_runtime_update failed");
+            .set_transition_gain(GainTransitionRequest {
+                target_gain: 0.0,
+                ramp_ms: 4,
+                available_frames_hint: None,
+                curve: TransitionCurve::Linear,
+                time_policy: TransitionTimePolicy::Exact,
+            })
+            .expect("set_transition_gain failed");
         stage
             .refresh_runtime_state(&mut ctx)
             .expect("refresh_runtime_state failed");
@@ -264,17 +252,14 @@ mod tests {
             )
             .expect("prepare failed");
         stage
-            .apply_runtime_update(
-                &TransitionGainControl::new(GainTransitionRequest {
-                    target_gain: 0.0,
-                    ramp_ms: 100,
-                    available_frames_hint: Some(2),
-                    curve: TransitionCurve::EqualPower,
-                    time_policy: TransitionTimePolicy::FitToAvailable,
-                }),
-                &mut ctx,
-            )
-            .expect("apply_runtime_update failed");
+            .set_transition_gain(GainTransitionRequest {
+                target_gain: 0.0,
+                ramp_ms: 100,
+                available_frames_hint: Some(2),
+                curve: TransitionCurve::EqualPower,
+                time_policy: TransitionTimePolicy::FitToAvailable,
+            })
+            .expect("set_transition_gain failed");
         stage
             .refresh_runtime_state(&mut ctx)
             .expect("refresh_runtime_state failed");

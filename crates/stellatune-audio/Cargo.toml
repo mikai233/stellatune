@@ -17,7 +17,7 @@ arc-swap.workspace = true
 thiserror.workspace = true
 
 stellatune-audio-core.workspace = true
-stellatune-runtime.workspace = true
+lattice-actor.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows.workspace = true

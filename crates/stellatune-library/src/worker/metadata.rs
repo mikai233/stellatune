@@ -1,11 +1,8 @@
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result, anyhow};
-use base64::Engine;
-use serde_json::Value as JsonValue;
+use anyhow::{Context, Result};
 use symphonia::core::common::Limit;
 use symphonia::core::formats::probe::Hint;
 use symphonia::core::formats::{FormatOptions, FormatReader, SeekMode, SeekTo, TrackType};
@@ -15,11 +12,6 @@ use symphonia::core::units::{Time, TimeBase, Timestamp};
 use symphonia::default::get_probe;
 use tracing::debug;
 
-use stellatune_audio_builtin_adapters::builtin_decoder::builtin_decoder_score_for_ext;
-use stellatune_plugins::host_runtime::{
-    RuntimeCapabilityKind, RuntimeDecoderPlugin, shared_runtime_service,
-};
-
 #[derive(Default)]
 pub(super) struct ExtractedMetadata {
     pub(super) title: Option<String>,
@@ -27,93 +19,6 @@ pub(super) struct ExtractedMetadata {
     pub(super) album: Option<String>,
     pub(super) duration_ms: Option<i64>,
     pub(super) cover: Option<Vec<u8>>,
-}
-
-#[derive(Debug, Clone)]
-struct DecoderCandidate {
-    plugin_id: String,
-    type_id: String,
-    score: u16,
-}
-
-struct CachedMetadataDecoder {
-    decoder: RuntimeDecoderPlugin,
-    last_used_at: Instant,
-}
-
-const METADATA_DECODER_CACHE_IDLE_TTL: Duration = Duration::from_secs(2);
-
-const METADATA_DECODER_CACHE_MAX_ENTRIES: usize = 8;
-
-thread_local! {
-    static METADATA_DECODER_CACHE: RefCell<
-        HashMap<(String, String), CachedMetadataDecoder>
-    > = RefCell::new(HashMap::new());
-}
-
-pub(super) fn clear_metadata_decoder_cache() {
-    METADATA_DECODER_CACHE.with_borrow_mut(|cache| cache.clear());
-}
-
-fn create_plugin_metadata_decoder(candidate: &DecoderCandidate) -> Result<RuntimeDecoderPlugin> {
-    let runtime = shared_runtime_service();
-    runtime
-        .create_decoder_plugin(&candidate.plugin_id, &candidate.type_id)
-        .map_err(|e| {
-            anyhow::anyhow!(
-                "create decoder plugin failed for {}::{}: {e:#}",
-                candidate.plugin_id,
-                candidate.type_id
-            )
-        })
-}
-
-fn prune_metadata_decoder_cache(
-    cache: &mut HashMap<(String, String), CachedMetadataDecoder>,
-    now: Instant,
-) {
-    cache.retain(|_, entry| {
-        now.duration_since(entry.last_used_at) <= METADATA_DECODER_CACHE_IDLE_TTL
-    });
-    while cache.len() > METADATA_DECODER_CACHE_MAX_ENTRIES {
-        let Some(oldest_key) = cache
-            .iter()
-            .min_by_key(|(_, v)| v.last_used_at)
-            .map(|(k, _)| k.clone())
-        else {
-            break;
-        };
-        cache.remove(&oldest_key);
-    }
-}
-
-fn with_cached_metadata_decoder<T>(
-    candidate: &DecoderCandidate,
-    f: impl FnOnce(&mut RuntimeDecoderPlugin) -> Result<T>,
-) -> Result<T> {
-    METADATA_DECODER_CACHE.with_borrow_mut(|cache| {
-        let now = Instant::now();
-        prune_metadata_decoder_cache(cache, now);
-
-        let key = (candidate.plugin_id.clone(), candidate.type_id.clone());
-        let mut entry = match cache.remove(&key) {
-            Some(entry) => entry,
-            None => {
-                let decoder = create_plugin_metadata_decoder(candidate)?;
-                CachedMetadataDecoder {
-                    decoder,
-                    last_used_at: now,
-                }
-            },
-        };
-        let result = f(&mut entry.decoder);
-        if result.is_ok() {
-            entry.last_used_at = Instant::now();
-            cache.insert(key, entry);
-            prune_metadata_decoder_cache(cache, Instant::now());
-        }
-        result
-    })
 }
 
 pub(super) fn extract_metadata(path: &Path) -> Result<ExtractedMetadata> {
@@ -218,91 +123,11 @@ pub(super) fn extract_metadata(path: &Path) -> Result<ExtractedMetadata> {
     Ok(out)
 }
 
-fn normalize_ext_hint(raw: &str) -> String {
-    raw.trim().trim_start_matches('.').to_ascii_lowercase()
-}
-
-fn decoder_candidates_for_ext(ext: &str) -> Vec<DecoderCandidate> {
-    let normalized = normalize_ext_hint(ext);
-    if normalized.is_empty() {
-        return Vec::new();
-    }
-    let service = shared_runtime_service();
-    let mut seen = HashSet::new();
-    let mut out = Vec::new();
-    for candidate in service.list_decoder_candidates_for_ext(&normalized) {
-        if !seen.insert((candidate.plugin_id.clone(), candidate.type_id.clone())) {
-            continue;
-        }
-        let Some(_) = service.find_capability(
-            &candidate.plugin_id,
-            RuntimeCapabilityKind::Decoder,
-            &candidate.type_id,
-        ) else {
-            continue;
-        };
-        out.push(DecoderCandidate {
-            plugin_id: candidate.plugin_id,
-            type_id: candidate.type_id,
-            score: candidate.score,
-        });
-    }
-    out
-}
-
-fn best_decoder_score_for_ext(ext: &str) -> Option<u16> {
-    decoder_candidates_for_ext(ext)
-        .into_iter()
-        .map(|v| v.score)
-        .max()
-}
-
-fn select_plugin_metadata_decoder_candidates(path: &Path) -> Vec<DecoderCandidate> {
-    let ext = path
-        .extension()
-        .and_then(|s| s.to_str())
-        .unwrap_or("")
-        .to_ascii_lowercase();
-    decoder_candidates_for_ext(&ext)
-}
-
-pub(super) fn has_plugin_decoder_for_path(path: &Path) -> bool {
-    let ext = path
-        .extension()
-        .and_then(|s| s.to_str())
-        .unwrap_or("")
-        .to_ascii_lowercase();
-    if ext.is_empty() {
-        false
-    } else {
-        !decoder_candidates_for_ext(&ext).is_empty()
-    }
+pub(super) fn has_plugin_decoder_for_path(_path: &Path) -> bool {
+    false
 }
 
 pub(super) fn extract_metadata_with_plugins(path: &Path) -> Result<ExtractedMetadata> {
-    let ext = path
-        .extension()
-        .and_then(|s| s.to_str())
-        .unwrap_or("")
-        .trim()
-        .to_ascii_lowercase();
-    let builtin_score = builtin_decoder_score_for_ext(&ext).unwrap_or(0);
-    let prefer_plugin = if ext.is_empty() {
-        false
-    } else {
-        best_decoder_score_for_ext(&ext).is_some_and(|score| score > builtin_score)
-    };
-
-    if prefer_plugin {
-        debug!(
-            target: "stellatune_library::metadata",
-            path = %path.display(),
-            ext = %ext,
-            "using v2 plugin metadata extractor"
-        );
-        return extract_plugin_metadata_from_plugin(path);
-    }
-
     extract_metadata(path)
 }
 
@@ -354,17 +179,6 @@ fn trim_duration_ms_i64(
     Some(duration_ms.saturating_sub(delta_ms.min(i64::MAX as u64) as i64))
 }
 
-fn trim_duration_ms_u64_to_i64(
-    duration_ms: Option<u64>,
-    sample_rate: u32,
-    encoder_delay_frames: u32,
-    encoder_padding_frames: u32,
-) -> Option<i64> {
-    let duration_ms = duration_ms?;
-    let delta_ms = gapless_trim_delta_ms(sample_rate, encoder_delay_frames, encoder_padding_frames);
-    Some(duration_ms.saturating_sub(delta_ms).min(i64::MAX as u64) as i64)
-}
-
 fn estimate_duration_ms_by_seek(
     format: &mut dyn FormatReader,
     track_id: u32,
@@ -384,170 +198,9 @@ fn estimate_duration_ms_by_seek(
     Some(duration_ms_from_time_base(tb, end_ts))
 }
 
-fn extract_plugin_metadata_from_plugin(path: &Path) -> Result<ExtractedMetadata> {
-    let started = std::time::Instant::now();
-    let ext = path
-        .extension()
-        .and_then(|s| s.to_str())
-        .unwrap_or("")
-        .to_ascii_lowercase();
-    let candidates = select_plugin_metadata_decoder_candidates(path);
-    if candidates.is_empty() {
-        return Err(anyhow::anyhow!(
-            "no v2 plugin decoder candidate for {}",
-            path.display()
-        ));
-    }
-
-    let mut last_err: Option<String> = None;
-    for candidate in candidates {
-        match with_cached_metadata_decoder(&candidate, |decoder| {
-            let ext_hint = (!ext.trim().is_empty()).then_some(ext.as_str());
-            let session = decoder
-                .open_file(path, ext_hint)
-                .map_err(|error| anyhow!("{error:#}"))
-                .with_context(|| {
-                    format!(
-                        "decoder open_file failed for {}::{}",
-                        candidate.plugin_id, candidate.type_id
-                    )
-                })?;
-            debug!(
-                target: "stellatune_library::metadata",
-                path = %path.display(),
-                plugin_id = %candidate.plugin_id,
-                decoder_type_id = %candidate.type_id,
-                elapsed_ms = started.elapsed().as_millis(),
-                "v2 wasm decoder opened for metadata"
-            );
-
-            let info = decoder.info(session).map_err(|error| anyhow!("{error:#}"));
-            let metadata = decoder
-                .metadata(session)
-                .ok()
-                .and_then(|value| serde_json::to_value(value).ok());
-            let _ = decoder.close(session);
-            let info = info?;
-
-            let mut out = ExtractedMetadata {
-                duration_ms: trim_duration_ms_u64_to_i64(
-                    info.duration_ms,
-                    info.sample_rate,
-                    info.encoder_delay_frames,
-                    info.encoder_padding_frames,
-                ),
-                ..Default::default()
-            };
-            if let Some(metadata) = metadata.as_ref() {
-                apply_runtime_metadata_json(metadata, &mut out);
-            }
-            if out.cover.is_none() {
-                out.cover = load_sidecar_cover(path);
-            }
-            Ok(out)
-        }) {
-            Ok(out) => return Ok(out),
-            Err(e) => {
-                last_err = Some(e.to_string());
-                continue;
-            },
-        }
-    }
-
-    Err(anyhow!(
-        "failed to extract plugin metadata for {}: {}",
-        path.display(),
-        last_err.unwrap_or_else(|| "no decoder candidate succeeded".to_string())
-    ))
-}
-
-fn apply_runtime_metadata_json(metadata: &JsonValue, out: &mut ExtractedMetadata) {
-    if out.title.is_none() {
-        out.title = metadata
-            .pointer("/tags/title")
-            .and_then(JsonValue::as_str)
-            .and_then(normalize_text_field);
-    }
-    if out.artist.is_none() {
-        out.artist = metadata
-            .pointer("/tags/artists")
-            .and_then(JsonValue::as_array)
-            .and_then(|artists| artists.first())
-            .and_then(JsonValue::as_str)
-            .and_then(normalize_text_field);
-    }
-    if out.album.is_none() {
-        out.album = metadata
-            .pointer("/tags/album")
-            .and_then(JsonValue::as_str)
-            .and_then(normalize_text_field);
-    }
-    if out.cover.is_none() {
-        out.cover = extract_cover_from_runtime_extras_json(metadata);
-    }
-}
-
 fn normalize_text_field(raw: &str) -> Option<String> {
     let text = raw.trim().to_string();
     if text.is_empty() { None } else { Some(text) }
-}
-
-fn extract_cover_from_runtime_extras_json(metadata: &JsonValue) -> Option<Vec<u8>> {
-    let extras = metadata.get("extras")?.as_array()?;
-    for entry in extras {
-        let key = entry
-            .get("key")
-            .and_then(JsonValue::as_str)
-            .unwrap_or_default()
-            .trim()
-            .to_ascii_lowercase();
-        if !key.contains("cover") && !key.contains("art") && !key.contains("image") {
-            continue;
-        }
-        let Some(value) = entry.get("value") else {
-            continue;
-        };
-        if let Some(bytes) = extract_cover_bytes_from_runtime_value(value) {
-            return Some(bytes);
-        }
-    }
-    None
-}
-
-fn extract_cover_bytes_from_runtime_value(value: &JsonValue) -> Option<Vec<u8>> {
-    if let Some(bytes) = value
-        .get("bytes")
-        .or_else(|| value.get("Bytes"))
-        .and_then(JsonValue::as_array)
-    {
-        let mut out = Vec::with_capacity(bytes.len());
-        for item in bytes {
-            let byte = item.as_u64()?;
-            if byte > u8::MAX as u64 {
-                return None;
-            }
-            out.push(byte as u8);
-        }
-        if !out.is_empty() && (out.len() as u64) <= COVER_BYTES_LIMIT {
-            return Some(out);
-        }
-    }
-    let text = value
-        .get("text")
-        .or_else(|| value.get("Text"))
-        .and_then(JsonValue::as_str)
-        .or_else(|| value.as_str())?;
-    let text = text.trim();
-    if text.is_empty() {
-        return None;
-    }
-    let bytes = base64::engine::general_purpose::STANDARD
-        .decode(text)
-        .ok()?;
-    if bytes.is_empty() || (bytes.len() as u64) > COVER_BYTES_LIMIT {
-        return None;
-    }
-    Some(bytes)
 }
 
 const COVER_BYTES_LIMIT: u64 = 12 * 1024 * 1024;
@@ -814,16 +467,11 @@ pub(super) fn write_cover_bytes(cover_dir: &Path, track_id: i64, bytes: &[u8]) -
 
 #[cfg(test)]
 mod tests {
-    use super::{trim_duration_ms_i64, trim_duration_ms_u64_to_i64};
+    use super::trim_duration_ms_i64;
 
     #[test]
     fn trims_gapless_padding_from_i64_duration() {
         assert_eq!(trim_duration_ms_i64(Some(10), 1000, 3, 2), Some(5));
-    }
-
-    #[test]
-    fn trims_gapless_padding_from_u64_duration() {
-        assert_eq!(trim_duration_ms_u64_to_i64(Some(10), 1000, 1, 4), Some(5));
     }
 
     #[test]

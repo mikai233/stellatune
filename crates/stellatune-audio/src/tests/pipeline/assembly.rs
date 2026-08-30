@@ -33,7 +33,7 @@ impl SourceStage for TestSource {
         _input: &InputRef,
         _ctx: &mut PipelineContext,
     ) -> Result<SourceHandle, PipelineError> {
-        Ok(SourceHandle::new(()))
+        Ok(SourceHandle::Empty)
     }
     fn stop(&mut self, _ctx: &mut PipelineContext) {}
 }

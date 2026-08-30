@@ -5,29 +5,16 @@ members = [
   "crates/stellatune-icon",
   "crates/stellatune-audio-core",
   "crates/audio-adapters/stellatune-audio-builtin-adapters",
-  "crates/audio-adapters/stellatune-audio-plugin-adapters",
   "crates/plugins-native/stellatune-asio-proto",
-  "crates/plugins-native/stellatune-asio-host",
   "crates/plugins-native/stellatune-sidecar-support",
   "crates/stellatune-backend-api",
   "crates/stellatune-ffi",
   "crates/stellatune-library",
-  "crates/plugins-native/stellatune-plugin-asio",
-  "crates/plugins-native/stellatune-plugin-ncm",
-  "crates/plugins-native/stellatune-plugin-netease/source",
-  "crates/plugins-native/stellatune-plugin-netease/decoder",
-  "crates/stellatune-host-bindings",
-  "crates/stellatune-world-bindings",
-  "crates/guest-worlds/decoder",
-  "crates/guest-worlds/encoder",
-  "crates/guest-worlds/source",
-  "crates/guest-worlds/lyrics",
-  "crates/guest-worlds/output-sink",
-  "crates/guest-worlds/dsp",
-  "crates/stellatune-plugin-sdk",
   "crates/stellatune-plugins",
-  "crates/stellatune-runtime",
   "crates/stellatune-audio",
+]
+exclude = [
+  "crates/plugins-native/stellatune-asio-host",
 ]
 
 [workspace.package]
@@ -42,23 +29,12 @@ wildcard_imports = "deny"
 [workspace.dependencies]
 stellatune-audio-core = { path = "crates/stellatune-audio-core" }
 stellatune-audio-builtin-adapters = { path = "crates/audio-adapters/stellatune-audio-builtin-adapters" }
-stellatune-audio-plugin-adapters = { path = "crates/audio-adapters/stellatune-audio-plugin-adapters" }
 stellatune-audio = { path = "crates/stellatune-audio" }
 stellatune-asio-proto = { path = "crates/plugins-native/stellatune-asio-proto" }
 stellatune-sidecar-support = { path = "crates/plugins-native/stellatune-sidecar-support" }
 stellatune-backend-api = { path = "crates/stellatune-backend-api" }
 stellatune-library = { path = "crates/stellatune-library" }
-stellatune-host-bindings = { path = "crates/stellatune-host-bindings" }
-stellatune-world-bindings = { path = "crates/stellatune-world-bindings" }
-stellatune-world-decoder = { path = "crates/guest-worlds/decoder" }
-stellatune-world-encoder = { path = "crates/guest-worlds/encoder" }
-stellatune-world-source = { path = "crates/guest-worlds/source" }
-stellatune-world-lyrics = { path = "crates/guest-worlds/lyrics" }
-stellatune-world-output-sink = { path = "crates/guest-worlds/output-sink" }
-stellatune-world-dsp = { path = "crates/guest-worlds/dsp" }
-stellatune-plugin-sdk = { package = "stellatune-plugin-sdk", path = "crates/stellatune-plugin-sdk" }
 stellatune-plugins = { package = "stellatune-plugins", path = "crates/stellatune-plugins" }
-stellatune-runtime = { path = "crates/stellatune-runtime" }
 
 anyhow = "1.0.104"
 arc-swap = "1.9.2"
@@ -76,6 +52,7 @@ flutter_rust_bridge = "=2.13.0"
 futures-util = "0.3.34"
 get_if_addrs = "0.5.3"
 libc = "0.2.189"
+lattice-actor = { git = "https://github.com/realm-labs/lattice.git", rev = "23bd4e83126b6aeb5f273e94ca35d4f3de69cfd7" }
 local-ip-address = "0.6.13"
 m3u8-rs = "6.0.1"
 memmap2 = "0.9.11"
@@ -93,6 +70,7 @@ roxmltree = "0.21.1"
 rubato = "5.0.0"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1.0.151"
+sha2 = "0.10.9"
 skia-safe = "0.99.0"
 socket2 = "0.6.5"
 sqlx = { version = "0.9.0", default-features = false, features = [
@@ -121,8 +99,10 @@ symphonia = { version = "0.6.1", default-features = false, features = [
 tempfile = "3.27.0"
 thiserror = "2.0.20"
 tokio = { version = "1.53.1", features = [
+  "io-util",
   "rt-multi-thread",
   "macros",
+  "process",
   "sync",
   "time",
 ] }
@@ -136,11 +116,7 @@ tracing-subscriber = { version = "0.3.23", features = [
 url = "2.5.8"
 walkdir = "2.5.0"
 wasapi = "0.24.0"
-wasmtime = { version = "48.0.1", features = ["component-model", "cache"] }
-wasmtime-wasi = "48.0.1"
-wat = "1.258.0"
 windows = { version = "0.62.2", features = [
   "Win32_System_Threading",
   "Win32_Foundation",
 ] }
-wit-bindgen = "0.61.1"

@@ -1,21 +1,22 @@
 use anyhow::Result;
-use stellatune_runtime::tokio_actor::{ActorContext, Handler, Message};
+use lattice_actor::{
+    context::HandlerContext, error::ActorError, reply::ReplyTo, traits::Responder,
+};
 
 use crate::lyrics_service::LyricsServiceActor;
 
+#[derive(lattice_actor::Request)]
+#[request(response = Result<()>)]
 pub(crate) struct RefreshCurrentMessage;
 
-impl Message for RefreshCurrentMessage {
-    type Response = Result<()>;
-}
-
-#[async_trait::async_trait]
-impl Handler<RefreshCurrentMessage> for LyricsServiceActor {
-    async fn handle(
+impl Responder<RefreshCurrentMessage> for LyricsServiceActor {
+    async fn respond(
         &mut self,
+        _ctx: &mut HandlerContext<'_, Self>,
         _message: RefreshCurrentMessage,
-        _ctx: &mut ActorContext<Self>,
-    ) -> Result<()> {
-        self.core.refresh_current().await
+        reply_to: ReplyTo<Result<()>>,
+    ) -> Result<(), ActorError> {
+        let _ = reply_to.send(self.core.refresh_current().await);
+        Ok(())
     }
 }

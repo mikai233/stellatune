@@ -101,7 +101,7 @@ class SettingsPluginRuntimeService {
     final root = pluginDirPath.trim();
     if (root.isEmpty) return false;
     try {
-      final manifestPath = p.join(root, 'plugin.json');
+      final manifestPath = p.join(root, 'manifest.json');
       final manifestFile = File(manifestPath);
       if (!await manifestFile.exists()) return false;
       final raw = await manifestFile.readAsString();

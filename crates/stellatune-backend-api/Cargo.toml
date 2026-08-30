@@ -9,6 +9,7 @@ anyhow.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+thiserror.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 axum.workspace = true
@@ -18,18 +19,20 @@ sqlx.workspace = true
 arc-swap.workspace = true
 flutter_rust_bridge.workspace = true
 async-trait.workspace = true
+lattice-actor.workspace = true
 reqwest = { workspace = true, features = ["rustls", "gzip"] }
 tokio-util = { workspace = true, features = ["io"] }
 url.workspace = true
 
 stellatune-audio-builtin-adapters.workspace = true
 stellatune-audio-core.workspace = true
-stellatune-audio-plugin-adapters.workspace = true
 stellatune-audio.workspace = true
 stellatune-library.workspace = true
 stellatune-plugins.workspace = true
-stellatune-runtime.workspace = true
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
 

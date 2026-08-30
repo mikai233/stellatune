@@ -3,8 +3,10 @@
 //! Public items in this module define how decode pipelines are planned,
 //! transformed, and materialized for runtime execution.
 
-/// Pipeline assembly contracts and mutation types.
+/// Pipeline assembly contracts.
 pub mod assembly;
-/// Transform graph model and mutation primitives.
-pub mod graph;
+/// Capability descriptors, typed factories, and registry validation.
+pub mod capability;
+/// Strongly typed playback intent, source negotiation, and executable plans.
+pub mod plan;
 pub(crate) mod runtime;

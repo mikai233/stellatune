@@ -1,11 +1,10 @@
 use std::sync::Arc;
 
-use crossbeam_channel::Sender;
 use stellatune_audio_core::pipeline::context::InputRef;
 
 use crate::config::engine::PlayerState;
 use crate::error::DecodeError;
-use crate::pipeline::assembly::{PipelineAssembler, PipelineRuntime};
+use crate::pipeline::assembly::PipelineFactory;
 use crate::pipeline::runtime::runner::RunnerState;
 use crate::pipeline::runtime::sink_session::SinkActivationMode;
 use crate::workers::decode::handlers::control_apply;
@@ -15,39 +14,17 @@ use crate::workers::decode::state::{DecodeWorkerState, PrewarmedNext};
 use crate::workers::decode::util::update_state;
 use crate::workers::decode::{DecodeWorkerEvent, DecodeWorkerEventCallback};
 
-pub(crate) fn handle(
-    input: InputRef,
-    start_playing: bool,
-    resp_tx: Sender<Result<(), DecodeError>>,
-    assembler: &Arc<dyn PipelineAssembler>,
-    callback: &DecodeWorkerEventCallback,
-    pipeline_runtime: &mut dyn PipelineRuntime,
-    state: &mut DecodeWorkerState,
-) -> bool {
-    let result = open_input(
-        input,
-        start_playing,
-        assembler,
-        callback,
-        pipeline_runtime,
-        state,
-    );
-    let _ = resp_tx.send(result);
-    false
-}
-
 pub(crate) fn open_input(
     input: InputRef,
     start_playing: bool,
-    assembler: &Arc<dyn PipelineAssembler>,
+    factory: &Arc<dyn PipelineFactory>,
     callback: &DecodeWorkerEventCallback,
-    pipeline_runtime: &mut dyn PipelineRuntime,
     state: &mut DecodeWorkerState,
 ) -> Result<(), DecodeError> {
     let transition = state.gain_transition;
     let mut previous_runner = state.runner.take();
     if let Some(active_runner) = previous_runner.as_mut()
-        && state.state == PlayerState::Playing
+        && state.pumping
     {
         let available_frames_hint = active_runner.playable_remaining_frames_hint();
         let _ = gain_transition::run_interrupt_fade_out(
@@ -67,11 +44,7 @@ pub(crate) fn open_input(
     state.recovery_retry_at = None;
     state.clear_pipeline_unavailable_reason();
 
-    let blueprint = match state.pinned_blueprint.as_ref() {
-        Some(blueprint) => Arc::clone(blueprint),
-        None => assembler.build_blueprint(&input)?,
-    };
-    let mut assembled = pipeline_runtime.assemble(blueprint.as_ref())?;
+    let mut assembled = factory.build_pipeline(&input)?;
     apply_decode_policies(&mut assembled, state);
     let build_result = (|| -> Result<_, DecodeError> {
         let mut next_runner =
@@ -93,12 +66,6 @@ pub(crate) fn open_input(
         &mut state.ctx,
         state.master_gain_hot_control.snapshot().level,
         0,
-    )?;
-    control_apply::replay_persisted_stage_runtime_updates_to_runner(
-        &state.persisted_stage_runtime_updates,
-        &mut next_runner,
-        Some(&state.sink_session),
-        &mut state.ctx,
     )?;
     if start_playing {
         gain_transition::request_fade_in_from_silence_with_runner(
@@ -126,7 +93,7 @@ pub(crate) fn open_input(
     }
     update_state(
         callback,
-        &mut state.state,
+        &mut state.pumping,
         if start_playing {
             PlayerState::Playing
         } else {
@@ -138,26 +105,15 @@ pub(crate) fn open_input(
 
 pub(crate) fn prewarm_input(
     input: InputRef,
-    assembler: &Arc<dyn PipelineAssembler>,
-    pipeline_runtime: &mut dyn PipelineRuntime,
+    factory: &Arc<dyn PipelineFactory>,
     state: &DecodeWorkerState,
 ) -> Result<PrewarmedNext, DecodeError> {
-    let blueprint = match state.pinned_blueprint.as_ref() {
-        Some(blueprint) => Arc::clone(blueprint),
-        None => assembler.build_blueprint(&input)?,
-    };
-    let mut assembled = pipeline_runtime.assemble(blueprint.as_ref())?;
+    let mut assembled = factory.build_pipeline(&input)?;
     apply_decode_policies(&mut assembled, state);
     let mut next_runner =
         assembled.into_runner(Some(Arc::clone(&state.master_gain_hot_control)))?;
     let mut next_ctx = state.fresh_context();
     next_runner.prepare_decode(&input, &mut next_ctx)?;
-    control_apply::replay_persisted_stage_runtime_updates_to_runner(
-        &state.persisted_stage_runtime_updates,
-        &mut next_runner,
-        None,
-        &mut next_ctx,
-    )?;
     Ok(PrewarmedNext {
         input,
         runner: next_runner,

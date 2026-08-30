@@ -5,11 +5,9 @@ use stellatune_audio_core::pipeline::context::{
 };
 use stellatune_audio_core::pipeline::error::PipelineError;
 use stellatune_audio_core::pipeline::stages::transform::TransformStage;
-use stellatune_audio_core::pipeline::stages::{
-    Stage, StageFlow, StageRuntimeUpdate, StageRuntimeUpdateResult, downcast_runtime_update,
-};
+use stellatune_audio_core::pipeline::stages::{Stage, StageFlow};
 
-use crate::pipeline::runtime::dsp::control::{GAPLESS_TRIM_STAGE_KEY, GaplessTrimControl};
+use crate::pipeline::runtime::dsp::control::GAPLESS_TRIM_STAGE_KEY;
 
 const GAPLESS_ENTRY_DECLICK_MS: usize = 2;
 
@@ -154,24 +152,6 @@ impl Stage for GaplessTrimStage {
         GAPLESS_TRIM_STAGE_KEY
     }
 
-    fn apply_runtime_update(
-        &mut self,
-        update: &dyn StageRuntimeUpdate,
-        _ctx: &mut PipelineContext,
-    ) -> Result<StageRuntimeUpdateResult, PipelineError> {
-        match downcast_runtime_update::<GaplessTrimControl>(update) {
-            Some(update) => {
-                let spec = StreamSpec {
-                    sample_rate: self.sample_rate.max(1),
-                    channels: self.channels.max(1) as u16,
-                };
-                self.configure(spec, update.spec, update.position_ms);
-                Ok(StageRuntimeUpdateResult::Applied)
-            },
-            None => Ok(StageRuntimeUpdateResult::Ignored),
-        }
-    }
-
     fn refresh_runtime_state(&mut self, ctx: &mut PipelineContext) -> Result<(), PipelineError> {
         if let Some(seek_ms) = ctx.pending_seek_ms {
             self.reset_for_seek(seek_ms);
@@ -181,6 +161,19 @@ impl Stage for GaplessTrimStage {
 }
 
 impl TransformStage for GaplessTrimStage {
+    fn set_gapless_trim(
+        &mut self,
+        spec: Option<GaplessTrimSpec>,
+        position_ms: i64,
+    ) -> Result<bool, PipelineError> {
+        let stream_spec = StreamSpec {
+            sample_rate: self.sample_rate.max(1),
+            channels: self.channels.max(1) as u16,
+        };
+        self.configure(stream_spec, spec, position_ms);
+        Ok(true)
+    }
+
     fn prepare(
         &mut self,
         spec: StreamSpec,
@@ -222,7 +215,6 @@ impl TransformStage for GaplessTrimStage {
 
 #[cfg(test)]
 mod tests {
-    use crate::pipeline::runtime::dsp::control::GaplessTrimControl;
     use crate::pipeline::runtime::dsp::gapless_trim::GaplessTrimStage;
     use stellatune_audio_core::pipeline::context::{
         AudioBlock, GaplessTrimSpec, PipelineContext, StreamSpec,
@@ -251,17 +243,14 @@ mod tests {
             )
             .expect("prepare failed");
         stage
-            .apply_runtime_update(
-                &GaplessTrimControl::new(
-                    Some(GaplessTrimSpec {
-                        head_frames: 2,
-                        tail_frames: 2,
-                    }),
-                    0,
-                ),
-                &mut ctx,
+            .set_gapless_trim(
+                Some(GaplessTrimSpec {
+                    head_frames: 2,
+                    tail_frames: 2,
+                }),
+                0,
             )
-            .expect("apply_runtime_update failed");
+            .expect("set_gapless_trim failed");
 
         let mut first = block(&[0.0, 1.0, 2.0, 3.0, 4.0, 5.0]);
         assert!(matches!(
@@ -292,17 +281,14 @@ mod tests {
             )
             .expect("prepare failed");
         stage
-            .apply_runtime_update(
-                &GaplessTrimControl::new(
-                    Some(GaplessTrimSpec {
-                        head_frames: 1,
-                        tail_frames: 0,
-                    }),
-                    0,
-                ),
-                &mut ctx,
+            .set_gapless_trim(
+                Some(GaplessTrimSpec {
+                    head_frames: 1,
+                    tail_frames: 0,
+                }),
+                0,
             )
-            .expect("apply_runtime_update failed");
+            .expect("set_gapless_trim failed");
 
         let mut a = block(&[0.0, 1.0]);
         assert!(matches!(

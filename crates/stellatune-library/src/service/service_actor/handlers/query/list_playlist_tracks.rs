@@ -1,5 +1,8 @@
-use super::{ActorContext, Handler, LibraryServiceActor, Message, TrackLite};
+use super::{ActorContext, LibraryServiceActor, TrackLite};
+use lattice_actor::{error::ActorError, reply::ReplyTo, traits::Responder};
 
+#[derive(lattice_actor::Request)]
+#[request(response = Result<Vec<TrackLite>, String>)]
 pub(crate) struct ListPlaylistTracksMessage {
     pub(crate) playlist_id: i64,
     pub(crate) query: String,
@@ -7,25 +10,26 @@ pub(crate) struct ListPlaylistTracksMessage {
     pub(crate) offset: i64,
 }
 
-impl Message for ListPlaylistTracksMessage {
-    type Response = Result<Vec<TrackLite>, String>;
-}
-
-#[async_trait::async_trait]
-impl Handler<ListPlaylistTracksMessage> for LibraryServiceActor {
-    async fn handle(
+impl Responder<ListPlaylistTracksMessage> for LibraryServiceActor {
+    async fn respond(
         &mut self,
+        _ctx: &mut ActorContext<'_, Self>,
         message: ListPlaylistTracksMessage,
-        _ctx: &mut ActorContext<Self>,
-    ) -> Result<Vec<TrackLite>, String> {
-        self.worker
-            .list_playlist_tracks(
-                message.playlist_id,
-                message.query,
-                message.limit,
-                message.offset,
-            )
-            .await
-            .map_err(|e| format!("{e:#}"))
+        reply_to: ReplyTo<Result<Vec<TrackLite>, String>>,
+    ) -> Result<(), ActorError> {
+        let result = async {
+            self.worker
+                .list_playlist_tracks(
+                    message.playlist_id,
+                    message.query,
+                    message.limit,
+                    message.offset,
+                )
+                .await
+                .map_err(|e| format!("{e:#}"))
+        }
+        .await;
+        let _ = reply_to.send(result);
+        Ok(())
     }
 }

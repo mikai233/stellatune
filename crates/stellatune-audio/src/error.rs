@@ -6,9 +6,8 @@
 
 use thiserror::Error;
 
+use lattice_actor::error::ActorCallError;
 use stellatune_audio_core::pipeline::error::PipelineError;
-use stellatune_audio_core::pipeline::stages::StageTarget;
-use stellatune_runtime::thread_actor::CallError;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NoActivePipelineReason {
@@ -89,21 +88,6 @@ pub enum DecodeError {
     /// Sink recovery was requested without an active input.
     #[error("no active input for sink recovery")]
     NoActiveInputForRecovery,
-    /// Target stage does not exist in the active runtime dispatch graph.
-    #[error("stage runtime-update target not found: {target}")]
-    StageRuntimeUpdateTargetNotFound {
-        /// Missing stage target.
-        target: StageTarget,
-    },
-    /// Persisted stage runtime-update replay failed.
-    #[error("failed to apply persisted stage runtime update for '{target}': {source}")]
-    PersistedStageRuntimeUpdateApplyFailed {
-        /// Stage target that failed during replay.
-        target: StageTarget,
-        /// Underlying pipeline error.
-        #[source]
-        source: PipelineError,
-    },
     /// Wrapped pipeline-layer failure.
     #[error(transparent)]
     Pipeline(#[from] PipelineError),
@@ -118,12 +102,37 @@ pub enum EngineError {
     /// Decode worker installation was attempted more than once.
     #[error("decode worker already installed")]
     WorkerAlreadyInstalled,
-    /// Control actor thread could not be spawned.
-    #[error("failed to spawn control actor: {source}")]
-    SpawnControlActor {
-        /// I/O error returned by thread spawn.
-        #[source]
-        source: std::io::Error,
+    /// Playback actor could not be spawned.
+    #[error("failed to spawn playback actor: {message}")]
+    SpawnPlaybackActor {
+        /// Lattice spawn failure text.
+        message: String,
+    },
+    /// Playback actor mailbox could not accept a command before its deadline.
+    #[error("playback actor mailbox is full while handling '{operation}'")]
+    PlaybackMailboxFull {
+        /// Operation name used for the actor call.
+        operation: &'static str,
+    },
+    /// The requested operation is not admitted in the current playback state.
+    #[error("playback operation '{operation}' is invalid in the current state")]
+    InvalidPlaybackState {
+        /// Operation rejected by behavior admission.
+        operation: &'static str,
+    },
+    /// A playback command was rejected while plugin packages are changing.
+    #[error("playback operation '{operation}' cannot run while a plugin change is in progress")]
+    PluginChangeInProgress {
+        /// Operation rejected during reconfiguration.
+        operation: &'static str,
+    },
+    /// A Lattice playback handler failed unexpectedly.
+    #[error("playback actor failed while handling '{operation}': {message}")]
+    PlaybackActorFailed {
+        /// Operation name used for the actor call.
+        operation: &'static str,
+        /// Handler failure text.
+        message: String,
     },
     /// Control actor call timed out.
     #[error("control actor command '{operation}' timed out after {timeout_ms}ms")]
@@ -148,16 +157,25 @@ impl EngineError {
     pub(crate) fn from_call_error(
         operation: &'static str,
         timeout: std::time::Duration,
-        err: CallError,
+        err: ActorCallError,
     ) -> Self {
         match err {
-            CallError::MailboxClosed | CallError::ActorStopped => {
-                Self::ControlActorExited { operation }
+            ActorCallError::MailboxFull => Self::PlaybackMailboxFull { operation },
+            ActorCallError::UnhandledInCurrentState => Self::InvalidPlaybackState { operation },
+            ActorCallError::InvalidTimeout | ActorCallError::DeadlineExceeded => {
+                Self::ControlCommandTimedOut {
+                    operation,
+                    timeout_ms: timeout.as_millis(),
+                }
             },
-            CallError::Timeout => Self::ControlCommandTimedOut {
+            ActorCallError::Handler(error) => Self::PlaybackActorFailed {
                 operation,
-                timeout_ms: timeout.as_millis(),
+                message: error.to_string(),
             },
+            ActorCallError::MailboxClosed
+            | ActorCallError::ActorPanicked
+            | ActorCallError::LifecycleUnavailable { .. }
+            | ActorCallError::ResponseDropped => Self::ControlActorExited { operation },
         }
     }
 }

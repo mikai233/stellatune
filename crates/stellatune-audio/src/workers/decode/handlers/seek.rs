@@ -1,6 +1,3 @@
-use crossbeam_channel::Sender;
-
-use crate::config::engine::PlayerState;
 use crate::error::DecodeError;
 use crate::workers::decode::handlers::gain_transition;
 use crate::workers::decode::state::DecodeWorkerState;
@@ -8,13 +5,12 @@ use crate::workers::decode::{DecodeWorkerEvent, DecodeWorkerEventCallback};
 
 pub(crate) fn handle(
     position_ms: i64,
-    resp_tx: Sender<Result<(), DecodeError>>,
     callback: &DecodeWorkerEventCallback,
     state: &mut DecodeWorkerState,
-) -> bool {
+) -> Result<(), DecodeError> {
     let transition = state.gain_transition;
-    let result = if let Some(active_runner) = state.runner.as_mut() {
-        let was_playing = state.state == PlayerState::Playing;
+    if let Some(active_runner) = state.runner.as_mut() {
+        let was_playing = state.pumping;
         if was_playing {
             let available_frames_hint = active_runner.playable_remaining_frames_hint();
             let _ = gain_transition::run_interrupt_fade_out(
@@ -59,7 +55,5 @@ pub(crate) fn handle(
             operation: "seek",
             reason: state.current_no_active_pipeline_reason(),
         })
-    };
-    let _ = resp_tx.send(result);
-    false
+    }
 }

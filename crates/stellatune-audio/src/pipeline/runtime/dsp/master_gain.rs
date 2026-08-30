@@ -3,13 +3,9 @@ use stellatune_audio_core::pipeline::context::{
 };
 use stellatune_audio_core::pipeline::error::PipelineError;
 use stellatune_audio_core::pipeline::stages::transform::TransformStage;
-use stellatune_audio_core::pipeline::stages::{
-    Stage, StageFlow, StageRuntimeUpdate, StageRuntimeUpdateResult, downcast_runtime_update,
-};
+use stellatune_audio_core::pipeline::stages::{Stage, StageFlow};
 
-use crate::pipeline::runtime::dsp::control::{
-    MASTER_GAIN_STAGE_KEY, MasterGainControl, SharedMasterGainHotControl,
-};
+use crate::pipeline::runtime::dsp::control::{MASTER_GAIN_STAGE_KEY, SharedMasterGainHotControl};
 
 #[derive(Debug)]
 pub(crate) struct MasterGainStage {
@@ -86,25 +82,6 @@ impl Stage for MasterGainStage {
         MASTER_GAIN_STAGE_KEY
     }
 
-    fn apply_runtime_update(
-        &mut self,
-        update: &dyn StageRuntimeUpdate,
-        _ctx: &mut PipelineContext,
-    ) -> Result<StageRuntimeUpdateResult, PipelineError> {
-        match downcast_runtime_update::<MasterGainControl>(update) {
-            Some(update) => {
-                if let Some(curve) = update.curve {
-                    self.curve = curve;
-                }
-                self.level = update.level.clamp(0.0, 1.0);
-                let target_gain = self.curve.level_to_gain(self.level).clamp(0.0, 1.0);
-                self.apply_target_gain(target_gain, update.ramp_ms);
-                Ok(StageRuntimeUpdateResult::Applied)
-            },
-            None => Ok(StageRuntimeUpdateResult::Ignored),
-        }
-    }
-
     fn refresh_runtime_state(&mut self, _ctx: &mut PipelineContext) -> Result<(), PipelineError> {
         let Some(hot_control) = self.hot_control.as_ref() else {
             return Ok(());
@@ -126,6 +103,21 @@ impl Stage for MasterGainStage {
 }
 
 impl TransformStage for MasterGainStage {
+    fn set_master_gain(
+        &mut self,
+        level: f32,
+        ramp_ms: u32,
+        curve: Option<MasterGainCurve>,
+    ) -> Result<bool, PipelineError> {
+        if let Some(curve) = curve {
+            self.curve = curve;
+        }
+        self.level = level.clamp(0.0, 1.0);
+        let target_gain = self.curve.level_to_gain(self.level).clamp(0.0, 1.0);
+        self.apply_target_gain(target_gain, ramp_ms);
+        Ok(true)
+    }
+
     fn prepare(
         &mut self,
         spec: StreamSpec,
@@ -181,7 +173,6 @@ impl TransformStage for MasterGainStage {
 
 #[cfg(test)]
 mod tests {
-    use crate::pipeline::runtime::dsp::control::MasterGainControl;
     use crate::pipeline::runtime::dsp::master_gain::MasterGainStage;
     use stellatune_audio_core::pipeline::context::{
         AudioBlock, MasterGainCurve, PipelineContext, StreamSpec,
@@ -211,8 +202,8 @@ mod tests {
             .expect("prepare failed");
 
         stage
-            .apply_runtime_update(&MasterGainControl::new(0.5, 0), &mut ctx)
-            .expect("apply_runtime_update failed");
+            .set_master_gain(0.5, 0, None)
+            .expect("set_master_gain failed");
         stage
             .refresh_runtime_state(&mut ctx)
             .expect("refresh_runtime_state failed");
@@ -240,11 +231,8 @@ mod tests {
             .expect("prepare failed");
 
         stage
-            .apply_runtime_update(
-                &MasterGainControl::with_curve(0.5, 0, MasterGainCurve::Linear),
-                &mut ctx,
-            )
-            .expect("apply_runtime_update failed");
+            .set_master_gain(0.5, 0, Some(MasterGainCurve::Linear))
+            .expect("set_master_gain failed");
         stage
             .refresh_runtime_state(&mut ctx)
             .expect("refresh_runtime_state failed");
@@ -273,8 +261,8 @@ mod tests {
             .expect("prepare failed");
 
         stage
-            .apply_runtime_update(&MasterGainControl::new(0.0, 4), &mut ctx)
-            .expect("apply_runtime_update failed");
+            .set_master_gain(0.0, 4, None)
+            .expect("set_master_gain failed");
         stage
             .refresh_runtime_state(&mut ctx)
             .expect("refresh_runtime_state failed");

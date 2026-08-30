@@ -1,11 +1,7 @@
-use std::sync::Arc;
 use std::time::Duration;
 
 use stellatune_audio_core::pipeline::context::{AudioBlock, PipelineContext, StreamSpec};
 use stellatune_audio_core::pipeline::error::PipelineError;
-use stellatune_audio_core::pipeline::stages::{
-    StageRuntimeUpdate, StageRuntimeUpdateDispatchResult,
-};
 
 use crate::config::sink::SinkLatencyConfig;
 use crate::pipeline::assembly::SinkPlan;
@@ -17,7 +13,7 @@ pub(crate) enum SinkActivationMode {
     ImmediateCutover,
     // Keep queued sink frames. Used for drained, seamless handover paths.
     PreserveQueued,
-    // Force sink graph rebuild regardless of current stream spec.
+    #[cfg(test)]
     ForceRecreate,
 }
 
@@ -60,6 +56,7 @@ impl SinkSession {
         ctx: &PipelineContext,
         mode: SinkActivationMode,
     ) -> Result<SinkActivationResult, PipelineError> {
+        #[cfg(test)]
         if matches!(mode, SinkActivationMode::ForceRecreate) {
             self.shutdown(false);
         }
@@ -113,23 +110,27 @@ impl SinkSession {
         worker.refresh_runtime_state(ctx, self.sink_control_timeout)
     }
 
-    pub(crate) fn apply_stage_runtime_update(
-        &self,
-        stage_key: &str,
-        update: Arc<dyn StageRuntimeUpdate>,
-    ) -> Result<StageRuntimeUpdateDispatchResult, PipelineError> {
-        let Some(worker) = self.sink_worker.as_ref() else {
-            return Ok(StageRuntimeUpdateDispatchResult::StageNotFound);
-        };
-        worker.apply_stage_runtime_update(stage_key, update, self.sink_control_timeout)
-    }
-
     pub(crate) fn drop_queued(&self) -> Result<(), PipelineError> {
         let worker = self
             .sink_worker
             .as_ref()
             .ok_or(PipelineError::NotPrepared)?;
         worker.drop_queued(self.sink_control_timeout)
+    }
+
+    pub(crate) fn reset_consumed_position(&self, position_ms: i64) -> Result<(), PipelineError> {
+        let worker = self
+            .sink_worker
+            .as_ref()
+            .ok_or(PipelineError::NotPrepared)?;
+        worker.reset_consumed_position(position_ms);
+        Ok(())
+    }
+
+    pub(crate) fn consumed_position_ms(&self) -> Option<i64> {
+        self.sink_worker
+            .as_ref()
+            .map(SinkWorker::consumed_position_ms)
     }
 
     pub(crate) fn drain(&self) -> Result<(), PipelineError> {

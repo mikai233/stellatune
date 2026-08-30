@@ -67,10 +67,11 @@ fn add_quiet_http_directives(filter: EnvFilter) -> EnvFilter {
     let mut filter = filter;
     for directive in [
         "hyper_util=info",
+        "lattice_actor::runtime::dispatch=info",
         "reqwest=info",
         "sqlx=warn",
         "symphonia=warn",
-        "wasmtime=warn",
+        "symphonia_core::formats::probe=error",
         "wasapi=info",
     ] {
         if let Ok(parsed) = directive.parse::<tracing_subscriber::filter::Directive>() {

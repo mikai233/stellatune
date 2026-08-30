@@ -5,8 +5,6 @@ use std::sync::Arc;
 use std::sync::OnceLock;
 use std::time::Duration;
 
-use stellatune_runtime::spawn;
-
 use crate::api::dlna::{
     DlnaHttpServerInfo, DlnaPositionInfo, DlnaRenderer, DlnaSsdpDevice, DlnaTransportInfo,
 };
@@ -729,7 +727,7 @@ async fn ensure_http_server(
         base_url
     );
 
-    spawn(async move {
+    tokio::spawn(async move {
         if let Err(e) = axum::serve(listener, app).await {
             tracing::error!("dlna http server exited: {e:#}");
         }

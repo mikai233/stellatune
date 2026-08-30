@@ -10,7 +10,7 @@
 //! - [`config`]: user-visible runtime configuration and event types.
 //! - [`engine`]: control actor startup and the [`engine::EngineHandle`] API.
 //! - [`error`]: typed error enums for engine and decode worker operations.
-//! - [`pipeline`]: pipeline blueprints, mutations, and graph management.
+//! - [`pipeline`]: strongly typed planning, stage factories, and session assembly.
 //!
 //! Internal modules such as `infra` and `workers` are intentionally private.
 //!
@@ -29,11 +29,11 @@
 //! use std::sync::Arc;
 //!
 //! use stellatune_audio::engine::start_engine;
-//! use stellatune_audio::pipeline::assembly::PipelineAssembler;
+//! use stellatune_audio::pipeline::assembly::PipelineFactory;
 //!
-//! # fn assembler() -> Arc<dyn PipelineAssembler> { todo!() }
+//! # fn factory() -> Arc<dyn PipelineFactory> { todo!() }
 //! # async fn run() -> Result<(), Box<dyn std::error::Error>> {
-//! let engine = start_engine(assembler())?;
+//! let engine = start_engine(factory())?;
 //! let _snapshot = engine.snapshot().await?;
 //! # Ok(())
 //! # }

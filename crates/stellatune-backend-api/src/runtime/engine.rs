@@ -2,25 +2,16 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use stellatune_audio::config::engine::{EngineSnapshot, LfeMode, PlayerState, ResampleQuality};
-use stellatune_audio::engine::{EngineHandle, start_engine};
-use stellatune_audio::pipeline::assembly::{
-    MixerPlan, PipelineMutation, PipelineOutputBackend, PipelineSinkRoute, ResamplerPlan,
-};
-use stellatune_audio_builtin_adapters::device_sink::{
-    OutputBackend as AdapterOutputBackend, OutputDeviceSpec, default_output_spec_for_backend,
-    list_output_devices, output_spec_for_route,
-};
-use stellatune_audio_plugin_adapters::stages::{
-    PluginOutputSinkRouteSpec, negotiate_output_sink_spec,
-};
-
-use super::pipeline::{
-    BackendAssembler, shared_device_sink_control, shared_runtime_sink_route_control,
-};
+use super::pipeline::{BackendAssembler, shared_device_sink_control};
 use super::{
     DeviceSinkMetricsSnapshot, OutputBackend, OutputDeviceDescriptor,
     RuntimeOutputDeviceApplyReport, init_tracing,
+};
+use stellatune_audio::config::engine::ResampleQuality;
+use stellatune_audio::engine::{EngineHandle, start_engine};
+use stellatune_audio_builtin_adapters::device_sink::{
+    OutputBackend as AdapterOutputBackend, OutputDeviceSpec, default_output_spec_for_backend,
+    list_output_devices, output_spec_for_route,
 };
 
 struct RuntimeEngineMetrics {
@@ -87,12 +78,6 @@ struct ResolvedOutputSpec {
     plugin_prefers_track_rate: Option<bool>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct CachedPluginResolvedSpec {
-    route: PluginOutputSinkRouteSpec,
-    resolved: ResolvedOutputSpec,
-}
-
 impl Default for RuntimeOutputOptions {
     fn default() -> Self {
         Self {
@@ -120,37 +105,11 @@ fn runtime_output_options() -> &'static Mutex<RuntimeOutputOptions> {
     OPTIONS.get_or_init(|| Mutex::new(RuntimeOutputOptions::default()))
 }
 
-fn plugin_resolved_spec_cache() -> &'static Mutex<Option<CachedPluginResolvedSpec>> {
-    static CACHE: OnceLock<Mutex<Option<CachedPluginResolvedSpec>>> = OnceLock::new();
-    CACHE.get_or_init(|| Mutex::new(None))
-}
-
-fn cache_plugin_resolved_spec(route: PluginOutputSinkRouteSpec, resolved: ResolvedOutputSpec) {
-    if let Ok(mut guard) = plugin_resolved_spec_cache().lock() {
-        *guard = Some(CachedPluginResolvedSpec { route, resolved });
-    }
-}
-
-fn clear_plugin_resolved_spec_cache() {
-    if let Ok(mut guard) = plugin_resolved_spec_cache().lock() {
-        *guard = None;
-    }
-}
-
-fn cached_plugin_resolved_spec(route: &PluginOutputSinkRouteSpec) -> Option<ResolvedOutputSpec> {
-    plugin_resolved_spec_cache().lock().ok().and_then(|guard| {
-        guard
-            .as_ref()
-            .filter(|cached| cached.route == *route)
-            .map(|cached| cached.resolved)
-    })
-}
-
 fn ensure_output_sink_monitor_started() {
     static MONITOR_STARTED: OnceLock<()> = OnceLock::new();
     MONITOR_STARTED.get_or_init(|| {
         let _ = std::thread::Builder::new()
-            .name("stellatune-runtime-sink-monitor".to_string())
+            .name("stellatune-sink-monitor".to_string())
             .spawn(move || {
                 let mut state = OutputSinkMonitorState::new();
                 loop {
@@ -188,14 +147,6 @@ fn estimate_buffered_ms(metrics: DeviceSinkMetricsSnapshot, spec: OutputDeviceSp
 }
 
 fn monitor_output_sink_metrics(state: &mut OutputSinkMonitorState) {
-    if shared_runtime_sink_route_control()
-        .current_plugin_route()
-        .is_some()
-    {
-        state.reset_watermark();
-        return;
-    }
-
     let spec = match resolve_device_output_spec() {
         Ok(spec) => spec,
         Err(_) => return,
@@ -379,11 +330,9 @@ pub async fn runtime_set_output_device(
 ) -> Result<RuntimeOutputDeviceApplyReport, String> {
     let requested_device_id = normalize_device_id(device_id);
     let control = shared_device_sink_control();
-    let sink_route_control = shared_runtime_sink_route_control();
     let engine = shared_runtime_engine();
 
     let (previous_backend, previous_device_id) = control.desired_route();
-    let previous_plugin_route = sink_route_control.current_plugin_route();
     let previous_spec = resolve_current_output_spec().ok();
 
     let (applied_backend, applied_device_id, output_spec, fallback_to_default) =
@@ -393,13 +342,8 @@ pub async fn runtime_set_output_device(
         plugin_prefers_track_rate: None,
     };
 
-    sink_route_control.clear_plugin_route();
-    clear_plugin_resolved_spec_cache();
     control.set_route(applied_backend, applied_device_id.clone());
     if let Err(error) = apply_output_spec_mutations(engine.as_ref(), resolved_output_spec).await {
-        if let Some(route) = previous_plugin_route {
-            sink_route_control.set_plugin_route(route);
-        }
         control.set_route(previous_backend, previous_device_id.clone());
         if let Some(spec) = previous_spec {
             let _ = apply_output_spec_mutations(engine.as_ref(), spec).await;
@@ -440,155 +384,16 @@ pub async fn runtime_set_output_options(
 }
 
 pub async fn runtime_set_output_sink_route(
-    plugin_id: String,
-    type_id: String,
-    config_json: String,
-    target_json: String,
+    _plugin_id: String,
+    _type_id: String,
+    _config_json: String,
+    _target_json: String,
 ) -> Result<(), String> {
-    let route = PluginOutputSinkRouteSpec::new(plugin_id, type_id, config_json, target_json)?;
-    let route_control = shared_runtime_sink_route_control();
-    let previous_route = route_control.current_plugin_route();
-    let fallback_device_spec = resolve_device_output_spec().ok();
-    clear_plugin_resolved_spec_cache();
-    route_control.set_plugin_route(route);
-
-    let output_spec = match resolve_current_output_spec() {
-        Ok(spec) => spec,
-        Err(error) => {
-            if let Some(spec) =
-                resolve_rollback_output_spec(&route_control, previous_route, fallback_device_spec)
-            {
-                let _ = apply_output_spec_mutations(shared_runtime_engine().as_ref(), spec).await;
-            }
-            return Err(error);
-        },
-    };
-
-    if let Err(error) =
-        apply_output_spec_mutations(shared_runtime_engine().as_ref(), output_spec).await
-    {
-        if let Some(spec) =
-            resolve_rollback_output_spec(&route_control, previous_route, fallback_device_spec)
-        {
-            let _ = apply_output_spec_mutations(shared_runtime_engine().as_ref(), spec).await;
-        }
-        return Err(format!(
-            "failed to apply plugin output sink route switch: {error}"
-        ));
-    }
-
-    Ok(())
+    Err("TypeScript plugins cannot implement PCM output stages; install a native external sink instead".to_string())
 }
 
 pub async fn runtime_clear_output_sink_route() -> Result<(), String> {
-    let route_control = shared_runtime_sink_route_control();
-    if route_control.current_plugin_route().is_none() {
-        return Ok(());
-    }
-    let previous_route = route_control.current_plugin_route();
-    let fallback_device_spec = resolve_device_output_spec().ok();
-    route_control.clear_plugin_route();
-    clear_plugin_resolved_spec_cache();
-    let output_spec = match resolve_current_output_spec() {
-        Ok(spec) => spec,
-        Err(error) => {
-            if let Some(spec) =
-                resolve_rollback_output_spec(&route_control, previous_route, fallback_device_spec)
-            {
-                let _ = apply_output_spec_mutations(shared_runtime_engine().as_ref(), spec).await;
-            }
-            return Err(error);
-        },
-    };
-    if let Err(error) =
-        apply_output_spec_mutations(shared_runtime_engine().as_ref(), output_spec).await
-    {
-        if let Some(spec) =
-            resolve_rollback_output_spec(&route_control, previous_route, fallback_device_spec)
-        {
-            let _ = apply_output_spec_mutations(shared_runtime_engine().as_ref(), spec).await;
-        }
-        return Err(format!("failed to clear plugin output sink route: {error}"));
-    }
     Ok(())
-}
-
-pub async fn runtime_clear_output_sink_route_for_plugin(plugin_id: &str) -> Result<bool, String> {
-    let plugin_id = plugin_id.trim();
-    if plugin_id.is_empty() {
-        return Ok(false);
-    }
-    let route_control = shared_runtime_sink_route_control();
-    let current_route = route_control.current_plugin_route();
-    if !should_clear_route_for_plugin(current_route.as_ref(), plugin_id) {
-        return Ok(false);
-    }
-    runtime_clear_output_sink_route().await?;
-    Ok(true)
-}
-
-pub async fn runtime_clear_output_sink_route_if_plugin_unavailable(
-    active_plugin_ids: &[String],
-) -> Result<bool, String> {
-    let route_control = shared_runtime_sink_route_control();
-    let current_route = route_control.current_plugin_route();
-    if !should_clear_route_if_plugin_unavailable(current_route.as_ref(), active_plugin_ids) {
-        return Ok(false);
-    }
-    runtime_clear_output_sink_route().await?;
-    Ok(true)
-}
-
-fn should_clear_route_for_plugin(
-    current_route: Option<&PluginOutputSinkRouteSpec>,
-    plugin_id: &str,
-) -> bool {
-    let plugin_id = plugin_id.trim();
-    if plugin_id.is_empty() {
-        return false;
-    }
-    current_route
-        .map(|route| route.plugin_id == plugin_id)
-        .unwrap_or(false)
-}
-
-fn should_clear_route_if_plugin_unavailable(
-    current_route: Option<&PluginOutputSinkRouteSpec>,
-    active_plugin_ids: &[String],
-) -> bool {
-    let Some(route) = current_route else {
-        return false;
-    };
-    !active_plugin_ids.iter().any(|id| id == &route.plugin_id)
-}
-
-fn resolve_rollback_output_spec(
-    route_control: &super::pipeline::RuntimeSinkRouteControl,
-    previous_route: Option<PluginOutputSinkRouteSpec>,
-    fallback_device_spec: Option<OutputDeviceSpec>,
-) -> Option<ResolvedOutputSpec> {
-    match previous_route {
-        Some(route) => {
-            route_control.set_plugin_route(route);
-            if let Ok(spec) = resolve_current_output_spec() {
-                return Some(spec);
-            }
-            route_control.clear_plugin_route();
-        },
-        None => {
-            route_control.clear_plugin_route();
-            if let Ok(spec) = resolve_current_output_spec() {
-                return Some(spec);
-            }
-        },
-    }
-
-    fallback_device_spec
-        .or_else(|| resolve_device_output_spec().ok())
-        .map(|spec| ResolvedOutputSpec {
-            spec,
-            plugin_prefers_track_rate: None,
-        })
 }
 
 pub async fn runtime_shutdown() {
@@ -624,32 +429,10 @@ fn resolve_target_output_spec(
 }
 
 fn resolve_current_output_spec() -> Result<ResolvedOutputSpec, String> {
-    let device_spec = resolve_device_output_spec()?;
-    let route_control = shared_runtime_sink_route_control();
-    let Some(route) = route_control.current_plugin_route() else {
-        clear_plugin_resolved_spec_cache();
-        return Ok(ResolvedOutputSpec {
-            spec: device_spec,
-            plugin_prefers_track_rate: None,
-        });
-    };
-    let negotiated = negotiate_output_sink_spec(
-        &route.plugin_id,
-        &route.type_id,
-        &route.config_json,
-        &route.target_json,
-        device_spec.sample_rate,
-        device_spec.channels,
-    )?;
-    let resolved = ResolvedOutputSpec {
-        spec: OutputDeviceSpec {
-            sample_rate: negotiated.sample_rate,
-            channels: negotiated.channels,
-        },
-        plugin_prefers_track_rate: Some(negotiated.prefer_track_rate),
-    };
-    cache_plugin_resolved_spec(route, resolved);
-    Ok(resolved)
+    Ok(ResolvedOutputSpec {
+        spec: resolve_device_output_spec()?,
+        plugin_prefers_track_rate: None,
+    })
 }
 
 fn resolve_device_output_spec() -> Result<OutputDeviceSpec, String> {
@@ -661,12 +444,6 @@ fn resolve_device_output_spec() -> Result<OutputDeviceSpec, String> {
 }
 
 fn resolve_current_output_spec_for_output_options() -> Result<ResolvedOutputSpec, String> {
-    let route_control = shared_runtime_sink_route_control();
-    if let Some(route) = route_control.current_plugin_route()
-        && let Some(cached) = cached_plugin_resolved_spec(&route)
-    {
-        return Ok(cached);
-    }
     resolve_current_output_spec()
 }
 
@@ -677,110 +454,12 @@ pub(super) fn current_blueprint_output_spec() -> Result<(OutputDeviceSpec, Optio
 
 async fn apply_output_spec_mutations(
     engine: &EngineHandle,
-    resolved: ResolvedOutputSpec,
+    _resolved: ResolvedOutputSpec,
 ) -> Result<(), String> {
-    let previous_snapshot = engine
-        .snapshot()
-        .await
-        .map_err(|error| format!("snapshot before output mutation failed: {error}"))?;
-    let spec = resolved.spec;
-    let output_options = snapshot_runtime_output_options();
-    let match_track_sample_rate = resolve_match_track_policy(
-        resolved.plugin_prefers_track_rate,
-        output_options.match_track_sample_rate,
-    );
-    let resampler = if match_track_sample_rate {
-        None
-    } else {
-        Some(ResamplerPlan::new(
-            spec.sample_rate,
-            output_options.resample_quality,
-        ))
-    };
     engine
-        .apply_pipeline_mutations(vec![
-            PipelineMutation::SetSinkRoute {
-                route: current_pipeline_sink_route(),
-            },
-            PipelineMutation::SetMixerPlan {
-                mixer: Some(MixerPlan::new(spec.channels, LfeMode::Mute)),
-            },
-            PipelineMutation::SetResamplerPlan { resampler },
-        ])
+        .rebuild_pipeline()
         .await
-        .map_err(|error| error.to_string())?;
-    restore_active_track_after_output_mutation(engine, &previous_snapshot).await
-}
-
-async fn restore_active_track_after_output_mutation(
-    engine: &EngineHandle,
-    previous_snapshot: &EngineSnapshot,
-) -> Result<(), String> {
-    let Some(track_token) = previous_snapshot.current_track.clone() else {
-        return Ok(());
-    };
-    let current_snapshot = engine
-        .snapshot()
-        .await
-        .map_err(|error| format!("snapshot after output mutation failed: {error}"))?;
-    if current_snapshot.current_track.is_some() {
-        return Ok(());
-    }
-
-    tracing::warn!(
-        track_token,
-        position_ms = previous_snapshot.position_ms,
-        state = ?previous_snapshot.state,
-        "active track missing after output mutation; restoring track"
-    );
-
-    engine
-        .switch_track_token(track_token.clone(), false)
-        .await
-        .map_err(|error| format!("restore current track after output mutation failed: {error}"))?;
-
-    let position_ms = previous_snapshot.position_ms.max(0);
-    if position_ms > 0 {
-        engine.seek_ms(position_ms).await.map_err(|error| {
-            format!("restore current position after output mutation failed: {error}")
-        })?;
-    }
-
-    if previous_snapshot.state == PlayerState::Playing {
-        engine.play().await.map_err(|error| {
-            format!("restore playing state after output mutation failed: {error}")
-        })?;
-    }
-
-    Ok(())
-}
-
-fn current_pipeline_sink_route() -> PipelineSinkRoute {
-    let route_control = shared_runtime_sink_route_control();
-    if let Some(route) = route_control.current_plugin_route() {
-        return PipelineSinkRoute::Plugin {
-            plugin_id: route.plugin_id,
-            type_id: route.type_id,
-            config_json: route.config_json,
-            target_json: route.target_json,
-        };
-    }
-    let control = shared_device_sink_control();
-    let (backend, device_id) = control.desired_route();
-    PipelineSinkRoute::Builtin {
-        backend: match backend {
-            AdapterOutputBackend::Shared => PipelineOutputBackend::Shared,
-            AdapterOutputBackend::WasapiExclusive => PipelineOutputBackend::WasapiExclusive,
-        },
-        device_id,
-    }
-}
-
-fn resolve_match_track_policy(
-    plugin_prefers_track_rate: Option<bool>,
-    global_match_track_sample_rate: bool,
-) -> bool {
-    plugin_prefers_track_rate.unwrap_or(global_match_track_sample_rate)
+        .map_err(|error| error.to_string())
 }
 
 fn normalize_device_id(device_id: Option<String>) -> Option<String> {
@@ -808,48 +487,7 @@ mod tests {
     use super::{
         DeviceSinkMetricsSnapshot, OutputDeviceSpec, OutputSinkMonitorState,
         OutputSinkWatermarkState, estimate_buffered_ms, output_sink_watermarks_ms,
-        resolve_match_track_policy, should_clear_route_for_plugin,
-        should_clear_route_if_plugin_unavailable,
     };
-    use stellatune_audio_plugin_adapters::stages::PluginOutputSinkRouteSpec;
-
-    fn route(plugin_id: &str) -> PluginOutputSinkRouteSpec {
-        PluginOutputSinkRouteSpec::new(
-            plugin_id.to_string(),
-            "sink.type".to_string(),
-            "{}".to_string(),
-            "{}".to_string(),
-        )
-        .expect("route should be valid")
-    }
-
-    #[test]
-    fn should_clear_route_for_plugin_only_when_current_route_matches() {
-        let current = route("plugin.a");
-
-        assert!(!should_clear_route_for_plugin(None, "plugin.a"));
-        assert!(!should_clear_route_for_plugin(Some(&current), ""));
-        assert!(!should_clear_route_for_plugin(Some(&current), "plugin.b"));
-        assert!(should_clear_route_for_plugin(Some(&current), "plugin.a"));
-    }
-
-    #[test]
-    fn should_clear_route_if_plugin_unavailable_only_when_missing_from_active_list() {
-        let current = route("plugin.a");
-        let empty: Vec<String> = Vec::new();
-        let active_without_route = vec!["plugin.b".to_string(), "plugin.c".to_string()];
-        let active_with_route = vec!["plugin.a".to_string(), "plugin.b".to_string()];
-
-        assert!(!should_clear_route_if_plugin_unavailable(None, &empty));
-        assert!(should_clear_route_if_plugin_unavailable(
-            Some(&current),
-            &active_without_route
-        ));
-        assert!(!should_clear_route_if_plugin_unavailable(
-            Some(&current),
-            &active_with_route
-        ));
-    }
 
     #[test]
     fn estimate_buffered_ms_uses_written_minus_provided() {
@@ -883,17 +521,5 @@ mod tests {
 
         assert_eq!(state.watermark_state, OutputSinkWatermarkState::Unknown);
         assert_eq!(state.recovery_ready_streak, 0);
-    }
-
-    #[test]
-    fn resolve_match_track_policy_prefers_plugin_hint() {
-        assert!(resolve_match_track_policy(Some(true), false));
-        assert!(!resolve_match_track_policy(Some(false), true));
-    }
-
-    #[test]
-    fn resolve_match_track_policy_falls_back_to_global_option() {
-        assert!(resolve_match_track_policy(None, true));
-        assert!(!resolve_match_track_policy(None, false));
     }
 }

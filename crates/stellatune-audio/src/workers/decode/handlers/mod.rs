@@ -1,111 +1,15 @@
-mod apply_pipeline_blueprint;
-mod apply_pipeline_mutation;
-mod apply_pipeline_mutations;
-mod apply_stage_runtime_update;
 mod control_apply;
 mod gain_transition;
-#[cfg(test)]
-mod integration_tests;
 pub(crate) mod open;
-mod pause;
-mod play;
-mod queue_next;
-mod reconfigure_active;
-mod seek;
-mod set_lfe_mode;
-mod set_resample_quality;
-mod shutdown;
-mod stop;
-
-use std::sync::Arc;
-
-use crate::pipeline::assembly::{PipelineAssembler, PipelineRuntime};
-use crate::workers::decode::DecodeWorkerEventCallback;
-use crate::workers::decode::command::DecodeWorkerCommand;
-use crate::workers::decode::state::DecodeWorkerState;
+pub(crate) mod pause;
+pub(crate) mod play;
+pub(crate) mod queue_next;
+pub(crate) mod reconfigure_active;
+pub(crate) mod seek;
+pub(crate) mod set_lfe_mode;
+pub(crate) mod set_resample_quality;
+pub(crate) mod shutdown;
+pub(crate) mod stop;
 
 pub(crate) use control_apply::apply_master_gain_level_to_runner;
-pub(crate) use control_apply::replay_persisted_stage_runtime_updates_to_runner;
 pub(crate) use gain_transition::request_fade_in_from_silence_with_runner;
-
-pub(crate) fn handle_command(
-    cmd: DecodeWorkerCommand,
-    assembler: &Arc<dyn PipelineAssembler>,
-    callback: &DecodeWorkerEventCallback,
-    pipeline_runtime: &mut dyn PipelineRuntime,
-    state: &mut DecodeWorkerState,
-) -> bool {
-    match cmd {
-        DecodeWorkerCommand::Open {
-            input,
-            start_playing,
-            resp_tx,
-        } => open::handle(
-            input,
-            start_playing,
-            resp_tx,
-            assembler,
-            callback,
-            pipeline_runtime,
-            state,
-        ),
-        DecodeWorkerCommand::Play { resp_tx } => play::handle(resp_tx, callback, state),
-        DecodeWorkerCommand::QueueNext { input, resp_tx } => {
-            queue_next::handle(input, resp_tx, assembler, pipeline_runtime, state)
-        },
-        DecodeWorkerCommand::Pause { behavior, resp_tx } => {
-            pause::handle(behavior, resp_tx, callback, state)
-        },
-        DecodeWorkerCommand::Seek {
-            position_ms,
-            resp_tx,
-        } => seek::handle(position_ms, resp_tx, callback, state),
-        DecodeWorkerCommand::Stop { behavior, resp_tx } => {
-            stop::handle(behavior, resp_tx, callback, pipeline_runtime, state)
-        },
-        DecodeWorkerCommand::ApplyPipelineBlueprint { blueprint, resp_tx } => {
-            apply_pipeline_blueprint::handle(blueprint, resp_tx, callback, pipeline_runtime, state)
-        },
-        DecodeWorkerCommand::ApplyPipelineMutation { mutation, resp_tx } => {
-            apply_pipeline_mutation::handle(
-                mutation,
-                resp_tx,
-                assembler,
-                callback,
-                pipeline_runtime,
-                state,
-            )
-        },
-        DecodeWorkerCommand::ApplyPipelineMutations { mutations, resp_tx } => {
-            apply_pipeline_mutations::handle(
-                mutations,
-                resp_tx,
-                assembler,
-                callback,
-                pipeline_runtime,
-                state,
-            )
-        },
-        DecodeWorkerCommand::SetLfeMode { mode, resp_tx } => {
-            set_lfe_mode::handle(mode, resp_tx, assembler, callback, pipeline_runtime, state)
-        },
-        DecodeWorkerCommand::SetResampleQuality { quality, resp_tx } => {
-            set_resample_quality::handle(
-                quality,
-                resp_tx,
-                assembler,
-                callback,
-                pipeline_runtime,
-                state,
-            )
-        },
-        DecodeWorkerCommand::ApplyStageRuntimeUpdate {
-            target,
-            update,
-            resp_tx,
-        } => apply_stage_runtime_update::handle(target, update, resp_tx, state),
-        DecodeWorkerCommand::Shutdown { ack_tx } => {
-            shutdown::handle(ack_tx, callback, pipeline_runtime, state)
-        },
-    }
-}

@@ -24,20 +24,24 @@ impl BackendApp {
         self.create_session(BackendSessionOptions::default()).await
     }
 
-    pub fn plugins_install_from_file(
+    pub async fn plugins_install_from_file(
         &self,
         plugins_dir: String,
         artifact_path: String,
     ) -> Result<String> {
-        player::plugins_install_from_file(plugins_dir, artifact_path)
+        player::plugins_install_from_file(plugins_dir, artifact_path).await
     }
 
     pub fn plugins_list_installed_json(&self, plugins_dir: String) -> Result<String> {
         player::plugins_list_installed_json(plugins_dir)
     }
 
-    pub fn plugins_uninstall_by_id(&self, plugins_dir: String, plugin_id: String) -> Result<()> {
-        player::plugins_uninstall_by_id(plugins_dir, plugin_id)
+    pub async fn plugins_uninstall_by_id(
+        &self,
+        plugins_dir: String,
+        plugin_id: String,
+    ) -> Result<()> {
+        player::plugins_uninstall_by_id(plugins_dir, plugin_id).await
     }
 
     pub async fn plugin_ui_gateway_start(

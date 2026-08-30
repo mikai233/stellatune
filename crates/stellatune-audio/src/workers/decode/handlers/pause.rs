@@ -1,5 +1,3 @@
-use crossbeam_channel::Sender;
-
 use crate::config::engine::{PauseBehavior, PlayerState};
 use crate::error::DecodeError;
 use crate::workers::decode::DecodeWorkerEventCallback;
@@ -9,13 +7,12 @@ use crate::workers::decode::util::update_state;
 
 pub(crate) fn handle(
     behavior: PauseBehavior,
-    resp_tx: Sender<Result<(), DecodeError>>,
     callback: &DecodeWorkerEventCallback,
     state: &mut DecodeWorkerState,
-) -> bool {
+) -> Result<(), DecodeError> {
     let transition = state.gain_transition;
-    let result = if let Some(active_runner) = state.runner.as_mut() {
-        if state.state == PlayerState::Playing {
+    if let Some(active_runner) = state.runner.as_mut() {
+        if state.pumping {
             let available_frames_hint = active_runner.playable_remaining_frames_hint();
             let _ = gain_transition::run_interrupt_fade_out(
                 active_runner,
@@ -28,7 +25,7 @@ pub(crate) fn handle(
         }
         match active_runner.pause(behavior, &mut state.sink_session, &mut state.ctx) {
             Ok(()) => {
-                update_state(callback, &mut state.state, PlayerState::Paused);
+                update_state(callback, &mut state.pumping, PlayerState::Paused);
                 Ok(())
             },
             Err(error) => Err(DecodeError::from(error)),
@@ -38,7 +35,5 @@ pub(crate) fn handle(
             operation: "pause",
             reason: state.current_no_active_pipeline_reason(),
         })
-    };
-    let _ = resp_tx.send(result);
-    false
+    }
 }

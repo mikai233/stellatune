@@ -11,7 +11,10 @@ use tokio::sync::mpsc;
 use tokio::time::Instant;
 
 use crate::LibraryEvent;
-use stellatune_runtime::tokio_actor::{ActorRef, spawn_actor};
+use lattice_actor::{
+    error::ActorError, handle::ActorHandle, mailbox::MailboxConfig, runtime::spawn_actor,
+    state_machine::Stateless, traits::Actor,
+};
 
 use crate::service::EventHub;
 
@@ -42,6 +45,11 @@ pub(super) struct WatchTaskActor {
     excluded: Vec<String>,
     dirty: HashSet<String>,
     debounce_deadline: Option<Instant>,
+}
+
+impl Actor for WatchTaskActor {
+    type Error = ActorError;
+    type Behavior = Stateless;
 }
 
 async fn refresh_watch_state(
@@ -101,7 +109,7 @@ pub(super) fn spawn_watch_task(
     pool: SqlitePool,
     events: Arc<EventHub>,
     cover_dir: PathBuf,
-) -> ActorRef<WatchTaskActor> {
+) -> ActorHandle<WatchTaskActor> {
     let (fs_tx, mut fs_rx) = mpsc::unbounded_channel::<notify::Result<notify::Event>>();
     let watcher = match notify::recommended_watcher(move |res| {
         let _ = fs_tx.send(res);
@@ -116,24 +124,30 @@ pub(super) fn spawn_watch_task(
     };
 
     let has_watcher = watcher.is_some();
-    let (actor_ref, _join) = spawn_actor(WatchTaskActor {
-        pool,
-        events: Arc::clone(&events),
-        cover_dir,
-        watcher,
-        watched: HashSet::new(),
-        excluded: Vec::new(),
-        dirty: HashSet::new(),
-        debounce_deadline: None,
-    });
+    let actor_ref = spawn_actor(
+        WatchTaskActor {
+            pool,
+            events: Arc::clone(&events),
+            cover_dir,
+            watcher,
+            watched: HashSet::new(),
+            excluded: Vec::new(),
+            dirty: HashSet::new(),
+            debounce_deadline: None,
+        },
+        MailboxConfig::bounded(1024),
+    );
 
-    let _ = actor_ref.cast(WatchRefreshMessage);
+    let _ = actor_ref.try_tell(WatchRefreshMessage);
 
     if has_watcher {
         let fs_actor_ref = actor_ref.clone();
-        stellatune_runtime::spawn(async move {
+        tokio::spawn(async move {
             while let Some(result) = fs_rx.recv().await {
-                if fs_actor_ref.cast(WatchFsEventMessage { result }).is_err() {
+                if fs_actor_ref
+                    .try_tell(WatchFsEventMessage { result })
+                    .is_err()
+                {
                     break;
                 }
             }
@@ -141,11 +155,11 @@ pub(super) fn spawn_watch_task(
     }
 
     let tick_actor_ref = actor_ref.clone();
-    stellatune_runtime::spawn(async move {
+    tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_millis(WATCH_TICK_MS));
         loop {
             interval.tick().await;
-            if tick_actor_ref.cast(WatchTickMessage).is_err() {
+            if tick_actor_ref.try_tell(WatchTickMessage).is_err() {
                 break;
             }
         }
@@ -154,8 +168,8 @@ pub(super) fn spawn_watch_task(
     actor_ref
 }
 
-pub(super) fn request_watch_refresh(actor_ref: &ActorRef<WatchTaskActor>) {
-    let _ = actor_ref.cast(WatchRefreshMessage);
+pub(super) fn request_watch_refresh(actor_ref: &ActorHandle<WatchTaskActor>) {
+    let _ = actor_ref.try_tell(WatchRefreshMessage);
 }
 
 fn is_audio_ext(ext: &str) -> bool {

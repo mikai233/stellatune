@@ -1,5 +1,3 @@
-use std::any::Any;
-
 use crate::pipeline::error::PipelineError;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -7,27 +5,10 @@ pub enum InputRef {
     TrackToken(String),
 }
 
-pub struct SourceHandle {
-    inner: Box<dyn Any + Send>,
-}
-
-impl SourceHandle {
-    pub fn new<T>(value: T) -> Self
-    where
-        T: Any + Send,
-    {
-        Self {
-            inner: Box::new(value),
-        }
-    }
-
-    pub fn downcast_ref<T: Any>(&self) -> Option<&T> {
-        (self.inner.as_ref() as &dyn Any).downcast_ref::<T>()
-    }
-
-    pub fn downcast_mut<T: Any>(&mut self) -> Option<&mut T> {
-        (self.inner.as_mut() as &mut dyn Any).downcast_mut::<T>()
-    }
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SourceHandle {
+    TrackToken(String),
+    Empty,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -58,7 +39,7 @@ pub enum BackpressurePolicy {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StageProfile {
     pub max_block_time_us: u32,
-    pub no_alloc_hot_path: bool,
+    pub no_alloc_realtime_path: bool,
     pub backpressure_policy: BackpressurePolicy,
 }
 

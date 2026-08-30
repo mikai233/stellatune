@@ -3,11 +3,9 @@
 //! This module defines immutable blueprints and runtime hooks used to build,
 //! mutate, and instantiate decode/sink pipeline graphs.
 
-use std::any::Any;
 use std::sync::Arc;
 
 use crate::config::engine::{LfeMode, ResampleQuality};
-use crate::pipeline::graph::{TransformGraphMutation, TransformGraphStage};
 use crate::pipeline::runtime::dsp::control::SharedMasterGainHotControl;
 use crate::pipeline::runtime::dsp::gapless_trim::GaplessTrimStage;
 use crate::pipeline::runtime::dsp::master_gain::MasterGainStage;
@@ -281,74 +279,6 @@ impl AssembledPipeline {
     }
 }
 
-/// Opaque marker trait for pipeline blueprints accepted by runtime implementations.
-///
-/// Blueprints are immutable plans. Runtime mutations should produce a new
-/// blueprint and then re-assemble from that updated value.
-pub trait PipelineBlueprint: Any + Send + Sync {}
-
-impl<T> PipelineBlueprint for T where T: Any + Send + Sync + 'static {}
-
-/// Type-erased payload used by opaque transform stage specifications.
-pub type PipelineStagePayload = Arc<dyn Any + Send + Sync>;
-
-/// Serializable-like transform stage spec with opaque typed payload.
-#[derive(Clone)]
-pub struct OpaqueTransformStageSpec {
-    /// Stage key used for routing and mutation targeting.
-    pub stage_key: String,
-    /// Type-erased stage payload.
-    pub payload: PipelineStagePayload,
-}
-
-impl OpaqueTransformStageSpec {
-    /// Creates a new opaque stage spec.
-    pub fn new(stage_key: impl Into<String>, payload: PipelineStagePayload) -> Self {
-        Self {
-            stage_key: stage_key.into(),
-            payload,
-        }
-    }
-
-    /// Creates a stage spec from a strongly-typed payload.
-    pub fn with_payload<T>(stage_key: impl Into<String>, payload: T) -> Self
-    where
-        T: Any + Send + Sync + 'static,
-    {
-        Self::new(stage_key, Arc::new(payload))
-    }
-
-    /// Returns a typed payload reference if the payload type matches `T`.
-    pub fn payload_ref<T: Any>(&self) -> Option<&T> {
-        self.payload.as_ref().downcast_ref::<T>()
-    }
-}
-
-impl std::fmt::Debug for OpaqueTransformStageSpec {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("OpaqueTransformStageSpec")
-            .field("stage_key", &self.stage_key)
-            .finish_non_exhaustive()
-    }
-}
-
-impl TransformGraphStage for OpaqueTransformStageSpec {
-    fn stage_key(&self) -> &str {
-        &self.stage_key
-    }
-}
-
-/// Selects one of the built-in transform slots.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BuiltinTransformSlot {
-    /// Gapless trim slot.
-    GaplessTrim,
-    /// Transition gain slot.
-    TransitionGain,
-    /// Master gain slot.
-    MasterGain,
-}
-
 /// Built-in output backend selection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PipelineOutputBackend {
@@ -356,79 +286,10 @@ pub enum PipelineOutputBackend {
     WasapiExclusive,
 }
 
-/// Sink-route blueprint used during pipeline assembly.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PipelineSinkRoute {
-    Builtin {
-        backend: PipelineOutputBackend,
-        device_id: Option<String>,
-    },
-    Plugin {
-        plugin_id: String,
-        type_id: String,
-        config_json: String,
-        target_json: String,
-    },
-}
-
-/// Runtime mutation operations supported by pipeline blueprints.
-#[derive(Debug, Clone)]
-pub enum PipelineMutation {
-    /// Applies a graph mutation on plugin/opaque transforms.
-    MutateTransformGraph {
-        /// Graph mutation payload.
-        mutation: TransformGraphMutation<OpaqueTransformStageSpec>,
-    },
-    /// Replaces mixer plan.
-    SetMixerPlan {
-        /// New mixer plan.
-        mixer: Option<MixerPlan>,
-    },
-    /// Replaces resampler plan.
-    SetResamplerPlan {
-        /// New resampler plan.
-        resampler: Option<ResamplerPlan>,
-    },
-    /// Enables or disables one built-in transform slot.
-    SetBuiltinTransformSlot {
-        /// Slot to update.
-        slot: BuiltinTransformSlot,
-        /// Whether the slot should be enabled.
-        enabled: bool,
-    },
-    /// Replaces the sink-route blueprint.
-    SetSinkRoute {
-        /// New sink route used when assembling sink stages.
-        route: PipelineSinkRoute,
-    },
-}
-
-/// Runtime contract for materializing blueprints into concrete pipelines.
-pub trait PipelineRuntime: Send {
-    /// Materializes a concrete assembled pipeline for the provided blueprint.
-    fn assemble(
-        &mut self,
-        blueprint: &dyn PipelineBlueprint,
-    ) -> Result<AssembledPipeline, PipelineError>;
-    /// Resets runtime-local caches or factories.
-    fn reset(&mut self) {}
-}
-
-/// Planner contract used by engine startup and decode worker open flows.
-pub trait PipelineAssembler: Send + Sync {
-    /// Builds a blueprint for the specified input reference.
-    fn build_blueprint(
-        &self,
-        input: &InputRef,
-    ) -> Result<Arc<dyn PipelineBlueprint>, PipelineError>;
-    /// Applies a mutation and returns the next immutable blueprint snapshot.
-    fn apply_pipeline_mutation(
-        &self,
-        current: Option<&dyn PipelineBlueprint>,
-        mutation: PipelineMutation,
-    ) -> Result<Arc<dyn PipelineBlueprint>, PipelineError>;
-    /// Creates a fresh runtime instance used to materialize blueprints.
-    fn create_runtime(&self) -> Box<dyn PipelineRuntime>;
+/// Stateless factory used by PlaybackSession to materialize a complete native
+/// pipeline from the latest typed Registry snapshot.
+pub trait PipelineFactory: Send + Sync {
+    fn build_pipeline(&self, input: &InputRef) -> Result<AssembledPipeline, PipelineError>;
 }
 
 #[cfg(test)]

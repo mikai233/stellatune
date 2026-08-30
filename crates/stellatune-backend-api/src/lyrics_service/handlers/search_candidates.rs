@@ -1,24 +1,24 @@
 use anyhow::Result;
-use stellatune_runtime::tokio_actor::{ActorContext, Handler, Message};
+use lattice_actor::{
+    context::HandlerContext, error::ActorError, reply::ReplyTo, traits::Responder,
+};
 
-use crate::lyrics_service::LyricsServiceActor;
-use crate::{LyricsQuery, LyricsSearchCandidate};
+use crate::{LyricsQuery, LyricsSearchCandidate, lyrics_service::LyricsServiceActor};
 
+#[derive(lattice_actor::Request)]
+#[request(response = Result<Vec<LyricsSearchCandidate>>)]
 pub(crate) struct SearchCandidatesMessage {
     pub(crate) query: LyricsQuery,
 }
 
-impl Message for SearchCandidatesMessage {
-    type Response = Result<Vec<LyricsSearchCandidate>>;
-}
-
-#[async_trait::async_trait]
-impl Handler<SearchCandidatesMessage> for LyricsServiceActor {
-    async fn handle(
+impl Responder<SearchCandidatesMessage> for LyricsServiceActor {
+    async fn respond(
         &mut self,
+        _ctx: &mut HandlerContext<'_, Self>,
         message: SearchCandidatesMessage,
-        _ctx: &mut ActorContext<Self>,
-    ) -> Result<Vec<LyricsSearchCandidate>> {
-        self.core.search_candidates(message.query).await
+        reply_to: ReplyTo<Result<Vec<LyricsSearchCandidate>>>,
+    ) -> Result<(), ActorError> {
+        let _ = reply_to.send(self.core.search_candidates(message.query).await);
+        Ok(())
     }
 }

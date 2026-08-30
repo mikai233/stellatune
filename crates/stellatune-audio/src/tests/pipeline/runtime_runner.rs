@@ -1,6 +1,7 @@
 #![cfg(test)]
 
 use crate::pipeline::assembly::StaticSinkPlan;
+use crate::pipeline::runtime::dsp::gapless_trim::GaplessTrimStage;
 use crate::pipeline::runtime::runner::PipelineRunner;
 use stellatune_audio_core::pipeline::context::{
     AudioBlock, GaplessTrimSpec, InputRef, PipelineContext, SourceHandle, StreamSpec,
@@ -23,7 +24,7 @@ impl SourceStage for TestSource {
         _input: &InputRef,
         _ctx: &mut PipelineContext,
     ) -> Result<SourceHandle, PipelineError> {
-        Ok(SourceHandle::new(()))
+        Ok(SourceHandle::Empty)
     }
     fn stop(&mut self, _ctx: &mut PipelineContext) {}
 }
@@ -145,7 +146,7 @@ fn remaining_frames_hint_trusts_decoder_estimate_without_gapless_stage() {
 #[test]
 fn remaining_frames_hint_trusts_decoder_estimate_with_gapless_stage() {
     let mut runner = new_runner(
-        Vec::new(),
+        vec![Box::new(GaplessTrimStage::new())],
         3,
         Some(GaplessTrimSpec {
             head_frames: 0,

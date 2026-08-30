@@ -2,9 +2,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use arc_swap::ArcSwap;
-use stellatune_audio_core::pipeline::context::{
-    GainTransitionRequest, GaplessTrimSpec, MasterGainCurve,
-};
+use stellatune_audio_core::pipeline::context::MasterGainCurve;
 
 pub(crate) const GAPLESS_TRIM_STAGE_KEY: &str = "builtin.gapless_trim";
 pub(crate) const TRANSITION_GAIN_STAGE_KEY: &str = "builtin.transition_gain";
@@ -67,57 +65,5 @@ impl MasterGainHotControl {
 
     pub(crate) fn version(&self) -> u64 {
         self.version.load(Ordering::Acquire)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) struct MasterGainControl {
-    pub level: f32,
-    pub ramp_ms: u32,
-    pub curve: Option<MasterGainCurve>,
-}
-
-impl MasterGainControl {
-    pub(crate) fn new(level: f32, ramp_ms: u32) -> Self {
-        Self {
-            level: level.clamp(0.0, 1.0),
-            ramp_ms,
-            curve: None,
-        }
-    }
-
-    #[cfg(test)]
-    pub(crate) fn with_curve(level: f32, ramp_ms: u32, curve: MasterGainCurve) -> Self {
-        Self {
-            level: level.clamp(0.0, 1.0),
-            ramp_ms,
-            curve: Some(curve),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) struct TransitionGainControl {
-    pub request: GainTransitionRequest,
-}
-
-impl TransitionGainControl {
-    pub(crate) fn new(request: GainTransitionRequest) -> Self {
-        Self { request }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct GaplessTrimControl {
-    pub spec: Option<GaplessTrimSpec>,
-    pub position_ms: i64,
-}
-
-impl GaplessTrimControl {
-    pub(crate) fn new(spec: Option<GaplessTrimSpec>, position_ms: i64) -> Self {
-        Self {
-            spec: spec.filter(|v| !v.is_disabled()),
-            position_ms: position_ms.max(0),
-        }
     }
 }

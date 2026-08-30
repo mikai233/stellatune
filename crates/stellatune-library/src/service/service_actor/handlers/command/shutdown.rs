@@ -1,15 +1,17 @@
-use super::{ActorContext, Handler, LibraryServiceActor, Message};
+use super::{ActorContext, LibraryServiceActor};
+use lattice_actor::{error::ActorError, traits::Handler};
 
+#[derive(lattice_actor::Message)]
 pub(crate) struct ShutdownMessage;
 
-impl Message for ShutdownMessage {
-    type Response = ();
-}
-
-#[async_trait::async_trait]
 impl Handler<ShutdownMessage> for LibraryServiceActor {
-    async fn handle(&mut self, _message: ShutdownMessage, ctx: &mut ActorContext<Self>) -> () {
+    async fn handle(
+        &mut self,
+        ctx: &mut ActorContext<'_, Self>,
+        _message: ShutdownMessage,
+    ) -> Result<(), ActorError> {
         tracing::info!("library actor exiting");
-        ctx.stop();
+        ctx.request_stop();
+        Ok(())
     }
 }

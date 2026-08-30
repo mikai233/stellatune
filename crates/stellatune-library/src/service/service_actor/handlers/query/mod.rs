@@ -18,4 +18,4 @@ pub(crate) use search_tracks::SearchTracksMessage;
 
 pub(super) use crate::service::service_actor::LibraryServiceActor;
 pub(super) use crate::{PlaylistLite, TrackLite};
-pub(super) use stellatune_runtime::tokio_actor::{ActorContext, Handler, Message};
+pub(super) use lattice_actor::context::HandlerContext as ActorContext;

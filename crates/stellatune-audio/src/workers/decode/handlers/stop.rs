@@ -1,8 +1,5 @@
-use crossbeam_channel::Sender;
-
 use crate::config::engine::{PlayerState, StopBehavior};
 use crate::error::DecodeError;
-use crate::pipeline::assembly::PipelineRuntime;
 use crate::workers::decode::handlers::gain_transition;
 use crate::workers::decode::state::DecodeWorkerState;
 use crate::workers::decode::util::update_state;
@@ -10,15 +7,13 @@ use crate::workers::decode::{DecodeWorkerEvent, DecodeWorkerEventCallback};
 
 pub(crate) fn handle(
     behavior: StopBehavior,
-    resp_tx: Sender<Result<(), DecodeError>>,
     callback: &DecodeWorkerEventCallback,
-    pipeline_runtime: &mut dyn PipelineRuntime,
     state: &mut DecodeWorkerState,
-) -> bool {
+) -> Result<(), DecodeError> {
     let transition = state.gain_transition;
     let mut stop_error: Option<DecodeError> = None;
     if let Some(active_runner) = state.runner.as_mut() {
-        if state.state == PlayerState::Playing {
+        if state.pumping {
             let available_frames_hint = active_runner.playable_remaining_frames_hint();
             let _ = gain_transition::run_interrupt_fade_out(
                 active_runner,
@@ -37,7 +32,6 @@ pub(crate) fn handle(
     } else {
         state.sink_session.shutdown(false);
     }
-    pipeline_runtime.reset();
     state.runner = None;
     state.reset_context();
     state.active_input = None;
@@ -46,11 +40,10 @@ pub(crate) fn handle(
     state.recovery_attempts = 0;
     state.recovery_retry_at = None;
     state.clear_pipeline_unavailable_reason();
-    update_state(callback, &mut state.state, PlayerState::Stopped);
+    update_state(callback, &mut state.pumping, PlayerState::Stopped);
     callback(DecodeWorkerEvent::Position { position_ms: 0 });
-    let _ = resp_tx.send(match stop_error {
+    match stop_error {
         Some(error) => Err(error),
         None => Ok(()),
-    });
-    false
+    }
 }

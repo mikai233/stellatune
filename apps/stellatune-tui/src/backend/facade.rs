@@ -9,10 +9,11 @@ use stellatune_audio::config::engine::{
     EngineSnapshot, Event as AudioEvent, PlayerState, ResampleQuality,
 };
 use stellatune_audio::engine::EngineHandle;
-use stellatune_audio::pipeline::assembly::{BuiltinTransformSlot, PipelineMutation};
 use stellatune_backend_api::app::BackendApp;
 use stellatune_backend_api::library::LibraryService;
-use stellatune_backend_api::runtime::runtime_set_output_options;
+use stellatune_backend_api::runtime::{
+    runtime_set_output_options, set_runtime_builtin_transform_options,
+};
 use stellatune_backend_api::session::{BackendSession, BackendSessionOptions};
 use stellatune_library::{LibraryEvent, PlaylistLite, TrackLite};
 
@@ -115,23 +116,10 @@ impl BackendFacade {
             .set_resample_quality(resample_quality)
             .await
             .map_err(|e| anyhow!("set_resample_quality failed: {e}"))?;
+        set_runtime_builtin_transform_options(gapless_playback, seek_track_fade);
         runtime_set_output_options(match_track_sample_rate, resample_quality)
             .await
             .map_err(|e| anyhow!("runtime_set_output_options failed: {e}"))?;
-        self.player()
-            .apply_pipeline_mutation(PipelineMutation::SetBuiltinTransformSlot {
-                slot: BuiltinTransformSlot::GaplessTrim,
-                enabled: gapless_playback,
-            })
-            .await
-            .map_err(|e| anyhow!("set gapless slot failed: {e}"))?;
-        self.player()
-            .apply_pipeline_mutation(PipelineMutation::SetBuiltinTransformSlot {
-                slot: BuiltinTransformSlot::TransitionGain,
-                enabled: seek_track_fade,
-            })
-            .await
-            .map_err(|e| anyhow!("set seek-fade slot failed: {e}"))?;
         Ok(())
     }
 
@@ -221,15 +209,18 @@ impl BackendFacade {
     }
 
     pub async fn plugins_install_from_file(&self, artifact_path: String) -> Result<String> {
-        self.app.plugins_install_from_file(
-            self.plugins_dir.to_string_lossy().to_string(),
-            artifact_path,
-        )
+        self.app
+            .plugins_install_from_file(
+                self.plugins_dir.to_string_lossy().to_string(),
+                artifact_path,
+            )
+            .await
     }
 
     pub async fn plugins_uninstall_by_id(&self, plugin_id: String) -> Result<()> {
         self.app
             .plugins_uninstall_by_id(self.plugins_dir.to_string_lossy().to_string(), plugin_id)
+            .await
     }
 
     pub async fn plugin_enable(&self, plugin_id: String) -> Result<()> {
@@ -251,7 +242,12 @@ impl BackendFacade {
 
     #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
     pub async fn active_plugin_ids(&self) -> Vec<String> {
-        let mut ids = stellatune_backend_api::runtime::shared_plugin_runtime().active_plugin_ids();
+        let mut ids = stellatune_backend_api::runtime::shared_typescript_runtime()
+            .registered_plugins()
+            .await
+            .into_iter()
+            .map(|plugin| plugin.manifest.id)
+            .collect::<Vec<_>>();
         ids.sort();
         ids
     }

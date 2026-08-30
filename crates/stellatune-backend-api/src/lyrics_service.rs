@@ -6,12 +6,14 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Error, Result, anyhow};
 use arc_swap::ArcSwapOption;
+use lattice_actor::{
+    error::ActorError, handle::ActorHandle, mailbox::MailboxConfig, runtime::spawn_actor,
+    state_machine::Stateless, traits::Actor,
+};
 use reqwest::StatusCode;
 use serde_json::Value;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode};
 use sqlx::{Connection, Row, SqliteConnection};
-use stellatune_runtime as global_runtime;
-use stellatune_runtime::tokio_actor::ActorRef;
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 use url::Url;
@@ -102,17 +104,25 @@ struct LyricsServiceActor {
     core: Arc<LyricsServiceCore>,
 }
 
+impl Actor for LyricsServiceActor {
+    type Error = ActorError;
+    type Behavior = Stateless;
+}
+
 pub struct LyricsService {
     core: Arc<LyricsServiceCore>,
-    actor_ref: ActorRef<LyricsServiceActor>,
+    actor_ref: ActorHandle<LyricsServiceActor>,
 }
 
 impl LyricsService {
     pub fn new() -> Arc<Self> {
         let core = Arc::new(LyricsServiceCore::new());
-        let (actor_ref, _join) = stellatune_runtime::tokio_actor::spawn_actor(LyricsServiceActor {
-            core: Arc::clone(&core),
-        });
+        let actor_ref = spawn_actor(
+            LyricsServiceActor {
+                core: Arc::clone(&core),
+            },
+            MailboxConfig::bounded(256),
+        );
         Arc::new(Self { core, actor_ref })
     }
 
@@ -123,7 +133,7 @@ impl LyricsService {
     pub async fn set_cache_db_path(&self, db_path: String) -> Result<()> {
         match self
             .actor_ref
-            .call(SetCacheDbPathMessage { db_path }, LYRICS_ACTOR_CALL_TIMEOUT)
+            .ask(SetCacheDbPathMessage { db_path }, LYRICS_ACTOR_CALL_TIMEOUT)
             .await
         {
             Ok(result) => result,
@@ -134,7 +144,7 @@ impl LyricsService {
     pub async fn clear_cache(&self) -> Result<()> {
         match self
             .actor_ref
-            .call(ClearCacheMessage, LYRICS_ACTOR_CALL_TIMEOUT)
+            .ask(ClearCacheMessage, LYRICS_ACTOR_CALL_TIMEOUT)
             .await
         {
             Ok(result) => result,
@@ -148,7 +158,7 @@ impl LyricsService {
     ) -> Result<Vec<LyricsSearchCandidate>> {
         match self
             .actor_ref
-            .call(SearchCandidatesMessage { query }, LYRICS_ACTOR_CALL_TIMEOUT)
+            .ask(SearchCandidatesMessage { query }, LYRICS_ACTOR_CALL_TIMEOUT)
             .await
         {
             Ok(result) => result,
@@ -159,7 +169,7 @@ impl LyricsService {
     pub async fn apply_candidate(&self, track_key: String, doc: LyricsDoc) -> Result<()> {
         match self
             .actor_ref
-            .call(
+            .ask(
                 ApplyCandidateMessage { track_key, doc },
                 LYRICS_ACTOR_CALL_TIMEOUT,
             )
@@ -173,7 +183,7 @@ impl LyricsService {
     pub async fn prefetch(self: &Arc<Self>, query: LyricsQuery) -> Result<()> {
         match self
             .actor_ref
-            .call(PrefetchMessage { query }, LYRICS_ACTOR_CALL_TIMEOUT)
+            .ask(PrefetchMessage { query }, LYRICS_ACTOR_CALL_TIMEOUT)
             .await
         {
             Ok(result) => result,
@@ -184,7 +194,7 @@ impl LyricsService {
     pub async fn prepare(self: &Arc<Self>, query: LyricsQuery) -> Result<()> {
         match self
             .actor_ref
-            .call(PrepareMessage { query }, LYRICS_ACTOR_CALL_TIMEOUT)
+            .ask(PrepareMessage { query }, LYRICS_ACTOR_CALL_TIMEOUT)
             .await
         {
             Ok(result) => result,
@@ -195,7 +205,7 @@ impl LyricsService {
     pub async fn refresh_current(self: &Arc<Self>) -> Result<()> {
         match self
             .actor_ref
-            .call(RefreshCurrentMessage, LYRICS_ACTOR_CALL_TIMEOUT)
+            .ask(RefreshCurrentMessage, LYRICS_ACTOR_CALL_TIMEOUT)
             .await
         {
             Ok(result) => result,
@@ -204,7 +214,9 @@ impl LyricsService {
     }
 
     pub fn set_position_ms(&self, position_ms: u64) {
-        let _ = self.actor_ref.cast(SetPositionMsMessage { position_ms });
+        let _ = self
+            .actor_ref
+            .try_tell(SetPositionMsMessage { position_ms });
     }
 }
 
@@ -367,7 +379,7 @@ impl LyricsServiceCore {
         }
 
         let service = Arc::clone(self);
-        global_runtime::spawn(async move {
+        tokio::spawn(async move {
             service.fetch_and_cache_only(query).await;
         });
 
@@ -439,7 +451,7 @@ impl LyricsServiceCore {
 
         let (fetch_id, cancel) = self.begin_active_fetch();
         let service = Arc::clone(self);
-        global_runtime::spawn(async move {
+        tokio::spawn(async move {
             service.fetch_and_publish(query, fetch_id, cancel).await;
         });
 

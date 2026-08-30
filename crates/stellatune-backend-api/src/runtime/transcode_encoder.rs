@@ -1,16 +1,10 @@
 use std::fs::File;
-use std::io::{BufWriter, Write};
-use std::path::Path;
+use std::io::{BufWriter, Seek, SeekFrom, Write};
 
-use stellatune_plugins::host_runtime::RuntimeEncoderPlugin;
-use stellatune_plugins::runtime::model::{
-    RuntimeAudioSpec, RuntimeEncodeTarget, RuntimeEncodedAudioFormat, RuntimeMediaMetadata,
-    RuntimePcmF32Chunk,
-};
+use super::transcode_decoder::{MediaMetadata, PcmF32Chunk};
 
-use super::shared_plugin_runtime;
-
-const MAX_ENCODE_BYTES: u32 = 64 * 1024;
+const NATIVE_PLUGIN_ID: &str = "builtin.native";
+const WAV_ENCODER_ID: &str = "wav-f32";
 
 #[derive(Debug, Clone)]
 pub struct TranscodeEncoderDescriptor {
@@ -23,46 +17,21 @@ pub struct TranscodeEncoderDescriptor {
 }
 
 pub trait TranscodeEncoderSession: Send {
-    fn write_pcm_f32(&mut self, chunk: RuntimePcmF32Chunk) -> Result<u32, String>;
+    fn write_pcm_f32(&mut self, chunk: PcmF32Chunk) -> Result<u32, String>;
     fn finish(&mut self) -> Result<(), String>;
     fn close(&mut self) -> Result<(), String>;
     fn written_bytes(&self) -> u64;
 }
 
 pub fn list_local_transcode_encoders() -> Vec<TranscodeEncoderDescriptor> {
-    let service = shared_plugin_runtime();
-    let mut out = Vec::<TranscodeEncoderDescriptor>::new();
-
-    let mut plugins = service.active_plugins_snapshot();
-    plugins.sort_by(|a, b| a.id.cmp(&b.id));
-    for plugin in plugins {
-        let mut capabilities = service.list_encoder_capabilities(plugin.id.as_str());
-        capabilities.sort_by(|a, b| a.type_id.cmp(&b.type_id));
-        for capability in capabilities {
-            out.push(TranscodeEncoderDescriptor {
-                plugin_id: plugin.id.clone(),
-                plugin_name: plugin.name.clone(),
-                type_id: capability.type_id,
-                display_name: capability.display_name,
-                config_schema_json: capability.config_schema_json,
-                default_config_json: capability.default_config_json,
-            });
-        }
-    }
-
-    out.sort_by(|a, b| {
-        a.display_name
-            .to_ascii_lowercase()
-            .cmp(&b.display_name.to_ascii_lowercase())
-            .then_with(|| {
-                a.plugin_name
-                    .to_ascii_lowercase()
-                    .cmp(&b.plugin_name.to_ascii_lowercase())
-            })
-            .then_with(|| a.type_id.cmp(&b.type_id))
-            .then_with(|| a.plugin_id.cmp(&b.plugin_id))
-    });
-    out
+    vec![TranscodeEncoderDescriptor {
+        plugin_id: NATIVE_PLUGIN_ID.to_string(),
+        plugin_name: "Stellatune Native".to_string(),
+        type_id: WAV_ENCODER_ID.to_string(),
+        display_name: "WAV (32-bit float)".to_string(),
+        config_schema_json: r#"{"type":"object","additionalProperties":false}"#.to_string(),
+        default_config_json: "{}".to_string(),
+    }]
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -72,214 +41,119 @@ pub fn open_local_transcode_encoder(
     encoder_type_id: &str,
     sample_rate: u32,
     channels: u16,
-    metadata: Option<RuntimeMediaMetadata>,
-    encoder_config_json: &str,
-    encoder_options_json: Option<&str>,
+    _metadata: Option<MediaMetadata>,
+    _encoder_config_json: &str,
+    _encoder_options_json: Option<&str>,
 ) -> Result<Box<dyn TranscodeEncoderSession>, String> {
-    let output_path = output_path.trim();
-    if output_path.is_empty() {
-        return Err("output path is empty".to_string());
-    }
-    let plugin_id = encoder_plugin_id.trim();
-    if plugin_id.is_empty() {
-        return Err("encoder plugin id is empty".to_string());
-    }
-    let type_id = encoder_type_id.trim();
-    if type_id.is_empty() {
-        return Err("encoder type id is empty".to_string());
+    if encoder_plugin_id.trim() != NATIVE_PLUGIN_ID || encoder_type_id.trim() != WAV_ENCODER_ID {
+        return Err(format!(
+            "unsupported native encoder: {}::{}",
+            encoder_plugin_id.trim(),
+            encoder_type_id.trim()
+        ));
     }
     if sample_rate == 0 || channels == 0 {
         return Err(format!(
-            "invalid encoder stream spec: sample_rate={} channels={channels}",
-            sample_rate
+            "invalid encoder stream spec: sample_rate={sample_rate} channels={channels}"
         ));
     }
-
-    open_plugin_transcode_encoder(
-        output_path,
-        plugin_id,
-        type_id,
+    let file = File::create(output_path.trim())
+        .map_err(|error| format!("create output `{}`: {error}", output_path.trim()))?;
+    let mut encoder = WavF32Encoder {
+        writer: BufWriter::new(file),
         sample_rate,
         channels,
-        metadata,
-        encoder_config_json,
-        encoder_options_json,
-    )
-    .map(|encoder| Box::new(encoder) as Box<dyn TranscodeEncoderSession>)
+        data_bytes: 0,
+        closed: false,
+    };
+    encoder.write_header()?;
+    Ok(Box::new(encoder))
 }
 
-#[allow(clippy::too_many_arguments)]
-fn open_plugin_transcode_encoder(
-    output_path: &str,
-    plugin_id: &str,
-    type_id: &str,
+struct WavF32Encoder {
+    writer: BufWriter<File>,
     sample_rate: u32,
     channels: u16,
-    metadata: Option<RuntimeMediaMetadata>,
-    encoder_config_json: &str,
-    encoder_options_json: Option<&str>,
-) -> Result<PluginTranscodeEncoder, String> {
-    let service = shared_plugin_runtime();
-    let mut encoder = service
-        .create_encoder_plugin(plugin_id, type_id)
-        .map_err(|error| {
-            format!(
-                "failed to create encoder plugin {}::{}: {error}",
-                plugin_id, type_id
-            )
-        })?;
-
-    let target_ext = output_path_extension(output_path);
-    let target_codec = if target_ext.is_empty() {
-        type_id.to_string()
-    } else {
-        target_ext.clone()
-    };
-    let options_json = encoder_options_json
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string);
-
-    let encoder_session = encoder
-        .create(
-            RuntimeAudioSpec {
-                sample_rate,
-                channels,
-            },
-            RuntimeEncodeTarget {
-                format: RuntimeEncodedAudioFormat {
-                    codec: target_codec,
-                    sample_rate: Some(sample_rate),
-                    channels: Some(channels),
-                    bitrate_kbps: None,
-                    container: (!target_ext.is_empty()).then_some(target_ext.clone()),
-                },
-                ext_hint: (!target_ext.is_empty()).then_some(target_ext),
-                options_json,
-            },
-            metadata,
-        )
-        .map_err(|error| {
-            format!(
-                "failed to create encoder session for {}::{}: {error}",
-                plugin_id, type_id
-            )
-        })?;
-
-    let config_json = encoder_config_json.trim();
-    if !config_json.is_empty() {
-        encoder
-            .apply_config_update_json(encoder_session, config_json)
-            .map_err(|error| {
-                format!(
-                    "failed to apply encoder config for {}::{}: {error}",
-                    plugin_id, type_id
-                )
-            })?;
-    }
-
-    let output_file = File::create(output_path)
-        .map_err(|error| format!("failed to create output file `{output_path}`: {error}"))?;
-    Ok(PluginTranscodeEncoder {
-        encoder,
-        session_handle: Some(encoder_session),
-        output_writer: BufWriter::new(output_file),
-        written_bytes: 0,
-    })
+    data_bytes: u64,
+    closed: bool,
 }
 
-struct PluginTranscodeEncoder {
-    encoder: RuntimeEncoderPlugin,
-    session_handle: Option<u64>,
-    output_writer: BufWriter<File>,
-    written_bytes: u64,
-}
-
-impl PluginTranscodeEncoder {
-    fn required_session_handle(&self) -> Result<u64, String> {
-        self.session_handle
-            .ok_or_else(|| "plugin transcode encoder session is closed".to_string())
+impl WavF32Encoder {
+    fn write_header(&mut self) -> Result<(), String> {
+        let block_align = self.channels.saturating_mul(4);
+        let byte_rate = self.sample_rate.saturating_mul(block_align as u32);
+        let mut header = Vec::with_capacity(44);
+        header.extend_from_slice(b"RIFF");
+        header.extend_from_slice(&36_u32.to_le_bytes());
+        header.extend_from_slice(b"WAVEfmt ");
+        header.extend_from_slice(&16_u32.to_le_bytes());
+        header.extend_from_slice(&3_u16.to_le_bytes());
+        header.extend_from_slice(&self.channels.to_le_bytes());
+        header.extend_from_slice(&self.sample_rate.to_le_bytes());
+        header.extend_from_slice(&byte_rate.to_le_bytes());
+        header.extend_from_slice(&block_align.to_le_bytes());
+        header.extend_from_slice(&32_u16.to_le_bytes());
+        header.extend_from_slice(b"data");
+        header.extend_from_slice(&0_u32.to_le_bytes());
+        self.writer
+            .write_all(&header)
+            .map_err(|error| format!("write WAV header: {error}"))
     }
 
-    fn drain_output(&mut self, max_bytes: u32) -> Result<bool, String> {
-        let session_handle = self.required_session_handle()?;
-        let mut saw_eof = false;
-        loop {
-            let chunk = self
-                .encoder
-                .read_encoded(session_handle, max_bytes.max(1))
-                .map_err(|error| format!("plugin encoder read failed: {error}"))?;
-            if !chunk.bytes.is_empty() {
-                self.output_writer
-                    .write_all(chunk.bytes.as_slice())
-                    .map_err(|error| format!("write output failed: {error}"))?;
-                self.written_bytes = self.written_bytes.saturating_add(chunk.bytes.len() as u64);
-            }
-            if chunk.eof {
-                saw_eof = true;
-                break;
-            }
-            if chunk.bytes.is_empty() {
-                break;
-            }
+    fn finalize_header(&mut self) -> Result<(), String> {
+        self.writer
+            .flush()
+            .map_err(|error| format!("flush WAV: {error}"))?;
+        let data_size = self.data_bytes.min(u32::MAX as u64) as u32;
+        let riff_size = 36_u32.saturating_add(data_size);
+        self.writer
+            .seek(SeekFrom::Start(4))
+            .and_then(|_| self.writer.write_all(&riff_size.to_le_bytes()))
+            .and_then(|_| self.writer.seek(SeekFrom::Start(40)).map(|_| ()))
+            .and_then(|_| self.writer.write_all(&data_size.to_le_bytes()))
+            .and_then(|_| self.writer.flush())
+            .map_err(|error| format!("finalize WAV header: {error}"))
+    }
+}
+
+impl TranscodeEncoderSession for WavF32Encoder {
+    fn write_pcm_f32(&mut self, chunk: PcmF32Chunk) -> Result<u32, String> {
+        if self.closed {
+            return Err("native encoder is closed".to_string());
         }
-        Ok(saw_eof)
-    }
-}
-
-impl TranscodeEncoderSession for PluginTranscodeEncoder {
-    fn write_pcm_f32(&mut self, chunk: RuntimePcmF32Chunk) -> Result<u32, String> {
-        let session_handle = self.required_session_handle()?;
-        let consumed = self
-            .encoder
-            .write_pcm_f32(session_handle, chunk.clone())
-            .map_err(|error| format!("plugin encoder write failed: {error}"))?;
-        let _ = self.drain_output(MAX_ENCODE_BYTES)?;
-        Ok(consumed)
+        let frame_bytes = self.channels.max(1) as usize * 4;
+        if !chunk.interleaved_f32le.len().is_multiple_of(frame_bytes) {
+            return Err("PCM chunk is not frame-aligned".to_string());
+        }
+        self.writer
+            .write_all(&chunk.interleaved_f32le)
+            .map_err(|error| format!("write WAV samples: {error}"))?;
+        self.data_bytes = self
+            .data_bytes
+            .saturating_add(chunk.interleaved_f32le.len() as u64);
+        Ok((chunk.interleaved_f32le.len() / frame_bytes).min(u32::MAX as usize) as u32)
     }
 
     fn finish(&mut self) -> Result<(), String> {
-        for _ in 0..64 {
-            let saw_eof = self.drain_output(MAX_ENCODE_BYTES)?;
-            if saw_eof {
-                break;
-            }
-        }
-        self.output_writer
-            .flush()
-            .map_err(|error| format!("flush output failed: {error}"))?;
-        Ok(())
+        self.finalize_header()
     }
 
     fn close(&mut self) -> Result<(), String> {
-        let Some(session_handle) = self.session_handle.take() else {
+        if self.closed {
             return Ok(());
-        };
-        let _ = self.output_writer.flush();
-        self.encoder
-            .close(session_handle)
-            .map_err(|error| format!("plugin encoder close failed: {error}"))
+        }
+        self.finalize_header()?;
+        self.closed = true;
+        Ok(())
     }
 
     fn written_bytes(&self) -> u64 {
-        self.written_bytes
+        self.data_bytes.saturating_add(44)
     }
 }
 
-impl Drop for PluginTranscodeEncoder {
+impl Drop for WavF32Encoder {
     fn drop(&mut self) {
         let _ = self.close();
     }
-}
-
-fn normalize_extension(raw: &str) -> String {
-    raw.trim().trim_start_matches('.').to_ascii_lowercase()
-}
-
-fn output_path_extension(path: &str) -> String {
-    Path::new(path)
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .map(normalize_extension)
-        .unwrap_or_default()
 }

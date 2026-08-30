@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crate::config::engine::{EngineConfig, PlayerState};
+use crate::config::engine::EngineConfig;
 use crate::pipeline::runtime::dsp::control::MasterGainHotControl;
 use crate::workers::decode::state::DecodeWorkerState;
 
@@ -22,7 +22,7 @@ fn compute_loop_timeout_uses_idle_sleep_when_not_playing() {
         ..EngineConfig::default()
     };
     let mut state = test_state(&config);
-    state.state = PlayerState::Stopped;
+    state.pumping = false;
 
     let timeout = crate::workers::decode::worker_loop::compute_loop_timeout(&state, &config);
 
@@ -36,7 +36,7 @@ fn compute_loop_timeout_caps_recovery_wait_to_pending_block_sleep() {
         ..EngineConfig::default()
     };
     let mut state = test_state(&config);
-    state.state = PlayerState::Playing;
+    state.pumping = true;
     state.recovery_retry_at = Some(Instant::now() + Duration::from_millis(300));
 
     let timeout = crate::workers::decode::worker_loop::compute_loop_timeout(&state, &config);
@@ -51,7 +51,7 @@ fn compute_loop_timeout_uses_playing_idle_sleep_without_recovery() {
         ..EngineConfig::default()
     };
     let mut state = test_state(&config);
-    state.state = PlayerState::Playing;
+    state.pumping = true;
     state.recovery_retry_at = None;
 
     let timeout = crate::workers::decode::worker_loop::compute_loop_timeout(&state, &config);

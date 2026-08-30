@@ -21,15 +21,9 @@
 
 use std::collections::HashMap;
 
-#[cfg(test)]
-use std::sync::{Arc, Mutex};
-
-#[cfg(test)]
-use stellatune_audio_core::pipeline::context::GainTransitionRequest;
 use stellatune_audio_core::pipeline::context::{
     AudioBlock, GaplessTrimSpec, SourceHandle, StreamSpec,
 };
-use stellatune_audio_core::pipeline::stages::StageTarget;
 use stellatune_audio_core::pipeline::stages::decoder::DecoderStage;
 use stellatune_audio_core::pipeline::stages::source::SourceStage;
 use stellatune_audio_core::pipeline::stages::transform::TransformStage;
@@ -71,9 +65,7 @@ pub(crate) struct PipelineRunner {
     output_spec: Option<StreamSpec>,
     decoder_gapless_trim_spec: Option<GaplessTrimSpec>,
     playable_remaining_frames_hint: Option<u64>,
-    transform_control_routes: HashMap<StageTarget, usize>,
-    #[cfg(test)]
-    transition_request_log_sink: Option<Arc<Mutex<Vec<GainTransitionRequest>>>>,
+    transform_control_routes: HashMap<String, usize>,
     state: RunnerState,
 }
 

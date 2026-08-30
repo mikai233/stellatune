@@ -1,23 +1,24 @@
 use anyhow::Result;
-use stellatune_runtime::tokio_actor::{ActorContext, Handler, Message};
+use lattice_actor::{
+    context::HandlerContext, error::ActorError, reply::ReplyTo, traits::Responder,
+};
 
 use crate::lyrics_service::LyricsServiceActor;
 
+#[derive(lattice_actor::Request)]
+#[request(response = Result<()>)]
 pub(crate) struct SetCacheDbPathMessage {
     pub(crate) db_path: String,
 }
 
-impl Message for SetCacheDbPathMessage {
-    type Response = Result<()>;
-}
-
-#[async_trait::async_trait]
-impl Handler<SetCacheDbPathMessage> for LyricsServiceActor {
-    async fn handle(
+impl Responder<SetCacheDbPathMessage> for LyricsServiceActor {
+    async fn respond(
         &mut self,
+        _ctx: &mut HandlerContext<'_, Self>,
         message: SetCacheDbPathMessage,
-        _ctx: &mut ActorContext<Self>,
-    ) -> Result<()> {
-        self.core.set_cache_db_path(message.db_path).await
+        reply_to: ReplyTo<Result<()>>,
+    ) -> Result<(), ActorError> {
+        let _ = reply_to.send(self.core.set_cache_db_path(message.db_path).await);
+        Ok(())
     }
 }

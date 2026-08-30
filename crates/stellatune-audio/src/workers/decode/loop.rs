@@ -12,205 +12,155 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crossbeam_channel::Receiver;
 use stellatune_audio_core::pipeline::error::PipelineError;
 use tracing::warn;
 
 use crate::config::engine::{EngineConfig, PlayerState, StopBehavior};
 use crate::error::{DecodeError, NoActivePipelineReason};
-use crate::pipeline::assembly::PipelineAssembler;
-use crate::pipeline::runtime::dsp::control::SharedMasterGainHotControl;
+use crate::pipeline::assembly::PipelineFactory;
 use crate::pipeline::runtime::runner::{RunnerState, StepResult};
 use crate::pipeline::runtime::sink_session::SinkActivationMode;
-use crate::workers::decode::command::DecodeWorkerCommand;
-use crate::workers::decode::handlers::handle_command;
 use crate::workers::decode::handlers::open::open_input;
 use crate::workers::decode::handlers::{
-    apply_master_gain_level_to_runner, replay_persisted_stage_runtime_updates_to_runner,
-    request_fade_in_from_silence_with_runner,
+    apply_master_gain_level_to_runner, request_fade_in_from_silence_with_runner,
 };
 use crate::workers::decode::recovery;
 use crate::workers::decode::state::DecodeWorkerState;
 use crate::workers::decode::util::{maybe_emit_position, update_state};
 use crate::workers::decode::{DecodeWorkerEvent, DecodeWorkerEventCallback};
 
-/// Runs the decode worker event loop until shutdown or channel closure.
-///
-/// The loop prioritizes control commands, drives runner stepping while playing,
-/// and coordinates EOF promotion, queued-next fallback, and sink recovery.
-pub(crate) fn decode_worker_main(
-    assembler: Arc<dyn PipelineAssembler>,
-    config: EngineConfig,
-    callback: DecodeWorkerEventCallback,
-    rx: Receiver<DecodeWorkerCommand>,
-    master_gain_hot_control: SharedMasterGainHotControl,
-) {
-    let mut pipeline_runtime = assembler.create_runtime();
-    let mut state = DecodeWorkerState::new(
-        config.sink_latency,
-        config.sink_recovery,
-        config.gain_transition,
-        config.sink_control_timeout,
-        master_gain_hot_control,
-    );
+/// Drives at most one runner step and returns whether playback remains active.
+pub(crate) fn drive_playback_once(
+    factory: &Arc<dyn PipelineFactory>,
+    config: &EngineConfig,
+    callback: &DecodeWorkerEventCallback,
+    state: &mut DecodeWorkerState,
+) -> bool {
+    if !state.pumping {
+        return false;
+    }
 
-    loop {
-        let timeout = compute_loop_timeout(&state, &config);
-        let timeout_rx = crossbeam_channel::after(timeout);
-
-        crossbeam_channel::select_biased! {
-            recv(rx) -> msg => {
-                match msg {
-                    Ok(cmd) => {
-                        let should_break =
-                            handle_command(cmd, &assembler, &callback, pipeline_runtime.as_mut(), &mut state);
-                        if should_break {
-                            break;
-                        }
-                    }
-                    Err(_) => break,
-                }
-            }
-            // Periodic wake drives playback stepping and recovery retries.
-            recv(timeout_rx) -> _ => {}
-        };
-
-        if state.state != PlayerState::Playing {
-            continue;
+    if state.runner.is_none() {
+        if recovery::try_sink_recovery_tick(factory, callback, state, config) {
+            return true;
         }
+        update_state(callback, &mut state.pumping, PlayerState::Stopped);
+        return false;
+    }
 
-        if state.runner.is_none() {
-            if recovery::try_sink_recovery_tick(
-                &assembler,
-                &callback,
-                pipeline_runtime.as_mut(),
-                &mut state,
-                &config,
-            ) {
-                continue;
+    let step_result = match state.runner.as_mut() {
+        Some(active_runner) => active_runner.step(&mut state.sink_session, &mut state.ctx),
+        None => Ok(StepResult::Idle),
+    };
+
+    match step_result {
+        Ok(StepResult::Produced { .. }) => {
+            if !state.audio_start_sent {
+                state.audio_start_sent = true;
+                callback(DecodeWorkerEvent::AudioStart);
             }
-            update_state(&callback, &mut state.state, PlayerState::Stopped);
-            continue;
-        }
-
-        let step_result = match state.runner.as_mut() {
-            Some(active_runner) => active_runner.step(&mut state.sink_session, &mut state.ctx),
-            None => Ok(StepResult::Idle),
-        };
-
-        match step_result {
-            Ok(StepResult::Produced { .. }) => {
-                if !state.audio_start_sent {
-                    state.audio_start_sent = true;
-                    callback(DecodeWorkerEvent::AudioStart);
-                }
-                maybe_emit_position(&callback, &state.ctx, &mut state.last_position_emit_at);
-            },
-            Ok(StepResult::Idle) => {
-                std::thread::yield_now();
-            },
-            Ok(StepResult::Eof) => {
-                callback(DecodeWorkerEvent::AudioEnd);
-                if let Some(prewarmed_next) = state.prewarmed_next.take() {
-                    // Promote already-prepared next runner for a cheap cutover.
-                    if let Some(active_runner) = state.runner.as_mut() {
-                        let _ = active_runner
-                            .drain_sink_for_reuse(&mut state.sink_session, &mut state.ctx);
-                        active_runner.stop_decode_only(&mut state.ctx);
-                    }
-                    state.runner = None;
-                    state.queued_next_input = None;
-                    let promote_result =
-                        promote_prewarmed_next(prewarmed_next, &callback, &mut state);
-                    if let Err((failure_context, error)) = promote_result {
-                        state.set_pipeline_unavailable_reason(
-                            NoActivePipelineReason::PipelineRebuildFailed {
-                                context: failure_context,
-                                error: error.to_string(),
-                            },
-                        );
-                        warn!(message = %error, "failed to promote prewarmed next track");
-                        update_state(&callback, &mut state.state, PlayerState::Stopped);
-                        callback(DecodeWorkerEvent::Error(error));
-                    }
-                } else if let Some(next_input) = state.queued_next_input.take() {
-                    let open_result = open_input(
-                        next_input,
-                        true,
-                        &assembler,
-                        &callback,
-                        pipeline_runtime.as_mut(),
-                        &mut state,
-                    );
-                    if let Err(error) = open_result {
-                        warn!(message = %error, "failed to open queued next track");
-                        update_state(&callback, &mut state.state, PlayerState::Stopped);
-                        callback(DecodeWorkerEvent::Error(error));
-                    }
-                } else {
-                    // Fully drained EOF path with no fallback candidate.
-                    if let Some(active_runner) = state.runner.as_mut() {
-                        let _ = active_runner.stop_with_behavior(
-                            StopBehavior::DrainSink,
-                            &mut state.sink_session,
-                            &mut state.ctx,
-                        );
-                    }
-                    state.runner = None;
-                    state.reset_context();
-                    state.active_input = None;
-                    state.clear_pipeline_unavailable_reason();
-                    update_state(&callback, &mut state.state, PlayerState::Stopped);
-                    callback(DecodeWorkerEvent::Eof);
-                }
-            },
-            Err(error) => {
-                let active_input = recovery::active_input_for_log(&state);
-                if matches!(error, PipelineError::SinkDisconnected) {
-                    // Sink disconnection is recoverable; stage failure is not.
-                    warn!(
-                        message = %error,
-                        active_input = %active_input,
-                        "sink disconnected, entering recovery"
-                    );
-                    if let Some(active_runner) = state.runner.as_mut() {
-                        active_runner.stop(&mut state.sink_session, &mut state.ctx);
-                    }
-                    state.runner = None;
-                    if recovery::schedule_sink_recovery(&callback, &mut state) {
-                        state.set_pipeline_unavailable_reason(
-                            NoActivePipelineReason::SinkRecoveryInProgress {
-                                next_attempt: 1,
-                                last_error: Some(error.to_string()),
-                            },
-                        );
-                        continue;
-                    }
-                } else {
-                    warn!(
-                        message = %error,
-                        active_input = %active_input,
-                        "decode worker step failed"
-                    );
-                }
+            maybe_emit_position(callback, &state.ctx, &mut state.last_position_emit_at);
+        },
+        Ok(StepResult::Idle) => {
+            std::thread::yield_now();
+        },
+        Ok(StepResult::Eof) => {
+            callback(DecodeWorkerEvent::AudioEnd);
+            if let Some(prewarmed_next) = state.prewarmed_next.take() {
+                // Promote already-prepared next runner for a cheap cutover.
                 if let Some(active_runner) = state.runner.as_mut() {
-                    active_runner.stop(&mut state.sink_session, &mut state.ctx);
+                    let _ =
+                        active_runner.drain_sink_for_reuse(&mut state.sink_session, &mut state.ctx);
+                    active_runner.stop_decode_only(&mut state.ctx);
+                }
+                state.runner = None;
+                state.queued_next_input = None;
+                let promote_result = promote_prewarmed_next(prewarmed_next, callback, state);
+                if let Err((failure_context, error)) = promote_result {
+                    state.set_pipeline_unavailable_reason(
+                        NoActivePipelineReason::PipelineRebuildFailed {
+                            context: failure_context,
+                            error: error.to_string(),
+                        },
+                    );
+                    warn!(message = %error, "failed to promote prewarmed next track");
+                    update_state(callback, &mut state.pumping, PlayerState::Stopped);
+                    callback(DecodeWorkerEvent::Error(error));
+                }
+            } else if let Some(next_input) = state.queued_next_input.take() {
+                let open_result = open_input(next_input, true, factory, callback, state);
+                if let Err(error) = open_result {
+                    warn!(message = %error, "failed to open queued next track");
+                    update_state(callback, &mut state.pumping, PlayerState::Stopped);
+                    callback(DecodeWorkerEvent::Error(error));
+                }
+            } else {
+                // Fully drained EOF path with no fallback candidate.
+                if let Some(active_runner) = state.runner.as_mut() {
+                    let _ = active_runner.stop_with_behavior(
+                        StopBehavior::DrainSink,
+                        &mut state.sink_session,
+                        &mut state.ctx,
+                    );
                 }
                 state.runner = None;
                 state.reset_context();
                 state.active_input = None;
-                state.queued_next_input = None;
-                state.prewarmed_next = None;
-                state.recovery_attempts = 0;
-                state.recovery_retry_at = None;
                 state.clear_pipeline_unavailable_reason();
-                update_state(&callback, &mut state.state, PlayerState::Stopped);
-                callback(DecodeWorkerEvent::Error(DecodeError::Pipeline(error)));
-            },
-        }
+                update_state(callback, &mut state.pumping, PlayerState::Stopped);
+                callback(DecodeWorkerEvent::Eof);
+            }
+        },
+        Err(error) => {
+            let active_input = recovery::active_input_for_log(state);
+            if matches!(error, PipelineError::SinkDisconnected) {
+                // Sink disconnection is recoverable; stage failure is not.
+                warn!(
+                    message = %error,
+                    active_input = %active_input,
+                    "sink disconnected, entering recovery"
+                );
+                if let Some(active_runner) = state.runner.as_mut() {
+                    active_runner.stop(&mut state.sink_session, &mut state.ctx);
+                }
+                state.runner = None;
+                if recovery::schedule_sink_recovery(callback, state) {
+                    state.set_pipeline_unavailable_reason(
+                        NoActivePipelineReason::SinkRecoveryInProgress {
+                            next_attempt: 1,
+                            last_error: Some(error.to_string()),
+                        },
+                    );
+                    return true;
+                }
+            } else {
+                warn!(
+                    message = %error,
+                    active_input = %active_input,
+                    "decode worker step failed"
+                );
+            }
+            if let Some(active_runner) = state.runner.as_mut() {
+                active_runner.stop(&mut state.sink_session, &mut state.ctx);
+            }
+            state.runner = None;
+            state.reset_context();
+            state.active_input = None;
+            state.queued_next_input = None;
+            state.prewarmed_next = None;
+            state.recovery_attempts = 0;
+            state.recovery_retry_at = None;
+            state.clear_pipeline_unavailable_reason();
+            update_state(callback, &mut state.pumping, PlayerState::Stopped);
+            callback(DecodeWorkerEvent::Error(DecodeError::Pipeline(error)));
+        },
     }
+    state.pumping
+}
 
-    if let Some(mut active_runner) = state.runner {
+/// Releases decode and sink resources in deterministic order.
+pub(crate) fn shutdown_playback_state(state: &mut DecodeWorkerState) {
+    if let Some(mut active_runner) = state.runner.take() {
         active_runner.stop(&mut state.sink_session, &mut state.ctx);
     } else {
         state.sink_session.shutdown(false);
@@ -243,14 +193,6 @@ fn promote_prewarmed_next(
         0,
     )
     .map_err(|error| (failure_context, error))?;
-    failure_context = "next_track_promotion.replay_stage_updates";
-    replay_persisted_stage_runtime_updates_to_runner(
-        &state.persisted_stage_runtime_updates,
-        &mut prewarmed_next.runner,
-        Some(&state.sink_session),
-        &mut prewarmed_next.ctx,
-    )
-    .map_err(|error| (failure_context, error))?;
     failure_context = "next_track_promotion.fade_in";
     request_fade_in_from_silence_with_runner(
         &mut prewarmed_next.runner,
@@ -276,13 +218,13 @@ fn promote_prewarmed_next(
             callback(DecodeWorkerEvent::TrackChanged { track_token });
         },
     }
-    update_state(callback, &mut state.state, PlayerState::Playing);
+    update_state(callback, &mut state.pumping, PlayerState::Playing);
     Ok(())
 }
 
 /// Computes the next loop wait duration based on playback and recovery state.
-fn compute_loop_timeout(state: &DecodeWorkerState, config: &EngineConfig) -> Duration {
-    if state.state != PlayerState::Playing {
+pub(crate) fn compute_loop_timeout(state: &DecodeWorkerState, config: &EngineConfig) -> Duration {
+    if !state.pumping {
         return config.decode_idle_sleep;
     }
 
@@ -302,7 +244,3 @@ fn compute_loop_timeout(state: &DecodeWorkerState, config: &EngineConfig) -> Dur
 #[cfg(test)]
 #[path = "../../tests/workers/decode/loop_timeout.rs"]
 mod tests;
-
-#[cfg(test)]
-#[path = "../../tests/workers/decode/loop/mod.rs"]
-mod loop_tests;

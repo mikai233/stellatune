@@ -1,21 +1,25 @@
-use super::{ActorContext, Handler, LibraryServiceActor, Message};
+use super::{ActorContext, LibraryServiceActor};
+use lattice_actor::{error::ActorError, reply::ReplyTo, traits::Responder};
 
+#[derive(lattice_actor::Request)]
+#[request(response = Result<Vec<i64>, String>)]
 pub(crate) struct ListLikedTrackIdsMessage;
 
-impl Message for ListLikedTrackIdsMessage {
-    type Response = Result<Vec<i64>, String>;
-}
-
-#[async_trait::async_trait]
-impl Handler<ListLikedTrackIdsMessage> for LibraryServiceActor {
-    async fn handle(
+impl Responder<ListLikedTrackIdsMessage> for LibraryServiceActor {
+    async fn respond(
         &mut self,
+        _ctx: &mut ActorContext<'_, Self>,
         _message: ListLikedTrackIdsMessage,
-        _ctx: &mut ActorContext<Self>,
-    ) -> Result<Vec<i64>, String> {
-        self.worker
-            .list_liked_track_ids()
-            .await
-            .map_err(|e| format!("{e:#}"))
+        reply_to: ReplyTo<Result<Vec<i64>, String>>,
+    ) -> Result<(), ActorError> {
+        let result = async {
+            self.worker
+                .list_liked_track_ids()
+                .await
+                .map_err(|e| format!("{e:#}"))
+        }
+        .await;
+        let _ = reply_to.send(result);
+        Ok(())
     }
 }

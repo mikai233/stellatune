@@ -1,68 +1,52 @@
-use std::sync::Arc;
-
 use tokio::sync::broadcast;
 
 use crate::config::engine::{EngineSnapshot, Event};
 use crate::engine::handle::EngineHandle;
 use crate::engine::messages::{
-    ApplyPipelineBlueprintMessage, ApplyPipelineMutationMessage, ApplyPipelineMutationsMessage,
-    GetSnapshotMessage, ShutdownMessage,
+    AbortPluginChangeMessage, CompletePluginChangeMessage, GetSnapshotMessage,
+    RebuildPipelineMessage, ShutdownMessage, SuspendForPluginChangeMessage,
 };
 use crate::error::EngineError;
-use crate::pipeline::assembly::{PipelineBlueprint, PipelineMutation};
+use crate::pipeline::plan::PlaybackCheckpoint;
 
 impl EngineHandle {
-    /// Replaces the pinned pipeline blueprint used for subsequent opens/rebuilds.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`EngineError`] when the control actor call fails or the decode
-    /// worker cannot apply the supplied blueprint.
-    pub async fn apply_pipeline_blueprint(
-        &self,
-        blueprint: Arc<dyn PipelineBlueprint>,
-    ) -> Result<(), EngineError> {
+    /// Rebuilds the active pipeline from the latest typed registry and host
+    /// configuration while preserving playback position.
+    pub async fn rebuild_pipeline(&self) -> Result<(), EngineError> {
         self.actor_ref
-            .call_async(ApplyPipelineBlueprintMessage { blueprint }, self.timeout)
+            .ask(RebuildPipelineMessage, self.timeout)
+            .await
+            .map_err(|error| Self::map_call_error("rebuild_pipeline", self.timeout, error))?
+    }
+
+    /// Pauses playback, captures the sink-consumed position, and tears down the
+    /// complete native session before a plugin package or registry change.
+    pub async fn suspend_for_plugin_change(
+        &self,
+    ) -> Result<Option<PlaybackCheckpoint>, EngineError> {
+        self.actor_ref
+            .ask(SuspendForPluginChangeMessage, self.timeout)
             .await
             .map_err(|error| {
-                Self::map_call_error("apply_pipeline_blueprint", self.timeout, error)
+                Self::map_call_error("suspend_for_plugin_change", self.timeout, error)
             })?
     }
 
-    /// Applies a runtime pipeline mutation.
-    ///
-    /// Mutations update runtime policy such as transform graph layout, mixer
-    /// plan, resampler plan, or built-in slot state.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`EngineError`] when the control actor call fails or the mutation
-    /// is rejected by the runtime.
-    pub async fn apply_pipeline_mutation(
-        &self,
-        mutation: PipelineMutation,
-    ) -> Result<(), EngineError> {
+    /// Rebuilds from the latest registry/assembler state and restores the
+    /// checkpoint captured by [`Self::suspend_for_plugin_change`].
+    pub async fn complete_plugin_change(&self) -> Result<(), EngineError> {
         self.actor_ref
-            .call_async(ApplyPipelineMutationMessage { mutation }, self.timeout)
+            .ask(CompletePluginChangeMessage, self.timeout)
             .await
-            .map_err(|error| Self::map_call_error("apply_pipeline_mutation", self.timeout, error))?
+            .map_err(|error| Self::map_call_error("complete_plugin_change", self.timeout, error))?
     }
 
-    /// Applies multiple runtime pipeline mutations as a single rebuild batch.
-    ///
-    /// Mutations are folded into the pinned blueprint first, then the active
-    /// pipeline is rebuilt once from the final result.
-    pub async fn apply_pipeline_mutations(
-        &self,
-        mutations: Vec<PipelineMutation>,
-    ) -> Result<(), EngineError> {
+    /// Aborts a plugin transaction and rebuilds the previous playback session.
+    pub async fn abort_plugin_change(&self) -> Result<(), EngineError> {
         self.actor_ref
-            .call_async(ApplyPipelineMutationsMessage { mutations }, self.timeout)
+            .ask(AbortPluginChangeMessage, self.timeout)
             .await
-            .map_err(|error| {
-                Self::map_call_error("apply_pipeline_mutations", self.timeout, error)
-            })?
+            .map_err(|error| Self::map_call_error("abort_plugin_change", self.timeout, error))?
     }
 
     /// Returns the latest engine snapshot.
@@ -87,7 +71,7 @@ impl EngineHandle {
     /// ```
     pub async fn snapshot(&self) -> Result<EngineSnapshot, EngineError> {
         self.actor_ref
-            .call_async(GetSnapshotMessage, self.timeout)
+            .ask(GetSnapshotMessage, self.timeout)
             .await
             .map_err(|error| Self::map_call_error("snapshot", self.timeout, error))
     }
@@ -99,10 +83,28 @@ impl EngineHandle {
     /// Returns [`EngineError`] when the control actor call fails or shutdown
     /// acknowledgement cannot be completed in time.
     pub async fn shutdown(&self) -> Result<(), EngineError> {
-        self.actor_ref
-            .call_async(ShutdownMessage, self.timeout)
+        let result = self
+            .actor_ref
+            .ask(ShutdownMessage, self.timeout)
             .await
-            .map_err(|error| Self::map_call_error("shutdown", self.timeout, error))?
+            .map_err(|error| Self::map_call_error("shutdown", self.timeout, error))?;
+        result?;
+        let mut terminated = self.actor_ref.subscribe_terminated();
+        self.actor_ref
+            .stop(lattice_actor::traits::StopReason::Requested)
+            .map_err(|_| EngineError::ControlActorExited {
+                operation: "shutdown",
+            })?;
+        tokio::time::timeout(self.timeout, terminated.recv())
+            .await
+            .map_err(|_| EngineError::ControlCommandTimedOut {
+                operation: "shutdown",
+                timeout_ms: self.timeout.as_millis(),
+            })?
+            .map_err(|_| EngineError::ControlActorExited {
+                operation: "shutdown",
+            })?;
+        Ok(())
     }
 
     /// Subscribes to engine events.

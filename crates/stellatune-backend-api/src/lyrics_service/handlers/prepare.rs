@@ -1,24 +1,24 @@
 use anyhow::Result;
-use stellatune_runtime::tokio_actor::{ActorContext, Handler, Message};
+use lattice_actor::{
+    context::HandlerContext, error::ActorError, reply::ReplyTo, traits::Responder,
+};
 
-use crate::LyricsQuery;
-use crate::lyrics_service::LyricsServiceActor;
+use crate::{LyricsQuery, lyrics_service::LyricsServiceActor};
 
+#[derive(lattice_actor::Request)]
+#[request(response = Result<()>)]
 pub(crate) struct PrepareMessage {
     pub(crate) query: LyricsQuery,
 }
 
-impl Message for PrepareMessage {
-    type Response = Result<()>;
-}
-
-#[async_trait::async_trait]
-impl Handler<PrepareMessage> for LyricsServiceActor {
-    async fn handle(
+impl Responder<PrepareMessage> for LyricsServiceActor {
+    async fn respond(
         &mut self,
+        _ctx: &mut HandlerContext<'_, Self>,
         message: PrepareMessage,
-        _ctx: &mut ActorContext<Self>,
-    ) -> Result<()> {
-        self.core.prepare(message.query).await
+        reply_to: ReplyTo<Result<()>>,
+    ) -> Result<(), ActorError> {
+        let _ = reply_to.send(self.core.prepare(message.query).await);
+        Ok(())
     }
 }

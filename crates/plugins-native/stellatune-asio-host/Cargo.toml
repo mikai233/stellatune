@@ -6,24 +6,24 @@ license = "GPL-3.0-only"
 
 [dependencies]
 stellatune-asio-proto = { path = "../stellatune-asio-proto" }
-stellatune-sidecar-support.workspace = true
-ringbuf.workspace = true
-memmap2.workspace = true
-tracing.workspace = true
+stellatune-sidecar-support = { path = "../stellatune-sidecar-support" }
+ringbuf = "0.5.1"
+memmap2 = "0.9.11"
+tracing = "0.1.44"
 
 # Note: enabling cpal's `asio` feature can pull the Steinberg ASIO SDK at build time
 # (depending on CPAL_ASIO_DIR / cache), and may require clang/bindgen.
-cpal.workspace = true
+cpal = "0.18.2"
 
 [features]
 default = []
 asio = ["cpal/asio"]
 
 [target.'cfg(windows)'.dependencies]
-windows = { workspace = true, features = [
+windows = { version = "0.62.2", features = [
     "Win32_System_Threading",
     "Win32_Foundation",
 ] }
 
 [target.'cfg(unix)'.dependencies]
-libc.workspace = true
+libc = "0.2.189"

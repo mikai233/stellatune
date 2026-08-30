@@ -1,5 +1,4 @@
-use std::cmp::Ordering;
-use std::collections::HashSet;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -7,20 +6,15 @@ use serde::Deserialize;
 use stellatune_audio_builtin_adapters::builtin_decoder::{
     BuiltinDecoder, builtin_decoder_score_for_ext, builtin_decoder_supported_extensions,
 };
+use stellatune_audio_builtin_adapters::ncm_decoder::NcmDecoder;
 use stellatune_audio_builtin_adapters::playlist_decoder::PlaylistDecoder;
+use stellatune_audio_builtin_adapters::source_local::local_track_token_from_source_handle;
 use stellatune_audio_core::pipeline::context::{
     AudioBlock, GaplessTrimSpec, PipelineContext, SourceHandle, StreamSpec,
 };
 use stellatune_audio_core::pipeline::error::PipelineError;
 use stellatune_audio_core::pipeline::stages::decoder::DecoderStage;
 use stellatune_audio_core::pipeline::stages::{Stage, StageFlow};
-use stellatune_audio_plugin_adapters::stages::{
-    PluginDecoderStage, plugin_track_token_from_source_handle,
-    probe_track_decode_info_with_decoder_selector,
-};
-use stellatune_plugins::host_runtime::RuntimeCapabilityKind;
-
-use super::shared_plugin_runtime;
 
 const DEFAULT_READ_FRAMES: u32 = 1024;
 
@@ -43,46 +37,33 @@ pub trait UserDecoderProvider: Send + Sync {
 
 pub fn default_user_decoder_providers() -> Vec<SharedUserDecoderProvider> {
     vec![
+        Arc::new(NcmUserDecoderProvider),
         Arc::new(PrebuiltUserDecoderProvider),
         Arc::new(PlaylistUserDecoderProvider),
     ]
 }
 
 pub fn decoder_supported_extensions_hybrid() -> Vec<String> {
-    let providers = default_user_decoder_providers();
-    decoder_supported_extensions_hybrid_with_user_decoders(providers.as_slice())
+    decoder_supported_extensions_hybrid_with_user_decoders(&default_user_decoder_providers())
 }
 
 pub fn decoder_supported_extensions_hybrid_with_user_decoders(
-    user_decoder_providers: &[SharedUserDecoderProvider],
+    providers: &[SharedUserDecoderProvider],
 ) -> Vec<String> {
-    let service = shared_plugin_runtime();
-    let mut out = service.decoder_supported_extensions();
-    for provider in user_decoder_providers {
-        out.extend(provider.supported_extensions());
-    }
-    if service.decoder_has_wildcard_candidate() {
-        out.push("*".to_string());
-    }
-    out.sort();
-    out.dedup();
-    out
+    let mut extensions = providers
+        .iter()
+        .flat_map(|provider| provider.supported_extensions())
+        .collect::<Vec<_>>();
+    extensions.sort();
+    extensions.dedup();
+    extensions
 }
 
 pub struct HybridDecoderStage {
     read_frames: u32,
-    active: Option<ActiveHybridDecoder>,
+    active: Option<Box<dyn UserDecoderImplementation>>,
     last_position_ms: i64,
-    user_decoder_providers: Vec<SharedUserDecoderProvider>,
-}
-
-enum ActiveHybridDecoder {
-    UserImplementation {
-        decoder: Box<dyn UserDecoderImplementation>,
-    },
-    Plugin {
-        stage: Box<PluginDecoderStage>,
-    },
+    providers: Vec<SharedUserDecoderProvider>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -106,22 +87,17 @@ impl HybridDecoderStage {
         Self::with_user_decoder_providers(default_user_decoder_providers())
     }
 
-    pub fn with_user_decoder_providers(
-        user_decoder_providers: Vec<SharedUserDecoderProvider>,
-    ) -> Self {
+    pub fn with_user_decoder_providers(providers: Vec<SharedUserDecoderProvider>) -> Self {
         Self {
             read_frames: DEFAULT_READ_FRAMES,
             active: None,
             last_position_ms: 0,
-            user_decoder_providers,
+            providers,
         }
     }
 
-    pub fn add_user_decoder_provider(
-        mut self,
-        user_decoder_provider: SharedUserDecoderProvider,
-    ) -> Self {
-        self.user_decoder_providers.push(user_decoder_provider);
+    pub fn add_user_decoder_provider(mut self, provider: SharedUserDecoderProvider) -> Self {
+        self.providers.push(provider);
         self
     }
 
@@ -130,164 +106,21 @@ impl HybridDecoderStage {
         self
     }
 
-    fn clear_prepared(&mut self, ctx: &mut PipelineContext) {
-        if let Some(active) = self.active.as_mut()
-            && let ActiveHybridDecoder::Plugin { stage } = active
-        {
-            stage.stop(ctx);
-        }
-        self.active = None;
-    }
-
-    fn resolve_track_ref(source: &SourceHandle) -> Result<TrackRefToken, PipelineError> {
-        let Some(track_token) = plugin_track_token_from_source_handle(source) else {
-            return Err(PipelineError::StageFailure(
-                "hybrid decoder requires plugin source payload".to_string(),
-            ));
-        };
-        decode_track_ref_token(track_token).map_err(PipelineError::StageFailure)
-    }
-
-    fn prepare_local_track(
-        &mut self,
-        source: &SourceHandle,
-        ctx: &mut PipelineContext,
-        track: &TrackRefToken,
-    ) -> Result<StreamSpec, String> {
-        let path = track.locator.trim();
-        if path.is_empty() {
-            return Err("local track locator is empty".to_string());
-        }
-        let ext_hint = ext_hint_from_path(path);
-        let mut candidates = select_local_hybrid_candidates(
-            ext_hint.as_str(),
-            self.user_decoder_providers.as_slice(),
-        );
-        if candidates.is_empty() {
-            return Err(build_no_decoder_candidates_error(
-                path,
-                ext_hint.as_str(),
-                self.user_decoder_providers.as_slice(),
-            ));
-        }
-        sort_hybrid_candidates(&mut candidates);
-
-        let mut errors = Vec::new();
-        for candidate in candidates {
-            match candidate {
-                HybridDecoderCandidate::UserImplementation {
-                    provider_index,
-                    implementation_id,
-                    ..
-                } => {
-                    let Some(provider) = self.user_decoder_providers.get(provider_index) else {
-                        errors.push(format!(
-                            "user decoder provider missing for `{implementation_id}` (index={provider_index})"
-                        ));
-                        continue;
-                    };
-                    match provider.open(path) {
-                        Ok(decoder) => {
-                            let spec = decoder.spec();
-                            self.active = Some(ActiveHybridDecoder::UserImplementation { decoder });
-                            return Ok(spec);
-                        },
-                        Err(error) => errors.push(format!(
-                            "user decoder `{implementation_id}` open failed: {error}"
-                        )),
-                    }
-                },
-                HybridDecoderCandidate::Plugin {
-                    plugin_id, type_id, ..
-                } => {
-                    let mut stage = PluginDecoderStage::new()
-                        .with_read_frames(self.read_frames)
-                        .with_decoder_selector(plugin_id.clone(), type_id.clone());
-                    match stage.prepare(source, ctx) {
-                        Ok(spec) => {
-                            self.active = Some(ActiveHybridDecoder::Plugin {
-                                stage: Box::new(stage),
-                            });
-                            return Ok(spec);
-                        },
-                        Err(error) => {
-                            errors.push(format!(
-                                "plugin decoder {plugin_id}::{type_id} prepare failed: {error}"
-                            ));
-                        },
-                    }
-                },
-            }
-        }
-
-        Err(errors.join("; "))
-    }
-
-    fn prepare_source_track(
-        &mut self,
-        source: &SourceHandle,
-        ctx: &mut PipelineContext,
-        track: &TrackRefToken,
-    ) -> Result<StreamSpec, String> {
-        let locator: SourceStreamLocator = serde_json::from_str(track.locator.as_str())
-            .map_err(|e| format!("invalid source locator json: {e}"))?;
-        let ext_hint = normalize_ext_hint(locator.ext_hint.as_str());
-        let mut candidates = select_plugin_candidates(
-            ext_hint.as_str(),
-            locator.decoder_plugin_id.as_deref(),
-            locator.decoder_type_id.as_deref(),
-        )?;
-        sort_hybrid_candidates(&mut candidates);
-
-        let mut errors = Vec::new();
-        for candidate in candidates {
-            let HybridDecoderCandidate::Plugin {
-                plugin_id, type_id, ..
-            } = candidate
-            else {
-                continue;
-            };
-            let mut stage = PluginDecoderStage::new()
-                .with_read_frames(self.read_frames)
-                .with_decoder_selector(plugin_id.clone(), type_id.clone());
-            match stage.prepare(source, ctx) {
-                Ok(spec) => {
-                    self.active = Some(ActiveHybridDecoder::Plugin {
-                        stage: Box::new(stage),
-                    });
-                    return Ok(spec);
-                },
-                Err(error) => {
-                    errors.push(format!(
-                        "plugin decoder {plugin_id}::{type_id} prepare failed: {error}"
-                    ));
-                },
-            }
-        }
-
-        if errors.is_empty() {
-            Err("failed to open any source decoder candidate".to_string())
-        } else {
-            Err(errors.join("; "))
-        }
+    fn open(&self, locator: &str) -> Result<Box<dyn UserDecoderImplementation>, String> {
+        open_with_providers(locator, &self.providers)
     }
 }
 
 impl Stage for HybridDecoderStage {
     fn refresh_runtime_state(&mut self, ctx: &mut PipelineContext) -> Result<(), PipelineError> {
         self.last_position_ms = ctx.position_ms;
-        match self.active.as_mut() {
-            Some(ActiveHybridDecoder::UserImplementation { decoder }) => {
-                if let Some(position_ms) = ctx.pending_seek_ms
-                    && let Err(error) = decoder.seek_ms(position_ms.max(0) as u64)
-                {
-                    return Err(PipelineError::StageFailure(error));
-                }
-                Ok(())
-            },
-            Some(ActiveHybridDecoder::Plugin { stage }) => stage.refresh_runtime_state(ctx),
-            None => Err(PipelineError::NotPrepared),
+        let decoder = self.active.as_mut().ok_or(PipelineError::NotPrepared)?;
+        if let Some(position_ms) = ctx.pending_seek_ms {
+            decoder
+                .seek_ms(position_ms.max(0) as u64)
+                .map_err(PipelineError::StageFailure)?;
         }
+        Ok(())
     }
 }
 
@@ -295,43 +128,34 @@ impl DecoderStage for HybridDecoderStage {
     fn prepare(
         &mut self,
         source: &SourceHandle,
-        ctx: &mut PipelineContext,
+        _ctx: &mut PipelineContext,
     ) -> Result<StreamSpec, PipelineError> {
-        self.clear_prepared(ctx);
-        let track = Self::resolve_track_ref(source)?;
-        let spec = if track.source_id.trim().eq_ignore_ascii_case("local") {
-            self.prepare_local_track(source, ctx, &track)
-        } else {
-            self.prepare_source_track(source, ctx, &track)
-        }
-        .map_err(PipelineError::StageFailure)?;
+        self.active = None;
+        let token = local_track_token_from_source_handle(source).ok_or_else(|| {
+            PipelineError::StageFailure("native decoder requires a native source handle".into())
+        })?;
+        let locator = decode_track_ref_token(token)
+            .map_err(PipelineError::StageFailure)?
+            .locator;
+        let decoder = self.open(&locator).map_err(PipelineError::StageFailure)?;
+        let spec = decoder.spec();
+        self.active = Some(decoder);
         Ok(spec)
     }
 
     fn current_gapless_trim_spec(&self) -> Option<GaplessTrimSpec> {
-        match self.active.as_ref() {
-            Some(ActiveHybridDecoder::UserImplementation { decoder }) => {
-                decoder.gapless_trim_spec()
-            },
-            Some(ActiveHybridDecoder::Plugin { stage }) => stage.current_gapless_trim_spec(),
-            None => None,
-        }
+        self.active.as_ref()?.gapless_trim_spec()
     }
 
     fn estimated_remaining_frames(&self) -> Option<u64> {
-        match self.active.as_ref() {
-            Some(ActiveHybridDecoder::UserImplementation { decoder }) => {
-                let duration_ms = decoder.duration_ms_hint()?;
-                let position_ms = self.last_position_ms.max(0) as u64;
-                let remaining_ms = duration_ms.saturating_sub(position_ms);
-                let frames = (remaining_ms as u128)
-                    .saturating_mul(decoder.spec().sample_rate.max(1) as u128)
-                    / 1000;
-                Some(frames.min(u64::MAX as u128) as u64)
-            },
-            Some(ActiveHybridDecoder::Plugin { stage }) => stage.estimated_remaining_frames(),
-            None => None,
-        }
+        let decoder = self.active.as_ref()?;
+        let remaining_ms = decoder
+            .duration_ms_hint()?
+            .saturating_sub(self.last_position_ms.max(0) as u64);
+        Some(
+            ((remaining_ms as u128) * decoder.spec().sample_rate.max(1) as u128 / 1000)
+                .min(u64::MAX as u128) as u64,
+        )
     }
 
     fn next_block(
@@ -340,227 +164,72 @@ impl DecoderStage for HybridDecoderStage {
         ctx: &mut PipelineContext,
     ) -> Result<StageFlow, PipelineError> {
         self.last_position_ms = ctx.position_ms;
-        match self.active.as_mut() {
-            Some(ActiveHybridDecoder::UserImplementation { decoder }) => {
-                match decoder.next_block(self.read_frames as usize) {
-                    Ok(Some(samples)) => {
-                        let channels = decoder.spec().channels.max(1) as usize;
-                        if !samples.len().is_multiple_of(channels) {
-                            return Err(PipelineError::StageFailure(format!(
-                                "user decoder produced misaligned block: samples={} channels={channels}",
-                                samples.len()
-                            )));
-                        }
-                        out.channels = decoder.spec().channels;
-                        out.samples = samples;
-                        Ok(StageFlow::Continue)
-                    },
-                    Ok(None) => Ok(StageFlow::Eof),
-                    Err(error) => Err(PipelineError::StageFailure(error)),
+        let decoder = self.active.as_mut().ok_or(PipelineError::NotPrepared)?;
+        match decoder
+            .next_block(self.read_frames as usize)
+            .map_err(PipelineError::StageFailure)?
+        {
+            Some(samples) => {
+                let channels = decoder.spec().channels.max(1) as usize;
+                if !samples.len().is_multiple_of(channels) {
+                    return Err(PipelineError::StageFailure(format!(
+                        "native decoder produced misaligned block: samples={} channels={channels}",
+                        samples.len()
+                    )));
                 }
+                out.channels = decoder.spec().channels;
+                out.samples = samples;
+                Ok(StageFlow::Continue)
             },
-            Some(ActiveHybridDecoder::Plugin { stage }) => stage.next_block(out, ctx),
-            None => Err(PipelineError::NotPrepared),
+            None => Ok(StageFlow::Eof),
         }
     }
 
-    fn flush(&mut self, ctx: &mut PipelineContext) -> Result<(), PipelineError> {
-        match self.active.as_mut() {
-            Some(ActiveHybridDecoder::UserImplementation { .. }) => Ok(()),
-            Some(ActiveHybridDecoder::Plugin { stage }) => stage.flush(ctx),
-            None => Ok(()),
-        }
+    fn flush(&mut self, _ctx: &mut PipelineContext) -> Result<(), PipelineError> {
+        Ok(())
     }
 
-    fn stop(&mut self, ctx: &mut PipelineContext) {
-        self.clear_prepared(ctx);
+    fn stop(&mut self, _ctx: &mut PipelineContext) {
+        self.active = None;
     }
 }
 
 pub fn probe_track_decode_info_hybrid(
     track_token: &str,
 ) -> Result<HybridProbedTrackDecodeInfo, String> {
-    let providers = default_user_decoder_providers();
-    probe_track_decode_info_hybrid_with_user_decoders(track_token, providers.as_slice())
+    probe_track_decode_info_hybrid_with_user_decoders(
+        track_token,
+        &default_user_decoder_providers(),
+    )
 }
 
 pub fn probe_track_decode_info_hybrid_with_user_decoders(
     track_token: &str,
-    user_decoder_providers: &[SharedUserDecoderProvider],
+    providers: &[SharedUserDecoderProvider],
 ) -> Result<HybridProbedTrackDecodeInfo, String> {
-    let track_token = track_token.trim();
-    if track_token.is_empty() {
-        return Err("track token is empty".to_string());
-    }
     let track = decode_track_ref_token(track_token)?;
-
-    if track.source_id.trim().eq_ignore_ascii_case("local") {
-        let path = track.locator.trim();
-        if path.is_empty() {
-            return Err("local track locator is empty".to_string());
-        }
-        let ext_hint = ext_hint_from_path(path);
-        let mut candidates =
-            select_local_hybrid_candidates(ext_hint.as_str(), user_decoder_providers);
-        if candidates.is_empty() {
-            return Err(build_no_decoder_candidates_error(
-                path,
-                ext_hint.as_str(),
-                user_decoder_providers,
-            ));
-        }
-        sort_hybrid_candidates(&mut candidates);
-
-        let mut errors = Vec::new();
-        for candidate in candidates {
-            match candidate {
-                HybridDecoderCandidate::UserImplementation {
-                    provider_index,
-                    implementation_id,
-                    ..
-                } => {
-                    let Some(provider) = user_decoder_providers.get(provider_index) else {
-                        errors.push(format!(
-                            "user decoder provider missing for `{implementation_id}` (index={provider_index})"
-                        ));
-                        continue;
-                    };
-                    match provider.open(path) {
-                        Ok(decoder) => {
-                            return Ok(HybridProbedTrackDecodeInfo {
-                                sample_rate: decoder.spec().sample_rate,
-                                channels: decoder.spec().channels,
-                                duration_ms: decoder.duration_ms_hint(),
-                                metadata_json: None,
-                                decoder_plugin_id: None,
-                                decoder_type_id: None,
-                            });
-                        },
-                        Err(error) => errors.push(format!(
-                            "user decoder `{implementation_id}` probe failed: {error}"
-                        )),
-                    }
-                },
-                HybridDecoderCandidate::Plugin {
-                    plugin_id, type_id, ..
-                } => match probe_track_decode_info_with_decoder_selector(
-                    track_token,
-                    Some(plugin_id.as_str()),
-                    Some(type_id.as_str()),
-                ) {
-                    Ok(probed) => {
-                        return Ok(HybridProbedTrackDecodeInfo {
-                            sample_rate: probed.sample_rate,
-                            channels: probed.channels,
-                            duration_ms: probed.duration_ms,
-                            metadata_json: probed.metadata_json,
-                            decoder_plugin_id: Some(probed.decoder_plugin_id),
-                            decoder_type_id: Some(probed.decoder_type_id),
-                        });
-                    },
-                    Err(error) => errors.push(format!(
-                        "plugin decoder {plugin_id}::{type_id} probe failed: {error}"
-                    )),
-                },
-            }
-        }
-        return Err(errors.join("; "));
-    }
-
-    let source: SourceStreamLocator = serde_json::from_str(track.locator.as_str())
-        .map_err(|e| format!("invalid source track locator json: {e}"))?;
-    let ext_hint = normalize_ext_hint(source.ext_hint.as_str());
-    let mut candidates = select_plugin_candidates(
-        ext_hint.as_str(),
-        source.decoder_plugin_id.as_deref(),
-        source.decoder_type_id.as_deref(),
-    )?;
-    sort_hybrid_candidates(&mut candidates);
-    let mut errors = Vec::new();
-    for candidate in candidates {
-        let HybridDecoderCandidate::Plugin {
-            plugin_id, type_id, ..
-        } = candidate
-        else {
-            continue;
-        };
-        match probe_track_decode_info_with_decoder_selector(
-            track_token,
-            Some(plugin_id.as_str()),
-            Some(type_id.as_str()),
-        ) {
-            Ok(probed) => {
-                return Ok(HybridProbedTrackDecodeInfo {
-                    sample_rate: probed.sample_rate,
-                    channels: probed.channels,
-                    duration_ms: probed.duration_ms,
-                    metadata_json: probed.metadata_json,
-                    decoder_plugin_id: Some(probed.decoder_plugin_id),
-                    decoder_type_id: Some(probed.decoder_type_id),
-                });
-            },
-            Err(error) => errors.push(format!(
-                "plugin decoder {plugin_id}::{type_id} probe failed: {error}"
-            )),
-        }
-    }
-    Err(errors.join("; "))
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct SourceStreamLocator {
-    #[serde(default)]
-    ext_hint: String,
-    #[serde(default)]
-    decoder_plugin_id: Option<String>,
-    #[serde(default)]
-    decoder_type_id: Option<String>,
+    let decoder = open_with_providers(&track.locator, providers)?;
+    Ok(HybridProbedTrackDecodeInfo {
+        sample_rate: decoder.spec().sample_rate,
+        channels: decoder.spec().channels,
+        duration_ms: decoder.duration_ms_hint(),
+        metadata_json: None,
+        decoder_plugin_id: None,
+        decoder_type_id: None,
+    })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 struct TrackRefTokenWire {
-    source_id: String,
+    #[serde(rename = "source_id")]
+    _source_id: String,
     #[serde(rename = "track_id")]
     _track_id: String,
     locator: String,
 }
 
-#[derive(Debug, Clone)]
 struct TrackRefToken {
-    source_id: String,
     locator: String,
-}
-
-impl TrackRefToken {
-    fn for_local_path(path: String) -> Self {
-        Self {
-            source_id: "local".to_string(),
-            locator: path,
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-enum HybridDecoderCandidate {
-    UserImplementation {
-        provider_index: usize,
-        implementation_id: String,
-        score: u16,
-    },
-    Plugin {
-        plugin_id: String,
-        type_id: String,
-        score: u16,
-    },
-}
-
-impl HybridDecoderCandidate {
-    fn score(&self) -> u16 {
-        match self {
-            Self::UserImplementation { score, .. } => *score,
-            Self::Plugin { score, .. } => *score,
-        }
-    }
 }
 
 fn decode_track_ref_token(track_token: &str) -> Result<TrackRefToken, String> {
@@ -568,17 +237,16 @@ fn decode_track_ref_token(track_token: &str) -> Result<TrackRefToken, String> {
     if token.is_empty() {
         return Err("track token is empty".to_string());
     }
-
     if token.starts_with('{')
         && let Ok(parsed) = serde_json::from_str::<TrackRefTokenWire>(token)
     {
         return Ok(TrackRefToken {
-            source_id: parsed.source_id,
             locator: parsed.locator,
         });
     }
-
-    Ok(TrackRefToken::for_local_path(token.to_string()))
+    Ok(TrackRefToken {
+        locator: token.to_string(),
+    })
 }
 
 fn normalize_ext_hint(raw: &str) -> String {
@@ -587,330 +255,169 @@ fn normalize_ext_hint(raw: &str) -> String {
 
 fn ext_hint_from_path(path: &str) -> String {
     let trimmed = path.trim();
-    let without_query_or_fragment = trimmed.split(['?', '#']).next().unwrap_or(trimmed);
-    let path_for_ext = if let Some((scheme, remainder)) =
-        without_query_or_fragment.split_once("://")
-        && matches!(
-            scheme.to_ascii_lowercase().as_str(),
-            "http" | "https" | "file"
-        ) {
-        let slash_index = remainder.find('/').unwrap_or(remainder.len());
-        &remainder[slash_index..]
-    } else {
-        without_query_or_fragment
-    };
-
-    Path::new(path_for_ext)
+    let without_query = trimmed.split(['?', '#']).next().unwrap_or(trimmed);
+    Path::new(without_query)
         .extension()
-        .and_then(|value| value.to_str())
+        .and_then(|extension| extension.to_str())
         .map(normalize_ext_hint)
         .unwrap_or_default()
 }
 
-fn select_local_hybrid_candidates(
-    ext_hint: &str,
-    user_decoder_providers: &[SharedUserDecoderProvider],
-) -> Vec<HybridDecoderCandidate> {
-    let ext = normalize_ext_hint(ext_hint);
-    let mut out = Vec::new();
-    if ext.is_empty() {
-        out.extend(runtime_all_plugin_candidates());
-    } else {
-        let plugin_candidates = runtime_scored_plugin_candidates(ext.as_str());
-        let user_has_ext_candidate = user_decoder_providers
-            .iter()
-            .any(|provider| provider.score_for_extension(ext.as_str()).is_some());
-        if !plugin_candidates.is_empty() {
-            out.extend(plugin_candidates);
-        } else if !user_has_ext_candidate {
-            // Fall back to all plugin decoders only for unknown extensions.
-            out.extend(runtime_all_plugin_candidates());
-        }
-    }
-
-    for (provider_index, provider) in user_decoder_providers.iter().enumerate() {
-        let score = if ext.is_empty() {
-            Some(1)
-        } else {
-            provider.score_for_extension(ext.as_str())
-        };
-        if let Some(score) = score {
-            out.push(HybridDecoderCandidate::UserImplementation {
-                provider_index,
-                implementation_id: provider.implementation_id().to_string(),
-                score,
-            });
-        }
-    }
-
-    out
-}
-
-fn runtime_scored_plugin_candidates(ext_hint: &str) -> Vec<HybridDecoderCandidate> {
-    let ext = normalize_ext_hint(ext_hint);
-    if ext.is_empty() {
-        return Vec::new();
-    }
-    let service = shared_plugin_runtime();
-    let mut out = Vec::new();
-    let mut seen = HashSet::new();
-    for candidate in service.list_decoder_candidates_for_ext(ext.as_str()) {
-        if !seen.insert((candidate.plugin_id.clone(), candidate.type_id.clone())) {
-            continue;
-        }
-        let Some(_capability) = service.find_capability(
-            &candidate.plugin_id,
-            RuntimeCapabilityKind::Decoder,
-            &candidate.type_id,
-        ) else {
-            continue;
-        };
-        out.push(HybridDecoderCandidate::Plugin {
-            plugin_id: candidate.plugin_id,
-            type_id: candidate.type_id,
-            score: candidate.score,
-        });
-    }
-    out
-}
-
-fn runtime_all_plugin_candidates() -> Vec<HybridDecoderCandidate> {
-    let service = shared_plugin_runtime();
-    let mut plugin_ids = service.decoder_capability_plugin_ids();
-    plugin_ids.sort();
-
-    let mut out = Vec::new();
-    for plugin_id in plugin_ids {
-        let mut capabilities = service.list_capabilities_snapshot(&plugin_id);
-        capabilities.sort_by(|a, b| a.type_id.cmp(&b.type_id));
-        for capability in capabilities {
-            if capability.kind != RuntimeCapabilityKind::Decoder {
-                continue;
-            }
-            out.push(HybridDecoderCandidate::Plugin {
-                plugin_id: plugin_id.clone(),
-                type_id: capability.type_id,
-                score: 1,
-            });
-        }
-    }
-    out
-}
-
-fn select_plugin_candidates(
-    ext_hint: &str,
-    decoder_plugin_id: Option<&str>,
-    decoder_type_id: Option<&str>,
-) -> Result<Vec<HybridDecoderCandidate>, String> {
-    match (decoder_plugin_id, decoder_type_id) {
-        (Some(plugin_id), Some(type_id)) => {
-            let service = shared_plugin_runtime();
-            let _capability = service
-                .find_capability(plugin_id, RuntimeCapabilityKind::Decoder, type_id)
-                .ok_or_else(|| {
-                    format!(
-                        "decoder not found: plugin_id={} type_id={}",
-                        plugin_id, type_id
-                    )
-                })?;
-            Ok(vec![HybridDecoderCandidate::Plugin {
-                plugin_id: plugin_id.to_string(),
-                type_id: type_id.to_string(),
-                score: u16::MAX,
-            }])
-        },
-        (Some(value), None) | (None, Some(value)) => Err(format!(
-            "invalid decoder selector: both plugin_id and type_id are required, got `{value}` only"
-        )),
-        (None, None) => {
-            let candidates = runtime_scored_plugin_candidates(ext_hint);
-            if candidates.is_empty() {
-                Err(build_no_source_decoder_candidates_error(ext_hint))
+fn open_with_providers(
+    locator: &str,
+    providers: &[SharedUserDecoderProvider],
+) -> Result<Box<dyn UserDecoderImplementation>, String> {
+    let ext = ext_hint_from_path(locator);
+    let mut candidates = providers
+        .iter()
+        .enumerate()
+        .filter_map(|(index, provider)| {
+            let score = if ext.is_empty() {
+                Some(1)
             } else {
-                Ok(candidates)
-            }
-        },
-    }
-}
-
-fn build_no_source_decoder_candidates_error(ext_hint: &str) -> String {
-    let ext = normalize_ext_hint(ext_hint);
-    let service = shared_plugin_runtime();
-    let mut decoder_plugin_ids = service.decoder_capability_plugin_ids();
-    decoder_plugin_ids.sort();
-    let mut supported_exts = service.decoder_supported_extensions();
-    supported_exts.sort();
-    let has_wildcard = service.decoder_has_wildcard_candidate();
-    format!(
-        "no decoder candidates available for source stream (ext=`{ext}`, decoder_plugins={decoder_plugin_ids:?}, decoder_supported_exts={supported_exts:?}, decoder_wildcard={has_wildcard})"
-    )
-}
-
-fn sort_hybrid_candidates(candidates: &mut [HybridDecoderCandidate]) {
-    candidates.sort_by(|a, b| {
-        b.score().cmp(&a.score()).then_with(|| match (a, b) {
-            (
-                HybridDecoderCandidate::UserImplementation {
-                    implementation_id: a_id,
-                    ..
-                },
-                HybridDecoderCandidate::UserImplementation {
-                    implementation_id: b_id,
-                    ..
-                },
-            ) => a_id.cmp(b_id),
-            (
-                HybridDecoderCandidate::UserImplementation { .. },
-                HybridDecoderCandidate::Plugin { .. },
-            ) => Ordering::Less,
-            (
-                HybridDecoderCandidate::Plugin { .. },
-                HybridDecoderCandidate::UserImplementation { .. },
-            ) => Ordering::Greater,
-            (
-                HybridDecoderCandidate::Plugin {
-                    plugin_id: a_plugin,
-                    type_id: a_type,
-                    ..
-                },
-                HybridDecoderCandidate::Plugin {
-                    plugin_id: b_plugin,
-                    type_id: b_type,
-                    ..
-                },
-            ) => a_plugin.cmp(b_plugin).then_with(|| a_type.cmp(b_type)),
+                provider.score_for_extension(&ext)
+            }?;
+            Some((score, provider.implementation_id().to_string(), index))
         })
-    });
-}
-
-fn build_no_decoder_candidates_error(
-    path: &str,
-    ext_hint: &str,
-    user_decoder_providers: &[SharedUserDecoderProvider],
-) -> String {
-    let ext = normalize_ext_hint(ext_hint);
-    let service = shared_plugin_runtime();
-    let mut active_plugin_ids = service.active_plugin_ids();
-    active_plugin_ids.sort();
-    let mut decoder_plugin_ids = service.decoder_capability_plugin_ids();
-    decoder_plugin_ids.sort();
-    let mut supported_exts = service.decoder_supported_extensions();
-    supported_exts.sort();
-    let has_wildcard = service.decoder_has_wildcard_candidate();
-
-    let mut matched_user_impls = Vec::<String>::new();
-    for provider in user_decoder_providers {
-        let score = if ext.is_empty() {
-            Some(1)
-        } else {
-            provider.score_for_extension(ext.as_str())
-        };
-        if let Some(score) = score {
-            matched_user_impls.push(format!("{}:{score}", provider.implementation_id()));
+        .collect::<Vec<_>>();
+    candidates.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
+    if candidates.is_empty() {
+        return Err(format!(
+            "no native decoder candidates available for `{locator}` (ext=`{ext}`)"
+        ));
+    }
+    let mut errors = Vec::new();
+    for (_, id, index) in candidates {
+        match catch_unwind(AssertUnwindSafe(|| providers[index].open(locator))) {
+            Ok(Ok(decoder)) => return Ok(decoder),
+            Ok(Err(error)) => {
+                errors.push(format!("native decoder `{id}` open failed: {error}"));
+            },
+            Err(payload) => {
+                errors.push(format!(
+                    "native decoder `{id}` panicked while opening: {}",
+                    panic_payload_message(payload.as_ref())
+                ));
+            },
         }
     }
-    matched_user_impls.sort();
+    Err(errors.join("; "))
+}
 
-    let message = format!(
-        "no decoder candidates available for local `{path}` (ext=`{ext}`, active_plugins={active_plugin_ids:?}, decoder_plugins={decoder_plugin_ids:?}, decoder_supported_exts={supported_exts:?}, decoder_wildcard={has_wildcard}, matched_user_decoders={matched_user_impls:?})"
-    );
-    tracing::warn!("{message}");
-    message
+fn panic_payload_message(payload: &(dyn std::any::Any + Send)) -> &str {
+    payload
+        .downcast_ref::<&str>()
+        .copied()
+        .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
+        .unwrap_or("non-string panic payload")
+}
+
+struct NcmUserDecoderProvider;
+
+impl UserDecoderProvider for NcmUserDecoderProvider {
+    fn implementation_id(&self) -> &str {
+        "builtin.ncm.native-rust"
+    }
+    fn score_for_extension(&self, ext: &str) -> Option<u16> {
+        ext.eq_ignore_ascii_case("ncm").then_some(100)
+    }
+    fn supported_extensions(&self) -> Vec<String> {
+        vec!["ncm".into()]
+    }
+    fn open(&self, locator: &str) -> Result<Box<dyn UserDecoderImplementation>, String> {
+        Ok(Box::new(NcmUserDecoderInstance(NcmDecoder::open(locator)?)))
+    }
+}
+
+struct NcmUserDecoderInstance(NcmDecoder);
+impl UserDecoderImplementation for NcmUserDecoderInstance {
+    fn spec(&self) -> StreamSpec {
+        self.0.spec()
+    }
+    fn duration_ms_hint(&self) -> Option<u64> {
+        self.0.duration_ms_hint()
+    }
+    fn gapless_trim_spec(&self) -> Option<GaplessTrimSpec> {
+        self.0.gapless_trim_spec()
+    }
+    fn seek_ms(&mut self, position_ms: u64) -> Result<(), String> {
+        self.0.seek_ms(position_ms)
+    }
+    fn next_block(&mut self, frames: usize) -> Result<Option<Vec<f32>>, String> {
+        self.0.next_block(frames)
+    }
 }
 
 struct PrebuiltUserDecoderProvider;
-
 impl UserDecoderProvider for PrebuiltUserDecoderProvider {
     fn implementation_id(&self) -> &str {
-        "prebuilt.symphonia.local_file"
+        "builtin.symphonia"
     }
-
-    fn score_for_extension(&self, ext_hint: &str) -> Option<u16> {
-        builtin_decoder_score_for_ext(ext_hint)
+    fn score_for_extension(&self, ext: &str) -> Option<u16> {
+        builtin_decoder_score_for_ext(ext)
     }
-
     fn supported_extensions(&self) -> Vec<String> {
         builtin_decoder_supported_extensions()
     }
-
     fn open(&self, locator: &str) -> Result<Box<dyn UserDecoderImplementation>, String> {
-        let decoder = BuiltinDecoder::open(locator)?;
-        Ok(Box::new(PrebuiltUserDecoderInstance { decoder }))
+        Ok(Box::new(PrebuiltUserDecoderInstance(BuiltinDecoder::open(
+            locator,
+        )?)))
     }
 }
 
-struct PrebuiltUserDecoderInstance {
-    decoder: BuiltinDecoder,
-}
-
+struct PrebuiltUserDecoderInstance(BuiltinDecoder);
 impl UserDecoderImplementation for PrebuiltUserDecoderInstance {
     fn spec(&self) -> StreamSpec {
-        self.decoder.spec()
+        self.0.spec()
     }
-
     fn duration_ms_hint(&self) -> Option<u64> {
-        self.decoder.effective_duration_ms_hint()
+        self.0.effective_duration_ms_hint()
     }
-
     fn gapless_trim_spec(&self) -> Option<GaplessTrimSpec> {
-        self.decoder.gapless_trim_spec()
+        self.0.gapless_trim_spec()
     }
-
     fn seek_ms(&mut self, position_ms: u64) -> Result<(), String> {
-        self.decoder.seek_ms(position_ms)
+        self.0.seek_ms(position_ms)
     }
-
     fn next_block(&mut self, frames: usize) -> Result<Option<Vec<f32>>, String> {
-        self.decoder.next_block(frames)
+        self.0.next_block(frames)
     }
 }
 
 struct PlaylistUserDecoderProvider;
-
 impl UserDecoderProvider for PlaylistUserDecoderProvider {
     fn implementation_id(&self) -> &str {
-        "prebuilt.playlist_m3u8"
+        "builtin.playlist"
     }
-
-    fn score_for_extension(&self, ext_hint: &str) -> Option<u16> {
-        match ext_hint {
-            "m3u" | "m3u8" => Some(100),
-            _ => None,
-        }
+    fn score_for_extension(&self, ext: &str) -> Option<u16> {
+        matches!(ext, "m3u" | "m3u8").then_some(100)
     }
-
     fn supported_extensions(&self) -> Vec<String> {
-        vec!["m3u".to_string(), "m3u8".to_string()]
+        vec!["m3u".into(), "m3u8".into()]
     }
-
     fn open(&self, locator: &str) -> Result<Box<dyn UserDecoderImplementation>, String> {
-        let decoder = PlaylistDecoder::open(locator)?;
-        Ok(Box::new(PlaylistUserDecoderInstance { decoder }))
+        Ok(Box::new(PlaylistUserDecoderInstance(
+            PlaylistDecoder::open(locator)?,
+        )))
     }
 }
 
-struct PlaylistUserDecoderInstance {
-    decoder: PlaylistDecoder,
-}
-
+struct PlaylistUserDecoderInstance(PlaylistDecoder);
 impl UserDecoderImplementation for PlaylistUserDecoderInstance {
     fn spec(&self) -> StreamSpec {
-        self.decoder.spec()
+        self.0.spec()
     }
-
     fn duration_ms_hint(&self) -> Option<u64> {
-        self.decoder.duration_ms_hint()
+        self.0.duration_ms_hint()
     }
-
     fn gapless_trim_spec(&self) -> Option<GaplessTrimSpec> {
-        self.decoder.gapless_trim_spec()
+        self.0.gapless_trim_spec()
     }
-
     fn seek_ms(&mut self, position_ms: u64) -> Result<(), String> {
-        self.decoder.seek_ms(position_ms)
+        self.0.seek_ms(position_ms)
     }
-
     fn next_block(&mut self, frames: usize) -> Result<Option<Vec<f32>>, String> {
-        self.decoder.next_block(frames)
+        self.0.next_block(frames)
     }
 }

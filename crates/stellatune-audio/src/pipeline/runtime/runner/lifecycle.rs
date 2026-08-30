@@ -40,8 +40,6 @@ impl PipelineRunner {
             decoder_gapless_trim_spec: None,
             playable_remaining_frames_hint: None,
             transform_control_routes,
-            #[cfg(test)]
-            transition_request_log_sink: None,
             state: RunnerState::Stopped,
         })
     }
@@ -153,6 +151,7 @@ impl PipelineRunner {
         self.ensure_sink_prepared(sink_session)?;
         self.pending_sink_block = None;
         sink_session.drop_queued()?;
+        sink_session.reset_consumed_position(position_ms)?;
         ctx.request_seek(position_ms);
         self.refresh_playable_remaining_frames_hint();
         Ok(())

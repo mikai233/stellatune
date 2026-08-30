@@ -1,21 +1,25 @@
-use super::{ActorContext, Handler, LibraryServiceActor, Message};
+use super::{ActorContext, LibraryServiceActor};
+use lattice_actor::{error::ActorError, reply::ReplyTo, traits::Responder};
 
+#[derive(lattice_actor::Request)]
+#[request(response = Result<Vec<String>, String>)]
 pub(crate) struct ListFoldersMessage;
 
-impl Message for ListFoldersMessage {
-    type Response = Result<Vec<String>, String>;
-}
-
-#[async_trait::async_trait]
-impl Handler<ListFoldersMessage> for LibraryServiceActor {
-    async fn handle(
+impl Responder<ListFoldersMessage> for LibraryServiceActor {
+    async fn respond(
         &mut self,
+        _ctx: &mut ActorContext<'_, Self>,
         _message: ListFoldersMessage,
-        _ctx: &mut ActorContext<Self>,
-    ) -> Result<Vec<String>, String> {
-        self.worker
-            .list_folders()
-            .await
-            .map_err(|e| format!("{e:#}"))
+        reply_to: ReplyTo<Result<Vec<String>, String>>,
+    ) -> Result<(), ActorError> {
+        let result = async {
+            self.worker
+                .list_folders()
+                .await
+                .map_err(|e| format!("{e:#}"))
+        }
+        .await;
+        let _ = reply_to.send(result);
+        Ok(())
     }
 }

@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::config::engine::PlayerState;
 use crate::error::{DecodeError, NoActivePipelineReason};
-use crate::pipeline::assembly::{PipelineAssembler, PipelineRuntime};
+use crate::pipeline::assembly::PipelineFactory;
 use crate::pipeline::runtime::runner::RunnerState;
 use crate::pipeline::runtime::sink_session::SinkActivationMode;
 use crate::workers::decode::handlers::control_apply;
@@ -13,16 +13,15 @@ use crate::workers::decode::util::update_state;
 use crate::workers::decode::{DecodeWorkerEvent, DecodeWorkerEventCallback};
 
 pub(crate) fn handle(
-    assembler: &Arc<dyn PipelineAssembler>,
+    factory: &Arc<dyn PipelineFactory>,
     callback: &DecodeWorkerEventCallback,
-    pipeline_runtime: &mut dyn PipelineRuntime,
     state: &mut DecodeWorkerState,
 ) -> Result<(), DecodeError> {
     let Some(input) = state.active_input.clone() else {
         return Ok(());
     };
 
-    let resume_playing = state.state == PlayerState::Playing;
+    let resume_playing = state.pumping;
     let resume_position_ms = state.ctx.position_ms.max(0);
     let previous_runner = state.runner.take();
     state.reset_context();
@@ -35,13 +34,8 @@ pub(crate) fn handle(
 
     let mut failure_context = "reconfigure_active.assemble";
     let result = (|| -> Result<(), DecodeError> {
-        failure_context = "reconfigure_active.blueprint";
-        let blueprint = match state.pinned_blueprint.as_ref() {
-            Some(blueprint) => Arc::clone(blueprint),
-            None => assembler.build_blueprint(&input)?,
-        };
         failure_context = "reconfigure_active.assemble";
-        let mut assembled = pipeline_runtime.assemble(blueprint.as_ref())?;
+        let mut assembled = factory.build_pipeline(&input)?;
         apply_decode_policies(&mut assembled, state);
         failure_context = "reconfigure_active.into_runner";
         let build_result = (|| -> Result<_, DecodeError> {
@@ -64,13 +58,6 @@ pub(crate) fn handle(
             &mut state.ctx,
             state.master_gain_hot_control.snapshot().level,
             0,
-        )?;
-        failure_context = "reconfigure_active.replay_stage_updates";
-        control_apply::replay_persisted_stage_runtime_updates_to_runner(
-            &state.persisted_stage_runtime_updates,
-            &mut next_runner,
-            Some(&state.sink_session),
-            &mut state.ctx,
         )?;
         if resume_position_ms > 0 {
             failure_context = "reconfigure_active.seek";
@@ -98,7 +85,7 @@ pub(crate) fn handle(
         state.clear_pipeline_unavailable_reason();
         update_state(
             callback,
-            &mut state.state,
+            &mut state.pumping,
             if resume_playing {
                 PlayerState::Playing
             } else {

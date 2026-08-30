@@ -9,20 +9,16 @@ mod watch;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
 
 use anyhow::{Context, Result};
 use sqlx::{FromRow, QueryBuilder, SqlitePool};
-use tokio::time::timeout;
 
 use crate::{LibraryEvent, PlaylistLite, TrackLite};
-use stellatune_plugins::host_runtime::shared_runtime_service;
-use stellatune_runtime::tokio_actor::ActorRef;
+use lattice_actor::handle::ActorHandle;
 
 use crate::service::EventHub;
 
 use self::fts::build_fts_query;
-use self::metadata::clear_metadata_decoder_cache;
 use self::paths::{is_drive_root, normalize_path_str, parent_dir_norm};
 use self::watch::{WatchTaskActor, request_watch_refresh, spawn_watch_task};
 
@@ -39,14 +35,13 @@ pub(crate) struct WorkerDeps {
     pool: SqlitePool,
     events: Arc<EventHub>,
     cover_dir: PathBuf,
-    plugins_dir: PathBuf,
 }
 
 impl WorkerDeps {
     pub(crate) async fn new(
         db_path: &Path,
         events: Arc<EventHub>,
-        plugins_dir: PathBuf,
+        _plugins_dir: PathBuf,
     ) -> Result<Self> {
         let pool = db::init_db(db_path).await?;
 
@@ -58,55 +53,10 @@ impl WorkerDeps {
             format!("failed to create cover cache dir: {}", cover_dir.display())
         })?;
 
-        if plugins_dir.exists() {
-            tracing::info!(
-                plugins_dir = %plugins_dir.display(),
-                "library plugin bootstrap begin"
-            );
-            clear_metadata_decoder_cache();
-            let disabled = db::list_disabled_plugin_ids(&pool)
-                .await
-                .unwrap_or_default();
-            let service = shared_runtime_service();
-            match timeout(Duration::from_secs(8), async {
-                service.sync_dir_with_disabled_ids(&plugins_dir, disabled)
-            })
-            .await
-            {
-                Ok(Ok(())) => {
-                    let active = service.active_plugin_ids();
-                    tracing::info!(
-                        loaded = active.len(),
-                        "library wasm plugin bootstrap sync completed"
-                    );
-                    events.emit(LibraryEvent::Log {
-                        message: format!(
-                            "library wasm plugin runtime sync: active={}",
-                            active.len()
-                        ),
-                    });
-                },
-                Ok(Err(e)) => {
-                    tracing::warn!(error = %format!("{e:#}"), "library wasm plugin bootstrap sync failed");
-                    events.emit(LibraryEvent::Log {
-                        message: format!("library wasm plugin runtime sync failed: {e:#}"),
-                    });
-                },
-                Err(_) => {
-                    tracing::warn!("library wasm plugin bootstrap sync timed out (8s)");
-                    events.emit(LibraryEvent::Log {
-                        message: "library wasm plugin runtime sync timed out (8s)".to_string(),
-                    });
-                },
-            }
-            tracing::info!("library plugin bootstrap end");
-        }
-
         Ok(Self {
             pool,
             events,
             cover_dir,
-            plugins_dir,
         })
     }
 }
@@ -115,8 +65,7 @@ pub(crate) struct LibraryWorker {
     pool: SqlitePool,
     events: Arc<EventHub>,
     cover_dir: PathBuf,
-    watch_ctrl: ActorRef<WatchTaskActor>,
-    plugins_dir: PathBuf,
+    watch_ctrl: ActorHandle<WatchTaskActor>,
 }
 
 impl LibraryWorker {
@@ -131,23 +80,12 @@ impl LibraryWorker {
             events: deps.events,
             cover_dir: deps.cover_dir,
             watch_ctrl,
-            plugins_dir: deps.plugins_dir,
         }
     }
 
     async fn refresh_plugins_best_effort(&self) {
-        if !self.plugins_dir.exists() {
-            return;
-        }
-        clear_metadata_decoder_cache();
-        let disabled = db::list_disabled_plugin_ids(&self.pool)
-            .await
-            .unwrap_or_default();
-        let service = shared_runtime_service();
-        let _ = timeout(Duration::from_secs(8), async {
-            service.sync_dir_with_disabled_ids(&self.plugins_dir, disabled)
-        })
-        .await;
+        // TypeScript plugin registration belongs to the backend plugin manager;
+        // the media-library worker owns no plugin runtime.
     }
 
     pub(crate) async fn list_roots(&self) -> Result<Vec<String>> {
@@ -968,7 +906,7 @@ impl LibraryWorker {
         let pool = self.pool.clone();
         let events = std::sync::Arc::clone(&self.events);
         let cover_dir = self.cover_dir.clone();
-        stellatune_runtime::spawn(async move {
+        tokio::spawn(async move {
             match scan::scan_folder_into_db(pool, &events, &cover_dir, &folder).await {
                 Ok(true) => events.emit(LibraryEvent::Changed),
                 Ok(false) => {},

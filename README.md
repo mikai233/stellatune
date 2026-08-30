@@ -17,9 +17,9 @@ StellaTune is not just another music player; it is an open-source, extensible au
   ensures that your music is delivered exactly as it was meant to be heard, without compromise.
 - **Cross-Platform Excellence**: Built from the ground up to be truly cross-platform. Enjoy a fluid, responsive, and
   native-feeling UI across desktop (Windows, macOS, Linux) and mobile platforms, all unified under a robust Rust core.
-- **Powerful Plugin Ecosystem**: Limitless extensibility. StellaTune features a highly versatile WebAssembly (Wasm) and
-  Native plugin system. Tailor the player to your exact needs by dropping in bespoke audio sources, decoders, lyrics
-  providers, DSPs, and output sinks.
+- **Powerful Plugin Ecosystem**: TypeScript plugins extend source resolution, search, authentication, lyrics, and other
+  control-plane capabilities. Audio decoding, DSP, and output remain in the native Rust data plane, with separately
+  distributed native sidecars available for licensed integrations such as ASIO.
 - **Modern Local Library**: A carefully crafted, aesthetically pleasing user experience designed for the modern music
   lover to effortlessly build, organize, and enjoy their local collection.
 
@@ -45,11 +45,10 @@ To build StellaTune from source, you will need:
 - [Rust toolchain](https://rustup.rs/) 1.98.0
 - [Node.js 20](https://nodejs.org/) (needed for specific plugin packaging and sidecar services)
 
-Prepare your environment by installing the code generator and adding the Wasm target:
+Prepare your environment by installing the code generator:
 
 ```bash
 cargo install flutter_rust_bridge_codegen --version 2.13.0 --locked
-rustup target add wasm32-wasip2
 ```
 
 #### Running the Desktop App (Example: Windows)
@@ -66,12 +65,11 @@ flutter run -d windows
 
 ## Plugin Development
 
-StellaTune's true power lies in its modular architecture. Plugins can be written in Rust (and other languages compiling to Wasm), and loaded dynamically at runtime. The plugin worlds include: `source`, `decoder`, `lyrics`, `dsp`, and `output-sink`.
+StellaTune plugins are pre-bundled TypeScript modules loaded by the shared Node runner. They provide declarative source plans and control-plane capabilities; media bytes and PCM never pass through Node. Native Rust stages own decoding and DSP, while optional external native processes connect through the sidecar protocol.
 
 Want to build your own extension? Check out our technical guides:
-- [Wasm Plugin SDK Quickstart](docs/wasm-plugin-sdk-quickstart.md)
-- [Wasm Plugin Manifest Guide](docs/wasm-plugin-manifest.md)
-- [Plugin Event Protocol](docs/plugin-event-protocol.md)
+- [TypeScript Plugin Quickstart](docs/typescript-plugin-quickstart.md)
+- [Plugin Runtime Architecture](docs/stellatune-audio-architecture.md)
 
 ---
 
@@ -82,10 +80,9 @@ The StellaTune monorepo is thoughtfully structured to separate concerns while ma
 - **`apps/stellatune`**: The main user-facing application (Flutter desktop/mobile).
 - **`apps/stellatune-tui`**: A terminal user interface (Rust TUI) leveraging the same core.
 - **`crates/stellatune-audio*`**: The core audio runtime, pipeline, and playback adapters.
-- **`crates/stellatune-plugins`**: The host-side plugin runtime and service coordinators.
-- **`crates/stellatune-plugin-sdk`**: The SDK for implementing your own plugins.
-- **`crates/plugins-native`**: First-party Native and Wasm plugins (e.g., ASIO output, NetEase integration).
-- **`tools/*`**: Utility services like the NetEase sidecar used by plugin flows.
+- **`crates/stellatune-plugins`**: TypeScript plugin package management and process runtime.
+- **`crates/plugins-native`**: Native protocols and separately distributed sidecars.
+- **`tools/typescript-plugin-runtime`**: Shared Node runner and TypeScript plugin SDK definitions.
 
 ---
 

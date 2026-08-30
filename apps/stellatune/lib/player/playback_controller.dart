@@ -1093,8 +1093,18 @@ class PlaybackController extends Notifier<PlaybackState> {
 
     final bridge = ref.read(playerBridgeProvider);
     state = state.copyWith(playerState: PlayerState.buffering, lastError: null);
-    await bridge.switchTrackRef(item.track, lazy: false);
-    return true;
+    try {
+      await bridge.switchTrackRef(item.track, lazy: false);
+      return true;
+    } catch (error) {
+      ref.read(loggerProvider).w('failed to open track: $path', error: error);
+      state = state.copyWith(
+        playerState: PlayerState.stopped,
+        audioStarted: false,
+        lastError: error.toString(),
+      );
+      return false;
+    }
   }
 
   void _onEvent(Event event) {

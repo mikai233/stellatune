@@ -4,7 +4,9 @@ use axum::body::Body;
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use serde_json::{Value, json};
-use stellatune_plugins::manifest::WasmPluginManifest;
+use stellatune_plugins::typescript::manifest::{
+    TYPESCRIPT_MANIFEST_FILE_NAME, TypeScriptPluginManifest,
+};
 
 use crate::plugin_ui_gateway::state::{GatewayState, HttpResult};
 
@@ -14,7 +16,7 @@ pub(super) async fn resolve_plugin_root(
 ) -> HttpResult<PathBuf> {
     let plugin_id = sanitize_plugin_id(plugin_id_raw)?;
     let plugin_root = state.plugins_dir.join(plugin_id);
-    let manifest_path = plugin_root.join("plugin.json");
+    let manifest_path = plugin_root.join(TYPESCRIPT_MANIFEST_FILE_NAME);
     let exists = tokio::fs::try_exists(&manifest_path)
         .await
         .map_err(|error| {
@@ -106,8 +108,10 @@ async fn read_manifest_ui_entry(plugin_root: &Path) -> HttpResult<Option<String>
     Ok(manifest.ui.map(|ui| ui.entry))
 }
 
-pub(super) async fn read_plugin_manifest(plugin_root: &Path) -> HttpResult<WasmPluginManifest> {
-    let manifest_path = plugin_root.join("plugin.json");
+pub(super) async fn read_plugin_manifest(
+    plugin_root: &Path,
+) -> HttpResult<TypeScriptPluginManifest> {
+    let manifest_path = plugin_root.join(TYPESCRIPT_MANIFEST_FILE_NAME);
     let raw = tokio::fs::read_to_string(&manifest_path)
         .await
         .map_err(|error| {
@@ -116,7 +120,7 @@ pub(super) async fn read_plugin_manifest(plugin_root: &Path) -> HttpResult<WasmP
                 format!("failed to read plugin manifest: {error}"),
             )
         })?;
-    serde_json::from_str::<WasmPluginManifest>(&raw).map_err(|error| {
+    serde_json::from_str::<TypeScriptPluginManifest>(&raw).map_err(|error| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             format!("failed to parse plugin manifest: {error}"),
@@ -220,7 +224,6 @@ fn guess_content_type(path: &Path) -> &'static str {
         Some("png") => "image/png",
         Some("jpg") | Some("jpeg") => "image/jpeg",
         Some("ico") => "image/x-icon",
-        Some("wasm") => "application/wasm",
         _ => "application/octet-stream",
     }
 }

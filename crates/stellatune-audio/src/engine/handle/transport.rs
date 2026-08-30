@@ -35,7 +35,7 @@ impl EngineHandle {
         autoplay: bool,
     ) -> Result<(), EngineError> {
         self.actor_ref
-            .call_async(
+            .ask(
                 SwitchTrackMessage {
                     track_token,
                     autoplay,
@@ -57,7 +57,7 @@ impl EngineHandle {
     /// worker cannot prewarm/accept the queued input.
     pub async fn queue_next_track_token(&self, track_token: String) -> Result<(), EngineError> {
         self.actor_ref
-            .call_async(QueueNextTrackMessage { track_token }, self.timeout)
+            .ask(QueueNextTrackMessage { track_token }, self.timeout)
             .await
             .map_err(|error| Self::map_call_error("queue_next_track_token", self.timeout, error))?
     }
@@ -81,7 +81,7 @@ impl EngineHandle {
     /// ```
     pub async fn play(&self) -> Result<(), EngineError> {
         self.actor_ref
-            .call_async(PlayMessage, self.timeout)
+            .ask(PlayMessage, self.timeout)
             .await
             .map_err(|error| Self::map_call_error("play", self.timeout, error))?
     }
@@ -105,7 +105,7 @@ impl EngineHandle {
     /// worker cannot satisfy the requested pause behavior.
     pub async fn pause_with(&self, behavior: PauseBehavior) -> Result<(), EngineError> {
         self.actor_ref
-            .call_async(PauseMessage { behavior }, self.timeout)
+            .ask(PauseMessage { behavior }, self.timeout)
             .await
             .map_err(|error| Self::map_call_error("pause", self.timeout, error))?
     }
@@ -121,7 +121,7 @@ impl EngineHandle {
     /// active pipeline to seek.
     pub async fn seek_ms(&self, position_ms: i64) -> Result<(), EngineError> {
         self.actor_ref
-            .call_async(SeekMessage { position_ms }, self.timeout)
+            .ask(SeekMessage { position_ms }, self.timeout)
             .await
             .map_err(|error| Self::map_call_error("seek_ms", self.timeout, error))?
     }
@@ -145,7 +145,7 @@ impl EngineHandle {
     /// worker cannot satisfy the requested stop behavior.
     pub async fn stop_with(&self, behavior: StopBehavior) -> Result<(), EngineError> {
         self.actor_ref
-            .call_async(StopMessage { behavior }, self.timeout)
+            .ask(StopMessage { behavior }, self.timeout)
             .await
             .map_err(|error| Self::map_call_error("stop", self.timeout, error))?
     }

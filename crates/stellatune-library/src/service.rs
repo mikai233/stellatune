@@ -7,7 +7,13 @@ use tokio::sync::broadcast;
 use tracing::info;
 
 use crate::{LibraryEvent, PlaylistLite, TrackLite};
-use stellatune_runtime::tokio_actor::{ActorRef, CallError, Handler, Message, spawn_actor};
+use lattice_actor::{
+    error::ActorCallError,
+    handle::ActorHandle,
+    mailbox::MailboxConfig,
+    runtime::spawn_actor,
+    traits::{Handler, Message},
+};
 
 use crate::worker::{LibraryWorker, WorkerDeps};
 
@@ -31,7 +37,7 @@ use std::collections::HashSet;
 
 #[derive(Clone)]
 pub struct LibraryHandle {
-    actor_ref: ActorRef<LibraryServiceActor>,
+    actor_ref: ActorHandle<LibraryServiceActor>,
     events: Arc<EventHub>,
     plugins_dir: PathBuf,
     db_path: PathBuf,
@@ -42,11 +48,11 @@ impl LibraryHandle {
 
     fn cast_command<M>(&self, message: M) -> Result<(), String>
     where
-        M: Message<Response = ()>,
+        M: Message,
         LibraryServiceActor: Handler<M>,
     {
         self.actor_ref
-            .cast(message)
+            .try_tell(message)
             .map_err(|_| "library command channel closed".to_string())
     }
 
@@ -162,7 +168,7 @@ impl LibraryHandle {
     pub async fn list_roots(&self) -> Result<Vec<String>> {
         let result = self
             .actor_ref
-            .call(ListRootsMessage, Self::QUERY_TIMEOUT)
+            .ask(ListRootsMessage, Self::QUERY_TIMEOUT)
             .await
             .map_err(map_call_error)?;
         result.map_err(|e| anyhow!(e))
@@ -171,7 +177,7 @@ impl LibraryHandle {
     pub async fn list_folders(&self) -> Result<Vec<String>> {
         let result = self
             .actor_ref
-            .call(ListFoldersMessage, Self::QUERY_TIMEOUT)
+            .ask(ListFoldersMessage, Self::QUERY_TIMEOUT)
             .await
             .map_err(map_call_error)?;
         result.map_err(|e| anyhow!(e))
@@ -180,7 +186,7 @@ impl LibraryHandle {
     pub async fn list_excluded_folders(&self) -> Result<Vec<String>> {
         let result = self
             .actor_ref
-            .call(ListExcludedFoldersMessage, Self::QUERY_TIMEOUT)
+            .ask(ListExcludedFoldersMessage, Self::QUERY_TIMEOUT)
             .await
             .map_err(map_call_error)?;
         result.map_err(|e| anyhow!(e))
@@ -196,7 +202,7 @@ impl LibraryHandle {
     ) -> Result<Vec<TrackLite>> {
         let result = self
             .actor_ref
-            .call(
+            .ask(
                 ListTracksMessage {
                     folder,
                     recursive,
@@ -214,7 +220,7 @@ impl LibraryHandle {
     pub async fn search(&self, query: String, limit: i64, offset: i64) -> Result<Vec<TrackLite>> {
         let result = self
             .actor_ref
-            .call(
+            .ask(
                 SearchTracksMessage {
                     query,
                     limit,
@@ -230,7 +236,7 @@ impl LibraryHandle {
     pub async fn list_playlists(&self) -> Result<Vec<PlaylistLite>> {
         let result = self
             .actor_ref
-            .call(ListPlaylistsMessage, Self::QUERY_TIMEOUT)
+            .ask(ListPlaylistsMessage, Self::QUERY_TIMEOUT)
             .await
             .map_err(map_call_error)?;
         result.map_err(|e| anyhow!(e))
@@ -245,7 +251,7 @@ impl LibraryHandle {
     ) -> Result<Vec<TrackLite>> {
         let result = self
             .actor_ref
-            .call(
+            .ask(
                 ListPlaylistTracksMessage {
                     playlist_id,
                     query,
@@ -262,7 +268,7 @@ impl LibraryHandle {
     pub async fn list_liked_track_ids(&self) -> Result<Vec<i64>> {
         let result = self
             .actor_ref
-            .call(ListLikedTrackIdsMessage, Self::QUERY_TIMEOUT)
+            .ask(ListLikedTrackIdsMessage, Self::QUERY_TIMEOUT)
             .await
             .map_err(map_call_error)?;
         result.map_err(|e| anyhow!(e))
@@ -295,13 +301,8 @@ impl LibraryHandle {
     }
 }
 
-fn map_call_error(err: CallError) -> anyhow::Error {
-    match err {
-        CallError::Timeout => {
-            anyhow!("library query timed out")
-        },
-        _ => anyhow!("library actor unavailable"),
-    }
+fn map_call_error(err: ActorCallError) -> anyhow::Error {
+    anyhow!("library actor request failed: {err}")
 }
 
 pub async fn start_library(db_path: String) -> Result<LibraryHandle> {
@@ -316,7 +317,10 @@ pub async fn start_library(db_path: String) -> Result<LibraryHandle> {
     ensure_parent_dir(&db_path)?;
     let deps = WorkerDeps::new(&db_path, Arc::clone(&events), plugins_dir.clone()).await?;
     let worker = LibraryWorker::new(deps);
-    let (actor_ref, _join) = spawn_actor(LibraryServiceActor::new(worker, Arc::clone(&events)));
+    let actor_ref = spawn_actor(
+        LibraryServiceActor::new(worker, Arc::clone(&events)),
+        MailboxConfig::bounded(512),
+    );
     info!("library actor started");
 
     Ok(LibraryHandle {

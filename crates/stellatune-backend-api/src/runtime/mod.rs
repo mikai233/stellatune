@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+use std::path::Path;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::{
     fs::OpenOptions,
@@ -13,14 +15,14 @@ use stellatune_audio::engine::EngineHandle;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::time::LocalTime;
 
-use stellatune_plugins::host_runtime::service::SharedPluginRuntime;
-
-mod apply_state;
 mod engine;
 mod hybrid_decoder_stage;
 mod pipeline;
+mod plugin_manager;
 mod transcode_decoder;
 mod transcode_encoder;
+mod typescript_control;
+mod typescript_source;
 
 pub use hybrid_decoder_stage::{
     HybridDecoderStage, HybridProbedTrackDecodeInfo, SharedUserDecoderProvider,
@@ -28,13 +30,69 @@ pub use hybrid_decoder_stage::{
     decoder_supported_extensions_hybrid_with_user_decoders, default_user_decoder_providers,
     probe_track_decode_info_hybrid, probe_track_decode_info_hybrid_with_user_decoders,
 };
+pub use pipeline::set_runtime_builtin_transform_options;
+pub use plugin_manager::{PluginManagerHandle, PluginManagerOperationError};
 pub use transcode_decoder::{
-    TranscodeDecoderInfo, TranscodeDecoderSession, open_local_transcode_decoder,
+    MediaMetadata, PcmF32Chunk, TranscodeDecoderInfo, TranscodeDecoderSession,
+    open_local_transcode_decoder,
 };
 pub use transcode_encoder::{
     TranscodeEncoderDescriptor, TranscodeEncoderSession, list_local_transcode_encoders,
     open_local_transcode_encoder,
 };
+pub use typescript_control::{
+    TypeScriptAuthProviderFactory, TypeScriptAuthProviderProxy, TypeScriptLyricsProviderFactory,
+    TypeScriptLyricsProviderProxy, TypeScriptNetworkControlFactory, TypeScriptNetworkControlProxy,
+};
+pub use typescript_source::{TypeScriptSourceResolverFactory, TypeScriptSourceResolverProxy};
+
+/// Shared control-plane runtime. It owns no playback state and starts Node only
+/// when a registered capability is first invoked.
+pub fn shared_typescript_runtime() -> Arc<stellatune_plugins::typescript::TypeScriptRuntime> {
+    static RUNTIME: OnceLock<Arc<stellatune_plugins::typescript::TypeScriptRuntime>> =
+        OnceLock::new();
+    Arc::clone(RUNTIME.get_or_init(|| {
+        Arc::new(stellatune_plugins::typescript::TypeScriptRuntime::new(
+            typescript_runner_path(),
+        ))
+    }))
+}
+
+pub fn shared_plugin_manager(plugins_dir: &Path) -> PluginManagerHandle {
+    static MANAGERS: OnceLock<Mutex<BTreeMap<PathBuf, PluginManagerHandle>>> = OnceLock::new();
+    let key = plugins_dir.to_path_buf();
+    let mut managers = MANAGERS
+        .get_or_init(|| Mutex::new(BTreeMap::new()))
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    managers
+        .entry(key.clone())
+        .or_insert_with(|| {
+            PluginManagerHandle::spawn(shared_runtime_engine(), shared_typescript_runtime(), key)
+        })
+        .clone()
+}
+
+fn typescript_runner_path() -> PathBuf {
+    if let Some(path) = std::env::var_os("STELLATUNE_TYPESCRIPT_RUNNER") {
+        return PathBuf::from(path);
+    }
+    if let Ok(executable) = std::env::current_exe()
+        && let Some(directory) = executable.parent()
+    {
+        for relative in [
+            "typescript-plugin-runtime/runner.mjs",
+            "tools/typescript-plugin-runtime/runner.mjs",
+            "runner.mjs",
+        ] {
+            let candidate = directory.join(relative);
+            if candidate.is_file() {
+                return candidate;
+            }
+        }
+    }
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tools/typescript-plugin-runtime/runner.mjs")
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutputBackend {
@@ -165,10 +223,6 @@ fn open_tracing_log_file() -> Option<Arc<Mutex<std::fs::File>>> {
     Some(Arc::new(Mutex::new(file)))
 }
 
-pub fn shared_plugin_runtime() -> SharedPluginRuntime {
-    stellatune_plugins::host_runtime::shared_runtime_service()
-}
-
 fn install_panic_hook() {
     static PANIC_HOOK_INIT: OnceLock<()> = OnceLock::new();
     PANIC_HOOK_INIT.get_or_init(|| {
@@ -203,10 +257,7 @@ pub fn init_tracing() {
     INIT.get_or_init(|| {
         let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
             if cfg!(debug_assertions) {
-                // Keep application-level debug logging but silence noisy Wasmtime/Cranelift internals.
-                EnvFilter::new(
-                    "debug,cranelift_codegen=warn,cranelift_frontend=warn,wasmtime_cranelift=warn,wasmtime_internal_cranelift=warn,wasmtime_internal_jit_debug=warn,wasmtime_internal_cache=warn",
-                )
+                EnvFilter::new("debug")
             } else {
                 EnvFilter::new("info")
             }
@@ -231,10 +282,11 @@ fn add_quiet_http_directives(filter: EnvFilter) -> EnvFilter {
     let mut filter = filter;
     for directive in [
         "hyper_util=info",
+        "lattice_actor::runtime::dispatch=info",
         "reqwest=info",
         "sqlx=warn",
         "symphonia=warn",
-        "wasmtime=warn",
+        "symphonia_core::formats::probe=error",
         "wasapi=info",
     ] {
         if let Ok(parsed) = directive.parse::<tracing_subscriber::filter::Directive>() {
@@ -244,31 +296,11 @@ fn add_quiet_http_directives(filter: EnvFilter) -> EnvFilter {
     filter
 }
 
-async fn cleanup_plugin_runtime_for_shutdown() {
-    let service = shared_plugin_runtime();
-    let mut plugin_ids = service.active_plugin_ids();
-    plugin_ids.sort();
-    let report = service.shutdown_and_cleanup().await;
-    if report.errors.is_empty() {
-        tracing::info!(
-            active_plugins_before_cleanup = plugin_ids.len(),
-            deactivated = report.deactivated.len(),
-            errors = report.errors.len(),
-            "plugin runtime cleanup completed during shutdown"
-        );
-    } else {
-        tracing::warn!(
-            active_plugins_before_cleanup = plugin_ids.len(),
-            deactivated = report.deactivated.len(),
-            errors = report.errors.len(),
-            "plugin runtime cleanup completed with leftovers during shutdown"
-        );
-    }
-}
-
 pub async fn runtime_shutdown() {
     engine::runtime_shutdown().await;
-    cleanup_plugin_runtime_for_shutdown().await;
+    if let Err(error) = shared_typescript_runtime().shutdown().await {
+        tracing::warn!(%error, "TypeScript plugin runtime shutdown failed");
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -304,31 +336,16 @@ pub struct ApplyStateReport {
     pub execution_loops: u64,
 }
 
-impl ApplyStateReport {
-    pub(crate) fn empty_completed() -> Self {
-        Self {
-            phase: "completed",
-            loaded: 0,
-            deactivated: 0,
-            errors: Vec::new(),
-            plan_discovered: 0,
-            plan_disabled: 0,
-            plan_actions_total: 0,
-            plan_load_new: 0,
-            plan_reload_changed: 0,
-            plan_deactivate: 0,
-            plan_ms: 0,
-            execute_ms: 0,
-            total_ms: 0,
-            action_outcomes: Vec::new(),
-            coalesced_requests: 0,
-            execution_loops: 0,
-        }
-    }
-}
-
 pub async fn plugin_runtime_apply_state_status_json() -> String {
-    apply_state::status_json().await
+    serde_json::json!({
+        "phase": "idle",
+        "request_id": 0,
+        "latest_requested_request_id": 0,
+        "last_completed_request_id": 0,
+        "last_error_count": 0,
+        "last_errors": [],
+    })
+    .to_string()
 }
 
 pub async fn plugin_runtime_disable(
@@ -353,40 +370,11 @@ pub async fn plugin_runtime_disable(
     tracing::debug!(plugin_id, phase = report.phase, "plugin_disable_phase");
     library.plugin_set_enabled(plugin_id.clone(), false).await?;
 
-    // Clear active output route before unloading the plugin lease. This avoids
-    // a teardown-order race where runtime destroy control for an in-use plugin
-    // sink can overlap with sink-session reconfigure control and trip the sink
-    // loop control timeout.
-    if let Err(error) = engine::runtime_clear_output_sink_route_for_plugin(&plugin_id).await {
-        report.errors.push(format!(
-            "failed to clear output sink route for disabled plugin '{plugin_id}': {error}"
-        ));
-    }
-
     report.phase = "schedule";
     tracing::debug!(plugin_id, phase = report.phase, "plugin_disable_phase");
-    let service = shared_plugin_runtime();
-    let unload_report = service.unload_plugin_report(&plugin_id).await;
-    report
-        .errors
-        .extend(unload_report.errors.into_iter().map(|err| err.to_string()));
-
-    report.phase = "apply_state";
-    tracing::debug!(plugin_id, phase = report.phase, "plugin_disable_phase");
-    match plugin_runtime_apply_state(library).await {
-        Ok(apply_report) => {
-            report.errors.extend(apply_report.errors);
-        },
-        Err(error) => report.errors.push(format!(
-            "failed to apply plugin runtime state after disable for '{plugin_id}': {error:#}"
-        )),
-    }
-
-    let active_plugin_ids = shared_plugin_runtime().active_plugin_ids();
-    if active_plugin_ids.iter().any(|id| id == &plugin_id) {
-        report.errors.push(format!(
-            "plugin '{plugin_id}' is still active after disable/apply-state"
-        ));
+    let manager = shared_plugin_manager(library.plugins_dir_path());
+    if let Err(error) = manager.set_enabled(plugin_id.clone(), false).await {
+        report.errors.push(error.to_string());
     }
 
     report.phase = "completed";
@@ -409,17 +397,18 @@ pub async fn plugin_runtime_enable(
     }
     library.plugin_set_enabled(plugin_id.clone(), true).await?;
 
-    let apply_report = plugin_runtime_apply_state(library).await?;
-    if !apply_report.errors.is_empty() {
-        let details = apply_report.errors.join("; ");
+    shared_plugin_manager(library.plugins_dir_path())
+        .set_enabled(plugin_id.clone(), true)
+        .await
+        .map_err(|error| anyhow!(error.to_string()))?;
+    let active = shared_typescript_runtime()
+        .registered_plugins()
+        .await
+        .into_iter()
+        .any(|plugin| plugin.manifest.id == plugin_id);
+    if !active {
         return Err(anyhow!(
-            "plugin runtime apply-state completed with errors after enable for '{plugin_id}': {details}"
-        ));
-    }
-    let active_plugin_ids = shared_plugin_runtime().active_plugin_ids();
-    if !active_plugin_ids.iter().any(|id| id == &plugin_id) {
-        return Err(anyhow!(
-            "plugin '{plugin_id}' is still inactive after enable/apply-state"
+            "plugin '{plugin_id}' is still inactive after enable"
         ));
     }
 
@@ -432,59 +421,39 @@ pub async fn plugin_runtime_enable(
 pub async fn plugin_runtime_apply_state(
     library: &stellatune_library::LibraryHandle,
 ) -> Result<ApplyStateReport> {
-    let result = apply_state::run_coalesced(|| async {
-        let plugins_dir = library.plugins_dir_path().to_path_buf();
-        let disabled_ids = library
-            .list_disabled_plugin_ids()
-            .await?
+    let started = Instant::now();
+    let plugins_dir = library.plugins_dir_path().to_path_buf();
+    let disabled_ids = library
+        .list_disabled_plugin_ids()
+        .await?
+        .into_iter()
+        .map(|id| id.trim().to_string())
+        .filter(|id| !id.is_empty())
+        .collect::<std::collections::HashSet<_>>();
+    let disabled_count = disabled_ids.len();
+    let loaded = shared_plugin_manager(&plugins_dir)
+        .reconcile(disabled_ids)
+        .await
+        .map_err(|error| anyhow!(error.to_string()))?;
+    Ok(ApplyStateReport {
+        phase: "completed",
+        loaded: loaded.len(),
+        deactivated: disabled_count,
+        errors: Vec::new(),
+        plan_discovered: loaded.len() + disabled_count,
+        plan_disabled: disabled_count,
+        plan_actions_total: loaded.len() + disabled_count,
+        plan_load_new: loaded.len(),
+        plan_reload_changed: 0,
+        plan_deactivate: disabled_count,
+        plan_ms: 0,
+        execute_ms: started.elapsed().as_millis() as u64,
+        total_ms: started.elapsed().as_millis() as u64,
+        action_outcomes: loaded
             .into_iter()
-            .map(|id| id.trim().to_string())
-            .filter(|id| !id.is_empty())
-            .collect::<std::collections::HashSet<_>>();
-
-        let service = shared_plugin_runtime();
-        service.set_disabled_plugin_ids(disabled_ids).await;
-        let report = service.reload_dir_detailed_from_state(&plugins_dir).await?;
-        let mut errors: Vec<String> = report
-            .load_report
-            .errors
-            .into_iter()
-            .map(|err| format!("{err:#}"))
-            .collect();
-        let active_plugin_ids = service.active_plugin_ids();
-        if let Err(error) =
-            engine::runtime_clear_output_sink_route_if_plugin_unavailable(&active_plugin_ids).await
-        {
-            errors.push(format!(
-                "failed to reconcile output sink route after plugin apply state: {error}"
-            ));
-        }
-        Ok(ApplyStateReport {
-            phase: "completed",
-            loaded: report.load_report.loaded.len(),
-            deactivated: report.load_report.deactivated.len(),
-            errors,
-            plan_discovered: report.plan.discovered,
-            plan_disabled: report.plan.disabled,
-            plan_actions_total: report.plan.actions_total,
-            plan_load_new: report.plan.load_new,
-            plan_reload_changed: report.plan.reload_changed,
-            plan_deactivate: report.plan.deactivate,
-            plan_ms: report.plan_ms,
-            execute_ms: report.execute_ms,
-            total_ms: report.total_ms,
-            action_outcomes: report
-                .actions
-                .into_iter()
-                .map(|item| format!("{}:{}:{}", item.action, item.plugin_id, item.outcome))
-                .collect(),
-            coalesced_requests: 0,
-            execution_loops: 0,
-        })
+            .map(|plugin| format!("register:{}:completed", plugin.id))
+            .collect(),
+        coalesced_requests: 0,
+        execution_loops: 1,
     })
-    .await?;
-    let mut report = result.report;
-    report.coalesced_requests = result.coalesced_requests;
-    report.execution_loops = result.execution_loops;
-    Ok(report)
 }

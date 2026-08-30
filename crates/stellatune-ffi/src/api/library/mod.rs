@@ -2,7 +2,6 @@ use std::sync::{Arc, OnceLock};
 
 use crate::frb_generated::StreamSink;
 use anyhow::{Result, anyhow};
-use stellatune_runtime as global_runtime;
 use tracing::debug;
 
 use stellatune_backend_api::library::LibraryService;
@@ -165,7 +164,7 @@ pub async fn library_set_track_liked(track_id: i64, liked: bool) -> Result<()> {
 
 pub fn library_events(sink: StreamSink<LibraryEvent>) -> Result<()> {
     let mut rx = shared_library()?.subscribe_events();
-    global_runtime::spawn(async move {
+    crate::background_runtime::spawn(async move {
         loop {
             match rx.recv().await {
                 Ok(event) => {

@@ -1,111 +1,119 @@
 # `stellatune-audio` Internal Architecture
 
-This document describes the runtime architecture of `crates/stellatune-audio` for maintainers.
-It complements rustdoc by focusing on cross-module behavior, ownership boundaries, and failure flow.
+This document describes the implemented playback and plugin boundaries for maintainers.
 
-## 1. Component Map
+## 1. Ownership model
 
-- `engine`:
-  - Hosts the control actor and the public control surface (`EngineHandle`).
-  - Serializes high-level commands and forwards work to worker components.
-- `workers::decode`:
-  - Owns playback state and the active `PipelineRunner`.
-  - Implements EOF transition policy and sink-recovery policy.
-- `pipeline::runtime::runner`:
-  - Drives source/decoder/transform stages.
-  - Maintains runtime control routes and sink-session compatibility checks.
-- `workers::sink`:
-  - Owns sink-stage I/O thread.
-  - Consumes audio blocks from a bounded ring and serves sink control RPCs.
-- `pipeline::runtime::sink_session`:
-  - Manages sink worker lifetime, route fingerprinting, and reuse decisions.
+`EngineHandle` sends independent typed Lattice messages to one `PlaybackActor`.
+The actor exclusively owns `PlaybackState`, the current request/checkpoint, and
+one optional `PlaybackSession`. No second control actor owns playback state.
 
-## 1.1 External Boundaries
+```text
+Flutter / TUI
+    |
+    v
+EngineHandle
+    | typed ask / tell
+    v
+PlaybackActor (Lattice)
+    |
+    +-- PlaybackSession
+    |      +-- TrackPipeline: SourceStage -> DecoderStage
+    |      +-- OutputPipeline: TransformStage[]
+    |      `-- SinkWorkerHandle
+    |
+    `-- bounded PumpAudio turns
+                  |
+                  v
+             bounded audio ring -> SinkWorker -> SinkStage
+```
 
-`stellatune-audio` is runtime-core only. It does not own plugin capability
-binding directly. Integration boundaries are:
+The actor mailbox transports control messages only. Encoded media and PCM blocks
+never pass through an actor mailbox.
 
-- `crates/audio-adapters/stellatune-audio-plugin-adapters`:
-  - Plugin-backed source/decoder/transform/output stage adapters.
-- `crates/audio-adapters/stellatune-audio-builtin-adapters`:
-  - Built-in device/output runtime adapters.
-- `crates/stellatune-backend-api`:
-  - Assembler/runtime wiring and app-facing orchestration.
+## 2. Planning and construction
 
-## 2. Thread Topology
+A playback request is resolved into a typed `SourcePlan`.
+`PipelinePlanner` combines that plan with user policy and the immutable
+`CapabilityRegistry` snapshot to produce an `ExecutablePlaybackPlan`.
+`PipelineBuilder` and `PipelineFactory` then construct a complete session.
 
-The runtime uses a small fixed topology:
+The registry stores descriptors and factories, never active stages or playback
+state. Structural changes rebuild a session at a safe boundary. The only
+in-place updates are explicit typed controls such as master gain, transition
+gain, and gapless trim.
 
-1. Control actor thread:
-   - Receives external commands.
-   - Performs orchestration and sends worker commands.
-2. Decode worker thread:
-   - Owns active runner and decode loop state.
-   - Executes command handlers and periodic step/recovery ticks.
-3. Sink worker thread:
-   - Owns sink stage instances.
-   - Writes queued blocks and executes control calls (`drain`, `drop_queued`, `sync_runtime_control`).
+## 3. Stage and data-plane boundaries
 
-This split keeps high-frequency audio movement out of actor command channels.
+The executable data plane only knows the Rust traits `SourceStage`,
+`DecoderStage`, `TransformStage`, and `SinkStage`.
 
-The exact sink implementation (builtin output device vs plugin output sink) is
-selected by pipeline assembly and sink route state, not by the runner loop.
+- Built-in stages execute directly in process.
+- External native stages are represented by Rust proxy stages.
+- External PCM uses a bounded shared-memory ring plus framed control IPC.
+- The sink stage and device calls are owned by the dedicated `SinkWorker`.
+- Backpressure is bounded; the playback actor retains at most the documented
+  pending block while the sink ring is full.
 
-## 3. Data Plane vs Control Plane
+ASIO remains an optional, separately built and distributed external sidecar.
+The default workspace and Rust core do not link or distribute the ASIO SDK.
 
-- Data plane:
-  - `PipelineRunner::step` produces an `AudioBlock`.
-  - `SinkSession` forwards it to `SinkWorker::try_send_block`.
-  - `SinkWorker` drains ring-buffered blocks and writes to sink stages.
-- Control plane:
-  - Actor commands (open/play/seek/stop/mutations) go to decode worker mailbox.
-  - Runtime-control synchronization checkpoints run in `PipelineRunner::sync_runtime_control`.
-  - Sink control calls are RPC-like commands to the sink thread mailbox.
+## 4. TypeScript control plane
 
-The two planes intentionally converge at explicit checkpoints (runner step, sink control handlers).
+TypeScript plugins are pre-bundled ESM loaded by a shared Node runner. A running
+plugin has at most one lazily started process, shared by all of its capabilities.
 
-## 4. Track Transition Flow
+TypeScript may resolve sources, search, authenticate, provide lyrics, and
+perform network-device control. It returns declarative data such as
+`SourcePlan`; Rust fetches media bytes and selects the final decoder,
+transforms, and output. Node, JSON-RPC, and plugin UI routes never carry PCM.
 
-EOF transition in decode loop follows this order:
+Plugin packages use Manifest v2 and contain no install scripts or native addons.
+The first implementation assumes first-party or explicitly trusted local code;
+it does not expose a permissions mini-language.
 
-1. Promote prewarmed next runner if available.
-2. Otherwise open queued-next input.
-3. Otherwise stop with drain semantics and emit EOF.
+## 5. Plugin changes
 
-This ordering optimizes for sink-route reuse and low-latency handoff when prewarming is available.
+Install, update, enable, disable, and uninstall use one deterministic sequence:
 
-## 5. Sink Disconnect Recovery
+1. ask `PlaybackActor` to suspend and capture the actual consumed position;
+2. tear down the complete active session and stop the affected plugin process;
+3. stage and atomically commit the package/catalog change;
+4. publish the new registry snapshot;
+5. rebuild from the checkpoint with the new capability set;
+6. resume only if playback was active before the change.
 
-When runner stepping returns `SinkDisconnected`:
+There are no active-stage leases, delayed uninstall, concurrent package
+generations, or graph mutations.
 
-1. Decode worker tears down the active runner.
-2. Recovery state is scheduled with bounded retries and exponential backoff.
-3. Rebuild attempts reassemble the runner and reactivate sink session.
-4. On exhaustion, decode worker emits an error and stops playback.
+## 6. Playback behavior
 
-Recovery policy is intentionally decode-worker-owned so retry visibility and state transitions remain centralized.
+Seek, EOF promotion, bounded recovery, and plugin-change restoration are owned
+by `PlaybackSession` under `PlaybackActor`.
 
-## 6. Runtime Invariants
+A queued next track may be prewarmed. At EOF, a compatible prewarmed track is
+promoted; otherwise a new track pipeline is built. Output reuse is decided from
+typed compatibility data. Sink disconnect recovery tears down the failed
+session, retries with bounded backoff, and either restores the checkpoint or
+emits a terminal error.
 
-- A runner must be decode-prepared and sink-prepared before stepping.
-- Stage control dispatch is stage-key based and validated at runner construction.
-- At most one pending sink block is retained in runner as a backpressure bridge.
-- Sink thread owns sink stage calls; non-sink threads do not invoke sink stage methods directly.
+## 7. Runtime topology
 
-## 7. API Boundary Notes
+- Lattice schedules the playback, plugin-manager, TypeScript-process, library,
+  filesystem-watch, and lyrics control actors.
+- `PlaybackActor` uses the pinned single-worker dedicated execution policy.
+- `SinkWorker` remains a dedicated device thread with a bounded audio ring.
+- Tokio owns ordinary asynchronous I/O and background tasks.
+- No project-specific Actor runtime or unified command enum exists.
 
-- Engine/public control methods are asynchronous actor messages.
-- Decode and sink workers are internal execution details and are not public API.
-- Runtime errors crossing crate boundary are normalized to typed engine/decode
-  errors in `stellatune-audio`, then adapted again by upper layers.
+## 8. Reading order
 
-## 8. Reading Order for Maintainers
-
-Recommended file reading order:
-
-1. `crates/stellatune-audio/src/engine/mod.rs`
-2. `crates/stellatune-audio/src/workers/decode/mod.rs`
-3. `crates/stellatune-audio/src/workers/decode/loop.rs`
-4. `crates/stellatune-audio/src/pipeline/runtime/runner/mod.rs`
-5. `crates/stellatune-audio/src/pipeline/runtime/runner/step.rs`
-6. `crates/stellatune-audio/src/workers/sink/worker.rs`
+1. `crates/stellatune-audio/src/engine/actor.rs`
+2. `crates/stellatune-audio/src/engine/messages.rs`
+3. `crates/stellatune-audio/src/engine/session.rs`
+4. `crates/stellatune-audio/src/pipeline/plan.rs`
+5. `crates/stellatune-audio/src/pipeline/capability.rs`
+6. `crates/stellatune-audio/src/pipeline/runtime/runner/mod.rs`
+7. `crates/stellatune-audio/src/workers/sink/worker.rs`
+8. `crates/stellatune-backend-api/src/runtime/plugin_manager.rs`
+9. `crates/stellatune-plugins/src/typescript/process.rs`

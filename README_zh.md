@@ -16,8 +16,7 @@ StellaTune 不仅仅是一个音乐播放器；它是一个开源、可扩展的
 - **发烧级音频体验**：追求真正的纯保真与低延迟播放。基于 Rust 构建的音频管线确保您的音乐能完好无损地呈现。
 - **卓越的跨平台能力**：从底层开始为真正的跨平台而生。在桌面端（Windows、macOS、Linux）和移动端都能享受流畅、响应迅速且具有原生体验的
   UI，且所有平台统一运行在稳定强健的 Rust 核心之上。
-- **强大的插件生态系统**：无限的扩展可能。StellaTune 拥有极其灵活的 WebAssembly (Wasm) 与原生插件系统。您可以通过放入自定义的音频源、解码器、歌词服务、DSP
-  以及输出端插件，来将播放器定制成您理想的模样。
+- **强大的插件生态系统**：TypeScript 插件负责音源解析、搜索、认证、歌词等控制面能力；解码、DSP 和输出保留在原生 Rust 数据面。ASIO 等受许可约束的集成通过独立分发的 native sidecar 接入。
 - **现代化的本地音乐库**：为现代音乐爱好者精心打造，美观与实用并存的用户体验，让您能轻松构建、整理和欣赏您的本地收藏。
 
 ## 界面预览
@@ -42,11 +41,10 @@ StellaTune 非常欢迎开发者们在其核心基础之上进行构建，或者
 - [Rust toolchain](https://rustup.rs/) 1.98.0
 - [Node.js 20](https://nodejs.org/) （用于特定插件打包以及 Sidecar 服务）
 
-安装代码生成器并添加 Wasm 编译目标以准备开发环境：
+安装代码生成器以准备开发环境：
 
 ```bash
 cargo install flutter_rust_bridge_codegen --version 2.13.0 --locked
-rustup target add wasm32-wasip2
 ```
 
 #### 运行桌面端应用（以 Windows 为例）
@@ -63,12 +61,11 @@ flutter run -d windows
 
 ## 插件开发
 
-StellaTune 真正的力量在于其模块化的架构体系。插件可以使用 Rust（以及其他能编译为 Wasm 的语言）编写，并在运行时被动态加载。插件生态包含：`source` (音源), `decoder` (解码器), `lyrics` (歌词), `dsp` (数字信号处理), 和 `output-sink` (音频输出池)。
+StellaTune 插件是由共享 Node runner 加载的预打包 TypeScript 模块，负责返回声明式音源计划和其他控制面结果；媒体字节和 PCM 不经过 Node。解码与 DSP 由原生 Rust stage 执行，可选外部原生进程通过 sidecar 协议接入。
 
 想要构建自己的扩展插件？请查看我们的开发指南（英文）：
-- [Wasm 插件 SDK 快速入门](docs/wasm-plugin-sdk-quickstart.md)
-- [Wasm 插件 Manifest 编写指南](docs/wasm-plugin-manifest.md)
-- [插件事件协议](docs/plugin-event-protocol.md)
+- [TypeScript 插件快速入门](docs/typescript-plugin-quickstart.md)
+- [插件与播放运行时架构](docs/stellatune-audio-architecture.md)
 
 ---
 
@@ -79,10 +76,9 @@ StellaTune 采用 Monorepo 库结构，通过精心设计的结构分离关注�
 - **`apps/stellatune`**: 面向用户的主要应用程序（Flutter 桌面端/移动端）。
 - **`apps/stellatune-tui`**: 终端用户界面（Rust TUI 版本），复用同一核心。
 - **`crates/stellatune-audio*`**: 核心音频运行时、音频管线及播放适配器。
-- **`crates/stellatune-plugins`**: 宿主端插件运行时及服务协调器。
-- **`crates/stellatune-plugin-sdk`**: 用于实现自定义插件的 SDK。
-- **`crates/plugins-native`**: 官方第一方原生及 Wasm 插件（例如 ASIO 输出支持、网易云等功能集成）。
-- **`tools/*`**: 插件流程使用的辅助服务（例如网易云 sidecar 等）。
+- **`crates/stellatune-plugins`**: TypeScript 插件包管理与进程运行时。
+- **`crates/plugins-native`**: 原生协议与独立分发的 sidecar。
+- **`tools/typescript-plugin-runtime`**: 共享 Node runner 与 TypeScript 插件 SDK 类型。
 
 ---
 

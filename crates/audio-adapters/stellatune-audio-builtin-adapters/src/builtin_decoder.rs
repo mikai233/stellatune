@@ -196,12 +196,19 @@ impl BuiltinDecoder {
             ));
         }
 
+        Self::open_source(opened.source, ext.as_str())
+    }
+
+    pub(crate) fn open_source(
+        source: Box<dyn MediaSource>,
+        hint_extension: &str,
+    ) -> Result<Self, String> {
         let mut hint = Hint::new();
-        if !ext.is_empty() {
-            hint.with_extension(ext.as_str());
+        if !hint_extension.is_empty() {
+            hint.with_extension(hint_extension);
         }
 
-        let mss = MediaSourceStream::new(opened.source, MediaSourceStreamOptions::default());
+        let mss = MediaSourceStream::new(source, MediaSourceStreamOptions::default());
 
         let mut format = symphonia::default::get_probe()
             .probe(

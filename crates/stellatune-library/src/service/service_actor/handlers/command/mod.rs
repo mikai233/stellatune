@@ -34,4 +34,4 @@ pub(crate) use shutdown::ShutdownMessage;
 
 pub(super) use crate::LibraryEvent;
 pub(super) use crate::service::service_actor::LibraryServiceActor;
-pub(super) use stellatune_runtime::tokio_actor::{ActorContext, Handler, Message};
+pub(super) use lattice_actor::context::HandlerContext as ActorContext;

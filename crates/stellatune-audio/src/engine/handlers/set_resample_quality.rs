@@ -1,19 +1,25 @@
-use stellatune_runtime::thread_actor::{ActorContext, Handler};
+use lattice_actor::{
+    context::HandlerContext, error::ActorError, reply::ReplyTo, traits::Responder,
+};
 
-use crate::engine::actor::ControlActor;
+use crate::engine::actor::PlaybackActor;
 use crate::engine::messages::SetResampleQualityMessage;
 use crate::error::EngineError;
 
-impl Handler<SetResampleQualityMessage> for ControlActor {
-    fn handle(
+impl Responder<SetResampleQualityMessage> for PlaybackActor {
+    async fn respond(
         &mut self,
+        _ctx: &mut HandlerContext<'_, Self>,
         message: SetResampleQualityMessage,
-        _ctx: &mut ActorContext<Self>,
-    ) -> Result<(), EngineError> {
+        reply_to: ReplyTo<Result<(), EngineError>>,
+    ) -> Result<(), ActorError> {
         let timeout = self.config.decode_command_timeout;
-        let worker = self.ensure_worker()?;
-        worker
-            .set_resample_quality(message.quality, timeout)
-            .map_err(EngineError::from)
+        let result = self.ensure_session().and_then(|worker| {
+            worker
+                .set_resample_quality(message.quality, timeout)
+                .map_err(EngineError::from)
+        });
+        let _ = reply_to.send(result);
+        Ok(())
     }
 }

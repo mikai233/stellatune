@@ -1,16 +1,11 @@
-mod apply_pipeline_blueprint;
-mod apply_pipeline_mutation;
-mod apply_pipeline_mutations;
-mod apply_stage_runtime_update;
 mod get_snapshot;
-mod install_decode_worker;
-#[cfg(test)]
-#[path = "../../tests/engine/handlers_integration.rs"]
-mod integration_tests;
 mod on_decode_worker_event;
 mod pause;
 mod play;
+mod plugin_change;
+mod pump_audio;
 mod queue_next;
+mod rebuild_pipeline;
 mod seek;
 mod set_lfe_mode;
 mod set_resample_quality;
