@@ -2,6 +2,9 @@
 
 This document describes the implemented playback and plugin boundaries for maintainers.
 
+For the proposed next-generation source and data-plane design, see
+[`player-core-refactor.md`](player-core-refactor.md).
+
 ## 1. Ownership model
 
 `EngineHandle` sends independent typed Lattice messages to one `PlaybackActor`.
