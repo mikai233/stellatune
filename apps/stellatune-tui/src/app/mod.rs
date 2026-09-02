@@ -6,11 +6,11 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-use stellatune_audio::config::engine::{Event as AudioEvent, ResampleQuality};
+use stellatune_audio::config::engine::ResampleQuality;
+use stellatune_audio::playback::PlaybackEvent as AudioEvent;
 use stellatune_library::{LibraryEvent, TrackLite};
 
 use crate::backend::facade::BackendFacade;
-use crate::backend::track_token::decode_track_token_path;
 
 use self::commands::{Command, build_command_suggestions, parse_command};
 use self::state::{
@@ -62,14 +62,7 @@ impl App {
         }
         if let Ok(snapshot) = self.backend.snapshot().await {
             self.state.playback.player_state = snapshot.state;
-            self.state.playback.position_ms = snapshot.position_ms;
-            let track_display = snapshot
-                .current_track
-                .as_deref()
-                .map(decode_track_token_path)
-                .unwrap_or_else(|| "-".to_string());
-            self.state.playback.current_track_display = track_display.clone();
-            self.state.playback.duration_ms = self.lookup_track_duration_hint(&track_display);
+            self.state.playback.position_ms = snapshot.consumed_position.as_millis() as i64;
         }
         if let Err(error) = self.apply_audio_settings().await {
             self.state.status_line = format!("failed to apply default audio settings: {error}");
@@ -241,41 +234,25 @@ impl App {
 
     fn handle_engine_event(&mut self, event: AudioEvent) {
         match event {
-            AudioEvent::StateChanged { state } => {
+            AudioEvent::StateChanged(state) => {
                 self.state.playback.player_state = state;
             },
-            AudioEvent::TrackChanged { track_token } => {
-                let track_display = decode_track_token_path(&track_token);
-                self.state.playback.current_track_display = track_display.clone();
-                self.state.playback.position_ms = 0;
-                self.state.playback.duration_ms = self.lookup_track_duration_hint(&track_display);
-                self.sync_queue_cursor_with_path(&track_display);
-            },
-            AudioEvent::Position { position_ms } => {
-                self.state.playback.position_ms = position_ms;
-            },
-            AudioEvent::Error { message } => {
-                self.toast_error(format!("playback error: {message}"));
-            },
-            AudioEvent::Recovering {
-                attempt,
-                backoff_ms,
-            } => {
-                self.toast_warn(format!(
-                    "recovering output stream (attempt={attempt}, backoff_ms={backoff_ms})"
-                ));
-            },
-            AudioEvent::AudioStart => {
-                self.toast_info("audio started");
-            },
-            AudioEvent::AudioEnd => {
-                self.toast_info("audio ended");
-            },
-            AudioEvent::Eof => {
-                self.toast_info("track reached end");
+            AudioEvent::TrackChanged { .. } => {
                 self.state.playback.position_ms = 0;
             },
-            AudioEvent::VolumeChanged { .. } => {},
+            AudioEvent::PlaybackEnded { .. } => {
+                self.state.playback.player_state = stellatune_audio::playback::PlaybackState::Idle;
+            },
+            AudioEvent::Position { position, .. } => {
+                self.state.playback.position_ms = position.as_millis() as i64;
+            },
+            AudioEvent::Failed(failure) => {
+                self.toast_error(format!("playback error: {}", failure.message));
+            },
+            AudioEvent::Buffering { active, .. } if active => {
+                self.toast_warn("playback buffering");
+            },
+            AudioEvent::Buffering { .. } => {},
         }
     }
 
@@ -1088,7 +1065,10 @@ impl App {
     }
 
     async fn play_track_with_hint(&mut self, path: String, duration_ms: Option<i64>) -> Result<()> {
-        let result = self.backend.play_track_path(&path).await;
+        let library_track_id = self
+            .lookup_track_id(&path)
+            .ok_or_else(|| anyhow::anyhow!("track is not present in the local catalog: {path}"))?;
+        let result = self.backend.play_library_track(library_track_id).await;
         if result.is_ok() {
             self.state.playback.current_track_display = path.clone();
             self.state.playback.position_ms = 0;
@@ -1116,6 +1096,16 @@ impl App {
             .chain(self.state.playlists.tracks.iter())
             .find(|track| track_paths_match(&track.path, track_path))
             .and_then(|track| track.duration_ms.filter(|value| *value > 0))
+    }
+
+    fn lookup_track_id(&self, track_path: &str) -> Option<i64> {
+        self.state
+            .library
+            .tracks
+            .iter()
+            .chain(self.state.playlists.tracks.iter())
+            .find(|track| track_paths_match(&track.path, track_path))
+            .map(|track| track.id)
     }
 
     fn sync_queue_cursor_with_path(&mut self, track_path: &str) {

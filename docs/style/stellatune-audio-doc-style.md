@@ -35,13 +35,13 @@ For private/internal functions:
 ## Linking and Terminology
 
 1. Use intra-doc links for crate types, for example:
-   - [`crate::engine::EngineHandle`]
-   - [`crate::error::EngineError`]
+   - [`crate::playback::PlaybackController`]
+   - [`stellatune_audio_core::ControlError`]
 2. Keep terms stable across docs:
-   - "control actor"
-   - "decode worker"
-   - "pipeline runtime"
-   - "sink session"
+   - "PlaybackActor"
+   - "preparation task"
+   - "track pipeline"
+   - "SinkWorker"
 
 ## Examples
 

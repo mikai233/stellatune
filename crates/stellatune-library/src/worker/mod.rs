@@ -985,4 +985,27 @@ impl LibraryWorker {
 
         Ok(items)
     }
+
+    pub(crate) async fn track_by_id(&self, track_id: i64) -> Result<Option<TrackLite>> {
+        let row = sqlx::query_as!(
+            tracks::TrackLiteRow,
+            r#"
+            SELECT id as "id!", path, title, artist, album, duration_ms
+            FROM tracks
+            WHERE id = ?1
+            "#,
+            track_id,
+        )
+        .fetch_optional(&self.pool)
+        .await
+        .context("query track by id failed")?;
+        Ok(row.map(|row| TrackLite {
+            id: row.id,
+            path: row.path,
+            title: row.title,
+            artist: row.artist,
+            album: row.album,
+            duration_ms: row.duration_ms,
+        }))
+    }
 }

@@ -10,26 +10,20 @@ use std::{
 use anyhow::{Result, anyhow};
 use std::time::Instant;
 
+use crate::player_service::PlayerService;
 use stellatune_audio::config::engine::ResampleQuality;
-use stellatune_audio::engine::EngineHandle;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::time::LocalTime;
 
 mod engine;
-mod hybrid_decoder_stage;
+mod local_probe;
 mod pipeline;
 mod plugin_manager;
 mod transcode_decoder;
 mod transcode_encoder;
-mod typescript_control;
 mod typescript_source;
 
-pub use hybrid_decoder_stage::{
-    HybridDecoderStage, HybridProbedTrackDecodeInfo, SharedUserDecoderProvider,
-    UserDecoderImplementation, UserDecoderProvider, decoder_supported_extensions_hybrid,
-    decoder_supported_extensions_hybrid_with_user_decoders, default_user_decoder_providers,
-    probe_track_decode_info_hybrid, probe_track_decode_info_hybrid_with_user_decoders,
-};
+pub use local_probe::{ProbedTrackDecodeInfo, decoder_supported_extensions, probe_local_track};
 pub use pipeline::set_runtime_builtin_transform_options;
 pub use plugin_manager::{PluginManagerHandle, PluginManagerOperationError};
 pub use transcode_decoder::{
@@ -40,11 +34,7 @@ pub use transcode_encoder::{
     TranscodeEncoderDescriptor, TranscodeEncoderSession, list_local_transcode_encoders,
     open_local_transcode_encoder,
 };
-pub use typescript_control::{
-    TypeScriptAuthProviderFactory, TypeScriptAuthProviderProxy, TypeScriptLyricsProviderFactory,
-    TypeScriptLyricsProviderProxy, TypeScriptNetworkControlFactory, TypeScriptNetworkControlProxy,
-};
-pub use typescript_source::{TypeScriptSourceResolverFactory, TypeScriptSourceResolverProxy};
+pub use typescript_source::{TypeScriptSourceResolver, TypeScriptSourceResolverFactory};
 
 /// Shared control-plane runtime. It owns no playback state and starts Node only
 /// when a registered capability is first invoked.
@@ -68,7 +58,11 @@ pub fn shared_plugin_manager(plugins_dir: &Path) -> PluginManagerHandle {
     managers
         .entry(key.clone())
         .or_insert_with(|| {
-            PluginManagerHandle::spawn(shared_runtime_engine(), shared_typescript_runtime(), key)
+            PluginManagerHandle::spawn(
+                shared_playback_controller(),
+                shared_typescript_runtime(),
+                key,
+            )
         })
         .clone()
 }
@@ -131,8 +125,22 @@ pub struct RuntimeOutputDeviceApplyReport {
     pub fallback_to_default: bool,
 }
 
-pub fn shared_runtime_engine() -> Arc<EngineHandle> {
-    engine::shared_runtime_engine()
+pub fn shared_playback_controller() -> stellatune_audio::playback::PlaybackController {
+    engine::shared_playback_controller()
+}
+
+pub fn install_player_service(service: Arc<PlayerService>) -> Result<(), Arc<PlayerService>> {
+    player_service_slot().set(service)
+}
+
+pub fn shared_player_service() -> Option<Arc<PlayerService>> {
+    // Keep storage in a helper-local singleton shared with `install_player_service`.
+    player_service_slot().get().cloned()
+}
+
+fn player_service_slot() -> &'static OnceLock<Arc<PlayerService>> {
+    static SERVICE: OnceLock<Arc<PlayerService>> = OnceLock::new();
+    &SERVICE
 }
 
 pub fn runtime_list_output_devices() -> Result<Vec<OutputDeviceDescriptor>, String> {

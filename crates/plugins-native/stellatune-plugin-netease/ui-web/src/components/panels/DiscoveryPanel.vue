@@ -116,19 +116,19 @@ async function loadPlaylistTracks(item: DiscoveryItem): Promise<void> {
 }
 
 async function playNow(item: DiscoveryItem): Promise<void> {
-  const trackRef = buildTrackRef(item);
-  if (!trackRef) {
+  const identity = buildProviderIdentity(item);
+  if (!identity) {
     return;
   }
-  await props.onRunPlaybackAction("playback.play_track_ref", { track_ref: trackRef });
+  await props.onRunPlaybackAction("playback.play_provider_track", identity);
 }
 
 async function enqueue(item: DiscoveryItem): Promise<void> {
-  const trackRef = buildTrackRef(item);
-  if (!trackRef) {
+  const identity = buildProviderIdentity(item);
+  if (!identity) {
     return;
   }
-  await props.onRunPlaybackAction("playback.enqueue_track_ref", { track_ref: trackRef });
+  await props.onRunPlaybackAction("playback.enqueue_provider_track", identity);
 }
 
 function buildPlaylistTrackRequest(item: DiscoveryItem): Record<string, unknown> | null {
@@ -154,50 +154,15 @@ function buildPlaylistTrackRequest(item: DiscoveryItem): Record<string, unknown>
   };
 }
 
-function buildTrackRef(item: DiscoveryItem): Record<string, unknown> | null {
+function buildProviderIdentity(item: DiscoveryItem): Record<string, unknown> | null {
   const trackId = item.trackId.trim();
   if (trackId.length === 0) {
     return null;
   }
-  const sourceId = item.sourceId.trim() || props.sourceTypeId.trim() || "netease";
-  const trackPayload = buildTrackPayload(item);
-  if (!trackPayload) {
-    return null;
-  }
-  const extHint = item.extHint.trim() || "mp3";
-  const pathHint =
-    item.pathHint.trim().length > 0
-      ? item.pathHint.trim()
-      : `${sourceId}:${trackId}.${extHint}`;
-  const locatorPayload: Record<string, unknown> = {
-    plugin_id: props.pluginId,
-    type_id: sourceId,
-    config: props.sourceConfig,
-    track: trackPayload,
-    ext_hint: extHint,
-    path_hint: pathHint
-  };
-  const locator = JSON.stringify(locatorPayload);
   return {
-    source_id: sourceId,
-    track_id: trackId,
-    locator
-  };
-}
-
-function buildTrackPayload(item: DiscoveryItem): Record<string, unknown> | null {
-  if (item.trackPayload) {
-    return item.trackPayload;
-  }
-  const songId = parseUnsignedInt(item.trackId);
-  if (songId === null) {
-    return null;
-  }
-  return {
-    song_id: songId,
-    level: searchLevel.value,
-    stream_url: null,
-    ext_hint: item.extHint.trim() || "mp3"
+    provider_id: item.sourceId.trim() || props.sourceTypeId.trim(),
+    source_type_id: props.sourceTypeId.trim(),
+    provider_track_key: parseUnsignedInt(trackId) ?? trackId
   };
 }
 

@@ -1,6 +1,6 @@
 # Stellatune 播放核心重构设计
 
-> 状态：Draft / 作为下一轮大重构的目标设计
+> 状态：Implemented / hard switch 已于 2026-09-02 完成
 >
 > 日期：2026-08-31
 >
@@ -756,6 +756,7 @@ pub enum SourceOpenPurpose {
 pub struct SourceOpenRequest {
     pub purpose: SourceOpenPurpose,
     pub deadline: Option<std::time::Instant>,
+    pub cancellation: SourceCancellation,
 }
 
 pub trait SourceFactory: Send + Sync {
@@ -2516,49 +2517,19 @@ cargo tree -p stellatune-audio-builtin-adapters
 - hard switch changeset 不包含 token compatibility path；
 - hard switch 不迁移旧播放器数据；只接受当前 schema，切换通过显式 fresh bootstrap 完成。
 
-## 28. 实现前必须完成的 Spike
+## 28. Spike 结论与最终 contract
 
-以下问题必须通过小型可运行实验决定，不能只在讨论中假设：
+实现分支已用可运行 fixture 固定以下决策：
 
-1. **HTTP + Symphonia 读取模型**
-   - 验证 async open 后的同步有界 `Read + Seek`；
-   - 验证 range seek、unknown content length、chunked response；
-   - 验证 `WouldBlock` 对 Symphonia 的行为；
-   - 根据结果在 `Read + Seek` 和显式 `read_chunk` 中只保留一个。
+1. **HTTP + Symphonia**：只保留 async open + 同步 `Read + Seek`。HTTP response 由有界 feeder 提供；空缓冲返回 `WouldBlock`，Range seek 使用独立 I/O generation。Decoder 不再保留 HTTP locator/open 路径。
+2. **PlaybackActor pump**：Actor 每 turn 最多泵一个 block，控制与数据邮箱均有界；不引入第二套 decode 策略状态。Phase 0 执行策略 benchmark 在本机 debug fixture 上测得单 worker dedicated policy 的 control p50 `49.625µs`、p99 `99.542µs`。
+3. **Transform/normalizer drain**：Transform 使用一次最多一个输出 block 的 `Produced/Complete` drain；normalizer 裁掉启动延迟，并用零长度 partial input 泵出 EOF tail，最终输出严格等于换算后的目标帧数。
+4. **Sink partial write/clock**：partial write 只按实际 consumed frames 前移；pause/seek/discard 通过独立高优先级有界控制邮箱抢占 `WouldBlock`；公开 position 和恢复 checkpoint 只读 sink-consumed clock。
+5. **Source cancellation/drop**：`SourceOpenRequest` 携带可唤醒 cancellation；generation 更新先取消旧 open。HTTP request future、feeder 和 range generation 在 cancel/drop 时退出，迟到 completion 只丢弃、不发布失败。
+6. **双 Pipeline Mixer/Crossfade**：next 在 Mixer 前归一到 current sample rate/channel layout；支持 linear/equal-power curve，post-mix chain 只运行一次，`TrackChanged` 以 sink-consumed boundary 为准。next 在 overlap 后失败时，failure 绑定 next item，current 从瞬时 A gain 平滑恢复。
+7. **PCM ring 与交互控制**：PCM ring 保持小容量；交互式 final gain 位于 SinkWorker 并按消费帧推进，Crossfade gain 位于每轨 Mixer 前。设备自身不可 discard 的缓冲仍由 `SinkClockSnapshot::buffered_frames` 暴露，不伪装成已消费位置。
 
-2. **bounded PlaybackActor pump**
-   - 用真实 FLAC/MP3/NCM decode 测量控制消息 p99；
-   - 验证每 turn block/time budget；
-   - 若不能满足延迟目标，再引入纯机械 decode executor。
-
-3. **Transform drain contract**
-   - 验证 resampler 在一入零出、一入一出和 EOF tail 场景；
-   - 验证当前“一次最多一个输出 block”是否足够；
-   - 不在 spike 前引入无界多输出接口。
-
-4. **Sink partial write/clock**
-   - 验证 shared CPAL、WASAPI exclusive 和 external sink；
-   - 固定 consumed/buffered frames 统计口径；
-   - 固定 pause、discard、drain 后的 clock 行为。
-
-5. **Source cancellation/drop**
-   - switch 连续发生时旧 HTTP open 能及时取消；
-   - external source process/resource 能在 stale generation drop 后释放；
-   - shutdown 不残留 feeder task。
-
-6. **双 Pipeline Mixer/Crossfade**
-   - 用不同 sample rate、channel layout 和 codec 的两首 fixture 验证共同 mix format；
-   - 测量 Crossfade 窗口的 CPU、分配、ring 水位和 underrun；
-   - 比较 linear、equal-power 等 curve，固定第一版默认曲线；
-   - 固定 `TrackChanged` 的 audible boundary 和 A pipeline teardown 时机。
-
-7. **PCM ring 与交互控制延迟**
-   - 分别测量 gain 在 ring producer 和 SinkWorker consumer 应用时的实际可听延迟；
-   - 固定 PCM ring target/max frames；
-   - 验证 final output envelope 在 pause/seek/stop 时以 consumed frame 完成；
-   - 明确设备 backend 自身 buffer 无法 discard 时的延迟上限和报告方式。
-
-Spike 产物包括测试、测量结果和最终 contract 决策。完成后将结论回填本文，删除对应的条件性描述。
+对应回归测试位于 `stellatune-audio`、`stellatune-audio-builtin-adapters` 和 `stellatune-backend-api`；benchmark 保留为 ignored/manual test，发布前可在目标设备重复采样。
 
 ## 29. Definition of Done
 

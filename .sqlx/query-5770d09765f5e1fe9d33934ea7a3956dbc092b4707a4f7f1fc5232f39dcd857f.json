@@ -6,14 +6,20 @@
       {
         "name": "id",
         "ordinal": 0,
-        "type_info": "Integer"
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "tracks",
+            "name": "id"
+          }
+        }
       }
     ],
     "parameters": {
       "Right": 1
     },
     "nullable": [
-      true
+      false
     ]
   },
   "hash": "5770d09765f5e1fe9d33934ea7a3956dbc092b4707a4f7f1fc5232f39dcd857f"

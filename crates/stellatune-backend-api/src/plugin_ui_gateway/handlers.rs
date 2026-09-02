@@ -216,8 +216,14 @@ pub(super) async fn invoke_plugin_action(
             }))
         },
         _ => {
-            if let Some(data) =
-                runtime_apply::invoke_action_via_host(action.as_str(), &payload).await?
+            let config = storage::read_plugin_ui_config(&plugin_root).await?;
+            if let Some(data) = runtime_apply::invoke_action_via_host(
+                &plugin_id,
+                action.as_str(),
+                &payload,
+                &config,
+            )
+            .await?
             {
                 state
                     .publish_plugin_event(
@@ -235,7 +241,6 @@ pub(super) async fn invoke_plugin_action(
                 }));
             }
 
-            let config = storage::read_plugin_ui_config(&plugin_root).await?;
             let Some(data) = runtime_apply::invoke_action_via_source(
                 &plugin_id,
                 action.as_str(),

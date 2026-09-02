@@ -2,16 +2,20 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use super::pipeline::{BackendAssembler, shared_device_sink_control};
+use super::pipeline::shared_device_sink_control;
 use super::{
     DeviceSinkMetricsSnapshot, OutputBackend, OutputDeviceDescriptor,
     RuntimeOutputDeviceApplyReport, init_tracing,
 };
 use stellatune_audio::config::engine::ResampleQuality;
-use stellatune_audio::engine::{EngineHandle, start_engine};
+use stellatune_audio::planner::StageRegistrySnapshot;
+use stellatune_audio::playback::{PlaybackController, PlaybackRuntime, PlaybackRuntimeConfig};
 use stellatune_audio_builtin_adapters::device_sink::{
     OutputBackend as AdapterOutputBackend, OutputDeviceSpec, default_output_spec_for_backend,
     list_output_devices, output_spec_for_route,
+};
+use stellatune_audio_builtin_adapters::factories::{
+    RuntimeDeviceSinkFactory, SymphoniaDecoderFactory,
 };
 
 struct RuntimeEngineMetrics {
@@ -118,13 +122,6 @@ fn ensure_output_sink_monitor_started() {
                 }
             });
     });
-}
-
-pub(super) fn snapshot_runtime_output_options() -> RuntimeOutputOptions {
-    runtime_output_options()
-        .lock()
-        .map(|guard| *guard)
-        .unwrap_or_else(|poisoned| *poisoned.into_inner())
 }
 
 fn output_sink_watermarks_ms() -> (i64, i64) {
@@ -268,32 +265,52 @@ fn monitor_output_sink_metrics(state: &mut OutputSinkMonitorState) {
     }
 }
 
-fn new_runtime_engine() -> Arc<EngineHandle> {
-    init_tracing();
-    let inits_total = runtime_engine_metrics()
-        .runtime_engine_inits_total
-        .fetch_add(1, Ordering::Relaxed)
-        + 1;
-
-    let assembler = Arc::new(BackendAssembler::default());
-    let engine =
-        start_engine(assembler).unwrap_or_else(|e| panic!("failed to start v2 runtime: {e}"));
-
-    tracing::info!(
-        runtime_engine_inits_total = inits_total,
-        "runtime engine initialized"
-    );
-    ensure_output_sink_monitor_started();
-    Arc::new(engine)
+struct TypedPlaybackRuntime {
+    runtime: Mutex<Option<PlaybackRuntime>>,
+    controller: PlaybackController,
 }
 
-pub fn shared_runtime_engine() -> Arc<EngineHandle> {
-    static ENGINE: OnceLock<Arc<EngineHandle>> = OnceLock::new();
-    if let Some(engine) = ENGINE.get() {
-        tracing::debug!("reusing shared runtime engine");
-        return Arc::clone(engine);
+fn typed_playback_runtime() -> &'static TypedPlaybackRuntime {
+    static RUNTIME: OnceLock<TypedPlaybackRuntime> = OnceLock::new();
+    RUNTIME.get_or_init(|| {
+        init_tracing();
+        runtime_engine_metrics()
+            .runtime_engine_inits_total
+            .fetch_add(1, Ordering::Relaxed);
+        let registry = StageRegistrySnapshot {
+            decoders: vec![Arc::new(SymphoniaDecoderFactory::new())],
+            transforms: Vec::new(),
+            sink: Arc::new(RuntimeDeviceSinkFactory::new(
+                shared_device_sink_control(),
+                1,
+            )),
+        };
+        let runtime = PlaybackRuntime::start(PlaybackRuntimeConfig::new(registry))
+            .unwrap_or_else(|error| panic!("failed to start playback runtime: {error}"));
+        let controller = runtime.controller();
+        ensure_output_sink_monitor_started();
+        TypedPlaybackRuntime {
+            runtime: Mutex::new(Some(runtime)),
+            controller,
+        }
+    })
+}
+
+pub fn shared_playback_controller() -> PlaybackController {
+    typed_playback_runtime().controller.clone()
+}
+
+pub async fn shutdown_playback_runtime() {
+    let runtime = typed_playback_runtime()
+        .runtime
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .take();
+    if let Some(runtime) = runtime
+        && let Err(error) = runtime.shutdown().await
+    {
+        tracing::warn!(%error, "typed playback runtime shutdown failed");
     }
-    Arc::clone(ENGINE.get_or_init(new_runtime_engine))
 }
 
 pub fn runtime_list_output_devices() -> Result<Vec<OutputDeviceDescriptor>, String> {
@@ -330,7 +347,7 @@ pub async fn runtime_set_output_device(
 ) -> Result<RuntimeOutputDeviceApplyReport, String> {
     let requested_device_id = normalize_device_id(device_id);
     let control = shared_device_sink_control();
-    let engine = shared_runtime_engine();
+    let player = shared_playback_controller();
 
     let (previous_backend, previous_device_id) = control.desired_route();
     let previous_spec = resolve_current_output_spec().ok();
@@ -343,10 +360,10 @@ pub async fn runtime_set_output_device(
     };
 
     control.set_route(applied_backend, applied_device_id.clone());
-    if let Err(error) = apply_output_spec_mutations(engine.as_ref(), resolved_output_spec).await {
+    if let Err(error) = apply_output_spec_mutations(&player, resolved_output_spec).await {
         control.set_route(previous_backend, previous_device_id.clone());
         if let Some(spec) = previous_spec {
-            let _ = apply_output_spec_mutations(engine.as_ref(), spec).await;
+            let _ = apply_output_spec_mutations(&player, spec).await;
         }
         return Err(format!(
             "failed to apply output route switch to {:?}:{:?}: {error}",
@@ -380,7 +397,7 @@ pub async fn runtime_set_output_options(
     }
 
     let output_spec = resolve_current_output_spec_for_output_options()?;
-    apply_output_spec_mutations(shared_runtime_engine().as_ref(), output_spec).await
+    apply_output_spec_mutations(&shared_playback_controller(), output_spec).await
 }
 
 pub async fn runtime_set_output_sink_route(
@@ -397,13 +414,7 @@ pub async fn runtime_clear_output_sink_route() -> Result<(), String> {
 }
 
 pub async fn runtime_shutdown() {
-    let engine = shared_runtime_engine();
-    if let Err(err) = engine.stop().await {
-        tracing::warn!("runtime_shutdown stop failed: {err}");
-    }
-    if let Err(err) = engine.shutdown().await {
-        tracing::warn!("runtime_shutdown command failed: {err}");
-    }
+    shutdown_playback_runtime().await;
 }
 
 fn resolve_target_output_spec(
@@ -447,17 +458,12 @@ fn resolve_current_output_spec_for_output_options() -> Result<ResolvedOutputSpec
     resolve_current_output_spec()
 }
 
-pub(super) fn current_blueprint_output_spec() -> Result<(OutputDeviceSpec, Option<bool>), String> {
-    let resolved = resolve_current_output_spec_for_output_options()?;
-    Ok((resolved.spec, resolved.plugin_prefers_track_rate))
-}
-
 async fn apply_output_spec_mutations(
-    engine: &EngineHandle,
+    player: &PlaybackController,
     _resolved: ResolvedOutputSpec,
 ) -> Result<(), String> {
-    engine
-        .rebuild_pipeline()
+    player
+        .rebuild_output()
         .await
         .map_err(|error| error.to_string())
 }

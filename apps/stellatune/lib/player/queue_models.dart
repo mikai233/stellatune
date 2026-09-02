@@ -1,9 +1,30 @@
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 
-import 'package:stellatune/bridge/bridge.dart';
-
 enum QueueCoverKind { url, file, data }
+
+@immutable
+class ProviderQueueTrack {
+  const ProviderQueueTrack({
+    required this.providerId,
+    required this.pluginId,
+    required this.typeId,
+    required this.configJson,
+    required this.providerKey,
+    this.pathHint = '',
+    this.sourcePluginId,
+    this.decoderPluginId,
+  });
+
+  final String providerId;
+  final String pluginId;
+  final String typeId;
+  final String configJson;
+  final String providerKey;
+  final String pathHint;
+  final String? sourcePluginId;
+  final String? decoderPluginId;
+}
 
 @immutable
 class QueueCover {
@@ -17,7 +38,9 @@ class QueueCover {
 @immutable
 class QueueItem {
   const QueueItem({
-    required this.track,
+    required this.trackId,
+    required this.path,
+    this.providerTrack,
     this.id,
     this.title,
     this.artist,
@@ -26,7 +49,10 @@ class QueueItem {
     this.cover,
   });
 
-  final TrackRef track;
+  /// Stable application TrackId. Provider rows receive it lazily at play/queue time.
+  final BigInt? trackId;
+  final String path;
+  final ProviderQueueTrack? providerTrack;
   final int? id;
   final String? title;
   final String? artist;
@@ -34,14 +60,15 @@ class QueueItem {
   final int? durationMs;
   final QueueCover? cover;
 
-  String get path => track.locator;
-
-  String get stableTrackKey => '${track.sourceId}:${track.trackId}';
+  String get stableTrackKey => trackId?.toString() ??
+      '${providerTrack?.providerId ?? "local"}:${providerTrack?.providerKey ?? id ?? path}';
 
   String get displayTitle {
     final explicit = title?.trim() ?? '';
     if (explicit.isNotEmpty) return explicit;
-    final fallback = track.trackId.trim().isNotEmpty ? track.trackId : path;
+    final fallback = path.trim().isNotEmpty
+        ? path
+        : providerTrack?.providerKey ?? trackId?.toString() ?? '';
     return fallback.split(RegExp(r'[\\/]+')).last;
   }
 }

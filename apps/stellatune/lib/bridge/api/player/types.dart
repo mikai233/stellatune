@@ -10,8 +10,7 @@ import 'package:freezed_annotation/freezed_annotation.dart' hide protected;
 part 'types.freezed.dart';
 
 // These functions are ignored because they have generic arguments: `config`, `config`, `metadata`, `set_metadata`, `target`, `with_config_target`, `with_config`
-// These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `TrackPlayability`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
 
 enum AudioBackend { shared, wasapiExclusive }
 
@@ -149,12 +148,18 @@ sealed class Event with _$Event {
       Event_StateChanged;
   const factory Event.position({
     required PlatformInt64 ms,
-    required String path,
+    required BigInt trackId,
+    required BigInt itemId,
     required BigInt sessionId,
   }) = Event_Position;
-  const factory Event.trackChanged({required String path}) = Event_TrackChanged;
-  const factory Event.playbackEnded({required String path}) =
-      Event_PlaybackEnded;
+  const factory Event.trackChanged({
+    required BigInt trackId,
+    required BigInt itemId,
+  }) = Event_TrackChanged;
+  const factory Event.playbackEnded({
+    required BigInt trackId,
+    required BigInt itemId,
+  }) = Event_PlaybackEnded;
   const factory Event.volumeChanged({
     required double volume,
     required BigInt seq,
@@ -274,6 +279,41 @@ class OutputSinkTypeDescriptor {
           defaultConfigJson == other.defaultConfigJson;
 }
 
+class PlaybackSnapshot {
+  final PlayerState state;
+  final BigInt? trackId;
+  final BigInt? itemId;
+  final PlatformInt64? localLibraryTrackId;
+  final PlatformInt64 positionMs;
+
+  const PlaybackSnapshot({
+    required this.state,
+    this.trackId,
+    this.itemId,
+    this.localLibraryTrackId,
+    required this.positionMs,
+  });
+
+  @override
+  int get hashCode =>
+      state.hashCode ^
+      trackId.hashCode ^
+      itemId.hashCode ^
+      localLibraryTrackId.hashCode ^
+      positionMs.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is PlaybackSnapshot &&
+          runtimeType == other.runtimeType &&
+          state == other.state &&
+          trackId == other.trackId &&
+          itemId == other.itemId &&
+          localLibraryTrackId == other.localLibraryTrackId &&
+          positionMs == other.positionMs;
+}
+
 enum PlayerState { stopped, playing, paused, buffering }
 
 class PluginDescriptor {
@@ -380,49 +420,6 @@ class TrackDecodeInfo {
           metadataJson == other.metadataJson &&
           decoderPluginId == other.decoderPluginId &&
           decoderTypeId == other.decoderTypeId;
-}
-
-class TrackRef {
-  final String sourceId;
-  final String trackId;
-  final String locator;
-
-  const TrackRef({
-    required this.sourceId,
-    required this.trackId,
-    required this.locator,
-  });
-
-  static Future<TrackRef> forLocalPath({required String path}) => StellatuneApi
-      .instance
-      .api
-      .crateApiPlayerTypesTrackRefForLocalPath(path: path);
-
-  // HINT: Make it `#[frb(sync)]` to let it become the default constructor of Dart class.
-  static Future<TrackRef> newInstance({
-    required String sourceId,
-    required String trackId,
-    required String locator,
-  }) => StellatuneApi.instance.api.crateApiPlayerTypesTrackRefNew(
-    sourceId: sourceId,
-    trackId: trackId,
-    locator: locator,
-  );
-
-  Future<String> stableKey() => StellatuneApi.instance.api
-      .crateApiPlayerTypesTrackRefStableKey(that: this);
-
-  @override
-  int get hashCode => sourceId.hashCode ^ trackId.hashCode ^ locator.hashCode;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is TrackRef &&
-          runtimeType == other.runtimeType &&
-          sourceId == other.sourceId &&
-          trackId == other.trackId &&
-          locator == other.locator;
 }
 
 class TranscodeProgressEvent {

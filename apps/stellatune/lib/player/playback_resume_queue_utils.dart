@@ -24,28 +24,22 @@ class PlaybackResumeQueueUtils {
     return tracks.map(_localQueueItemFromTrackLite).toList();
   }
 
-  static int findTrackRefIndex({
+  static int findTrackIdIndex({
     required List<QueueItem> items,
-    required TrackRef track,
+    required BigInt trackId,
   }) {
-    final resumeKey = stableTrackKey(track);
     for (var i = 0; i < items.length; i++) {
-      if (items[i].stableTrackKey == resumeKey) {
+      if (items[i].trackId == trackId) {
         return i;
       }
     }
     return -1;
   }
 
-  static String stableTrackKey(TrackRef track) =>
-      '${track.sourceId}:${track.trackId}';
-
-  static TrackRef localTrackRef(String path) =>
-      TrackRef(sourceId: 'local', trackId: path, locator: path);
-
   static QueueItem _localQueueItemFromTrackLite(TrackLite track) {
     return QueueItem(
-      track: localTrackRef(track.path),
+      trackId: null,
+      path: track.path,
       id: track.id.toInt() >= 0 ? track.id.toInt() : null,
       title: track.title,
       artist: track.artist,

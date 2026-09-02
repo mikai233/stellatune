@@ -28,7 +28,7 @@ use self::service_actor::handlers::command::{
     ShutdownMessage,
 };
 use self::service_actor::handlers::query::{
-    ListExcludedFoldersMessage, ListFoldersMessage, ListLikedTrackIdsMessage,
+    GetTrackMessage, ListExcludedFoldersMessage, ListFoldersMessage, ListLikedTrackIdsMessage,
     ListPlaylistTracksMessage, ListPlaylistsMessage, ListRootsMessage, ListTracksMessage,
     SearchTracksMessage,
 };
@@ -231,6 +231,15 @@ impl LibraryHandle {
             .await
             .map_err(map_call_error)?;
         result.map_err(|e| anyhow!(e))
+    }
+
+    pub async fn get_track(&self, track_id: i64) -> Result<Option<TrackLite>> {
+        let result = self
+            .actor_ref
+            .ask(GetTrackMessage { track_id }, Self::QUERY_TIMEOUT)
+            .await
+            .map_err(map_call_error)?;
+        result.map_err(|error| anyhow!(error))
     }
 
     pub async fn list_playlists(&self) -> Result<Vec<PlaylistLite>> {

@@ -184,9 +184,11 @@ export function formatActionName(action: string): string {
       return "获取歌曲歌词";
     case "netease.song.url":
       return "解析歌曲 URL";
-    case "playback.play_track_ref":
+    case "playback.play_track":
+    case "playback.play_provider_track":
       return "立即播放指定曲目";
-    case "playback.enqueue_track_ref":
+    case "playback.enqueue_track":
+    case "playback.enqueue_provider_track":
       return "加入下一首";
     case "playback.pause":
       return "暂停播放";

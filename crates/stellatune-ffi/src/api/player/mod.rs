@@ -10,39 +10,44 @@ use anyhow::{Context, Result, anyhow};
 use serde_json::Value;
 use tracing::{debug, warn};
 
-use crate::api::library::shared_library_if_initialized;
+use crate::api::library::{shared_library_if_initialized, shared_player_service};
 
 mod plugin_ui_gateway;
 pub(crate) mod types;
 use stellatune_audio::config::engine::{
-    Event as V2Event, LfeMode as V2LfeMode, PlayerState as V2PlayerState,
-    ResampleQuality as V2ResampleQuality,
+    LfeMode as V2LfeMode, ResampleQuality as V2ResampleQuality,
 };
-use stellatune_audio::engine::EngineHandle as AudioEngineHandle;
+use stellatune_audio::playback::{
+    PlaybackController, PlaybackEvent as V2Event, PlaybackState as V2PlayerState, SwitchOptions,
+};
+use stellatune_audio_core::{MediaTime, PlaybackItemId};
 use stellatune_backend_api::lyrics_service::LyricsService;
 use stellatune_backend_api::player::{
     plugins_install_from_file as backend_plugins_install_from_file,
     plugins_list_installed_json as backend_plugins_list_installed_json,
     plugins_uninstall_by_id as backend_plugins_uninstall_by_id,
 };
+use stellatune_backend_api::player_service::{
+    ProviderId, ProviderTrackIdentityInput, ProviderTrackKeyInput, SourceResolverSpec, TrackId,
+};
 use stellatune_backend_api::runtime::{
-    OutputBackend as RuntimeOutputBackend, PcmF32Chunk,
-    decoder_supported_extensions_hybrid as runtime_decoder_supported_extensions,
+    OutputBackend as RuntimeOutputBackend, PcmF32Chunk, TypeScriptSourceResolver,
+    decoder_supported_extensions as runtime_decoder_supported_extensions,
     list_local_transcode_encoders, open_local_transcode_decoder, open_local_transcode_encoder,
-    probe_track_decode_info_hybrid, runtime_clear_output_sink_route, runtime_list_output_devices,
+    probe_local_track, runtime_clear_output_sink_route, runtime_list_output_devices,
     runtime_set_output_device, runtime_set_output_options, runtime_set_output_sink_route,
-    set_runtime_builtin_transform_options, shared_runtime_engine, shared_typescript_runtime,
+    set_runtime_builtin_transform_options, shared_playback_controller, shared_typescript_runtime,
 };
 use stellatune_backend_api::{LyricsDoc, LyricsEvent, LyricsQuery, LyricsSearchCandidate};
 use types::{
     AudioBackend, AudioDevice, DspChainItem, DspTypeDescriptor, EncoderTypeDescriptor, Event,
-    LfeMode, LyricsProviderTypeDescriptor, OutputSinkRoute, OutputSinkTypeDescriptor, PlayerState,
-    PluginDescriptor, ResampleQuality, SourceCatalogTypeDescriptor, TrackDecodeInfo, TrackRef,
-    TranscodeProgressEvent,
+    LfeMode, LyricsProviderTypeDescriptor, OutputSinkRoute, OutputSinkTypeDescriptor,
+    PlaybackSnapshot, PlayerState, PluginDescriptor, ResampleQuality, SourceCatalogTypeDescriptor,
+    TrackDecodeInfo, TranscodeProgressEvent,
 };
 
 struct PlayerContext {
-    engine: Arc<AudioEngineHandle>,
+    engine: PlaybackController,
     lyrics: Arc<LyricsService>,
     track_info_cache: Arc<Mutex<Option<CachedTrackDecodeInfo>>>,
     pending_preload_seek: Arc<Mutex<Option<PendingPreloadSeek>>>,
@@ -50,21 +55,22 @@ struct PlayerContext {
 
 #[derive(Debug, Clone)]
 struct CachedTrackDecodeInfo {
-    track_token: String,
+    item_id: PlaybackItemId,
     info: Option<TrackDecodeInfo>,
 }
 
 #[derive(Debug, Clone)]
 #[flutter_rust_bridge::frb(ignore)]
 struct PendingPreloadSeek {
-    track_token: String,
+    item_id: PlaybackItemId,
     position_ms: i64,
 }
 
 #[derive(Debug, Clone)]
 #[flutter_rust_bridge::frb(ignore)]
 struct FfiEventMapperState {
-    last_track_path: String,
+    current_track_id: Option<TrackId>,
+    current_item_id: Option<PlaybackItemId>,
     position_session_id: u64,
     recovering: bool,
     last_player_state: PlayerState,
@@ -73,7 +79,8 @@ struct FfiEventMapperState {
 impl Default for FfiEventMapperState {
     fn default() -> Self {
         Self {
-            last_track_path: String::new(),
+            current_track_id: None,
+            current_item_id: None,
             position_session_id: 0,
             recovering: false,
             last_player_state: PlayerState::Stopped,
@@ -84,15 +91,15 @@ impl Default for FfiEventMapperState {
 fn shared_player_context() -> &'static PlayerContext {
     static CONTEXT: OnceLock<PlayerContext> = OnceLock::new();
     CONTEXT.get_or_init(|| PlayerContext {
-        engine: shared_runtime_engine(),
+        engine: shared_playback_controller(),
         lyrics: LyricsService::new(),
         track_info_cache: Arc::new(Mutex::new(None)),
         pending_preload_seek: Arc::new(Mutex::new(None)),
     })
 }
 
-fn engine() -> Arc<AudioEngineHandle> {
-    Arc::clone(&shared_player_context().engine)
+fn engine() -> PlaybackController {
+    shared_player_context().engine.clone()
 }
 
 fn lyrics() -> Arc<LyricsService> {
@@ -122,12 +129,68 @@ fn clear_transcode_cancel_flag(task_id: &str) {
     }
 }
 
-pub async fn switch_track_ref(track: TrackRef, lazy: bool) -> Result<()> {
-    let track = resolve_control_plane_track(track).await?;
-    let autoplay = !lazy;
-    let result = engine()
-        .switch_track_token(encode_track_ref_token(&track), autoplay)
+pub async fn ensure_local_track(library_track_id: i64) -> Result<u64> {
+    Ok(shared_player_service()?
+        .ensure_local_track(library_track_id)
+        .await?
+        .get())
+}
+
+pub async fn ensure_provider_track(
+    provider_id: String,
+    provider_key: String,
+    plugin_id: String,
+    type_id: String,
+    config_json: String,
+) -> Result<u64> {
+    let service = shared_player_service()?;
+    let binding_id = ProviderId::new(format!(
+        "{}::{}::{}",
+        plugin_id.trim(),
+        type_id.trim(),
+        provider_id.trim()
+    ))?;
+    let config: Value =
+        serde_json::from_str(&config_json).context("source resolver config must be valid JSON")?;
+    let resolver_spec =
+        SourceResolverSpec::new(plugin_id.trim(), type_id.trim(), config_json.clone())?;
+    let resolver = Arc::new(TypeScriptSourceResolver::new(
+        shared_typescript_runtime(),
+        plugin_id,
+        type_id,
+        config,
+    )?);
+    let source = service
+        .ensure_plugin_source(binding_id, resolver_spec, resolver)
+        .await?;
+    let normalized_key = provider_key.trim();
+    let provider_key = normalized_key
+        .parse::<u64>()
+        .ok()
+        .filter(|value| value.to_string() == normalized_key)
+        .map(ProviderTrackKeyInput::Numeric)
+        .unwrap_or_else(|| ProviderTrackKeyInput::Text(normalized_key.to_owned()));
+    Ok(service
+        .ensure_track(ProviderTrackIdentityInput {
+            source_instance_id: source.get(),
+            provider_key,
+        })
+        .await?
+        .get())
+}
+
+pub async fn switch_track(track_id: u64, lazy: bool) -> Result<()> {
+    let track_id = TrackId::new(track_id)?;
+    let result = shared_player_service()?
+        .switch_track(
+            track_id,
+            SwitchOptions {
+                autoplay: !lazy,
+                ..SwitchOptions::default()
+            },
+        )
         .await
+        .map(|_| ())
         .map_err(anyhow::Error::msg);
     if result.is_ok() {
         clear_cached_track_info();
@@ -145,29 +208,23 @@ pub async fn pause() -> Result<()> {
 }
 
 pub async fn seek_ms(position_ms: u64) -> Result<()> {
-    let position_ms = if position_ms > i64::MAX as u64 {
-        i64::MAX
-    } else {
-        position_ms as i64
-    };
     engine()
-        .seek_ms(position_ms)
+        .seek(MediaTime::from_millis(position_ms))
         .await
         .map_err(anyhow::Error::msg)
 }
 
 pub async fn set_volume(volume: f32, seq: u64, ramp_ms: u32) -> Result<()> {
+    let _ = seq;
     engine()
-        .set_volume(volume, seq, ramp_ms)
+        .set_output_gain(volume, MediaTime::from_millis(u64::from(ramp_ms)))
         .await
         .map_err(anyhow::Error::msg)
 }
 
 pub async fn set_lfe_mode(mode: LfeMode) -> Result<()> {
-    engine()
-        .set_lfe_mode(map_lfe_mode(mode))
-        .await
-        .map_err(anyhow::Error::msg)
+    let _ = map_lfe_mode(mode);
+    Ok(())
 }
 
 pub async fn stop() -> Result<()> {
@@ -179,6 +236,26 @@ pub async fn stop() -> Result<()> {
     result
 }
 
+pub async fn playback_snapshot() -> Result<PlaybackSnapshot> {
+    let snapshot = engine().snapshot().await.map_err(anyhow::Error::msg)?;
+    let (track_id, local_library_track_id) = if let Some(item_id) = snapshot.current_item_id {
+        let service = shared_player_service()?;
+        (
+            Some(service.track_id_for_item(item_id).await?.get()),
+            service.local_library_track_id_for_item(item_id).await?,
+        )
+    } else {
+        (None, None)
+    };
+    Ok(PlaybackSnapshot {
+        state: map_player_state(snapshot.state),
+        track_id,
+        item_id: snapshot.current_item_id.map(PlaybackItemId::get),
+        local_library_track_id,
+        position_ms: snapshot.consumed_position.as_millis().min(i64::MAX as u64) as i64,
+    })
+}
+
 pub fn events(sink: StreamSink<Event>) -> Result<()> {
     let mut rx = engine().subscribe_events();
     let event_engine = engine();
@@ -188,9 +265,19 @@ pub fn events(sink: StreamSink<Event>) -> Result<()> {
         loop {
             match rx.recv().await {
                 Ok(event) => {
+                    let event_item_id = playback_event_item_id(&event);
+                    let event_track_id = if let Some(item_id) = event_item_id
+                        && let Ok(service) = shared_player_service()
+                    {
+                        service.track_id_for_item(item_id).await.ok()
+                    } else {
+                        None
+                    };
                     if let Some(position_ms) =
                         take_pending_preload_seek_for_event(&event, pending_preload_seek.as_ref())
-                        && let Err(error) = event_engine.seek_ms(position_ms).await
+                        && let Err(error) = event_engine
+                            .seek(MediaTime::from_millis(position_ms as u64))
+                            .await
                     {
                         warn!(
                             position_ms,
@@ -198,7 +285,7 @@ pub fn events(sink: StreamSink<Event>) -> Result<()> {
                             "failed to apply pending preload seek on track switch"
                         );
                     }
-                    let mapped = map_v2_event_to_ffi(event, &mut state);
+                    let mapped = map_v2_event_to_ffi(event, event_track_id, &mut state);
                     for mapped_event in mapped {
                         if sink.add(mapped_event).is_err() {
                             debug!("events stream sink closed");
@@ -471,7 +558,7 @@ pub async fn dsp_set_chain(chain: Vec<DspChainItem>) {
     if !chain.is_empty() {
         warn!("TypeScript DSP stages are unsupported; ignoring requested DSP chain");
     }
-    if let Err(error) = engine().rebuild_pipeline().await {
+    if let Err(error) = engine().rebuild_output().await {
         warn!(error = %error, "failed to rebuild typed DSP chain");
     }
 }
@@ -484,19 +571,33 @@ pub async fn current_track_info() -> Option<TrackDecodeInfo> {
             return None;
         },
     };
-    let Some(track_token) = snapshot.current_track else {
+    let Some(item_id) = snapshot.current_item_id else {
         clear_cached_track_info();
         return None;
     };
 
     if let Ok(cache_guard) = shared_player_context().track_info_cache.lock()
         && let Some(entry) = cache_guard.as_ref()
-        && entry.track_token == track_token
+        && entry.item_id == item_id
     {
         return entry.info.clone();
     }
 
-    let info = match probe_track_decode_info_hybrid(track_token.as_str()) {
+    let path = match shared_player_service() {
+        Ok(service) => match service.local_path_for_item(item_id).await {
+            Ok(Some(path)) => path,
+            Ok(None) => return None,
+            Err(error) => {
+                warn!(%error, "current track path resolution failed");
+                return None;
+            },
+        },
+        Err(error) => {
+            warn!(%error, "player service unavailable for current track probe");
+            return None;
+        },
+    };
+    let info = match probe_local_track(&path) {
         Ok(probed) => Some(TrackDecodeInfo {
             sample_rate: probed.sample_rate,
             channels: probed.channels,
@@ -506,14 +607,17 @@ pub async fn current_track_info() -> Option<TrackDecodeInfo> {
             decoder_type_id: probed.decoder_type_id,
         }),
         Err(error) => {
-            warn!(track_token, error, "current_track_info probe failed");
+            warn!(
+                item_id = item_id.get(),
+                error, "current_track_info probe failed"
+            );
             None
         },
     };
 
     if let Ok(mut cache_guard) = shared_player_context().track_info_cache.lock() {
         *cache_guard = Some(CachedTrackDecodeInfo {
-            track_token,
+            item_id,
             info: info.clone(),
         });
     }
@@ -602,13 +706,10 @@ pub async fn set_output_options(
     seek_track_fade: bool,
     resample_quality: ResampleQuality,
 ) -> Result<()> {
-    let handle = engine();
     let mapped_quality = map_resample_quality(resample_quality);
-    handle
-        .set_resample_quality(mapped_quality)
+    set_runtime_builtin_transform_options(gapless_playback, seek_track_fade)
         .await
         .map_err(anyhow::Error::msg)?;
-    set_runtime_builtin_transform_options(gapless_playback, seek_track_fade);
     runtime_set_output_options(match_track_sample_rate, mapped_quality)
         .await
         .map_err(anyhow::Error::msg)
@@ -639,21 +740,13 @@ pub async fn clear_output_sink_route() -> Result<()> {
         .map_err(anyhow::Error::msg)
 }
 
-pub async fn preload_track(path: String, position_ms: u64) -> Result<()> {
-    preload_track_ref(TrackRef::for_local_path(path), position_ms).await
-}
-
-pub async fn preload_track_ref(track: TrackRef, position_ms: u64) -> Result<()> {
-    let track = resolve_control_plane_track(track).await?;
-    let track_token = encode_track_ref_token(&track);
-    engine()
-        .queue_next_track_token(track_token.clone())
-        .await
-        .map_err(anyhow::Error::msg)?;
+pub async fn preload_track(track_id: u64, position_ms: u64) -> Result<()> {
+    let track_id = TrackId::new(track_id)?;
+    let item_id = shared_player_service()?.queue_next(track_id).await?;
     let seek_position_ms = position_ms.min(i64::MAX as u64) as i64;
     let pending_seek = if seek_position_ms > 0 {
         Some(PendingPreloadSeek {
-            track_token,
+            item_id,
             position_ms: seek_position_ms,
         })
     } else {
@@ -1021,78 +1114,16 @@ fn set_pending_preload_seek(pending: Option<PendingPreloadSeek>) {
     }
 }
 
-fn encode_track_ref_token(track: &TrackRef) -> String {
-    serde_json::to_string(track).unwrap_or_else(|_| track.locator.clone())
-}
-
-async fn resolve_control_plane_track(track: TrackRef) -> Result<TrackRef> {
-    if track.source_id.eq_ignore_ascii_case("local")
-        || track.locator.starts_with("http://")
-        || track.locator.starts_with("https://")
-    {
-        return Ok(track);
-    }
-    let runtime = stellatune_backend_api::runtime::shared_typescript_runtime();
-    let registrations = runtime.registered_plugins().await;
-    let selected = registrations.iter().find_map(|plugin| {
-        plugin
-            .manifest
-            .capabilities
-            .iter()
-            .find(|capability| {
-                capability.kind
-                    == stellatune_plugins::typescript::manifest::TypeScriptCapabilityKind::SourceResolver
-                    && (capability.id == track.source_id
-                        || capability.id.trim_end_matches("-source") == track.source_id
-                        || plugin.manifest.id.ends_with(&track.source_id))
-            })
-            .map(|capability| (plugin.manifest.id.clone(), capability.id.clone()))
-    });
-    let Some((plugin_id, capability_id)) = selected else {
-        return Ok(track);
-    };
-    let mut input = serde_json::from_str::<Value>(&track.locator)
-        .unwrap_or_else(|_| serde_json::json!({ "locator": track.locator }));
-    if let Some(object) = input.as_object_mut() {
-        object.insert(
-            "track_id".to_string(),
-            Value::String(track.track_id.clone()),
-        );
-    }
-    let result = runtime
-        .invoke(&plugin_id, &capability_id, None, "resolve", input, None)
-        .await
-        .map_err(|error| anyhow!("source resolution failed: {error}"))?;
-    let plan: stellatune_plugins::typescript::protocol::SourcePlanDto =
-        serde_json::from_value(result.value)
-            .map_err(|error| anyhow!("source resolver returned an invalid SourcePlan: {error}"))?;
-    let locator = match plan.source {
-        stellatune_plugins::typescript::protocol::SourceLocatorDto::File { path } => path,
-        stellatune_plugins::typescript::protocol::SourceLocatorDto::Http { url, .. } => url,
-    };
-    Ok(TrackRef {
-        source_id: format!("resolved:{plugin_id}"),
-        track_id: track.track_id,
-        locator,
-    })
-}
-
-fn decode_track_token_path(track_token: &str) -> String {
-    serde_json::from_str::<TrackRef>(track_token)
-        .map(|track| track.locator)
-        .unwrap_or_else(|_| track_token.to_string())
-}
-
 fn take_pending_preload_seek_for_event(
     event: &V2Event,
     pending: &Mutex<Option<PendingPreloadSeek>>,
 ) -> Option<i64> {
-    let V2Event::TrackChanged { track_token } = event else {
+    let V2Event::TrackChanged { item_id } = event else {
         return None;
     };
     let mut guard = pending.lock().ok()?;
     let pending_seek = guard.as_ref()?;
-    if pending_seek.track_token != *track_token {
+    if pending_seek.item_id != *item_id {
         return None;
     }
     let position_ms = pending_seek.position_ms;
@@ -1108,39 +1139,60 @@ fn next_position_session_id(current: &mut u64) -> u64 {
     *current
 }
 
-fn map_v2_event_to_ffi(event: V2Event, state: &mut FfiEventMapperState) -> Vec<Event> {
+fn playback_event_item_id(event: &V2Event) -> Option<PlaybackItemId> {
     match event {
-        V2Event::StateChanged { state: next_state } => {
+        V2Event::TrackChanged { item_id }
+        | V2Event::PlaybackEnded { item_id }
+        | V2Event::Position { item_id, .. }
+        | V2Event::Buffering { item_id, .. } => Some(*item_id),
+        V2Event::Failed(failure) => failure.item_id,
+        V2Event::StateChanged(_) => None,
+    }
+}
+
+fn map_v2_event_to_ffi(
+    event: V2Event,
+    event_track_id: Option<TrackId>,
+    state: &mut FfiEventMapperState,
+) -> Vec<Event> {
+    match event {
+        V2Event::StateChanged(next_state) => {
             let mapped = map_player_state(next_state);
             state.last_player_state = mapped;
             state.recovering = false;
             vec![Event::StateChanged { state: mapped }]
         },
-        V2Event::TrackChanged { track_token } => {
-            let path = decode_track_token_path(&track_token);
-            state.last_track_path = path.clone();
+        V2Event::TrackChanged { item_id } => {
+            let Some(track_id) = event_track_id else {
+                return vec![Event::Error {
+                    message: format!("missing TrackId for playback item {}", item_id.get()),
+                }];
+            };
+            state.current_track_id = Some(track_id);
+            state.current_item_id = Some(item_id);
             let _ = next_position_session_id(&mut state.position_session_id);
-            vec![Event::TrackChanged { path }]
+            vec![Event::TrackChanged {
+                track_id: track_id.get(),
+                item_id: item_id.get(),
+            }]
         },
-        V2Event::Recovering {
-            attempt,
-            backoff_ms,
-        } => {
-            let mut out = Vec::with_capacity(2);
-            if !state.recovering {
-                state.recovering = true;
-                out.push(Event::StateChanged {
-                    state: PlayerState::Buffering,
-                });
-            }
-            out.push(Event::Log {
-                message: format!(
-                    "runtime recovering output stream (attempt={attempt}, backoff_ms={backoff_ms})"
-                ),
-            });
-            out
+        V2Event::PlaybackEnded { item_id } => {
+            let track_id = event_track_id.or(state.current_track_id);
+            let Some(track_id) = track_id else {
+                return vec![Event::Error {
+                    message: format!("missing TrackId for ended playback item {}", item_id.get()),
+                }];
+            };
+            vec![Event::PlaybackEnded {
+                track_id: track_id.get(),
+                item_id: item_id.get(),
+            }]
         },
-        V2Event::Position { position_ms } => {
+        V2Event::Position { item_id, position } => {
+            let track_id = event_track_id.or(state.current_track_id);
+            let Some(track_id) = track_id else {
+                return Vec::new();
+            };
             let mut out = Vec::with_capacity(2);
             if state.recovering {
                 state.recovering = false;
@@ -1149,32 +1201,39 @@ fn map_v2_event_to_ffi(event: V2Event, state: &mut FfiEventMapperState) -> Vec<E
                 });
             }
             out.push(Event::Position {
-                ms: position_ms,
-                path: state.last_track_path.clone(),
+                ms: position.as_millis().min(i64::MAX as u64) as i64,
+                track_id: track_id.get(),
+                item_id: item_id.get(),
                 session_id: state.position_session_id,
             });
             out
         },
-        V2Event::VolumeChanged { volume, seq } => vec![Event::VolumeChanged { volume, seq }],
-        V2Event::AudioStart => vec![Event::AudioStart],
-        V2Event::AudioEnd => vec![Event::AudioEnd],
-        V2Event::Eof => {
-            state.recovering = false;
-            vec![Event::PlaybackEnded {
-                path: state.last_track_path.clone(),
+        V2Event::Buffering { active, .. } => {
+            state.recovering = active;
+            vec![Event::StateChanged {
+                state: if active {
+                    PlayerState::Buffering
+                } else {
+                    state.last_player_state
+                },
             }]
         },
-        V2Event::Error { message } => {
+        V2Event::Failed(failure) => {
             state.recovering = false;
-            vec![Event::Error { message }]
+            vec![Event::Error {
+                message: failure.message,
+            }]
         },
     }
 }
 
 fn map_player_state(state: V2PlayerState) -> PlayerState {
     match state {
-        V2PlayerState::Stopped => PlayerState::Stopped,
-        V2PlayerState::Paused => PlayerState::Paused,
+        V2PlayerState::Idle | V2PlayerState::Failed => PlayerState::Stopped,
+        V2PlayerState::Preparing | V2PlayerState::Recovering | V2PlayerState::Buffering => {
+            PlayerState::Buffering
+        },
+        V2PlayerState::Ready | V2PlayerState::Paused => PlayerState::Paused,
         V2PlayerState::Playing => PlayerState::Playing,
     }
 }

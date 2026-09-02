@@ -13,14 +13,15 @@ serde_json.workspace = true
 thiserror.workspace = true
 symphonia.workspace = true
 stellatune-audio-core.workspace = true
-stellatune-audio.workspace = true
 m3u8-rs.workspace = true
 memmap2.workspace = true
 ncmdump.workspace = true
 postcard = { workspace = true, default-features = false, features = ["use-std"] }
-reqwest = { workspace = true, features = ["blocking", "rustls", "gzip"] }
+reqwest = { workspace = true, features = ["rustls", "gzip"] }
+tokio.workspace = true
 stellatune-asio-proto.workspace = true
 tempfile.workspace = true
+url.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 wasapi.workspace = true

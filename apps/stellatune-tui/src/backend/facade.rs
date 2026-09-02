@@ -1,14 +1,14 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
 use tokio::sync::broadcast;
 
-use stellatune_audio::config::engine::{
-    EngineSnapshot, Event as AudioEvent, PlayerState, ResampleQuality,
+use stellatune_audio::config::engine::ResampleQuality;
+use stellatune_audio::playback::{
+    PlaybackController, PlaybackEvent as AudioEvent, PlaybackRuntimeSnapshot, PlaybackState,
+    SwitchOptions,
 };
-use stellatune_audio::engine::EngineHandle;
 use stellatune_backend_api::app::BackendApp;
 use stellatune_backend_api::library::LibraryService;
 use stellatune_backend_api::runtime::{
@@ -18,7 +18,6 @@ use stellatune_backend_api::session::{BackendSession, BackendSessionOptions};
 use stellatune_library::{LibraryEvent, PlaylistLite, TrackLite};
 
 use super::models::InstalledPluginInfo;
-use super::track_token::encode_local_track_token;
 
 pub struct BackendFacade {
     app: BackendApp,
@@ -44,7 +43,7 @@ impl BackendFacade {
         })
     }
 
-    pub fn player(&self) -> &Arc<EngineHandle> {
+    pub fn player(&self) -> &PlaybackController {
         self.session.player()
     }
 
@@ -62,7 +61,7 @@ impl BackendFacade {
         Ok(self.library()?.subscribe_events())
     }
 
-    pub async fn snapshot(&self) -> Result<EngineSnapshot> {
+    pub async fn snapshot(&self) -> Result<PlaybackRuntimeSnapshot> {
         self.player()
             .snapshot()
             .await
@@ -93,14 +92,17 @@ impl BackendFacade {
     pub async fn toggle_play_pause(&self) -> Result<()> {
         let snapshot = self.snapshot().await?;
         match snapshot.state {
-            PlayerState::Playing => self.pause().await,
-            PlayerState::Paused | PlayerState::Stopped => self.play().await,
+            PlaybackState::Playing => self.pause().await,
+            PlaybackState::Paused | PlaybackState::Ready => self.play().await,
+            _ => Ok(()),
         }
     }
 
     pub async fn seek_ms(&self, position_ms: i64) -> Result<()> {
         self.player()
-            .seek_ms(position_ms.max(0))
+            .seek(stellatune_audio_core::MediaTime::from_millis(
+                position_ms.max(0) as u64,
+            ))
             .await
             .map_err(|e| anyhow!("seek_ms failed: {e}"))
     }
@@ -112,23 +114,25 @@ impl BackendFacade {
         gapless_playback: bool,
         seek_track_fade: bool,
     ) -> Result<()> {
-        self.player()
-            .set_resample_quality(resample_quality)
+        set_runtime_builtin_transform_options(gapless_playback, seek_track_fade)
             .await
-            .map_err(|e| anyhow!("set_resample_quality failed: {e}"))?;
-        set_runtime_builtin_transform_options(gapless_playback, seek_track_fade);
+            .map_err(|e| anyhow!("set playback policies failed: {e}"))?;
         runtime_set_output_options(match_track_sample_rate, resample_quality)
             .await
             .map_err(|e| anyhow!("runtime_set_output_options failed: {e}"))?;
         Ok(())
     }
 
-    pub async fn play_track_path(&self, path: &str) -> Result<()> {
-        let token = encode_local_track_token(path);
-        self.player()
-            .switch_track_token(token, true)
-            .await
-            .map_err(|e| anyhow!("switch_track_token failed: {e}"))
+    pub async fn play_library_track(&self, library_track_id: i64) -> Result<()> {
+        let service = self
+            .session
+            .player_service()
+            .ok_or_else(|| anyhow!("player service is unavailable"))?;
+        let track_id = service.ensure_local_track(library_track_id).await?;
+        service
+            .switch_track(track_id, SwitchOptions::default())
+            .await?;
+        Ok(())
     }
 
     pub async fn add_root(&self, path: String) -> Result<()> {

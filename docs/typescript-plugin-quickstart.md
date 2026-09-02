@@ -78,9 +78,10 @@ export default definePlugin({
 });
 ```
 
-The returned `SourcePlan` is advisory input to Rust. Rust validates it, fetches
-the file or HTTP stream, selects a registered decoder and transforms, and sends
-PCM to the selected native output.
+The returned object is untrusted `SourceResolutionInput`. Rust validates it into
+a `ResolvedSourceSpec`, binds a native `SourceFactory`, selects the decoder and
+transforms, and sends PCM to the selected native output. Provider keys and the
+temporary locator do not enter the audio core.
 
 ## Runtime and lifecycle
 

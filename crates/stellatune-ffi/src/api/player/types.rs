@@ -10,6 +10,16 @@ pub enum PlayerState {
 }
 
 #[flutter_rust_bridge::frb(non_opaque)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlaybackSnapshot {
+    pub state: PlayerState,
+    pub track_id: Option<u64>,
+    pub item_id: Option<u64>,
+    pub local_library_track_id: Option<i64>,
+    pub position_ms: i64,
+}
+
+#[flutter_rust_bridge::frb(non_opaque)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum LfeMode {
     #[default]
@@ -40,44 +50,6 @@ pub struct AudioDevice {
     pub backend: AudioBackend,
     pub id: String,
     pub name: String,
-}
-
-#[flutter_rust_bridge::frb(non_opaque)]
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TrackRef {
-    pub source_id: String,
-    pub track_id: String,
-    pub locator: String,
-}
-
-impl TrackRef {
-    pub fn new(source_id: String, track_id: String, locator: String) -> Self {
-        Self {
-            source_id,
-            track_id,
-            locator,
-        }
-    }
-
-    pub fn for_local_path(path: String) -> Self {
-        Self {
-            source_id: "local".to_string(),
-            track_id: path.clone(),
-            locator: path,
-        }
-    }
-
-    pub fn stable_key(&self) -> String {
-        format!("{}:{}", self.source_id, self.track_id)
-    }
-}
-
-#[flutter_rust_bridge::frb(non_opaque)]
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TrackPlayability {
-    pub track: TrackRef,
-    pub playable: bool,
-    pub reason: Option<String>,
 }
 
 #[flutter_rust_bridge::frb(non_opaque)]
@@ -207,14 +179,17 @@ pub enum Event {
     },
     Position {
         ms: i64,
-        path: String,
+        track_id: u64,
+        item_id: u64,
         session_id: u64,
     },
     TrackChanged {
-        path: String,
+        track_id: u64,
+        item_id: u64,
     },
     PlaybackEnded {
-        path: String,
+        track_id: u64,
+        item_id: u64,
     },
     VolumeChanged {
         volume: f32,

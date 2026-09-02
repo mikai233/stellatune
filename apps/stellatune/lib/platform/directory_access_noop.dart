@@ -1,4 +1,3 @@
-import 'package:stellatune/bridge/api/player/types.dart';
 import 'package:stellatune/platform/directory_access_service.dart';
 import 'package:stellatune/platform/directory_access_store.dart';
 
@@ -32,12 +31,6 @@ class NoopDirectoryAccessService implements DirectoryAccessService {
   @override
   Future<DirectoryAccessLease?> acquireLocalPath({
     required String path,
-    required DirectoryAccessStore store,
-  }) async => null;
-
-  @override
-  Future<DirectoryAccessLease?> acquireTrackRef({
-    required TrackRef track,
     required DirectoryAccessStore store,
   }) async => null;
 

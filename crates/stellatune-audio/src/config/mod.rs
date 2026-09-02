@@ -5,7 +5,3 @@
 
 /// Engine state, event, and control configuration models.
 pub mod engine;
-/// Gain transition policy configuration.
-pub mod gain;
-/// Sink latency and recovery policy configuration.
-pub mod sink;

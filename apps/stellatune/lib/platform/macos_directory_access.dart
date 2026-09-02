@@ -1,6 +1,5 @@
 import 'package:flutter/services.dart';
 import 'package:stellatune/app/logging.dart';
-import 'package:stellatune/bridge/api/player/types.dart';
 import 'package:stellatune/platform/directory_access_service.dart';
 import 'package:stellatune/platform/directory_access_store.dart';
 
@@ -167,17 +166,6 @@ class MacosDirectoryAccessService implements DirectoryAccessService {
   }
 
   @override
-  Future<DirectoryAccessLease?> acquireTrackRef({
-    required TrackRef track,
-    required DirectoryAccessStore store,
-  }) async {
-    if (!_isLocalTrack(track)) {
-      return null;
-    }
-    return acquireLocalPath(path: track.locator, store: store);
-  }
-
-  @override
   Future<void> forgetDirectory({
     required String path,
     required DirectoryAccessStore store,
@@ -235,9 +223,6 @@ class MacosDirectoryAccessService implements DirectoryAccessService {
       message: 'Expected map response for $method',
     );
   }
-
-  bool _isLocalTrack(TrackRef track) =>
-      track.sourceId.trim().toLowerCase() == 'local';
 
   String? _bestMatchingAuthorizedRoot(String path, DirectoryAccessStore store) {
     String? bestMatch;

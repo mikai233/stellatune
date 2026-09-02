@@ -10,14 +10,33 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 import 'player/types.dart';
 
-// These functions are ignored because they are not marked as `pub`: `clear_cached_track_info`, `clear_pending_preload_seek`, `clear_transcode_cancel_flag`, `decode_track_token_path`, `emit_transcode_event`, `encode_track_ref_token`, `engine`, `ensure_transcode_not_canceled`, `estimate_total_frames`, `extract_lyrics_fetch_id`, `extract_lyrics_search_keyword`, `lyrics`, `map_lfe_mode`, `map_player_state`, `map_resample_quality`, `map_v2_event_to_ffi`, `new`, `next_position_session_id`, `normalize_json_payload`, `normalize_json_string_payload`, `normalize_optional_json_opt`, `normalize_optional_json`, `reconcile_plugin_runtime_state_after_package_change`, `register_transcode_cancel_flag`, `run_transcode_track_local_blocking`, `set_pending_preload_seek`, `shared_player_context`, `shared_transcode_cancel_flags`, `take_pending_preload_seek_for_event`
+// These functions are ignored because they are not marked as `pub`: `clear_cached_track_info`, `clear_pending_preload_seek`, `clear_transcode_cancel_flag`, `emit_transcode_event`, `engine`, `ensure_transcode_not_canceled`, `estimate_total_frames`, `lyrics`, `map_lfe_mode`, `map_player_state`, `map_resample_quality`, `map_v2_event_to_ffi`, `new`, `next_position_session_id`, `normalize_json_payload`, `normalize_optional_json_opt`, `normalize_optional_json`, `playback_event_item_id`, `reconcile_plugin_runtime_state_after_package_change`, `register_transcode_cancel_flag`, `run_transcode_track_local_blocking`, `set_pending_preload_seek`, `shared_player_context`, `shared_transcode_cancel_flags`, `take_pending_preload_seek_for_event`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `CachedTrackDecodeInfo`, `FfiEventMapperState`, `PendingPreloadSeek`, `PlayerContext`, `TranscodeTaskContext`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`
 // These functions are ignored (category: IgnoreBecauseOwnerTyShouldIgnore): `default`
 
-Future<void> switchTrackRef({required TrackRef track, required bool lazy}) =>
-    StellatuneApi.instance.api.crateApiPlayerSwitchTrackRef(
-      track: track,
+Future<BigInt> ensureLocalTrack({required PlatformInt64 libraryTrackId}) =>
+    StellatuneApi.instance.api.crateApiPlayerEnsureLocalTrack(
+      libraryTrackId: libraryTrackId,
+    );
+
+Future<BigInt> ensureProviderTrack({
+  required String providerId,
+  required String providerKey,
+  required String pluginId,
+  required String typeId,
+  required String configJson,
+}) => StellatuneApi.instance.api.crateApiPlayerEnsureProviderTrack(
+  providerId: providerId,
+  providerKey: providerKey,
+  pluginId: pluginId,
+  typeId: typeId,
+  configJson: configJson,
+);
+
+Future<void> switchTrack({required BigInt trackId, required bool lazy}) =>
+    StellatuneApi.instance.api.crateApiPlayerSwitchTrack(
+      trackId: trackId,
       lazy: lazy,
     );
 
@@ -42,6 +61,9 @@ Future<void> setLfeMode({required LfeMode mode}) =>
     StellatuneApi.instance.api.crateApiPlayerSetLfeMode(mode: mode);
 
 Future<void> stop() => StellatuneApi.instance.api.crateApiPlayerStop();
+
+Future<PlaybackSnapshot> playbackSnapshot() =>
+    StellatuneApi.instance.api.crateApiPlayerPlaybackSnapshot();
 
 Stream<Event> events() => StellatuneApi.instance.api.crateApiPlayerEvents();
 
@@ -220,17 +242,11 @@ Future<void> setOutputSinkRoute({required OutputSinkRoute route}) =>
 Future<void> clearOutputSinkRoute() =>
     StellatuneApi.instance.api.crateApiPlayerClearOutputSinkRoute();
 
-Future<void> preloadTrack({required String path, required BigInt positionMs}) =>
-    StellatuneApi.instance.api.crateApiPlayerPreloadTrack(
-      path: path,
-      positionMs: positionMs,
-    );
-
-Future<void> preloadTrackRef({
-  required TrackRef track,
+Future<void> preloadTrack({
+  required BigInt trackId,
   required BigInt positionMs,
-}) => StellatuneApi.instance.api.crateApiPlayerPreloadTrackRef(
-  track: track,
+}) => StellatuneApi.instance.api.crateApiPlayerPreloadTrack(
+  trackId: trackId,
   positionMs: positionMs,
 );
 

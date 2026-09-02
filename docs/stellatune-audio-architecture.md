@@ -1,122 +1,153 @@
 # `stellatune-audio` Internal Architecture
 
-This document describes the implemented playback and plugin boundaries for maintainers.
-
-For the proposed next-generation source and data-plane design, see
+This document describes the implemented playback boundaries. The complete
+hard-switch design and acceptance criteria are in
 [`player-core-refactor.md`](player-core-refactor.md).
 
-## 1. Ownership model
+## 1. Ownership and control
 
-`EngineHandle` sends independent typed Lattice messages to one `PlaybackActor`.
-The actor exclusively owns `PlaybackState`, the current request/checkpoint, and
-one optional `PlaybackSession`. No second control actor owns playback state.
+`PlaybackRuntime` owns the playback actor and sink-worker lifecycle. Cloneable
+`PlaybackController` values are typed command endpoints; dropping a controller
+does not stop the runtime.
 
 ```text
 Flutter / TUI
-    |
-    v
-EngineHandle
-    | typed ask / tell
-    v
-PlaybackActor (Lattice)
-    |
-    +-- PlaybackSession
-    |      +-- TrackPipeline: SourceStage -> DecoderStage
-    |      +-- OutputPipeline: TransformStage[]
-    |      `-- SinkWorkerHandle
-    |
-    `-- bounded PumpAudio turns
-                  |
-                  v
-             bounded audio ring -> SinkWorker -> SinkStage
+    -> PlayerService (TrackId resolution and persistence)
+    -> PlaybackController (PlaybackItem commands)
+    -> PlaybackActor (state, generation, epoch, transition, recovery)
+    -> bounded PCM channel
+    -> SinkWorker (final gain, markers, device clock)
+    -> SinkStage
 ```
 
-The actor mailbox transports control messages only. Encoded media and PCM blocks
-never pass through an actor mailbox.
+The actor mailbox carries control and preparation completion messages only.
+Encoded bytes and PCM never pass through FFI, JSON-RPC, or an actor mailbox.
 
-## 2. Planning and construction
+## 2. Source and planning path
 
-A playback request is resolved into a typed `SourcePlan`.
-`PipelinePlanner` combines that plan with user policy and the immutable
-`CapabilityRegistry` snapshot to produce an `ExecutablePlaybackPlan`.
-`PipelineBuilder` and `PipelineFactory` then construct a complete session.
+There is one source-of-truth path:
 
-The registry stores descriptors and factories, never active stages or playback
-state. Structural changes rebuild a session at a safe boundary. The only
-in-place updates are explicit typed controls such as master gain, transition
-gain, and gapless trim.
+```text
+TrackId
+    -> Source/Track Catalog
+    -> SourceResolver
+    -> validated ResolvedSourceSpec
+    -> bound SourceFactory
+    -> EncodedSource
+    -> DecoderStage
+```
 
-## 3. Stage and data-plane boundaries
+`PipelinePlanner` receives a typed `PlaybackItem` and an immutable registry
+snapshot. It selects ordered decoder candidates, stable transform placement,
+the sink factory, and typed policies. It does not parse paths, URLs, provider
+keys, or JSON.
 
-The executable data plane only knows the Rust traits `SourceStage`,
-`DecoderStage`, `TransformStage`, and `SinkStage`.
+Source open and decoder preparation run outside the actor. Every completion is
+tagged with the current generation. Advancing the generation cancels the old
+`SourceOpenRequest` before stale results are dropped. Decoder fallback is
+limited to preparation and requires a reopenable source. The decoder never
+opens a file or HTTP locator; those responsibilities stay in source factories.
 
-- Built-in stages execute directly in process.
-- External native stages are represented by Rust proxy stages.
-- External PCM uses a bounded shared-memory ring plus framed control IPC.
-- The sink stage and device calls are owned by the dedicated `SinkWorker`.
-- Backpressure is bounded; the playback actor retains at most the documented
-  pending block while the sink ring is full.
+## 3. Audio data plane
 
-ASIO remains an optional, separately built and distributed external sidecar.
-The default workspace and Rust core do not link or distribute the ASIO SDK.
+The ordinary path is:
 
-## 4. TypeScript control plane
+```text
+EncodedSource -> Decoder -> gapless trim -> pre-mix transforms
+              -> mix-format normalizer -> track gain -> Mixer
+              -> shared post-mix transforms -> bounded PCM channel
+              -> SinkWorker final gain -> SinkStage
+```
 
-TypeScript plugins are pre-bundled ESM loaded by a shared Node runner. A running
-plugin has at most one lazily started process, shared by all of its capabilities.
+`EncodedSource::read` and decoder/DSP calls are synchronous and bounded. HTTP
+uses a bounded feeder; an empty feeder returns `WouldBlock`, which becomes a
+typed pending decode turn rather than a network wait in the pump.
 
-TypeScript may resolve sources, search, authenticate, provide lyrics, and
-perform network-device control. It returns declarative data such as
-`SourcePlan`; Rust fetches media bytes and selects the final decoder,
-transforms, and output. Node, JSON-RPC, and plugin UI routes never carry PCM.
+Transforms have explicit `PreMix` and `PostMix` placement. Buffered transforms
+are drained at EOF before promotion. A core-owned normalizer converts the next
+track to the current mix sample rate and channel layout before overlap, trims
+resampler startup delay, and drains its filter tail to the exact target frame
+count.
 
-Plugin packages use Manifest v2 and contain no install scripts or native addons.
-The first implementation assumes first-party or explicitly trusted local code;
-it does not expose a permissions mini-language.
+## 4. Transitions and position
 
-## 5. Plugin changes
+- Gapless prewarms next, trims encoder delay/padding, reuses compatible output,
+  and applies no transition gain.
+- FadeOutIn drives one track pipeline at a time with frame-based envelopes.
+- Crossfade drives current and next simultaneously, applies independent gains
+  before the mixer, and runs post-mix DSP once.
 
-Install, update, enable, disable, and uninstall use one deterministic sequence:
+If next fails after overlap starts, the failure remains associated with the
+next `PlaybackItemId`; the current pipeline keeps its pending PCM and ramps from
+its instantaneous crossfade gain back to unity.
 
-1. ask `PlaybackActor` to suspend and capture the actual consumed position;
-2. tear down the complete active session and stop the affected plugin process;
-3. stage and atomically commit the package/catalog change;
-4. publish the new registry snapshot;
-5. rebuild from the checkpoint with the new capability set;
-6. resume only if playback was active before the change.
+Item-boundary markers travel in order with PCM. `TrackChanged` is emitted only
+after the sink clock consumes the marker. Public position and recovery
+checkpoints use sink-consumed frames, never the decoder cursor or queued-ring
+frontier.
 
-There are no active-stage leases, delayed uninstall, concurrent package
-generations, or graph mutations.
+## 5. Backpressure, seek, and recovery
 
-## 6. Playback behavior
+The actor processes at most one decode block per pump turn. The PCM channel and
+HTTP encoded feeder are bounded. The sink worker uses a separate bounded
+high-priority control channel so pause, seek/discard, gain, and shutdown can
+preempt a partial write that returns `WouldBlock`.
 
-Seek, EOF promotion, bounded recovery, and plugin-change restoration are owned
-by `PlaybackSession` under `PlaybackActor`.
+Seek increments the PCM epoch, discards old queued audio, resets transforms and
+normalization state, continues pending decoder seek over bounded actor turns,
+and applies a frame-based short fade at the actual seek result.
 
-A queued next track may be prewarmed. At EOF, a compatible prewarmed track is
-promoted; otherwise a new track pipeline is built. Output reuse is decided from
-typed compatibility data. Sink disconnect recovery tears down the failed
-session, retries with bounded backoff, and either restores the checkpoint or
-emits a terminal error.
+Recoverable decoder I/O and sink disconnects enter `Recovering`. The actor
+captures the consumed checkpoint, performs a bounded source reopen/decoder
+prepare/seek outside the actor, rebuilds the sink, and resumes only the prior
+item. Retry count and backoff are typed playback policies.
 
-## 7. Runtime topology
+## 6. Application persistence
 
-- Lattice schedules the playback, plugin-manager, TypeScript-process, library,
-  filesystem-watch, and lyrics control actors.
-- `PlaybackActor` uses the pinned single-worker dedicated execution policy.
-- `SinkWorker` remains a dedicated device thread with a bounded audio ring.
-- Tokio owns ordinary asynchronous I/O and background tasks.
-- No project-specific Actor runtime or unified command enum exists.
+`PlaybackStateStore` belongs to `stellatune-backend-api`, not the audio crates.
+It stores typed source, track, and playback-item identities plus queue/current
+and media-time position under one strict schema fingerprint. Startup restore
+re-resolves local paths and provider sources and rebuilds every runtime stage.
+Temporary URLs, HTTP headers, stage instances, generations, and epochs are not
+persisted. Unknown or partial player schemas fail without migration or repair.
+State validation and current/position writes share one SQLite transaction. The
+persisted queue is bounded and catalog deletion uses tombstones, so stable IDs
+are never reassigned.
 
-## 8. Reading order
+Flutter reads a native playback snapshot to project restored state into the UI.
+It does not keep a second Hive track/position resume record or replay a second
+switch/seek transaction at startup.
 
-1. `crates/stellatune-audio/src/engine/actor.rs`
-2. `crates/stellatune-audio/src/engine/messages.rs`
-3. `crates/stellatune-audio/src/engine/session.rs`
-4. `crates/stellatune-audio/src/pipeline/plan.rs`
-5. `crates/stellatune-audio/src/pipeline/capability.rs`
-6. `crates/stellatune-audio/src/pipeline/runtime/runner/mod.rs`
-7. `crates/stellatune-audio/src/workers/sink/worker.rs`
-8. `crates/stellatune-backend-api/src/runtime/plugin_manager.rs`
-9. `crates/stellatune-plugins/src/typescript/process.rs`
+## 7. Public failures
+
+Controller commands return `PlaybackControlError`. Playback-task failures use
+`PlaybackFailure`, with typed `FailureStage`, retry disposition, stable code,
+optional stage/item identity, and generation. FFI may turn its message into a
+UI error, but the audio/application boundary no longer exposes a string stage
+field as the error category.
+
+## 8. Crate boundaries
+
+```text
+stellatune-audio-core <- stellatune-audio
+stellatune-audio-core <- stellatune-audio-builtin-adapters
+
+stellatune-library --------X stellatune-audio*
+audio-builtin-adapters ----X stellatune-audio runtime
+```
+
+ASIO remains an optional external sidecar. TypeScript plugins stay on the
+control plane and return declarative source resolution results; they never
+transport encoded media or PCM.
+
+## 9. Reading order
+
+1. `crates/stellatune-audio-core/src/contracts.rs`
+2. `crates/stellatune-audio-core/src/source.rs`
+3. `crates/stellatune-audio-core/src/decoder.rs`
+4. `crates/stellatune-audio-core/src/transform.rs`
+5. `crates/stellatune-audio-core/src/sink.rs`
+6. `crates/stellatune-audio/src/planner.rs`
+7. `crates/stellatune-audio/src/playback.rs`
+8. `crates/stellatune-backend-api/src/player_service.rs`
+9. `crates/stellatune-backend-api/src/runtime/typescript_source.rs`

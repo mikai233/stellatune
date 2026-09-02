@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { ref } from "vue";
-import UiSelect from "../UiSelect.vue";
 import type { SummaryField } from "../../view-models";
 
 defineOptions({
@@ -17,19 +16,8 @@ const props = defineProps<{
   onCopyPlaybackRaw: () => unknown;
 }>();
 
-type PlaybackInputMode = "track_ref" | "track_token";
-
-const inputMode = ref<PlaybackInputMode>("track_ref");
 const inputError = ref("");
-const trackTokenInput = ref("");
-const sourceIdInput = ref("netease");
 const trackIdInput = ref("");
-const locatorInput = ref("");
-
-const inputModeOptions = [
-  { value: "track_ref", label: "结构化输入（推荐）" },
-  { value: "track_token", label: "Track Token 字符串" }
-];
 
 async function runTrackAction(action: string): Promise<void> {
   const payload = buildTrackPayload();
@@ -47,29 +35,11 @@ async function runSimpleAction(action: string): Promise<void> {
 }
 
 function buildTrackPayload(): Record<string, unknown> | string {
-  if (inputMode.value === "track_token") {
-    const token = trackTokenInput.value.trim();
-    if (token.length === 0) {
-      return "请先输入 Track Token。";
-    }
-    return {
-      track_token: token
-    };
-  }
-
-  const sourceId = sourceIdInput.value.trim();
   const trackId = trackIdInput.value.trim();
-  const locator = locatorInput.value.trim();
-  if (sourceId.length === 0 || trackId.length === 0 || locator.length === 0) {
-    return "请完整填写 source_id、track_id、locator。";
+  if (!/^[1-9][0-9]*$/.test(trackId)) {
+    return "请输入有效的稳定 TrackId。";
   }
-  return {
-    track_ref: {
-      source_id: sourceId,
-      track_id: trackId,
-      locator
-    }
-  };
+  return { track_id: trackId };
 }
 </script>
 
@@ -78,14 +48,11 @@ function buildTrackPayload(): Record<string, unknown> | string {
     <div class="panel-head">
       <h2>播放控制</h2>
       <div class="actions">
-        <button class="primary" :disabled="isBusy || !hasGatewayContext" @click="runTrackAction('playback.play_track_ref')">
+        <button class="primary" :disabled="isBusy || !hasGatewayContext" @click="runTrackAction('playback.play_track')">
           立即播放
         </button>
-        <button :disabled="isBusy || !hasGatewayContext" @click="runTrackAction('playback.enqueue_track_ref')">
+        <button :disabled="isBusy || !hasGatewayContext" @click="runTrackAction('playback.enqueue_track')">
           加入下一首
-        </button>
-        <button :disabled="isBusy || !hasGatewayContext" @click="runTrackAction('playback.next')">
-          切换到该曲目
         </button>
         <button :disabled="isBusy || !hasGatewayContext" @click="runSimpleAction('playback.pause')">
           暂停
@@ -96,40 +63,13 @@ function buildTrackPayload(): Record<string, unknown> | string {
       </div>
     </div>
 
-    <div class="grid">
-      <label>
-        曲目信息输入方式
-        <UiSelect v-model="inputMode" :options="inputModeOptions" />
-      </label>
-    </div>
-
-    <label class="full-width" v-if="inputMode === 'track_token'">
-      Track Token
-      <textarea
-        v-model="trackTokenInput"
-        rows="3"
-        placeholder='例如：{"source_id":"netease","track_id":"12345","locator":"netease:track:12345"}'
-      ></textarea>
+    <label class="full-width">
+      稳定 TrackId
+      <input v-model="trackIdInput" type="text" inputmode="numeric" placeholder="由播放器曲目目录分配的 TrackId" />
     </label>
-    <template v-else>
-      <div class="grid">
-        <label>
-          source_id
-          <input v-model="sourceIdInput" type="text" placeholder="netease" />
-        </label>
-        <label>
-          track_id
-          <input v-model="trackIdInput" type="text" placeholder="歌曲 ID" />
-        </label>
-      </div>
-      <label class="full-width">
-        locator
-        <input v-model="locatorInput" type="text" placeholder="netease:track:12345 或 sidecar 返回的 locator" />
-      </label>
-    </template>
 
     <p class="hint">
-      <code>playback.next</code> 当前是“切换到你输入的曲目”，不是自动跳到队列头。
+      搜索结果会先用 provider identity 注册曲目；这里仅接受已经注册的稳定 TrackId。
     </p>
     <p class="hint warning" v-if="inputError">{{ inputError }}</p>
     <p class="hero-meta"><strong>{{ playbackStatus }}</strong></p>

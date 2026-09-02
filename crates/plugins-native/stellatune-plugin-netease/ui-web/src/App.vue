@@ -724,7 +724,7 @@ function sleep(ms: number): Promise<void> {
               :is-busy="isBusy"
               :has-gateway-context="hasGatewayContext"
               :plugin-id="gateway.pluginId"
-              source-type-id="netease"
+              source-type-id="netease-source"
               :source-config="sourceConfigSnapshot"
               :on-invoke-source-action="invokeSourceItemsAction"
               :on-run-playback-action="runPlaybackAction"

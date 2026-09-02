@@ -1,7 +1,5 @@
-import 'dart:convert';
-
-import 'package:stellatune/bridge/bridge.dart';
 import 'package:stellatune/player/decoder_extension_support.dart';
+import 'package:stellatune/player/queue_models.dart';
 
 typedef TrackLocatorPluginIds = ({
   String? sourcePluginId,
@@ -14,45 +12,22 @@ const Set<String> kDisabledPluginPruneReasons = {
 };
 
 class PlaybackPlayabilityUtils {
-  static bool isLocalTrack(TrackRef track) =>
-      track.sourceId.trim().toLowerCase() == 'local';
+  static bool isLocalTrack(QueueItem item) => item.providerTrack == null;
 
-  static TrackLocatorPluginIds extractTrackLocatorPluginIds(TrackRef track) {
-    if (isLocalTrack(track)) {
+  static TrackLocatorPluginIds extractPluginIds(QueueItem item) {
+    final provider = item.providerTrack;
+    if (provider == null) {
       return (sourcePluginId: null, decoderPluginId: null);
     }
-    final locator = track.locator.trim();
-    if (locator.isEmpty) {
-      return (sourcePluginId: null, decoderPluginId: null);
-    }
-    try {
-      final decoded = jsonDecode(locator);
-      if (decoded is! Map) {
-        return (sourcePluginId: null, decoderPluginId: null);
-      }
-      final sourcePluginId = (decoded['plugin_id'] as Object?)
-          ?.toString()
-          .trim();
-      final decoderPluginId = (decoded['decoder_plugin_id'] as Object?)
-          ?.toString()
-          .trim();
-      return (
-        sourcePluginId: sourcePluginId == null || sourcePluginId.isEmpty
-            ? null
-            : sourcePluginId,
-        decoderPluginId: decoderPluginId == null || decoderPluginId.isEmpty
-            ? null
-            : decoderPluginId,
-      );
-    } catch (_) {
-      // Ignore non-JSON locator payloads.
-      return (sourcePluginId: null, decoderPluginId: null);
-    }
+    return (
+      sourcePluginId: provider.sourcePluginId,
+      decoderPluginId: provider.decoderPluginId,
+    );
   }
 
-  static Set<String> trackPluginIds(TrackRef track) {
+  static Set<String> trackPluginIds(QueueItem item) {
     final out = <String>{};
-    final ids = extractTrackLocatorPluginIds(track);
+    final ids = extractPluginIds(item);
     if (ids.sourcePluginId != null) {
       out.add(ids.sourcePluginId!);
     }
@@ -68,25 +43,25 @@ class PlaybackPlayabilityUtils {
   }
 
   static String? localTrackPlayabilityBlockReasonFast(
-    TrackRef track,
+    QueueItem item,
     DecoderExtensionSupportSnapshot? snapshot,
   ) {
-    if (!isLocalTrack(track) || snapshot == null) {
+    if (!isLocalTrack(item) || snapshot == null) {
       return null;
     }
-    return snapshot.canPlayLocalPath(track.locator)
+    return snapshot.canPlayLocalPath(item.path)
         ? null
         : 'no_decoder_for_local_track';
   }
 
   static String? disabledPluginBlockReason({
-    required TrackRef track,
+    required QueueItem item,
     required Set<String> disabledPluginIds,
   }) {
     if (disabledPluginIds.isEmpty) {
       return null;
     }
-    final ids = extractTrackLocatorPluginIds(track);
+    final ids = extractPluginIds(item);
     final sourcePluginId = ids.sourcePluginId;
     final decoderPluginId = ids.decoderPluginId;
     if (sourcePluginId != null && disabledPluginIds.contains(sourcePluginId)) {

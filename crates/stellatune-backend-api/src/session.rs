@@ -2,9 +2,12 @@ use anyhow::Result;
 
 use crate::library::LibraryService;
 use crate::lyrics_service::LyricsService;
-use crate::runtime::shared_runtime_engine;
+use crate::player_service::{PlayerCatalog, PlayerService};
+use crate::runtime::{
+    TypeScriptSourceResolverFactory, shared_playback_controller, shared_typescript_runtime,
+};
 use std::sync::Arc;
-use stellatune_audio::engine::EngineHandle;
+use stellatune_audio::playback::PlaybackController;
 
 #[derive(Debug, Clone, Default)]
 pub struct BackendSessionOptions {
@@ -27,7 +30,8 @@ pub struct LibrarySessionOptions {
 }
 
 pub struct BackendSession {
-    player: Arc<EngineHandle>,
+    player: PlaybackController,
+    player_service: Option<Arc<PlayerService>>,
     lyrics: Arc<LyricsService>,
     library: Option<LibraryService>,
 }
@@ -35,28 +39,52 @@ pub struct BackendSession {
 impl BackendSession {
     pub fn new() -> Self {
         Self {
-            player: shared_runtime_engine(),
+            player: shared_playback_controller(),
+            player_service: None,
             lyrics: LyricsService::new(),
             library: None,
         }
     }
 
     pub async fn from_options(options: BackendSessionOptions) -> Result<Self> {
-        let player = shared_runtime_engine();
+        let player = shared_playback_controller();
         let lyrics = LyricsService::new();
-        let library = match options.library {
-            Some(opts) => Some(LibraryService::new(opts.db_path).await?),
-            None => None,
+        let (library, player_service) = match options.library {
+            Some(opts) => {
+                let library = LibraryService::new(opts.db_path.clone()).await?;
+                let catalog = PlayerCatalog::open(&opts.db_path).await?;
+                let local_source = catalog.ensure_local_source().await?;
+                let _ = local_source;
+                let service = Arc::new(PlayerService::new(
+                    catalog,
+                    player.clone(),
+                    Arc::new(library.handle().clone()),
+                    Arc::new(TypeScriptSourceResolverFactory::new(
+                        shared_typescript_runtime(),
+                    )),
+                ));
+                service.start_state_writer();
+                if let Err(error) = service.restore().await {
+                    tracing::warn!(%error, "player state restore skipped");
+                }
+                (Some(library), Some(service))
+            },
+            None => (None, None),
         };
         Ok(Self {
             player,
+            player_service,
             lyrics,
             library,
         })
     }
 
-    pub fn player(&self) -> &Arc<EngineHandle> {
+    pub fn player(&self) -> &PlaybackController {
         &self.player
+    }
+
+    pub fn player_service(&self) -> Option<&Arc<PlayerService>> {
+        self.player_service.as_ref()
     }
 
     pub fn lyrics(&self) -> &Arc<LyricsService> {
@@ -79,12 +107,28 @@ impl BackendSession {
         &mut self,
         options: LibrarySessionOptions,
     ) -> Result<&LibraryService> {
+        let catalog = PlayerCatalog::open(&options.db_path).await?;
         let service = LibraryService::new(options.db_path).await?;
+        catalog.ensure_local_source().await?;
+        let player_service = Arc::new(PlayerService::new(
+            catalog,
+            self.player.clone(),
+            Arc::new(service.handle().clone()),
+            Arc::new(TypeScriptSourceResolverFactory::new(
+                shared_typescript_runtime(),
+            )),
+        ));
+        player_service.start_state_writer();
+        if let Err(error) = player_service.restore().await {
+            tracing::warn!(%error, "player state restore skipped");
+        }
+        self.player_service = Some(player_service);
         self.library = Some(service);
         Ok(self.library.as_ref().expect("library just initialized"))
     }
 
     pub fn detach_library(&mut self) {
+        self.player_service = None;
         self.library = None;
     }
 }

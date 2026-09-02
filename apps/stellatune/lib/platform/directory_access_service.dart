@@ -1,4 +1,3 @@
-import 'package:stellatune/bridge/api/player/types.dart';
 import 'package:stellatune/platform/directory_access_store.dart';
 import 'package:stellatune/platform/directory_access_service_factory.dart';
 
@@ -40,11 +39,6 @@ abstract class DirectoryAccessService {
 
   Future<DirectoryAccessLease?> acquireLocalPath({
     required String path,
-    required DirectoryAccessStore store,
-  });
-
-  Future<DirectoryAccessLease?> acquireTrackRef({
-    required TrackRef track,
     required DirectoryAccessStore store,
   });
 

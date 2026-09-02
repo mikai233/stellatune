@@ -1,5 +1,5 @@
 import type { SummaryField } from "../view-models";
-import { asNonEmptyString, asRecord, formatActionName, truncateText } from "./auth-display";
+import { asNonEmptyString, asRecord, formatActionName } from "./auth-display";
 
 export function buildPlaybackSummary(
   action: string,
@@ -17,9 +17,11 @@ export function buildPlaybackSummary(
     rows.push({ label: "分发目标", value: dispatch });
   }
 
-  const trackToken = asNonEmptyString(payload?.track_token);
-  if (trackToken) {
-    rows.push({ label: "Track Token", value: truncateText(trackToken, 80) });
+  const trackId =
+    asNonEmptyString(payload?.track_id) ??
+    (typeof payload?.track_id === "number" ? String(payload.track_id) : null);
+  if (trackId) {
+    rows.push({ label: "TrackId", value: trackId });
   }
 
   if (payload?.autoplay === true) {
@@ -45,7 +47,7 @@ export function buildPlaybackSummary(
 
 export function buildPlaybackEventSummary(responseMessage: string, fields: SummaryField[]): string {
   const important = fields
-    .filter((item) => item.label === "执行结果" || item.label === "Track Token")
+    .filter((item) => item.label === "执行结果" || item.label === "TrackId")
     .map((item) => `${item.label}=${item.value}`);
   if (important.length === 0) {
     return responseMessage;

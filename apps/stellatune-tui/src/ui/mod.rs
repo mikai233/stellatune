@@ -621,17 +621,27 @@ fn pretty_track_name(track_display: &str) -> String {
 
 fn playback_state_badge(state: &AppState) -> (&'static str, Color) {
     match state.playback.player_state {
-        stellatune_audio::config::engine::PlayerState::Playing => ("PLAY", Color::Green),
-        stellatune_audio::config::engine::PlayerState::Paused => ("PAUSE", Color::Yellow),
-        stellatune_audio::config::engine::PlayerState::Stopped => ("STOP", Color::DarkGray),
+        stellatune_audio::playback::PlaybackState::Playing => ("PLAY", Color::Green),
+        stellatune_audio::playback::PlaybackState::Paused
+        | stellatune_audio::playback::PlaybackState::Ready => ("PAUSE", Color::Yellow),
+        stellatune_audio::playback::PlaybackState::Preparing
+        | stellatune_audio::playback::PlaybackState::Recovering
+        | stellatune_audio::playback::PlaybackState::Buffering => ("WAIT", Color::Cyan),
+        stellatune_audio::playback::PlaybackState::Failed => ("FAIL", Color::Red),
+        stellatune_audio::playback::PlaybackState::Idle => ("STOP", Color::DarkGray),
     }
 }
 
 fn playback_state_color(state: &AppState) -> Color {
     match state.playback.player_state {
-        stellatune_audio::config::engine::PlayerState::Playing => Color::Cyan,
-        stellatune_audio::config::engine::PlayerState::Paused => Color::Yellow,
-        stellatune_audio::config::engine::PlayerState::Stopped => Color::DarkGray,
+        stellatune_audio::playback::PlaybackState::Playing => Color::Cyan,
+        stellatune_audio::playback::PlaybackState::Paused
+        | stellatune_audio::playback::PlaybackState::Ready => Color::Yellow,
+        stellatune_audio::playback::PlaybackState::Preparing
+        | stellatune_audio::playback::PlaybackState::Recovering
+        | stellatune_audio::playback::PlaybackState::Buffering => Color::Blue,
+        stellatune_audio::playback::PlaybackState::Failed => Color::Red,
+        stellatune_audio::playback::PlaybackState::Idle => Color::DarkGray,
     }
 }
 

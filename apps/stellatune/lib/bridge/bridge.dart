@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart'
     as frb;
 import 'package:stellatune/platform/directory_access_service.dart';
@@ -18,13 +16,13 @@ export 'api/player/types.dart'
         EventPatterns,
         AudioBackend,
         AudioDevice,
-        TrackRef,
         SourceCatalogTypeDescriptor,
         LyricsProviderTypeDescriptor,
         EncoderTypeDescriptor,
         OutputSinkTypeDescriptor,
         OutputSinkRoute,
         PluginDescriptor,
+        PlaybackSnapshot,
         PlayerState,
         TrackDecodeInfo,
         TranscodeProgressEvent,
@@ -76,11 +74,34 @@ class PlayerBridge {
   Stream<LyricsEvent> lyricsEvents() =>
       _lyricsEventBroadcast ??= api.lyricsEvents().asBroadcastStream();
 
-  Future<void> switchTrackRef(TrackRef track, {required bool lazy}) async {
-    final nextLease = await _acquireTrackLease(track);
+  Future<BigInt> ensureLocalTrack(int libraryTrackId) =>
+      api.ensureLocalTrack(libraryTrackId: libraryTrackId);
+
+  Future<BigInt> ensureProviderTrack({
+    required String providerId,
+    required String providerKey,
+    required String pluginId,
+    required String typeId,
+    required String configJson,
+  }) => api.ensureProviderTrack(
+    providerId: providerId,
+    providerKey: providerKey,
+    pluginId: pluginId,
+    typeId: typeId,
+    configJson: configJson,
+  );
+
+  Future<void> switchTrack(
+    BigInt trackId, {
+    required bool lazy,
+    String? localPath,
+  }) async {
+    final nextLease = localPath == null
+        ? null
+        : await _acquireLocalPathLease(localPath);
     final previousLease = _activeTrackLease;
     try {
-      await api.switchTrackRef(track: track, lazy: lazy);
+      await api.switchTrack(trackId: trackId, lazy: lazy);
       _activeTrackLease = nextLease;
       if (previousLease != null && !identical(previousLease, nextLease)) {
         await previousLease.release();
@@ -105,6 +126,8 @@ class PlayerBridge {
     await _releaseActiveTrackLease();
     await _releasePreloadedTrackLease();
   }
+
+  Future<PlaybackSnapshot> playbackSnapshot() => api.playbackSnapshot();
 
   Future<void> lyricsPrepare(LyricsQuery query) =>
       api.lyricsPrepare(query: query);
@@ -226,27 +249,18 @@ class PlayerBridge {
     resampleQuality: resampleQuality,
   );
 
-  Future<void> preloadTrack(String path, {int positionMs = 0}) async {
-    final nextLease = await _acquireLocalPathLease(path);
+  Future<void> preloadTrack(
+    BigInt trackId, {
+    int positionMs = 0,
+    String? localPath,
+  }) async {
+    final nextLease = localPath == null
+        ? null
+        : await _acquireLocalPathLease(localPath);
     final previousLease = _preloadedTrackLease;
     try {
-      await api.preloadTrack(path: path, positionMs: BigInt.from(positionMs));
-      _preloadedTrackLease = nextLease;
-      if (previousLease != null && !identical(previousLease, nextLease)) {
-        await previousLease.release();
-      }
-    } catch (_) {
-      await nextLease?.release();
-      rethrow;
-    }
-  }
-
-  Future<void> preloadTrackRef(TrackRef track, {int positionMs = 0}) async {
-    final nextLease = await _acquireTrackLease(track);
-    final previousLease = _preloadedTrackLease;
-    try {
-      await api.preloadTrackRef(
-        track: track,
+      await api.preloadTrack(
+        trackId: trackId,
         positionMs: BigInt.from(positionMs),
       );
       _preloadedTrackLease = nextLease;
@@ -285,17 +299,6 @@ class PlayerBridge {
   Future<List<String>> decoderSupportedExtensions() =>
       api.decoderSupportedExtensions();
 
-  Future<DirectoryAccessLease?> _acquireTrackLease(TrackRef track) {
-    final store = _directoryAccessStore;
-    if (store == null) {
-      return Future.value(null);
-    }
-    return DirectoryAccessService.instance.acquireTrackRef(
-      track: track,
-      store: store,
-    );
-  }
-
   Future<DirectoryAccessLease?> _acquireLocalPathLease(String path) {
     final store = _directoryAccessStore;
     if (store == null) {
@@ -318,31 +321,6 @@ class PlayerBridge {
     _preloadedTrackLease = null;
     await lease?.release();
   }
-}
-
-TrackRef buildPluginSourceTrackRef({
-  required String sourceId,
-  required String trackId,
-  required String pluginId,
-  required String typeId,
-  required Object config,
-  required Object track,
-  String extHint = '',
-  String pathHint = '',
-  String? decoderPluginId,
-  String? decoderTypeId,
-}) {
-  final locator = jsonEncode(<String, Object?>{
-    'plugin_id': pluginId,
-    'type_id': typeId,
-    'config': config,
-    'track': track,
-    'ext_hint': extHint,
-    'path_hint': pathHint,
-    'decoder_plugin_id': decoderPluginId,
-    'decoder_type_id': decoderTypeId,
-  });
-  return TrackRef(sourceId: sourceId, trackId: trackId, locator: locator);
 }
 
 class LibraryBridge {

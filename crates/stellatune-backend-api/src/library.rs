@@ -98,6 +98,10 @@ impl LibraryService {
         self.handle.search(query, limit, offset).await
     }
 
+    pub async fn get_track(&self, track_id: i64) -> Result<Option<TrackLite>> {
+        self.handle.get_track(track_id).await
+    }
+
     pub async fn list_playlists(&self) -> Result<Vec<PlaylistLite>> {
         self.handle.list_playlists().await
     }

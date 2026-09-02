@@ -15,6 +15,7 @@ tracing-subscriber.workspace = true
 stellatune-backend-api.workspace = true
 stellatune-library.workspace = true
 stellatune-audio.workspace = true
+stellatune-audio-core.workspace = true
 
 clap.workspace = true
 crossterm.workspace = true

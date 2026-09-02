@@ -96,9 +96,10 @@ class _QueueList extends StatelessWidget {
       itemBuilder: (context, i) {
         final item = items[i];
         final selected = currentIndex == i;
-        final subtitle = item.track.sourceId.toLowerCase() == 'local'
+        final provider = item.providerTrack;
+        final subtitle = provider == null
             ? item.path
-            : '${item.track.sourceId} • ${item.track.trackId}';
+            : '${provider.providerId} • ${provider.providerKey}';
         return ListTile(
           selected: selected,
           leading: selected

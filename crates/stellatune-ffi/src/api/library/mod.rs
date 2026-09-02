@@ -2,16 +2,26 @@ use std::sync::{Arc, OnceLock};
 
 use crate::frb_generated::StreamSink;
 use anyhow::{Result, anyhow};
-use tracing::debug;
+use tracing::{debug, warn};
 
 use stellatune_backend_api::library::LibraryService;
+use stellatune_backend_api::player_service::{PlayerCatalog, PlayerService};
+use stellatune_backend_api::runtime::{TypeScriptSourceResolverFactory, shared_typescript_runtime};
 use stellatune_library::{LibraryEvent, PlaylistLite, TrackLite};
 
 static LIBRARY_SERVICE: OnceLock<Arc<LibraryService>> = OnceLock::new();
+static PLAYER_SERVICE: OnceLock<Arc<PlayerService>> = OnceLock::new();
 static LIBRARY_INIT_LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
 
 pub(crate) fn shared_library_if_initialized() -> Option<Arc<LibraryService>> {
     LIBRARY_SERVICE.get().map(Arc::clone)
+}
+
+pub(crate) fn shared_player_service() -> Result<Arc<PlayerService>> {
+    PLAYER_SERVICE
+        .get()
+        .map(Arc::clone)
+        .ok_or_else(|| anyhow!("player service is not initialized; call create_library first"))
 }
 
 fn shared_library() -> Result<Arc<LibraryService>> {
@@ -33,7 +43,23 @@ pub async fn create_library(db_path: String) -> Result<()> {
         return Ok(());
     }
 
-    let service = Arc::new(LibraryService::new(db_path).await?);
+    let service = Arc::new(LibraryService::new(db_path.clone()).await?);
+    let catalog = PlayerCatalog::open(&db_path).await?;
+    catalog.ensure_local_source().await?;
+    let player_service = Arc::new(PlayerService::new(
+        catalog,
+        stellatune_backend_api::runtime::shared_playback_controller(),
+        Arc::new(service.handle().clone()),
+        Arc::new(TypeScriptSourceResolverFactory::new(
+            shared_typescript_runtime(),
+        )),
+    ));
+    player_service.start_state_writer();
+    if let Err(error) = player_service.restore().await {
+        warn!(%error, "player state could not be restored during library startup");
+    }
+    let _ = stellatune_backend_api::runtime::install_player_service(Arc::clone(&player_service));
+    let _ = PLAYER_SERVICE.set(player_service);
     let _ = LIBRARY_SERVICE.set(service);
     Ok(())
 }

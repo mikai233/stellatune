@@ -1,7 +1,8 @@
 use std::collections::HashSet;
 use std::time::Instant;
 
-use stellatune_audio::config::engine::{PlayerState, ResampleQuality};
+use stellatune_audio::config::engine::ResampleQuality;
+use stellatune_audio::playback::PlaybackState as PlayerState;
 use stellatune_library::{PlaylistLite, TrackLite};
 
 use crate::backend::models::InstalledPluginInfo;
@@ -45,7 +46,7 @@ pub struct PlaybackState {
 impl Default for PlaybackState {
     fn default() -> Self {
         Self {
-            player_state: PlayerState::Stopped,
+            player_state: PlayerState::Idle,
             position_ms: 0,
             duration_ms: None,
             current_track_display: "-".to_string(),

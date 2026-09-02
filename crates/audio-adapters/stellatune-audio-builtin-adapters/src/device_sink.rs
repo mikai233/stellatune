@@ -9,14 +9,12 @@ use crate::output_runtime::{
     AudioBackend, OutputHandle, OutputSpec, SampleConsumer, default_output_spec, list_host_devices,
     output_spec_for_device,
 };
-use stellatune_audio_core::pipeline::context::{AudioBlock, PipelineContext, StreamSpec};
-use stellatune_audio_core::pipeline::error::PipelineError;
-use stellatune_audio_core::pipeline::stages::sink::SinkStage;
-use stellatune_audio_core::pipeline::stages::{Stage, StageFlow};
+use stellatune_audio_core::{
+    AudioBlock, AudioFormat, SinkClockSnapshot, SinkError, SinkStage, SinkWriteResult,
+    SinkWriteState,
+};
 
 const RING_BUFFER_CAPACITY_MS: usize = 40;
-const WRITE_BACKPRESSURE_TIMEOUT_MS: u64 = 30;
-const WRITE_BACKPRESSURE_SLEEP_MS: u64 = 1;
 const FLUSH_TIMEOUT_MS: u64 = 350;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -203,13 +201,6 @@ impl DeviceSinkControl {
             .fetch_add(samples as u64, Ordering::Relaxed);
     }
 
-    fn note_dropped_samples(&self, samples: usize) {
-        self.inner
-            .metrics
-            .dropped_samples
-            .fetch_add(samples as u64, Ordering::Relaxed);
-    }
-
     fn note_callback(&self, requested_samples: usize, provided_samples: usize) {
         self.inner
             .metrics
@@ -301,7 +292,9 @@ pub struct DeviceSinkStage {
     producer: Option<HeapProd<f32>>,
     output_handle: Option<OutputHandle>,
     callback_error: Arc<Mutex<Option<String>>>,
-    prepared_spec: Option<StreamSpec>,
+    prepared_spec: Option<AudioFormat>,
+    clock_base_samples: u64,
+    epoch: u64,
 }
 
 impl DeviceSinkStage {
@@ -316,6 +309,8 @@ impl DeviceSinkStage {
             output_handle: None,
             callback_error: Arc::new(Mutex::new(None)),
             prepared_spec: None,
+            clock_base_samples: 0,
+            epoch: 0,
         }
     }
 
@@ -336,11 +331,11 @@ impl DeviceSinkStage {
             .and_then(|mut slot| slot.take())
     }
 
-    fn rebuild_from_control(&mut self) -> Result<(), PipelineError> {
+    fn rebuild_from_control(&mut self) -> Result<(), SinkError> {
         let Some(spec) = self.prepared_spec else {
-            return Err(PipelineError::StageFailure(
-                "device sink is not prepared".to_string(),
-            ));
+            return Err(SinkError::Failed {
+                message: "device sink is not open".to_owned(),
+            });
         };
 
         self.control.note_reconfigure_attempt();
@@ -363,12 +358,13 @@ impl DeviceSinkStage {
 
     fn open_stream(
         &mut self,
-        spec: StreamSpec,
-    ) -> Result<(OutputBackend, Option<String>), PipelineError> {
+        spec: AudioFormat,
+    ) -> Result<(OutputBackend, Option<String>), SinkError> {
         let (backend, desired_device_id) = self.control.desired_route();
-        let capacity_samples =
-            ((spec.sample_rate as usize * spec.channels as usize * RING_BUFFER_CAPACITY_MS) / 1000)
-                .max(spec.channels as usize * 1024);
+        let channels = usize::from(spec.channels.max(1));
+        let capacity_frames =
+            ((spec.sample_rate as usize * RING_BUFFER_CAPACITY_MS) / 1000).max(1024);
+        let capacity_samples = capacity_frames.saturating_mul(channels);
         let rb = HeapRb::<f32>::new(capacity_samples.max(1024));
         let (producer, consumer) = rb.split();
 
@@ -394,7 +390,9 @@ impl DeviceSinkStage {
             },
             on_error,
         )
-        .map_err(|e| PipelineError::StageFailure(format!("open output handle failed: {e}")))?;
+        .map_err(|e| SinkError::Failed {
+            message: format!("open output handle failed: {e}"),
+        })?;
 
         self.producer = Some(producer);
         self.output_handle = Some(output_handle);
@@ -408,76 +406,66 @@ impl Default for DeviceSinkStage {
     }
 }
 
-impl Stage for DeviceSinkStage {
-    fn key(&self) -> &str {
-        "builtin.sink.device"
-    }
-
-    fn refresh_runtime_state(&mut self, _ctx: &mut PipelineContext) -> Result<(), PipelineError> {
-        let stream_error = self.take_callback_error();
-        if stream_error.is_some() || self.control.needs_reconfigure() {
-            return self.rebuild_from_control().map_err(|error| {
-                if let Some(stream_error) = stream_error {
-                    PipelineError::StageFailure(format!(
-                        "{stream_error}; sink reconfigure failed: {error}"
-                    ))
-                } else {
-                    error
-                }
-            });
-        }
-        Ok(())
-    }
-}
-
 impl SinkStage for DeviceSinkStage {
-    fn prepare(
-        &mut self,
-        spec: StreamSpec,
-        _ctx: &mut PipelineContext,
-    ) -> Result<(), PipelineError> {
-        self.stop(_ctx);
-        self.prepared_spec = Some(spec);
+    fn open(&mut self, format: AudioFormat) -> Result<(), SinkError> {
+        self.close();
+        self.prepared_spec = Some(format.validate().map_err(|message| SinkError::Failed {
+            message: message.to_owned(),
+        })?);
+        self.clock_base_samples = self.control.metrics_snapshot().callback_provided_samples;
         self.rebuild_from_control()
     }
 
-    fn write(
-        &mut self,
-        block: &AudioBlock,
-        _ctx: &mut PipelineContext,
-    ) -> Result<StageFlow, PipelineError> {
+    fn write(&mut self, block: &AudioBlock) -> Result<SinkWriteResult, SinkError> {
         if let Some(error) = self.take_callback_error() {
-            return Err(PipelineError::StageFailure(error));
+            return Err(SinkError::Failed { message: error });
+        }
+        if self.control.needs_reconfigure() {
+            self.rebuild_from_control()?;
         }
         let Some(producer) = self.producer.as_mut() else {
-            return Err(PipelineError::StageFailure(
-                "device sink is not prepared".to_string(),
-            ));
+            return Err(SinkError::Failed {
+                message: "device sink is not open".to_owned(),
+            });
         };
-
-        let samples = block.samples.as_slice();
-        let mut offset = 0usize;
-        let deadline = Instant::now() + Duration::from_millis(WRITE_BACKPRESSURE_TIMEOUT_MS);
-        while offset < samples.len() {
-            let pushed = producer.push_slice(&samples[offset..]);
-            if pushed > 0 {
-                offset = offset.saturating_add(pushed);
-                continue;
-            }
-            if Instant::now() >= deadline {
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(WRITE_BACKPRESSURE_SLEEP_MS));
-        }
-
-        self.control.note_written_samples(offset);
-        if offset < samples.len() {
-            self.control.note_dropped_samples(samples.len() - offset);
-        }
-        Ok(StageFlow::Continue)
+        let channels = usize::from(block.format.channels.max(1));
+        let consumed_samples = push_complete_frames(producer, &block.samples, channels);
+        self.control.note_written_samples(consumed_samples);
+        Ok(SinkWriteResult {
+            consumed_frames: consumed_samples / channels,
+            state: if consumed_samples < block.samples.len() {
+                SinkWriteState::WouldBlock
+            } else {
+                SinkWriteState::Ready
+            },
+        })
     }
 
-    fn flush(&mut self, _ctx: &mut PipelineContext) -> Result<(), PipelineError> {
+    fn pause(&mut self) -> Result<(), SinkError> {
+        self.output_handle
+            .as_ref()
+            .ok_or_else(|| SinkError::Failed {
+                message: "device sink is not open".to_owned(),
+            })?
+            .pause()
+            .map_err(|error| SinkError::Failed {
+                message: error.to_string(),
+            })
+    }
+
+    fn resume(&mut self) -> Result<(), SinkError> {
+        self.output_handle
+            .as_ref()
+            .ok_or_else(|| SinkError::Failed {
+                message: "device sink is not open".to_owned(),
+            })?
+            .resume()
+            .map_err(|error| SinkError::Failed {
+                message: error.to_string(),
+            })
+    }
+
+    fn drain(&mut self) -> Result<(), SinkError> {
         let Some(producer) = self.producer.as_ref() else {
             return Ok(());
         };
@@ -489,17 +477,58 @@ impl SinkStage for DeviceSinkStage {
             std::thread::sleep(Duration::from_millis(1));
         }
         if let Some(error) = self.take_callback_error() {
-            return Err(PipelineError::StageFailure(error));
+            return Err(SinkError::Failed { message: error });
         }
         Ok(())
     }
 
-    fn stop(&mut self, _ctx: &mut PipelineContext) {
+    fn discard(&mut self) -> Result<(), SinkError> {
+        let format = self.prepared_spec.ok_or_else(|| SinkError::Failed {
+            message: "device sink is not open".to_owned(),
+        })?;
+        self.epoch = self.epoch.wrapping_add(1);
+        self.close();
+        self.open(format)
+    }
+
+    fn clock_snapshot(&self) -> SinkClockSnapshot {
+        let metrics = self.control.metrics_snapshot();
+        let channels = u64::from(
+            self.prepared_spec
+                .map(|format| format.channels)
+                .unwrap_or(1)
+                .max(1),
+        );
+        let consumed_samples = metrics
+            .callback_provided_samples
+            .saturating_sub(self.clock_base_samples);
+        SinkClockSnapshot {
+            consumed_frames: consumed_samples / channels,
+            buffered_frames: self
+                .producer
+                .as_ref()
+                .map(|producer| producer.occupied_len() as u64 / channels)
+                .unwrap_or(0),
+            epoch: self.epoch,
+        }
+    }
+
+    fn close(&mut self) {
         self.producer = None;
         self.output_handle = None;
         self.prepared_spec = None;
         self.clear_callback_error();
     }
+}
+
+fn push_complete_frames(producer: &mut HeapProd<f32>, samples: &[f32], channels: usize) -> usize {
+    let channels = channels.max(1);
+    let writable_samples = producer.vacant_len().min(samples.len());
+    let complete_frame_samples = writable_samples - (writable_samples % channels);
+    if complete_frame_samples == 0 {
+        return 0;
+    }
+    producer.push_slice(&samples[..complete_frame_samples])
 }
 
 struct RingBufferConsumer {
@@ -536,5 +565,27 @@ fn map_audio_backend(backend: AudioBackend) -> OutputBackend {
     match backend {
         AudioBackend::Shared => OutputBackend::Shared,
         AudioBackend::WasapiExclusive => OutputBackend::WasapiExclusive,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ringbuf::HeapRb;
+    use ringbuf::traits::{Consumer as _, Split as _};
+
+    use super::push_complete_frames;
+
+    #[test]
+    fn partial_ring_write_never_splits_an_audio_frame() {
+        let ring = HeapRb::<f32>::new(5);
+        let (mut producer, mut consumer) = ring.split();
+        let input = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0];
+
+        let written = push_complete_frames(&mut producer, &input, 2);
+
+        assert_eq!(written, 4);
+        let mut output = [0.0; 5];
+        assert_eq!(consumer.pop_slice(&mut output), 4);
+        assert_eq!(&output[..4], &input[..4]);
     }
 }

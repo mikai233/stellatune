@@ -1,12 +1,8 @@
 use std::fs::File;
 use std::io;
-use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
-use std::sync::Mutex;
-use std::time::Duration;
 
-use stellatune_audio::gapless::gapless_trimmed_duration_ms;
-use stellatune_audio_core::pipeline::context::{GaplessTrimSpec, StreamSpec};
+use stellatune_audio_core::{AudioFormat, GaplessTrimSpec};
 use symphonia::core::audio::GenericAudioBufferRef;
 use symphonia::core::codecs::audio::{
     AudioDecoder as SymphoniaDecoder, AudioDecoderOptions as DecoderOptions,
@@ -17,6 +13,27 @@ use symphonia::core::formats::{FormatOptions, FormatReader, SeekMode, SeekTo, Tr
 use symphonia::core::io::{MediaSource, MediaSourceStream, MediaSourceStreamOptions};
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::units::{Time, TimeBase, Timestamp};
+
+pub(crate) const SOURCE_PENDING_ERROR: &str = "source temporarily pending";
+pub(crate) const SOURCE_IO_ERROR_PREFIX: &str = "source I/O failed: ";
+
+fn gapless_trimmed_duration_ms(
+    duration_ms: Option<u64>,
+    sample_rate: u32,
+    gapless_trim_spec: Option<GaplessTrimSpec>,
+) -> Option<u64> {
+    let duration_ms = duration_ms?;
+    let sample_rate = sample_rate.max(1) as u128;
+    let trimmed_frames = gapless_trim_spec.map_or(0_u128, |spec| {
+        (spec.head_frames as u128).saturating_add(spec.tail_frames as u128)
+    });
+    let trimmed_ms = trimmed_frames
+        .saturating_mul(1000)
+        .saturating_add(sample_rate / 2)
+        .saturating_div(sample_rate)
+        .min(u64::MAX as u128) as u64;
+    Some(duration_ms.saturating_sub(trimmed_ms))
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BuiltinDecoderScoreRule {
@@ -174,7 +191,7 @@ pub struct BuiltinDecoder {
     format: Box<dyn FormatReader>,
     decoder: Box<dyn SymphoniaDecoder>,
     track_id: u32,
-    spec: StreamSpec,
+    spec: AudioFormat,
     duration_ms_hint: Option<u64>,
     encoder_delay_frames: u32,
     encoder_padding_frames: u32,
@@ -309,9 +326,10 @@ impl BuiltinDecoder {
             format,
             decoder,
             track_id,
-            spec: StreamSpec {
+            spec: AudioFormat {
                 sample_rate,
                 channels,
+                channel_mask: None,
             },
             duration_ms_hint,
             encoder_delay_frames,
@@ -320,7 +338,7 @@ impl BuiltinDecoder {
         })
     }
 
-    pub fn spec(&self) -> StreamSpec {
+    pub fn spec(&self) -> AudioFormat {
         self.spec
     }
 
@@ -341,7 +359,7 @@ impl BuiltinDecoder {
             head_frames: self.encoder_delay_frames,
             tail_frames: self.encoder_padding_frames,
         };
-        (!spec.is_disabled()).then_some(spec)
+        (spec.head_frames != 0 || spec.tail_frames != 0).then_some(spec)
     }
 
     pub fn seek_ms(&mut self, position_ms: u64) -> Result<(), String> {
@@ -353,7 +371,15 @@ impl BuiltinDecoder {
                     track_id: Some(self.track_id),
                 },
             )
-            .map_err(|e| format!("seek failed: {e}"))?;
+            .map_err(|error| match error {
+                SymphoniaError::IoError(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                    SOURCE_PENDING_ERROR.to_owned()
+                },
+                SymphoniaError::IoError(error) => {
+                    format!("{SOURCE_IO_ERROR_PREFIX}{error}")
+                },
+                error => format!("seek failed: {error}"),
+            })?;
         self.decoder.reset();
         self.pending.clear();
         Ok(())
@@ -384,6 +410,12 @@ impl BuiltinDecoder {
                 Ok(None) => break,
                 Err(SymphoniaError::IoError(e)) if e.kind() == io::ErrorKind::UnexpectedEof => {
                     break;
+                },
+                Err(SymphoniaError::IoError(e)) if e.kind() == io::ErrorKind::WouldBlock => {
+                    return Err(SOURCE_PENDING_ERROR.to_owned());
+                },
+                Err(SymphoniaError::IoError(e)) => {
+                    return Err(format!("{SOURCE_IO_ERROR_PREFIX}{e}"));
                 },
                 Err(e) => return Err(format!("read packet failed: {e}")),
             }
@@ -423,53 +455,11 @@ fn duration_ms_from_time_base(tb: TimeBase, ts: Timestamp) -> u64 {
 }
 
 fn open_media_input(locator: &str) -> Result<OpenedMediaInput, String> {
-    if is_http_locator(locator) {
-        return open_http_media_input(locator);
-    }
-
     let file = File::open(locator).map_err(|e| format!("failed to open `{locator}`: {e}"))?;
     Ok(OpenedMediaInput {
         source: Box::new(file),
         hint_extension: extension_from_path(locator),
     })
-}
-
-fn is_http_locator(locator: &str) -> bool {
-    let trimmed = locator.trim();
-    trimmed.len() >= 7
-        && (trimmed[..7].eq_ignore_ascii_case("http://")
-            || (trimmed.len() >= 8 && trimmed[..8].eq_ignore_ascii_case("https://")))
-}
-
-fn open_http_media_input(locator: &str) -> Result<OpenedMediaInput, String> {
-    let (source, hint_extension) = HttpMediaSource::open(locator)?;
-
-    Ok(OpenedMediaInput {
-        source: Box::new(source),
-        hint_extension,
-    })
-}
-
-fn extension_from_content_type(content_type: &str) -> Option<String> {
-    let mime = content_type
-        .split(';')
-        .next()
-        .unwrap_or(content_type)
-        .trim()
-        .to_ascii_lowercase();
-    let ext = match mime.as_str() {
-        "audio/mpeg" | "audio/mp3" => "mp3",
-        "audio/aac" | "audio/aacp" => "aac",
-        "audio/flac" | "audio/x-flac" => "flac",
-        "audio/wav" | "audio/wave" | "audio/x-wav" => "wav",
-        "audio/aiff" | "audio/x-aiff" => "aiff",
-        "audio/mp4" | "audio/x-m4a" => "m4a",
-        "audio/ogg" => "ogg",
-        "audio/ogg; codecs=vorbis" => "ogg",
-        "audio/vnd.wave" => "wav",
-        _ => return None,
-    };
-    Some(ext.to_string())
 }
 
 fn estimate_duration_ms_by_seek(
@@ -496,240 +486,9 @@ struct OpenedMediaInput {
     hint_extension: String,
 }
 
-struct HttpMediaSource {
-    client: reqwest::blocking::Client,
-    url: String,
-    position: u64,
-    total_size: Option<u64>,
-    seekable: bool,
-    response: Mutex<Option<reqwest::blocking::Response>>,
-}
-
-impl HttpMediaSource {
-    fn open(locator: &str) -> Result<(Self, String), String> {
-        let client = reqwest::blocking::Client::builder()
-            .connect_timeout(Duration::from_secs(10))
-            .build()
-            .map_err(|e| format!("failed to build HTTP client for `{locator}`: {e}"))?;
-
-        let response = open_http_response(&client, locator, 0)?;
-        let total_size = resolve_total_size(&response, 0);
-        let hint_extension = response
-            .headers()
-            .get(reqwest::header::CONTENT_TYPE)
-            .and_then(|value| value.to_str().ok())
-            .and_then(extension_from_content_type)
-            .unwrap_or_else(|| extension_from_path(locator));
-        let seekable = probe_http_range_support(&client, locator, total_size);
-
-        Ok((
-            Self {
-                client,
-                url: locator.trim().to_string(),
-                position: 0,
-                total_size,
-                seekable,
-                response: Mutex::new(Some(response)),
-            },
-            hint_extension,
-        ))
-    }
-
-    fn reopen_at(&self, offset: u64) -> Result<reqwest::blocking::Response, io::Error> {
-        open_http_response(&self.client, self.url.as_str(), offset).map_err(io::Error::other)
-    }
-}
-
-impl MediaSource for HttpMediaSource {
-    fn is_seekable(&self) -> bool {
-        self.seekable
-    }
-
-    fn byte_len(&self) -> Option<u64> {
-        self.total_size
-    }
-}
-
-impl Read for HttpMediaSource {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        if buf.is_empty() {
-            return Ok(0);
-        }
-
-        let position = self.position;
-        let needs_open = {
-            let response_slot = self
-                .response
-                .get_mut()
-                .map_err(|_| io::Error::other("http response mutex poisoned"))?;
-            response_slot.is_none()
-        };
-        if needs_open {
-            let reopened = self.reopen_at(position)?;
-            let response_slot = self
-                .response
-                .get_mut()
-                .map_err(|_| io::Error::other("http response mutex poisoned"))?;
-            *response_slot = Some(reopened);
-        }
-
-        let read = {
-            let response_slot = self
-                .response
-                .get_mut()
-                .map_err(|_| io::Error::other("http response mutex poisoned"))?;
-            let Some(response) = response_slot.as_mut() else {
-                return Ok(0);
-            };
-            response.read(buf)?
-        };
-        self.position = self.position.saturating_add(read as u64);
-        if read == 0 {
-            let response_slot = self
-                .response
-                .get_mut()
-                .map_err(|_| io::Error::other("http response mutex poisoned"))?;
-            *response_slot = None;
-        }
-        Ok(read)
-    }
-}
-
-impl Seek for HttpMediaSource {
-    fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
-        let target = match pos {
-            SeekFrom::Start(offset) => offset,
-            SeekFrom::Current(delta) => add_signed_offset(self.position, delta)?,
-            SeekFrom::End(delta) => {
-                let len = self.total_size.ok_or_else(|| {
-                    io::Error::new(
-                        io::ErrorKind::Unsupported,
-                        "http source length is unknown; SeekFrom::End is unavailable",
-                    )
-                })?;
-                add_signed_offset(len, delta)?
-            },
-        };
-
-        let target = if let Some(total_size) = self.total_size {
-            target.min(total_size)
-        } else {
-            target
-        };
-
-        if target == self.position {
-            return Ok(self.position);
-        }
-
-        if target != 0 && !self.seekable {
-            return Err(io::Error::new(
-                io::ErrorKind::Unsupported,
-                "http source does not support range seek",
-            ));
-        }
-
-        let next_response = self.reopen_at(target)?;
-        *self
-            .response
-            .get_mut()
-            .map_err(|_| io::Error::other("http response mutex poisoned"))? = Some(next_response);
-        self.position = target;
-        Ok(self.position)
-    }
-}
-
-fn open_http_response(
-    client: &reqwest::blocking::Client,
-    locator: &str,
-    start_offset: u64,
-) -> Result<reqwest::blocking::Response, String> {
-    let mut builder = client.get(locator.trim());
-    if start_offset > 0 {
-        builder = builder.header(reqwest::header::RANGE, format!("bytes={start_offset}-"));
-    }
-
-    let response = builder
-        .send()
-        .map_err(|e| format!("failed to request `{locator}`: {e}"))?
-        .error_for_status()
-        .map_err(|e| format!("HTTP request failed for `{locator}`: {e}"))?;
-
-    if start_offset > 0 && response.status() != reqwest::StatusCode::PARTIAL_CONTENT {
-        return Err(format!(
-            "http server does not support range seek for `{locator}`"
-        ));
-    }
-
-    Ok(response)
-}
-
-fn resolve_total_size(response: &reqwest::blocking::Response, start_offset: u64) -> Option<u64> {
-    if let Some(content_range) = response
-        .headers()
-        .get(reqwest::header::CONTENT_RANGE)
-        .and_then(|value| value.to_str().ok())
-        && let Some(total) = parse_content_range_total(content_range)
-    {
-        return Some(total);
-    }
-
-    if start_offset == 0 {
-        return response.content_length();
-    }
-
-    response
-        .content_length()
-        .map(|remaining| start_offset.saturating_add(remaining))
-}
-
-fn parse_content_range_total(content_range: &str) -> Option<u64> {
-    let (_, total) = content_range.split_once('/')?;
-    let total = total.trim();
-    if total == "*" {
-        return None;
-    }
-    total.parse::<u64>().ok()
-}
-
-fn probe_http_range_support(
-    client: &reqwest::blocking::Client,
-    locator: &str,
-    total_size: Option<u64>,
-) -> bool {
-    if total_size.is_none() {
-        return false;
-    }
-
-    let response = client
-        .get(locator.trim())
-        .header(reqwest::header::RANGE, "bytes=0-0")
-        .send();
-    let Ok(response) = response else {
-        return false;
-    };
-    response.status() == reqwest::StatusCode::PARTIAL_CONTENT
-}
-
-fn add_signed_offset(base: u64, delta: i64) -> io::Result<u64> {
-    if delta >= 0 {
-        return Ok(base.saturating_add(delta as u64));
-    }
-
-    let magnitude = delta.unsigned_abs();
-    base.checked_sub(magnitude).ok_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "seek before start of http source",
-        )
-    })
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{BuiltinDecoder, extension_from_path};
-    use std::io::{Read, Write};
-    use std::net::{SocketAddr, TcpListener};
-    use std::thread;
+    use super::extension_from_path;
 
     #[test]
     fn extension_from_path_understands_urls() {
@@ -739,149 +498,5 @@ mod tests {
         );
         assert_eq!(extension_from_path("http://example.com/stream"), "");
         assert_eq!(extension_from_path("C:/music/song.mp3"), "mp3");
-    }
-
-    #[test]
-    fn builtin_decoder_opens_http_wav() {
-        let wav_bytes = tiny_wav_bytes();
-        let (addr, join) = serve_static_http(wav_bytes, 2);
-        let url = format!("http://{addr}/test.wav?download=1");
-
-        let decoder = BuiltinDecoder::open(url.as_str()).expect("http decoder open should work");
-        assert_eq!(decoder.spec().sample_rate, 44_100);
-        assert_eq!(decoder.spec().channels, 1);
-
-        join.join().expect("server thread should exit cleanly");
-    }
-
-    #[test]
-    fn builtin_decoder_seeks_http_wav() {
-        let wav_bytes = tiny_wav_bytes();
-        let (addr, join) = serve_static_http(wav_bytes, 3);
-        let url = format!("http://{addr}/seek-test.wav");
-
-        let mut decoder =
-            BuiltinDecoder::open(url.as_str()).expect("http decoder open should work");
-        decoder.seek_ms(500).expect("http wav seek should work");
-        let block = decoder
-            .next_block(256)
-            .expect("next block after seek should succeed");
-        assert!(block.is_some(), "seeked decoder should still produce audio");
-
-        join.join().expect("server thread should exit cleanly");
-    }
-
-    fn serve_static_http(
-        body: Vec<u8>,
-        expected_requests: usize,
-    ) -> (SocketAddr, thread::JoinHandle<()>) {
-        let listener = TcpListener::bind("127.0.0.1:0").expect("bind test listener");
-        let addr = listener.local_addr().expect("read local addr");
-        let join = thread::spawn(move || {
-            for _ in 0..expected_requests {
-                let (mut stream, _) = listener.accept().expect("accept request");
-                let mut request_buf = [0_u8; 4096];
-                let request_len = stream.read(&mut request_buf).expect("read request");
-                let request = String::from_utf8_lossy(&request_buf[..request_len]);
-                let range_header = request
-                    .lines()
-                    .find(|line| line.to_ascii_lowercase().starts_with("range:"))
-                    .map(str::to_string);
-
-                let (status_line, response_body, content_range_header) =
-                    if let Some(range_header) = range_header {
-                        let range_value = range_header
-                            .split_once(':')
-                            .map(|(_, value)| value.trim())
-                            .expect("range header should contain colon");
-                        let (start, end) = parse_range(range_value, body.len());
-                        (
-                            "HTTP/1.1 206 Partial Content\r\n".to_string(),
-                            body[start..=end].to_vec(),
-                            Some(format!(
-                                "Content-Range: bytes {start}-{end}/{}\r\n",
-                                body.len()
-                            )),
-                        )
-                    } else {
-                        ("HTTP/1.1 200 OK\r\n".to_string(), body.clone(), None)
-                    };
-
-                let mut response = String::new();
-                response.push_str(status_line.as_str());
-                response.push_str("Content-Type: audio/wav\r\n");
-                response.push_str("Accept-Ranges: bytes\r\n");
-                response.push_str(format!("Content-Length: {}\r\n", response_body.len()).as_str());
-                if let Some(content_range_header) = content_range_header {
-                    response.push_str(content_range_header.as_str());
-                }
-                response.push_str("Connection: close\r\n\r\n");
-                stream
-                    .write_all(response.as_bytes())
-                    .expect("write response head");
-                stream
-                    .write_all(response_body.as_slice())
-                    .expect("write response body");
-            }
-        });
-        (addr, join)
-    }
-
-    fn parse_range(range_value: &str, total_len: usize) -> (usize, usize) {
-        let value = range_value
-            .strip_prefix("bytes=")
-            .expect("range must start with bytes=");
-        let (start_raw, end_raw) = value.split_once('-').expect("range must contain dash");
-        let start = start_raw
-            .parse::<usize>()
-            .expect("range start must be a number");
-        let end = if end_raw.trim().is_empty() {
-            total_len.saturating_sub(1)
-        } else {
-            end_raw
-                .parse::<usize>()
-                .expect("range end must be a number")
-        };
-        (
-            start.min(total_len.saturating_sub(1)),
-            end.min(total_len.saturating_sub(1)),
-        )
-    }
-
-    fn tiny_wav_bytes() -> Vec<u8> {
-        let samples = (0..44_100)
-            .map(|index| match index % 4 {
-                0 => 0_i16,
-                1 => 1200_i16,
-                2 => -1200_i16,
-                _ => 0_i16,
-            })
-            .collect::<Vec<_>>();
-        let sample_rate = 44_100u32;
-        let channels = 1u16;
-        let bits_per_sample = 16u16;
-        let byte_rate = sample_rate * channels as u32 * bits_per_sample as u32 / 8;
-        let block_align = channels * (bits_per_sample / 8);
-        let data_size = (samples.len() * std::mem::size_of::<i16>()) as u32;
-        let riff_size = 36 + data_size;
-
-        let mut out = Vec::with_capacity((44 + data_size) as usize);
-        out.extend_from_slice(b"RIFF");
-        out.extend_from_slice(&riff_size.to_le_bytes());
-        out.extend_from_slice(b"WAVE");
-        out.extend_from_slice(b"fmt ");
-        out.extend_from_slice(&16u32.to_le_bytes());
-        out.extend_from_slice(&1u16.to_le_bytes());
-        out.extend_from_slice(&channels.to_le_bytes());
-        out.extend_from_slice(&sample_rate.to_le_bytes());
-        out.extend_from_slice(&byte_rate.to_le_bytes());
-        out.extend_from_slice(&block_align.to_le_bytes());
-        out.extend_from_slice(&bits_per_sample.to_le_bytes());
-        out.extend_from_slice(b"data");
-        out.extend_from_slice(&data_size.to_le_bytes());
-        for sample in samples {
-            out.extend_from_slice(&sample.to_le_bytes());
-        }
-        out
     }
 }

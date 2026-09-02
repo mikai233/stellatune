@@ -1,14 +1,24 @@
 use std::collections::BTreeSet;
+use std::sync::Arc;
 
 use axum::http::StatusCode;
 use serde_json::{Map, Value, json};
 use stellatune_plugins::typescript::manifest::TypeScriptCapabilityKind;
 
+use crate::player_service::{
+    ProviderId, ProviderTrackIdentityInput, ProviderTrackKeyInput, SourceResolverSpec, TrackId,
+};
 use crate::plugin_ui_gateway::model::{ConfigApplyOutcome, ConfigApplyReport};
-use crate::runtime::{shared_runtime_engine, shared_typescript_runtime};
+use crate::runtime::{
+    TypeScriptSourceResolver, shared_playback_controller, shared_player_service,
+    shared_typescript_runtime,
+};
+use stellatune_audio::playback::SwitchOptions;
 
-const ACTION_PLAYBACK_PLAY_TRACK_REF: &str = "playback.play_track_ref";
-const ACTION_PLAYBACK_ENQUEUE_TRACK_REF: &str = "playback.enqueue_track_ref";
+const ACTION_PLAYBACK_PLAY_TRACK: &str = "playback.play_track";
+const ACTION_PLAYBACK_ENQUEUE_TRACK: &str = "playback.enqueue_track";
+const ACTION_PLAYBACK_PLAY_PROVIDER_TRACK: &str = "playback.play_provider_track";
+const ACTION_PLAYBACK_ENQUEUE_PROVIDER_TRACK: &str = "playback.enqueue_provider_track";
 const ACTION_PLAYBACK_PAUSE: &str = "playback.pause";
 const ACTION_PLAYBACK_NEXT: &str = "playback.next";
 const ACTION_PLAYBACK_STOP: &str = "playback.stop";
@@ -115,43 +125,165 @@ pub(super) fn build_unknown_action_error(action: &str) -> String {
 }
 
 pub(super) async fn invoke_action_via_host(
+    plugin_id: &str,
     action: &str,
     payload: &Value,
+    config_root: &Value,
 ) -> Result<Option<Value>, (StatusCode, String)> {
-    let engine = shared_runtime_engine();
+    let player = shared_playback_controller();
     match action.trim() {
-        ACTION_PLAYBACK_PLAY_TRACK_REF | ACTION_PLAYBACK_NEXT => {
-            let token = extract_track_token(payload, action)?;
-            engine
-                .switch_track_token(token.clone(), true)
+        ACTION_PLAYBACK_PLAY_TRACK | ACTION_PLAYBACK_NEXT => {
+            let track_id = extract_track_id(payload, action)?;
+            let service = shared_player_service().ok_or_else(|| {
+                (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "player service is not initialized".to_owned(),
+                )
+            })?;
+            service
+                .switch_track(track_id, SwitchOptions::default())
                 .await
                 .map_err(internal)?;
             Ok(Some(
-                json!({ "dispatch": "host.playback", "track_token": token }),
+                json!({ "dispatch": "host.playback", "track_id": track_id.get() }),
             ))
         },
-        ACTION_PLAYBACK_ENQUEUE_TRACK_REF => {
-            let token = extract_track_token(payload, action)?;
-            engine
-                .queue_next_track_token(token.clone())
-                .await
-                .map_err(internal)?;
+        ACTION_PLAYBACK_ENQUEUE_TRACK => {
+            let track_id = extract_track_id(payload, action)?;
+            let service = shared_player_service().ok_or_else(|| {
+                (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "player service is not initialized".to_owned(),
+                )
+            })?;
+            service.queue_next(track_id).await.map_err(internal)?;
             Ok(Some(
-                json!({ "dispatch": "host.playback", "track_token": token, "queued": true }),
+                json!({ "dispatch": "host.playback", "track_id": track_id.get(), "queued": true }),
             ))
+        },
+        ACTION_PLAYBACK_PLAY_PROVIDER_TRACK | ACTION_PLAYBACK_ENQUEUE_PROVIDER_TRACK => {
+            let track_id = ensure_provider_track(plugin_id, payload, config_root).await?;
+            let service = shared_player_service().ok_or_else(|| {
+                (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "player service is not initialized".to_owned(),
+                )
+            })?;
+            if action.trim() == ACTION_PLAYBACK_PLAY_PROVIDER_TRACK {
+                service
+                    .switch_track(track_id, SwitchOptions::default())
+                    .await
+                    .map_err(internal)?;
+                Ok(Some(json!({
+                    "dispatch": "host.playback",
+                    "track_id": track_id.get(),
+                    "autoplay": true,
+                })))
+            } else {
+                service.queue_next(track_id).await.map_err(internal)?;
+                Ok(Some(json!({
+                    "dispatch": "host.playback",
+                    "track_id": track_id.get(),
+                    "queued": true,
+                })))
+            }
         },
         ACTION_PLAYBACK_PAUSE => {
-            engine.pause().await.map_err(internal)?;
+            player.pause().await.map_err(internal)?;
             Ok(Some(json!({ "dispatch": "host.playback", "paused": true })))
         },
         ACTION_PLAYBACK_STOP => {
-            engine.stop().await.map_err(internal)?;
+            player.stop().await.map_err(internal)?;
             Ok(Some(
                 json!({ "dispatch": "host.playback", "stopped": true }),
             ))
         },
         _ => Ok(None),
     }
+}
+
+async fn ensure_provider_track(
+    plugin_id: &str,
+    payload: &Value,
+    config_root: &Value,
+) -> Result<TrackId, (StatusCode, String)> {
+    let object = payload
+        .as_object()
+        .ok_or_else(|| bad_request("provider playback payload must be an object"))?;
+    let source_type_id = object
+        .get("source_type_id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| bad_request("source_type_id is required"))?;
+    let provider_id = object
+        .get("provider_id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(source_type_id);
+    let provider_key = object
+        .get("provider_track_key")
+        .ok_or_else(|| bad_request("provider_track_key is required"))?;
+    let provider_key = if let Some(value) = provider_key.as_u64() {
+        ProviderTrackKeyInput::Numeric(value)
+    } else if let Some(value) = provider_key
+        .as_str()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+    {
+        value
+            .parse::<u64>()
+            .ok()
+            .filter(|numeric| numeric.to_string() == value)
+            .map(ProviderTrackKeyInput::Numeric)
+            .unwrap_or_else(|| ProviderTrackKeyInput::Text(value.to_owned()))
+    } else {
+        return Err(bad_request(
+            "provider_track_key must be a positive integer or non-empty string",
+        ));
+    };
+    let config = find_capability_config(config_root, source_type_id)
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let resolver = Arc::new(
+        TypeScriptSourceResolver::new(
+            shared_typescript_runtime(),
+            plugin_id,
+            source_type_id,
+            config.clone(),
+        )
+        .map_err(internal)?,
+    );
+    let resolver_spec = SourceResolverSpec::new(
+        plugin_id,
+        source_type_id,
+        serde_json::to_string(&config).map_err(internal)?,
+    )
+    .map_err(internal)?;
+    let binding = ProviderId::new(format!("{plugin_id}::{source_type_id}::{provider_id}"))
+        .map_err(bad_request)?;
+    let service = shared_player_service().ok_or_else(|| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "player service is not initialized".to_owned(),
+        )
+    })?;
+    let source = service
+        .ensure_plugin_source(binding, resolver_spec, resolver)
+        .await
+        .map_err(internal)?;
+    service
+        .ensure_track(ProviderTrackIdentityInput {
+            source_instance_id: source.get(),
+            provider_key,
+        })
+        .await
+        .map_err(internal)
+}
+
+fn bad_request(message: impl ToString) -> (StatusCode, String) {
+    (StatusCode::BAD_REQUEST, message.to_string())
 }
 
 pub(super) async fn invoke_action_via_source(
@@ -227,18 +359,18 @@ fn find_capability_config<'a>(root: &'a Value, capability_id: &str) -> Option<&'
         .find_map(|group| group.get(capability_id))
 }
 
-fn extract_track_token(payload: &Value, action: &str) -> Result<String, (StatusCode, String)> {
-    payload
-        .get("track_token")
-        .or_else(|| payload.get("trackToken"))
-        .and_then(Value::as_str)
-        .map(str::to_string)
+fn extract_track_id(payload: &Value, action: &str) -> Result<TrackId, (StatusCode, String)> {
+    let raw = payload
+        .get("track_id")
+        .or_else(|| payload.get("trackId"))
+        .and_then(|value| value.as_u64().or_else(|| value.as_str()?.parse().ok()))
         .ok_or_else(|| {
             (
                 StatusCode::BAD_REQUEST,
-                format!("host action `{action}` requires track_token"),
+                format!("host action `{action}` requires track_id"),
             )
-        })
+        })?;
+    TrackId::new(raw).map_err(|error| (StatusCode::BAD_REQUEST, error.to_string()))
 }
 
 fn internal(error: impl std::fmt::Display) -> (StatusCode, String) {

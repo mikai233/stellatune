@@ -60,7 +60,7 @@ enum NativeTranscodeDecoder {
 }
 
 impl NativeTranscodeDecoder {
-    fn spec(&self) -> stellatune_audio_core::pipeline::context::StreamSpec {
+    fn spec(&self) -> stellatune_audio_core::AudioFormat {
         match self {
             Self::Builtin(decoder) => decoder.spec(),
             Self::Ncm(decoder) => decoder.spec(),

@@ -230,9 +230,6 @@ class PlaylistsPluginBridgeService {
       final decoderPluginId = PlaylistsPluginValueUtils.asText(
         map['decoder_plugin_id'],
       );
-      final decoderTypeId = PlaylistsPluginValueUtils.asText(
-        map['decoder_type_id'],
-      );
       final title =
           PlaylistsPluginValueUtils.asText(map['title']) ??
           PlaylistsPluginValueUtils.asText(track['title']);
@@ -249,21 +246,20 @@ class PlaylistsPluginBridgeService {
           PlaylistsPluginValueUtils.asCover(map['cover']) ??
           PlaylistsPluginValueUtils.asCover(track['cover']);
 
-      final trackRef = buildPluginSourceTrackRef(
-        sourceId: sourceId,
-        trackId: trackId,
-        pluginId: entry.pluginId,
-        typeId: entry.typeId,
-        config: entry.config,
-        track: track,
-        extHint: extHint,
-        pathHint: pathHint,
-        decoderPluginId: decoderPluginId,
-        decoderTypeId: decoderTypeId,
-      );
       items.add(
         QueueItem(
-          track: trackRef,
+          trackId: null,
+          path: pathHint,
+          providerTrack: ProviderQueueTrack(
+            providerId: sourceId,
+            pluginId: entry.pluginId,
+            typeId: entry.typeId,
+            configJson: jsonEncode(entry.config),
+            providerKey: trackId,
+            pathHint: pathHint.isEmpty ? '$sourceId:$trackId.$extHint' : pathHint,
+            sourcePluginId: entry.pluginId,
+            decoderPluginId: decoderPluginId,
+          ),
           title: title,
           artist: artist,
           album: album,

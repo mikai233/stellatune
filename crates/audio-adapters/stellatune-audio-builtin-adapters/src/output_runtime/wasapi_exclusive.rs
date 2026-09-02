@@ -12,6 +12,7 @@ use super::{AudioBackend, AudioDevice, OutputError, OutputSpec, SampleConsumer};
 
 pub struct WasapiExclusiveHandle {
     shutdown: Arc<AtomicBool>,
+    paused: Arc<AtomicBool>,
     thread: Option<thread::JoinHandle<()>>,
 }
 
@@ -145,15 +146,21 @@ impl WasapiExclusiveHandle {
     {
         let shutdown = Arc::new(AtomicBool::new(false));
         let thread_shutdown = Arc::clone(&shutdown);
+        let paused = Arc::new(AtomicBool::new(false));
+        let thread_paused = Arc::clone(&paused);
 
         let thread = thread::Builder::new()
             .name("stellatune-wasapi-exclusive".to_string())
             .spawn(move || {
                 #[cfg(windows)]
                 let _mmcss = super::mmcss::enable_mmcss_pro_audio();
-                if let Err(e) =
-                    run_exclusive_loop(device_id, &mut consumer, expected_spec, thread_shutdown)
-                {
+                if let Err(e) = run_exclusive_loop(
+                    device_id,
+                    &mut consumer,
+                    expected_spec,
+                    thread_shutdown,
+                    thread_paused,
+                ) {
                     on_error(e.to_string());
                 }
             })
@@ -163,12 +170,21 @@ impl WasapiExclusiveHandle {
 
         Ok(Self {
             shutdown,
+            paused,
             thread: Some(thread),
         })
     }
 
     pub fn stop(self) {
         drop(self);
+    }
+
+    pub fn pause(&self) {
+        self.paused.store(true, Ordering::Release);
+    }
+
+    pub fn resume(&self) {
+        self.paused.store(false, Ordering::Release);
     }
 }
 
@@ -177,6 +193,7 @@ fn run_exclusive_loop<C: SampleConsumer>(
     consumer: &mut C,
     expected_spec: OutputSpec,
     shutdown: Arc<AtomicBool>,
+    paused: Arc<AtomicBool>,
 ) -> Result<(), Error> {
     let _ = wasapi::initialize_mta();
 
@@ -348,7 +365,9 @@ fn run_exclusive_loop<C: SampleConsumer>(
                 RenderSampleKind::F32 => {
                     let buf = f32_buf.as_mut().expect("f32 buffer");
                     for s in &mut buf[..samples_needed] {
-                        if let Some(v) = consumer.pop_sample() {
+                        if !paused.load(Ordering::Acquire)
+                            && let Some(v) = consumer.pop_sample()
+                        {
                             *s = v;
                             provided += 1;
                         } else {
@@ -361,7 +380,9 @@ fn run_exclusive_loop<C: SampleConsumer>(
                 RenderSampleKind::I16 => {
                     let buf = i16_buf.as_mut().expect("i16 buffer");
                     for s in &mut buf[..samples_needed] {
-                        if let Some(v) = consumer.pop_sample() {
+                        if !paused.load(Ordering::Acquire)
+                            && let Some(v) = consumer.pop_sample()
+                        {
                             *s = f32_to_i16(v);
                             provided += 1;
                         } else {
@@ -374,7 +395,9 @@ fn run_exclusive_loop<C: SampleConsumer>(
                 RenderSampleKind::I32 => {
                     let buf = i32_buf.as_mut().expect("i32 buffer");
                     for s in &mut buf[..samples_needed] {
-                        if let Some(v) = consumer.pop_sample() {
+                        if !paused.load(Ordering::Acquire)
+                            && let Some(v) = consumer.pop_sample()
+                        {
                             *s = f32_to_i32(v);
                             provided += 1;
                         } else {

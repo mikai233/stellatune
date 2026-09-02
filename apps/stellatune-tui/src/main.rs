@@ -185,7 +185,7 @@ fn spawn_input_task(action_tx: UnboundedSender<Action>) {
 
 fn spawn_player_event_task(
     action_tx: UnboundedSender<Action>,
-    mut rx: tokio::sync::broadcast::Receiver<stellatune_audio::config::engine::Event>,
+    mut rx: tokio::sync::broadcast::Receiver<stellatune_audio::playback::PlaybackEvent>,
 ) {
     tokio::spawn(async move {
         loop {

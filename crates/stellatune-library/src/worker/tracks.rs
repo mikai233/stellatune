@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use sqlx::Row;
 use sqlx::SqlitePool;
 use std::path::Path;
@@ -39,14 +39,13 @@ pub(super) async fn select_track_fingerprint(
     path: &str,
 ) -> Result<Option<TrackFingerprint>> {
     let row = sqlx::query!(
-        "SELECT id, mtime_ms, size_bytes, meta_scanned_ms FROM tracks WHERE path=?1",
+        "SELECT mtime_ms, size_bytes, meta_scanned_ms FROM tracks WHERE path=?1",
         path
     )
     .fetch_optional(pool)
     .await?;
 
     let Some(r) = row else { return Ok(None) };
-    let _ = r.id.context("tracks.id is null")?;
     Ok(Some(TrackFingerprint {
         mtime_ms: r.mtime_ms,
         size_bytes: r.size_bytes,
@@ -140,8 +139,7 @@ pub(super) async fn upsert_track(pool: &SqlitePool, input: UpsertTrackInput<'_>)
 
     let id: i64 = sqlx::query_scalar!("SELECT id FROM tracks WHERE path=?1", input.path)
         .fetch_one(pool)
-        .await?
-        .context("tracks.id is null")?;
+        .await?;
     Ok(id)
 }
 

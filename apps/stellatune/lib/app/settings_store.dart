@@ -29,12 +29,6 @@ class SettingsState {
   SettingsState({
     required this.volume,
     required this.playMode,
-    required this.resumeTrack,
-    required this.resumePositionMs,
-    required this.resumeTrackId,
-    required this.resumeTitle,
-    required this.resumeArtist,
-    required this.resumeAlbum,
     required this.selectedBackend,
     required this.selectedDeviceId,
     required this.matchTrackSampleRate,
@@ -51,12 +45,6 @@ class SettingsState {
 
   final double volume;
   final PlayMode playMode;
-  final TrackRef? resumeTrack;
-  final int resumePositionMs;
-  final int? resumeTrackId;
-  final String? resumeTitle;
-  final String? resumeArtist;
-  final String? resumeAlbum;
   final AudioBackend selectedBackend;
   final String? selectedDeviceId;
   final bool matchTrackSampleRate;
@@ -83,12 +71,6 @@ class SettingsState {
   SettingsState copyWith({
     double? volume,
     PlayMode? playMode,
-    Object? resumeTrack = _unset,
-    int? resumePositionMs,
-    Object? resumeTrackId = _unset,
-    Object? resumeTitle = _unset,
-    Object? resumeArtist = _unset,
-    Object? resumeAlbum = _unset,
     AudioBackend? selectedBackend,
     Object? selectedDeviceId = _unset,
     bool? matchTrackSampleRate,
@@ -105,22 +87,6 @@ class SettingsState {
     return SettingsState(
       volume: volume ?? this.volume,
       playMode: playMode ?? this.playMode,
-      resumeTrack: identical(resumeTrack, _unset)
-          ? this.resumeTrack
-          : resumeTrack as TrackRef?,
-      resumePositionMs: resumePositionMs ?? this.resumePositionMs,
-      resumeTrackId: identical(resumeTrackId, _unset)
-          ? this.resumeTrackId
-          : resumeTrackId as int?,
-      resumeTitle: identical(resumeTitle, _unset)
-          ? this.resumeTitle
-          : resumeTitle as String?,
-      resumeArtist: identical(resumeArtist, _unset)
-          ? this.resumeArtist
-          : resumeArtist as String?,
-      resumeAlbum: identical(resumeAlbum, _unset)
-          ? this.resumeAlbum
-          : resumeAlbum as String?,
       selectedBackend: selectedBackend ?? this.selectedBackend,
       selectedDeviceId: identical(selectedDeviceId, _unset)
           ? this.selectedDeviceId
@@ -152,12 +118,6 @@ class SettingsStore implements DirectoryAccessStore {
   static const _boxName = 'settings';
   static const _keyVolume = 'volume';
   static const _keyPlayMode = 'play_mode';
-  static const _keyResumeTrackRef = 'resume_track_ref';
-  static const _keyResumePositionMs = 'resume_position_ms';
-  static const _keyResumeTrackId = 'resume_track_id';
-  static const _keyResumeTitle = 'resume_title';
-  static const _keyResumeArtist = 'resume_artist';
-  static const _keyResumeAlbum = 'resume_album';
   static const _keySelectedBackend = 'selected_backend';
   static const _keySelectedDeviceId = 'selected_device_id';
   static const _keyMatchTrackSampleRate = 'match_track_sample_rate';
@@ -183,12 +143,6 @@ class SettingsStore implements DirectoryAccessStore {
     return SettingsState(
       volume: volume,
       playMode: playMode,
-      resumeTrack: resumeTrack,
-      resumePositionMs: resumePositionMs,
-      resumeTrackId: resumeTrackId,
-      resumeTitle: resumeTitle,
-      resumeArtist: resumeArtist,
-      resumeAlbum: resumeAlbum,
       selectedBackend: selectedBackend,
       selectedDeviceId: selectedDeviceId,
       matchTrackSampleRate: matchTrackSampleRate,
@@ -223,74 +177,6 @@ class SettingsStore implements DirectoryAccessStore {
   }
 
   Future<void> setPlayMode(PlayMode mode) => _box.put(_keyPlayMode, mode.name);
-
-  TrackRef? get resumeTrack {
-    final raw = _box.get(_keyResumeTrackRef);
-    if (raw is String && raw.trim().isNotEmpty) {
-      try {
-        final decoded = jsonDecode(raw);
-        if (decoded is Map) {
-          final map = decoded.cast<String, dynamic>();
-          final sourceId = (map['sourceId'] as String?)?.trim() ?? '';
-          final trackId = (map['trackId'] as String?)?.trim() ?? '';
-          final locator = (map['locator'] as String?)?.trim() ?? '';
-          if (sourceId.isNotEmpty && trackId.isNotEmpty && locator.isNotEmpty) {
-            return TrackRef(
-              sourceId: sourceId,
-              trackId: trackId,
-              locator: locator,
-            );
-          }
-        }
-      } catch (e, s) {
-        logger.w('failed to decode resume track', error: e, stackTrace: s);
-      }
-    }
-    return null;
-  }
-
-  int get resumePositionMs {
-    final v = _box.get(_keyResumePositionMs, defaultValue: 0);
-    if (v is int) return v;
-    if (v is num) return v.toInt();
-    return 0;
-  }
-
-  int? get resumeTrackId => _box.get(_keyResumeTrackId);
-  String? get resumeTitle => _box.get(_keyResumeTitle);
-  String? get resumeArtist => _box.get(_keyResumeArtist);
-  String? get resumeAlbum => _box.get(_keyResumeAlbum);
-  Future<void> setResume({
-    required TrackRef track,
-    required int positionMs,
-    int? trackId,
-    String? title,
-    String? artist,
-    String? album,
-  }) async {
-    await _box.put(
-      _keyResumeTrackRef,
-      jsonEncode(<String, String>{
-        'sourceId': track.sourceId,
-        'trackId': track.trackId,
-        'locator': track.locator,
-      }),
-    );
-    await _box.put(_keyResumePositionMs, positionMs);
-    await _box.put(_keyResumeTrackId, trackId);
-    await _box.put(_keyResumeTitle, title);
-    await _box.put(_keyResumeArtist, artist);
-    await _box.put(_keyResumeAlbum, album);
-  }
-
-  Future<void> clearResume() async {
-    await _box.delete(_keyResumeTrackRef);
-    await _box.delete(_keyResumePositionMs);
-    await _box.delete(_keyResumeTrackId);
-    await _box.delete(_keyResumeTitle);
-    await _box.delete(_keyResumeArtist);
-    await _box.delete(_keyResumeAlbum);
-  }
 
   AudioBackend get selectedBackend {
     final raw = _box.get(_keySelectedBackend);
@@ -576,28 +462,6 @@ class SettingsController extends Notifier<SettingsState> {
 
   Future<void> setPlayMode(PlayMode mode) =>
       _persist((store) => store.setPlayMode(mode));
-
-  Future<void> setResume({
-    required TrackRef track,
-    required int positionMs,
-    int? trackId,
-    String? title,
-    String? artist,
-    String? album,
-  }) {
-    return _persist(
-      (store) => store.setResume(
-        track: track,
-        positionMs: positionMs,
-        trackId: trackId,
-        title: title,
-        artist: artist,
-        album: album,
-      ),
-    );
-  }
-
-  Future<void> clearResume() => _persist((store) => store.clearResume());
 
   Future<void> setSelectedBackend(AudioBackend backend) =>
       _persist((store) => store.setSelectedBackend(backend));

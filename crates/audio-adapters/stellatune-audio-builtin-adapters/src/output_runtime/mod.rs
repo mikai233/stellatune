@@ -42,6 +42,9 @@ pub enum OutputError {
     #[error("failed to play output stream: {0}")]
     PlayStream(cpal::Error),
 
+    #[error("failed to pause output stream: {0}")]
+    PauseStream(cpal::Error),
+
     #[error("output device config mismatch: {message}")]
     ConfigMismatch { message: String },
 
@@ -385,6 +388,28 @@ impl OutputHandle {
             Self::Exclusive(_) => OutputSpec {
                 sample_rate: 0, // Not easily available without storing it
                 channels: 2,
+            },
+        }
+    }
+
+    pub fn pause(&self) -> Result<(), OutputError> {
+        match self {
+            Self::Shared { _stream, .. } => _stream.pause().map_err(OutputError::PauseStream),
+            #[cfg(windows)]
+            Self::Exclusive(handle) => {
+                handle.pause();
+                Ok(())
+            },
+        }
+    }
+
+    pub fn resume(&self) -> Result<(), OutputError> {
+        match self {
+            Self::Shared { _stream, .. } => _stream.play().map_err(OutputError::PlayStream),
+            #[cfg(windows)]
+            Self::Exclusive(handle) => {
+                handle.resume();
+                Ok(())
             },
         }
     }

@@ -141,13 +141,13 @@ return log(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function( PlayerState state)?  stateChanged,TResult Function( PlatformInt64 ms,  String path,  BigInt sessionId)?  position,TResult Function( String path)?  trackChanged,TResult Function( String path)?  playbackEnded,TResult Function( double volume,  BigInt seq)?  volumeChanged,TResult Function()?  audioStart,TResult Function()?  audioEnd,TResult Function( String message)?  error,TResult Function( String message)?  log,required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function( PlayerState state)?  stateChanged,TResult Function( PlatformInt64 ms,  BigInt trackId,  BigInt itemId,  BigInt sessionId)?  position,TResult Function( BigInt trackId,  BigInt itemId)?  trackChanged,TResult Function( BigInt trackId,  BigInt itemId)?  playbackEnded,TResult Function( double volume,  BigInt seq)?  volumeChanged,TResult Function()?  audioStart,TResult Function()?  audioEnd,TResult Function( String message)?  error,TResult Function( String message)?  log,required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case Event_StateChanged() when stateChanged != null:
 return stateChanged(_that.state);case Event_Position() when position != null:
-return position(_that.ms,_that.path,_that.sessionId);case Event_TrackChanged() when trackChanged != null:
-return trackChanged(_that.path);case Event_PlaybackEnded() when playbackEnded != null:
-return playbackEnded(_that.path);case Event_VolumeChanged() when volumeChanged != null:
+return position(_that.ms,_that.trackId,_that.itemId,_that.sessionId);case Event_TrackChanged() when trackChanged != null:
+return trackChanged(_that.trackId,_that.itemId);case Event_PlaybackEnded() when playbackEnded != null:
+return playbackEnded(_that.trackId,_that.itemId);case Event_VolumeChanged() when volumeChanged != null:
 return volumeChanged(_that.volume,_that.seq);case Event_AudioStart() when audioStart != null:
 return audioStart();case Event_AudioEnd() when audioEnd != null:
 return audioEnd();case Event_Error() when error != null:
@@ -170,13 +170,13 @@ return log(_that.message);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function( PlayerState state)  stateChanged,required TResult Function( PlatformInt64 ms,  String path,  BigInt sessionId)  position,required TResult Function( String path)  trackChanged,required TResult Function( String path)  playbackEnded,required TResult Function( double volume,  BigInt seq)  volumeChanged,required TResult Function()  audioStart,required TResult Function()  audioEnd,required TResult Function( String message)  error,required TResult Function( String message)  log,}) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function( PlayerState state)  stateChanged,required TResult Function( PlatformInt64 ms,  BigInt trackId,  BigInt itemId,  BigInt sessionId)  position,required TResult Function( BigInt trackId,  BigInt itemId)  trackChanged,required TResult Function( BigInt trackId,  BigInt itemId)  playbackEnded,required TResult Function( double volume,  BigInt seq)  volumeChanged,required TResult Function()  audioStart,required TResult Function()  audioEnd,required TResult Function( String message)  error,required TResult Function( String message)  log,}) {final _that = this;
 switch (_that) {
 case Event_StateChanged():
 return stateChanged(_that.state);case Event_Position():
-return position(_that.ms,_that.path,_that.sessionId);case Event_TrackChanged():
-return trackChanged(_that.path);case Event_PlaybackEnded():
-return playbackEnded(_that.path);case Event_VolumeChanged():
+return position(_that.ms,_that.trackId,_that.itemId,_that.sessionId);case Event_TrackChanged():
+return trackChanged(_that.trackId,_that.itemId);case Event_PlaybackEnded():
+return playbackEnded(_that.trackId,_that.itemId);case Event_VolumeChanged():
 return volumeChanged(_that.volume,_that.seq);case Event_AudioStart():
 return audioStart();case Event_AudioEnd():
 return audioEnd();case Event_Error():
@@ -195,13 +195,13 @@ return log(_that.message);}
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function( PlayerState state)?  stateChanged,TResult? Function( PlatformInt64 ms,  String path,  BigInt sessionId)?  position,TResult? Function( String path)?  trackChanged,TResult? Function( String path)?  playbackEnded,TResult? Function( double volume,  BigInt seq)?  volumeChanged,TResult? Function()?  audioStart,TResult? Function()?  audioEnd,TResult? Function( String message)?  error,TResult? Function( String message)?  log,}) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function( PlayerState state)?  stateChanged,TResult? Function( PlatformInt64 ms,  BigInt trackId,  BigInt itemId,  BigInt sessionId)?  position,TResult? Function( BigInt trackId,  BigInt itemId)?  trackChanged,TResult? Function( BigInt trackId,  BigInt itemId)?  playbackEnded,TResult? Function( double volume,  BigInt seq)?  volumeChanged,TResult? Function()?  audioStart,TResult? Function()?  audioEnd,TResult? Function( String message)?  error,TResult? Function( String message)?  log,}) {final _that = this;
 switch (_that) {
 case Event_StateChanged() when stateChanged != null:
 return stateChanged(_that.state);case Event_Position() when position != null:
-return position(_that.ms,_that.path,_that.sessionId);case Event_TrackChanged() when trackChanged != null:
-return trackChanged(_that.path);case Event_PlaybackEnded() when playbackEnded != null:
-return playbackEnded(_that.path);case Event_VolumeChanged() when volumeChanged != null:
+return position(_that.ms,_that.trackId,_that.itemId,_that.sessionId);case Event_TrackChanged() when trackChanged != null:
+return trackChanged(_that.trackId,_that.itemId);case Event_PlaybackEnded() when playbackEnded != null:
+return playbackEnded(_that.trackId,_that.itemId);case Event_VolumeChanged() when volumeChanged != null:
 return volumeChanged(_that.volume,_that.seq);case Event_AudioStart() when audioStart != null:
 return audioStart();case Event_AudioEnd() when audioEnd != null:
 return audioEnd();case Event_Error() when error != null:
@@ -286,11 +286,12 @@ as PlayerState,
 
 
 class Event_Position extends Event {
-  const Event_Position({required this.ms, required this.path, required this.sessionId}): super._();
+  const Event_Position({required this.ms, required this.trackId, required this.itemId, required this.sessionId}): super._();
   
 
  final  PlatformInt64 ms;
- final  String path;
+ final  BigInt trackId;
+ final  BigInt itemId;
  final  BigInt sessionId;
 
 /// Create a copy of Event
@@ -303,18 +304,18 @@ $Event_PositionCopyWith<Event_Position> get copyWith => _$Event_PositionCopyWith
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is Event_Position&&(identical(other.ms, ms) || other.ms == ms)&&(identical(other.path, path) || other.path == path)&&(identical(other.sessionId, sessionId) || other.sessionId == sessionId));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is Event_Position&&(identical(other.ms, ms) || other.ms == ms)&&(identical(other.trackId, trackId) || other.trackId == trackId)&&(identical(other.itemId, itemId) || other.itemId == itemId)&&(identical(other.sessionId, sessionId) || other.sessionId == sessionId));
 }
 
 
 @override
 int get hashCode {
-    return Object.hash(runtimeType,ms,path,sessionId);
+    return Object.hash(runtimeType,ms,trackId,itemId,sessionId);
 }
 
 @override
 String toString() {
-    return 'Event.position(ms: $ms, path: $path, sessionId: $sessionId)';
+    return 'Event.position(ms: $ms, trackId: $trackId, itemId: $itemId, sessionId: $sessionId)';
 }
 
 
@@ -325,7 +326,7 @@ abstract mixin class $Event_PositionCopyWith<$Res> implements $EventCopyWith<$Re
   factory $Event_PositionCopyWith(Event_Position value, $Res Function(Event_Position) _then) = _$Event_PositionCopyWithImpl;
 @useResult
 $Res call({
- PlatformInt64 ms, String path, BigInt sessionId
+ PlatformInt64 ms, BigInt trackId, BigInt itemId, BigInt sessionId
 });
 
 
@@ -342,11 +343,12 @@ class _$Event_PositionCopyWithImpl<$Res>
 
 /// Create a copy of Event
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') $Res call({Object? ms = null,Object? path = null,Object? sessionId = null,}) {
+@pragma('vm:prefer-inline') $Res call({Object? ms = null,Object? trackId = null,Object? itemId = null,Object? sessionId = null,}) {
   return _then(Event_Position(
 ms: null == ms ? _self.ms : ms // ignore: cast_nullable_to_non_nullable
-as PlatformInt64,path: null == path ? _self.path : path // ignore: cast_nullable_to_non_nullable
-as String,sessionId: null == sessionId ? _self.sessionId : sessionId // ignore: cast_nullable_to_non_nullable
+as PlatformInt64,trackId: null == trackId ? _self.trackId : trackId // ignore: cast_nullable_to_non_nullable
+as BigInt,itemId: null == itemId ? _self.itemId : itemId // ignore: cast_nullable_to_non_nullable
+as BigInt,sessionId: null == sessionId ? _self.sessionId : sessionId // ignore: cast_nullable_to_non_nullable
 as BigInt,
   ));
 }
@@ -358,10 +360,11 @@ as BigInt,
 
 
 class Event_TrackChanged extends Event {
-  const Event_TrackChanged({required this.path}): super._();
+  const Event_TrackChanged({required this.trackId, required this.itemId}): super._();
   
 
- final  String path;
+ final  BigInt trackId;
+ final  BigInt itemId;
 
 /// Create a copy of Event
 /// with the given fields replaced by the non-null parameter values.
@@ -373,18 +376,18 @@ $Event_TrackChangedCopyWith<Event_TrackChanged> get copyWith => _$Event_TrackCha
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is Event_TrackChanged&&(identical(other.path, path) || other.path == path));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is Event_TrackChanged&&(identical(other.trackId, trackId) || other.trackId == trackId)&&(identical(other.itemId, itemId) || other.itemId == itemId));
 }
 
 
 @override
 int get hashCode {
-    return Object.hash(runtimeType,path);
+    return Object.hash(runtimeType,trackId,itemId);
 }
 
 @override
 String toString() {
-    return 'Event.trackChanged(path: $path)';
+    return 'Event.trackChanged(trackId: $trackId, itemId: $itemId)';
 }
 
 
@@ -395,7 +398,7 @@ abstract mixin class $Event_TrackChangedCopyWith<$Res> implements $EventCopyWith
   factory $Event_TrackChangedCopyWith(Event_TrackChanged value, $Res Function(Event_TrackChanged) _then) = _$Event_TrackChangedCopyWithImpl;
 @useResult
 $Res call({
- String path
+ BigInt trackId, BigInt itemId
 });
 
 
@@ -412,10 +415,11 @@ class _$Event_TrackChangedCopyWithImpl<$Res>
 
 /// Create a copy of Event
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') $Res call({Object? path = null,}) {
+@pragma('vm:prefer-inline') $Res call({Object? trackId = null,Object? itemId = null,}) {
   return _then(Event_TrackChanged(
-path: null == path ? _self.path : path // ignore: cast_nullable_to_non_nullable
-as String,
+trackId: null == trackId ? _self.trackId : trackId // ignore: cast_nullable_to_non_nullable
+as BigInt,itemId: null == itemId ? _self.itemId : itemId // ignore: cast_nullable_to_non_nullable
+as BigInt,
   ));
 }
 
@@ -426,10 +430,11 @@ as String,
 
 
 class Event_PlaybackEnded extends Event {
-  const Event_PlaybackEnded({required this.path}): super._();
+  const Event_PlaybackEnded({required this.trackId, required this.itemId}): super._();
   
 
- final  String path;
+ final  BigInt trackId;
+ final  BigInt itemId;
 
 /// Create a copy of Event
 /// with the given fields replaced by the non-null parameter values.
@@ -441,18 +446,18 @@ $Event_PlaybackEndedCopyWith<Event_PlaybackEnded> get copyWith => _$Event_Playba
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is Event_PlaybackEnded&&(identical(other.path, path) || other.path == path));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is Event_PlaybackEnded&&(identical(other.trackId, trackId) || other.trackId == trackId)&&(identical(other.itemId, itemId) || other.itemId == itemId));
 }
 
 
 @override
 int get hashCode {
-    return Object.hash(runtimeType,path);
+    return Object.hash(runtimeType,trackId,itemId);
 }
 
 @override
 String toString() {
-    return 'Event.playbackEnded(path: $path)';
+    return 'Event.playbackEnded(trackId: $trackId, itemId: $itemId)';
 }
 
 
@@ -463,7 +468,7 @@ abstract mixin class $Event_PlaybackEndedCopyWith<$Res> implements $EventCopyWit
   factory $Event_PlaybackEndedCopyWith(Event_PlaybackEnded value, $Res Function(Event_PlaybackEnded) _then) = _$Event_PlaybackEndedCopyWithImpl;
 @useResult
 $Res call({
- String path
+ BigInt trackId, BigInt itemId
 });
 
 
@@ -480,10 +485,11 @@ class _$Event_PlaybackEndedCopyWithImpl<$Res>
 
 /// Create a copy of Event
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') $Res call({Object? path = null,}) {
+@pragma('vm:prefer-inline') $Res call({Object? trackId = null,Object? itemId = null,}) {
   return _then(Event_PlaybackEnded(
-path: null == path ? _self.path : path // ignore: cast_nullable_to_non_nullable
-as String,
+trackId: null == trackId ? _self.trackId : trackId // ignore: cast_nullable_to_non_nullable
+as BigInt,itemId: null == itemId ? _self.itemId : itemId // ignore: cast_nullable_to_non_nullable
+as BigInt,
   ));
 }
 

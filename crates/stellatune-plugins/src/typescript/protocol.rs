@@ -67,6 +67,8 @@ pub struct SourceMediaDto {
 pub struct SourceCapabilitiesDto {
     pub seekable: bool,
     #[serde(default)]
+    pub live: bool,
+    #[serde(default)]
     pub duration_ms: Option<u64>,
 }
 

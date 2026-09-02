@@ -83,9 +83,6 @@ abstract class StellatuneApiApiImplPlatform
   TrackDecodeInfo dco_decode_box_autoadd_track_decode_info(dynamic raw);
 
   @protected
-  TrackRef dco_decode_box_autoadd_track_ref(dynamic raw);
-
-  @protected
   TranscodeTrackLocalRequest
   dco_decode_box_autoadd_transcode_track_local_request(dynamic raw);
 
@@ -244,6 +241,9 @@ abstract class StellatuneApiApiImplPlatform
   OutputSinkTypeDescriptor dco_decode_output_sink_type_descriptor(dynamic raw);
 
   @protected
+  PlaybackSnapshot dco_decode_playback_snapshot(dynamic raw);
+
+  @protected
   PlayerState dco_decode_player_state(dynamic raw);
 
   @protected
@@ -265,9 +265,6 @@ abstract class StellatuneApiApiImplPlatform
 
   @protected
   TrackLite dco_decode_track_lite(dynamic raw);
-
-  @protected
-  TrackRef dco_decode_track_ref(dynamic raw);
 
   @protected
   TranscodeProgressEvent dco_decode_transcode_progress_event(dynamic raw);
@@ -351,9 +348,6 @@ abstract class StellatuneApiApiImplPlatform
   TrackDecodeInfo sse_decode_box_autoadd_track_decode_info(
     SseDeserializer deserializer,
   );
-
-  @protected
-  TrackRef sse_decode_box_autoadd_track_ref(SseDeserializer deserializer);
 
   @protected
   TranscodeTrackLocalRequest
@@ -542,6 +536,9 @@ abstract class StellatuneApiApiImplPlatform
   );
 
   @protected
+  PlaybackSnapshot sse_decode_playback_snapshot(SseDeserializer deserializer);
+
+  @protected
   PlayerState sse_decode_player_state(SseDeserializer deserializer);
 
   @protected
@@ -563,9 +560,6 @@ abstract class StellatuneApiApiImplPlatform
 
   @protected
   TrackLite sse_decode_track_lite(SseDeserializer deserializer);
-
-  @protected
-  TrackRef sse_decode_track_ref(SseDeserializer deserializer);
 
   @protected
   TranscodeProgressEvent sse_decode_transcode_progress_event(
@@ -667,12 +661,6 @@ abstract class StellatuneApiApiImplPlatform
   @protected
   void sse_encode_box_autoadd_track_decode_info(
     TrackDecodeInfo self,
-    SseSerializer serializer,
-  );
-
-  @protected
-  void sse_encode_box_autoadd_track_ref(
-    TrackRef self,
     SseSerializer serializer,
   );
 
@@ -911,6 +899,12 @@ abstract class StellatuneApiApiImplPlatform
   );
 
   @protected
+  void sse_encode_playback_snapshot(
+    PlaybackSnapshot self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_player_state(PlayerState self, SseSerializer serializer);
 
   @protected
@@ -942,9 +936,6 @@ abstract class StellatuneApiApiImplPlatform
 
   @protected
   void sse_encode_track_lite(TrackLite self, SseSerializer serializer);
-
-  @protected
-  void sse_encode_track_ref(TrackRef self, SseSerializer serializer);
 
   @protected
   void sse_encode_transcode_progress_event(

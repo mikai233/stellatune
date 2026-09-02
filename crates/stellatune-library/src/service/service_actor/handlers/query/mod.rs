@@ -1,3 +1,4 @@
+mod get_track;
 mod list_excluded_folders;
 mod list_folders;
 mod list_liked_track_ids;
@@ -7,6 +8,7 @@ mod list_roots;
 mod list_tracks;
 mod search_tracks;
 
+pub(crate) use get_track::GetTrackMessage;
 pub(crate) use list_excluded_folders::ListExcludedFoldersMessage;
 pub(crate) use list_folders::ListFoldersMessage;
 pub(crate) use list_liked_track_ids::ListLikedTrackIdsMessage;

@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use lattice_actor::context::{ActorContext, HandlerContext};
@@ -13,7 +14,7 @@ use lattice_actor::state_machine::Stateless;
 use lattice_actor::traits::{Actor, Responder, StopReason};
 use thiserror::Error;
 
-use stellatune_audio::engine::EngineHandle;
+use stellatune_audio::playback::{PlaybackController, PlaybackState};
 use stellatune_plugins::typescript::TypeScriptRuntime;
 use stellatune_plugins::typescript::package::{
     InstalledTypeScriptPlugin, discover_typescript_plugins, install_typescript_artifact,
@@ -63,7 +64,8 @@ struct UninstallPlugin {
 }
 
 struct PluginManagerActor {
-    engine: Arc<EngineHandle>,
+    player: PlaybackController,
+    resume_after_change: AtomicBool,
     runtime: Arc<TypeScriptRuntime>,
     plugins_dir: PathBuf,
 }
@@ -229,25 +231,53 @@ impl PluginManagerActor {
         &self,
         operation: &'static str,
     ) -> Result<(), PluginManagerOperationError> {
-        self.engine
-            .suspend_for_plugin_change()
+        let snapshot = self
+            .player
+            .snapshot()
             .await
-            .map(|_| ())
-            .map_err(|error| manager_error(operation, error.to_string()))
+            .map_err(|error| manager_error(operation, error.to_string()))?;
+        let should_resume = snapshot.state == PlaybackState::Playing;
+        self.resume_after_change
+            .store(should_resume, Ordering::Release);
+        if should_resume {
+            self.player
+                .pause()
+                .await
+                .map_err(|error| manager_error(operation, error.to_string()))?;
+        }
+        Ok(())
     }
 
     async fn finish_change(
         &self,
         operation: &'static str,
     ) -> Result<(), PluginManagerOperationError> {
-        self.engine
-            .complete_plugin_change()
+        if self
+            .player
+            .snapshot()
             .await
-            .map_err(|error| manager_error(operation, error.to_string()))
+            .ok()
+            .and_then(|snapshot| snapshot.current_item_id)
+            .is_some()
+        {
+            self.player
+                .rebuild_output()
+                .await
+                .map_err(|error| manager_error(operation, error.to_string()))?;
+        }
+        if self.resume_after_change.swap(false, Ordering::AcqRel) {
+            self.player
+                .play()
+                .await
+                .map_err(|error| manager_error(operation, error.to_string()))?;
+        }
+        Ok(())
     }
 
     async fn abort_change(&self) {
-        let _ = self.engine.abort_plugin_change().await;
+        if self.resume_after_change.swap(false, Ordering::AcqRel) {
+            let _ = self.player.play().await;
+        }
     }
 
     async fn install(
@@ -353,14 +383,15 @@ pub struct PluginManagerHandle {
 
 impl PluginManagerHandle {
     pub fn spawn(
-        engine: Arc<EngineHandle>,
+        player: PlaybackController,
         runtime: Arc<TypeScriptRuntime>,
         plugins_dir: impl Into<PathBuf>,
     ) -> Self {
         Self {
             actor: spawn_actor(
                 PluginManagerActor {
-                    engine,
+                    player,
+                    resume_after_change: AtomicBool::new(false),
                     runtime,
                     plugins_dir: plugins_dir.into(),
                 },
@@ -465,11 +496,10 @@ mod tests {
     use std::sync::Arc;
 
     use serde_json::json;
-    use stellatune_audio::engine::start_engine;
     use stellatune_plugins::typescript::TypeScriptRuntime;
 
     use super::PluginManagerHandle;
-    use crate::runtime::pipeline::BackendAssembler;
+    use crate::runtime::shared_playback_controller;
 
     fn repository_root() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -484,12 +514,11 @@ mod tests {
         let root = repository_root();
         let fixture = root.join("tools/typescript-plugin-runtime/fixtures");
         let plugins = tempfile::tempdir().unwrap();
-        let engine = Arc::new(start_engine(Arc::new(BackendAssembler::default())).unwrap());
+        let player = shared_playback_controller();
         let runtime = Arc::new(TypeScriptRuntime::new(
             root.join("tools/typescript-plugin-runtime/runner.mjs"),
         ));
-        let manager =
-            PluginManagerHandle::spawn(Arc::clone(&engine), Arc::clone(&runtime), plugins.path());
+        let manager = PluginManagerHandle::spawn(player, Arc::clone(&runtime), plugins.path());
 
         let installed = manager.install(&fixture).await.unwrap();
         assert_eq!(installed.id, "dev.stellatune.fixture.http-source");
@@ -562,6 +591,5 @@ mod tests {
         );
 
         manager.stop().unwrap();
-        engine.shutdown().await.unwrap();
     }
 }

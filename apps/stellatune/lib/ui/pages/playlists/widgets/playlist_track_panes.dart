@@ -288,7 +288,9 @@ class _PluginPlaylistTracksPaneState extends State<PluginPlaylistTracksPane> {
                           final trackKey = item.stableTrackKey;
                           final title = item.title?.trim().isNotEmpty == true
                               ? item.title!.trim()
-                              : item.track.trackId;
+                              : item.providerTrack?.providerKey ??
+                                    item.trackId?.toString() ??
+                                    item.path;
                           final artist = item.artist?.trim() ?? '';
                           final album = item.album?.trim() ?? '';
                           final subtitle = artist.isEmpty
