@@ -5,15 +5,16 @@ use axum::http::StatusCode;
 use serde_json::{Map, Value, json};
 use stellatune_plugins::typescript::manifest::TypeScriptCapabilityKind;
 
-use crate::player_service::{
-    ProviderId, ProviderTrackIdentityInput, ProviderTrackKeyInput, SourceResolverSpec, TrackId,
+use crate::player_service::identity::{
+    ProviderId, ProviderTrackIdentityInput, ProviderTrackKeyInput, TrackId,
 };
+use crate::player_service::source::SourceResolverSpec;
 use crate::plugin_ui_gateway::model::{ConfigApplyOutcome, ConfigApplyReport};
 use crate::runtime::{
     TypeScriptSourceResolver, shared_playback_controller, shared_player_service,
     shared_typescript_runtime,
 };
-use stellatune_audio::playback::SwitchOptions;
+use stellatune_audio::playback::control::SwitchOptions;
 
 const ACTION_PLAYBACK_PLAY_TRACK: &str = "playback.play_track";
 const ACTION_PLAYBACK_ENQUEUE_TRACK: &str = "playback.enqueue_track";

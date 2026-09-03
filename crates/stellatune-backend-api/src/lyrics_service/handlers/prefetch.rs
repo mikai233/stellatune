@@ -3,7 +3,7 @@ use lattice_actor::{
     context::HandlerContext, error::ActorError, reply::ReplyTo, traits::Responder,
 };
 
-use crate::{LyricsQuery, lyrics_service::LyricsServiceActor};
+use crate::{LyricsQuery, lyrics_service::actor::LyricsServiceActor};
 
 #[derive(lattice_actor::Request)]
 #[request(response = Result<()>)]

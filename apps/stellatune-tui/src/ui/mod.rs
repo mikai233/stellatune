@@ -3,6 +3,7 @@ use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, Clear, Gauge, Paragraph, Wrap};
 use ratatui::{Frame, prelude::Rect};
+use stellatune_audio::playback::event::PlaybackState;
 use stellatune_library::TrackLite;
 
 use crate::app::App;
@@ -621,27 +622,25 @@ fn pretty_track_name(track_display: &str) -> String {
 
 fn playback_state_badge(state: &AppState) -> (&'static str, Color) {
     match state.playback.player_state {
-        stellatune_audio::playback::PlaybackState::Playing => ("PLAY", Color::Green),
-        stellatune_audio::playback::PlaybackState::Paused
-        | stellatune_audio::playback::PlaybackState::Ready => ("PAUSE", Color::Yellow),
-        stellatune_audio::playback::PlaybackState::Preparing
-        | stellatune_audio::playback::PlaybackState::Recovering
-        | stellatune_audio::playback::PlaybackState::Buffering => ("WAIT", Color::Cyan),
-        stellatune_audio::playback::PlaybackState::Failed => ("FAIL", Color::Red),
-        stellatune_audio::playback::PlaybackState::Idle => ("STOP", Color::DarkGray),
+        PlaybackState::Playing => ("PLAY", Color::Green),
+        PlaybackState::Paused | PlaybackState::Ready => ("PAUSE", Color::Yellow),
+        PlaybackState::Preparing | PlaybackState::Recovering | PlaybackState::Buffering => {
+            ("WAIT", Color::Cyan)
+        },
+        PlaybackState::Failed => ("FAIL", Color::Red),
+        PlaybackState::Idle => ("STOP", Color::DarkGray),
     }
 }
 
 fn playback_state_color(state: &AppState) -> Color {
     match state.playback.player_state {
-        stellatune_audio::playback::PlaybackState::Playing => Color::Cyan,
-        stellatune_audio::playback::PlaybackState::Paused
-        | stellatune_audio::playback::PlaybackState::Ready => Color::Yellow,
-        stellatune_audio::playback::PlaybackState::Preparing
-        | stellatune_audio::playback::PlaybackState::Recovering
-        | stellatune_audio::playback::PlaybackState::Buffering => Color::Blue,
-        stellatune_audio::playback::PlaybackState::Failed => Color::Red,
-        stellatune_audio::playback::PlaybackState::Idle => Color::DarkGray,
+        PlaybackState::Playing => Color::Cyan,
+        PlaybackState::Paused | PlaybackState::Ready => Color::Yellow,
+        PlaybackState::Preparing | PlaybackState::Recovering | PlaybackState::Buffering => {
+            Color::Blue
+        },
+        PlaybackState::Failed => Color::Red,
+        PlaybackState::Idle => Color::DarkGray,
     }
 }
 

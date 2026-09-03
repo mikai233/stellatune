@@ -39,7 +39,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.13.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 1697685864;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 304840463;
 
 // Section: executor
 
@@ -3793,7 +3793,7 @@ fn wire__crate__api__player__switch_track_impl(
         },
     )
 }
-fn wire__crate__api__player__transcode_cancel_impl(
+fn wire__crate__api__player__transcode__transcode_cancel_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
     rust_vec_len_: i32,
@@ -3820,7 +3820,8 @@ fn wire__crate__api__player__transcode_cancel_impl(
             move |context| {
                 transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
                     (move || {
-                        let output_ok = crate::api::player::transcode_cancel(api_task_id)?;
+                        let output_ok =
+                            crate::api::player::transcode::transcode_cancel(api_task_id)?;
                         std::result::Result::Ok(output_ok)
                     })(),
                 )
@@ -3828,7 +3829,7 @@ fn wire__crate__api__player__transcode_cancel_impl(
         },
     )
 }
-fn wire__crate__api__player__transcode_track_local_impl(
+fn wire__crate__api__player__transcode__transcode_track_local_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
     rust_vec_len_: i32,
@@ -3851,7 +3852,9 @@ fn wire__crate__api__player__transcode_track_local_impl(
             let mut deserializer =
                 flutter_rust_bridge::for_generated::SseDeserializer::new(message);
             let api_request =
-                <crate::api::player::TranscodeTrackLocalRequest>::sse_decode(&mut deserializer);
+                <crate::api::player::transcode::TranscodeTrackLocalRequest>::sse_decode(
+                    &mut deserializer,
+                );
             let api_sink = <StreamSink<
                 crate::api::player::types::TranscodeProgressEvent,
                 flutter_rust_bridge::for_generated::SseCodec,
@@ -3860,8 +3863,10 @@ fn wire__crate__api__player__transcode_track_local_impl(
             move |context| {
                 transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
                     (move || {
-                        let output_ok =
-                            crate::api::player::transcode_track_local(api_request, api_sink)?;
+                        let output_ok = crate::api::player::transcode::transcode_track_local(
+                            api_request,
+                            api_sink,
+                        )?;
                         std::result::Result::Ok(output_ok)
                     })(),
                 )
@@ -4999,7 +5004,7 @@ impl SseDecode for crate::api::player::types::TranscodeProgressEvent {
     }
 }
 
-impl SseDecode for crate::api::player::TranscodeTrackLocalRequest {
+impl SseDecode for crate::api::player::transcode::TranscodeTrackLocalRequest {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut var_taskId = <String>::sse_decode(deserializer);
@@ -5009,7 +5014,7 @@ impl SseDecode for crate::api::player::TranscodeTrackLocalRequest {
         let mut var_encoderTypeId = <String>::sse_decode(deserializer);
         let mut var_encoderConfigJson = <String>::sse_decode(deserializer);
         let mut var_encoderOptionsJson = <Option<String>>::sse_decode(deserializer);
-        return crate::api::player::TranscodeTrackLocalRequest {
+        return crate::api::player::transcode::TranscodeTrackLocalRequest {
             task_id: var_taskId,
             source_path: var_sourcePath,
             output_path: var_outputPath,
@@ -5417,10 +5422,18 @@ fn pde_ffi_dispatcher_primary_impl(
         96 => wire__crate__api__player__source_list_types_impl(port, ptr, rust_vec_len, data_len),
         97 => wire__crate__api__player__stop_impl(port, ptr, rust_vec_len, data_len),
         98 => wire__crate__api__player__switch_track_impl(port, ptr, rust_vec_len, data_len),
-        99 => wire__crate__api__player__transcode_cancel_impl(port, ptr, rust_vec_len, data_len),
-        100 => {
-            wire__crate__api__player__transcode_track_local_impl(port, ptr, rust_vec_len, data_len)
-        },
+        99 => wire__crate__api__player__transcode__transcode_cancel_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        100 => wire__crate__api__player__transcode__transcode_track_local_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
         _ => unreachable!(),
     }
 }
@@ -6256,7 +6269,7 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::player::types::TranscodeProgr
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
-impl flutter_rust_bridge::IntoDart for crate::api::player::TranscodeTrackLocalRequest {
+impl flutter_rust_bridge::IntoDart for crate::api::player::transcode::TranscodeTrackLocalRequest {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
             self.task_id.into_into_dart().into_dart(),
@@ -6271,13 +6284,13 @@ impl flutter_rust_bridge::IntoDart for crate::api::player::TranscodeTrackLocalRe
     }
 }
 impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
-    for crate::api::player::TranscodeTrackLocalRequest
+    for crate::api::player::transcode::TranscodeTrackLocalRequest
 {
 }
-impl flutter_rust_bridge::IntoIntoDart<crate::api::player::TranscodeTrackLocalRequest>
-    for crate::api::player::TranscodeTrackLocalRequest
+impl flutter_rust_bridge::IntoIntoDart<crate::api::player::transcode::TranscodeTrackLocalRequest>
+    for crate::api::player::transcode::TranscodeTrackLocalRequest
 {
-    fn into_into_dart(self) -> crate::api::player::TranscodeTrackLocalRequest {
+    fn into_into_dart(self) -> crate::api::player::transcode::TranscodeTrackLocalRequest {
         self
     }
 }
@@ -7055,7 +7068,7 @@ impl SseEncode for crate::api::player::types::TranscodeProgressEvent {
     }
 }
 
-impl SseEncode for crate::api::player::TranscodeTrackLocalRequest {
+impl SseEncode for crate::api::player::transcode::TranscodeTrackLocalRequest {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <String>::sse_encode(self.task_id, serializer);

@@ -48,6 +48,9 @@ jobs:
       - name: Rustfmt Check
         run: cargo fmt --all -- --check
 
+      - name: Rust source file LOC check
+        run: cargo run -p stellatune-xtask -- check-loc
+
       - name: Clippy Check
         run: cargo clippy --workspace --all-targets -- -D warnings
 

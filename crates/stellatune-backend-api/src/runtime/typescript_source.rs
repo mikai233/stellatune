@@ -5,9 +5,12 @@ use serde_json::{Map, Value};
 use stellatune_plugins::typescript::TypeScriptRuntime;
 use stellatune_plugins::typescript::protocol::{SourceLocatorDto, SourcePlanDto};
 
-use crate::player_service::{
-    MediaHintsInput, PlayerServiceError, ProviderTrackKey, ResolvedSourceSpec, SourceCatalogEntry,
-    SourceResolutionInput, SourceResolver, SourceResolverFactory, SourceResolverSpec,
+use crate::player_service::error::PlayerServiceError;
+use crate::player_service::identity::ProviderTrackKey;
+use crate::player_service::resolver::{SourceResolver, SourceResolverFactory};
+use crate::player_service::source::{
+    MediaHintsInput, ResolvedSourceSpec, SourceCatalogEntry, SourceResolutionInput,
+    SourceResolverSpec,
 };
 
 pub struct TypeScriptSourceResolverFactory {

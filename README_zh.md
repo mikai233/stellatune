@@ -91,9 +91,13 @@ StellaTune 采用 Monorepo 库结构，通过精心设计的结构分离关注�
 - 如果您修改了与 CI 敏感相关的代码，请在 Push 之前运行本地检查：
 
 ```bash
+cargo run -p stellatune-xtask -- check-loc
 cargo fmt --all -- --check
-cargo clippy --all-targets --all-features -- -D warnings
+cargo clippy --workspace --all-targets -- -D warnings
 ```
+
+`apps/`、`crates/` 与 `tools/` 下的手写 Rust 文件以 1200 个物理行为硬限制；
+生成文件必须在 `stellatune-xtask` 中逐项加入显式白名单，不能按文件头自动豁免。
 
 对于 Flutter UI 的更改：
 ```bash

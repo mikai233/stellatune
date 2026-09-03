@@ -5,7 +5,8 @@ use anyhow::{Result, anyhow};
 use tracing::{debug, warn};
 
 use stellatune_backend_api::library::LibraryService;
-use stellatune_backend_api::player_service::{PlayerCatalog, PlayerService};
+use stellatune_backend_api::player_service::catalog::PlayerCatalog;
+use stellatune_backend_api::player_service::service::PlayerService;
 use stellatune_backend_api::runtime::{TypeScriptSourceResolverFactory, shared_typescript_runtime};
 use stellatune_library::{LibraryEvent, PlaylistLite, TrackLite};
 

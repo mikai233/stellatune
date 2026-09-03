@@ -1,20 +1,25 @@
 use anyhow::Result;
 
-use super::dlna_impl;
 use stellatune_backend_api::runtime::init_tracing;
 
+mod discovery;
+mod http_server;
+mod metadata;
+mod transport;
 pub mod types;
 
-pub use types::*;
+use types::{
+    DlnaHttpServerInfo, DlnaPositionInfo, DlnaRenderer, DlnaSsdpDevice, DlnaTransportInfo,
+};
 
 pub async fn dlna_discover_media_renderers(timeout_ms: u32) -> Result<Vec<DlnaSsdpDevice>> {
     init_tracing();
-    dlna_impl::Dlna::discover_media_renderers(timeout_ms).await
+    transport::discover_media_renderers(timeout_ms).await
 }
 
 pub async fn dlna_discover_renderers(timeout_ms: u32) -> Result<Vec<DlnaRenderer>> {
     init_tracing();
-    dlna_impl::Dlna::discover_renderers(timeout_ms).await
+    transport::discover_renderers(timeout_ms).await
 }
 
 pub async fn dlna_http_start(
@@ -22,17 +27,17 @@ pub async fn dlna_http_start(
     port: Option<u16>,
 ) -> Result<DlnaHttpServerInfo> {
     init_tracing();
-    dlna_impl::Dlna::http_start(advertise_ip, port).await
+    transport::http_start(advertise_ip, port).await
 }
 
 pub async fn dlna_http_publish_track(path: String) -> Result<String> {
     init_tracing();
-    dlna_impl::Dlna::http_publish_track(path).await
+    transport::http_publish_track(path).await
 }
 
 pub async fn dlna_http_unpublish_all() -> Result<()> {
     init_tracing();
-    dlna_impl::Dlna::http_unpublish_all().await
+    transport::http_unpublish_all().await
 }
 
 pub async fn dlna_av_transport_set_uri(
@@ -42,7 +47,7 @@ pub async fn dlna_av_transport_set_uri(
     metadata: Option<String>,
 ) -> Result<()> {
     init_tracing();
-    dlna_impl::Dlna::av_transport_set_uri(control_url, service_type, uri, metadata).await
+    transport::av_transport_set_uri(control_url, service_type, uri, metadata).await
 }
 
 pub async fn dlna_av_transport_play(
@@ -50,7 +55,7 @@ pub async fn dlna_av_transport_play(
     service_type: Option<String>,
 ) -> Result<()> {
     init_tracing();
-    dlna_impl::Dlna::av_transport_play(control_url, service_type).await
+    transport::av_transport_play(control_url, service_type).await
 }
 
 pub async fn dlna_av_transport_pause(
@@ -58,7 +63,7 @@ pub async fn dlna_av_transport_pause(
     service_type: Option<String>,
 ) -> Result<()> {
     init_tracing();
-    dlna_impl::Dlna::av_transport_pause(control_url, service_type).await
+    transport::av_transport_pause(control_url, service_type).await
 }
 
 pub async fn dlna_av_transport_stop(
@@ -66,7 +71,7 @@ pub async fn dlna_av_transport_stop(
     service_type: Option<String>,
 ) -> Result<()> {
     init_tracing();
-    dlna_impl::Dlna::av_transport_stop(control_url, service_type).await
+    transport::av_transport_stop(control_url, service_type).await
 }
 
 pub async fn dlna_av_transport_seek_ms(
@@ -75,7 +80,7 @@ pub async fn dlna_av_transport_seek_ms(
     position_ms: u64,
 ) -> Result<()> {
     init_tracing();
-    dlna_impl::Dlna::av_transport_seek_ms(control_url, service_type, position_ms).await
+    transport::av_transport_seek_ms(control_url, service_type, position_ms).await
 }
 
 pub async fn dlna_av_transport_get_transport_info(
@@ -83,7 +88,7 @@ pub async fn dlna_av_transport_get_transport_info(
     service_type: Option<String>,
 ) -> Result<DlnaTransportInfo> {
     init_tracing();
-    dlna_impl::Dlna::av_transport_get_transport_info(control_url, service_type).await
+    transport::av_transport_get_transport_info(control_url, service_type).await
 }
 
 pub async fn dlna_av_transport_get_position_info(
@@ -91,7 +96,7 @@ pub async fn dlna_av_transport_get_position_info(
     service_type: Option<String>,
 ) -> Result<DlnaPositionInfo> {
     init_tracing();
-    dlna_impl::Dlna::av_transport_get_position_info(control_url, service_type).await
+    transport::av_transport_get_position_info(control_url, service_type).await
 }
 
 pub async fn dlna_rendering_control_set_volume(
@@ -100,7 +105,7 @@ pub async fn dlna_rendering_control_set_volume(
     volume_0_100: u8,
 ) -> Result<()> {
     init_tracing();
-    dlna_impl::Dlna::rendering_control_set_volume(control_url, service_type, volume_0_100).await
+    transport::rendering_control_set_volume(control_url, service_type, volume_0_100).await
 }
 
 pub async fn dlna_rendering_control_set_mute(
@@ -109,7 +114,7 @@ pub async fn dlna_rendering_control_set_mute(
     mute: bool,
 ) -> Result<()> {
     init_tracing();
-    dlna_impl::Dlna::rendering_control_set_mute(control_url, service_type, mute).await
+    transport::rendering_control_set_mute(control_url, service_type, mute).await
 }
 
 pub async fn dlna_rendering_control_get_volume(
@@ -117,12 +122,12 @@ pub async fn dlna_rendering_control_get_volume(
     service_type: Option<String>,
 ) -> Result<u8> {
     init_tracing();
-    dlna_impl::Dlna::rendering_control_get_volume(control_url, service_type).await
+    transport::rendering_control_get_volume(control_url, service_type).await
 }
 
 pub async fn dlna_play_local_path(renderer: DlnaRenderer, path: String) -> Result<String> {
     init_tracing();
-    dlna_impl::Dlna::play_local_path(renderer, path).await
+    transport::play_local_path(renderer, path).await
 }
 
 pub async fn dlna_play_local_track(
@@ -134,5 +139,5 @@ pub async fn dlna_play_local_track(
     cover_path: Option<String>,
 ) -> Result<String> {
     init_tracing();
-    dlna_impl::Dlna::play_local_track(renderer, path, title, artist, album, cover_path).await
+    transport::play_local_track(renderer, path, title, artist, album, cover_path).await
 }

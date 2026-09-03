@@ -95,9 +95,14 @@ We welcome contributions of all sizes! Whether it's reporting bugs, discussing n
 - If you're modifying CI-sensitive code, ensure you run local checks before pushing:
 
 ```bash
+cargo run -p stellatune-xtask -- check-loc
 cargo fmt --all -- --check
-cargo clippy --all-targets --all-features -- -D warnings
+cargo clippy --workspace --all-targets -- -D warnings
 ```
+
+Hand-written Rust files under `apps/`, `crates/`, and `tools/` are limited to
+1,200 physical lines. Generated exceptions are maintained as an explicit
+allowlist in `stellatune-xtask`.
 
 For Flutter UI changes:
 ```bash

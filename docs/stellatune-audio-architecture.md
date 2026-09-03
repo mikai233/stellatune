@@ -6,9 +6,9 @@ hard-switch design and acceptance criteria are in
 
 ## 1. Ownership and control
 
-`PlaybackRuntime` owns the playback actor and sink-worker lifecycle. Cloneable
-`PlaybackController` values are typed command endpoints; dropping a controller
-does not stop the runtime.
+`playback::runtime::PlaybackRuntime` owns the playback actor and sink-worker
+lifecycle. Cloneable `playback::control::PlaybackController` values are typed
+command endpoints; dropping a controller does not stop the runtime.
 
 ```text
 Flutter / TUI
@@ -119,10 +119,12 @@ item. Retry count and backoff are typed playback policies.
 
 ## 6. Application persistence
 
-`PlaybackStateStore` belongs to `stellatune-backend-api`, not the audio crates.
-It stores typed source, track, and playback-item identities plus queue/current
-and media-time position under one strict schema fingerprint. Startup restore
-re-resolves local paths and provider sources and rebuilds every runtime stage.
+`player_service::catalog::PlayerCatalog` belongs to
+`stellatune-backend-api`, not the audio crates. It stores typed source, track,
+and playback-item identities plus queue/current and media-time position under
+one strict schema fingerprint. `player_service::service::PlayerService`
+orchestrates startup restore; `player_service::resolver` re-resolves local paths
+and provider sources and rebuilds every runtime stage.
 Temporary URLs, HTTP headers, stage instances, generations, and epochs are not
 persisted. Unknown or partial player schemas fail without migration or repair.
 State validation and current/position writes share one SQLite transaction. The
@@ -163,6 +165,31 @@ transport encoded media or PCM.
 4. `crates/stellatune-audio-core/src/transform.rs`
 5. `crates/stellatune-audio-core/src/sink.rs`
 6. `crates/stellatune-audio/src/planner.rs`
-7. `crates/stellatune-audio/src/playback.rs`
-8. `crates/stellatune-backend-api/src/player_service.rs`
-9. `crates/stellatune-backend-api/src/runtime/typescript_source.rs`
+7. `crates/stellatune-audio/src/playback/control.rs`
+8. `crates/stellatune-audio/src/playback/runtime.rs`
+9. `crates/stellatune-audio/src/playback/actor.rs`
+10. `crates/stellatune-audio/src/playback/preparation.rs`
+11. `crates/stellatune-audio/src/playback/pump.rs`
+12. `crates/stellatune-audio/src/playback/sink_worker.rs`
+13. `crates/stellatune-backend-api/src/player_service/service.rs`
+14. `crates/stellatune-backend-api/src/player_service/catalog.rs`
+15. `crates/stellatune-backend-api/src/player_service/resolver.rs`
+16. `crates/stellatune-backend-api/src/runtime/typescript_source.rs`
+
+## 10. Module ownership and size policy
+
+The playback control plane is owned by `control`, `event`, `runtime`, and
+`actor`. Track and pipeline state lives in `state` and `preparation`; PCM work
+lives in `pump`, `normalizer`, `transition`, and `sink_worker`. Dependencies
+flow from orchestration toward these focused modules. Data-plane modules never
+call the backend catalog, FFI, or UI.
+
+Backend player identity/source/state records, catalog persistence, resolver
+materialization, and service orchestration live in their corresponding
+`player_service` submodules. Lyrics follows the same rule: `actor` owns message
+state, `core` owns use-case orchestration, and `providers`, `cache`, and `parser`
+own external I/O and representation details.
+
+Every hand-written Rust file is limited to 1,200 physical lines, with roughly
+900 lines as the growth target. `cargo run -p stellatune-xtask -- check-loc`
+enforces the rule; only explicitly allowlisted generated files are skipped.

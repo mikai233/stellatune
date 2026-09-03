@@ -10,6 +10,7 @@ import 'api/dlna.dart';
 import 'api/dlna/types.dart';
 import 'api/library.dart';
 import 'api/player.dart';
+import 'api/player/transcode.dart';
 import 'api/player/types.dart';
 import 'api/runtime.dart';
 

@@ -12,6 +12,7 @@ members = [
   "crates/stellatune-library",
   "crates/stellatune-plugins",
   "crates/stellatune-audio",
+  "tools/stellatune-xtask",
 ]
 exclude = [
   "crates/plugins-native/stellatune-asio-host",

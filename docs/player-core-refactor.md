@@ -6,6 +6,27 @@
 >
 > 范围：播放核心边界、媒体源抽象、Decoder/Transform/Sink Trait、Pipeline 规划与执行、Library/插件/FFI 边界、迁移与验收
 >
+
+## 当前模块落位（2026-09-03）
+
+本轮继续采用 hard switch，不保留旧 Rust 模块路径的 alias 或兼容性
+`pub use`。`stellatune-audio::playback` 根模块只声明真实子模块：控制面位于
+`control`、`event`、`runtime` 与 `actor`；曲目状态与准备位于 `state` 和
+`preparation`；PCM 数据面位于 `pump`、`normalizer`、`transition` 与
+`sink_worker`。公开调用方必须使用诸如
+`playback::control::PlaybackController`、`playback::event::PlaybackEvent` 和
+`playback::runtime::PlaybackRuntime` 的真实路径。
+
+后端播放器按 `identity`、`source`、`state`、`catalog`、`resolver`、`service`
+和 `error` 拆分。持久化由 `catalog::PlayerCatalog` 直接承担，source
+materialization 归 `resolver`；不再提供只做代理的 `PlaybackStateStore` 或
+`SourceMaterializer`。歌词 actor 状态、业务编排、provider、缓存和解析分别归
+`lyrics_service/{actor,core,providers,cache,parser}.rs`。
+
+所有 `apps/`、`crates/`、`tools/` 下的手写 Rust 文件以 1200 个物理行为硬
+限制，约 900 行为软目标。通过
+`cargo run -p stellatune-xtask -- check-loc` 验收；生成文件只允许显式白名单，
+当前唯一例外为 `crates/stellatune-ffi/src/frb_generated.rs`。
 > 切换策略：Hard switch。新旧 API、token/typed 输入、新旧数据面和新旧播放器持久化 schema 均不兼容；不提供代码适配器、旧数据 migration、双读写、deprecated alias 或 feature flag。
 >
 > 关系：本文覆盖 `docs/plugin-runtime-refactor.md` 中与 `SourceStage`、`SourcePlan`、Pipeline 数据面相关的后续设计；Lattice、TypeScript 插件进程和 ASIO 许可边界仍沿用既有决策。

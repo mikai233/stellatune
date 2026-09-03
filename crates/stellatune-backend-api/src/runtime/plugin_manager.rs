@@ -14,7 +14,8 @@ use lattice_actor::state_machine::Stateless;
 use lattice_actor::traits::{Actor, Responder, StopReason};
 use thiserror::Error;
 
-use stellatune_audio::playback::{PlaybackController, PlaybackState};
+use stellatune_audio::playback::control::PlaybackController;
+use stellatune_audio::playback::event::PlaybackState;
 use stellatune_plugins::typescript::TypeScriptRuntime;
 use stellatune_plugins::typescript::package::{
     InstalledTypeScriptPlugin, discover_typescript_plugins, install_typescript_artifact,

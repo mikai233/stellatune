@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::time::Instant;
 
 use stellatune_audio::config::engine::ResampleQuality;
-use stellatune_audio::playback::PlaybackState as PlayerState;
+use stellatune_audio::playback::event::PlaybackState as PlayerState;
 use stellatune_library::{PlaylistLite, TrackLite};
 
 use crate::backend::models::InstalledPluginInfo;

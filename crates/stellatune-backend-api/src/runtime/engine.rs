@@ -9,7 +9,8 @@ use super::{
 };
 use stellatune_audio::config::engine::ResampleQuality;
 use stellatune_audio::planner::StageRegistrySnapshot;
-use stellatune_audio::playback::{PlaybackController, PlaybackRuntime, PlaybackRuntimeConfig};
+use stellatune_audio::playback::control::PlaybackController;
+use stellatune_audio::playback::runtime::{PlaybackRuntime, PlaybackRuntimeConfig};
 use stellatune_audio_builtin_adapters::device_sink::{
     OutputBackend as AdapterOutputBackend, OutputDeviceSpec, default_output_spec_for_backend,
     list_output_devices, output_spec_for_route,

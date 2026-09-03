@@ -5,6 +5,7 @@ import 'package:stellatune/platform/directory_access_store.dart';
 
 import 'api.dart' as api;
 import 'api/dlna/types.dart';
+import 'api/player/transcode.dart' as transcode_api;
 import 'api/player/types.dart';
 import 'third_party/stellatune_backend_api/lyrics_types.dart';
 import 'third_party/stellatune_library.dart';
@@ -281,8 +282,8 @@ class PlayerBridge {
     required String encoderTypeId,
     required String encoderConfigJson,
     String? encoderOptionsJson,
-  }) => api.transcodeTrackLocal(
-    request: api.TranscodeTrackLocalRequest(
+  }) => transcode_api.transcodeTrackLocal(
+    request: transcode_api.TranscodeTrackLocalRequest(
       taskId: taskId,
       sourcePath: sourcePath,
       outputPath: outputPath,
@@ -294,7 +295,7 @@ class PlayerBridge {
   );
 
   Future<void> transcodeCancel({required String taskId}) =>
-      api.transcodeCancel(taskId: taskId);
+      transcode_api.transcodeCancel(taskId: taskId);
 
   Future<List<String>> decoderSupportedExtensions() =>
       api.decoderSupportedExtensions();

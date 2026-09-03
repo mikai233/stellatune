@@ -7,6 +7,7 @@ import 'api/dlna.dart';
 import 'api/dlna/types.dart';
 import 'api/library.dart';
 import 'api/player.dart';
+import 'api/player/transcode.dart';
 import 'api/player/types.dart';
 import 'api/runtime.dart';
 
@@ -83,7 +84,7 @@ class StellatuneApi
   String get codegenVersion => '2.13.0';
 
   @override
-  int get rustContentHash => 1697685864;
+  int get rustContentHash => 304840463;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -446,9 +447,9 @@ abstract class StellatuneApiApi extends BaseApi {
     required bool lazy,
   });
 
-  Future<void> crateApiPlayerTranscodeCancel({required String taskId});
+  Future<void> crateApiPlayerTranscodeTranscodeCancel({required String taskId});
 
-  Stream<TranscodeProgressEvent> crateApiPlayerTranscodeTrackLocal({
+  Stream<TranscodeProgressEvent> crateApiPlayerTranscodeTranscodeTrackLocal({
     required TranscodeTrackLocalRequest request,
   });
 }
@@ -3603,7 +3604,9 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   );
 
   @override
-  Future<void> crateApiPlayerTranscodeCancel({required String taskId}) {
+  Future<void> crateApiPlayerTranscodeTranscodeCancel({
+    required String taskId,
+  }) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
@@ -3620,18 +3623,18 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           decodeSuccessData: sse_decode_unit,
           decodeErrorData: sse_decode_AnyhowException,
         ),
-        constMeta: kCrateApiPlayerTranscodeCancelConstMeta,
+        constMeta: kCrateApiPlayerTranscodeTranscodeCancelConstMeta,
         argValues: [taskId],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiPlayerTranscodeCancelConstMeta =>
+  TaskConstMeta get kCrateApiPlayerTranscodeTranscodeCancelConstMeta =>
       const TaskConstMeta(debugName: "transcode_cancel", argNames: ["taskId"]);
 
   @override
-  Stream<TranscodeProgressEvent> crateApiPlayerTranscodeTrackLocal({
+  Stream<TranscodeProgressEvent> crateApiPlayerTranscodeTranscodeTrackLocal({
     required TranscodeTrackLocalRequest request,
   }) {
     final sink = RustStreamSink<TranscodeProgressEvent>();
@@ -3659,7 +3662,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
             decodeSuccessData: sse_decode_unit,
             decodeErrorData: sse_decode_AnyhowException,
           ),
-          constMeta: kCrateApiPlayerTranscodeTrackLocalConstMeta,
+          constMeta: kCrateApiPlayerTranscodeTranscodeTrackLocalConstMeta,
           argValues: [request, sink],
           apiImpl: this,
         ),
@@ -3668,7 +3671,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
     return sink.stream;
   }
 
-  TaskConstMeta get kCrateApiPlayerTranscodeTrackLocalConstMeta =>
+  TaskConstMeta get kCrateApiPlayerTranscodeTranscodeTrackLocalConstMeta =>
       const TaskConstMeta(
         debugName: "transcode_track_local",
         argNames: ["request", "sink"],

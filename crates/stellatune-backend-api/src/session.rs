@@ -2,12 +2,13 @@ use anyhow::Result;
 
 use crate::library::LibraryService;
 use crate::lyrics_service::LyricsService;
-use crate::player_service::{PlayerCatalog, PlayerService};
+use crate::player_service::catalog::PlayerCatalog;
+use crate::player_service::service::PlayerService;
 use crate::runtime::{
     TypeScriptSourceResolverFactory, shared_playback_controller, shared_typescript_runtime,
 };
 use std::sync::Arc;
-use stellatune_audio::playback::PlaybackController;
+use stellatune_audio::playback::control::PlaybackController;
 
 #[derive(Debug, Clone, Default)]
 pub struct BackendSessionOptions {

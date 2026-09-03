@@ -10,7 +10,7 @@ use std::{
 use anyhow::{Result, anyhow};
 use std::time::Instant;
 
-use crate::player_service::PlayerService;
+use crate::player_service::service::PlayerService;
 use stellatune_audio::config::engine::ResampleQuality;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::time::LocalTime;
@@ -125,7 +125,7 @@ pub struct RuntimeOutputDeviceApplyReport {
     pub fallback_to_default: bool,
 }
 
-pub fn shared_playback_controller() -> stellatune_audio::playback::PlaybackController {
+pub fn shared_playback_controller() -> stellatune_audio::playback::control::PlaybackController {
     engine::shared_playback_controller()
 }
 

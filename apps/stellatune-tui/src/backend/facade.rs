@@ -5,9 +5,9 @@ use anyhow::{Result, anyhow};
 use tokio::sync::broadcast;
 
 use stellatune_audio::config::engine::ResampleQuality;
-use stellatune_audio::playback::{
-    PlaybackController, PlaybackEvent as AudioEvent, PlaybackRuntimeSnapshot, PlaybackState,
-    SwitchOptions,
+use stellatune_audio::playback::control::{PlaybackController, SwitchOptions};
+use stellatune_audio::playback::event::{
+    PlaybackEvent as AudioEvent, PlaybackRuntimeSnapshot, PlaybackState,
 };
 use stellatune_backend_api::app::BackendApp;
 use stellatune_backend_api::library::LibraryService;

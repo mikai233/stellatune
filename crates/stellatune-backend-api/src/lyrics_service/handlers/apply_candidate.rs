@@ -4,7 +4,7 @@ use lattice_actor::{
 };
 
 use crate::LyricsDoc;
-use crate::lyrics_service::LyricsServiceActor;
+use crate::lyrics_service::actor::LyricsServiceActor;
 
 #[derive(lattice_actor::Request)]
 #[request(response = Result<()>)]

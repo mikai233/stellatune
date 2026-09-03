@@ -1,6 +1,6 @@
 use lattice_actor::{context::HandlerContext, error::ActorError, traits::Handler};
 
-use crate::lyrics_service::LyricsServiceActor;
+use crate::lyrics_service::actor::LyricsServiceActor;
 
 #[derive(lattice_actor::Message)]
 pub(crate) struct SetPositionMsMessage {
