@@ -1,6 +1,5 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use crossbeam_channel::Sender;
 use stellatune_audio_core::{
     DecoderSeekStatus, MediaTime, PlaybackControlError, SourceCancellation, SourceOpenPurpose,
     SourceOpenRequest, TransformPlacement,
@@ -9,23 +8,25 @@ use stellatune_audio_core::{
 use crate::planner::{ExecutablePlaybackPlan, can_fallback};
 
 use super::normalizer::PcmNormalizer;
-use super::state::{PreparationKind, PreparationResult, PreparedTrack};
-pub(super) fn spawn_preparation(
+use super::state::{PreparationPurpose, PreparationResult, PreparedTrack};
+
+pub(super) async fn prepare_off_turn(
     plan: ExecutablePlaybackPlan,
+    id: u64,
     generation: u64,
     purpose: SourceOpenPurpose,
-    kind: PreparationKind,
-    sender: Sender<PreparationResult>,
+    preparation_purpose: PreparationPurpose,
     cancellation: SourceCancellation,
-) {
-    std::thread::spawn(move || {
+    deadline: Instant,
+) -> PreparationResult {
+    let task = tokio::task::spawn_blocking(move || {
         let item_id = plan.item.id;
-        let recovery = match &kind {
-            PreparationKind::Recovery {
+        let recovery = match preparation_purpose {
+            PreparationPurpose::Recovery {
                 checkpoint,
                 attempt,
                 ..
-            } => Some((*checkpoint, *attempt)),
+            } => Some((checkpoint, attempt)),
             _ => None,
         };
         if let Some((_, attempt)) = recovery {
@@ -51,15 +52,30 @@ pub(super) fn spawn_preparation(
                 purpose,
                 recovery.map(|(checkpoint, _)| checkpoint),
                 cancellation,
+                deadline,
             )
             .map_err(|error| error.with_context(Some(item_id), generation))
         };
-        let _ = sender.send(PreparationResult {
+        PreparationResult {
+            id,
             generation,
-            kind,
+            purpose: preparation_purpose,
             result,
-        });
-    });
+        }
+    })
+    .await;
+    match task {
+        Ok(result) => result,
+        Err(error) => PreparationResult {
+            id,
+            generation,
+            purpose: preparation_purpose,
+            result: Err(PlaybackControlError::failed(
+                "runtime",
+                format!("preparation task failed: {error}"),
+            )),
+        },
+    }
 }
 
 fn prepare_track(
@@ -67,6 +83,7 @@ fn prepare_track(
     purpose: SourceOpenPurpose,
     resume_position: Option<MediaTime>,
     cancellation: SourceCancellation,
+    deadline: Instant,
 ) -> Result<PreparedTrack, PlaybackControlError> {
     let capabilities = plan.item.source.descriptor().capabilities;
     let hints = plan.item.source.descriptor().media;
@@ -91,7 +108,7 @@ fn prepare_track(
             .map_err(|error| PlaybackControlError::failed("runtime", error.to_string()))?;
         let source = match runtime.block_on(plan.item.source.open(SourceOpenRequest {
             purpose,
-            deadline: None,
+            deadline: Some(deadline),
             cancellation: cancellation.clone(),
         })) {
             Ok(source) => source,

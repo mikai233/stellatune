@@ -1,3 +1,3 @@
-mod support;
+pub(super) mod support;
 
 mod cases;

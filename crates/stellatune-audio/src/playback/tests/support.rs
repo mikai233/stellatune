@@ -11,14 +11,14 @@ use stellatune_audio_core::{
     StageId, TransformDescriptor, TransformError, TransformFactory, TransformPlacement,
     TransformStage, TransformStatus,
 };
-use tokio::sync::broadcast;
+use tokio::sync::{Semaphore, broadcast};
 use tokio::time::{Duration, timeout};
 
 use crate::planner::{StageRegistrySnapshot, TransitionPolicy};
 use crate::playback::event::PlaybackEvent;
 use crate::playback::runtime::{PlaybackRuntime, PlaybackRuntimeConfig};
 
-pub(super) struct TestDecoderFactory {
+pub(in crate::playback) struct TestDecoderFactory {
     pub(super) descriptor: DecoderDescriptor,
 }
 
@@ -142,7 +142,7 @@ impl TransformStage for CountingTransform {
 }
 
 impl TestDecoderFactory {
-    pub(super) fn new() -> Self {
+    pub(in crate::playback) fn new() -> Self {
         Self {
             descriptor: DecoderDescriptor {
                 id: StageId::new("test.decoder").unwrap(),
@@ -374,9 +374,9 @@ impl DecoderStage for TestDecoder {
     fn reset(&mut self) {}
 }
 
-pub(super) struct TestSinkFactory {
-    pub(super) id: StageId,
-    pub(super) samples: Arc<Mutex<Vec<f32>>>,
+pub(in crate::playback) struct TestSinkFactory {
+    pub(in crate::playback) id: StageId,
+    pub(in crate::playback) samples: Arc<Mutex<Vec<f32>>>,
 }
 
 impl SinkFactory for TestSinkFactory {
@@ -650,6 +650,7 @@ pub(super) struct RecoveringSinkFactory {
 pub(super) struct DelayedSourceFactory {
     pub(super) inner: MemorySourceFactory,
     pub(super) delay: Duration,
+    pub(super) entered: Option<Arc<Semaphore>>,
 }
 
 impl SourceFactory for DelayedSourceFactory {
@@ -660,8 +661,12 @@ impl SourceFactory for DelayedSourceFactory {
     fn open(&self, request: SourceOpenRequest) -> stellatune_audio_core::SourceOpenFuture<'_> {
         let inner = self.inner.clone();
         let delay = self.delay;
+        let entered = self.entered.clone();
         let cancellation = request.cancellation.clone();
         Box::pin(async move {
+            if let Some(entered) = entered {
+                entered.add_permits(1);
+            }
             tokio::select! {
                 () = tokio::time::sleep(delay) => inner.open(request).await,
                 () = cancellation.cancelled() => Err(stellatune_audio_core::SourceError::Cancelled),
@@ -826,7 +831,12 @@ pub(super) fn fixed_format_item(id: u64, factory: Arc<dyn DecoderFactory>) -> Pl
     }
 }
 
-pub(super) fn delayed_item(id: u64, frames: u8, amplitude: u8, delay: Duration) -> PlaybackItem {
+pub(in crate::playback) fn delayed_item(
+    id: u64,
+    frames: u8,
+    amplitude: u8,
+    delay: Duration,
+) -> PlaybackItem {
     PlaybackItem {
         id: PlaybackItemId::new(id).unwrap(),
         source: Arc::new(DelayedSourceFactory {
@@ -842,12 +852,39 @@ pub(super) fn delayed_item(id: u64, frames: u8, amplitude: u8, delay: Duration) 
                 },
             ),
             delay,
+            entered: None,
         }),
         required_decoder: None,
     }
 }
 
-pub(super) fn runtime(
+pub(in crate::playback) fn signaled_delayed_item(
+    id: u64,
+    frames: u8,
+    amplitude: u8,
+    delay: Duration,
+    entered: Arc<Semaphore>,
+) -> PlaybackItem {
+    let mut item = delayed_item(id, frames, amplitude, delay);
+    item.source = Arc::new(DelayedSourceFactory {
+        inner: MemorySourceFactory::new(
+            Arc::<[u8]>::from([frames, amplitude]),
+            SourceDescriptor {
+                media: MediaHints::default(),
+                capabilities: SourceCapabilities {
+                    byte_seekable: true,
+                    reopenable: true,
+                    live: false,
+                },
+            },
+        ),
+        delay,
+        entered: Some(entered),
+    });
+    item
+}
+
+pub(in crate::playback) fn runtime(
     transition: TransitionPolicy,
     samples: Arc<Mutex<Vec<f32>>>,
 ) -> PlaybackRuntime {
@@ -866,7 +903,7 @@ pub(super) fn runtime(
     PlaybackRuntime::start(config).unwrap()
 }
 
-pub(super) async fn wait_for_end(events: &mut broadcast::Receiver<PlaybackEvent>) {
+pub(in crate::playback) async fn wait_for_end(events: &mut broadcast::Receiver<PlaybackEvent>) {
     timeout(Duration::from_secs(3), async {
         loop {
             if matches!(

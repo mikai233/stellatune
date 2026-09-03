@@ -1731,12 +1731,12 @@ Preparing/Ready/Playing/Paused
 
 ```text
 PlaybackRuntime
-  +-- owns PlaybackActor task/join lifecycle
-  +-- coordinates SinkWorker shutdown
+  +-- owns Lattice ActorHandle/termination lifecycle
+  +-- configures bounded mailbox/deferred capacity/turn budget
   `-- creates cloneable PlaybackController endpoints
 
 PlaybackController[]
-  `-- typed commands/responses --> PlaybackActor
+  `-- Lattice typed Request/Message + deadline --> PlaybackActor
 
 PlaybackActor
   +-- PlaybackState
@@ -1764,7 +1764,12 @@ SinkWorker thread
   `-- device clock/accounting
 ```
 
-`PlaybackRuntime` 是唯一 lifecycle owner；`PlaybackController` 是无状态的控制端口，不形成第二套所有权。Controller clone 全部 drop 不等于已完成有序 shutdown；Backend composition root 必须持有 Runtime，并在退出时显式 `shutdown`。
+`PlaybackRuntime` 是唯一 lifecycle owner；`PlaybackController` 只持有
+`ActorHandle<PlaybackActor>` 和事件订阅端，不形成第二套状态所有权。
+`PlaybackState` 直接作为 Lattice behavior，`PlaybackSession` 不再保存重复的
+state 字段。Controller clone 全部 drop 不等于已完成有序 shutdown；Backend
+composition root 必须持有 Runtime，并在退出时显式 `shutdown`。shutdown 先订阅
+termination，再发送 `StopReason::Requested`，并等待 stopping hook 完成。
 
 `next TrackPipeline` 可以处于 `Prewarming`、`Ready` 或 `Crossfading`，但只有 `Crossfading` 时与 current 同时向 Mixer 产出 PCM。普通播放不为“双 Pipeline”永久支付双倍解码成本。
 
@@ -1788,7 +1793,11 @@ SinkWorker thread
 - 大文件 probe；
 - output device enumeration。
 
-它们使用 deferred completion 或 preparation task，并通过 generation 丢弃过期结果。
+它们使用 Lattice `defer_reply`/`pipe_to_self`，阻塞 decoder/configure 工作进入
+Tokio blocking pool，并通过 preparation ID + generation 丢弃过期结果。默认
+deadline 为 snapshot 2 秒、普通控制 5 秒、output rebuild 10 秒、switch/queue
+30 秒；超时取消对应 source token。PCM、`AudioBlock` 和设备 callback 始终不进入
+Actor mailbox，`SinkWorker` 继续使用独立设备线程和有界 PCM ring。
 
 ## 19. 错误模型
 

@@ -1,18 +1,44 @@
-use std::sync::Mutex;
-use std::thread::JoinHandle;
+use std::time::Duration;
 
+use lattice_actor::{
+    mailbox::MailboxConfig,
+    runtime::{ActorExecutionPolicy, ActorRuntime, ActorSpawnOptions},
+    traits::StopReason,
+};
 use stellatune_audio_core::PlaybackControlError;
-use tokio::sync::{broadcast, oneshot};
+use tokio::sync::broadcast;
 
 use crate::planner::{PlaybackPolicies, StageRegistrySnapshot};
 
-use super::actor::actor_loop;
-use super::control::{Command, CommandKind, PlaybackController};
+use super::actor::PlaybackActor;
+use super::control::PlaybackController;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PlaybackCommandTimeouts {
+    pub snapshot: Duration,
+    pub control: Duration,
+    pub output_rebuild: Duration,
+    pub preparation: Duration,
+}
+
+impl Default for PlaybackCommandTimeouts {
+    fn default() -> Self {
+        Self {
+            snapshot: Duration::from_secs(2),
+            control: Duration::from_secs(5),
+            output_rebuild: Duration::from_secs(10),
+            preparation: Duration::from_secs(30),
+        }
+    }
+}
 
 pub struct PlaybackRuntimeConfig {
     pub registry: StageRegistrySnapshot,
     pub policies: PlaybackPolicies,
     pub command_capacity: usize,
+    pub preparation_capacity: usize,
+    pub actor_turn_budget: usize,
+    pub command_timeouts: PlaybackCommandTimeouts,
     pub pcm_ring_blocks: usize,
     pub block_frames: usize,
     pub event_capacity: usize,
@@ -24,6 +50,9 @@ impl PlaybackRuntimeConfig {
             registry,
             policies: PlaybackPolicies::default(),
             command_capacity: 64,
+            preparation_capacity: 4,
+            actor_turn_budget: 16,
+            command_timeouts: PlaybackCommandTimeouts::default(),
             pcm_ring_blocks: 8,
             block_frames: 1024,
             event_capacity: 128,
@@ -33,24 +62,32 @@ impl PlaybackRuntimeConfig {
 
 pub struct PlaybackRuntime {
     controller: PlaybackController,
-    join: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl PlaybackRuntime {
     pub fn start(config: PlaybackRuntimeConfig) -> Result<Self, PlaybackControlError> {
-        let (command_tx, command_rx) = crossbeam_channel::bounded(config.command_capacity.max(1));
+        let mailbox = MailboxConfig::bounded(config.command_capacity.max(1))
+            .with_deferred_capacity(config.preparation_capacity.max(1))
+            .with_turn_budget(config.actor_turn_budget.max(1));
+        let timeouts = config.command_timeouts;
         let (event_tx, _) = broadcast::channel(config.event_capacity.max(1));
-        let controller = PlaybackController {
-            command_tx,
-            event_tx: event_tx.clone(),
-        };
-        let join = std::thread::Builder::new()
-            .name("stellatune-playback-actor".to_owned())
-            .spawn(move || actor_loop(config, command_rx, event_tx))
+        let actor = PlaybackActor::new(config, event_tx.clone());
+        let handle = ActorRuntime::default()
+            .spawn_actor(
+                actor,
+                ActorSpawnOptions {
+                    mailbox,
+                    execution: Some(ActorExecutionPolicy::DedicatedThreadPool { worker_count: 1 }),
+                    ..ActorSpawnOptions::default()
+                },
+            )
             .map_err(|error| PlaybackControlError::failed("runtime", error.to_string()))?;
         Ok(Self {
-            controller,
-            join: Mutex::new(Some(join)),
+            controller: PlaybackController {
+                actor: handle,
+                event_tx,
+                timeouts,
+            },
         })
     }
 
@@ -59,27 +96,21 @@ impl PlaybackRuntime {
     }
 
     pub async fn shutdown(self) -> Result<(), PlaybackControlError> {
-        self.controller.request_shutdown().await?;
-        if let Some(join) = self.join.lock().expect("runtime join poisoned").take() {
-            join.join().map_err(|_| {
-                PlaybackControlError::failed(
-                    "runtime",
-                    "playback actor panicked during shutdown".to_owned(),
-                )
-            })?;
-        }
+        let mut terminated = self.controller.actor.subscribe_terminated();
+        self.controller
+            .actor
+            .stop(StopReason::Requested)
+            .map_err(|error| PlaybackControlError::failed("runtime", error.to_string()))?;
+        terminated
+            .recv()
+            .await
+            .map_err(|error| PlaybackControlError::failed("runtime", error.to_string()))?;
         Ok(())
     }
 }
 
 impl Drop for PlaybackRuntime {
     fn drop(&mut self) {
-        if self.join.lock().expect("runtime join poisoned").is_some() {
-            let (response, _) = oneshot::channel();
-            let _ = self.controller.command_tx.try_send(Command {
-                kind: CommandKind::Shutdown,
-                response,
-            });
-        }
+        let _ = self.controller.actor.stop(StopReason::Requested);
     }
 }

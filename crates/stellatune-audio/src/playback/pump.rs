@@ -1,9 +1,8 @@
 use std::sync::Arc;
 
-use crossbeam_channel::Sender;
 use stellatune_audio_core::{
     AudioBlock, DecodeStatus, DecoderStage, MediaTime, PcmFormat, PlaybackControlError,
-    SourceOpenPurpose, TransformStage, TransformStatus,
+    TransformStage, TransformStatus,
 };
 use tokio::sync::broadcast;
 
@@ -11,12 +10,11 @@ use super::actor::advance_generation;
 use super::event::{PlaybackEvent, PlaybackState};
 use super::lifecycle::{fail_current, fail_promoted, set_state};
 use super::normalizer::PcmNormalizer;
-use super::preparation::spawn_preparation;
 use super::runtime::PlaybackRuntimeConfig;
 use super::sink_worker::{PendingWrite, SinkWorker};
 use super::state::{
-    ActiveTrack, ActorState, DrainPhase, PreparationKind, PreparationResult, PreparedTrack,
-    SecondaryTrack,
+    ActiveTrack, DrainPhase, PlaybackSession, PreparationPurpose, PreparedTrack,
+    RecoveryPreparation, SecondaryTrack,
 };
 use super::transition::{
     activate_with_output, apply_track_transition_gain, maybe_start_crossfade,
@@ -74,21 +72,21 @@ pub(super) fn activate(
 
 pub(super) fn pump_once(
     config: &PlaybackRuntimeConfig,
-    preparation_tx: &Sender<PreparationResult>,
     event_tx: &broadcast::Sender<PlaybackEvent>,
-    actor: &mut ActorState,
+    actor: &mut PlaybackSession,
+    state: &mut PlaybackState,
 ) {
     if let Some(message) = actor
         .current
         .as_ref()
         .and_then(|current| current.output.try_failure())
     {
-        begin_recovery(config, preparation_tx, event_tx, actor, "sink", message);
+        begin_recovery(config, event_tx, actor, state, "sink", message);
         return;
     }
     maybe_start_crossfade(actor);
     if actor.crossfade.is_some() {
-        pump_crossfade(config, preparation_tx, event_tx, actor);
+        pump_crossfade(config, event_tx, actor, state);
         return;
     }
     let Some(current) = actor.current.as_mut() else {
@@ -105,12 +103,12 @@ pub(super) fn pump_once(
         .forced_end_frame
         .is_some_and(|end| current.produced_audible_frame >= end)
     {
-        promote_or_end(actor, config, event_tx);
+        promote_or_end(actor, state, config, event_tx);
         return;
     }
     if let Some(block) = current.pending_block.take() {
         match current.output.try_write(block) {
-            Ok(()) => {},
+            Ok(()) => return,
             Err(PendingWrite::Full(block)) => {
                 current.pending_block = Some(block);
                 return;
@@ -118,9 +116,9 @@ pub(super) fn pump_once(
             Err(PendingWrite::Closed) => {
                 begin_recovery(
                     config,
-                    preparation_tx,
                     event_tx,
                     actor,
+                    state,
                     "sink",
                     "sink worker closed".to_owned(),
                 );
@@ -128,7 +126,6 @@ pub(super) fn pump_once(
             },
         }
     }
-
     let mut block = AudioBlock::new(current.decoded_format);
     block.timeline.start_frame = current.decoded_frame;
     block.timeline.epoch = current.epoch;
@@ -155,7 +152,7 @@ pub(super) fn pump_once(
                 &current.pre_mix_formats,
                 &mut block,
             ) {
-                fail_current(actor, event_tx, "transform", error.to_string());
+                fail_current(actor, state, event_tx, "transform", error.to_string());
                 return;
             }
             if block.samples.is_empty() {
@@ -164,7 +161,7 @@ pub(super) fn pump_once(
             if let Some(normalizer) = current.normalizer.as_mut()
                 && let Err(error) = normalizer.process(&mut block)
             {
-                fail_current(actor, event_tx, "normalizer", error.to_string());
+                fail_current(actor, state, event_tx, "normalizer", error.to_string());
                 return;
             }
             apply_track_transition_gain(current, &mut block);
@@ -176,7 +173,7 @@ pub(super) fn pump_once(
                 &current.post_mix_formats,
                 &mut block,
             ) {
-                fail_current(actor, event_tx, "transform", error.to_string());
+                fail_current(actor, state, event_tx, "transform", error.to_string());
                 return;
             }
             if block.samples.is_empty() {
@@ -189,16 +186,16 @@ pub(super) fn pump_once(
                 Err(PendingWrite::Closed) => {
                     begin_recovery(
                         config,
-                        preparation_tx,
                         event_tx,
                         actor,
+                        state,
                         "sink",
                         "sink worker closed".to_owned(),
                     );
                 },
             }
-            if actor.state == PlaybackState::Buffering {
-                set_state(actor, PlaybackState::Playing, event_tx);
+            if *state == PlaybackState::Buffering {
+                set_state(state, PlaybackState::Playing, event_tx);
                 let _ = event_tx.send(PlaybackEvent::Buffering {
                     item_id,
                     active: false,
@@ -207,7 +204,7 @@ pub(super) fn pump_once(
         },
         Ok(DecodeStatus::Pending) => {
             let item_id = current.item_id;
-            set_state(actor, PlaybackState::Buffering, event_tx);
+            set_state(state, PlaybackState::Buffering, event_tx);
             let _ = event_tx.send(PlaybackEvent::Buffering {
                 item_id,
                 active: true,
@@ -219,34 +216,29 @@ pub(super) fn pump_once(
                 Err(PendingWrite::Full(block)) => current.pending_block = Some(block),
                 Err(PendingWrite::Closed) => begin_recovery(
                     config,
-                    preparation_tx,
                     event_tx,
                     actor,
+                    state,
                     "sink",
                     "sink worker closed".to_owned(),
                 ),
             },
             Ok(DrainTurn::Pending) => {},
-            Ok(DrainTurn::Complete) => promote_or_end(actor, config, event_tx),
-            Err(error) => fail_current(actor, event_tx, "transform", error.to_string()),
+            Ok(DrainTurn::Complete) => promote_or_end(actor, state, config, event_tx),
+            Err(error) => fail_current(actor, state, event_tx, "transform", error.to_string()),
         },
-        Err(stellatune_audio_core::DecodeError::Io(error)) => begin_recovery(
-            config,
-            preparation_tx,
-            event_tx,
-            actor,
-            "decoder",
-            error.to_string(),
-        ),
-        Err(error) => fail_current(actor, event_tx, "decoder", error.to_string()),
+        Err(stellatune_audio_core::DecodeError::Io(error)) => {
+            begin_recovery(config, event_tx, actor, state, "decoder", error.to_string())
+        },
+        Err(error) => fail_current(actor, state, event_tx, "decoder", error.to_string()),
     }
 }
 
 pub(super) fn begin_recovery(
     _config: &PlaybackRuntimeConfig,
-    preparation_tx: &Sender<PreparationResult>,
     event_tx: &broadcast::Sender<PlaybackEvent>,
-    actor: &mut ActorState,
+    actor: &mut PlaybackSession,
+    state: &mut PlaybackState,
     stage: &'static str,
     message: String,
 ) {
@@ -258,7 +250,7 @@ pub(super) fn begin_recovery(
         || !capabilities.byte_seekable
         || actor.policies.max_recovery_attempts == 0
     {
-        fail_current(actor, event_tx, stage, message);
+        fail_current(actor, state, event_tx, stage, message);
         return;
     }
     let clock = current.output.clock();
@@ -280,24 +272,25 @@ pub(super) fn begin_recovery(
     if let Some(pending) = actor.pending_seek.take() {
         let _ = pending.response.send(Err(PlaybackControlError::Closed));
     }
-    set_state(actor, PlaybackState::Recovering, event_tx);
-    spawn_preparation(
+    set_state(state, PlaybackState::Recovering, event_tx);
+    actor.next_preparation_id = actor.next_preparation_id.wrapping_add(1);
+    actor.pending_recovery = Some(RecoveryPreparation {
         plan,
-        actor.generation,
-        SourceOpenPurpose::Recovery,
-        PreparationKind::Recovery {
+        id: actor.next_preparation_id,
+        generation: actor.generation,
+        purpose: PreparationPurpose::Recovery {
             item_id,
             checkpoint,
             resume_state: PlaybackState::Playing,
             attempt: 1,
         },
-        preparation_tx.clone(),
-        actor.preparation_cancellation.clone(),
-    );
+        cancellation: actor.preparation_cancellation.clone(),
+    });
 }
 
 pub(super) fn promote_or_end(
-    actor: &mut ActorState,
+    actor: &mut PlaybackSession,
+    state: &mut PlaybackState,
     config: &PlaybackRuntimeConfig,
     event_tx: &broadcast::Sender<PlaybackEvent>,
 ) {
@@ -309,7 +302,7 @@ pub(super) fn promote_or_end(
     let Some(mut next) = actor.next.take() else {
         if actor.next_preparing {
             actor.current = Some(ended);
-            set_state(actor, PlaybackState::Buffering, event_tx);
+            set_state(state, PlaybackState::Buffering, event_tx);
             let _ = event_tx.send(PlaybackEvent::Buffering {
                 item_id: ended_item_id,
                 active: true,
@@ -318,7 +311,7 @@ pub(super) fn promote_or_end(
         }
         let _ = ended.output.drain();
         ended.output.shutdown();
-        set_state(actor, PlaybackState::Idle, event_tx);
+        set_state(state, PlaybackState::Idle, event_tx);
         let _ = event_tx.send(PlaybackEvent::PlaybackEnded {
             item_id: ended_item_id,
         });
@@ -342,7 +335,12 @@ pub(super) fn promote_or_end(
         let next_item_id = next.plan.item.id;
         if ended.output.mark_boundary(next_item_id).is_err() {
             ended.output.shutdown();
-            fail_promoted(actor, event_tx, "failed to queue item boundary".to_owned());
+            fail_promoted(
+                actor,
+                state,
+                event_tx,
+                "failed to queue item boundary".to_owned(),
+            );
             return;
         }
         ended.decoder.reset();
@@ -364,7 +362,7 @@ pub(super) fn promote_or_end(
             fade_in_frames,
         );
         actor.current = Some(promoted);
-        set_state(actor, PlaybackState::Playing, event_tx);
+        set_state(state, PlaybackState::Playing, event_tx);
     } else {
         let _ = ended.output.drain();
         ended.output.shutdown();
@@ -375,10 +373,10 @@ pub(super) fn promote_or_end(
                 promoted.fade_in_frames = transition_fade_in_frames(ended.transition);
                 let _ = promoted.output.resume();
                 actor.current = Some(promoted);
-                set_state(actor, PlaybackState::Playing, event_tx);
+                set_state(state, PlaybackState::Playing, event_tx);
                 let _ = event_tx.send(PlaybackEvent::TrackChanged { item_id });
             },
-            Err(error) => fail_promoted(actor, event_tx, error.to_string()),
+            Err(error) => fail_promoted(actor, state, event_tx, error.to_string()),
         }
     }
 }
@@ -437,6 +435,9 @@ pub(super) fn decode_track_block(
             }
             if let Some(normalizer) = normalizer.as_mut() {
                 normalizer.process(&mut block)?;
+            }
+            if block.samples.is_empty() {
+                return Ok(TrackBlockStatus::Pending);
             }
             *produced_audible_frame = produced_audible_frame.saturating_add(block.frames() as u64);
             Ok(TrackBlockStatus::Data(block))

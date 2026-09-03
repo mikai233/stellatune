@@ -117,6 +117,8 @@ impl PlaybackFailure {
 pub enum PlaybackControlError {
     #[error("playback runtime is closed")]
     Closed,
+    #[error("playback command `{operation}` timed out")]
+    CommandTimeout { operation: &'static str },
     #[error("command is invalid in the current playback state")]
     InvalidState,
     #[error("command is unsupported")]

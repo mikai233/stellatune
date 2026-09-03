@@ -13,3 +13,6 @@ mod transition;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod actor_tests;

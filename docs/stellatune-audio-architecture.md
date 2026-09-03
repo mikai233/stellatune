@@ -6,9 +6,11 @@ hard-switch design and acceptance criteria are in
 
 ## 1. Ownership and control
 
-`playback::runtime::PlaybackRuntime` owns the playback actor and sink-worker
-lifecycle. Cloneable `playback::control::PlaybackController` values are typed
-command endpoints; dropping a controller does not stop the runtime.
+`playback::runtime::PlaybackRuntime` owns a Lattice `PlaybackActor` lifecycle.
+The actor owns its active session and therefore the `SinkWorker` lifecycle.
+Cloneable `playback::control::PlaybackController` values hold an
+`ActorHandle<PlaybackActor>` and are typed command endpoints; dropping a
+controller does not stop the runtime.
 
 ```text
 Flutter / TUI
@@ -20,8 +22,18 @@ Flutter / TUI
     -> SinkStage
 ```
 
-The actor mailbox carries control and preparation completion messages only.
-Encoded bytes and PCM never pass through FFI, JSON-RPC, or an actor mailbox.
+The bounded Lattice mailbox carries typed control requests, pump ticks, and
+preparation/recovery completion messages only. `PlaybackState` is the Lattice
+behavior; `PlaybackSession` contains generation, current/next tracks, seek and
+transition data, but no duplicate state field. The actor uses a one-worker
+`DedicatedThreadPool`, a turn budget of 16 by default, and a 2 ms interval that
+may drop a saturated tick and resume automatically. Encoded bytes and PCM never
+pass through FFI, JSON-RPC, or an actor mailbox.
+
+Controller asks have operation-specific deadlines: snapshot 2 seconds,
+ordinary controls 5 seconds, output rebuild 10 seconds, and switch/queue-next
+preparation 30 seconds. A deadline becomes `CommandTimeout`; invalid behavior
+admission becomes `InvalidState`; a stopped lifecycle becomes `Closed`.
 
 ## 2. Source and planning path
 
@@ -42,11 +54,16 @@ snapshot. It selects ordered decoder candidates, stable transform placement,
 the sink factory, and typed policies. It does not parse paths, URLs, provider
 keys, or JSON.
 
-Source open and decoder preparation run outside the actor. Every completion is
-tagged with the current generation. Advancing the generation cancels the old
-`SourceOpenRequest` before stale results are dropped. Decoder fallback is
-limited to preparation and requires a reopenable source. The decoder never
-opens a file or HTTP locator; those responsibilities stay in source factories.
+Source open and decoder preparation run in Lattice deferred work, with blocking
+decoder/configuration work isolated by Tokio's blocking pool. Request-backed
+switch/queue work uses `defer_reply`; recovery uses `pipe_to_self`. Every
+completion carries a preparation ID and generation. Advancing the generation
+cancels the old `SourceOpenRequest` before stale results are dropped. A
+preparation deadline also cancels its source token; current-track timeout fails
+the session, next-track timeout preserves the current track, and recovery keeps
+the bounded retry policy. Decoder fallback is limited to preparation and
+requires a reopenable source. The decoder never opens a file or HTTP locator;
+those responsibilities stay in source factories.
 
 ## 3. Audio data plane
 
@@ -116,6 +133,13 @@ Recoverable decoder I/O and sink disconnects enter `Recovering`. The actor
 captures the consumed checkpoint, performs a bounded source reopen/decoder
 prepare/seek outside the actor, rebuilds the sink, and resumes only the prior
 item. Retry count and backoff are typed playback policies.
+
+`PlaybackRuntime::shutdown` subscribes to actor termination before requesting
+`StopReason::Requested`, then waits for the stopping hook. That hook cancels
+preparation, closes outstanding domain replies, resets decoder/DSP state and
+shuts down the `SinkWorker`. `Drop` is best-effort only; composition roots use
+explicit shutdown when deterministic device release matters. Actor panic or
+lifecycle failure is terminal and must be recovered by creating a new runtime.
 
 ## 6. Application persistence
 

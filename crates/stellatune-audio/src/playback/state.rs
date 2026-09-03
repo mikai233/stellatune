@@ -1,25 +1,23 @@
 use std::sync::Arc;
+use std::time::Instant;
 
+use lattice_actor::reply::ReplyTo;
+
+use crate::planner::{CrossfadeCurve, ExecutablePlaybackPlan, PlaybackPolicies, TransitionPolicy};
 use stellatune_audio_core::{
     AudioBlock, DecoderStage, MediaTime, PcmFormat, PlaybackControlError, PlaybackItemId,
     SinkFactory, SourceCancellation, TransformStage,
 };
-use tokio::sync::oneshot;
 
-use crate::planner::{CrossfadeCurve, ExecutablePlaybackPlan, PlaybackPolicies, TransitionPolicy};
-
-use super::control::CommandReply;
 use super::event::PlaybackState;
 use super::normalizer::PcmNormalizer;
 use super::sink_worker::SinkWorker;
-pub(super) enum PreparationKind {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum PreparationPurpose {
     Current {
         autoplay: bool,
-        response: oneshot::Sender<Result<CommandReply, PlaybackControlError>>,
     },
-    Next {
-        response: oneshot::Sender<Result<CommandReply, PlaybackControlError>>,
-    },
+    Next,
     Recovery {
         item_id: PlaybackItemId,
         checkpoint: MediaTime,
@@ -29,9 +27,25 @@ pub(super) enum PreparationKind {
 }
 
 pub(super) struct PreparationResult {
+    pub(super) id: u64,
     pub(super) generation: u64,
-    pub(super) kind: PreparationKind,
+    pub(super) purpose: PreparationPurpose,
     pub(super) result: Result<PreparedTrack, PlaybackControlError>,
+}
+
+pub(super) struct PendingPreparation {
+    pub(super) id: u64,
+    pub(super) generation: u64,
+    pub(super) purpose: PreparationPurpose,
+    pub(super) deadline: Instant,
+}
+
+pub(super) struct RecoveryPreparation {
+    pub(super) plan: ExecutablePlaybackPlan,
+    pub(super) id: u64,
+    pub(super) generation: u64,
+    pub(super) purpose: PreparationPurpose,
+    pub(super) cancellation: SourceCancellation,
 }
 
 pub(super) struct PreparedTrack {
@@ -96,17 +110,15 @@ pub(super) struct TransitionRecoveryFade {
     pub(super) start_gain: f32,
 }
 
-pub(super) struct ActorState {
-    pub(super) state: PlaybackState,
+pub(super) struct PlaybackSession {
     pub(super) generation: u64,
+    pub(super) next_preparation_id: u64,
     pub(super) preparation_cancellation: SourceCancellation,
+    pub(super) pending_preparation: Option<PendingPreparation>,
+    pub(super) pending_recovery: Option<RecoveryPreparation>,
     pub(super) current: Option<ActiveTrack>,
     pub(super) next: Option<PreparedTrack>,
     pub(super) next_preparing: bool,
-    pub(super) pending_current_response:
-        Option<oneshot::Sender<Result<CommandReply, PlaybackControlError>>>,
-    pub(super) pending_next_response:
-        Option<oneshot::Sender<Result<CommandReply, PlaybackControlError>>>,
     pub(super) pending_seek: Option<PendingSeek>,
     pub(super) crossfade: Option<CrossfadeState>,
     pub(super) force_transition: bool,
@@ -156,7 +168,7 @@ pub(super) struct CrossfadeState {
 }
 
 pub(super) struct PendingSeek {
-    pub(super) response: oneshot::Sender<Result<CommandReply, PlaybackControlError>>,
+    pub(super) response: ReplyTo<Result<(), PlaybackControlError>>,
     pub(super) resume_state: PlaybackState,
     pub(super) item_id: PlaybackItemId,
 }

@@ -1,7 +1,8 @@
 use stellatune_audio_core::{MediaTime, PlaybackFailure, PlaybackItemId};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum PlaybackState {
+    #[default]
     Idle,
     Preparing,
     Recovering,

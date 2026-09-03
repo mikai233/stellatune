@@ -1,10 +1,15 @@
-use crossbeam_channel::{Sender, TrySendError};
+use lattice_actor::{error::ActorCallError, handle::ActorHandle};
 use stellatune_audio_core::{MediaTime, PlaybackControlError, PlaybackItem};
-use tokio::sync::{broadcast, oneshot};
+use tokio::sync::broadcast;
 
 use crate::planner::PlaybackPolicies;
 
+use super::actor::{
+    GetSnapshot, Pause, Play, PlaybackActor, QueueNextTrack, RebuildOutput, Seek, SetOutputGain,
+    SetPolicies, StopPlayback, SwitchTrack,
+};
 use super::event::{PlaybackEvent, PlaybackRuntimeSnapshot};
+use super::runtime::PlaybackCommandTimeouts;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SwitchTransition {
@@ -29,55 +34,56 @@ impl Default for SwitchOptions {
 
 #[derive(Clone)]
 pub struct PlaybackController {
-    pub(super) command_tx: Sender<Command>,
+    pub(super) actor: ActorHandle<PlaybackActor>,
     pub(super) event_tx: broadcast::Sender<PlaybackEvent>,
+    pub(super) timeouts: PlaybackCommandTimeouts,
 }
 
 impl PlaybackController {
-    async fn request(&self, kind: CommandKind) -> Result<CommandReply, PlaybackControlError> {
-        let (response, receiver) = oneshot::channel();
-        self.command_tx
-            .try_send(Command { kind, response })
-            .map_err(|error| match error {
-                TrySendError::Disconnected(_) => PlaybackControlError::Closed,
-                TrySendError::Full(_) => PlaybackControlError::failed(
-                    "runtime",
-                    "playback command queue is full".to_owned(),
-                ),
-            })?;
-        receiver.await.map_err(|_| PlaybackControlError::Closed)?
-    }
-
     pub async fn switch(
         &self,
         item: PlaybackItem,
         options: SwitchOptions,
     ) -> Result<(), PlaybackControlError> {
-        self.request(CommandKind::Switch { item, options })
+        self.actor
+            .ask(SwitchTrack { item, options }, self.timeouts.preparation)
             .await
-            .map(|_| ())
+            .map_err(|error| map_call_error("switch", error))?
     }
 
     pub async fn queue_next(&self, item: PlaybackItem) -> Result<(), PlaybackControlError> {
-        self.request(CommandKind::QueueNext { item })
+        self.actor
+            .ask(QueueNextTrack { item }, self.timeouts.preparation)
             .await
-            .map(|_| ())
+            .map_err(|error| map_call_error("queue_next", error))?
     }
 
     pub async fn play(&self) -> Result<(), PlaybackControlError> {
-        self.request(CommandKind::Play).await.map(|_| ())
+        self.actor
+            .ask(Play, self.timeouts.control)
+            .await
+            .map_err(|error| map_call_error("play", error))?
     }
 
     pub async fn pause(&self) -> Result<(), PlaybackControlError> {
-        self.request(CommandKind::Pause).await.map(|_| ())
+        self.actor
+            .ask(Pause, self.timeouts.control)
+            .await
+            .map_err(|error| map_call_error("pause", error))?
     }
 
     pub async fn seek(&self, position: MediaTime) -> Result<(), PlaybackControlError> {
-        self.request(CommandKind::Seek(position)).await.map(|_| ())
+        self.actor
+            .ask(Seek { position }, self.timeouts.control)
+            .await
+            .map_err(|error| map_call_error("seek", error))?
     }
 
     pub async fn stop(&self) -> Result<(), PlaybackControlError> {
-        self.request(CommandKind::Stop).await.map(|_| ())
+        self.actor
+            .ask(StopPlayback, self.timeouts.control)
+            .await
+            .map_err(|error| map_call_error("stop", error))?
     }
 
     pub async fn set_output_gain(
@@ -85,74 +91,103 @@ impl PlaybackController {
         gain: f32,
         ramp: MediaTime,
     ) -> Result<(), PlaybackControlError> {
-        self.request(CommandKind::SetOutputGain {
-            gain: gain.clamp(0.0, 1.0),
-            ramp,
-        })
-        .await
-        .map(|_| ())
+        self.actor
+            .ask(
+                SetOutputGain {
+                    gain: gain.clamp(0.0, 1.0),
+                    ramp,
+                },
+                self.timeouts.control,
+            )
+            .await
+            .map_err(|error| map_call_error("set_output_gain", error))?
     }
 
     pub async fn rebuild_output(&self) -> Result<(), PlaybackControlError> {
-        self.request(CommandKind::RebuildOutput).await.map(|_| ())
+        self.actor
+            .ask(RebuildOutput, self.timeouts.output_rebuild)
+            .await
+            .map_err(|error| map_call_error("rebuild_output", error))?
     }
 
     pub async fn set_policies(
         &self,
         policies: PlaybackPolicies,
     ) -> Result<(), PlaybackControlError> {
-        self.request(CommandKind::SetPolicies(policies))
+        self.actor
+            .ask(SetPolicies { policies }, self.timeouts.control)
             .await
-            .map(|_| ())
+            .map_err(|error| map_call_error("set_policies", error))?
     }
 
     pub async fn snapshot(&self) -> Result<PlaybackRuntimeSnapshot, PlaybackControlError> {
-        match self.request(CommandKind::Snapshot).await? {
-            CommandReply::Snapshot(snapshot) => Ok(snapshot),
-            CommandReply::Unit => Err(PlaybackControlError::failed(
-                "runtime",
-                "snapshot command returned no snapshot".to_owned(),
-            )),
-        }
+        self.actor
+            .ask(GetSnapshot, self.timeouts.snapshot)
+            .await
+            .map_err(|error| map_call_error("snapshot", error))?
     }
 
     pub fn subscribe_events(&self) -> broadcast::Receiver<PlaybackEvent> {
         self.event_tx.subscribe()
     }
+}
 
-    pub(super) async fn request_shutdown(&self) -> Result<(), PlaybackControlError> {
-        self.request(CommandKind::Shutdown).await.map(|_| ())
+fn map_call_error(operation: &'static str, error: ActorCallError) -> PlaybackControlError {
+    match error {
+        ActorCallError::DeadlineExceeded => PlaybackControlError::CommandTimeout { operation },
+        ActorCallError::UnhandledInCurrentState => PlaybackControlError::InvalidState,
+        ActorCallError::MailboxClosed
+        | ActorCallError::LifecycleUnavailable { .. }
+        | ActorCallError::ResponseDropped => PlaybackControlError::Closed,
+        ActorCallError::MailboxFull
+        | ActorCallError::ActorPanicked
+        | ActorCallError::Handler(_)
+        | ActorCallError::InvalidTimeout => PlaybackControlError::failed(
+            "runtime",
+            format!("playback command `{operation}` failed: {error}"),
+        ),
     }
 }
 
-pub(super) struct Command {
-    pub(super) kind: CommandKind,
-    pub(super) response: oneshot::Sender<Result<CommandReply, PlaybackControlError>>,
-}
+#[cfg(test)]
+mod tests {
+    use super::map_call_error;
+    use lattice_actor::error::{ActorCallError, ActorError};
+    use lattice_actor::traits::ActorLifecycleState;
+    use stellatune_audio_core::{FailureStage, PlaybackControlError};
 
-pub(super) enum CommandKind {
-    Switch {
-        item: PlaybackItem,
-        options: SwitchOptions,
-    },
-    QueueNext {
-        item: PlaybackItem,
-    },
-    Play,
-    Pause,
-    Seek(MediaTime),
-    Stop,
-    SetOutputGain {
-        gain: f32,
-        ramp: MediaTime,
-    },
-    SetPolicies(PlaybackPolicies),
-    RebuildOutput,
-    Snapshot,
-    Shutdown,
-}
-
-pub(super) enum CommandReply {
-    Unit,
-    Snapshot(PlaybackRuntimeSnapshot),
+    #[test]
+    fn maps_lattice_call_errors_to_control_contract() {
+        assert_eq!(
+            map_call_error("snapshot", ActorCallError::DeadlineExceeded),
+            PlaybackControlError::CommandTimeout {
+                operation: "snapshot"
+            }
+        );
+        assert_eq!(
+            map_call_error("play", ActorCallError::UnhandledInCurrentState),
+            PlaybackControlError::InvalidState
+        );
+        for error in [
+            ActorCallError::MailboxClosed,
+            ActorCallError::LifecycleUnavailable {
+                state: ActorLifecycleState::Stopped,
+            },
+            ActorCallError::ResponseDropped,
+        ] {
+            assert_eq!(map_call_error("play", error), PlaybackControlError::Closed);
+        }
+        for error in [
+            ActorCallError::MailboxFull,
+            ActorCallError::ActorPanicked,
+            ActorCallError::Handler(ActorError::new("failed")),
+            ActorCallError::InvalidTimeout,
+        ] {
+            assert!(matches!(
+                map_call_error("play", error),
+                PlaybackControlError::Failed(failure)
+                    if failure.stage == FailureStage::Runtime
+            ));
+        }
+    }
 }

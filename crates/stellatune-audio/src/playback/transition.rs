@@ -1,4 +1,3 @@
-use crossbeam_channel::Sender;
 use stellatune_audio_core::{
     AudioBlock, MediaTime, PcmFormat, PlaybackControlError, PlaybackFailure, TransformPlacement,
     TransformStage,
@@ -17,10 +16,10 @@ use super::pump::{
 use super::runtime::PlaybackRuntimeConfig;
 use super::sink_worker::{PendingWrite, SinkWorker};
 use super::state::{
-    ActiveTrack, ActorState, CrossfadeState, DrainPhase, PreparationResult, PreparedTrack,
-    SecondaryTrack, TransitionRecoveryFade,
+    ActiveTrack, CrossfadeState, DrainPhase, PlaybackSession, PreparedTrack, SecondaryTrack,
+    TransitionRecoveryFade,
 };
-pub(super) fn maybe_start_crossfade(actor: &mut ActorState) {
+pub(super) fn maybe_start_crossfade(actor: &mut PlaybackSession) {
     if actor.crossfade.is_some() {
         return;
     }
@@ -39,7 +38,7 @@ pub(super) fn maybe_start_crossfade(actor: &mut ActorState) {
     let Some(duration) = current.duration_frames else {
         return;
     };
-    if duration_frames == 0 || current.pending_block.is_some() {
+    if duration_frames == 0 {
         return;
     }
     let clock = current.output.clock();
@@ -82,7 +81,7 @@ pub(super) fn maybe_start_crossfade(actor: &mut ActorState) {
         duration_frames,
         curve,
         progressed_frames: 0,
-        current_block: None,
+        current_block: current.pending_block.take(),
         next_block: None,
         sink_consumed_base_frame: boundary_base,
         boundary_announced: false,
@@ -152,9 +151,9 @@ pub(super) fn secondary_from_prepared(prepared: PreparedTrack) -> SecondaryTrack
 
 pub(super) fn pump_crossfade(
     config: &PlaybackRuntimeConfig,
-    preparation_tx: &Sender<PreparationResult>,
     event_tx: &broadcast::Sender<PlaybackEvent>,
-    actor: &mut ActorState,
+    actor: &mut PlaybackSession,
+    state: &mut PlaybackState,
 ) {
     let Some(current) = actor.current.as_mut() else {
         actor.crossfade = None;
@@ -172,7 +171,7 @@ pub(super) fn pump_crossfade(
     }
     if let Some(block) = current.pending_block.take() {
         match current.output.try_write(block) {
-            Ok(()) => {},
+            Ok(()) => return,
             Err(PendingWrite::Full(block)) => {
                 current.pending_block = Some(block);
                 return;
@@ -180,9 +179,9 @@ pub(super) fn pump_crossfade(
             Err(PendingWrite::Closed) => {
                 begin_recovery(
                     config,
-                    preparation_tx,
                     event_tx,
                     actor,
+                    state,
                     "sink",
                     "sink worker closed".to_owned(),
                 );
@@ -209,7 +208,7 @@ pub(super) fn pump_crossfade(
         ) {
             Ok(TrackBlockStatus::Data(block)) => crossfade.current_block = Some(block),
             Ok(TrackBlockStatus::Pending) => {
-                set_state(actor, PlaybackState::Buffering, event_tx);
+                set_state(state, PlaybackState::Buffering, event_tx);
                 return;
             },
             Ok(TrackBlockStatus::EndOfStream) => {
@@ -218,24 +217,17 @@ pub(super) fn pump_crossfade(
             Err(PlaybackControlError::Failed(failure))
                 if failure.stage == stellatune_audio_core::FailureStage::Decoder =>
             {
-                begin_recovery(
-                    config,
-                    preparation_tx,
-                    event_tx,
-                    actor,
-                    "decoder",
-                    failure.message,
-                );
+                begin_recovery(config, event_tx, actor, state, "decoder", failure.message);
                 return;
             },
             Err(error) => {
-                fail_current(actor, event_tx, "decoder", error.to_string());
+                fail_current(actor, state, event_tx, "decoder", error.to_string());
                 return;
             },
         }
     }
     if crossfade.progressed_frames >= crossfade.duration_frames {
-        finish_crossfade(actor, event_tx);
+        finish_crossfade(actor, state, event_tx);
         return;
     }
     if crossfade.next_block.is_none() {
@@ -246,7 +238,7 @@ pub(super) fn pump_crossfade(
                     None
                 },
                 Ok(TrackBlockStatus::Pending) => {
-                    set_state(actor, PlaybackState::Buffering, event_tx);
+                    set_state(state, PlaybackState::Buffering, event_tx);
                     return;
                 },
                 Ok(TrackBlockStatus::EndOfStream) => Some(PlaybackFailure::internal(
@@ -276,7 +268,7 @@ pub(super) fn pump_crossfade(
                     &current.post_mix_formats,
                     &mut block,
                 ) {
-                    fail_current(actor, event_tx, "transform", error.to_string());
+                    fail_current(actor, state, event_tx, "transform", error.to_string());
                     return;
                 }
                 if !block.samples.is_empty() {
@@ -286,7 +278,7 @@ pub(super) fn pump_crossfade(
             let failure = failure.with_context(Some(crossfade.next.item_id), actor.generation);
             let _ = event_tx.send(PlaybackEvent::Failed(failure));
             actor.crossfade = None;
-            set_state(actor, PlaybackState::Playing, event_tx);
+            set_state(state, PlaybackState::Playing, event_tx);
             return;
         }
     }
@@ -339,15 +331,14 @@ pub(super) fn pump_crossfade(
         &current.post_mix_formats,
         &mut mixed,
     ) {
-        fail_current(actor, event_tx, "transform", error.to_string());
+        fail_current(actor, state, event_tx, "transform", error.to_string());
         return;
     }
     if mixed.samples.is_empty() {
         return;
     }
-    if actor.state == PlaybackState::Buffering {
-        actor.state = PlaybackState::Playing;
-        let _ = event_tx.send(PlaybackEvent::StateChanged(PlaybackState::Playing));
+    if *state == PlaybackState::Buffering {
+        set_state(state, PlaybackState::Playing, event_tx);
     }
     match current.output.try_write(mixed) {
         Ok(()) => {},
@@ -355,9 +346,9 @@ pub(super) fn pump_crossfade(
         Err(PendingWrite::Closed) => {
             begin_recovery(
                 config,
-                preparation_tx,
                 event_tx,
                 actor,
+                state,
                 "sink",
                 "sink worker closed".to_owned(),
             );
@@ -365,7 +356,7 @@ pub(super) fn pump_crossfade(
         },
     }
     if crossfade.progressed_frames >= crossfade.duration_frames {
-        finish_crossfade(actor, event_tx);
+        finish_crossfade(actor, state, event_tx);
     }
 }
 
@@ -392,7 +383,8 @@ pub(super) fn crossfade_gains(progress: f32, curve: CrossfadeCurve) -> (f32, f32
 }
 
 pub(super) fn finish_crossfade(
-    actor: &mut ActorState,
+    actor: &mut PlaybackSession,
+    state: &mut PlaybackState,
     event_tx: &broadcast::Sender<PlaybackEvent>,
 ) {
     let Some(crossfade) = actor.crossfade.take() else {
@@ -445,10 +437,10 @@ pub(super) fn finish_crossfade(
         forced_end_frame: None,
         drain_phase: DrainPhase::Decoding,
     });
-    set_state(actor, PlaybackState::Playing, event_tx);
+    set_state(state, PlaybackState::Playing, event_tx);
 }
 
-pub(super) fn configure_forced_transition(actor: &mut ActorState) {
+pub(super) fn configure_forced_transition(actor: &mut PlaybackSession) {
     if !actor.force_transition {
         return;
     }
