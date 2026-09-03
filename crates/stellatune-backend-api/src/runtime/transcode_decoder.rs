@@ -60,7 +60,7 @@ enum NativeTranscodeDecoder {
 }
 
 impl NativeTranscodeDecoder {
-    fn spec(&self) -> stellatune_audio_core::AudioFormat {
+    fn spec(&self) -> stellatune_audio_core::PcmFormat {
         match self {
             Self::Builtin(decoder) => decoder.spec(),
             Self::Ncm(decoder) => decoder.spec(),
@@ -87,7 +87,7 @@ impl TranscodeDecoderSession for NativeTranscodeDecoder {
         let spec = self.spec();
         TranscodeDecoderInfo {
             sample_rate: spec.sample_rate,
-            channels: spec.channels,
+            channels: spec.channel_layout.channel_count(),
             duration_ms: self.duration_ms(),
             metadata: None,
             decoder_plugin_id: None,
@@ -96,7 +96,7 @@ impl TranscodeDecoderSession for NativeTranscodeDecoder {
     }
 
     fn read_pcm_f32(&mut self, max_frames: u32) -> Result<PcmF32Chunk, String> {
-        let channels = self.spec().channels.max(1) as usize;
+        let channels = usize::from(self.spec().channel_layout.channel_count());
         let Some(samples) = self.next_block(max_frames.max(1) as usize)? else {
             return Ok(PcmF32Chunk {
                 interleaved_f32le: Vec::new(),

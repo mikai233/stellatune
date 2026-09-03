@@ -11,10 +11,11 @@ use rubato::{
     SincInterpolationType, WindowFunction,
 };
 use stellatune_audio_core::{
-    AudioBlock, AudioFormat, DecodeStatus, DecoderSeekStatus, DecoderStage, MediaTime,
+    AudioBlock, ChannelLayout, DecodeStatus, DecoderSeekStatus, DecoderStage, MediaTime, PcmFormat,
     PlaybackControlError, PlaybackFailure, PlaybackItem, PlaybackItemId, SeekResult,
     SinkClockSnapshot, SinkFactory, SinkStage, SinkWriteState, SourceCancellation,
-    SourceOpenPurpose, SourceOpenRequest, TransformPlacement, TransformStage, TransformStatus,
+    SourceOpenPurpose, SourceOpenRequest, SpeakerPosition, TransformPlacement, TransformStage,
+    TransformStatus,
 };
 use tokio::sync::{broadcast, oneshot};
 
@@ -307,56 +308,305 @@ struct PreparationResult {
 }
 
 const NORMALIZER_CHUNK_FRAMES: usize = 1024;
+const SQRT_HALF: f32 = std::f32::consts::FRAC_1_SQRT_2;
 
-struct PcmNormalizer {
-    source: AudioFormat,
-    target: AudioFormat,
-    resampler: Option<Async<f32>>,
+struct ChannelMixer {
+    source_channels: usize,
+    target_channels: usize,
+    matrix: Vec<f32>,
+}
+
+impl ChannelMixer {
+    fn new(source: ChannelLayout, target: ChannelLayout) -> Result<Self, PlaybackControlError> {
+        let source_positions = source.positions().collect::<Vec<_>>();
+        let target_positions = target.positions().collect::<Vec<_>>();
+        let mut matrix = vec![0.0; source_positions.len() * target_positions.len()];
+
+        for (source_index, position) in source_positions.iter().copied().enumerate() {
+            if let Some(target_index) = target.index_of(position) {
+                matrix[target_index * source_positions.len() + source_index] = 1.0;
+                continue;
+            }
+            if position == SpeakerPosition::Lfe {
+                continue;
+            }
+            let routes = channel_routes(position, target).ok_or_else(|| {
+                PlaybackControlError::failed(
+                    "normalizer",
+                    format!("cannot route {position:?} from {source:?} to {target:?}"),
+                )
+            })?;
+            for (target_position, coefficient) in routes {
+                let target_index = target.index_of(target_position).ok_or_else(|| {
+                    PlaybackControlError::failed(
+                        "normalizer",
+                        format!("invalid target route {target_position:?} for {target:?}"),
+                    )
+                })?;
+                matrix[target_index * source_positions.len() + source_index] += coefficient;
+            }
+        }
+
+        for row in matrix.chunks_exact_mut(source_positions.len()) {
+            let sum = row.iter().map(|coefficient| coefficient.abs()).sum::<f32>();
+            if sum > 1.0 {
+                for coefficient in row {
+                    *coefficient /= sum;
+                }
+            }
+        }
+
+        Ok(Self {
+            source_channels: source_positions.len(),
+            target_channels: target_positions.len(),
+            matrix,
+        })
+    }
+
+    fn process(&self, input: &[f32]) -> Vec<f32> {
+        let frames = input.len() / self.source_channels;
+        let mut output = Vec::with_capacity(frames.saturating_mul(self.target_channels));
+        for frame in input.chunks_exact(self.source_channels) {
+            for row in self.matrix.chunks_exact(self.source_channels) {
+                output.push(
+                    row.iter()
+                        .zip(frame)
+                        .map(|(coefficient, sample)| coefficient * sample)
+                        .sum(),
+                );
+            }
+        }
+        output
+    }
+}
+
+fn channel_routes(
+    source: SpeakerPosition,
+    target: ChannelLayout,
+) -> Option<Vec<(SpeakerPosition, f32)>> {
+    use SpeakerPosition::{
+        FrontCenter, FrontLeft, FrontLeftCenter, FrontRight, FrontRightCenter, RearCenter,
+        RearLeft, RearRight, SideLeft, SideRight, TopCenter, TopFrontCenter, TopFrontLeft,
+        TopFrontRight, TopRearCenter, TopRearLeft, TopRearRight,
+    };
+
+    let single = |candidates: &[SpeakerPosition]| {
+        candidates
+            .iter()
+            .copied()
+            .find(|position| target.contains(*position))
+            .map(|position| vec![(position, SQRT_HALF)])
+    };
+    let pair = |left: SpeakerPosition, right: SpeakerPosition| {
+        (target.contains(left) && target.contains(right))
+            .then_some(vec![(left, SQRT_HALF), (right, SQRT_HALF)])
+    };
+
+    match source {
+        FrontLeft => single(&[FrontLeftCenter, FrontCenter]),
+        FrontRight => single(&[FrontRightCenter, FrontCenter]),
+        FrontCenter => pair(FrontLeft, FrontRight)
+            .or_else(|| pair(FrontLeftCenter, FrontRightCenter))
+            .or_else(|| single(&[TopFrontCenter, TopCenter, RearCenter])),
+        FrontLeftCenter => single(&[FrontLeft, FrontCenter]),
+        FrontRightCenter => single(&[FrontRight, FrontCenter]),
+        SideLeft => single(&[RearLeft, FrontLeft, FrontLeftCenter, FrontCenter]),
+        SideRight => single(&[RearRight, FrontRight, FrontRightCenter, FrontCenter]),
+        RearLeft => single(&[SideLeft, FrontLeft, FrontLeftCenter, FrontCenter]),
+        RearRight => single(&[SideRight, FrontRight, FrontRightCenter, FrontCenter]),
+        RearCenter => pair(RearLeft, RearRight)
+            .or_else(|| pair(SideLeft, SideRight))
+            .or_else(|| single(&[FrontCenter]))
+            .or_else(|| pair(FrontLeft, FrontRight)),
+        TopFrontLeft => single(&[FrontLeft, FrontLeftCenter, FrontCenter]),
+        TopFrontRight => single(&[FrontRight, FrontRightCenter, FrontCenter]),
+        TopFrontCenter => single(&[FrontCenter]).or_else(|| pair(FrontLeft, FrontRight)),
+        TopRearLeft => single(&[RearLeft, SideLeft, FrontLeft, FrontCenter]),
+        TopRearRight => single(&[RearRight, SideRight, FrontRight, FrontCenter]),
+        TopRearCenter => single(&[RearCenter])
+            .or_else(|| pair(RearLeft, RearRight))
+            .or_else(|| pair(SideLeft, SideRight))
+            .or_else(|| single(&[FrontCenter]))
+            .or_else(|| pair(FrontLeft, FrontRight)),
+        TopCenter => single(&[FrontCenter, TopFrontCenter, TopRearCenter])
+            .or_else(|| pair(FrontLeft, FrontRight)),
+        SpeakerPosition::Lfe => Some(Vec::new()),
+    }
+}
+
+struct PcmResampler {
+    source_rate: u32,
+    target_rate: u32,
+    channels: usize,
+    inner: Async<f32>,
     input_frames: u64,
     output_frames: u64,
     leading_frames_to_trim: usize,
     drained: bool,
 }
 
+impl PcmResampler {
+    fn new(
+        source_rate: u32,
+        target_rate: u32,
+        channels: usize,
+    ) -> Result<Self, PlaybackControlError> {
+        let params = SincInterpolationParameters {
+            sinc_len: 128,
+            f_cutoff: Some(0.94),
+            oversampling_factor: 128,
+            interpolation: SincInterpolationType::Linear,
+            window: WindowFunction::Blackman,
+        };
+        let inner = Async::<f32>::new_sinc(
+            target_rate as f64 / source_rate as f64,
+            2.0,
+            &params,
+            NORMALIZER_CHUNK_FRAMES,
+            channels,
+            FixedAsync::Input,
+        )
+        .map_err(|error| PlaybackControlError::failed("normalizer", error.to_string()))?;
+        let leading_frames_to_trim = inner.output_delay();
+        Ok(Self {
+            source_rate,
+            target_rate,
+            channels,
+            inner,
+            input_frames: 0,
+            output_frames: 0,
+            leading_frames_to_trim,
+            drained: false,
+        })
+    }
+
+    fn process(&mut self, input: &[f32]) -> Result<Vec<f32>, PlaybackControlError> {
+        self.input_frames = self
+            .input_frames
+            .saturating_add((input.len() / self.channels) as u64);
+        let mut output = Vec::new();
+        let mut offset = 0;
+        while offset < input.len() {
+            let remaining_frames = (input.len() - offset) / self.channels;
+            let frames = remaining_frames.min(NORMALIZER_CHUNK_FRAMES);
+            if frames == 0 {
+                break;
+            }
+            let samples = frames.saturating_mul(self.channels);
+            self.inner
+                .set_chunk_size(frames)
+                .map_err(|error| PlaybackControlError::failed("normalizer", error.to_string()))?;
+            let adapter =
+                InterleavedSlice::new(&input[offset..offset + samples], self.channels, frames)
+                    .map_err(|error| {
+                        PlaybackControlError::failed("normalizer", error.to_string())
+                    })?;
+            output.extend(
+                self.inner
+                    .process(&adapter, None)
+                    .map_err(|error| PlaybackControlError::failed("normalizer", error.to_string()))?
+                    .take_data(),
+            );
+            offset += samples;
+        }
+        self.trim_leading_frames(&mut output);
+        self.output_frames = self
+            .output_frames
+            .saturating_add((output.len() / self.channels) as u64);
+        Ok(output)
+    }
+
+    fn drain(&mut self) -> Result<Option<Vec<f32>>, PlaybackControlError> {
+        if self.drained {
+            return Ok(None);
+        }
+        let expected_frames = ((self.input_frames as f64 * self.target_rate as f64
+            / self.source_rate as f64)
+            .ceil()) as u64;
+        if self.output_frames >= expected_frames {
+            self.drained = true;
+            return Ok(None);
+        }
+        while self.output_frames < expected_frames {
+            let input_frames = self.inner.input_frames_next();
+            let silence = vec![0.0; input_frames.saturating_mul(self.channels)];
+            let adapter = InterleavedSlice::new(&silence, self.channels, input_frames)
+                .map_err(|error| PlaybackControlError::failed("normalizer", error.to_string()))?;
+            let mut output = self
+                .inner
+                .process(&adapter, Some(&Indexing::new().partial_len(0)))
+                .map_err(|error| PlaybackControlError::failed("normalizer", error.to_string()))?
+                .take_data();
+            self.trim_leading_frames(&mut output);
+            let remaining_frames = expected_frames.saturating_sub(self.output_frames) as usize;
+            output.truncate(remaining_frames.saturating_mul(self.channels));
+            if !output.is_empty() {
+                self.output_frames = self
+                    .output_frames
+                    .saturating_add((output.len() / self.channels) as u64);
+                return Ok(Some(output));
+            }
+        }
+        self.drained = true;
+        Ok(None)
+    }
+
+    fn trim_leading_frames(&mut self, samples: &mut Vec<f32>) {
+        if self.leading_frames_to_trim == 0 {
+            return;
+        }
+        let available_frames = samples.len() / self.channels;
+        let trim_frames = available_frames.min(self.leading_frames_to_trim);
+        samples.drain(..trim_frames.saturating_mul(self.channels));
+        self.leading_frames_to_trim -= trim_frames;
+    }
+
+    fn reset(&mut self) {
+        self.inner.reset();
+        self.leading_frames_to_trim = self.inner.output_delay();
+        self.input_frames = 0;
+        self.output_frames = 0;
+        self.drained = false;
+    }
+}
+
+struct PcmNormalizer {
+    source: PcmFormat,
+    target: PcmFormat,
+    channel_mixer: Option<ChannelMixer>,
+    resampler: Option<PcmResampler>,
+}
+
 impl PcmNormalizer {
-    fn new(source: AudioFormat, target: AudioFormat) -> Result<Self, PlaybackControlError> {
+    fn new(source: PcmFormat, target: PcmFormat) -> Result<Self, PlaybackControlError> {
         source
             .validate()
             .map_err(|message| PlaybackControlError::failed("normalizer", message.to_owned()))?;
         target
             .validate()
             .map_err(|message| PlaybackControlError::failed("normalizer", message.to_owned()))?;
+        let channel_mixer = if source.channel_layout == target.channel_layout {
+            None
+        } else {
+            Some(ChannelMixer::new(
+                source.channel_layout,
+                target.channel_layout,
+            )?)
+        };
         let resampler = if source.sample_rate == target.sample_rate {
             None
         } else {
-            let params = SincInterpolationParameters {
-                sinc_len: 128,
-                f_cutoff: Some(0.94),
-                oversampling_factor: 128,
-                interpolation: SincInterpolationType::Linear,
-                window: WindowFunction::Blackman,
-            };
-            Some(
-                Async::<f32>::new_sinc(
-                    target.sample_rate as f64 / source.sample_rate as f64,
-                    2.0,
-                    &params,
-                    NORMALIZER_CHUNK_FRAMES,
-                    usize::from(target.channels),
-                    FixedAsync::Input,
-                )
-                .map_err(|error| PlaybackControlError::failed("normalizer", error.to_string()))?,
-            )
+            Some(PcmResampler::new(
+                source.sample_rate,
+                target.sample_rate,
+                usize::from(target.channel_layout.channel_count()),
+            )?)
         };
-        let leading_frames_to_trim = resampler.as_ref().map_or(0, Resampler::output_delay);
         Ok(Self {
             source,
             target,
+            channel_mixer,
             resampler,
-            input_frames: 0,
-            output_frames: 0,
-            leading_frames_to_trim,
-            drained: false,
         })
     }
 
@@ -365,8 +615,7 @@ impl PcmNormalizer {
             block.format = self.target;
             return Ok(());
         }
-        let source_channels = usize::from(self.source.channels);
-        let target_channels = usize::from(self.target.channels);
+        let source_channels = usize::from(self.source.channel_layout.channel_count());
         if block.format != self.source || !block.samples.len().is_multiple_of(source_channels) {
             return Err(PlaybackControlError::failed(
                 "normalizer",
@@ -374,47 +623,15 @@ impl PcmNormalizer {
             ));
         }
         let input = std::mem::take(&mut block.samples);
-        self.input_frames = self
-            .input_frames
-            .saturating_add((input.len() / source_channels) as u64);
-        let remapped = remap_channels(&input, source_channels, target_channels);
+        let remapped = match self.channel_mixer.as_ref() {
+            Some(mixer) => mixer.process(&input),
+            None => input,
+        };
         block.samples = if let Some(resampler) = self.resampler.as_mut() {
-            let mut output = Vec::new();
-            let mut offset = 0;
-            while offset < remapped.len() {
-                let remaining_frames = (remapped.len() - offset) / target_channels;
-                let frames = remaining_frames.min(NORMALIZER_CHUNK_FRAMES);
-                if frames == 0 {
-                    break;
-                }
-                let samples = frames.saturating_mul(target_channels);
-                resampler.set_chunk_size(frames).map_err(|error| {
-                    PlaybackControlError::failed("normalizer", error.to_string())
-                })?;
-                let adapter = InterleavedSlice::new(
-                    &remapped[offset..offset + samples],
-                    target_channels,
-                    frames,
-                )
-                .map_err(|error| PlaybackControlError::failed("normalizer", error.to_string()))?;
-                output.extend(
-                    resampler
-                        .process(&adapter, None)
-                        .map_err(|error| {
-                            PlaybackControlError::failed("normalizer", error.to_string())
-                        })?
-                        .take_data(),
-                );
-                offset += samples;
-            }
-            output
+            resampler.process(&remapped)?
         } else {
             remapped
         };
-        self.trim_leading_frames(&mut block.samples);
-        self.output_frames = self
-            .output_frames
-            .saturating_add((block.samples.len() / target_channels) as u64);
         block.format = self.target;
         Ok(())
     }
@@ -422,102 +639,30 @@ impl PcmNormalizer {
     fn drain(&mut self, block: &mut AudioBlock) -> Result<bool, PlaybackControlError> {
         block.format = self.target;
         block.samples.clear();
-        if self.drained || self.resampler.is_none() {
-            self.drained = true;
+        let Some(resampler) = self.resampler.as_mut() else {
             return Ok(false);
-        }
-
-        let expected_frames = ((self.input_frames as f64 * self.target.sample_rate as f64
-            / self.source.sample_rate as f64)
-            .ceil()) as u64;
-        if self.output_frames >= expected_frames {
-            self.drained = true;
-            return Ok(false);
-        }
-
-        // A zero-length partial chunk asks rubato to advance its filter state using
-        // silence. Repeat only until this turn yields audible data or the exact
-        // resampled duration has been reached.
-        while self.output_frames < expected_frames {
-            let resampler = self.resampler.as_mut().expect("checked above");
-            let channels = usize::from(self.target.channels);
-            let input_frames = resampler.input_frames_next();
-            let silence = vec![0.0; input_frames.saturating_mul(channels)];
-            let adapter = InterleavedSlice::new(&silence, channels, input_frames)
-                .map_err(|error| PlaybackControlError::failed("normalizer", error.to_string()))?;
-            let mut output = resampler
-                .process(&adapter, Some(&Indexing::new().partial_len(0)))
-                .map_err(|error| PlaybackControlError::failed("normalizer", error.to_string()))?
-                .take_data();
-            self.trim_leading_frames(&mut output);
-            let remaining_frames = expected_frames.saturating_sub(self.output_frames) as usize;
-            output.truncate(remaining_frames.saturating_mul(channels));
-            if !output.is_empty() {
-                self.output_frames = self
-                    .output_frames
-                    .saturating_add((output.len() / channels) as u64);
-                block.samples = output;
-                return Ok(true);
-            }
-        }
-        self.drained = true;
-        Ok(false)
-    }
-
-    fn trim_leading_frames(&mut self, samples: &mut Vec<f32>) {
-        if self.leading_frames_to_trim == 0 {
-            return;
-        }
-        let channels = usize::from(self.target.channels);
-        let available_frames = samples.len() / channels;
-        let trim_frames = available_frames.min(self.leading_frames_to_trim);
-        samples.drain(..trim_frames.saturating_mul(channels));
-        self.leading_frames_to_trim -= trim_frames;
+        };
+        block.samples = resampler.drain()?.unwrap_or_default();
+        Ok(!block.samples.is_empty())
     }
 
     fn reset(&mut self) {
         if let Some(resampler) = self.resampler.as_mut() {
             resampler.reset();
-            self.leading_frames_to_trim = resampler.output_delay();
-        }
-        self.input_frames = 0;
-        self.output_frames = 0;
-        self.drained = false;
-    }
-}
-
-fn remap_channels(input: &[f32], source_channels: usize, target_channels: usize) -> Vec<f32> {
-    if source_channels == target_channels {
-        return input.to_vec();
-    }
-    let frames = input.len() / source_channels.max(1);
-    let mut output = Vec::with_capacity(frames.saturating_mul(target_channels));
-    for source in input.chunks_exact(source_channels.max(1)) {
-        if target_channels == 1 {
-            output.push(source.iter().copied().sum::<f32>() / source_channels.max(1) as f32);
-            continue;
-        }
-        if source_channels == 1 {
-            output.extend(std::iter::repeat_n(source[0], target_channels));
-            continue;
-        }
-        for channel in 0..target_channels {
-            output.push(source.get(channel).copied().unwrap_or(0.0));
         }
     }
-    output
 }
 
 struct PreparedTrack {
     plan: ExecutablePlaybackPlan,
     decoder: Box<dyn DecoderStage>,
     pre_mix_transforms: Vec<Box<dyn TransformStage>>,
-    pre_mix_formats: Vec<AudioFormat>,
+    pre_mix_formats: Vec<PcmFormat>,
     post_mix_transforms: Vec<Box<dyn TransformStage>>,
-    post_mix_formats: Vec<AudioFormat>,
-    decoded_format: AudioFormat,
-    mix_format: AudioFormat,
-    output_format: AudioFormat,
+    post_mix_formats: Vec<PcmFormat>,
+    decoded_format: PcmFormat,
+    mix_format: PcmFormat,
+    output_format: PcmFormat,
     normalizer: Option<PcmNormalizer>,
     duration_frames: Option<u64>,
     trim_head_frames: u64,
@@ -532,12 +677,12 @@ struct ActiveTrack {
     item_id: PlaybackItemId,
     decoder: Box<dyn DecoderStage>,
     pre_mix_transforms: Vec<Box<dyn TransformStage>>,
-    pre_mix_formats: Vec<AudioFormat>,
+    pre_mix_formats: Vec<PcmFormat>,
     post_mix_transforms: Vec<Box<dyn TransformStage>>,
-    post_mix_formats: Vec<AudioFormat>,
-    decoded_format: AudioFormat,
-    mix_format: AudioFormat,
-    output_format: AudioFormat,
+    post_mix_formats: Vec<PcmFormat>,
+    decoded_format: PcmFormat,
+    mix_format: PcmFormat,
+    output_format: PcmFormat,
     normalizer: Option<PcmNormalizer>,
     duration_frames: Option<u64>,
     trim_head_frames: u64,
@@ -591,9 +736,9 @@ struct SecondaryTrack {
     item_id: PlaybackItemId,
     decoder: Box<dyn DecoderStage>,
     pre_mix_transforms: Vec<Box<dyn TransformStage>>,
-    pre_mix_formats: Vec<AudioFormat>,
-    decoded_format: AudioFormat,
-    mix_format: AudioFormat,
+    pre_mix_formats: Vec<PcmFormat>,
+    decoded_format: PcmFormat,
+    mix_format: PcmFormat,
     normalizer: Option<PcmNormalizer>,
     duration_frames: Option<u64>,
     trim_head_frames: u64,
@@ -1428,11 +1573,11 @@ fn pump_once(
     let mut block = AudioBlock::new(current.decoded_format);
     block.timeline.start_frame = current.decoded_frame;
     block.timeline.epoch = current.epoch;
-    block.samples.reserve(
-        config
-            .block_frames
-            .saturating_mul(usize::from(current.decoded_format.channels)),
-    );
+    block
+        .samples
+        .reserve(config.block_frames.saturating_mul(usize::from(
+            current.decoded_format.channel_layout.channel_count(),
+        )));
     match current.decoder.decode(&mut block) {
         Ok(DecodeStatus::Produced { frames }) => {
             if frames == 0 || block.samples.is_empty() {
@@ -1757,7 +1902,7 @@ fn maybe_start_crossfade(actor: &mut ActorState) {
 
 fn normalize_prepared_for_mix(
     prepared: &mut PreparedTrack,
-    target: AudioFormat,
+    target: PcmFormat,
 ) -> Result<(), PlaybackControlError> {
     if prepared.mix_format == target {
         return Ok(());
@@ -1973,7 +2118,7 @@ fn pump_crossfade(
     if frames == 0 {
         return;
     }
-    let channels = usize::from(current.mix_format.channels.max(1));
+    let channels = usize::from(current.mix_format.channel_layout.channel_count());
     let sample_count = frames.saturating_mul(channels);
     let mut mixed = AudioBlock::new(current.mix_format);
     mixed.timeline.start_frame = current
@@ -2038,9 +2183,9 @@ fn pump_crossfade(
 fn decode_track_block(
     decoder: &mut dyn DecoderStage,
     transforms: &mut [Box<dyn TransformStage>],
-    transform_formats: &[AudioFormat],
+    transform_formats: &[PcmFormat],
     normalizer: &mut Option<PcmNormalizer>,
-    format: AudioFormat,
+    format: PcmFormat,
     trim_head_frames: u64,
     trim_tail_frames: u64,
     raw_duration_frames: Option<u64>,
@@ -2055,7 +2200,7 @@ fn decode_track_block(
     block.timeline.epoch = epoch;
     block
         .samples
-        .reserve(block_frames.saturating_mul(usize::from(format.channels)));
+        .reserve(block_frames.saturating_mul(usize::from(format.channel_layout.channel_count())));
     match decoder
         .decode(&mut block)
         .map_err(|error| PlaybackControlError::failed("decoder", error.to_string()))?
@@ -2093,7 +2238,7 @@ fn decode_track_block(
 
 fn process_transform_chain(
     transforms: &mut [Box<dyn TransformStage>],
-    formats: &[AudioFormat],
+    formats: &[PcmFormat],
     block: &mut AudioBlock,
 ) -> Result<(), stellatune_audio_core::TransformError> {
     debug_assert_eq!(transforms.len(), formats.len());
@@ -2360,7 +2505,7 @@ fn activate_with_output(
     prepared: PreparedTrack,
     output: SinkWorker,
     post_mix_transforms: Vec<Box<dyn TransformStage>>,
-    post_mix_formats: Vec<AudioFormat>,
+    post_mix_formats: Vec<PcmFormat>,
     sink_consumed_base_frame: u64,
     boundary_announced: bool,
     fade_in_frames: u64,
@@ -2418,7 +2563,7 @@ fn transition_fade_in_frames(transition: TransitionPolicy) -> u64 {
 }
 
 fn apply_track_transition_gain(current: &ActiveTrack, block: &mut AudioBlock) {
-    let channels = usize::from(block.format.channels.max(1));
+    let channels = usize::from(block.format.channel_layout.channel_count());
     let fade_out = match current.transition {
         TransitionPolicy::FadeOutIn {
             fade_out_frames,
@@ -2598,7 +2743,7 @@ fn trim_gapless_samples(
     raw_duration_frames: Option<u64>,
     tail_buffer: &mut Vec<f32>,
 ) {
-    let channels = usize::from(block.format.channels.max(1));
+    let channels = usize::from(block.format.channel_layout.channel_count());
     let raw_end = raw_start.saturating_add(block.frames() as u64);
     let keep_start = raw_start.max(trim_head_frames);
     let known_keep_end =
@@ -2764,7 +2909,7 @@ struct SinkWorker {
 impl SinkWorker {
     fn start(
         factory: Arc<dyn SinkFactory>,
-        format: AudioFormat,
+        format: PcmFormat,
         capacity: usize,
         initial_gain: f32,
     ) -> Result<Self, PlaybackControlError> {
@@ -2960,7 +3105,7 @@ impl OutputGainEnvelope {
     }
 
     fn apply(&mut self, block: &mut AudioBlock) {
-        let channels = usize::from(block.format.channels.max(1));
+        let channels = usize::from(block.format.channel_layout.channel_count());
         for frame in block.samples.chunks_exact_mut(channels) {
             if self.progressed_frames < self.duration_frames {
                 self.progressed_frames = self.progressed_frames.saturating_add(1);
@@ -3029,8 +3174,9 @@ fn sink_worker_loop(
                             clock
                                 .buffered_frames
                                 .fetch_sub(consumed as u64, Ordering::Relaxed);
-                            let samples =
-                                consumed.saturating_mul(usize::from(block.format.channels));
+                            let samples = consumed.saturating_mul(usize::from(
+                                block.format.channel_layout.channel_count(),
+                            ));
                             block.samples.drain(..samples);
                             block.timeline.start_frame =
                                 block.timeline.start_frame.saturating_add(consumed as u64);
@@ -3323,7 +3469,7 @@ mod tests {
     }
 
     impl TransformStage for BufferingTailTransform {
-        fn configure(&mut self, input: AudioFormat) -> Result<AudioFormat, TransformError> {
+        fn configure(&mut self, input: PcmFormat) -> Result<PcmFormat, TransformError> {
             Ok(input)
         }
 
@@ -3348,7 +3494,7 @@ mod tests {
     }
 
     impl TransformStage for CountingTransform {
-        fn configure(&mut self, input: AudioFormat) -> Result<AudioFormat, TransformError> {
+        fn configure(&mut self, input: PcmFormat) -> Result<PcmFormat, TransformError> {
             Ok(input)
         }
 
@@ -3399,13 +3545,13 @@ mod tests {
 
     struct FixedFormatDecoderFactory {
         descriptor: DecoderDescriptor,
-        format: AudioFormat,
+        format: PcmFormat,
         frames: u64,
         amplitude: f32,
     }
 
     impl FixedFormatDecoderFactory {
-        fn new(id: &str, format: AudioFormat, frames: u64, amplitude: f32) -> Self {
+        fn new(id: &str, format: PcmFormat, frames: u64, amplitude: f32) -> Self {
             Self {
                 descriptor: DecoderDescriptor {
                     id: StageId::new(id).unwrap(),
@@ -3436,7 +3582,7 @@ mod tests {
     }
 
     struct FixedFormatDecoder {
-        format: AudioFormat,
+        format: PcmFormat,
         total: u64,
         remaining: u64,
         amplitude: f32,
@@ -3480,10 +3626,9 @@ mod tests {
             _hints: &MediaHints,
         ) -> Result<DecodedStreamInfo, DecodeError> {
             Ok(DecodedStreamInfo {
-                format: AudioFormat {
+                format: PcmFormat {
                     sample_rate: 100,
-                    channels: 1,
-                    channel_mask: None,
+                    channel_layout: ChannelLayout::MONO,
                 },
                 duration_frames: Some(100),
                 gapless_trim: None,
@@ -3531,7 +3676,7 @@ mod tests {
             }
             let frames = self.remaining.min(64) as usize;
             output.samples.resize(
-                frames.saturating_mul(usize::from(self.format.channels)),
+                frames.saturating_mul(usize::from(self.format.channel_layout.channel_count())),
                 self.amplitude,
             );
             self.remaining -= frames as u64;
@@ -3565,10 +3710,9 @@ mod tests {
             self.remaining = self.total;
             self.amplitude = f32::from(input[1]) / 100.0;
             Ok(DecodedStreamInfo {
-                format: AudioFormat {
+                format: PcmFormat {
                     sample_rate: 100,
-                    channels: 1,
-                    channel_mask: None,
+                    channel_layout: ChannelLayout::MONO,
                 },
                 duration_frames: Some(self.total),
                 gapless_trim: None,
@@ -3611,13 +3755,13 @@ mod tests {
 
         fn compatibility_key(
             &self,
-            format: AudioFormat,
+            format: PcmFormat,
         ) -> Result<OutputCompatibilityKey, FactoryError> {
             Ok(OutputCompatibilityKey {
                 backend_id: "test".to_owned(),
                 device_id: None,
                 sample_rate: format.sample_rate,
-                channels: format.channels,
+                channel_layout: format.channel_layout,
                 route_revision: 0,
             })
         }
@@ -3639,14 +3783,14 @@ mod tests {
 
     struct RecordingSinkFactory {
         id: StageId,
-        formats: Arc<Mutex<Vec<AudioFormat>>>,
+        formats: Arc<Mutex<Vec<PcmFormat>>>,
         creates: Arc<AtomicUsize>,
     }
 
     struct FormatAdaptingSinkFactory {
         id: StageId,
-        target: AudioFormat,
-        formats: Arc<Mutex<Vec<AudioFormat>>>,
+        target: PcmFormat,
+        formats: Arc<Mutex<Vec<PcmFormat>>>,
         samples: Arc<Mutex<Vec<f32>>>,
     }
 
@@ -3655,19 +3799,19 @@ mod tests {
             &self.id
         }
 
-        fn preferred_format(&self, _input: AudioFormat) -> Result<AudioFormat, FactoryError> {
+        fn preferred_format(&self, _input: PcmFormat) -> Result<PcmFormat, FactoryError> {
             Ok(self.target)
         }
 
         fn compatibility_key(
             &self,
-            format: AudioFormat,
+            format: PcmFormat,
         ) -> Result<OutputCompatibilityKey, FactoryError> {
             Ok(OutputCompatibilityKey {
                 backend_id: "format-adapting".to_owned(),
                 device_id: None,
                 sample_rate: format.sample_rate,
-                channels: format.channels,
+                channel_layout: format.channel_layout,
                 route_revision: 0,
             })
         }
@@ -3682,13 +3826,13 @@ mod tests {
     }
 
     struct FormatAdaptingSink {
-        formats: Arc<Mutex<Vec<AudioFormat>>>,
+        formats: Arc<Mutex<Vec<PcmFormat>>>,
         samples: Arc<Mutex<Vec<f32>>>,
         consumed: u64,
     }
 
     impl SinkStage for FormatAdaptingSink {
-        fn open(&mut self, format: AudioFormat) -> Result<(), SinkError> {
+        fn open(&mut self, format: PcmFormat) -> Result<(), SinkError> {
             self.formats.lock().unwrap().push(format);
             Ok(())
         }
@@ -3741,13 +3885,13 @@ mod tests {
 
         fn compatibility_key(
             &self,
-            format: AudioFormat,
+            format: PcmFormat,
         ) -> Result<OutputCompatibilityKey, FactoryError> {
             Ok(OutputCompatibilityKey {
                 backend_id: "recording".to_owned(),
                 device_id: None,
                 sample_rate: format.sample_rate,
-                channels: format.channels,
+                channel_layout: format.channel_layout,
                 route_revision: 0,
             })
         }
@@ -3762,7 +3906,7 @@ mod tests {
     }
 
     struct RecordingSink {
-        formats: Arc<Mutex<Vec<AudioFormat>>>,
+        formats: Arc<Mutex<Vec<PcmFormat>>>,
         consumed: u64,
     }
 
@@ -3778,13 +3922,13 @@ mod tests {
 
         fn compatibility_key(
             &self,
-            format: AudioFormat,
+            format: PcmFormat,
         ) -> Result<OutputCompatibilityKey, FactoryError> {
             Ok(OutputCompatibilityKey {
                 backend_id: "stalled".to_owned(),
                 device_id: None,
                 sample_rate: format.sample_rate,
-                channels: format.channels,
+                channel_layout: format.channel_layout,
                 route_revision: 0,
             })
         }
@@ -3803,7 +3947,7 @@ mod tests {
     }
 
     impl SinkStage for StalledSink {
-        fn open(&mut self, _format: AudioFormat) -> Result<(), SinkError> {
+        fn open(&mut self, _format: PcmFormat) -> Result<(), SinkError> {
             Ok(())
         }
         fn write(&mut self, block: &AudioBlock) -> Result<SinkWriteResult, SinkError> {
@@ -3843,7 +3987,7 @@ mod tests {
     }
 
     impl SinkStage for RecordingSink {
-        fn open(&mut self, _format: AudioFormat) -> Result<(), SinkError> {
+        fn open(&mut self, _format: PcmFormat) -> Result<(), SinkError> {
             Ok(())
         }
         fn write(&mut self, block: &AudioBlock) -> Result<SinkWriteResult, SinkError> {
@@ -3914,13 +4058,13 @@ mod tests {
 
         fn compatibility_key(
             &self,
-            format: AudioFormat,
+            format: PcmFormat,
         ) -> Result<OutputCompatibilityKey, FactoryError> {
             Ok(OutputCompatibilityKey {
                 backend_id: "recovering-test".to_owned(),
                 device_id: None,
                 sample_rate: format.sample_rate,
-                channels: format.channels,
+                channel_layout: format.channel_layout,
                 route_revision: 0,
             })
         }
@@ -3944,7 +4088,7 @@ mod tests {
     }
 
     impl SinkStage for RecoveringSink {
-        fn open(&mut self, _format: AudioFormat) -> Result<(), SinkError> {
+        fn open(&mut self, _format: PcmFormat) -> Result<(), SinkError> {
             Ok(())
         }
 
@@ -3990,7 +4134,7 @@ mod tests {
     }
 
     impl SinkStage for TestSink {
-        fn open(&mut self, _format: AudioFormat) -> Result<(), SinkError> {
+        fn open(&mut self, _format: PcmFormat) -> Result<(), SinkError> {
             Ok(())
         }
 
@@ -4168,10 +4312,9 @@ mod tests {
     fn output_gain_envelope_advances_by_audio_frames() {
         let mut envelope = OutputGainEnvelope::new(1.0);
         envelope.schedule(0.0, 4);
-        let mut block = AudioBlock::new(AudioFormat {
+        let mut block = AudioBlock::new(PcmFormat {
             sample_rate: 1_000,
-            channels: 2,
-            channel_mask: None,
+            channel_layout: ChannelLayout::STEREO,
         });
         block.samples = vec![1.0; 10];
         envelope.apply(&mut block);
@@ -4182,16 +4325,116 @@ mod tests {
     }
 
     #[test]
-    fn normalizer_trims_startup_delay_and_drains_exact_resampled_duration() {
-        let source = AudioFormat {
-            sample_rate: 44_100,
-            channels: 1,
-            channel_mask: None,
+    fn channel_mixer_downmixes_5_1_by_position_and_drops_lfe() {
+        let mixer =
+            ChannelMixer::new(ChannelLayout::SURROUND_5_1_SIDE, ChannelLayout::STEREO).unwrap();
+        let positions = ChannelLayout::SURROUND_5_1_SIDE
+            .positions()
+            .collect::<Vec<_>>();
+        let render_position = |position| {
+            let mut input = vec![0.0; positions.len()];
+            input[positions.iter().position(|item| *item == position).unwrap()] = 1.0;
+            mixer.process(&input)
         };
-        let target = AudioFormat {
+
+        assert_eq!(render_position(SpeakerPosition::Lfe), vec![0.0, 0.0]);
+        assert_eq!(render_position(SpeakerPosition::SideLeft)[1], 0.0);
+        assert_eq!(render_position(SpeakerPosition::SideRight)[0], 0.0);
+        assert!(render_position(SpeakerPosition::FrontCenter)[0] > 0.0);
+
+        let full_scale = mixer.process(&vec![1.0; positions.len()]);
+        assert!(full_scale.iter().all(|sample| sample.abs() <= 1.0));
+    }
+
+    #[test]
+    fn channel_mixer_conservatively_expands_stereo_to_7_1() {
+        let mixer = ChannelMixer::new(ChannelLayout::STEREO, ChannelLayout::SURROUND_7_1).unwrap();
+        let output = mixer.process(&[0.25, -0.5]);
+
+        assert_eq!(output.len(), 8);
+        assert_eq!(output[0], 0.25);
+        assert_eq!(output[1], -0.5);
+        assert!(output[2..].iter().all(|sample| *sample == 0.0));
+    }
+
+    #[test]
+    fn channel_mixer_folds_height_channels_into_matching_bed_channels() {
+        let mixer =
+            ChannelMixer::new(ChannelLayout::SURROUND_7_1_4, ChannelLayout::SURROUND_7_1).unwrap();
+        let source_positions = ChannelLayout::SURROUND_7_1_4
+            .positions()
+            .collect::<Vec<_>>();
+        let mut input = vec![0.0; source_positions.len()];
+        input[source_positions
+            .iter()
+            .position(|position| *position == SpeakerPosition::TopRearLeft)
+            .unwrap()] = 1.0;
+        let output = mixer.process(&input);
+
+        let rear_left = ChannelLayout::SURROUND_7_1
+            .index_of(SpeakerPosition::RearLeft)
+            .unwrap();
+        assert!(output[rear_left] > 0.0);
+        assert_eq!(output.iter().filter(|sample| **sample != 0.0).count(), 1);
+    }
+
+    #[test]
+    fn channel_mixer_uses_constant_power_mono_to_stereo_routing() {
+        let mixer = ChannelMixer::new(ChannelLayout::MONO, ChannelLayout::STEREO).unwrap();
+        assert_eq!(mixer.process(&[1.0]), vec![SQRT_HALF, SQRT_HALF]);
+
+        let mixer = ChannelMixer::new(ChannelLayout::STEREO, ChannelLayout::MONO).unwrap();
+        assert_eq!(mixer.process(&[1.0, -0.5]), vec![0.25]);
+    }
+
+    #[test]
+    fn channel_mixer_merges_rear_channels_into_5_1_side_layout() {
+        let mixer = ChannelMixer::new(
+            ChannelLayout::SURROUND_7_1,
+            ChannelLayout::SURROUND_5_1_SIDE,
+        )
+        .unwrap();
+        let source_positions = ChannelLayout::SURROUND_7_1.positions().collect::<Vec<_>>();
+        let mut input = vec![0.0; source_positions.len()];
+        input[source_positions
+            .iter()
+            .position(|position| *position == SpeakerPosition::RearLeft)
+            .unwrap()] = 1.0;
+        let output = mixer.process(&input);
+        let side_left = ChannelLayout::SURROUND_5_1_SIDE
+            .index_of(SpeakerPosition::SideLeft)
+            .unwrap();
+
+        assert!(output[side_left] > 0.0);
+        assert_eq!(output.iter().filter(|sample| **sample != 0.0).count(), 1);
+    }
+
+    #[test]
+    fn output_compatibility_key_distinguishes_equal_channel_counts() {
+        let side = OutputCompatibilityKey {
+            backend_id: "test".to_owned(),
+            device_id: None,
             sample_rate: 48_000,
-            channels: 2,
-            channel_mask: None,
+            channel_layout: ChannelLayout::SURROUND_5_1_SIDE,
+            route_revision: 0,
+        };
+        let rear = OutputCompatibilityKey {
+            channel_layout: ChannelLayout::SURROUND_5_1_REAR,
+            ..side.clone()
+        };
+
+        assert_ne!(side, rear);
+    }
+
+    #[test]
+    fn normalizer_trims_startup_delay_and_drains_exact_resampled_duration() {
+        let source = PcmFormat {
+            sample_rate: 44_100,
+            channel_layout: ChannelLayout::MONO,
+        };
+        let target = PcmFormat {
+            sample_rate: 48_000,
+            channel_layout: ChannelLayout::STEREO,
         };
         let input_frames = 1_500_usize;
         let expected_frames = ((input_frames as f64 * target.sample_rate as f64
@@ -4213,22 +4456,20 @@ mod tests {
 
         assert_eq!(
             rendered.len(),
-            expected_frames * usize::from(target.channels)
+            expected_frames * usize::from(target.channel_layout.channel_count())
         );
         assert!(rendered.iter().any(|sample| sample.abs() > 0.5));
     }
 
     #[test]
     fn normalizer_preserves_a_stereo_sine_without_noise_spikes() {
-        let source = AudioFormat {
+        let source = PcmFormat {
             sample_rate: 44_100,
-            channels: 2,
-            channel_mask: None,
+            channel_layout: ChannelLayout::STEREO,
         };
-        let target = AudioFormat {
+        let target = PcmFormat {
             sample_rate: 48_000,
-            channels: 2,
-            channel_mask: None,
+            channel_layout: ChannelLayout::STEREO,
         };
         let input_frames = 44_100_usize;
         let mut input = Vec::with_capacity(input_frames * 2);
@@ -4239,7 +4480,7 @@ mod tests {
 
         let mut normalizer = PcmNormalizer::new(source, target).unwrap();
         let mut rendered = Vec::new();
-        for samples in input.chunks(1024 * usize::from(source.channels)) {
+        for samples in input.chunks(1024 * usize::from(source.channel_layout.channel_count())) {
             let mut block = AudioBlock::new(source);
             block.samples.extend_from_slice(samples);
             normalizer.process(&mut block).unwrap();
@@ -4257,14 +4498,14 @@ mod tests {
         assert!(rendered.iter().all(|sample| sample.abs() <= 0.51));
         let stable_samples = &rendered[..rendered
             .len()
-            .saturating_sub(256 * usize::from(target.channels))];
-        for channel in 0..usize::from(target.channels) {
+            .saturating_sub(256 * usize::from(target.channel_layout.channel_count()))];
+        for channel in 0..usize::from(target.channel_layout.channel_count()) {
             let (max_step_index, max_step) = stable_samples
-                .chunks_exact(usize::from(target.channels))
+                .chunks_exact(usize::from(target.channel_layout.channel_count()))
                 .map(|frame| frame[channel])
                 .zip(
                     stable_samples
-                        .chunks_exact(usize::from(target.channels))
+                        .chunks_exact(usize::from(target.channel_layout.channel_count()))
                         .skip(1)
                         .map(|frame| frame[channel]),
                 )
@@ -4301,10 +4542,9 @@ mod tests {
 
     #[tokio::test]
     async fn preferred_sink_format_normalizes_pcm_before_opening_output() {
-        let target = AudioFormat {
+        let target = PcmFormat {
             sample_rate: 200,
-            channels: 2,
-            channel_mask: None,
+            channel_layout: ChannelLayout::STEREO,
         };
         let formats = Arc::new(Mutex::new(Vec::new()));
         let samples = Arc::new(Mutex::new(Vec::new()));
@@ -4333,7 +4573,7 @@ mod tests {
         assert_eq!(formats.lock().unwrap().as_slice(), &[target]);
         assert_eq!(
             samples.lock().unwrap().len(),
-            40 * usize::from(target.channels)
+            40 * usize::from(target.channel_layout.channel_count())
         );
         runtime.shutdown().await.unwrap();
     }
@@ -4519,7 +4759,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn crossfade_normalizes_next_sample_rate_and_channels_before_mixing() {
+    async fn crossfade_normalizes_next_sample_rate_and_channel_layout_before_mixing() {
         let formats = Arc::new(Mutex::new(Vec::new()));
         let creates = Arc::new(AtomicUsize::new(0));
         let sink = Arc::new(RecordingSinkFactory {
@@ -4542,15 +4782,13 @@ mod tests {
         let runtime = PlaybackRuntime::start(config).unwrap();
         let controller = runtime.controller();
         let mut events = controller.subscribe_events();
-        let current_format = AudioFormat {
+        let current_format = PcmFormat {
             sample_rate: 100,
-            channels: 1,
-            channel_mask: None,
+            channel_layout: ChannelLayout::MONO,
         };
-        let next_format = AudioFormat {
+        let next_format = PcmFormat {
             sample_rate: 200,
-            channels: 2,
-            channel_mask: None,
+            channel_layout: ChannelLayout::STEREO,
         };
         controller
             .switch(

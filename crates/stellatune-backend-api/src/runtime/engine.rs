@@ -134,7 +134,7 @@ fn output_sink_watermarks_ms() -> (i64, i64) {
 }
 
 fn estimate_buffered_ms(metrics: DeviceSinkMetricsSnapshot, spec: OutputDeviceSpec) -> i64 {
-    let channels = spec.channels.max(1) as u64;
+    let channels = u64::from(spec.channel_count());
     let sample_rate = spec.sample_rate.max(1) as u64;
     let buffered_samples = metrics
         .written_samples
@@ -377,7 +377,7 @@ pub async fn runtime_set_output_device(
         requested_device_id,
         applied_device_id,
         output_sample_rate: resolved_output_spec.spec.sample_rate,
-        output_channels: resolved_output_spec.spec.channels,
+        output_channels: resolved_output_spec.spec.channel_count(),
         fallback_to_default,
     })
 }
@@ -490,6 +490,8 @@ fn from_adapter_backend(backend: AdapterOutputBackend) -> OutputBackend {
 
 #[cfg(test)]
 mod tests {
+    use stellatune_audio_core::ChannelLayout;
+
     use super::{
         DeviceSinkMetricsSnapshot, OutputDeviceSpec, OutputSinkMonitorState,
         OutputSinkWatermarkState, estimate_buffered_ms, output_sink_watermarks_ms,
@@ -504,7 +506,7 @@ mod tests {
         };
         let spec = OutputDeviceSpec {
             sample_rate: 48_000,
-            channels: 2,
+            channel_layout: ChannelLayout::STEREO,
         };
 
         assert_eq!(estimate_buffered_ms(metrics, spec), 500);

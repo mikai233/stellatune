@@ -2,8 +2,8 @@ use std::fs::File;
 use std::io;
 use std::path::Path;
 
-use stellatune_audio_core::{AudioFormat, GaplessTrimSpec};
-use symphonia::core::audio::GenericAudioBufferRef;
+use stellatune_audio_core::{ChannelLayout, GaplessTrimSpec, PcmFormat, SpeakerPosition};
+use symphonia::core::audio::{Channels, GenericAudioBufferRef, Position};
 use symphonia::core::codecs::audio::{
     AudioDecoder as SymphoniaDecoder, AudioDecoderOptions as DecoderOptions,
 };
@@ -191,7 +191,7 @@ pub struct BuiltinDecoder {
     format: Box<dyn FormatReader>,
     decoder: Box<dyn SymphoniaDecoder>,
     track_id: u32,
-    spec: AudioFormat,
+    spec: PcmFormat,
     duration_ms_hint: Option<u64>,
     encoder_delay_frames: u32,
     encoder_padding_frames: u32,
@@ -251,11 +251,11 @@ impl BuiltinDecoder {
         let encoder_padding_frames = track.padding.unwrap_or(0);
 
         let mut sample_rate = params.sample_rate.unwrap_or(0);
-        let mut channels = params
+        let mut channel_layout = params
             .channels
             .as_ref()
-            .map(|v| v.count() as u16)
-            .unwrap_or(0);
+            .map(channel_layout_from_symphonia)
+            .transpose()?;
 
         let mut decoder = symphonia::default::get_codecs()
             .make_audio_decoder(&params, &DecoderOptions::default())
@@ -277,8 +277,8 @@ impl BuiltinDecoder {
         }
 
         let mut pending = Vec::new();
-        if sample_rate == 0 || channels == 0 {
-            while sample_rate == 0 || channels == 0 {
+        if sample_rate == 0 || channel_layout.is_none() {
+            while sample_rate == 0 || channel_layout.is_none() {
                 match format.next_packet() {
                     Ok(Some(packet)) => {
                         if packet.track_id != track_id {
@@ -286,11 +286,24 @@ impl BuiltinDecoder {
                         }
                         match decoder.decode(&packet) {
                             Ok(audio_buf) => {
+                                let decoded_rate = audio_buf.spec().rate();
+                                let decoded_layout =
+                                    channel_layout_from_symphonia(audio_buf.spec().channels())?;
                                 if sample_rate == 0 {
-                                    sample_rate = audio_buf.spec().rate();
+                                    sample_rate = decoded_rate;
+                                } else if sample_rate != decoded_rate {
+                                    return Err(format!(
+                                        "decoded sample rate changed while probing: expected {sample_rate}Hz, got {decoded_rate}Hz"
+                                    ));
                                 }
-                                if channels == 0 {
-                                    channels = audio_buf.spec().channels().count() as u16;
+                                match channel_layout {
+                                    None => channel_layout = Some(decoded_layout),
+                                    Some(expected) if expected != decoded_layout => {
+                                        return Err(format!(
+                                            "decoded channel layout changed while probing: expected {expected:?}, got {decoded_layout:?}",
+                                        ));
+                                    },
+                                    Some(_) => {},
                                 }
                                 append_decoded(&mut pending, audio_buf);
                             },
@@ -316,9 +329,12 @@ impl BuiltinDecoder {
                 }
             }
         }
-        if sample_rate == 0 || channels == 0 {
+        let channel_layout = channel_layout.ok_or_else(|| {
+            format!("missing positioned channel layout after probe: sample_rate={sample_rate}")
+        })?;
+        if sample_rate == 0 {
             return Err(format!(
-                "missing stream spec after probe: sample_rate={sample_rate} channels={channels}"
+                "missing stream spec after probe: sample_rate={sample_rate}"
             ));
         }
 
@@ -326,10 +342,9 @@ impl BuiltinDecoder {
             format,
             decoder,
             track_id,
-            spec: AudioFormat {
+            spec: PcmFormat {
                 sample_rate,
-                channels,
-                channel_mask: None,
+                channel_layout,
             },
             duration_ms_hint,
             encoder_delay_frames,
@@ -338,7 +353,7 @@ impl BuiltinDecoder {
         })
     }
 
-    pub fn spec(&self) -> AudioFormat {
+    pub fn spec(&self) -> PcmFormat {
         self.spec
     }
 
@@ -386,7 +401,7 @@ impl BuiltinDecoder {
     }
 
     pub fn next_block(&mut self, frames: usize) -> Result<Option<Vec<f32>>, String> {
-        let channels = self.spec.channels.max(1) as usize;
+        let channels = usize::from(self.spec.channel_layout.channel_count());
         let want_samples = frames.saturating_mul(channels).max(channels);
 
         while self.pending.len() < want_samples {
@@ -397,6 +412,18 @@ impl BuiltinDecoder {
                     }
                     match self.decoder.decode(&packet) {
                         Ok(audio_buf) => {
+                            let decoded_layout =
+                                channel_layout_from_symphonia(audio_buf.spec().channels())?;
+                            if audio_buf.spec().rate() != self.spec.sample_rate
+                                || decoded_layout != self.spec.channel_layout
+                            {
+                                return Err(format!(
+                                    "decoded PCM format changed after open: expected {:?}, got {}Hz {:?}",
+                                    self.spec,
+                                    audio_buf.spec().rate(),
+                                    decoded_layout,
+                                ));
+                            }
                             append_decoded(&mut self.pending, audio_buf);
                         },
                         Err(SymphoniaError::DecodeError(_)) => continue,
@@ -428,6 +455,51 @@ impl BuiltinDecoder {
         let out = self.pending.drain(..take).collect::<Vec<_>>();
         Ok(Some(out))
     }
+}
+
+fn channel_layout_from_symphonia(channels: &Channels) -> Result<ChannelLayout, String> {
+    let Channels::Positioned(positions) = channels else {
+        return Err(format!(
+            "unsupported non-positioned channel layout: {channels}"
+        ));
+    };
+    let mappings = [
+        (Position::FRONT_LEFT, SpeakerPosition::FrontLeft),
+        (Position::FRONT_RIGHT, SpeakerPosition::FrontRight),
+        (Position::FRONT_CENTER, SpeakerPosition::FrontCenter),
+        (Position::LFE1, SpeakerPosition::Lfe),
+        (Position::REAR_LEFT, SpeakerPosition::RearLeft),
+        (Position::REAR_RIGHT, SpeakerPosition::RearRight),
+        (
+            Position::FRONT_LEFT_CENTER,
+            SpeakerPosition::FrontLeftCenter,
+        ),
+        (
+            Position::FRONT_RIGHT_CENTER,
+            SpeakerPosition::FrontRightCenter,
+        ),
+        (Position::REAR_CENTER, SpeakerPosition::RearCenter),
+        (Position::SIDE_LEFT, SpeakerPosition::SideLeft),
+        (Position::SIDE_RIGHT, SpeakerPosition::SideRight),
+        (Position::TOP_CENTER, SpeakerPosition::TopCenter),
+        (Position::TOP_FRONT_LEFT, SpeakerPosition::TopFrontLeft),
+        (Position::TOP_FRONT_CENTER, SpeakerPosition::TopFrontCenter),
+        (Position::TOP_FRONT_RIGHT, SpeakerPosition::TopFrontRight),
+        (Position::TOP_REAR_LEFT, SpeakerPosition::TopRearLeft),
+        (Position::TOP_REAR_CENTER, SpeakerPosition::TopRearCenter),
+        (Position::TOP_REAR_RIGHT, SpeakerPosition::TopRearRight),
+    ];
+    let mapped = mappings
+        .into_iter()
+        .filter_map(|(symphonia, core)| positions.contains(symphonia).then_some(core))
+        .collect::<Vec<_>>();
+    if mapped.len() != positions.bits().count_ones() as usize {
+        return Err(format!(
+            "unsupported positioned channel outside the 7.1.4 speaker domain: {channels}"
+        ));
+    }
+    ChannelLayout::from_positions(mapped)
+        .map_err(|error| format!("unsupported positioned channel layout {channels}: {error}"))
 }
 
 fn append_decoded(pending: &mut Vec<f32>, audio_buf: GenericAudioBufferRef<'_>) {
@@ -488,7 +560,12 @@ struct OpenedMediaInput {
 
 #[cfg(test)]
 mod tests {
-    use super::extension_from_path;
+    use std::io::Cursor;
+
+    use stellatune_audio_core::{ChannelLayout, SpeakerPosition};
+    use symphonia::core::audio::Channels;
+
+    use super::{BuiltinDecoder, channel_layout_from_symphonia, extension_from_path};
 
     #[test]
     fn extension_from_path_understands_urls() {
@@ -498,5 +575,81 @@ mod tests {
         );
         assert_eq!(extension_from_path("http://example.com/stream"), "");
         assert_eq!(extension_from_path("C:/music/song.mp3"), "mp3");
+    }
+
+    #[test]
+    fn rejects_non_positioned_symphonia_channels() {
+        assert!(channel_layout_from_symphonia(&Channels::Discrete(6)).is_err());
+        assert!(channel_layout_from_symphonia(&Channels::Ambisonic(1)).is_err());
+    }
+
+    #[test]
+    fn waveformat_extensible_5_1_preserves_layout_and_interleaved_order() {
+        let bytes = pcm_5_1_side_wave();
+        let mut decoder = BuiltinDecoder::open_source(Box::new(Cursor::new(bytes)), "wav").unwrap();
+
+        assert_eq!(decoder.spec().sample_rate, 48_000);
+        assert_eq!(
+            decoder.spec().channel_layout,
+            ChannelLayout::SURROUND_5_1_SIDE
+        );
+        assert_eq!(
+            decoder
+                .spec()
+                .channel_layout
+                .positions()
+                .collect::<Vec<_>>(),
+            vec![
+                SpeakerPosition::FrontLeft,
+                SpeakerPosition::FrontRight,
+                SpeakerPosition::FrontCenter,
+                SpeakerPosition::Lfe,
+                SpeakerPosition::SideLeft,
+                SpeakerPosition::SideRight,
+            ]
+        );
+
+        let samples = decoder.next_block(1).unwrap().unwrap();
+        assert_eq!(samples.len(), 6);
+        for (sample, expected) in samples.iter().zip([1_i16, 2, 3, 4, 5, 6]) {
+            let expected = f32::from(expected) / 32_768.0;
+            assert!((sample - expected).abs() < 1.0e-6);
+        }
+    }
+
+    fn pcm_5_1_side_wave() -> Vec<u8> {
+        let channels = 6_u16;
+        let sample_rate = 48_000_u32;
+        let bits_per_sample = 16_u16;
+        let block_align = channels * (bits_per_sample / 8);
+        let byte_rate = sample_rate * u32::from(block_align);
+        let samples = [1_i16, 2, 3, 4, 5, 6];
+        let data_size = (samples.len() * 2) as u32;
+        let riff_size = 4 + (8 + 40) + (8 + data_size);
+        let mut bytes = Vec::with_capacity((riff_size + 8) as usize);
+        bytes.extend_from_slice(b"RIFF");
+        bytes.extend_from_slice(&riff_size.to_le_bytes());
+        bytes.extend_from_slice(b"WAVE");
+        bytes.extend_from_slice(b"fmt ");
+        bytes.extend_from_slice(&40_u32.to_le_bytes());
+        bytes.extend_from_slice(&0xfffe_u16.to_le_bytes());
+        bytes.extend_from_slice(&channels.to_le_bytes());
+        bytes.extend_from_slice(&sample_rate.to_le_bytes());
+        bytes.extend_from_slice(&byte_rate.to_le_bytes());
+        bytes.extend_from_slice(&block_align.to_le_bytes());
+        bytes.extend_from_slice(&bits_per_sample.to_le_bytes());
+        bytes.extend_from_slice(&22_u16.to_le_bytes());
+        bytes.extend_from_slice(&bits_per_sample.to_le_bytes());
+        bytes.extend_from_slice(&0x060f_u32.to_le_bytes());
+        bytes.extend_from_slice(&[
+            0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x00, 0x80, 0x00, 0x00, 0xaa, 0x00, 0x38,
+            0x9b, 0x71,
+        ]);
+        bytes.extend_from_slice(b"data");
+        bytes.extend_from_slice(&data_size.to_le_bytes());
+        for sample in samples {
+            bytes.extend_from_slice(&sample.to_le_bytes());
+        }
+        bytes
     }
 }

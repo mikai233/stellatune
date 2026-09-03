@@ -10,7 +10,7 @@ use crate::output_runtime::{
     output_spec_for_device,
 };
 use stellatune_audio_core::{
-    AudioBlock, AudioFormat, SinkClockSnapshot, SinkError, SinkStage, SinkWriteResult,
+    AudioBlock, ChannelLayout, PcmFormat, SinkClockSnapshot, SinkError, SinkStage, SinkWriteResult,
     SinkWriteState,
 };
 
@@ -35,7 +35,13 @@ impl OutputBackend {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct OutputDeviceSpec {
     pub sample_rate: u32,
-    pub channels: u16,
+    pub channel_layout: ChannelLayout,
+}
+
+impl OutputDeviceSpec {
+    pub fn channel_count(self) -> u16 {
+        self.channel_layout.channel_count()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -268,7 +274,7 @@ pub fn default_output_spec_for_backend(backend: OutputBackend) -> Result<OutputD
     .map_err(|e| format!("{e}"))?;
     Ok(OutputDeviceSpec {
         sample_rate: spec.sample_rate.max(1),
-        channels: spec.channels.max(1),
+        channel_layout: spec.channel_layout,
     })
 }
 
@@ -283,7 +289,7 @@ pub fn output_spec_for_route(
     .map_err(|e| format!("{e}"))?;
     Ok(OutputDeviceSpec {
         sample_rate: spec.sample_rate.max(1),
-        channels: spec.channels.max(1),
+        channel_layout: spec.channel_layout,
     })
 }
 
@@ -292,7 +298,7 @@ pub struct DeviceSinkStage {
     producer: Option<HeapProd<f32>>,
     output_handle: Option<OutputHandle>,
     callback_error: Arc<Mutex<Option<String>>>,
-    prepared_spec: Option<AudioFormat>,
+    prepared_spec: Option<PcmFormat>,
     clock_base_samples: u64,
     epoch: u64,
 }
@@ -358,10 +364,10 @@ impl DeviceSinkStage {
 
     fn open_stream(
         &mut self,
-        spec: AudioFormat,
+        spec: PcmFormat,
     ) -> Result<(OutputBackend, Option<String>), SinkError> {
         let (backend, desired_device_id) = self.control.desired_route();
-        let channels = usize::from(spec.channels.max(1));
+        let channels = usize::from(spec.channel_layout.channel_count());
         let capacity_frames =
             ((spec.sample_rate as usize * RING_BUFFER_CAPACITY_MS) / 1000).max(1024);
         let capacity_samples = capacity_frames.saturating_mul(channels);
@@ -386,7 +392,7 @@ impl DeviceSinkStage {
             },
             OutputSpec {
                 sample_rate: spec.sample_rate.max(1),
-                channels: spec.channels.max(1),
+                channel_layout: spec.channel_layout,
             },
             on_error,
         )
@@ -407,7 +413,7 @@ impl Default for DeviceSinkStage {
 }
 
 impl SinkStage for DeviceSinkStage {
-    fn open(&mut self, format: AudioFormat) -> Result<(), SinkError> {
+    fn open(&mut self, format: PcmFormat) -> Result<(), SinkError> {
         self.close();
         self.prepared_spec = Some(format.validate().map_err(|message| SinkError::Failed {
             message: message.to_owned(),
@@ -428,7 +434,7 @@ impl SinkStage for DeviceSinkStage {
                 message: "device sink is not open".to_owned(),
             });
         };
-        let channels = usize::from(block.format.channels.max(1));
+        let channels = usize::from(block.format.channel_layout.channel_count());
         let consumed_samples = push_complete_frames(producer, &block.samples, channels);
         self.control.note_written_samples(consumed_samples);
         Ok(SinkWriteResult {
@@ -495,7 +501,7 @@ impl SinkStage for DeviceSinkStage {
         let metrics = self.control.metrics_snapshot();
         let channels = u64::from(
             self.prepared_spec
-                .map(|format| format.channels)
+                .map(|format| format.channel_layout.channel_count())
                 .unwrap_or(1)
                 .max(1),
         );

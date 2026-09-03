@@ -8,8 +8,8 @@ pub mod source;
 pub mod transform;
 
 pub use contracts::{
-    AudioBlock, AudioFormat, BlockTimeline, MediaHints, MediaTime, PlaybackItem, PlaybackItemId,
-    SourceCapabilities, SourceDescriptor, StageId,
+    AudioBlock, BlockTimeline, ChannelLayout, ChannelLayoutError, MediaHints, MediaTime, PcmFormat,
+    PlaybackItem, PlaybackItemId, SourceCapabilities, SourceDescriptor, SpeakerPosition, StageId,
 };
 pub use decoder::{
     DecodeStatus, DecodedStreamInfo, DecoderDescriptor, DecoderFactory, DecoderSeekStatus,

@@ -1,4 +1,4 @@
-use crate::{AudioBlock, AudioFormat, FactoryError, SinkError, StageId};
+use crate::{AudioBlock, ChannelLayout, FactoryError, PcmFormat, SinkError, StageId};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SinkWriteState {
@@ -20,7 +20,7 @@ pub struct SinkClockSnapshot {
 }
 
 pub trait SinkStage: Send {
-    fn open(&mut self, format: AudioFormat) -> Result<(), SinkError>;
+    fn open(&mut self, format: PcmFormat) -> Result<(), SinkError>;
     fn write(&mut self, block: &AudioBlock) -> Result<SinkWriteResult, SinkError>;
     fn pause(&mut self) -> Result<(), SinkError>;
     fn resume(&mut self) -> Result<(), SinkError>;
@@ -35,18 +35,15 @@ pub struct OutputCompatibilityKey {
     pub backend_id: String,
     pub device_id: Option<String>,
     pub sample_rate: u32,
-    pub channels: u16,
+    pub channel_layout: ChannelLayout,
     pub route_revision: u64,
 }
 
 pub trait SinkFactory: Send + Sync {
     fn id(&self) -> &StageId;
-    fn preferred_format(&self, input: AudioFormat) -> Result<AudioFormat, FactoryError> {
+    fn preferred_format(&self, input: PcmFormat) -> Result<PcmFormat, FactoryError> {
         Ok(input)
     }
-    fn compatibility_key(
-        &self,
-        format: AudioFormat,
-    ) -> Result<OutputCompatibilityKey, FactoryError>;
+    fn compatibility_key(&self, format: PcmFormat) -> Result<OutputCompatibilityKey, FactoryError>;
     fn create(&self) -> Result<Box<dyn SinkStage>, FactoryError>;
 }

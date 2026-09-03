@@ -1,6 +1,4 @@
-use crate::{
-    AudioBlock, AudioFormat, DecodeError, EncodedSource, FactoryError, MediaHints, StageId,
-};
+use crate::{AudioBlock, DecodeError, EncodedSource, FactoryError, MediaHints, PcmFormat, StageId};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct GaplessTrimSpec {
@@ -10,7 +8,7 @@ pub struct GaplessTrimSpec {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DecodedStreamInfo {
-    pub format: AudioFormat,
+    pub format: PcmFormat,
     pub duration_frames: Option<u64>,
     pub gapless_trim: Option<GaplessTrimSpec>,
 }

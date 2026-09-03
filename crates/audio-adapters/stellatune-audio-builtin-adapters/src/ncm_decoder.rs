@@ -3,7 +3,7 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 use std::sync::Mutex;
 
-use stellatune_audio_core::{AudioFormat, GaplessTrimSpec};
+use stellatune_audio_core::{GaplessTrimSpec, PcmFormat};
 use symphonia::core::io::MediaSource;
 
 use crate::builtin_decoder::BuiltinDecoder;
@@ -70,7 +70,7 @@ impl NcmDecoder {
         Ok(Self { decoder })
     }
 
-    pub fn spec(&self) -> AudioFormat {
+    pub fn spec(&self) -> PcmFormat {
         self.decoder.spec()
     }
 

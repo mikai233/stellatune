@@ -69,6 +69,21 @@ track to the current mix sample rate and channel layout before overlap, trims
 resampler startup delay, and drains its filter tail to the exact target frame
 count.
 
+`PcmFormat` carries a strong `ChannelLayout`, not an independent channel count
+and optional mask. The layout is a non-empty positioned-speaker set in the
+canonical WAVEFORMATEXTENSIBLE interleaving order, and the channel count is
+always derived from it. The supported domain is mono through 7.1.4 speaker
+audio; discrete/custom channel orders and Ambisonics are rejected.
+
+The normalizer composes a matrix-based `ChannelMixer` with the sample-rate
+converter. Exact positions pass through, downmixing folds center, surround,
+wide, and height positions toward the nearest available speaker, and expansion
+leaves absent target positions silent. LFE is copied only to LFE and is never
+synthesized. Matrix rows are normalized when their absolute coefficient sum
+would exceed unity. Windows output obtains the precise endpoint channel mask;
+backends without position metadata may infer only mono or stereo and reject
+unknown multichannel layouts.
+
 ## 4. Transitions and position
 
 - Gapless prewarms next, trims encoder delay/padding, reuses compatible output,

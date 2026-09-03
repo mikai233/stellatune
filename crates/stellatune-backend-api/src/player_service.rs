@@ -1326,10 +1326,10 @@ mod tests {
     use stellatune_audio::planner::StageRegistrySnapshot;
     use stellatune_audio::playback::{PlaybackRuntime, PlaybackRuntimeConfig};
     use stellatune_audio_core::{
-        AudioBlock, AudioFormat, DecodeError, DecodeStatus, DecodedStreamInfo, DecoderDescriptor,
+        AudioBlock, ChannelLayout, DecodeError, DecodeStatus, DecodedStreamInfo, DecoderDescriptor,
         DecoderFactory, DecoderSeekStatus, FactoryError, MediaHints, OutputCompatibilityKey,
-        SeekResult, SinkClockSnapshot, SinkError, SinkFactory, SinkStage, SinkWriteResult,
-        SinkWriteState, StageId,
+        PcmFormat, SeekResult, SinkClockSnapshot, SinkError, SinkFactory, SinkStage,
+        SinkWriteResult, SinkWriteState, StageId,
     };
 
     use super::{
@@ -1463,10 +1463,9 @@ mod tests {
             self.total = u64::from(header[0]);
             self.remaining = self.total;
             Ok(DecodedStreamInfo {
-                format: AudioFormat {
+                format: PcmFormat {
                     sample_rate: 1_000,
-                    channels: 1,
-                    channel_mask: None,
+                    channel_layout: ChannelLayout::MONO,
                 },
                 duration_frames: Some(self.total),
                 gapless_trim: None,
@@ -1509,13 +1508,13 @@ mod tests {
 
         fn compatibility_key(
             &self,
-            format: AudioFormat,
+            format: PcmFormat,
         ) -> Result<OutputCompatibilityKey, FactoryError> {
             Ok(OutputCompatibilityKey {
                 backend_id: "unused".to_owned(),
                 device_id: None,
                 sample_rate: format.sample_rate,
-                channels: format.channels,
+                channel_layout: format.channel_layout,
                 route_revision: 0,
             })
         }
@@ -1530,7 +1529,7 @@ mod tests {
     }
 
     impl SinkStage for TestSink {
-        fn open(&mut self, _format: AudioFormat) -> Result<(), SinkError> {
+        fn open(&mut self, _format: PcmFormat) -> Result<(), SinkError> {
             Ok(())
         }
 

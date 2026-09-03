@@ -8,7 +8,10 @@ use std::time::Duration;
 use anyhow::Error;
 use wasapi::{DeviceEnumerator, Direction, SampleType, StreamMode, WaveFormat};
 
-use super::{AudioBackend, AudioDevice, OutputError, OutputSpec, SampleConsumer};
+use super::{
+    AudioBackend, AudioDevice, OutputError, OutputSpec, SampleConsumer,
+    channel_layout_from_standard_mask, standard_mask_from_channel_layout,
+};
 
 pub struct WasapiExclusiveHandle {
     shutdown: Arc<AtomicBool>,
@@ -67,37 +70,38 @@ pub fn supports_exclusive_spec(
             message: e.to_string(),
         })?;
 
+    let channels = usize::from(spec.channel_count());
+    let channel_mask = standard_mask_from_channel_layout(spec.channel_layout);
     let requested = [
         WaveFormat::new(
             32,
             32,
             &SampleType::Float,
             spec.sample_rate as usize,
-            spec.channels as usize,
-            None,
+            channels,
+            Some(channel_mask),
         ),
         WaveFormat::new(
             16,
             16,
             &SampleType::Int,
             spec.sample_rate as usize,
-            spec.channels as usize,
-            None,
+            channels,
+            Some(channel_mask),
         ),
         WaveFormat::new(
             32,
             32,
             &SampleType::Int,
             spec.sample_rate as usize,
-            spec.channels as usize,
-            None,
+            channels,
+            Some(channel_mask),
         ),
     ];
 
     for fmt in requested {
-        if audio_client
-            .is_supported_exclusive_with_quirks(&fmt)
-            .is_ok()
+        if let Ok(supported) = audio_client.is_supported_exclusive_with_quirks(&fmt)
+            && wave_format_matches_layout(&supported, spec)
         {
             return Ok(true);
         }
@@ -105,16 +109,14 @@ pub fn supports_exclusive_spec(
     Ok(false)
 }
 
-pub fn output_spec_for_exclusive_device(
-    device_id: Option<String>,
-) -> Result<OutputSpec, OutputError> {
+pub fn output_spec_for_wasapi_device(device_id: Option<&str>) -> Result<OutputSpec, OutputError> {
     let _ = wasapi::initialize_mta();
 
     let enumerator = DeviceEnumerator::new().map_err(|e| OutputError::ConfigMismatch {
         message: e.to_string(),
     })?;
 
-    let device = select_device(&enumerator, device_id.as_deref())?;
+    let device = select_device(&enumerator, device_id)?;
 
     let audio_client = device
         .get_iaudioclient()
@@ -130,8 +132,18 @@ pub fn output_spec_for_exclusive_device(
 
     Ok(OutputSpec {
         sample_rate: mix.get_samplespersec(),
-        channels: mix.get_nchannels(),
+        channel_layout: channel_layout_from_standard_mask(
+            mix.get_nchannels(),
+            mix.get_dwchannelmask(),
+        )?,
     })
+}
+
+fn wave_format_matches_layout(format: &WaveFormat, expected: OutputSpec) -> bool {
+    format.get_nchannels() == expected.channel_count()
+        && (format.get_dwchannelmask()
+            == standard_mask_from_channel_layout(expected.channel_layout)
+            || (expected.channel_count() <= 2 && format.get_dwchannelmask() == 0))
 }
 
 impl WasapiExclusiveHandle {
@@ -206,6 +218,8 @@ fn run_exclusive_loop<C: SampleConsumer>(
         .map_err(|e| anyhow::anyhow!("{}", e))?;
 
     let mix = audio_client.get_mixformat().ok();
+    let channels = usize::from(expected_spec.channel_count());
+    let channel_mask = standard_mask_from_channel_layout(expected_spec.channel_layout);
 
     #[derive(Debug, Clone, Copy)]
     enum RenderSampleKind {
@@ -221,8 +235,8 @@ fn run_exclusive_loop<C: SampleConsumer>(
                 32,
                 &SampleType::Float,
                 expected_spec.sample_rate as usize,
-                expected_spec.channels as usize,
-                None,
+                channels,
+                Some(channel_mask),
             ),
             RenderSampleKind::F32,
         ),
@@ -232,8 +246,8 @@ fn run_exclusive_loop<C: SampleConsumer>(
                 16,
                 &SampleType::Int,
                 expected_spec.sample_rate as usize,
-                expected_spec.channels as usize,
-                None,
+                channels,
+                Some(channel_mask),
             ),
             RenderSampleKind::I16,
         ),
@@ -243,8 +257,8 @@ fn run_exclusive_loop<C: SampleConsumer>(
                 32,
                 &SampleType::Int,
                 expected_spec.sample_rate as usize,
-                expected_spec.channels as usize,
-                None,
+                channels,
+                Some(channel_mask),
             ),
             RenderSampleKind::I32,
         ),
@@ -254,9 +268,15 @@ fn run_exclusive_loop<C: SampleConsumer>(
     let mut selected = None;
     for (fmt, kind) in requested_formats {
         match audio_client.is_supported_exclusive_with_quirks(&fmt) {
-            Ok(supported) => {
+            Ok(supported) if wave_format_matches_layout(&supported, expected_spec) => {
                 selected = Some((supported, kind));
                 break;
+            },
+            Ok(supported) => {
+                last_err = Some(anyhow::anyhow!(
+                    "driver substituted channel mask {:#010x} for requested {channel_mask:#010x}",
+                    supported.get_dwchannelmask(),
+                ));
             },
             Err(e) => last_err = Some(anyhow::anyhow!("{e}")),
         }
@@ -266,7 +286,9 @@ fn run_exclusive_loop<C: SampleConsumer>(
         let dev_label = device_id.as_deref().unwrap_or("default");
         let mut details = format!(
             "Could not find a compatible format (exclusive): requested {}Hz {}ch for device \"{}\"",
-            expected_spec.sample_rate, expected_spec.channels, dev_label
+            expected_spec.sample_rate,
+            expected_spec.channel_count(),
+            dev_label
         );
         if let Some(mix) = &mix {
             let sub = mix.get_subformat().ok();
@@ -314,7 +336,7 @@ fn run_exclusive_loop<C: SampleConsumer>(
         .start_stream()
         .map_err(|e| anyhow::anyhow!("{}", e))?;
 
-    let channels = expected_spec.channels as usize;
+    let channels = usize::from(expected_spec.channel_count());
     let bytes_per_frame = format.get_blockalign() as usize;
     let max_samples = (buffer_frame_count as usize) * channels;
 

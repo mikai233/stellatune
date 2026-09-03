@@ -32,13 +32,17 @@ pub fn probe_local_track(path: &Path) -> Result<ProbedTrackDecodeInfo, String> {
     let (sample_rate, channels, duration_ms) = if extension.eq_ignore_ascii_case("ncm") {
         let decoder = NcmDecoder::open(&path_text)?;
         let spec = decoder.spec();
-        (spec.sample_rate, spec.channels, decoder.duration_ms_hint())
+        (
+            spec.sample_rate,
+            spec.channel_layout.channel_count(),
+            decoder.duration_ms_hint(),
+        )
     } else {
         let decoder = BuiltinDecoder::open(&path_text)?;
         let spec = decoder.spec();
         (
             spec.sample_rate,
-            spec.channels,
+            spec.channel_layout.channel_count(),
             decoder.effective_duration_ms_hint(),
         )
     };

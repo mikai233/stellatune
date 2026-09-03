@@ -7,9 +7,9 @@ use std::sync::mpsc::{Receiver as StdReceiver, SyncSender, TryRecvError, sync_ch
 use std::time::Duration;
 
 use stellatune_audio_core::{
-    AudioBlock, AudioFormat, DecodeError, DecodeStatus, DecodedStreamInfo, DecoderDescriptor,
-    DecoderFactory, DecoderSeekStatus, DecoderStage, EncodedSource, FactoryError, MediaHints,
-    OutputCompatibilityKey, SeekResult, SinkFactory, SinkStage, SourceCancellation,
+    AudioBlock, DecodeError, DecodeStatus, DecodedStreamInfo, DecoderDescriptor, DecoderFactory,
+    DecoderSeekStatus, DecoderStage, EncodedSource, FactoryError, MediaHints,
+    OutputCompatibilityKey, PcmFormat, SeekResult, SinkFactory, SinkStage, SourceCancellation,
     SourceCapabilities, SourceDescriptor, SourceError, SourceFactory, SourceOpenFuture,
     SourceOpenRequest, StageId,
 };
@@ -573,11 +573,7 @@ impl DecoderStage for SymphoniaDecoderStage {
                     head_frames: trim.head_frames,
                     tail_frames: trim.tail_frames,
                 });
-        let format = AudioFormat {
-            sample_rate: spec.sample_rate,
-            channels: spec.channels,
-            channel_mask: None,
-        };
+        let format = spec;
         self.decoder = Some(decoder);
         Ok(DecodedStreamInfo {
             format,
@@ -590,8 +586,8 @@ impl DecoderStage for SymphoniaDecoderStage {
         let decoder = self.decoder.as_mut().ok_or_else(|| DecodeError::Failed {
             message: "decoder is not open".to_owned(),
         })?;
-        let frames =
-            output.samples.capacity().max(2048) / usize::from(output.format.channels.max(1));
+        let frames = output.samples.capacity().max(2048)
+            / usize::from(output.format.channel_layout.channel_count());
         match decoder.next_block(frames) {
             Ok(Some(samples)) => {
                 output.samples = samples;
@@ -663,24 +659,18 @@ impl SinkFactory for RuntimeDeviceSinkFactory {
         &self.id
     }
 
-    fn preferred_format(&self, input: AudioFormat) -> Result<AudioFormat, FactoryError> {
+    fn preferred_format(&self, _input: PcmFormat) -> Result<PcmFormat, FactoryError> {
         let (backend, device_id) = self.control.desired_route();
         let spec = crate::device_sink::output_spec_for_route(backend, device_id.as_deref())
             .or_else(|_| crate::device_sink::default_output_spec_for_backend(backend))
             .map_err(|message| FactoryError::InvalidConfiguration { message })?;
-        Ok(AudioFormat {
+        Ok(PcmFormat {
             sample_rate: spec.sample_rate,
-            channels: spec.channels,
-            channel_mask: (spec.channels == input.channels)
-                .then_some(input.channel_mask)
-                .flatten(),
+            channel_layout: spec.channel_layout,
         })
     }
 
-    fn compatibility_key(
-        &self,
-        format: AudioFormat,
-    ) -> Result<OutputCompatibilityKey, FactoryError> {
+    fn compatibility_key(&self, format: PcmFormat) -> Result<OutputCompatibilityKey, FactoryError> {
         let (backend, device_id) = self.control.desired_route();
         Ok(OutputCompatibilityKey {
             backend_id: match backend {
@@ -690,7 +680,7 @@ impl SinkFactory for RuntimeDeviceSinkFactory {
             .to_owned(),
             device_id,
             sample_rate: format.sample_rate,
-            channels: format.channels,
+            channel_layout: format.channel_layout,
             route_revision: self.route_revision,
         })
     }

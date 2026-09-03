@@ -1,4 +1,4 @@
-use crate::{AudioBlock, AudioFormat, FactoryError, StageId, TransformError};
+use crate::{AudioBlock, FactoryError, PcmFormat, StageId, TransformError};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TransformStatus {
@@ -13,7 +13,7 @@ pub enum DrainStatus {
 }
 
 pub trait TransformStage: Send {
-    fn configure(&mut self, input: AudioFormat) -> Result<AudioFormat, TransformError>;
+    fn configure(&mut self, input: PcmFormat) -> Result<PcmFormat, TransformError>;
     fn process(&mut self, block: &mut AudioBlock) -> Result<TransformStatus, TransformError>;
     fn drain(&mut self, output: &mut AudioBlock) -> Result<DrainStatus, TransformError>;
     fn reset(&mut self);

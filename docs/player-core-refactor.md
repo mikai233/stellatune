@@ -433,7 +433,7 @@ flowchart TB
 ```text
 crates/stellatune-audio-core
   建议后续重命名 stellatune-audio-contracts
-  - AudioFormat / AudioBlock / MediaTime
+  - PcmFormat / AudioBlock / MediaTime
   - SourceFactory / EncodedSource
   - DecoderStage / TransformStage / SinkStage
   - Factory descriptors
@@ -666,11 +666,22 @@ Core 可以 clone `Arc<dyn SourceFactory>`，从而支持：
 ### 7.4 音频格式和 block
 
 ```rust
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct AudioFormat {
+#[repr(u8)]
+pub enum SpeakerPosition {
+    FrontLeft,
+    FrontRight,
+    FrontCenter,
+    Lfe,
+    RearLeft,
+    RearRight,
+    // ...标准位置一直到 TopRearRight
+}
+
+pub struct ChannelLayout(/* private positioned-speaker set */);
+
+pub struct PcmFormat {
     pub sample_rate: u32,
-    pub channels: u16,
-    pub channel_mask: Option<u64>,
+    pub channel_layout: ChannelLayout,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -680,7 +691,7 @@ pub struct BlockTimeline {
 }
 
 pub struct AudioBlock {
-    pub format: AudioFormat,
+    pub format: PcmFormat,
     pub timeline: BlockTimeline,
     pub samples: Vec<f32>,
 }
@@ -688,11 +699,17 @@ pub struct AudioBlock {
 
 数据面固定使用 interleaved `f32` PCM。`AudioBlock` 必须满足：
 
-- `samples.len()` 是 channels 的整数倍；
+- `ChannelLayout` 非空、位置不重复，最多支持 7.1.4 的 12 个位置型扬声器；声道数只能通过 `channel_count()` 从布局推导；
+- interleaved 样本严格使用 `SpeakerPosition` 的 WAVEFORMATEXTENSIBLE canonical bit order；
+- `samples.len()` 是 `channel_layout.channel_count()` 的整数倍；
 - 同一 pipeline epoch 内 format 不会静默变化；
 - seek、非连续切歌或输出结构重建会递增 epoch；无缝 promotion/Crossfade 保持同一 output epoch，并用 item boundary marker 表达曲目归属变化；
 - 旧 epoch 的迟到 block 不得写入新 sink session；
 - block 通过移动所有权或 buffer pool 复用，不能在每个 stage 无条件复制。
+
+Core 不接受裸 `channel_mask`、只有数量的未知多声道、离散通道、Custom order 或 Ambisonics。Symphonia decoder 必须把 positioned layout 完整转换为 `ChannelLayout`；设备端必须报告精确扬声器布局。仅 mono/stereo 可以在底层没有位置元数据时安全推断，未知的多声道布局直接拒绝。
+
+Core-owned normalizer 由 `ChannelMixer + PcmResampler` 组成。`ChannelMixer` 在 pipeline preparation 时构造一次位置型矩阵：相同位置直接复制；减少布局时中央、环绕、宽和高度声道以 `1/sqrt(2)` 为基础权重折叠到最近的有效位置；增加布局时只保留已存在位置，其余目标声道为静音。LFE 只在目标也有 LFE 时复制，不向普通扬声器折叠，也不由普通声道生成。每个输出矩阵行的绝对系数和超过 1 时整体归一化，避免满幅输入产生数学削波。
 
 ## 8. Source Trait
 
@@ -805,7 +822,7 @@ Decoder 将一个已经打开的 `EncodedSource` 转成 PCM。它不知道源对
 ```rust
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DecodedStreamInfo {
-    pub format: AudioFormat,
+    pub format: PcmFormat,
     pub duration_frames: Option<u64>,
     pub gapless_trim: Option<GaplessTrimSpec>,
 }
@@ -907,8 +924,8 @@ pub enum DrainStatus {
 }
 
 pub trait TransformStage: Send {
-    fn configure(&mut self, input: AudioFormat)
-        -> Result<AudioFormat, TransformError>;
+    fn configure(&mut self, input: PcmFormat)
+        -> Result<PcmFormat, TransformError>;
 
     fn process(&mut self, block: &mut AudioBlock)
         -> Result<TransformStatus, TransformError>;
@@ -1032,7 +1049,7 @@ pub struct SinkClockSnapshot {
 }
 
 pub trait SinkStage: Send {
-    fn open(&mut self, format: AudioFormat) -> Result<(), SinkError>;
+    fn open(&mut self, format: PcmFormat) -> Result<(), SinkError>;
 
     fn write(&mut self, block: &AudioBlock)
         -> Result<SinkWriteResult, SinkError>;
@@ -1087,7 +1104,7 @@ pub struct OutputCompatibilityKey {
     pub backend_id: String,
     pub device_id: Option<String>,
     pub sample_rate: u32,
-    pub channels: u16,
+    pub channel_layout: ChannelLayout,
     pub route_revision: u64,
 }
 
@@ -1096,7 +1113,7 @@ pub trait SinkFactory: Send + Sync {
 
     fn compatibility_key(
         &self,
-        format: AudioFormat,
+        format: PcmFormat,
     ) -> Result<OutputCompatibilityKey, FactoryError>;
 
     fn create(&self) -> Result<Box<dyn SinkStage>, FactoryError>;
@@ -1104,6 +1121,8 @@ pub trait SinkFactory: Send + Sync {
 ```
 
 下一曲能否复用 output 只比较强类型兼容键，不依赖全局变量或对配置 JSON 做 hash。
+
+Windows Shared 和 WASAPI Exclusive 从 endpoint mix format 的 `dwChannelMask` 得到布局；Exclusive 打开时必须把同一个精确 mask 写入 `WaveFormat`，不能接受驱动替换成另一种同声道数布局。非 Windows CPAL 若只能提供声道数，则只接受 mono/stereo，多声道返回 unsupported-layout。
 
 `route_revision` 表示设备路由配置的修订号，不是 playback session generation；普通切歌不能因为 session generation 变化而失去 output 复用能力。
 
@@ -1440,7 +1459,7 @@ TypeScript 只返回 URL、headers 和提示；媒体 bytes 直接进入 Rust HT
 
 1. 在可取消的 preparation task 中创建第一个 decoder candidate；
 2. 为该 candidate 调用 `SourceFactory::open`；
-3. `DecoderStage::open(encoded_source, hints)` 得到原始 `AudioFormat`；
+3. `DecoderStage::open(encoded_source, hints)` 得到原始 `PcmFormat`；
 4. 若 candidate 在 open 阶段失败且 policy 允许 fallback，为下一个 candidate 重新打开 source；
 5. 选定 decoder 后依次 configure per-track transform 和 mix-format normalizer，使所有活动 TrackPipeline 输出相同 sample rate、channel layout 和 sample format；
 6. configure 共享的 Mixer 和 post-mix/output chain；
@@ -2402,6 +2421,11 @@ Phase 只用于约束重构分支的工作顺序，不是旧数据 migration，�
 - FadeOutIn 全程只驱动一条 TrackPipeline；
 - Crossfade 窗口同时驱动两条 TrackPipeline，A/B envelope 在每个 mix frame 对齐；
 - 不同 sample rate/channel layout 的两首曲目在 Mixer 前完成归一化；
+- mono/stereo/quad/5.1 side/5.1 rear/7.1/7.1.4 使用 canonical 顺序，5.1 WAVEFORMATEXTENSIBLE 解码不丢布局；
+- 5.1/7.1/7.1.4 降混按位置路由，LFE 不进入无 LFE 输出，矩阵输出不超过满幅；
+- stereo 到更大布局只保留 FL/FR，不生成 center/surround/LFE；
+- 相同声道数但 side/rear 等布局不同，不得共享 output compatibility key；
+- 未知多声道设备布局、离散声道、Custom order 和 Ambisonics 在准备阶段明确失败；
 - pause/underrun 不推进 Crossfade envelope；
 - next 未 ready、未知 duration 和格式无法归一时按 policy 降级；
 - Crossfade 开始后 current/next error 不串错 `PlaybackItemId`；

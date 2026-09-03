@@ -5,12 +5,19 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use stellatune_audio_core::{ChannelLayout, SpeakerPosition};
 use thiserror::Error;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct OutputSpec {
     pub sample_rate: u32,
-    pub channels: u16,
+    pub channel_layout: ChannelLayout,
+}
+
+impl OutputSpec {
+    pub fn channel_count(self) -> u16 {
+        self.channel_layout.channel_count()
+    }
 }
 
 pub trait SampleConsumer: Send + 'static {
@@ -50,6 +57,9 @@ pub enum OutputError {
 
     #[error("failed to query devices: {0}")]
     Devices(cpal::Error),
+
+    #[error("unknown or unsupported output channel layout: {message}")]
+    ChannelLayout { message: String },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -99,7 +109,10 @@ pub enum OutputHandle {
         spec: OutputSpec,
     },
     #[cfg(windows)]
-    Exclusive(wasapi_exclusive::WasapiExclusiveHandle),
+    Exclusive {
+        handle: wasapi_exclusive::WasapiExclusiveHandle,
+        spec: OutputSpec,
+    },
 }
 
 pub fn list_host_devices(_selected_backend: Option<AudioBackend>) -> Vec<AudioDevice> {
@@ -170,7 +183,9 @@ pub fn supports_output_spec(
     spec: OutputSpec,
 ) -> bool {
     match backend {
-        AudioBackend::Shared => true,
+        AudioBackend::Shared => {
+            output_spec_for_device(backend, device_id).is_ok_and(|actual| actual == spec)
+        },
         #[cfg(windows)]
         AudioBackend::WasapiExclusive => {
             wasapi_exclusive::supports_exclusive_spec(device_id, spec).unwrap_or(false)
@@ -211,13 +226,7 @@ fn cpal_device_id(device: &cpal::Device) -> String {
 pub fn default_output_spec() -> Result<OutputSpec, OutputError> {
     let host = cpal::default_host();
     let device = host.default_output_device().ok_or(OutputError::NoDevice)?;
-    let config = device
-        .default_output_config()
-        .map_err(OutputError::DefaultConfig)?;
-    Ok(OutputSpec {
-        sample_rate: config.sample_rate(),
-        channels: config.channels(),
-    })
+    output_spec_from_shared_device(&device)
 }
 
 pub fn output_spec_for_device(
@@ -235,21 +244,95 @@ pub fn output_spec_for_device(
             } else {
                 host.default_output_device().ok_or(OutputError::NoDevice)?
             };
-            let config = device
-                .default_output_config()
-                .map_err(OutputError::DefaultConfig)?;
-            Ok(OutputSpec {
-                sample_rate: config.sample_rate(),
-                channels: config.channels(),
-            })
+            output_spec_from_shared_device(&device)
         },
         #[cfg(windows)]
         AudioBackend::WasapiExclusive => {
-            wasapi_exclusive::output_spec_for_exclusive_device(device_id)
+            wasapi_exclusive::output_spec_for_wasapi_device(device_id.as_deref())
         },
         #[cfg(not(windows))]
         AudioBackend::WasapiExclusive => Err(OutputError::NoDevice),
     }
+}
+
+fn output_spec_from_shared_device(device: &cpal::Device) -> Result<OutputSpec, OutputError> {
+    let config = device
+        .default_output_config()
+        .map_err(OutputError::DefaultConfig)?;
+
+    #[cfg(windows)]
+    {
+        let device_id = device.id().map_err(OutputError::Devices)?;
+        let spec = wasapi_exclusive::output_spec_for_wasapi_device(Some(device_id.id()))?;
+        if spec.sample_rate != config.sample_rate() || spec.channel_count() != config.channels() {
+            return Err(OutputError::ChannelLayout {
+                message: format!(
+                    "CPAL default config {}Hz/{}ch differs from WASAPI mix format {}Hz/{}ch",
+                    config.sample_rate(),
+                    config.channels(),
+                    spec.sample_rate,
+                    spec.channel_count(),
+                ),
+            });
+        }
+        Ok(spec)
+    }
+
+    #[cfg(not(windows))]
+    {
+        Ok(OutputSpec {
+            sample_rate: config.sample_rate(),
+            channel_layout: infer_unpositioned_layout(config.channels())?,
+        })
+    }
+}
+
+fn infer_unpositioned_layout(channels: u16) -> Result<ChannelLayout, OutputError> {
+    match channels {
+        1 => Ok(ChannelLayout::MONO),
+        2 => Ok(ChannelLayout::STEREO),
+        _ => Err(OutputError::ChannelLayout {
+            message: format!("backend reported {channels} channels without speaker positions"),
+        }),
+    }
+}
+
+#[cfg(windows)]
+fn channel_layout_from_standard_mask(
+    channels: u16,
+    mask: u32,
+) -> Result<ChannelLayout, OutputError> {
+    if mask == 0 {
+        return infer_unpositioned_layout(channels);
+    }
+    let known_mask = (1_u32 << SpeakerPosition::ALL.len()) - 1;
+    if mask & !known_mask != 0 {
+        return Err(OutputError::ChannelLayout {
+            message: format!("WASAPI channel mask contains unsupported bits: {mask:#010x}"),
+        });
+    }
+    if mask.count_ones() != u32::from(channels) {
+        return Err(OutputError::ChannelLayout {
+            message: format!(
+                "WASAPI channel mask/count mismatch: mask={mask:#010x}, channels={channels}"
+            ),
+        });
+    }
+    ChannelLayout::from_positions(
+        SpeakerPosition::ALL
+            .into_iter()
+            .filter(|position| mask & (1_u32 << *position as u8) != 0),
+    )
+    .map_err(|error| OutputError::ChannelLayout {
+        message: error.to_string(),
+    })
+}
+
+#[cfg(windows)]
+fn standard_mask_from_channel_layout(layout: ChannelLayout) -> u32 {
+    layout
+        .positions()
+        .fold(0_u32, |mask, position| mask | (1_u32 << position as u8))
 }
 
 impl OutputHandle {
@@ -280,28 +363,18 @@ impl OutputHandle {
                     .map_err(OutputError::DefaultConfig)?;
                 let sample_rate = config.sample_rate();
                 let channels = config.channels();
+                let actual_spec = output_spec_from_shared_device(&device)?;
 
-                if sample_rate != expected_spec.sample_rate {
+                if actual_spec != expected_spec {
                     return Err(OutputError::ConfigMismatch {
                         message: format!(
-                            "sample rate mismatch: expected = {}Hz, output = {sample_rate}Hz",
-                            expected_spec.sample_rate
-                        ),
-                    });
-                }
-                if channels != expected_spec.channels {
-                    return Err(OutputError::ConfigMismatch {
-                        message: format!(
-                            "channel mismatch: expected = {}ch, output = {channels}ch",
-                            expected_spec.channels
+                            "format mismatch: expected = {expected_spec:?}, output = {actual_spec:?}"
                         ),
                     });
                 }
 
-                let spec = OutputSpec {
-                    sample_rate,
-                    channels,
-                };
+                debug_assert_eq!(sample_rate, actual_spec.sample_rate);
+                debug_assert_eq!(channels, actual_spec.channel_count());
 
                 let stream_config: cpal::StreamConfig = config.into();
                 let on_error = Arc::new(on_error);
@@ -363,7 +436,7 @@ impl OutputHandle {
 
                 Ok(Self::Shared {
                     _stream: stream,
-                    spec,
+                    spec: actual_spec,
                 })
             },
             #[cfg(windows)]
@@ -374,7 +447,10 @@ impl OutputHandle {
                     expected_spec,
                     on_error,
                 )?;
-                Ok(Self::Exclusive(handle))
+                Ok(Self::Exclusive {
+                    handle,
+                    spec: expected_spec,
+                })
             },
             #[cfg(not(windows))]
             AudioBackend::WasapiExclusive => Err(OutputError::NoDevice),
@@ -385,10 +461,7 @@ impl OutputHandle {
         match self {
             Self::Shared { spec, .. } => *spec,
             #[cfg(windows)]
-            Self::Exclusive(_) => OutputSpec {
-                sample_rate: 0, // Not easily available without storing it
-                channels: 2,
-            },
+            Self::Exclusive { spec, .. } => *spec,
         }
     }
 
@@ -396,7 +469,7 @@ impl OutputHandle {
         match self {
             Self::Shared { _stream, .. } => _stream.pause().map_err(OutputError::PauseStream),
             #[cfg(windows)]
-            Self::Exclusive(handle) => {
+            Self::Exclusive { handle, .. } => {
                 handle.pause();
                 Ok(())
             },
@@ -407,7 +480,7 @@ impl OutputHandle {
         match self {
             Self::Shared { _stream, .. } => _stream.play().map_err(OutputError::PlayStream),
             #[cfg(windows)]
-            Self::Exclusive(handle) => {
+            Self::Exclusive { handle, .. } => {
                 handle.resume();
                 Ok(())
             },
@@ -466,4 +539,49 @@ fn f32_to_u16(v: f32) -> u16 {
     let v = v.clamp(-1.0, 1.0);
     let normalized = (v + 1.0) * 0.5;
     (normalized * u16::MAX as f32) as u16
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use stellatune_audio_core::ChannelLayout;
+
+    use super::{channel_layout_from_standard_mask, standard_mask_from_channel_layout};
+
+    #[test]
+    fn standard_channel_masks_round_trip() {
+        for layout in [
+            ChannelLayout::MONO,
+            ChannelLayout::STEREO,
+            ChannelLayout::QUAD,
+            ChannelLayout::SURROUND_5_1_SIDE,
+            ChannelLayout::SURROUND_5_1_REAR,
+            ChannelLayout::SURROUND_7_1,
+            ChannelLayout::SURROUND_7_1_4,
+        ] {
+            let mask = standard_mask_from_channel_layout(layout);
+            assert_eq!(
+                channel_layout_from_standard_mask(layout.channel_count(), mask).unwrap(),
+                layout
+            );
+        }
+    }
+
+    #[test]
+    fn zero_mask_is_only_inferred_for_mono_and_stereo() {
+        assert_eq!(
+            channel_layout_from_standard_mask(1, 0).unwrap(),
+            ChannelLayout::MONO
+        );
+        assert_eq!(
+            channel_layout_from_standard_mask(2, 0).unwrap(),
+            ChannelLayout::STEREO
+        );
+        assert!(channel_layout_from_standard_mask(6, 0).is_err());
+    }
+
+    #[test]
+    fn rejects_mask_count_mismatch_and_unknown_bits() {
+        assert!(channel_layout_from_standard_mask(5, 0x060f).is_err());
+        assert!(channel_layout_from_standard_mask(1, 1 << 20).is_err());
+    }
 }
