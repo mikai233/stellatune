@@ -12,8 +12,8 @@ use crate::{
     stage::StageId,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// The result of processing one input block.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TransformStatus {
     /// The block contains output ready for the next pipeline stage.
     Produced,
@@ -21,8 +21,8 @@ pub enum TransformStatus {
     Buffered,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// The result of draining a transform after end of input.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DrainStatus {
     /// The supplied output block contains buffered PCM.
     Produced,
@@ -67,8 +67,8 @@ pub trait TransformStage: Send {
     fn reset(&mut self);
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 /// The side of the track mixer on which a transform runs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum TransformPlacement {
     /// Runs independently on each track before gain and track mixing.
     PreMix,
@@ -76,8 +76,8 @@ pub enum TransformPlacement {
     PostMix,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
 /// Stable identity and placement metadata for a transform factory.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TransformDescriptor {
     /// The stable transform implementation identifier.
     pub id: StageId,

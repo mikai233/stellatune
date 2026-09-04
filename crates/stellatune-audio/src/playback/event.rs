@@ -12,8 +12,8 @@ use stellatune_audio_core::{
     playback::{MediaTime, PlaybackItemId},
 };
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 /// The externally observable behavior of the playback actor.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum PlaybackState {
     /// No current item or prepared output exists.
     #[default]
@@ -34,8 +34,8 @@ pub enum PlaybackState {
     Failed,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// A point-in-time projection of runtime state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PlaybackRuntimeSnapshot {
     /// The actor's current playback state.
     pub state: PlaybackState,
@@ -45,8 +45,8 @@ pub struct PlaybackRuntimeSnapshot {
     pub consumed_position: MediaTime,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
 /// An ordered notification emitted by the playback runtime.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PlaybackEvent {
     /// The actor entered a different [`PlaybackState`].
     StateChanged(PlaybackState),

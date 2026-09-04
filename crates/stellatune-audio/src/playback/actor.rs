@@ -54,88 +54,88 @@ use super::transition::configure_forced_transition;
 type ControlResult = Result<(), PlaybackControlError>;
 type SnapshotResult = Result<PlaybackRuntimeSnapshot, PlaybackControlError>;
 
+/// Requests preparation and transition to a new current item.
 #[derive(lattice_actor::Request)]
 #[request(response = ControlResult)]
-/// Requests preparation and transition to a new current item.
 pub(super) struct SwitchTrack {
     pub(super) item: PlaybackItem,
     pub(super) options: SwitchOptions,
 }
 
+/// Requests preparation of a successor for the current item.
 #[derive(lattice_actor::Request)]
 #[request(response = ControlResult)]
-/// Requests preparation of a successor for the current item.
 pub(super) struct QueueNextTrack {
     pub(super) item: PlaybackItem,
 }
 
+/// Requests output playback or resumption.
 #[derive(lattice_actor::Request)]
 #[request(response = ControlResult)]
-/// Requests output playback or resumption.
 pub(super) struct Play;
 
+/// Requests output pause without discarding PCM.
 #[derive(lattice_actor::Request)]
 #[request(response = ControlResult)]
-/// Requests output pause without discarding PCM.
 pub(super) struct Pause;
 
+/// Requests an absolute media seek on the current item.
 #[derive(lattice_actor::Request)]
 #[request(response = ControlResult)]
-/// Requests an absolute media seek on the current item.
 pub(super) struct Seek {
     pub(super) position: MediaTime,
 }
 
+/// Requests teardown of the current playback session state.
 #[derive(lattice_actor::Request)]
 #[request(response = ControlResult)]
-/// Requests teardown of the current playback session state.
 pub(super) struct StopPlayback;
 
+/// Requests a bounded final-output gain ramp.
 #[derive(lattice_actor::Request)]
 #[request(response = ControlResult)]
-/// Requests a bounded final-output gain ramp.
 pub(super) struct SetOutputGain {
     pub(super) gain: f32,
     pub(super) ramp: MediaTime,
 }
 
+/// Replaces policies captured by future executable plans.
 #[derive(lattice_actor::Request)]
 #[request(response = ControlResult)]
-/// Replaces policies captured by future executable plans.
 pub(super) struct SetPolicies {
     pub(super) policies: PlaybackPolicies,
 }
 
+/// Recreates the active sink for the current route configuration.
 #[derive(lattice_actor::Request)]
 #[request(response = ControlResult)]
-/// Recreates the active sink for the current route configuration.
 pub(super) struct RebuildOutput;
 
+/// Requests actor state and sink-consumed position.
 #[derive(lattice_actor::Request)]
 #[request(response = SnapshotResult)]
-/// Requests actor state and sink-consumed position.
 pub(super) struct GetSnapshot;
 
-#[derive(lattice_actor::Message)]
 /// Advances one bounded playback data-plane turn.
+#[derive(lattice_actor::Message)]
 pub(super) struct PumpAudio;
 
-#[derive(lattice_actor::Message)]
 /// Returns request-backed preparation work to the owning actor.
+#[derive(lattice_actor::Message)]
 pub(super) struct PreparationCompleted {
     prepared: PreparationResult,
     reply_to: ReplyTo<ControlResult>,
 }
 
-#[derive(lattice_actor::Message)]
 /// Cancels preparation that is still current when its deadline expires.
+#[derive(lattice_actor::Message)]
 pub(super) struct PreparationDeadlineElapsed {
     id: u64,
     generation: u64,
 }
 
-#[derive(lattice_actor::Message)]
 /// Returns recovery preparation that has no external request reply.
+#[derive(lattice_actor::Message)]
 pub(super) struct RecoveryCompleted {
     prepared: PreparationResult,
 }

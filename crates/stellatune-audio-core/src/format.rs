@@ -82,8 +82,8 @@ impl SpeakerPosition {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 /// An error returned when constructing a [`ChannelLayout`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum ChannelLayoutError {
     /// No speaker positions were supplied.
     #[error("channel layout must contain at least one speaker position")]

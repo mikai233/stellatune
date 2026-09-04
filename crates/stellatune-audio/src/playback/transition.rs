@@ -379,8 +379,8 @@ pub(super) fn pump_crossfade(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 /// Removes a mixed prefix and advances the remaining block's timeline.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn consume_block_prefix(block: &mut Option<AudioBlock>, samples: usize, frames: u64) {
     let Some(value) = block.as_mut() else {
         return;

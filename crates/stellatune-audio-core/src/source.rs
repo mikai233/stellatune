@@ -18,11 +18,11 @@ use std::time::Instant;
 
 use crate::error::SourceError;
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
 /// Hints used to select and initialize a decoder.
 ///
 /// Hints describe the encoded representation; none of them is authoritative,
 /// and a decoder may still inspect the byte stream.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct MediaHints {
     /// A filename extension without a required leading dot.
     pub extension: Option<String>,
@@ -34,8 +34,8 @@ pub struct MediaHints {
     pub container_hint: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 /// Operations that an encoded source can support across openings.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct SourceCapabilities {
     /// Whether an opened source supports meaningful byte seeks.
     pub byte_seekable: bool,
@@ -45,8 +45,8 @@ pub struct SourceCapabilities {
     pub live: bool,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
 /// Decoder-selection metadata and capabilities for a source factory.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SourceDescriptor {
     /// Hints describing the encoded media representation.
     pub media: MediaHints,
@@ -71,8 +71,8 @@ pub trait EncodedSource: Read + Seek + Send {
 pub type SourceOpenFuture<'a> =
     Pin<Box<dyn Future<Output = Result<Box<dyn EncodedSource>, SourceError>> + Send + 'a>>;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// The runtime operation for which a source is being opened.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SourceOpenPurpose {
     /// Opens the current item for its first preparation.
     Initial,
@@ -88,12 +88,12 @@ struct SourceCancellationState {
     waker: Mutex<Option<Waker>>,
 }
 
-#[derive(Debug, Clone, Default)]
 /// A cloneable, sticky cancellation signal for a source-opening operation.
 ///
 /// Cancelling any clone cancels all clones. Cancellation is cooperative: a
 /// [`SourceFactory`] must observe the signal or await [`Self::cancelled`] while
 /// performing external I/O.
+#[derive(Debug, Clone, Default)]
 pub struct SourceCancellation {
     state: Arc<SourceCancellationState>,
 }
@@ -154,8 +154,8 @@ impl Future for SourceCancelled<'_> {
     }
 }
 
-#[derive(Debug, Clone)]
 /// Context supplied to a [`SourceFactory`] for one open attempt.
+#[derive(Debug, Clone)]
 pub struct SourceOpenRequest {
     /// The operation that requested this source.
     pub purpose: SourceOpenPurpose,
@@ -187,11 +187,11 @@ pub trait SourceFactory: Send + Sync {
     fn open(&self, request: SourceOpenRequest) -> SourceOpenFuture<'_>;
 }
 
-#[derive(Clone)]
 /// A reopenable source factory backed by immutable memory.
 ///
 /// Each opening starts at byte offset zero. Opening is immediate and therefore
 /// does not need to consult the request deadline or cancellation signal.
+#[derive(Clone)]
 pub struct MemorySourceFactory {
     bytes: Arc<[u8]>,
     descriptor: SourceDescriptor,

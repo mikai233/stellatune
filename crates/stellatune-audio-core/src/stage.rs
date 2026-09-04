@@ -1,10 +1,10 @@
 //! Stable identities for decoder, transform, and sink implementations.
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 /// A non-empty identifier for a registered audio pipeline stage.
 ///
 /// Stage identifiers appear in deterministic ordering, diagnostics, persisted
 /// configuration, and [`crate::error::PlaybackFailure`] context.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StageId(String);
 
 impl StageId {

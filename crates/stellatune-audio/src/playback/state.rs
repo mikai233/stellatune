@@ -29,8 +29,8 @@ use stellatune_audio_core::{
 use super::event::PlaybackState;
 use super::normalizer::PcmNormalizer;
 use super::sink_worker::SinkWorker;
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// The domain role attached to one off-turn preparation task.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum PreparationPurpose {
     Current {
         autoplay: bool,
@@ -126,8 +126,8 @@ pub(super) struct ActiveTrack {
     pub(super) drain_phase: DrainPhase,
 }
 
-#[derive(Debug, Clone, Copy)]
 /// A gain ramp that restores the current track after a failed overlap.
+#[derive(Debug, Clone, Copy)]
 pub(super) struct TransitionRecoveryFade {
     pub(super) start_frame: u64,
     pub(super) duration_frames: u64,
@@ -173,8 +173,8 @@ pub(super) struct SecondaryTrack {
     pub(super) seek_fade_frames: u64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// The stage currently being drained after decoder end-of-stream.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum DrainPhase {
     Decoding,
     PreMix(usize),

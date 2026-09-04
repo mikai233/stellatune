@@ -22,8 +22,8 @@ use crate::planner::{PlaybackPolicies, StageRegistrySnapshot};
 use super::actor::PlaybackActor;
 use super::control::PlaybackController;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// Deadlines applied to groups of playback commands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PlaybackCommandTimeouts {
     /// Deadline for a state snapshot request.
     pub snapshot: Duration,

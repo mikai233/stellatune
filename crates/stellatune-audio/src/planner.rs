@@ -13,8 +13,8 @@ use stellatune_audio_core::{
 };
 use thiserror::Error;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// The transition applied when moving from the current item to the next item.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TransitionPolicy {
     /// Promotes the prepared next item without applying a gain envelope.
     Gapless,
@@ -38,8 +38,8 @@ pub enum TransitionPolicy {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// A one-sided gain-envelope curve.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GainCurve {
     /// Changes gain at a constant rate.
     Linear,
@@ -47,8 +47,8 @@ pub enum GainCurve {
     EqualPower,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// Complementary gain curves used while two tracks overlap.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CrossfadeCurve {
     /// Fades one track down and the other up at constant rates.
     Linear,
@@ -56,8 +56,8 @@ pub enum CrossfadeCurve {
     EqualPower,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// The policy used when a requested crossfade cannot be constructed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CrossfadeFallback {
     /// Promotes the next compatible pipeline without an overlap envelope.
     Gapless,
@@ -65,8 +65,8 @@ pub enum CrossfadeFallback {
     FadeOutIn,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// Runtime policies applied to preparation, transitions, seeking, and recovery.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PlaybackPolicies {
     /// The default transition between adjacent items.
     pub transition: TransitionPolicy,
@@ -94,11 +94,11 @@ impl Default for PlaybackPolicies {
     }
 }
 
-#[derive(Clone)]
 /// An immutable set of stage factories available to one runtime.
 ///
 /// Cloning a snapshot clones the factory [`Arc`] values, not the stages they
 /// later create.
+#[derive(Clone)]
 pub struct StageRegistrySnapshot {
     /// Decoder factories considered by [`PipelinePlanner`].
     pub decoders: Vec<Arc<dyn DecoderFactory>>,
@@ -108,8 +108,8 @@ pub struct StageRegistrySnapshot {
     pub sink: Arc<dyn SinkFactory>,
 }
 
-#[derive(Clone)]
 /// Input to [`PipelinePlanner::plan`].
+#[derive(Clone)]
 pub struct PlaybackRequest {
     /// The already-materialized item to prepare.
     pub item: PlaybackItem,
@@ -117,11 +117,11 @@ pub struct PlaybackRequest {
     pub policies: PlaybackPolicies,
 }
 
-#[derive(Clone)]
 /// A deterministic factory plan ready for off-turn preparation.
 ///
 /// The plan contains factories rather than opened sources or live stages, so it
 /// can be moved to a blocking preparation task and cloned for recovery.
+#[derive(Clone)]
 pub struct ExecutablePlaybackPlan {
     /// The item whose source will be opened.
     pub item: PlaybackItem,
@@ -135,8 +135,8 @@ pub struct ExecutablePlaybackPlan {
     pub policies: PlaybackPolicies,
 }
 
-#[derive(Debug, Error, Clone, PartialEq, Eq)]
 /// An error encountered before source or stage construction begins.
+#[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum PlannerError {
     /// No registered decoder matches the source's extension or media type.
     #[error("no decoder supports the source media hints")]
@@ -149,8 +149,8 @@ pub enum PlannerError {
     },
 }
 
-#[derive(Debug, Default)]
 /// Builds executable playback plans from items and a stage registry snapshot.
+#[derive(Debug, Default)]
 pub struct PipelinePlanner;
 
 impl PipelinePlanner {

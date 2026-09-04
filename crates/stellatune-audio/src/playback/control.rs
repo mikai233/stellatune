@@ -22,8 +22,8 @@ use super::actor::{
 use super::event::{PlaybackEvent, PlaybackRuntimeSnapshot};
 use super::runtime::PlaybackCommandTimeouts;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// How an explicit switch interacts with the configured transition policy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SwitchTransition {
     /// Applies the active [`PlaybackPolicies`] transition when a track exists.
     UseConfiguredPolicy,
@@ -31,8 +31,8 @@ pub enum SwitchTransition {
     ImmediateWithDeClick,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// Options applied when switching to a playback item.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SwitchOptions {
     /// Whether a newly activated item starts playing immediately.
     pub autoplay: bool,
@@ -49,13 +49,13 @@ impl Default for SwitchOptions {
     }
 }
 
-#[derive(Clone)]
 /// A cloneable command endpoint for one [`PlaybackRuntime`](super::runtime::PlaybackRuntime).
 ///
 /// Commands are serialized by the playback actor. Controller clones share the
 /// same mailbox, event sender, and command deadlines. Dropping every controller
 /// does not deterministically release the runtime; its owner should call
 /// [`PlaybackRuntime::shutdown`](super::runtime::PlaybackRuntime::shutdown).
+#[derive(Clone)]
 pub struct PlaybackController {
     pub(super) actor: ActorHandle<PlaybackActor>,
     pub(super) event_tx: broadcast::Sender<PlaybackEvent>,

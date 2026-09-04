@@ -8,11 +8,11 @@ use std::sync::Arc;
 
 use crate::{decoder::DecoderFactory, source::SourceFactory};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 /// A stable, non-zero identifier for one playback item.
 ///
 /// Values are restricted to the positive signed 64-bit range so they can be
 /// persisted losslessly in SQLite and passed through signed FFI boundaries.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PlaybackItemId(NonZeroU64);
 
 impl PlaybackItemId {
@@ -48,10 +48,10 @@ impl From<PlaybackItemId> for u64 {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// A non-negative media position with millisecond precision.
 ///
 /// Frame conversions use integer arithmetic and truncate fractional results.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MediaTime(u64);
 
 impl MediaTime {
@@ -98,12 +98,12 @@ impl MediaTime {
     }
 }
 
-#[derive(Clone)]
 /// A source and decoder requirement bound to a stable playback identity.
 ///
 /// The source factory is reusable so preparation can reopen the same item for
 /// decoder fallback or recovery. When [`Self::required_decoder`] is `None`, the
 /// planner selects compatible decoder candidates from its registry.
+#[derive(Clone)]
 pub struct PlaybackItem {
     /// The stable identity used by events, persistence, and failure context.
     pub id: PlaybackItemId,

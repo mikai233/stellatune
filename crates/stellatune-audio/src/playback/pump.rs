@@ -408,8 +408,8 @@ pub(super) enum TrackBlockStatus {
     EndOfStream,
 }
 
-#[allow(clippy::too_many_arguments)]
 /// Decodes, gapless-trims, transforms, and normalizes one track block.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn decode_track_block(
     decoder: &mut dyn DecoderStage,
     transforms: &mut [Box<dyn TransformStage>],

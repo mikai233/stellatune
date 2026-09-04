@@ -475,8 +475,8 @@ fn accept_sink_data(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 /// Applies one high-priority control command and reports whether to stop.
+#[allow(clippy::too_many_arguments)]
 fn handle_sink_control(
     command: SinkControlCommand,
     sink: &mut dyn SinkStage,

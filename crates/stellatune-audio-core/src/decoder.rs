@@ -14,8 +14,8 @@ use crate::{
     stage::StageId,
 };
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 /// Encoder delay and padding to remove for gapless playback.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct GaplessTrimSpec {
     /// Frames to discard from the beginning of the decoded stream.
     pub head_frames: u32,
@@ -23,8 +23,8 @@ pub struct GaplessTrimSpec {
     pub tail_frames: u32,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
 /// PCM format, duration, and gapless metadata discovered while opening a stream.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DecodedStreamInfo {
     /// The format produced by the decoder.
     pub format: PcmFormat,
@@ -34,8 +34,8 @@ pub struct DecodedStreamInfo {
     pub gapless_trim: Option<GaplessTrimSpec>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// The result of one bounded decoding turn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DecodeStatus {
     /// PCM frames were written to the supplied output block.
     Produced {
@@ -48,15 +48,15 @@ pub enum DecodeStatus {
     EndOfStream,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// The actual decoder position reached by a seek operation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SeekResult {
     /// The zero-based decoded frame at which subsequent output begins.
     pub actual_frame: u64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// Progress made by an incremental decoder seek.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DecoderSeekStatus {
     /// The seek needs another bounded call to [`DecoderStage::continue_seek`].
     Pending,
@@ -110,8 +110,8 @@ pub trait DecoderStage: Send {
     fn reset(&mut self);
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
 /// Static metadata used to select and order a decoder factory.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DecoderDescriptor {
     /// The stable decoder implementation identifier.
     pub id: StageId,

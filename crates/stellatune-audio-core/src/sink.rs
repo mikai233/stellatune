@@ -12,8 +12,8 @@ use crate::{
     stage::StageId,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// Whether a sink can immediately accept another write.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SinkWriteState {
     /// The sink may be called again without waiting for device progress.
     Ready,
@@ -21,8 +21,8 @@ pub enum SinkWriteState {
     WouldBlock,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// The number of input frames accepted by one sink write.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SinkWriteResult {
     /// Frames consumed from the beginning of the supplied block.
     pub consumed_frames: usize,
@@ -30,8 +30,8 @@ pub struct SinkWriteResult {
     pub state: SinkWriteState,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 /// A snapshot of device-consumed and queued output frames.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct SinkClockSnapshot {
     /// Frames that have reached the device playback position.
     pub consumed_frames: u64,
@@ -99,11 +99,11 @@ pub trait SinkStage: Send {
     fn close(&mut self);
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 /// Properties that determine whether an existing sink can be reused.
 ///
 /// Equality requires the exact positioned channel layout, not only an equal
 /// number of channels.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct OutputCompatibilityKey {
     /// The stable output backend identifier.
     pub backend_id: String,
