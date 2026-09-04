@@ -5,7 +5,7 @@ use lattice_actor::{
     runtime::{ActorExecutionPolicy, ActorRuntime, ActorSpawnOptions},
     traits::StopReason,
 };
-use stellatune_audio_core::PlaybackControlError;
+use stellatune_audio_core::error::PlaybackControlError;
 use tokio::sync::broadcast;
 
 use crate::planner::{PlaybackPolicies, StageRegistrySnapshot};

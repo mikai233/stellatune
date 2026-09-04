@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-use crate::{PlaybackItemId, StageId};
+use crate::{playback::PlaybackItemId, stage::StageId};
 
 macro_rules! stage_error {
     ($name:ident) => {

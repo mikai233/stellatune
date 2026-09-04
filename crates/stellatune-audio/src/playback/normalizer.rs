@@ -4,7 +4,8 @@ use rubato::{
     SincInterpolationType, WindowFunction,
 };
 use stellatune_audio_core::{
-    AudioBlock, ChannelLayout, PcmFormat, PlaybackControlError, SpeakerPosition,
+    error::PlaybackControlError,
+    format::{AudioBlock, ChannelLayout, PcmFormat, SpeakerPosition},
 };
 const NORMALIZER_CHUNK_FRAMES: usize = 1024;
 pub(super) const SQRT_HALF: f32 = std::f32::consts::FRAC_1_SQRT_2;

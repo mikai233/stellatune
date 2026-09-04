@@ -36,7 +36,7 @@ For private/internal functions:
 
 1. Use intra-doc links for crate types, for example:
    - [`crate::playback::PlaybackController`]
-   - [`stellatune_audio_core::ControlError`]
+   - [`stellatune_audio_core::error::PlaybackControlError`]
 2. Keep terms stable across docs:
    - "PlaybackActor"
    - "preparation task"

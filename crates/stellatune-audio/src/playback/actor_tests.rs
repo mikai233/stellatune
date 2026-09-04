@@ -8,7 +8,7 @@ use lattice_actor::error::{ActorCallError, ActorTellError};
 use lattice_actor::reply::ReplyTo;
 use lattice_actor::state_machine::Accepts;
 use lattice_actor::traits::{Responder, StopReason};
-use stellatune_audio_core::{PlaybackControlError, StageId};
+use stellatune_audio_core::{error::PlaybackControlError, stage::StageId};
 use tokio::sync::Semaphore;
 
 use crate::planner::{StageRegistrySnapshot, TransitionPolicy};

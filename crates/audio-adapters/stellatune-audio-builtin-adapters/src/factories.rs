@@ -7,11 +7,18 @@ use std::sync::mpsc::{Receiver as StdReceiver, SyncSender, TryRecvError, sync_ch
 use std::time::Duration;
 
 use stellatune_audio_core::{
-    AudioBlock, DecodeError, DecodeStatus, DecodedStreamInfo, DecoderDescriptor, DecoderFactory,
-    DecoderSeekStatus, DecoderStage, EncodedSource, FactoryError, MediaHints,
-    OutputCompatibilityKey, PcmFormat, SeekResult, SinkFactory, SinkStage, SourceCancellation,
-    SourceCapabilities, SourceDescriptor, SourceError, SourceFactory, SourceOpenFuture,
-    SourceOpenRequest, StageId,
+    decoder::{
+        DecodeStatus, DecodedStreamInfo, DecoderDescriptor, DecoderFactory, DecoderSeekStatus,
+        DecoderStage, GaplessTrimSpec, SeekResult,
+    },
+    error::{DecodeError, FactoryError, SourceError},
+    format::{AudioBlock, PcmFormat},
+    sink::{OutputCompatibilityKey, SinkFactory, SinkStage},
+    source::{
+        EncodedSource, MediaHints, SourceCancellation, SourceCapabilities, SourceDescriptor,
+        SourceFactory, SourceOpenFuture, SourceOpenRequest,
+    },
+    stage::StageId,
 };
 use symphonia::core::io::MediaSource;
 
@@ -566,13 +573,10 @@ impl DecoderStage for SymphoniaDecoderStage {
         let duration_frames = decoder
             .duration_ms_hint()
             .map(|duration| duration.saturating_mul(u64::from(spec.sample_rate)) / 1000);
-        let gapless_trim =
-            decoder
-                .gapless_trim_spec()
-                .map(|trim| stellatune_audio_core::GaplessTrimSpec {
-                    head_frames: trim.head_frames,
-                    tail_frames: trim.tail_frames,
-                });
+        let gapless_trim = decoder.gapless_trim_spec().map(|trim| GaplessTrimSpec {
+            head_frames: trim.head_frames,
+            tail_frames: trim.tail_frames,
+        });
         let format = spec;
         self.decoder = Some(decoder);
         Ok(DecodedStreamInfo {
@@ -700,8 +704,11 @@ mod tests {
     use std::time::Duration;
 
     use stellatune_audio_core::{
-        MediaHints, SourceCancellation, SourceCapabilities, SourceError, SourceFactory,
-        SourceOpenPurpose, SourceOpenRequest,
+        error::SourceError,
+        source::{
+            MediaHints, SourceCancellation, SourceCapabilities, SourceFactory, SourceOpenPurpose,
+            SourceOpenRequest,
+        },
     };
 
     use super::HttpSourceFactory;

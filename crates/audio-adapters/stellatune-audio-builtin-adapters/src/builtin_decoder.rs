@@ -2,7 +2,10 @@ use std::fs::File;
 use std::io;
 use std::path::Path;
 
-use stellatune_audio_core::{ChannelLayout, GaplessTrimSpec, PcmFormat, SpeakerPosition};
+use stellatune_audio_core::{
+    decoder::GaplessTrimSpec,
+    format::{ChannelLayout, PcmFormat, SpeakerPosition},
+};
 use symphonia::core::audio::{Channels, GenericAudioBufferRef, Position};
 use symphonia::core::codecs::audio::{
     AudioDecoder as SymphoniaDecoder, AudioDecoderOptions as DecoderOptions,
@@ -562,7 +565,7 @@ struct OpenedMediaInput {
 mod tests {
     use std::io::Cursor;
 
-    use stellatune_audio_core::{ChannelLayout, SpeakerPosition};
+    use stellatune_audio_core::format::{ChannelLayout, SpeakerPosition};
     use symphonia::core::audio::Channels;
 
     use super::{BuiltinDecoder, channel_layout_from_symphonia, extension_from_path};

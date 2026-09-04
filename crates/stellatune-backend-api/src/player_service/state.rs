@@ -1,4 +1,4 @@
-use stellatune_audio_core::PlaybackItemId;
+use stellatune_audio_core::playback::PlaybackItemId;
 
 use super::error::PlayerServiceError;
 use super::identity::TrackId;

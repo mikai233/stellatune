@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use stellatune_audio_core::MediaHints;
+use stellatune_audio_core::source::MediaHints;
 
 use super::error::PlayerServiceError;
 use super::identity::{
@@ -114,7 +114,7 @@ pub enum ResolvedSourceSpec {
         url: String,
         headers: BTreeMap<String, String>,
         media: MediaHints,
-        capabilities: stellatune_audio_core::SourceCapabilities,
+        capabilities: stellatune_audio_core::source::SourceCapabilities,
     },
 }
 
@@ -191,7 +191,7 @@ impl TryFrom<SourceResolutionInput> for ResolvedSourceSpec {
                     url: parsed.to_string(),
                     headers,
                     media: validate_media_hints(media)?,
-                    capabilities: stellatune_audio_core::SourceCapabilities {
+                    capabilities: stellatune_audio_core::source::SourceCapabilities {
                         byte_seekable: seekable && !live,
                         reopenable: true,
                         live,

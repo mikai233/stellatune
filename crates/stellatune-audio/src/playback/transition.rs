@@ -1,6 +1,8 @@
 use stellatune_audio_core::{
-    AudioBlock, MediaTime, PcmFormat, PlaybackControlError, PlaybackFailure, TransformPlacement,
-    TransformStage,
+    error::{FailureStage, PlaybackControlError, PlaybackFailure},
+    format::{AudioBlock, PcmFormat},
+    playback::MediaTime,
+    transform::{TransformPlacement, TransformStage},
 };
 use tokio::sync::broadcast;
 
@@ -215,7 +217,7 @@ pub(super) fn pump_crossfade(
                 crossfade.progressed_frames = crossfade.duration_frames;
             },
             Err(PlaybackControlError::Failed(failure))
-                if failure.stage == stellatune_audio_core::FailureStage::Decoder =>
+                if failure.stage == FailureStage::Decoder =>
             {
                 begin_recovery(config, event_tx, actor, state, "decoder", failure.message);
                 return;

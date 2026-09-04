@@ -6,7 +6,28 @@ use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Waker};
 use std::time::Instant;
 
-use crate::{SourceDescriptor, SourceError};
+use crate::error::SourceError;
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct MediaHints {
+    pub extension: Option<String>,
+    pub mime_type: Option<String>,
+    pub content_length: Option<u64>,
+    pub container_hint: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SourceCapabilities {
+    pub byte_seekable: bool,
+    pub reopenable: bool,
+    pub live: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SourceDescriptor {
+    pub media: MediaHints,
+    pub capabilities: SourceCapabilities,
+}
 
 pub trait EncodedSource: Read + Seek + Send {
     fn byte_len(&self) -> Option<u64>;
@@ -154,11 +175,11 @@ impl SourceFactory for MemorySourceFactory {
 mod tests {
     use std::io::Read;
 
+    use super::SourceDescriptor;
     use super::{
         MemorySourceFactory, SourceCancellation, SourceFactory, SourceOpenPurpose,
         SourceOpenRequest,
     };
-    use crate::SourceDescriptor;
 
     #[tokio::test]
     async fn memory_factory_reopens_from_the_beginning() {

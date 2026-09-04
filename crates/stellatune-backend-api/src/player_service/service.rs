@@ -6,7 +6,10 @@ use std::time::Duration;
 
 use stellatune_audio::playback::control::{PlaybackController, SwitchOptions, SwitchTransition};
 use stellatune_audio::playback::event::{PlaybackEvent, PlaybackState};
-use stellatune_audio_core::{MediaHints, PlaybackItem, PlaybackItemId};
+use stellatune_audio_core::{
+    playback::{MediaTime, PlaybackItem, PlaybackItemId},
+    source::MediaHints,
+};
 
 use super::catalog::PlayerCatalog;
 use super::error::PlayerServiceError;
@@ -188,9 +191,7 @@ impl PlayerService {
             .await?;
         if state.position_ms > 0 && capabilities.byte_seekable && !capabilities.live {
             self.controller
-                .seek(stellatune_audio_core::MediaTime::from_millis(
-                    state.position_ms,
-                ))
+                .seek(MediaTime::from_millis(state.position_ms))
                 .await?;
         }
         if let Some(next) = state.queue.get(current_index + 1) {

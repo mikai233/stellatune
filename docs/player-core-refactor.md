@@ -27,6 +27,11 @@ materialization 归 `resolver`；不再提供只做代理的 `PlaybackStateStore
 限制，约 900 行为软目标。通过
 `cargo run -p stellatune-xtask -- check-loc` 验收；生成文件只允许显式白名单，
 当前唯一例外为 `crates/stellatune-ffi/src/frb_generated.rs`。
+
+`stellatune-audio-core` 同样采用真实模块路径，不提供根级 facade re-export：
+PCM 类型归 `format`，播放值对象归 `playback`，媒体源契约归 `source`，共享
+stage identity 归 `stage`，错误归 `error`，各 stage SPI 分别归
+`decoder`、`transform` 和 `sink`。仓库调用方必须通过所属模块导入类型。
 > 切换策略：Hard switch。新旧 API、token/typed 输入、新旧数据面和新旧播放器持久化 schema 均不兼容；不提供代码适配器、旧数据 migration、双读写、deprecated alias 或 feature flag。
 >
 > 关系：本文覆盖 `docs/plugin-runtime-refactor.md` 中与 `SourceStage`、`SourcePlan`、Pipeline 数据面相关的后续设计；Lattice、TypeScript 插件进程和 ASIO 许可边界仍沿用既有决策。
@@ -391,7 +396,7 @@ Stage 不决定：
 ffi::SwitchTrackRequest
 plugin_protocol::SourceResolutionInput
 backend::ResolvedSourceSpec
-audio_contracts::MediaHints
+stellatune_audio_core::source::MediaHints
 storage::PlaybackQueueRecord
 ```
 

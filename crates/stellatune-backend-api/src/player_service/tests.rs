@@ -9,10 +9,19 @@ use stellatune_audio::playback::control::SwitchOptions;
 use stellatune_audio::playback::event::PlaybackState;
 use stellatune_audio::playback::runtime::{PlaybackRuntime, PlaybackRuntimeConfig};
 use stellatune_audio_core::{
-    AudioBlock, ChannelLayout, DecodeError, DecodeStatus, DecodedStreamInfo, DecoderDescriptor,
-    DecoderFactory, DecoderSeekStatus, FactoryError, MediaHints, OutputCompatibilityKey, PcmFormat,
-    SeekResult, SinkClockSnapshot, SinkError, SinkFactory, SinkStage, SinkWriteResult,
-    SinkWriteState, StageId,
+    decoder::{
+        DecodeStatus, DecodedStreamInfo, DecoderDescriptor, DecoderFactory, DecoderSeekStatus,
+        DecoderStage, SeekResult,
+    },
+    error::{DecodeError, FactoryError, SinkError},
+    format::{AudioBlock, ChannelLayout, PcmFormat},
+    playback::MediaTime,
+    sink::{
+        OutputCompatibilityKey, SinkClockSnapshot, SinkFactory, SinkStage, SinkWriteResult,
+        SinkWriteState,
+    },
+    source::{EncodedSource, MediaHints},
+    stage::StageId,
 };
 
 use super::catalog::{MAX_PERSISTED_QUEUE_ITEMS, PlayerCatalog};
@@ -119,7 +128,7 @@ impl DecoderFactory for TestDecoderFactory {
         &self.descriptor
     }
 
-    fn create(&self) -> Result<Box<dyn stellatune_audio_core::DecoderStage>, FactoryError> {
+    fn create(&self) -> Result<Box<dyn DecoderStage>, FactoryError> {
         Ok(Box::new(TestDecoder {
             total: 0,
             remaining: 0,
@@ -132,10 +141,10 @@ struct TestDecoder {
     remaining: u64,
 }
 
-impl stellatune_audio_core::DecoderStage for TestDecoder {
+impl DecoderStage for TestDecoder {
     fn open(
         &mut self,
-        mut source: Box<dyn stellatune_audio_core::EncodedSource>,
+        mut source: Box<dyn EncodedSource>,
         _hints: &MediaHints,
     ) -> Result<DecodedStreamInfo, DecodeError> {
         let mut header = [0_u8; 2];
@@ -480,7 +489,7 @@ async fn restart_restores_local_item_and_sink_consumed_position_as_paused() {
         .unwrap();
     service
         .controller
-        .seek(stellatune_audio_core::MediaTime::from_millis(40))
+        .seek(MediaTime::from_millis(40))
         .await
         .unwrap();
     let snapshot = service.controller.snapshot().await.unwrap();

@@ -9,8 +9,10 @@ use lattice_actor::{
     traits::{Actor, ActorLifecycleState, Handler, Responder, StopReason},
 };
 use stellatune_audio_core::{
-    DecoderSeekStatus, MediaTime, PlaybackControlError, PlaybackItem, SourceCancellation,
-    SourceOpenPurpose,
+    decoder::DecoderSeekStatus,
+    error::PlaybackControlError,
+    playback::{MediaTime, PlaybackItem},
+    source::{SourceCancellation, SourceOpenPurpose},
 };
 use tokio::sync::broadcast;
 

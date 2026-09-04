@@ -1,4 +1,9 @@
-use crate::{AudioBlock, DecodeError, EncodedSource, FactoryError, MediaHints, PcmFormat, StageId};
+use crate::{
+    error::{DecodeError, FactoryError},
+    format::{AudioBlock, PcmFormat},
+    source::{EncodedSource, MediaHints},
+    stage::StageId,
+};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct GaplessTrimSpec {

@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use stellatune_audio_core::{ChannelLayout, SpeakerPosition};
+use stellatune_audio_core::format::{ChannelLayout, SpeakerPosition};
 use thiserror::Error;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -543,7 +543,7 @@ fn f32_to_u16(v: f32) -> u16 {
 
 #[cfg(all(test, windows))]
 mod tests {
-    use stellatune_audio_core::ChannelLayout;
+    use stellatune_audio_core::format::ChannelLayout;
 
     use super::{channel_layout_from_standard_mask, standard_mask_from_channel_layout};
 

@@ -1,8 +1,11 @@
 use std::sync::Arc;
 
 use stellatune_audio_core::{
-    AudioBlock, DecodeStatus, DecoderStage, MediaTime, PcmFormat, PlaybackControlError,
-    TransformStage, TransformStatus,
+    decoder::{DecodeStatus, DecoderStage},
+    error::{PlaybackControlError, TransformError},
+    format::{AudioBlock, PcmFormat},
+    playback::MediaTime,
+    transform::{DrainStatus, TransformStage, TransformStatus},
 };
 use tokio::sync::broadcast;
 
@@ -227,7 +230,7 @@ pub(super) fn pump_once(
             Ok(DrainTurn::Complete) => promote_or_end(actor, state, config, event_tx),
             Err(error) => fail_current(actor, state, event_tx, "transform", error.to_string()),
         },
-        Err(stellatune_audio_core::DecodeError::Io(error)) => {
+        Err(stellatune_audio_core::error::DecodeError::Io(error)) => {
             begin_recovery(config, event_tx, actor, state, "decoder", error.to_string())
         },
         Err(error) => fail_current(actor, state, event_tx, "decoder", error.to_string()),
@@ -451,7 +454,7 @@ pub(super) fn process_transform_chain(
     transforms: &mut [Box<dyn TransformStage>],
     formats: &[PcmFormat],
     block: &mut AudioBlock,
-) -> Result<(), stellatune_audio_core::TransformError> {
+) -> Result<(), TransformError> {
     debug_assert_eq!(transforms.len(), formats.len());
     for (transform, output_format) in transforms.iter_mut().zip(formats) {
         match transform.process(block)? {
@@ -488,10 +491,10 @@ pub(super) fn drain_current_once(
                     .drain(&mut block)
                     .map_err(|error| PlaybackControlError::failed("transform", error.to_string()))?
                 {
-                    stellatune_audio_core::DrainStatus::Complete => {
+                    DrainStatus::Complete => {
                         current.drain_phase = DrainPhase::PreMix(index + 1);
                     },
-                    stellatune_audio_core::DrainStatus::Produced => {
+                    DrainStatus::Produced => {
                         block.format = current.pre_mix_formats[index];
                         process_transform_chain(
                             &mut current.pre_mix_transforms[index + 1..],
@@ -566,10 +569,10 @@ pub(super) fn drain_current_once(
                     .drain(&mut block)
                     .map_err(|error| PlaybackControlError::failed("transform", error.to_string()))?
                 {
-                    stellatune_audio_core::DrainStatus::Complete => {
+                    DrainStatus::Complete => {
                         current.drain_phase = DrainPhase::PostMix(index + 1);
                     },
-                    stellatune_audio_core::DrainStatus::Produced => {
+                    DrainStatus::Produced => {
                         block.format = current.post_mix_formats[index];
                         process_transform_chain(
                             &mut current.post_mix_transforms[index + 1..],

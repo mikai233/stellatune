@@ -2,8 +2,12 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use stellatune_audio_core::{
-    AudioBlock, ChannelLayout, MediaTime, OutputCompatibilityKey, PcmFormat, PlaybackControlError,
-    PlaybackItemId, SpeakerPosition, StageId, TransformPlacement,
+    error::{FailureStage, PlaybackControlError},
+    format::{AudioBlock, ChannelLayout, PcmFormat, SpeakerPosition},
+    playback::{MediaTime, PlaybackItemId},
+    sink::OutputCompatibilityKey,
+    stage::StageId,
+    transform::TransformPlacement,
 };
 use tokio::time::{Duration, timeout};
 
@@ -803,7 +807,7 @@ async fn next_failure_during_crossfade_is_typed_and_current_loses_no_frames() {
     .await
     .expect("current track should recover from next failure and end");
     assert_eq!(failure.item_id, PlaybackItemId::new(2));
-    assert_eq!(failure.stage, stellatune_audio_core::FailureStage::Decoder);
+    assert_eq!(failure.stage, FailureStage::Decoder);
     assert!(failure.generation > 0);
     assert_eq!(samples.lock().unwrap().len(), 100);
     runtime.shutdown().await.unwrap();

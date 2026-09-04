@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
 use stellatune_audio_core::{
-    DecoderFactory, PlaybackItem, SinkFactory, SourceCapabilities, TransformFactory,
+    decoder::DecoderFactory, playback::PlaybackItem, sink::SinkFactory, source::SourceCapabilities,
+    transform::TransformFactory,
 };
 use thiserror::Error;
 
@@ -160,7 +161,7 @@ pub(crate) fn can_fallback(capabilities: SourceCapabilities, candidate_index: us
 
 fn decoder_matches(
     factory: &dyn DecoderFactory,
-    media: &stellatune_audio_core::MediaHints,
+    media: &stellatune_audio_core::source::MediaHints,
 ) -> bool {
     let descriptor = factory.descriptor();
     let extension_matches = media.extension.as_ref().is_some_and(|extension| {

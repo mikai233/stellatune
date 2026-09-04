@@ -10,8 +10,9 @@ use crate::output_runtime::{
     output_spec_for_device,
 };
 use stellatune_audio_core::{
-    AudioBlock, ChannelLayout, PcmFormat, SinkClockSnapshot, SinkError, SinkStage, SinkWriteResult,
-    SinkWriteState,
+    error::SinkError,
+    format::{AudioBlock, ChannelLayout, PcmFormat},
+    sink::{SinkClockSnapshot, SinkStage, SinkWriteResult, SinkWriteState},
 };
 
 const RING_BUFFER_CAPACITY_MS: usize = 40;

@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use stellatune_audio_builtin_adapters::factories::{FileSourceFactory, HttpSourceFactory};
-use stellatune_audio_core::{DecoderFactory, SourceFactory};
+use stellatune_audio_core::{decoder::DecoderFactory, source::SourceFactory};
 
 use super::error::PlayerServiceError;
 use super::identity::ProviderTrackKey;

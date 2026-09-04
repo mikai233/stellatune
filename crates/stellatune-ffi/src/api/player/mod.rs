@@ -15,7 +15,7 @@ use stellatune_audio::config::engine::{
 };
 use stellatune_audio::playback::control::{PlaybackController, SwitchOptions};
 use stellatune_audio::playback::event::{PlaybackEvent as V2Event, PlaybackState as V2PlayerState};
-use stellatune_audio_core::{MediaTime, PlaybackItemId};
+use stellatune_audio_core::playback::{MediaTime, PlaybackItemId};
 use stellatune_backend_api::lyrics_service::LyricsService;
 use stellatune_backend_api::player::{
     plugins_install_from_file as backend_plugins_install_from_file,

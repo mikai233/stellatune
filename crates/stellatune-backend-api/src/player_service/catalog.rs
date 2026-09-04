@@ -3,7 +3,7 @@ use std::path::Path;
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::{Row, SqlitePool};
 use stellatune_audio::playback::event::PlaybackRuntimeSnapshot;
-use stellatune_audio_core::PlaybackItemId;
+use stellatune_audio_core::playback::PlaybackItemId;
 
 use super::error::PlayerServiceError;
 use super::identity::{

@@ -491,7 +491,7 @@ fn from_adapter_backend(backend: AdapterOutputBackend) -> OutputBackend {
 
 #[cfg(test)]
 mod tests {
-    use stellatune_audio_core::ChannelLayout;
+    use stellatune_audio_core::format::ChannelLayout;
 
     use super::{
         DeviceSinkMetricsSnapshot, OutputDeviceSpec, OutputSinkMonitorState,

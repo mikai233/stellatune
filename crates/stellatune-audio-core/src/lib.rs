@@ -1,33 +1,29 @@
+//! Stable contracts shared by the playback runtime and audio adapters.
+//!
+//! Public types are addressed through their owning modules. The crate root
+//! intentionally does not re-export them, so module ownership remains visible
+//! at every dependency boundary.
 #![deny(clippy::wildcard_imports)]
 
-pub mod contracts;
 pub mod decoder;
-pub mod errors;
+pub mod error;
+pub mod format;
+pub mod playback;
 pub mod sink;
 pub mod source;
+pub mod stage;
 pub mod transform;
 
-pub use contracts::{
-    AudioBlock, BlockTimeline, ChannelLayout, ChannelLayoutError, MediaHints, MediaTime, PcmFormat,
-    PlaybackItem, PlaybackItemId, SourceCapabilities, SourceDescriptor, SpeakerPosition, StageId,
-};
-pub use decoder::{
-    DecodeStatus, DecodedStreamInfo, DecoderDescriptor, DecoderFactory, DecoderSeekStatus,
-    DecoderStage, GaplessTrimSpec, SeekResult,
-};
-pub use errors::{
-    DecodeError, FactoryError, FailureStage, PlaybackControlError, PlaybackFailure,
-    RetryDisposition, SinkError, SourceError, TransformError,
-};
-pub use sink::{
-    OutputCompatibilityKey, SinkClockSnapshot, SinkFactory, SinkStage, SinkWriteResult,
-    SinkWriteState,
-};
-pub use source::{
-    EncodedSource, MemorySourceFactory, SourceCancellation, SourceFactory, SourceOpenFuture,
-    SourceOpenPurpose, SourceOpenRequest,
-};
-pub use transform::{
-    DrainStatus, TransformDescriptor, TransformFactory, TransformPlacement, TransformStage,
-    TransformStatus,
-};
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn crate_root_does_not_flatten_module_api() {
+        let source = include_str!("lib.rs");
+        assert!(
+            source
+                .lines()
+                .all(|line| !line.trim_start().starts_with("pub use ")),
+            "audio-core types must remain under their owning public modules"
+        );
+    }
+}

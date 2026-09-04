@@ -1,4 +1,8 @@
-use crate::{AudioBlock, ChannelLayout, FactoryError, PcmFormat, SinkError, StageId};
+use crate::{
+    error::{FactoryError, SinkError},
+    format::{AudioBlock, ChannelLayout, PcmFormat},
+    stage::StageId,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SinkWriteState {

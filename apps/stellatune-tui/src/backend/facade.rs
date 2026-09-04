@@ -100,7 +100,7 @@ impl BackendFacade {
 
     pub async fn seek_ms(&self, position_ms: i64) -> Result<()> {
         self.player()
-            .seek(stellatune_audio_core::MediaTime::from_millis(
+            .seek(stellatune_audio_core::playback::MediaTime::from_millis(
                 position_ms.max(0) as u64,
             ))
             .await

@@ -2,7 +2,7 @@ use std::sync::OnceLock;
 
 use stellatune_audio::planner::{GainCurve, PlaybackPolicies, TransitionPolicy};
 use stellatune_audio_builtin_adapters::device_sink::DeviceSinkControl;
-use stellatune_audio_core::PlaybackControlError;
+use stellatune_audio_core::error::PlaybackControlError;
 
 use super::shared_playback_controller;
 

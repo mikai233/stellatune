@@ -6,8 +6,10 @@ use std::time::Duration;
 
 use crossbeam_channel::{Receiver, Sender, TrySendError};
 use stellatune_audio_core::{
-    AudioBlock, PcmFormat, PlaybackControlError, PlaybackItemId, SinkClockSnapshot, SinkFactory,
-    SinkStage, SinkWriteState,
+    error::PlaybackControlError,
+    format::{AudioBlock, PcmFormat},
+    playback::PlaybackItemId,
+    sink::{SinkClockSnapshot, SinkFactory, SinkStage, SinkWriteState},
 };
 pub(super) enum PendingWrite {
     Full(AudioBlock),

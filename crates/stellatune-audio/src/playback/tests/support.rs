@@ -3,13 +3,26 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use stellatune_audio_core::{
-    AudioBlock, ChannelLayout, DecodeError, DecodeStatus, DecodedStreamInfo, DecoderDescriptor,
-    DecoderFactory, DecoderSeekStatus, DecoderStage, DrainStatus, FactoryError, MediaHints,
-    MemorySourceFactory, OutputCompatibilityKey, PcmFormat, PlaybackItem, PlaybackItemId,
-    SeekResult, SinkClockSnapshot, SinkError, SinkFactory, SinkStage, SinkWriteResult,
-    SinkWriteState, SourceCapabilities, SourceDescriptor, SourceFactory, SourceOpenRequest,
-    StageId, TransformDescriptor, TransformError, TransformFactory, TransformPlacement,
-    TransformStage, TransformStatus,
+    decoder::{
+        DecodeStatus, DecodedStreamInfo, DecoderDescriptor, DecoderFactory, DecoderSeekStatus,
+        DecoderStage, SeekResult,
+    },
+    error::{DecodeError, FactoryError, SinkError, SourceError, TransformError},
+    format::{AudioBlock, ChannelLayout, PcmFormat},
+    playback::{PlaybackItem, PlaybackItemId},
+    sink::{
+        OutputCompatibilityKey, SinkClockSnapshot, SinkFactory, SinkStage, SinkWriteResult,
+        SinkWriteState,
+    },
+    source::{
+        EncodedSource, MediaHints, MemorySourceFactory, SourceCapabilities, SourceDescriptor,
+        SourceFactory, SourceOpenFuture, SourceOpenRequest,
+    },
+    stage::StageId,
+    transform::{
+        DrainStatus, TransformDescriptor, TransformFactory, TransformPlacement, TransformStage,
+        TransformStatus,
+    },
 };
 use tokio::sync::{Semaphore, broadcast};
 use tokio::time::{Duration, timeout};
@@ -253,7 +266,7 @@ pub(super) struct FailingNextDecoder {
 impl DecoderStage for FailingNextDecoder {
     fn open(
         &mut self,
-        _source: Box<dyn stellatune_audio_core::EncodedSource>,
+        _source: Box<dyn EncodedSource>,
         _hints: &MediaHints,
     ) -> Result<DecodedStreamInfo, DecodeError> {
         Ok(DecodedStreamInfo {
@@ -291,7 +304,7 @@ impl DecoderStage for FailingNextDecoder {
 impl DecoderStage for FixedFormatDecoder {
     fn open(
         &mut self,
-        _source: Box<dyn stellatune_audio_core::EncodedSource>,
+        _source: Box<dyn EncodedSource>,
         _hints: &MediaHints,
     ) -> Result<DecodedStreamInfo, DecodeError> {
         Ok(DecodedStreamInfo {
@@ -332,7 +345,7 @@ impl DecoderStage for FixedFormatDecoder {
 impl DecoderStage for TestDecoder {
     fn open(
         &mut self,
-        mut source: Box<dyn stellatune_audio_core::EncodedSource>,
+        mut source: Box<dyn EncodedSource>,
         _hints: &MediaHints,
     ) -> Result<DecodedStreamInfo, DecodeError> {
         let mut input = [0_u8; 2];
@@ -658,7 +671,7 @@ impl SourceFactory for DelayedSourceFactory {
         self.inner.descriptor()
     }
 
-    fn open(&self, request: SourceOpenRequest) -> stellatune_audio_core::SourceOpenFuture<'_> {
+    fn open(&self, request: SourceOpenRequest) -> SourceOpenFuture<'_> {
         let inner = self.inner.clone();
         let delay = self.delay;
         let entered = self.entered.clone();
@@ -669,7 +682,7 @@ impl SourceFactory for DelayedSourceFactory {
             }
             tokio::select! {
                 () = tokio::time::sleep(delay) => inner.open(request).await,
-                () = cancellation.cancelled() => Err(stellatune_audio_core::SourceError::Cancelled),
+                () = cancellation.cancelled() => Err(SourceError::Cancelled),
             }
         })
     }

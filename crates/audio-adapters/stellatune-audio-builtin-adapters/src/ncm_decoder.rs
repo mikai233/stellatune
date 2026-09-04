@@ -3,7 +3,7 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 use std::sync::Mutex;
 
-use stellatune_audio_core::{GaplessTrimSpec, PcmFormat};
+use stellatune_audio_core::{decoder::GaplessTrimSpec, format::PcmFormat};
 use symphonia::core::io::MediaSource;
 
 use crate::builtin_decoder::BuiltinDecoder;

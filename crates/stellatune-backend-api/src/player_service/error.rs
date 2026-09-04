@@ -1,4 +1,4 @@
-use stellatune_audio_core::PlaybackItemId;
+use stellatune_audio_core::playback::PlaybackItemId;
 use thiserror::Error;
 
 use super::identity::{SourceInstanceId, TrackId};
@@ -42,5 +42,5 @@ pub enum PlayerServiceError {
     #[error(transparent)]
     Storage(#[from] sqlx::Error),
     #[error(transparent)]
-    Control(#[from] stellatune_audio_core::PlaybackControlError),
+    Control(#[from] stellatune_audio_core::error::PlaybackControlError),
 }

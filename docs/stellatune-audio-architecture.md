@@ -181,24 +181,34 @@ ASIO remains an optional external sidecar. TypeScript plugins stay on the
 control plane and return declarative source resolution results; they never
 transport encoded media or PCM.
 
+`stellatune-audio-core` does not flatten its public API at the crate root.
+Consumers use the owning module as the canonical and only path, for example
+`format::PcmFormat`, `playback::PlaybackItem`, `source::SourceFactory`, and
+`decoder::DecoderStage`. This keeps data models, stage SPIs, shared errors, and
+identities visible in dependency declarations instead of hiding them behind a
+crate-wide facade.
+
 ## 9. Reading order
 
-1. `crates/stellatune-audio-core/src/contracts.rs`
-2. `crates/stellatune-audio-core/src/source.rs`
-3. `crates/stellatune-audio-core/src/decoder.rs`
-4. `crates/stellatune-audio-core/src/transform.rs`
-5. `crates/stellatune-audio-core/src/sink.rs`
-6. `crates/stellatune-audio/src/planner.rs`
-7. `crates/stellatune-audio/src/playback/control.rs`
-8. `crates/stellatune-audio/src/playback/runtime.rs`
-9. `crates/stellatune-audio/src/playback/actor.rs`
-10. `crates/stellatune-audio/src/playback/preparation.rs`
-11. `crates/stellatune-audio/src/playback/pump.rs`
-12. `crates/stellatune-audio/src/playback/sink_worker.rs`
-13. `crates/stellatune-backend-api/src/player_service/service.rs`
-14. `crates/stellatune-backend-api/src/player_service/catalog.rs`
-15. `crates/stellatune-backend-api/src/player_service/resolver.rs`
-16. `crates/stellatune-backend-api/src/runtime/typescript_source.rs`
+1. `crates/stellatune-audio-core/src/format.rs`
+2. `crates/stellatune-audio-core/src/playback.rs`
+3. `crates/stellatune-audio-core/src/source.rs`
+4. `crates/stellatune-audio-core/src/stage.rs`
+5. `crates/stellatune-audio-core/src/error.rs`
+6. `crates/stellatune-audio-core/src/decoder.rs`
+7. `crates/stellatune-audio-core/src/transform.rs`
+8. `crates/stellatune-audio-core/src/sink.rs`
+9. `crates/stellatune-audio/src/planner.rs`
+10. `crates/stellatune-audio/src/playback/control.rs`
+11. `crates/stellatune-audio/src/playback/runtime.rs`
+12. `crates/stellatune-audio/src/playback/actor.rs`
+13. `crates/stellatune-audio/src/playback/preparation.rs`
+14. `crates/stellatune-audio/src/playback/pump.rs`
+15. `crates/stellatune-audio/src/playback/sink_worker.rs`
+16. `crates/stellatune-backend-api/src/player_service/service.rs`
+17. `crates/stellatune-backend-api/src/player_service/catalog.rs`
+18. `crates/stellatune-backend-api/src/player_service/resolver.rs`
+19. `crates/stellatune-backend-api/src/runtime/typescript_source.rs`
 
 ## 10. Module ownership and size policy
 

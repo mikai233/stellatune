@@ -1,5 +1,7 @@
 use stellatune_audio_core::{
-    DecoderSeekStatus, MediaTime, PlaybackControlError, PlaybackFailure, PlaybackItemId, SeekResult,
+    decoder::{DecoderSeekStatus, SeekResult},
+    error::{PlaybackControlError, PlaybackFailure},
+    playback::{MediaTime, PlaybackItemId},
 };
 use tokio::sync::broadcast;
 

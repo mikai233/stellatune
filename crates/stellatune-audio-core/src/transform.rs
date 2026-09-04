@@ -1,4 +1,8 @@
-use crate::{AudioBlock, FactoryError, PcmFormat, StageId, TransformError};
+use crate::{
+    error::{FactoryError, TransformError},
+    format::{AudioBlock, PcmFormat},
+    stage::StageId,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TransformStatus {

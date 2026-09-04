@@ -1,4 +1,7 @@
-use stellatune_audio_core::{MediaTime, PlaybackFailure, PlaybackItemId};
+use stellatune_audio_core::{
+    error::PlaybackFailure,
+    playback::{MediaTime, PlaybackItemId},
+};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum PlaybackState {

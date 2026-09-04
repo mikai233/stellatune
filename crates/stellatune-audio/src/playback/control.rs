@@ -1,5 +1,8 @@
 use lattice_actor::{error::ActorCallError, handle::ActorHandle};
-use stellatune_audio_core::{MediaTime, PlaybackControlError, PlaybackItem};
+use stellatune_audio_core::{
+    error::PlaybackControlError,
+    playback::{MediaTime, PlaybackItem},
+};
 use tokio::sync::broadcast;
 
 use crate::planner::PlaybackPolicies;
@@ -154,7 +157,7 @@ mod tests {
     use super::map_call_error;
     use lattice_actor::error::{ActorCallError, ActorError};
     use lattice_actor::traits::ActorLifecycleState;
-    use stellatune_audio_core::{FailureStage, PlaybackControlError};
+    use stellatune_audio_core::error::{FailureStage, PlaybackControlError};
 
     #[test]
     fn maps_lattice_call_errors_to_control_contract() {

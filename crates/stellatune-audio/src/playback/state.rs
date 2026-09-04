@@ -5,8 +5,13 @@ use lattice_actor::reply::ReplyTo;
 
 use crate::planner::{CrossfadeCurve, ExecutablePlaybackPlan, PlaybackPolicies, TransitionPolicy};
 use stellatune_audio_core::{
-    AudioBlock, DecoderStage, MediaTime, PcmFormat, PlaybackControlError, PlaybackItemId,
-    SinkFactory, SourceCancellation, TransformStage,
+    decoder::DecoderStage,
+    error::PlaybackControlError,
+    format::{AudioBlock, PcmFormat},
+    playback::{MediaTime, PlaybackItemId},
+    sink::SinkFactory,
+    source::SourceCancellation,
+    transform::TransformStage,
 };
 
 use super::event::PlaybackState;

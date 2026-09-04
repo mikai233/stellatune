@@ -1,8 +1,11 @@
 use std::time::{Duration, Instant};
 
 use stellatune_audio_core::{
-    DecoderSeekStatus, MediaTime, PlaybackControlError, SourceCancellation, SourceOpenPurpose,
-    SourceOpenRequest, TransformPlacement,
+    decoder::DecoderSeekStatus,
+    error::PlaybackControlError,
+    playback::MediaTime,
+    source::{SourceCancellation, SourceOpenPurpose, SourceOpenRequest},
+    transform::TransformPlacement,
 };
 
 use crate::planner::{ExecutablePlaybackPlan, can_fallback};
