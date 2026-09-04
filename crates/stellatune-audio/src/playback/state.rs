@@ -1,3 +1,15 @@
+//! Actor-owned playback session and track pipeline state.
+//!
+//! `PlaybackSession` contains mutable domain state but deliberately excludes
+//! [`PlaybackState`], which is owned by the Lattice behavior. `PreparedTrack`
+//! has no output worker; activation converts it into `ActiveTrack` or, during
+//! overlap, `SecondaryTrack`. Only `ActiveTrack` owns a `SinkWorker`.
+//!
+//! Frame counters have distinct coordinate systems: decoded counters include
+//! encoder delay, audible counters exclude gapless trim, and sink counters are
+//! relative to the current output worker. Explicit base fields translate these
+//! values rather than treating them as interchangeable.
+
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -18,6 +30,7 @@ use super::event::PlaybackState;
 use super::normalizer::PcmNormalizer;
 use super::sink_worker::SinkWorker;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// The domain role attached to one off-turn preparation task.
 pub(super) enum PreparationPurpose {
     Current {
         autoplay: bool,
@@ -31,6 +44,7 @@ pub(super) enum PreparationPurpose {
     },
 }
 
+/// The generation-tagged result returned from an off-turn preparation.
 pub(super) struct PreparationResult {
     pub(super) id: u64,
     pub(super) generation: u64,
@@ -38,6 +52,7 @@ pub(super) struct PreparationResult {
     pub(super) result: Result<PreparedTrack, PlaybackControlError>,
 }
 
+/// The actor-side identity and deadline of current request-backed preparation.
 pub(super) struct PendingPreparation {
     pub(super) id: u64,
     pub(super) generation: u64,
@@ -45,6 +60,7 @@ pub(super) struct PendingPreparation {
     pub(super) deadline: Instant,
 }
 
+/// Recovery work retained so it can be scheduled through `pipe_to_self`.
 pub(super) struct RecoveryPreparation {
     pub(super) plan: ExecutablePlaybackPlan,
     pub(super) id: u64,
@@ -53,6 +69,7 @@ pub(super) struct RecoveryPreparation {
     pub(super) cancellation: SourceCancellation,
 }
 
+/// A fully configured track pipeline that does not yet own an output worker.
 pub(super) struct PreparedTrack {
     pub(super) plan: ExecutablePlaybackPlan,
     pub(super) decoder: Box<dyn DecoderStage>,
@@ -72,6 +89,7 @@ pub(super) struct PreparedTrack {
     pub(super) initial_audible_frame: u64,
 }
 
+/// The current track pipeline, including output, clocks, and transition state.
 pub(super) struct ActiveTrack {
     pub(super) recovery_plan: ExecutablePlaybackPlan,
     pub(super) item_id: PlaybackItemId,
@@ -109,12 +127,14 @@ pub(super) struct ActiveTrack {
 }
 
 #[derive(Debug, Clone, Copy)]
+/// A gain ramp that restores the current track after a failed overlap.
 pub(super) struct TransitionRecoveryFade {
     pub(super) start_frame: u64,
     pub(super) duration_frames: u64,
     pub(super) start_gain: f32,
 }
 
+/// All mutable playback domain state exclusively owned by `PlaybackActor`.
 pub(super) struct PlaybackSession {
     pub(super) generation: u64,
     pub(super) next_preparation_id: u64,
@@ -131,6 +151,7 @@ pub(super) struct PlaybackSession {
     pub(super) output_gain: f32,
 }
 
+/// The next track while it is decoded concurrently for a crossfade.
 pub(super) struct SecondaryTrack {
     pub(super) recovery_plan: ExecutablePlaybackPlan,
     pub(super) item_id: PlaybackItemId,
@@ -153,6 +174,7 @@ pub(super) struct SecondaryTrack {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// The stage currently being drained after decoder end-of-stream.
 pub(super) enum DrainPhase {
     Decoding,
     PreMix(usize),
@@ -161,6 +183,7 @@ pub(super) enum DrainPhase {
     Complete,
 }
 
+/// Per-overlap cursors and pending blocks for two-track mixing.
 pub(super) struct CrossfadeState {
     pub(super) next: SecondaryTrack,
     pub(super) duration_frames: u64,
@@ -172,6 +195,7 @@ pub(super) struct CrossfadeState {
     pub(super) boundary_announced: bool,
 }
 
+/// A multi-turn decoder seek and the external reply waiting for completion.
 pub(super) struct PendingSeek {
     pub(super) response: ReplyTo<Result<(), PlaybackControlError>>,
     pub(super) resume_state: PlaybackState,

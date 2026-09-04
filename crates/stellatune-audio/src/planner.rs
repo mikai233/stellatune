@@ -1,3 +1,10 @@
+//! Deterministic selection and ordering of playback pipeline stages.
+//!
+//! [`PipelinePlanner`](crate::planner::PipelinePlanner) operates only on typed
+//! factories. It does not open sources or create stages. Decoder candidates are
+//! ordered by descending priority and then stable stage identifier; transforms
+//! are ordered by placement and identifier.
+
 use std::sync::Arc;
 
 use stellatune_audio_core::{
@@ -7,44 +14,71 @@ use stellatune_audio_core::{
 use thiserror::Error;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// The transition applied when moving from the current item to the next item.
 pub enum TransitionPolicy {
+    /// Promotes the prepared next item without applying a gain envelope.
     Gapless,
+    /// Fades the current item out before fading the next item in.
     FadeOutIn {
+        /// Duration of the current item's fade, in output PCM frames.
         fade_out_frames: u64,
+        /// Duration of the next item's fade, in output PCM frames.
         fade_in_frames: u64,
+        /// Gain curve used by both fades.
         curve: GainCurve,
     },
+    /// Overlaps the end of the current item with the beginning of the next.
     Crossfade {
+        /// Desired overlap duration, in output PCM frames.
         duration_frames: u64,
+        /// Pair of gain curves applied during the overlap.
         curve: CrossfadeCurve,
+        /// Transition used when the two pipelines cannot overlap safely.
         fallback: CrossfadeFallback,
     },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// A one-sided gain-envelope curve.
 pub enum GainCurve {
+    /// Changes gain at a constant rate.
     Linear,
+    /// Uses a sine-shaped curve to preserve perceived loudness.
     EqualPower,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Complementary gain curves used while two tracks overlap.
 pub enum CrossfadeCurve {
+    /// Fades one track down and the other up at constant rates.
     Linear,
+    /// Uses complementary trigonometric gains to preserve perceived power.
     EqualPower,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// The policy used when a requested crossfade cannot be constructed.
 pub enum CrossfadeFallback {
+    /// Promotes the next compatible pipeline without an overlap envelope.
     Gapless,
+    /// Falls back to non-overlapping linear fade-out and fade-in envelopes.
     FadeOutIn,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Runtime policies applied to preparation, transitions, seeking, and recovery.
 pub struct PlaybackPolicies {
+    /// The default transition between adjacent items.
     pub transition: TransitionPolicy,
+    /// The maximum number of ordered decoder candidates tried during preparation.
+    ///
+    /// At least one candidate is attempted even when this value is zero.
     pub max_decoder_fallbacks: usize,
+    /// The maximum number of recovery preparations for one failure sequence.
     pub max_recovery_attempts: usize,
+    /// Base delay in milliseconds multiplied by the recovery attempt index.
     pub recovery_backoff_ms: u64,
+    /// Duration of the de-click envelope after a seek, in output PCM frames.
     pub seek_fade_frames: u64,
 }
 
@@ -61,39 +95,98 @@ impl Default for PlaybackPolicies {
 }
 
 #[derive(Clone)]
+/// An immutable set of stage factories available to one runtime.
+///
+/// Cloning a snapshot clones the factory [`Arc`] values, not the stages they
+/// later create.
 pub struct StageRegistrySnapshot {
+    /// Decoder factories considered by [`PipelinePlanner`].
     pub decoders: Vec<Arc<dyn DecoderFactory>>,
+    /// Transform factories sorted into pre-mix and post-mix chains.
     pub transforms: Vec<Arc<dyn TransformFactory>>,
+    /// The output factory used to negotiate and create the sink.
     pub sink: Arc<dyn SinkFactory>,
 }
 
 #[derive(Clone)]
+/// Input to [`PipelinePlanner::plan`].
 pub struct PlaybackRequest {
+    /// The already-materialized item to prepare.
     pub item: PlaybackItem,
+    /// The policies captured by the resulting plan.
     pub policies: PlaybackPolicies,
 }
 
 #[derive(Clone)]
+/// A deterministic factory plan ready for off-turn preparation.
+///
+/// The plan contains factories rather than opened sources or live stages, so it
+/// can be moved to a blocking preparation task and cloned for recovery.
 pub struct ExecutablePlaybackPlan {
+    /// The item whose source will be opened.
     pub item: PlaybackItem,
+    /// Compatible decoder factories in attempted order.
     pub decoder_candidates: Vec<Arc<dyn DecoderFactory>>,
+    /// Transform factories in placement and identifier order.
     pub transforms: Vec<Arc<dyn TransformFactory>>,
+    /// The selected output factory.
     pub sink: Arc<dyn SinkFactory>,
+    /// The policies captured when this plan was created.
     pub policies: PlaybackPolicies,
 }
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
+/// An error encountered before source or stage construction begins.
 pub enum PlannerError {
+    /// No registered decoder matches the source's extension or media type.
     #[error("no decoder supports the source media hints")]
     NoDecoder,
+    /// An explicitly required decoder does not match the source hints.
     #[error("required decoder `{decoder}` is incompatible with the source")]
-    RequiredDecoderIncompatible { decoder: String },
+    RequiredDecoderIncompatible {
+        /// The stable identifier of the required decoder.
+        decoder: String,
+    },
 }
 
 #[derive(Debug, Default)]
+/// Builds executable playback plans from items and a stage registry snapshot.
 pub struct PipelinePlanner;
 
 impl PipelinePlanner {
+    /// Selects and deterministically orders the factories for `request`.
+    ///
+    /// When the item specifies a required decoder, that decoder is the only
+    /// candidate. Otherwise matching registry decoders are sorted by descending
+    /// priority and stable identifier. Transforms are sorted by placement and
+    /// identifier. No source is opened and no stage is created by this method.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PlannerError::NoDecoder`] when no registry decoder matches, or
+    /// [`PlannerError::RequiredDecoderIncompatible`] when the item's required
+    /// decoder conflicts with its media hints.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use stellatune_audio::planner::{
+    ///     PipelinePlanner, PlaybackRequest, StageRegistrySnapshot,
+    /// };
+    /// use stellatune_audio_core::playback::PlaybackItem;
+    ///
+    /// fn make_plan(
+    ///     item: PlaybackItem,
+    ///     registry: &StageRegistrySnapshot,
+    /// ) -> Result<(), stellatune_audio::planner::PlannerError> {
+    ///     let request = PlaybackRequest {
+    ///         item,
+    ///         policies: Default::default(),
+    ///     };
+    ///     let _plan = PipelinePlanner.plan(request, registry)?;
+    ///     Ok(())
+    /// }
+    /// ```
     pub fn plan(
         &self,
         request: PlaybackRequest,

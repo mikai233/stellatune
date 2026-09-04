@@ -1,3 +1,16 @@
+//! Bounded decoding, PCM pumping, gapless trimming, draining, and recovery.
+//!
+//! `pump_once` performs at most one meaningful unit of data-plane work: retry a
+//! pending sink write, decode one block, advance one drain stage, or advance a
+//! crossfade. It never waits for network input or device capacity. Temporary
+//! starvation enters `Buffering`; recoverable decoder I/O and sink failures
+//! schedule off-turn recovery from a sink-consumed checkpoint.
+//!
+//! Gapless head trim is removed immediately. Tail trim is withheld until the
+//! decoder frontier proves that samples are not encoder padding. On EOF, every
+//! pre-mix transform, the normalizer, and every post-mix transform is drained in
+//! pipeline order before promotion or `PlaybackEnded`.
+
 use std::sync::Arc;
 
 use stellatune_audio_core::{
@@ -23,6 +36,7 @@ use super::transition::{
     activate_with_output, apply_track_transition_gain, maybe_start_crossfade,
     normalize_prepared_for_mix, pump_crossfade, transition_fade_in_frames,
 };
+/// Attaches a new sink worker and converts a prepared pipeline into the current track.
 pub(super) fn activate(
     prepared: PreparedTrack,
     config: &PlaybackRuntimeConfig,
@@ -73,6 +87,7 @@ pub(super) fn activate(
     })
 }
 
+/// Advances the active data path by at most one bounded work unit.
 pub(super) fn pump_once(
     config: &PlaybackRuntimeConfig,
     event_tx: &broadcast::Sender<PlaybackEvent>,
@@ -237,6 +252,7 @@ pub(super) fn pump_once(
     }
 }
 
+/// Captures consumed position and schedules recovery when source capabilities allow it.
 pub(super) fn begin_recovery(
     _config: &PlaybackRuntimeConfig,
     event_tx: &broadcast::Sender<PlaybackEvent>,
@@ -291,6 +307,7 @@ pub(super) fn begin_recovery(
     });
 }
 
+/// Promotes a prepared successor or drains and completes the current item.
 pub(super) fn promote_or_end(
     actor: &mut PlaybackSession,
     state: &mut PlaybackState,
@@ -384,6 +401,7 @@ pub(super) fn promote_or_end(
     }
 }
 
+/// Output of one bounded secondary-track decode operation.
 pub(super) enum TrackBlockStatus {
     Data(AudioBlock),
     Pending,
@@ -391,6 +409,7 @@ pub(super) enum TrackBlockStatus {
 }
 
 #[allow(clippy::too_many_arguments)]
+/// Decodes, gapless-trims, transforms, and normalizes one track block.
 pub(super) fn decode_track_block(
     decoder: &mut dyn DecoderStage,
     transforms: &mut [Box<dyn TransformStage>],
@@ -450,6 +469,7 @@ pub(super) fn decode_track_block(
     }
 }
 
+/// Runs a block through an ordered transform suffix until output or buffering.
 pub(super) fn process_transform_chain(
     transforms: &mut [Box<dyn TransformStage>],
     formats: &[PcmFormat],
@@ -468,12 +488,14 @@ pub(super) fn process_transform_chain(
     Ok(())
 }
 
+/// Progress made by one turn of ordered pipeline draining.
 pub(super) enum DrainTurn {
     Produced(AudioBlock),
     Pending,
     Complete,
 }
 
+/// Advances the current pipeline through one drain stage or output block.
 pub(super) fn drain_current_once(
     current: &mut ActiveTrack,
 ) -> Result<DrainTurn, PlaybackControlError> {
@@ -595,6 +617,7 @@ pub(super) fn drain_current_once(
     }
 }
 
+/// Advances the secondary crossfade pipeline by one decoded block.
 pub(super) fn decode_secondary_block(
     next: &mut SecondaryTrack,
     block_frames: usize,
@@ -617,6 +640,7 @@ pub(super) fn decode_secondary_block(
     )
 }
 
+/// Applies the active track's gapless head and tail trim to a decoded block.
 pub(super) fn trim_gapless_block(
     current: &mut ActiveTrack,
     block: &mut AudioBlock,
@@ -632,6 +656,7 @@ pub(super) fn trim_gapless_block(
     );
 }
 
+/// Removes encoder delay and withholds possible tail padding from raw PCM.
 pub(super) fn trim_gapless_samples(
     block: &mut AudioBlock,
     raw_start: u64,
@@ -670,6 +695,7 @@ pub(super) fn trim_gapless_samples(
     }
 }
 
+/// Publishes sink-consumed position when its cadence advances or when forced.
 pub(super) fn emit_position_if_due(
     current: &mut ActiveTrack,
     event_tx: &broadcast::Sender<PlaybackEvent>,

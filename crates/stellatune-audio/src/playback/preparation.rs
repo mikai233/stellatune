@@ -1,3 +1,15 @@
+//! Off-turn construction of source, decoder, transform, and format pipelines.
+//!
+//! Preparation may perform blocking decoder probing and format negotiation, so
+//! it runs in Tokio's blocking pool rather than a Lattice actor turn. Source
+//! acquisition remains asynchronous inside a task-local runtime. Every result
+//! returns its preparation identifier and playback generation for stale-result
+//! rejection by the actor.
+//!
+//! Decoder fallback reopens the source for each candidate and therefore stops
+//! after the first candidate when the source is not reopenable. Recovery also
+//! performs its decoder seek here so actor turns remain bounded.
+
 use std::time::{Duration, Instant};
 
 use stellatune_audio_core::{
@@ -13,6 +25,7 @@ use crate::planner::{ExecutablePlaybackPlan, can_fallback};
 use super::normalizer::PcmNormalizer;
 use super::state::{PreparationPurpose, PreparationResult, PreparedTrack};
 
+/// Builds a generation-tagged track pipeline outside the playback actor turn.
 pub(super) async fn prepare_off_turn(
     plan: ExecutablePlaybackPlan,
     id: u64,

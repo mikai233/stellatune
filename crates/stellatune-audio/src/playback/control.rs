@@ -1,3 +1,11 @@
+//! Typed, deadline-bound control of a running playback runtime.
+//!
+//! A [`PlaybackController`](crate::playback::control::PlaybackController) is
+//! cheap to clone and does not own runtime lifetime. Each asynchronous method
+//! waits for a typed actor reply up to the configured deadline. Dropping that
+//! waiting future does not send a separate cancellation command; an
+//! already-enqueued command may still execute.
+
 use lattice_actor::{error::ActorCallError, handle::ActorHandle};
 use stellatune_audio_core::{
     error::PlaybackControlError,
@@ -15,14 +23,20 @@ use super::event::{PlaybackEvent, PlaybackRuntimeSnapshot};
 use super::runtime::PlaybackCommandTimeouts;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// How an explicit switch interacts with the configured transition policy.
 pub enum SwitchTransition {
+    /// Applies the active [`PlaybackPolicies`] transition when a track exists.
     UseConfiguredPolicy,
+    /// Stops the current track and uses a short de-click envelope for the new one.
     ImmediateWithDeClick,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Options applied when switching to a playback item.
 pub struct SwitchOptions {
+    /// Whether a newly activated item starts playing immediately.
     pub autoplay: bool,
+    /// How an existing current item transitions to the new item.
     pub transition: SwitchTransition,
 }
 
@@ -36,6 +50,12 @@ impl Default for SwitchOptions {
 }
 
 #[derive(Clone)]
+/// A cloneable command endpoint for one [`PlaybackRuntime`](super::runtime::PlaybackRuntime).
+///
+/// Commands are serialized by the playback actor. Controller clones share the
+/// same mailbox, event sender, and command deadlines. Dropping every controller
+/// does not deterministically release the runtime; its owner should call
+/// [`PlaybackRuntime::shutdown`](super::runtime::PlaybackRuntime::shutdown).
 pub struct PlaybackController {
     pub(super) actor: ActorHandle<PlaybackActor>,
     pub(super) event_tx: broadcast::Sender<PlaybackEvent>,
@@ -43,6 +63,17 @@ pub struct PlaybackController {
 }
 
 impl PlaybackController {
+    /// Prepares `item` and makes it current according to `options`.
+    ///
+    /// With [`SwitchTransition::UseConfiguredPolicy`], an existing track keeps
+    /// playing while the new item is prepared as its forced successor. An
+    /// immediate switch tears down the current pipeline before preparation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PlaybackControlError::CommandTimeout`] when preparation misses
+    /// its deadline, [`PlaybackControlError::Closed`] when the runtime stops, or
+    /// [`PlaybackControlError::Failed`] when planning or preparation fails.
     pub async fn switch(
         &self,
         item: PlaybackItem,
@@ -54,6 +85,16 @@ impl PlaybackController {
             .map_err(|error| map_call_error("switch", error))?
     }
 
+    /// Prepares `item` as the next item without interrupting the current item.
+    ///
+    /// A later call replaces any previously queued or preparing item.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PlaybackControlError::InvalidState`] when there is no active
+    /// session, [`PlaybackControlError::CommandTimeout`] on preparation timeout,
+    /// [`PlaybackControlError::Closed`] after runtime shutdown, or
+    /// [`PlaybackControlError::Failed`] when planning or preparation fails.
     pub async fn queue_next(&self, item: PlaybackItem) -> Result<(), PlaybackControlError> {
         self.actor
             .ask(QueueNextTrack { item }, self.timeouts.preparation)
@@ -61,6 +102,14 @@ impl PlaybackController {
             .map_err(|error| map_call_error("queue_next", error))?
     }
 
+    /// Starts or resumes the current item.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PlaybackControlError::InvalidState`] without an active item,
+    /// [`PlaybackControlError::CommandTimeout`] when the command deadline is
+    /// exceeded, [`PlaybackControlError::Closed`] after shutdown, or
+    /// [`PlaybackControlError::Failed`] when the output cannot resume.
     pub async fn play(&self) -> Result<(), PlaybackControlError> {
         self.actor
             .ask(Play, self.timeouts.control)
@@ -68,6 +117,14 @@ impl PlaybackController {
             .map_err(|error| map_call_error("play", error))?
     }
 
+    /// Pauses the current output without discarding queued PCM.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PlaybackControlError::InvalidState`] without an active item,
+    /// [`PlaybackControlError::CommandTimeout`] when the command deadline is
+    /// exceeded, [`PlaybackControlError::Closed`] after shutdown, or
+    /// [`PlaybackControlError::Failed`] when the output cannot pause.
     pub async fn pause(&self) -> Result<(), PlaybackControlError> {
         self.actor
             .ask(Pause, self.timeouts.control)
@@ -75,6 +132,19 @@ impl PlaybackController {
             .map_err(|error| map_call_error("pause", error))?
     }
 
+    /// Seeks the current item to an absolute media position.
+    ///
+    /// Seeking invalidates queued PCM, resets transforms and normalization, and
+    /// applies the configured de-click envelope at the actual decoder result.
+    /// The paused/playing intent is restored after an incremental seek.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PlaybackControlError::InvalidState`] without an active item,
+    /// [`PlaybackControlError::Unsupported`] for an unseekable source,
+    /// [`PlaybackControlError::CommandTimeout`] on command timeout,
+    /// [`PlaybackControlError::Closed`] when superseded or stopped, or
+    /// [`PlaybackControlError::Failed`] for decoder or sink failures.
     pub async fn seek(&self, position: MediaTime) -> Result<(), PlaybackControlError> {
         self.actor
             .ask(Seek { position }, self.timeouts.control)
@@ -82,6 +152,15 @@ impl PlaybackController {
             .map_err(|error| map_call_error("seek", error))?
     }
 
+    /// Stops playback and clears current, queued, transition, and seek state.
+    ///
+    /// The runtime remains alive and accepts a later [`Self::switch`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PlaybackControlError::CommandTimeout`] when the command misses
+    /// its deadline, [`PlaybackControlError::Closed`] after runtime shutdown, or
+    /// [`PlaybackControlError::Failed`] for an actor or output failure.
     pub async fn stop(&self) -> Result<(), PlaybackControlError> {
         self.actor
             .ask(StopPlayback, self.timeouts.control)
@@ -89,6 +168,17 @@ impl PlaybackController {
             .map_err(|error| map_call_error("stop", error))?
     }
 
+    /// Sets the final output gain, optionally ramping over `ramp`.
+    ///
+    /// `gain` is clamped to `0.0..=1.0`. The value is retained for future sink
+    /// creation; when no track is active, the operation only updates that
+    /// retained value.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PlaybackControlError::CommandTimeout`] when the command misses
+    /// its deadline, [`PlaybackControlError::Closed`] after shutdown, or
+    /// [`PlaybackControlError::Failed`] when the active sink rejects the change.
     pub async fn set_output_gain(
         &self,
         gain: f32,
@@ -106,6 +196,16 @@ impl PlaybackController {
             .map_err(|error| map_call_error("set_output_gain", error))?
     }
 
+    /// Recreates the active output sink while preserving playback intent.
+    ///
+    /// This is a no-op when no item is active. A currently playing item resumes
+    /// after the replacement sink opens; other states remain non-playing.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PlaybackControlError::CommandTimeout`] when output rebuilding
+    /// misses its deadline, [`PlaybackControlError::Closed`] after shutdown, or
+    /// [`PlaybackControlError::Failed`] when the sink cannot be recreated.
     pub async fn rebuild_output(&self) -> Result<(), PlaybackControlError> {
         self.actor
             .ask(RebuildOutput, self.timeouts.output_rebuild)
@@ -113,6 +213,16 @@ impl PlaybackController {
             .map_err(|error| map_call_error("rebuild_output", error))?
     }
 
+    /// Replaces policies used by subsequently planned and prepared tracks.
+    ///
+    /// Already-active track and transition state retain the policy captured by
+    /// their executable plan.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PlaybackControlError::CommandTimeout`] when the command misses
+    /// its deadline, [`PlaybackControlError::Closed`] after shutdown, or
+    /// [`PlaybackControlError::Failed`] for actor infrastructure failure.
     pub async fn set_policies(
         &self,
         policies: PlaybackPolicies,
@@ -123,6 +233,13 @@ impl PlaybackController {
             .map_err(|error| map_call_error("set_policies", error))?
     }
 
+    /// Returns a point-in-time view of playback state and consumed position.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PlaybackControlError::CommandTimeout`] when the snapshot misses
+    /// its deadline, [`PlaybackControlError::Closed`] after shutdown, or
+    /// [`PlaybackControlError::Failed`] for actor infrastructure failure.
     pub async fn snapshot(&self) -> Result<PlaybackRuntimeSnapshot, PlaybackControlError> {
         self.actor
             .ask(GetSnapshot, self.timeouts.snapshot)
@@ -130,6 +247,11 @@ impl PlaybackController {
             .map_err(|error| map_call_error("snapshot", error))?
     }
 
+    /// Subscribes to playback events emitted after this call.
+    ///
+    /// The returned Tokio broadcast receiver reports lag if it falls more than
+    /// the configured event capacity behind. Use [`Self::snapshot`] to rebuild
+    /// current state after lagging.
     pub fn subscribe_events(&self) -> broadcast::Receiver<PlaybackEvent> {
         self.event_tx.subscribe()
     }

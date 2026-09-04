@@ -1,3 +1,20 @@
+//! Lattice actor command admission and playback policy ownership.
+//!
+//! `PlaybackActor` is the single owner of [`PlaybackSession`]. Its Lattice
+//! behavior is the externally observable [`PlaybackState`]; the session does
+//! not duplicate that state. Typed requests carry control-plane data only.
+//! Encoded bytes, decoded blocks, and sink writes remain outside the mailbox.
+//!
+//! Every source preparation carries both a monotonically wrapping generation
+//! and a preparation identifier. Switching, stopping, or replacing queued work
+//! advances the generation and cancels the previous source token. Completion
+//! messages from older generations may complete their reply but must never
+//! mutate the active session.
+//!
+//! A periodic `PumpAudio` message advances at most one PCM block. Saturated
+//! tick messages may be dropped because the interval schedules another tick;
+//! user commands therefore retain bounded latency under continuous playback.
+
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -39,6 +56,7 @@ type SnapshotResult = Result<PlaybackRuntimeSnapshot, PlaybackControlError>;
 
 #[derive(lattice_actor::Request)]
 #[request(response = ControlResult)]
+/// Requests preparation and transition to a new current item.
 pub(super) struct SwitchTrack {
     pub(super) item: PlaybackItem,
     pub(super) options: SwitchOptions,
@@ -46,30 +64,36 @@ pub(super) struct SwitchTrack {
 
 #[derive(lattice_actor::Request)]
 #[request(response = ControlResult)]
+/// Requests preparation of a successor for the current item.
 pub(super) struct QueueNextTrack {
     pub(super) item: PlaybackItem,
 }
 
 #[derive(lattice_actor::Request)]
 #[request(response = ControlResult)]
+/// Requests output playback or resumption.
 pub(super) struct Play;
 
 #[derive(lattice_actor::Request)]
 #[request(response = ControlResult)]
+/// Requests output pause without discarding PCM.
 pub(super) struct Pause;
 
 #[derive(lattice_actor::Request)]
 #[request(response = ControlResult)]
+/// Requests an absolute media seek on the current item.
 pub(super) struct Seek {
     pub(super) position: MediaTime,
 }
 
 #[derive(lattice_actor::Request)]
 #[request(response = ControlResult)]
+/// Requests teardown of the current playback session state.
 pub(super) struct StopPlayback;
 
 #[derive(lattice_actor::Request)]
 #[request(response = ControlResult)]
+/// Requests a bounded final-output gain ramp.
 pub(super) struct SetOutputGain {
     pub(super) gain: f32,
     pub(super) ramp: MediaTime,
@@ -77,34 +101,41 @@ pub(super) struct SetOutputGain {
 
 #[derive(lattice_actor::Request)]
 #[request(response = ControlResult)]
+/// Replaces policies captured by future executable plans.
 pub(super) struct SetPolicies {
     pub(super) policies: PlaybackPolicies,
 }
 
 #[derive(lattice_actor::Request)]
 #[request(response = ControlResult)]
+/// Recreates the active sink for the current route configuration.
 pub(super) struct RebuildOutput;
 
 #[derive(lattice_actor::Request)]
 #[request(response = SnapshotResult)]
+/// Requests actor state and sink-consumed position.
 pub(super) struct GetSnapshot;
 
 #[derive(lattice_actor::Message)]
+/// Advances one bounded playback data-plane turn.
 pub(super) struct PumpAudio;
 
 #[derive(lattice_actor::Message)]
+/// Returns request-backed preparation work to the owning actor.
 pub(super) struct PreparationCompleted {
     prepared: PreparationResult,
     reply_to: ReplyTo<ControlResult>,
 }
 
 #[derive(lattice_actor::Message)]
+/// Cancels preparation that is still current when its deadline expires.
 pub(super) struct PreparationDeadlineElapsed {
     id: u64,
     generation: u64,
 }
 
 #[derive(lattice_actor::Message)]
+/// Returns recovery preparation that has no external request reply.
 pub(super) struct RecoveryCompleted {
     prepared: PreparationResult,
 }
@@ -134,6 +165,7 @@ actor_behavior! {
     }
 }
 
+/// Owns playback policy and serializes all changes to a [`PlaybackSession`].
 pub(super) struct PlaybackActor {
     config: PlaybackRuntimeConfig,
     planner: PipelinePlanner,
@@ -142,6 +174,7 @@ pub(super) struct PlaybackActor {
 }
 
 impl PlaybackActor {
+    /// Creates an idle actor from runtime configuration and its event channel.
     pub(super) fn new(
         config: PlaybackRuntimeConfig,
         event_tx: broadcast::Sender<PlaybackEvent>,
@@ -995,6 +1028,7 @@ impl Handler<RecoveryCompleted> for PlaybackActor {
     }
 }
 
+/// Invalidates outstanding preparation and advances the session generation.
 pub(super) fn advance_generation(session: &mut PlaybackSession) {
     session.preparation_cancellation.cancel();
     session.preparation_cancellation = SourceCancellation::default();

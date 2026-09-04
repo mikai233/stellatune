@@ -1,3 +1,17 @@
+//! Positioned channel mixing and sample-rate normalization.
+//!
+//! A `PcmNormalizer` converts one planned track format into the shared mix
+//! format. Channel mixing happens before resampling so the resampler always
+//! operates at the target channel count. Exact speaker positions pass through;
+//! expansion leaves missing target positions silent; reduction routes each
+//! non-LFE source toward the nearest supported target position.
+//!
+//! LFE is copied only when the target also has LFE and is otherwise discarded.
+//! Matrix rows whose absolute coefficient sum exceeds unity are normalized to
+//! prevent mathematical clipping at full-scale input. Resampler startup delay
+//! is removed, and drain output is truncated to the exact rate-converted frame
+//! count.
+
 use audioadapter_buffers::direct::InterleavedSlice;
 use rubato::{
     Async, FixedAsync, Indexing, Resampler, Resizable, SincInterpolationParameters,
@@ -8,8 +22,10 @@ use stellatune_audio_core::{
     format::{AudioBlock, ChannelLayout, PcmFormat, SpeakerPosition},
 };
 const NORMALIZER_CHUNK_FRAMES: usize = 1024;
+/// The initial fold-down coefficient for one semantic speaker route.
 pub(super) const SQRT_HALF: f32 = std::f32::consts::FRAC_1_SQRT_2;
 
+/// A precomputed row-major channel rematrix applied independently to each frame.
 pub(super) struct ChannelMixer {
     source_channels: usize,
     target_channels: usize,
@@ -17,6 +33,7 @@ pub(super) struct ChannelMixer {
 }
 
 impl ChannelMixer {
+    /// Builds and normalizes a routing matrix for two positioned layouts.
     pub(super) fn new(
         source: ChannelLayout,
         target: ChannelLayout,
@@ -66,6 +83,7 @@ impl ChannelMixer {
         })
     }
 
+    /// Applies the immutable routing matrix to complete interleaved frames.
     pub(super) fn process(&self, input: &[f32]) -> Vec<f32> {
         let frames = input.len() / self.source_channels;
         let mut output = Vec::with_capacity(frames.saturating_mul(self.target_channels));
@@ -137,6 +155,7 @@ fn channel_routes(
     }
 }
 
+/// A chunked interleaved sinc resampler with exact output-length accounting.
 pub(super) struct PcmResampler {
     source_rate: u32,
     target_rate: u32,
@@ -149,6 +168,7 @@ pub(super) struct PcmResampler {
 }
 
 impl PcmResampler {
+    /// Creates a resampler for one channel count and sample-rate ratio.
     pub(super) fn new(
         source_rate: u32,
         target_rate: u32,
@@ -183,6 +203,7 @@ impl PcmResampler {
         })
     }
 
+    /// Converts all complete input frames and removes filter startup delay.
     pub(super) fn process(&mut self, input: &[f32]) -> Result<Vec<f32>, PlaybackControlError> {
         self.input_frames = self
             .input_frames
@@ -219,6 +240,7 @@ impl PcmResampler {
         Ok(output)
     }
 
+    /// Produces one tail chunk, or `None` after the exact target length is reached.
     pub(super) fn drain(&mut self) -> Result<Option<Vec<f32>>, PlaybackControlError> {
         if self.drained {
             return Ok(None);
@@ -254,6 +276,7 @@ impl PcmResampler {
         Ok(None)
     }
 
+    /// Removes as many outstanding filter-delay frames as `samples` contains.
     pub(super) fn trim_leading_frames(&mut self, samples: &mut Vec<f32>) {
         if self.leading_frames_to_trim == 0 {
             return;
@@ -264,6 +287,7 @@ impl PcmResampler {
         self.leading_frames_to_trim -= trim_frames;
     }
 
+    /// Clears counters and restores the underlying resampler's initial delay.
     pub(super) fn reset(&mut self) {
         self.inner.reset();
         self.leading_frames_to_trim = self.inner.output_delay();
@@ -273,6 +297,7 @@ impl PcmResampler {
     }
 }
 
+/// A planned channel mixer followed by an optional sample-rate converter.
 pub(super) struct PcmNormalizer {
     source: PcmFormat,
     target: PcmFormat,
@@ -281,6 +306,7 @@ pub(super) struct PcmNormalizer {
 }
 
 impl PcmNormalizer {
+    /// Builds the minimum conversion chain needed between two valid PCM formats.
     pub(super) fn new(source: PcmFormat, target: PcmFormat) -> Result<Self, PlaybackControlError> {
         source
             .validate()
@@ -313,6 +339,7 @@ impl PcmNormalizer {
         })
     }
 
+    /// Converts one block in place and assigns the target format.
     pub(super) fn process(&mut self, block: &mut AudioBlock) -> Result<(), PlaybackControlError> {
         if block.samples.is_empty() {
             block.format = self.target;
@@ -339,6 +366,7 @@ impl PcmNormalizer {
         Ok(())
     }
 
+    /// Writes one resampler tail chunk and reports whether output was produced.
     pub(super) fn drain(&mut self, block: &mut AudioBlock) -> Result<bool, PlaybackControlError> {
         block.format = self.target;
         block.samples.clear();
@@ -349,6 +377,7 @@ impl PcmNormalizer {
         Ok(!block.samples.is_empty())
     }
 
+    /// Resets rate-conversion state after a seek or pipeline teardown.
     pub(super) fn reset(&mut self) {
         if let Some(resampler) = self.resampler.as_mut() {
             resampler.reset();

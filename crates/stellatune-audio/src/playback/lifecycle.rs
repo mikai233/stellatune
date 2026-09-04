@@ -1,3 +1,10 @@
+//! Shared state transitions, seeking, failure publication, and teardown.
+//!
+//! Helpers in this module keep state changes and their observable events paired.
+//! `set_state` is the only ordinary path that emits `StateChanged`, preventing
+//! duplicate notifications. Seeking advances the PCM epoch before touching the
+//! decoder so blocks queued for the previous position cannot reach the sink.
+
 use stellatune_audio_core::{
     decoder::{DecoderSeekStatus, SeekResult},
     error::{PlaybackControlError, PlaybackFailure},
@@ -8,6 +15,7 @@ use tokio::sync::broadcast;
 use super::event::{PlaybackEvent, PlaybackState};
 use super::pump::emit_position_if_due;
 use super::state::{DrainPhase, PlaybackSession};
+/// Fails a session after ownership has already moved to a promoted pipeline.
 pub(super) fn fail_promoted(
     actor: &mut PlaybackSession,
     state: &mut PlaybackState,
@@ -19,6 +27,7 @@ pub(super) fn fail_promoted(
     let _ = event_tx.send(PlaybackEvent::Failed(failure));
 }
 
+/// Invalidates queued PCM and begins a decoder seek for the current item.
 pub(super) fn start_seek(
     actor: &mut PlaybackSession,
     position: MediaTime,
@@ -42,6 +51,7 @@ pub(super) fn start_seek(
     Ok((current.item_id, status))
 }
 
+/// Performs one bounded continuation of a pending decoder seek.
 pub(super) fn advance_pending_seek(
     event_tx: &broadcast::Sender<PlaybackEvent>,
     actor: &mut PlaybackSession,
@@ -78,6 +88,7 @@ pub(super) fn advance_pending_seek(
     }
 }
 
+/// Re-bases frame counters and resets buffered stages after decoder seek completion.
 pub(super) fn finish_seek(
     actor: &mut PlaybackSession,
     result: SeekResult,
@@ -107,6 +118,7 @@ pub(super) fn finish_seek(
     emit_position_if_due(current, event_tx, true);
 }
 
+/// Updates state and publishes exactly one event when the value changes.
 pub(super) fn set_state(
     current: &mut PlaybackState,
     state: PlaybackState,
@@ -118,6 +130,7 @@ pub(super) fn set_state(
     }
 }
 
+/// Publishes the contextual payload of a failed control result.
 pub(super) fn publish_control_failure(
     error: &PlaybackControlError,
     event_tx: &broadcast::Sender<PlaybackEvent>,
@@ -127,6 +140,7 @@ pub(super) fn publish_control_failure(
     }
 }
 
+/// Tears down the current pipeline and publishes a terminal contextual failure.
 pub(super) fn fail_current(
     actor: &mut PlaybackSession,
     state: &mut PlaybackState,
@@ -141,12 +155,14 @@ pub(super) fn fail_current(
     let _ = event_tx.send(PlaybackEvent::Failed(failure));
 }
 
+/// Completes an outstanding seek reply as closed before replacing session work.
 pub(super) fn reject_pending(actor: &mut PlaybackSession) {
     if let Some(pending) = actor.pending_seek.take() {
         let _ = pending.response.send(Err(PlaybackControlError::Closed));
     }
 }
 
+/// Resets all current pipeline stages and synchronously shuts down its sink worker.
 pub(super) fn stop_current(actor: &mut PlaybackSession) {
     if let Some(mut current) = actor.current.take() {
         current.decoder.reset();

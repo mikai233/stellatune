@@ -1,7 +1,7 @@
-//! Runtime configuration and event models.
+//! Runtime configuration values exposed to application layers.
 //!
-//! This module contains user-facing settings and event payload types consumed by
-//! the engine and surrounding backend layers.
+//! These values describe audio-processing choices. Playback lifecycle and
+//! scheduling configuration lives in [`crate::playback::runtime`].
 
 /// Engine state, event, and control configuration models.
 pub mod engine;

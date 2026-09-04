@@ -1,3 +1,16 @@
+//! Dedicated output thread, bounded PCM transport, and consumed-frame clock.
+//!
+//! `SinkWorker` isolates device calls from the playback actor. PCM blocks and
+//! item-boundary markers share one bounded FIFO data channel, preserving their
+//! order. Pause, resume, discard, gain, drain, and shutdown use a separate
+//! bounded control channel consumed with priority over PCM.
+//!
+//! Partial writes remain on the worker thread until accepted. The actor-facing
+//! clock combines PCM queued in the data channel with the sink's own device
+//! buffer. A discard installs a new epoch and drops every block and boundary
+//! from the previous epoch. A track boundary becomes observable only after the
+//! device-consumed clock reaches its accepted-frame position.
+
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -11,8 +24,11 @@ use stellatune_audio_core::{
     playback::PlaybackItemId,
     sink::{SinkClockSnapshot, SinkFactory, SinkStage, SinkWriteState},
 };
+/// A non-blocking actor-to-worker enqueue failure.
 pub(super) enum PendingWrite {
+    /// The ring is full and ownership of the block is returned for retry.
     Full(AudioBlock),
+    /// The sink worker has stopped and cannot accept the block.
     Closed,
 }
 
@@ -43,6 +59,7 @@ struct SinkWorkerClock {
     epoch: AtomicU64,
 }
 
+/// Actor-facing handle to one sink and its dedicated OS thread.
 pub(super) struct SinkWorker {
     data_sender: Sender<SinkDataCommand>,
     control_sender: Sender<SinkControlCommand>,
@@ -53,6 +70,7 @@ pub(super) struct SinkWorker {
 }
 
 impl SinkWorker {
+    /// Creates and opens a sink on a new paused worker thread.
     pub(super) fn start(
         factory: Arc<dyn SinkFactory>,
         format: PcmFormat,
@@ -114,6 +132,7 @@ impl SinkWorker {
         })
     }
 
+    /// Attempts to enqueue a PCM block without waiting for ring capacity.
     pub(super) fn try_write(&self, block: AudioBlock) -> Result<(), PendingWrite> {
         self.clock
             .buffered_frames
@@ -149,18 +168,22 @@ impl SinkWorker {
             .map_err(|message| PlaybackControlError::failed("sink", message))
     }
 
+    /// Pauses the sink and waits for the control result.
     pub(super) fn pause(&self) -> Result<(), PlaybackControlError> {
         self.control(SinkControlCommand::Pause)
     }
 
+    /// Resumes the sink and waits for the control result.
     pub(super) fn resume(&self) -> Result<(), PlaybackControlError> {
         self.control(SinkControlCommand::Resume)
     }
 
+    /// Discards queued audio and installs `epoch` as the accepted PCM generation.
     pub(super) fn discard(&self, epoch: u64) -> Result<(), PlaybackControlError> {
         self.control(|response| SinkControlCommand::Discard { epoch, response })
     }
 
+    /// Schedules a final linear gain ramp without waiting for its completion.
     pub(super) fn set_gain(
         &self,
         target: f32,
@@ -174,10 +197,12 @@ impl SinkWorker {
             .map_err(|_| PlaybackControlError::Closed)
     }
 
+    /// Requests drain after all data already in the PCM channel is written.
     pub(super) fn drain(&self) -> Result<(), PlaybackControlError> {
         self.control(SinkControlCommand::Drain)
     }
 
+    /// Queues an item marker after all PCM accepted before this call.
     pub(super) fn mark_boundary(
         &self,
         item_id: PlaybackItemId,
@@ -193,14 +218,17 @@ impl SinkWorker {
             })
     }
 
+    /// Returns the next item boundary consumed by the device, if any.
     pub(super) fn try_boundary(&self) -> Option<PlaybackItemId> {
         self.boundary_receiver.try_recv().ok()
     }
 
+    /// Returns the first pending sink-worker failure, if any.
     pub(super) fn try_failure(&self) -> Option<String> {
         self.failure_receiver.try_recv().ok()
     }
 
+    /// Returns the latest device clock plus actor-to-worker queued frames.
     pub(super) fn clock(&self) -> SinkClockSnapshot {
         SinkClockSnapshot {
             consumed_frames: self.clock.consumed_frames.load(Ordering::Relaxed),
@@ -213,6 +241,7 @@ impl SinkWorker {
         }
     }
 
+    /// Requests worker shutdown and joins its OS thread once.
     pub(super) fn shutdown(&mut self) {
         let _ = self.control_sender.send(SinkControlCommand::Shutdown);
         if let Some(join) = self.join.take() {
@@ -227,6 +256,7 @@ impl Drop for SinkWorker {
     }
 }
 
+/// A frame-counted final gain envelope owned by the sink worker.
 pub(super) struct OutputGainEnvelope {
     start: f32,
     current: f32,
@@ -236,6 +266,7 @@ pub(super) struct OutputGainEnvelope {
 }
 
 impl OutputGainEnvelope {
+    /// Creates a constant envelope with a clamped initial gain.
     pub(super) fn new(initial: f32) -> Self {
         let initial = initial.clamp(0.0, 1.0);
         Self {
@@ -247,6 +278,7 @@ impl OutputGainEnvelope {
         }
     }
 
+    /// Replaces the active ramp, starting at its instantaneous gain.
     pub(super) fn schedule(&mut self, target: f32, duration_frames: u64) {
         self.start = self.current;
         self.target = target.clamp(0.0, 1.0);
@@ -257,6 +289,7 @@ impl OutputGainEnvelope {
         }
     }
 
+    /// Applies the scheduled gain independently to every complete PCM frame.
     pub(super) fn apply(&mut self, block: &mut AudioBlock) {
         let channels = usize::from(block.format.channel_layout.channel_count());
         for frame in block.samples.chunks_exact_mut(channels) {
@@ -276,6 +309,7 @@ impl OutputGainEnvelope {
     }
 }
 
+/// Services prioritized control and partial PCM writes until shutdown or failure.
 fn sink_worker_loop(
     mut sink: Box<dyn SinkStage>,
     data_receiver: Receiver<SinkDataCommand>,
@@ -415,6 +449,7 @@ fn sink_worker_loop(
     sink.close();
 }
 
+/// Accepts one ordered PCM block or records its device-consumption boundary.
 fn accept_sink_data(
     command: SinkDataCommand,
     clock: &SinkWorkerClock,
@@ -441,6 +476,7 @@ fn accept_sink_data(
 }
 
 #[allow(clippy::too_many_arguments)]
+/// Applies one high-priority control command and reports whether to stop.
 fn handle_sink_control(
     command: SinkControlCommand,
     sink: &mut dyn SinkStage,
@@ -497,6 +533,7 @@ fn handle_sink_control(
     false
 }
 
+/// Copies the sink clock into atomics visible to the playback actor.
 fn sync_sink_clock(sink: &dyn SinkStage, clock: &SinkWorkerClock) -> SinkClockSnapshot {
     let snapshot = sink.clock_snapshot();
     clock
@@ -508,6 +545,7 @@ fn sync_sink_clock(sink: &dyn SinkStage, clock: &SinkWorkerClock) -> SinkClockSn
     snapshot
 }
 
+/// Publishes every ordered marker reached by the device-consumed frontier.
 fn publish_consumed_boundaries(
     consumed_frames: u64,
     pending: &mut VecDeque<(u64, PlaybackItemId)>,

@@ -1,3 +1,16 @@
+//! Gapless promotion, fade envelopes, and two-track crossfade mixing.
+//!
+//! A crossfade starts only when the next pipeline can be normalized to the
+//! current mix format and both tracks have compatible post-mix output. Current
+//! and secondary tracks are decoded independently, receive per-track gains,
+//! and are summed before the current track's shared post-mix chain and sink.
+//!
+//! Item-boundary markers are inserted in the PCM FIFO before overlap output.
+//! Promotion keeps the existing sink and post-mix transforms, then re-bases the
+//! new current track to that boundary. If the secondary track fails after an
+//! overlap begins, the current track ramps from its instantaneous gain back to
+//! unity instead of being discarded.
+
 use stellatune_audio_core::{
     error::{FailureStage, PlaybackControlError, PlaybackFailure},
     format::{AudioBlock, PcmFormat},
@@ -21,6 +34,7 @@ use super::state::{
     ActiveTrack, CrossfadeState, DrainPhase, PlaybackSession, PreparedTrack, SecondaryTrack,
     TransitionRecoveryFade,
 };
+/// Starts a crossfade after its frame threshold and compatibility checks pass.
 pub(super) fn maybe_start_crossfade(actor: &mut PlaybackSession) {
     if actor.crossfade.is_some() {
         return;
@@ -91,6 +105,7 @@ pub(super) fn maybe_start_crossfade(actor: &mut PlaybackSession) {
     actor.force_transition = false;
 }
 
+/// Converts a prepared successor to the current mix format and rebuilds post-mix stages.
 pub(super) fn normalize_prepared_for_mix(
     prepared: &mut PreparedTrack,
     target: PcmFormat,
@@ -127,6 +142,7 @@ pub(super) fn normalize_prepared_for_mix(
     Ok(())
 }
 
+/// Removes output-only state while converting a prepared track for overlap decoding.
 pub(super) fn secondary_from_prepared(prepared: PreparedTrack) -> SecondaryTrack {
     let recovery_plan = prepared.plan.clone();
     SecondaryTrack {
@@ -151,6 +167,7 @@ pub(super) fn secondary_from_prepared(prepared: PreparedTrack) -> SecondaryTrack
     }
 }
 
+/// Decodes and mixes at most one bounded block from each side of an overlap.
 pub(super) fn pump_crossfade(
     config: &PlaybackRuntimeConfig,
     event_tx: &broadcast::Sender<PlaybackEvent>,
@@ -363,6 +380,7 @@ pub(super) fn pump_crossfade(
 }
 
 #[allow(clippy::too_many_arguments)]
+/// Removes a mixed prefix and advances the remaining block's timeline.
 pub(super) fn consume_block_prefix(block: &mut Option<AudioBlock>, samples: usize, frames: u64) {
     let Some(value) = block.as_mut() else {
         return;
@@ -374,6 +392,7 @@ pub(super) fn consume_block_prefix(block: &mut Option<AudioBlock>, samples: usiz
     }
 }
 
+/// Returns current and next gains for normalized overlap progress.
 pub(super) fn crossfade_gains(progress: f32, curve: CrossfadeCurve) -> (f32, f32) {
     match curve {
         CrossfadeCurve::Linear => (1.0 - progress, progress),
@@ -384,6 +403,7 @@ pub(super) fn crossfade_gains(progress: f32, curve: CrossfadeCurve) -> (f32, f32
     }
 }
 
+/// Promotes the secondary track while retaining the shared output pipeline.
 pub(super) fn finish_crossfade(
     actor: &mut PlaybackSession,
     state: &mut PlaybackState,
@@ -442,6 +462,7 @@ pub(super) fn finish_crossfade(
     set_state(state, PlaybackState::Playing, event_tx);
 }
 
+/// Converts a forced switch into the active policy's earliest valid end frame.
 pub(super) fn configure_forced_transition(actor: &mut PlaybackSession) {
     if !actor.force_transition {
         return;
@@ -467,6 +488,7 @@ pub(super) fn configure_forced_transition(actor: &mut PlaybackSession) {
     }
 }
 
+/// Activates a prepared track using an existing compatible sink and post-mix chain.
 pub(super) fn activate_with_output(
     prepared: PreparedTrack,
     output: SinkWorker,
@@ -516,6 +538,7 @@ pub(super) fn activate_with_output(
     }
 }
 
+/// Returns the fade-in duration used after a non-overlapping promotion.
 pub(super) fn transition_fade_in_frames(transition: TransitionPolicy) -> u64 {
     match transition {
         TransitionPolicy::FadeOutIn { fade_in_frames, .. } => fade_in_frames,
@@ -528,6 +551,7 @@ pub(super) fn transition_fade_in_frames(transition: TransitionPolicy) -> u64 {
     }
 }
 
+/// Applies seek, recovery, fade-in, and end-of-track envelopes to one block.
 pub(super) fn apply_track_transition_gain(current: &ActiveTrack, block: &mut AudioBlock) {
     let channels = usize::from(block.format.channel_layout.channel_count());
     let fade_out = match current.transition {
@@ -588,6 +612,7 @@ pub(super) fn apply_track_transition_gain(current: &ActiveTrack, block: &mut Aud
     }
 }
 
+/// Evaluates a one-sided gain curve after clamping progress to `0.0..=1.0`.
 pub(super) fn curve_gain(progress: f32, curve: GainCurve) -> f32 {
     let progress = progress.clamp(0.0, 1.0);
     match curve {
