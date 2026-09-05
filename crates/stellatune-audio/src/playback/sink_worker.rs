@@ -512,10 +512,13 @@ fn sink_worker_loop(
             && data_receiver.is_empty()
             && let Some(response) = pending_drain.take()
         {
-            let _ = response.send(
-                sink.drain()
-                    .map_err(|error| PlaybackControlError::sink(error, stage_id.clone())),
-            );
+            let result = sink
+                .drain()
+                .map_err(|error| PlaybackControlError::sink(error, stage_id.clone()));
+            // Publish the drained device position before the actor can observe
+            // completion and emit the final position or release this output.
+            sync_sink_clock(sink.as_ref(), clock.as_ref());
+            let _ = response.send(result);
         }
 
         if !paused {

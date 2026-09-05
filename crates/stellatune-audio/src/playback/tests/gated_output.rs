@@ -85,6 +85,7 @@ impl SinkFactory for Factory {
             inner: self.inner.create()?,
             gate: Arc::clone(&self.gate),
             operation: self.operation,
+            drained: false,
         }))
     }
 }
@@ -92,6 +93,7 @@ struct Sink {
     inner: Box<dyn SinkStage>,
     gate: Arc<Gate>,
     operation: Operation,
+    drained: bool,
 }
 impl SinkStage for Sink {
     fn open(&mut self, format: PcmFormat) -> Result<(), SinkError> {
@@ -119,13 +121,22 @@ impl SinkStage for Sink {
         ) {
             self.gate.wait();
         }
-        self.inner.drain()
+        self.inner.drain()?;
+        self.drained = true;
+        Ok(())
     }
     fn discard(&mut self) -> Result<(), SinkError> {
+        self.drained = false;
         self.inner.discard()
     }
     fn clock_snapshot(&self) -> SinkClockSnapshot {
-        self.inner.clock_snapshot()
+        let mut snapshot = self.inner.clock_snapshot();
+        // This device accepts PCM immediately but consumes it only during drain.
+        if self.operation == Operation::Drain && !self.drained {
+            snapshot.buffered_frames += snapshot.consumed_frames;
+            snapshot.consumed_frames = 0;
+        }
+        snapshot
     }
     fn close(&mut self) {
         if self.operation == Operation::Close {
@@ -252,7 +263,7 @@ async fn blocked_drain_keeps_the_track_alive_and_only_ends_after_device_acknowle
     let controller = runtime.controller();
     let mut events = controller.subscribe_events();
     controller
-        .switch_to(item(1, 40, 100), SwitchOptions::default())
+        .switch_to(item(1, 103, 100), SwitchOptions::default())
         .await
         .unwrap();
     gate.entered().await;
@@ -260,14 +271,33 @@ async fn blocked_drain_keeps_the_track_alive_and_only_ends_after_device_acknowle
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(snapshot.current_item_id, Some(item(1, 40, 100).id));
+    assert_eq!(snapshot.current_item_id, Some(item(1, 103, 100).id));
+    assert_eq!(snapshot.consumed_position.as_millis(), 0);
     while let Ok(event) = events.try_recv() {
         assert!(!matches!(event, PlaybackEvent::PlaybackEnded { .. }));
+        if let PlaybackEvent::Position { position, .. } = event {
+            assert_eq!(position.as_millis(), 0);
+        }
     }
     gate.release();
-    wait_for_end(&mut events).await;
+    let final_position = timeout(Duration::from_secs(3), async {
+        let mut last_position = None;
+        loop {
+            match events.recv().await.unwrap() {
+                PlaybackEvent::Position { position, .. } => {
+                    last_position = Some(position.as_millis());
+                },
+                PlaybackEvent::PlaybackEnded { .. } => break last_position,
+                PlaybackEvent::Failed(error) => panic!("{error}"),
+                _ => {},
+            }
+        }
+    })
+    .await
+    .unwrap();
     runtime.shutdown().await.unwrap();
-    assert_eq!(samples.lock().unwrap().len(), 40);
+    assert_eq!(samples.lock().unwrap().len(), 103);
+    assert_eq!(final_position, Some(1030));
 }
 
 #[tokio::test]

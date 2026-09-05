@@ -303,6 +303,7 @@ pub(super) fn promote_or_end(
             },
             Ok(true) => {},
         }
+        emit_position_if_due(&mut ended, event_tx, true);
         ended.output.shutdown();
         set_state(state, PlaybackState::Idle, event_tx);
         let _ = event_tx.send(PlaybackEvent::PlaybackEnded {
@@ -364,6 +365,7 @@ pub(super) fn promote_or_end(
             },
             Ok(true) => {},
         }
+        emit_position_if_due(&mut ended, event_tx, true);
         ended.output.shutdown();
         match activate(next, config, actor.output_gain, &actor.output_workers) {
             Ok(promoted) => {

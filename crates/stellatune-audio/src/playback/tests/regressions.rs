@@ -6,7 +6,7 @@ use crate::{
     planner::{PipelinePlanner, PlaybackRequest, StageRegistrySnapshot, TransitionPolicy},
     playback::{
         control::SwitchOptions,
-        event::PlaybackState,
+        event::{PlaybackEvent, PlaybackState},
         preparation::prepare_off_turn,
         runtime::{PlaybackRuntime, PlaybackRuntimeConfig},
         state::PreparationPurpose,
@@ -50,6 +50,56 @@ fn paused() -> SwitchOptions {
     SwitchOptions {
         autoplay: false,
         ..SwitchOptions::default()
+    }
+}
+
+#[tokio::test]
+async fn final_position_includes_the_short_tail_before_idle_and_end() {
+    for seek_ms in [0, 500] {
+        let samples = Arc::new(Mutex::new(vec![]));
+        let runtime = PlaybackRuntime::start(config(Arc::clone(&samples))).unwrap();
+        let controller = runtime.controller();
+        let mut events = controller.subscribe_events();
+        let track = item(1, 103, 100);
+        let item_id = track.id;
+        controller.switch_to(track, paused()).await.unwrap();
+        if seek_ms > 0 {
+            controller
+                .seek(MediaTime::from_millis(seek_ms))
+                .await
+                .unwrap();
+        }
+        controller.play().await.unwrap();
+        let (last_position, position_at_idle) = timeout(Duration::from_secs(3), async {
+            let mut last_position = None;
+            let mut position_at_idle = None;
+            loop {
+                match events.recv().await.unwrap() {
+                    PlaybackEvent::Position {
+                        item_id: actual,
+                        position,
+                    } => {
+                        assert_eq!(actual, item_id);
+                        last_position = Some(position.as_millis());
+                    },
+                    PlaybackEvent::StateChanged(PlaybackState::Idle) => {
+                        position_at_idle = last_position;
+                    },
+                    PlaybackEvent::PlaybackEnded { item_id: actual } => {
+                        assert_eq!(actual, item_id);
+                        break (last_position, position_at_idle);
+                    },
+                    PlaybackEvent::Failed(error) => panic!("{error}"),
+                    _ => {},
+                }
+            }
+        })
+        .await
+        .unwrap();
+        runtime.shutdown().await.unwrap();
+        assert_eq!(samples.lock().unwrap().len() as u64 * 10, 1030 - seek_ms);
+        assert_eq!(last_position, Some(1030));
+        assert_eq!(position_at_idle, Some(1030));
     }
 }
 
