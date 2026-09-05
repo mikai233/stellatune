@@ -226,6 +226,13 @@ lives in `pump`, `normalizer`, `transition`, and `sink_worker`. Dependencies
 flow from orchestration toward these focused modules. Data-plane modules never
 call the backend catalog, FFI, or UI.
 
+`playback/actor.rs` retains actor state, message admission, and runtime lifecycle.
+Each module under `playback/actor/messages/` owns one message payload and its
+`Responder` or `Handler` implementation. Callers import the owning message module
+directly. `actor/preparation.rs` shares scheduling, cancellation, and recovery
+retries; `actor/navigation.rs` shares successor matching and activation. The
+outer `playback/preparation.rs` continues to build pipelines outside actor turns.
+
 Backend player identity/source/state records, catalog persistence, resolver
 materialization, and service orchestration live in their corresponding
 `player_service` submodules. Lyrics follows the same rule: `actor` owns message

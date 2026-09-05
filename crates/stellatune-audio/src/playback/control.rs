@@ -16,11 +16,15 @@ use tokio::sync::broadcast;
 use crate::planner::PlaybackPolicies;
 
 use super::actor::{
-    GetSnapshot, Pause, Play, PlaybackActor, RebuildOutput, Seek, SetOutputGain, SetPolicies,
-    StopPlayback,
+    PlaybackActor,
+    messages::{
+        advance_to_next::AdvanceToNext, get_snapshot::GetSnapshot, pause::Pause, play::Play,
+        rebuild_output::RebuildOutput, seek::Seek, set_next::SetNext,
+        set_output_gain::SetOutputGain, set_policies::SetPolicies, stop_playback::StopPlayback,
+        switch_to::SwitchTo,
+    },
 };
 use super::event::{PlaybackEvent, PlaybackRuntimeSnapshot};
-use super::navigation::{AdvanceToNext, SetNext, SwitchTo};
 use super::runtime::PlaybackCommandTimeouts;
 
 /// How an explicit switch interacts with the configured transition policy.

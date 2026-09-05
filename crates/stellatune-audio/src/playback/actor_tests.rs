@@ -13,7 +13,10 @@ use tokio::sync::Semaphore;
 
 use crate::planner::{StageRegistrySnapshot, TransitionPolicy};
 
-use super::actor::{GetSnapshot, Play, PlaybackActor, PumpAudio};
+use super::actor::{
+    PlaybackActor,
+    messages::{get_snapshot::GetSnapshot, play::Play, pump_audio::PumpAudio},
+};
 use super::control::SwitchOptions;
 use super::event::PlaybackState;
 use super::runtime::{PlaybackRuntime, PlaybackRuntimeConfig};
