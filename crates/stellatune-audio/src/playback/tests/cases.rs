@@ -294,7 +294,9 @@ async fn output_gain_set_before_switch_is_applied_by_sink_worker() {
         .unwrap();
     wait_for_end(&mut events).await;
     let rendered = samples.lock().unwrap().clone();
-    assert_eq!(rendered, vec![0.5; 20]);
+    assert_eq!(rendered.len(), 20);
+    assert_eq!(rendered[0], 0.0); // The 100 Hz fixture rounds startup fade to one frame.
+    assert_eq!(&rendered[1..], &[0.5; 19]);
     runtime.shutdown().await.unwrap();
 }
 
@@ -371,7 +373,12 @@ async fn controller_clones_do_not_own_runtime_and_stop_is_not_shutdown() {
         .await
         .unwrap();
     wait_for_end(&mut events).await;
-    assert_eq!(samples.lock().unwrap().as_slice(), &[0.5; 20]);
+    {
+        let rendered = samples.lock().unwrap();
+        assert_eq!(rendered.len(), 20);
+        assert_eq!(rendered[0], 0.0);
+        assert_eq!(&rendered[1..], &[0.5; 19]);
+    }
 
     runtime.shutdown().await.unwrap();
     assert!(matches!(
@@ -443,7 +450,12 @@ async fn assert_buffered_tail_is_drained(placement: TransformPlacement) {
         .await
         .unwrap();
     wait_for_end(&mut events).await;
-    assert_eq!(samples.lock().unwrap().as_slice(), &[0.8; 10]);
+    {
+        let rendered = samples.lock().unwrap();
+        assert_eq!(rendered.len(), 10);
+        assert_eq!(rendered[0], 0.0);
+        assert_eq!(&rendered[1..], &[0.8; 9]);
+    }
     runtime.shutdown().await.unwrap();
 }
 
@@ -604,7 +616,8 @@ async fn gapless_reuses_sink_and_reports_consumed_boundary() {
     wait_for_end(&mut events).await;
     let output = samples.lock().unwrap().clone();
     assert_eq!(output.len(), 80);
-    assert_eq!(&output[..40], vec![1.0; 40]);
+    assert_eq!(output[0], 0.0);
+    assert_eq!(&output[1..40], vec![1.0; 39]);
     assert_eq!(&output[40..], vec![0.5; 40]);
     runtime.shutdown().await.unwrap();
 }

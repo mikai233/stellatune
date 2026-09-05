@@ -6,3 +6,4 @@ mod navigation;
 
 mod gated_output;
 mod regressions;
+mod startup;

@@ -135,6 +135,14 @@ unknown multichannel layouts.
 
 ## 4. Transitions and position
 
+Fresh playback activation applies a 5 ms linear startup fade to audible PCM,
+after gapless trim and mix-format normalization. The duration is converted at
+the mix sample rate and starts at the first audible frame, so preparation waits
+and decoder starvation cannot consume it. This protection is independent of the
+seek-fade preference. Compatible natural gapless promotion retains its original
+samples and does not reapply the startup envelope; seek/recovery and explicit
+transition envelopes continue to use their existing policies.
+
 - Gapless prewarms next, trims encoder delay/padding, reuses compatible output,
   and applies no transition gain.
 - FadeOutIn drives one track pipeline at a time with frame-based envelopes.

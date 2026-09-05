@@ -40,6 +40,14 @@ pub(super) fn activate(
     output_gain: f32,
     workers: &super::output_workers::OutputWorkers,
 ) -> Result<ActiveTrack, PlaybackControlError> {
+    // The existing envelope runs on audible mix frames, after trim/resampling.
+    // Anchor it to PCM position so device opening and decoder stalls cannot
+    // consume the fade before the first sample arrives. Gapless output reuse
+    // uses activate_with_output and retains its own transition policy.
+    let fade_in_frames = MediaTime::from_millis(5)
+        .to_frames(prepared.pipeline.mix_format.sample_rate)
+        .max(1);
+    let fade_in_start_frame = prepared.pipeline.produced_audible_frame;
     let recovery_plan = prepared.plan.clone();
     let sink_factory = Arc::clone(&prepared.plan.sink);
     let output = SinkWorker::start(
@@ -64,8 +72,8 @@ pub(super) fn activate(
         sink_consumed_base_frame: 0,
         boundary_announced: true,
         transition: prepared.plan.policies.transition,
-        fade_in_frames: 0,
-        fade_in_start_frame: 0,
+        fade_in_frames,
+        fade_in_start_frame,
         recovery_fade: None,
         seek_fade_frames: prepared.plan.policies.seek_fade_frames,
         forced_end_frame: None,
