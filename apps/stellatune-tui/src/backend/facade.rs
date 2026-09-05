@@ -83,7 +83,9 @@ impl BackendFacade {
     }
 
     pub async fn stop(&self) -> Result<()> {
-        self.player()
+        self.session
+            .player_service()
+            .ok_or_else(|| anyhow!("player service is unavailable"))?
             .stop()
             .await
             .map_err(|e| anyhow!("stop failed: {e}"))
@@ -129,9 +131,9 @@ impl BackendFacade {
             .player_service()
             .ok_or_else(|| anyhow!("player service is unavailable"))?;
         let track_id = service.ensure_local_track(library_track_id).await?;
-        service
-            .switch_track(track_id, SwitchOptions::default())
-            .await?;
+        let queue = service.append_queue(vec![track_id]).await?;
+        let item = queue.items.last().expect("appended item").item_id;
+        service.select_item(item, SwitchOptions::default()).await?;
         Ok(())
     }
 

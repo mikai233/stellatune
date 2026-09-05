@@ -1,3 +1,5 @@
+import 'queue_identity_resolver.dart';
+
 import 'dart:async';
 import 'dart:io';
 
@@ -9,7 +11,6 @@ import 'package:stellatune/bridge/bridge.dart';
 import 'package:stellatune/dlna/dlna_providers.dart';
 import 'package:stellatune/player/decoder_extension_support.dart';
 import 'package:stellatune/player/playback_playability_utils.dart';
-import 'package:stellatune/player/playback_queue_utils.dart';
 import 'package:stellatune/player/playback_models.dart';
 import 'package:stellatune/player/playability_messages.dart';
 import 'package:stellatune/player/queue_controller.dart';
@@ -42,8 +43,6 @@ class PlaybackController extends Notifier<PlaybackState> {
   int _dlnaVolumeMismatchCount = 0;
   int? _dlnaLastReportedDlnaVolume;
   bool _dlnaVolumeUnsupported = false;
-  String? _lastPreloadedNextTrackKey;
-  final Map<String, BigInt> _resolvedTrackIds = <String, BigInt>{};
   BigInt? _activePositionItemId;
   BigInt? _activePositionSessionId;
 
@@ -60,8 +59,6 @@ class PlaybackController extends Notifier<PlaybackState> {
     _dlnaLastTransportState = null;
     _dlnaSuppressAutoNextUntil = null;
     _dlnaLastPlayStartedAt = null;
-    _lastPreloadedNextTrackKey = null;
-    _resolvedTrackIds.clear();
     _activePositionItemId = null;
     _activePositionSessionId = null;
     _nextVolumeSeq = 1;
@@ -116,42 +113,24 @@ class PlaybackController extends Notifier<PlaybackState> {
   bool get _dlnaActive =>
       ref.read(dlnaSelectedRendererProvider)?.avTransportControlUrl != null;
 
-  Future<void> _requestPreloadNext() async {
-    if (_dlnaActive) {
-      _lastPreloadedNextTrackKey = null;
-      return;
-    }
-
-    final queue = ref.read(queueControllerProvider);
-    final nextItem = PlaybackQueueUtils.peekNextQueueItem(queue);
-    final currentTrackKey = queue.currentItem?.stableTrackKey.trim();
-    final nextTrackKey = nextItem?.stableTrackKey.trim();
-
-    if (nextTrackKey == null ||
-        nextTrackKey.isEmpty ||
-        nextTrackKey == currentTrackKey ||
-        nextItem == null) {
-      _lastPreloadedNextTrackKey = null;
-      return;
-    }
-    if (_lastPreloadedNextTrackKey == nextTrackKey) {
-      return;
-    }
-
-    _lastPreloadedNextTrackKey = nextTrackKey;
+  Future<void> _refreshBackendQueue({BigInt? currentItemId}) async {
+    if (_dlnaActive) return;
     try {
-      final trackId = await _resolveTrackId(nextItem);
-      await ref
-          .read(playerBridgeProvider)
-          .preloadTrack(
-            trackId,
-            positionMs: 0,
-            localPath: nextItem.providerTrack == null ? nextItem.path : null,
-          );
-    } catch (e) {
-      // Best-effort optimization; ignore failures to avoid affecting playback flow.
-      ref.read(loggerProvider).d('preload next failed: $e');
-      _lastPreloadedNextTrackKey = null;
+      final bridge = ref.read(playerBridgeProvider);
+      final snapshot = await bridge.playbackQueue();
+      ref
+          .read(queueControllerProvider.notifier)
+          .applyBackend(snapshot, preserveCurrent: true);
+      if (currentItemId != null && _activePositionItemId == currentItemId) {
+        ref
+            .read(queueControllerProvider.notifier)
+            .observeCurrent(currentItemId);
+      }
+      final items = ref.read(queueControllerProvider).items;
+      await bridge.retainQueuePaths(items.map((item) => item.path));
+      await bridge.releaseRemovedQueuePaths(items.map((item) => item.path));
+    } catch (error) {
+      ref.read(loggerProvider).w('queue refresh failed: $error');
     }
   }
 
@@ -160,16 +139,17 @@ class PlaybackController extends Notifier<PlaybackState> {
     try {
       final snapshot = await ref.read(playerBridgeProvider).playbackSnapshot();
       final track = snapshot.trackId;
-      if (track == null) return;
-      final localLibraryTrackId = snapshot.localLibraryTrackId?.toInt();
-      final restoredQueue = localLibraryTrackId != null
-          ? await _restoreQueue(localLibraryTrackId)
-          : false;
-      if (!restoredQueue && ref.read(queueControllerProvider).items.isEmpty) {
-        ref.read(queueControllerProvider.notifier).setQueue([
-          QueueItem(trackId: track, path: ''),
-        ], startIndex: 0);
+      final queue = await ref.read(playerBridgeProvider).playbackQueue();
+      ref.read(queueControllerProvider.notifier).applyBackend(queue);
+      if (snapshot.itemId != null) {
+        ref
+            .read(queueControllerProvider.notifier)
+            .observeCurrent(snapshot.itemId!);
       }
+      await ref
+          .read(playerBridgeProvider)
+          .retainQueuePaths(queue.items.map((item) => item.localPath ?? ''));
+      if (track == null) return;
       _currentTrackId = track;
       _activePositionItemId = snapshot.itemId;
       state = state.copyWith(
@@ -177,63 +157,9 @@ class PlaybackController extends Notifier<PlaybackState> {
         playerState: snapshot.state,
         lastError: null,
       );
-      unawaited(_requestPreloadNext());
+      unawaited(_refreshBackendQueue());
     } catch (e) {
       ref.read(loggerProvider).w('backend playback snapshot failed: $e');
-    }
-  }
-
-  Future<bool> _restoreQueue(int localLibraryTrackId) async {
-    final settings = ref.read(settingsStoreProvider);
-    final source = settings.queueSource;
-    final logger = ref.read(loggerProvider);
-
-    if (source == null) {
-      logger.d('restore queue skipped: source unavailable');
-      return false;
-    }
-
-    logger.d(
-      'restoring queue from source: ${source.type.name} (label: ${source.label})',
-    );
-
-    final bridge = ref.read(libraryBridgeProvider);
-
-    try {
-      final tracks = await PlaybackResumeQueueUtils.loadTracksForSource(
-        bridge: bridge,
-        source: source,
-      );
-      logger.d('restore queue: fetched ${tracks.length} tracks');
-
-      final items = PlaybackResumeQueueUtils.buildLocalQueueItems(tracks);
-
-      if (items.isEmpty) {
-        logger.d('restore queue failed: no items');
-        return false;
-      }
-
-      final startIndex = items.indexWhere(
-        (item) => item.id == localLibraryTrackId,
-      );
-
-      if (startIndex == -1) {
-        logger.d(
-          'restore queue failed: library track $localLibraryTrackId not in list',
-        );
-        return false;
-      }
-
-      logger.d(
-        'restore queue success: items=${items.length}, start=$startIndex',
-      );
-      ref
-          .read(queueControllerProvider.notifier)
-          .setQueue(items, startIndex: startIndex, source: source);
-      return true;
-    } catch (e) {
-      logger.e('restore queue failed with exception', error: e);
-      return false;
     }
   }
 
@@ -552,6 +478,35 @@ class PlaybackController extends Notifier<PlaybackState> {
     QueueSource? source,
   }) async {
     if (items.isEmpty) return;
+    if (!_dlnaActive) {
+      try {
+        final bridge = ref.read(playerBridgeProvider);
+        await bridge.retainQueuePaths(items.map((item) => item.path));
+        final ids = await _resolveTrackIds(items);
+        final snapshot = await bridge.replaceQueue(ids);
+        ref
+            .read(queueControllerProvider.notifier)
+            .applyBackend(
+              snapshot,
+              metadata: items,
+              source: source,
+              replaceSource: true,
+            );
+        await ref.read(settingsStoreProvider.notifier).setQueueSource(source);
+        final mode = ref.read(settingsStoreProvider).playMode;
+        ref.read(queueControllerProvider.notifier).setPlayMode(mode);
+        final selected = ref
+            .read(queueControllerProvider)
+            .items[startIndex.clamp(0, items.length - 1)];
+        await _loadQueueItemOrStop(selected);
+      } catch (error) {
+        ref
+            .read(loggerProvider)
+            .w('failed to prepare playback queue', error: error);
+        state = state.copyWith(lastError: error.toString());
+      }
+      return;
+    }
     ref
         .read(queueControllerProvider.notifier)
         .setQueue(items, startIndex: startIndex, source: source);
@@ -573,12 +528,38 @@ class PlaybackController extends Notifier<PlaybackState> {
   Future<void> enqueueItems(List<QueueItem> items) async {
     if (items.isEmpty) return;
     final queue = ref.read(queueControllerProvider);
+    if (!_dlnaActive) {
+      try {
+        final bridge = ref.read(playerBridgeProvider);
+        await bridge.retainQueuePaths(items.map((item) => item.path));
+        final ids = await _resolveTrackIds(items);
+        final snapshot = await bridge.appendQueue(ids);
+        ref
+            .read(queueControllerProvider.notifier)
+            .applyBackend(
+              snapshot,
+              metadata: [...queue.items, ...items],
+              preserveCurrent: true,
+            );
+        if (queue.items.isEmpty) {
+          await _loadQueueItemOrStop(
+            ref.read(queueControllerProvider).items.first,
+          );
+        }
+      } catch (error) {
+        ref
+            .read(loggerProvider)
+            .w('failed to prepare playback queue', error: error);
+        state = state.copyWith(lastError: error.toString());
+      }
+      return;
+    }
     ref.read(queueControllerProvider.notifier).enqueue(items);
     // If nothing is loaded yet, start playing immediately from the first enqueued item.
     if (queue.currentItem == null && items.isNotEmpty) {
       await _loadQueueItemOrStop(items.first);
     } else {
-      unawaited(_requestPreloadNext());
+      unawaited(_refreshBackendQueue());
     }
   }
 
@@ -590,6 +571,13 @@ class PlaybackController extends Notifier<PlaybackState> {
 
   Future<void> playIndex(int index) async {
     _dlnaSuppressAutoNext();
+    if (!_dlnaActive) {
+      final items = ref.read(queueControllerProvider).items;
+      if (index >= 0 && index < items.length) {
+        await _loadQueueItemOrStop(items[index]);
+      }
+      return;
+    }
     ref.read(queueControllerProvider.notifier).selectIndex(index);
     final item = ref.read(queueControllerProvider).currentItem;
     if (item == null) return;
@@ -599,7 +587,7 @@ class PlaybackController extends Notifier<PlaybackState> {
   Future<bool> _loadQueueItemOrStop(QueueItem item) async {
     final loaded = await _loadAndPlayQueueItem(item);
     if (loaded) {
-      unawaited(_requestPreloadNext());
+      unawaited(_refreshBackendQueue());
       return true;
     }
 
@@ -719,7 +707,6 @@ class PlaybackController extends Notifier<PlaybackState> {
       await ref.read(playerBridgeProvider).stop();
       await _releaseDlnaTrackLease();
       state = state.copyWith(positionMs: 0);
-      _lastPreloadedNextTrackKey = null;
       return;
     }
 
@@ -746,6 +733,11 @@ class PlaybackController extends Notifier<PlaybackState> {
   }
 
   Future<void> next({bool auto = false}) async {
+    if (!_dlnaActive) {
+      if (auto) return;
+      await ref.read(playerBridgeProvider).nextQueueItem();
+      return;
+    }
     _dlnaSuppressAutoNext(const Duration(seconds: 1));
     if (ref.read(queueControllerProvider).items.isEmpty) {
       ref.read(loggerProvider).w('next aborted: empty queue');
@@ -764,6 +756,10 @@ class PlaybackController extends Notifier<PlaybackState> {
   }
 
   Future<void> previous() async {
+    if (!_dlnaActive) {
+      await ref.read(playerBridgeProvider).previousQueueItem();
+      return;
+    }
     _dlnaSuppressAutoNext(const Duration(seconds: 1));
     final item = ref.read(queueControllerProvider.notifier).previous();
     if (item == null) return;
@@ -887,9 +883,7 @@ class PlaybackController extends Notifier<PlaybackState> {
     if (queue.items[currentIndex].stableTrackKey != item.stableTrackKey) {
       return false;
     }
-    final removed = ref.read(queueControllerProvider.notifier).removeIndices({
-      currentIndex,
-    });
+    final removed = await _removeQueueIndices({currentIndex});
     if (removed > 0) {
       ref
           .read(loggerProvider)
@@ -929,9 +923,7 @@ class PlaybackController extends Notifier<PlaybackState> {
     }
     if (candidateIndexes.isEmpty) return 0;
 
-    final removed = ref
-        .read(queueControllerProvider.notifier)
-        .removeIndices(candidateIndexes.toSet());
+    final removed = await _removeQueueIndices(candidateIndexes.toSet());
     if (removed > 0) {
       ref
           .read(loggerProvider)
@@ -943,35 +935,34 @@ class PlaybackController extends Notifier<PlaybackState> {
     return removed;
   }
 
-  Future<BigInt> _resolveTrackId(QueueItem item) async {
-    final stable = item.trackId;
-    if (stable != null) {
-      _resolvedTrackIds[item.stableTrackKey] = stable;
-      return stable;
+  Future<int> _removeQueueIndices(Set<int> indices) async {
+    if (_dlnaActive) {
+      return ref.read(queueControllerProvider.notifier).removeIndices(indices);
     }
-    final provider = item.providerTrack;
-    if (provider != null) {
-      final resolved = await ref
-          .read(playerBridgeProvider)
-          .ensureProviderTrack(
-            providerId: provider.providerId,
-            providerKey: provider.providerKey,
-            pluginId: provider.pluginId,
-            typeId: provider.typeId,
-            configJson: provider.configJson,
-          );
-      _resolvedTrackIds[item.stableTrackKey] = resolved;
-      return resolved;
-    }
-    final libraryTrackId = item.id;
-    if (libraryTrackId == null || libraryTrackId <= 0) {
-      throw StateError('Local queue item has no Library TrackId');
-    }
-    final resolved = await ref
-        .read(playerBridgeProvider)
-        .ensureLocalTrack(libraryTrackId);
-    _resolvedTrackIds[item.stableTrackKey] = resolved;
-    return resolved;
+    final items = ref.read(queueControllerProvider).items;
+    final ids = [
+      for (final index in indices)
+        if (index >= 0 && index < items.length && items[index].itemId != null)
+          items[index].itemId!,
+    ];
+    final snapshot = await ref.read(playerBridgeProvider).removeQueueItems(ids);
+    ref.read(queueControllerProvider.notifier).applyBackend(snapshot);
+    return ids.length;
+  }
+
+  Future<List<BigInt>> _resolveTrackIds(List<QueueItem> items) {
+    final bridge = ref.read(playerBridgeProvider);
+    return resolveQueueTrackIds(
+      items,
+      ensureLocalTracks: bridge.ensureLocalTracks,
+      ensureProviderTrack: (provider) => bridge.ensureProviderTrack(
+        providerId: provider.providerId,
+        providerKey: provider.providerKey,
+        pluginId: provider.pluginId,
+        typeId: provider.typeId,
+        configJson: provider.configJson,
+      ),
+    );
   }
 
   Future<bool> _loadAndPlayQueueItem(QueueItem item) async {
@@ -984,7 +975,7 @@ class PlaybackController extends Notifier<PlaybackState> {
       return false;
     }
     if (_dlnaActive) {
-      if (item.providerTrack != null) {
+      if (!PlaybackPlayabilityUtils.isLocalTrack(item)) {
         state = state.copyWith(
           lastError: 'DLNA output currently only supports local tracks',
         );
@@ -1033,13 +1024,20 @@ class PlaybackController extends Notifier<PlaybackState> {
     final bridge = ref.read(playerBridgeProvider);
     state = state.copyWith(playerState: PlayerState.buffering, lastError: null);
     try {
-      final trackId = await _resolveTrackId(item);
-      _currentTrackId = trackId;
-      await bridge.switchTrack(
-        trackId,
-        lazy: false,
-        localPath: item.providerTrack == null ? item.path : null,
-      );
+      var itemId = item.itemId;
+      if (itemId == null) {
+        // Entering native playback from a DLNA queue materializes every occurrence once.
+        final items = ref.read(queueControllerProvider).items;
+        await bridge.retainQueuePaths(items.map((item) => item.path));
+        final ids = await _resolveTrackIds(items);
+        final snapshot = await bridge.replaceQueue(ids);
+        final index = items.indexOf(item);
+        ref
+            .read(queueControllerProvider.notifier)
+            .applyBackend(snapshot, metadata: items);
+        itemId = snapshot.items[index < 0 ? 0 : index].itemId;
+      }
+      await bridge.selectQueueItem(itemId);
       return true;
     } catch (error) {
       ref.read(loggerProvider).w('failed to open track: $path', error: error);
@@ -1076,15 +1074,7 @@ class PlaybackController extends Notifier<PlaybackState> {
         state = state.copyWith(positionMs: ms);
       },
       trackChanged: (trackId, itemId) {
-        final queue = ref.read(queueControllerProvider);
-        final nextIndex = queue.items.indexWhere(
-          (item) =>
-              item.trackId == trackId ||
-              _resolvedTrackIds[item.stableTrackKey] == trackId,
-        );
-        if (nextIndex >= 0 && nextIndex != queue.currentIndex) {
-          ref.read(queueControllerProvider.notifier).selectIndex(nextIndex);
-        }
+        ref.read(queueControllerProvider.notifier).observeCurrent(itemId);
         _currentTrackId = trackId;
         _activePositionItemId = itemId;
         _activePositionSessionId = null;
@@ -1096,7 +1086,7 @@ class PlaybackController extends Notifier<PlaybackState> {
           trackInfo: null,
         );
         unawaited(_updateTrackInfo());
-        unawaited(_requestPreloadNext());
+        unawaited(_refreshBackendQueue(currentItemId: itemId));
       },
       playbackEnded: (trackId, itemId) {
         ref
@@ -1111,7 +1101,7 @@ class PlaybackController extends Notifier<PlaybackState> {
               );
           return;
         }
-        unawaited(next(auto: true));
+        unawaited(_refreshBackendQueue());
       },
       audioStart: () {
         state = state.copyWith(audioStarted: true);

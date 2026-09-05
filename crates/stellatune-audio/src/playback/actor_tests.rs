@@ -93,7 +93,7 @@ async fn production_actor_mailbox_is_bounded() {
     tokio::time::timeout(Duration::from_secs(2), async {
         loop {
             match controller
-                .switch(
+                .switch_to(
                     delayed_item(1, 10, 10, Duration::ZERO),
                     SwitchOptions::default(),
                 )
@@ -142,7 +142,7 @@ async fn slow_preparation_keeps_active_session_controls_responsive() {
     let runtime = runtime(TransitionPolicy::Gapless, Arc::new(Mutex::new(Vec::new())));
     let controller = runtime.controller();
     controller
-        .switch(
+        .switch_to(
             delayed_item(1, 100, 10, Duration::ZERO),
             SwitchOptions {
                 autoplay: false,
@@ -158,13 +158,13 @@ async fn slow_preparation_keeps_active_session_controls_responsive() {
         let entered = Arc::clone(&entered);
         tokio::spawn(async move {
             controller
-                .queue_next(signaled_delayed_item(
+                .set_next(Some(signaled_delayed_item(
                     2,
                     10,
                     5,
                     Duration::from_secs(30),
                     entered,
-                ))
+                )))
                 .await
         })
     };
@@ -201,13 +201,13 @@ async fn production_preparation_deadline_is_reported_and_cleans_state() {
 
     assert_eq!(
         controller
-            .switch(
+            .switch_to(
                 delayed_item(1, 10, 10, Duration::from_secs(1)),
                 SwitchOptions::default(),
             )
             .await,
         Err(PlaybackControlError::CommandTimeout {
-            operation: "switch"
+            operation: "switch_to"
         })
     );
     tokio::time::timeout(Duration::from_secs(1), async {

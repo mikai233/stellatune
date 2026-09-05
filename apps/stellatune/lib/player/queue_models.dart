@@ -1,4 +1,5 @@
 import 'dart:math';
+
 import 'package:flutter/foundation.dart';
 
 enum QueueCoverKind { url, file, data }
@@ -40,6 +41,8 @@ class QueueItem {
   const QueueItem({
     required this.trackId,
     required this.path,
+    this.itemId,
+    this.local,
     this.providerTrack,
     this.id,
     this.title,
@@ -50,6 +53,12 @@ class QueueItem {
   });
 
   /// Stable application TrackId. Provider rows receive it lazily at play/queue time.
+  /// Identity of this queue occurrence, allocated once by the backend.
+  final BigInt? itemId;
+
+  /// Native queue projections preserve source kind even without provider UI metadata.
+  final bool? local;
+  bool get isLocal => local ?? providerTrack == null;
   final BigInt? trackId;
   final String path;
   final ProviderQueueTrack? providerTrack;
@@ -60,7 +69,8 @@ class QueueItem {
   final int? durationMs;
   final QueueCover? cover;
 
-  String get stableTrackKey => trackId?.toString() ??
+  String get stableTrackKey =>
+      trackId?.toString() ??
       '${providerTrack?.providerId ?? "local"}:${providerTrack?.providerKey ?? id ?? path}';
 
   String get displayTitle {

@@ -10,10 +10,16 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 import 'player/types.dart';
 
-// These functions are ignored because they are not marked as `pub`: `clear_cached_track_info`, `clear_pending_preload_seek`, `engine`, `lyrics`, `map_lfe_mode`, `map_player_state`, `map_resample_quality`, `map_v2_event_to_ffi`, `next_position_session_id`, `normalize_json_payload`, `playback_event_item_id`, `reconcile_plugin_runtime_state_after_package_change`, `set_pending_preload_seek`, `shared_player_context`, `take_pending_preload_seek_for_event`
-// These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `CachedTrackDecodeInfo`, `FfiEventMapperState`, `PendingPreloadSeek`, `PlayerContext`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`
+// These functions are ignored because they are not marked as `pub`: `clear_cached_track_info`, `engine`, `lyrics`, `map_lfe_mode`, `map_player_state`, `map_resample_quality`, `map_v2_event_to_ffi`, `next_position_session_id`, `normalize_json_payload`, `playback_event_item_id`, `reconcile_plugin_runtime_state_after_package_change`, `shared_player_context`
+// These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `CachedTrackDecodeInfo`, `FfiEventMapperState`, `PlayerContext`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `fmt`, `fmt`
 // These functions are ignored (category: IgnoreBecauseOwnerTyShouldIgnore): `default`
+
+/// Registers a local queue in one catalog transaction, preserving input order.
+Future<Uint64List> ensureLocalTracks({required Int64List libraryTrackIds}) =>
+    StellatuneApi.instance.api.crateApiPlayerEnsureLocalTracks(
+      libraryTrackIds: libraryTrackIds,
+    );
 
 Future<BigInt> ensureLocalTrack({required PlatformInt64 libraryTrackId}) =>
     StellatuneApi.instance.api.crateApiPlayerEnsureLocalTrack(
@@ -33,12 +39,6 @@ Future<BigInt> ensureProviderTrack({
   typeId: typeId,
   configJson: configJson,
 );
-
-Future<void> switchTrack({required BigInt trackId, required bool lazy}) =>
-    StellatuneApi.instance.api.crateApiPlayerSwitchTrack(
-      trackId: trackId,
-      lazy: lazy,
-    );
 
 Future<void> play() => StellatuneApi.instance.api.crateApiPlayerPlay();
 
@@ -241,14 +241,6 @@ Future<void> setOutputSinkRoute({required OutputSinkRoute route}) =>
 
 Future<void> clearOutputSinkRoute() =>
     StellatuneApi.instance.api.crateApiPlayerClearOutputSinkRoute();
-
-Future<void> preloadTrack({
-  required BigInt trackId,
-  required BigInt positionMs,
-}) => StellatuneApi.instance.api.crateApiPlayerPreloadTrack(
-  trackId: trackId,
-  positionMs: positionMs,
-);
 
 Future<List<String>> decoderSupportedExtensions() =>
     StellatuneApi.instance.api.crateApiPlayerDecoderSupportedExtensions();

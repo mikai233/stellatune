@@ -7,6 +7,7 @@ import 'api/dlna.dart';
 import 'api/dlna/types.dart';
 import 'api/library.dart';
 import 'api/player.dart';
+import 'api/player/queue.dart';
 import 'api/player/transcode.dart';
 import 'api/player/types.dart';
 import 'api/runtime.dart';
@@ -186,7 +187,13 @@ abstract class StellatuneApiApiImplPlatform
   Int64List dco_decode_list_prim_i_64_strict(dynamic raw);
 
   @protected
+  Uint64List dco_decode_list_prim_u_64_strict(dynamic raw);
+
+  @protected
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw);
+
+  @protected
+  List<QueueEntry> dco_decode_list_queue_entry(dynamic raw);
 
   @protected
   List<SourceCatalogTypeDescriptor>
@@ -240,6 +247,9 @@ abstract class StellatuneApiApiImplPlatform
   OutputSinkTypeDescriptor dco_decode_output_sink_type_descriptor(dynamic raw);
 
   @protected
+  PlaybackQueue dco_decode_playback_queue(dynamic raw);
+
+  @protected
   PlaybackSnapshot dco_decode_playback_snapshot(dynamic raw);
 
   @protected
@@ -250,6 +260,12 @@ abstract class StellatuneApiApiImplPlatform
 
   @protected
   PluginDescriptor dco_decode_plugin_descriptor(dynamic raw);
+
+  @protected
+  QueueEntry dco_decode_queue_entry(dynamic raw);
+
+  @protected
+  QueueRepeatMode dco_decode_queue_repeat_mode(dynamic raw);
 
   @protected
   ResampleQuality dco_decode_resample_quality(dynamic raw);
@@ -475,7 +491,13 @@ abstract class StellatuneApiApiImplPlatform
   Int64List sse_decode_list_prim_i_64_strict(SseDeserializer deserializer);
 
   @protected
+  Uint64List sse_decode_list_prim_u_64_strict(SseDeserializer deserializer);
+
+  @protected
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer);
+
+  @protected
+  List<QueueEntry> sse_decode_list_queue_entry(SseDeserializer deserializer);
 
   @protected
   List<SourceCatalogTypeDescriptor>
@@ -535,6 +557,9 @@ abstract class StellatuneApiApiImplPlatform
   );
 
   @protected
+  PlaybackQueue sse_decode_playback_queue(SseDeserializer deserializer);
+
+  @protected
   PlaybackSnapshot sse_decode_playback_snapshot(SseDeserializer deserializer);
 
   @protected
@@ -545,6 +570,12 @@ abstract class StellatuneApiApiImplPlatform
 
   @protected
   PluginDescriptor sse_decode_plugin_descriptor(SseDeserializer deserializer);
+
+  @protected
+  QueueEntry sse_decode_queue_entry(SseDeserializer deserializer);
+
+  @protected
+  QueueRepeatMode sse_decode_queue_repeat_mode(SseDeserializer deserializer);
 
   @protected
   ResampleQuality sse_decode_resample_quality(SseDeserializer deserializer);
@@ -820,8 +851,20 @@ abstract class StellatuneApiApiImplPlatform
   );
 
   @protected
+  void sse_encode_list_prim_u_64_strict(
+    Uint64List self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_prim_u_8_strict(
     Uint8List self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_queue_entry(
+    List<QueueEntry> self,
     SseSerializer serializer,
   );
 
@@ -898,6 +941,9 @@ abstract class StellatuneApiApiImplPlatform
   );
 
   @protected
+  void sse_encode_playback_queue(PlaybackQueue self, SseSerializer serializer);
+
+  @protected
   void sse_encode_playback_snapshot(
     PlaybackSnapshot self,
     SseSerializer serializer,
@@ -912,6 +958,15 @@ abstract class StellatuneApiApiImplPlatform
   @protected
   void sse_encode_plugin_descriptor(
     PluginDescriptor self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_queue_entry(QueueEntry self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_queue_repeat_mode(
+    QueueRepeatMode self,
     SseSerializer serializer,
   );
 

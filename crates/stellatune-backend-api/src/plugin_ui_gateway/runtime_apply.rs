@@ -133,7 +133,17 @@ pub(super) async fn invoke_action_via_host(
 ) -> Result<Option<Value>, (StatusCode, String)> {
     let player = shared_playback_controller();
     match action.trim() {
-        ACTION_PLAYBACK_PLAY_TRACK | ACTION_PLAYBACK_NEXT => {
+        ACTION_PLAYBACK_NEXT => {
+            let service = shared_player_service().ok_or_else(|| {
+                (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "player service is not initialized".to_owned(),
+                )
+            })?;
+            service.next().await.map_err(internal)?;
+            Ok(Some(json!({ "dispatch": "host.playback" })))
+        },
+        ACTION_PLAYBACK_PLAY_TRACK => {
             let track_id = extract_track_id(payload, action)?;
             let service = shared_player_service().ok_or_else(|| {
                 (
@@ -141,8 +151,13 @@ pub(super) async fn invoke_action_via_host(
                     "player service is not initialized".to_owned(),
                 )
             })?;
+            let queue = service
+                .append_queue(vec![track_id])
+                .await
+                .map_err(internal)?;
+            let item = queue.items.last().expect("appended item").item_id;
             service
-                .switch_track(track_id, SwitchOptions::default())
+                .select_item(item, SwitchOptions::default())
                 .await
                 .map_err(internal)?;
             Ok(Some(
@@ -157,7 +172,10 @@ pub(super) async fn invoke_action_via_host(
                     "player service is not initialized".to_owned(),
                 )
             })?;
-            service.queue_next(track_id).await.map_err(internal)?;
+            service
+                .append_queue(vec![track_id])
+                .await
+                .map_err(internal)?;
             Ok(Some(
                 json!({ "dispatch": "host.playback", "track_id": track_id.get(), "queued": true }),
             ))
@@ -171,8 +189,13 @@ pub(super) async fn invoke_action_via_host(
                 )
             })?;
             if action.trim() == ACTION_PLAYBACK_PLAY_PROVIDER_TRACK {
+                let queue = service
+                    .append_queue(vec![track_id])
+                    .await
+                    .map_err(internal)?;
+                let item = queue.items.last().expect("appended item").item_id;
                 service
-                    .switch_track(track_id, SwitchOptions::default())
+                    .select_item(item, SwitchOptions::default())
                     .await
                     .map_err(internal)?;
                 Ok(Some(json!({
@@ -181,7 +204,10 @@ pub(super) async fn invoke_action_via_host(
                     "autoplay": true,
                 })))
             } else {
-                service.queue_next(track_id).await.map_err(internal)?;
+                service
+                    .append_queue(vec![track_id])
+                    .await
+                    .map_err(internal)?;
                 Ok(Some(json!({
                     "dispatch": "host.playback",
                     "track_id": track_id.get(),
@@ -194,7 +220,13 @@ pub(super) async fn invoke_action_via_host(
             Ok(Some(json!({ "dispatch": "host.playback", "paused": true })))
         },
         ACTION_PLAYBACK_STOP => {
-            player.stop().await.map_err(internal)?;
+            let service = shared_player_service().ok_or_else(|| {
+                (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "player service is not initialized".to_owned(),
+                )
+            })?;
+            service.stop().await.map_err(internal)?;
             Ok(Some(
                 json!({ "dispatch": "host.playback", "stopped": true }),
             ))

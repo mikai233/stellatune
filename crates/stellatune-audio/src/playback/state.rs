@@ -26,6 +26,7 @@ use stellatune_audio_core::{
     transform::TransformStage,
 };
 
+use super::control::SwitchOptions;
 use super::event::PlaybackState;
 use super::normalizer::PcmNormalizer;
 use super::sink_worker::SinkWorker;
@@ -54,6 +55,8 @@ pub(super) struct PreparationResult {
 
 /// The actor-side identity and deadline of current request-backed preparation.
 pub(super) struct PendingPreparation {
+    pub(super) item_id: PlaybackItemId,
+    pub(super) cancellation: SourceCancellation,
     pub(super) id: u64,
     pub(super) generation: u64,
     pub(super) purpose: PreparationPurpose,
@@ -138,12 +141,11 @@ pub(super) struct TransitionRecoveryFade {
 pub(super) struct PlaybackSession {
     pub(super) generation: u64,
     pub(super) next_preparation_id: u64,
-    pub(super) preparation_cancellation: SourceCancellation,
     pub(super) pending_preparation: Option<PendingPreparation>,
     pub(super) pending_recovery: Option<RecoveryPreparation>,
     pub(super) current: Option<ActiveTrack>,
-    pub(super) next: Option<PreparedTrack>,
-    pub(super) next_preparing: bool,
+    pub(super) next: NextTrack,
+    pub(super) advance_options: Option<SwitchOptions>,
     pub(super) pending_seek: Option<PendingSeek>,
     pub(super) crossfade: Option<CrossfadeState>,
     pub(super) force_transition: bool,
@@ -200,4 +202,55 @@ pub(super) struct PendingSeek {
     pub(super) response: ReplyTo<Result<(), PlaybackControlError>>,
     pub(super) resume_state: PlaybackState,
     pub(super) item_id: PlaybackItemId,
+}
+
+/// The successor slot owns its preparation token independently of recovery.
+#[derive(Default)]
+pub(super) enum NextTrack {
+    #[default]
+    Empty,
+    Preparing(PendingPreparation),
+    Ready(Box<PreparedTrack>),
+}
+
+impl NextTrack {
+    pub(super) fn item_id(&self) -> Option<PlaybackItemId> {
+        match self {
+            Self::Empty => None,
+            Self::Preparing(pending) => Some(pending.item_id),
+            Self::Ready(track) => Some(track.plan.item.id),
+        }
+    }
+
+    pub(super) fn pending(&self) -> Option<&PendingPreparation> {
+        match self {
+            Self::Preparing(pending) => Some(pending),
+            _ => None,
+        }
+    }
+
+    pub(super) fn as_mut(&mut self) -> Option<&mut PreparedTrack> {
+        match self {
+            Self::Ready(track) => Some(track),
+            _ => None,
+        }
+    }
+
+    pub(super) fn take(&mut self) -> Option<PreparedTrack> {
+        if !matches!(self, Self::Ready(_)) {
+            return None;
+        }
+        match std::mem::take(self) {
+            Self::Ready(track) => Some(*track),
+            _ => unreachable!(),
+        }
+    }
+
+    /// Cancels only work belonging to this successor, retaining other session work.
+    pub(super) fn clear(&mut self) {
+        if let Self::Preparing(pending) = self {
+            pending.cancellation.cancel();
+        }
+        *self = Self::Empty;
+    }
 }

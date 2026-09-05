@@ -14,7 +14,7 @@ controller does not stop the runtime.
 
 ```text
 Flutter / TUI
-    -> PlayerService (TrackId resolution and persistence)
+    -> PlayerService (queue order, navigation intent, resolution, persistence)
     -> PlaybackController (PlaybackItem commands)
     -> PlaybackActor (state, generation, epoch, transition, recovery)
     -> bounded PCM channel
@@ -31,7 +31,7 @@ may drop a saturated tick and resume automatically. Encoded bytes and PCM never
 pass through FFI, JSON-RPC, or an actor mailbox.
 
 Controller asks have operation-specific deadlines: snapshot 2 seconds,
-ordinary controls 5 seconds, output rebuild 10 seconds, and switch/queue-next
+ordinary controls and advancement 5 seconds, output rebuild 10 seconds, and switch/set-next
 preparation 30 seconds. A deadline becomes `CommandTimeout`; invalid behavior
 admission becomes `InvalidState`; a stopped lifecycle becomes `Closed`.
 
@@ -57,8 +57,10 @@ keys, or JSON.
 Source open and decoder preparation run in Lattice deferred work, with blocking
 decoder/configuration work isolated by Tokio's blocking pool. Request-backed
 switch/queue work uses `defer_reply`; recovery uses `pipe_to_self`. Every
-completion carries a preparation ID and generation. Advancing the generation
-cancels the old `SourceOpenRequest` before stale results are dropped. A
+completion carries a preparation ID and generation. Replacing a session or
+stopping cancels all of its work. The successor slot owns a separate preparation
+token, so replacing it does not cancel recovery and claiming it does not cancel
+its open task. Recovery likewise retains independently prepared successor work. A
 preparation deadline also cancels its source token; current-track timeout fails
 the session, next-track timeout preserves the current track, and recovery keeps
 the bounded retry policy. Decoder fallback is limited to preparation and
@@ -113,8 +115,10 @@ If next fails after overlap starts, the failure remains associated with the
 next `PlaybackItemId`; the current pipeline keeps its pending PCM and ramps from
 its instantaneous crossfade gain back to unity.
 
-Item-boundary markers travel in order with PCM. `TrackChanged` is emitted only
-after the sink clock consumes the marker. Public position and recovery
+Item-boundary markers travel in order with PCM. When an output is reused,
+`TrackChanged` follows consumption of its marker. Initial activation and an
+activation that creates a new output announce the new item directly. Command
+acceptance is therefore not a promise that the device has already emitted sound. Public position and recovery
 checkpoints use sink-consumed frames, never the decoder cursor or queued-ring
 frontier.
 
@@ -152,10 +156,14 @@ and provider sources and rebuilds every runtime stage.
 Temporary URLs, HTTP headers, stage instances, generations, and epochs are not
 persisted. Unknown or partial player schemas fail without migration or repair.
 State validation and current/position writes share one SQLite transaction. The
-persisted queue is bounded and catalog deletion uses tombstones, so stable IDs
-are never reassigned.
+persisted queue retains the complete user queue and catalog deletion uses
+tombstones, so stable IDs are never reassigned. Local identity registration,
+queue validation/insertion, and path projection use batched SQL statements.
+Projection uses captured track IDs, so concurrent queue edits cannot erase
+the source identity of an earlier snapshot. Flutter indexes occurrence IDs
+when projecting traversal order instead of repeatedly searching the list.
 
-Flutter reads a native playback snapshot to project restored state into the UI.
+Flutter reads native queue and playback snapshots to project restored state into the UI.
 It does not keep a second Hive track/position resume record or replay a second
 switch/seek transaction at startup.
 
@@ -227,3 +235,45 @@ own external I/O and representation details.
 Every hand-written Rust file is limited to 1,200 physical lines, with roughly
 900 lines as the growth target. `cargo run -p stellatune-xtask -- check-loc`
 enforces the rule; only explicitly allowlisted generated files are skipped.
+
+## Queue navigation and preparation ownership
+
+For native playback, PlayerService is the sole owner of queue order, repeat,
+shuffle, requested cursor, and observed cursor. Flutter projects these decisions;
+it does not call next again on PlaybackEnded. DLNA transport retains its separate
+remote-device navigation path.
+
+Queue insertion allocates PlaybackItemId exactly once per occurrence. Repeated
+tracks receive distinct item IDs. Selecting, prewarming, and restoring an item
+use that existing ID; none of those operations append to the queue. Replacement
+and removal are transactional. A full queue reports capacity exhaustion instead
+of silently evicting a different occurrence. Repeat-one applies to automatic
+succession; manual next advances in traversal order. Repeat-all wraps; sequential
+and shuffle stop at the end. Appending retains the existing shuffle traversal.
+
+The audio controller exposes three operations:
+
+- switch_to(item, options) selects an explicit target. A matching successor is
+  reused; otherwise the session's old preparations are invalidated.
+- set_next(Some(item)) prepares one successor; set_next(None) clears its slot.
+- advance_to_next(expected_item_id, options) atomically claims a ready or preparing
+  successor. It returns Accepted, AlreadyCurrent, or Unavailable without a snapshot/check race.
+  AlreadyCurrent handles a natural promotion that raced a manual next request.
+
+NextTrack is Empty, Preparing(task identity, item identity, cancellation,
+deadline), or Ready(pipeline). An active crossfade owns its secondary pipeline
+separately. Advancement toward that secondary retains the overlap. Advancement
+toward its successor waits until the current overlap releases the mixer.
+
+Backend navigation updates requested_item_id before awaiting source resolution.
+A cancellation token identifies each navigation intent. Resolver results recheck
+that intent while holding the queue mutex through Lattice mailbox admission;
+pipeline preparation is awaited after releasing the mutex. Consecutive next
+commands therefore advance A -> requested B -> requested C even while B opens.
+
+TrackChanged updates the observed cursor and starts preparing its successor.
+Older boundaries cannot replace a newer requested target. Source resolution for
+prewarm also has an independent cancellation token. Queue edits replace that
+work only when the selected successor changes. Slow preparation never holds the
+queue decision mutex. Periodic snapshots reconcile lagged event consumption and
+persist runtime position; runtime objects and cancellation tokens are not stored.

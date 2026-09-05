@@ -24,7 +24,7 @@ use stellatune_audio_core::{
     stage::StageId,
 };
 
-use super::catalog::{MAX_PERSISTED_QUEUE_ITEMS, PlayerCatalog};
+use super::catalog::PlayerCatalog;
 use super::error::PlayerServiceError;
 use super::identity::{ProviderId, ProviderTrackIdentity, ProviderTrackKey, SourceInstanceId};
 use super::resolver::{LocalTrackResolver, SourceResolver, SourceResolverFactory};
@@ -287,20 +287,19 @@ async fn catalog_bootstrap_allocates_stable_typed_ids() {
 }
 
 #[tokio::test]
-async fn persisted_queue_is_bounded_and_tombstones_never_reuse_ids() {
+async fn persisted_queue_retains_large_lists_and_tombstones_never_reuse_ids() {
     let directory = tempfile::tempdir().unwrap();
     let catalog = PlayerCatalog::open(directory.path().join("player.sqlite"))
         .await
         .unwrap();
     let source = catalog.ensure_local_source().await.unwrap();
     let track = catalog.ensure_local_track(source, 77).await.unwrap();
-    let mut latest = None;
-    for _ in 0..(MAX_PERSISTED_QUEUE_ITEMS + 8) {
-        latest = Some(catalog.enqueue(track).await.unwrap());
-    }
+    let entries = catalog.append_items(&vec![track; 2_049]).await.unwrap();
+    let latest = catalog.enqueue(track).await.unwrap();
     let state = catalog.load_state().await.unwrap();
-    assert_eq!(state.queue.len() as i64, MAX_PERSISTED_QUEUE_ITEMS);
-    assert_eq!(state.queue.last().map(|entry| entry.item_id), latest);
+    assert_eq!(state.queue.len(), 2_050);
+    assert_eq!(state.queue[0].item_id, entries[0].item_id);
+    assert_eq!(state.queue.last().map(|entry| entry.item_id), Some(latest));
 
     catalog.tombstone_track(track).await.unwrap();
     assert_eq!(
@@ -425,7 +424,7 @@ async fn restart_recreates_provider_resolver_without_persisting_temporary_locato
         }),
     }))
     .unwrap();
-    let service = PlayerService::new(
+    let service = Arc::new(PlayerService::new(
         reopened.clone(),
         runtime.controller(),
         Arc::new(UnusedLocalResolver),
@@ -433,7 +432,7 @@ async fn restart_recreates_provider_resolver_without_persisting_temporary_locato
             creates: Arc::clone(&creates),
             resolves: Arc::clone(&resolves),
         }),
-    );
+    ));
     let materialized = service.materialize_item(item, track).await.unwrap();
     assert_eq!(materialized.id, item);
     assert_eq!(creates.load(Ordering::SeqCst), 1);
@@ -464,7 +463,7 @@ async fn restart_restores_local_item_and_sink_consumed_position_as_paused() {
 
     let catalog = PlayerCatalog::open(&database_path).await.unwrap();
     let runtime = test_runtime();
-    let service = PlayerService::new(
+    let service = Arc::new(PlayerService::new(
         catalog.clone(),
         runtime.controller(),
         Arc::new(FileLocalResolver {
@@ -475,11 +474,13 @@ async fn restart_restores_local_item_and_sink_consumed_position_as_paused() {
             creates: Arc::new(AtomicUsize::new(0)),
             resolves: Arc::new(AtomicUsize::new(0)),
         }),
-    );
+    ));
     let track = service.ensure_local_track(7).await.unwrap();
-    let item = service
-        .switch_track(
-            track,
+    let queue = service.append_queue(vec![track]).await.unwrap();
+    let item = queue.items[0].item_id;
+    service
+        .select_item(
+            item,
             SwitchOptions {
                 autoplay: false,
                 ..Default::default()
@@ -504,7 +505,7 @@ async fn restart_restores_local_item_and_sink_consumed_position_as_paused() {
 
     let reopened = PlayerCatalog::open(&database_path).await.unwrap();
     let restarted_runtime = test_runtime();
-    let restarted = PlayerService::new(
+    let restarted = Arc::new(PlayerService::new(
         reopened,
         restarted_runtime.controller(),
         Arc::new(FileLocalResolver {
@@ -515,7 +516,7 @@ async fn restart_restores_local_item_and_sink_consumed_position_as_paused() {
             creates: Arc::new(AtomicUsize::new(0)),
             resolves: Arc::new(AtomicUsize::new(0)),
         }),
-    );
+    ));
     let restored = restarted.restore().await.unwrap();
     assert_eq!(restored.current_item_id, Some(item));
     assert_eq!(restored.position_ms, 40);
@@ -534,3 +535,9 @@ fn identity_types_reject_zero_and_sqlite_overflow() {
     assert!(SourceInstanceId::new(0).is_err());
     assert!(SourceInstanceId::new(i64::MAX as u64 + 1).is_err());
 }
+
+#[path = "queue_tests.rs"]
+mod queue_tests;
+
+#[path = "queue_batch_tests.rs"]
+mod queue_batch_tests;

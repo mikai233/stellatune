@@ -1,11 +1,9 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
+use std::sync::atomic::AtomicBool;
 
 use stellatune_audio::playback::control::{PlaybackController, SwitchOptions, SwitchTransition};
-use stellatune_audio::playback::event::{PlaybackEvent, PlaybackState};
 use stellatune_audio_core::{
     playback::{MediaTime, PlaybackItem, PlaybackItemId},
     source::MediaHints,
@@ -27,10 +25,32 @@ pub struct PlayerService {
     local_resolver: Arc<dyn LocalTrackResolver>,
     resolver_factory: Arc<dyn SourceResolverFactory>,
     source_resolvers: tokio::sync::RwLock<HashMap<SourceInstanceId, Arc<dyn SourceResolver>>>,
-    state_writer_started: AtomicBool,
+    pub(super) state_writer_started: AtomicBool,
+    pub(super) queue: tokio::sync::Mutex<super::queue::QueueCoordinator>,
 }
 
 impl PlayerService {
+    pub async fn ensure_local_tracks(
+        &self,
+        library_ids: &[i64],
+    ) -> Result<Vec<TrackId>, PlayerServiceError> {
+        self.catalog.ensure_local_tracks(library_ids).await
+    }
+
+    /// Projects metadata for a captured queue using stable track identities.
+    pub async fn queue_local_metadata(
+        &self,
+        tracks: &[TrackId],
+    ) -> Result<HashMap<TrackId, (i64, Option<PathBuf>)>, PlayerServiceError> {
+        let identities = self.catalog.local_library_ids(tracks).await?;
+        let ids: Vec<_> = identities.values().copied().collect();
+        let paths = self.local_resolver.resolve_paths(&ids).await?;
+        Ok(identities
+            .into_iter()
+            .map(|(track, id)| (track, (id, paths.get(&id).cloned())))
+            .collect())
+    }
+
     pub fn new(
         catalog: PlayerCatalog,
         controller: PlaybackController,
@@ -44,52 +64,8 @@ impl PlayerService {
             resolver_factory,
             source_resolvers: tokio::sync::RwLock::new(HashMap::new()),
             state_writer_started: AtomicBool::new(false),
+            queue: tokio::sync::Mutex::new(Default::default()),
         }
-    }
-
-    pub fn start_state_writer(&self) {
-        if self.state_writer_started.swap(true, Ordering::AcqRel) {
-            return;
-        }
-        let catalog = self.catalog.clone();
-        let controller = self.controller.clone();
-        let mut events = controller.subscribe_events();
-        tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(2));
-            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-            let mut dirty = false;
-            let mut was_playing = false;
-            loop {
-                tokio::select! {
-                    event = events.recv() => match event {
-                        Ok(PlaybackEvent::StateChanged(state)) => {
-                            was_playing = state == PlaybackState::Playing;
-                            dirty = true;
-                        },
-                        Ok(PlaybackEvent::TrackChanged { .. }
-                            | PlaybackEvent::PlaybackEnded { .. }
-                            | PlaybackEvent::Position { .. }) => {
-                            dirty = true;
-                        },
-                        Ok(_) => {},
-                        Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
-                            dirty = true;
-                        },
-                        Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
-                    },
-                    _ = interval.tick() => {
-                        if !dirty {
-                            continue;
-                        }
-                        if let Ok(snapshot) = controller.snapshot().await
-                            && catalog.save_runtime_state(snapshot, was_playing).await.is_ok()
-                        {
-                            dirty = false;
-                        }
-                    },
-                }
-            }
-        });
     }
 
     pub async fn register_resolver(
@@ -133,40 +109,16 @@ impl PlayerService {
         Ok(source)
     }
 
-    pub async fn switch_track(
-        &self,
-        track_id: TrackId,
-        options: SwitchOptions,
-    ) -> Result<PlaybackItemId, PlayerServiceError> {
-        let item_id = self.catalog.enqueue(track_id).await?;
-        let item = self.materialize_item(item_id, track_id).await?;
-        self.controller.switch(item, options).await?;
-        let snapshot = self.controller.snapshot().await?;
-        self.catalog
-            .save_runtime_state(snapshot, options.autoplay)
-            .await?;
-        Ok(item_id)
-    }
-
-    pub async fn queue_next(
-        &self,
-        track_id: TrackId,
-    ) -> Result<PlaybackItemId, PlayerServiceError> {
-        let item_id = self.catalog.enqueue(track_id).await?;
-        let item = self.materialize_item(item_id, track_id).await?;
-        self.controller.queue_next(item).await?;
-        Ok(item_id)
-    }
-
-    pub async fn restore(&self) -> Result<PlaybackStateRecord, PlayerServiceError> {
+    pub async fn restore(self: &Arc<Self>) -> Result<PlaybackStateRecord, PlayerServiceError> {
         self.restore_with_policy(false).await
     }
 
     pub async fn restore_with_policy(
-        &self,
+        self: &Arc<Self>,
         resume_playing_on_launch: bool,
     ) -> Result<PlaybackStateRecord, PlayerServiceError> {
         let state = self.catalog.load_state().await?;
+        self.load_queue().await?;
         let Some(current_id) = state.current_item_id else {
             return Ok(state);
         };
@@ -181,7 +133,7 @@ impl PlayerService {
             .await?;
         let capabilities = item.source.descriptor().capabilities;
         self.controller
-            .switch(
+            .switch_to(
                 item,
                 SwitchOptions {
                     autoplay: false,
@@ -194,13 +146,10 @@ impl PlayerService {
                 .seek(MediaTime::from_millis(state.position_ms))
                 .await?;
         }
-        if let Some(next) = state.queue.get(current_index + 1) {
-            let next_item = self.materialize_item(next.item_id, next.track_id).await?;
-            self.controller.queue_next(next_item).await?;
-        }
         if resume_playing_on_launch && state.was_playing {
             self.controller.play().await?;
         }
+        self.refresh_next().await?;
         Ok(state)
     }
 

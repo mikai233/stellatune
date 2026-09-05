@@ -45,7 +45,7 @@ async fn sink_disconnect_recovers_from_consumed_checkpoint() {
     let mut events = controller.subscribe_events();
 
     controller
-        .switch(item(1, 40, 100), SwitchOptions::default())
+        .switch_to(item(1, 40, 100), SwitchOptions::default())
         .await
         .unwrap();
 
@@ -290,7 +290,7 @@ async fn output_gain_set_before_switch_is_applied_by_sink_worker() {
         .unwrap();
     let mut events = controller.subscribe_events();
     controller
-        .switch(item(1, 20, 100), SwitchOptions::default())
+        .switch_to(item(1, 20, 100), SwitchOptions::default())
         .await
         .unwrap();
     wait_for_end(&mut events).await;
@@ -324,7 +324,7 @@ async fn preferred_sink_format_normalizes_pcm_before_opening_output() {
     let mut events = controller.subscribe_events();
 
     controller
-        .switch(item(1, 20, 100), SwitchOptions::default())
+        .switch_to(item(1, 20, 100), SwitchOptions::default())
         .await
         .unwrap();
     wait_for_end(&mut events).await;
@@ -356,7 +356,7 @@ async fn controller_clones_do_not_own_runtime_and_stop_is_not_shutdown() {
     drop(disposable_clone);
 
     controller
-        .switch(
+        .switch_to(
             item(1, 20, 100),
             SwitchOptions {
                 autoplay: false,
@@ -369,7 +369,7 @@ async fn controller_clones_do_not_own_runtime_and_stop_is_not_shutdown() {
 
     let mut events = controller.subscribe_events();
     controller
-        .switch(item(2, 20, 50), SwitchOptions::default())
+        .switch_to(item(2, 20, 50), SwitchOptions::default())
         .await
         .unwrap();
     wait_for_end(&mut events).await;
@@ -400,7 +400,7 @@ async fn pause_and_seek_preempt_a_sink_that_keeps_returning_would_block() {
     let controller = runtime.controller();
     let mut events = controller.subscribe_events();
     controller
-        .switch(item(1, 100, 100), SwitchOptions::default())
+        .switch_to(item(1, 100, 100), SwitchOptions::default())
         .await
         .unwrap();
     tokio::time::sleep(Duration::from_millis(20)).await;
@@ -443,7 +443,7 @@ async fn assert_buffered_tail_is_drained(placement: TransformPlacement) {
     let controller = runtime.controller();
     let mut events = controller.subscribe_events();
     controller
-        .switch(item(1, 10, 80), SwitchOptions::default())
+        .switch_to(item(1, 10, 80), SwitchOptions::default())
         .await
         .unwrap();
     wait_for_end(&mut events).await;
@@ -498,10 +498,10 @@ async fn crossfade_runs_per_track_pre_mix_and_one_shared_post_mix_chain() {
     let controller = runtime.controller();
     let mut events = controller.subscribe_events();
     controller
-        .switch(item(1, 40, 100), SwitchOptions::default())
+        .switch_to(item(1, 40, 100), SwitchOptions::default())
         .await
         .unwrap();
-    controller.queue_next(item(2, 40, 50)).await.unwrap();
+    controller.set_next(Some(item(2, 40, 50))).await.unwrap();
     wait_for_end(&mut events).await;
 
     let pre = pre_counts.lock().unwrap().clone();
@@ -550,7 +550,7 @@ async fn crossfade_normalizes_next_sample_rate_and_channel_layout_before_mixing(
         channel_layout: ChannelLayout::STEREO,
     };
     controller
-        .switch(
+        .switch_to(
             fixed_format_item(
                 1,
                 Arc::new(FixedFormatDecoderFactory::new(
@@ -565,7 +565,7 @@ async fn crossfade_normalizes_next_sample_rate_and_channel_layout_before_mixing(
         .await
         .unwrap();
     controller
-        .queue_next(fixed_format_item(
+        .set_next(Some(fixed_format_item(
             2,
             Arc::new(FixedFormatDecoderFactory::new(
                 "test.next-format",
@@ -573,7 +573,7 @@ async fn crossfade_normalizes_next_sample_rate_and_channel_layout_before_mixing(
                 160,
                 0.5,
             )),
-        ))
+        )))
         .await
         .unwrap();
     wait_for_end(&mut events).await;
@@ -596,7 +596,7 @@ async fn gapless_reuses_sink_and_reports_consumed_boundary() {
     let controller = runtime.controller();
     let mut events = controller.subscribe_events();
     controller
-        .switch(
+        .switch_to(
             item(1, 40, 100),
             SwitchOptions {
                 autoplay: false,
@@ -605,7 +605,7 @@ async fn gapless_reuses_sink_and_reports_consumed_boundary() {
         )
         .await
         .unwrap();
-    controller.queue_next(item(2, 40, 50)).await.unwrap();
+    controller.set_next(Some(item(2, 40, 50))).await.unwrap();
     controller.play().await.unwrap();
     wait_for_end(&mut events).await;
     let output = samples.lock().unwrap().clone();
@@ -629,7 +629,7 @@ async fn fade_out_in_is_sequential_and_never_overlaps_track_pipelines() {
     let controller = runtime.controller();
     let mut events = controller.subscribe_events();
     controller
-        .switch(
+        .switch_to(
             item(1, 40, 100),
             SwitchOptions {
                 autoplay: false,
@@ -638,7 +638,7 @@ async fn fade_out_in_is_sequential_and_never_overlaps_track_pipelines() {
         )
         .await
         .unwrap();
-    controller.queue_next(item(2, 40, 100)).await.unwrap();
+    controller.set_next(Some(item(2, 40, 100))).await.unwrap();
     controller.play().await.unwrap();
     wait_for_end(&mut events).await;
 
@@ -657,14 +657,14 @@ async fn eof_waits_in_buffering_for_slow_next_preparation_then_promotes() {
     let controller = runtime.controller();
     let mut events = controller.subscribe_events();
     controller
-        .switch(item(1, 30, 100), SwitchOptions::default())
+        .switch_to(item(1, 30, 100), SwitchOptions::default())
         .await
         .unwrap();
     let queued = {
         let controller = controller.clone();
         tokio::spawn(async move {
             controller
-                .queue_next(delayed_item(2, 20, 50, Duration::from_millis(80)))
+                .set_next(Some(delayed_item(2, 20, 50, Duration::from_millis(80))))
                 .await
         })
     };
@@ -710,7 +710,7 @@ async fn newer_switch_cancels_a_stale_slow_source_open() {
         let controller = controller.clone();
         tokio::spawn(async move {
             controller
-                .switch(
+                .switch_to(
                     delayed_item(1, 20, 100, Duration::from_millis(500)),
                     SwitchOptions::default(),
                 )
@@ -720,7 +720,7 @@ async fn newer_switch_cancels_a_stale_slow_source_open() {
     tokio::time::sleep(Duration::from_millis(20)).await;
     timeout(
         Duration::from_millis(200),
-        controller.switch(item(2, 20, 50), SwitchOptions::default()),
+        controller.switch_to(item(2, 20, 50), SwitchOptions::default()),
     )
     .await
     .expect("new switch must not wait for the stale source open")
@@ -746,7 +746,7 @@ async fn crossfade_overlaps_two_track_pipelines() {
     let controller = runtime.controller();
     let mut events = controller.subscribe_events();
     controller
-        .switch(
+        .switch_to(
             item(1, 100, 100),
             SwitchOptions {
                 autoplay: false,
@@ -755,7 +755,7 @@ async fn crossfade_overlaps_two_track_pipelines() {
         )
         .await
         .unwrap();
-    controller.queue_next(item(2, 100, 0)).await.unwrap();
+    controller.set_next(Some(item(2, 100, 0))).await.unwrap();
     controller.play().await.unwrap();
     wait_for_end(&mut events).await;
     let output = samples.lock().unwrap().clone();
@@ -783,14 +783,14 @@ async fn next_failure_during_crossfade_is_typed_and_current_loses_no_frames() {
     let controller = runtime.controller();
     let mut events = controller.subscribe_events();
     controller
-        .switch(item(1, 100, 100), SwitchOptions::default())
+        .switch_to(item(1, 100, 100), SwitchOptions::default())
         .await
         .unwrap();
     controller
-        .queue_next(fixed_format_item(
+        .set_next(Some(fixed_format_item(
             2,
             Arc::new(FailingNextDecoderFactory::new()),
-        ))
+        )))
         .await
         .unwrap();
 

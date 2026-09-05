@@ -1,8 +1,12 @@
 import 'dart:async';
 import 'dart:math';
 
+import 'package:stellatune/app/logging.dart';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:stellatune/app/providers.dart';
+import 'package:stellatune/bridge/bridge.dart';
+import 'package:stellatune/dlna/dlna_providers.dart';
 import 'package:stellatune/player/queue_models.dart';
 
 final queueControllerProvider = NotifierProvider<QueueController, QueueState>(
@@ -11,6 +15,95 @@ final queueControllerProvider = NotifierProvider<QueueController, QueueState>(
 
 class QueueController extends Notifier<QueueState> {
   final Random _random = Random();
+  BigInt _backendRevision = BigInt.zero;
+  bool get _remote =>
+      ref.read(dlnaSelectedRendererProvider)?.avTransportControlUrl != null;
+
+  void applyBackend(
+    PlaybackQueue snapshot, {
+    List<QueueItem>? metadata,
+    QueueSource? source,
+    bool replaceSource = false,
+    bool preserveCurrent = false,
+  }) {
+    if (snapshot.revision < _backendRevision) return;
+    _backendRevision = snapshot.revision;
+    final existing = {
+      for (final item in state.items)
+        if (item.itemId != null) item.itemId!: item,
+    };
+    final items = <QueueItem>[];
+    for (var i = 0; i < snapshot.items.length; i++) {
+      final entry = snapshot.items[i];
+      final old =
+          existing[entry.itemId] ??
+          (metadata != null && i < metadata.length ? metadata[i] : null);
+      items.add(
+        QueueItem(
+          itemId: entry.itemId,
+          trackId: entry.trackId,
+          local: entry.localLibraryTrackId != null,
+          path: old?.path ?? entry.localPath ?? '',
+          providerTrack: old?.providerTrack,
+          id: old?.id ?? entry.localLibraryTrackId?.toInt(),
+          title: old?.title,
+          artist: old?.artist,
+          album: old?.album,
+          durationMs: old?.durationMs,
+          cover: old?.cover,
+        ),
+      );
+    }
+    final current = preserveCurrent
+        ? state.currentItem?.itemId
+        : snapshot.currentItemId;
+    final index = items.indexWhere((item) => item.itemId == current);
+    final indices = {
+      for (var i = 0; i < items.length; i++) items[i].itemId!: i,
+    };
+    final order = [
+      for (final id in snapshot.order)
+        if (indices.containsKey(id)) indices[id]!,
+    ];
+    state = QueueState(
+      items: items,
+      currentIndex: index < 0 ? null : index,
+      shuffle: snapshot.shuffle,
+      repeatMode: switch (snapshot.repeatMode) {
+        QueueRepeatMode.off => RepeatMode.off,
+        QueueRepeatMode.all => RepeatMode.all,
+        QueueRepeatMode.one => RepeatMode.one,
+      },
+      order: order,
+      orderPos: order.indexOf(index).clamp(0, order.length),
+      source: replaceSource ? source : (source ?? state.source),
+    );
+  }
+
+  void observeCurrent(BigInt itemId) {
+    final index = state.items.indexWhere((item) => item.itemId == itemId);
+    if (index < 0) return;
+    state = state.copyWith(
+      currentIndex: index,
+      orderPos: state.order.indexOf(index).clamp(0, state.order.length),
+    );
+  }
+
+  Future<void> _setNativeMode(PlayMode mode) async {
+    try {
+      final repeat = switch (mode) {
+        PlayMode.repeatOne => QueueRepeatMode.one,
+        PlayMode.repeatAll => QueueRepeatMode.all,
+        _ => QueueRepeatMode.off,
+      };
+      final snapshot = await ref
+          .read(playerBridgeProvider)
+          .setQueueMode(repeat, mode == PlayMode.shuffle);
+      applyBackend(snapshot, preserveCurrent: true);
+    } catch (error) {
+      ref.read(loggerProvider).w('set queue mode failed: $error');
+    }
+  }
 
   int _orderPosFor(List<int> order, int currentIndex) {
     final pos = order.indexOf(currentIndex);
@@ -192,6 +285,10 @@ class QueueController extends Notifier<QueueState> {
   }
 
   void toggleShuffle() {
+    if (!_remote) {
+      setPlayMode(state.shuffle ? PlayMode.sequential : PlayMode.shuffle);
+      return;
+    }
     final shuffle = !state.shuffle;
     final currentIndex = state.currentIndex;
     if (currentIndex == null || state.items.isEmpty) {
@@ -224,6 +321,10 @@ class QueueController extends Notifier<QueueState> {
 
   void setPlayMode(PlayMode mode) {
     unawaited(ref.read(settingsStoreProvider.notifier).setPlayMode(mode));
+    if (!_remote) {
+      unawaited(_setNativeMode(mode));
+      return;
+    }
     final desiredShuffle = mode == PlayMode.shuffle;
     final desiredRepeat = switch (mode) {
       PlayMode.sequential => RepeatMode.off,
@@ -257,6 +358,10 @@ class QueueController extends Notifier<QueueState> {
   }
 
   void cycleRepeatMode() {
+    if (!_remote) {
+      cyclePlayMode();
+      return;
+    }
     final next = switch (state.repeatMode) {
       RepeatMode.off => RepeatMode.all,
       RepeatMode.all => RepeatMode.one,
@@ -266,6 +371,14 @@ class QueueController extends Notifier<QueueState> {
   }
 
   void clear() {
+    if (!_remote) {
+      unawaited(
+        ref.read(playerBridgeProvider).replaceQueue([]).then((snapshot) {
+          applyBackend(snapshot);
+        }),
+      );
+      return;
+    }
     state = const QueueState.empty().copyWith(
       shuffle: state.shuffle,
       repeatMode: state.repeatMode,

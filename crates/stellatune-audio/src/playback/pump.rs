@@ -22,7 +22,6 @@ use stellatune_audio_core::{
 };
 use tokio::sync::broadcast;
 
-use super::actor::advance_generation;
 use super::event::{PlaybackEvent, PlaybackState};
 use super::lifecycle::{fail_current, fail_promoted, set_state};
 use super::normalizer::PcmNormalizer;
@@ -110,6 +109,22 @@ pub(super) fn pump_once(
     let Some(current) = actor.current.as_mut() else {
         return;
     };
+    // If a forced overlap could not start, honor its non-overlap fallback now.
+    if actor.force_transition
+        && actor.next.as_mut().is_some()
+        && current.forced_end_frame.is_none()
+        && let crate::planner::TransitionPolicy::Crossfade {
+            duration_frames,
+            fallback,
+            ..
+        } = current.transition
+    {
+        let fade = match fallback {
+            crate::planner::CrossfadeFallback::Gapless => 0,
+            crate::planner::CrossfadeFallback::FadeOutIn => duration_frames,
+        };
+        current.forced_end_frame = Some(current.produced_audible_frame.saturating_add(fade));
+    }
     while let Some(item_id) = current.output.try_boundary() {
         if item_id == current.item_id && !current.boundary_announced {
             current.boundary_announced = true;
@@ -283,9 +298,9 @@ pub(super) fn begin_recovery(
     let plan = current.recovery_plan.clone();
     let _ = current.output.pause();
 
-    advance_generation(actor);
-    actor.next = None;
-    actor.next_preparing = false;
+    if let Some(pending) = actor.pending_preparation.take() {
+        pending.cancellation.cancel();
+    }
     actor.crossfade = None;
     actor.force_transition = false;
     if let Some(pending) = actor.pending_seek.take() {
@@ -303,7 +318,7 @@ pub(super) fn begin_recovery(
             resume_state: PlaybackState::Playing,
             attempt: 1,
         },
-        cancellation: actor.preparation_cancellation.clone(),
+        cancellation: stellatune_audio_core::source::SourceCancellation::default(),
     });
 }
 
@@ -320,7 +335,7 @@ pub(super) fn promote_or_end(
     };
     let ended_item_id = ended.item_id;
     let Some(mut next) = actor.next.take() else {
-        if actor.next_preparing {
+        if actor.next.pending().is_some() {
             actor.current = Some(ended);
             set_state(state, PlaybackState::Buffering, event_tx);
             let _ = event_tx.send(PlaybackEvent::Buffering {

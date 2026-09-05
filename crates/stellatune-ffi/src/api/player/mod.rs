@@ -8,12 +8,13 @@ use tracing::{debug, warn};
 use crate::api::library::{shared_library_if_initialized, shared_player_service};
 
 mod plugin_ui_gateway;
+pub mod queue;
 pub mod transcode;
 pub mod types;
 use stellatune_audio::config::engine::{
     LfeMode as V2LfeMode, ResampleQuality as V2ResampleQuality,
 };
-use stellatune_audio::playback::control::{PlaybackController, SwitchOptions};
+use stellatune_audio::playback::control::PlaybackController;
 use stellatune_audio::playback::event::{PlaybackEvent as V2Event, PlaybackState as V2PlayerState};
 use stellatune_audio_core::playback::{MediaTime, PlaybackItemId};
 use stellatune_backend_api::lyrics_service::LyricsService;
@@ -46,20 +47,12 @@ struct PlayerContext {
     engine: PlaybackController,
     lyrics: Arc<LyricsService>,
     track_info_cache: Arc<Mutex<Option<CachedTrackDecodeInfo>>>,
-    pending_preload_seek: Arc<Mutex<Option<PendingPreloadSeek>>>,
 }
 
 #[derive(Debug, Clone)]
 struct CachedTrackDecodeInfo {
     item_id: PlaybackItemId,
     info: Option<TrackDecodeInfo>,
-}
-
-#[derive(Debug, Clone)]
-#[flutter_rust_bridge::frb(ignore)]
-struct PendingPreloadSeek {
-    item_id: PlaybackItemId,
-    position_ms: i64,
 }
 
 #[derive(Debug, Clone)]
@@ -90,7 +83,6 @@ fn shared_player_context() -> &'static PlayerContext {
         engine: shared_playback_controller(),
         lyrics: LyricsService::new(),
         track_info_cache: Arc::new(Mutex::new(None)),
-        pending_preload_seek: Arc::new(Mutex::new(None)),
     })
 }
 
@@ -100,6 +92,16 @@ fn engine() -> PlaybackController {
 
 fn lyrics() -> Arc<LyricsService> {
     Arc::clone(&shared_player_context().lyrics)
+}
+
+/// Registers a local queue in one catalog transaction, preserving input order.
+pub async fn ensure_local_tracks(library_track_ids: Vec<i64>) -> Result<Vec<u64>> {
+    Ok(shared_player_service()?
+        .ensure_local_tracks(&library_track_ids)
+        .await?
+        .into_iter()
+        .map(|id| id.get())
+        .collect())
 }
 
 pub async fn ensure_local_track(library_track_id: i64) -> Result<u64> {
@@ -152,28 +154,11 @@ pub async fn ensure_provider_track(
         .get())
 }
 
-pub async fn switch_track(track_id: u64, lazy: bool) -> Result<()> {
-    let track_id = TrackId::new(track_id)?;
-    let result = shared_player_service()?
-        .switch_track(
-            track_id,
-            SwitchOptions {
-                autoplay: !lazy,
-                ..SwitchOptions::default()
-            },
-        )
-        .await
-        .map(|_| ())
-        .map_err(anyhow::Error::msg);
-    if result.is_ok() {
-        clear_cached_track_info();
-        clear_pending_preload_seek();
-    }
-    result
-}
-
 pub async fn play() -> Result<()> {
-    engine().play().await.map_err(anyhow::Error::msg)
+    shared_player_service()?
+        .play()
+        .await
+        .map_err(anyhow::Error::msg)
 }
 
 pub async fn pause() -> Result<()> {
@@ -201,10 +186,12 @@ pub async fn set_lfe_mode(mode: LfeMode) -> Result<()> {
 }
 
 pub async fn stop() -> Result<()> {
-    let result = engine().stop().await.map_err(anyhow::Error::msg);
+    let result = shared_player_service()?
+        .stop()
+        .await
+        .map_err(anyhow::Error::msg);
     if result.is_ok() {
         clear_cached_track_info();
-        clear_pending_preload_seek();
     }
     result
 }
@@ -231,8 +218,6 @@ pub async fn playback_snapshot() -> Result<PlaybackSnapshot> {
 
 pub fn events(sink: StreamSink<Event>) -> Result<()> {
     let mut rx = engine().subscribe_events();
-    let event_engine = engine();
-    let pending_preload_seek = Arc::clone(&shared_player_context().pending_preload_seek);
     crate::background_runtime::spawn(async move {
         let mut state = FfiEventMapperState::default();
         loop {
@@ -246,18 +231,7 @@ pub fn events(sink: StreamSink<Event>) -> Result<()> {
                     } else {
                         None
                     };
-                    if let Some(position_ms) =
-                        take_pending_preload_seek_for_event(&event, pending_preload_seek.as_ref())
-                        && let Err(error) = event_engine
-                            .seek(MediaTime::from_millis(position_ms as u64))
-                            .await
-                    {
-                        warn!(
-                            position_ms,
-                            error = %error,
-                            "failed to apply pending preload seek on track switch"
-                        );
-                    }
+
                     let mapped = map_v2_event_to_ffi(event, event_track_id, &mut state);
                     for mapped_event in mapped {
                         if sink.add(mapped_event).is_err() {
@@ -713,22 +687,6 @@ pub async fn clear_output_sink_route() -> Result<()> {
         .map_err(anyhow::Error::msg)
 }
 
-pub async fn preload_track(track_id: u64, position_ms: u64) -> Result<()> {
-    let track_id = TrackId::new(track_id)?;
-    let item_id = shared_player_service()?.queue_next(track_id).await?;
-    let seek_position_ms = position_ms.min(i64::MAX as u64) as i64;
-    let pending_seek = if seek_position_ms > 0 {
-        Some(PendingPreloadSeek {
-            item_id,
-            position_ms: seek_position_ms,
-        })
-    } else {
-        None
-    };
-    set_pending_preload_seek(pending_seek);
-    Ok(())
-}
-
 pub async fn decoder_supported_extensions() -> Vec<String> {
     runtime_decoder_supported_extensions()
 }
@@ -741,33 +699,6 @@ fn clear_cached_track_info() {
     if let Ok(mut cache_guard) = shared_player_context().track_info_cache.lock() {
         *cache_guard = None;
     }
-}
-
-fn clear_pending_preload_seek() {
-    set_pending_preload_seek(None);
-}
-
-fn set_pending_preload_seek(pending: Option<PendingPreloadSeek>) {
-    if let Ok(mut guard) = shared_player_context().pending_preload_seek.lock() {
-        *guard = pending;
-    }
-}
-
-fn take_pending_preload_seek_for_event(
-    event: &V2Event,
-    pending: &Mutex<Option<PendingPreloadSeek>>,
-) -> Option<i64> {
-    let V2Event::TrackChanged { item_id } = event else {
-        return None;
-    };
-    let mut guard = pending.lock().ok()?;
-    let pending_seek = guard.as_ref()?;
-    if pending_seek.item_id != *item_id {
-        return None;
-    }
-    let position_ms = pending_seek.position_ms;
-    *guard = None;
-    Some(position_ms)
 }
 
 fn next_position_session_id(current: &mut u64) -> u64 {

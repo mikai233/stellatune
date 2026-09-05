@@ -5,11 +5,13 @@ import 'package:stellatune/platform/directory_access_store.dart';
 
 import 'api.dart' as api;
 import 'api/dlna/types.dart';
+import 'api/player/queue.dart' as queue_api;
 import 'api/player/transcode.dart' as transcode_api;
 import 'api/player/types.dart';
 import 'third_party/stellatune_backend_api/lyrics_types.dart';
 import 'third_party/stellatune_library.dart';
 
+export 'api/player/queue.dart' show PlaybackQueue, QueueEntry, QueueRepeatMode;
 export 'frb_generated.dart' show StellatuneApi;
 export 'api/player/types.dart'
     show
@@ -55,8 +57,7 @@ class PlayerBridge {
   Stream<Event>? _eventBroadcast;
   Stream<LyricsEvent>? _lyricsEventBroadcast;
   DirectoryAccessStore? _directoryAccessStore;
-  DirectoryAccessLease? _activeTrackLease;
-  DirectoryAccessLease? _preloadedTrackLease;
+  final Map<String, DirectoryAccessLease?> _queueLeases = {};
 
   static Future<PlayerBridge> create() async => PlayerBridge._();
 
@@ -65,8 +66,10 @@ class PlayerBridge {
   }
 
   Future<void> dispose() async {
-    await _releaseActiveTrackLease();
-    await _releasePreloadedTrackLease();
+    for (final lease in _queueLeases.values) {
+      await lease?.release();
+    }
+    _queueLeases.clear();
   }
 
   Stream<Event> events() =>
@@ -74,6 +77,11 @@ class PlayerBridge {
 
   Stream<LyricsEvent> lyricsEvents() =>
       _lyricsEventBroadcast ??= api.lyricsEvents().asBroadcastStream();
+
+  Future<List<BigInt>> ensureLocalTracks(List<int> libraryTrackIds) async =>
+      (await api.ensureLocalTracks(
+        libraryTrackIds: frb.Int64List.fromList(libraryTrackIds),
+      )).toList();
 
   Future<BigInt> ensureLocalTrack(int libraryTrackId) =>
       api.ensureLocalTrack(libraryTrackId: libraryTrackId);
@@ -92,26 +100,39 @@ class PlayerBridge {
     configJson: configJson,
   );
 
-  Future<void> switchTrack(
-    BigInt trackId, {
-    required bool lazy,
-    String? localPath,
-  }) async {
-    final nextLease = localPath == null
-        ? null
-        : await _acquireLocalPathLease(localPath);
-    final previousLease = _activeTrackLease;
-    try {
-      await api.switchTrack(trackId: trackId, lazy: lazy);
-      _activeTrackLease = nextLease;
-      if (previousLease != null && !identical(previousLease, nextLease)) {
-        await previousLease.release();
+  Future<queue_api.PlaybackQueue> playbackQueue() => queue_api.playbackQueue();
+
+  Future<void> retainQueuePaths(Iterable<String> paths) async {
+    for (final path in paths.where((path) => path.isNotEmpty).toSet()) {
+      if (!_queueLeases.containsKey(path)) {
+        _queueLeases[path] = await _acquireLocalPathLease(path);
       }
-    } catch (_) {
-      await nextLease?.release();
-      rethrow;
     }
   }
+
+  Future<void> releaseRemovedQueuePaths(Iterable<String> paths) async {
+    final retained = paths.toSet();
+    for (final path in _queueLeases.keys.toList()) {
+      if (!retained.contains(path)) {
+        await _queueLeases.remove(path)?.release();
+      }
+    }
+  }
+
+  Future<queue_api.PlaybackQueue> replaceQueue(List<BigInt> ids) =>
+      queue_api.replaceQueue(trackIds: frb.Uint64List.fromList(ids));
+  Future<queue_api.PlaybackQueue> appendQueue(List<BigInt> ids) =>
+      queue_api.appendQueue(trackIds: frb.Uint64List.fromList(ids));
+  Future<queue_api.PlaybackQueue> removeQueueItems(List<BigInt> ids) =>
+      queue_api.removeQueueItems(itemIds: frb.Uint64List.fromList(ids));
+  Future<queue_api.PlaybackQueue> setQueueMode(
+    queue_api.QueueRepeatMode repeat,
+    bool shuffle,
+  ) => queue_api.setQueueMode(repeat: repeat, shuffle: shuffle);
+  Future<bool> selectQueueItem(BigInt itemId, {bool autoplay = true}) =>
+      queue_api.selectQueueItem(itemId: itemId, autoplay: autoplay);
+  Future<bool> nextQueueItem() => queue_api.nextQueueItem();
+  Future<bool> previousQueueItem() => queue_api.previousQueueItem();
 
   Future<void> play() => api.play();
   Future<void> pause() => api.pause();
@@ -122,11 +143,7 @@ class PlayerBridge {
     required int seq,
     required int rampMs,
   }) => api.setVolume(volume: volume, seq: BigInt.from(seq), rampMs: rampMs);
-  Future<void> stop() async {
-    await api.stop();
-    await _releaseActiveTrackLease();
-    await _releasePreloadedTrackLease();
-  }
+  Future<void> stop() => api.stop();
 
   Future<PlaybackSnapshot> playbackSnapshot() => api.playbackSnapshot();
 
@@ -250,30 +267,6 @@ class PlayerBridge {
     resampleQuality: resampleQuality,
   );
 
-  Future<void> preloadTrack(
-    BigInt trackId, {
-    int positionMs = 0,
-    String? localPath,
-  }) async {
-    final nextLease = localPath == null
-        ? null
-        : await _acquireLocalPathLease(localPath);
-    final previousLease = _preloadedTrackLease;
-    try {
-      await api.preloadTrack(
-        trackId: trackId,
-        positionMs: BigInt.from(positionMs),
-      );
-      _preloadedTrackLease = nextLease;
-      if (previousLease != null && !identical(previousLease, nextLease)) {
-        await previousLease.release();
-      }
-    } catch (_) {
-      await nextLease?.release();
-      rethrow;
-    }
-  }
-
   Stream<TranscodeProgressEvent> transcodeTrackLocal({
     required String taskId,
     required String sourcePath,
@@ -309,18 +302,6 @@ class PlayerBridge {
       path: path,
       store: store,
     );
-  }
-
-  Future<void> _releaseActiveTrackLease() async {
-    final lease = _activeTrackLease;
-    _activeTrackLease = null;
-    await lease?.release();
-  }
-
-  Future<void> _releasePreloadedTrackLease() async {
-    final lease = _preloadedTrackLease;
-    _preloadedTrackLease = null;
-    await lease?.release();
   }
 }
 

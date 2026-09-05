@@ -12,10 +12,43 @@ use super::source::{ResolvedSourceSpec, SourceCatalogEntry, SourceResolverSpec};
 #[async_trait]
 pub trait LocalTrackResolver: Send + Sync {
     async fn resolve_path(&self, library_track_id: i64) -> Result<PathBuf, PlayerServiceError>;
+
+    /// Projects available paths without opening audio sources; missing tracks are omitted.
+    async fn resolve_paths(
+        &self,
+        library_track_ids: &[i64],
+    ) -> Result<std::collections::HashMap<i64, PathBuf>, PlayerServiceError> {
+        let mut paths = std::collections::HashMap::new();
+        for id in library_track_ids {
+            match self.resolve_path(*id).await {
+                Ok(path) => {
+                    paths.insert(*id, path);
+                },
+                Err(PlayerServiceError::LocalTrackNotFound(_)) => {},
+                Err(error) => return Err(error),
+            }
+        }
+        Ok(paths)
+    }
 }
 
 #[async_trait]
 impl LocalTrackResolver for stellatune_library::LibraryHandle {
+    async fn resolve_paths(
+        &self,
+        library_track_ids: &[i64],
+    ) -> Result<std::collections::HashMap<i64, PathBuf>, PlayerServiceError> {
+        self.get_track_paths(library_track_ids.to_vec())
+            .await
+            .map(|paths| {
+                paths
+                    .into_iter()
+                    .map(|(id, path)| (id, PathBuf::from(path)))
+                    .collect()
+            })
+            .map_err(|error| PlayerServiceError::LocalLibrary(error.to_string()))
+    }
+
     async fn resolve_path(&self, library_track_id: i64) -> Result<PathBuf, PlayerServiceError> {
         self.get_track(library_track_id)
             .await

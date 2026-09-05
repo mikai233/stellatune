@@ -9,17 +9,18 @@
 use lattice_actor::{error::ActorCallError, handle::ActorHandle};
 use stellatune_audio_core::{
     error::PlaybackControlError,
-    playback::{MediaTime, PlaybackItem},
+    playback::{MediaTime, PlaybackItem, PlaybackItemId},
 };
 use tokio::sync::broadcast;
 
 use crate::planner::PlaybackPolicies;
 
 use super::actor::{
-    GetSnapshot, Pause, Play, PlaybackActor, QueueNextTrack, RebuildOutput, Seek, SetOutputGain,
-    SetPolicies, StopPlayback, SwitchTrack,
+    GetSnapshot, Pause, Play, PlaybackActor, RebuildOutput, Seek, SetOutputGain, SetPolicies,
+    StopPlayback,
 };
 use super::event::{PlaybackEvent, PlaybackRuntimeSnapshot};
+use super::navigation::{AdvanceToNext, SetNext, SwitchTo};
 use super::runtime::PlaybackCommandTimeouts;
 
 /// How an explicit switch interacts with the configured transition policy.
@@ -68,26 +69,31 @@ impl PlaybackController {
     /// With [`SwitchTransition::UseConfiguredPolicy`], an existing track keeps
     /// playing while the new item is prepared as its forced successor. An
     /// immediate switch tears down the current pipeline before preparation.
+    /// If the item identity matches the successor, its prepared pipeline or
+    /// pending task is reused and this method acknowledges the switch intent.
     ///
     /// # Errors
     ///
     /// Returns [`PlaybackControlError::CommandTimeout`] when preparation misses
     /// its deadline, [`PlaybackControlError::Closed`] when the runtime stops, or
     /// [`PlaybackControlError::Failed`] when planning or preparation fails.
-    pub async fn switch(
+    pub async fn switch_to(
         &self,
         item: PlaybackItem,
         options: SwitchOptions,
     ) -> Result<(), PlaybackControlError> {
         self.actor
-            .ask(SwitchTrack { item, options }, self.timeouts.preparation)
+            .ask(SwitchTo { item, options }, self.timeouts.preparation)
             .await
-            .map_err(|error| map_call_error("switch", error))?
+            .map_err(|error| map_call_error("switch_to", error))?
     }
 
-    /// Prepares `item` as the next item without interrupting the current item.
+    /// Sets or clears the successor without interrupting the current item.
     ///
-    /// A later call replaces any previously queued or preparing item.
+    /// `None` cancels the successor slot in any state. `Some(item)` requires
+    /// an active item and replaces only a different successor. Repeating the
+    /// same item ID preserves its existing pipeline or task. An overlap that
+    /// already started is retained; the slot then refers to its successor.
     ///
     /// # Errors
     ///
@@ -95,11 +101,38 @@ impl PlaybackController {
     /// session, [`PlaybackControlError::CommandTimeout`] on preparation timeout,
     /// [`PlaybackControlError::Closed`] after runtime shutdown, or
     /// [`PlaybackControlError::Failed`] when planning or preparation fails.
-    pub async fn queue_next(&self, item: PlaybackItem) -> Result<(), PlaybackControlError> {
+    pub async fn set_next(&self, item: Option<PlaybackItem>) -> Result<(), PlaybackControlError> {
         self.actor
-            .ask(QueueNextTrack { item }, self.timeouts.preparation)
+            .ask(SetNext { item }, self.timeouts.preparation)
             .await
-            .map_err(|error| map_call_error("queue_next", error))?
+            .map_err(|error| map_call_error("set_next", error))?
+    }
+
+    /// Requests advancement to the expected successor without reopening its source.
+    ///
+    /// Acceptance includes a successor still preparing. The item becomes audible
+    /// later, as reported by the item-boundary event. A missing or different
+    /// successor returns [`AdvanceOutcome::Unavailable`].
+    ///
+    /// # Errors
+    ///
+    /// Returns a control error if the runtime closes, the request times out, or
+    /// activation of the prepared pipeline fails.
+    pub async fn advance_to_next(
+        &self,
+        expected_item_id: PlaybackItemId,
+        options: SwitchOptions,
+    ) -> Result<AdvanceOutcome, PlaybackControlError> {
+        self.actor
+            .ask(
+                AdvanceToNext {
+                    expected_item_id,
+                    options,
+                },
+                self.timeouts.control,
+            )
+            .await
+            .map_err(|error| map_call_error("advance_to_next", error))?
     }
 
     /// Starts or resumes the current item.
@@ -154,7 +187,7 @@ impl PlaybackController {
 
     /// Stops playback and clears current, queued, transition, and seek state.
     ///
-    /// The runtime remains alive and accepts a later [`Self::switch`].
+    /// The runtime remains alive and accepts a later [`Self::switch_to`].
     ///
     /// # Errors
     ///
@@ -315,4 +348,15 @@ mod tests {
             ));
         }
     }
+}
+
+/// Result of atomically claiming a prepared or preparing successor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AdvanceOutcome {
+    /// The target is retained and advancement has been requested.
+    Accepted,
+    /// The expected item was already promoted before this command was handled.
+    AlreadyCurrent,
+    /// No successor with the expected queue-item identity exists.
+    Unavailable,
 }

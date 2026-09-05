@@ -13,7 +13,6 @@ use super::source::{SourceCatalogEntry, SourceResolverSpec, TrackCatalogEntry, T
 use super::state::{PlaybackQueueRecord, PlaybackStateRecord, RepeatMode};
 
 const PLAYER_SCHEMA_VERSION: i64 = 1;
-pub(super) const MAX_PERSISTED_QUEUE_ITEMS: i64 = 1_024;
 const PLAYER_SCHEMA_FINGERPRINT: &str = "stellatune-player-v1-typed-catalog-state-20260901";
 #[derive(Clone)]
 pub struct PlayerCatalog {
@@ -368,42 +367,7 @@ impl PlayerCatalog {
     }
 
     pub async fn enqueue(&self, track_id: TrackId) -> Result<PlaybackItemId, PlayerServiceError> {
-        if self.track(track_id).await?.tombstoned {
-            return Err(PlayerServiceError::TrackUnavailable(track_id));
-        }
-        let mut tx = self.pool.begin().await?;
-        let position = sqlx::query_scalar::<_, i64>(
-            "SELECT COALESCE(MAX(queue_position)+1,0) FROM playback_queue",
-        )
-        .fetch_one(&mut *tx)
-        .await?;
-        let result = sqlx::query("INSERT INTO playback_queue(track_id,queue_position) VALUES(?,?)")
-            .bind(track_id.as_i64())
-            .bind(position)
-            .execute(&mut *tx)
-            .await?;
-        let queue_len = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM playback_queue")
-            .fetch_one(&mut *tx)
-            .await?;
-        let excess = queue_len.saturating_sub(MAX_PERSISTED_QUEUE_ITEMS);
-        if excess > 0 {
-            sqlx::query(
-                "DELETE FROM playback_queue WHERE item_id IN (\
-                    SELECT item_id FROM playback_queue \
-                    WHERE item_id != COALESCE((SELECT current_item_id FROM playback_state WHERE singleton=1),-1) \
-                    ORDER BY queue_position LIMIT ?)",
-            )
-            .bind(excess)
-            .execute(&mut *tx)
-            .await?;
-        }
-        tx.commit().await?;
-        PlaybackItemId::new(result.last_insert_rowid() as u64).ok_or(
-            PlayerServiceError::InvalidIdentity {
-                identity: "PlaybackItemId",
-                value: result.last_insert_rowid() as u64,
-            },
-        )
+        Ok(self.append_items(&[track_id]).await?[0].item_id)
     }
 
     pub async fn track_for_item(

@@ -1475,8 +1475,8 @@ TypeScript 只返回 URL、headers 和提示；媒体 bytes 直接进入 Rust HT
 
 ### 15.2 Plan
 
-1. `PlaybackController::switch(item, options)` 向 PlaybackActor 发送 typed request；
-2. Actor 增加 session generation；
+1. `PlaybackController::switch_to(item, options)` 向 PlaybackActor 发送 typed request；
+2. Actor 先检查目标是否是已有 successor；匹配则复用，替换整个会话时才增加 session generation；
 3. Actor 进入 `Preparing`，保留或停止旧 session 的行为由明确 switch policy 决定；
 4. Planner 使用 registry snapshot 生成 executable plan；
 5. plan 只包含 factory 和 typed policy。
@@ -1585,7 +1585,7 @@ Seek 不再通过 `PipelineContext.pending_seek_ms` 被 stage 被动观察，也
 
 ### 17.1 Queue-next 输入已经完成 resolve
 
-`queue_next` 接收 `PlaybackItem`，不是 token。PlayerService 可以在当前曲播放期间提前完成远端 source resolution。
+`set_next` 接收 `Option<PlaybackItem>`，不是 token。PlayerService 可以在当前曲播放期间提前完成远端 source resolution。
 
 ### 17.2 预热边界
 
@@ -1938,20 +1938,19 @@ impl PlayerService {
         track: ProviderTrackIdentityInput,
     ) -> Result<TrackId, PlayerServiceError>;
 
-    pub async fn switch_track(
-        &self,
-        track_id: TrackId,
-        options: SwitchOptions,
-    ) -> Result<(), PlayerServiceError>;
+    pub async fn append_queue(self: &Arc<Self>, tracks: Vec<TrackId>)
+        -> Result<QueueSnapshot, PlayerServiceError>;
 
-    pub async fn queue_next(
-        &self,
-        track_id: TrackId,
-    ) -> Result<(), PlayerServiceError>;
+    pub async fn select_item(self: &Arc<Self>, item_id: PlaybackItemId, options: SwitchOptions)
+        -> Result<(), PlayerServiceError>;
+
+    pub async fn next(self: &Arc<Self>) -> Result<(), PlayerServiceError>;
+    pub async fn previous(self: &Arc<Self>) -> Result<(), PlayerServiceError>;
+
 }
 ```
 
-远端搜索结果首次播放时，FFI 先调用或由 Backend facade 内部组合调用 `ensure_track`，取得稳定 `TrackId` 后再执行 `switch_track/queue_next`。Playback Core 控制 API 始终只看到已经 materialize 的 `PlaybackItem`。
+远端搜索结果首次播放时，FFI 先调用或由 Backend facade 内部组合调用 `ensure_track`，取得稳定 `TrackId` 后显式入队，随后通过 `PlaybackItemId` 选择队列项。Playback Core 控制 API 始终只看到已经 materialize 的 `PlaybackItem`。
 
 ### 21.2 PlaybackRuntime 与 PlaybackController
 
@@ -1977,16 +1976,14 @@ pub struct PlaybackController {
 }
 
 impl PlaybackController {
-    pub async fn switch(
-        &self,
-        item: PlaybackItem,
-        options: SwitchOptions,
-    ) -> Result<(), PlaybackControlError>;
+    pub async fn switch_to(&self, item: PlaybackItem, options: SwitchOptions)
+        -> Result<(), PlaybackControlError>;
 
-    pub async fn queue_next(
-        &self,
-        item: PlaybackItem,
-    ) -> Result<(), PlaybackControlError>;
+    pub async fn set_next(&self, item: Option<PlaybackItem>)
+        -> Result<(), PlaybackControlError>;
+
+    pub async fn advance_to_next(&self, expected_item_id: PlaybackItemId, options: SwitchOptions)
+        -> Result<AdvanceOutcome, PlaybackControlError>;
 
     pub async fn play(&self) -> Result<(), PlaybackControlError>;
 
@@ -2151,7 +2148,7 @@ Application startup
     -> resolve source again
     -> materialize a new SourceFactory
     -> construct PlaybackItem with the persisted ID
-    -> PlaybackController::switch(
+    -> PlaybackController::switch_to(
            item,
            SwitchOptions {
                autoplay: false,
@@ -2277,7 +2274,7 @@ Phase 只用于约束重构分支的工作顺序，不是旧数据 migration，�
 - 将 local/plugin resolve 收敛到 PlayerService；
 - 实现 `ProviderTrackIdentityInput -> ProviderTrackIdentity` 和 `SourceResolutionInput -> ResolvedSourceSpec` 的显式验证；
 - 收缩 `SourceResolver` port，使其只能返回 `ResolvedSourceSpec`；
-- 新增 `PlaybackController::switch(PlaybackItem, SwitchOptions)` 和 typed queue-next；
+- 新增 `PlaybackController::switch_to(PlaybackItem, SwitchOptions)` 和 typed queue-next；
 - 实现 `EncodedSource`；
 - 实现 `FileSourceFactory`；
 - 实现保留 headers 的 `HttpSourceFactory`；
@@ -2614,3 +2611,19 @@ cargo tree -p stellatune-audio-builtin-adapters
 - 队列与内存保持有界；
 - 旧 token、no-op source 和通用 stage hook 已删除；
 - 文档、README 和实际 crate 依赖图一致。
+
+
+## 2026-09-05：队列推进与预热复用
+
+本节替代此前将显式切歌、入队和 next preparation 统一作废的描述。
+
+- 原生播放队列由 Rust PlayerService 统一管理，包含 traversal order、repeat、shuffle、requested cursor 和 observed cursor。Flutter 只发送意图、展示队列投影；PlaybackEnded 不再触发第二次 next。DLNA 保留独立的远端控制路径。
+- PlaybackItemId 在入队时分配；重复歌曲是不同队列项。预热、选择和恢复沿用该 ID，不能隐式 enqueue。
+- 核心使用 SwitchTo、SetNext、AdvanceToNext 三种操作。AdvanceToNext 在 actor 内原子校验 expected_item_id，复用准备中或已就绪的 successor。匹配正在 crossfade 的目标时保留当前 overlap。
+- NextTrack 用 Empty / Preparing / Ready 表示。next、current/recovery 各自拥有 preparation cancellation；整体停止或替换会话才统一推进 generation。
+- 快速连续 next 以 requested cursor 继续计算，而不是等待出声事件。旧 source resolution 在 mailbox admission 前重新校验 cancellation，不能覆盖新目标。
+- TrackChanged 推进 observed cursor 并补充后继；旧边界不能回退新的 requested cursor。接收命令成功与设备出声是不同时间点。
+- RepeatOne 仅影响自动后继，手动 next 正常前进；RepeatAll 循环；顺序和随机模式到末尾停止。追加保留已有随机遍历顺序。
+- 删除队列项保持其余 ID；替换队列和删除使用数据库事务。完整保留用户队列，不再套用旧的 1024 条持久化裁剪上限。
+- 本地歌曲身份注册、队列校验/插入和路径投影按批处理；Flutter 通过一次批量注册提交本地歌曲，不为整份列表并发发起逐首数据库操作。顺序投影通过 occurrence ID 索引完成。
+- 回归测试覆盖准备中/已就绪复用、身份不匹配、过期 completion、重复曲目连续播放、连续 next 与删除正在准备的后继。

@@ -6,8 +6,9 @@
 //! Encoded bytes, decoded blocks, and sink writes remain outside the mailbox.
 //!
 //! Every source preparation carries both a monotonically wrapping generation
-//! and a preparation identifier. Switching, stopping, or replacing queued work
-//! advances the generation and cancels the previous source token. Completion
+//! and a preparation identifier. Replacing a session or stopping advances its
+//! generation. Successor preparation owns a separate cancellation token; claiming
+//! it preserves both its identifier and generation. Completion
 //! messages from older generations may complete their reply but must never
 //! mutate the active session.
 //!
@@ -28,46 +29,30 @@ use lattice_actor::{
 use stellatune_audio_core::{
     decoder::DecoderSeekStatus,
     error::PlaybackControlError,
-    playback::{MediaTime, PlaybackItem},
+    playback::{MediaTime, PlaybackItemId},
     source::{SourceCancellation, SourceOpenPurpose},
 };
 use tokio::sync::broadcast;
 
-use crate::planner::{PipelinePlanner, PlaybackPolicies, PlaybackRequest};
+use crate::planner::{PipelinePlanner, PlaybackPolicies};
 
-use super::control::{SwitchOptions, SwitchTransition};
 use super::event::{PlaybackEvent, PlaybackRuntimeSnapshot, PlaybackState};
 use super::lifecycle::{
     advance_pending_seek, fail_current, finish_seek, publish_control_failure, reject_pending,
     set_state, start_seek, stop_current,
 };
+use super::navigation::{AdvanceToNext, SetNext, SwitchTo};
 use super::preparation::prepare_off_turn;
 use super::pump::{activate, promote_or_end, pump_once};
 use super::runtime::PlaybackRuntimeConfig;
 use super::sink_worker::SinkWorker;
 use super::state::{
-    DrainPhase, PendingPreparation, PendingSeek, PlaybackSession, PreparationPurpose,
+    DrainPhase, NextTrack, PendingPreparation, PendingSeek, PlaybackSession, PreparationPurpose,
     PreparationResult, RecoveryPreparation,
 };
-use super::transition::configure_forced_transition;
 
 type ControlResult = Result<(), PlaybackControlError>;
 type SnapshotResult = Result<PlaybackRuntimeSnapshot, PlaybackControlError>;
-
-/// Requests preparation and transition to a new current item.
-#[derive(lattice_actor::Request)]
-#[request(response = ControlResult)]
-pub(super) struct SwitchTrack {
-    pub(super) item: PlaybackItem,
-    pub(super) options: SwitchOptions,
-}
-
-/// Requests preparation of a successor for the current item.
-#[derive(lattice_actor::Request)]
-#[request(response = ControlResult)]
-pub(super) struct QueueNextTrack {
-    pub(super) item: PlaybackItem,
-}
 
 /// Requests output playback or resumption.
 #[derive(lattice_actor::Request)]
@@ -143,7 +128,9 @@ pub(super) struct RecoveryCompleted {
 actor_behavior! {
     PlaybackState {
         always => [
-            SwitchTrack,
+            SwitchTo,
+            AdvanceToNext,
+            SetNext,
             StopPlayback,
             SetOutputGain,
             SetPolicies,
@@ -156,21 +143,21 @@ actor_behavior! {
         ];
         PlaybackState::Idle => [];
         PlaybackState::Preparing => [];
-        PlaybackState::Ready => [Play, Pause, Seek, QueueNextTrack];
-        PlaybackState::Playing => [Play, Pause, Seek, QueueNextTrack];
-        PlaybackState::Paused => [Play, Pause, Seek, QueueNextTrack];
-        PlaybackState::Buffering => [Play, Pause, Seek, QueueNextTrack];
-        PlaybackState::Recovering => [Play, Pause, Seek, QueueNextTrack];
+        PlaybackState::Ready => [Play, Pause, Seek];
+        PlaybackState::Playing => [Play, Pause, Seek];
+        PlaybackState::Paused => [Play, Pause, Seek];
+        PlaybackState::Buffering => [Play, Pause, Seek];
+        PlaybackState::Recovering => [Play, Pause, Seek];
         PlaybackState::Failed => [];
     }
 }
 
 /// Owns playback policy and serializes all changes to a [`PlaybackSession`].
 pub(super) struct PlaybackActor {
-    config: PlaybackRuntimeConfig,
-    planner: PipelinePlanner,
-    event_tx: broadcast::Sender<PlaybackEvent>,
-    session: PlaybackSession,
+    pub(super) config: PlaybackRuntimeConfig,
+    pub(super) planner: PipelinePlanner,
+    pub(super) event_tx: broadcast::Sender<PlaybackEvent>,
+    pub(super) session: PlaybackSession,
 }
 
 impl PlaybackActor {
@@ -187,12 +174,11 @@ impl PlaybackActor {
             session: PlaybackSession {
                 generation: 0,
                 next_preparation_id: 0,
-                preparation_cancellation: SourceCancellation::default(),
                 pending_preparation: None,
                 pending_recovery: None,
                 current: None,
-                next: None,
-                next_preparing: false,
+                next: NextTrack::Empty,
+                advance_options: None,
                 pending_seek: None,
                 crossfade: None,
                 force_transition: false,
@@ -202,7 +188,7 @@ impl PlaybackActor {
         }
     }
 
-    fn transition(&self, ctx: &mut HandlerContext<'_, Self>, state: PlaybackState) {
+    pub(super) fn transition(&self, ctx: &mut HandlerContext<'_, Self>, state: PlaybackState) {
         if *ctx.behavior() != state {
             ctx.transition_to(state);
         }
@@ -212,28 +198,32 @@ impl PlaybackActor {
         &mut self,
         ctx: &mut HandlerContext<'_, Self>,
         purpose: PreparationPurpose,
+        item_id: PlaybackItemId,
     ) -> (u64, u64, SourceCancellation, Instant) {
         self.session.next_preparation_id = self.session.next_preparation_id.wrapping_add(1);
         let id = self.session.next_preparation_id;
         let generation = self.session.generation;
         let timeout = self.config.command_timeouts.preparation;
         let deadline = Instant::now() + timeout;
-        self.session.pending_preparation = Some(PendingPreparation {
+        let cancellation = SourceCancellation::default();
+        let pending = PendingPreparation {
+            item_id,
+            cancellation: cancellation.clone(),
             id,
             generation,
             purpose,
             deadline,
-        });
+        };
+        if matches!(purpose, PreparationPurpose::Next) {
+            self.session.next = NextTrack::Preparing(pending);
+        } else {
+            self.session.pending_preparation = Some(pending);
+        }
         ctx.notify_after(timeout, PreparationDeadlineElapsed { id, generation });
-        (
-            id,
-            generation,
-            self.session.preparation_cancellation.clone(),
-            deadline,
-        )
+        (id, generation, cancellation, deadline)
     }
 
-    fn defer_preparation(
+    pub(super) fn defer_preparation(
         &mut self,
         ctx: &mut HandlerContext<'_, Self>,
         plan: crate::planner::ExecutablePlaybackPlan,
@@ -241,7 +231,8 @@ impl PlaybackActor {
         purpose: PreparationPurpose,
         reply_to: ReplyTo<ControlResult>,
     ) {
-        let (id, generation, cancellation, deadline) = self.begin_preparation(ctx, purpose);
+        let (id, generation, cancellation, deadline) =
+            self.begin_preparation(ctx, purpose, plan.item.id);
         if ctx
             .defer_reply(
                 reply_to,
@@ -258,14 +249,13 @@ impl PlaybackActor {
             )
             .is_err()
         {
-            self.session.preparation_cancellation.cancel();
-            self.session.pending_preparation = None;
+            self.cancel_preparation(purpose);
             let mut state = *ctx.behavior();
             match purpose {
                 PreparationPurpose::Current { .. } => {
                     set_state(&mut state, PlaybackState::Failed, &self.event_tx);
                 },
-                PreparationPurpose::Next => self.session.next_preparing = false,
+                PreparationPurpose::Next => self.session.next.clear(),
                 PreparationPurpose::Recovery { .. } => {},
             }
             self.transition(ctx, state);
@@ -283,6 +273,8 @@ impl PlaybackActor {
         let timeout = self.config.command_timeouts.preparation;
         let deadline = Instant::now() + timeout;
         self.session.pending_preparation = Some(PendingPreparation {
+            item_id: recovery.plan.item.id,
+            cancellation: recovery.cancellation.clone(),
             id: recovery.id,
             generation: recovery.generation,
             purpose: recovery.purpose,
@@ -320,14 +312,18 @@ impl PlaybackActor {
     }
 
     fn audit_preparation_deadline(&mut self, ctx: &mut HandlerContext<'_, Self>) {
-        let Some(pending) = self.session.pending_preparation.as_ref() else {
-            return;
-        };
-        if Instant::now() >= pending.deadline {
-            let message = PreparationDeadlineElapsed {
+        let expired: Vec<_> = self
+            .session
+            .pending_preparation
+            .iter()
+            .chain(self.session.next.pending())
+            .filter(|pending| Instant::now() >= pending.deadline)
+            .map(|pending| PreparationDeadlineElapsed {
                 id: pending.id,
                 generation: pending.generation,
-            };
+            })
+            .collect();
+        for message in expired {
             self.handle_preparation_timeout(ctx, message);
         }
     }
@@ -337,22 +333,24 @@ impl PlaybackActor {
         ctx: &mut HandlerContext<'_, Self>,
         message: PreparationDeadlineElapsed,
     ) {
-        let Some(pending) = self.session.pending_preparation.as_ref() else {
+        let Some(pending) = self
+            .session
+            .pending_preparation
+            .iter()
+            .chain(self.session.next.pending())
+            .find(|pending| pending.id == message.id && pending.generation == message.generation)
+        else {
             return;
         };
-        if pending.id != message.id || pending.generation != message.generation {
-            return;
-        }
         let purpose = pending.purpose;
-        self.session.preparation_cancellation.cancel();
-        self.session.pending_preparation = None;
+        self.cancel_preparation(purpose);
         let mut state = *ctx.behavior();
         match purpose {
             PreparationPurpose::Current { .. } => {
                 set_state(&mut state, PlaybackState::Failed, &self.event_tx);
             },
             PreparationPurpose::Next => {
-                self.session.next_preparing = false;
+                self.session.next.clear();
                 if state == PlaybackState::Buffering
                     && self
                         .session
@@ -378,7 +376,6 @@ impl PlaybackActor {
                         .as_ref()
                         .is_some_and(|current| current.item_id == item_id)
                 {
-                    self.session.preparation_cancellation = SourceCancellation::default();
                     self.schedule_recovery_retry(purpose);
                     self.launch_pending_recovery(ctx, &mut state);
                 } else {
@@ -393,6 +390,16 @@ impl PlaybackActor {
             },
         }
         self.transition(ctx, state);
+    }
+
+    fn cancel_preparation(&mut self, purpose: PreparationPurpose) {
+        if matches!(purpose, PreparationPurpose::Next) {
+            self.session.next.clear();
+            self.session.advance_options = None;
+            self.session.force_transition = false;
+        } else if let Some(pending) = self.session.pending_preparation.take() {
+            pending.cancellation.cancel();
+        }
     }
 
     fn schedule_recovery_retry(&mut self, purpose: PreparationPurpose) {
@@ -419,7 +426,7 @@ impl PlaybackActor {
                 resume_state,
                 attempt: attempt + 1,
             },
-            cancellation: self.session.preparation_cancellation.clone(),
+            cancellation: SourceCancellation::default(),
         });
     }
 }
@@ -457,9 +464,7 @@ impl Actor for PlaybackActor {
         _ctx: &mut ActorContext<Self>,
         _reason: StopReason,
     ) -> Result<(), ActorStopError> {
-        self.session.preparation_cancellation.cancel();
-        self.session.pending_preparation = None;
-        self.session.pending_recovery = None;
+        advance_generation(&mut self.session);
         reject_pending(&mut self.session);
         stop_current(&mut self.session);
         if let Some(mut next) = self.session.next.take() {
@@ -487,126 +492,6 @@ impl Actor for PlaybackActor {
     }
 }
 
-impl Responder<SwitchTrack> for PlaybackActor {
-    async fn respond(
-        &mut self,
-        ctx: &mut HandlerContext<'_, Self>,
-        request: SwitchTrack,
-        reply_to: ReplyTo<ControlResult>,
-    ) -> Result<(), ActorError> {
-        advance_generation(&mut self.session);
-        reject_pending(&mut self.session);
-        let mut state = *ctx.behavior();
-        if self.session.current.is_some()
-            && request.options.transition == SwitchTransition::UseConfiguredPolicy
-        {
-            self.session.next = None;
-            self.session.next_preparing = true;
-            self.session.crossfade = None;
-            self.session.force_transition = true;
-            let plan = match self.planner.plan(
-                PlaybackRequest {
-                    item: request.item,
-                    policies: self.session.policies,
-                },
-                &self.config.registry,
-            ) {
-                Ok(plan) => plan,
-                Err(error) => {
-                    self.session.next_preparing = false;
-                    let _ = reply_to.send(Err(PlaybackControlError::failed(
-                        "planner",
-                        error.to_string(),
-                    )));
-                    return Ok(());
-                },
-            };
-            self.defer_preparation(
-                ctx,
-                plan,
-                SourceOpenPurpose::Prewarm,
-                PreparationPurpose::Next,
-                reply_to,
-            );
-            return Ok(());
-        }
-        stop_current(&mut self.session);
-        self.session.next = None;
-        self.session.next_preparing = false;
-        self.session.crossfade = None;
-        self.session.force_transition = false;
-        set_state(&mut state, PlaybackState::Preparing, &self.event_tx);
-        self.transition(ctx, state);
-        let plan = match self.planner.plan(
-            PlaybackRequest {
-                item: request.item,
-                policies: self.session.policies,
-            },
-            &self.config.registry,
-        ) {
-            Ok(plan) => plan,
-            Err(error) => {
-                let mut state = *ctx.behavior();
-                set_state(&mut state, PlaybackState::Failed, &self.event_tx);
-                self.transition(ctx, state);
-                let _ = reply_to.send(Err(PlaybackControlError::failed(
-                    "planner",
-                    error.to_string(),
-                )));
-                return Ok(());
-            },
-        };
-        self.defer_preparation(
-            ctx,
-            plan,
-            SourceOpenPurpose::Initial,
-            PreparationPurpose::Current {
-                autoplay: request.options.autoplay,
-            },
-            reply_to,
-        );
-        Ok(())
-    }
-}
-
-impl Responder<QueueNextTrack> for PlaybackActor {
-    async fn respond(
-        &mut self,
-        ctx: &mut HandlerContext<'_, Self>,
-        request: QueueNextTrack,
-        reply_to: ReplyTo<ControlResult>,
-    ) -> Result<(), ActorError> {
-        let plan = match self.planner.plan(
-            PlaybackRequest {
-                item: request.item,
-                policies: self.session.policies,
-            },
-            &self.config.registry,
-        ) {
-            Ok(plan) => plan,
-            Err(error) => {
-                let _ = reply_to.send(Err(PlaybackControlError::failed(
-                    "planner",
-                    error.to_string(),
-                )));
-                return Ok(());
-            },
-        };
-        self.session.next = None;
-        advance_generation(&mut self.session);
-        self.session.next_preparing = true;
-        self.session.force_transition = false;
-        self.defer_preparation(
-            ctx,
-            plan,
-            SourceOpenPurpose::Prewarm,
-            PreparationPurpose::Next,
-            reply_to,
-        );
-        Ok(())
-    }
-}
-
 impl Responder<Play> for PlaybackActor {
     async fn respond(
         &mut self,
@@ -621,6 +506,9 @@ impl Responder<Play> for PlaybackActor {
             .ok_or(PlaybackControlError::InvalidState)
             .and_then(|current| current.output.resume());
         if result.is_ok() {
+            if let Some(options) = self.session.advance_options.as_mut() {
+                options.autoplay = true;
+            }
             let mut state = *ctx.behavior();
             set_state(&mut state, PlaybackState::Playing, &self.event_tx);
             self.transition(ctx, state);
@@ -644,6 +532,9 @@ impl Responder<Pause> for PlaybackActor {
             .ok_or(PlaybackControlError::InvalidState)
             .and_then(|current| current.output.pause());
         if result.is_ok() {
+            if let Some(options) = self.session.advance_options.as_mut() {
+                options.autoplay = false;
+            }
             let mut state = *ctx.behavior();
             set_state(&mut state, PlaybackState::Paused, &self.event_tx);
             self.transition(ctx, state);
@@ -707,8 +598,8 @@ impl Responder<StopPlayback> for PlaybackActor {
         self.session.crossfade = None;
         self.session.force_transition = false;
         stop_current(&mut self.session);
-        self.session.next = None;
-        self.session.next_preparing = false;
+        self.session.next.clear();
+        self.session.next.clear();
         let mut state = *ctx.behavior();
         set_state(&mut state, PlaybackState::Idle, &self.event_tx);
         self.transition(ctx, state);
@@ -829,6 +720,9 @@ impl Handler<PumpAudio> for PlaybackActor {
             pump_once(&self.config, &self.event_tx, &mut self.session, &mut state);
         }
         self.launch_pending_recovery(ctx, &mut state);
+        if let Err(error) = self.apply_advance(&mut state) {
+            publish_control_failure(&error, &self.event_tx);
+        }
         self.transition(ctx, state);
         Ok(())
     }
@@ -855,15 +749,18 @@ impl Handler<PreparationCompleted> for PlaybackActor {
         let matches = self
             .session
             .pending_preparation
-            .as_ref()
-            .is_some_and(|pending| {
-                pending.id == prepared.id && pending.generation == prepared.generation
-            });
+            .iter()
+            .chain(self.session.next.pending())
+            .any(|pending| pending.id == prepared.id && pending.generation == prepared.generation);
         if !matches || prepared.generation != self.session.generation {
             let _ = reply_to.send(Err(PlaybackControlError::Closed));
             return Ok(());
         }
-        self.session.pending_preparation = None;
+        if matches!(prepared.purpose, PreparationPurpose::Next) {
+            self.session.next = NextTrack::Empty;
+        } else {
+            self.session.pending_preparation = None;
+        }
         let mut state = *ctx.behavior();
         let response;
         match prepared.purpose {
@@ -897,10 +794,9 @@ impl Handler<PreparationCompleted> for PlaybackActor {
             },
             PreparationPurpose::Next => match prepared.result {
                 Ok(prepared) => {
-                    self.session.next_preparing = false;
-                    self.session.next = Some(prepared);
-                    configure_forced_transition(&mut self.session);
-                    response = Ok(());
+                    self.session.next.clear();
+                    self.session.next = NextTrack::Ready(Box::new(prepared));
+                    response = self.apply_advance(&mut state);
                     if state == PlaybackState::Buffering
                         && self
                             .session
@@ -920,7 +816,9 @@ impl Handler<PreparationCompleted> for PlaybackActor {
                     }
                 },
                 Err(error) => {
-                    self.session.next_preparing = false;
+                    self.session.next.clear();
+                    self.session.advance_options = None;
+                    self.session.force_transition = false;
                     publish_control_failure(&error, &self.event_tx);
                     response = Err(error);
                     if state == PlaybackState::Buffering
@@ -1030,9 +928,13 @@ impl Handler<RecoveryCompleted> for PlaybackActor {
 
 /// Invalidates outstanding preparation and advances the session generation.
 pub(super) fn advance_generation(session: &mut PlaybackSession) {
-    session.preparation_cancellation.cancel();
-    session.preparation_cancellation = SourceCancellation::default();
-    session.pending_preparation = None;
-    session.pending_recovery = None;
+    if let Some(pending) = session.pending_preparation.take() {
+        pending.cancellation.cancel();
+    }
+    if let Some(pending) = session.pending_recovery.take() {
+        pending.cancellation.cancel();
+    }
+    session.next.clear();
+    session.advance_options = None;
     session.generation = session.generation.wrapping_add(1);
 }

@@ -12,7 +12,7 @@ const Set<String> kDisabledPluginPruneReasons = {
 };
 
 class PlaybackPlayabilityUtils {
-  static bool isLocalTrack(QueueItem item) => item.providerTrack == null;
+  static bool isLocalTrack(QueueItem item) => item.isLocal;
 
   static TrackLocatorPluginIds extractPluginIds(QueueItem item) {
     final provider = item.providerTrack;

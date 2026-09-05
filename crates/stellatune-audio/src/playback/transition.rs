@@ -51,8 +51,12 @@ pub(super) fn maybe_start_crossfade(actor: &mut PlaybackSession) {
     else {
         return;
     };
-    let Some(duration) = current.duration_frames else {
-        return;
+    let duration = match current.duration_frames {
+        Some(duration) => duration,
+        None if forced => current
+            .produced_audible_frame
+            .saturating_add(duration_frames),
+        None => return,
     };
     if duration_frames == 0 {
         return;
@@ -89,7 +93,7 @@ pub(super) fn maybe_start_crossfade(actor: &mut PlaybackSession) {
     let item_id = next.plan.item.id;
     let boundary_base = clock.consumed_frames.saturating_add(clock.buffered_frames);
     if current.output.mark_boundary(item_id).is_err() {
-        actor.next = Some(next);
+        actor.next = super::state::NextTrack::Ready(Box::new(next));
         return;
     }
     actor.crossfade = Some(CrossfadeState {
@@ -472,7 +476,6 @@ pub(super) fn configure_forced_transition(actor: &mut PlaybackSession) {
     };
     match current.transition {
         TransitionPolicy::Gapless => {
-            current.duration_frames = Some(current.produced_audible_frame);
             current.forced_end_frame = Some(current.produced_audible_frame);
         },
         TransitionPolicy::FadeOutIn {
@@ -481,7 +484,6 @@ pub(super) fn configure_forced_transition(actor: &mut PlaybackSession) {
             let end = current
                 .produced_audible_frame
                 .saturating_add(fade_out_frames);
-            current.duration_frames = Some(end);
             current.forced_end_frame = Some(end);
         },
         TransitionPolicy::Crossfade { .. } => {},
@@ -597,8 +599,10 @@ pub(super) fn apply_track_transition_gain(current: &ActiveTrack, block: &mut Aud
                 / recovery.duration_frames.max(1) as f32;
             gain *= recovery.start_gain + (1.0 - recovery.start_gain) * progress;
         }
-        if let (Some(duration), Some((fade_frames, curve))) = (current.duration_frames, fade_out)
-            && fade_frames > 0
+        if let (Some(duration), Some((fade_frames, curve))) = (
+            current.forced_end_frame.or(current.duration_frames),
+            fade_out,
+        ) && fade_frames > 0
             && timeline_frame >= duration.saturating_sub(fade_frames)
         {
             let remaining = duration.saturating_sub(timeline_frame);

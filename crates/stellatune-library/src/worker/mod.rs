@@ -3,6 +3,7 @@ mod fts;
 mod metadata;
 mod paths;
 mod scan;
+mod track_paths;
 mod tracks;
 mod watch;
 
