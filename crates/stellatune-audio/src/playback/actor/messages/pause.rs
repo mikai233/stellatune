@@ -20,13 +20,19 @@ impl Responder<Pause> for PlaybackActor {
         _request: Pause,
         reply_to: ReplyTo<ControlResult>,
     ) -> Result<(), ActorError> {
-        let result = self
-            .session
-            .current
-            .as_mut()
-            .ok_or(PlaybackControlError::InvalidState)
-            .and_then(|current| current.output.pause());
+        let result = if self.session.pending_preparation.is_some()
+            || self.session.pending_recovery.is_some()
+        {
+            let _ = reply_to.send(Ok(()));
+            Ok(())
+        } else if let Some(current) = self.session.current.as_ref() {
+            current.output.request_playing(false, reply_to)
+        } else {
+            let _ = reply_to.send(Err(PlaybackControlError::InvalidState));
+            Err(PlaybackControlError::InvalidState)
+        };
         if result.is_ok() {
+            self.session.wants_playing = false;
             if let Some(options) = self.session.advance_options.as_mut() {
                 options.autoplay = false;
             }
@@ -34,7 +40,6 @@ impl Responder<Pause> for PlaybackActor {
             set_state(&mut state, PlaybackState::Paused, &self.event_tx);
             self.transition(ctx, state);
         }
-        let _ = reply_to.send(result);
         Ok(())
     }
 }

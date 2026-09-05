@@ -20,6 +20,8 @@ pub mod runtime;
 mod actor;
 mod lifecycle;
 mod normalizer;
+mod output_workers;
+mod pipeline;
 mod preparation;
 mod pump;
 mod sink_worker;

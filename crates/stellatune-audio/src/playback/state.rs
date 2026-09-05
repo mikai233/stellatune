@@ -1,7 +1,7 @@
 //! Actor-owned playback session and track pipeline state.
 //!
 //! `PlaybackSession` contains mutable domain state but deliberately excludes
-//! [`PlaybackState`], which is owned by the Lattice behavior. `PreparedTrack`
+//! [`PlaybackState`](super::event::PlaybackState), which is owned by the Lattice behavior. `PreparedTrack`
 //! has no output worker; activation converts it into `ActiveTrack` or, during
 //! overlap, `SecondaryTrack`. Only `ActiveTrack` owns a `SinkWorker`.
 //!
@@ -17,30 +17,24 @@ use lattice_actor::reply::ReplyTo;
 
 use crate::planner::{CrossfadeCurve, ExecutablePlaybackPlan, PlaybackPolicies, TransitionPolicy};
 use stellatune_audio_core::{
-    decoder::DecoderStage,
     error::PlaybackControlError,
     format::{AudioBlock, PcmFormat},
     playback::{MediaTime, PlaybackItemId},
     sink::SinkFactory,
     source::SourceCancellation,
-    transform::TransformStage,
 };
 
 use super::control::SwitchOptions;
-use super::event::PlaybackState;
-use super::normalizer::PcmNormalizer;
+use super::pipeline::{ConfiguredTransform, TrackPipeline};
 use super::sink_worker::SinkWorker;
 /// The domain role attached to one off-turn preparation task.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum PreparationPurpose {
-    Current {
-        autoplay: bool,
-    },
+    Current,
     Next,
     Recovery {
         item_id: PlaybackItemId,
         checkpoint: MediaTime,
-        resume_state: PlaybackState,
         attempt: usize,
     },
 }
@@ -74,47 +68,21 @@ pub(super) struct RecoveryPreparation {
 
 /// A fully configured track pipeline that does not yet own an output worker.
 pub(super) struct PreparedTrack {
+    pub(super) pipeline: TrackPipeline,
     pub(super) plan: ExecutablePlaybackPlan,
-    pub(super) decoder: Box<dyn DecoderStage>,
-    pub(super) pre_mix_transforms: Vec<Box<dyn TransformStage>>,
-    pub(super) pre_mix_formats: Vec<PcmFormat>,
-    pub(super) post_mix_transforms: Vec<Box<dyn TransformStage>>,
-    pub(super) post_mix_formats: Vec<PcmFormat>,
-    pub(super) decoded_format: PcmFormat,
-    pub(super) mix_format: PcmFormat,
+    pub(super) post_mix_transforms: Vec<ConfiguredTransform>,
     pub(super) output_format: PcmFormat,
-    pub(super) normalizer: Option<PcmNormalizer>,
-    pub(super) duration_frames: Option<u64>,
-    pub(super) trim_head_frames: u64,
-    pub(super) trim_tail_frames: u64,
-    pub(super) raw_duration_frames: Option<u64>,
-    pub(super) initial_decoded_frame: u64,
-    pub(super) initial_audible_frame: u64,
 }
 
 /// The current track pipeline, including output, clocks, and transition state.
 pub(super) struct ActiveTrack {
+    pub(super) pipeline: TrackPipeline,
     pub(super) recovery_plan: ExecutablePlaybackPlan,
     pub(super) item_id: PlaybackItemId,
-    pub(super) decoder: Box<dyn DecoderStage>,
-    pub(super) pre_mix_transforms: Vec<Box<dyn TransformStage>>,
-    pub(super) pre_mix_formats: Vec<PcmFormat>,
-    pub(super) post_mix_transforms: Vec<Box<dyn TransformStage>>,
-    pub(super) post_mix_formats: Vec<PcmFormat>,
-    pub(super) decoded_format: PcmFormat,
-    pub(super) mix_format: PcmFormat,
+    pub(super) post_mix_transforms: Vec<ConfiguredTransform>,
     pub(super) output_format: PcmFormat,
-    pub(super) normalizer: Option<PcmNormalizer>,
-    pub(super) duration_frames: Option<u64>,
-    pub(super) trim_head_frames: u64,
-    pub(super) trim_tail_frames: u64,
-    pub(super) raw_duration_frames: Option<u64>,
-    pub(super) tail_buffer: Vec<f32>,
-    pub(super) decoded_frame: u64,
-    pub(super) produced_audible_frame: u64,
     pub(super) position_base_frame: u64,
     pub(super) last_reported_position_frame: u64,
-    pub(super) epoch: u64,
     pub(super) pending_block: Option<AudioBlock>,
     pub(super) sink_factory: Arc<dyn SinkFactory>,
     pub(super) output: SinkWorker,
@@ -129,6 +97,24 @@ pub(super) struct ActiveTrack {
     pub(super) drain_phase: DrainPhase,
 }
 
+impl ActiveTrack {
+    pub(super) fn output_frames_to_mix(&self, frames: u64) -> u64 {
+        MediaTime::from_frames(frames, self.output_format.sample_rate)
+            .to_frames(self.pipeline.mix_format.sample_rate)
+    }
+
+    pub(super) fn consumed_position_frame(&self) -> u64 {
+        self.position_base_frame.saturating_add(
+            self.output_frames_to_mix(
+                self.output
+                    .clock()
+                    .consumed_frames
+                    .saturating_sub(self.sink_consumed_base_frame),
+            ),
+        )
+    }
+}
+
 /// A gain ramp that restores the current track after a failed overlap.
 #[derive(Debug, Clone, Copy)]
 pub(super) struct TransitionRecoveryFade {
@@ -139,7 +125,9 @@ pub(super) struct TransitionRecoveryFade {
 
 /// All mutable playback domain state exclusively owned by `PlaybackActor`.
 pub(super) struct PlaybackSession {
+    pub(super) output_workers: Arc<super::output_workers::OutputWorkers>,
     pub(super) generation: u64,
+    pub(super) wants_playing: bool,
     pub(super) next_preparation_id: u64,
     pub(super) pending_preparation: Option<PendingPreparation>,
     pub(super) pending_recovery: Option<RecoveryPreparation>,
@@ -155,21 +143,9 @@ pub(super) struct PlaybackSession {
 
 /// The next track while it is decoded concurrently for a crossfade.
 pub(super) struct SecondaryTrack {
+    pub(super) pipeline: TrackPipeline,
     pub(super) recovery_plan: ExecutablePlaybackPlan,
     pub(super) item_id: PlaybackItemId,
-    pub(super) decoder: Box<dyn DecoderStage>,
-    pub(super) pre_mix_transforms: Vec<Box<dyn TransformStage>>,
-    pub(super) pre_mix_formats: Vec<PcmFormat>,
-    pub(super) decoded_format: PcmFormat,
-    pub(super) mix_format: PcmFormat,
-    pub(super) normalizer: Option<PcmNormalizer>,
-    pub(super) duration_frames: Option<u64>,
-    pub(super) trim_head_frames: u64,
-    pub(super) trim_tail_frames: u64,
-    pub(super) raw_duration_frames: Option<u64>,
-    pub(super) tail_buffer: Vec<f32>,
-    pub(super) decoded_frame: u64,
-    pub(super) produced_audible_frame: u64,
     pub(super) sink_factory: Arc<dyn SinkFactory>,
     pub(super) transition: TransitionPolicy,
     pub(super) seek_fade_frames: u64,
@@ -200,7 +176,6 @@ pub(super) struct CrossfadeState {
 /// A multi-turn decoder seek and the external reply waiting for completion.
 pub(super) struct PendingSeek {
     pub(super) response: ReplyTo<Result<(), PlaybackControlError>>,
-    pub(super) resume_state: PlaybackState,
     pub(super) item_id: PlaybackItemId,
 }
 

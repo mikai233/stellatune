@@ -2,7 +2,7 @@
 //!
 //! Stage-local errors describe one operation.
 //! [`PlaybackFailure`](crate::error::PlaybackFailure) adds the stage category,
-//! stable item identity, generation, and retry policy needed by the runtime and
+//! stable item identity, generation, and failure category needed by the runtime and
 //! application layers.
 
 use thiserror::Error;
@@ -14,9 +14,6 @@ macro_rules! stage_error {
         #[doc = $description]
         #[derive(Debug, Error)]
         pub enum $name {
-            /// The stage cannot make progress until more input or capacity is available.
-            #[error("operation temporarily unavailable")]
-            Pending,
             /// The stage does not implement the requested operation or format.
             #[error("operation is unsupported")]
             Unsupported,
@@ -97,50 +94,33 @@ pub enum FailureStage {
     Runtime,
 }
 
-impl FailureStage {
-    /// Maps an internal stage label to its stable public category.
-    ///
-    /// Unknown labels map to [`Self::Runtime`]. Normalizer failures map to
-    /// [`Self::Transform`], and recovery failures map to [`Self::Sink`].
-    pub fn from_internal_name(stage: &'static str) -> Self {
-        match stage {
-            "source" => Self::Source,
-            "decoder" => Self::Decoder,
-            "transform" | "normalizer" => Self::Transform,
-            "sink" | "recovery" => Self::Sink,
-            "planner" => Self::Planner,
-            _ => Self::Runtime,
-        }
-    }
-}
-
-/// The recovery action associated with a [`PlaybackFailure`].
+/// A machine-readable reason, independent of runtime recovery policy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RetryDisposition {
-    /// The failure is terminal for the current playback attempt.
-    Never,
-    /// Recovery requires reopening and preparing the encoded source.
-    ReopenSource,
-    /// Recovery requires recreating the output sink.
-    RebuildOutput,
-    /// The same operation may be retried after a delay.
-    Backoff,
+pub enum FailureCode {
+    /// The requested operation or representation is unsupported.
+    Unsupported,
+    /// A source or stage encountered an I/O failure.
+    Io,
+    /// A factory received invalid configuration.
+    InvalidConfiguration,
+    /// A configured factory could not create a stage.
+    CreateFailed,
+    /// A stage reported an implementation-specific failure.
+    StageFailed,
 }
 
 /// A contextual failure emitted by the playback runtime.
 #[derive(Debug, Clone, Error, PartialEq, Eq)]
-#[error("playback failed at {stage:?} ({code}): {message}")]
+#[error("playback failed at {stage:?} ({code:?}): {message}")]
 pub struct PlaybackFailure {
     /// The subsystem in which the failure originated.
     pub stage: FailureStage,
     /// The concrete registered stage, when one can be identified.
     pub stage_id: Option<StageId>,
     /// A stable, machine-readable error code.
-    pub code: &'static str,
+    pub code: FailureCode,
     /// A human-readable failure description.
     pub message: String,
-    /// The recovery action recommended by the producing layer.
-    pub retry: RetryDisposition,
     /// The affected playback item, when an item was active.
     pub item_id: Option<PlaybackItemId>,
     /// The playback generation in which the failure occurred.
@@ -148,24 +128,18 @@ pub struct PlaybackFailure {
 }
 
 impl PlaybackFailure {
-    /// Creates a generic failure from an internal stage label and message.
-    ///
-    /// Source failures default to [`RetryDisposition::ReopenSource`], sink and
-    /// recovery failures default to [`RetryDisposition::RebuildOutput`], and
-    /// all other stages default to [`RetryDisposition::Never`].
-    pub fn internal(stage: &'static str, message: impl Into<String>) -> Self {
-        let stage = FailureStage::from_internal_name(stage);
-        let retry = match stage {
-            FailureStage::Source => RetryDisposition::ReopenSource,
-            FailureStage::Sink => RetryDisposition::RebuildOutput,
-            _ => RetryDisposition::Never,
-        };
+    /// Creates a failure without making runtime recovery decisions.
+    pub fn new(
+        stage: FailureStage,
+        code: FailureCode,
+        stage_id: Option<StageId>,
+        message: impl Into<String>,
+    ) -> Self {
         Self {
             stage,
-            stage_id: None,
-            code: "stage_failed",
+            stage_id,
+            code,
             message: message.into(),
-            retry,
             item_id: None,
             generation: 0,
         }
@@ -203,9 +177,14 @@ pub enum PlaybackControlError {
 }
 
 impl PlaybackControlError {
-    /// Creates a failed control result from an internal stage label and message.
-    pub fn failed(stage: &'static str, message: impl Into<String>) -> Self {
-        Self::Failed(PlaybackFailure::internal(stage, message))
+    /// Creates a failed control result for a typed subsystem and message.
+    pub fn failed(stage: FailureStage, message: impl Into<String>) -> Self {
+        Self::Failed(PlaybackFailure::new(
+            stage,
+            FailureCode::StageFailed,
+            None,
+            message,
+        ))
     }
 
     /// Adds item and generation context when this is a [`Self::Failed`] error.
@@ -216,5 +195,60 @@ impl PlaybackControlError {
             Self::Failed(failure) => Self::Failed(failure.with_context(item_id, generation)),
             other => other,
         }
+    }
+}
+
+macro_rules! stage_failure_conversion {
+    ($error:ident, $stage:expr, $method:ident) => {
+        impl PlaybackControlError {
+            /// Preserves a stage failure category and concrete implementation identity.
+            pub fn $method(error: $error, id: StageId) -> Self {
+                let code = match &error {
+                    $error::Unsupported => FailureCode::Unsupported,
+                    $error::Io(_) => FailureCode::Io,
+                    $error::Failed { .. } => FailureCode::StageFailed,
+                };
+                Self::Failed(PlaybackFailure::new(
+                    $stage,
+                    code,
+                    Some(id),
+                    error.to_string(),
+                ))
+            }
+        }
+    };
+}
+stage_failure_conversion!(DecodeError, FailureStage::Decoder, decoder);
+stage_failure_conversion!(TransformError, FailureStage::Transform, transform);
+stage_failure_conversion!(SinkError, FailureStage::Sink, sink);
+
+impl PlaybackControlError {
+    /// Preserves a factory error and identifies the factory that failed.
+    pub fn factory(stage: FailureStage, id: StageId, error: FactoryError) -> Self {
+        let code = match error {
+            FactoryError::InvalidConfiguration { .. } => FailureCode::InvalidConfiguration,
+            FactoryError::CreateFailed { .. } => FailureCode::CreateFailed,
+        };
+        Self::Failed(PlaybackFailure::new(
+            stage,
+            code,
+            Some(id),
+            error.to_string(),
+        ))
+    }
+    /// Preserves source failures; cooperative cancellation remains a closed request.
+    pub fn source(error: SourceError) -> Self {
+        let code = match &error {
+            SourceError::Cancelled => return Self::Closed,
+            SourceError::Unsupported => FailureCode::Unsupported,
+            SourceError::Io(_) => FailureCode::Io,
+            _ => FailureCode::StageFailed,
+        };
+        Self::Failed(PlaybackFailure::new(
+            FailureStage::Source,
+            code,
+            None,
+            error.to_string(),
+        ))
     }
 }

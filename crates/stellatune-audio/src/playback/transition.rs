@@ -11,23 +11,22 @@
 //! overlap begins, the current track ramps from its instantaneous gain back to
 //! unity instead of being discarded.
 
+use stellatune_audio_core::error::FailureCode;
 use stellatune_audio_core::{
     error::{FailureStage, PlaybackControlError, PlaybackFailure},
     format::{AudioBlock, PcmFormat},
     playback::MediaTime,
-    transform::{TransformPlacement, TransformStage},
+    transform::TransformPlacement,
 };
 use tokio::sync::broadcast;
 
 use crate::planner::{CrossfadeCurve, GainCurve, TransitionPolicy};
 
 use super::event::{PlaybackEvent, PlaybackState};
-use super::lifecycle::{fail_current, set_state};
+use super::lifecycle::set_state;
 use super::normalizer::PcmNormalizer;
-use super::pump::{
-    TrackBlockStatus, begin_recovery, decode_secondary_block, decode_track_block,
-    process_transform_chain,
-};
+use super::pipeline::{TrackBlockStatus, process_transform_chain};
+use super::pump::{begin_recovery, decode_secondary_block};
 use super::runtime::PlaybackRuntimeConfig;
 use super::sink_worker::{PendingWrite, SinkWorker};
 use super::state::{
@@ -51,9 +50,10 @@ pub(super) fn maybe_start_crossfade(actor: &mut PlaybackSession) {
     else {
         return;
     };
-    let duration = match current.duration_frames {
+    let duration = match current.pipeline.duration_frames {
         Some(duration) => duration,
         None if forced => current
+            .pipeline
             .produced_audible_frame
             .saturating_add(duration_frames),
         None => return,
@@ -63,23 +63,18 @@ pub(super) fn maybe_start_crossfade(actor: &mut PlaybackSession) {
     }
     let clock = current.output.clock();
     let produced_frontier = current
-        .position_base_frame
-        .saturating_add(
-            clock
-                .consumed_frames
-                .saturating_sub(current.sink_consumed_base_frame),
-        )
-        .saturating_add(clock.buffered_frames);
+        .consumed_position_frame()
+        .saturating_add(current.output_frames_to_mix(clock.buffered_frames));
     if !forced && produced_frontier < duration.saturating_sub(duration_frames) {
         return;
     }
     let Some(next) = actor.next.as_mut() else {
         return;
     };
-    if normalize_prepared_for_mix(next, current.mix_format).is_err() {
+    if normalize_prepared_for_mix(next, current.pipeline.mix_format).is_err() {
         return;
     }
-    let compatible = current.mix_format == next.mix_format
+    let compatible = current.pipeline.mix_format == next.pipeline.mix_format
         && current.output_format == next.output_format
         && current
             .sink_factory
@@ -114,35 +109,40 @@ pub(super) fn normalize_prepared_for_mix(
     prepared: &mut PreparedTrack,
     target: PcmFormat,
 ) -> Result<(), PlaybackControlError> {
-    if prepared.mix_format == target {
+    if prepared.pipeline.mix_format == target {
         return Ok(());
     }
-    let source = prepared.mix_format;
-    let normalizer = PcmNormalizer::new(source, target)?;
+    let source = prepared.pipeline.mix_format;
+    let normalizer = PcmNormalizer::new(prepared.pipeline.normalizer_input_format, target)?;
     let mut post_mix_transforms = Vec::new();
-    let mut post_mix_formats = Vec::new();
     let mut output_format = target;
     for factory in &prepared.plan.transforms {
         if factory.descriptor().placement != TransformPlacement::PostMix {
             continue;
         }
-        let mut transform = factory
-            .create()
-            .map_err(|error| PlaybackControlError::failed("transform", error.to_string()))?;
-        output_format = transform
-            .configure(output_format)
-            .map_err(|error| PlaybackControlError::failed("transform", error.to_string()))?;
-        post_mix_transforms.push(transform);
-        post_mix_formats.push(output_format);
+        let mut transform = factory.create().map_err(|error| {
+            PlaybackControlError::factory(
+                FailureStage::Transform,
+                factory.descriptor().id.clone(),
+                error,
+            )
+        })?;
+        output_format = transform.configure(output_format).map_err(|error| {
+            PlaybackControlError::transform(error, factory.descriptor().id.clone())
+        })?;
+        post_mix_transforms.push(super::pipeline::ConfiguredTransform::new(
+            transform,
+            output_format,
+            factory.descriptor().id.clone(),
+        ));
     }
-    prepared.duration_frames = prepared.duration_frames.map(|frames| {
+    prepared.pipeline.duration_frames = prepared.pipeline.duration_frames.map(|frames| {
         MediaTime::from_frames(frames, source.sample_rate).to_frames(target.sample_rate)
     });
-    prepared.normalizer = Some(normalizer);
-    prepared.mix_format = target;
+    prepared.pipeline.normalizer = Some(normalizer);
+    prepared.pipeline.mix_format = target;
     prepared.output_format = output_format;
     prepared.post_mix_transforms = post_mix_transforms;
-    prepared.post_mix_formats = post_mix_formats;
     Ok(())
 }
 
@@ -150,21 +150,9 @@ pub(super) fn normalize_prepared_for_mix(
 pub(super) fn secondary_from_prepared(prepared: PreparedTrack) -> SecondaryTrack {
     let recovery_plan = prepared.plan.clone();
     SecondaryTrack {
+        pipeline: prepared.pipeline,
         recovery_plan,
         item_id: prepared.plan.item.id,
-        decoder: prepared.decoder,
-        pre_mix_transforms: prepared.pre_mix_transforms,
-        pre_mix_formats: prepared.pre_mix_formats,
-        decoded_format: prepared.decoded_format,
-        mix_format: prepared.mix_format,
-        normalizer: prepared.normalizer,
-        duration_frames: prepared.duration_frames,
-        trim_head_frames: prepared.trim_head_frames,
-        trim_tail_frames: prepared.trim_tail_frames,
-        raw_duration_frames: prepared.raw_duration_frames,
-        tail_buffer: Vec::new(),
-        decoded_frame: 0,
-        produced_audible_frame: 0,
         sink_factory: prepared.plan.sink,
         transition: prepared.plan.policies.transition,
         seek_fade_frames: prepared.plan.policies.seek_fade_frames,
@@ -205,8 +193,7 @@ pub(super) fn pump_crossfade(
                     event_tx,
                     actor,
                     state,
-                    "sink",
-                    "sink worker closed".to_owned(),
+                    PlaybackControlError::failed(FailureStage::Sink, "sink worker closed"),
                 );
                 return;
             },
@@ -214,21 +201,10 @@ pub(super) fn pump_crossfade(
     }
 
     if crossfade.current_block.is_none() {
-        match decode_track_block(
-            current.decoder.as_mut(),
-            &mut current.pre_mix_transforms,
-            &current.pre_mix_formats,
-            &mut current.normalizer,
-            current.decoded_format,
-            current.trim_head_frames,
-            current.trim_tail_frames,
-            current.raw_duration_frames,
-            &mut current.tail_buffer,
-            &mut current.decoded_frame,
-            &mut current.produced_audible_frame,
-            config.block_frames,
-            current.epoch,
-        ) {
+        match current
+            .pipeline
+            .decode(config.block_frames, current.output.epoch())
+        {
             Ok(TrackBlockStatus::Data(block)) => crossfade.current_block = Some(block),
             Ok(TrackBlockStatus::Pending) => {
                 set_state(state, PlaybackState::Buffering, event_tx);
@@ -238,13 +214,19 @@ pub(super) fn pump_crossfade(
                 crossfade.progressed_frames = crossfade.duration_frames;
             },
             Err(PlaybackControlError::Failed(failure))
-                if failure.stage == FailureStage::Decoder =>
+                if failure.stage == FailureStage::Decoder && failure.code == FailureCode::Io =>
             {
-                begin_recovery(config, event_tx, actor, state, "decoder", failure.message);
+                begin_recovery(
+                    config,
+                    event_tx,
+                    actor,
+                    state,
+                    PlaybackControlError::Failed(failure),
+                );
                 return;
             },
             Err(error) => {
-                fail_current(actor, state, event_tx, "decoder", error.to_string());
+                super::lifecycle::fail_current_error(actor, state, event_tx, error);
                 return;
             },
         }
@@ -254,23 +236,33 @@ pub(super) fn pump_crossfade(
         return;
     }
     if crossfade.next_block.is_none() {
-        let next_failure =
-            match decode_secondary_block(&mut crossfade.next, config.block_frames, current.epoch) {
-                Ok(TrackBlockStatus::Data(block)) => {
-                    crossfade.next_block = Some(block);
-                    None
-                },
-                Ok(TrackBlockStatus::Pending) => {
-                    set_state(state, PlaybackState::Buffering, event_tx);
-                    return;
-                },
-                Ok(TrackBlockStatus::EndOfStream) => Some(PlaybackFailure::internal(
-                    "decoder",
-                    "next track ended during an active crossfade",
-                )),
-                Err(PlaybackControlError::Failed(failure)) => Some(failure),
-                Err(error) => Some(PlaybackFailure::internal("decoder", error.to_string())),
-            };
+        let next_failure = match decode_secondary_block(
+            &mut crossfade.next,
+            config.block_frames,
+            current.output.epoch(),
+        ) {
+            Ok(TrackBlockStatus::Data(block)) => {
+                crossfade.next_block = Some(block);
+                None
+            },
+            Ok(TrackBlockStatus::Pending) => {
+                set_state(state, PlaybackState::Buffering, event_tx);
+                return;
+            },
+            Ok(TrackBlockStatus::EndOfStream) => Some(PlaybackFailure::new(
+                FailureStage::Decoder,
+                FailureCode::StageFailed,
+                None,
+                "next track ended during an active crossfade",
+            )),
+            Err(PlaybackControlError::Failed(failure)) => Some(failure),
+            Err(error) => Some(PlaybackFailure::new(
+                FailureStage::Decoder,
+                FailureCode::StageFailed,
+                None,
+                error.to_string(),
+            )),
+        };
         if let Some(failure) = next_failure {
             let progress =
                 crossfade.progressed_frames as f32 / crossfade.duration_frames.max(1) as f32;
@@ -286,12 +278,10 @@ pub(super) fn pump_crossfade(
                     start_gain: current_gain,
                 });
                 apply_track_transition_gain(current, &mut block);
-                if let Err(error) = process_transform_chain(
-                    &mut current.post_mix_transforms,
-                    &current.post_mix_formats,
-                    &mut block,
-                ) {
-                    fail_current(actor, state, event_tx, "transform", error.to_string());
+                if let Err(error) =
+                    process_transform_chain(&mut current.post_mix_transforms, &mut block)
+                {
+                    super::lifecycle::fail_current_error(actor, state, event_tx, error);
                     return;
                 }
                 if !block.samples.is_empty() {
@@ -323,13 +313,14 @@ pub(super) fn pump_crossfade(
     if frames == 0 {
         return;
     }
-    let channels = usize::from(current.mix_format.channel_layout.channel_count());
+    let channels = usize::from(current.pipeline.mix_format.channel_layout.channel_count());
     let sample_count = frames.saturating_mul(channels);
-    let mut mixed = AudioBlock::new(current.mix_format);
+    let mut mixed = AudioBlock::new(current.pipeline.mix_format);
     mixed.timeline.start_frame = current
+        .pipeline
         .produced_audible_frame
         .saturating_sub(current_frames as u64);
-    mixed.timeline.epoch = current.epoch;
+    mixed.timeline.epoch = current.output.epoch();
     mixed.samples.reserve(sample_count);
     let current_samples = &crossfade.current_block.as_ref().unwrap().samples[..sample_count];
     let next_samples = &crossfade.next_block.as_ref().unwrap().samples[..sample_count];
@@ -349,12 +340,8 @@ pub(super) fn pump_crossfade(
     consume_block_prefix(&mut crossfade.current_block, sample_count, frames as u64);
     consume_block_prefix(&mut crossfade.next_block, sample_count, frames as u64);
     crossfade.progressed_frames = crossfade.progressed_frames.saturating_add(frames as u64);
-    if let Err(error) = process_transform_chain(
-        &mut current.post_mix_transforms,
-        &current.post_mix_formats,
-        &mut mixed,
-    ) {
-        fail_current(actor, state, event_tx, "transform", error.to_string());
+    if let Err(error) = process_transform_chain(&mut current.post_mix_transforms, &mut mixed) {
+        super::lifecycle::fail_current_error(actor, state, event_tx, error);
         return;
     }
     if mixed.samples.is_empty() {
@@ -372,8 +359,7 @@ pub(super) fn pump_crossfade(
                 event_tx,
                 actor,
                 state,
-                "sink",
-                "sink worker closed".to_owned(),
+                PlaybackControlError::failed(FailureStage::Sink, "sink worker closed"),
             );
             return;
         },
@@ -419,37 +405,23 @@ pub(super) fn finish_crossfade(
     let Some(mut ended) = actor.current.take() else {
         return;
     };
-    ended.decoder.reset();
-    for transform in &mut ended.pre_mix_transforms {
+    ended.pipeline.decoder.reset();
+    for transform in &mut ended.pipeline.pre_mix_transforms {
         transform.reset();
     }
-    if let Some(normalizer) = ended.normalizer.as_mut() {
+    if let Some(normalizer) = ended.pipeline.normalizer.as_mut() {
         normalizer.reset();
     }
     let output = ended.output;
     let next = crossfade.next;
     actor.current = Some(ActiveTrack {
+        pipeline: next.pipeline,
         recovery_plan: next.recovery_plan,
         item_id: next.item_id,
-        decoder: next.decoder,
-        pre_mix_transforms: next.pre_mix_transforms,
-        pre_mix_formats: next.pre_mix_formats,
         post_mix_transforms: ended.post_mix_transforms,
-        post_mix_formats: ended.post_mix_formats,
-        decoded_format: next.decoded_format,
-        mix_format: next.mix_format,
         output_format: ended.output_format,
-        normalizer: next.normalizer,
-        duration_frames: next.duration_frames,
-        trim_head_frames: next.trim_head_frames,
-        trim_tail_frames: next.trim_tail_frames,
-        raw_duration_frames: next.raw_duration_frames,
-        tail_buffer: next.tail_buffer,
-        decoded_frame: next.decoded_frame,
-        produced_audible_frame: next.produced_audible_frame,
         position_base_frame: 0,
         last_reported_position_frame: 0,
-        epoch: ended.epoch,
         pending_block: ended.pending_block,
         sink_factory: next.sink_factory,
         output,
@@ -476,12 +448,13 @@ pub(super) fn configure_forced_transition(actor: &mut PlaybackSession) {
     };
     match current.transition {
         TransitionPolicy::Gapless => {
-            current.forced_end_frame = Some(current.produced_audible_frame);
+            current.forced_end_frame = Some(current.pipeline.produced_audible_frame);
         },
         TransitionPolicy::FadeOutIn {
             fade_out_frames, ..
         } => {
             let end = current
+                .pipeline
                 .produced_audible_frame
                 .saturating_add(fade_out_frames);
             current.forced_end_frame = Some(end);
@@ -494,8 +467,7 @@ pub(super) fn configure_forced_transition(actor: &mut PlaybackSession) {
 pub(super) fn activate_with_output(
     prepared: PreparedTrack,
     output: SinkWorker,
-    post_mix_transforms: Vec<Box<dyn TransformStage>>,
-    post_mix_formats: Vec<PcmFormat>,
+    post_mix_transforms: Vec<super::pipeline::ConfiguredTransform>,
     sink_consumed_base_frame: u64,
     boundary_announced: bool,
     fade_in_frames: u64,
@@ -506,25 +478,11 @@ pub(super) fn activate_with_output(
     ActiveTrack {
         recovery_plan,
         item_id: prepared.plan.item.id,
-        decoder: prepared.decoder,
-        pre_mix_transforms: prepared.pre_mix_transforms,
-        pre_mix_formats: prepared.pre_mix_formats,
         post_mix_transforms,
-        post_mix_formats,
-        decoded_format: prepared.decoded_format,
-        mix_format: prepared.mix_format,
         output_format: prepared.output_format,
-        normalizer: prepared.normalizer,
-        duration_frames: prepared.duration_frames,
-        trim_head_frames: prepared.trim_head_frames,
-        trim_tail_frames: prepared.trim_tail_frames,
-        raw_duration_frames: prepared.raw_duration_frames,
-        tail_buffer: Vec::new(),
-        decoded_frame: prepared.initial_decoded_frame,
-        produced_audible_frame: prepared.initial_audible_frame,
-        position_base_frame: prepared.initial_audible_frame,
-        last_reported_position_frame: prepared.initial_audible_frame,
-        epoch: 0,
+        position_base_frame: prepared.pipeline.produced_audible_frame,
+        last_reported_position_frame: prepared.pipeline.produced_audible_frame,
+        pipeline: prepared.pipeline,
         pending_block: None,
         sink_factory: prepared.plan.sink,
         output,
@@ -600,7 +558,9 @@ pub(super) fn apply_track_transition_gain(current: &ActiveTrack, block: &mut Aud
             gain *= recovery.start_gain + (1.0 - recovery.start_gain) * progress;
         }
         if let (Some(duration), Some((fade_frames, curve))) = (
-            current.forced_end_frame.or(current.duration_frames),
+            current
+                .forced_end_frame
+                .or(current.pipeline.duration_frames),
             fade_out,
         ) && fade_frames > 0
             && timeline_frame >= duration.saturating_sub(fade_frames)

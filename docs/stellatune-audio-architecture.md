@@ -16,7 +16,7 @@ controller does not stop the runtime.
 Flutter / TUI
     -> PlayerService (queue order, navigation intent, resolution, persistence)
     -> PlaybackController (PlaybackItem commands)
-    -> PlaybackActor (state, generation, epoch, transition, recovery)
+    -> PlaybackActor (state, generation, playback intent, transition, recovery)
     -> bounded PCM channel
     -> SinkWorker (final gain, markers, device clock)
     -> SinkStage
@@ -126,22 +126,38 @@ frontier.
 
 The actor processes at most one decode block per pump turn. The PCM channel and
 HTTP encoded feeder are bounded. The sink worker uses a separate bounded
-high-priority control channel so pause, seek/discard, gain, and shutdown can
-preempt a partial write that returns `WouldBlock`.
+high-priority control channel so pause, seek/discard, and gain can preempt a
+partial write that returns `WouldBlock`. Actor-side enqueue and acknowledgement
+polling never wait for device calls. Shutdown uses an independent atomic flag.
+Drain is retained across pump turns, including when the successor requires a new
+sink; promotion or end waits for the worker acknowledgement.
 
-Seek increments the PCM epoch, discards old queued audio, resets transforms and
+The output worker owns the PCM epoch, which survives gapless and crossfade
+promotion. Seek advances that epoch, filters old PCM and boundaries, resets transforms and
 normalization state, continues pending decoder seek over bounded actor turns,
-and applies a frame-based short fade at the actual seek result.
+and applies a frame-based short fade at the actual seek result. Seek results are
+converted from decoded-rate frames, after encoder trim, into mix-rate frames.
+Consumed output frames are converted separately when calculating media position.
+Output rebuild seeks the pipeline to that consumed checkpoint and resets both
+look-ahead and the replacement output clock.
+
+`PlaybackSession::wants_playing` owns the latest user intent. Seek, recovery, and
+successor completion read it instead of restoring a captured state snapshot.
 
 Recoverable decoder I/O and sink disconnects enter `Recovering`. The actor
 captures the consumed checkpoint, performs a bounded source reopen/decoder
 prepare/seek outside the actor, rebuilds the sink, and resumes only the prior
-item. Retry count and backoff are typed playback policies.
+item. Retry count and backoff are typed playback policies. Source opens use the
+existing async executor, so background feeders outlive preparation. Decoder setup
+and recovery seek run on the blocking pool with the same cancellation token and
+deadline used by source acquisition and fallback.
 
 `PlaybackRuntime::shutdown` subscribes to actor termination before requesting
 `StopReason::Requested`, then waits for the stopping hook. That hook cancels
 preparation, closes outstanding domain replies, resets decoder/DSP state and
-shuts down the `SinkWorker`. `Drop` is best-effort only; composition roots use
+requests `SinkWorker` shutdown. The runtime then joins active and retired output
+threads on the blocking executor. A replacement worker waits for the previous
+endpoint to close before opening a new device. `Drop` is best-effort only; composition roots use
 explicit shutdown when deterministic device release matters. Actor panic or
 lifecycle failure is terminal and must be recovered by creating a new runtime.
 
@@ -170,7 +186,7 @@ switch/seek transaction at startup.
 ## 7. Public failures
 
 Controller commands return `PlaybackControlError`. Playback-task failures use
-`PlaybackFailure`, with typed `FailureStage`, retry disposition, stable code,
+`PlaybackFailure`, with typed `FailureStage` and `FailureCode`,
 optional stage/item identity, and generation. FFI may turn its message into a
 UI error, but the audio/application boundary no longer exposes a string stage
 field as the error category.
@@ -222,7 +238,10 @@ crate-wide facade.
 
 The playback control plane is owned by `control`, `event`, `runtime`, and
 `actor`. Track and pipeline state lives in `state` and `preparation`; PCM work
-lives in `pump`, `normalizer`, `transition`, and `sink_worker`. Dependencies
+lives in `pipeline`, `pump`, `normalizer`, `transition`, and `sink_worker`.
+`TrackPipeline` owns the common state moved between prepared, active, and secondary
+tracks. `ConfiguredTransform` keeps each stage, its identity, and its output format
+together. Normalizer replacement uses the pre-normalization input format. Dependencies
 flow from orchestration toward these focused modules. Data-plane modules never
 call the backend catalog, FFI, or UI.
 

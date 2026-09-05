@@ -18,6 +18,7 @@ use crate::playback::{
 };
 use lattice_actor::{context::HandlerContext, reply::ReplyTo};
 use std::time::Instant;
+use stellatune_audio_core::error::FailureStage;
 use stellatune_audio_core::{
     playback::PlaybackItemId,
     source::{SourceCancellation, SourceOpenPurpose},
@@ -82,7 +83,7 @@ impl PlaybackActor {
             self.cancel_preparation(purpose);
             let mut state = *ctx.behavior();
             match purpose {
-                PreparationPurpose::Current { .. } => {
+                PreparationPurpose::Current => {
                     set_state(&mut state, PlaybackState::Failed, &self.event_tx);
                 },
                 PreparationPurpose::Next => self.session.next.clear(),
@@ -135,7 +136,7 @@ impl PlaybackActor {
                 &mut self.session,
                 state,
                 &self.event_tx,
-                "runtime",
+                FailureStage::Runtime,
                 "playback preparation capacity is exhausted".to_owned(),
             );
         }
@@ -172,7 +173,6 @@ impl PlaybackActor {
         let PreparationPurpose::Recovery {
             item_id,
             checkpoint,
-            resume_state,
             attempt,
         } = purpose
         else {
@@ -189,7 +189,6 @@ impl PlaybackActor {
             purpose: PreparationPurpose::Recovery {
                 item_id,
                 checkpoint,
-                resume_state,
                 attempt: attempt + 1,
             },
             cancellation: SourceCancellation::default(),

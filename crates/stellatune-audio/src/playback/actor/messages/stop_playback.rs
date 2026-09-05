@@ -23,6 +23,7 @@ impl Responder<StopPlayback> for PlaybackActor {
         _request: StopPlayback,
         reply_to: ReplyTo<ControlResult>,
     ) -> Result<(), ActorError> {
+        self.session.wants_playing = false;
         advance_generation(&mut self.session);
         reject_pending(&mut self.session);
         self.session.crossfade = None;

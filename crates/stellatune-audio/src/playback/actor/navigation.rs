@@ -21,10 +21,10 @@ impl PlaybackActor {
             .current
             .as_ref()
             .ok_or(PlaybackControlError::InvalidState)?;
-        if options.autoplay {
+        if options.autoplay && *state != PlaybackState::Playing {
             current.output.resume()?;
             set_state(state, PlaybackState::Playing, &self.event_tx);
-        } else {
+        } else if !options.autoplay && *state != PlaybackState::Paused {
             current.output.pause()?;
             set_state(state, PlaybackState::Paused, &self.event_tx);
         }
@@ -42,9 +42,10 @@ impl PlaybackActor {
 
     /// Applies a claimed successor once ready; an already-started overlap is retained.
     pub(super) fn apply_advance(&mut self, state: &mut PlaybackState) -> ControlResult {
-        let Some(options) = self.session.advance_options else {
+        let Some(mut options) = self.session.advance_options else {
             return Ok(());
         };
+        options.autoplay = self.session.wants_playing;
         if self.session.crossfade.is_some() {
             self.apply_overlap_intent(state, options)?;
             return Ok(());
@@ -79,7 +80,12 @@ impl PlaybackActor {
         }
         stop_current(&mut self.session);
         self.session.force_transition = false;
-        let mut current = match activate(next, &self.config, self.session.output_gain) {
+        let mut current = match activate(
+            next,
+            &self.config,
+            self.session.output_gain,
+            &self.session.output_workers,
+        ) {
             Ok(current) => current,
             Err(error) => {
                 set_state(state, PlaybackState::Failed, &self.event_tx);

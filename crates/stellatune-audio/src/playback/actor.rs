@@ -98,7 +98,9 @@ impl PlaybackActor {
             planner: PipelinePlanner,
             event_tx,
             session: PlaybackSession {
+                output_workers: std::sync::Arc::default(),
                 generation: 0,
+                wants_playing: false,
                 next_preparation_id: 0,
                 pending_preparation: None,
                 pending_recovery: None,
@@ -112,6 +114,10 @@ impl PlaybackActor {
                 output_gain: 1.0,
             },
         }
+    }
+
+    pub(super) fn output_workers(&self) -> std::sync::Arc<super::output_workers::OutputWorkers> {
+        std::sync::Arc::clone(&self.session.output_workers)
     }
 
     fn transition(&self, ctx: &mut HandlerContext<'_, Self>, state: PlaybackState) {
@@ -158,23 +164,23 @@ impl Actor for PlaybackActor {
         reject_pending(&mut self.session);
         stop_current(&mut self.session);
         if let Some(mut next) = self.session.next.take() {
-            next.decoder.reset();
-            for transform in &mut next.pre_mix_transforms {
+            next.pipeline.decoder.reset();
+            for transform in &mut next.pipeline.pre_mix_transforms {
                 transform.reset();
             }
             for transform in &mut next.post_mix_transforms {
                 transform.reset();
             }
-            if let Some(normalizer) = next.normalizer.as_mut() {
+            if let Some(normalizer) = next.pipeline.normalizer.as_mut() {
                 normalizer.reset();
             }
         }
         if let Some(mut crossfade) = self.session.crossfade.take() {
-            crossfade.next.decoder.reset();
-            for transform in &mut crossfade.next.pre_mix_transforms {
+            crossfade.next.pipeline.decoder.reset();
+            for transform in &mut crossfade.next.pipeline.pre_mix_transforms {
                 transform.reset();
             }
-            if let Some(normalizer) = crossfade.next.normalizer.as_mut() {
+            if let Some(normalizer) = crossfade.next.pipeline.normalizer.as_mut() {
                 normalizer.reset();
             }
         }

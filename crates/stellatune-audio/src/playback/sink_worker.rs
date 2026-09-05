@@ -2,8 +2,14 @@
 //!
 //! `SinkWorker` isolates device calls from the playback actor. PCM blocks and
 //! item-boundary markers share one bounded FIFO data channel, preserving their
-//! order. Pause, resume, discard, gain, drain, and shutdown use a separate
-//! bounded control channel consumed with priority over PCM.
+//! order. Pause, resume, discard, gain, and drain use a separate bounded control
+//! channel consumed with priority over PCM. Shutdown uses an independent atomic
+//! flag, so a full control queue cannot prevent teardown.
+//!
+//! Opening, control acknowledgements, and drain completion are polled by the actor.
+//! No actor-side operation waits for a device call. Retired threads are joined by
+//! runtime shutdown on the blocking executor. Device ownership is serialized across
+//! workers so a replacement opens only after the previous endpoint closes.
 //!
 //! Partial writes remain on the worker thread until accepted. The actor-facing
 //! clock combines PCM queued in the data channel with the sink's own device
@@ -11,10 +17,26 @@
 //! from the previous epoch. A track boundary becomes observable only after the
 //! device-consumed clock reaches its accepted-frame position.
 
+use super::output_workers::OutputWorkers;
 use std::collections::VecDeque;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::thread::JoinHandle;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use stellatune_audio_core::{error::FailureStage, stage::StageId};
+type ControlResult = Result<(), PlaybackControlError>;
+use lattice_actor::reply::ReplyTo;
+
+struct PendingControl {
+    response: std::sync::mpsc::Receiver<ControlResult>,
+    replies: Vec<ReplyTo<ControlResult>>,
+}
+
+impl Drop for PendingControl {
+    fn drop(&mut self) {
+        for reply in self.replies.drain(..) {
+            let _ = reply.send(Err(PlaybackControlError::Closed));
+        }
+    }
+}
 use std::time::Duration;
 
 use crossbeam_channel::{Receiver, Sender, TrySendError};
@@ -34,22 +56,21 @@ pub(super) enum PendingWrite {
 
 enum SinkDataCommand {
     Write(AudioBlock),
-    Boundary(PlaybackItemId),
+    Boundary { item_id: PlaybackItemId, epoch: u64 },
 }
 
 enum SinkControlCommand {
-    Pause(std::sync::mpsc::Sender<Result<(), String>>),
-    Resume(std::sync::mpsc::Sender<Result<(), String>>),
+    Pause(std::sync::mpsc::Sender<ControlResult>),
+    Resume(std::sync::mpsc::Sender<ControlResult>),
     Discard {
         epoch: u64,
-        response: std::sync::mpsc::Sender<Result<(), String>>,
+        response: std::sync::mpsc::Sender<ControlResult>,
     },
     SetGain {
         target: f32,
         duration_frames: u64,
     },
-    Drain(std::sync::mpsc::Sender<Result<(), String>>),
-    Shutdown,
+    Drain(std::sync::mpsc::Sender<ControlResult>),
 }
 
 struct SinkWorkerClock {
@@ -64,18 +85,23 @@ pub(super) struct SinkWorker {
     data_sender: Sender<SinkDataCommand>,
     control_sender: Sender<SinkControlCommand>,
     boundary_receiver: Receiver<PlaybackItemId>,
-    failure_receiver: Receiver<String>,
+    failure_receiver: Receiver<PlaybackControlError>,
+    pending_controls: std::cell::RefCell<Vec<PendingControl>>,
+    pending_drain: Option<std::sync::mpsc::Receiver<ControlResult>>,
+    stopped: Arc<AtomicBool>,
+    initialized: Arc<AtomicBool>,
     clock: Arc<SinkWorkerClock>,
-    join: Option<JoinHandle<()>>,
+    epoch: u64,
 }
 
 impl SinkWorker {
-    /// Creates and opens a sink on a new paused worker thread.
+    /// Starts asynchronous opening on a new paused output thread.
     pub(super) fn start(
         factory: Arc<dyn SinkFactory>,
         format: PcmFormat,
         capacity: usize,
         initial_gain: f32,
+        workers: &OutputWorkers,
     ) -> Result<Self, PlaybackControlError> {
         let (data_sender, data_receiver) = crossbeam_channel::bounded(capacity.max(1));
         let (control_sender, control_receiver) = crossbeam_channel::bounded(16);
@@ -89,21 +115,43 @@ impl SinkWorker {
             epoch: AtomicU64::new(0),
         });
         let worker_clock = Arc::clone(&clock);
+        let stopped = Arc::new(AtomicBool::new(false));
+        let worker_stopped = Arc::clone(&stopped);
+        let initialized = Arc::new(AtomicBool::new(false));
+        let worker_initialized = Arc::clone(&initialized);
+        let device = Arc::clone(&workers.device);
+        let stage_id = factory.id().clone();
         let join = std::thread::Builder::new()
             .name("stellatune-sink-worker".to_owned())
             .spawn(move || {
+                let _device = device.lock().unwrap_or_else(|error| error.into_inner());
+                if worker_stopped.load(Ordering::Acquire) {
+                    return;
+                }
                 let mut sink = match factory.create() {
                     Ok(sink) => sink,
                     Err(error) => {
-                        let _ = started_tx.send(Err(error.to_string()));
+                        let _ = started_tx.send(Err(PlaybackControlError::factory(
+                            FailureStage::Sink,
+                            stage_id.clone(),
+                            error,
+                        )));
                         return;
                     },
                 };
                 if let Err(error) = sink.open(format) {
-                    let _ = started_tx.send(Err(error.to_string()));
+                    let _ =
+                        started_tx.send(Err(PlaybackControlError::sink(error, stage_id.clone())));
+                    sink.close();
                     return;
                 }
-                let _ = sink.pause();
+                if let Err(error) = sink.pause() {
+                    let _ =
+                        started_tx.send(Err(PlaybackControlError::sink(error, stage_id.clone())));
+                    sink.close();
+                    return;
+                }
+                worker_initialized.store(true, Ordering::Release);
                 let _ = started_tx.send(Ok(()));
                 sink_worker_loop(
                     sink,
@@ -113,22 +161,26 @@ impl SinkWorker {
                     boundary_sender,
                     failure_sender,
                     initial_gain,
+                    worker_stopped,
+                    stage_id,
                 );
             })
-            .map_err(|error| PlaybackControlError::failed("sink", error.to_string()))?;
-        started_rx
-            .recv()
-            .map_err(|_| {
-                PlaybackControlError::failed("sink", "sink worker exited during startup".to_owned())
-            })?
-            .map_err(|message| PlaybackControlError::failed("sink", message))?;
+            .map_err(|error| PlaybackControlError::failed(FailureStage::Sink, error.to_string()))?;
+        workers.register(join);
         Ok(Self {
             data_sender,
             control_sender,
             boundary_receiver,
             failure_receiver,
             clock,
-            join: Some(join),
+            stopped,
+            initialized,
+            pending_controls: std::cell::RefCell::new(vec![PendingControl {
+                response: started_rx,
+                replies: Vec::new(),
+            }]),
+            pending_drain: None,
+            epoch: 0,
         })
     }
 
@@ -155,32 +207,96 @@ impl SinkWorker {
         }
     }
 
-    fn control(
-        &self,
-        build: impl FnOnce(std::sync::mpsc::Sender<Result<(), String>>) -> SinkControlCommand,
-    ) -> Result<(), PlaybackControlError> {
-        let (tx, rx) = std::sync::mpsc::channel();
+    fn enqueue(&self, command: SinkControlCommand) -> ControlResult {
         self.control_sender
-            .send(build(tx))
-            .map_err(|_| PlaybackControlError::Closed)?;
-        rx.recv()
-            .map_err(|_| PlaybackControlError::Closed)?
-            .map_err(|message| PlaybackControlError::failed("sink", message))
+            .try_send(command)
+            .map_err(|error| match error {
+                TrySendError::Disconnected(_) => PlaybackControlError::Closed,
+                TrySendError::Full(_) => {
+                    PlaybackControlError::failed(FailureStage::Sink, "output control queue is full")
+                },
+            })
     }
 
-    /// Pauses the sink and waits for the control result.
+    fn control(
+        &self,
+        build: impl FnOnce(std::sync::mpsc::Sender<ControlResult>) -> SinkControlCommand,
+    ) -> ControlResult {
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.enqueue(build(tx))?;
+        self.pending_controls.borrow_mut().push(PendingControl {
+            response: rx,
+            replies: Vec::new(),
+        });
+        Ok(())
+    }
+
+    /// Associates an external command reply with actual device acknowledgement.
+    pub(super) fn request_playing(
+        &self,
+        playing: bool,
+        reply: ReplyTo<ControlResult>,
+    ) -> ControlResult {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let command = if playing {
+            SinkControlCommand::Resume(tx)
+        } else {
+            SinkControlCommand::Pause(tx)
+        };
+        if let Err(error) = self.enqueue(command) {
+            let _ = reply.send(Err(error.clone()));
+            return Err(error);
+        }
+        self.pending_controls.borrow_mut().push(PendingControl {
+            response: rx,
+            replies: vec![reply],
+        });
+        Ok(())
+    }
+
+    /// Defers initial activation acknowledgement until sink open has completed.
+    pub(super) fn reply_when_started(&self, reply: ReplyTo<ControlResult>) {
+        if let Some(startup) = self.pending_controls.borrow_mut().first_mut() {
+            startup.replies.push(reply);
+        } else {
+            let _ = reply.send(if self.is_initialized() {
+                Ok(())
+            } else {
+                Err(PlaybackControlError::Closed)
+            });
+        }
+    }
+
+    /// Waits for the latest enqueued control without holding the actor turn.
+    pub(super) fn reply_when_settled(&self, reply: ReplyTo<ControlResult>) {
+        if let Some(pending) = self.pending_controls.borrow_mut().last_mut() {
+            pending.replies.push(reply);
+        } else {
+            let _ = reply.send(Ok(()));
+        }
+    }
+
+    /// Pauses the sink without waiting for the device; failures are polled by the actor.
     pub(super) fn pause(&self) -> Result<(), PlaybackControlError> {
         self.control(SinkControlCommand::Pause)
     }
 
-    /// Resumes the sink and waits for the control result.
+    /// Resumes the sink without waiting for the device; failures are polled by the actor.
     pub(super) fn resume(&self) -> Result<(), PlaybackControlError> {
         self.control(SinkControlCommand::Resume)
     }
 
-    /// Discards queued audio and installs `epoch` as the accepted PCM generation.
-    pub(super) fn discard(&self, epoch: u64) -> Result<(), PlaybackControlError> {
-        self.control(|response| SinkControlCommand::Discard { epoch, response })
+    pub(super) fn epoch(&self) -> u64 {
+        self.epoch
+    }
+
+    /// Advances the output-owned epoch and asynchronously invalidates old PCM.
+    pub(super) fn discard(&mut self) -> Result<(), PlaybackControlError> {
+        let epoch = self.epoch.wrapping_add(1);
+        self.control(|response| SinkControlCommand::Discard { epoch, response })?;
+        self.pending_drain = None;
+        self.epoch = epoch;
+        Ok(())
     }
 
     /// Schedules a final linear gain ramp without waiting for its completion.
@@ -189,17 +305,27 @@ impl SinkWorker {
         target: f32,
         duration_frames: u64,
     ) -> Result<(), PlaybackControlError> {
-        self.control_sender
-            .send(SinkControlCommand::SetGain {
-                target,
-                duration_frames,
-            })
-            .map_err(|_| PlaybackControlError::Closed)
+        self.enqueue(SinkControlCommand::SetGain {
+            target,
+            duration_frames,
+        })
     }
 
-    /// Requests drain after all data already in the PCM channel is written.
-    pub(super) fn drain(&self) -> Result<(), PlaybackControlError> {
-        self.control(SinkControlCommand::Drain)
+    /// Polls a drain request, retaining the output until its final PCM is consumed.
+    pub(super) fn drain(&mut self) -> Result<bool, PlaybackControlError> {
+        if self.pending_drain.is_none() {
+            let (tx, rx) = std::sync::mpsc::channel();
+            self.enqueue(SinkControlCommand::Drain(tx))?;
+            self.pending_drain = Some(rx);
+        }
+        match self.pending_drain.as_ref().unwrap().try_recv() {
+            Ok(result) => {
+                self.pending_drain = None;
+                result.map(|()| true)
+            },
+            Err(std::sync::mpsc::TryRecvError::Empty) => Ok(false),
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => Err(PlaybackControlError::Closed),
+        }
     }
 
     /// Queues an item marker after all PCM accepted before this call.
@@ -208,11 +334,14 @@ impl SinkWorker {
         item_id: PlaybackItemId,
     ) -> Result<(), PlaybackControlError> {
         self.data_sender
-            .try_send(SinkDataCommand::Boundary(item_id))
+            .try_send(SinkDataCommand::Boundary {
+                item_id,
+                epoch: self.epoch,
+            })
             .map_err(|error| match error {
                 TrySendError::Disconnected(_) => PlaybackControlError::Closed,
                 TrySendError::Full(_) => PlaybackControlError::failed(
-                    "sink",
+                    FailureStage::Sink,
                     "PCM ring is full while inserting an item boundary".to_owned(),
                 ),
             })
@@ -223,13 +352,45 @@ impl SinkWorker {
         self.boundary_receiver.try_recv().ok()
     }
 
+    pub(super) fn is_ready(&self) -> bool {
+        self.is_initialized() && self.clock.epoch.load(Ordering::Acquire) == self.epoch
+    }
+
+    pub(super) fn is_initialized(&self) -> bool {
+        self.initialized.load(Ordering::Acquire)
+    }
+
     /// Returns the first pending sink-worker failure, if any.
-    pub(super) fn try_failure(&self) -> Option<String> {
-        self.failure_receiver.try_recv().ok()
+    pub(super) fn try_failure(&self) -> Option<PlaybackControlError> {
+        let mut failure = self.failure_receiver.try_recv().ok();
+        self.pending_controls.borrow_mut().retain_mut(|pending| {
+            let result = match pending.response.try_recv() {
+                Ok(result) => result,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    Err(PlaybackControlError::Closed)
+                },
+                Err(std::sync::mpsc::TryRecvError::Empty) => return true,
+            };
+            if let Err(error) = &result {
+                failure.get_or_insert(error.clone());
+            }
+            for reply in pending.replies.drain(..) {
+                let _ = reply.send(result.clone());
+            }
+            false
+        });
+        failure
     }
 
     /// Returns the latest device clock plus actor-to-worker queued frames.
     pub(super) fn clock(&self) -> SinkClockSnapshot {
+        if self.clock.epoch.load(Ordering::Acquire) != self.epoch {
+            return SinkClockSnapshot {
+                consumed_frames: 0,
+                buffered_frames: 0,
+                epoch: self.epoch,
+            };
+        }
         SinkClockSnapshot {
             consumed_frames: self.clock.consumed_frames.load(Ordering::Relaxed),
             buffered_frames: self
@@ -241,12 +402,9 @@ impl SinkWorker {
         }
     }
 
-    /// Requests worker shutdown and joins its OS thread once.
+    /// Requests shutdown independently of control queue capacity; never joins here.
     pub(super) fn shutdown(&mut self) {
-        let _ = self.control_sender.send(SinkControlCommand::Shutdown);
-        if let Some(join) = self.join.take() {
-            let _ = join.join();
-        }
+        self.stopped.store(true, Ordering::Release);
     }
 }
 
@@ -310,27 +468,32 @@ impl OutputGainEnvelope {
 }
 
 /// Services prioritized control and partial PCM writes until shutdown or failure.
+#[allow(clippy::too_many_arguments)]
 fn sink_worker_loop(
     mut sink: Box<dyn SinkStage>,
     data_receiver: Receiver<SinkDataCommand>,
     control_receiver: Receiver<SinkControlCommand>,
     clock: Arc<SinkWorkerClock>,
     boundary_sender: Sender<PlaybackItemId>,
-    failure_sender: Sender<String>,
+    failure_sender: Sender<PlaybackControlError>,
     initial_gain: f32,
+    stopped: Arc<AtomicBool>,
+    stage_id: StageId,
 ) {
     let mut gain = OutputGainEnvelope::new(initial_gain);
     let mut accepted_frames = 0_u64;
     let mut pending_boundaries = VecDeque::<(u64, PlaybackItemId)>::new();
     let mut pending_block = None::<AudioBlock>;
-    let mut pending_drain = None::<std::sync::mpsc::Sender<Result<(), String>>>;
+    let mut pending_drain = None::<std::sync::mpsc::Sender<ControlResult>>;
     let mut paused = true;
     'worker: loop {
+        if stopped.load(Ordering::Acquire) {
+            break;
+        }
         while let Ok(command) = control_receiver.try_recv() {
             if handle_sink_control(
                 command,
                 sink.as_mut(),
-                &data_receiver,
                 clock.as_ref(),
                 &mut gain,
                 &mut paused,
@@ -338,6 +501,7 @@ fn sink_worker_loop(
                 &mut pending_drain,
                 &mut accepted_frames,
                 &mut pending_boundaries,
+                &stage_id,
             ) {
                 break 'worker;
             }
@@ -348,7 +512,10 @@ fn sink_worker_loop(
             && data_receiver.is_empty()
             && let Some(response) = pending_drain.take()
         {
-            let _ = response.send(sink.drain().map_err(|error| error.to_string()));
+            let _ = response.send(
+                sink.drain()
+                    .map_err(|error| PlaybackControlError::sink(error, stage_id.clone())),
+            );
         }
 
         if !paused {
@@ -378,7 +545,8 @@ fn sink_worker_loop(
                         clock
                             .buffered_frames
                             .fetch_sub(block.frames() as u64, Ordering::Relaxed);
-                        let _ = failure_sender.try_send(error.to_string());
+                        let _ = failure_sender
+                            .try_send(PlaybackControlError::sink(error, stage_id.clone()));
                         break 'worker;
                     },
                 }
@@ -389,14 +557,14 @@ fn sink_worker_loop(
                             if handle_sink_control(
                                 command,
                                 sink.as_mut(),
-                                &data_receiver,
-                                clock.as_ref(),
+                                                clock.as_ref(),
                                 &mut gain,
                                 &mut paused,
                                 &mut pending_block,
                                 &mut pending_drain,
                                 &mut accepted_frames,
                                 &mut pending_boundaries,
+                                &stage_id,
                             ) {
                                 break 'worker;
                             }
@@ -423,7 +591,6 @@ fn sink_worker_loop(
                     if handle_sink_control(
                         command,
                         sink.as_mut(),
-                        &data_receiver,
                         clock.as_ref(),
                         &mut gain,
                         &mut paused,
@@ -431,6 +598,7 @@ fn sink_worker_loop(
                         &mut pending_drain,
                         &mut accepted_frames,
                         &mut pending_boundaries,
+                        &stage_id,
                     ) {
                         break;
                     }
@@ -469,7 +637,10 @@ fn accept_sink_data(
             gain.apply(&mut block);
             *pending_block = Some(block);
         },
-        SinkDataCommand::Boundary(item_id) => {
+        SinkDataCommand::Boundary { item_id, epoch } => {
+            if epoch != clock.epoch.load(Ordering::Acquire) {
+                return;
+            }
             pending_boundaries.push_back((accepted_frames, item_id));
         },
     }
@@ -480,41 +651,49 @@ fn accept_sink_data(
 fn handle_sink_control(
     command: SinkControlCommand,
     sink: &mut dyn SinkStage,
-    data_receiver: &Receiver<SinkDataCommand>,
     clock: &SinkWorkerClock,
     gain: &mut OutputGainEnvelope,
     paused: &mut bool,
     pending_block: &mut Option<AudioBlock>,
-    pending_drain: &mut Option<std::sync::mpsc::Sender<Result<(), String>>>,
+    pending_drain: &mut Option<std::sync::mpsc::Sender<ControlResult>>,
     accepted_frames: &mut u64,
     pending_boundaries: &mut VecDeque<(u64, PlaybackItemId)>,
+    stage_id: &StageId,
 ) -> bool {
     match command {
         SinkControlCommand::Pause(response) => {
-            let result = sink.pause().map_err(|error| error.to_string());
+            let result = sink
+                .pause()
+                .map_err(|error| PlaybackControlError::sink(error, stage_id.clone()));
             if result.is_ok() {
                 *paused = true;
             }
             let _ = response.send(result);
         },
         SinkControlCommand::Resume(response) => {
-            let result = sink.resume().map_err(|error| error.to_string());
+            let result = sink
+                .resume()
+                .map_err(|error| PlaybackControlError::sink(error, stage_id.clone()));
             if result.is_ok() {
                 *paused = false;
             }
             let _ = response.send(result);
         },
         SinkControlCommand::Discard { epoch, response } => {
-            let result = sink.discard().map_err(|error| error.to_string());
-            *pending_block = None;
-            while data_receiver.try_recv().is_ok() {}
+            let result = sink
+                .discard()
+                .map_err(|error| PlaybackControlError::sink(error, stage_id.clone()));
+            if let Some(block) = pending_block.take() {
+                clock
+                    .buffered_frames
+                    .fetch_sub(block.frames() as u64, Ordering::Relaxed);
+            }
             if let Some(drain) = pending_drain.take() {
-                let _ = drain.send(Err("drain canceled by discard".to_owned()));
+                let _ = drain.send(Err(PlaybackControlError::Closed));
             }
             clock.consumed_frames.store(0, Ordering::Relaxed);
-            clock.buffered_frames.store(0, Ordering::Relaxed);
             clock.device_buffered_frames.store(0, Ordering::Relaxed);
-            clock.epoch.store(epoch, Ordering::Relaxed);
+            clock.epoch.store(epoch, Ordering::Release);
             *accepted_frames = 0;
             pending_boundaries.clear();
             let _ = response.send(result);
@@ -525,10 +704,9 @@ fn handle_sink_control(
         } => gain.schedule(target, duration_frames),
         SinkControlCommand::Drain(response) => {
             if let Some(replaced) = pending_drain.replace(response) {
-                let _ = replaced.send(Err("drain was superseded".to_owned()));
+                let _ = replaced.send(Err(PlaybackControlError::Closed));
             }
         },
-        SinkControlCommand::Shutdown => return true,
     }
     false
 }

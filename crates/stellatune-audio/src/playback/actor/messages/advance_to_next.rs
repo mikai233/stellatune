@@ -43,6 +43,7 @@ impl Responder<AdvanceToNext> for PlaybackActor {
             .as_ref()
             .is_some_and(|fade| fade.next.item_id == request.expected_item_id)
         {
+            self.session.wants_playing = request.options.autoplay;
             let mut state = *ctx.behavior();
             let result = self
                 .apply_overlap_intent(&mut state, request.options)
@@ -51,6 +52,7 @@ impl Responder<AdvanceToNext> for PlaybackActor {
             let _ = reply_to.send(result);
             return Ok(());
         }
+        self.session.wants_playing = request.options.autoplay;
         self.session.advance_options = Some(request.options);
         let mut state = *ctx.behavior();
         let result = self

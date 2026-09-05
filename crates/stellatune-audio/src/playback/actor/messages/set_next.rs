@@ -6,6 +6,7 @@ use crate::{planner::PlaybackRequest, playback::state::PreparationPurpose};
 use lattice_actor::{
     context::HandlerContext, error::ActorError, reply::ReplyTo, traits::Responder,
 };
+use stellatune_audio_core::error::FailureStage;
 use stellatune_audio_core::{
     error::PlaybackControlError, playback::PlaybackItem, source::SourceOpenPurpose,
 };
@@ -52,7 +53,7 @@ impl Responder<SetNext> for PlaybackActor {
             Ok(plan) => plan,
             Err(error) => {
                 let _ = reply_to.send(Err(PlaybackControlError::failed(
-                    "planner",
+                    FailureStage::Planner,
                     error.to_string(),
                 )));
                 return Ok(());

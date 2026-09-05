@@ -27,14 +27,8 @@ impl Responder<GetSnapshot> for PlaybackActor {
             .as_ref()
             .map(|current| {
                 MediaTime::from_frames(
-                    current.position_base_frame.saturating_add(
-                        current
-                            .output
-                            .clock()
-                            .consumed_frames
-                            .saturating_sub(current.sink_consumed_base_frame),
-                    ),
-                    current.mix_format.sample_rate,
+                    current.consumed_position_frame(),
+                    current.pipeline.mix_format.sample_rate,
                 )
             })
             .unwrap_or(MediaTime::ZERO);

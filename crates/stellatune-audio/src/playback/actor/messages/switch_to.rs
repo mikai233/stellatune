@@ -15,6 +15,7 @@ use crate::{
 use lattice_actor::{
     context::HandlerContext, error::ActorError, reply::ReplyTo, traits::Responder,
 };
+use stellatune_audio_core::error::FailureStage;
 use stellatune_audio_core::{
     error::PlaybackControlError, playback::PlaybackItem, source::SourceOpenPurpose,
 };
@@ -40,6 +41,7 @@ impl Responder<SwitchTo> for PlaybackActor {
             .as_ref()
             .is_some_and(|fade| fade.next.item_id == request.item.id)
         {
+            self.session.wants_playing = request.options.autoplay;
             let mut state = *ctx.behavior();
             let result = self.apply_overlap_intent(&mut state, request.options);
             self.transition(ctx, state);
@@ -65,12 +67,13 @@ impl Responder<SwitchTo> for PlaybackActor {
             Ok(plan) => plan,
             Err(error) => {
                 let _ = reply_to.send(Err(PlaybackControlError::failed(
-                    "planner",
+                    FailureStage::Planner,
                     error.to_string(),
                 )));
                 return Ok(());
             },
         };
+        self.session.wants_playing = request.options.autoplay;
         advance_generation(&mut self.session);
         reject_pending(&mut self.session);
         if request.options.transition == SwitchTransition::ImmediateWithDeClick {
@@ -100,9 +103,7 @@ impl Responder<SwitchTo> for PlaybackActor {
                 ctx,
                 plan,
                 SourceOpenPurpose::Initial,
-                PreparationPurpose::Current {
-                    autoplay: request.options.autoplay,
-                },
+                PreparationPurpose::Current,
                 reply_to,
             );
         }

@@ -8,6 +8,7 @@ use crate::playback::{
     state::{DrainPhase, PreparationPurpose},
 };
 use lattice_actor::{context::HandlerContext, error::ActorError, traits::Handler};
+use stellatune_audio_core::error::FailureStage;
 
 /// Cancels preparation that is still current when its deadline expires.
 #[derive(lattice_actor::Message)]
@@ -46,7 +47,7 @@ impl PlaybackActor {
         self.cancel_preparation(purpose);
         let mut state = *ctx.behavior();
         match purpose {
-            PreparationPurpose::Current { .. } => {
+            PreparationPurpose::Current => {
                 set_state(&mut state, PlaybackState::Failed, &self.event_tx);
             },
             PreparationPurpose::Next => {
@@ -83,7 +84,7 @@ impl PlaybackActor {
                         &mut self.session,
                         &mut state,
                         &self.event_tx,
-                        "recovery",
+                        FailureStage::Runtime,
                         "recovery preparation timed out".to_owned(),
                     );
                 }

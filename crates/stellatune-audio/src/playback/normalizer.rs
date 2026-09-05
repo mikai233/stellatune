@@ -17,6 +17,7 @@ use rubato::{
     Async, FixedAsync, Indexing, Resampler, Resizable, SincInterpolationParameters,
     SincInterpolationType, WindowFunction,
 };
+use stellatune_audio_core::error::FailureStage;
 use stellatune_audio_core::{
     error::PlaybackControlError,
     format::{AudioBlock, ChannelLayout, PcmFormat, SpeakerPosition},
@@ -52,14 +53,14 @@ impl ChannelMixer {
             }
             let routes = channel_routes(position, target).ok_or_else(|| {
                 PlaybackControlError::failed(
-                    "normalizer",
+                    FailureStage::Transform,
                     format!("cannot route {position:?} from {source:?} to {target:?}"),
                 )
             })?;
             for (target_position, coefficient) in routes {
                 let target_index = target.index_of(target_position).ok_or_else(|| {
                     PlaybackControlError::failed(
-                        "normalizer",
+                        FailureStage::Transform,
                         format!("invalid target route {target_position:?} for {target:?}"),
                     )
                 })?;
@@ -189,7 +190,9 @@ impl PcmResampler {
             channels,
             FixedAsync::Input,
         )
-        .map_err(|error| PlaybackControlError::failed("normalizer", error.to_string()))?;
+        .map_err(|error| {
+            PlaybackControlError::failed(FailureStage::Transform, error.to_string())
+        })?;
         let leading_frames_to_trim = inner.output_delay();
         Ok(Self {
             source_rate,
@@ -217,18 +220,20 @@ impl PcmResampler {
                 break;
             }
             let samples = frames.saturating_mul(self.channels);
-            self.inner
-                .set_chunk_size(frames)
-                .map_err(|error| PlaybackControlError::failed("normalizer", error.to_string()))?;
+            self.inner.set_chunk_size(frames).map_err(|error| {
+                PlaybackControlError::failed(FailureStage::Transform, error.to_string())
+            })?;
             let adapter =
                 InterleavedSlice::new(&input[offset..offset + samples], self.channels, frames)
                     .map_err(|error| {
-                        PlaybackControlError::failed("normalizer", error.to_string())
+                        PlaybackControlError::failed(FailureStage::Transform, error.to_string())
                     })?;
             output.extend(
                 self.inner
                     .process(&adapter, None)
-                    .map_err(|error| PlaybackControlError::failed("normalizer", error.to_string()))?
+                    .map_err(|error| {
+                        PlaybackControlError::failed(FailureStage::Transform, error.to_string())
+                    })?
                     .take_data(),
             );
             offset += samples;
@@ -255,12 +260,16 @@ impl PcmResampler {
         while self.output_frames < expected_frames {
             let input_frames = self.inner.input_frames_next();
             let silence = vec![0.0; input_frames.saturating_mul(self.channels)];
-            let adapter = InterleavedSlice::new(&silence, self.channels, input_frames)
-                .map_err(|error| PlaybackControlError::failed("normalizer", error.to_string()))?;
+            let adapter =
+                InterleavedSlice::new(&silence, self.channels, input_frames).map_err(|error| {
+                    PlaybackControlError::failed(FailureStage::Transform, error.to_string())
+                })?;
             let mut output = self
                 .inner
                 .process(&adapter, Some(&Indexing::new().partial_len(0)))
-                .map_err(|error| PlaybackControlError::failed("normalizer", error.to_string()))?
+                .map_err(|error| {
+                    PlaybackControlError::failed(FailureStage::Transform, error.to_string())
+                })?
                 .take_data();
             self.trim_leading_frames(&mut output);
             let remaining_frames = expected_frames.saturating_sub(self.output_frames) as usize;
@@ -308,12 +317,12 @@ pub(super) struct PcmNormalizer {
 impl PcmNormalizer {
     /// Builds the minimum conversion chain needed between two valid PCM formats.
     pub(super) fn new(source: PcmFormat, target: PcmFormat) -> Result<Self, PlaybackControlError> {
-        source
-            .validate()
-            .map_err(|message| PlaybackControlError::failed("normalizer", message.to_owned()))?;
-        target
-            .validate()
-            .map_err(|message| PlaybackControlError::failed("normalizer", message.to_owned()))?;
+        source.validate().map_err(|message| {
+            PlaybackControlError::failed(FailureStage::Transform, message.to_owned())
+        })?;
+        target.validate().map_err(|message| {
+            PlaybackControlError::failed(FailureStage::Transform, message.to_owned())
+        })?;
         let channel_mixer = if source.channel_layout == target.channel_layout {
             None
         } else {
@@ -348,7 +357,7 @@ impl PcmNormalizer {
         let source_channels = usize::from(self.source.channel_layout.channel_count());
         if block.format != self.source || !block.samples.len().is_multiple_of(source_channels) {
             return Err(PlaybackControlError::failed(
-                "normalizer",
+                FailureStage::Transform,
                 "normalizer input format changed after planning".to_owned(),
             ));
         }

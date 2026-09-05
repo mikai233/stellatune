@@ -32,15 +32,15 @@ impl Responder<Seek> for PlaybackActor {
             let _ = pending.response.send(Err(PlaybackControlError::Closed));
         }
         let mut state = *ctx.behavior();
-        let resume_state = if state == PlaybackState::Paused {
-            PlaybackState::Paused
-        } else {
-            PlaybackState::Playing
-        };
         match start_seek(&mut self.session, request.position) {
             Ok((_item_id, DecoderSeekStatus::Complete(result))) => {
                 finish_seek(&mut self.session, result, &self.event_tx);
-                let _ = reply_to.send(Ok(()));
+                self.session
+                    .current
+                    .as_ref()
+                    .unwrap()
+                    .output
+                    .reply_when_settled(reply_to);
             },
             Ok((item_id, DecoderSeekStatus::Pending)) => {
                 set_state(&mut state, PlaybackState::Buffering, &self.event_tx);
@@ -50,7 +50,6 @@ impl Responder<Seek> for PlaybackActor {
                 });
                 self.session.pending_seek = Some(PendingSeek {
                     response: reply_to,
-                    resume_state,
                     item_id,
                 });
             },

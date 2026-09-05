@@ -7,6 +7,7 @@
 //! already-enqueued command may still execute.
 
 use lattice_actor::{error::ActorCallError, handle::ActorHandle};
+use stellatune_audio_core::error::FailureStage;
 use stellatune_audio_core::{
     error::PlaybackControlError,
     playback::{MediaTime, PlaybackItem, PlaybackItemId},
@@ -141,6 +142,9 @@ impl PlaybackController {
 
     /// Starts or resumes the current item.
     ///
+    /// Device acknowledgement is awaited without blocking later actor commands.
+    /// During recovery this updates the intent used when replacement completes.
+    ///
     /// # Errors
     ///
     /// Returns [`PlaybackControlError::InvalidState`] without an active item,
@@ -155,6 +159,9 @@ impl PlaybackController {
     }
 
     /// Pauses the current output without discarding queued PCM.
+    ///
+    /// A newer pause also overrides playback intent captured by an in-flight seek
+    /// or recovery. The device reply is awaited outside the actor turn.
     ///
     /// # Errors
     ///
@@ -173,7 +180,7 @@ impl PlaybackController {
     ///
     /// Seeking invalidates queued PCM, resets transforms and normalization, and
     /// applies the configured de-click envelope at the actual decoder result.
-    /// The paused/playing intent is restored after an incremental seek.
+    /// Completion applies the latest paused/playing intent.
     ///
     /// # Errors
     ///
@@ -191,7 +198,9 @@ impl PlaybackController {
 
     /// Stops playback and clears current, queued, transition, and seek state.
     ///
-    /// The runtime remains alive and accepts a later [`Self::switch_to`].
+    /// The runtime remains alive and accepts a later [`Self::switch_to`]. Worker
+    /// shutdown is requested without waiting for device close. Await
+    /// [`super::runtime::PlaybackRuntime::shutdown`] for deterministic release.
     ///
     /// # Errors
     ///
@@ -235,12 +244,14 @@ impl PlaybackController {
 
     /// Recreates the active output sink while preserving playback intent.
     ///
-    /// This is a no-op when no item is active. A currently playing item resumes
-    /// after the replacement sink opens; other states remain non-playing.
+    /// This is a no-op when no item is active. The pipeline seeks back to the
+    /// consumed checkpoint, clears decoded look-ahead, and rebases the replacement
+    /// output clock. Completion respects the latest paused/playing intent.
     ///
     /// # Errors
     ///
-    /// Returns [`PlaybackControlError::CommandTimeout`] when output rebuilding
+    /// Returns [`PlaybackControlError::Unsupported`] for sources that cannot seek,
+    /// [`PlaybackControlError::CommandTimeout`] when output rebuilding
     /// misses its deadline, [`PlaybackControlError::Closed`] after shutdown, or
     /// [`PlaybackControlError::Failed`] when the sink cannot be recreated.
     pub async fn rebuild_output(&self) -> Result<(), PlaybackControlError> {
@@ -305,7 +316,7 @@ fn map_call_error(operation: &'static str, error: ActorCallError) -> PlaybackCon
         | ActorCallError::ActorPanicked
         | ActorCallError::Handler(_)
         | ActorCallError::InvalidTimeout => PlaybackControlError::failed(
-            "runtime",
+            FailureStage::Runtime,
             format!("playback command `{operation}` failed: {error}"),
         ),
     }

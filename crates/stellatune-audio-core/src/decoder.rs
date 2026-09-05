@@ -85,13 +85,12 @@ pub trait DecoderStage: Send {
     ///
     /// A produced block must use the format returned by [`Self::open`], contain
     /// the reported number of complete frames, and satisfy
-    /// [`AudioBlock::validate`].
+    /// [`AudioBlock::validate`]. Temporary starvation is reported only as
+    /// `Ok(DecodeStatus::Pending)`; it is not a decoding failure.
     ///
     /// # Errors
     ///
-    /// Returns [`DecodeError::Pending`] or [`DecodeStatus::Pending`] when no
-    /// PCM is currently available, and another [`DecodeError`] for decoding or
-    /// source I/O failures.
+    /// Returns [`DecodeError`] for decoding or source I/O failures.
     fn decode(&mut self, output: &mut AudioBlock) -> Result<DecodeStatus, DecodeError>;
     /// Starts seeking toward an absolute decoded frame.
     ///

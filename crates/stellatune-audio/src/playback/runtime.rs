@@ -7,7 +7,10 @@
 //! await
 //! [`PlaybackRuntime::shutdown`](crate::playback::runtime::PlaybackRuntime::shutdown).
 
+use super::output_workers::OutputWorkers;
+use std::sync::Arc;
 use std::time::Duration;
+use stellatune_audio_core::error::FailureStage;
 
 use lattice_actor::{
     mailbox::MailboxConfig,
@@ -94,6 +97,7 @@ impl PlaybackRuntimeConfig {
 /// Obtain cheap command endpoints with [`Self::controller`]. The runtime itself
 /// is not cloneable so ownership of deterministic shutdown remains explicit.
 pub struct PlaybackRuntime {
+    output_workers: Arc<OutputWorkers>,
     controller: PlaybackController,
 }
 
@@ -114,6 +118,7 @@ impl PlaybackRuntime {
         let timeouts = config.command_timeouts;
         let (event_tx, _) = broadcast::channel(config.event_capacity.max(1));
         let actor = PlaybackActor::new(config, event_tx.clone());
+        let output_workers = actor.output_workers();
         let handle = ActorRuntime::default()
             .spawn_actor(
                 actor,
@@ -123,8 +128,11 @@ impl PlaybackRuntime {
                     ..ActorSpawnOptions::default()
                 },
             )
-            .map_err(|error| PlaybackControlError::failed("runtime", error.to_string()))?;
+            .map_err(|error| {
+                PlaybackControlError::failed(FailureStage::Runtime, error.to_string())
+            })?;
         Ok(Self {
+            output_workers,
             controller: PlaybackController {
                 actor: handle,
                 event_tx,
@@ -141,7 +149,8 @@ impl PlaybackRuntime {
     /// Requests actor shutdown and waits until its stopping hook completes.
     ///
     /// The stopping hook cancels preparation, closes pending replies, resets
-    /// pipeline stages, and joins the active sink worker.
+    /// pipeline stages, and requests output shutdown. Worker threads are then joined
+    /// on the blocking executor, allowing the actor to terminate promptly.
     ///
     /// # Errors
     ///
@@ -163,11 +172,18 @@ impl PlaybackRuntime {
         self.controller
             .actor
             .stop(StopReason::Requested)
-            .map_err(|error| PlaybackControlError::failed("runtime", error.to_string()))?;
-        terminated
-            .recv()
+            .map_err(|error| {
+                PlaybackControlError::failed(FailureStage::Runtime, error.to_string())
+            })?;
+        terminated.recv().await.map_err(|error| {
+            PlaybackControlError::failed(FailureStage::Runtime, error.to_string())
+        })?;
+        let workers = Arc::clone(&self.output_workers);
+        tokio::task::spawn_blocking(move || workers.join())
             .await
-            .map_err(|error| PlaybackControlError::failed("runtime", error.to_string()))?;
+            .map_err(|error| {
+                PlaybackControlError::failed(FailureStage::Runtime, error.to_string())
+            })?;
         Ok(())
     }
 }

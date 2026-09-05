@@ -10,6 +10,7 @@ use crate::playback::{
 };
 use lattice_actor::reply::ReplyTo;
 use lattice_actor::{context::HandlerContext, error::ActorError, traits::Handler};
+use stellatune_audio_core::error::FailureStage;
 use stellatune_audio_core::error::PlaybackControlError;
 
 /// Returns request-backed preparation work to the owning actor.
@@ -44,12 +45,17 @@ impl Handler<PreparationCompleted> for PlaybackActor {
         let mut state = *ctx.behavior();
         let response;
         match prepared.purpose {
-            PreparationPurpose::Current { autoplay } => match prepared.result {
+            PreparationPurpose::Current => match prepared.result {
                 Ok(prepared) => {
                     let item_id = prepared.plan.item.id;
-                    match activate(prepared, &self.config, self.session.output_gain) {
+                    match activate(
+                        prepared,
+                        &self.config,
+                        self.session.output_gain,
+                        &self.session.output_workers,
+                    ) {
                         Ok(current) => {
-                            if autoplay {
+                            if self.session.wants_playing {
                                 let _ = current.output.resume();
                                 set_state(&mut state, PlaybackState::Playing, &self.event_tx);
                             } else {
@@ -114,13 +120,19 @@ impl Handler<PreparationCompleted> for PlaybackActor {
             },
             PreparationPurpose::Recovery { .. } => {
                 response = Err(PlaybackControlError::failed(
-                    "runtime",
+                    FailureStage::Runtime,
                     "recovery completed on request preparation path".to_owned(),
                 ));
             },
         }
         self.transition(ctx, state);
-        let _ = reply_to.send(response);
+        if response.is_ok() && prepared.purpose == PreparationPurpose::Current {
+            if let Some(current) = self.session.current.as_ref() {
+                current.output.reply_when_started(reply_to);
+            }
+        } else {
+            let _ = reply_to.send(response);
+        }
         Ok(())
     }
 }
