@@ -15,11 +15,8 @@ class SettingsPluginsList extends StatelessWidget {
     required this.onOpenWebUi,
     required this.onToggleEnabled,
     required this.onUninstall,
-    required this.sourceConfigForType,
     required this.outputSinkConfigForType,
-    required this.onSourceConfigChanged,
     required this.onOutputSinkConfigChanged,
-    required this.onSaveSourceConfig,
   });
 
   final List<InstalledPlugin> plugins;
@@ -39,13 +36,9 @@ class SettingsPluginsList extends StatelessWidget {
   })
   onToggleEnabled;
   final Future<void> Function(InstalledPlugin plugin) onUninstall;
-  final String? Function(SourceCatalogTypeDescriptor) sourceConfigForType;
   final String? Function(OutputSinkTypeDescriptor) outputSinkConfigForType;
-  final void Function(SourceCatalogTypeDescriptor, String)
-  onSourceConfigChanged;
   final void Function(OutputSinkTypeDescriptor, String)
   onOutputSinkConfigChanged;
-  final Future<void> Function(SourceCatalogTypeDescriptor) onSaveSourceConfig;
 
   @override
   Widget build(BuildContext context) {
@@ -90,11 +83,8 @@ class SettingsPluginsList extends StatelessWidget {
             onToggleEnabled: (enabled) =>
                 onToggleEnabled(plugin: plugin, enabled: enabled),
             onUninstall: () => onUninstall(plugin),
-            sourceConfigForType: sourceConfigForType,
             outputSinkConfigForType: outputSinkConfigForType,
-            onSourceConfigChanged: onSourceConfigChanged,
             onOutputSinkConfigChanged: onOutputSinkConfigChanged,
-            onSaveSourceConfig: onSaveSourceConfig,
           ),
       ],
     );

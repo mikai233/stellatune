@@ -7,7 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:stellatune/app/providers.dart';
 import 'package:stellatune/app/plugin_paths.dart';
-import 'package:stellatune/app/plugin_ui_gateway_service.dart';
+import 'package:stellatune/bridge/api/player.dart' as player_api;
 import 'package:stellatune/bridge/bridge.dart';
 import 'package:stellatune/l10n/app_localizations.dart';
 import 'package:stellatune/lyrics/lyrics_controller.dart';
@@ -67,7 +67,6 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
   Timer? _outputSinkConfigApplyDebounce;
   List<Object?> _outputSinkTargets = const [];
   bool _loadingOutputSinkTargets = false;
-  final Map<String, String> _sourceConfigDrafts = <String, String>{};
   final Map<String, String> _outputSinkConfigDrafts = <String, String>{};
   Set<String> _cachedLoadedPluginIds = <String>{};
   bool _cachedLoadedPluginIdsReady = false;
@@ -235,9 +234,6 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
 }
 
 extension _SettingsHelpers on SettingsPageState {
-  String _sourceTypeKey(SourceCatalogTypeDescriptor t) =>
-      SettingsValueUtils.sourceTypeKey(t);
-
   String _outputSinkTypeKey(OutputSinkTypeDescriptor t) =>
       SettingsValueUtils.outputSinkTypeKey(t);
 
@@ -310,50 +306,6 @@ extension _SettingsHelpers on SettingsPageState {
     );
   }
 
-  String _sourceConfigForType(SourceCatalogTypeDescriptor t) {
-    final key = _sourceTypeKey(t);
-    final draft = _sourceConfigDrafts[key];
-    if (draft != null) return draft;
-    final settings = ref.read(settingsStoreProvider);
-    final value = settings.sourceConfigFor(
-      pluginId: t.pluginId,
-      typeId: t.typeId,
-      defaultValue: t.defaultConfigJson,
-    );
-    _sourceConfigDrafts[key] = value;
-    return value;
-  }
-
-  Future<void> _saveSourceConfig(SourceCatalogTypeDescriptor t) async {
-    final key = _sourceTypeKey(t);
-    final value = _sourceConfigDrafts[key] ?? t.defaultConfigJson;
-    final settings = ref.read(settingsStoreProvider);
-    final currentValue = settings.sourceConfigFor(
-      pluginId: t.pluginId,
-      typeId: t.typeId,
-      defaultValue: t.defaultConfigJson,
-    );
-    if (_jsonTextsEquivalent(currentValue, value)) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No config changes detected.')),
-      );
-      return;
-    }
-    await ref
-        .read(settingsStoreProvider.notifier)
-        .setSourceConfigFor(
-          pluginId: t.pluginId,
-          typeId: t.typeId,
-          configJson: value,
-        );
-    if (!mounted) return;
-    final l10n = AppLocalizations.of(context)!;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(l10n.settingsSourceConfigSaved)));
-  }
-
   Future<void> _openPluginWebUi({
     required String pluginId,
     required String pluginName,
@@ -364,11 +316,8 @@ extension _SettingsHelpers on SettingsPageState {
       return;
     }
     try {
-      final url = await PluginUiGatewayService.instance.pluginUiUrl(
-        pluginId: pluginId,
-        pluginsDir: pluginsDir,
-      );
-      final raw = (url ?? '').trim();
+      final url = await player_api.pluginOpenUi(pluginId: pluginId);
+      final raw = url.trim();
       if (raw.isEmpty) {
         throw StateError('plugin does not expose a web ui entry');
       }
@@ -515,9 +464,8 @@ extension _SettingsRuntimeOps on SettingsPageState {
       );
       await _refreshDecoderExtensionSupportCache();
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(l10n.settingsPluginInstalled)));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(l10n.settingsPluginInstalled)));
     } catch (e, s) {
       logger.e('failed to install plugin', error: e, stackTrace: s);
       try {
@@ -684,9 +632,8 @@ extension _SettingsRuntimeOps on SettingsPageState {
     );
     if (!showFeedback || !mounted) return;
     final l10n = AppLocalizations.of(context)!;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(l10n.settingsSinkRouteApplied)));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(l10n.settingsSinkRouteApplied)));
   }
 
   Future<void> _applyLocalBackendRoute({
@@ -1376,12 +1323,8 @@ extension _SettingsBuildSections on SettingsPageState {
       onOpenWebUi: _openPluginWebUi,
       onToggleEnabled: _setPluginEnabled,
       onUninstall: _uninstallPlugin,
-      sourceConfigForType: _sourceConfigForType,
       outputSinkConfigForType: _outputSinkConfigForType,
-      onSourceConfigChanged: (t, json) =>
-          _sourceConfigDrafts[_sourceTypeKey(t)] = json,
       onOutputSinkConfigChanged: _handleOutputSinkConfigChanged,
-      onSaveSourceConfig: _saveSourceConfig,
     );
   }
 

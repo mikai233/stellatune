@@ -162,7 +162,7 @@ function buildProviderIdentity(item: DiscoveryItem): Record<string, unknown> | n
   return {
     provider_id: item.sourceId.trim() || props.sourceTypeId.trim(),
     source_type_id: props.sourceTypeId.trim(),
-    provider_track_key: parseUnsignedInt(trackId) ?? trackId
+    provider_track_key: trackId
   };
 }
 
@@ -326,7 +326,7 @@ function formatError(error: unknown): string {
             </div>
             <div class="actions">
               <button :disabled="isBusy || !hasGatewayContext || !item.trackId" @click="playNow(item)">播放</button>
-              <button :disabled="isBusy || !hasGatewayContext || !item.trackId" @click="enqueue(item)">加入下一首</button>
+              <button :disabled="isBusy || !hasGatewayContext || !item.trackId" @click="enqueue(item)">加入队列</button>
             </div>
           </li>
         </ul>
@@ -378,7 +378,7 @@ function formatError(error: unknown): string {
               </div>
               <div class="actions">
                 <button :disabled="isBusy || !hasGatewayContext || !item.trackId" @click="playNow(item)">播放</button>
-                <button :disabled="isBusy || !hasGatewayContext || !item.trackId" @click="enqueue(item)">加入下一首</button>
+                <button :disabled="isBusy || !hasGatewayContext || !item.trackId" @click="enqueue(item)">加入队列</button>
               </div>
             </li>
           </ul>

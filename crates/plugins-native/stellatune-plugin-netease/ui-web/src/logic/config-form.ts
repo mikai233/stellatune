@@ -29,15 +29,6 @@ export function buildSourceConfig(form: ConfigFormState): NeteaseSourceConfig {
   };
 }
 
-export function buildApplySummary(
-  report: { applied: number; skipped: number; failed: number } | undefined
-): string {
-  if (!report) {
-    return "";
-  }
-  return `已应用 ${report.applied} 项，跳过 ${report.skipped} 项，失败 ${report.failed} 项`;
-}
-
 function normalizeSourceConfig(rawConfig: unknown): NeteaseSourceConfig {
   if (typeof rawConfig !== "object" || rawConfig === null) {
     return { ...DEFAULT_SOURCE_CONFIG };

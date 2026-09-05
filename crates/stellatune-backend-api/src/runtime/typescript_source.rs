@@ -23,19 +23,26 @@ impl TypeScriptSourceResolverFactory {
     }
 }
 
+#[async_trait]
 impl SourceResolverFactory for TypeScriptSourceResolverFactory {
     fn create(
         &self,
         spec: &SourceResolverSpec,
     ) -> Result<Arc<dyn SourceResolver>, PlayerServiceError> {
-        let config = serde_json::from_str(&spec.config_json)
-            .map_err(|error| PlayerServiceError::InvalidSourceSpec(error.to_string()))?;
         Ok(Arc::new(TypeScriptSourceResolver::new(
             Arc::clone(&self.runtime),
             spec.plugin_id.clone(),
             spec.capability_id.clone(),
-            config,
-        )?))
+        )))
+    }
+    async fn resolve_local(
+        &self,
+        path: std::path::PathBuf,
+    ) -> Result<ResolvedSourceSpec, PlayerServiceError> {
+        let resolved = super::local_source::resolve_local_file(&self.runtime, &path)
+            .await
+            .map_err(PlayerServiceError::Resolve)?;
+        Ok(resolved.source)
     }
 }
 
@@ -43,7 +50,6 @@ pub struct TypeScriptSourceResolver {
     runtime: Arc<TypeScriptRuntime>,
     plugin_id: String,
     capability_id: String,
-    config: Value,
 }
 
 impl TypeScriptSourceResolver {
@@ -51,19 +57,12 @@ impl TypeScriptSourceResolver {
         runtime: Arc<TypeScriptRuntime>,
         plugin_id: impl Into<String>,
         capability_id: impl Into<String>,
-        config: Value,
-    ) -> Result<Self, PlayerServiceError> {
-        if !config.is_object() {
-            return Err(PlayerServiceError::InvalidSourceSpec(
-                "source resolver config must be an object".to_owned(),
-            ));
-        }
-        Ok(Self {
+    ) -> Self {
+        Self {
             runtime,
             plugin_id: plugin_id.into(),
             capability_id: capability_id.into(),
-            config,
-        })
+        }
     }
 }
 
@@ -86,7 +85,6 @@ impl SourceResolver for TypeScriptSourceResolver {
                 input.insert("track".to_owned(), serde_json::json!({ "track_id": value }));
             },
         }
-        input.insert("config".to_owned(), self.config.clone());
         let invocation = self
             .runtime
             .invoke(
@@ -101,22 +99,28 @@ impl SourceResolver for TypeScriptSourceResolver {
             .map_err(|error| PlayerServiceError::Resolve(error.to_string()))?;
         let result: SourcePlanDto = serde_json::from_value(invocation.value)
             .map_err(|error| PlayerServiceError::InvalidSourceSpec(error.to_string()))?;
-        let media = MediaHintsInput {
-            extension: result.media.codec_hint,
-            mime_type: result.media.mime_type,
-            content_length: None,
-            container_hint: None,
-        };
-        let input = match result.source {
-            SourceLocatorDto::File { path } => SourceResolutionInput::File { path, media },
-            SourceLocatorDto::Http { url, headers } => SourceResolutionInput::Http {
-                url,
-                headers,
-                media,
-                seekable: result.capabilities.seekable,
-                live: result.capabilities.live,
-            },
-        };
-        input.try_into()
+        source_plan_spec(result)
     }
+}
+
+pub(super) fn source_plan_spec(
+    result: SourcePlanDto,
+) -> Result<ResolvedSourceSpec, PlayerServiceError> {
+    let media = MediaHintsInput {
+        extension: result.media.codec_hint,
+        mime_type: result.media.mime_type,
+        content_length: None,
+        container_hint: None,
+    };
+    let input = match result.source {
+        SourceLocatorDto::File { path } => SourceResolutionInput::File { path, media },
+        SourceLocatorDto::Http { url, headers } => SourceResolutionInput::Http {
+            url,
+            headers,
+            media,
+            seekable: result.capabilities.seekable,
+            live: result.capabilities.live,
+        },
+    };
+    input.try_into()
 }

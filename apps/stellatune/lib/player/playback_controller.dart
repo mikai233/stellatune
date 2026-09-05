@@ -28,6 +28,7 @@ class PlaybackController extends Notifier<PlaybackState> {
   StreamSubscription<Event>? _sub;
   Timer? _volumePersistDebounce;
   BigInt? _currentTrackId;
+  int _navigationGeneration = 0;
   double _lastNonZeroVolume = 1.0;
   int _nextVolumeSeq = 1;
   int _latestVolumeCommandSeq = 0;
@@ -48,6 +49,7 @@ class PlaybackController extends Notifier<PlaybackState> {
 
   @override
   PlaybackState build() {
+    ++_navigationGeneration;
     unawaited(_sub?.cancel());
     _volumePersistDebounce?.cancel();
     _volumePersistDebounce = null;
@@ -77,6 +79,7 @@ class PlaybackController extends Notifier<PlaybackState> {
     );
 
     ref.onDispose(() {
+      ++_navigationGeneration;
       unawaited(_sub?.cancel());
       _volumePersistDebounce?.cancel();
       _dlnaPollTimer?.cancel();
@@ -478,12 +481,18 @@ class PlaybackController extends Notifier<PlaybackState> {
     QueueSource? source,
   }) async {
     if (items.isEmpty) return;
+    final generation = _beginNavigation(
+      items[startIndex.clamp(0, items.length - 1)],
+    );
     if (!_dlnaActive) {
       try {
         final bridge = ref.read(playerBridgeProvider);
         await bridge.retainQueuePaths(items.map((item) => item.path));
+        if (generation != _navigationGeneration) return;
         final ids = await _resolveTrackIds(items);
+        if (generation != _navigationGeneration) return;
         final snapshot = await bridge.replaceQueue(ids);
+        if (generation != _navigationGeneration) return;
         ref
             .read(queueControllerProvider.notifier)
             .applyBackend(
@@ -493,17 +502,19 @@ class PlaybackController extends Notifier<PlaybackState> {
               replaceSource: true,
             );
         await ref.read(settingsStoreProvider.notifier).setQueueSource(source);
+        if (generation != _navigationGeneration) return;
         final mode = ref.read(settingsStoreProvider).playMode;
         ref.read(queueControllerProvider.notifier).setPlayMode(mode);
         final selected = ref
             .read(queueControllerProvider)
             .items[startIndex.clamp(0, items.length - 1)];
-        await _loadQueueItemOrStop(selected);
+        await _loadQueueItemOrStop(selected, generation: generation);
       } catch (error) {
+        if (generation != _navigationGeneration) return;
         ref
             .read(loggerProvider)
             .w('failed to prepare playback queue', error: error);
-        state = state.copyWith(lastError: error.toString());
+        state = state.copyWith(lastError: error.toString(), pendingItem: null);
       }
       return;
     }
@@ -512,7 +523,7 @@ class PlaybackController extends Notifier<PlaybackState> {
         .setQueue(items, startIndex: startIndex, source: source);
     final item = ref.read(queueControllerProvider).currentItem;
     if (item == null) return;
-    await _loadQueueItemOrStop(item);
+    await _loadQueueItemOrStop(item, generation: generation);
   }
 
   Future<void> setQueueAndPlayTracks(
@@ -584,14 +595,30 @@ class PlaybackController extends Notifier<PlaybackState> {
     await _loadQueueItemOrStop(item);
   }
 
-  Future<bool> _loadQueueItemOrStop(QueueItem item) async {
-    final loaded = await _loadAndPlayQueueItem(item);
+  int _beginNavigation(QueueItem? item) {
+    final generation = ++_navigationGeneration;
+    state = state.copyWith(pendingItem: item, lastError: null);
+    return generation;
+  }
+
+  Future<bool> _loadQueueItemOrStop(QueueItem item, {int? generation}) async {
+    generation ??= _beginNavigation(item);
+    if (generation != _navigationGeneration) return false;
+    state = state.copyWith(pendingItem: item);
+    final loaded = await _loadAndPlayQueueItem(item, generation);
+    if (generation != _navigationGeneration) return false;
+    if (loaded == null) {
+      state = state.copyWith(pendingItem: null);
+      return false;
+    }
     if (loaded) {
       unawaited(_refreshBackendQueue());
       return true;
     }
 
     final loadError = state.lastError;
+    // stop() invalidates this request too; only project its result if it stays latest.
+    final stopGeneration = _navigationGeneration + 1;
     try {
       await stop();
     } catch (error, stackTrace) {
@@ -603,6 +630,7 @@ class PlaybackController extends Notifier<PlaybackState> {
             stackTrace: stackTrace,
           );
     }
+    if (stopGeneration != _navigationGeneration) return false;
     state = state.copyWith(
       playerState: PlayerState.stopped,
       audioStarted: false,
@@ -703,9 +731,11 @@ class PlaybackController extends Notifier<PlaybackState> {
   }
 
   Future<void> stop() async {
+    final generation = _beginNavigation(null);
     if (!_dlnaActive) {
       await ref.read(playerBridgeProvider).stop();
       await _releaseDlnaTrackLease();
+      if (generation != _navigationGeneration) return;
       state = state.copyWith(positionMs: 0);
       return;
     }
@@ -735,6 +765,7 @@ class PlaybackController extends Notifier<PlaybackState> {
   Future<void> next({bool auto = false}) async {
     if (!_dlnaActive) {
       if (auto) return;
+      _beginNavigation(null);
       await ref.read(playerBridgeProvider).nextQueueItem();
       return;
     }
@@ -757,6 +788,7 @@ class PlaybackController extends Notifier<PlaybackState> {
 
   Future<void> previous() async {
     if (!_dlnaActive) {
+      _beginNavigation(null);
       await ref.read(playerBridgeProvider).previousQueueItem();
       return;
     }
@@ -768,8 +800,10 @@ class PlaybackController extends Notifier<PlaybackState> {
 
   Future<void> _updateTrackInfo() async {
     if (_dlnaActive) return;
+    final itemId = _activePositionItemId;
     try {
       final info = await ref.read(playerBridgeProvider).currentTrackInfo();
+      if (_activePositionItemId != itemId) return;
       state = state.copyWith(trackInfo: info);
     } catch (e) {
       ref.read(loggerProvider).d('fetch track info failed: $e');
@@ -960,17 +994,19 @@ class PlaybackController extends Notifier<PlaybackState> {
         providerKey: provider.providerKey,
         pluginId: provider.pluginId,
         typeId: provider.typeId,
-        configJson: provider.configJson,
       ),
     );
   }
 
-  Future<bool> _loadAndPlayQueueItem(QueueItem item) async {
+  // null means superseded, which must never enter failure cleanup.
+  Future<bool?> _loadAndPlayQueueItem(QueueItem item, int generation) async {
     final path = item.path;
     state = state.copyWith(lastError: null, lastLog: '');
     final blockedReason = await _playabilityBlockReason(item);
+    if (generation != _navigationGeneration) return null;
     if (blockedReason != null) {
       await _removeCurrentQueueItemIfDisabledPluginBlocked(item, blockedReason);
+      if (generation != _navigationGeneration) return null;
       state = state.copyWith(lastError: encodePlayabilityError(blockedReason));
       return false;
     }
@@ -987,6 +1023,10 @@ class PlaybackController extends Notifier<PlaybackState> {
         path: path,
         store: ref.read(settingsStoreServiceProvider),
       );
+      if (generation != _navigationGeneration) {
+        await nextLease?.release();
+        return null;
+      }
       final previousLease = _activeDlnaTrackLease;
       final coverPath = item.id == null
           ? null
@@ -1010,11 +1050,13 @@ class PlaybackController extends Notifier<PlaybackState> {
         await nextLease?.release();
         rethrow;
       }
+      if (generation != _navigationGeneration) return null;
       _dlnaLastPath = path;
       _dlnaLastPlayStartedAt = DateTime.now();
       _ensureDlnaPoller();
       state = state.copyWith(
         currentPath: path,
+        pendingItem: null,
         positionMs: 0,
         playerState: PlayerState.playing,
       );
@@ -1029,17 +1071,32 @@ class PlaybackController extends Notifier<PlaybackState> {
         // Entering native playback from a DLNA queue materializes every occurrence once.
         final items = ref.read(queueControllerProvider).items;
         await bridge.retainQueuePaths(items.map((item) => item.path));
+        if (generation != _navigationGeneration) return null;
         final ids = await _resolveTrackIds(items);
+        if (generation != _navigationGeneration) return null;
         final snapshot = await bridge.replaceQueue(ids);
+        if (generation != _navigationGeneration) return null;
         final index = items.indexOf(item);
         ref
             .read(queueControllerProvider.notifier)
             .applyBackend(snapshot, metadata: items);
         itemId = snapshot.items[index < 0 ? 0 : index].itemId;
       }
-      await bridge.selectQueueItem(itemId);
+      if (generation != _navigationGeneration) return null;
+      state = state.copyWith(
+        pendingItem:
+            ref
+                .read(queueControllerProvider)
+                .items
+                .where((entry) => entry.itemId == itemId)
+                .firstOrNull ??
+            item,
+      );
+      final accepted = await bridge.selectQueueItem(itemId);
+      if (generation != _navigationGeneration || !accepted) return null;
       return true;
     } catch (error) {
+      if (generation != _navigationGeneration) return null;
       ref.read(loggerProvider).w('failed to open track: $path', error: error);
       state = state.copyWith(
         playerState: PlayerState.stopped,
@@ -1074,6 +1131,9 @@ class PlaybackController extends Notifier<PlaybackState> {
         state = state.copyWith(positionMs: ms);
       },
       trackChanged: (trackId, itemId) {
+        if (state.pendingItem?.itemId == itemId) {
+          state = state.copyWith(pendingItem: null);
+        }
         ref.read(queueControllerProvider.notifier).observeCurrent(itemId);
         _currentTrackId = trackId;
         _activePositionItemId = itemId;
@@ -1129,7 +1189,7 @@ class PlaybackController extends Notifier<PlaybackState> {
       },
       error: (message) {
         ref.read(loggerProvider).e(message);
-        state = state.copyWith(lastError: message);
+        state = state.copyWith(lastError: message, pendingItem: null);
       },
       log: (message) {
         ref.read(loggerProvider).d(message);

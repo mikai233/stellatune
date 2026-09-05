@@ -5,6 +5,8 @@ use super::identity::{SourceInstanceId, TrackId};
 
 #[derive(Debug, Error)]
 pub enum PlayerServiceError {
+    #[error("plugin capability '{0}' was not found or is disabled")]
+    PluginCapabilityNotFound(String),
     #[error("playback navigation was superseded")]
     Superseded,
     #[error("playback storage schema is not the current hard-switch schema")]

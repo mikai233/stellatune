@@ -91,13 +91,11 @@ class PlayerBridge {
     required String providerKey,
     required String pluginId,
     required String typeId,
-    required String configJson,
   }) => api.ensureProviderTrack(
     providerId: providerId,
     providerKey: providerKey,
     pluginId: pluginId,
     typeId: typeId,
-    configJson: configJson,
   );
 
   Future<queue_api.PlaybackQueue> playbackQueue() => queue_api.playbackQueue();
@@ -189,12 +187,10 @@ class PlayerBridge {
   Future<String> sourceListItemsJson({
     required String pluginId,
     required String typeId,
-    required String configJson,
     required String requestJson,
   }) => api.sourceListItemsJson(
     pluginId: pluginId,
     typeId: typeId,
-    configJson: configJson,
     requestJson: requestJson,
   );
 

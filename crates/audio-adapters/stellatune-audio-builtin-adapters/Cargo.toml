@@ -15,7 +15,6 @@ symphonia.workspace = true
 stellatune-audio-core.workspace = true
 m3u8-rs.workspace = true
 memmap2.workspace = true
-ncmdump.workspace = true
 postcard = { workspace = true, default-features = false, features = ["use-std"] }
 reqwest = { workspace = true, features = ["rustls", "gzip"] }
 tokio.workspace = true

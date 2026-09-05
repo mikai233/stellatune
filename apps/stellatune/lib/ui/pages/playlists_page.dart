@@ -571,7 +571,6 @@ extension _PlaylistsPluginLogic on PlaylistsPageState {
     try {
       final result = await _pluginBridgeService.fetchPlaylists(
         bridge: ref.read(playerBridgeProvider),
-        settings: ref.read(settingsStoreProvider),
       );
       final merged = result.entries;
       final validKeys = merged.map((entry) => entry.key).toSet();

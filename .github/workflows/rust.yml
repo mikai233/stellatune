@@ -80,6 +80,29 @@ jobs:
       - name: Test shared TypeScript runtime
         run: cargo test -p stellatune-plugins --test typescript_runtime
 
+      - name: Test and package optional NCM plugin
+        shell: pwsh
+        run: |
+          cargo test -p stellatune-backend-api local_plugin
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          powershell -ExecutionPolicy Bypass -File crates/plugins-native/stellatune-plugin-ncm/scripts/package-windows.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $manifest = Get-Content crates/plugins-native/stellatune-plugin-ncm/manifest.json -Raw | ConvertFrom-Json
+          $zip = Get-Item "crates/plugins-native/stellatune-plugin-ncm/dist/$($manifest.id)-$($manifest.version).zip"
+          $extractDir = Join-Path $env:RUNNER_TEMP ("ncm-plugin-smoke-" + [guid]::NewGuid().ToString())
+          Expand-Archive -LiteralPath $zip.FullName -DestinationPath $extractDir
+          $env:STELLATUNE_TEST_NCM_PACKAGE = $extractDir
+          node --test crates/plugins-native/stellatune-plugin-ncm/tests/plugin.test.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Install plugin build dependencies and check SDK
+        shell: pwsh
+        run: |
+          npm --prefix crates/plugins-native/stellatune-plugin-netease/ui-web ci
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm --prefix crates/plugins-native/stellatune-plugin-netease/ui-web run check:sdk
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Package plugin artifact
         shell: pwsh
         run: |
@@ -90,8 +113,7 @@ jobs:
         run: |
           $zip = Get-ChildItem crates/plugins-native/stellatune-plugin-netease/dist -Filter "*.zip" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
           if ($null -eq $zip) { throw "packaged v2 zip not found" }
-          $extractDir = Join-Path $env:RUNNER_TEMP "netease-plugin-smoke"
-          if (Test-Path $extractDir) { Remove-Item -Recurse -Force $extractDir }
+          $extractDir = Join-Path $env:RUNNER_TEMP ("netease-plugin-smoke-" + [guid]::NewGuid().ToString())
           Expand-Archive -Path $zip.FullName -DestinationPath $extractDir -Force
           if (-not (Test-Path (Join-Path $extractDir "manifest.json"))) {
             throw "missing manifest v2"
@@ -102,3 +124,6 @@ jobs:
           if (Get-ChildItem $extractDir -Recurse -Include *.wasm,*.node,package.json) {
             throw "v2 package contains a forbidden runtime payload"
           }
+          $env:STELLATUNE_TEST_PLUGIN_PACKAGE = $extractDir
+          node --test crates/plugins-native/stellatune-plugin-netease/scripts/plugin.test.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

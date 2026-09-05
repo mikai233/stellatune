@@ -349,16 +349,12 @@ class SourceCatalogTypeDescriptor {
   final String pluginName;
   final String typeId;
   final String displayName;
-  final String configSchemaJson;
-  final String defaultConfigJson;
 
   const SourceCatalogTypeDescriptor({
     required this.pluginId,
     required this.pluginName,
     required this.typeId,
     required this.displayName,
-    required this.configSchemaJson,
-    required this.defaultConfigJson,
   });
 
   @override
@@ -366,9 +362,7 @@ class SourceCatalogTypeDescriptor {
       pluginId.hashCode ^
       pluginName.hashCode ^
       typeId.hashCode ^
-      displayName.hashCode ^
-      configSchemaJson.hashCode ^
-      defaultConfigJson.hashCode;
+      displayName.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -378,9 +372,7 @@ class SourceCatalogTypeDescriptor {
           pluginId == other.pluginId &&
           pluginName == other.pluginName &&
           typeId == other.typeId &&
-          displayName == other.displayName &&
-          configSchemaJson == other.configSchemaJson &&
-          defaultConfigJson == other.defaultConfigJson;
+          displayName == other.displayName;
 }
 
 class TrackDecodeInfo {

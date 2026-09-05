@@ -31,6 +31,9 @@ pub struct TypeScriptCapabilityManifest {
     pub display_name: String,
     #[serde(default)]
     pub config_schema: Option<String>,
+    /// Local containers handled through `resolve-file` and `inspect-file`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub local_extensions: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -44,7 +47,6 @@ pub struct TypeScriptRuntimeManifest {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct TypeScriptUiManifest {
     pub mode: String,
-    pub entry: String,
     #[serde(default)]
     pub mobile_support: Option<String>,
 }
@@ -136,12 +138,29 @@ pub fn validate_typescript_manifest(
         if let Some(schema) = &capability.config_schema {
             validate_package_path("capability.config_schema", schema, package_root, "json")?;
         }
-    }
-    if let Some(ui) = &manifest.ui {
-        if ui.mode != "web" {
-            return invalid("ui.mode must be 'web'");
+        if !capability.local_extensions.is_empty()
+            && capability.kind != TypeScriptCapabilityKind::SourceResolver
+        {
+            return invalid("local_extensions requires a source-resolver capability");
         }
-        validate_package_path("ui.entry", &ui.entry, package_root, "html")?;
+        let mut extensions = HashSet::new();
+        for extension in &capability.local_extensions {
+            if extension.is_empty()
+                || !extension
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
+                || !extensions.insert(extension)
+            {
+                return invalid(
+                    "local_extensions must contain unique lowercase extensions without dots",
+                );
+            }
+        }
+    }
+    if let Some(ui) = &manifest.ui
+        && ui.mode != "plugin-hosted"
+    {
+        return invalid("plugin UI requires an updated package with ui.mode = 'plugin-hosted'");
     }
     validate_package_contents(package_root)
 }

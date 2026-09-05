@@ -40,6 +40,7 @@ pub(super) struct WatchTaskActor {
     pool: SqlitePool,
     events: Arc<EventHub>,
     cover_dir: PathBuf,
+    metadata_provider: Option<Arc<dyn crate::metadata_provider::MetadataProvider>>,
     watcher: Option<RecommendedWatcher>,
     watched: HashSet<String>,
     excluded: Vec<String>,
@@ -109,6 +110,7 @@ pub(super) fn spawn_watch_task(
     pool: SqlitePool,
     events: Arc<EventHub>,
     cover_dir: PathBuf,
+    metadata_provider: Option<Arc<dyn crate::metadata_provider::MetadataProvider>>,
 ) -> ActorHandle<WatchTaskActor> {
     let (fs_tx, mut fs_rx) = mpsc::unbounded_channel::<notify::Result<notify::Event>>();
     let watcher = match notify::recommended_watcher(move |res| {
@@ -129,6 +131,7 @@ pub(super) fn spawn_watch_task(
             pool,
             events: Arc::clone(&events),
             cover_dir,
+            metadata_provider,
             watcher,
             watched: HashSet::new(),
             excluded: Vec::new(),
@@ -182,6 +185,7 @@ async fn apply_fs_changes(
     cover_dir: &Path,
     excluded: &[String],
     raw_paths: Vec<String>,
+    metadata_provider: &Option<Arc<dyn crate::metadata_provider::MetadataProvider>>,
 ) -> Result<bool> {
     let mut changed = false;
 
@@ -220,7 +224,7 @@ async fn apply_fs_changes(
             .and_then(|s| s.to_str())
             .unwrap_or("")
             .to_ascii_lowercase();
-        let supported = is_audio_ext(&ext) || has_plugin_decoder_for_path(&path);
+        let supported = is_audio_ext(&ext) || has_plugin_decoder_for_path(&path, metadata_provider);
         if !supported {
             let deleted = delete_track_by_path_norm(pool, cover_dir, &path_norm).await?;
             changed |= deleted > 0;
@@ -247,9 +251,10 @@ async fn apply_fs_changes(
         let meta_scanned_ms = now_ms();
 
         let (title, artist, album, duration_ms, cover) = match tokio::task::spawn_blocking({
+            let metadata_provider = metadata_provider.clone();
             let p = path.clone();
             move || {
-                extract_metadata_with_plugins(&p)
+                extract_metadata_with_plugins(&p, &metadata_provider)
                     .map(|m| (m.title, m.artist, m.album, m.duration_ms, m.cover))
             }
         })

@@ -16,7 +16,7 @@ export function buildActionSummary(
 ): SummaryField[] {
   const rows: SummaryField[] = [
     { label: "动作", value: formatActionName(action) },
-    { label: "网关响应", value: responseMessage }
+    { label: "插件响应", value: responseMessage }
   ];
   const payloadObj = asRecord(payload);
   const bodyObj = asRecord(payloadObj?.body);
@@ -170,8 +170,6 @@ export function formatActionName(action: string): string {
       return "查询扫码状态";
     case "netease.auth.logout":
       return "退出登录";
-    case "config.apply":
-      return "应用配置";
     case "search":
       return "搜索歌曲";
     case "list_playlists":

@@ -127,9 +127,17 @@ async fn prepare_track(
                     error,
                 )
             })?;
+            let opening = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+            let source = Box::new(PreparationSource {
+                source,
+                opening: opening.clone(),
+                cancellation: cancellation.clone(),
+                deadline,
+            });
             let info = decoder.open(source, &hints).map_err(|error| {
                 PlaybackControlError::decoder(error, factory.descriptor().id.clone())
             })?;
+            opening.store(false, std::sync::atomic::Ordering::Release);
             check_active(&cancellation, deadline)?;
             let decoded_format = info.format;
             let mut mix_format = decoded_format;
@@ -292,4 +300,50 @@ async fn prepare_track(
     Err(last_error.unwrap_or_else(|| {
         PlaybackControlError::failed(FailureStage::Decoder, "no decoder candidate")
     }))
+}
+
+// A decoder may wait for input on its own worker during synchronous probing.
+// Keep that wait cancellable without tying later playback reads to the lifetime
+// of a preparation token (which may be retired when a successor is promoted).
+struct PreparationSource {
+    source: Box<dyn stellatune_audio_core::source::EncodedSource>,
+    opening: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    cancellation: SourceCancellation,
+    deadline: Instant,
+}
+impl PreparationSource {
+    fn check(&self) -> std::io::Result<()> {
+        if self.opening.load(std::sync::atomic::Ordering::Acquire) {
+            if self.cancellation.is_cancelled() {
+                return Err(std::io::Error::other("source preparation cancelled"));
+            }
+            if Instant::now() >= self.deadline {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "source preparation timed out",
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+impl std::io::Read for PreparationSource {
+    fn read(&mut self, output: &mut [u8]) -> std::io::Result<usize> {
+        self.check()?;
+        self.source.read(output)
+    }
+}
+impl std::io::Seek for PreparationSource {
+    fn seek(&mut self, position: std::io::SeekFrom) -> std::io::Result<u64> {
+        self.check()?;
+        self.source.seek(position)
+    }
+}
+impl stellatune_audio_core::source::EncodedSource for PreparationSource {
+    fn byte_len(&self) -> Option<u64> {
+        self.source.byte_len()
+    }
+    fn is_seekable(&self) -> bool {
+        self.source.is_seekable()
+    }
 }

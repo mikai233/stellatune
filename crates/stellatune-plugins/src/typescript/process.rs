@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use lattice_actor::context::{ActorContext, HandlerContext};
 use lattice_actor::error::{ActorError, ActorStopError};
@@ -29,8 +29,8 @@ pub struct PluginProcessConfig {
     pub runner_script: PathBuf,
     pub protocol: String,
     pub request_timeout: Duration,
-    pub idle_timeout: Duration,
     pub max_frame_bytes: usize,
+    pub initialization: Value,
 }
 
 impl PluginProcessConfig {
@@ -46,8 +46,8 @@ impl PluginProcessConfig {
             runner_script: runner_script.into(),
             protocol: CAPABILITY_RPC_PROTOCOL.to_string(),
             request_timeout: Duration::from_secs(10),
-            idle_timeout: Duration::from_secs(60),
             max_frame_bytes: DEFAULT_MAX_FRAME_BYTES,
+            initialization: json!({}),
         }
     }
 }
@@ -117,6 +117,10 @@ struct InvokeCapability {
     expected_generation: Option<u64>,
 }
 
+#[derive(Debug, lattice_actor::Request)]
+#[request(response = Result<InvocationResult, PluginRuntimeError>)]
+struct OpenUi;
+
 #[derive(lattice_actor::Message)]
 struct InvokeCompleted {
     result: Result<InvocationResult, PluginRuntimeError>,
@@ -130,9 +134,6 @@ struct StopPluginProcess;
 #[derive(Debug, lattice_actor::Request)]
 #[request(response = PluginProcessSnapshot)]
 struct GetPluginProcessSnapshot;
-
-#[derive(Debug, lattice_actor::Message)]
-struct ReapIdleProcess;
 
 struct PluginProcessActor {
     cell: Arc<Mutex<ProcessCell>>,
@@ -163,6 +164,23 @@ impl Responder<InvokeCapability> for PluginProcessActor {
         ctx.defer_reply(
             reply_to,
             async move { cell.lock().await.invoke(request).await },
+            |result, reply_to| InvokeCompleted { result, reply_to },
+        )?;
+        Ok(())
+    }
+}
+
+impl Responder<OpenUi> for PluginProcessActor {
+    async fn respond(
+        &mut self,
+        ctx: &mut HandlerContext<'_, Self>,
+        _request: OpenUi,
+        reply_to: ReplyTo<Result<InvocationResult, PluginRuntimeError>>,
+    ) -> Result<(), ActorError> {
+        let cell = Arc::clone(&self.cell);
+        ctx.defer_reply(
+            reply_to,
+            async move { cell.lock().await.open_ui().await },
             |result, reply_to| InvokeCompleted { result, reply_to },
         )?;
         Ok(())
@@ -206,17 +224,6 @@ impl Responder<GetPluginProcessSnapshot> for PluginProcessActor {
     }
 }
 
-impl Handler<ReapIdleProcess> for PluginProcessActor {
-    async fn handle(
-        &mut self,
-        _ctx: &mut HandlerContext<'_, Self>,
-        _message: ReapIdleProcess,
-    ) -> Result<(), ActorError> {
-        self.cell.lock().await.reap_idle().await;
-        Ok(())
-    }
-}
-
 #[derive(Clone)]
 pub struct PluginProcessHandle {
     actor: ActorHandle<PluginProcessActor>,
@@ -224,16 +231,29 @@ pub struct PluginProcessHandle {
 }
 
 impl PluginProcessHandle {
+    pub async fn open_ui(&self) -> Result<String, PluginRuntimeError> {
+        let result = self
+            .actor
+            .ask(OpenUi, self.timeout + Duration::from_secs(1))
+            .await
+            .map_err(|error| PluginRuntimeError::ActorCall {
+                operation: "plugin.open_ui",
+                message: error.to_string(),
+            })??;
+        Ok(result.value["url"]
+            .as_str()
+            .expect("validated UI URL")
+            .to_owned())
+    }
+
     pub fn spawn(config: PluginProcessConfig) -> Self {
         let timeout = config.request_timeout;
-        let idle_timeout = config.idle_timeout;
         let actor = spawn_actor(
             PluginProcessActor {
                 cell: Arc::new(Mutex::new(ProcessCell::new(config))),
             },
             MailboxConfig::bounded(32).with_deferred_capacity(8),
         );
-        spawn_idle_reaper(actor.clone(), idle_timeout);
         Self { actor, timeout }
     }
 
@@ -290,31 +310,11 @@ impl PluginProcessHandle {
     }
 }
 
-fn spawn_idle_reaper(actor: ActorHandle<PluginProcessActor>, idle_timeout: Duration) {
-    tokio::spawn(async move {
-        let mut terminated = actor.subscribe_terminated();
-        let interval = idle_timeout
-            .checked_div(2)
-            .unwrap_or(Duration::from_millis(100))
-            .max(Duration::from_millis(100));
-        loop {
-            tokio::select! {
-                _ = tokio::time::sleep(interval) => {
-                    if actor.tell(ReapIdleProcess).await.is_err() {
-                        break;
-                    }
-                }
-                _ = terminated.recv() => break,
-            }
-        }
-    });
-}
-
 struct ProcessCell {
     config: PluginProcessConfig,
     session: Option<NodeSession>,
     next_generation: u64,
-    last_activity: Instant,
+    ui_url: Option<String>,
 }
 
 impl ProcessCell {
@@ -323,7 +323,7 @@ impl ProcessCell {
             config,
             session: None,
             next_generation: 1,
-            last_activity: Instant::now(),
+            ui_url: None,
         }
     }
 
@@ -359,7 +359,6 @@ impl ProcessCell {
         let result = session
             .call("capability.invoke", params, self.config.request_timeout)
             .await;
-        self.last_activity = Instant::now();
         match result {
             Ok(value) => Ok(InvocationResult { generation, value }),
             Err(SessionCallError::Remote(error)) => Err(PluginRuntimeError::Remote {
@@ -372,6 +371,46 @@ impl ProcessCell {
             Err(error) => {
                 self.shutdown().await;
                 Err(map_session_error(&self.config, "capability.invoke", error))
+            },
+        }
+    }
+
+    async fn open_ui(&mut self) -> Result<InvocationResult, PluginRuntimeError> {
+        self.remove_exited_session();
+        self.ensure_started().await?;
+        let session = self.session.as_mut().expect("session started");
+        let generation = session.generation;
+        if let Some(url) = &self.ui_url {
+            return Ok(InvocationResult {
+                generation,
+                value: json!({ "url": url }),
+            });
+        }
+        let result = session
+            .call("plugin.open_ui", json!({}), self.config.request_timeout)
+            .await;
+        match result {
+            Ok(value) => {
+                let valid = value["url"].as_str().filter(|url| {
+                    url::Url::parse(url).is_ok_and(|url| {
+                        matches!(url.scheme(), "http" | "https") && url.host_str().is_some()
+                    })
+                });
+                if let Some(url) = valid {
+                    self.ui_url = Some(url.to_owned());
+                    Ok(InvocationResult { generation, value })
+                } else {
+                    self.shutdown().await;
+                    Err(PluginRuntimeError::Protocol {
+                        plugin_id: self.config.plugin_id.clone(),
+                        operation: "plugin.open_ui".into(),
+                        message: "plugin must return an HTTP UI URL".into(),
+                    })
+                }
+            },
+            Err(error) => {
+                self.shutdown().await;
+                Err(map_session_error(&self.config, "plugin.open_ui", error))
             },
         }
     }
@@ -394,10 +433,16 @@ impl ProcessCell {
             session.shutdown(Duration::from_millis(100)).await;
             return Err(map_session_error(&self.config, "plugin.handshake", error));
         }
+        let mut initialization = self.config.initialization.clone();
+        initialization["pluginId"] = json!(self.config.plugin_id);
+        initialization["generation"] = json!(generation);
+        if initialization.get("packageRoot").is_none() {
+            initialization["packageRoot"] = json!(self.config.entry_path.parent());
+        }
         if let Err(error) = session
             .call(
                 "plugin.initialize",
-                json!({ "pluginId": self.config.plugin_id, "generation": generation }),
+                initialization,
                 self.config.request_timeout,
             )
             .await
@@ -407,7 +452,6 @@ impl ProcessCell {
         }
         debug!(plugin_id = %self.config.plugin_id, generation, "TypeScript plugin process started");
         self.session = Some(session);
-        self.last_activity = Instant::now();
         Ok(())
     }
 
@@ -419,17 +463,12 @@ impl ProcessCell {
             .is_some();
         if exited {
             self.session = None;
-        }
-    }
-
-    async fn reap_idle(&mut self) {
-        if self.session.is_some() && self.last_activity.elapsed() >= self.config.idle_timeout {
-            debug!(plugin_id = %self.config.plugin_id, "stopping idle TypeScript plugin process");
-            self.shutdown().await;
+            self.ui_url = None;
         }
     }
 
     async fn shutdown(&mut self) {
+        self.ui_url = None;
         if let Some(mut session) = self.session.take() {
             session.shutdown(Duration::from_millis(500)).await;
         }

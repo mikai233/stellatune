@@ -9,6 +9,7 @@ use stellatune_audio_core::{
 use symphonia::core::audio::{Channels, GenericAudioBufferRef, Position};
 use symphonia::core::codecs::audio::{
     AudioDecoder as SymphoniaDecoder, AudioDecoderOptions as DecoderOptions,
+    well_known::CODEC_ID_MP3,
 };
 use symphonia::core::errors::Error as SymphoniaError;
 use symphonia::core::formats::probe::Hint;
@@ -194,6 +195,8 @@ pub struct BuiltinDecoder {
     format: Box<dyn FormatReader>,
     decoder: Box<dyn SymphoniaDecoder>,
     track_id: u32,
+    time_base: Option<TimeBase>,
+    seek_skip_frames: u64,
     spec: PcmFormat,
     duration_ms_hint: Option<u64>,
     encoder_delay_frames: u32,
@@ -259,6 +262,13 @@ impl BuiltinDecoder {
             .as_ref()
             .map(channel_layout_from_symphonia)
             .transpose()?;
+        // The MPEG demuxer describes mono as front-left, while its decoder
+        // produces front-center. MP3 has no speaker-position metadata.
+        if params.codec == CODEC_ID_MP3
+            && channel_layout.is_some_and(|layout| layout.channel_count() == 1)
+        {
+            channel_layout = Some(ChannelLayout::MONO);
+        }
 
         let mut decoder = symphonia::default::get_codecs()
             .make_audio_decoder(&params, &DecoderOptions::default())
@@ -345,6 +355,8 @@ impl BuiltinDecoder {
             format,
             decoder,
             track_id,
+            time_base,
+            seek_skip_frames: 0,
             spec: PcmFormat {
                 sample_rate,
                 channel_layout,
@@ -381,7 +393,8 @@ impl BuiltinDecoder {
     }
 
     pub fn seek_ms(&mut self, position_ms: u64) -> Result<(), String> {
-        self.format
+        let seeked = self
+            .format
             .seek(
                 SeekMode::Accurate,
                 SeekTo::Time {
@@ -400,6 +413,14 @@ impl BuiltinDecoder {
             })?;
         self.decoder.reset();
         self.pending.clear();
+        // Accurate container seeking lands at the start of an earlier packet.
+        // Discard its preroll before exposing PCM at the requested position.
+        self.seek_skip_frames = self.time_base.map_or(0, |time_base| {
+            let ticks = i128::from(seeked.required_ts.get()) - i128::from(seeked.actual_ts.get());
+            (ticks.max(0) * i128::from(time_base.numer.get()) * i128::from(self.spec.sample_rate)
+                / i128::from(time_base.denom.get()))
+            .min(i128::from(u64::MAX)) as u64
+        });
         Ok(())
     }
 
@@ -428,6 +449,11 @@ impl BuiltinDecoder {
                                 ));
                             }
                             append_decoded(&mut self.pending, audio_buf);
+                            let skip = self
+                                .seek_skip_frames
+                                .min((self.pending.len() / channels) as u64);
+                            self.pending.drain(..skip as usize * channels);
+                            self.seek_skip_frames -= skip;
                         },
                         Err(SymphoniaError::DecodeError(_)) => continue,
                         Err(SymphoniaError::ResetRequired) => {

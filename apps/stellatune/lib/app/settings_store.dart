@@ -36,12 +36,11 @@ class SettingsState {
     required this.seekTrackFade,
     required this.resampleQuality,
     required this.outputSinkRoute,
-    required Map<String, String> sourceConfigs,
     required this.queueSource,
     required this.locale,
     required this.themeMode,
     required this.closeToTray,
-  }) : sourceConfigs = Map.unmodifiable(sourceConfigs);
+  });
 
   final double volume;
   final PlayMode playMode;
@@ -52,21 +51,10 @@ class SettingsState {
   final bool seekTrackFade;
   final ResampleQuality resampleQuality;
   final OutputSinkRoute? outputSinkRoute;
-  final Map<String, String> sourceConfigs;
   final QueueSource? queueSource;
   final Locale? locale;
   final ThemeMode themeMode;
   final bool closeToTray;
-
-  String sourceConfigFor({
-    required String pluginId,
-    required String typeId,
-    String defaultValue = '{}',
-  }) {
-    final key = '${pluginId.trim()}::${typeId.trim()}';
-    if (key == '::') return defaultValue;
-    return sourceConfigs[key] ?? defaultValue;
-  }
 
   SettingsState copyWith({
     double? volume,
@@ -78,7 +66,6 @@ class SettingsState {
     bool? seekTrackFade,
     ResampleQuality? resampleQuality,
     Object? outputSinkRoute = _unset,
-    Map<String, String>? sourceConfigs,
     Object? queueSource = _unset,
     Object? locale = _unset,
     ThemeMode? themeMode,
@@ -98,7 +85,6 @@ class SettingsState {
       outputSinkRoute: identical(outputSinkRoute, _unset)
           ? this.outputSinkRoute
           : outputSinkRoute as OutputSinkRoute?,
-      sourceConfigs: sourceConfigs ?? this.sourceConfigs,
       queueSource: identical(queueSource, _unset)
           ? this.queueSource
           : queueSource as QueueSource?,
@@ -125,7 +111,6 @@ class SettingsStore implements DirectoryAccessStore {
   static const _keySeekTrackFade = 'seek_track_fade';
   static const _keyResampleQuality = 'resample_quality';
   static const _keyOutputSinkRoute = 'output_sink_route';
-  static const _keySourceConfigs = 'source_configs';
   static const _keyQueueSource = 'queue_source';
   static const _keyLocale = 'locale';
   static const _keyThemeMode = 'theme_mode';
@@ -150,7 +135,6 @@ class SettingsStore implements DirectoryAccessStore {
       seekTrackFade: seekTrackFade,
       resampleQuality: resampleQuality,
       outputSinkRoute: outputSinkRoute,
-      sourceConfigs: sourceConfigs,
       queueSource: queueSource,
       locale: locale,
       themeMode: themeMode,
@@ -276,38 +260,6 @@ class SettingsStore implements DirectoryAccessStore {
   );
 
   Future<void> clearOutputSinkRoute() => _box.delete(_keyOutputSinkRoute);
-
-  Map<String, String> get sourceConfigs {
-    final raw = _box.get(_keySourceConfigs, defaultValue: '{}');
-    final text = raw is String ? raw : '{}';
-    try {
-      final decoded = jsonDecode(text);
-      if (decoded is! Map) return const <String, String>{};
-      final out = <String, String>{};
-      for (final entry in decoded.entries) {
-        final k = entry.key.toString().trim();
-        if (k.isEmpty) continue;
-        final v = (entry.value ?? '').toString();
-        out[k] = v;
-      }
-      return out;
-    } catch (e, s) {
-      logger.w('failed to parse source configs', error: e, stackTrace: s);
-      return const <String, String>{};
-    }
-  }
-
-  Future<void> setSourceConfigFor({
-    required String pluginId,
-    required String typeId,
-    required String configJson,
-  }) async {
-    final key = '${pluginId.trim()}::${typeId.trim()}';
-    if (key == '::') return;
-    final next = Map<String, String>.from(sourceConfigs);
-    next[key] = configJson;
-    await _box.put(_keySourceConfigs, jsonEncode(next));
-  }
 
   QueueSource? get queueSource {
     final raw = _box.get(_keyQueueSource);
@@ -486,20 +438,6 @@ class SettingsController extends Notifier<SettingsState> {
 
   Future<void> clearOutputSinkRoute() =>
       _persist((store) => store.clearOutputSinkRoute());
-
-  Future<void> setSourceConfigFor({
-    required String pluginId,
-    required String typeId,
-    required String configJson,
-  }) {
-    return _persist(
-      (store) => store.setSourceConfigFor(
-        pluginId: pluginId,
-        typeId: typeId,
-        configJson: configJson,
-      ),
-    );
-  }
 
   Future<void> setQueueSource(QueueSource? source) =>
       _persist((store) => store.setQueueSource(source));

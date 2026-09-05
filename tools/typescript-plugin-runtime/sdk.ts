@@ -1,4 +1,14 @@
 export const PROTOCOL = "stellatune-capability-rpc/1" as const;
+export { createHostClient } from "./host-client.mjs";
+export type { PlayerCommand, PlayerState, PlayerQueue, PlayerEvent, HostClient } from "./host-client.mjs";
+
+export interface PluginContext {
+  pluginId: string;
+  generation: number;
+  hostApiBaseUrl: string;
+  dataDir: string;
+  packageRoot: string;
+}
 
 export interface PluginErrorShape {
   code: string;
@@ -23,13 +33,24 @@ export interface SourcePlan {
   requirements?: { decoderCapabilityId?: string };
 }
 
+/** Input for a source resolver declaring manifest local_extensions. */
+export interface LocalFileRequest { path: string }
+/** inspect-file response; resolve-file returns a file or HTTP SourcePlan. */
+export interface LocalFileMetadata {
+  title?: string | null;
+  artist?: string | null;
+  album?: string | null;
+  durationMs?: number | null;
+}
+
 export interface StellatunePlugin {
   descriptor: {
     id: string;
     apiVersion: 2;
     capabilities: readonly string[];
   };
-  initialize?(context: unknown): Promise<unknown> | unknown;
+  initialize?(context: PluginContext): Promise<unknown> | unknown;
+  openUi?(): Promise<{ url: string }>;
   invoke(request: CapabilityInvokeRequest): Promise<unknown> | unknown;
   shutdown?(): Promise<void> | void;
 }

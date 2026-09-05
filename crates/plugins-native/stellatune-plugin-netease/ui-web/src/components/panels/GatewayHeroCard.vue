@@ -6,7 +6,6 @@ defineOptions({
 defineProps<{
   pluginId: string;
   origin: string;
-  hasToken: boolean;
   hasGatewayContext: boolean;
   message: string;
 }>();
@@ -20,16 +19,9 @@ defineProps<{
       插件 ID：<strong>{{ pluginId }}</strong>
     </p>
     <p class="hero-meta">
-      网关来源：<strong>{{ origin }}</strong>
+      插件服务：<strong>{{ origin }}</strong>
     </p>
-    <p class="hero-meta">
-      令牌：<strong>{{ hasToken ? "已提供" : "缺失" }}</strong>
-    </p>
-    <p class="hint warning" v-if="!hasGatewayContext">
-      当前页面缺少网关会话参数。请从宿主打开：
-      <code>/ui/dev.stellatune.source.netease</code>
-      ，由网关自动注入 <code>token</code> 与 <code>gateway_origin</code>。
-    </p>
+
     <p class="hero-message">{{ message }}</p>
   </section>
 </template>

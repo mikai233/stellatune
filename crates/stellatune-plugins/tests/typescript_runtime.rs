@@ -12,9 +12,7 @@ use stellatune_plugins::typescript::package::{
     discover_typescript_plugins, install_typescript_artifact, uninstall_typescript_plugin,
 };
 use stellatune_plugins::typescript::protocol::{SourceLocatorDto, SourcePlanDto};
-use stellatune_plugins::typescript::{
-    PluginProcessConfig, PluginProcessHandle, PluginRuntimeError, TypeScriptRuntime,
-};
+use stellatune_plugins::typescript::{PluginProcessConfig, PluginProcessHandle, TypeScriptRuntime};
 
 fn repository_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -42,6 +40,159 @@ fn manifest_v2_fixture_has_no_permissions_and_validates_bundle() {
     assert_eq!(manifest.manifest_version, 2);
     assert_eq!(manifest.capabilities.len(), 2);
     validate_typescript_manifest(&manifest, manifest_path.parent().unwrap()).unwrap();
+}
+
+#[tokio::test]
+async fn local_extensions_require_resolvers_and_reject_ambiguous_ownership() {
+    use stellatune_plugins::typescript::manifest::TypeScriptCapabilityKind;
+    let (path, _, runner) = fixture_paths();
+    let root = path.parent().unwrap();
+    let mut manifest = read_typescript_manifest(&path).unwrap();
+    manifest.capabilities[0].local_extensions = vec!["ncm".to_owned()];
+    manifest.capabilities[0].kind = TypeScriptCapabilityKind::NetworkControl;
+    assert!(validate_typescript_manifest(&manifest, root).is_err());
+    manifest.capabilities[0].kind = TypeScriptCapabilityKind::SourceResolver;
+    manifest.capabilities[0].local_extensions = vec![".NCM".to_owned()];
+    assert!(validate_typescript_manifest(&manifest, root).is_err());
+    manifest.capabilities[0].local_extensions = vec!["ncm".to_owned()];
+    let runtime = TypeScriptRuntime::new(runner);
+    let original = manifest.id.clone();
+    runtime.register(manifest.clone(), root).await.unwrap();
+    assert!(runtime.local_file_resolver("NCM").unwrap().is_some());
+    manifest.id = "dev.stellatune.test.second-local-source".to_owned();
+    runtime.register(manifest.clone(), root).await.unwrap();
+    assert!(runtime.local_file_resolver("ncm").is_err());
+    runtime.unregister(&manifest.id).await.unwrap();
+    assert_eq!(
+        runtime.local_file_resolver("ncm").unwrap().unwrap().0,
+        original
+    );
+    runtime.unregister(&original).await.unwrap();
+    assert!(runtime.local_file_extensions().is_empty());
+}
+
+#[tokio::test]
+async fn hosted_ui_reuses_process_survives_idle_and_restarts_after_failure() {
+    let (manifest_path, _, runner) = fixture_paths();
+    let mut manifest = read_typescript_manifest(&manifest_path).unwrap();
+    manifest.ui = Some(
+        stellatune_plugins::typescript::manifest::TypeScriptUiManifest {
+            mode: "plugin-hosted".into(),
+            mobile_support: None,
+        },
+    );
+    let package = tempfile::tempdir().unwrap();
+    let entry = package.path().join(&manifest.runtime.entry);
+    let data = tempfile::tempdir().unwrap();
+    std::fs::write(&entry, r#"
+import { createServer } from 'node:http';
+let server;
+export default {
+  initialize(ctx) { if (!ctx.dataDir || !ctx.packageRoot || !ctx.hostApiBaseUrl) throw new Error('missing context'); },
+  async openUi() {
+    server = createServer((req, res) => res.end('fixture'));
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    return { url: 'http://127.0.0.1:' + server.address().port + '/' };
+  },
+  invoke() { process.exit(1); },
+  shutdown() { return new Promise(resolve => server.close(resolve)); }
+};
+"#).unwrap();
+    let runtime = TypeScriptRuntime::new(&runner).with_request_timeout(Duration::from_secs(3));
+    runtime.configure_host("http://127.0.0.1:1".into(), data.path().into());
+    runtime
+        .register(manifest.clone(), package.path())
+        .await
+        .unwrap();
+    let id = manifest.id.as_str();
+    let (first, second) = tokio::join!(runtime.open_ui(id), runtime.open_ui(id));
+    let url = first.unwrap();
+    assert_eq!(url, second.unwrap());
+    let address = url::Url::parse(&url)
+        .unwrap()
+        .socket_addrs(|| None)
+        .unwrap()[0];
+    assert!(tokio::net::TcpStream::connect(address).await.is_ok());
+    let generation = runtime
+        .process_snapshot(id)
+        .await
+        .unwrap()
+        .unwrap()
+        .generation;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(runtime.process_snapshot(id).await.unwrap().unwrap().running);
+    assert_eq!(url, runtime.open_ui(id).await.unwrap());
+    assert!(
+        runtime
+            .invoke(id, "fixture-search", None, "crash", Value::Null, None)
+            .await
+            .is_err()
+    );
+    assert!(tokio::net::TcpStream::connect(address).await.is_err());
+    runtime.open_ui(id).await.unwrap();
+    assert!(
+        runtime
+            .process_snapshot(id)
+            .await
+            .unwrap()
+            .unwrap()
+            .generation
+            > generation
+    );
+    runtime.unregister(id).await.unwrap();
+    assert!(runtime.open_ui(id).await.is_err());
+
+    // A rejected UI start leaves no persistent process pin and can be retried.
+    std::fs::write(
+        &entry,
+        "export default { openUi() { throw new Error('fixture failure'); } };",
+    )
+    .unwrap();
+    runtime.register(manifest, package.path()).await.unwrap();
+    assert!(
+        runtime
+            .open_ui("dev.stellatune.fixture.http-source")
+            .await
+            .is_err()
+    );
+    assert!(
+        !runtime
+            .process_snapshot("dev.stellatune.fixture.http-source")
+            .await
+            .unwrap()
+            .unwrap()
+            .running
+    );
+    std::fs::write(
+        &entry,
+        "export default { openUi() { return { url: 'http://127.0.0.1:1/' }; } };",
+    )
+    .unwrap();
+    assert!(
+        runtime
+            .open_ui("dev.stellatune.fixture.http-source")
+            .await
+            .is_ok()
+    );
+    runtime.shutdown().await.unwrap();
+}
+
+#[test]
+fn static_web_ui_requires_an_updated_plugin() {
+    let (manifest_path, _, _) = fixture_paths();
+    let mut manifest = read_typescript_manifest(&manifest_path).unwrap();
+    manifest.ui = Some(
+        stellatune_plugins::typescript::manifest::TypeScriptUiManifest {
+            mode: "web".into(),
+            mobile_support: None,
+        },
+    );
+    assert!(
+        validate_typescript_manifest(&manifest, manifest_path.parent().unwrap())
+            .unwrap_err()
+            .to_string()
+            .contains("updated package")
+    );
 }
 
 #[tokio::test]
@@ -84,6 +235,15 @@ async fn first_party_netease_bundle_uses_control_rpc_and_returns_no_media_bytes(
     });
 
     let runtime = TypeScriptRuntime::new(root.join("tools/typescript-plugin-runtime/runner.mjs"));
+    let data_root = tempfile::tempdir().unwrap();
+    let data = data_root.path().join("dev.stellatune.source.netease");
+    std::fs::create_dir_all(&data).unwrap();
+    std::fs::write(
+        data.join("config.json"),
+        json!({ "sidecar_base_url": format!("http://{address}") }).to_string(),
+    )
+    .unwrap();
+    runtime.configure_host("http://127.0.0.1:1".into(), data_root.path().into());
     runtime.register(manifest, package.path()).await.unwrap();
     let result = runtime
         .invoke(
@@ -94,7 +254,7 @@ async fn first_party_netease_bundle_uses_control_rpc_and_returns_no_media_bytes(
             json!({
                 "action": "search",
                 "keywords": "fixture",
-                "config": { "sidecarBaseUrl": format!("http://{address}") }
+                "config": { "sidecarBaseUrl": "http://ignored.invalid" }
             }),
             None,
         )
@@ -215,11 +375,10 @@ fn v2_package_rejects_node_modules_content() {
 }
 
 #[tokio::test]
-async fn one_lazy_process_serves_multiple_capabilities_and_restarts_after_idle() {
+async fn one_lazy_process_stays_resident_until_explicit_shutdown() {
     let (_, entry, runner) = fixture_paths();
     let mut config = PluginProcessConfig::new("dev.stellatune.fixture.http-source", entry, runner);
     config.request_timeout = Duration::from_secs(3);
-    config.idle_timeout = Duration::from_millis(150);
     let handle = PluginProcessHandle::spawn(config);
 
     assert!(!handle.snapshot().await.unwrap().running);
@@ -258,30 +417,20 @@ async fn one_lazy_process_serves_multiple_capabilities_and_restarts_after_idle()
     );
 
     tokio::time::sleep(Duration::from_millis(500)).await;
-    assert!(!handle.snapshot().await.unwrap().running);
-    assert!(matches!(
-        handle
-            .invoke(
-                "fixture-search",
-                None,
-                "echo",
-                Value::Null,
-                Some(resolved.generation)
-            )
-            .await,
-        Err(PluginRuntimeError::GenerationMismatch { .. })
-    ));
-
-    let restarted = handle
+    assert_eq!(
+        handle.snapshot().await.unwrap().process_id,
+        first_snapshot.process_id
+    );
+    let still_running = handle
         .invoke(
             "fixture-search",
             None,
             "echo",
             json!({"after": "idle"}),
-            None,
+            Some(resolved.generation),
         )
         .await
         .unwrap();
-    assert!(restarted.generation > resolved.generation);
+    assert_eq!(still_running.generation, resolved.generation);
     handle.shutdown().await.unwrap();
 }

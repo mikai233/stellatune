@@ -16,7 +16,9 @@ use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::time::LocalTime;
 
 mod engine;
+pub(crate) mod local_decoder;
 mod local_probe;
+pub(crate) mod local_source;
 mod pipeline;
 mod plugin_manager;
 mod transcode_decoder;

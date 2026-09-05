@@ -1,9 +1,6 @@
 use std::path::Path;
 
-use stellatune_audio_builtin_adapters::builtin_decoder::{
-    BuiltinDecoder, builtin_decoder_supported_extensions,
-};
-use stellatune_audio_builtin_adapters::ncm_decoder::NcmDecoder;
+use stellatune_audio_builtin_adapters::builtin_decoder::builtin_decoder_supported_extensions;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProbedTrackDecodeInfo {
@@ -17,41 +14,28 @@ pub struct ProbedTrackDecodeInfo {
 
 pub fn decoder_supported_extensions() -> Vec<String> {
     let mut extensions = builtin_decoder_supported_extensions();
-    extensions.push("ncm".to_owned());
+    extensions.extend(super::shared_typescript_runtime().local_file_extensions());
     extensions.sort();
     extensions.dedup();
     extensions
 }
 
-pub fn probe_local_track(path: &Path) -> Result<ProbedTrackDecodeInfo, String> {
-    let path_text = path.to_string_lossy();
-    let extension = path
-        .extension()
-        .and_then(|value| value.to_str())
-        .unwrap_or_default();
-    let (sample_rate, channels, duration_ms) = if extension.eq_ignore_ascii_case("ncm") {
-        let decoder = NcmDecoder::open(&path_text)?;
-        let spec = decoder.spec();
-        (
-            spec.sample_rate,
-            spec.channel_layout.channel_count(),
-            decoder.duration_ms_hint(),
-        )
-    } else {
-        let decoder = BuiltinDecoder::open(&path_text)?;
-        let spec = decoder.spec();
-        (
-            spec.sample_rate,
-            spec.channel_layout.channel_count(),
-            decoder.effective_duration_ms_hint(),
-        )
-    };
+pub async fn probe_local_track(path: &Path) -> Result<ProbedTrackDecodeInfo, String> {
+    let super::local_decoder::LocalDecoder {
+        decoder,
+        plugin_id,
+        capability_id,
+    } = super::local_decoder::open_local_decoder(path).await?;
+    let spec = decoder.spec();
+    let sample_rate = spec.sample_rate;
+    let channels = spec.channel_layout.channel_count();
+    let duration_ms = decoder.effective_duration_ms_hint();
     Ok(ProbedTrackDecodeInfo {
         sample_rate,
         channels,
         duration_ms,
         metadata_json: None,
-        decoder_plugin_id: None,
-        decoder_type_id: None,
+        decoder_plugin_id: plugin_id,
+        decoder_type_id: capability_id,
     })
 }

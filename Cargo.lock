@@ -3365,6 +3365,8 @@ dependencies = [
  "rustls",
  "rustls-pki-types",
  "rustls-platform-verifier",
+ "serde",
+ "serde_json",
  "sync_wrapper",
  "tokio",
  "tokio-rustls",
@@ -4077,7 +4079,6 @@ dependencies = [
  "cpal",
  "m3u8-rs",
  "memmap2",
- "ncmdump",
  "postcard",
  "reqwest",
  "ringbuf",
@@ -4190,6 +4191,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "stellatune-ncm-host"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "futures-util",
+ "ncmdump",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+]
+
+[[package]]
 name = "stellatune-plugins"
 version = "0.1.0"
 dependencies = [
@@ -4204,6 +4218,7 @@ dependencies = [
  "thiserror 2.0.20",
  "tokio",
  "tracing",
+ "url",
  "walkdir",
  "windows",
 ]

@@ -2,7 +2,7 @@
   "manifest_version": 2,
   "id": "dev.stellatune.source.netease",
   "name": "Netease Cloud Music",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "runtime": {
     "kind": "typescript",
     "entry": "plugin.mjs",
@@ -37,8 +37,6 @@
     }
   ],
   "ui": {
-    "mode": "web",
-    "entry": "ui/index.html",
-    "mobile_support": "limited"
+    "mode": "plugin-hosted"
   }
 }

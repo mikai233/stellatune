@@ -1,4 +1,8 @@
 import { pathToFileURL } from "node:url";
+import { Console } from "node:console";
+
+// stdout is reserved for framed RPC, including while plugins serve HTTP requests.
+globalThis.console = new Console(process.stderr, process.stderr);
 
 const MAX_FRAME_BYTES = 1024 * 1024;
 const [entryPath, expectedPluginId, expectedProtocol] = process.argv.slice(2);
@@ -16,6 +20,19 @@ if (!plugin || typeof plugin !== "object") {
 
 let inputBuffer = Buffer.alloc(0);
 let chain = Promise.resolve();
+let shutdownPromise;
+function shutdownPlugin() {
+  shutdownPromise ??= Promise.resolve().then(() => plugin.shutdown?.());
+  return shutdownPromise;
+}
+
+// A resident plugin must also exit if the APP disappears without sending RPC.
+// Closing Node's owned pipes then terminates plugin sidecars such as NCM.
+process.stdin.once("end", () => {
+  setTimeout(() => process.exit(0), 500);
+  shutdownPlugin().catch(error => process.stderr.write(`${error}\n`))
+    .finally(() => process.exit(0));
+});
 
 process.stdin.on("data", (chunk) => {
   inputBuffer = Buffer.concat([inputBuffer, chunk]);
@@ -75,6 +92,9 @@ async function dispatch(request) {
     }
     case "plugin.initialize":
       return (await plugin.initialize?.(request.params ?? {})) ?? null;
+    case "plugin.open_ui":
+      if (typeof plugin.openUi !== "function") throw pluginError("method_not_found", "plugin does not export openUi", false);
+      return await plugin.openUi();
     case "capability.create":
       return (await plugin.create?.(request.params ?? {})) ?? null;
     case "capability.invoke": {
@@ -86,7 +106,7 @@ async function dispatch(request) {
     case "capability.drop":
       return (await plugin.drop?.(request.params ?? {})) ?? null;
     case "plugin.shutdown":
-      await plugin.shutdown?.();
+      await shutdownPlugin();
       setImmediate(() => process.exit(0));
       return null;
     default:

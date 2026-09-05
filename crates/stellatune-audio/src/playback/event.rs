@@ -43,6 +43,8 @@ pub struct PlaybackRuntimeSnapshot {
     pub current_item_id: Option<PlaybackItemId>,
     /// The active item's position derived from sink-consumed frames.
     pub consumed_position: MediaTime,
+    /// Audible duration after trimming, when known.
+    pub duration: Option<MediaTime>,
 }
 
 /// An ordered notification emitted by the playback runtime.

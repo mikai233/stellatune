@@ -4,10 +4,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
 use stellatune_audio::playback::control::{PlaybackController, SwitchOptions, SwitchTransition};
-use stellatune_audio_core::{
-    playback::{MediaTime, PlaybackItem, PlaybackItemId},
-    source::MediaHints,
-};
+use stellatune_audio_core::playback::{MediaTime, PlaybackItem, PlaybackItemId};
 
 use super::catalog::PlayerCatalog;
 use super::error::PlayerServiceError;
@@ -17,7 +14,7 @@ use super::identity::{
 use super::resolver::{
     LocalTrackResolver, SourceResolver, SourceResolverFactory, materialize_source,
 };
-use super::source::{ResolvedSourceSpec, SourceCatalogEntry, SourceResolverSpec, TrackOrigin};
+use super::source::{SourceCatalogEntry, SourceResolverSpec, TrackOrigin};
 use super::state::PlaybackStateRecord;
 pub struct PlayerService {
     pub(super) catalog: PlayerCatalog,
@@ -26,6 +23,7 @@ pub struct PlayerService {
     resolver_factory: Arc<dyn SourceResolverFactory>,
     source_resolvers: tokio::sync::RwLock<HashMap<SourceInstanceId, Arc<dyn SourceResolver>>>,
     pub(super) state_writer_started: AtomicBool,
+    pub(super) queue_events: tokio::sync::broadcast::Sender<u64>,
     pub(super) queue: tokio::sync::Mutex<super::queue::QueueCoordinator>,
 }
 
@@ -64,6 +62,7 @@ impl PlayerService {
             resolver_factory,
             source_resolvers: tokio::sync::RwLock::new(HashMap::new()),
             state_writer_started: AtomicBool::new(false),
+            queue_events: tokio::sync::broadcast::channel(128).0,
             queue: tokio::sync::Mutex::new(Default::default()),
         }
     }
@@ -204,13 +203,7 @@ impl PlayerService {
         let (spec, required_decoder) = match track.origin {
             TrackOrigin::LocalLibrary { library_track_id } => {
                 let path = self.local_resolver.resolve_path(library_track_id).await?;
-                (
-                    ResolvedSourceSpec::File {
-                        path,
-                        media: MediaHints::default(),
-                    },
-                    None,
-                )
+                (self.resolver_factory.resolve_local(path).await?, None)
             },
             TrackOrigin::Provider(key) => {
                 let resolver = self.resolver_for_source(&source).await?;

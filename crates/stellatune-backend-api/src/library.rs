@@ -5,7 +5,9 @@ use tokio::sync::broadcast;
 
 use crate::runtime::init_tracing;
 
-use stellatune_library::{LibraryEvent, LibraryHandle, PlaylistLite, TrackLite, start_library};
+use stellatune_library::{
+    LibraryEvent, LibraryHandle, PlaylistLite, TrackLite, start_library_with_metadata_provider,
+};
 
 pub struct LibraryService {
     instance_id: u64,
@@ -18,7 +20,12 @@ impl LibraryService {
         let instance_id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
         init_tracing();
         tracing::info!(instance_id, "creating library: {}", db_path);
-        let handle = start_library(db_path).await?;
+        let provider = crate::runtime::local_source::PluginMetadataProvider::new(
+            crate::runtime::shared_typescript_runtime(),
+        );
+        let handle =
+            start_library_with_metadata_provider(db_path, Some(std::sync::Arc::new(provider)))
+                .await?;
         Ok(Self {
             instance_id,
             handle,

@@ -121,6 +121,10 @@ impl QueueCoordinator {
 }
 
 impl PlayerService {
+    pub fn subscribe_queue(&self) -> tokio::sync::broadcast::Receiver<u64> {
+        self.queue_events.subscribe()
+    }
+
     pub(super) async fn load_queue(&self) -> Result<(), PlayerServiceError> {
         let mut queue = self.queue.lock().await;
         if queue.loaded {
@@ -158,6 +162,7 @@ impl PlayerService {
         queue.order.extend(extra);
         queue.items.extend(items);
         queue.revision = queue.revision.wrapping_add(1);
+        let _ = self.queue_events.send(queue.revision);
         let snapshot = queue.snapshot();
         drop(queue);
         self.refresh_next().await?;
@@ -180,6 +185,7 @@ impl PlayerService {
         queue.requested = None;
         queue.stopped = true;
         queue.revision = queue.revision.wrapping_add(1);
+        let _ = self.queue_events.send(queue.revision);
         queue.reorder();
         Ok(queue.snapshot())
     }
@@ -204,6 +210,7 @@ impl PlayerService {
         queue.items.retain(|item| !ids.contains(&item.item_id));
         queue.order.retain(|id| !ids.contains(id));
         queue.revision = queue.revision.wrapping_add(1);
+        let _ = self.queue_events.send(queue.revision);
         let snapshot = queue.snapshot();
         drop(queue);
         self.refresh_next().await?;
@@ -224,6 +231,7 @@ impl PlayerService {
         }
         queue.repeat = repeat;
         queue.revision = queue.revision.wrapping_add(1);
+        let _ = self.queue_events.send(queue.revision);
         let snapshot = queue.snapshot();
         drop(queue);
         self.refresh_next().await?;
@@ -247,6 +255,7 @@ impl PlayerService {
         if queue.shuffle {
             queue.reorder();
         }
+        let _ = self.queue_events.send(queue.revision);
         self.navigate(queue, id, track, cancellation, Some(options))
             .await
     }
@@ -295,6 +304,7 @@ impl PlayerService {
             .expect("order belongs to queue")
             .track_id;
         let cancellation = queue.select(id);
+        let _ = self.queue_events.send(queue.revision);
         self.navigate(queue, id, track, cancellation, None).await
     }
 
@@ -375,6 +385,7 @@ impl PlayerService {
         queue.stopped = true;
         queue.requested = queue.current;
         queue.revision = queue.revision.wrapping_add(1);
+        let _ = self.queue_events.send(queue.revision);
         self.controller.stop().await?;
         Ok(())
     }
@@ -494,6 +505,7 @@ impl PlayerService {
                     queue.prepared = None;
                 }
                 queue.revision = queue.revision.wrapping_add(1);
+                let _ = self.queue_events.send(queue.revision);
             }
             drop(queue);
             self.refresh_next().await?;
@@ -522,6 +534,7 @@ impl PlayerService {
                         queue.requested = Some(item_id);
                         queue.prepared = None;
                         queue.revision = queue.revision.wrapping_add(1);
+                        let _ = self.queue_events.send(queue.revision);
                     }
                 } else if snapshot.state == PlaybackState::Idle && queue.requested == queue.current
                 {

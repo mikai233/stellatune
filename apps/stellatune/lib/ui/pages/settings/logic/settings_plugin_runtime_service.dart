@@ -111,15 +111,7 @@ class SettingsPluginRuntimeService {
       final uiRaw = manifest['ui'];
       if (uiRaw is! Map) return false;
       final ui = uiRaw.cast<Object?, Object?>();
-      final mode = (ui['mode'] ?? 'web').toString().trim().toLowerCase();
-      if (mode.isNotEmpty && mode != 'web') return false;
-      final entry = (ui['entry'] ?? '').toString().trim();
-      if (entry.isEmpty) return false;
-      if (p.isAbsolute(entry)) return false;
-      final normalized = p.normalize(entry);
-      if (normalized.startsWith('..')) return false;
-      final entryFile = File(p.join(root, normalized));
-      return await entryFile.exists();
+      return ui['mode'] == 'plugin-hosted';
     } catch (e, s) {
       logger.d(
         'failed to detect plugin web ui plugin_dir=$pluginDirPath',

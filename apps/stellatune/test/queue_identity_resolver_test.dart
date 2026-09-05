@@ -46,7 +46,6 @@ void main() {
                 providerId: 'provider',
                 pluginId: 'plugin',
                 typeId: 'source',
-                configJson: '{}',
                 providerKey: '$id',
               ),
             ),

@@ -1,7 +1,6 @@
 import 'dart:convert';
 
 import 'package:stellatune/app/logging.dart';
-import 'package:stellatune/app/settings_store.dart';
 import 'package:stellatune/bridge/bridge.dart';
 import 'package:stellatune/player/queue_models.dart';
 import 'package:stellatune/ui/pages/playlists/logic/playlists_plugin_value_utils.dart';
@@ -33,7 +32,6 @@ class PlaylistsPluginBridgeService {
 
   Future<PluginPlaylistRefreshResult> fetchPlaylists({
     required PlayerBridge bridge,
-    required SettingsState settings,
   }) async {
     final sourceTypes = await bridge.sourceListTypes();
     logger.d('plugin playlists refresh: source_types=${sourceTypes.length}');
@@ -42,14 +40,6 @@ class PlaylistsPluginBridgeService {
     final sourceErrors = <String>[];
 
     for (final source in sourceTypes) {
-      final configJson = settings.sourceConfigFor(
-        pluginId: source.pluginId,
-        typeId: source.typeId,
-        defaultValue: source.defaultConfigJson,
-      );
-      final config = PlaylistsPluginValueUtils.decodeJsonObjectOrEmpty(
-        configJson,
-      );
       final beforeCount = merged.length;
       String raw;
       try {
@@ -59,7 +49,6 @@ class PlaylistsPluginBridgeService {
         raw = await bridge.sourceListItemsJson(
           pluginId: source.pluginId,
           typeId: source.typeId,
-          configJson: jsonEncode(config),
           requestJson: jsonEncode(<String, Object?>{
             'action': 'list_playlists',
             'limit': 200,
@@ -93,12 +82,7 @@ class PlaylistsPluginBridgeService {
       }
 
       for (final row in decoded) {
-        final parsed = _parsePlaylistRow(
-          row,
-          source: source,
-          config: config,
-          seenKeys: seen,
-        );
+        final parsed = _parsePlaylistRow(row, source: source, seenKeys: seen);
         if (parsed != null) {
           merged.add(parsed);
         }
@@ -142,7 +126,6 @@ class PlaylistsPluginBridgeService {
     final raw = await bridge.sourceListItemsJson(
       pluginId: entry.pluginId,
       typeId: entry.typeId,
-      configJson: jsonEncode(entry.config),
       requestJson: jsonEncode(request),
     );
     final decoded = jsonDecode(raw);
@@ -159,7 +142,6 @@ class PlaylistsPluginBridgeService {
   PluginPlaylistEntry? _parsePlaylistRow(
     Object? row, {
     required SourceCatalogTypeDescriptor source,
-    required Map<String, Object?> config,
     required Set<String> seenKeys,
   }) {
     if (row is! Map) return null;
@@ -198,7 +180,6 @@ class PlaylistsPluginBridgeService {
       trackCount: PlaylistsPluginValueUtils.asInt(map['track_count']),
       cover: PlaylistsPluginValueUtils.asCover(map['cover']),
       playlistRef: map['playlist_ref'],
-      config: config,
     );
   }
 
@@ -224,7 +205,10 @@ class PlaylistsPluginBridgeService {
           PlaylistsPluginValueUtils.asText(map['track_id']) ??
           PlaylistsPluginValueUtils.asText(track['song_id']) ??
           '';
-      if (trackId.isEmpty) continue;
+      final resolverCapability = PlaylistsPluginValueUtils.asText(
+        map['source_resolver_capability_id'],
+      );
+      if (trackId.isEmpty || resolverCapability == null) continue;
       final extHint = PlaylistsPluginValueUtils.asText(map['ext_hint']) ?? '';
       final pathHint = PlaylistsPluginValueUtils.asText(map['path_hint']) ?? '';
       final decoderPluginId = PlaylistsPluginValueUtils.asText(
@@ -253,10 +237,11 @@ class PlaylistsPluginBridgeService {
           providerTrack: ProviderQueueTrack(
             providerId: sourceId,
             pluginId: entry.pluginId,
-            typeId: entry.typeId,
-            configJson: jsonEncode(entry.config),
+            typeId: resolverCapability,
             providerKey: trackId,
-            pathHint: pathHint.isEmpty ? '$sourceId:$trackId.$extHint' : pathHint,
+            pathHint: pathHint.isEmpty
+                ? '$sourceId:$trackId.$extHint'
+                : pathHint,
             sourcePluginId: entry.pluginId,
             decoderPluginId: decoderPluginId,
           ),

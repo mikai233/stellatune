@@ -36,13 +36,14 @@ pub(crate) struct WorkerDeps {
     pool: SqlitePool,
     events: Arc<EventHub>,
     cover_dir: PathBuf,
+    metadata_provider: Option<Arc<dyn crate::metadata_provider::MetadataProvider>>,
 }
 
 impl WorkerDeps {
     pub(crate) async fn new(
         db_path: &Path,
         events: Arc<EventHub>,
-        _plugins_dir: PathBuf,
+        metadata_provider: Option<Arc<dyn crate::metadata_provider::MetadataProvider>>,
     ) -> Result<Self> {
         let pool = db::init_db(db_path).await?;
 
@@ -58,6 +59,7 @@ impl WorkerDeps {
             pool,
             events,
             cover_dir,
+            metadata_provider,
         })
     }
 }
@@ -66,6 +68,7 @@ pub(crate) struct LibraryWorker {
     pool: SqlitePool,
     events: Arc<EventHub>,
     cover_dir: PathBuf,
+    metadata_provider: Option<Arc<dyn crate::metadata_provider::MetadataProvider>>,
     watch_ctrl: ActorHandle<WatchTaskActor>,
 }
 
@@ -75,11 +78,13 @@ impl LibraryWorker {
             deps.pool.clone(),
             Arc::clone(&deps.events),
             deps.cover_dir.clone(),
+            deps.metadata_provider.clone(),
         );
         Self {
             pool: deps.pool,
             events: deps.events,
             cover_dir: deps.cover_dir,
+            metadata_provider: deps.metadata_provider,
             watch_ctrl,
         }
     }
@@ -907,8 +912,11 @@ impl LibraryWorker {
         let pool = self.pool.clone();
         let events = std::sync::Arc::clone(&self.events);
         let cover_dir = self.cover_dir.clone();
+        let metadata_provider = self.metadata_provider.clone();
         tokio::spawn(async move {
-            match scan::scan_folder_into_db(pool, &events, &cover_dir, &folder).await {
+            match scan::scan_folder_into_db(pool, &events, &cover_dir, &folder, &metadata_provider)
+                .await
+            {
                 Ok(true) => events.emit(LibraryEvent::Changed),
                 Ok(false) => {},
                 Err(e) => events.emit(LibraryEvent::Log {
@@ -923,7 +931,14 @@ impl LibraryWorker {
 
     pub(crate) async fn scan_all(&self, force: bool) -> Result<()> {
         self.refresh_plugins_best_effort().await;
-        scan::scan_all(&self.pool, &self.events, &self.cover_dir, force).await
+        scan::scan_all(
+            &self.pool,
+            &self.events,
+            &self.cover_dir,
+            force,
+            &self.metadata_provider,
+        )
+        .await
     }
 
     pub(crate) async fn search(

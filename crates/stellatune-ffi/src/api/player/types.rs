@@ -103,8 +103,6 @@ pub struct SourceCatalogTypeDescriptor {
     pub plugin_name: String,
     pub type_id: String,
     pub display_name: String,
-    pub config_schema_json: String,
-    pub default_config_json: String,
 }
 
 #[flutter_rust_bridge::frb(non_opaque)]

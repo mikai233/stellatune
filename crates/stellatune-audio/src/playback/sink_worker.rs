@@ -329,22 +329,19 @@ impl SinkWorker {
     }
 
     /// Queues an item marker after all PCM accepted before this call.
+    /// Returns false when the FIFO is full; the caller must retain and retry it.
     pub(super) fn mark_boundary(
         &self,
         item_id: PlaybackItemId,
-    ) -> Result<(), PlaybackControlError> {
-        self.data_sender
-            .try_send(SinkDataCommand::Boundary {
-                item_id,
-                epoch: self.epoch,
-            })
-            .map_err(|error| match error {
-                TrySendError::Disconnected(_) => PlaybackControlError::Closed,
-                TrySendError::Full(_) => PlaybackControlError::failed(
-                    FailureStage::Sink,
-                    "PCM ring is full while inserting an item boundary".to_owned(),
-                ),
-            })
+    ) -> Result<bool, PlaybackControlError> {
+        match self.data_sender.try_send(SinkDataCommand::Boundary {
+            item_id,
+            epoch: self.epoch,
+        }) {
+            Ok(()) => Ok(true),
+            Err(TrySendError::Full(_)) => Ok(false),
+            Err(TrySendError::Disconnected(_)) => Err(PlaybackControlError::Closed),
+        }
     }
 
     /// Returns the next item boundary consumed by the device, if any.

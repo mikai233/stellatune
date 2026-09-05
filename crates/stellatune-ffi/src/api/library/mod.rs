@@ -2,7 +2,7 @@ use std::sync::{Arc, OnceLock};
 
 use crate::frb_generated::StreamSink;
 use anyhow::{Result, anyhow};
-use tracing::{debug, warn};
+use tracing::debug;
 
 use stellatune_backend_api::library::LibraryService;
 use stellatune_backend_api::player_service::catalog::PlayerCatalog;
@@ -55,10 +55,6 @@ pub async fn create_library(db_path: String) -> Result<()> {
             shared_typescript_runtime(),
         )),
     ));
-    player_service.start_state_writer();
-    if let Err(error) = player_service.restore().await {
-        warn!(%error, "player state could not be restored during library startup");
-    }
     let _ = stellatune_backend_api::runtime::install_player_service(Arc::clone(&player_service));
     let _ = PLAYER_SERVICE.set(player_service);
     let _ = LIBRARY_SERVICE.set(service);

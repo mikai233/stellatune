@@ -1,4 +1,8 @@
 use std::io::Read;
+#[path = "host_api_tests.rs"]
+mod host_api_tests;
+#[path = "local_plugin_tests.rs"]
+mod local_plugin_tests;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};

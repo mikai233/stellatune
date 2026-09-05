@@ -7,31 +7,13 @@ export interface NeteaseSourceConfig {
   default_level: string;
 }
 
-export interface ConfigApplyOutcome {
-  kind: string;
-  type_id: string;
-  status: string;
-  detail?: string;
-}
-
-export interface ConfigApplyReport {
-  plugin_id: string;
-  applied: number;
-  skipped: number;
-  failed: number;
-  outcomes: ConfigApplyOutcome[];
-}
-
 export interface PluginConfigResponse {
-  plugin_id: string;
-  config: Record<string, Record<string, unknown>>;
-  apply_report?: ConfigApplyReport;
+  config: Record<string, unknown>;
 }
 
 export interface ActionInvokeResponse {
   plugin_id: string;
   action: string;
-  accepted: boolean;
   message: string;
   data: unknown;
 }

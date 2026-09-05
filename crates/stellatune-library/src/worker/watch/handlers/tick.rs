@@ -32,6 +32,7 @@ impl Handler<WatchTickMessage> for WatchTaskActor {
             &self.cover_dir,
             &self.excluded,
             batch,
+            &self.metadata_provider,
         )
         .await
         {

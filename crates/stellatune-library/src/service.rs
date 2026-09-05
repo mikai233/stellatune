@@ -331,6 +331,13 @@ fn map_call_error(err: ActorCallError) -> anyhow::Error {
 }
 
 pub async fn start_library(db_path: String) -> Result<LibraryHandle> {
+    start_library_with_metadata_provider(db_path, None).await
+}
+
+pub async fn start_library_with_metadata_provider(
+    db_path: String,
+    metadata_provider: Option<Arc<dyn crate::metadata_provider::MetadataProvider>>,
+) -> Result<LibraryHandle> {
     let events = Arc::new(EventHub::new());
 
     let plugins_dir = PathBuf::from(&db_path)
@@ -340,7 +347,7 @@ pub async fn start_library(db_path: String) -> Result<LibraryHandle> {
     let db_path = PathBuf::from(db_path);
 
     ensure_parent_dir(&db_path)?;
-    let deps = WorkerDeps::new(&db_path, Arc::clone(&events), plugins_dir.clone()).await?;
+    let deps = WorkerDeps::new(&db_path, Arc::clone(&events), metadata_provider).await?;
     let worker = LibraryWorker::new(deps);
     let actor_ref = spawn_actor(
         LibraryServiceActor::new(worker, Arc::clone(&events)),

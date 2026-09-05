@@ -86,7 +86,14 @@ pub(super) fn pump_once(
     {
         return;
     }
-    maybe_start_crossfade(actor);
+    match maybe_start_crossfade(actor) {
+        Ok(super::transition::CrossfadeStart::Pending) => return,
+        Err(error) => {
+            begin_recovery(config, event_tx, actor, state, error);
+            return;
+        },
+        Ok(_) => {},
+    }
     if actor.crossfade.is_some() {
         pump_crossfade(config, event_tx, actor, state);
         return;
@@ -182,6 +189,9 @@ pub(super) fn pump_once(
             }
         },
         Ok(TrackBlockStatus::Pending) => {
+            if current.output.clock().buffered_frames > 0 || *state == PlaybackState::Buffering {
+                return;
+            }
             let item_id = current.item_id;
             set_state(state, PlaybackState::Buffering, event_tx);
             let _ = event_tx.send(PlaybackEvent::Buffering {
@@ -327,10 +337,18 @@ pub(super) fn promote_or_end(
         let clock = ended.output.clock();
         let next_base = clock.consumed_frames.saturating_add(clock.buffered_frames);
         let next_item_id = next.plan.item.id;
-        if let Err(error) = ended.output.mark_boundary(next_item_id) {
-            actor.current = Some(ended);
-            fail_current_error(actor, state, event_tx, error);
-            return;
+        match ended.output.mark_boundary(next_item_id) {
+            Ok(false) => {
+                actor.current = Some(ended);
+                actor.next = super::state::NextTrack::Ready(Box::new(next));
+                return;
+            },
+            Err(error) => {
+                actor.current = Some(ended);
+                fail_current_error(actor, state, event_tx, error);
+                return;
+            },
+            Ok(true) => {},
         }
         ended.pipeline.decoder.reset();
         for transform in &mut ended.pipeline.pre_mix_transforms {

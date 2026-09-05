@@ -11,7 +11,6 @@ class PluginPlaylistEntry {
     required this.title,
     required this.playlistId,
     required this.sourceLabel,
-    required this.config,
     this.trackCount,
     this.cover,
     this.playlistRef,
@@ -26,7 +25,6 @@ class PluginPlaylistEntry {
   final String title;
   final String playlistId;
   final String sourceLabel;
-  final Map<String, Object?> config;
   final int? trackCount;
   final QueueCover? cover;
   final Object? playlistRef;

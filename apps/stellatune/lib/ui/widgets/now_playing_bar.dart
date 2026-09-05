@@ -25,7 +25,9 @@ class NowPlayingBar extends ConsumerWidget {
 
     final currentTitle = queue.currentItem?.displayTitle ?? l10n.nowPlayingNone;
     final String currentSubtitle;
-    if (queue.currentItem != null) {
+    if (playback.pendingItem != null) {
+      currentSubtitle = playback.pendingItem!.displayTitle;
+    } else if (queue.currentItem != null) {
       final artist = (queue.currentItem?.artist ?? '').trim();
       final album = (queue.currentItem?.album ?? '').trim();
       currentSubtitle = [artist, album].where((s) => s.isNotEmpty).join(' • ');
@@ -121,15 +123,18 @@ class NowPlayingBar extends ConsumerWidget {
               left: 0,
               right: 0,
               top: 0,
-              child: NowPlayingProgressBar(
-                durationMs: totalDurationMs,
-                positionMs: playback.positionMs,
-                enabled: progressEnabled,
-                audioStarted: playback.audioStarted,
-                playerState: playback.playerState,
-                onSeekMs: (ms) =>
-                    ref.read(playbackControllerProvider.notifier).seekMs(ms),
-              ),
+              child: playback.pendingItem != null
+                  ? const LinearProgressIndicator(minHeight: 3)
+                  : NowPlayingProgressBar(
+                      durationMs: totalDurationMs,
+                      positionMs: playback.positionMs,
+                      enabled: progressEnabled,
+                      audioStarted: playback.audioStarted,
+                      playerState: playback.playerState,
+                      onSeekMs: (ms) => ref
+                          .read(playbackControllerProvider.notifier)
+                          .seekMs(ms),
+                    ),
             ),
           ],
         ),

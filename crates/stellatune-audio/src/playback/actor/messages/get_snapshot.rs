@@ -36,6 +36,11 @@ impl Responder<GetSnapshot> for PlaybackActor {
             state: *ctx.behavior(),
             current_item_id,
             consumed_position,
+            duration: self.session.current.as_ref().and_then(|current| {
+                current.pipeline.duration_frames.map(|frames| {
+                    MediaTime::from_frames(frames, current.pipeline.mix_format.sample_rate)
+                })
+            }),
         }));
         Ok(())
     }

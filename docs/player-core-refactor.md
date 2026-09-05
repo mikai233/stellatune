@@ -2279,7 +2279,7 @@ Phase 只用于约束重构分支的工作顺序，不是旧数据 migration，�
 - 实现 `FileSourceFactory`；
 - 实现保留 headers 的 `HttpSourceFactory`；
 - 修改 Symphonia decoder 从 `Box<dyn EncodedSource>` 打开；
-- 将 NCM 的资源读取适配到 EncodedSource 边界；
+- NCM 由独立安装的本地音源插件解开容器，返回普通 MP3/FLAC 文件，再进入 EncodedSource 与通用解码链路；宿主不内置 NCM 实现；
 - 将 M3U/M3U8/HLS 从 decoder 选择中移出，改为 resolver/segmented source；
 - 同步更新 Flutter request/response types、FRB bindings、TUI、Backend 和 PlaybackController 的全部调用方；
 - 播放 FFI 入口只接受 `TrackId`，provider search result 通过 `ProviderTrackIdentityInput + ensure_track` 进入 Catalog；

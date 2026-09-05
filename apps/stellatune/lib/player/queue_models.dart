@@ -10,7 +10,6 @@ class ProviderQueueTrack {
     required this.providerId,
     required this.pluginId,
     required this.typeId,
-    required this.configJson,
     required this.providerKey,
     this.pathHint = '',
     this.sourcePluginId,
@@ -20,7 +19,6 @@ class ProviderQueueTrack {
   final String providerId;
   final String pluginId;
   final String typeId;
-  final String configJson;
   final String providerKey;
   final String pathHint;
   final String? sourcePluginId;

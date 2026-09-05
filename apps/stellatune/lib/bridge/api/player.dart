@@ -31,13 +31,11 @@ Future<BigInt> ensureProviderTrack({
   required String providerKey,
   required String pluginId,
   required String typeId,
-  required String configJson,
 }) => StellatuneApi.instance.api.crateApiPlayerEnsureProviderTrack(
   providerId: providerId,
   providerKey: providerKey,
   pluginId: pluginId,
   typeId: typeId,
-  configJson: configJson,
 );
 
 Future<void> play() => StellatuneApi.instance.api.crateApiPlayerPlay();
@@ -127,12 +125,10 @@ Future<List<EncoderTypeDescriptor>> encoderListTypes() =>
 Future<String> sourceListItemsJson({
   required String pluginId,
   required String typeId,
-  required String configJson,
   required String requestJson,
 }) => StellatuneApi.instance.api.crateApiPlayerSourceListItemsJson(
   pluginId: pluginId,
   typeId: typeId,
-  configJson: configJson,
   requestJson: requestJson,
 );
 
@@ -193,25 +189,18 @@ Future<void> pluginsUninstallById({
   pluginId: pluginId,
 );
 
-Future<String> pluginUiGatewayStart({required String pluginsDir, int? port}) =>
-    StellatuneApi.instance.api.crateApiPlayerPluginUiGatewayStart(
-      pluginsDir: pluginsDir,
-      port: port,
-    );
+Future<String> hostApiStart({required String dataRoot}) =>
+    StellatuneApi.instance.api.crateApiPlayerHostApiStart(dataRoot: dataRoot);
 
-Future<void> pluginUiGatewayStop() =>
-    StellatuneApi.instance.api.crateApiPlayerPluginUiGatewayStop();
+/// Restore only after host initialization, plugin registration and output settings.
+Future<void> playbackRestoreState() =>
+    StellatuneApi.instance.api.crateApiPlayerPlaybackRestoreState();
 
-Future<String?> pluginUiGatewayBaseUrl() =>
-    StellatuneApi.instance.api.crateApiPlayerPluginUiGatewayBaseUrl();
+Future<void> hostApiStop() =>
+    StellatuneApi.instance.api.crateApiPlayerHostApiStop();
 
-Future<String?> pluginUiGatewaySessionToken() =>
-    StellatuneApi.instance.api.crateApiPlayerPluginUiGatewaySessionToken();
-
-Future<String?> pluginUiGatewayPluginUiUrl({required String pluginId}) =>
-    StellatuneApi.instance.api.crateApiPlayerPluginUiGatewayPluginUiUrl(
-      pluginId: pluginId,
-    );
+Future<String> pluginOpenUi({required String pluginId}) =>
+    StellatuneApi.instance.api.crateApiPlayerPluginOpenUi(pluginId: pluginId);
 
 Future<List<AudioDevice>> refreshDevices() =>
     StellatuneApi.instance.api.crateApiPlayerRefreshDevices();

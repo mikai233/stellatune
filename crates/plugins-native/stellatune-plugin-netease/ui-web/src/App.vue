@@ -1,12 +1,11 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import {
-  createNeteaseConfigRoot,
-  extractNeteaseConfig,
   getPluginConfig,
+  getPlayerState,
   invokePluginAction,
   putPluginConfig,
-  resolveGatewayContext,
+  resolvePluginUiContext,
   subscribePluginEvents
 } from "./api";
 import GatewayHeroCard from "./components/panels/GatewayHeroCard.vue";
@@ -18,7 +17,7 @@ import DiscoveryPanel from "./components/panels/DiscoveryPanel.vue";
 import DiagnosticsPanel from "./components/panels/DiagnosticsPanel.vue";
 import { DEFAULT_SOURCE_CONFIG } from "./types";
 import type { ConfigFormState, SummaryField, UiEventRow } from "./view-models";
-import { buildApplySummary, buildSourceConfig, hydrateForm } from "./logic/config-form";
+import { buildSourceConfig, hydrateForm } from "./logic/config-form";
 import { buildPlaybackEventSummary, buildPlaybackSummary } from "./logic/playback-display";
 import {
   asNonEmptyString,
@@ -53,7 +52,7 @@ interface WorkbenchTab {
   description: string;
 }
 
-const gateway = resolveGatewayContext();
+const gateway = resolvePluginUiContext();
 const isBusy = ref(false);
 const message = ref("已就绪");
 const lastApplySummary = ref("");
@@ -71,6 +70,7 @@ const authResultSummary = ref<SummaryField[]>([]);
 const authRawPayload = ref("");
 const authRawValue = ref<unknown>(null);
 const playbackStatus = ref("尚未执行播放动作");
+const playerState = ref<Record<string, unknown>>({});
 const playbackResultSummary = ref<SummaryField[]>([]);
 const playbackRawPayload = ref("");
 const events = ref<UiEventRow[]>([]);
@@ -86,8 +86,7 @@ const form = reactive<ConfigFormState>({
   defaultLevel: DEFAULT_SOURCE_CONFIG.default_level
 });
 
-const hasToken = computed(() => gateway.token.length > 0);
-const hasGatewayContext = computed(() => hasToken.value);
+const hasGatewayContext = computed(() => gateway.origin.length > 0);
 const authStateText = computed(() => formatAuthState(authState.value));
 const qrPollingText = computed(() => (qrPolling.value ? `自动查询中（第 ${qrPollingAttempt.value} 次）` : ""));
 const recentEventSummary = computed(() => events.value[0]?.summary ?? "暂无事件");
@@ -118,17 +117,16 @@ onMounted(() => {
   hydrateSectionFromHash();
   window.addEventListener("keydown", handleGlobalKeydown);
   window.addEventListener("hashchange", hydrateSectionFromHash);
-  if (hasGatewayContext.value) {
-    void bootstrapPage();
-  } else {
-    message.value = "缺少网关会话令牌，请通过宿主网关地址打开此页面。";
-    pushEvent("环境诊断", "未检测到 token，API 请求将不可用。", {
-      source: "系统"
-    });
-  }
+  void bootstrapPage();
   closeEvents = subscribePluginEvents(
     gateway,
     (event) => {
+      const payload = asRecord(event.payload);
+      if (payload?.type === "snapshot") playerState.value = asRecord(payload.state) ?? {};
+      else if (payload?.type === "position" && payload.itemId === playerState.value.itemId) playerState.value = { ...playerState.value, positionMs: payload.positionMs };
+      else if (payload?.type === "stateChanged" || payload?.type === "trackChanged") {
+        void getPlayerState(gateway).then(value => { playerState.value = value; }).catch(() => {});
+      }
       pushEvent(formatEventName(event.name), event.payload, {
         source: "事件流",
         summary: summarizeStreamEvent(event.name, event.payload)
@@ -238,9 +236,9 @@ async function loadConfig(): Promise<void> {
   isBusy.value = true;
   try {
     const response = await getPluginConfig(gateway);
-    const sourceConfig = extractNeteaseConfig(response.config);
+    const sourceConfig = response.config;
     hydrateForm(form, sourceConfig);
-    message.value = "已从宿主加载配置";
+    message.value = "已加载插件配置";
     pushEvent("配置加载", response.config, {
       source: "配置",
       summary: "插件配置加载完成"
@@ -254,45 +252,14 @@ async function loadConfig(): Promise<void> {
 }
 
 async function saveConfig(): Promise<void> {
-  await submitConfig(true);
-}
-
-async function applyConfigWithoutPersist(): Promise<void> {
-  await submitConfig(false);
-}
-
-async function submitConfig(persist: boolean): Promise<void> {
-  if (!ensureGatewayContext("保存配置")) {
-    return;
-  }
   isBusy.value = true;
   try {
-    const sourceConfig = buildSourceConfig(form);
-    if (persist) {
-      const updated = await putPluginConfig(gateway, createNeteaseConfigRoot(sourceConfig));
-      lastApplySummary.value = buildApplySummary(updated.apply_report);
-      message.value = "配置已保存并应用";
-      pushEvent("配置保存", updated.apply_report ?? updated.config, {
-        source: "配置",
-        summary: lastApplySummary.value || "已持久化配置并应用到运行时"
-      });
-    } else {
-      const updated = await invokePluginAction(gateway, "config.apply", {
-        persist: false,
-        config: createNeteaseConfigRoot(sourceConfig)
-      });
-      message.value = updated.message;
-      pushEvent("配置临时应用", updated.data, {
-        source: "配置",
-        summary: updated.message
-      });
-    }
-  } catch (error) {
-    message.value = `保存失败：${formatError(error)}`;
-    pushEvent("配置保存失败", { error: formatError(error) }, { source: "配置" });
-  } finally {
-    isBusy.value = false;
-  }
+    const updated = await putPluginConfig(gateway, buildSourceConfig(form));
+    lastApplySummary.value = "配置已保存，后续请求使用新配置。";
+    message.value = lastApplySummary.value;
+    pushEvent("配置保存", updated.config, { source: "配置", summary: message.value });
+  } catch (error) { message.value = `保存失败：${formatError(error)}`; }
+  finally { isBusy.value = false; }
 }
 
 async function runAuthAction(action: string, options?: AuthActionRunOptions): Promise<void> {
@@ -630,7 +597,7 @@ function ensureGatewayContext(operation: string): boolean {
   if (hasGatewayContext.value) {
     return true;
   }
-  message.value = `无法${operation}：缺少网关会话令牌，请通过宿主网关页面访问。`;
+  message.value = `无法${operation}：插件服务地址不可用，请重新打开插件页面。`;
   return false;
 }
 
@@ -675,7 +642,6 @@ function sleep(ms: number): Promise<void> {
         <GatewayHeroCard
           :plugin-id="gateway.pluginId"
           :origin="gateway.origin"
-          :has-token="hasToken"
           :has-gateway-context="hasGatewayContext"
           :message="message"
         />
@@ -737,7 +703,6 @@ function sleep(ms: number): Promise<void> {
               :has-gateway-context="hasGatewayContext"
               :last-apply-summary="lastApplySummary"
               :on-reload="loadConfig"
-              :on-apply-temp="applyConfigWithoutPersist"
               :on-save="saveConfig"
             />
 
@@ -773,6 +738,7 @@ function sleep(ms: number): Promise<void> {
               :is-busy="isBusy"
               :has-gateway-context="hasGatewayContext"
               :playback-status="playbackStatus"
+              :player-state="playerState"
               :playback-result-summary="playbackResultSummary"
               :playback-raw-payload="playbackRawPayload"
               :on-run-action="runPlaybackAction"

@@ -1,7 +1,6 @@
 use std::path::Path;
 
-use stellatune_audio_builtin_adapters::builtin_decoder::{BuiltinDecoder, extension_from_path};
-use stellatune_audio_builtin_adapters::ncm_decoder::NcmDecoder;
+use stellatune_audio_builtin_adapters::builtin_decoder::BuiltinDecoder;
 
 #[derive(Debug, Clone, Default)]
 pub struct MediaMetadata {
@@ -33,7 +32,7 @@ pub trait TranscodeDecoderSession: Send {
     fn close(&mut self) -> Result<(), String>;
 }
 
-pub fn open_local_transcode_decoder(
+pub async fn open_local_transcode_decoder(
     path: &str,
 ) -> Result<Box<dyn TranscodeDecoderSession>, String> {
     let path = path.trim();
@@ -44,60 +43,36 @@ pub fn open_local_transcode_decoder(
     if !source.is_file() {
         return Err(format!("source file does not exist: {}", source.display()));
     }
-    if extension_from_path(path).eq_ignore_ascii_case("ncm") {
-        return Ok(Box::new(NativeTranscodeDecoder::Ncm(NcmDecoder::open(
-            path,
-        )?)));
-    }
-    Ok(Box::new(NativeTranscodeDecoder::Builtin(
-        BuiltinDecoder::open(path)?,
-    )))
+    let opened = super::local_decoder::open_local_decoder(source).await?;
+    Ok(Box::new(NativeTranscodeDecoder {
+        decoder: opened.decoder,
+        plugin_id: opened.plugin_id,
+        capability_id: opened.capability_id,
+    }))
 }
 
-enum NativeTranscodeDecoder {
-    Builtin(BuiltinDecoder),
-    Ncm(NcmDecoder),
-}
-
-impl NativeTranscodeDecoder {
-    fn spec(&self) -> stellatune_audio_core::format::PcmFormat {
-        match self {
-            Self::Builtin(decoder) => decoder.spec(),
-            Self::Ncm(decoder) => decoder.spec(),
-        }
-    }
-
-    fn duration_ms(&self) -> Option<u64> {
-        match self {
-            Self::Builtin(decoder) => decoder.effective_duration_ms_hint(),
-            Self::Ncm(decoder) => decoder.duration_ms_hint(),
-        }
-    }
-
-    fn next_block(&mut self, frames: usize) -> Result<Option<Vec<f32>>, String> {
-        match self {
-            Self::Builtin(decoder) => decoder.next_block(frames),
-            Self::Ncm(decoder) => decoder.next_block(frames),
-        }
-    }
+struct NativeTranscodeDecoder {
+    decoder: BuiltinDecoder,
+    plugin_id: Option<String>,
+    capability_id: Option<String>,
 }
 
 impl TranscodeDecoderSession for NativeTranscodeDecoder {
     fn info(&self) -> TranscodeDecoderInfo {
-        let spec = self.spec();
+        let spec = self.decoder.spec();
         TranscodeDecoderInfo {
             sample_rate: spec.sample_rate,
             channels: spec.channel_layout.channel_count(),
-            duration_ms: self.duration_ms(),
+            duration_ms: self.decoder.effective_duration_ms_hint(),
             metadata: None,
-            decoder_plugin_id: None,
-            decoder_type_id: None,
+            decoder_plugin_id: self.plugin_id.clone(),
+            decoder_type_id: self.capability_id.clone(),
         }
     }
 
     fn read_pcm_f32(&mut self, max_frames: u32) -> Result<PcmF32Chunk, String> {
-        let channels = usize::from(self.spec().channel_layout.channel_count());
-        let Some(samples) = self.next_block(max_frames.max(1) as usize)? else {
+        let channels = usize::from(self.decoder.spec().channel_layout.channel_count());
+        let Some(samples) = self.decoder.next_block(max_frames.max(1) as usize)? else {
             return Ok(PcmF32Chunk {
                 interleaved_f32le: Vec::new(),
                 frames: 0,

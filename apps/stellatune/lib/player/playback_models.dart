@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:stellatune/bridge/bridge.dart';
+import 'package:stellatune/player/queue_models.dart';
 
 const Object _playbackStateSentinel = Object();
 
@@ -15,6 +16,7 @@ class PlaybackState {
     required this.lastLog,
     required this.audioStarted,
     this.trackInfo,
+    this.pendingItem,
   });
 
   const PlaybackState.initial()
@@ -26,7 +28,8 @@ class PlaybackState {
       lastError = null,
       lastLog = '',
       audioStarted = false,
-      trackInfo = null;
+      trackInfo = null,
+      pendingItem = null;
 
   final PlayerState playerState;
   final int positionMs;
@@ -37,6 +40,7 @@ class PlaybackState {
   final String lastLog;
   final bool audioStarted;
   final TrackDecodeInfo? trackInfo;
+  final QueueItem? pendingItem;
 
   PlaybackState copyWith({
     PlayerState? playerState,
@@ -44,10 +48,11 @@ class PlaybackState {
     String? currentPath,
     double? desiredVolume,
     double? appliedVolume,
-    String? lastError,
+    Object? lastError = _playbackStateSentinel,
     String? lastLog,
     bool? audioStarted,
     Object? trackInfo = _playbackStateSentinel,
+    Object? pendingItem = _playbackStateSentinel,
   }) {
     return PlaybackState(
       playerState: playerState ?? this.playerState,
@@ -55,7 +60,12 @@ class PlaybackState {
       currentPath: currentPath ?? this.currentPath,
       desiredVolume: desiredVolume ?? this.desiredVolume,
       appliedVolume: appliedVolume ?? this.appliedVolume,
-      lastError: lastError ?? this.lastError,
+      lastError: identical(lastError, _playbackStateSentinel)
+          ? this.lastError
+          : lastError as String?,
+      pendingItem: identical(pendingItem, _playbackStateSentinel)
+          ? this.pendingItem
+          : pendingItem as QueueItem?,
       lastLog: lastLog ?? this.lastLog,
       audioStarted: audioStarted ?? this.audioStarted,
       trackInfo: identical(trackInfo, _playbackStateSentinel)

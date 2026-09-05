@@ -1,8 +1,9 @@
 import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import 'package:stellatune/app/plugin_paths.dart';
-import 'package:stellatune/app/plugin_ui_gateway_service.dart';
+import 'package:stellatune/bridge/api/player.dart' as player_api;
 import 'package:stellatune/app/settings_store.dart';
 import 'package:stellatune/ui/pages/settings/settings_value_utils.dart';
 import 'package:stellatune/bridge/api/runtime.dart' as runtime_api;
@@ -273,6 +274,9 @@ Future<AppBootstrapResult> bootstrapApp() async {
     paths: await library.listRoots(),
     store: settings,
   );
+  await player_api.hostApiStart(
+    dataRoot: p.join(p.dirname(paths.pluginDir), 'plugin-data'),
+  );
   try {
     await library.pluginApplyState();
   } catch (e, s) {
@@ -285,7 +289,15 @@ Future<AppBootstrapResult> bootstrapApp() async {
 
   await _applyPersistedOutputSettings(bridge: bridge, settings: settings);
   await _setupLyricsCacheDb(bridge: bridge, lyricsDbPath: paths.lyricsDbPath);
-  await _startPluginUiGateway(pluginDir: paths.pluginDir);
+  try {
+    await player_api.playbackRestoreState();
+  } catch (e, s) {
+    logger.w(
+      'failed to restore playback after plugin initialization',
+      error: e,
+      stackTrace: s,
+    );
+  }
 
   if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
     TrayService.instance.onExitRequested = () => _exitApp(bridge);
@@ -313,13 +325,9 @@ Future<void> _exitApp(PlayerBridge bridge) async {
     );
   }
   try {
-    await PluginUiGatewayService.instance.stopIfStarted();
+    await player_api.hostApiStop();
   } catch (e, s) {
-    logger.w(
-      'failed to stop plugin ui gateway before exit',
-      error: e,
-      stackTrace: s,
-    );
+    logger.w('failed to stop host API before exit', error: e, stackTrace: s);
   }
   try {
     await runtime_api.shutdown();
@@ -346,18 +354,6 @@ Future<_BootstrapPaths> _resolvePaths() async {
     lyricsDbPath: p.join(baseDir, 'lyrics_cache.sqlite'),
     pluginDir: pluginDir,
   );
-}
-
-Future<void> _startPluginUiGateway({required String pluginDir}) async {
-  try {
-    await PluginUiGatewayService.instance.ensureStarted(pluginsDir: pluginDir);
-  } catch (e, s) {
-    logger.w(
-      'failed to start plugin ui gateway during bootstrap',
-      error: e,
-      stackTrace: s,
-    );
-  }
 }
 
 Future<void> _applyPersistedOutputSettings({

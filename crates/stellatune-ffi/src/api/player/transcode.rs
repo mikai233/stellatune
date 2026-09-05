@@ -195,7 +195,8 @@ fn run_transcode_track_local_blocking(context: TranscodeTaskContext) {
         }
         output_file_existed_before = output.exists();
 
-        let mut decoder = open_local_transcode_decoder(source_path.as_str())
+        let mut decoder = tokio::runtime::Handle::current()
+            .block_on(open_local_transcode_decoder(source_path.as_str()))
             .map_err(|error| anyhow!("failed to open local transcode decoder: {error}"))?;
         let decoder_info = decoder.info();
 

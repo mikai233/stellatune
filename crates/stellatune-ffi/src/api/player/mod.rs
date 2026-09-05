@@ -7,7 +7,7 @@ use tracing::{debug, warn};
 
 use crate::api::library::{shared_library_if_initialized, shared_player_service};
 
-mod plugin_ui_gateway;
+mod host_api;
 pub mod queue;
 pub mod transcode;
 pub mod types;
@@ -23,12 +23,9 @@ use stellatune_backend_api::player::{
     plugins_list_installed_json as backend_plugins_list_installed_json,
     plugins_uninstall_by_id as backend_plugins_uninstall_by_id,
 };
-use stellatune_backend_api::player_service::identity::{
-    ProviderId, ProviderTrackIdentityInput, ProviderTrackKeyInput, TrackId,
-};
-use stellatune_backend_api::player_service::source::SourceResolverSpec;
+use stellatune_backend_api::player_service::identity::TrackId;
 use stellatune_backend_api::runtime::{
-    OutputBackend as RuntimeOutputBackend, TypeScriptSourceResolver,
+    OutputBackend as RuntimeOutputBackend,
     decoder_supported_extensions as runtime_decoder_supported_extensions,
     list_local_transcode_encoders, probe_local_track, runtime_clear_output_sink_route,
     runtime_list_output_devices, runtime_set_output_device, runtime_set_output_options,
@@ -116,42 +113,19 @@ pub async fn ensure_provider_track(
     provider_key: String,
     plugin_id: String,
     type_id: String,
-    config_json: String,
 ) -> Result<u64> {
-    let service = shared_player_service()?;
-    let binding_id = ProviderId::new(format!(
-        "{}::{}::{}",
-        plugin_id.trim(),
-        type_id.trim(),
-        provider_id.trim()
-    ))?;
-    let config: Value =
-        serde_json::from_str(&config_json).context("source resolver config must be valid JSON")?;
-    let resolver_spec =
-        SourceResolverSpec::new(plugin_id.trim(), type_id.trim(), config_json.clone())?;
-    let resolver = Arc::new(TypeScriptSourceResolver::new(
-        shared_typescript_runtime(),
-        plugin_id,
-        type_id,
-        config,
-    )?);
-    let source = service
-        .ensure_plugin_source(binding_id, resolver_spec, resolver)
-        .await?;
-    let normalized_key = provider_key.trim();
-    let provider_key = normalized_key
-        .parse::<u64>()
-        .ok()
-        .filter(|value| value.to_string() == normalized_key)
-        .map(ProviderTrackKeyInput::Numeric)
-        .unwrap_or_else(|| ProviderTrackKeyInput::Text(normalized_key.to_owned()));
-    Ok(service
-        .ensure_track(ProviderTrackIdentityInput {
-            source_instance_id: source.get(),
-            provider_key,
-        })
+    Ok(
+        stellatune_backend_api::player_service::plugin_tracks::ensure_provider_track(
+            shared_player_service()?.as_ref(),
+            shared_typescript_runtime(),
+            &plugin_id,
+            &type_id,
+            &provider_id,
+            &provider_key,
+        )
         .await?
-        .get())
+        .get(),
+    )
 }
 
 pub async fn play() -> Result<()> {
@@ -332,20 +306,13 @@ pub async fn source_list_types() -> Vec<SourceCatalogTypeDescriptor> {
     let mut out = Vec::new();
     for plugin in plugins {
         for capability in plugin.manifest.capabilities.iter().filter(|capability| {
-            matches!(
-                capability.kind,
-                TypeScriptCapabilityKind::SourceResolver
-                    | TypeScriptCapabilityKind::NetworkControl
-                    | TypeScriptCapabilityKind::AuthProvider
-            )
+            matches!(capability.kind, TypeScriptCapabilityKind::NetworkControl)
         }) {
             out.push(SourceCatalogTypeDescriptor {
                 plugin_id: plugin.manifest.id.clone(),
                 plugin_name: plugin.manifest.name.clone(),
                 type_id: capability.id.clone(),
                 display_name: capability.display_name.clone(),
-                config_schema_json: "{}".to_string(),
-                default_config_json: "{}".to_string(),
             });
         }
     }
@@ -400,68 +367,24 @@ pub async fn encoder_list_types() -> Vec<EncoderTypeDescriptor> {
 pub async fn source_list_items_json(
     plugin_id: String,
     type_id: String,
-    config_json: String,
     request_json: String,
 ) -> Result<String> {
-    let config = serde_json::from_str::<serde_json::Value>(&config_json)
-        .map_err(|e| anyhow!("invalid source config_json: {e}"))?;
-    let request = serde_json::from_str::<serde_json::Value>(&request_json)
-        .map_err(|e| anyhow!("invalid source request_json: {e}"))?;
-    let runtime = stellatune_backend_api::runtime::shared_typescript_runtime();
+    use stellatune_plugins::typescript::manifest::TypeScriptCapabilityKind;
+    let request: Value = serde_json::from_str(&request_json)?;
+    let runtime = shared_typescript_runtime();
     let registrations = runtime.registered_plugins().await;
-    if let Some(plugin) = registrations
+    let capability = registrations
         .iter()
-        .find(|plugin| plugin.manifest.id == plugin_id)
-    {
-        let action = request
-            .get("action")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or("search")
-            .to_string();
-        let capability_id = if action.contains("auth.") {
-            "netease-auth"
-        } else if action.contains("lyric") {
-            "netease-lyrics"
-        } else {
-            plugin
-                .manifest
-                .capabilities
-                .iter()
-                .find(|capability| capability.id == type_id || capability.id == "netease-search")
-                .map_or(type_id.as_str(), |capability| capability.id.as_str())
-        };
-        let operation = if capability_id == "netease-auth" {
-            action.as_str()
-        } else if capability_id == "netease-lyrics" {
-            "fetch"
-        } else {
-            "list-items"
-        };
-        let mut input = request.clone();
-        if let Some(object) = input.as_object_mut() {
-            object.insert("config".to_string(), config);
-        }
-        let result = runtime
-            .invoke(&plugin_id, capability_id, None, operation, input, None)
-            .await
-            .map_err(|error| anyhow!("TypeScript source invocation failed: {error}"))?;
-        let value = if matches!(capability_id, "netease-auth" | "netease-lyrics") {
-            serde_json::json!([{
-                "kind": "control_result",
-                "item_id": action,
-                "source_id": "netease",
-                "title": action,
-                "playlist_ref": result.value
-            }])
-        } else {
-            result.value
-        };
-        return normalize_json_payload("TypeScript source response", value);
+        .find(|p| p.manifest.id == plugin_id)
+        .and_then(|p| p.manifest.capabilities.iter().find(|c| c.id == type_id))
+        .ok_or_else(|| anyhow!("plugin capability is not registered: {plugin_id}::{type_id}"))?;
+    if capability.kind != TypeScriptCapabilityKind::NetworkControl {
+        return Err(anyhow!("catalog capability must be network-control"));
     }
-
-    Err(anyhow!(
-        "TypeScript source capability not registered: {plugin_id}::{type_id}"
-    ))
+    let result = runtime
+        .invoke(&plugin_id, &type_id, None, "list-items", request, None)
+        .await?;
+    normalize_json_payload("TypeScript catalog response", result.value)
 }
 
 pub async fn lyrics_provider_search_json(
@@ -544,7 +467,7 @@ pub async fn current_track_info() -> Option<TrackDecodeInfo> {
             return None;
         },
     };
-    let info = match probe_local_track(&path) {
+    let info = match probe_local_track(&path).await {
         Ok(probed) => Some(TrackDecodeInfo {
             sample_rate: probed.sample_rate,
             channels: probed.channels,
@@ -591,24 +514,26 @@ pub async fn plugins_uninstall_by_id(plugins_dir: String, plugin_id: String) -> 
     reconcile_plugin_runtime_state_after_package_change("uninstall").await
 }
 
-pub async fn plugin_ui_gateway_start(plugins_dir: String, port: Option<u16>) -> Result<String> {
-    plugin_ui_gateway::start(plugins_dir, port).await
+pub async fn host_api_start(data_root: String) -> Result<String> {
+    host_api::start(data_root).await
 }
 
-pub async fn plugin_ui_gateway_stop() -> Result<()> {
-    plugin_ui_gateway::stop().await
+/// Restore only after host initialization, plugin registration and output settings.
+pub async fn playback_restore_state() -> Result<()> {
+    let service = shared_player_service()?;
+    let restored = service.restore().await;
+    service.start_state_writer();
+    restored?;
+    Ok(())
 }
 
-pub async fn plugin_ui_gateway_base_url() -> Option<String> {
-    plugin_ui_gateway::base_url().await
+pub async fn host_api_stop() -> Result<()> {
+    host_api::stop().await;
+    Ok(())
 }
 
-pub async fn plugin_ui_gateway_session_token() -> Option<String> {
-    plugin_ui_gateway::session_token().await
-}
-
-pub async fn plugin_ui_gateway_plugin_ui_url(plugin_id: String) -> Option<String> {
-    plugin_ui_gateway::plugin_ui_url(plugin_id).await
+pub async fn plugin_open_ui(plugin_id: String) -> Result<String> {
+    Ok(shared_typescript_runtime().open_ui(&plugin_id).await?)
 }
 
 async fn reconcile_plugin_runtime_state_after_package_change(operation: &str) -> Result<()> {

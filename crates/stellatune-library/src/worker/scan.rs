@@ -34,6 +34,7 @@ pub(super) async fn scan_all(
     events: &Arc<EventHub>,
     cover_dir: &Path,
     force: bool,
+    metadata_provider: &Option<Arc<dyn crate::metadata_provider::MetadataProvider>>,
 ) -> Result<()> {
     let roots: Vec<String> = sqlx::query_scalar!("SELECT path FROM scan_roots WHERE enabled=1")
         .fetch_all(pool)
@@ -62,6 +63,7 @@ pub(super) async fn scan_all(
         let (tx, mut rx) = tokio::sync::mpsc::channel::<FileCandidate>(512);
         let root_clone = root.clone();
         let excluded_clone = excluded.clone();
+        let walker_provider = metadata_provider.clone();
         // Blocking filesystem enumeration & metadata.
         let walker = tokio::task::spawn_blocking(move || {
             for entry in WalkDir::new(&root_clone).follow_links(false).into_iter() {
@@ -79,7 +81,8 @@ pub(super) async fn scan_all(
                     .and_then(|s| s.to_str())
                     .unwrap_or("")
                     .to_ascii_lowercase();
-                let supported = is_audio_ext(&ext) || has_plugin_decoder_for_path(&path);
+                let supported =
+                    is_audio_ext(&ext) || has_plugin_decoder_for_path(&path, &walker_provider);
                 if !supported {
                     continue;
                 }
@@ -133,9 +136,10 @@ pub(super) async fn scan_all(
             let meta_scanned_ms = now_ms();
 
             let (title, artist, album, duration_ms, cover) = match tokio::task::spawn_blocking({
+                let metadata_provider = metadata_provider.clone();
                 let path = file.path.clone();
                 move || {
-                    extract_metadata_with_plugins(Path::new(&path))
+                    extract_metadata_with_plugins(Path::new(&path), &metadata_provider)
                         .map(|m| (m.title, m.artist, m.album, m.duration_ms, m.cover))
                 }
             })
@@ -245,6 +249,7 @@ pub(super) async fn scan_folder_into_db(
     events: &Arc<EventHub>,
     cover_dir: &Path,
     folder_norm: &str,
+    metadata_provider: &Option<Arc<dyn crate::metadata_provider::MetadataProvider>>,
 ) -> Result<bool> {
     let folder_norm = normalize_path_str(folder_norm);
     if folder_norm.is_empty() || is_drive_root(&folder_norm) {
@@ -267,6 +272,7 @@ pub(super) async fn scan_folder_into_db(
     let (tx, mut rx) = tokio::sync::mpsc::channel::<FileCandidate>(512);
     let root_clone = root.clone();
     let excluded_clone = excluded.clone();
+    let walker_provider = metadata_provider.clone();
     let walker = tokio::task::spawn_blocking(move || {
         for entry in WalkDir::new(&root_clone).follow_links(false).into_iter() {
             let entry = match entry {
@@ -284,7 +290,8 @@ pub(super) async fn scan_folder_into_db(
                 .and_then(|s| s.to_str())
                 .unwrap_or("")
                 .to_ascii_lowercase();
-            let supported = is_audio_ext(&ext) || has_plugin_decoder_for_path(&path);
+            let supported =
+                is_audio_ext(&ext) || has_plugin_decoder_for_path(&path, &walker_provider);
             if !supported {
                 continue;
             }
@@ -335,9 +342,10 @@ pub(super) async fn scan_folder_into_db(
         let meta_scanned_ms = now_ms();
 
         let (title, artist, album, duration_ms, cover) = match tokio::task::spawn_blocking({
+            let metadata_provider = metadata_provider.clone();
             let p = PathBuf::from(&file.path);
             move || {
-                extract_metadata_with_plugins(&p)
+                extract_metadata_with_plugins(&p, &metadata_provider)
                     .map(|m| (m.title, m.artist, m.album, m.duration_ms, m.cover))
             }
         })

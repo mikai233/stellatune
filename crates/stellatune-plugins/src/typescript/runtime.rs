@@ -24,6 +24,8 @@ struct RuntimeEntry {
     process: Option<PluginProcessHandle>,
 }
 
+type LocalFileResolvers = BTreeMap<String, Vec<(String, String)>>;
+
 #[derive(Debug, Error)]
 pub enum TypeScriptRuntimeError {
     #[error("TypeScript plugin '{0}' is not registered or is disabled")]
@@ -41,7 +43,8 @@ pub struct TypeScriptRuntime {
     node_binary: PathBuf,
     runner_script: PathBuf,
     request_timeout: Duration,
-    idle_timeout: Duration,
+    host_context: Arc<std::sync::RwLock<Option<(String, PathBuf)>>>,
+    local_files: Arc<std::sync::RwLock<LocalFileResolvers>>,
 }
 
 impl TypeScriptRuntime {
@@ -51,8 +54,37 @@ impl TypeScriptRuntime {
             node_binary: PathBuf::from("node"),
             runner_script: runner_script.into(),
             request_timeout: Duration::from_secs(10),
-            idle_timeout: Duration::from_secs(60),
+            host_context: Arc::new(std::sync::RwLock::new(None)),
+            local_files: Default::default(),
         }
+    }
+
+    pub fn configure_host(&self, base_url: String, data_root: PathBuf) {
+        *self
+            .host_context
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some((base_url, data_root));
+    }
+
+    pub async fn open_ui(&self, plugin_id: &str) -> Result<String, TypeScriptRuntimeError> {
+        let process = {
+            let mut entries = self.inner.lock().await;
+            let entry = entries
+                .get_mut(plugin_id)
+                .ok_or_else(|| TypeScriptRuntimeError::NotRegistered(plugin_id.to_owned()))?;
+            if entry.registration.manifest.ui.is_none() {
+                return Err(TypeScriptRuntimeError::NotRegistered(format!(
+                    "{plugin_id} UI"
+                )));
+            }
+            entry
+                .process
+                .get_or_insert_with(|| {
+                    PluginProcessHandle::spawn(self.process_config(&entry.registration))
+                })
+                .clone()
+        };
+        Ok(process.open_ui().await?)
     }
 
     pub fn with_node_binary(mut self, node_binary: impl Into<PathBuf>) -> Self {
@@ -60,9 +92,8 @@ impl TypeScriptRuntime {
         self
     }
 
-    pub fn with_timeouts(mut self, request_timeout: Duration, idle_timeout: Duration) -> Self {
+    pub fn with_request_timeout(mut self, request_timeout: Duration) -> Self {
         self.request_timeout = request_timeout;
-        self.idle_timeout = idle_timeout;
         self
     }
 
@@ -74,11 +105,25 @@ impl TypeScriptRuntime {
         let package_root = package_root.into();
         validate_typescript_manifest(&manifest, &package_root)?;
         let plugin_id = manifest.id.clone();
+        self.remove_local_files(&plugin_id);
         let previous = self.inner.lock().await.remove(&plugin_id);
         if let Some(process) = previous.and_then(|entry| entry.process) {
             process.shutdown().await?;
         }
-        self.inner.lock().await.insert(
+        let mut entries = self.inner.lock().await;
+        let mut files = self
+            .local_files
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        for capability in &manifest.capabilities {
+            for extension in &capability.local_extensions {
+                files
+                    .entry(extension.clone())
+                    .or_default()
+                    .push((plugin_id.clone(), capability.id.clone()));
+            }
+        }
+        entries.insert(
             plugin_id,
             RuntimeEntry {
                 registration: RegisteredTypeScriptPlugin {
@@ -93,10 +138,54 @@ impl TypeScriptRuntime {
 
     pub async fn unregister(&self, plugin_id: &str) -> Result<(), TypeScriptRuntimeError> {
         let entry = self.inner.lock().await.remove(plugin_id);
+        self.remove_local_files(plugin_id);
         if let Some(process) = entry.and_then(|entry| entry.process) {
             process.shutdown().await?;
         }
         Ok(())
+    }
+
+    fn remove_local_files(&self, plugin_id: &str) {
+        let mut files = self
+            .local_files
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        files.retain(|_, targets| {
+            targets.retain(|(id, _)| id != plugin_id);
+            !targets.is_empty()
+        });
+    }
+
+    pub fn local_file_extensions(&self) -> Vec<String> {
+        self.local_files
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .keys()
+            .cloned()
+            .collect()
+    }
+
+    /// Ambiguous extension ownership is an error, never an arbitrary selection.
+    pub fn local_file_resolver(
+        &self,
+        extension: &str,
+    ) -> Result<Option<(String, String)>, TypeScriptRuntimeError> {
+        let files = self
+            .local_files
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        match files
+            .get(&extension.to_ascii_lowercase())
+            .map(Vec::as_slice)
+        {
+            None | Some([]) => Ok(None),
+            Some([target]) => Ok(Some(target.clone())),
+            Some(_) => Err(TypeScriptRuntimeError::Manifest(
+                super::manifest::ManifestV2Error::Invalid(format!(
+                    "multiple enabled plugins handle .{extension}"
+                )),
+            )),
+        }
     }
 
     pub async fn invoke(
@@ -207,7 +296,17 @@ impl TypeScriptRuntime {
             .protocol
             .clone_from(&registration.manifest.runtime.protocol);
         config.request_timeout = self.request_timeout;
-        config.idle_timeout = self.idle_timeout;
+        if let Some((base_url, data_root)) = self
+            .host_context
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_ref()
+        {
+            config.initialization = serde_json::json!({
+                "hostApiBaseUrl": base_url, "dataDir": data_root.join(&registration.manifest.id),
+                "packageRoot": registration.package_root,
+            });
+        }
         config
     }
 }

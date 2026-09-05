@@ -21,6 +21,7 @@ use tokio::{sync::Semaphore, time::timeout};
 enum Operation {
     Open,
     Resume,
+    Write,
     Drain,
     DrainIncompatible,
     Close,
@@ -103,6 +104,9 @@ impl SinkStage for Sink {
         self.inner.open(format)
     }
     fn write(&mut self, block: &AudioBlock) -> Result<SinkWriteResult, SinkError> {
+        if self.operation == Operation::Write {
+            self.gate.wait();
+        }
         self.inner.write(block)
     }
     fn pause(&mut self) -> Result<(), SinkError> {
@@ -373,4 +377,97 @@ async fn incompatible_successor_waits_for_old_output_drain_before_activation() {
     wait_for_end(&mut events).await;
     runtime.shutdown().await.unwrap();
     assert_eq!(samples.lock().unwrap().len(), 80);
+}
+
+// A device write is held while the actor fills its two-slot PCM FIFO. Both
+// explicit and natural transitions must retain their successor until space opens.
+#[tokio::test]
+async fn full_pcm_fifo_retries_natural_and_explicit_track_boundaries() {
+    use crate::planner::{CrossfadeCurve, CrossfadeFallback, PlaybackPolicies, TransitionPolicy};
+    let crossfade = TransitionPolicy::Crossfade {
+        duration_frames: 20,
+        curve: CrossfadeCurve::EqualPower,
+        fallback: CrossfadeFallback::Gapless,
+    };
+    for (natural, transition, target_id) in [
+        (true, TransitionPolicy::Gapless, 2),
+        (false, TransitionPolicy::Gapless, 2),
+        (false, crossfade, 2),
+        (false, TransitionPolicy::Gapless, 5),
+        (false, crossfade, 5),
+    ] {
+        let gate = Gate::new();
+        let _release = ReleaseOnDrop(Arc::clone(&gate));
+        let samples = Arc::new(Mutex::new(vec![]));
+        let runtime = runtime(Operation::Write, Arc::clone(&gate), Arc::clone(&samples));
+        let controller = runtime.controller();
+        let mut events = controller.subscribe_events();
+        controller
+            .set_policies(PlaybackPolicies {
+                transition,
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        controller
+            .switch_to(
+                item(1, if natural { 30 } else { 200 }, 100),
+                SwitchOptions::default(),
+            )
+            .await
+            .unwrap();
+        gate.entered().await;
+        // Pump ticks are 2 ms. Give the FIFO enough turns to fill while the
+        // independently gated worker cannot consume any of its queued blocks.
+        tokio::time::sleep(Duration::from_millis(80)).await;
+        if natural {
+            controller.set_next(Some(item(2, 50, 50))).await.unwrap();
+        } else {
+            controller
+                .switch_to(item(2, 50, 50), SwitchOptions::default())
+                .await
+                .unwrap();
+        }
+        tokio::time::sleep(Duration::from_millis(80)).await;
+        let snapshot = controller.snapshot().await.unwrap();
+        assert_ne!(snapshot.state, PlaybackState::Failed);
+        assert_eq!(snapshot.current_item_id, Some(item(1, 0, 0).id));
+        for id in 3..=target_id {
+            controller
+                .switch_to(item(id, 50, 50), SwitchOptions::default())
+                .await
+                .unwrap();
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            assert_ne!(
+                controller.snapshot().await.unwrap().state,
+                PlaybackState::Failed
+            );
+        }
+        gate.release();
+        let mut changes = vec![];
+        timeout(Duration::from_secs(3), async {
+            loop {
+                match events.recv().await.unwrap() {
+                    PlaybackEvent::TrackChanged { item_id } => changes.push(item_id),
+                    PlaybackEvent::Failed(error) => panic!("{error}"),
+                    PlaybackEvent::PlaybackEnded { item_id } => {
+                        assert_eq!(item_id, item(target_id, 0, 0).id);
+                        break;
+                    },
+                    _ => {},
+                }
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(changes, vec![item(1, 0, 0).id, item(target_id, 0, 0).id]);
+        if natural {
+            assert_eq!(
+                samples.lock().unwrap().len(),
+                80,
+                "gapless must preserve every frame"
+            );
+        }
+        runtime.shutdown().await.unwrap();
+    }
 }

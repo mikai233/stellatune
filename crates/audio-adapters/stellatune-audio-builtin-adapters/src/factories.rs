@@ -1,9 +1,9 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::PathBuf;
-use std::sync::Mutex;
 use std::sync::mpsc::{Receiver as StdReceiver, SyncSender, TryRecvError, sync_channel};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use stellatune_audio_core::{
@@ -167,7 +167,10 @@ struct HttpEncodedSource {
     position: u64,
     total_size: Option<u64>,
     seekable: bool,
-    current: std::io::Cursor<Vec<u8>>,
+    current: std::io::Cursor<Arc<[u8]>>,
+    cache: VecDeque<(u64, Arc<[u8]>)>,
+    cache_bytes: usize,
+    feeder_position: u64,
     receiver: StdReceiver<HttpFeederMessage>,
     feeder_cancellation: SourceCancellation,
     eof: bool,
@@ -182,6 +185,7 @@ enum HttpFeederMessage {
 const HTTP_INITIAL_READ_BYTES: usize = 64 * 1024;
 const HTTP_FEEDER_CHUNK_BYTES: usize = 32 * 1024;
 const HTTP_FEEDER_CHUNKS: usize = 8;
+const HTTP_SEEK_CACHE_BYTES: usize = 2 * 1024 * 1024;
 
 impl HttpEncodedSource {
     async fn open(
@@ -234,7 +238,11 @@ impl HttpEncodedSource {
             sender,
             feeder_cancellation.clone(),
         );
+        let initial: Arc<[u8]> = initial.into();
         Ok(Self {
+            cache: VecDeque::from([(0, initial.clone())]),
+            cache_bytes: initial.len(),
+            feeder_position: initial.len() as u64,
             client,
             url,
             headers,
@@ -246,6 +254,32 @@ impl HttpEncodedSource {
             feeder_cancellation,
             eof: false,
         })
+    }
+
+    // Retrying a demuxer seek may revisit several byte offsets. Reuse bounded
+    // encoded chunks so retries make progress instead of restarting every range.
+    fn use_cached(&mut self, offset: u64) -> bool {
+        let Some((start, chunk)) = self
+            .cache
+            .iter()
+            .rev()
+            .find(|(start, chunk)| offset >= *start && offset - *start < chunk.len() as u64)
+        else {
+            return false;
+        };
+        self.current = std::io::Cursor::new(chunk.clone());
+        self.current.set_position(offset - *start);
+        true
+    }
+
+    fn retain_chunk(&mut self, start: u64, chunk: Arc<[u8]>) {
+        self.cache_bytes += chunk.len();
+        self.cache.push_back((start, chunk));
+        while self.cache_bytes > HTTP_SEEK_CACHE_BYTES {
+            if let Some((_, old)) = self.cache.pop_front() {
+                self.cache_bytes -= old.len();
+            }
+        }
     }
 
     fn restart_at(&mut self, offset: u64) {
@@ -263,7 +297,8 @@ impl HttpEncodedSource {
             sender,
             self.feeder_cancellation.clone(),
         );
-        self.current = std::io::Cursor::new(Vec::new());
+        self.current = std::io::Cursor::new(Arc::from([]));
+        self.feeder_position = offset;
         self.receiver = receiver;
         self.eof = false;
     }
@@ -360,11 +395,12 @@ async fn feed_async_http_response(
         };
         match chunk {
             Ok(Some(chunk)) => {
-                if sender
-                    .send(HttpFeederMessage::Data(chunk.to_vec()))
-                    .is_err()
-                {
-                    break;
+                for part in chunk.chunks(HTTP_FEEDER_CHUNK_BYTES) {
+                    if cancellation.is_cancelled()
+                        || sender.send(HttpFeederMessage::Data(part.to_vec())).is_err()
+                    {
+                        return;
+                    }
                 }
             },
             Ok(None) => {
@@ -381,17 +417,35 @@ async fn feed_async_http_response(
 
 impl Read for HttpEncodedSource {
     fn read(&mut self, output: &mut [u8]) -> std::io::Result<usize> {
+        if output.is_empty() {
+            return Ok(0);
+        }
         loop {
             let read = self.current.read(output)?;
             if read > 0 {
                 self.position = self.position.saturating_add(read as u64);
                 return Ok(read);
             }
+            if self
+                .total_size
+                .is_some_and(|length| self.position >= length)
+            {
+                return Ok(0);
+            }
+            if self.use_cached(self.position) {
+                continue;
+            }
+            if self.position != self.feeder_position {
+                self.restart_at(self.position);
+            }
             if self.eof {
                 return Ok(0);
             }
             match self.receiver.try_recv() {
                 Ok(HttpFeederMessage::Data(chunk)) => {
+                    let chunk: Arc<[u8]> = chunk.into();
+                    self.retain_chunk(self.feeder_position, chunk.clone());
+                    self.feeder_position += chunk.len() as u64;
                     self.current = std::io::Cursor::new(chunk);
                 },
                 Ok(HttpFeederMessage::Eof) | Err(TryRecvError::Disconnected) => {
@@ -439,7 +493,14 @@ impl Seek for HttpEncodedSource {
                 "HTTP range seek is unsupported",
             ));
         }
-        self.restart_at(target);
+        if !self.use_cached(target) {
+            // An EOF length query must not cancel an in-flight range.
+            if Some(target) == self.total_size || target == self.feeder_position {
+                self.current = std::io::Cursor::new(Arc::from([]));
+            } else {
+                self.restart_at(target);
+            }
+        }
         self.position = target;
         Ok(target)
     }
@@ -475,6 +536,18 @@ impl SourceFactory for HttpSourceFactory {
             Ok(Box::new(source) as Box<dyn EncodedSource>)
         })
     }
+}
+
+/// Opens the generic decoder over an already acquired encoded source.
+/// Blocking consumers must provide a source whose reads wait for input.
+pub fn open_builtin_decoder(
+    source: Box<dyn EncodedSource>,
+    hint_extension: &str,
+) -> Result<crate::builtin_decoder::BuiltinDecoder, String> {
+    BuiltinDecoder::open_source(
+        Box::new(SymphoniaMediaSource(Mutex::new(source))),
+        hint_extension,
+    )
 }
 
 struct SymphoniaMediaSource(Mutex<Box<dyn EncodedSource>>);
@@ -545,10 +618,38 @@ impl DecoderFactory for SymphoniaDecoderFactory {
     }
 
     fn create(&self) -> Result<Box<dyn DecoderStage>, FactoryError> {
-        Ok(Box::new(SymphoniaDecoderStage {
-            decoder: None,
-            pending_seek_frame: None,
-        }))
+        Ok(Box::new(AsyncSymphoniaDecoder::default()))
+    }
+}
+
+#[derive(Default)]
+struct AsyncSymphoniaDecoder(crate::decoder_worker::DecoderWorker);
+impl DecoderStage for AsyncSymphoniaDecoder {
+    fn open(
+        &mut self,
+        source: Box<dyn EncodedSource>,
+        hints: &MediaHints,
+    ) -> Result<DecodedStreamInfo, DecodeError> {
+        self.0.open(
+            Box::new(SymphoniaDecoderStage {
+                decoder: None,
+                pending_seek_frame: None,
+            }),
+            source,
+            hints,
+        )
+    }
+    fn decode(&mut self, output: &mut AudioBlock) -> Result<DecodeStatus, DecodeError> {
+        self.0.decode(output)
+    }
+    fn start_seek(&mut self, target: u64) -> Result<DecoderSeekStatus, DecodeError> {
+        self.0.start_seek(target)
+    }
+    fn continue_seek(&mut self) -> Result<DecoderSeekStatus, DecodeError> {
+        self.0.continue_seek()
+    }
+    fn reset(&mut self) {
+        self.0.reset();
     }
 }
 
@@ -564,11 +665,8 @@ impl DecoderStage for SymphoniaDecoderStage {
         hints: &MediaHints,
     ) -> Result<DecodedStreamInfo, DecodeError> {
         let extension = hints.extension.as_deref().unwrap_or_default();
-        let decoder = BuiltinDecoder::open_source(
-            Box::new(SymphoniaMediaSource(Mutex::new(source))),
-            extension,
-        )
-        .map_err(|message| DecodeError::Failed { message })?;
+        let decoder = open_builtin_decoder(source, extension)
+            .map_err(|message| DecodeError::Failed { message })?;
         let spec = decoder.spec();
         let duration_frames = decoder
             .duration_ms_hint()

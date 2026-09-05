@@ -10,6 +10,7 @@ const props = defineProps<{
   isBusy: boolean;
   hasGatewayContext: boolean;
   playbackStatus: string;
+  playerState: Record<string, unknown>;
   playbackResultSummary: SummaryField[];
   playbackRawPayload: string;
   onRunAction: (action: string, payload?: Record<string, unknown>) => unknown;
@@ -52,17 +53,23 @@ function buildTrackPayload(): Record<string, unknown> | string {
           立即播放
         </button>
         <button :disabled="isBusy || !hasGatewayContext" @click="runTrackAction('playback.enqueue_track')">
-          加入下一首
+          加入队列
         </button>
         <button :disabled="isBusy || !hasGatewayContext" @click="runSimpleAction('playback.pause')">
           暂停
         </button>
+        <button :disabled="isBusy" @click="runSimpleAction('playback.play')">播放 / 继续</button>
+        <button :disabled="isBusy" @click="runSimpleAction('playback.previous')">上一首</button>
+        <button :disabled="isBusy" @click="runSimpleAction('playback.next')">下一首</button>
         <button :disabled="isBusy || !hasGatewayContext" @click="runSimpleAction('playback.stop')">
           停止
         </button>
       </div>
     </div>
 
+    <p>状态：{{ playerState.state ?? '未知' }} · {{ playerState.positionMs ?? 0 }} / {{ playerState.durationMs ?? '未知' }} ms</p>
+    <input aria-label="播放进度" type="range" min="0" :max="Number(playerState.durationMs ?? 0)" :value="Number(playerState.positionMs ?? 0)"
+      :disabled="isBusy || !playerState.durationMs" @change="onRunAction('playback.seek', { positionMs: Number(($event.target as HTMLInputElement).value) })" />
     <label class="full-width">
       稳定 TrackId
       <input v-model="trackIdInput" type="text" inputmode="numeric" placeholder="由播放器曲目目录分配的 TrackId" />

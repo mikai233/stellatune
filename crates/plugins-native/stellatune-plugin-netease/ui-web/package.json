@@ -5,8 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vue-tsc --noEmit && vite build",
-    "preview": "vite preview"
+    "build": "vue-tsc --noEmit && vite build && node ../scripts/build-plugin.mjs",
+    "preview": "vite preview",
+    "check:sdk": "tsc --noEmit --strict --target es2022 --module esnext --moduleResolution bundler ../../../../tools/typescript-plugin-runtime/sdk.ts",
+    "test": "node --test ../scripts/plugin.test.mjs"
   },
   "dependencies": {
     "vue": "^3.5.22"
@@ -15,6 +17,8 @@
     "@vitejs/plugin-vue": "^6.0.1",
     "typescript": "^5.9.2",
     "vite": "^7.1.7",
-    "vue-tsc": "^3.1.1"
+    "vue-tsc": "^3.1.1",
+    "esbuild": "^0.25.0",
+    "@types/node": "^22.0.0"
   }
 }

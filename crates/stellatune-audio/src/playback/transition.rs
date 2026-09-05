@@ -33,14 +33,22 @@ use super::state::{
     ActiveTrack, CrossfadeState, DrainPhase, PlaybackSession, PreparedTrack, SecondaryTrack,
     TransitionRecoveryFade,
 };
+pub(super) enum CrossfadeStart {
+    Unavailable,
+    Pending,
+    Started,
+}
+
 /// Starts a crossfade after its frame threshold and compatibility checks pass.
-pub(super) fn maybe_start_crossfade(actor: &mut PlaybackSession) {
+pub(super) fn maybe_start_crossfade(
+    actor: &mut PlaybackSession,
+) -> Result<CrossfadeStart, PlaybackControlError> {
     if actor.crossfade.is_some() {
-        return;
+        return Ok(CrossfadeStart::Unavailable);
     }
     let forced = actor.force_transition;
     let Some(current) = actor.current.as_mut() else {
-        return;
+        return Ok(CrossfadeStart::Unavailable);
     };
     let TransitionPolicy::Crossfade {
         duration_frames,
@@ -48,7 +56,7 @@ pub(super) fn maybe_start_crossfade(actor: &mut PlaybackSession) {
         ..
     } = current.transition
     else {
-        return;
+        return Ok(CrossfadeStart::Unavailable);
     };
     let duration = match current.pipeline.duration_frames {
         Some(duration) => duration,
@@ -56,23 +64,23 @@ pub(super) fn maybe_start_crossfade(actor: &mut PlaybackSession) {
             .pipeline
             .produced_audible_frame
             .saturating_add(duration_frames),
-        None => return,
+        None => return Ok(CrossfadeStart::Unavailable),
     };
     if duration_frames == 0 {
-        return;
+        return Ok(CrossfadeStart::Unavailable);
     }
     let clock = current.output.clock();
     let produced_frontier = current
         .consumed_position_frame()
         .saturating_add(current.output_frames_to_mix(clock.buffered_frames));
     if !forced && produced_frontier < duration.saturating_sub(duration_frames) {
-        return;
+        return Ok(CrossfadeStart::Unavailable);
     }
     let Some(next) = actor.next.as_mut() else {
-        return;
+        return Ok(CrossfadeStart::Unavailable);
     };
     if normalize_prepared_for_mix(next, current.pipeline.mix_format).is_err() {
-        return;
+        return Ok(CrossfadeStart::Unavailable);
     }
     let compatible = current.pipeline.mix_format == next.pipeline.mix_format
         && current.output_format == next.output_format
@@ -82,15 +90,14 @@ pub(super) fn maybe_start_crossfade(actor: &mut PlaybackSession) {
             .ok()
             == next.plan.sink.compatibility_key(next.output_format).ok();
     if !compatible {
-        return;
+        return Ok(CrossfadeStart::Unavailable);
     }
-    let next = actor.next.take().expect("next checked above");
     let item_id = next.plan.item.id;
     let boundary_base = clock.consumed_frames.saturating_add(clock.buffered_frames);
-    if current.output.mark_boundary(item_id).is_err() {
-        actor.next = super::state::NextTrack::Ready(Box::new(next));
-        return;
+    if !current.output.mark_boundary(item_id)? {
+        return Ok(CrossfadeStart::Pending);
     }
+    let next = actor.next.take().expect("next checked above");
     actor.crossfade = Some(CrossfadeState {
         next: secondary_from_prepared(next),
         duration_frames,
@@ -102,6 +109,7 @@ pub(super) fn maybe_start_crossfade(actor: &mut PlaybackSession) {
         boundary_announced: false,
     });
     actor.force_transition = false;
+    Ok(CrossfadeStart::Started)
 }
 
 /// Converts a prepared successor to the current mix format and rebuilds post-mix stages.
@@ -207,7 +215,9 @@ pub(super) fn pump_crossfade(
         {
             Ok(TrackBlockStatus::Data(block)) => crossfade.current_block = Some(block),
             Ok(TrackBlockStatus::Pending) => {
-                set_state(state, PlaybackState::Buffering, event_tx);
+                if current.output.clock().buffered_frames == 0 {
+                    set_state(state, PlaybackState::Buffering, event_tx);
+                }
                 return;
             },
             Ok(TrackBlockStatus::EndOfStream) => {

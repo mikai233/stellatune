@@ -15,13 +15,9 @@ class SettingsPluginTile extends StatefulWidget {
   final Future<void> Function()? onOpenWebUi;
   final Future<void> Function(bool) onToggleEnabled;
   final Future<void> Function() onUninstall;
-  final String? Function(SourceCatalogTypeDescriptor) sourceConfigForType;
   final String? Function(OutputSinkTypeDescriptor) outputSinkConfigForType;
-  final void Function(SourceCatalogTypeDescriptor, String)
-  onSourceConfigChanged;
   final void Function(OutputSinkTypeDescriptor, String)
   onOutputSinkConfigChanged;
-  final Future<void> Function(SourceCatalogTypeDescriptor) onSaveSourceConfig;
 
   const SettingsPluginTile({
     super.key,
@@ -34,11 +30,8 @@ class SettingsPluginTile extends StatefulWidget {
     required this.onOpenWebUi,
     required this.onToggleEnabled,
     required this.onUninstall,
-    required this.sourceConfigForType,
     required this.outputSinkConfigForType,
-    required this.onSourceConfigChanged,
     required this.onOutputSinkConfigChanged,
-    required this.onSaveSourceConfig,
   });
 
   @override
@@ -131,7 +124,7 @@ class _SettingsPluginTileState extends State<SettingsPluginTile> {
         if (widget.onOpenWebUi != null)
           IconButton(
             tooltip: 'Open Web UI',
-            onPressed: widget.onOpenWebUi,
+            onPressed: widget.isDisabled ? null : widget.onOpenWebUi,
             icon: const Icon(Icons.web),
           ),
         Switch(
@@ -212,9 +205,8 @@ class _SettingsPluginTileState extends State<SettingsPluginTile> {
         Text(
           p.id ?? p.dirPath,
           style: Theme.of(context).textTheme.bodySmall?.copyWith(
-            color: Theme.of(
-              context,
-            ).colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
+            color: Theme.of(context).colorScheme.onSurfaceVariant
+                .withValues(alpha: 0.7),
           ),
         ),
         if (p.infoJson != null && p.infoJson!.isNotEmpty)
@@ -233,9 +225,8 @@ class _SettingsPluginTileState extends State<SettingsPluginTile> {
               p.uninstallLastError!,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Theme.of(context).colorScheme.error,
-              ),
+              style: Theme.of(context).textTheme.bodySmall
+                  ?.copyWith(color: Theme.of(context).colorScheme.error),
             ),
           ),
         Text(
@@ -295,25 +286,9 @@ class _SettingsPluginTileState extends State<SettingsPluginTile> {
                       style: Theme.of(context).textTheme.titleSmall,
                     ),
                     const SizedBox(height: 6),
-                    SchemaForm(
-                      key: ValueKey(
-                        'settings-source-config:${t.pluginId}:${t.typeId}',
-                      ),
-                      schemaJson: t.configSchemaJson,
-                      initialValueJson: widget.sourceConfigForType(t) ?? '',
-                      onChangedJson: (json) =>
-                          widget.onSourceConfigChanged(t, json),
-                    ),
-                    const SizedBox(height: 6),
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: FilledButton.tonal(
-                          onPressed: () => widget.onSaveSourceConfig(t),
-                          child: Text(l10n.apply),
-                        ),
-                      ),
+                    TextButton(
+                      onPressed: widget.isDisabled ? null : widget.onOpenWebUi,
+                      child: const Text("打开插件配置"),
                     ),
                   ],
                 ),

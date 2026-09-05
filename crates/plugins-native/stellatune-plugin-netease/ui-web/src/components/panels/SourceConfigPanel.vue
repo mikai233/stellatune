@@ -12,7 +12,6 @@ defineProps<{
   hasGatewayContext: boolean;
   lastApplySummary: string;
   onReload: () => unknown;
-  onApplyTemp: () => unknown;
   onSave: () => unknown;
 }>();
 
@@ -30,8 +29,7 @@ const qualityOptions = [
       <h2>音源配置</h2>
       <div class="actions">
         <button :disabled="isBusy || !hasGatewayContext" @click="onReload()">重新加载</button>
-        <button :disabled="isBusy || !hasGatewayContext" @click="onApplyTemp()">临时应用</button>
-        <button class="primary" :disabled="isBusy || !hasGatewayContext" @click="onSave()">保存并应用</button>
+        <button class="primary" :disabled="isBusy || !hasGatewayContext" @click="onSave()">保存配置</button>
       </div>
     </div>
 

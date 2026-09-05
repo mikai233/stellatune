@@ -123,11 +123,29 @@ pub(super) fn extract_metadata(path: &Path) -> Result<ExtractedMetadata> {
     Ok(out)
 }
 
-pub(super) fn has_plugin_decoder_for_path(_path: &Path) -> bool {
-    false
+pub(super) fn has_plugin_decoder_for_path(
+    path: &Path,
+    provider: &Option<std::sync::Arc<dyn crate::metadata_provider::MetadataProvider>>,
+) -> bool {
+    provider
+        .as_ref()
+        .is_some_and(|provider| provider.supports(path))
 }
 
-pub(super) fn extract_metadata_with_plugins(path: &Path) -> Result<ExtractedMetadata> {
+pub(super) fn extract_metadata_with_plugins(
+    path: &Path,
+    provider: &Option<std::sync::Arc<dyn crate::metadata_provider::MetadataProvider>>,
+) -> Result<ExtractedMetadata> {
+    if let Some(provider) = provider.as_ref().filter(|provider| provider.supports(path)) {
+        let metadata = provider.inspect(path)?;
+        return Ok(ExtractedMetadata {
+            title: metadata.title,
+            artist: metadata.artist,
+            album: metadata.album,
+            duration_ms: metadata.duration_ms,
+            cover: None,
+        });
+    }
     extract_metadata(path)
 }
 

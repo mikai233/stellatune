@@ -5,6 +5,7 @@ edition = "2024"
 license.workspace = true
 
 [dependencies]
+url.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 walkdir.workspace = true
@@ -25,3 +26,6 @@ libc.workspace = true
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["net"] }

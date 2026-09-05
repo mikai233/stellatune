@@ -71,14 +71,22 @@ pub trait SourceResolver: Send + Sync {
     }
 }
 
+#[async_trait]
 pub trait SourceResolverFactory: Send + Sync {
     fn create(
         &self,
         spec: &SourceResolverSpec,
     ) -> Result<Arc<dyn SourceResolver>, PlayerServiceError>;
+
+    async fn resolve_local(&self, path: PathBuf) -> Result<ResolvedSourceSpec, PlayerServiceError> {
+        Ok(ResolvedSourceSpec::File {
+            path,
+            media: Default::default(),
+        })
+    }
 }
 
-pub(super) fn materialize_source(
+pub(crate) fn materialize_source(
     spec: ResolvedSourceSpec,
 ) -> Result<Arc<dyn SourceFactory>, PlayerServiceError> {
     match spec {
