@@ -52,6 +52,8 @@
 #![deny(missing_docs, rustdoc::broken_intra_doc_links)]
 #![deny(clippy::wildcard_imports)]
 
+/// Duration budgets for decoded PCM and software output buffering.
+pub mod buffering;
 /// Decoder stage contracts and decoded stream metadata.
 pub mod decoder;
 /// Errors shared across source, stage, and playback boundaries.

@@ -120,3 +120,149 @@ fn fragmented_packets_preserve_every_sample_and_decoder_reset_cancels_pending_io
         .recv_timeout(Duration::from_secs(1))
         .expect("reset releases worker source even during a stalled read");
 }
+
+struct CountingDecoder {
+    source: Option<Box<dyn EncodedSource>>,
+    calls: mpsc::Sender<()>,
+    frame: u64,
+}
+
+struct ReadyWake(mpsc::Sender<()>);
+impl std::task::Wake for ReadyWake {
+    fn wake(self: Arc<Self>) {
+        let _ = self.0.send(());
+    }
+    fn wake_by_ref(self: &Arc<Self>) {
+        let _ = self.0.send(());
+    }
+}
+impl stellatune_audio_core::decoder::DecoderStage for CountingDecoder {
+    fn open(
+        &mut self,
+        source: Box<dyn EncodedSource>,
+        _: &MediaHints,
+    ) -> Result<
+        stellatune_audio_core::decoder::DecodedStreamInfo,
+        stellatune_audio_core::error::DecodeError,
+    > {
+        self.source = Some(source);
+        Ok(stellatune_audio_core::decoder::DecodedStreamInfo {
+            format: stellatune_audio_core::format::PcmFormat {
+                sample_rate: 8000,
+                channel_layout: stellatune_audio_core::format::ChannelLayout::MONO,
+            },
+            duration_frames: None,
+            gapless_trim: None,
+        })
+    }
+    fn decode(
+        &mut self,
+        output: &mut AudioBlock,
+    ) -> Result<DecodeStatus, stellatune_audio_core::error::DecodeError> {
+        self.calls.send(()).unwrap();
+        output.samples = (self.frame..self.frame + 8).map(|v| v as f32).collect();
+        self.frame += 8;
+        Ok(DecodeStatus::Produced { frames: 8 })
+    }
+    fn start_seek(
+        &mut self,
+        frame: u64,
+    ) -> Result<DecoderSeekStatus, stellatune_audio_core::error::DecodeError> {
+        self.frame = frame;
+        Ok(DecoderSeekStatus::Complete(
+            stellatune_audio_core::decoder::SeekResult {
+                actual_frame: frame,
+            },
+        ))
+    }
+    fn continue_seek(
+        &mut self,
+    ) -> Result<DecoderSeekStatus, stellatune_audio_core::error::DecodeError> {
+        unreachable!()
+    }
+    fn reset(&mut self) {
+        self.source = None;
+    }
+}
+
+#[test]
+fn bounded_read_ahead_discards_old_pcm_on_seek_and_reset_unblocks_a_full_queue() {
+    let (calls, decoded) = mpsc::channel();
+    let (dropped, released) = mpsc::channel();
+    let mut worker = crate::decoder_worker::DecoderWorker::default();
+    worker.configure_buffering(stellatune_audio_core::buffering::BufferingConfig {
+        decode_ahead_ms: 8, // 64 frames at 8 kHz, regardless of decoder block count.
+        ..Default::default()
+    });
+    let info = worker
+        .open(
+            Box::new(CountingDecoder {
+                source: None,
+                calls,
+                frame: 0,
+            }),
+            Box::new(FragmentedSource {
+                bytes: Cursor::new(vec![]),
+                pending: false,
+                stalled: Arc::new(AtomicBool::new(false)),
+                dropped,
+            }),
+            &MediaHints::default(),
+        )
+        .unwrap();
+    let mut block = AudioBlock::new(info.format);
+    let (ready, notifications) = mpsc::channel();
+    worker.set_waker(std::task::Waker::from(Arc::new(ReadyWake(ready))));
+    let first = worker.decode(&mut block).unwrap();
+    notifications
+        .recv_timeout(Duration::from_secs(1))
+        .expect("PCM completion wakes the runtime");
+    // Eight queued replies, one in-flight send, and possibly the first reply
+    // already consumed by decode. A stalled consumer must bound read-ahead.
+    let count = if matches!(first, DecodeStatus::Produced { .. }) {
+        10
+    } else {
+        9
+    };
+    for _ in 0..count {
+        decoded.recv_timeout(Duration::from_secs(1)).unwrap();
+    }
+    assert!(decoded.recv_timeout(Duration::from_millis(20)).is_err());
+    while notifications.try_recv().is_ok() {}
+    let mut status = worker.start_seek(1000).unwrap();
+    notifications
+        .recv_timeout(Duration::from_secs(1))
+        .expect("seek completion wakes the runtime");
+    let deadline = Instant::now() + Duration::from_secs(1);
+    while matches!(status, DecoderSeekStatus::Pending) {
+        assert!(Instant::now() < deadline);
+        std::thread::yield_now();
+        status = worker.continue_seek().unwrap();
+    }
+    loop {
+        block.timeline.start_frame = 1000;
+        block.timeline.epoch = 7;
+        if matches!(
+            worker.decode(&mut block).unwrap(),
+            DecodeStatus::Produced { .. }
+        ) {
+            break;
+        }
+        assert!(Instant::now() < deadline);
+        std::thread::yield_now();
+    }
+    assert_eq!(
+        block.samples,
+        (1000..1008).map(|v| v as f32).collect::<Vec<_>>()
+    );
+    assert_eq!(block.timeline.start_frame, 1000);
+    assert_eq!(block.timeline.epoch, 7);
+    // Leave the reply queue full again before resetting.
+    for _ in 0..10 {
+        decoded.recv_timeout(Duration::from_secs(1)).unwrap();
+    }
+    worker.reset();
+    released
+        .recv_timeout(Duration::from_secs(1))
+        .expect("reset releases a blocked producer");
+}

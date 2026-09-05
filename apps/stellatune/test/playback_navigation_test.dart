@@ -10,6 +10,7 @@ import 'package:stellatune/app/providers.dart';
 import 'package:stellatune/bridge/bridge.dart';
 import 'package:stellatune/player/playback_controller.dart';
 import 'package:stellatune/player/queue_controller.dart';
+import 'package:stellatune/player/queue_models.dart';
 
 class ControlledBridge implements PlayerBridge {
   final eventStream = StreamController<Event>.broadcast(sync: true);
@@ -231,4 +232,60 @@ void main() {
     expect(bridge.selections, isEmpty);
     expect(container.read(playbackControllerProvider).pendingItem, isNull);
   });
+
+  test('late metadata enriches entries already created by a queue event', () {
+    final notifier = container.read(queueControllerProvider.notifier);
+    expect(container.read(queueControllerProvider).items.first.title, isNull);
+    notifier.applyBackend(
+      bridge.queue,
+      metadata: [
+        QueueItem(
+          trackId: BigInt.one,
+          path: 'song.ncm',
+          title: 'Title',
+          artist: 'Artist',
+        ),
+      ],
+    );
+    final item = container.read(queueControllerProvider).items.first;
+    expect(item.title, 'Title');
+    expect(item.artist, 'Artist');
+    notifier.applyBackend(bridge.queue);
+    expect(container.read(queueControllerProvider).items.first.title, 'Title');
+  });
+
+  test(
+    'restored queue displays library metadata without a previous UI item',
+    () {
+      final snapshot = PlaybackQueue(
+        items: [
+          QueueEntry(
+            itemId: BigInt.from(99),
+            trackId: BigInt.from(9),
+            localLibraryTrackId: 42,
+            localPath: 'old-name.ncm',
+            localMetadata: TrackLite(
+              id: 42,
+              path: 'old-name.ncm',
+              title: '知夏',
+              artist: '兰音Reine',
+              album: 'Album',
+              durationMs: 123000,
+            ),
+          ),
+        ],
+        order: frb.Uint64List.fromList([BigInt.from(99)]),
+        repeatMode: QueueRepeatMode.off,
+        shuffle: false,
+        revision: bridge.queue.revision + BigInt.one,
+      );
+      container.read(queueControllerProvider.notifier).applyBackend(snapshot);
+      final item = container.read(queueControllerProvider).items.single;
+      expect(item.displayTitle, '知夏');
+      expect(item.artist, '兰音Reine');
+      expect(item.album, 'Album');
+      expect(item.durationMs, 123000);
+      expect(item.id, 42);
+    },
+  );
 }

@@ -765,4 +765,20 @@ class AppLocalizationsEn extends AppLocalizations {
   String dlnaSelected(String name) {
     return 'Selected DLNA: $name';
   }
+
+  @override
+  String get settingsPlaybackLatency => 'Playback latency';
+
+  @override
+  String get settingsPlaybackLatencyHint =>
+      'Takes effect after stopping and starting playback, or changing the output device. Higher buffering improves stability.';
+
+  @override
+  String get settingsPlaybackLatencyLow => 'Low';
+
+  @override
+  String get settingsPlaybackLatencyMedium => 'Medium';
+
+  @override
+  String get settingsPlaybackLatencyHigh => 'High';
 }

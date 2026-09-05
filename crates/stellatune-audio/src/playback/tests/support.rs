@@ -910,8 +910,7 @@ pub(in crate::playback) fn runtime(
         }),
     };
     let mut config = PlaybackRuntimeConfig::new(registry);
-    config.block_frames = 10;
-    config.pcm_ring_blocks = 2;
+    config.max_pcm_blocks = 2;
     config.policies.transition = transition;
     PlaybackRuntime::start(config).unwrap()
 }

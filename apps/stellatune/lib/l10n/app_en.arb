@@ -34,14 +34,12 @@
     }
   },
   "log": "Log",
-
   "navHome": "Home",
   "navLibrary": "Library",
   "navPlaylists": "Playlists",
   "navSources": "Sources",
   "navQueue": "Queue",
   "navSettings": "Settings",
-
   "libraryTitle": "Library",
   "homeKeepListening": "Keep Listening",
   "homeContinueListening": "Continue Listening",
@@ -139,16 +137,13 @@
   "includeSubfolders": "Include subfolders",
   "expand": "Expand",
   "collapse": "Collapse",
-
   "tooltipAddFolder": "Add folder",
   "tooltipScan": "Scan",
   "tooltipForceScan": "Force rescan",
   "dialogSelectMusicFolder": "Select music folder",
-
   "searchHint": "Search title / artist / album / path",
   "noFoldersHint": "No folders yet. Click “Add folder” to start scanning.",
   "noResultsHint": "No results. Add a folder and scan, then search.",
-
   "scanStatusScanning": "Scanning…",
   "scanStatusFinished": "Scan finished",
   "scanDurationMs": "{ms}ms",
@@ -163,7 +158,6 @@
   "scanLabelUpdated": "updated",
   "scanLabelSkipped": "skipped",
   "scanLabelErrors": "errors",
-
   "menuPlay": "Play",
   "menuEnqueue": "Enqueue",
   "menuTranscode": "Transcode",
@@ -232,7 +226,6 @@
       }
     }
   },
-
   "playlistSectionTitle": "Playlists",
   "foldersSectionTitle": "Folders",
   "playlistCreateTooltip": "Create playlist",
@@ -275,12 +268,10 @@
   "likedRemoveTooltip": "Remove from Liked Music",
   "likedPlaylistName": "Liked Music",
   "ok": "OK",
-
   "queueShuffle": "Shuffle",
   "repeatOff": "Repeat: Off",
   "repeatAll": "Repeat: All",
   "repeatOne": "Repeat: One",
-
   "nowPlayingNone": "(none)",
   "queueEmpty": "(queue empty)",
   "tooltipPrevious": "Previous",
@@ -289,13 +280,11 @@
   "tooltipVolume": "Volume",
   "tooltipShuffle": "Shuffle",
   "tooltipRepeat": "Repeat",
-
   "tooltipPlayMode": "Play mode",
   "playModeSequential": "Sequential",
   "playModeShuffle": "Shuffle",
   "playModeRepeatAll": "Repeat all",
   "playModeRepeatOne": "Repeat one",
-
   "lyricsMoreShowLyrics": "Show lyrics",
   "lyricsMoreHideLyrics": "Hide lyrics",
   "lyricsMoreChooseCandidate": "Choose lyrics candidate",
@@ -303,7 +292,6 @@
   "lyricsCandidatesEmpty": "No candidate lyrics found",
   "lyricsCandidateApplied": "Lyrics candidate applied",
   "lyricsCandidateApplyFailed": "Failed to apply lyrics candidate",
-
   "noLyrics": "No lyrics",
   "tooltipBack": "Back",
   "menuMore": "More",
@@ -365,5 +353,10 @@
         "type": "String"
       }
     }
-  }
+  },
+  "settingsPlaybackLatency": "Playback latency",
+  "settingsPlaybackLatencyHint": "Takes effect after stopping and starting playback, or changing the output device. Higher buffering improves stability.",
+  "settingsPlaybackLatencyLow": "Low",
+  "settingsPlaybackLatencyMedium": "Medium",
+  "settingsPlaybackLatencyHigh": "High"
 }

@@ -42,8 +42,7 @@ fn config(samples: Arc<Mutex<Vec<f32>>>) -> PlaybackRuntimeConfig {
     });
     config.policies.transition = TransitionPolicy::Gapless;
     config.policies.seek_fade_frames = 0;
-    config.block_frames = 10;
-    config.pcm_ring_blocks = 2;
+    config.max_pcm_blocks = 2;
     config
 }
 fn paused() -> SwitchOptions {
@@ -232,9 +231,10 @@ async fn replacing_a_prepared_normalizer_uses_the_original_transform_output_rate
     .unwrap();
     let mut frames = 0;
     loop {
-        match prepared.pipeline.decode(1024, 0).unwrap() {
+        match prepared.pipeline.decode(Default::default(), 0).unwrap() {
             crate::playback::pipeline::TrackBlockStatus::Data(block) => frames += block.frames(),
-            crate::playback::pipeline::TrackBlockStatus::Pending => {},
+            crate::playback::pipeline::TrackBlockStatus::Pending
+            | crate::playback::pipeline::TrackBlockStatus::Progress => {},
             crate::playback::pipeline::TrackBlockStatus::EndOfStream => break,
         }
     }

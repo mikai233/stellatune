@@ -79,6 +79,8 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
   List<SourceCatalogTypeDescriptor> _cachedSourceTypes = const [];
   bool _cachedSourceTypesReady = false;
   ResampleQuality _resampleQuality = ResampleQuality.high;
+  bool _applyingPlaybackLatency = false;
+  int _playbackLatencyRevision = 0;
 
   @override
   void initState() {
@@ -763,6 +765,7 @@ extension _SettingsBuildSections on SettingsPageState {
         const SizedBox(height: 12),
         _buildWasapiExclusiveOptions(l10n),
         _buildSeekTrackFadeOption(l10n),
+        _buildPlaybackLatencyField(l10n),
         _buildResampleQualityField(l10n),
       ],
     );
@@ -1104,6 +1107,70 @@ extension _SettingsBuildSections on SettingsPageState {
         await _applyOutputOptions(seekTrackFade: v);
         _updateUi(() {});
       },
+    );
+  }
+
+  Widget _buildPlaybackLatencyField(AppLocalizations l10n) {
+    final value = ref.watch(settingsStoreProvider).playbackLatency;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: DropdownButtonFormField<PlaybackLatency>(
+        key: ValueKey((value, _playbackLatencyRevision)),
+        initialValue: value,
+        decoration: InputDecoration(
+          labelText: l10n.settingsPlaybackLatency,
+          helperText: l10n.settingsPlaybackLatencyHint,
+          helperMaxLines: 3,
+          border: const OutlineInputBorder(),
+          isDense: true,
+        ),
+        items: [
+          DropdownMenuItem(
+            value: PlaybackLatency.low,
+            child: Text(l10n.settingsPlaybackLatencyLow),
+          ),
+          DropdownMenuItem(
+            value: PlaybackLatency.medium,
+            child: Text(l10n.settingsPlaybackLatencyMedium),
+          ),
+          DropdownMenuItem(
+            value: PlaybackLatency.high,
+            child: Text(l10n.settingsPlaybackLatencyHigh),
+          ),
+        ],
+        onChanged: _applyingPlaybackLatency
+            ? null
+            : (next) async {
+                if (next == null || next == value) return;
+                _updateUi(() {
+                  _applyingPlaybackLatency = true;
+                });
+                try {
+                  await ref.read(playerBridgeProvider).setPlaybackLatency(next);
+                  await ref
+                      .read(settingsStoreProvider.notifier)
+                      .setPlaybackLatency(next);
+                } catch (error, stack) {
+                  logger.w(
+                    'failed to set playback latency',
+                    error: error,
+                    stackTrace: stack,
+                  );
+                  if (mounted) {
+                    ScaffoldMessenger.of(
+                      context,
+                    ).showSnackBar(SnackBar(content: Text(error.toString())));
+                    _updateUi(() {
+                      _playbackLatencyRevision++;
+                    });
+                  }
+                } finally {
+                  _updateUi(() {
+                    _applyingPlaybackLatency = false;
+                  });
+                }
+              },
+      ),
     );
   }
 

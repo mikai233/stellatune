@@ -13,39 +13,45 @@ use super::source::{ResolvedSourceSpec, SourceCatalogEntry, SourceResolverSpec};
 pub trait LocalTrackResolver: Send + Sync {
     async fn resolve_path(&self, library_track_id: i64) -> Result<PathBuf, PlayerServiceError>;
 
-    /// Projects available paths without opening audio sources; missing tracks are omitted.
-    async fn resolve_paths(
+    /// Projects metadata without opening audio sources; missing tracks are omitted.
+    async fn resolve_metadata(
         &self,
         library_track_ids: &[i64],
-    ) -> Result<std::collections::HashMap<i64, PathBuf>, PlayerServiceError> {
-        let mut paths = std::collections::HashMap::new();
+    ) -> Result<std::collections::HashMap<i64, stellatune_library::TrackLite>, PlayerServiceError>
+    {
+        let mut tracks = std::collections::HashMap::new();
         for id in library_track_ids {
             match self.resolve_path(*id).await {
                 Ok(path) => {
-                    paths.insert(*id, path);
+                    tracks.insert(
+                        *id,
+                        stellatune_library::TrackLite {
+                            id: *id,
+                            path: path.to_string_lossy().into_owned(),
+                            title: None,
+                            artist: None,
+                            album: None,
+                            duration_ms: None,
+                        },
+                    );
                 },
                 Err(PlayerServiceError::LocalTrackNotFound(_)) => {},
                 Err(error) => return Err(error),
             }
         }
-        Ok(paths)
+        Ok(tracks)
     }
 }
 
 #[async_trait]
 impl LocalTrackResolver for stellatune_library::LibraryHandle {
-    async fn resolve_paths(
+    async fn resolve_metadata(
         &self,
         library_track_ids: &[i64],
-    ) -> Result<std::collections::HashMap<i64, PathBuf>, PlayerServiceError> {
-        self.get_track_paths(library_track_ids.to_vec())
+    ) -> Result<std::collections::HashMap<i64, stellatune_library::TrackLite>, PlayerServiceError>
+    {
+        self.get_tracks(library_track_ids.to_vec())
             .await
-            .map(|paths| {
-                paths
-                    .into_iter()
-                    .map(|(id, path)| (id, PathBuf::from(path)))
-                    .collect()
-            })
             .map_err(|error| PlayerServiceError::LocalLibrary(error.to_string()))
     }
 

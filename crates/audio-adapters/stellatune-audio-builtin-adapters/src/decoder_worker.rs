@@ -18,18 +18,17 @@ use stellatune_audio_core::{
 };
 
 enum Command {
-    Decode(
-        AudioBlock,
-        mpsc::Sender<Result<(AudioBlock, DecodeStatus), DecodeError>>,
-    ),
+    Decode(AudioBlock, crate::decoder_queue::Sender),
     Seek(u64, mpsc::Sender<Result<DecoderSeekStatus, DecodeError>>),
 }
 
-type DecodeReply = Receiver<Result<(AudioBlock, DecodeStatus), DecodeError>>;
+type DecodeReply = crate::decoder_queue::Receiver;
 type SeekReply = Receiver<Result<DecoderSeekStatus, DecodeError>>;
 
 #[derive(Default)]
 pub(crate) struct DecoderWorker {
+    buffering: stellatune_audio_core::buffering::BufferingConfig,
+    wake: Arc<std::sync::Mutex<Option<std::task::Waker>>>,
     commands: Option<SyncSender<Command>>,
     cancelled: Arc<AtomicBool>,
     decode: Option<DecodeReply>,
@@ -38,6 +37,19 @@ pub(crate) struct DecoderWorker {
 }
 
 impl DecoderWorker {
+    pub(crate) fn configure_buffering(
+        &mut self,
+        config: stellatune_audio_core::buffering::BufferingConfig,
+    ) {
+        // An active read-ahead queue retains its budget until seek/reset.
+        self.buffering = config;
+    }
+    pub(crate) fn set_waker(&mut self, waker: std::task::Waker) {
+        let mut registered = self.wake.lock().unwrap();
+        if !registered.as_ref().is_some_and(|old| old.will_wake(&waker)) {
+            *registered = Some(waker);
+        }
+    }
     pub(crate) fn open(
         &mut self,
         mut decoder: Box<dyn DecoderStage>,
@@ -51,6 +63,7 @@ impl DecoderWorker {
             cancelled: self.cancelled.clone(),
         };
         let cancelled = self.cancelled.clone();
+        let wake = self.wake.clone();
         let hints = hints.clone();
         let (commands, work) = mpsc::sync_channel(2);
         let (opened, ready) = mpsc::channel();
@@ -73,12 +86,29 @@ impl DecoderWorker {
                         break;
                     };
                     match command {
-                        Command::Decode(mut block, reply) => {
-                            let result = decoder.decode(&mut block).map(|status| (block, status));
-                            let _ = reply.send(result);
+                        Command::Decode(block, reply) => {
+                            let format = block.format;
+                            let capacity = block.samples.capacity();
+                            let mut block = block;
+                            // Read ahead within a bounded queue. Dropping the receiver on
+                            // seek/reset unblocks send and lets the control command run.
+                            while !cancelled.load(Ordering::Acquire) {
+                                let result = decoder.decode(&mut block);
+                                let terminal = !matches!(result, Ok(DecodeStatus::Produced { .. }));
+                                if reply.send(result.map(|status| (block, status))).is_err() {
+                                    break;
+                                }
+                                wake_decoder(&wake);
+                                if terminal {
+                                    break;
+                                }
+                                block = AudioBlock::new(format);
+                                block.samples.reserve(capacity);
+                            }
                         },
                         Command::Seek(target, reply) => {
                             let _ = reply.send(decoder.start_seek(target));
+                            wake_decoder(&wake);
                         },
                     }
                 }
@@ -99,12 +129,28 @@ impl DecoderWorker {
     }
 
     pub(crate) fn decode(&mut self, output: &mut AudioBlock) -> Result<DecodeStatus, DecodeError> {
+        let timeline = output.timeline;
         if self.target.is_some() {
             return Ok(DecodeStatus::Pending);
         }
         if self.decode.is_none() {
-            let (tx, rx) = mpsc::channel();
-            let block = std::mem::replace(output, AudioBlock::new(output.format));
+            tracing::debug!(
+                sample_rate = output.format.sample_rate,
+                ahead_ms = self.buffering.decode_ahead_ms,
+                block_frames = self.buffering.block_frames(output.format),
+                "starting decoder read-ahead"
+            );
+            let (tx, rx) =
+                crate::decoder_queue::channel(stellatune_audio_core::buffering::frames_for_ms(
+                    output.format,
+                    self.buffering.decode_ahead_ms,
+                ));
+            // The request duration is explicit, independent of a reused Vec capacity.
+            let mut block = AudioBlock::new(output.format);
+            block.samples.reserve_exact(
+                self.buffering.block_frames(output.format)
+                    * usize::from(output.format.channel_layout.channel_count()),
+            );
             match self
                 .commands
                 .as_ref()
@@ -121,9 +167,12 @@ impl DecoderWorker {
         }
         match self.decode.as_ref().unwrap().try_recv() {
             Ok(result) => {
-                self.decode = None;
+                if !matches!(&result, Ok((_, DecodeStatus::Produced { .. }))) {
+                    self.decode = None;
+                }
                 let (block, status) = result?;
                 *output = block;
+                output.timeline = timeline;
                 Ok(status)
             },
             Err(TryRecvError::Empty) => Ok(DecodeStatus::Pending),
@@ -179,6 +228,13 @@ impl DecoderWorker {
         self.decode = None;
         self.seek = None;
         self.target = None;
+    }
+}
+
+fn wake_decoder(wake: &std::sync::Mutex<Option<std::task::Waker>>) {
+    let waker = wake.lock().unwrap().clone();
+    if let Some(waker) = waker {
+        waker.wake();
     }
 }
 impl Drop for DecoderWorker {

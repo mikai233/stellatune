@@ -1507,6 +1507,36 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Selected DLNA: {name}'**
   String dlnaSelected(String name);
+
+  /// No description provided for @settingsPlaybackLatency.
+  ///
+  /// In en, this message translates to:
+  /// **'Playback latency'**
+  String get settingsPlaybackLatency;
+
+  /// No description provided for @settingsPlaybackLatencyHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Takes effect after stopping and starting playback, or changing the output device. Higher buffering improves stability.'**
+  String get settingsPlaybackLatencyHint;
+
+  /// No description provided for @settingsPlaybackLatencyLow.
+  ///
+  /// In en, this message translates to:
+  /// **'Low'**
+  String get settingsPlaybackLatencyLow;
+
+  /// No description provided for @settingsPlaybackLatencyMedium.
+  ///
+  /// In en, this message translates to:
+  /// **'Medium'**
+  String get settingsPlaybackLatencyMedium;
+
+  /// No description provided for @settingsPlaybackLatencyHigh.
+  ///
+  /// In en, this message translates to:
+  /// **'High'**
+  String get settingsPlaybackLatencyHigh;
 }
 
 class _AppLocalizationsDelegate

@@ -105,6 +105,7 @@ pub struct OutputDeviceDescriptor {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct DeviceSinkMetricsSnapshot {
+    pub ring_capacity_ms: u64,
     pub written_samples: u64,
     pub dropped_samples: u64,
     pub callback_requested_samples: u64,

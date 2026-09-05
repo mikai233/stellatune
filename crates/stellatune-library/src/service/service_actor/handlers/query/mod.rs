@@ -1,5 +1,5 @@
-mod get_track_paths;
-pub(crate) use get_track_paths::GetTrackPathsMessage;
+mod get_tracks;
+pub(crate) use get_tracks::GetTracksMessage;
 mod get_track;
 mod list_excluded_folders;
 mod list_folders;

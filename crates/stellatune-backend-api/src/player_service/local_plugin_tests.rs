@@ -336,7 +336,7 @@ async fn library_scans_local_plugin_metadata_only_while_enabled() {
     library.shutdown().await.unwrap();
 }
 
-fn prepare_package(payload: &std::path::Path) {
+pub(super) fn prepare_package(payload: &std::path::Path) {
     static HOST: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
     let binary = HOST.get_or_init(|| {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");

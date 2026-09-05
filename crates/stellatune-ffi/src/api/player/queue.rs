@@ -14,6 +14,7 @@ pub struct QueueEntry {
     pub track_id: u64,
     pub local_library_track_id: Option<i64>,
     pub local_path: Option<String>,
+    pub local_metadata: Option<stellatune_library::TrackLite>,
 }
 
 #[derive(Clone, Copy)]
@@ -43,12 +44,13 @@ async fn project(snapshot: QueueSnapshot) -> Result<PlaybackQueue> {
         let local_library_track_id = local.map(|(id, _)| *id);
         let local_path = local
             .and_then(|(_, path)| path.as_ref())
-            .map(|path| path.to_string_lossy().into_owned());
+            .map(|track| track.path.clone());
         items.push(QueueEntry {
             item_id: item.item_id.get(),
             track_id: item.track_id.get(),
             local_library_track_id,
             local_path,
+            local_metadata: local.and_then(|(_, track)| track.clone()),
         });
     }
     Ok(PlaybackQueue {

@@ -15,7 +15,6 @@ use stellatune_audio_core::{
     sink::{SinkClockSnapshot, SinkStage, SinkWriteResult, SinkWriteState},
 };
 
-const RING_BUFFER_CAPACITY_MS: usize = 40;
 const FLUSH_TIMEOUT_MS: u64 = 350;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -54,6 +53,7 @@ pub struct OutputDeviceDescriptor {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct DeviceSinkMetricsSnapshot {
+    pub ring_capacity_ms: u64,
     pub written_samples: u64,
     pub dropped_samples: u64,
     pub callback_requested_samples: u64,
@@ -67,6 +67,7 @@ pub struct DeviceSinkMetricsSnapshot {
 
 #[derive(Debug, Default)]
 struct DeviceSinkMetrics {
+    ring_capacity_ms: AtomicU64,
     written_samples: AtomicU64,
     dropped_samples: AtomicU64,
     callback_requested_samples: AtomicU64,
@@ -81,6 +82,7 @@ struct DeviceSinkMetrics {
 impl DeviceSinkMetrics {
     fn snapshot(&self) -> DeviceSinkMetricsSnapshot {
         DeviceSinkMetricsSnapshot {
+            ring_capacity_ms: self.ring_capacity_ms.load(Ordering::Relaxed),
             written_samples: self.written_samples.load(Ordering::Relaxed),
             dropped_samples: self.dropped_samples.load(Ordering::Relaxed),
             callback_requested_samples: self.callback_requested_samples.load(Ordering::Relaxed),
@@ -295,6 +297,7 @@ pub fn output_spec_for_route(
 }
 
 pub struct DeviceSinkStage {
+    buffering: stellatune_audio_core::buffering::BufferingConfig,
     control: DeviceSinkControl,
     producer: Option<HeapProd<f32>>,
     output_handle: Option<OutputHandle>,
@@ -311,6 +314,7 @@ impl DeviceSinkStage {
 
     pub fn with_control(control: DeviceSinkControl) -> Self {
         Self {
+            buffering: Default::default(),
             control,
             producer: None,
             output_handle: None,
@@ -370,9 +374,9 @@ impl DeviceSinkStage {
         let (backend, desired_device_id) = self.control.desired_route();
         let channels = usize::from(spec.channel_layout.channel_count());
         let capacity_frames =
-            ((spec.sample_rate as usize * RING_BUFFER_CAPACITY_MS) / 1000).max(1024);
+            stellatune_audio_core::buffering::frames_for_ms(spec, self.buffering.device_ms);
         let capacity_samples = capacity_frames.saturating_mul(channels);
-        let rb = HeapRb::<f32>::new(capacity_samples.max(1024));
+        let rb = HeapRb::<f32>::new(capacity_samples);
         let (producer, consumer) = rb.split();
 
         let callback_error = Arc::clone(&self.callback_error);
@@ -403,6 +407,10 @@ impl DeviceSinkStage {
 
         self.producer = Some(producer);
         self.output_handle = Some(output_handle);
+        self.control.inner.metrics.ring_capacity_ms.store(
+            (capacity_frames as u64 * 1000).div_ceil(u64::from(spec.sample_rate)),
+            Ordering::Relaxed,
+        );
         Ok((backend, desired_device_id))
     }
 }
@@ -414,6 +422,9 @@ impl Default for DeviceSinkStage {
 }
 
 impl SinkStage for DeviceSinkStage {
+    fn configure_buffering(&mut self, config: stellatune_audio_core::buffering::BufferingConfig) {
+        self.buffering = config;
+    }
     fn open(&mut self, format: PcmFormat) -> Result<(), SinkError> {
         self.close();
         self.prepared_spec = Some(format.validate().map_err(|message| SinkError::Failed {
@@ -523,6 +534,11 @@ impl SinkStage for DeviceSinkStage {
     fn close(&mut self) {
         self.producer = None;
         self.output_handle = None;
+        self.control
+            .inner
+            .metrics
+            .ring_capacity_ms
+            .store(0, Ordering::Relaxed);
         self.prepared_spec = None;
         self.clear_callback_error();
     }

@@ -28,7 +28,7 @@ use self::service_actor::handlers::command::{
     ShutdownMessage,
 };
 use self::service_actor::handlers::query::{
-    GetTrackMessage, GetTrackPathsMessage, ListExcludedFoldersMessage, ListFoldersMessage,
+    GetTrackMessage, GetTracksMessage, ListExcludedFoldersMessage, ListFoldersMessage,
     ListLikedTrackIdsMessage, ListPlaylistTracksMessage, ListPlaylistsMessage, ListRootsMessage,
     ListTracksMessage, SearchTracksMessage,
 };
@@ -233,17 +233,17 @@ impl LibraryHandle {
         result.map_err(|e| anyhow!(e))
     }
 
-    /// Returns available paths for a batch; deleted identities are omitted.
-    pub async fn get_track_paths(
+    /// Returns metadata for a batch; deleted identities are omitted.
+    pub async fn get_tracks(
         &self,
         track_ids: Vec<i64>,
-    ) -> Result<std::collections::HashMap<i64, String>> {
+    ) -> Result<std::collections::HashMap<i64, crate::TrackLite>> {
         if track_ids.is_empty() {
             return Ok(Default::default());
         }
         let result = self
             .actor_ref
-            .ask(GetTrackPathsMessage { track_ids }, Self::QUERY_TIMEOUT)
+            .ask(GetTracksMessage { track_ids }, Self::QUERY_TIMEOUT)
             .await
             .map_err(map_call_error)?;
         result.map_err(|error| anyhow!(error))

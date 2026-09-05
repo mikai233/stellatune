@@ -45,7 +45,8 @@ pub(super) fn activate(
     let output = SinkWorker::start(
         Arc::clone(&sink_factory),
         prepared.output_format,
-        config.pcm_ring_blocks,
+        config.max_pcm_blocks,
+        config.buffering,
         output_gain,
         workers,
     )?;
@@ -73,33 +74,33 @@ pub(super) fn activate(
 }
 
 /// Advances the active data path by at most one bounded work unit.
+/// Returns true when work progressed and another turn may run immediately.
 pub(super) fn pump_once(
     config: &PlaybackRuntimeConfig,
     event_tx: &broadcast::Sender<PlaybackEvent>,
     actor: &mut PlaybackSession,
     state: &mut PlaybackState,
-) {
+) -> bool {
     if actor
         .current
         .as_ref()
         .is_some_and(|track| !track.output.is_ready())
     {
-        return;
+        return false;
     }
     match maybe_start_crossfade(actor) {
-        Ok(super::transition::CrossfadeStart::Pending) => return,
+        Ok(super::transition::CrossfadeStart::Pending) => return false,
         Err(error) => {
             begin_recovery(config, event_tx, actor, state, error);
-            return;
+            return false;
         },
         Ok(_) => {},
     }
     if actor.crossfade.is_some() {
-        pump_crossfade(config, event_tx, actor, state);
-        return;
+        return pump_crossfade(config, event_tx, actor, state);
     }
     let Some(current) = actor.current.as_mut() else {
-        return;
+        return false;
     };
     // If a forced overlap could not start, honor its non-overlap fallback now.
     if actor.force_transition
@@ -129,55 +130,57 @@ pub(super) fn pump_once(
         .forced_end_frame
         .is_some_and(|end| current.pipeline.produced_audible_frame >= end)
     {
+        let item = current.item_id;
         promote_or_end(actor, state, config, event_tx);
-        return;
+        return actor
+            .current
+            .as_ref()
+            .is_some_and(|next| next.item_id != item);
+    }
+    if !current.output.needs_audio() {
+        return false;
     }
     if let Some(block) = current.pending_block.take() {
         match current.output.try_write(block) {
-            Ok(()) => return,
+            Ok(()) => return true,
             Err(PendingWrite::Full(block)) => {
                 current.pending_block = Some(block);
-                return;
+                return false;
             },
-            Err(PendingWrite::Closed) => {
-                begin_recovery(
-                    config,
-                    event_tx,
-                    actor,
-                    state,
-                    PlaybackControlError::failed(FailureStage::Sink, "sink worker closed"),
-                );
-                return;
+            Err(PendingWrite::Failed(error)) => {
+                begin_recovery(config, event_tx, actor, state, error);
+                return false;
             },
         }
     }
-    match current
-        .pipeline
-        .decode(config.block_frames, current.output.epoch())
-    {
+    let decoded = if current.drain_phase == DrainPhase::Decoding {
+        current
+            .pipeline
+            .decode(current.output.buffering(), current.output.epoch())
+    } else {
+        Ok(TrackBlockStatus::EndOfStream)
+    };
+    let mut progress = false;
+    match decoded {
+        Ok(TrackBlockStatus::Progress) => return true,
         Ok(TrackBlockStatus::Data(mut block)) => {
+            progress = true;
             apply_track_transition_gain(current, &mut block);
             if let Err(error) =
                 process_transform_chain(&mut current.post_mix_transforms, &mut block)
             {
                 super::lifecycle::fail_current_error(actor, state, event_tx, error);
-                return;
+                return false;
             }
             if block.samples.is_empty() {
-                return;
+                return true;
             }
             let item_id = current.item_id;
             match current.output.try_write(block) {
                 Ok(()) => {},
                 Err(PendingWrite::Full(block)) => current.pending_block = Some(block),
-                Err(PendingWrite::Closed) => {
-                    begin_recovery(
-                        config,
-                        event_tx,
-                        actor,
-                        state,
-                        PlaybackControlError::failed(FailureStage::Sink, "sink worker closed"),
-                    );
+                Err(PendingWrite::Failed(error)) => {
+                    begin_recovery(config, event_tx, actor, state, error);
                 },
             }
             if *state == PlaybackState::Buffering {
@@ -190,7 +193,7 @@ pub(super) fn pump_once(
         },
         Ok(TrackBlockStatus::Pending) => {
             if current.output.clock().buffered_frames > 0 || *state == PlaybackState::Buffering {
-                return;
+                return false;
             }
             let item_id = current.item_id;
             set_state(state, PlaybackState::Buffering, event_tx);
@@ -200,19 +203,25 @@ pub(super) fn pump_once(
             });
         },
         Ok(TrackBlockStatus::EndOfStream) => match drain_current_once(current) {
-            Ok(DrainTurn::Produced(block)) => match current.output.try_write(block) {
-                Ok(()) => {},
-                Err(PendingWrite::Full(block)) => current.pending_block = Some(block),
-                Err(PendingWrite::Closed) => begin_recovery(
-                    config,
-                    event_tx,
-                    actor,
-                    state,
-                    PlaybackControlError::failed(FailureStage::Sink, "sink worker closed"),
-                ),
+            Ok(DrainTurn::Produced(block)) => {
+                progress = true;
+                match current.output.try_write(block) {
+                    Ok(()) => {},
+                    Err(PendingWrite::Full(block)) => current.pending_block = Some(block),
+                    Err(PendingWrite::Failed(error)) => {
+                        begin_recovery(config, event_tx, actor, state, error)
+                    },
+                }
             },
-            Ok(DrainTurn::Pending) => {},
-            Ok(DrainTurn::Complete) => promote_or_end(actor, state, config, event_tx),
+            Ok(DrainTurn::Pending) => progress = true,
+            Ok(DrainTurn::Complete) => {
+                let item = current.item_id;
+                promote_or_end(actor, state, config, event_tx);
+                progress = actor
+                    .current
+                    .as_ref()
+                    .is_some_and(|next| next.item_id != item);
+            },
             Err(error) => super::lifecycle::fail_current_error(actor, state, event_tx, error),
         },
         Err(PlaybackControlError::Failed(failure))
@@ -228,6 +237,7 @@ pub(super) fn pump_once(
         },
         Err(error) => super::lifecycle::fail_current_error(actor, state, event_tx, error),
     }
+    progress
 }
 
 /// Captures consumed position and schedules recovery when source capabilities allow it.
@@ -512,10 +522,10 @@ pub(super) fn drain_current_once(
 /// Advances the secondary crossfade pipeline by one decoded block.
 pub(super) fn decode_secondary_block(
     next: &mut SecondaryTrack,
-    block_frames: usize,
+    buffering: stellatune_audio_core::buffering::BufferingConfig,
     epoch: u64,
 ) -> Result<TrackBlockStatus, PlaybackControlError> {
-    next.pipeline.decode(block_frames, epoch)
+    next.pipeline.decode(buffering, epoch)
 }
 
 /// Publishes sink-consumed position when its cadence advances or when forced.

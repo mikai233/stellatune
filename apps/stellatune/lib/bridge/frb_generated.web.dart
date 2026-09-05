@@ -85,6 +85,9 @@ abstract class StellatuneApiApiImplPlatform
   TrackDecodeInfo dco_decode_box_autoadd_track_decode_info(dynamic raw);
 
   @protected
+  TrackLite dco_decode_box_autoadd_track_lite(dynamic raw);
+
+  @protected
   TranscodeTrackLocalRequest
   dco_decode_box_autoadd_transcode_track_local_request(dynamic raw);
 
@@ -234,6 +237,9 @@ abstract class StellatuneApiApiImplPlatform
   TrackDecodeInfo? dco_decode_opt_box_autoadd_track_decode_info(dynamic raw);
 
   @protected
+  TrackLite? dco_decode_opt_box_autoadd_track_lite(dynamic raw);
+
+  @protected
   int? dco_decode_opt_box_autoadd_u_16(dynamic raw);
 
   @protected
@@ -247,6 +253,9 @@ abstract class StellatuneApiApiImplPlatform
 
   @protected
   OutputSinkTypeDescriptor dco_decode_output_sink_type_descriptor(dynamic raw);
+
+  @protected
+  PlaybackLatency dco_decode_playback_latency(dynamic raw);
 
   @protected
   PlaybackQueue dco_decode_playback_queue(dynamic raw);
@@ -365,6 +374,9 @@ abstract class StellatuneApiApiImplPlatform
   TrackDecodeInfo sse_decode_box_autoadd_track_decode_info(
     SseDeserializer deserializer,
   );
+
+  @protected
+  TrackLite sse_decode_box_autoadd_track_lite(SseDeserializer deserializer);
 
   @protected
   TranscodeTrackLocalRequest
@@ -542,6 +554,11 @@ abstract class StellatuneApiApiImplPlatform
   );
 
   @protected
+  TrackLite? sse_decode_opt_box_autoadd_track_lite(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   int? sse_decode_opt_box_autoadd_u_16(SseDeserializer deserializer);
 
   @protected
@@ -557,6 +574,9 @@ abstract class StellatuneApiApiImplPlatform
   OutputSinkTypeDescriptor sse_decode_output_sink_type_descriptor(
     SseDeserializer deserializer,
   );
+
+  @protected
+  PlaybackLatency sse_decode_playback_latency(SseDeserializer deserializer);
 
   @protected
   PlaybackQueue sse_decode_playback_queue(SseDeserializer deserializer);
@@ -693,6 +713,12 @@ abstract class StellatuneApiApiImplPlatform
   @protected
   void sse_encode_box_autoadd_track_decode_info(
     TrackDecodeInfo self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_track_lite(
+    TrackLite self,
     SseSerializer serializer,
   );
 
@@ -922,6 +948,12 @@ abstract class StellatuneApiApiImplPlatform
   );
 
   @protected
+  void sse_encode_opt_box_autoadd_track_lite(
+    TrackLite? self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_opt_box_autoadd_u_16(int? self, SseSerializer serializer);
 
   @protected
@@ -939,6 +971,12 @@ abstract class StellatuneApiApiImplPlatform
   @protected
   void sse_encode_output_sink_type_descriptor(
     OutputSinkTypeDescriptor self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_playback_latency(
+    PlaybackLatency self,
     SseSerializer serializer,
   );
 

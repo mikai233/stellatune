@@ -168,18 +168,19 @@ pub(super) fn secondary_from_prepared(prepared: PreparedTrack) -> SecondaryTrack
 }
 
 /// Decodes and mixes at most one bounded block from each side of an overlap.
+/// Returns true when work progressed and another turn may run immediately.
 pub(super) fn pump_crossfade(
     config: &PlaybackRuntimeConfig,
     event_tx: &broadcast::Sender<PlaybackEvent>,
     actor: &mut PlaybackSession,
     state: &mut PlaybackState,
-) {
+) -> bool {
     let Some(current) = actor.current.as_mut() else {
         actor.crossfade = None;
-        return;
+        return false;
     };
     let Some(crossfade) = actor.crossfade.as_mut() else {
-        return;
+        return false;
     };
 
     while let Some(item_id) = current.output.try_boundary() {
@@ -188,22 +189,19 @@ pub(super) fn pump_crossfade(
             let _ = event_tx.send(PlaybackEvent::TrackChanged { item_id });
         }
     }
+    if !current.output.needs_audio() {
+        return false;
+    }
     if let Some(block) = current.pending_block.take() {
         match current.output.try_write(block) {
-            Ok(()) => return,
+            Ok(()) => return true,
             Err(PendingWrite::Full(block)) => {
                 current.pending_block = Some(block);
-                return;
+                return false;
             },
-            Err(PendingWrite::Closed) => {
-                begin_recovery(
-                    config,
-                    event_tx,
-                    actor,
-                    state,
-                    PlaybackControlError::failed(FailureStage::Sink, "sink worker closed"),
-                );
-                return;
+            Err(PendingWrite::Failed(error)) => {
+                begin_recovery(config, event_tx, actor, state, error);
+                return false;
             },
         }
     }
@@ -211,14 +209,15 @@ pub(super) fn pump_crossfade(
     if crossfade.current_block.is_none() {
         match current
             .pipeline
-            .decode(config.block_frames, current.output.epoch())
+            .decode(current.output.buffering(), current.output.epoch())
         {
             Ok(TrackBlockStatus::Data(block)) => crossfade.current_block = Some(block),
+            Ok(TrackBlockStatus::Progress) => return true,
             Ok(TrackBlockStatus::Pending) => {
                 if current.output.clock().buffered_frames == 0 {
                     set_state(state, PlaybackState::Buffering, event_tx);
                 }
-                return;
+                return false;
             },
             Ok(TrackBlockStatus::EndOfStream) => {
                 crossfade.progressed_frames = crossfade.duration_frames;
@@ -233,31 +232,32 @@ pub(super) fn pump_crossfade(
                     state,
                     PlaybackControlError::Failed(failure),
                 );
-                return;
+                return false;
             },
             Err(error) => {
                 super::lifecycle::fail_current_error(actor, state, event_tx, error);
-                return;
+                return false;
             },
         }
     }
     if crossfade.progressed_frames >= crossfade.duration_frames {
         finish_crossfade(actor, state, event_tx);
-        return;
+        return true;
     }
     if crossfade.next_block.is_none() {
         let next_failure = match decode_secondary_block(
             &mut crossfade.next,
-            config.block_frames,
+            current.output.buffering(),
             current.output.epoch(),
         ) {
             Ok(TrackBlockStatus::Data(block)) => {
                 crossfade.next_block = Some(block);
                 None
             },
+            Ok(TrackBlockStatus::Progress) => return true,
             Ok(TrackBlockStatus::Pending) => {
                 set_state(state, PlaybackState::Buffering, event_tx);
-                return;
+                return false;
             },
             Ok(TrackBlockStatus::EndOfStream) => Some(PlaybackFailure::new(
                 FailureStage::Decoder,
@@ -292,7 +292,7 @@ pub(super) fn pump_crossfade(
                     process_transform_chain(&mut current.post_mix_transforms, &mut block)
                 {
                     super::lifecycle::fail_current_error(actor, state, event_tx, error);
-                    return;
+                    return false;
                 }
                 if !block.samples.is_empty() {
                     current.pending_block = Some(block);
@@ -302,7 +302,7 @@ pub(super) fn pump_crossfade(
             let _ = event_tx.send(PlaybackEvent::Failed(failure));
             actor.crossfade = None;
             set_state(state, PlaybackState::Playing, event_tx);
-            return;
+            return true;
         }
     }
     let current_frames = crossfade
@@ -321,7 +321,7 @@ pub(super) fn pump_crossfade(
             .saturating_sub(crossfade.progressed_frames) as usize,
     );
     if frames == 0 {
-        return;
+        return false;
     }
     let channels = usize::from(current.pipeline.mix_format.channel_layout.channel_count());
     let sample_count = frames.saturating_mul(channels);
@@ -352,10 +352,10 @@ pub(super) fn pump_crossfade(
     crossfade.progressed_frames = crossfade.progressed_frames.saturating_add(frames as u64);
     if let Err(error) = process_transform_chain(&mut current.post_mix_transforms, &mut mixed) {
         super::lifecycle::fail_current_error(actor, state, event_tx, error);
-        return;
+        return false;
     }
     if mixed.samples.is_empty() {
-        return;
+        return true;
     }
     if *state == PlaybackState::Buffering {
         set_state(state, PlaybackState::Playing, event_tx);
@@ -363,20 +363,15 @@ pub(super) fn pump_crossfade(
     match current.output.try_write(mixed) {
         Ok(()) => {},
         Err(PendingWrite::Full(block)) => current.pending_block = Some(block),
-        Err(PendingWrite::Closed) => {
-            begin_recovery(
-                config,
-                event_tx,
-                actor,
-                state,
-                PlaybackControlError::failed(FailureStage::Sink, "sink worker closed"),
-            );
-            return;
+        Err(PendingWrite::Failed(error)) => {
+            begin_recovery(config, event_tx, actor, state, error);
+            return false;
         },
     }
     if crossfade.progressed_frames >= crossfade.duration_frames {
         finish_crossfade(actor, state, event_tx);
     }
+    true
 }
 
 /// Removes a mixed prefix and advances the remaining block's timeline.

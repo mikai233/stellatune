@@ -27,6 +27,7 @@ class OutputSettingsUiSession {
 
 class SettingsState {
   SettingsState({
+    this.playbackLatency = PlaybackLatency.medium,
     required this.volume,
     required this.playMode,
     required this.selectedBackend,
@@ -42,6 +43,7 @@ class SettingsState {
     required this.closeToTray,
   });
 
+  final PlaybackLatency playbackLatency;
   final double volume;
   final PlayMode playMode;
   final AudioBackend selectedBackend;
@@ -57,6 +59,7 @@ class SettingsState {
   final bool closeToTray;
 
   SettingsState copyWith({
+    PlaybackLatency? playbackLatency,
     double? volume,
     PlayMode? playMode,
     AudioBackend? selectedBackend,
@@ -72,6 +75,7 @@ class SettingsState {
     bool? closeToTray,
   }) {
     return SettingsState(
+      playbackLatency: playbackLatency ?? this.playbackLatency,
       volume: volume ?? this.volume,
       playMode: playMode ?? this.playMode,
       selectedBackend: selectedBackend ?? this.selectedBackend,
@@ -102,6 +106,7 @@ class SettingsStore implements DirectoryAccessStore {
       OutputSettingsUiSession();
 
   static const _boxName = 'settings';
+  static const _keyPlaybackLatency = 'playback_latency';
   static const _keyVolume = 'volume';
   static const _keyPlayMode = 'play_mode';
   static const _keySelectedBackend = 'selected_backend';
@@ -126,6 +131,7 @@ class SettingsStore implements DirectoryAccessStore {
 
   SettingsState readState() {
     return SettingsState(
+      playbackLatency: playbackLatency,
       volume: volume,
       playMode: playMode,
       selectedBackend: selectedBackend,
@@ -141,6 +147,15 @@ class SettingsStore implements DirectoryAccessStore {
       closeToTray: closeToTray,
     );
   }
+
+  PlaybackLatency get playbackLatency {
+    final raw = _box.get(_keyPlaybackLatency);
+    return PlaybackLatency.values.where((v) => v.name == raw).firstOrNull ??
+        PlaybackLatency.medium;
+  }
+
+  Future<void> setPlaybackLatency(PlaybackLatency value) =>
+      _box.put(_keyPlaybackLatency, value.name);
 
   double get volume {
     final v = _box.get(_keyVolume, defaultValue: 1.0);
@@ -429,6 +444,9 @@ class SettingsController extends Notifier<SettingsState> {
 
   Future<void> setSeekTrackFade(bool v) =>
       _persist((store) => store.setSeekTrackFade(v));
+
+  Future<void> setPlaybackLatency(PlaybackLatency v) =>
+      _persist((store) => store.setPlaybackLatency(v));
 
   Future<void> setResampleQuality(ResampleQuality v) =>
       _persist((store) => store.setResampleQuality(v));

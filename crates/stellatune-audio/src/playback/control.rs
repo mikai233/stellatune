@@ -69,6 +69,24 @@ pub struct PlaybackController {
 }
 
 impl PlaybackController {
+    /// Selects buffering for the next output session or explicit output rebuild.
+    /// Existing and gapless-reused output sessions retain their current budgets.
+    ///
+    /// # Errors
+    /// Returns a control error if the actor closes or the command times out.
+    pub async fn set_latency_profile(
+        &self,
+        profile: stellatune_audio_core::buffering::LatencyProfile,
+    ) -> Result<(), PlaybackControlError> {
+        self.actor
+            .ask(
+                super::actor::messages::set_buffering::SetBuffering { profile },
+                self.timeouts.control,
+            )
+            .await
+            .map_err(|error| map_call_error("set_latency_profile", error))?
+    }
+
     /// Prepares `item` and makes it current according to `options`.
     ///
     /// With [`SwitchTransition::UseConfiguredPolicy`], an existing track keeps

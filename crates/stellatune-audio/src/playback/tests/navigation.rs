@@ -16,8 +16,7 @@ async fn advancement_during_crossfade_reuses_the_secondary_and_then_its_successo
             samples: Arc::new(Mutex::new(vec![])),
         }),
     });
-    config.block_frames = 1;
-    config.pcm_ring_blocks = 2;
+    config.max_pcm_blocks = 2;
     config.policies.transition = TransitionPolicy::Crossfade {
         duration_frames: 200,
         curve: CrossfadeCurve::Linear,
@@ -80,7 +79,6 @@ async fn current_recovery_does_not_reopen_the_prepared_successor() {
             creates: Arc::new(AtomicUsize::new(0)),
         }),
     });
-    config.block_frames = 10;
     config.policies.recovery_backoff_ms = 0;
     let runtime = PlaybackRuntime::start(config).unwrap();
     let controller = runtime.controller();

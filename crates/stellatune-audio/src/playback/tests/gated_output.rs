@@ -166,8 +166,10 @@ fn runtime(
             operation,
         }),
     });
-    config.block_frames = 10;
-    config.pcm_ring_blocks = 2;
+    config.max_pcm_blocks = 2;
+    // These fixtures run at 100 Hz and some consume only on drain. Keep the
+    // buffering target above the tiny FIFO so the tests exercise FIFO pressure.
+    config.buffering.output_ms = 2000;
     PlaybackRuntime::start(config).unwrap()
 }
 
@@ -417,8 +419,8 @@ async fn full_pcm_fifo_retries_natural_and_explicit_track_boundaries() {
             .await
             .unwrap();
         gate.entered().await;
-        // Pump ticks are 2 ms. Give the FIFO enough turns to fill while the
-        // independently gated worker cannot consume any of its queued blocks.
+        // Let demand-driven turns fill the FIFO while the independently gated
+        // worker cannot consume any of its queued blocks.
         tokio::time::sleep(Duration::from_millis(80)).await;
         if natural {
             controller.set_next(Some(item(2, 50, 50))).await.unwrap();

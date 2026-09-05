@@ -24,6 +24,7 @@ mod output_workers;
 mod pipeline;
 mod preparation;
 mod pump;
+mod pump_signal;
 mod sink_worker;
 mod state;
 mod transition;

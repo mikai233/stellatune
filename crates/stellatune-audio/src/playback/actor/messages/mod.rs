@@ -20,3 +20,5 @@ pub(in crate::playback) mod set_output_gain;
 pub(in crate::playback) mod set_policies;
 pub(in crate::playback) mod stop_playback;
 pub(in crate::playback) mod switch_to;
+
+pub(in crate::playback) mod set_buffering;

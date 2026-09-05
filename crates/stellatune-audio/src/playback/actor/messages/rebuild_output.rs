@@ -50,7 +50,8 @@ impl Responder<RebuildOutput> for PlaybackActor {
         let output = SinkWorker::start(
             Arc::clone(&current.sink_factory),
             current.output_format,
-            self.config.pcm_ring_blocks,
+            self.config.max_pcm_blocks,
+            self.config.buffering,
             self.session.output_gain,
             &self.session.output_workers,
         );

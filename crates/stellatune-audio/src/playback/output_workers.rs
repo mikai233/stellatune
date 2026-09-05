@@ -4,6 +4,7 @@ use std::thread::JoinHandle;
 
 #[derive(Default)]
 pub(super) struct OutputWorkers {
+    pub(super) pump: std::sync::Arc<super::pump_signal::PumpSignal>,
     threads: Mutex<Vec<JoinHandle<()>>>,
     pub(super) device: std::sync::Arc<Mutex<()>>,
 }

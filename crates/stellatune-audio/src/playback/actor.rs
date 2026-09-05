@@ -12,9 +12,8 @@
 //! messages from older generations may complete their reply but must never
 //! mutate the active session.
 //!
-//! A periodic `PumpAudio` message advances at most one PCM block. Saturated
-//! tick messages may be dropped because the interval schedules another tick;
-//! user commands therefore retain bounded latency under continuous playback.
+//! Readiness notifications schedule bounded `PumpAudio` turns. Each turn yields
+//! back to the mailbox; output demand determines whether more work is queued.
 //!
 //! [`messages`] gives each message its own payload and handler module. This
 //! module retains the admission table, actor state, and runtime lifecycle.
@@ -31,8 +30,8 @@ use crate::planner::PipelinePlanner;
 use lattice_actor::{
     actor_behavior,
     context::{ActorContext, HandlerContext},
-    error::{ActorError, ActorStopError, ActorTellError},
-    traits::{Actor, ActorLifecycleState, StopReason},
+    error::{ActorError, ActorStopError},
+    traits::{Actor, StopReason},
 };
 use std::time::Duration;
 use tokio::sync::broadcast;
@@ -46,8 +45,8 @@ use self::messages::{
     preparation_completed::PreparationCompleted,
     preparation_deadline_elapsed::PreparationDeadlineElapsed, pump_audio::PumpAudio,
     rebuild_output::RebuildOutput, recovery_completed::RecoveryCompleted, seek::Seek,
-    set_next::SetNext, set_output_gain::SetOutputGain, set_policies::SetPolicies,
-    stop_playback::StopPlayback, switch_to::SwitchTo,
+    set_buffering::SetBuffering, set_next::SetNext, set_output_gain::SetOutputGain,
+    set_policies::SetPolicies, stop_playback::StopPlayback, switch_to::SwitchTo,
 };
 use self::preparation::advance_generation;
 
@@ -60,6 +59,7 @@ actor_behavior! {
             StopPlayback,
             SetOutputGain,
             SetPolicies,
+            SetBuffering,
             RebuildOutput,
             GetSnapshot,
             PumpAudio,
@@ -121,6 +121,7 @@ impl PlaybackActor {
     }
 
     fn transition(&self, ctx: &mut HandlerContext<'_, Self>, state: PlaybackState) {
+        self.session.output_workers.pump.request();
         if *ctx.behavior() != state {
             ctx.transition_to(state);
         }
@@ -132,24 +133,23 @@ impl Actor for PlaybackActor {
     type Behavior = PlaybackState;
 
     async fn started(&mut self, ctx: &mut ActorContext<Self>) -> Result<(), ActorError> {
-        // `started` runs before the handle advertises Running. Delay the first
-        // self-message so the interval cannot retire on Starting lifecycle admission.
         let handle = ctx.self_handle();
+        let pump = self.session.output_workers.pump.clone();
         ctx.spawn_scoped(async move {
-            let interval = Duration::from_millis(2);
             loop {
-                tokio::time::sleep(interval).await;
-                match handle.try_tell(PumpAudio) {
-                    Ok(()) | Err(ActorTellError::MailboxFull(_)) => {},
-                    Err(ActorTellError::LifecycleUnavailable {
-                        state: ActorLifecycleState::Starting,
-                        ..
-                    }) => {},
-                    Err(
-                        ActorTellError::MailboxClosed(_)
-                        | ActorTellError::LifecycleUnavailable { .. },
-                    ) => break,
+                pump.notified().await;
+                if handle.tell(PumpAudio).await.is_err() {
+                    break;
                 }
+            }
+        });
+        // Position reporting and compatibility with stages without readiness
+        // notifications. This timer does not set the audio supply rate.
+        let pump = self.session.output_workers.pump.clone();
+        ctx.spawn_scoped(async move {
+            loop {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                pump.request();
             }
         });
         Ok(())

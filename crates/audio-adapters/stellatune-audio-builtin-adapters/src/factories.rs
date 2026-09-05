@@ -625,6 +625,12 @@ impl DecoderFactory for SymphoniaDecoderFactory {
 #[derive(Default)]
 struct AsyncSymphoniaDecoder(crate::decoder_worker::DecoderWorker);
 impl DecoderStage for AsyncSymphoniaDecoder {
+    fn configure_buffering(&mut self, config: stellatune_audio_core::buffering::BufferingConfig) {
+        self.0.configure_buffering(config);
+    }
+    fn set_waker(&mut self, waker: std::task::Waker) {
+        self.0.set_waker(waker);
+    }
     fn open(
         &mut self,
         source: Box<dyn EncodedSource>,
@@ -688,7 +694,10 @@ impl DecoderStage for SymphoniaDecoderStage {
         let decoder = self.decoder.as_mut().ok_or_else(|| DecodeError::Failed {
             message: "decoder is not open".to_owned(),
         })?;
-        let frames = output.samples.capacity().max(2048)
+        let frames = output
+            .samples
+            .capacity()
+            .max(usize::from(output.format.channel_layout.channel_count()))
             / usize::from(output.format.channel_layout.channel_count());
         match decoder.next_block(frames) {
             Ok(Some(samples)) => {

@@ -76,6 +76,8 @@ impl ConfiguredTransform {
 pub(super) enum TrackBlockStatus {
     Data(AudioBlock),
     Pending,
+    /// Input was consumed by trimming/transforms; decoding can continue now.
+    Progress,
     EndOfStream,
 }
 
@@ -83,10 +85,12 @@ pub(super) enum TrackBlockStatus {
 impl TrackPipeline {
     pub(super) fn decode(
         &mut self,
-        block_frames: usize,
+        buffering: stellatune_audio_core::buffering::BufferingConfig,
         epoch: u64,
     ) -> Result<TrackBlockStatus, PlaybackControlError> {
         let pipeline = self;
+        pipeline.decoder.configure_buffering(buffering);
+        let block_frames = buffering.block_frames(pipeline.decoded_format);
         let mut block = AudioBlock::new(pipeline.decoded_format);
         block.timeline.start_frame = pipeline.decoded_frame;
         block.timeline.epoch = epoch;
@@ -113,18 +117,18 @@ impl TrackPipeline {
                     &mut pipeline.tail_buffer,
                 );
                 if block.samples.is_empty() {
-                    return Ok(TrackBlockStatus::Pending);
+                    return Ok(TrackBlockStatus::Progress);
                 }
                 block.timeline.start_frame = pipeline.produced_audible_frame;
                 process_transform_chain(&mut pipeline.pre_mix_transforms, &mut block)?;
                 if block.samples.is_empty() {
-                    return Ok(TrackBlockStatus::Pending);
+                    return Ok(TrackBlockStatus::Progress);
                 }
                 if let Some(normalizer) = pipeline.normalizer.as_mut() {
                     normalizer.process(&mut block)?;
                 }
                 if block.samples.is_empty() {
-                    return Ok(TrackBlockStatus::Pending);
+                    return Ok(TrackBlockStatus::Progress);
                 }
                 pipeline.produced_audible_frame = pipeline
                     .produced_audible_frame

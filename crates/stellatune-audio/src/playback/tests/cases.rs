@@ -36,8 +36,7 @@ async fn sink_disconnect_recovers_from_consumed_checkpoint() {
         }),
     };
     let mut config = PlaybackRuntimeConfig::new(registry);
-    config.block_frames = 10;
-    config.pcm_ring_blocks = 2;
+    config.max_pcm_blocks = 2;
     config.policies.seek_fade_frames = 0;
     config.policies.recovery_backoff_ms = 0;
     let runtime = PlaybackRuntime::start(config).unwrap();
@@ -317,8 +316,7 @@ async fn preferred_sink_format_normalizes_pcm_before_opening_output() {
             samples: Arc::clone(&samples),
         }),
     };
-    let mut config = PlaybackRuntimeConfig::new(registry);
-    config.block_frames = 10;
+    let config = PlaybackRuntimeConfig::new(registry);
     let runtime = PlaybackRuntime::start(config).unwrap();
     let controller = runtime.controller();
     let mut events = controller.subscribe_events();
@@ -394,8 +392,7 @@ async fn pause_and_seek_preempt_a_sink_that_keeps_returning_would_block() {
         }),
     };
     let mut config = PlaybackRuntimeConfig::new(registry);
-    config.block_frames = 10;
-    config.pcm_ring_blocks = 2;
+    config.max_pcm_blocks = 2;
     let runtime = PlaybackRuntime::start(config).unwrap();
     let controller = runtime.controller();
     let mut events = controller.subscribe_events();
@@ -437,8 +434,7 @@ async fn assert_buffered_tail_is_drained(placement: TransformPlacement) {
             samples: Arc::clone(&samples),
         }),
     };
-    let mut config = PlaybackRuntimeConfig::new(registry);
-    config.block_frames = 10;
+    let config = PlaybackRuntimeConfig::new(registry);
     let runtime = PlaybackRuntime::start(config).unwrap();
     let controller = runtime.controller();
     let mut events = controller.subscribe_events();
@@ -487,8 +483,7 @@ async fn crossfade_runs_per_track_pre_mix_and_one_shared_post_mix_chain() {
         }),
     };
     let mut config = PlaybackRuntimeConfig::new(registry);
-    config.block_frames = 10;
-    config.pcm_ring_blocks = 2;
+    config.max_pcm_blocks = 2;
     config.policies.transition = TransitionPolicy::Crossfade {
         duration_frames: 20,
         curve: CrossfadeCurve::EqualPower,
@@ -532,7 +527,6 @@ async fn crossfade_normalizes_next_sample_rate_and_channel_layout_before_mixing(
         sink,
     };
     let mut config = PlaybackRuntimeConfig::new(registry);
-    config.block_frames = 64;
     config.policies.transition = TransitionPolicy::Crossfade {
         duration_frames: 20,
         curve: CrossfadeCurve::Linear,

@@ -27,7 +27,6 @@ const OUTPUT_SINK_MONITOR_POLL_INTERVAL: Duration = Duration::from_millis(250);
 const OUTPUT_SINK_DROPPED_LOG_INTERVAL: Duration = Duration::from_millis(500);
 const OUTPUT_SINK_UNDERRUN_LOG_INTERVAL: Duration = Duration::from_secs(1);
 const OUTPUT_SINK_ACTIVITY_TIMEOUT: Duration = Duration::from_millis(1_500);
-const OUTPUT_SINK_RING_CAPACITY_MS: i64 = 40;
 const OUTPUT_SINK_MIN_LOW_WATERMARK_MS: i64 = 8;
 const OUTPUT_SINK_RESUME_STABLE_TICKS: u8 = 2;
 
@@ -125,8 +124,8 @@ fn ensure_output_sink_monitor_started() {
     });
 }
 
-fn output_sink_watermarks_ms() -> (i64, i64) {
-    let high = ((OUTPUT_SINK_RING_CAPACITY_MS.saturating_mul(3)) / 4)
+fn output_sink_watermarks_ms(capacity_ms: u64) -> (i64, i64) {
+    let high = ((capacity_ms.min(i64::MAX as u64) as i64).saturating_mul(3) / 4)
         .max(OUTPUT_SINK_MIN_LOW_WATERMARK_MS + 1);
     let low = (high / 2)
         .max(OUTPUT_SINK_MIN_LOW_WATERMARK_MS)
@@ -150,6 +149,10 @@ fn monitor_output_sink_metrics(state: &mut OutputSinkMonitorState) {
         Err(_) => return,
     };
     let metrics = runtime_output_sink_metrics();
+    if metrics.ring_capacity_ms == 0 {
+        state.reset_watermark();
+        return;
+    }
 
     let now = Instant::now();
     if metrics.written_samples > state.last_written_samples {
@@ -206,7 +209,7 @@ fn monitor_output_sink_metrics(state: &mut OutputSinkMonitorState) {
     }
 
     let buffered_ms = estimate_buffered_ms(metrics, spec);
-    let (low_watermark_ms, high_watermark_ms) = output_sink_watermarks_ms();
+    let (low_watermark_ms, high_watermark_ms) = output_sink_watermarks_ms(metrics.ring_capacity_ms);
 
     match state.watermark_state {
         OutputSinkWatermarkState::Unknown => {
@@ -330,6 +333,7 @@ pub fn runtime_list_output_devices() -> Result<Vec<OutputDeviceDescriptor>, Stri
 pub fn runtime_output_sink_metrics() -> DeviceSinkMetricsSnapshot {
     let snapshot = shared_device_sink_control().metrics_snapshot();
     DeviceSinkMetricsSnapshot {
+        ring_capacity_ms: snapshot.ring_capacity_ms,
         written_samples: snapshot.written_samples,
         dropped_samples: snapshot.dropped_samples,
         callback_requested_samples: snapshot.callback_requested_samples,
@@ -515,10 +519,12 @@ mod tests {
 
     #[test]
     fn output_sink_watermarks_have_valid_ordering() {
-        let (low, high) = output_sink_watermarks_ms();
-
-        assert!(low > 0);
-        assert!(high > low);
+        for capacity in [20, 40, 80] {
+            let (low, high) = output_sink_watermarks_ms(capacity);
+            assert!(low > 0);
+            assert!(high > low);
+            assert!(high < capacity as i64);
+        }
     }
 
     #[test]

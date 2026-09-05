@@ -32,6 +32,8 @@ async fn library_sized_queue_can_register_project_restore_and_play_past_the_old_
         insert.build().execute(&mut *tx).await.unwrap();
     }
     tx.commit().await.unwrap();
+    sqlx::query("UPDATE tracks SET title='Restored title', artist='Artist', album='Album', duration_ms=123000 WHERE id=10000")
+        .execute(&pool).await.unwrap();
     sqlx::query("DELETE FROM tracks WHERE id=2")
         .execute(&pool)
         .await
@@ -72,7 +74,14 @@ async fn library_sized_queue_can_register_project_restore_and_play_past_the_old_
         tracks
     );
     assert_eq!(metadata[&tracks[1]], (2, None));
-    assert_eq!(metadata[&tracks[9_999]], (10_000, Some(fixture)));
+    let (id, track) = &metadata[&tracks[9_999]];
+    assert_eq!(*id, 10_000);
+    let track = track.as_ref().unwrap();
+    assert_eq!(track.path, fixture.to_string_lossy());
+    assert_eq!(track.title.as_deref(), Some("Restored title"));
+    assert_eq!(track.artist.as_deref(), Some("Artist"));
+    assert_eq!(track.album.as_deref(), Some("Album"));
+    assert_eq!(track.duration_ms, Some(123000));
     assert_eq!(
         PlayerCatalog::open(&catalog_path)
             .await

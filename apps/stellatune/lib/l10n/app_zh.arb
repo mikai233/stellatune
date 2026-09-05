@@ -34,14 +34,12 @@
     }
   },
   "log": "日志",
-
   "navHome": "主页",
   "navLibrary": "音乐库",
   "navPlaylists": "歌单",
   "navSources": "来源",
   "navQueue": "队列",
   "navSettings": "设置",
-
   "libraryTitle": "音乐库",
   "homeKeepListening": "继续聆听",
   "homeContinueListening": "接着听",
@@ -139,16 +137,13 @@
   "includeSubfolders": "包含子文件夹",
   "expand": "展开",
   "collapse": "折叠",
-
   "tooltipAddFolder": "添加文件夹",
   "tooltipScan": "扫描",
   "tooltipForceScan": "强制扫描",
   "dialogSelectMusicFolder": "选择音乐文件夹",
-
   "searchHint": "搜索 标题 / 歌手 / 专辑 / 路径",
   "noFoldersHint": "还没有添加文件夹，点击“添加文件夹”开始扫描。",
   "noResultsHint": "没有结果。先添加文件夹并扫描，然后再搜索。",
-
   "scanStatusScanning": "扫描中…",
   "scanStatusFinished": "扫描完成",
   "scanDurationMs": "{ms}毫秒",
@@ -163,7 +158,6 @@
   "scanLabelUpdated": "已更新",
   "scanLabelSkipped": "已跳过",
   "scanLabelErrors": "错误",
-
   "menuPlay": "播放",
   "menuEnqueue": "加入队列",
   "menuTranscode": "转码",
@@ -232,7 +226,6 @@
       }
     }
   },
-
   "playlistSectionTitle": "歌单",
   "foldersSectionTitle": "文件夹",
   "playlistCreateTooltip": "新建歌单",
@@ -275,12 +268,10 @@
   "likedRemoveTooltip": "取消喜欢",
   "likedPlaylistName": "我喜欢的音乐",
   "ok": "确定",
-
   "queueShuffle": "随机",
   "repeatOff": "循环：关",
   "repeatAll": "循环：全部",
   "repeatOne": "循环：单曲",
-
   "nowPlayingNone": "(无)",
   "queueEmpty": "(队列为空)",
   "tooltipPrevious": "上一首",
@@ -289,13 +280,11 @@
   "tooltipVolume": "音量",
   "tooltipShuffle": "随机播放",
   "tooltipRepeat": "循环播放",
-
   "tooltipPlayMode": "播放模式",
   "playModeSequential": "顺序播放",
   "playModeShuffle": "随机播放",
   "playModeRepeatAll": "列表循环",
   "playModeRepeatOne": "单曲循环",
-
   "lyricsMoreShowLyrics": "显示歌词",
   "lyricsMoreHideLyrics": "隐藏歌词",
   "lyricsMoreChooseCandidate": "选择候选歌词",
@@ -303,7 +292,6 @@
   "lyricsCandidatesEmpty": "没有可用候选歌词",
   "lyricsCandidateApplied": "已应用候选歌词",
   "lyricsCandidateApplyFailed": "应用候选歌词失败",
-
   "noLyrics": "无歌词",
   "tooltipBack": "返回",
   "menuMore": "更多",
@@ -365,5 +353,10 @@
         "type": "String"
       }
     }
-  }
+  },
+  "settingsPlaybackLatency": "播放延迟",
+  "settingsPlaybackLatencyHint": "停止后重新播放或更换输出设备时生效。较高的缓冲可提高播放稳定性。",
+  "settingsPlaybackLatencyLow": "低",
+  "settingsPlaybackLatencyMedium": "中",
+  "settingsPlaybackLatencyHigh": "高"
 }

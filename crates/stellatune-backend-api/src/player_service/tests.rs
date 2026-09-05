@@ -3,6 +3,8 @@ use std::io::Read;
 mod host_api_tests;
 #[path = "local_plugin_tests.rs"]
 mod local_plugin_tests;
+#[path = "streaming_playback_tests.rs"]
+mod streaming_playback_tests;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -210,20 +212,32 @@ impl SinkFactory for UnusedSinkFactory {
     }
 
     fn create(&self) -> Result<Box<dyn SinkStage>, FactoryError> {
-        Ok(Box::new(TestSink { consumed: 0 }))
+        Ok(Box::new(TestSink {
+            consumed: 0,
+            pace_sample_rate: None,
+        }))
     }
 }
 
 struct TestSink {
     consumed: u64,
+    pace_sample_rate: Option<u32>,
 }
 
 impl SinkStage for TestSink {
-    fn open(&mut self, _format: PcmFormat) -> Result<(), SinkError> {
+    fn open(&mut self, format: PcmFormat) -> Result<(), SinkError> {
+        if self.pace_sample_rate.is_some() {
+            self.pace_sample_rate = Some(format.sample_rate);
+        }
         Ok(())
     }
 
     fn write(&mut self, block: &AudioBlock) -> Result<SinkWriteResult, SinkError> {
+        if let Some(rate) = self.pace_sample_rate {
+            std::thread::sleep(std::time::Duration::from_secs_f64(
+                block.frames() as f64 / f64::from(rate),
+            ));
+        }
         self.consumed = self.consumed.saturating_add(block.frames() as u64);
         Ok(SinkWriteResult {
             consumed_frames: block.frames(),
@@ -254,13 +268,31 @@ impl SinkStage for TestSink {
     fn close(&mut self) {}
 }
 
+// Queue tests need a consuming device, rather than an offline sink that can
+// finish a whole track before the service has resolved its successor.
+struct PacedSinkFactory(UnusedSinkFactory);
+impl SinkFactory for PacedSinkFactory {
+    fn id(&self) -> &StageId {
+        self.0.id()
+    }
+    fn compatibility_key(&self, format: PcmFormat) -> Result<OutputCompatibilityKey, FactoryError> {
+        self.0.compatibility_key(format)
+    }
+    fn create(&self) -> Result<Box<dyn SinkStage>, FactoryError> {
+        Ok(Box::new(TestSink {
+            consumed: 0,
+            pace_sample_rate: Some(1000),
+        }))
+    }
+}
+
 fn test_runtime() -> PlaybackRuntime {
     PlaybackRuntime::start(PlaybackRuntimeConfig::new(StageRegistrySnapshot {
         decoders: vec![Arc::new(TestDecoderFactory::new())],
         transforms: Vec::new(),
-        sink: Arc::new(UnusedSinkFactory {
+        sink: Arc::new(PacedSinkFactory(UnusedSinkFactory {
             id: StageId::new("test.restart-sink").unwrap(),
-        }),
+        })),
     }))
     .unwrap()
 }

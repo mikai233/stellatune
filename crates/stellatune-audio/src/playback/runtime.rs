@@ -10,7 +10,7 @@
 use super::output_workers::OutputWorkers;
 use std::sync::Arc;
 use std::time::Duration;
-use stellatune_audio_core::error::FailureStage;
+use stellatune_audio_core::{buffering::BufferingConfig, error::FailureStage};
 
 use lattice_actor::{
     mailbox::MailboxConfig,
@@ -63,10 +63,10 @@ pub struct PlaybackRuntimeConfig {
     pub actor_turn_budget: usize,
     /// Deadlines used by cloneable playback controllers.
     pub command_timeouts: PlaybackCommandTimeouts,
-    /// Capacity of the bounded actor-to-sink PCM ring, measured in blocks.
-    pub pcm_ring_blocks: usize,
-    /// Target number of PCM frames decoded in one pump turn.
-    pub block_frames: usize,
+    /// Safety ceiling for PCM messages; normal backpressure is measured in frames.
+    pub max_pcm_blocks: usize,
+    /// Software time budgets captured when a new output session starts.
+    pub buffering: BufferingConfig,
     /// Capacity of the playback event broadcast channel.
     pub event_capacity: usize,
 }
@@ -75,8 +75,8 @@ impl PlaybackRuntimeConfig {
     /// Creates a runtime configuration with production defaults.
     ///
     /// The defaults use a 64-message mailbox, four deferred preparations, a
-    /// turn budget of 16, eight PCM blocks, 1,024 frames per block, and 128
-    /// retained broadcast events.
+    /// turn budget of 16, the medium buffering preset, a 4096-message PCM safety
+    /// ceiling, and 128 retained broadcast events.
     pub fn new(registry: StageRegistrySnapshot) -> Self {
         Self {
             registry,
@@ -85,8 +85,8 @@ impl PlaybackRuntimeConfig {
             preparation_capacity: 4,
             actor_turn_budget: 16,
             command_timeouts: PlaybackCommandTimeouts::default(),
-            pcm_ring_blocks: 8,
-            block_frames: 1024,
+            max_pcm_blocks: 4096,
+            buffering: Default::default(),
             event_capacity: 128,
         }
     }

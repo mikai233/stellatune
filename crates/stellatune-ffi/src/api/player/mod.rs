@@ -572,6 +572,20 @@ pub async fn set_output_device(backend: AudioBackend, device_id: Option<String>)
         .map_err(anyhow::Error::msg)
 }
 
+/// Stores the buffering preset for the next output session or explicit rebuild.
+pub async fn set_playback_latency(profile: types::PlaybackLatency) -> Result<()> {
+    use stellatune_audio_core::buffering::LatencyProfile;
+    let profile = match profile {
+        types::PlaybackLatency::Low => LatencyProfile::Low,
+        types::PlaybackLatency::Medium => LatencyProfile::Medium,
+        types::PlaybackLatency::High => LatencyProfile::High,
+    };
+    engine()
+        .set_latency_profile(profile)
+        .await
+        .map_err(anyhow::Error::from)
+}
+
 pub async fn set_output_options(
     match_track_sample_rate: bool,
     gapless_playback: bool,

@@ -39,13 +39,14 @@ impl PlayerService {
     pub async fn queue_local_metadata(
         &self,
         tracks: &[TrackId],
-    ) -> Result<HashMap<TrackId, (i64, Option<PathBuf>)>, PlayerServiceError> {
+    ) -> Result<HashMap<TrackId, (i64, Option<stellatune_library::TrackLite>)>, PlayerServiceError>
+    {
         let identities = self.catalog.local_library_ids(tracks).await?;
         let ids: Vec<_> = identities.values().copied().collect();
-        let paths = self.local_resolver.resolve_paths(&ids).await?;
+        let metadata = self.local_resolver.resolve_metadata(&ids).await?;
         Ok(identities
             .into_iter()
-            .map(|(track, id)| (track, (id, paths.get(&id).cloned())))
+            .map(|(track, id)| (track, (id, metadata.get(&id).cloned())))
             .collect())
     }
 

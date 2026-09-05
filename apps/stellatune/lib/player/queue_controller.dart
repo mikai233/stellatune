@@ -35,22 +35,27 @@ class QueueController extends Notifier<QueueState> {
     final items = <QueueItem>[];
     for (var i = 0; i < snapshot.items.length; i++) {
       final entry = snapshot.items[i];
-      final old =
-          existing[entry.itemId] ??
-          (metadata != null && i < metadata.length ? metadata[i] : null);
+      final old = existing[entry.itemId];
+      final supplied = metadata != null && i < metadata.length
+          ? metadata[i]
+          : null;
+      final localMetadata = entry.localMetadata;
       items.add(
         QueueItem(
           itemId: entry.itemId,
           trackId: entry.trackId,
           local: entry.localLibraryTrackId != null,
-          path: old?.path ?? entry.localPath ?? '',
-          providerTrack: old?.providerTrack,
-          id: old?.id ?? entry.localLibraryTrackId?.toInt(),
-          title: old?.title,
-          artist: old?.artist,
-          album: old?.album,
-          durationMs: old?.durationMs,
-          cover: old?.cover,
+          path: entry.localPath ?? supplied?.path ?? old?.path ?? '',
+          providerTrack: supplied?.providerTrack ?? old?.providerTrack,
+          id: entry.localLibraryTrackId?.toInt() ?? supplied?.id ?? old?.id,
+          title: localMetadata?.title ?? supplied?.title ?? old?.title,
+          artist: localMetadata?.artist ?? supplied?.artist ?? old?.artist,
+          album: localMetadata?.album ?? supplied?.album ?? old?.album,
+          durationMs:
+              localMetadata?.durationMs?.toInt() ??
+              supplied?.durationMs ??
+              old?.durationMs,
+          cover: supplied?.cover ?? old?.cover,
         ),
       );
     }

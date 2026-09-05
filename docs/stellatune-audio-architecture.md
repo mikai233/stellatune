@@ -22,13 +22,43 @@ Flutter / TUI
     -> SinkStage
 ```
 
-The bounded Lattice mailbox carries typed control requests, pump ticks, and
+The bounded Lattice mailbox carries typed control requests, pump notifications, and
 preparation/recovery completion messages only. `PlaybackState` is the Lattice
 behavior; `PlaybackSession` contains generation, current/next tracks, seek and
 transition data, but no duplicate state field. The actor uses a one-worker
-`DedicatedThreadPool`, a turn budget of 16 by default, and a 2 ms interval that
-may drop a saturated tick and resume automatically. Encoded bytes and PCM never
+`DedicatedThreadPool` with a mailbox turn budget of 16 by default. Decoder
+completion, output consumption/space, and control changes coalesce into pump
+notifications. Each pump message advances one bounded work unit and queues a
+continuation at the mailbox tail only if more work is ready and output needs it.
+The default output target is 100 ms, including transport and the adapter's software
+ring; refilling resumes below 50 ms. These counters exclude OS/hardware playback
+latency. A 100 ms maintenance check reports position and retries stages without
+readiness notifications; it does not determine the normal audio supply rate.
+Encoded bytes and PCM never
 pass through FFI, JSON-RPC, or an actor mailbox.
+
+`audio-core::buffering` defines the low/medium/high software presets:
+
+| Preset | Output target | Decoder read-ahead | Decode block | Adapter ring |
+| --- | ---: | ---: | ---: | ---: |
+| Low | 40 ms | 40 ms | 5 ms | 20 ms |
+| Medium (default) | 100 ms | 100 ms | 10 ms | 40 ms |
+| High | 200 ms | 200 ms | 10 ms | 80 ms |
+
+These are fixed starting budgets, not measured end-to-end latency guarantees or
+adaptive tuning. Output refilling has a half-target low watermark. Input-rate
+frames bound decoder read-ahead; output-rate frames bound PCM transport. Each
+can overshoot by one block, and each buffered layer has an independent 8 MiB PCM
+ceiling. Blocks above 1 MiB are rejected. The 4096-message ceiling protects against
+pathological tiny/empty blocks and does not normally determine buffering duration.
+The decoder may hold one additional result while waiting to enqueue. Seek/reset
+drops its reader and wakes any blocked producer, discarding stale decoded PCM.
+
+Flutter persists `playback_latency` by enum name and restores it before playback.
+`set_playback_latency` updates the actor's desired policy; an existing output keeps
+its captured budgets, including across gapless/crossfade reuse. Stopping and starting
+playback or explicitly rebuilding output applies the new policy without forcing an
+interruption at settings-save time. OS/driver buffers remain backend controlled.
 
 Controller asks have operation-specific deadlines: snapshot 2 seconds,
 ordinary controls and advancement 5 seconds, output rebuild 10 seconds, and switch/set-next

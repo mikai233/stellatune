@@ -39,7 +39,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.13.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 1180054773;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 1655481751;
 
 // Section: executor
 
@@ -3062,6 +3062,39 @@ fn wire__crate__api__player__play_impl(
         },
     )
 }
+fn wire__crate__api__player__types__playback_latency_default_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "playback_latency_default",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, ()>((move || {
+                    let output_ok =
+                        Ok::<_, ()>(crate::api::player::types::PlaybackLatency::default())?;
+                    std::result::Result::Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
 fn wire__crate__api__player__queue__playback_queue_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -3762,6 +3795,44 @@ fn wire__crate__api__player__set_output_sink_route_impl(
                     (move || async move {
                         let output_ok =
                             crate::api::player::set_output_sink_route(api_route).await?;
+                        std::result::Result::Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__player__set_playback_latency_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "set_playback_latency",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_profile =
+                <crate::api::player::types::PlaybackLatency>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || async move {
+                        let output_ok =
+                            crate::api::player::set_playback_latency(api_profile).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -5004,6 +5075,17 @@ impl SseDecode for Option<crate::api::player::types::TrackDecodeInfo> {
     }
 }
 
+impl SseDecode for Option<stellatune_library::TrackLite> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<stellatune_library::TrackLite>::sse_decode(deserializer));
+        } else {
+            return None;
+        }
+    }
+}
+
 impl SseDecode for Option<u16> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -5069,6 +5151,19 @@ impl SseDecode for crate::api::player::types::OutputSinkTypeDescriptor {
             display_name: var_displayName,
             config_schema_json: var_configSchemaJson,
             default_config_json: var_defaultConfigJson,
+        };
+    }
+}
+
+impl SseDecode for crate::api::player::types::PlaybackLatency {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut inner = <i32>::sse_decode(deserializer);
+        return match inner {
+            0 => crate::api::player::types::PlaybackLatency::Low,
+            1 => crate::api::player::types::PlaybackLatency::Medium,
+            2 => crate::api::player::types::PlaybackLatency::High,
+            _ => unreachable!("Invalid variant for PlaybackLatency: {}", inner),
         };
     }
 }
@@ -5165,11 +5260,14 @@ impl SseDecode for crate::api::player::queue::QueueEntry {
         let mut var_trackId = <u64>::sse_decode(deserializer);
         let mut var_localLibraryTrackId = <Option<i64>>::sse_decode(deserializer);
         let mut var_localPath = <Option<String>>::sse_decode(deserializer);
+        let mut var_localMetadata =
+            <Option<stellatune_library::TrackLite>>::sse_decode(deserializer);
         return crate::api::player::queue::QueueEntry {
             item_id: var_itemId,
             track_id: var_trackId,
             local_library_track_id: var_localLibraryTrackId,
             local_path: var_localPath,
+            local_metadata: var_localMetadata,
         };
     }
 }
@@ -5640,85 +5738,94 @@ fn pde_ffi_dispatcher_primary_impl(
         },
         78 => wire__crate__api__player__pause_impl(port, ptr, rust_vec_len, data_len),
         79 => wire__crate__api__player__play_impl(port, ptr, rust_vec_len, data_len),
-        80 => {
+        80 => wire__crate__api__player__types__playback_latency_default_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        81 => {
             wire__crate__api__player__queue__playback_queue_impl(port, ptr, rust_vec_len, data_len)
         },
-        81 => {
+        82 => {
             wire__crate__api__player__playback_restore_state_impl(port, ptr, rust_vec_len, data_len)
         },
-        82 => wire__crate__api__player__playback_snapshot_impl(port, ptr, rust_vec_len, data_len),
-        83 => wire__crate__api__player__plugin_open_ui_impl(port, ptr, rust_vec_len, data_len),
-        84 => wire__crate__api__player__plugins_install_from_file_impl(
+        83 => wire__crate__api__player__playback_snapshot_impl(port, ptr, rust_vec_len, data_len),
+        84 => wire__crate__api__player__plugin_open_ui_impl(port, ptr, rust_vec_len, data_len),
+        85 => wire__crate__api__player__plugins_install_from_file_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        85 => wire__crate__api__player__plugins_list_impl(port, ptr, rust_vec_len, data_len),
-        86 => wire__crate__api__player__plugins_list_installed_json_impl(
+        86 => wire__crate__api__player__plugins_list_impl(port, ptr, rust_vec_len, data_len),
+        87 => wire__crate__api__player__plugins_list_installed_json_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        87 => wire__crate__api__player__plugins_uninstall_by_id_impl(
+        88 => wire__crate__api__player__plugins_uninstall_by_id_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        88 => wire__crate__api__player__queue__previous_queue_item_impl(
+        89 => wire__crate__api__player__queue__previous_queue_item_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        89 => wire__crate__api__player__refresh_devices_impl(port, ptr, rust_vec_len, data_len),
-        90 => wire__crate__api__player__queue__remove_queue_items_impl(
+        90 => wire__crate__api__player__refresh_devices_impl(port, ptr, rust_vec_len, data_len),
+        91 => wire__crate__api__player__queue__remove_queue_items_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        91 => {
+        92 => {
             wire__crate__api__player__queue__replace_queue_impl(port, ptr, rust_vec_len, data_len)
         },
-        92 => wire__crate__api__player__types__resample_quality_default_impl(
+        93 => wire__crate__api__player__types__resample_quality_default_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        93 => wire__crate__api__player__seek_ms_impl(port, ptr, rust_vec_len, data_len),
-        94 => wire__crate__api__player__queue__select_queue_item_impl(
+        94 => wire__crate__api__player__seek_ms_impl(port, ptr, rust_vec_len, data_len),
+        95 => wire__crate__api__player__queue__select_queue_item_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        95 => wire__crate__api__player__set_lfe_mode_impl(port, ptr, rust_vec_len, data_len),
-        96 => wire__crate__api__player__set_output_device_impl(port, ptr, rust_vec_len, data_len),
-        97 => wire__crate__api__player__set_output_options_impl(port, ptr, rust_vec_len, data_len),
-        98 => {
+        96 => wire__crate__api__player__set_lfe_mode_impl(port, ptr, rust_vec_len, data_len),
+        97 => wire__crate__api__player__set_output_device_impl(port, ptr, rust_vec_len, data_len),
+        98 => wire__crate__api__player__set_output_options_impl(port, ptr, rust_vec_len, data_len),
+        99 => {
             wire__crate__api__player__set_output_sink_route_impl(port, ptr, rust_vec_len, data_len)
         },
-        99 => {
+        100 => {
+            wire__crate__api__player__set_playback_latency_impl(port, ptr, rust_vec_len, data_len)
+        },
+        101 => {
             wire__crate__api__player__queue__set_queue_mode_impl(port, ptr, rust_vec_len, data_len)
         },
-        100 => wire__crate__api__player__set_volume_impl(port, ptr, rust_vec_len, data_len),
-        101 => wire__crate__api__runtime__shutdown_impl(port, ptr, rust_vec_len, data_len),
-        102 => {
+        102 => wire__crate__api__player__set_volume_impl(port, ptr, rust_vec_len, data_len),
+        103 => wire__crate__api__runtime__shutdown_impl(port, ptr, rust_vec_len, data_len),
+        104 => {
             wire__crate__api__player__source_list_items_json_impl(port, ptr, rust_vec_len, data_len)
         },
-        103 => wire__crate__api__player__source_list_types_impl(port, ptr, rust_vec_len, data_len),
-        104 => wire__crate__api__player__stop_impl(port, ptr, rust_vec_len, data_len),
-        105 => wire__crate__api__player__transcode__transcode_cancel_impl(
+        105 => wire__crate__api__player__source_list_types_impl(port, ptr, rust_vec_len, data_len),
+        106 => wire__crate__api__player__stop_impl(port, ptr, rust_vec_len, data_len),
+        107 => wire__crate__api__player__transcode__transcode_cancel_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        106 => wire__crate__api__player__transcode__transcode_track_local_impl(
+        108 => wire__crate__api__player__transcode__transcode_track_local_impl(
             port,
             ptr,
             rust_vec_len,
@@ -6340,6 +6447,28 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::player::types::OutputSinkType
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::player::types::PlaybackLatency {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        match self {
+            Self::Low => 0.into_dart(),
+            Self::Medium => 1.into_dart(),
+            Self::High => 2.into_dart(),
+            _ => unreachable!(),
+        }
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::player::types::PlaybackLatency
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::player::types::PlaybackLatency>
+    for crate::api::player::types::PlaybackLatency
+{
+    fn into_into_dart(self) -> crate::api::player::types::PlaybackLatency {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::api::player::queue::PlaybackQueue {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
@@ -6465,6 +6594,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::player::queue::QueueEntry {
             self.track_id.into_into_dart().into_dart(),
             self.local_library_track_id.into_into_dart().into_dart(),
             self.local_path.into_into_dart().into_dart(),
+            self.local_metadata.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -7277,6 +7407,16 @@ impl SseEncode for Option<crate::api::player::types::TrackDecodeInfo> {
     }
 }
 
+impl SseEncode for Option<stellatune_library::TrackLite> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <stellatune_library::TrackLite>::sse_encode(value, serializer);
+        }
+    }
+}
+
 impl SseEncode for Option<u16> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -7326,6 +7466,23 @@ impl SseEncode for crate::api::player::types::OutputSinkTypeDescriptor {
         <String>::sse_encode(self.display_name, serializer);
         <String>::sse_encode(self.config_schema_json, serializer);
         <String>::sse_encode(self.default_config_json, serializer);
+    }
+}
+
+impl SseEncode for crate::api::player::types::PlaybackLatency {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(
+            match self {
+                crate::api::player::types::PlaybackLatency::Low => 0,
+                crate::api::player::types::PlaybackLatency::Medium => 1,
+                crate::api::player::types::PlaybackLatency::High => 2,
+                _ => {
+                    unimplemented!("");
+                },
+            },
+            serializer,
+        );
     }
 }
 
@@ -7397,6 +7554,7 @@ impl SseEncode for crate::api::player::queue::QueueEntry {
         <u64>::sse_encode(self.track_id, serializer);
         <Option<i64>>::sse_encode(self.local_library_track_id, serializer);
         <Option<String>>::sse_encode(self.local_path, serializer);
+        <Option<stellatune_library::TrackLite>>::sse_encode(self.local_metadata, serializer);
     }
 }
 

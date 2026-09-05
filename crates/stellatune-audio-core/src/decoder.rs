@@ -70,6 +70,14 @@ pub enum DecoderSeekStatus {
 /// before reusing or dropping a prepared pipeline. The format returned from
 /// `open` must remain stable until reset.
 pub trait DecoderStage: Send {
+    /// Configures read-ahead and requested block duration before decoding starts.
+    /// A runtime changes this only after discarding pending decode work.
+    fn configure_buffering(&mut self, _config: crate::buffering::BufferingConfig) {}
+    /// Registers the runtime to wake when pending decode or seek work completes.
+    /// Implementations with asynchronous work should override this method. The
+    /// default relies on the runtime's low-frequency compatibility check.
+    /// Registration must not discard an already-ready result.
+    fn set_waker(&mut self, _waker: std::task::Waker) {}
     /// Opens an encoded stream and reports the PCM stream it will produce.
     ///
     /// # Errors

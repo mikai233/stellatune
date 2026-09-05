@@ -29,6 +29,7 @@ export 'api/player/types.dart'
         PlayerState,
         TrackDecodeInfo,
         TranscodeProgressEvent,
+        PlaybackLatency,
         ResampleQuality;
 export 'third_party/stellatune_library.dart'
     show LibraryEvent, LibraryEventPatterns, PlaylistLite, TrackLite;
@@ -250,6 +251,9 @@ class PlayerBridge {
     required AudioBackend backend,
     String? deviceId,
   }) => api.setOutputDevice(backend: backend, deviceId: deviceId);
+
+  Future<void> setPlaybackLatency(PlaybackLatency profile) =>
+      api.setPlaybackLatency(profile: profile);
 
   Future<void> setOutputOptions({
     required bool matchTrackSampleRate,

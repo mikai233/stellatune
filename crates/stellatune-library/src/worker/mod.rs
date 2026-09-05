@@ -3,8 +3,8 @@ mod fts;
 mod metadata;
 mod paths;
 mod scan;
-mod track_paths;
 mod tracks;
+mod tracks_by_ids;
 mod watch;
 
 use std::collections::BTreeSet;

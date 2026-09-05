@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive/hive.dart';
 import 'package:stellatune/app/providers.dart';
+import 'package:stellatune/bridge/bridge.dart';
 
 void main() {
   late Directory hiveDir;
@@ -62,6 +63,31 @@ void main() {
       );
       expect(observedThemeModes, [ThemeMode.system, ThemeMode.dark]);
       expect(observedDeviceIds, [null, 'device-42']);
+    },
+  );
+
+  test(
+    'playback latency defaults, persists by name and survives reopening',
+    () async {
+      final store = SettingsStore();
+      expect(store.playbackLatency, PlaybackLatency.medium);
+      final container = ProviderContainer(
+        overrides: [settingsStoreServiceProvider.overrideWithValue(store)],
+      );
+      addTearDown(container.dispose);
+      await container
+          .read(settingsStoreProvider.notifier)
+          .setPlaybackLatency(PlaybackLatency.high);
+      expect(
+        container.read(settingsStoreProvider).playbackLatency,
+        PlaybackLatency.high,
+      );
+      await Hive.box('settings').close();
+      await Hive.openBox('settings');
+      expect(SettingsStore().readState().playbackLatency, PlaybackLatency.high);
+      await Hive.box('settings')
+          .put('playback_latency', 'unknown-future-preset');
+      expect(store.playbackLatency, PlaybackLatency.medium);
     },
   );
 }

@@ -4,6 +4,7 @@
 // ignore_for_file: invalid_use_of_internal_member, unused_import, unnecessary_import
 
 import '../../frb_generated.dart';
+import '../../third_party/stellatune_library.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
@@ -99,12 +100,14 @@ class QueueEntry {
   final BigInt trackId;
   final PlatformInt64? localLibraryTrackId;
   final String? localPath;
+  final TrackLite? localMetadata;
 
   const QueueEntry({
     required this.itemId,
     required this.trackId,
     this.localLibraryTrackId,
     this.localPath,
+    this.localMetadata,
   });
 
   @override
@@ -112,7 +115,8 @@ class QueueEntry {
       itemId.hashCode ^
       trackId.hashCode ^
       localLibraryTrackId.hashCode ^
-      localPath.hashCode;
+      localPath.hashCode ^
+      localMetadata.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -122,7 +126,8 @@ class QueueEntry {
           itemId == other.itemId &&
           trackId == other.trackId &&
           localLibraryTrackId == other.localLibraryTrackId &&
-          localPath == other.localPath;
+          localPath == other.localPath &&
+          localMetadata == other.localMetadata;
 }
 
 enum QueueRepeatMode { off, all, one }

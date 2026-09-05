@@ -747,4 +747,19 @@ class AppLocalizationsZh extends AppLocalizations {
   String dlnaSelected(String name) {
     return '已选择 DLNA：$name';
   }
+
+  @override
+  String get settingsPlaybackLatency => '播放延迟';
+
+  @override
+  String get settingsPlaybackLatencyHint => '停止后重新播放或更换输出设备时生效。较高的缓冲可提高播放稳定性。';
+
+  @override
+  String get settingsPlaybackLatencyLow => '低';
+
+  @override
+  String get settingsPlaybackLatencyMedium => '中';
+
+  @override
+  String get settingsPlaybackLatencyHigh => '高';
 }

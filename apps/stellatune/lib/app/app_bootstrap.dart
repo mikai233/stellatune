@@ -67,6 +67,7 @@ class _PersistedOutputSettingsRestorer {
   Future<void> restore() async {
     localDeviceId = persisted.selectedDeviceId;
     _primeLocalSession();
+    await bridge.setPlaybackLatency(persisted.playbackLatency);
     await _restoreLocalOutputDevice();
     await _restoreOutputOptions();
     await _restoreOutputRoute();

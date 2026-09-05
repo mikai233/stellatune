@@ -20,6 +20,18 @@ impl Handler<PumpAudio> for PlaybackActor {
         ctx: &mut HandlerContext<'_, Self>,
         _message: PumpAudio,
     ) -> Result<(), ActorError> {
+        let signal = self.session.output_workers.pump.clone();
+        signal.begin_turn();
+        let waker = signal.waker();
+        if let Some(current) = self.session.current.as_mut() {
+            current.pipeline.decoder.set_waker(waker.clone());
+        }
+        if let Some(next) = self.session.next.as_mut() {
+            next.pipeline.decoder.set_waker(waker.clone());
+        }
+        if let Some(crossfade) = self.session.crossfade.as_mut() {
+            crossfade.next.pipeline.decoder.set_waker(waker);
+        }
         self.audit_preparation_deadline(ctx);
         let mut state = *ctx.behavior();
         if self.session.pending_recovery.is_none()
@@ -68,13 +80,26 @@ impl Handler<PumpAudio> for PlaybackActor {
         if matches!(state, PlaybackState::Playing | PlaybackState::Buffering)
             && self.session.pending_seek.is_none()
         {
-            pump_once(&self.config, &self.event_tx, &mut self.session, &mut state);
+            // One bounded work unit per message. Continue at the mailbox tail
+            // only while making progress toward the output buffer target.
+            if pump_once(&self.config, &self.event_tx, &mut self.session, &mut state)
+                && matches!(state, PlaybackState::Playing | PlaybackState::Buffering)
+                && self
+                    .session
+                    .current
+                    .as_ref()
+                    .is_some_and(|track| track.output.needs_audio())
+            {
+                signal.request();
+            }
         }
         self.launch_pending_recovery(ctx, &mut state);
         if let Err(error) = self.apply_advance(&mut state) {
             publish_control_failure(&error, &self.event_tx);
         }
-        self.transition(ctx, state);
+        if *ctx.behavior() != state {
+            ctx.transition_to(state);
+        }
         Ok(())
     }
 }

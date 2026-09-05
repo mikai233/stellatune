@@ -21,6 +21,9 @@ use super::output_workers::OutputWorkers;
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use stellatune_audio_core::buffering::{
+    BufferingConfig, MAX_BLOCK_BYTES, MAX_BUFFER_BYTES, frames_for_ms,
+};
 use stellatune_audio_core::{error::FailureStage, stage::StageId};
 type ControlResult = Result<(), PlaybackControlError>;
 use lattice_actor::reply::ReplyTo;
@@ -50,8 +53,8 @@ use stellatune_audio_core::{
 pub(super) enum PendingWrite {
     /// The ring is full and ownership of the block is returned for retry.
     Full(AudioBlock),
-    /// The sink worker has stopped and cannot accept the block.
-    Closed,
+    /// The worker closed or the block violates the PCM allocation ceiling.
+    Failed(PlaybackControlError),
 }
 
 enum SinkDataCommand {
@@ -74,6 +77,8 @@ enum SinkControlCommand {
 }
 
 struct SinkWorkerClock {
+    waker: std::task::Waker,
+    low_water_frames: u64,
     consumed_frames: AtomicU64,
     buffered_frames: AtomicU64,
     device_buffered_frames: AtomicU64,
@@ -82,6 +87,10 @@ struct SinkWorkerClock {
 
 /// Actor-facing handle to one sink and its dedicated OS thread.
 pub(super) struct SinkWorker {
+    target_frames: u64,
+    buffering: BufferingConfig,
+    max_transport_frames: u64,
+    refilling: std::cell::Cell<bool>,
     data_sender: Sender<SinkDataCommand>,
     control_sender: Sender<SinkControlCommand>,
     boundary_receiver: Receiver<PlaybackItemId>,
@@ -100,15 +109,32 @@ impl SinkWorker {
         factory: Arc<dyn SinkFactory>,
         format: PcmFormat,
         capacity: usize,
+        buffering: BufferingConfig,
         initial_gain: f32,
         workers: &OutputWorkers,
     ) -> Result<Self, PlaybackControlError> {
-        let (data_sender, data_receiver) = crossbeam_channel::bounded(capacity.max(1));
+        let (data_sender, data_receiver) = crossbeam_channel::bounded(capacity.clamp(1, 4096));
         let (control_sender, control_receiver) = crossbeam_channel::bounded(16);
         let (boundary_sender, boundary_receiver) = crossbeam_channel::unbounded();
         let (failure_sender, failure_receiver) = crossbeam_channel::bounded(1);
         let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let target_frames = frames_for_ms(format, buffering.output_ms) as u64;
+        // A partially written block retains its consumed prefix allocation.
+        let max_transport_frames = ((MAX_BUFFER_BYTES - MAX_BLOCK_BYTES)
+            / (usize::from(format.channel_layout.channel_count()) * size_of::<f32>()))
+            as u64;
+        tracing::info!(
+            sample_rate = format.sample_rate,
+            channels = format.channel_layout.channel_count(),
+            target_frames,
+            output_ms = buffering.output_ms,
+            device_ms = buffering.device_ms,
+            block_ms = buffering.block_ms,
+            "opening output with duration buffering"
+        );
         let clock = Arc::new(SinkWorkerClock {
+            waker: workers.pump.waker(),
+            low_water_frames: (target_frames / 2).max(1),
             consumed_frames: AtomicU64::new(0),
             buffered_frames: AtomicU64::new(0),
             device_buffered_frames: AtomicU64::new(0),
@@ -124,6 +150,8 @@ impl SinkWorker {
         let join = std::thread::Builder::new()
             .name("stellatune-sink-worker".to_owned())
             .spawn(move || {
+                // Opening/failure/exit must wake pending control acknowledgements.
+                let _wake_on_exit = WakeOnDrop(worker_clock.waker.clone());
                 let _device = device.lock().unwrap_or_else(|error| error.into_inner());
                 if worker_stopped.load(Ordering::Acquire) {
                     return;
@@ -139,6 +167,7 @@ impl SinkWorker {
                         return;
                     },
                 };
+                sink.configure_buffering(buffering);
                 if let Err(error) = sink.open(format) {
                     let _ =
                         started_tx.send(Err(PlaybackControlError::sink(error, stage_id.clone())));
@@ -153,6 +182,7 @@ impl SinkWorker {
                 }
                 worker_initialized.store(true, Ordering::Release);
                 let _ = started_tx.send(Ok(()));
+                worker_clock.waker.wake_by_ref();
                 sink_worker_loop(
                     sink,
                     data_receiver,
@@ -168,6 +198,10 @@ impl SinkWorker {
             .map_err(|error| PlaybackControlError::failed(FailureStage::Sink, error.to_string()))?;
         workers.register(join);
         Ok(Self {
+            target_frames,
+            buffering,
+            max_transport_frames,
+            refilling: std::cell::Cell::new(true),
             data_sender,
             control_sender,
             boundary_receiver,
@@ -184,8 +218,28 @@ impl SinkWorker {
         })
     }
 
+    pub(super) fn buffering(&self) -> BufferingConfig {
+        self.buffering
+    }
+
     /// Attempts to enqueue a PCM block without waiting for ring capacity.
-    pub(super) fn try_write(&self, block: AudioBlock) -> Result<(), PendingWrite> {
+    pub(super) fn try_write(&self, mut block: AudioBlock) -> Result<(), PendingWrite> {
+        if block.samples.len() > MAX_BLOCK_BYTES / size_of::<f32>() {
+            return Err(PendingWrite::Failed(PlaybackControlError::failed(
+                FailureStage::Sink,
+                "PCM block exceeds the memory limit",
+            )));
+        }
+        let queued = self.clock.buffered_frames.load(Ordering::Relaxed);
+        if queued >= self.target_frames
+            || queued.saturating_add(block.frames() as u64) > self.max_transport_frames
+        {
+            return Err(PendingWrite::Full(block));
+        }
+        // Do not retain an oversized decoder allocation in the transport.
+        if block.samples.capacity() > block.samples.len() {
+            block.samples.shrink_to_fit();
+        }
         self.clock
             .buffered_frames
             .fetch_add(block.frames() as u64, Ordering::Relaxed);
@@ -201,7 +255,10 @@ impl SinkWorker {
                 self.clock
                     .buffered_frames
                     .fetch_sub(block.frames() as u64, Ordering::Relaxed);
-                Err(PendingWrite::Closed)
+                Err(PendingWrite::Failed(PlaybackControlError::failed(
+                    FailureStage::Sink,
+                    "sink worker closed",
+                )))
             },
             Err(_) => unreachable!("try_write only sends Write"),
         }
@@ -331,14 +388,19 @@ impl SinkWorker {
     /// Queues an item marker after all PCM accepted before this call.
     /// Returns false when the FIFO is full; the caller must retain and retry it.
     pub(super) fn mark_boundary(
-        &self,
+        &mut self,
         item_id: PlaybackItemId,
     ) -> Result<bool, PlaybackControlError> {
         match self.data_sender.try_send(SinkDataCommand::Boundary {
             item_id,
             epoch: self.epoch,
         }) {
-            Ok(()) => Ok(true),
+            Ok(()) => {
+                // A successor extends the stream beyond a previous EOF drain.
+                // Its completion cannot acknowledge the successor's own drain.
+                self.pending_drain = None;
+                Ok(true)
+            },
             Err(TrySendError::Full(_)) => Ok(false),
             Err(TrySendError::Disconnected(_)) => Err(PlaybackControlError::Closed),
         }
@@ -351,6 +413,17 @@ impl SinkWorker {
 
     pub(super) fn is_ready(&self) -> bool {
         self.is_initialized() && self.clock.epoch.load(Ordering::Acquire) == self.epoch
+    }
+
+    /// Desired queued audio is measured at the output rate, not in decoder blocks.
+    pub(super) fn needs_audio(&self) -> bool {
+        let buffered = self.clock().buffered_frames;
+        if buffered >= self.target_frames {
+            self.refilling.set(false);
+        } else if buffered < self.clock.low_water_frames {
+            self.refilling.set(true);
+        }
+        self.refilling.get()
     }
 
     pub(super) fn is_initialized(&self) -> bool {
@@ -516,6 +589,7 @@ fn sink_worker_loop(
             // completion and emit the final position or release this output.
             sync_sink_clock(sink.as_ref(), clock.as_ref());
             let _ = response.send(result);
+            clock.waker.wake_by_ref();
         }
 
         if !paused {
@@ -525,9 +599,14 @@ fn sink_worker_loop(
                         let consumed = result.consumed_frames.min(block.frames());
                         if consumed > 0 {
                             accepted_frames = accepted_frames.saturating_add(consumed as u64);
+                            // Publish device ownership before removing transport
+                            // ownership, so a fast pump cannot observe a false
+                            // hole in the combined buffered-frame count.
+                            sync_sink_clock(sink.as_ref(), clock.as_ref());
                             clock
                                 .buffered_frames
                                 .fetch_sub(consumed as u64, Ordering::Relaxed);
+                            clock.waker.wake_by_ref();
                             let samples = consumed.saturating_mul(usize::from(
                                 block.format.channel_layout.channel_count(),
                             ));
@@ -608,11 +687,15 @@ fn sink_worker_loop(
             }
         }
         let snapshot = sync_sink_clock(sink.as_ref(), clock.as_ref());
+        let boundary_count = pending_boundaries.len();
         publish_consumed_boundaries(
             snapshot.consumed_frames,
             &mut pending_boundaries,
             &boundary_sender,
         );
+        if pending_boundaries.len() != boundary_count {
+            clock.waker.wake_by_ref();
+        }
     }
     sink.close();
 }
@@ -626,6 +709,7 @@ fn accept_sink_data(
     accepted_frames: u64,
     pending_boundaries: &mut VecDeque<(u64, PlaybackItemId)>,
 ) {
+    clock.waker.wake_by_ref();
     match command {
         SinkDataCommand::Write(mut block) => {
             if block.timeline.epoch != clock.epoch.load(Ordering::Relaxed) {
@@ -660,6 +744,7 @@ fn handle_sink_control(
     pending_boundaries: &mut VecDeque<(u64, PlaybackItemId)>,
     stage_id: &StageId,
 ) -> bool {
+    let _wake_on_reply = WakeOnDrop(clock.waker.clone());
     match command {
         SinkControlCommand::Pause(response) => {
             let result = sink
@@ -714,13 +799,28 @@ fn handle_sink_control(
 /// Copies the sink clock into atomics visible to the playback actor.
 fn sync_sink_clock(sink: &dyn SinkStage, clock: &SinkWorkerClock) -> SinkClockSnapshot {
     let snapshot = sink.clock_snapshot();
-    clock
+    let previous = clock
         .consumed_frames
-        .store(snapshot.consumed_frames, Ordering::Relaxed);
+        .swap(snapshot.consumed_frames, Ordering::Relaxed);
     clock
         .device_buffered_frames
         .store(snapshot.buffered_frames, Ordering::Relaxed);
+    if previous != snapshot.consumed_frames
+        && snapshot
+            .buffered_frames
+            .saturating_add(clock.buffered_frames.load(Ordering::Relaxed))
+            < clock.low_water_frames
+    {
+        clock.waker.wake_by_ref();
+    }
     snapshot
+}
+
+struct WakeOnDrop(std::task::Waker);
+impl Drop for WakeOnDrop {
+    fn drop(&mut self) {
+        self.0.wake_by_ref();
+    }
 }
 
 /// Publishes every ordered marker reached by the device-consumed frontier.

@@ -51,6 +51,8 @@ pub struct SinkClockSnapshot {
 /// writes. Implementations must keep [`Self::write`] bounded and express device
 /// backpressure through [`SinkWriteResult`].
 pub trait SinkStage: Send {
+    /// Configures software buffering before opening the output endpoint.
+    fn configure_buffering(&mut self, _config: crate::buffering::BufferingConfig) {}
     /// Opens the output endpoint for an exact PCM format.
     ///
     /// # Errors

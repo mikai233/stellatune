@@ -1,6 +1,7 @@
 #![deny(clippy::wildcard_imports)]
 
 pub mod builtin_decoder;
+mod decoder_queue;
 mod decoder_worker;
 #[cfg(test)]
 mod decoder_worker_tests;

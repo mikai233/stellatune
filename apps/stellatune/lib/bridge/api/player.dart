@@ -213,6 +213,12 @@ Future<void> setOutputDevice({
   deviceId: deviceId,
 );
 
+/// Stores the buffering preset for the next output session or explicit rebuild.
+Future<void> setPlaybackLatency({required PlaybackLatency profile}) =>
+    StellatuneApi.instance.api.crateApiPlayerSetPlaybackLatency(
+      profile: profile,
+    );
+
 Future<void> setOutputOptions({
   required bool matchTrackSampleRate,
   required bool gaplessPlayback,
