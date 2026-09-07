@@ -1,3 +1,5 @@
+import 'package:stellatune/ui/theme/artwork_palette.dart';
+
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -6,6 +8,8 @@ import 'package:stellatune/l10n/app_localizations.dart';
 import 'package:stellatune/ui/widgets/audio_format_badge.dart';
 import 'package:stellatune/ui/widgets/track_list/models/track_list_models.dart';
 import 'package:stellatune/ui/widgets/track_list/widgets/track_list_shared_widgets.dart';
+
+import 'track_table_layout.dart';
 
 class TrackListTile extends StatelessWidget {
   const TrackListTile({
@@ -33,9 +37,11 @@ class TrackListTile extends StatelessWidget {
     this.reorderIndex,
     this.blockedReason,
     this.onLongPressSelect,
+    this.tableLayout = false,
   });
 
   final AppLocalizations l10n;
+  final bool tableLayout;
   final int index;
   final TrackLite track;
   final String coverDir;
@@ -70,6 +76,106 @@ class TrackListTile extends StatelessWidget {
     final coverPath = '$coverDir${Platform.pathSeparator}${track.id}';
 
     final theme = Theme.of(context);
+    if (tableLayout) {
+      Widget text(String value) => Text(
+        value,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          fontSize: 12,
+          color: isBlocked
+              ? theme.colorScheme.onSurfaceVariant
+              : theme.colorScheme.onSurface,
+        ),
+      );
+      final ms = track.durationMs?.toInt();
+      final duration = ms == null
+          ? '—'
+          : '${(ms ~/ 60000).toString().padLeft(2, '0')}:${(ms ~/ 1000 % 60).toString().padLeft(2, '0')}';
+      return GestureDetector(
+        onSecondaryTapDown: onDesktopContextMenuRequested == null
+            ? null
+            : (details) =>
+                  onDesktopContextMenuRequested!(details.globalPosition),
+        child: Material(
+          color: selected
+              ? ArtworkPalette.of(context).accent.withValues(alpha: .16)
+              : index.isEven
+              ? theme.colorScheme.onSurface.withValues(alpha: .018)
+              : Colors.transparent,
+          child: InkWell(
+            onTap: onTapTrack,
+            onLongPress: onLongPressSelect,
+            hoverColor: theme.colorScheme.onSurface.withValues(alpha: .055),
+            child: TrackTableLayout(
+              number: selectionMode
+                  ? Checkbox(
+                      value: selected,
+                      onChanged: (_) => onToggleSelected(),
+                    )
+                  : text('${index + 1}'),
+              title: Row(
+                children: [
+                  SizedBox(
+                    width: 32,
+                    height: 32,
+                    child: deferHeavy
+                        ? const TrackListCoverPlaceholder()
+                        : TrackListCoverThumb(path: coverPath),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(child: text(line1)),
+                  if (isBlocked)
+                    Tooltip(
+                      message: blockedReason ?? '',
+                      child: const Icon(Icons.block, size: 15),
+                    ),
+                ],
+              ),
+              artist: text(artist.isEmpty ? '—' : artist),
+              album: text(album.isEmpty ? '—' : album),
+              duration: text(duration),
+              format: text(
+                _basename(track.path).contains('.')
+                    ? track.path.split('.').last.toUpperCase()
+                    : '—',
+              ),
+              actions: Row(
+                children: [
+                  SizedBox(
+                    width: 36,
+                    child: IconButton(
+                      onPressed: onToggleLike,
+                      tooltip: isLiked
+                          ? l10n.likedRemoveTooltip
+                          : l10n.likedAddTooltip,
+                      padding: EdgeInsets.zero,
+                      icon: Icon(
+                        isLiked ? Icons.favorite : Icons.favorite_border,
+                        size: 17,
+                        color: isLiked
+                            ? const Color(0xFFE26475)
+                            : theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                  SizedBox(
+                    width: 36,
+                    child: PopupMenuButton<TrackListAction>(
+                      tooltip: '更多',
+                      icon: const Icon(Icons.more_horiz, size: 18),
+                      padding: EdgeInsets.zero,
+                      onSelected: onTrackAction,
+                      itemBuilder: buildTrackActionMenuItems,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
     final rowBg = selected
         ? theme.colorScheme.secondaryContainer.withValues(alpha: 0.92)
         : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.28);

@@ -90,6 +90,11 @@ lazy process, shared by all capabilities and instances. Requests use framed
 JSON-RPC with a generation and deadline. A plugin should release child processes
 and other resources in its optional `shutdown` hook.
 
+Desktop builds bundle a pinned Node executable; installed applications do not
+require system Node. See [runtime distribution](../tools/typescript-plugin-runtime/README.md)
+for build caching, development path overrides, and bundle verification. When
+spawning a console sidecar from a Windows plugin, use `windowsHide: true`.
+
 Plugins with a UI declare `"ui": { "mode": "plugin-hosted" }` in the manifest
 and implement `openUi(): Promise<{ url: string }>`. The host calls it through
 `plugin.open_ui` and opens the returned HTTP URL in the user's browser. Static
@@ -160,8 +165,13 @@ A source resolver may declare `"local_extensions": ["example"]`. Extensions
 are lowercase without dots. For files outside the native decoder's formats,
 the host selects an enabled resolver by extension and calls:
 
-- `inspect-file`, input `{ path }`: return `{ title, artist, album, durationMs }`
+- `inspect-file`, input `{ path }`: return `{ title, artist, album, durationMs, coverUrl? }`
   for library scanning. This operation should only inspect the container header.
+  `coverUrl` optionally points to artwork bytes served by the plugin. The host
+  downloads at most 12 MiB with a 10-second timeout and writes its normal cover
+  cache. Artwork is not embedded in JSON (RPC frames are limited to 1 MiB).
+  Missing artwork is allowed; failed downloads log a warning without discarding
+  text metadata. URLs need only remain valid while the plugin is running.
 - `resolve-file`, input `{ path }`: return a `SourcePlan` with an absolute file
   path or HTTP URL, media hints and seek capabilities. HTTP servers should
   provide Content-Length, Accept-Ranges and correct 206/416 responses for seek.

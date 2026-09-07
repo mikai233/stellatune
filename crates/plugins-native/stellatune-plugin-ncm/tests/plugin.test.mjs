@@ -1,3 +1,4 @@
+import { withCover } from './fixtures/with-cover.mjs';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
@@ -26,13 +27,15 @@ test('installed Rust NCM plugin streams seekable audio without disk caches', asy
     const metadata = await invoke('inspect-file', path);
     assert.equal(metadata.title, 'Synthetic tone');
     assert.equal(metadata.durationMs, 2000);
+    assert.equal(metadata.coverUrl, null);
+
     const [a, b] = await Promise.all([invoke('resolve-file', path), invoke('resolve-file', path)]);
     assert.deepEqual(a, b);
     assert.equal(a.source.kind, 'http');
     assert.equal(new URL(a.source.url).hostname, '127.0.0.1');
     const full = await fetch(a.source.url);
     const audio = Buffer.from(await full.arrayBuffer());
-    if (fixture === 'tone.ncm') assert.equal(audio.subarray(0, 4).toString(), 'fLaC');
+    if (fixture !== 'tone-mp3.ncm') assert.equal(audio.subarray(0, 4).toString(), 'fLaC');
     const head = await fetch(a.source.url, { method: 'HEAD' });
     assert.equal(head.headers.get('content-length'), String(audio.length));
     assert.equal(head.headers.get('accept-ranges'), 'bytes');
@@ -63,6 +66,25 @@ test('installed Rust NCM plugin streams seekable audio without disk caches', asy
     const response = await fetch(restarted.source.url);
     assert.deepEqual(Buffer.from(await response.arrayBuffer()), audio);
   }
+  // Inspect artwork independently of audio probing; exclude reserved image padding.
+  const coveredPath = join(root, 'cover.ncm');
+  const coveredBytes = await readFile(new URL('fixtures/tone-cover.ncm', import.meta.url));
+  await writeFile(coveredPath, coveredBytes);
+  const covered = await invoke('inspect-file', coveredPath);
+  assert.equal(covered.title, 'Synthetic tone');
+  assert.equal(new URL(covered.coverUrl).hostname, '127.0.0.1');
+  assert.deepEqual(Buffer.from(await (await fetch(covered.coverUrl)).arrayBuffer()), await readFile(new URL('fixtures/cover.png', import.meta.url)));
+  await writeFile(coveredPath, coveredBytes.subarray(0, 20));
+  assert.equal((await fetch(covered.coverUrl)).status, 409);
+  // Large artwork travels over HTTP, keeping the RPC response below its 1 MiB cap.
+  const bigImage = Buffer.concat([await readFile(new URL('fixtures/cover.png', import.meta.url)), Buffer.alloc(1024 * 1024)]);
+  const bigPath = join(root, 'large-cover.ncm');
+  await writeFile(bigPath, withCover(await readFile(new URL('fixtures/tone.ncm', import.meta.url)), bigImage));
+  const big = await invoke('inspect-file', bigPath);
+  assert.ok(JSON.stringify(big).length < 1024);
+  assert.deepEqual(Buffer.from(await (await fetch(big.coverUrl)).arrayBuffer()), bigImage);
+  await plugin.shutdown();
+  await assert.rejects(fetch(big.coverUrl));
   assert.deepEqual(await readdir(dataDir), [], 'plugin never writes decrypted files');
 });
 

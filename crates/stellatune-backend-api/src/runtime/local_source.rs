@@ -6,6 +6,7 @@ use stellatune_plugins::typescript::{TypeScriptRuntime, protocol::SourcePlanDto}
 pub(crate) struct PluginMetadataProvider {
     runtime: std::sync::Arc<TypeScriptRuntime>,
     executor: tokio::runtime::Handle,
+    client: reqwest::Client,
 }
 
 impl PluginMetadataProvider {
@@ -13,6 +14,7 @@ impl PluginMetadataProvider {
         Self {
             runtime,
             executor: tokio::runtime::Handle::current(),
+            client: reqwest::Client::new(),
         }
     }
 }
@@ -51,8 +53,63 @@ impl stellatune_library::metadata_provider::MetadataProvider for PluginMetadataP
             serde_json::json!({ "path": path }),
             None,
         ))?;
-        Ok(serde_json::from_value(result.value)?)
+        let metadata: PluginFileMetadata = serde_json::from_value(result.value)?;
+        let cover = if let Some(url) = metadata.cover_url {
+            match self.executor.block_on(read_cover(&self.client, &url)) {
+                Ok(bytes) => Some(bytes),
+                Err(error) => {
+                    tracing::warn!(path = %path.display(), %error, "plugin artwork fetch failed");
+                    None
+                },
+            }
+        } else {
+            None
+        };
+        Ok(stellatune_library::metadata_provider::LocalFileMetadata {
+            title: metadata.title,
+            artist: metadata.artist,
+            album: metadata.album,
+            duration_ms: metadata.duration_ms,
+            cover,
+        })
     }
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PluginFileMetadata {
+    title: Option<String>,
+    artist: Option<String>,
+    album: Option<String>,
+    duration_ms: Option<i64>,
+    cover_url: Option<String>,
+}
+
+async fn read_cover(client: &reqwest::Client, url: &str) -> anyhow::Result<Vec<u8>> {
+    // Match the library's embedded artwork limit, including chunked responses.
+    const MAX_COVER_BYTES: usize = 12 * 1024 * 1024;
+    let mut response = client
+        .get(url)
+        .timeout(std::time::Duration::from_secs(10))
+        .send()
+        .await?
+        .error_for_status()?;
+    anyhow::ensure!(
+        response
+            .content_length()
+            .is_none_or(|size| size <= MAX_COVER_BYTES as u64),
+        "plugin artwork exceeds 12 MiB"
+    );
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response.chunk().await? {
+        anyhow::ensure!(
+            chunk.len() <= MAX_COVER_BYTES - bytes.len(),
+            "plugin artwork exceeds 12 MiB"
+        );
+        bytes.extend_from_slice(&chunk);
+    }
+    anyhow::ensure!(!bytes.is_empty(), "plugin artwork is empty");
+    Ok(bytes)
 }
 
 pub(crate) struct ResolvedLocalFile {

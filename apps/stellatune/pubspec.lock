@@ -1203,7 +1203,7 @@ packages:
     source: hosted
     version: "0.5.2"
   windows_file_picker:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: windows_file_picker
       sha256: "225f58e64c15c2d7b34fb8faf3ca188831967f26b5a723d7c3a7969e41c9b5a5"

@@ -14,6 +14,7 @@ import 'package:stellatune/ui/widgets/track_list/models/track_list_models.dart';
 import 'package:stellatune/ui/widgets/track_list/widgets/track_list_context_menu.dart';
 import 'package:stellatune/ui/widgets/track_list/widgets/track_list_shared_widgets.dart';
 import 'package:stellatune/ui/widgets/track_list/widgets/track_list_tile.dart';
+import 'package:stellatune/ui/widgets/track_list/widgets/track_table_layout.dart';
 
 class TrackList extends StatefulWidget {
   const TrackList({
@@ -35,9 +36,11 @@ class TrackList extends StatefulWidget {
     this.onTranscodeSelected,
     this.blockedReasonByTrackId = const <int, String>{},
     this.onViewportRangeChanged,
+    this.tableLayout = false,
   });
 
   final PlayerBridge bridge;
+  final bool tableLayout;
   final String coverDir;
   final List<TrackLite> items;
   final Set<int> likedTrackIds;
@@ -65,7 +68,7 @@ class TrackList extends StatefulWidget {
 }
 
 class _TrackListState extends State<TrackList> {
-  static const _itemExtent = 72.0;
+  double get _itemExtent => widget.tableLayout ? 48.0 : 72.0;
 
   final ScrollController _controller = ScrollController();
   final GlobalKey _listViewportKey = GlobalKey();
@@ -436,7 +439,15 @@ class _TrackListState extends State<TrackList> {
             ),
           );
 
-    final listBody = KeyedSubtree(key: _listViewportKey, child: body);
+    final viewport = KeyedSubtree(key: _listViewportKey, child: body);
+    final listBody = widget.tableLayout
+        ? Column(
+            children: [
+              const TrackTableHeader(),
+              Expanded(child: viewport),
+            ],
+          )
+        : viewport;
     if (!isSelectionMode) {
       return listBody;
     }
@@ -482,6 +493,7 @@ class _TrackListState extends State<TrackList> {
     final isLiked = widget.likedTrackIds.contains(trackId);
 
     return TrackListTile(
+      tableLayout: widget.tableLayout,
       l10n: l10n,
       index: i,
       track: t,
@@ -791,9 +803,8 @@ class _TrackListState extends State<TrackList> {
     if (!context.mounted) return null;
     final l10n = AppLocalizations.of(context)!;
     if (encoders.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(l10n.transcodeNoEncoders)));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(l10n.transcodeNoEncoders)));
       return null;
     }
     if (_isDesktopPlatform && anchorGlobalPosition != null) {

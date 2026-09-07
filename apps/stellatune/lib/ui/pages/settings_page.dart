@@ -1,3 +1,5 @@
+import 'package:stellatune/ui/pages/settings/widgets/settings_form_row.dart';
+
 import 'dart:io';
 import 'dart:async';
 
@@ -5,6 +7,8 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:window_manager/window_manager.dart';
+import 'package:windows_file_picker/windows_file_picker.dart';
 import 'package:stellatune/app/providers.dart';
 import 'package:stellatune/app/plugin_paths.dart';
 import 'package:stellatune/bridge/api/player.dart' as player_api;
@@ -21,6 +25,10 @@ import 'package:stellatune/ui/pages/settings/widgets/settings_appearance_section
 import 'package:stellatune/ui/pages/settings/widgets/settings_lyrics_cache_section.dart';
 import 'package:stellatune/ui/pages/settings/widgets/settings_plugins_list.dart';
 import 'package:stellatune/ui/pages/settings/widgets/settings_section_card.dart';
+import 'package:stellatune/library/library_controller.dart';
+
+import 'settings/desktop_settings_view.dart';
+import 'settings/widgets/settings_library_section.dart';
 
 class _PluginRuntimeSnapshot {
   const _PluginRuntimeSnapshot({
@@ -80,6 +88,7 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
   bool _cachedSourceTypesReady = false;
   ResampleQuality _resampleQuality = ResampleQuality.high;
   bool _applyingPlaybackLatency = false;
+  bool _installingPlugin = false;
   int _playbackLatencyRevision = 0;
 
   @override
@@ -228,7 +237,72 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
     );
 
     if (widget.useGlobalTopBar) {
-      return pageBody;
+      final library = ref.watch(libraryControllerProvider);
+      return DesktopSettingsView(
+        panels: [
+          SettingsPanel(
+            id: 'appearance',
+            keywords:
+                '外观 appearance 语言 language 主题 theme 托盘 tray ${l10n.settingsAppearanceTitle}',
+            child: _buildAppearanceCard(l10n),
+          ),
+          SettingsPanel(
+            id: 'playback',
+            keywords: '播放 playback 淡入淡出 fade 延迟 latency 缓冲 buffer',
+            child: SettingsSectionCard(
+              title: '播放',
+              icon: Icons.play_circle_outline,
+              subtitle: '调整播放行为与体验细节',
+              children: [
+                _buildSeekTrackFadeOption(l10n),
+                _buildPlaybackLatencyField(l10n),
+              ],
+            ),
+          ),
+          SettingsPanel(
+            id: 'audio',
+            keywords: '音频 audio 输出 output 后端 backend 设备 device 重采样 resample 独占 exclusive 无缝 gapless',
+            child: _buildOutputCard(l10n, devices),
+          ),
+          SettingsPanel(
+            id: 'library',
+            keywords: '音乐库 library 文件夹 folder 扫描 scan',
+            child: SettingsLibrarySection(
+              roots: library.roots,
+              isScanning: library.isScanning,
+              status:
+                  library.lastError ??
+                  (library.isScanning
+                      ? '已扫描 ${library.progress.scanned} 项'
+                      : null),
+              onAdd: () async {
+                final path = await FilePicker.getDirectoryPath(
+                  dialogTitle: l10n.dialogSelectMusicFolder,
+                );
+                if (path == null || !mounted) return;
+                await ref
+                    .read(libraryControllerProvider.notifier)
+                    .addRoot(path, scanAfter: true);
+              },
+              onRemove: (path) =>
+                  ref.read(libraryControllerProvider.notifier).removeRoot(path),
+              onScan: (force) => ref
+                  .read(libraryControllerProvider.notifier)
+                  .scanAll(force: force),
+            ),
+          ),
+          SettingsPanel(
+            id: 'plugins',
+            keywords: '插件 plugins 扩展 安装 install ${l10n.settingsPluginsTitle}',
+            child: _buildPluginsCard(l10n),
+          ),
+          SettingsPanel(
+            id: 'lyrics',
+            keywords: '歌词 lyrics 缓存 cache 清理 ${l10n.settingsLyricsTitle}',
+            child: _buildLyricsCacheCard(l10n),
+          ),
+        ],
+      );
     }
 
     return Scaffold(appBar: appBar, body: pageBody);
@@ -396,6 +470,7 @@ extension _SettingsRuntimeOps on SettingsPageState {
   }
 
   Future<void> _uninstallPlugin(InstalledPlugin plugin) async {
+    logger.i('plugin uninstall begin id=${plugin.id}');
     await _ensurePluginDir();
     final pluginId = plugin.id?.trim();
     if (pluginId != null && pluginId.isNotEmpty) {
@@ -407,6 +482,7 @@ extension _SettingsRuntimeOps on SettingsPageState {
       await ref.read(libraryBridgeProvider).pluginApplyState();
     }
     await _refreshDecoderExtensionSupportCache();
+    logger.i('plugin uninstall completed id=${plugin.id}');
     if (!mounted) return;
     _updateUi(_refresh);
     ScaffoldMessenger.of(context).showSnackBar(
@@ -417,19 +493,47 @@ extension _SettingsRuntimeOps on SettingsPageState {
   }
 
   Future<void> _installPluginArtifact() async {
+    if (_installingPlugin) return;
+    _updateUi(() => _installingPlugin = true);
+    try {
+      await _pickAndInstallPluginArtifact();
+    } catch (e, s) {
+      logger.e('failed to prepare plugin installation', error: e, stackTrace: s);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(
+          AppLocalizations.of(context)!.settingsPluginInstallFailed(e.toString()),
+        )),
+      );
+    } finally {
+      if (mounted) _updateUi(() => _installingPlugin = false);
+    }
+  }
+
+  Future<void> _pickAndInstallPluginArtifact() async {
     final l10n = AppLocalizations.of(context)!;
     await _ensurePluginDir();
     final pluginDir = _pluginDir!;
 
     PlatformFile? picked;
     try {
+      // Resolve the APP window before the picker starts its background isolate.
+      // GetForegroundWindow there can instead pick a newly opened Explorer window.
+      final parentWindow = Platform.isWindows ? await windowManager.getId() : null;
+      if (!mounted) return;
+      logger.i('plugin file picker begin parent=$parentWindow');
       picked = await FilePicker.pickFile(
         dialogTitle: l10n.settingsInstallPluginPickFolder,
         type: FileType.custom,
         allowedExtensions: ['zip'],
-        windowsOptions: const WindowsOptions(lockParentWindow: true),
+        windowsOptions: FilePickerWindowsOptions(
+          lockParentWindow: true,
+          parentWindowHandle: parentWindow,
+        ),
         linuxOptions: const LinuxOptions(lockParentWindow: true),
       );
+      logger.i('plugin file picker completed selected=${picked != null}');
+      if (!mounted) return;
     } catch (e, s) {
       logger.e(
         'failed to open plugin artifact picker',
@@ -459,12 +563,14 @@ extension _SettingsRuntimeOps on SettingsPageState {
     }
 
     try {
+      logger.i('plugin install begin');
       final bridge = ref.read(playerBridgeProvider);
       await bridge.pluginsInstallFromFile(
         dir: pluginDir,
         artifactPath: srcPath,
       );
       await _refreshDecoderExtensionSupportCache();
+      logger.i('plugin install completed');
       if (!mounted) return;
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(l10n.settingsPluginInstalled)));
@@ -491,6 +597,25 @@ extension _SettingsRuntimeOps on SettingsPageState {
       if (mounted) {
         _updateUi(_refresh);
       }
+    }
+  }
+
+  Future<void> _openPluginDirectory(String dir) async {
+    try {
+      logger.i('open plugin directory begin');
+      if (Platform.isWindows) {
+        // Avoid waiting on an in-process ShellExecute call on Flutter's platform thread.
+        await Process.start('explorer.exe', [dir], mode: ProcessStartMode.detached);
+      } else if (!await launchUrl(Uri.directory(dir))) {
+        throw StateError('failed to open plugin directory');
+      }
+      logger.i('open plugin directory dispatched');
+    } catch (e, s) {
+      logger.e('failed to open plugin directory', error: e, stackTrace: s);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to open plugin directory: $e')),
+      );
     }
   }
 
@@ -737,14 +862,13 @@ extension _SettingsBuildSections on SettingsPageState {
     return SettingsAppearanceSection(
       l10n: l10n,
       locale: settings.locale,
-      themeMode: settings.themeMode,
+      desktopTheme: settings.desktopTheme,
+      onDesktopThemeChanged: ref
+          .read(settingsStoreProvider.notifier)
+          .setDesktopTheme,
       closeToTray: settings.closeToTray,
       onLocaleChanged: (locale) async {
         await ref.read(settingsStoreProvider.notifier).setLocale(locale);
-        _updateUi(() {});
-      },
-      onThemeModeChanged: (mode) async {
-        await ref.read(settingsStoreProvider.notifier).setThemeMode(mode);
         _updateUi(() {});
       },
       onCloseToTrayChanged: (enabled) async {
@@ -757,6 +881,8 @@ extension _SettingsBuildSections on SettingsPageState {
   Widget _buildOutputCard(AppLocalizations l10n, List<AudioDevice> devices) {
     return SettingsSectionCard(
       title: l10n.settingsOutputTitle,
+      icon: Icons.graphic_eq,
+      subtitle: '配置音频输出与音质相关选项',
       headerBottomSpacing: 8,
       children: [
         _buildOutputBackendField(l10n),
@@ -764,8 +890,10 @@ extension _SettingsBuildSections on SettingsPageState {
         _buildOutputDeviceField(l10n: l10n, devices: devices),
         const SizedBox(height: 12),
         _buildWasapiExclusiveOptions(l10n),
-        _buildSeekTrackFadeOption(l10n),
-        _buildPlaybackLatencyField(l10n),
+        if (!widget.useGlobalTopBar) ...[
+          _buildSeekTrackFadeOption(l10n),
+          _buildPlaybackLatencyField(l10n),
+        ],
         _buildResampleQualityField(l10n),
       ],
     );
@@ -791,7 +919,7 @@ extension _SettingsBuildSections on SettingsPageState {
           );
         }
 
-        return DropdownButtonFormField<String>(
+        return SettingsSelectField<String>(
           decoration: InputDecoration(
             labelText: l10n.settingsBackend,
             border: const OutlineInputBorder(),
@@ -953,7 +1081,7 @@ extension _SettingsBuildSections on SettingsPageState {
   }) {
     final selectedBackendKey = _currentSelectedBackendKey();
     final localBackend = _parseLocalBackendKey(selectedBackendKey);
-    return DropdownButtonFormField<String?>(
+    return SettingsSelectField<String?>(
       decoration: InputDecoration(
         labelText: l10n.settingsDevice,
         border: const OutlineInputBorder(),
@@ -1066,7 +1194,7 @@ extension _SettingsBuildSections on SettingsPageState {
     }
     return Column(
       children: [
-        SwitchListTile(
+        SettingsToggleRow(
           dense: true,
           contentPadding: EdgeInsets.zero,
           title: Text(l10n.settingsMatchTrackSampleRate),
@@ -1079,7 +1207,7 @@ extension _SettingsBuildSections on SettingsPageState {
             _updateUi(() {});
           },
         ),
-        SwitchListTile(
+        SettingsToggleRow(
           dense: true,
           contentPadding: EdgeInsets.zero,
           title: Text(l10n.settingsGaplessPlayback),
@@ -1097,10 +1225,11 @@ extension _SettingsBuildSections on SettingsPageState {
   }
 
   Widget _buildSeekTrackFadeOption(AppLocalizations l10n) {
-    return SwitchListTile(
+    return SettingsToggleRow(
       dense: true,
       contentPadding: EdgeInsets.zero,
       title: Text(l10n.settingsSeekTrackFade),
+      subtitle: const Text('让跳转与切歌时的声音过渡更自然'),
       value: ref.watch(settingsStoreProvider).seekTrackFade,
       onChanged: (v) async {
         await ref.read(settingsStoreProvider.notifier).setSeekTrackFade(v);
@@ -1114,7 +1243,7 @@ extension _SettingsBuildSections on SettingsPageState {
     final value = ref.watch(settingsStoreProvider).playbackLatency;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
-      child: DropdownButtonFormField<PlaybackLatency>(
+      child: SettingsSelectField<PlaybackLatency>(
         key: ValueKey((value, _playbackLatencyRevision)),
         initialValue: value,
         decoration: InputDecoration(
@@ -1177,7 +1306,7 @@ extension _SettingsBuildSections on SettingsPageState {
   Widget _buildResampleQualityField(AppLocalizations l10n) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8.0),
-      child: DropdownButtonFormField<ResampleQuality>(
+      child: SettingsSelectField<ResampleQuality>(
         decoration: InputDecoration(
           labelText: l10n.settingsResampleQuality,
           border: const OutlineInputBorder(),
@@ -1218,6 +1347,8 @@ extension _SettingsBuildSections on SettingsPageState {
   Widget _buildPluginsCard(AppLocalizations l10n) {
     return SettingsSectionCard(
       title: l10n.settingsPluginsTitle,
+      icon: Icons.extension_outlined,
+      subtitle: '管理音源、解码器与输出扩展',
       headerBottomSpacing: 6,
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
@@ -1225,7 +1356,7 @@ extension _SettingsBuildSections on SettingsPageState {
           IconButton(
             visualDensity: VisualDensity.compact,
             tooltip: l10n.settingsInstallPlugin,
-            onPressed: _installPluginArtifact,
+            onPressed: _installingPlugin ? null : _installPluginArtifact,
             icon: const Icon(Icons.add),
           ),
           IconButton(
@@ -1242,12 +1373,7 @@ extension _SettingsBuildSections on SettingsPageState {
               return IconButton(
                 visualDensity: VisualDensity.compact,
                 tooltip: l10n.settingsOpenPluginDir,
-                onPressed: () async {
-                  final uri = Uri.directory(dir);
-                  if (await canLaunchUrl(uri)) {
-                    await launchUrl(uri);
-                  }
-                },
+                onPressed: _installingPlugin ? null : () => _openPluginDirectory(dir),
                 icon: const Icon(Icons.folder_open_outlined),
               );
             },

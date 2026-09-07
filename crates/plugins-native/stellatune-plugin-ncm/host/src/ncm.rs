@@ -11,9 +11,18 @@ pub struct NcmSource {
     pub info: ncmdump::NcmInfo,
     pub start: u64,
     pub length: u64,
+    /// Physical file offset and actual image length (excluding reserved padding).
+    pub cover: Option<(u64, u32)>,
 }
 
-impl NcmSource {
+pub struct NcmContainer {
+    reader: ncmdump::Ncmdump<File>,
+    pub info: ncmdump::NcmInfo,
+    payload_start: u64,
+    pub cover: Option<(u64, u32)>,
+}
+
+impl NcmContainer {
     pub fn open(path: &Path) -> Result<Self> {
         let mut file = File::open(path)?;
         // Bound header allocations in ncmdump before handing it the reader.
@@ -32,6 +41,7 @@ impl NcmSource {
         file.seek(SeekFrom::Current(i64::from(info_len) + 5))?;
         let cover_len = read_u32(&mut file)?;
         let image_len = read_u32(&mut file)?;
+        let image_start = file.stream_position()?;
         ensure!(image_len <= cover_len, "invalid NCM cover length");
         ensure!(
             file.stream_position()? + u64::from(cover_len) < size,
@@ -47,6 +57,24 @@ impl NcmSource {
             matches!(info.format.as_str(), "mp3" | "flac"),
             "unsupported NCM payload"
         );
+        Ok(Self {
+            reader,
+            info,
+            payload_start,
+            cover: (image_len > 0 && image_len <= 12 * 1024 * 1024)
+                .then_some((image_start, image_len)),
+        })
+    }
+}
+
+impl NcmSource {
+    pub fn open(path: &Path) -> Result<Self> {
+        let NcmContainer {
+            mut reader,
+            info,
+            payload_start,
+            cover,
+        } = NcmContainer::open(path)?;
         let end = reader.seek(SeekFrom::End(0))?;
         reader.seek(SeekFrom::Start(payload_start))?;
         let mut start = payload_start;
@@ -75,6 +103,7 @@ impl NcmSource {
             info,
             start,
             length: end - start,
+            cover,
         })
     }
 }

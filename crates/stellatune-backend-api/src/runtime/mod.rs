@@ -44,9 +44,17 @@ pub fn shared_typescript_runtime() -> Arc<stellatune_plugins::typescript::TypeSc
     static RUNTIME: OnceLock<Arc<stellatune_plugins::typescript::TypeScriptRuntime>> =
         OnceLock::new();
     Arc::clone(RUNTIME.get_or_init(|| {
-        Arc::new(stellatune_plugins::typescript::TypeScriptRuntime::new(
-            typescript_runner_path(),
-        ))
+        let directory = plugin_runtime_directory();
+        let node = std::env::var_os("STELLATUNE_NODE_BINARY")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| directory.join(node_executable_name()));
+        let runner = std::env::var_os("STELLATUNE_TYPESCRIPT_RUNNER")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| directory.join("runner.mjs"));
+        tracing::info!(node = %node.display(), runner = %runner.display(), "plugin runtime paths");
+        Arc::new(
+            stellatune_plugins::typescript::TypeScriptRuntime::new(runner).with_node_binary(node),
+        )
     }))
 }
 
@@ -69,25 +77,25 @@ pub fn shared_plugin_manager(plugins_dir: &Path) -> PluginManagerHandle {
         .clone()
 }
 
-fn typescript_runner_path() -> PathBuf {
-    if let Some(path) = std::env::var_os("STELLATUNE_TYPESCRIPT_RUNNER") {
-        return PathBuf::from(path);
+fn plugin_runtime_directory() -> PathBuf {
+    // Never fall back to a developer's source checkout or a machine-wide Node.
+    std::env::current_exe()
+        .expect("application executable path is available")
+        .parent()
+        .expect("application executable has a parent directory")
+        .join("plugin-runtime")
+}
+
+fn node_executable_name() -> &'static str {
+    if cfg!(windows) {
+        "node.exe"
+    } else if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+        "node-arm64"
+    } else if cfg!(target_os = "macos") {
+        "node-x64"
+    } else {
+        "node"
     }
-    if let Ok(executable) = std::env::current_exe()
-        && let Some(directory) = executable.parent()
-    {
-        for relative in [
-            "typescript-plugin-runtime/runner.mjs",
-            "tools/typescript-plugin-runtime/runner.mjs",
-            "runner.mjs",
-        ] {
-            let candidate = directory.join(relative);
-            if candidate.is_file() {
-                return candidate;
-            }
-        }
-    }
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tools/typescript-plugin-runtime/runner.mjs")
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

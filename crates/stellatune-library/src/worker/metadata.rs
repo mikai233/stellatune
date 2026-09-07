@@ -143,7 +143,7 @@ pub(super) fn extract_metadata_with_plugins(
             artist: metadata.artist,
             album: metadata.album,
             duration_ms: metadata.duration_ms,
-            cover: None,
+            cover: metadata.cover.or_else(|| load_sidecar_cover(path)),
         });
     }
     extract_metadata(path)

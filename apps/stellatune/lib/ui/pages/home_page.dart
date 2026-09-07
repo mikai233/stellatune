@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+
+import 'dart:io';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:stellatune/app/providers.dart';
 import 'package:stellatune/bridge/bridge.dart';
@@ -8,6 +11,10 @@ import 'package:stellatune/player/queue_controller.dart';
 import 'package:stellatune/player/queue_models.dart';
 import 'package:stellatune/ui/pages/home/widgets/home_page_widgets.dart';
 import 'package:stellatune/ui/pages/music_detail_page.dart';
+
+import 'home/home_view.dart';
+import 'home/home_view_data.dart';
+import 'home/home_placeholders.dart';
 
 final homeAllTracksProvider = FutureProvider.autoDispose<List<TrackLite>>((
   ref,
@@ -33,7 +40,6 @@ class HomePage extends ConsumerWidget {
     final l10n = AppLocalizations.of(context)!;
     final desktopWide = MediaQuery.sizeOf(context).width >= 900;
     final listTopPadding = desktopWide ? 84.0 : 24.0;
-    final playback = ref.watch(playbackControllerProvider);
     final queue = ref.watch(queueControllerProvider);
     final coverDir = ref.watch(coverDirProvider);
     final allTracksAsync = ref.watch(homeAllTracksProvider);
@@ -43,6 +49,104 @@ class HomePage extends ConsumerWidget {
         : _buildRecentlyAdded(allTracksAsync.value!);
     final continueListening = _buildContinueListening(queue, maxItems: 10);
 
+    if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+      void placeholder() => ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('这里暂时展示设计占位内容'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      final hour = DateTime.now().hour;
+      return HomeView(
+        greeting: hour < 11
+            ? '早上好'
+            : hour < 18
+            ? '下午好'
+            : '晚上好',
+        data: HomeViewData(
+          continueListening: continueListening.isEmpty
+              ? HomePlaceholders.listening
+              : [
+                  for (var i = 0; i < continueListening.length; i++)
+                    HomeCardData(
+                      title: continueListening[i].item.displayTitle,
+                      subtitle: continueListening[i].item.artist ?? '',
+                      artwork: HomePlaceholders
+                          .artwork[i % HomePlaceholders.artwork.length],
+                      coverPath: continueListening[i].item.id == null
+                          ? null
+                          : '$coverDir${Platform.pathSeparator}${continueListening[i].item.id}',
+                    ),
+                ],
+          recentlyAdded: recentlyAdded.isEmpty
+              ? HomePlaceholders.recent
+              : [
+                  for (var i = 0; i < recentlyAdded.length; i++)
+                    HomeCardData(
+                      title: _trackTitle(recentlyAdded[i], l10n),
+                      subtitle: recentlyAdded[i].artist ?? '',
+                      artwork: HomePlaceholders
+                          .artwork[i % HomePlaceholders.artwork.length],
+                      coverPath:
+                          '$coverDir${Platform.pathSeparator}${recentlyAdded[i].id}',
+                    ),
+                ],
+        ),
+        onResume: () {
+          if (queue.currentItem != null) {
+            ref.read(playbackControllerProvider.notifier).play();
+          } else if (recentlyAdded.isNotEmpty) {
+            ref
+                .read(playbackControllerProvider.notifier)
+                .setQueueAndPlayTracks(
+                  recentlyAdded,
+                  startIndex: 0,
+                  source: QueueSource(
+                    type: QueueSourceType.all,
+                    label: l10n.libraryAllMusic,
+                  ),
+                );
+          } else {
+            onOpenLibrary();
+          }
+        },
+        onContinue: (index) {
+          if (continueListening.isEmpty) {
+            placeholder();
+            return;
+          }
+          ref
+              .read(playbackControllerProvider.notifier)
+              .playIndex(continueListening[index].index);
+        },
+        onRecent: (index) {
+          if (recentlyAdded.isEmpty) {
+            placeholder();
+            return;
+          }
+          ref
+              .read(playbackControllerProvider.notifier)
+              .setQueueAndPlayTracks(
+                recentlyAdded,
+                startIndex: index,
+                source: QueueSource(
+                  type: QueueSourceType.all,
+                  label: l10n.libraryAllMusic,
+                ),
+              );
+        },
+        onOpenLibrary: onOpenLibrary,
+        onOpenPlaceholder: placeholder,
+      );
+    }
+
+    // Only the mobile hero displays decoder duration. Desktop cards depend on
+    // the queue/library, and neither layout needs playback position updates.
+    final durationMs = ref.watch(
+      playbackControllerProvider.select(
+        (state) => state.trackInfo?.durationMs?.toInt(),
+      ),
+    );
     final fallbackTrack = recentlyAdded.isEmpty ? null : recentlyAdded.first;
     final currentItem = queue.currentItem;
     final heroTitle =
@@ -51,15 +155,10 @@ class HomePage extends ConsumerWidget {
         ? _subtitle(currentItem.artist, currentItem.album, l10n)
         : _subtitle(fallbackTrack?.artist, fallbackTrack?.album, l10n);
     final heroDurationMs =
-        (currentItem == null
-            ? null
-            : playback.trackInfo?.durationMs?.toInt()) ??
-        (fallbackTrack?.durationMs == null
-            ? null
-            : fallbackTrack!.durationMs!.toInt());
+        (currentItem == null ? null : durationMs) ??
+        fallbackTrack?.durationMs?.toInt();
     final heroTrackId = currentItem?.id ?? fallbackTrack?.id.toInt();
-
-    final hasAnyMusic = (queue.items.isNotEmpty) || recentlyAdded.isNotEmpty;
+    final hasAnyMusic = queue.items.isNotEmpty || recentlyAdded.isNotEmpty;
 
     return Stack(
       children: [

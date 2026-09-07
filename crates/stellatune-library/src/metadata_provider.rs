@@ -1,13 +1,14 @@
 use std::path::Path;
 
 /// Metadata supplied by an optional application-owned local-source provider.
-#[derive(Default, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Default)]
 pub struct LocalFileMetadata {
     pub title: Option<String>,
     pub artist: Option<String>,
     pub album: Option<String>,
     pub duration_ms: Option<i64>,
+    /// Embedded artwork bytes, ready for the library's normal cover cache.
+    pub cover: Option<Vec<u8>>,
 }
 
 pub trait MetadataProvider: Send + Sync {

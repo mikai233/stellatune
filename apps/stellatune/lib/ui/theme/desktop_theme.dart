@@ -1,0 +1,158 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:stellatune/app/desktop_theme_preset.dart';
+import 'package:stellatune/app/settings_store.dart';
+
+import 'artwork_palette.dart';
+
+export 'package:stellatune/app/desktop_theme_preset.dart';
+
+/// Hand-tuned desktop colors. Each preset is independent of artwork and audio.
+/// Edit these literals to adjust a theme without changing extraction algorithms.
+extension DesktopThemeColors on DesktopThemePreset {
+  String get label => switch (this) {
+    DesktopThemePreset.dusk => '暮色',
+    DesktopThemePreset.mist => '雾蓝',
+    DesktopThemePreset.graphite => '石墨',
+    DesktopThemePreset.nebula => '星云',
+    DesktopThemePreset.sunroom => '暖阳',
+    DesktopThemePreset.daylight => '晴空',
+    DesktopThemePreset.lavender => '薰衣草',
+    DesktopThemePreset.celadon => '青瓷',
+  };
+
+  ArtworkPalette get palette => switch (this) {
+    DesktopThemePreset.daylight => const ArtworkPalette(
+      backgroundAsset: 'assets/images/backgrounds/daylight.png',
+      homeBannerAsset: 'assets/images/banners/daylight.png',
+      backgroundTint: Color(0x80E6F0F8),
+      onBackdrop: Color(0xFF30475E),
+      onSurface: Color(0xFF30475E),
+      onSurfaceVariant: Color(0xFF5C6F80),
+      top: Color(0xFFC7DFEF),
+      bottom: Color(0xFFE1EDF5),
+      glow: Color(0xFFF6FAFF),
+      accent: Color(0xFF3E6E96),
+      surface: Color(0xFFF4F9FD),
+      playerSurface: Color(0xF5E3EDF5),
+      detailTop: Color(0xFF253344),
+      detailBottom: Color(0xFF3E546B),
+    ),
+    DesktopThemePreset.lavender => const ArtworkPalette(
+      backgroundAsset: 'assets/images/backgrounds/lavender.png',
+      homeBannerAsset: 'assets/images/banners/lavender.png',
+      backgroundTint: Color(0x66F0EAF5),
+      onBackdrop: Color(0xFF51435F),
+      onSurface: Color(0xFF51435F),
+      onSurfaceVariant: Color(0xFF766580),
+      top: Color(0xFFE0D7E9),
+      bottom: Color(0xFFF0E5EB),
+      glow: Color(0xFFFFF7FC),
+      accent: Color(0xFF7A588F),
+      surface: Color(0xFFFCF7FD),
+      playerSurface: Color(0xF5ECE2F0),
+      detailTop: Color(0xFF342A40),
+      detailBottom: Color(0xFF574461),
+    ),
+    DesktopThemePreset.celadon => const ArtworkPalette(
+      backgroundAsset: 'assets/images/backgrounds/celadon.png',
+      homeBannerAsset: 'assets/images/banners/celadon.png',
+      backgroundTint: Color(0x80EAF2EB),
+      onBackdrop: Color(0xFF354F46),
+      onSurface: Color(0xFF354F46),
+      onSurfaceVariant: Color(0xFF60776C),
+      top: Color(0xFFCDDFD4),
+      bottom: Color(0xFFE5EFE6),
+      glow: Color(0xFFF7FCF5),
+      accent: Color(0xFF42745F),
+      surface: Color(0xFFF5FBF6),
+      playerSurface: Color(0xF5E1EDE3),
+      detailTop: Color(0xFF263830),
+      detailBottom: Color(0xFF425A4D),
+    ),
+    DesktopThemePreset.dusk => const ArtworkPalette(
+      backgroundAsset: 'assets/images/backgrounds/dusk.png',
+      homeBannerAsset: 'assets/images/banners/dusk.png',
+      backgroundTint: Color(0x665F6570),
+      top: Color(0xFF566273),
+      bottom: Color(0xFF887B79),
+      glow: Color(0xFFD2AB8E),
+      accent: Color(0xFFB9C8DD),
+      surface: Color(0xFF303B49),
+      playerSurface: Color(0xED323B48),
+      detailTop: Color(0xFF272D38),
+      detailBottom: Color(0xFF48424B),
+      onSurface: Color(0xFFF0F1F4),
+      onSurfaceVariant: Color(0xFFBCC3CE),
+      onAccent: Color(0xFF29313E),
+    ),
+    DesktopThemePreset.mist => const ArtworkPalette(
+      backgroundAsset: 'assets/images/backgrounds/mist.png',
+      homeBannerAsset: 'assets/images/banners/mist.png',
+      backgroundTint: Color(0x66566B78),
+      top: Color(0xFF475D6E),
+      bottom: Color(0xFF71858C),
+      glow: Color(0xFFABCBD1),
+      accent: Color(0xFFA8D0DC),
+      surface: Color(0xFF2B414C),
+      playerSurface: Color(0xF02B414C),
+      detailTop: Color(0xFF202E38),
+      detailBottom: Color(0xFF374D57),
+      onSurface: Color(0xFFF0F1F4),
+      onSurfaceVariant: Color(0xFFBCC3CE),
+      onAccent: Color(0xFF29313E),
+    ),
+    DesktopThemePreset.graphite => const ArtworkPalette(
+      backgroundAsset: 'assets/images/backgrounds/graphite.png',
+      homeBannerAsset: 'assets/images/banners/graphite.png',
+      backgroundTint: Color(0x66444B56),
+      top: Color(0xFF303740),
+      bottom: Color(0xFF505862),
+      glow: Color(0xFF798393),
+      accent: Color(0xFFC2CBD9),
+      surface: Color(0xFF30363F),
+      playerSurface: Color(0xF030363F),
+      detailTop: Color(0xFF20242B),
+      detailBottom: Color(0xFF343C46),
+      onSurface: Color(0xFFF0F1F4),
+      onSurfaceVariant: Color(0xFFBCC3CE),
+      onAccent: Color(0xFF29313E),
+    ),
+    DesktopThemePreset.sunroom => const ArtworkPalette(
+      backgroundAsset: 'assets/images/backgrounds/sunroom.png',
+      homeBannerAsset: 'assets/images/banners/sunroom.png',
+      backgroundTint: Color(0x66F4EBDD),
+      onBackdrop: Color(0xFF514438),
+      onSurface: Color(0xFF514438),
+      onSurfaceVariant: Color(0xFF756555),
+      top: Color(0xFFD9C8AF),
+      bottom: Color(0xFFEBD9BD),
+      glow: Color(0xFFFFF4DD),
+      accent: Color(0xFF89603F),
+      surface: Color(0xFFFFF9EF),
+      playerSurface: Color(0xFFF1E5D5),
+      detailTop: Color(0xFF342C26),
+      detailBottom: Color(0xFF554436),
+    ),
+    DesktopThemePreset.nebula => const ArtworkPalette(
+      backgroundAsset: 'assets/images/backgrounds/nebula.png',
+      homeBannerAsset: 'assets/images/banners/nebula.png',
+      backgroundTint: Color(0x59464A65),
+      top: Color(0xFF252C48),
+      bottom: Color(0xFF59516E),
+      glow: Color(0xFFA493BA),
+      accent: Color(0xFFD0BEE8),
+      surface: Color(0xFF363348),
+      playerSurface: Color(0xF0363348),
+      detailTop: Color(0xFF212438),
+      detailBottom: Color(0xFF40384F),
+      onSurface: Color(0xFFF0F1F4),
+      onSurfaceVariant: Color(0xFFBCC3CE),
+      onAccent: Color(0xFF29313E),
+    ),
+  };
+}
+
+final desktopPaletteProvider = Provider<ArtworkPalette>((ref) {
+  return ref.watch(settingsStoreProvider.select((s) => s.desktopTheme)).palette;
+});

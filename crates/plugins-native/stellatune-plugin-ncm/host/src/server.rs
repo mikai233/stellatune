@@ -1,4 +1,4 @@
-use crate::ncm::NcmSource;
+use crate::ncm::{NcmContainer, NcmSource};
 use anyhow::{Result, ensure};
 use axum::{
     Router,
@@ -22,6 +22,7 @@ struct Entry {
     path: PathBuf,
     size: u64,
     modified: SystemTime,
+    cover: Option<(u64, u32)>,
 }
 
 #[derive(Default)]
@@ -39,45 +40,59 @@ pub fn command(state: &Shared, base: &str, request: &Value) -> Result<Value> {
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("path required"))?,
     )?;
-    let source = NcmSource::open(&path)?;
+    ensure!(
+        matches!(
+            request["operation"].as_str(),
+            Some("inspect-file" | "resolve-file")
+        ),
+        "unsupported NCM operation"
+    );
+    let (info, cover) = if request["operation"] == "inspect-file" {
+        let container = NcmContainer::open(&path)?;
+        (container.info, container.cover)
+    } else {
+        let source = NcmSource::open(&path)?;
+        (source.info, source.cover)
+    };
+    let metadata = std::fs::metadata(&path)?;
+    let mut state = state.lock().unwrap();
+    let id = if let Some(id) = state.paths.get(&path).copied()
+        && let Some(entry) = state.entries.get(&id)
+        && entry.size == metadata.len()
+        && entry.modified == metadata.modified()?
+    {
+        id
+    } else {
+        state.next_id += 1;
+        let id = state.next_id;
+        if let Some(old) = state.paths.insert(path.clone(), id) {
+            state.entries.remove(&old);
+        }
+        state.entries.insert(
+            id,
+            Entry {
+                path,
+                size: metadata.len(),
+                modified: metadata.modified()?,
+                cover,
+            },
+        );
+        id
+    };
+
     match request["operation"].as_str() {
         Some("inspect-file") => Ok(json!({
-            "title": source.info.name,
-            "artist": source.info.artist.iter().map(|row| row.0.as_str()).collect::<Vec<_>>().join(" / "),
-            "album": source.info.album,
-            "durationMs": source.info.duration,
+            "title": info.name,
+            "artist": info.artist.iter().map(|row| row.0.as_str()).collect::<Vec<_>>().join(" / "),
+            "album": info.album,
+            "durationMs": info.duration,
+            "coverUrl": cover.map(|_| format!("{base}/cover/{id}")),
         })),
-        Some("resolve-file") => {
-            let metadata = std::fs::metadata(&path)?;
-            let mut state = state.lock().unwrap();
-            let id = if let Some(id) = state.paths.get(&path).copied()
-                && let Some(entry) = state.entries.get(&id)
-                && entry.size == metadata.len()
-                && entry.modified == metadata.modified()?
-            {
-                id
-            } else {
-                state.next_id += 1;
-                let id = state.next_id;
-                if let Some(old) = state.paths.insert(path.clone(), id) {
-                    state.entries.remove(&old);
-                }
-                state.entries.insert(
-                    id,
-                    Entry {
-                        path,
-                        size: metadata.len(),
-                        modified: metadata.modified()?,
-                    },
-                );
-                id
-            };
-            Ok(json!({
-                "source": {"kind": "http", "url": format!("{base}/audio/{id}"), "headers": {}},
-                "media": {"codecHint": source.info.format},
-                "capabilities": {"seekable": true, "live": false, "durationMs": source.info.duration}
-            }))
-        },
+        Some("resolve-file") => Ok(json!({
+            "source": {"kind": "http", "url": format!("{base}/audio/{id}"), "headers": {}},
+            "media": {"codecHint": info.format},
+            "capabilities": {"seekable": true, "live": false, "durationMs": info.duration}
+        })),
         _ => anyhow::bail!("unsupported NCM operation"),
     }
 }
@@ -85,7 +100,41 @@ pub fn command(state: &Shared, base: &str, request: &Value) -> Result<Value> {
 pub fn router(state: Shared) -> Router {
     Router::new()
         .route("/audio/{id}", get(audio))
+        .route("/cover/{id}", get(cover))
         .with_state(state)
+}
+
+async fn cover(State(state): State<Shared>, Path(id): Path<u64>) -> Response {
+    let Some(entry) = state.lock().unwrap().entries.get(&id).cloned() else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let Some((offset, length)) = entry.cover else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let read = tokio::task::spawn_blocking(move || -> Result<Vec<u8>> {
+        let mut file = std::fs::File::open(&entry.path)?;
+        let metadata = file.metadata()?;
+        ensure!(
+            metadata.len() == entry.size && metadata.modified()? == entry.modified,
+            "NCM file changed; inspect it again"
+        );
+        file.seek(SeekFrom::Start(offset))?;
+        let mut bytes = vec![0; length as usize];
+        file.read_exact(&mut bytes)?;
+        Ok(bytes)
+    })
+    .await;
+    match read {
+        Ok(Ok(bytes)) => (
+            [
+                ("content-type", "application/octet-stream"),
+                ("cache-control", "no-store"),
+            ],
+            bytes,
+        )
+            .into_response(),
+        _ => StatusCode::CONFLICT.into_response(),
+    }
 }
 
 async fn audio(

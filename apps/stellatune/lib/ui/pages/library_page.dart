@@ -16,6 +16,8 @@ import 'package:stellatune/ui/widgets/folder_tree.dart';
 import 'package:stellatune/player/track_playability_utils.dart';
 import 'package:stellatune/ui/pages/library/widgets/library_tracks_content.dart';
 
+import 'library/desktop_library_view.dart';
+
 class LibraryPage extends ConsumerStatefulWidget {
   const LibraryPage({super.key, this.useGlobalTopBar = false});
 
@@ -30,6 +32,7 @@ class LibraryPageState extends ConsumerState<LibraryPage> {
 
   final _searchController = TextEditingController();
   bool _foldersPaneCollapsed = false;
+  LibrarySection _desktopSection = LibrarySection.songs;
   final ValueNotifier<double> _foldersPaneWidth = ValueNotifier(
     _minFoldersPaneWidth,
   );
@@ -75,10 +78,9 @@ class LibraryPageState extends ConsumerState<LibraryPage> {
     unawaited(_refreshDecoderExtensionSupport());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      final selectedPlaylistId = ref
-          .read(libraryControllerProvider)
-          .selectedPlaylistId;
-      if (selectedPlaylistId != null) {
+      final selection = ref.read(libraryControllerProvider);
+      if (selection.selectedPlaylistId != null ||
+          (widget.useGlobalTopBar && selection.selectedFolder.isNotEmpty)) {
         ref.read(libraryControllerProvider.notifier).selectAllMusic();
       }
     });
@@ -95,14 +97,6 @@ class LibraryPageState extends ConsumerState<LibraryPage> {
   void _applyBlockedReasonByTrackId(Map<int, String> blocked) {
     if (hasSameTrackBlockedReasons(_blockedReasonByTrackId, blocked)) return;
     _updateUi(() => _blockedReasonByTrackId = blocked);
-  }
-
-  void _onViewportRangeChanged(int startIndex, int endIndex) {
-    if (!_playabilityProbe.updateViewportRange(startIndex, endIndex)) {
-      return;
-    }
-    final results = ref.read(libraryControllerProvider).results;
-    unawaited(_refreshTrackPlayability(results));
   }
 
   Future<void> _refreshDecoderExtensionSupport() async {
@@ -318,9 +312,83 @@ extension _LibraryLayout on LibraryPageState {
     required int? lastFinishedMs,
     required String? lastError,
   }) {
+    Widget tracks(List<TrackLite> items) => LibraryTracksContent(
+      tableLayout: widget.useGlobalTopBar,
+      bridge: ref.read(playerBridgeProvider),
+      l10n: l10n,
+      searchController: _searchController,
+      onSearchChanged: (q) =>
+          ref.read(libraryControllerProvider.notifier).setQuery(q),
+      queueSourceLabel: queueSourceLabel,
+      selectedFolder: selectedFolder,
+      hasSubfolders: hasSubfolders,
+      includeSubfolders: includeSubfolders,
+      onToggleIncludeSubfolders: () => ref
+          .read(libraryControllerProvider.notifier)
+          .toggleIncludeSubfolders(),
+      isScanning: isScanning,
+      scanned: scanned,
+      updated: updated,
+      skipped: skipped,
+      errors: errors,
+      lastFinishedMs: lastFinishedMs,
+      lastError: lastError,
+      coverDir: ref.watch(coverDirProvider),
+      results: items,
+      likedTrackIds: likedTrackIds,
+      playlists: playlists,
+      selectionSourceLabel: selectionSourceLabel,
+      onActivate: (index, items) async {
+        final source = QueueSource(
+          type: selectedFolder.isEmpty
+              ? QueueSourceType.all
+              : QueueSourceType.folder,
+          folderPath: selectedFolder,
+          includeSubfolders: includeSubfolders,
+          label: selectionSourceLabel,
+        );
+        await ref
+            .read(playbackControllerProvider.notifier)
+            .setQueueAndPlayTracks(items, startIndex: index, source: source);
+      },
+      onEnqueue: (track) async {
+        await ref.read(playbackControllerProvider.notifier).enqueueTracks([
+          track,
+        ]);
+      },
+      onSetLiked: (track, liked) async {
+        await ref
+            .read(libraryControllerProvider.notifier)
+            .setTrackLiked(track.id.toInt(), liked);
+      },
+      onAddToPlaylist: (track, playlistId) async {
+        await ref
+            .read(libraryControllerProvider.notifier)
+            .addTrackToPlaylist(playlistId, track.id.toInt());
+      },
+      onRemoveFromPlaylist: (track, playlistId) async {
+        await ref
+            .read(libraryControllerProvider.notifier)
+            .removeTrackFromPlaylist(playlistId, track.id.toInt());
+      },
+      onBatchAddToPlaylist: (tracks, playlistId) async {
+        await ref
+            .read(libraryControllerProvider.notifier)
+            .addTracksToPlaylist(
+              playlistId: playlistId,
+              trackIds: tracks.map((t) => t.id.toInt()).toList(),
+            );
+      },
+      blockedReasonByTrackId: _blockedReasonByTrackId,
+      onViewportRangeChanged: (start, end) {
+        if (!_playabilityProbe.updateViewportRange(start, end)) return;
+        unawaited(_refreshTrackPlayability(items));
+      },
+    );
+
     const minFoldersWidth = LibraryPageState._minFoldersPaneWidth;
 
-    return Stack(
+    final foldersView = Stack(
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
@@ -562,87 +630,7 @@ extension _LibraryLayout on LibraryPageState {
                       );
                     },
                   ),
-                  Expanded(
-                    child: LibraryTracksContent(
-                      bridge: ref.read(playerBridgeProvider),
-                      l10n: l10n,
-                      searchController: _searchController,
-                      onSearchChanged: (q) => ref
-                          .read(libraryControllerProvider.notifier)
-                          .setQuery(q),
-                      queueSourceLabel: queueSourceLabel,
-                      selectedFolder: selectedFolder,
-                      hasSubfolders: hasSubfolders,
-                      includeSubfolders: includeSubfolders,
-                      onToggleIncludeSubfolders: () => ref
-                          .read(libraryControllerProvider.notifier)
-                          .toggleIncludeSubfolders(),
-                      isScanning: isScanning,
-                      scanned: scanned,
-                      updated: updated,
-                      skipped: skipped,
-                      errors: errors,
-                      lastFinishedMs: lastFinishedMs,
-                      lastError: lastError,
-                      coverDir: ref.watch(coverDirProvider),
-                      results: results,
-                      likedTrackIds: likedTrackIds,
-                      playlists: playlists,
-                      selectionSourceLabel: selectionSourceLabel,
-                      onActivate: (index, items) async {
-                        final source = QueueSource(
-                          type: selectedFolder.isEmpty
-                              ? QueueSourceType.all
-                              : QueueSourceType.folder,
-                          folderPath: selectedFolder,
-                          includeSubfolders: includeSubfolders,
-                          label: selectionSourceLabel,
-                        );
-                        await ref
-                            .read(playbackControllerProvider.notifier)
-                            .setQueueAndPlayTracks(
-                              items,
-                              startIndex: index,
-                              source: source,
-                            );
-                      },
-                      onEnqueue: (track) async {
-                        await ref
-                            .read(playbackControllerProvider.notifier)
-                            .enqueueTracks([track]);
-                      },
-                      onSetLiked: (track, liked) async {
-                        await ref
-                            .read(libraryControllerProvider.notifier)
-                            .setTrackLiked(track.id.toInt(), liked);
-                      },
-                      onAddToPlaylist: (track, playlistId) async {
-                        await ref
-                            .read(libraryControllerProvider.notifier)
-                            .addTrackToPlaylist(playlistId, track.id.toInt());
-                      },
-                      onRemoveFromPlaylist: (track, playlistId) async {
-                        await ref
-                            .read(libraryControllerProvider.notifier)
-                            .removeTrackFromPlaylist(
-                              playlistId,
-                              track.id.toInt(),
-                            );
-                      },
-                      onBatchAddToPlaylist: (tracks, playlistId) async {
-                        await ref
-                            .read(libraryControllerProvider.notifier)
-                            .addTracksToPlaylist(
-                              playlistId: playlistId,
-                              trackIds: tracks
-                                  .map((t) => t.id.toInt())
-                                  .toList(),
-                            );
-                      },
-                      blockedReasonByTrackId: _blockedReasonByTrackId,
-                      onViewportRangeChanged: _onViewportRangeChanged,
-                    ),
-                  ),
+                  Expanded(child: tracks(results)),
                 ],
               );
             },
@@ -662,6 +650,23 @@ extension _LibraryLayout on LibraryPageState {
           },
         ),
       ],
+    );
+    if (!widget.useGlobalTopBar) return foldersView;
+    return DesktopLibraryView(
+      tracks: results,
+      coverDir: ref.watch(coverDirProvider),
+      section: _desktopSection,
+      onSectionChanged: (section) {
+        _updateUi(() => _desktopSection = section);
+        if (section != LibrarySection.folders) {
+          ref.read(libraryControllerProvider.notifier).selectAllMusic();
+        }
+      },
+      trackListBuilder: tracks,
+      foldersView: foldersView,
+      onAddFolder: () => _pickAndAddFolder(context),
+      onScan: (force) => scanFromTopBar(force: force),
+      isScanning: isScanning,
     );
   }
 }

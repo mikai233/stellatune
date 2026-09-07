@@ -2,7 +2,6 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:stellatune/library/library_controller.dart';
 import 'package:stellatune/ui/pages/home_page.dart';
 import 'package:stellatune/ui/pages/library_page.dart';
 import 'package:stellatune/ui/pages/playlists_page.dart';
@@ -49,15 +48,8 @@ class _ShellPageState extends ConsumerState<ShellPage> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final isMobile = Platform.isAndroid || Platform.isIOS;
-    final isScanning = ref.watch(
-      libraryControllerProvider.select((s) => s.isScanning),
-    );
-
     final body = _buildShellBody(isMobile: isMobile);
-    final topBarActions = _buildTopBarActions(
-      l10n: l10n,
-      isScanning: isScanning,
-    );
+    final topBarActions = _buildTopBarActions(l10n: l10n);
     final shell = _buildShell(
       isMobile: isMobile,
       body: body,
@@ -79,52 +71,14 @@ class _ShellPageState extends ConsumerState<ShellPage> {
 
   List<DesktopTopBarAction> _buildTopBarActions({
     required AppLocalizations l10n,
-    required bool isScanning,
   }) {
     return switch (_index) {
       0 => const <DesktopTopBarAction>[],
-      1 => _buildLibraryTopBarActions(l10n: l10n, isScanning: isScanning),
+      1 => const <DesktopTopBarAction>[],
       2 => _buildPlaylistsTopBarActions(l10n),
       3 => const <DesktopTopBarAction>[],
       _ => const <DesktopTopBarAction>[],
     };
-  }
-
-  List<DesktopTopBarAction> _buildLibraryTopBarActions({
-    required AppLocalizations l10n,
-    required bool isScanning,
-  }) {
-    final foldersPaneCollapsed =
-        _libraryPageKey.currentState?.foldersPaneCollapsed ?? false;
-    return <DesktopTopBarAction>[
-      DesktopTopBarAction(
-        icon: foldersPaneCollapsed ? Icons.chevron_right : Icons.chevron_left,
-        tooltip: foldersPaneCollapsed ? l10n.expand : l10n.collapse,
-        onPressed: () {
-          _libraryPageKey.currentState?.toggleFoldersPane();
-          _updateUi(() {});
-        },
-      ),
-      DesktopTopBarAction(
-        icon: Icons.create_new_folder_outlined,
-        tooltip: l10n.tooltipAddFolder,
-        onPressed: () => _libraryPageKey.currentState?.addFolderFromTopBar(),
-      ),
-      DesktopTopBarAction(
-        icon: Icons.refresh,
-        tooltip: l10n.tooltipScan,
-        onPressed: isScanning
-            ? null
-            : () => _libraryPageKey.currentState?.scanFromTopBar(),
-      ),
-      DesktopTopBarAction(
-        icon: Icons.restart_alt,
-        tooltip: l10n.tooltipForceScan,
-        onPressed: isScanning
-            ? null
-            : () => _libraryPageKey.currentState?.scanFromTopBar(force: true),
-      ),
-    ];
   }
 
   List<DesktopTopBarAction> _buildPlaylistsTopBarActions(

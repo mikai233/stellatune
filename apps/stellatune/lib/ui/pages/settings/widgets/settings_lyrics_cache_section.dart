@@ -16,6 +16,8 @@ class SettingsLyricsCacheSection extends StatelessWidget {
   Widget build(BuildContext context) {
     return SettingsSectionCard(
       title: l10n.settingsLyricsTitle,
+      icon: Icons.lyrics_outlined,
+      subtitle: '管理本地歌词缓存',
       headerBottomSpacing: 8,
       children: [
         Text(

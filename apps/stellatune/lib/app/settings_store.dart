@@ -1,7 +1,8 @@
+import 'package:stellatune/app/desktop_theme_preset.dart';
+
 import 'dart:convert';
 import 'dart:ui';
 
-import 'package:flutter/material.dart' show ThemeMode;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:stellatune/app/logging.dart';
@@ -39,7 +40,7 @@ class SettingsState {
     required this.outputSinkRoute,
     required this.queueSource,
     required this.locale,
-    required this.themeMode,
+    this.desktopTheme = DesktopThemePreset.daylight,
     required this.closeToTray,
   });
 
@@ -55,7 +56,7 @@ class SettingsState {
   final OutputSinkRoute? outputSinkRoute;
   final QueueSource? queueSource;
   final Locale? locale;
-  final ThemeMode themeMode;
+  final DesktopThemePreset desktopTheme;
   final bool closeToTray;
 
   SettingsState copyWith({
@@ -71,7 +72,7 @@ class SettingsState {
     Object? outputSinkRoute = _unset,
     Object? queueSource = _unset,
     Object? locale = _unset,
-    ThemeMode? themeMode,
+    DesktopThemePreset? desktopTheme,
     bool? closeToTray,
   }) {
     return SettingsState(
@@ -93,7 +94,7 @@ class SettingsState {
           ? this.queueSource
           : queueSource as QueueSource?,
       locale: identical(locale, _unset) ? this.locale : locale as Locale?,
-      themeMode: themeMode ?? this.themeMode,
+      desktopTheme: desktopTheme ?? this.desktopTheme,
       closeToTray: closeToTray ?? this.closeToTray,
     );
   }
@@ -118,7 +119,7 @@ class SettingsStore implements DirectoryAccessStore {
   static const _keyOutputSinkRoute = 'output_sink_route';
   static const _keyQueueSource = 'queue_source';
   static const _keyLocale = 'locale';
-  static const _keyThemeMode = 'theme_mode';
+  static const _keyDesktopTheme = 'desktop_theme';
   static const _keyCloseToTray = 'close_to_tray';
   static const _keyMacosDirectoryBookmarks = 'macos_directory_bookmarks';
 
@@ -143,7 +144,7 @@ class SettingsStore implements DirectoryAccessStore {
       outputSinkRoute: outputSinkRoute,
       queueSource: queueSource,
       locale: locale,
-      themeMode: themeMode,
+      desktopTheme: desktopTheme,
       closeToTray: closeToTray,
     );
   }
@@ -316,18 +317,14 @@ class SettingsStore implements DirectoryAccessStore {
     }
   }
 
-  ThemeMode get themeMode {
-    final raw = _box.get(_keyThemeMode);
-    if (raw is String) {
-      for (final m in ThemeMode.values) {
-        if (m.name == raw) return m;
-      }
-    }
-    return ThemeMode.system;
-  }
+  DesktopThemePreset get desktopTheme =>
+      DesktopThemePreset.values
+          .where((v) => v.name == _box.get(_keyDesktopTheme))
+          .firstOrNull ??
+      DesktopThemePreset.daylight;
 
-  Future<void> setThemeMode(ThemeMode mode) =>
-      _box.put(_keyThemeMode, mode.name);
+  Future<void> setDesktopTheme(DesktopThemePreset value) =>
+      _box.put(_keyDesktopTheme, value.name);
 
   bool get closeToTray {
     final v = _box.get(_keyCloseToTray, defaultValue: true);
@@ -463,8 +460,8 @@ class SettingsController extends Notifier<SettingsState> {
   Future<void> setLocale(Locale? locale) =>
       _persist((store) => store.setLocale(locale));
 
-  Future<void> setThemeMode(ThemeMode mode) =>
-      _persist((store) => store.setThemeMode(mode));
+  Future<void> setDesktopTheme(DesktopThemePreset value) =>
+      _persist((store) => store.setDesktopTheme(value));
 
   Future<void> setCloseToTray(bool v) =>
       _persist((store) => store.setCloseToTray(v));

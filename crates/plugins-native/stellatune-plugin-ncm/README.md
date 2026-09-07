@@ -12,6 +12,15 @@ caches are produced. Each HTTP response uses bounded 64 KiB chunks and a two-slo
 queue. Container probing scans at most 1 MiB for the FLAC header. The host's HTTP
 source retains at most 2 MiB of encoded chunks to let seek retries make progress.
 
+Version 0.2.1 adds embedded artwork to `inspect-file` through an optional
+`coverUrl`. The same loopback server returns the original image bytes, excluding
+reserved NCM padding; images up to 12 MiB are supported. The application downloads
+them into its existing `covers/<track-id>` cache. No NCM parser is linked into
+the application, and the plugin does not write artwork or audio caches.
+Install the updated plugin with the updated application, then use **强制重新扫描**
+to restore artwork for previously scanned tracks. Their IDs and queue identities
+remain unchanged; ordinary scans skip unchanged files.
+
 Source files are read-only. Library and queue identities retain their original
 paths. resolve-file reuses URLs for unchanged files within a process. Each GET or
 Range request owns an independent reader. HEAD, suffix/open/bounded ranges and

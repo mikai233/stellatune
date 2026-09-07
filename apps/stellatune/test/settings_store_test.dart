@@ -1,11 +1,11 @@
 import 'dart:io';
 
-import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive/hive.dart';
 import 'package:stellatune/app/providers.dart';
 import 'package:stellatune/bridge/bridge.dart';
+import 'package:stellatune/ui/theme/desktop_theme.dart';
 
 void main() {
   late Directory hiveDir;
@@ -35,12 +35,12 @@ void main() {
       );
       addTearDown(container.dispose);
 
-      final observedThemeModes = <ThemeMode>[];
+      final observedThemes = <DesktopThemePreset>[];
       final observedDeviceIds = <String?>[];
 
-      final themeSub = container.listen<ThemeMode>(
-        settingsStoreProvider.select((s) => s.themeMode),
-        (previous, next) => observedThemeModes.add(next),
+      final themeSub = container.listen<DesktopThemePreset>(
+        settingsStoreProvider.select((s) => s.desktopTheme),
+        (previous, next) => observedThemes.add(next),
         fireImmediately: true,
       );
       final deviceSub = container.listen<String?>(
@@ -53,15 +53,21 @@ void main() {
 
       final controller = container.read(settingsStoreProvider.notifier);
 
-      await controller.setThemeMode(ThemeMode.dark);
+      await controller.setDesktopTheme(DesktopThemePreset.lavender);
       await controller.setSelectedDeviceId('device-42');
 
-      expect(container.read(settingsStoreProvider).themeMode, ThemeMode.dark);
+      expect(
+        container.read(settingsStoreProvider).desktopTheme,
+        DesktopThemePreset.lavender,
+      );
       expect(
         container.read(settingsStoreProvider).selectedDeviceId,
         'device-42',
       );
-      expect(observedThemeModes, [ThemeMode.system, ThemeMode.dark]);
+      expect(observedThemes, [
+        DesktopThemePreset.daylight,
+        DesktopThemePreset.lavender,
+      ]);
       expect(observedDeviceIds, [null, 'device-42']);
     },
   );
@@ -90,4 +96,30 @@ void main() {
       expect(store.playbackLatency, PlaybackLatency.medium);
     },
   );
+
+  test('desktop theme persists and ignores the retired theme mode', () async {
+    final store = SettingsStore();
+    final container = ProviderContainer(
+      overrides: [settingsStoreServiceProvider.overrideWithValue(store)],
+    );
+    addTearDown(container.dispose);
+    expect(store.desktopTheme, DesktopThemePreset.daylight);
+    final controller = container.read(settingsStoreProvider.notifier);
+    await controller.setDesktopTheme(DesktopThemePreset.celadon);
+    expect(
+      container.read(desktopPaletteProvider),
+      same(DesktopThemePreset.celadon.palette),
+    );
+    await controller.setVolume(.4);
+    await Hive.box('settings').put('theme_mode', 'dark');
+    expect(
+      container.read(desktopPaletteProvider),
+      same(DesktopThemePreset.celadon.palette),
+    );
+    await Hive.box('settings').close();
+    await Hive.openBox('settings');
+    expect(store.readState().desktopTheme, DesktopThemePreset.celadon);
+    await Hive.box('settings').put('desktop_theme', 'unknown-future-theme');
+    expect(store.desktopTheme, DesktopThemePreset.daylight);
+  });
 }

@@ -1,8 +1,9 @@
+import { withCover } from './with-cover.mjs';
 // Developer-only fixture generator: node generate.mjs (requires ffmpeg).
 // The checked-in NCM contains a synthetic 440 Hz tone, no commercial audio.
 import { createCipheriv } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 
 const u32 = value => { const bytes = Buffer.alloc(4); bytes.writeUInt32LE(value); return bytes; };
 const encrypt = (data, key) => {
@@ -29,3 +30,5 @@ writeFileSync(new URL(format === 'flac' ? 'tone.ncm' : 'tone-mp3.ncm', import.me
   Buffer.from('CTENFDAM'), Buffer.alloc(2), u32(header.length), header,
   u32(info.length), info, Buffer.alloc(5), u32(0), u32(0), payload,
 ]));
+
+if (format === 'flac') writeFileSync(new URL('tone-cover.ncm', import.meta.url), withCover(readFileSync(new URL('tone.ncm', import.meta.url)), readFileSync(new URL('cover.png', import.meta.url))));

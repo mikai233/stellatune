@@ -274,7 +274,9 @@ async fn library_scans_local_plugin_metadata_only_while_enabled() {
     let path = root.join("tone.ncm");
     std::fs::write(
         &path,
-        include_bytes!("../../../plugins-native/stellatune-plugin-ncm/tests/fixtures/tone.ncm"),
+        include_bytes!(
+            "../../../plugins-native/stellatune-plugin-ncm/tests/fixtures/tone-cover.ncm"
+        ),
     )
     .unwrap();
     let package = directory.path().join("package");
@@ -324,6 +326,23 @@ async fn library_scans_local_plugin_metadata_only_while_enabled() {
     assert_eq!(tracks[0].title.as_deref(), Some("Synthetic tone"));
     assert_eq!(tracks[0].duration_ms, Some(2000));
     let original_id = tracks[0].id;
+    let cover_path = directory
+        .path()
+        .join("covers")
+        .join(original_id.to_string());
+    let expected_cover =
+        include_bytes!("../../../plugins-native/stellatune-plugin-ncm/tests/fixtures/cover.png");
+    assert_eq!(std::fs::read(&cover_path).unwrap(), expected_cover);
+    // A forced scan repairs missing artwork without changing existing identities.
+    std::fs::remove_file(&cover_path).unwrap();
+    library.scan_all_force().await.unwrap();
+    // Commands enqueue work; this query waits behind the scan in the actor mailbox.
+    let rescanned = library
+        .list_tracks(folder.clone(), true, String::new(), 10, 0)
+        .await
+        .unwrap();
+    assert_eq!(rescanned[0].id, original_id);
+    assert_eq!(std::fs::read(&cover_path).unwrap(), expected_cover);
     plugins.unregister(PLUGIN).await.unwrap();
     std::fs::copy(&path, root.join("disabled.ncm")).unwrap();
     library.scan_all().await.unwrap();

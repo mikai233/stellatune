@@ -38,9 +38,11 @@ class LibraryTracksContent extends StatelessWidget {
     required this.onBatchAddToPlaylist,
     required this.blockedReasonByTrackId,
     this.onViewportRangeChanged,
+    this.tableLayout = false,
   });
 
   final PlayerBridge bridge;
+  final bool tableLayout;
   final AppLocalizations l10n;
   final TextEditingController searchController;
   final ValueChanged<String> onSearchChanged;
@@ -78,13 +80,15 @@ class LibraryTracksContent extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        StellatuneSearchField(
-          controller: searchController,
-          onChanged: onSearchChanged,
-        ),
-        const SizedBox(height: 12),
-        QueueSourceInfoCard(queueSourceLabel: queueSourceLabel),
-        const SizedBox(height: 12),
+        if (!tableLayout) ...[
+          StellatuneSearchField(
+            controller: searchController,
+            onChanged: onSearchChanged,
+          ),
+          const SizedBox(height: 12),
+          QueueSourceInfoCard(queueSourceLabel: queueSourceLabel),
+          const SizedBox(height: 12),
+        ],
         if (selectedFolder.isNotEmpty)
           Row(
             children: [
@@ -112,7 +116,7 @@ class LibraryTracksContent extends StatelessWidget {
             ],
           ),
         if (selectedFolder.isNotEmpty) const SizedBox(height: 12),
-        if (isScanning || lastFinishedMs != null)
+        if (isScanning || (!tableLayout && lastFinishedMs != null))
           LibraryScanStatusCard(
             isScanning: isScanning,
             scanned: scanned,
@@ -134,6 +138,7 @@ class LibraryTracksContent extends StatelessWidget {
         const SizedBox(height: 12),
         Expanded(
           child: TrackList(
+            tableLayout: tableLayout,
             bridge: bridge,
             coverDir: coverDir,
             items: results,

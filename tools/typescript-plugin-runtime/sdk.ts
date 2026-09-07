@@ -41,6 +41,8 @@ export interface LocalFileMetadata {
   artist?: string | null;
   album?: string | null;
   durationMs?: number | null;
+  /** Optional artwork URL; host downloads up to 12 MiB into its cover cache. */
+  coverUrl?: string | null;
 }
 
 export interface StellatunePlugin {

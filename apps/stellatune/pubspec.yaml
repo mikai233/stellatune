@@ -40,6 +40,7 @@ dependencies:
   flutter_rust_bridge: 2.13.0
   freezed_annotation: ^3.1.0
   file_picker: ^12.1.2
+  windows_file_picker: ^1.1.0
   file_selector: ^1.1.0
   flutter_riverpod: ^3.3.1
   hive: ^2.2.3
@@ -81,6 +82,9 @@ flutter:
   uses-material-design: true
 
   fonts:
+    - family: Caveat
+      fonts:
+        - asset: assets/fonts/caveat/Caveat.ttf
     - family: NotoSansSC
       fonts:
         - asset: assets/fonts/NotoSansSC-Regular.ttf
@@ -95,6 +99,9 @@ flutter:
     - assets/shaders/background.frag
 
   assets:
+    - assets/images/home/
+    - assets/images/backgrounds/
+    - assets/images/banners/
     - assets/fonts/NotoSansSC-Regular.ttf
     - assets/fonts/NotoSansSC-Medium.ttf
     - assets/fonts/NotoSansSC-Bold.ttf

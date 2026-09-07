@@ -5,12 +5,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:stellatune/app/app_bootstrap.dart';
 import 'package:stellatune/app/providers.dart';
+import 'package:stellatune/app/semantics_diagnostics.dart';
 import 'package:stellatune/ui/app.dart';
 
 Future<void> main() async {
   final bootstrapFuture = runZonedGuarded<Future<void>>(
     () async {
       WidgetsFlutterBinding.ensureInitialized();
+      assert(() {
+        installSemanticsDiagnostics();
+        return true;
+      }());
 
       FlutterError.onError = (details) {
         FlutterError.presentError(details);

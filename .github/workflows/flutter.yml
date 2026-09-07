@@ -28,3 +28,9 @@ jobs:
       - name: Flutter Build Check (Windows)
         run: flutter build windows --debug
         working-directory: apps/stellatune
+
+      - name: Test bundled Node without system PATH
+        shell: pwsh
+        run: |
+          $env:STELLATUNE_TEST_RUNTIME_DIR = "$PWD/apps/stellatune/build/windows/x64/runner/Debug/plugin-runtime"
+          & "$env:STELLATUNE_TEST_RUNTIME_DIR/node.exe" --test tools/typescript-plugin-runtime/tests/bundle.test.mjs

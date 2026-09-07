@@ -1,3 +1,4 @@
+import 'package:stellatune/ui/theme/artwork_palette.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:stellatune/app/providers.dart';
@@ -5,11 +6,15 @@ import 'package:stellatune/bridge/bridge.dart';
 import 'package:stellatune/dlna/dlna_providers.dart';
 import 'package:stellatune/l10n/app_localizations.dart';
 import 'package:stellatune/player/playback_controller.dart';
-import 'package:stellatune/player/playability_messages.dart';
 import 'package:stellatune/player/queue_controller.dart';
 import 'package:stellatune/player/queue_models.dart';
-import 'package:stellatune/ui/widgets/now_playing_bar/widgets/now_playing_bar_sections.dart';
+import 'package:stellatune/ui/pages/music_detail_page.dart';
+import 'package:stellatune/ui/pages/queue_page.dart';
+import 'package:stellatune/ui/widgets/audio_format_badge.dart';
 import 'package:stellatune/ui/widgets/now_playing_common.dart';
+
+import 'now_playing_bar/desktop_player_bar.dart';
+import 'now_playing_bar/widgets/now_playing_dlna_dialog.dart';
 
 class NowPlayingBar extends ConsumerWidget {
   const NowPlayingBar({super.key});
@@ -17,127 +22,141 @@ class NowPlayingBar extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
     final playback = ref.watch(playbackControllerProvider);
     final queue = ref.watch(queueControllerProvider);
-    final selectedRenderer = ref.watch(dlnaSelectedRendererProvider);
+    final renderer = ref.watch(dlnaSelectedRendererProvider);
     final coverDir = ref.watch(coverDirProvider);
-
-    final currentTitle = queue.currentItem?.displayTitle ?? l10n.nowPlayingNone;
-    final String currentSubtitle;
-    if (playback.pendingItem != null) {
-      currentSubtitle = playback.pendingItem!.displayTitle;
-    } else if (queue.currentItem != null) {
-      final artist = (queue.currentItem?.artist ?? '').trim();
-      final album = (queue.currentItem?.album ?? '').trim();
-      currentSubtitle = [artist, album].where((s) => s.isNotEmpty).join(' • ');
-    } else {
-      currentSubtitle = playback.currentPath ?? '';
-    }
-    final playModeLabel = switch (queue.playMode) {
-      PlayMode.sequential => l10n.playModeSequential,
-      PlayMode.shuffle => l10n.playModeShuffle,
-      PlayMode.repeatAll => l10n.playModeRepeatAll,
-      PlayMode.repeatOne => l10n.playModeRepeatOne,
-    };
-
+    final player = ref.read(playbackControllerProvider.notifier);
+    final queueController = ref.read(queueControllerProvider.notifier);
     final isPlaying =
         playback.playerState == PlayerState.playing ||
         playback.playerState == PlayerState.buffering;
-    const rightControlButtonSize = 50.0;
-    const rightControlIconSize = 24.0;
-    final localizedPlaybackError = playback.lastError == null
-        ? null
-        : localizePlaybackError(l10n, playback.lastError!);
-    final totalDurationMs = playback.trackInfo?.durationMs?.toInt();
+    final duration =
+        playback.trackInfo?.durationMs?.toInt() ??
+        queue.currentItem?.durationMs ??
+        0;
+    final item = queue.currentItem;
+    final subtitle =
+        playback.pendingItem?.displayTitle ??
+        [
+          item?.artist ?? '',
+          item?.album ?? '',
+        ].where((s) => s.isNotEmpty).join(' · ');
     final progressEnabled =
-        queue.currentItem != null &&
-        playback.currentPath != null &&
-        playback.currentPath!.isNotEmpty;
+        item != null && (playback.currentPath?.isNotEmpty ?? false);
+    void details() => Navigator.of(context)
+        .push(MaterialPageRoute<void>(builder: (_) => const MusicDetailPage()));
+    Widget action(IconData icon, String label, VoidCallback onTap) => SizedBox(
+      width: 34,
+      height: 36,
+      child: IconButton(
+        onPressed: onTap,
+        tooltip: label,
+        padding: EdgeInsets.zero,
+        icon: Icon(icon, size: 19),
+      ),
+    );
 
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.9),
-            theme.colorScheme.surfaceContainer.withValues(alpha: 0.94),
-          ],
-        ),
-        border: Border(
-          top: BorderSide(
-            color: theme.colorScheme.onSurface.withValues(alpha: 0.08),
+    return DesktopPlayerBar(
+      title: item?.displayTitle ?? l10n.nowPlayingNone,
+      subtitle: subtitle.isEmpty ? '让喜欢的音乐，陪伴此刻' : subtitle,
+      cover: NowPlayingCover(
+        coverDir: coverDir,
+        trackId: item?.id,
+        cover: item?.cover,
+        primaryColor: ArtworkPalette.of(context).accent,
+        onTap: item == null ? null : details,
+      ),
+      isPlaying: isPlaying,
+      position: NowPlayingCommon.formatMs(playback.positionMs),
+      duration: NowPlayingCommon.formatMs(duration),
+      onPlayPause: () => isPlaying ? player.pause() : player.play(),
+      onPrevious: () => player.previous(),
+      onNext: () => player.next(),
+      shuffle: queue.playMode == PlayMode.shuffle,
+      repeat:
+          queue.playMode == PlayMode.repeatAll ||
+          queue.playMode == PlayMode.repeatOne,
+      onShuffle: () => queueController.setPlayMode(
+        queue.playMode == PlayMode.shuffle
+            ? PlayMode.sequential
+            : PlayMode.shuffle,
+      ),
+      onRepeat: () => queueController.setPlayMode(switch (queue.playMode) {
+        PlayMode.repeatAll => PlayMode.repeatOne,
+        PlayMode.repeatOne => PlayMode.sequential,
+        _ => PlayMode.repeatAll,
+      }),
+      progress: playback.pendingItem != null
+          ? const SizedBox(
+              height: 6,
+              child: Center(child: LinearProgressIndicator(minHeight: 3)),
+            )
+          : NowPlayingProgressBar(
+              durationMs: duration,
+              positionMs: playback.positionMs,
+              enabled: progressEnabled,
+              audioStarted: playback.audioStarted,
+              playerState: playback.playerState,
+              foregroundColor: ArtworkPalette.of(context).accent,
+              onSeekMs: (ms) => player.seekMs(ms),
+            ),
+      trailing: Row(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
+          if (playback.lastError != null)
+            action(
+              Icons.error_outline,
+              playback.lastError!,
+              () => ScaffoldMessenger.of(context)
+                  .showSnackBar(SnackBar(content: Text(playback.lastError!))),
+            ),
+          VolumePopupButton(
+            volume: playback.desiredVolume,
+            iconSize: 19,
+            buttonSize: 34,
+            enableHover: true,
+            onChanged: (v) => player.setVolume(v),
+            onToggleMute: () => player.toggleMute(),
           ),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.08),
-            blurRadius: 12,
-            offset: const Offset(0, -2),
+          action(
+            Icons.cast_rounded,
+            renderer == null ? 'DLNA' : 'DLNA: ${renderer.friendlyName}',
+            () async {
+              final result = await showDialog<DlnaActionResult>(
+                context: context,
+                builder: (_) => DlnaDialog(selected: renderer),
+              );
+              if (result == null) return;
+              if (result.applySelection) {
+                ref
+                    .read(dlnaSelectedRendererProvider.notifier)
+                    .set(result.selected);
+              }
+              if (result.message != null && context.mounted) {
+                ScaffoldMessenger.of(context)
+                    .showSnackBar(SnackBar(content: Text(result.message!)));
+              }
+            },
+          ),
+          action(Icons.lyrics_outlined, '歌词', details),
+          if (MediaQuery.sizeOf(context).width >= 1250 &&
+              playback.currentPath != null) ...[
+            const SizedBox(width: 12),
+            AudioFormatBadge(
+              path: playback.currentPath!,
+              sampleRate: playback.trackInfo?.sampleRate,
+            ),
+            const SizedBox(width: 6),
+          ],
+          action(
+            Icons.queue_music_rounded,
+            l10n.queueTitle,
+            () => Navigator.of(
+              context,
+            ).push(MaterialPageRoute<void>(builder: (_) => const QueuePage())),
           ),
         ],
-      ),
-      child: SizedBox(
-        height: 76,
-        child: Stack(
-          children: [
-            Row(
-              children: [
-                const SizedBox(width: 12),
-                Expanded(
-                  child: NowPlayingTrackInfoSection(
-                    theme: theme,
-                    coverDir: coverDir,
-                    currentItem: queue.currentItem,
-                    currentTitle: currentTitle,
-                    currentSubtitle: currentSubtitle,
-                    currentPath: playback.currentPath,
-                    sampleRate: playback.trackInfo?.sampleRate,
-                  ),
-                ),
-                SizedBox(
-                  width: 194,
-                  child: NowPlayingTransportControls(
-                    l10n: l10n,
-                    isPlaying: isPlaying,
-                  ),
-                ),
-                Expanded(
-                  child: NowPlayingRightControls(
-                    l10n: l10n,
-                    theme: theme,
-                    playback: playback,
-                    queue: queue,
-                    selectedRenderer: selectedRenderer,
-                    localizedPlaybackError: localizedPlaybackError,
-                    playModeLabel: playModeLabel,
-                    rightControlButtonSize: rightControlButtonSize,
-                    rightControlIconSize: rightControlIconSize,
-                  ),
-                ),
-                const SizedBox(width: 12),
-              ],
-            ),
-            Positioned(
-              left: 0,
-              right: 0,
-              top: 0,
-              child: playback.pendingItem != null
-                  ? const LinearProgressIndicator(minHeight: 3)
-                  : NowPlayingProgressBar(
-                      durationMs: totalDurationMs,
-                      positionMs: playback.positionMs,
-                      enabled: progressEnabled,
-                      audioStarted: playback.audioStarted,
-                      playerState: playback.playerState,
-                      onSeekMs: (ms) => ref
-                          .read(playbackControllerProvider.notifier)
-                          .seekMs(ms),
-                    ),
-            ),
-          ],
-        ),
       ),
     );
   }

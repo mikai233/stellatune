@@ -504,7 +504,11 @@ impl NodeSession {
         config: &PluginProcessConfig,
         generation: u64,
     ) -> Result<Self, PluginRuntimeError> {
-        let mut child = Command::new(&config.node_binary)
+        let mut command = Command::new(&config.node_binary);
+        // Piped stdio alone does not suppress a console for a GUI parent on Windows.
+        #[cfg(windows)]
+        command.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        let mut child = command
             .arg(&config.runner_script)
             .arg(&config.entry_path)
             .arg(&config.plugin_id)

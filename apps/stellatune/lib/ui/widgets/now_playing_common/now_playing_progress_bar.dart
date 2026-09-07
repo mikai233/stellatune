@@ -56,6 +56,7 @@ class _NowPlayingProgressBarState extends State<NowPlayingProgressBar>
   int? _pendingSeekFromMs;
   bool _dragging = false;
   bool _hovering = false;
+  double? _hoverFraction;
   DateTime? _baseAt;
   int _basePosMs = 0;
 
@@ -315,13 +316,18 @@ class _NowPlayingProgressBarState extends State<NowPlayingProgressBar>
       builder: (context) {
         final theme = Theme.of(context);
         final d = widget.durationMs ?? 0;
-        final progress = _controller.value.clamp(0.0, 1.0);
+        final progress =
+            (_dragging
+                    ? _controller.value
+                    : _hoverFraction ?? _controller.value)
+                .clamp(0.0, 1.0);
         final posMs = d > 0 ? (progress * d).round().clamp(0, d) : 0;
         final text = d > 0
             ? '${NowPlayingCommon.formatMs(posMs)} / ${NowPlayingCommon.formatMs(d)}'
             : NowPlayingCommon.formatMs(widget.positionMs);
 
-        // Center tooltip at the latest progress position, but keep it within the bar bounds.
+        // Preview the pointer position without changing playback. Keep the
+        // tooltip inside the bar even when hovering or dragging at either end.
         const fallbackTooltipWidth = 120.0;
         final barW = _lastLayoutWidth;
         final tipW = (_tooltipSize?.width ?? fallbackTooltipWidth).clamp(
@@ -495,11 +501,18 @@ class _NowPlayingProgressBarState extends State<NowPlayingProgressBar>
               cursor: widget.enabled && d > 0
                   ? SystemMouseCursors.click
                   : SystemMouseCursors.basic,
-              onEnter: (_) {
+              onEnter: (event) {
+                _hoverFraction = _posToFraction(event.localPosition, w);
                 setState(() => _hovering = true);
                 if (widget.showTooltip) _showTooltipOverlay();
+                _requestTooltipRebuild();
+              },
+              onHover: (event) {
+                _hoverFraction = _posToFraction(event.localPosition, w);
+                _requestTooltipRebuild();
               },
               onExit: (_) {
+                _hoverFraction = null;
                 setState(() => _hovering = false);
                 if (!_dragging) _hideTooltipOverlay();
               },
@@ -509,6 +522,7 @@ class _NowPlayingProgressBarState extends State<NowPlayingProgressBar>
                     ? (details) {
                         if (widget.showTooltip) _showTooltipOverlay();
                         final frac = _posToFraction(details.localPosition, w);
+                        _hoverFraction = frac;
                         final ms = _fractionToMs(frac);
                         _controller.stop();
                         _controller.value = frac;
@@ -522,6 +536,7 @@ class _NowPlayingProgressBarState extends State<NowPlayingProgressBar>
                         setState(() => _dragging = true);
                         _syncTicker();
                         final frac = _posToFraction(details.localPosition, w);
+                        _hoverFraction = frac;
                         _controller.stop();
                         _controller.value = frac;
                         _requestTooltipRebuild();
@@ -530,6 +545,7 @@ class _NowPlayingProgressBarState extends State<NowPlayingProgressBar>
                 onHorizontalDragUpdate: widget.enabled && d > 0
                     ? (details) {
                         final frac = _posToFraction(details.localPosition, w);
+                        _hoverFraction = frac;
                         _controller.value = frac;
                         _requestTooltipRebuild();
                       }
