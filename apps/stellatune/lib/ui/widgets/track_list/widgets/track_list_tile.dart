@@ -82,7 +82,7 @@ class TrackListTile extends StatelessWidget {
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
         style: TextStyle(
-          fontSize: 12,
+          fontSize: 13,
           color: isBlocked
               ? theme.colorScheme.onSurfaceVariant
               : theme.colorScheme.onSurface,
@@ -117,8 +117,8 @@ class TrackListTile extends StatelessWidget {
               title: Row(
                 children: [
                   SizedBox(
-                    width: 32,
-                    height: 32,
+                    width: 36,
+                    height: 36,
                     child: deferHeavy
                         ? const TrackListCoverPlaceholder()
                         : TrackListCoverThumb(path: coverPath),
@@ -152,7 +152,7 @@ class TrackListTile extends StatelessWidget {
                       padding: EdgeInsets.zero,
                       icon: Icon(
                         isLiked ? Icons.favorite : Icons.favorite_border,
-                        size: 17,
+                        size: 19,
                         color: isLiked
                             ? const Color(0xFFE26475)
                             : theme.colorScheme.onSurfaceVariant,
@@ -163,7 +163,7 @@ class TrackListTile extends StatelessWidget {
                     width: 36,
                     child: PopupMenuButton<TrackListAction>(
                       tooltip: '更多',
-                      icon: const Icon(Icons.more_horiz, size: 18),
+                      icon: const Icon(Icons.more_horiz, size: 20),
                       padding: EdgeInsets.zero,
                       onSelected: onTrackAction,
                       itemBuilder: buildTrackActionMenuItems,

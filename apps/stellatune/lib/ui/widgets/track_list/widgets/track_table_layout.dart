@@ -42,16 +42,16 @@ class TrackTableHeader extends StatelessWidget {
   const TrackTableHeader({super.key});
   @override
   Widget build(BuildContext context) => SizedBox(
-    height: 38,
+    height: 40,
     child: DefaultTextStyle(
       style: TextStyle(
         fontFamily: 'NotoSansSC',
-        fontSize: 11,
+        fontSize: 12,
         color: Theme.of(context).colorScheme.onSurfaceVariant,
       ),
       child: const TrackTableLayout(
         number: Text('#'),
-        title: Padding(padding: EdgeInsets.only(left: 44), child: Text('标题')),
+        title: Padding(padding: EdgeInsets.only(left: 48), child: Text('标题')),
         artist: Text('艺术家'),
         album: Text('专辑'),
         duration: Text('时长'),
@@ -60,7 +60,7 @@ class TrackTableHeader extends StatelessWidget {
           alignment: Alignment.centerLeft,
           child: Padding(
             padding: EdgeInsets.only(left: 10),
-            child: Icon(Icons.favorite_border, size: 15),
+            child: Icon(Icons.favorite_border, size: 17),
           ),
         ),
       ),

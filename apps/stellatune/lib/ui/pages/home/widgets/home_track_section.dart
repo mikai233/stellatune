@@ -85,6 +85,7 @@ class HomeTrackSection extends StatelessWidget {
           final count = (constraints.maxWidth / (compact ? 95 : 135))
               .floor()
               .clamp(1, 6);
+          final cardWidth = (constraints.maxWidth - (count - 1) * 12) / count;
           final visible = items.take(count).toList();
           if (visible.isEmpty) {
             return SizedBox(
@@ -105,7 +106,8 @@ class HomeTrackSection extends StatelessWidget {
             children: [
               for (var i = 0; i < visible.length; i++) ...[
                 if (i > 0) SizedBox(width: 12),
-                Expanded(
+                SizedBox(
+                  width: cardWidth,
                   child: HomeMusicCard(
                     key: ValueKey('$title-$i'),
                     data: visible[i],

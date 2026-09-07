@@ -68,7 +68,7 @@ class TrackList extends StatefulWidget {
 }
 
 class _TrackListState extends State<TrackList> {
-  double get _itemExtent => widget.tableLayout ? 48.0 : 72.0;
+  double get _itemExtent => widget.tableLayout ? 54.0 : 72.0;
 
   final ScrollController _controller = ScrollController();
   final GlobalKey _listViewportKey = GlobalKey();

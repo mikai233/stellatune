@@ -316,6 +316,7 @@ class _DesktopLibraryViewState extends State<DesktopLibraryView> {
         setState(() => opened = (group.title, group.artist));
     if (!grid) {
       return ListView.builder(
+        key: PageStorageKey('library-${widget.section.name}-list'),
         itemExtent: 72,
         padding: const EdgeInsets.symmetric(horizontal: 14),
         itemCount: groups.length,
@@ -345,6 +346,7 @@ class _DesktopLibraryViewState extends State<DesktopLibraryView> {
         final width = (size.maxWidth - 36 - (columns - 1) * 22) / columns;
         final textScale = MediaQuery.textScalerOf(context).scale(1);
         return GridView.builder(
+          key: PageStorageKey('library-${widget.section.name}-grid'),
           padding: const EdgeInsets.fromLTRB(18, 10, 18, 20),
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: columns,
