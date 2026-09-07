@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use stellatune_audio_core::format::{ChannelLayout, SpeakerPosition};
+use stellatune_audio_core::format::ChannelLayout;
 use thiserror::Error;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -302,6 +302,8 @@ fn channel_layout_from_standard_mask(
     channels: u16,
     mask: u32,
 ) -> Result<ChannelLayout, OutputError> {
+    use stellatune_audio_core::format::SpeakerPosition;
+
     if mask == 0 {
         return infer_unpositioned_layout(channels);
     }
