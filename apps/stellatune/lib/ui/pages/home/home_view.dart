@@ -16,11 +16,13 @@ class HomeView extends StatelessWidget {
     required this.onOpenLibrary,
     required this.onOpenPlaceholder,
     this.greeting = '晚上好',
+    this.subtitle = '愿音乐，陪你度过每一个平凡夜晚。',
   });
   final HomeViewData data;
   final VoidCallback onResume, onOpenLibrary, onOpenPlaceholder;
   final ValueChanged<int> onContinue, onRecent;
   final String greeting;
+  final String subtitle;
 
   @override
   Widget build(BuildContext context) => LayoutBuilder(
@@ -62,7 +64,7 @@ class HomeView extends StatelessWidget {
                   ),
                   SizedBox(height: 7),
                   Text(
-                    '愿音乐，陪你度过每一个平凡夜晚。',
+                    subtitle,
                     style: TextStyle(
                       fontSize: 14,
                       color: ArtworkPalette.of(context).onBackdrop

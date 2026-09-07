@@ -57,12 +57,14 @@ class HomePage extends ConsumerWidget {
         ),
       );
       final hour = DateTime.now().hour;
+      final (greeting, subtitle) = switch (hour) {
+        < 11 => ('早上好', '让喜欢的旋律，陪你开启新的一天。'),
+        < 18 => ('下午好', '在音乐里稍作停留，享受片刻轻松。'),
+        _ => ('晚上好', '愿音乐，陪你度过每一个平凡夜晚。'),
+      };
       return HomeView(
-        greeting: hour < 11
-            ? '早上好'
-            : hour < 18
-            ? '下午好'
-            : '晚上好',
+        greeting: greeting,
+        subtitle: subtitle,
         data: HomeViewData(
           continueListening: continueListening.isEmpty
               ? HomePlaceholders.listening
