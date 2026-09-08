@@ -94,6 +94,7 @@ class NowPlayingBar extends ConsumerWidget {
               child: Center(child: LinearProgressIndicator(minHeight: 3)),
             )
           : NowPlayingProgressBar(
+              minHitHeight: 24,
               durationMs: duration,
               positionMs: playback.positionMs,
               enabled: progressEnabled,

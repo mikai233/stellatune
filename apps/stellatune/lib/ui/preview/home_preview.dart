@@ -119,6 +119,7 @@ class _HomeVisualPreviewState extends State<HomeVisualPreview> {
                 onShuffle: placeholder,
                 onRepeat: placeholder,
                 progress: NowPlayingProgressBar(
+                  minHitHeight: 24,
                   durationMs: 268000,
                   positionMs: (progress * 268000).round(),
                   enabled: true,

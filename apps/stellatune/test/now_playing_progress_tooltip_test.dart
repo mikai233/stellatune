@@ -29,6 +29,7 @@ void main() {
                       child: ValueListenableBuilder<int>(
                         valueListenable: position,
                         builder: (_, value, _) => NowPlayingProgressBar(
+                          minHitHeight: 24,
                           durationMs: 120000,
                           positionMs: value,
                           enabled: true,
@@ -48,8 +49,10 @@ void main() {
     );
     await tester.pumpAndSettle();
     final bar = tester.getRect(find.byType(NowPlayingProgressBar));
+    // Hover and start dragging well below the thin visible track, including
+    // before hover has expanded its visual thickness.
     Offset point(double fraction) =>
-        Offset(bar.left + bar.width * fraction, bar.top + 3);
+        Offset(bar.left + bar.width * fraction, bar.top + 18);
     final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
     await mouse.addPointer(location: Offset.zero);
     addTearDown(mouse.removePointer);

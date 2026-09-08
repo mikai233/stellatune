@@ -138,6 +138,7 @@ class PlaybackController extends Notifier<PlaybackState> {
     if (!ref.mounted || _dlnaActive) return;
     final output = _outputGeneration;
     ref.read(queueControllerProvider.notifier).applyBackend(snapshot);
+    _syncCurrentPathFromQueue();
     final paths = ref
         .read(queueControllerProvider)
         .items
@@ -175,6 +176,7 @@ class PlaybackController extends Notifier<PlaybackState> {
             .read(queueControllerProvider.notifier)
             .observeCurrent(currentItemId);
       }
+      _syncCurrentPathFromQueue();
       final items = ref.read(queueControllerProvider).items;
       await bridge.retainQueuePaths(items.map((item) => item.path));
       if (!_isLocalOutput(output)) return;
@@ -220,11 +222,17 @@ class PlaybackController extends Notifier<PlaybackState> {
       if (track == null) return;
       _currentTrackId = track;
       _activePositionItemId = snapshot.itemId;
+      _activePositionSessionId = null;
       state = state.copyWith(
         positionMs: snapshot.positionMs.toInt().clamp(0, 1 << 31),
         playerState: snapshot.state,
+        audioStarted: snapshot.state == PlayerState.playing,
         lastError: null,
       );
+      _syncCurrentPathFromQueue();
+      // Restoration can prepare the track before Flutter subscribes. Resuming
+      // that track emits no new trackChanged event, so hydrate its info here.
+      unawaited(_updateTrackInfo());
       unawaited(_refreshBackendQueue());
     } catch (e) {
       if (ref.mounted) {
@@ -235,6 +243,19 @@ class PlaybackController extends Notifier<PlaybackState> {
 
   bool _isLocalOutput(int generation) =>
       ref.mounted && generation == _outputGeneration && !_dlnaActive;
+
+  void _syncCurrentPathFromQueue() {
+    final current = ref.read(queueControllerProvider).currentItem;
+    if (current == null ||
+        _activePositionItemId == null ||
+        current.itemId != _activePositionItemId ||
+        current.trackId != _currentTrackId) {
+      return;
+    }
+    if (state.currentPath != current.path) {
+      state = state.copyWith(currentPath: current.path);
+    }
+  }
 
   bool _isCurrentSession(DlnaPlaybackSession session, int generation) =>
       ref.mounted &&
@@ -1026,13 +1047,13 @@ class PlaybackController extends Notifier<PlaybackState> {
         _currentTrackId = trackId;
         _activePositionItemId = itemId;
         _activePositionSessionId = null;
-        final currentItem = ref.read(queueControllerProvider).currentItem;
         state = state.copyWith(
-          currentPath: currentItem?.path,
+          currentPath: '',
           positionMs: 0,
           audioStarted: false,
           trackInfo: null,
         );
+        _syncCurrentPathFromQueue();
         unawaited(_updateTrackInfo());
         unawaited(_refreshBackendQueue(currentItemId: itemId));
       },

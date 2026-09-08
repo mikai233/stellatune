@@ -21,6 +21,9 @@ class ControlledBridge implements PlayerBridge {
   int snapshotCalls = 0;
   int stopCalls = 0;
   int replaceCalls = 0;
+  TrackDecodeInfo? trackInfo;
+  Completer<TrackDecodeInfo?>? trackInfoGate;
+  final seeks = <int>[];
   final queue = PlaybackQueue(
     items: [
       for (var id = 1; id <= 3; id++)
@@ -91,7 +94,20 @@ class ControlledBridge implements PlayerBridge {
   }
 
   @override
-  Future<TrackDecodeInfo?> currentTrackInfo() async => null;
+  Future<TrackDecodeInfo?> currentTrackInfo() async {
+    final gate = trackInfoGate;
+    trackInfoGate = null;
+    return gate == null ? trackInfo : await gate.future;
+  }
+
+  @override
+  Future<void> play() async {
+    eventStream.add(const Event.stateChanged(state: PlayerState.playing));
+    eventStream.add(const Event.audioStart());
+  }
+
+  @override
+  Future<void> seekMs(int positionMs) async => seeks.add(positionMs);
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
@@ -382,6 +398,111 @@ void main() {
       final state = container.read(playbackControllerProvider);
       expect(state.playerState, PlayerState.paused);
       expect(state.positionMs, 15000);
+      expect(state.currentPath, '1.mp3');
+    },
+  );
+
+  test(
+    'first resume hydrates track info without another trackChanged event',
+    () async {
+      bridge.trackInfo = TrackDecodeInfo(
+        sampleRate: 48000,
+        channels: 2,
+        durationMs: BigInt.from(120000),
+        metadataJson: '{}',
+      );
+      bridge.snapshotGate = Completer<PlaybackSnapshot>()
+        ..complete(
+          PlaybackSnapshot(
+            state: PlayerState.paused,
+            positionMs: 15000,
+            trackId: BigInt.one,
+            itemId: BigInt.one,
+          ),
+        );
+      container.invalidate(playbackControllerProvider);
+      controller = container.read(playbackControllerProvider.notifier);
+      await until(
+        () => container.read(playbackControllerProvider).positionMs == 15000,
+      );
+      await Future<void>.delayed(Duration.zero);
+      var state = container.read(playbackControllerProvider);
+      expect(state.currentPath, '1.mp3');
+      expect(state.trackInfo?.durationMs, BigInt.from(120000));
+      await controller.play();
+      bridge.eventStream.add(
+        Event.position(
+          ms: 16000,
+          trackId: BigInt.one,
+          itemId: BigInt.one,
+          sessionId: BigInt.one,
+        ),
+      );
+      state = container.read(playbackControllerProvider);
+      expect(state.audioStarted, isTrue);
+      expect(state.positionMs, 16000);
+      await controller.seekMs(60000);
+      expect(bridge.seeks, [60000]);
+      expect(container.read(playbackControllerProvider).positionMs, 60000);
+    },
+  );
+
+  test(
+    'a queue arriving after trackChanged repairs the current path',
+    () async {
+      final id = BigInt.from(99);
+      bridge.eventStream.add(Event.trackChanged(trackId: id, itemId: id));
+      await Future<void>.delayed(Duration.zero);
+      expect(container.read(playbackControllerProvider).currentPath, isEmpty);
+      bridge.queueStream.add(
+        PlaybackQueue(
+          items: [
+            QueueEntry(
+              itemId: id,
+              trackId: id,
+              localLibraryTrackId: 99,
+              localPath: '99.mp3',
+            ),
+          ],
+          order: frb.Uint64List.fromList([99]),
+          currentItemId: id,
+          repeatMode: QueueRepeatMode.off,
+          shuffle: false,
+          revision: BigInt.two,
+        ),
+      );
+      expect(container.read(playbackControllerProvider).currentPath, '99.mp3');
+    },
+  );
+
+  test(
+    'late restored decode info cannot replace a newly selected track',
+    () async {
+      final oldInfo = Completer<TrackDecodeInfo?>();
+      bridge.trackInfoGate = oldInfo;
+      bridge.snapshotGate = Completer<PlaybackSnapshot>()
+        ..complete(
+          PlaybackSnapshot(
+            state: PlayerState.playing,
+            positionMs: 15000,
+            trackId: BigInt.one,
+            itemId: BigInt.one,
+          ),
+        );
+      container.invalidate(playbackControllerProvider);
+      controller = container.read(playbackControllerProvider.notifier);
+      await until(() => bridge.trackInfoGate == null);
+      expect(container.read(playbackControllerProvider).audioStarted, isTrue);
+      bridge.trackInfo = const TrackDecodeInfo(sampleRate: 96000, channels: 2);
+      bridge.eventStream.add(
+        Event.trackChanged(trackId: BigInt.two, itemId: BigInt.two),
+      );
+      await Future<void>.delayed(Duration.zero);
+      oldInfo.complete(const TrackDecodeInfo(sampleRate: 48000, channels: 2));
+      await Future<void>.delayed(Duration.zero);
+      final state = container.read(playbackControllerProvider);
+      expect(state.currentPath, '2.mp3');
+      expect(state.trackInfo?.sampleRate, 96000);
     },
   );
 

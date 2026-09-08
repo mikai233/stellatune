@@ -19,6 +19,7 @@ class NowPlayingProgressBar extends StatefulWidget {
     this.activeTrackHeight = 6.0,
     this.barHeight = 6.0,
     this.activeBarHeight = 14.0,
+    this.minHitHeight = 0.0,
     this.thumbRadius = 0.0,
     this.showTooltip = true,
   });
@@ -34,6 +35,8 @@ class NowPlayingProgressBar extends StatefulWidget {
   final double activeTrackHeight;
   final double barHeight;
   final double activeBarHeight;
+  /// Extra transparent hit area; does not move or thicken the painted track.
+  final double minHitHeight;
   final double thumbRadius;
   final bool showTooltip;
 
@@ -428,9 +431,12 @@ class _NowPlayingProgressBarState extends State<NowPlayingProgressBar>
     final trackHeightTarget = _emphasized
         ? widget.activeTrackHeight
         : widget.trackHeight;
-    final barHeightTarget = _emphasized
+    final visualBarHeight = _emphasized
         ? widget.activeBarHeight
         : widget.barHeight;
+    final barHeightTarget = visualBarHeight < widget.minHitHeight
+        ? widget.minHitHeight
+        : visualBarHeight;
     // Always center vertically relative to the fixed bar height if possible,
     // or just assume center is half of barHeight.
     final baseCenterY = widget.barHeight / 2;
