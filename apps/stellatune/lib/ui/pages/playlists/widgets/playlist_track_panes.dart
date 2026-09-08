@@ -1,3 +1,5 @@
+import 'package:stellatune/transcode/transcode_flow.dart';
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -84,7 +86,7 @@ class PlaylistTracksPane extends StatelessWidget {
         const SizedBox(height: 12),
         Expanded(
           child: TrackList(
-            bridge: bridge,
+            onTranscodeRequested: transcodeAction(context, bridge),
             coverDir: coverDir,
             items: results,
             likedTrackIds: likedTrackIds,
@@ -122,6 +124,7 @@ class PluginPlaylistTracksPane extends StatefulWidget {
     required this.error,
     required this.onSearchChanged,
     required this.onLoadMore,
+    required this.onRetry,
     required this.onActivate,
     required this.onEnqueue,
   });
@@ -138,6 +141,7 @@ class PluginPlaylistTracksPane extends StatefulWidget {
   final String? error;
   final ValueChanged<String> onSearchChanged;
   final Future<void> Function() onLoadMore;
+  final Future<void> Function() onRetry;
   final Future<void> Function(int index, List<QueueItem> items) onActivate;
   final Future<void> Function(QueueItem item) onEnqueue;
 
@@ -186,6 +190,7 @@ class _PluginPlaylistTracksPaneState extends State<PluginPlaylistTracksPane> {
 
   bool get _canLoadMore {
     return !widget.filterActive &&
+        widget.error == null &&
         widget.hasMore &&
         !widget.loading &&
         !widget.loadingMore &&
@@ -263,11 +268,21 @@ class _PluginPlaylistTracksPaneState extends State<PluginPlaylistTracksPane> {
               ? const Center(child: CircularProgressIndicator())
               : (widget.error != null && widget.error!.trim().isNotEmpty)
               ? Center(
-                  child: Text(
-                    widget.error!,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: theme.colorScheme.error,
-                    ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        widget.error!,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: theme.colorScheme.error,
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: widget.onRetry,
+                        tooltip: l10n.refresh,
+                        icon: const Icon(Icons.refresh),
+                      ),
+                    ],
                   ),
                 )
               : widget.tracks.isEmpty

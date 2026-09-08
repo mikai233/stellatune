@@ -92,8 +92,8 @@ class LibraryState {
     Set<int>? likedTrackIds,
     bool? isScanning,
     LibraryScanProgress? progress,
-    int? lastFinishedMs,
-    String? lastError,
+    Object? lastFinishedMs = _sentinel,
+    Object? lastError = _sentinel,
     String? lastLog,
   }) {
     return LibraryState(
@@ -111,8 +111,12 @@ class LibraryState {
       likedTrackIds: likedTrackIds ?? this.likedTrackIds,
       isScanning: isScanning ?? this.isScanning,
       progress: progress ?? this.progress,
-      lastFinishedMs: lastFinishedMs ?? this.lastFinishedMs,
-      lastError: lastError ?? this.lastError,
+      lastFinishedMs: identical(lastFinishedMs, _sentinel)
+          ? this.lastFinishedMs
+          : lastFinishedMs as int?,
+      lastError: identical(lastError, _sentinel)
+          ? this.lastError
+          : lastError as String?,
       lastLog: lastLog ?? this.lastLog,
     );
   }

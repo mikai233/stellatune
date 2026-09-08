@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:stellatune/app/app_bootstrap.dart';
 import 'package:stellatune/app/providers.dart';
 import 'package:stellatune/app/semantics_diagnostics.dart';
+import 'package:stellatune/app/startup_app.dart';
 import 'package:stellatune/ui/app.dart';
 
 Future<void> main() async {
@@ -31,18 +32,24 @@ Future<void> main() async {
         return true;
       };
 
-      await initializeDesktopWindowIfNeeded();
-      final bootstrap = await bootstrapApp();
-
       runApp(
-        ProviderScope(
-          overrides: [
-            playerBridgeProvider.overrideWithValue(bootstrap.bridge),
-            libraryBridgeProvider.overrideWithValue(bootstrap.library),
-            coverDirProvider.overrideWithValue(bootstrap.coverDir),
-            settingsStoreServiceProvider.overrideWithValue(bootstrap.settings),
-          ],
-          child: const StellatuneApp(),
+        StartupApp(
+          loadApp: () async {
+            await initializeDesktopWindowIfNeeded();
+            final bootstrap = await bootstrapApp();
+            return ProviderScope(
+              overrides: [
+                playerBridgeProvider.overrideWithValue(bootstrap.bridge),
+                libraryBridgeProvider.overrideWithValue(bootstrap.library),
+                coverDirProvider.overrideWithValue(bootstrap.coverDir),
+                settingsStoreServiceProvider.overrideWithValue(
+                  bootstrap.settings,
+                ),
+              ],
+              child: const StellatuneApp(),
+            );
+          },
+          onExit: exitApplication,
         ),
       );
     },

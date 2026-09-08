@@ -16,6 +16,7 @@ final queueControllerProvider = NotifierProvider<QueueController, QueueState>(
 class QueueController extends Notifier<QueueState> {
   final Random _random = Random();
   BigInt _backendRevision = BigInt.zero;
+  bool _hasBackendSnapshot = false;
   bool get _remote =>
       ref.read(dlnaSelectedRendererProvider)?.avTransportControlUrl != null;
 
@@ -27,39 +28,89 @@ class QueueController extends Notifier<QueueState> {
     bool preserveCurrent = false,
   }) {
     if (snapshot.revision < _backendRevision) return;
+    final duplicateRevision =
+        _hasBackendSnapshot && snapshot.revision == _backendRevision;
+    _hasBackendSnapshot = true;
     _backendRevision = snapshot.revision;
     final existing = {
       for (final item in state.items)
         if (item.itemId != null) item.itemId!: item,
     };
+    final suppliedByItem = {
+      for (final item in metadata ?? const <QueueItem>[])
+        if (item.itemId != null) item.itemId!: item,
+    };
+    final suppliedByTrack = {
+      for (final item in metadata ?? const <QueueItem>[])
+        if (item.trackId != null) item.trackId!: item,
+    };
     final items = <QueueItem>[];
     for (var i = 0; i < snapshot.items.length; i++) {
       final entry = snapshot.items[i];
       final old = existing[entry.itemId];
-      final supplied = metadata != null && i < metadata.length
-          ? metadata[i]
-          : null;
+      final supplied =
+          suppliedByItem[entry.itemId] ?? suppliedByTrack[entry.trackId];
       final localMetadata = entry.localMetadata;
+      final presentation = entry.metadata;
+      final provider = entry.providerTrack;
       items.add(
         QueueItem(
           itemId: entry.itemId,
           trackId: entry.trackId,
           local: entry.localLibraryTrackId != null,
           path: entry.localPath ?? supplied?.path ?? old?.path ?? '',
-          providerTrack: supplied?.providerTrack ?? old?.providerTrack,
+          providerTrack: provider == null
+              ? supplied?.providerTrack ?? old?.providerTrack
+              : ProviderQueueTrack(
+                  providerId: provider.providerId,
+                  pluginId: provider.pluginId,
+                  typeId: provider.capabilityId,
+                  providerKey: provider.providerKey,
+                  sourcePluginId: provider.pluginId,
+                  decoderPluginId:
+                      supplied?.providerTrack?.decoderPluginId ??
+                      old?.providerTrack?.decoderPluginId,
+                  pathHint:
+                      supplied?.providerTrack?.pathHint ??
+                      old?.providerTrack?.pathHint ??
+                      '',
+                ),
           id: entry.localLibraryTrackId?.toInt() ?? supplied?.id ?? old?.id,
-          title: localMetadata?.title ?? supplied?.title ?? old?.title,
-          artist: localMetadata?.artist ?? supplied?.artist ?? old?.artist,
-          album: localMetadata?.album ?? supplied?.album ?? old?.album,
-          durationMs:
-              localMetadata?.durationMs?.toInt() ??
-              supplied?.durationMs ??
-              old?.durationMs,
-          cover: supplied?.cover ?? old?.cover,
+          title: localMetadata != null
+              ? localMetadata.title
+              : presentation != null
+              ? presentation.title
+              : supplied?.title ?? old?.title,
+          artist: localMetadata != null
+              ? localMetadata.artist
+              : presentation != null
+              ? presentation.artist
+              : supplied?.artist ?? old?.artist,
+          album: localMetadata != null
+              ? localMetadata.album
+              : presentation != null
+              ? presentation.album
+              : supplied?.album ?? old?.album,
+          durationMs: localMetadata != null
+              ? localMetadata.durationMs?.toInt()
+              : presentation != null
+              ? presentation.durationMs?.toInt()
+              : supplied?.durationMs ?? old?.durationMs,
+          cover: presentation == null
+              ? supplied?.cover ?? old?.cover
+              : presentation.cover == null
+              ? null
+              : QueueCover(
+                  kind: QueueCoverKind.values.byName(
+                    presentation.cover!.kind.name,
+                  ),
+                  value: presentation.cover!.value,
+                  mime: presentation.cover!.mime,
+                ),
         ),
       );
     }
-    final current = preserveCurrent
+    final current = preserveCurrent || duplicateRevision
         ? state.currentItem?.itemId
         : snapshot.currentItemId;
     final index = items.indexWhere((item) => item.itemId == current);
@@ -70,6 +121,11 @@ class QueueController extends Notifier<QueueState> {
       for (final id in snapshot.order)
         if (indices.containsKey(id)) indices[id]!,
     ];
+    final replaced =
+        items.isEmpty ||
+        (existing.isNotEmpty &&
+            !items.any((item) => existing.containsKey(item.itemId)));
+    final clearSource = replaceSource || (source == null && replaced);
     state = QueueState(
       items: items,
       currentIndex: index < 0 ? null : index,
@@ -81,8 +137,13 @@ class QueueController extends Notifier<QueueState> {
       },
       order: order,
       orderPos: order.indexOf(index).clamp(0, order.length),
-      source: replaceSource ? source : (source ?? state.source),
+      source: clearSource ? source : (source ?? state.source),
     );
+    if (clearSource || source != null) {
+      unawaited(
+        ref.read(settingsStoreProvider.notifier).setQueueSource(state.source),
+      );
+    }
   }
 
   void observeCurrent(BigInt itemId) {
@@ -153,6 +214,8 @@ class QueueController extends Notifier<QueueState> {
 
   @override
   QueueState build() {
+    _backendRevision = BigInt.zero;
+    _hasBackendSnapshot = false;
     final settings = ref.read(settingsStoreProvider);
     final mode = settings.playMode;
     final shuffle = mode == PlayMode.shuffle;

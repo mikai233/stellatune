@@ -1,12 +1,12 @@
 import 'dart:math';
 
 import 'package:flutter/material.dart';
-import 'package:stellatune/bridge/bridge.dart';
 import 'package:stellatune/player/queue_models.dart';
 import 'package:stellatune/ui/widgets/audio_format_badge.dart';
 import 'package:stellatune/ui/widgets/marquee_text.dart';
 
 import 'cover_image.dart';
+import 'detail_lyrics_panel.dart';
 
 /// Wide layout: cover + info on left, lyrics on right.
 class WideLayout extends StatelessWidget {
@@ -25,8 +25,6 @@ class WideLayout extends StatelessWidget {
     required this.maxWidth,
     required this.maxHeight,
     required this.hasLyrics,
-    required this.lyricLines,
-    required this.currentLyricLineIndex,
   });
 
   final String coverDir;
@@ -42,8 +40,6 @@ class WideLayout extends StatelessWidget {
   final double maxWidth;
   final double maxHeight;
   final bool hasLyrics;
-  final List<LyricLine> lyricLines;
-  final int currentLyricLineIndex;
 
   @override
   Widget build(BuildContext context) {
@@ -207,11 +203,7 @@ class WideLayout extends StatelessWidget {
                       vertical: 24,
                     ),
                     child: hasLyrics
-                        ? _LyricsPanel(
-                            lines: lyricLines,
-                            currentLineIndex: currentLyricLineIndex,
-                            foregroundColor: foregroundColor,
-                          )
+                        ? DetailLyricsPanel(foregroundColor: foregroundColor)
                         : const SizedBox.shrink(),
                   ),
                 ),
@@ -240,8 +232,6 @@ class NarrowLayout extends StatelessWidget {
     this.sampleRate,
     required this.maxHeight,
     required this.hasLyrics,
-    required this.lyricLines,
-    required this.currentLyricLineIndex,
   });
 
   final String coverDir;
@@ -256,8 +246,6 @@ class NarrowLayout extends StatelessWidget {
   final int? sampleRate;
   final double maxHeight;
   final bool hasLyrics;
-  final List<LyricLine> lyricLines;
-  final int currentLyricLineIndex;
 
   @override
   Widget build(BuildContext context) {
@@ -367,118 +355,13 @@ class NarrowLayout extends StatelessWidget {
                 SizedBox(height: (coverSize / 8).clamp(32.0, 64.0)),
                 SizedBox(
                   height: (coverSize * 0.9).clamp(220.0, 380.0),
-                  child: _LyricsPanel(
-                    lines: lyricLines,
-                    currentLineIndex: currentLyricLineIndex,
-                    foregroundColor: foregroundColor,
-                  ),
+                  child: DetailLyricsPanel(foregroundColor: foregroundColor),
                 ),
               ],
             ],
           ),
         ),
       ),
-    );
-  }
-}
-
-class _LyricsPanel extends StatefulWidget {
-  const _LyricsPanel({
-    required this.lines,
-    required this.currentLineIndex,
-    required this.foregroundColor,
-  });
-
-  final List<LyricLine> lines;
-  final int currentLineIndex;
-  final Color foregroundColor;
-
-  @override
-  State<_LyricsPanel> createState() => _LyricsPanelState();
-}
-
-class _LyricsPanelState extends State<_LyricsPanel> {
-  final ScrollController _controller = ScrollController();
-  final Map<int, GlobalKey> _lineKeys = <int, GlobalKey>{};
-
-  @override
-  void didUpdateWidget(covariant _LyricsPanel oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (widget.lines.length != oldWidget.lines.length) {
-      _lineKeys.removeWhere((k, _) => k >= widget.lines.length);
-    }
-    if (widget.currentLineIndex != oldWidget.currentLineIndex) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _scrollToCurrentLine();
-      });
-    }
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  void _scrollToCurrentLine() {
-    final idx = widget.currentLineIndex;
-    if (idx < 0 || idx >= widget.lines.length) return;
-    final key = _lineKeys[idx];
-    final ctx = key?.currentContext;
-    if (ctx == null) return;
-    Scrollable.ensureVisible(
-      ctx,
-      alignment: 0.32,
-      duration: const Duration(milliseconds: 260),
-      curve: Curves.easeOutCubic,
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final shortestSide = MediaQuery.sizeOf(context).shortestSide;
-    final inactiveFontSize = shortestSide < 420
-        ? 17.0
-        : shortestSide < 700
-        ? 18.0
-        : 19.0;
-    final activeFontSize = inactiveFontSize + 3.0;
-    return ListView.builder(
-      controller: _controller,
-      itemCount: widget.lines.length,
-      itemBuilder: (context, index) {
-        final line = widget.lines[index];
-        final active = index == widget.currentLineIndex;
-        final key = _lineKeys.putIfAbsent(index, GlobalKey.new);
-        final style =
-            (active ? theme.textTheme.titleMedium : theme.textTheme.bodyLarge)
-                ?.copyWith(
-                  color: widget.foregroundColor.withValues(
-                    alpha: active ? 0.96 : 0.58,
-                  ),
-                  fontWeight: active ? FontWeight.w700 : FontWeight.w500,
-                  fontSize: active ? activeFontSize : inactiveFontSize,
-                  height: 1.32,
-                );
-
-        return Container(
-          key: key,
-          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 6),
-          child: AnimatedDefaultTextStyle(
-            duration: const Duration(milliseconds: 180),
-            curve: Curves.easeOut,
-            style: style ?? TextStyle(fontSize: inactiveFontSize, height: 1.32),
-            child: Text(
-              line.text,
-              maxLines: 3,
-              softWrap: true,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.center,
-            ),
-          ),
-        );
-      },
     );
   }
 }

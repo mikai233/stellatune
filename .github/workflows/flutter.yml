@@ -25,6 +25,14 @@ jobs:
         run: flutter analyze
         working-directory: apps/stellatune
 
+      - name: Check Dart effective LOC
+        run: dart run tool/check_dart_loc.dart
+        working-directory: apps/stellatune
+
+      - name: Flutter regression tests
+        run: flutter test --no-pub
+        working-directory: apps/stellatune
+
       - name: Flutter Build Check (Windows)
         run: flutter build windows --debug
         working-directory: apps/stellatune

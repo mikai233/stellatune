@@ -3,13 +3,11 @@ import 'package:stellatune/bridge/bridge.dart';
 
 export 'package:stellatune/app/settings_store.dart'
     show
-        OutputSettingsUiSession,
         SettingsController,
         SettingsState,
         SettingsStore,
         settingsStoreProvider,
-        settingsStoreServiceProvider,
-        settingsUiSessionProvider;
+        settingsStoreServiceProvider;
 
 final playerBridgeProvider = Provider<PlayerBridge>((ref) {
   throw UnimplementedError('playerBridgeProvider must be overridden in main()');

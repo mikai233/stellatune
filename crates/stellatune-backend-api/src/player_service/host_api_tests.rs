@@ -188,7 +188,10 @@ async fn host_provider_commands_validate_capabilities_and_reuse_catalog_identity
         .build()
         .unwrap();
     let endpoint = format!("{}/player/commands", handle.base_url());
-    let mut input = json!({"pluginId":manifest.id, "capabilityId":"fixture-source", "providerId":"account", "providerKey":"42"});
+    let mut input = json!({"pluginId":manifest.id, "capabilityId":"fixture-source", "providerId":"account", "providerKey":"42",
+        "metadata": {"title":"Persisted provider song", "artist":"Artist", "album":"Album", "durationMs":42000,
+            "cover":{"kind":"url","value":"https://example.test/cover.jpg"}}});
+    let mut queue_events = service.subscribe_queue();
     let first: Value = client
         .post(&endpoint)
         .json(&json!({"command":"enqueueProviderTrack","track":input}))
@@ -224,6 +227,51 @@ async fn host_provider_commands_validate_capabilities_and_reuse_catalog_identity
     .await
     .unwrap();
     assert_eq!(first["trackId"], from_native.get().to_string());
+    assert!(queue_events.try_recv().is_ok());
+    let visible: Value = client
+        .get(format!("{}/player/queue", handle.base_url()))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(
+        visible["items"][0]["metadata"]["title"],
+        "Persisted provider song"
+    );
+    assert_eq!(
+        visible["items"][1]["providerTrack"]["providerId"],
+        "account"
+    );
+    assert_eq!(visible["items"][1]["providerTrack"]["providerKey"], "42");
+    let restored_catalog = PlayerCatalog::open(directory.path().join("player.sqlite"))
+        .await
+        .unwrap();
+    let restored = restored_catalog
+        .provider_queue_metadata(&[from_native])
+        .await
+        .unwrap();
+    let projected = &restored[&from_native];
+    assert_eq!(projected.provider_id, "account");
+    assert_eq!(projected.provider_key, "42");
+    assert_eq!(
+        projected.presentation.as_ref().unwrap().title.as_deref(),
+        Some("Persisted provider song")
+    );
+    assert_eq!(
+        projected
+            .presentation
+            .as_ref()
+            .unwrap()
+            .cover
+            .as_ref()
+            .unwrap()
+            .value,
+        "https://example.test/cover.jpg"
+    );
     let queue = service.queue_snapshot().await.unwrap();
     assert_eq!(queue.items.len(), 2);
     input["capabilityId"] = json!("fixture-search");

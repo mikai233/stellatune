@@ -4,8 +4,8 @@ use super::{
     model::{PlayerCommand, Repeat},
 };
 use crate::player_service::{
-    identity::TrackId, plugin_tracks::ensure_provider_track, queue::QueueSnapshot,
-    state::RepeatMode,
+    identity::TrackId, metadata::TrackPresentation, plugin_tracks::ensure_provider_track,
+    queue::QueueSnapshot, service::PlayerService, state::RepeatMode,
 };
 use axum::{
     Json,
@@ -52,18 +52,44 @@ pub(super) async fn state(State(state): State<HostApiState>) -> Result<Json<Valu
     })))
 }
 
-fn queue_value(queue: QueueSnapshot) -> Value {
-    json!({
-        "items": queue.items.iter().map(|item| json!({"itemId": item.item_id.get().to_string(), "trackId": item.track_id.get().to_string()})).collect::<Vec<_>>(),
+async fn queue_value(service: &PlayerService, queue: QueueSnapshot) -> Result<Value, ApiError> {
+    let ids = queue
+        .items
+        .iter()
+        .map(|item| item.track_id)
+        .collect::<Vec<_>>();
+    let providers = service.queue_provider_metadata(&ids).await?;
+    let locals = service.queue_local_metadata(&ids).await?;
+    Ok(json!({
+        "items": queue.items.iter().map(|item| {
+            let provider = providers.get(&item.track_id);
+            let metadata = provider.and_then(|provider| provider.presentation.clone()).or_else(|| {
+                let local = locals.get(&item.track_id)?.1.as_ref()?;
+                Some(TrackPresentation {
+                    title: local.title.clone(), artist: local.artist.clone(), album: local.album.clone(),
+                    duration_ms: local.duration_ms.and_then(|duration| u64::try_from(duration).ok()), cover: None,
+                })
+            });
+            json!({
+                "itemId": item.item_id.get().to_string(), "trackId": item.track_id.get().to_string(),
+                "providerTrack": provider.map(|provider| json!({
+                    "pluginId": provider.plugin_id, "capabilityId": provider.capability_id,
+                    "providerId": provider.provider_id, "providerKey": provider.provider_key,
+                })),
+                "metadata": metadata,
+            })
+        }).collect::<Vec<_>>(),
         "order": queue.order.iter().map(|id| id.get().to_string()).collect::<Vec<_>>(),
         "currentItemId": queue.current_item_id.map(|id| id.get().to_string()),
         "requestedItemId": queue.requested_item_id.map(|id| id.get().to_string()),
         "repeat": format!("{:?}", queue.repeat_mode).to_lowercase(),
         "shuffle": queue.shuffle, "revision": queue.revision.to_string(),
-    })
+    }))
 }
 pub(super) async fn queue(State(state): State<HostApiState>) -> Result<Json<Value>, ApiError> {
-    Ok(Json(queue_value(state.service.queue_snapshot().await?)))
+    Ok(Json(
+        queue_value(&state.service, state.service.queue_snapshot().await?).await?,
+    ))
 }
 
 pub(super) async fn command(
@@ -95,17 +121,18 @@ pub(super) async fn command(
                 .iter()
                 .map(|id| track(id))
                 .collect::<Result<Vec<_>, _>>()?;
-            result = queue_value(service.append_queue(tracks).await?);
+            result = queue_value(service, service.append_queue(tracks).await?).await?;
         },
         PlayerCommand::ReplaceQueue { track_ids } => {
             let tracks = track_ids
                 .iter()
                 .map(|id| track(id))
                 .collect::<Result<Vec<_>, _>>()?;
-            result = queue_value(service.replace_queue(tracks).await?);
+            result = queue_value(service, service.replace_queue(tracks).await?).await?;
         },
         PlayerCommand::RemoveQueueItems { item_ids } => {
             result = queue_value(
+                service,
                 service
                     .remove_queue_items(
                         item_ids
@@ -114,7 +141,8 @@ pub(super) async fn command(
                             .collect::<Result<Vec<_>, _>>()?,
                     )
                     .await?,
-            );
+            )
+            .await?;
         },
         PlayerCommand::SetQueueMode { repeat, shuffle } => {
             let repeat = match repeat {
@@ -122,7 +150,7 @@ pub(super) async fn command(
                 Repeat::All => RepeatMode::All,
                 Repeat::One => RepeatMode::One,
             };
-            result = queue_value(service.set_queue_mode(repeat, shuffle).await?);
+            result = queue_value(service, service.set_queue_mode(repeat, shuffle).await?).await?;
         },
         PlayerCommand::PlayTrack { track_id } => {
             let snapshot = service.append_queue(vec![track(&track_id)?]).await?;
@@ -138,6 +166,7 @@ pub(super) async fn command(
             else {
                 unreachable!()
             };
+            let metadata = track.metadata.clone();
             let track = ensure_provider_track(
                 service,
                 state.plugins.clone(),
@@ -147,6 +176,11 @@ pub(super) async fn command(
                 &track.provider_key,
             )
             .await?;
+            if let Some(metadata) = metadata {
+                service
+                    .store_track_presentations(&[(track, metadata)])
+                    .await?;
+            }
             let snapshot = service.append_queue(vec![track]).await?;
             let id = snapshot.items.last().expect("one appended item").item_id;
             if play {
@@ -201,7 +235,10 @@ pub(super) async fn events(
                 },
                 queue = queues.recv() => match queue {
                     Ok(_) => match service.queue_snapshot().await {
-                        Ok(queue) => json!({"type": "queueChanged", "queue": queue_value(queue)}),
+                        Ok(queue) => match queue_value(&service, queue).await {
+                            Ok(queue) => json!({"type": "queueChanged", "queue": queue}),
+                            Err(_) => json!({"type": "resync"}),
+                        },
                         Err(_) => json!({"type": "resync"}),
                     },
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => json!({"type": "resync"}),

@@ -4,15 +4,25 @@
 // ignore_for_file: invalid_use_of_internal_member, unused_import, unnecessary_import
 
 import '../../frb_generated.dart';
+import '../../third_party/stellatune_backend_api/player_service/metadata.dart';
 import '../../third_party/stellatune_library.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `navigation_result`, `project`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`
 
 Future<PlaybackQueue> playbackQueue() =>
     StellatuneApi.instance.api.crateApiPlayerQueuePlaybackQueue();
+
+/// Subscribe before projecting the initial snapshot; lag also resynchronizes.
+Stream<PlaybackQueue> queueEvents() =>
+    StellatuneApi.instance.api.crateApiPlayerQueueQueueEvents();
+
+Future<void> storeQueueMetadata({required List<QueueMetadataUpdate> updates}) =>
+    StellatuneApi.instance.api.crateApiPlayerQueueStoreQueueMetadata(
+      updates: updates,
+    );
 
 Future<PlaybackQueue> replaceQueue({required Uint64List trackIds}) =>
     StellatuneApi.instance.api.crateApiPlayerQueueReplaceQueue(
@@ -101,6 +111,8 @@ class QueueEntry {
   final PlatformInt64? localLibraryTrackId;
   final String? localPath;
   final TrackLite? localMetadata;
+  final QueueProviderTrack? providerTrack;
+  final TrackPresentation? metadata;
 
   const QueueEntry({
     required this.itemId,
@@ -108,6 +120,8 @@ class QueueEntry {
     this.localLibraryTrackId,
     this.localPath,
     this.localMetadata,
+    this.providerTrack,
+    this.metadata,
   });
 
   @override
@@ -116,7 +130,9 @@ class QueueEntry {
       trackId.hashCode ^
       localLibraryTrackId.hashCode ^
       localPath.hashCode ^
-      localMetadata.hashCode;
+      localMetadata.hashCode ^
+      providerTrack.hashCode ^
+      metadata.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -127,7 +143,58 @@ class QueueEntry {
           trackId == other.trackId &&
           localLibraryTrackId == other.localLibraryTrackId &&
           localPath == other.localPath &&
-          localMetadata == other.localMetadata;
+          localMetadata == other.localMetadata &&
+          providerTrack == other.providerTrack &&
+          metadata == other.metadata;
+}
+
+class QueueMetadataUpdate {
+  final BigInt trackId;
+  final TrackPresentation metadata;
+
+  const QueueMetadataUpdate({required this.trackId, required this.metadata});
+
+  @override
+  int get hashCode => trackId.hashCode ^ metadata.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is QueueMetadataUpdate &&
+          runtimeType == other.runtimeType &&
+          trackId == other.trackId &&
+          metadata == other.metadata;
+}
+
+class QueueProviderTrack {
+  final String providerId;
+  final String providerKey;
+  final String pluginId;
+  final String capabilityId;
+
+  const QueueProviderTrack({
+    required this.providerId,
+    required this.providerKey,
+    required this.pluginId,
+    required this.capabilityId,
+  });
+
+  @override
+  int get hashCode =>
+      providerId.hashCode ^
+      providerKey.hashCode ^
+      pluginId.hashCode ^
+      capabilityId.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is QueueProviderTrack &&
+          runtimeType == other.runtimeType &&
+          providerId == other.providerId &&
+          providerKey == other.providerKey &&
+          pluginId == other.pluginId &&
+          capabilityId == other.capabilityId;
 }
 
 enum QueueRepeatMode { off, all, one }

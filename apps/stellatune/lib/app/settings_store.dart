@@ -12,20 +12,6 @@ import 'package:stellatune/player/queue_models.dart';
 
 const _unset = Object();
 
-class OutputSettingsUiSession {
-  bool initialized = false;
-  String? selectedOutputBackendKey;
-  String? selectedOutputSinkTypeKey;
-  String outputSinkConfigJson = '{}';
-  String outputSinkTargetJson = '{}';
-  List<Object?> outputSinkTargets = const [];
-  bool loadingOutputSinkTargets = false;
-  final Map<String, String> outputSinkConfigDrafts = <String, String>{};
-  List<OutputSinkTypeDescriptor> cachedOutputSinkTypes = const [];
-  bool cachedOutputSinkTypesReady = false;
-  ResampleQuality resampleQuality = ResampleQuality.high;
-}
-
 class SettingsState {
   SettingsState({
     this.playbackLatency = PlaybackLatency.medium,
@@ -102,9 +88,6 @@ class SettingsState {
 
 class SettingsStore implements DirectoryAccessStore {
   SettingsStore();
-
-  final OutputSettingsUiSession outputSettingsUiSession =
-      OutputSettingsUiSession();
 
   static const _boxName = 'settings';
   static const _keyPlaybackLatency = 'playback_latency';
@@ -277,6 +260,31 @@ class SettingsStore implements DirectoryAccessStore {
 
   Future<void> clearOutputSinkRoute() => _box.delete(_keyOutputSinkRoute);
 
+  /// Publish one confirmed output selection, never an intermediate UI draft.
+  Future<void> saveOutputSelection({
+    required AudioBackend backend,
+    required String? deviceId,
+    required OutputSinkRoute? route,
+  }) => _box.putAll({
+    _keySelectedBackend: backend.name,
+    _keySelectedDeviceId: deviceId,
+    _keyOutputSinkRoute: route == null
+        ? null
+        : jsonEncode({
+            'pluginId': route.pluginId,
+            'typeId': route.typeId,
+            'configJson': route.configJson,
+            'targetJson': route.targetJson,
+          }),
+  });
+
+  Future<void> saveOutputOptions(SettingsState value) => _box.putAll({
+    _keyMatchTrackSampleRate: value.matchTrackSampleRate,
+    _keyGaplessPlayback: value.gaplessPlayback,
+    _keySeekTrackFade: value.seekTrackFade,
+    _keyResampleQuality: value.resampleQuality.name,
+  });
+
   QueueSource? get queueSource {
     final raw = _box.get(_keyQueueSource);
     if (raw is! String || raw.isEmpty) return null;
@@ -403,23 +411,23 @@ final settingsStoreServiceProvider = Provider<SettingsStore>((ref) {
   );
 });
 
-final settingsUiSessionProvider = Provider<OutputSettingsUiSession>((ref) {
-  return ref.watch(settingsStoreServiceProvider).outputSettingsUiSession;
-});
-
 class SettingsController extends Notifier<SettingsState> {
+  int _lifetime = 0;
   SettingsStore get _store => ref.read(settingsStoreServiceProvider);
 
   @override
   SettingsState build() {
+    _lifetime++;
     return _store.readState();
   }
 
   Future<void> _persist(
     Future<void> Function(SettingsStore store) action,
   ) async {
-    await action(_store);
-    state = _store.readState();
+    final store = _store;
+    final lifetime = _lifetime;
+    await action(store);
+    if (ref.mounted && lifetime == _lifetime) state = store.readState();
   }
 
   Future<void> setVolume(double v) => _persist((store) => store.setVolume(v));
@@ -453,6 +461,21 @@ class SettingsController extends Notifier<SettingsState> {
 
   Future<void> clearOutputSinkRoute() =>
       _persist((store) => store.clearOutputSinkRoute());
+
+  Future<void> saveOutputSelection({
+    required AudioBackend backend,
+    required String? deviceId,
+    required OutputSinkRoute? route,
+  }) => _persist(
+    (store) => store.saveOutputSelection(
+      backend: backend,
+      deviceId: deviceId,
+      route: route,
+    ),
+  );
+
+  Future<void> saveOutputOptions(SettingsState value) =>
+      _persist((store) => store.saveOutputOptions(value));
 
   Future<void> setQueueSource(QueueSource? source) =>
       _persist((store) => store.setQueueSource(source));

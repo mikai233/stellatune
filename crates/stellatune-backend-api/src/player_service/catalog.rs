@@ -31,6 +31,7 @@ impl PlayerCatalog {
             .await?;
         let catalog = Self { pool };
         catalog.validate_or_bootstrap().await?;
+        catalog.ensure_metadata_table().await?;
         Ok(catalog)
     }
 

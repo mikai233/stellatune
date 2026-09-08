@@ -3,7 +3,7 @@ import 'package:stellatune/app/logging.dart';
 import 'package:stellatune/bridge/bridge.dart';
 import 'package:stellatune/l10n/app_localizations.dart';
 import 'package:stellatune/ui/forms/schema_form.dart';
-import 'package:stellatune/ui/pages/settings/models/installed_plugin.dart';
+import 'package:stellatune/plugins/installed_plugin.dart';
 
 class SettingsPluginTile extends StatefulWidget {
   final InstalledPlugin plugin;

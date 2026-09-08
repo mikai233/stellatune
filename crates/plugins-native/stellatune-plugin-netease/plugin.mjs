@@ -241,7 +241,8 @@ data: ${JSON.stringify({ plugin_id: pluginId, name: event.type, payload: event, 
           pluginId,
           capabilityId: "netease-source",
           providerId: String(input.provider_id ?? "netease"),
-          providerKey: String(input.provider_track_key)
+          providerKey: String(input.provider_track_key),
+          ...input.metadata ? { metadata: input.metadata } : {}
         } });
       } else if (action === "playback.play_track" || action === "playback.enqueue_track") {
         const trackId = String(input.track_id);

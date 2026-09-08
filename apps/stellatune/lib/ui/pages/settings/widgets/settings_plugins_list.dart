@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:stellatune/bridge/bridge.dart';
-import 'package:stellatune/ui/pages/settings/models/installed_plugin.dart';
+import 'package:stellatune/plugins/installed_plugin.dart';
 import 'package:stellatune/ui/pages/settings/widgets/plugin_tile.dart';
 
 class SettingsPluginsList extends StatelessWidget {

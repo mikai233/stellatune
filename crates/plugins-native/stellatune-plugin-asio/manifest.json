@@ -2,7 +2,7 @@
   "manifest_version": 2,
   "id": "dev.stellatune.output.asio",
   "name": "ASIO Output",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "runtime": {
     "kind": "typescript",
     "entry": "plugin.mjs",

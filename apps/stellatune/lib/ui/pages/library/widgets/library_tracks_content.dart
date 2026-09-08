@@ -1,3 +1,4 @@
+import 'package:stellatune/transcode/transcode_flow.dart';
 import 'package:flutter/material.dart';
 import 'package:stellatune/bridge/bridge.dart';
 import 'package:stellatune/l10n/app_localizations.dart';
@@ -139,7 +140,7 @@ class LibraryTracksContent extends StatelessWidget {
         Expanded(
           child: TrackList(
             tableLayout: tableLayout,
-            bridge: bridge,
+            onTranscodeRequested: transcodeAction(context, bridge),
             coverDir: coverDir,
             items: results,
             likedTrackIds: likedTrackIds,

@@ -8,14 +8,10 @@ class _MacosDirectoryLease implements DirectoryAccessLease {
 
   final MacosDirectoryAccessService _service;
   final List<String> _paths;
-  bool _released = false;
+  Future<void>? _release;
 
   @override
-  Future<void> release() async {
-    if (_released) return;
-    _released = true;
-    await _service.releasePaths(_paths);
-  }
+  Future<void> release() => _release ??= _service.releasePaths(_paths);
 }
 
 class MacosDirectoryAccessService implements DirectoryAccessService {
@@ -112,24 +108,31 @@ class MacosDirectoryAccessService implements DirectoryAccessService {
   }) async {
     final resolvedPaths = <String>[];
     final seen = <String>{};
-    for (final rawRoot in roots) {
-      final root = _normalizePath(rawRoot);
-      if (root.isEmpty || !seen.add(root)) continue;
-      final bookmark = store.macosDirectoryBookmarkForPath(root);
-      if (bookmark == null || bookmark.isEmpty) {
-        throw DirectoryAccessException(
-          'Library folder needs to be reauthorized in macOS: $root',
+    try {
+      for (final rawRoot in roots) {
+        final root = _normalizePath(rawRoot);
+        if (root.isEmpty || !seen.add(root)) continue;
+        final bookmark = store.macosDirectoryBookmarkForPath(root);
+        if (bookmark == null || bookmark.isEmpty) {
+          throw DirectoryAccessException(
+            'Library folder needs to be reauthorized in macOS: $root',
+          );
+        }
+        final response = await _invoke('startAccessingDirectory', {
+          'bookmark': bookmark,
+        });
+        // Own the access as soon as native acquisition succeeds. Persisting a
+        // refreshed bookmark may fail too, including when a folder has moved.
+        resolvedPaths.add(_pathField(response, 'path') ?? root);
+        await _updateBookmarkFromResponse(
+          store: store,
+          fallbackPath: root,
+          response: response,
         );
       }
-      final response = await _invoke('startAccessingDirectory', {
-        'bookmark': bookmark,
-      });
-      final resolvedPath = await _updateBookmarkFromResponse(
-        store: store,
-        fallbackPath: root,
-        response: response,
-      );
-      resolvedPaths.add(resolvedPath);
+    } catch (_) {
+      await releasePaths(resolvedPaths.reversed.toList());
+      rethrow;
     }
     if (resolvedPaths.isEmpty) return null;
     return _MacosDirectoryLease(this, resolvedPaths);
@@ -148,21 +151,7 @@ class MacosDirectoryAccessService implements DirectoryAccessService {
         'This local file is outside authorized library folders on macOS: $normalizedPath',
       );
     }
-    final bookmark = store.macosDirectoryBookmarkForPath(root);
-    if (bookmark == null || bookmark.isEmpty) {
-      throw DirectoryAccessException(
-        'Library folder needs to be reauthorized in macOS: $root',
-      );
-    }
-    final response = await _invoke('startAccessingDirectory', {
-      'bookmark': bookmark,
-    });
-    final resolvedPath = await _updateBookmarkFromResponse(
-      store: store,
-      fallbackPath: root,
-      response: response,
-    );
-    return _MacosDirectoryLease(this, [resolvedPath]);
+    return acquireRoots(roots: [root], store: store);
   }
 
   @override
@@ -173,7 +162,7 @@ class MacosDirectoryAccessService implements DirectoryAccessService {
     final normalized = _normalizePath(path);
     if (normalized.isEmpty) return;
     await store.removeMacosDirectoryBookmark(normalized);
-    await releasePaths([normalized]);
+    // Existing leases own their start/stop pairs until their consumers finish.
   }
 
   Future<void> releasePaths(List<String> paths) async {

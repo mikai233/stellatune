@@ -21,6 +21,7 @@ import 'package:stellatune/ui/preview/home_preview.dart';
 import 'package:stellatune/ui/preview/library_preview.dart';
 import 'package:stellatune/ui/pages/shell/desktop_frame.dart';
 import 'package:stellatune/ui/widgets/track_list.dart';
+import 'package:stellatune/ui/widgets/dynamic_background.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -221,11 +222,13 @@ void main() {
   });
 
   for (final artwork in ['forest', 'moon']) {
-    testWidgets('shared artwork palette: $artwork', (tester) async {
+    testWidgets('detail artwork palette: $artwork', (tester) async {
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
       final palette = await tester.runAsync(
-        () => paletteFromImage(AssetImage('assets/images/home/$artwork.png')),
+        () => detailPaletteFromImage(
+          AssetImage('assets/images/home/$artwork.png'),
+        ),
       );
       tester.view.devicePixelRatio = 1;
       tester.view.physicalSize = const Size(1024, 720);
@@ -241,28 +244,24 @@ void main() {
             child: MaterialApp(
               debugShowCheckedModeBanner: false,
               theme: ThemeData(fontFamily: 'NotoSansSC'),
-              home: ArtworkTheme(
-                palette: palette!,
-                child: ArtworkBackdrop(
-                  detail: true,
-                  child: LayoutBuilder(
-                    builder: (context, constraints) => WideLayout(
-                      coverDir: '',
-                      trackId: null,
-                      trackIdentityKey: artwork,
-                      cover: cover,
-                      title: artwork == 'forest'
-                          ? 'Sunny Mornings'
-                          : 'The Moment',
-                      subtitle: 'Artwork palette preview',
-                      slideDirection: 0,
-                      foregroundColor: Colors.white,
-                      maxWidth: constraints.maxWidth,
-                      maxHeight: constraints.maxHeight,
-                      hasLyrics: false,
-                      lyricLines: const [],
-                      currentLyricLineIndex: -1,
-                    ),
+              home: ShaderBackground(
+                colors: palette!.colors,
+                animate: false,
+                child: LayoutBuilder(
+                  builder: (context, constraints) => WideLayout(
+                    coverDir: '',
+                    trackId: null,
+                    trackIdentityKey: artwork,
+                    cover: cover,
+                    title: artwork == 'forest'
+                        ? 'Sunny Mornings'
+                        : 'The Moment',
+                    subtitle: 'Artwork palette preview',
+                    slideDirection: 0,
+                    foregroundColor: palette.foreground,
+                    maxWidth: constraints.maxWidth,
+                    maxHeight: constraints.maxHeight,
+                    hasLyrics: false,
                   ),
                 ),
               ),
@@ -270,17 +269,20 @@ void main() {
           ),
         );
         final context = tester.element(find.byType(WideLayout));
-        await precacheImage(
-          ResizeImage(
-            MemoryImage(bytes.buffer.asUint8List()),
-            width: 396,
-            height: 396,
-            allowUpscaling: false,
-          ),
-          context,
-        );
+        final coverWidget = tester.widget<Image>(find.byType(Image));
+        await precacheImage(coverWidget.image, context);
       });
       await tester.pumpAndSettle();
+      // Shader readiness/color animation can rebuild the cover with new decoded
+      // memory bytes. Wait for the image owned by the final settled frame.
+      await tester.runAsync(
+        () => precacheImage(
+          tester.widget<Image>(find.byType(Image)).image,
+          tester.element(find.byType(WideLayout)),
+        ),
+      );
+      await tester.pump();
+      expect(tester.widget<RawImage>(find.byType(RawImage)).image, isNotNull);
       await capture(tester, 'detail-palette-$artwork');
       expect(tester.takeException(), isNull);
     });

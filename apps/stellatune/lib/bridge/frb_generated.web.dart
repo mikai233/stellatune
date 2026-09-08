@@ -23,6 +23,11 @@ import 'frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated_web.dart';
 
 import 'third_party/stellatune_backend_api/lyrics_types.dart';
+import 'third_party/stellatune_backend_api/player_service/catalog.dart';
+import 'third_party/stellatune_backend_api/player_service/error.dart';
+import 'third_party/stellatune_backend_api/player_service/identity.dart';
+import 'third_party/stellatune_backend_api/player_service/metadata.dart';
+import 'third_party/stellatune_backend_api/player_service/service.dart';
 import 'third_party/stellatune_library.dart';
 
 abstract class StellatuneApiApiImplPlatform
@@ -34,8 +39,90 @@ abstract class StellatuneApiApiImplPlatform
     required super.portManager,
   });
 
+  CrossPlatformFinalizerArg
+  get rust_arc_decrement_strong_count_PlayerCatalogPtr => wire
+      .rust_arc_decrement_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPlayerCatalog;
+
+  CrossPlatformFinalizerArg
+  get rust_arc_decrement_strong_count_PlayerServicePtr => wire
+      .rust_arc_decrement_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPlayerService;
+
+  CrossPlatformFinalizerArg
+  get rust_arc_decrement_strong_count_PlayerServiceErrorPtr => wire
+      .rust_arc_decrement_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPlayerServiceError;
+
+  CrossPlatformFinalizerArg
+  get rust_arc_decrement_strong_count_TrackIdPtr => wire
+      .rust_arc_decrement_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerTrackId;
+
   @protected
   AnyhowException dco_decode_AnyhowException(dynamic raw);
+
+  @protected
+  PlayerCatalog
+  dco_decode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPlayerCatalog(
+    dynamic raw,
+  );
+
+  @protected
+  PlayerService
+  dco_decode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPlayerService(
+    dynamic raw,
+  );
+
+  @protected
+  PlayerServiceError
+  dco_decode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPlayerServiceError(
+    dynamic raw,
+  );
+
+  @protected
+  TrackId
+  dco_decode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerTrackId(
+    dynamic raw,
+  );
+
+  @protected
+  PlayerCatalog
+  dco_decode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPlayerCatalog(
+    dynamic raw,
+  );
+
+  @protected
+  PlayerService
+  dco_decode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPlayerService(
+    dynamic raw,
+  );
+
+  @protected
+  Map<TrackId, ProviderQueueMetadata>
+  dco_decode_Map_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerTrackId_provider_queue_metadata_None(
+    dynamic raw,
+  );
+
+  @protected
+  PlayerCatalog
+  dco_decode_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPlayerCatalog(
+    dynamic raw,
+  );
+
+  @protected
+  PlayerService
+  dco_decode_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPlayerService(
+    dynamic raw,
+  );
+
+  @protected
+  PlayerServiceError
+  dco_decode_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPlayerServiceError(
+    dynamic raw,
+  );
+
+  @protected
+  TrackId
+  dco_decode_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerTrackId(
+    dynamic raw,
+  );
 
   @protected
   RustStreamSink<Event> dco_decode_StreamSink_event_Sse(dynamic raw);
@@ -47,6 +134,11 @@ abstract class StellatuneApiApiImplPlatform
 
   @protected
   RustStreamSink<LyricsEvent> dco_decode_StreamSink_lyrics_event_Sse(
+    dynamic raw,
+  );
+
+  @protected
+  RustStreamSink<PlaybackQueue> dco_decode_StreamSink_playback_queue_Sse(
     dynamic raw,
   );
 
@@ -82,10 +174,19 @@ abstract class StellatuneApiApiImplPlatform
   OutputSinkRoute dco_decode_box_autoadd_output_sink_route(dynamic raw);
 
   @protected
+  QueueProviderTrack dco_decode_box_autoadd_queue_provider_track(dynamic raw);
+
+  @protected
+  TrackCover dco_decode_box_autoadd_track_cover(dynamic raw);
+
+  @protected
   TrackDecodeInfo dco_decode_box_autoadd_track_decode_info(dynamic raw);
 
   @protected
   TrackLite dco_decode_box_autoadd_track_lite(dynamic raw);
+
+  @protected
+  TrackPresentation dco_decode_box_autoadd_track_presentation(dynamic raw);
 
   @protected
   TranscodeTrackLocalRequest
@@ -141,6 +242,12 @@ abstract class StellatuneApiApiImplPlatform
 
   @protected
   LibraryEvent dco_decode_library_event(dynamic raw);
+
+  @protected
+  List<TrackId>
+  dco_decode_list_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerTrackId(
+    dynamic raw,
+  );
 
   @protected
   List<String> dco_decode_list_String(dynamic raw);
@@ -201,6 +308,21 @@ abstract class StellatuneApiApiImplPlatform
   List<QueueEntry> dco_decode_list_queue_entry(dynamic raw);
 
   @protected
+  List<QueueMetadataUpdate> dco_decode_list_queue_metadata_update(dynamic raw);
+
+  @protected
+  List<(TrackId, ProviderQueueMetadata)>
+  dco_decode_list_record_auto_owned_rust_opaque_flutter_rust_bridgefor_generated_rust_auto_opaque_inner_track_id_provider_queue_metadata(
+    dynamic raw,
+  );
+
+  @protected
+  List<(TrackId, TrackPresentation)>
+  dco_decode_list_record_auto_owned_rust_opaque_flutter_rust_bridgefor_generated_rust_auto_opaque_inner_track_id_track_presentation(
+    dynamic raw,
+  );
+
+  @protected
   List<SourceCatalogTypeDescriptor>
   dco_decode_list_source_catalog_type_descriptor(dynamic raw);
 
@@ -234,10 +356,21 @@ abstract class StellatuneApiApiImplPlatform
   PlatformInt64? dco_decode_opt_box_autoadd_i_64(dynamic raw);
 
   @protected
+  QueueProviderTrack? dco_decode_opt_box_autoadd_queue_provider_track(
+    dynamic raw,
+  );
+
+  @protected
+  TrackCover? dco_decode_opt_box_autoadd_track_cover(dynamic raw);
+
+  @protected
   TrackDecodeInfo? dco_decode_opt_box_autoadd_track_decode_info(dynamic raw);
 
   @protected
   TrackLite? dco_decode_opt_box_autoadd_track_lite(dynamic raw);
+
+  @protected
+  TrackPresentation? dco_decode_opt_box_autoadd_track_presentation(dynamic raw);
 
   @protected
   int? dco_decode_opt_box_autoadd_u_16(dynamic raw);
@@ -273,10 +406,31 @@ abstract class StellatuneApiApiImplPlatform
   PluginDescriptor dco_decode_plugin_descriptor(dynamic raw);
 
   @protected
+  ProviderQueueMetadata dco_decode_provider_queue_metadata(dynamic raw);
+
+  @protected
   QueueEntry dco_decode_queue_entry(dynamic raw);
 
   @protected
+  QueueMetadataUpdate dco_decode_queue_metadata_update(dynamic raw);
+
+  @protected
+  QueueProviderTrack dco_decode_queue_provider_track(dynamic raw);
+
+  @protected
   QueueRepeatMode dco_decode_queue_repeat_mode(dynamic raw);
+
+  @protected
+  (TrackId, ProviderQueueMetadata)
+  dco_decode_record_auto_owned_rust_opaque_flutter_rust_bridgefor_generated_rust_auto_opaque_inner_track_id_provider_queue_metadata(
+    dynamic raw,
+  );
+
+  @protected
+  (TrackId, TrackPresentation)
+  dco_decode_record_auto_owned_rust_opaque_flutter_rust_bridgefor_generated_rust_auto_opaque_inner_track_id_track_presentation(
+    dynamic raw,
+  );
 
   @protected
   ResampleQuality dco_decode_resample_quality(dynamic raw);
@@ -287,10 +441,19 @@ abstract class StellatuneApiApiImplPlatform
   );
 
   @protected
+  TrackCover dco_decode_track_cover(dynamic raw);
+
+  @protected
+  TrackCoverKind dco_decode_track_cover_kind(dynamic raw);
+
+  @protected
   TrackDecodeInfo dco_decode_track_decode_info(dynamic raw);
 
   @protected
   TrackLite dco_decode_track_lite(dynamic raw);
+
+  @protected
+  TrackPresentation dco_decode_track_presentation(dynamic raw);
 
   @protected
   TranscodeProgressEvent dco_decode_transcode_progress_event(dynamic raw);
@@ -316,7 +479,76 @@ abstract class StellatuneApiApiImplPlatform
   void dco_decode_unit(dynamic raw);
 
   @protected
+  BigInt dco_decode_usize(dynamic raw);
+
+  @protected
   AnyhowException sse_decode_AnyhowException(SseDeserializer deserializer);
+
+  @protected
+  PlayerCatalog
+  sse_decode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPlayerCatalog(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  PlayerService
+  sse_decode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPlayerService(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  PlayerServiceError
+  sse_decode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPlayerServiceError(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  TrackId
+  sse_decode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerTrackId(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  PlayerCatalog
+  sse_decode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPlayerCatalog(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  PlayerService
+  sse_decode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPlayerService(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  Map<TrackId, ProviderQueueMetadata>
+  sse_decode_Map_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerTrackId_provider_queue_metadata_None(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  PlayerCatalog
+  sse_decode_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPlayerCatalog(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  PlayerService
+  sse_decode_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPlayerService(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  PlayerServiceError
+  sse_decode_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPlayerServiceError(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  TrackId
+  sse_decode_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerTrackId(
+    SseDeserializer deserializer,
+  );
 
   @protected
   RustStreamSink<Event> sse_decode_StreamSink_event_Sse(
@@ -330,6 +562,11 @@ abstract class StellatuneApiApiImplPlatform
 
   @protected
   RustStreamSink<LyricsEvent> sse_decode_StreamSink_lyrics_event_Sse(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  RustStreamSink<PlaybackQueue> sse_decode_StreamSink_playback_queue_Sse(
     SseDeserializer deserializer,
   );
 
@@ -371,12 +608,25 @@ abstract class StellatuneApiApiImplPlatform
   );
 
   @protected
+  QueueProviderTrack sse_decode_box_autoadd_queue_provider_track(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  TrackCover sse_decode_box_autoadd_track_cover(SseDeserializer deserializer);
+
+  @protected
   TrackDecodeInfo sse_decode_box_autoadd_track_decode_info(
     SseDeserializer deserializer,
   );
 
   @protected
   TrackLite sse_decode_box_autoadd_track_lite(SseDeserializer deserializer);
+
+  @protected
+  TrackPresentation sse_decode_box_autoadd_track_presentation(
+    SseDeserializer deserializer,
+  );
 
   @protected
   TranscodeTrackLocalRequest
@@ -442,6 +692,12 @@ abstract class StellatuneApiApiImplPlatform
 
   @protected
   LibraryEvent sse_decode_library_event(SseDeserializer deserializer);
+
+  @protected
+  List<TrackId>
+  sse_decode_list_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerTrackId(
+    SseDeserializer deserializer,
+  );
 
   @protected
   List<String> sse_decode_list_String(SseDeserializer deserializer);
@@ -514,6 +770,23 @@ abstract class StellatuneApiApiImplPlatform
   List<QueueEntry> sse_decode_list_queue_entry(SseDeserializer deserializer);
 
   @protected
+  List<QueueMetadataUpdate> sse_decode_list_queue_metadata_update(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<(TrackId, ProviderQueueMetadata)>
+  sse_decode_list_record_auto_owned_rust_opaque_flutter_rust_bridgefor_generated_rust_auto_opaque_inner_track_id_provider_queue_metadata(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<(TrackId, TrackPresentation)>
+  sse_decode_list_record_auto_owned_rust_opaque_flutter_rust_bridgefor_generated_rust_auto_opaque_inner_track_id_track_presentation(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   List<SourceCatalogTypeDescriptor>
   sse_decode_list_source_catalog_type_descriptor(SseDeserializer deserializer);
 
@@ -549,12 +822,27 @@ abstract class StellatuneApiApiImplPlatform
   PlatformInt64? sse_decode_opt_box_autoadd_i_64(SseDeserializer deserializer);
 
   @protected
+  QueueProviderTrack? sse_decode_opt_box_autoadd_queue_provider_track(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  TrackCover? sse_decode_opt_box_autoadd_track_cover(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   TrackDecodeInfo? sse_decode_opt_box_autoadd_track_decode_info(
     SseDeserializer deserializer,
   );
 
   @protected
   TrackLite? sse_decode_opt_box_autoadd_track_lite(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  TrackPresentation? sse_decode_opt_box_autoadd_track_presentation(
     SseDeserializer deserializer,
   );
 
@@ -594,10 +882,37 @@ abstract class StellatuneApiApiImplPlatform
   PluginDescriptor sse_decode_plugin_descriptor(SseDeserializer deserializer);
 
   @protected
+  ProviderQueueMetadata sse_decode_provider_queue_metadata(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   QueueEntry sse_decode_queue_entry(SseDeserializer deserializer);
 
   @protected
+  QueueMetadataUpdate sse_decode_queue_metadata_update(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  QueueProviderTrack sse_decode_queue_provider_track(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   QueueRepeatMode sse_decode_queue_repeat_mode(SseDeserializer deserializer);
+
+  @protected
+  (TrackId, ProviderQueueMetadata)
+  sse_decode_record_auto_owned_rust_opaque_flutter_rust_bridgefor_generated_rust_auto_opaque_inner_track_id_provider_queue_metadata(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  (TrackId, TrackPresentation)
+  sse_decode_record_auto_owned_rust_opaque_flutter_rust_bridgefor_generated_rust_auto_opaque_inner_track_id_track_presentation(
+    SseDeserializer deserializer,
+  );
 
   @protected
   ResampleQuality sse_decode_resample_quality(SseDeserializer deserializer);
@@ -608,10 +923,19 @@ abstract class StellatuneApiApiImplPlatform
   );
 
   @protected
+  TrackCover sse_decode_track_cover(SseDeserializer deserializer);
+
+  @protected
+  TrackCoverKind sse_decode_track_cover_kind(SseDeserializer deserializer);
+
+  @protected
   TrackDecodeInfo sse_decode_track_decode_info(SseDeserializer deserializer);
 
   @protected
   TrackLite sse_decode_track_lite(SseDeserializer deserializer);
+
+  @protected
+  TrackPresentation sse_decode_track_presentation(SseDeserializer deserializer);
 
   @protected
   TranscodeProgressEvent sse_decode_transcode_progress_event(
@@ -639,8 +963,88 @@ abstract class StellatuneApiApiImplPlatform
   void sse_decode_unit(SseDeserializer deserializer);
 
   @protected
+  BigInt sse_decode_usize(SseDeserializer deserializer);
+
+  @protected
   void sse_encode_AnyhowException(
     AnyhowException self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void
+  sse_encode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPlayerCatalog(
+    PlayerCatalog self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void
+  sse_encode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPlayerService(
+    PlayerService self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void
+  sse_encode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPlayerServiceError(
+    PlayerServiceError self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void
+  sse_encode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerTrackId(
+    TrackId self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void
+  sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPlayerCatalog(
+    PlayerCatalog self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void
+  sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPlayerService(
+    PlayerService self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void
+  sse_encode_Map_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerTrackId_provider_queue_metadata_None(
+    Map<TrackId, ProviderQueueMetadata> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void
+  sse_encode_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPlayerCatalog(
+    PlayerCatalog self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void
+  sse_encode_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPlayerService(
+    PlayerService self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void
+  sse_encode_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPlayerServiceError(
+    PlayerServiceError self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void
+  sse_encode_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerTrackId(
+    TrackId self,
     SseSerializer serializer,
   );
 
@@ -659,6 +1063,12 @@ abstract class StellatuneApiApiImplPlatform
   @protected
   void sse_encode_StreamSink_lyrics_event_Sse(
     RustStreamSink<LyricsEvent> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_StreamSink_playback_queue_Sse(
+    RustStreamSink<PlaybackQueue> self,
     SseSerializer serializer,
   );
 
@@ -711,6 +1121,18 @@ abstract class StellatuneApiApiImplPlatform
   );
 
   @protected
+  void sse_encode_box_autoadd_queue_provider_track(
+    QueueProviderTrack self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_track_cover(
+    TrackCover self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_box_autoadd_track_decode_info(
     TrackDecodeInfo self,
     SseSerializer serializer,
@@ -719,6 +1141,12 @@ abstract class StellatuneApiApiImplPlatform
   @protected
   void sse_encode_box_autoadd_track_lite(
     TrackLite self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_track_presentation(
+    TrackPresentation self,
     SseSerializer serializer,
   );
 
@@ -796,6 +1224,13 @@ abstract class StellatuneApiApiImplPlatform
 
   @protected
   void sse_encode_library_event(LibraryEvent self, SseSerializer serializer);
+
+  @protected
+  void
+  sse_encode_list_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerTrackId(
+    List<TrackId> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_String(List<String> self, SseSerializer serializer);
@@ -897,6 +1332,26 @@ abstract class StellatuneApiApiImplPlatform
   );
 
   @protected
+  void sse_encode_list_queue_metadata_update(
+    List<QueueMetadataUpdate> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void
+  sse_encode_list_record_auto_owned_rust_opaque_flutter_rust_bridgefor_generated_rust_auto_opaque_inner_track_id_provider_queue_metadata(
+    List<(TrackId, ProviderQueueMetadata)> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void
+  sse_encode_list_record_auto_owned_rust_opaque_flutter_rust_bridgefor_generated_rust_auto_opaque_inner_track_id_track_presentation(
+    List<(TrackId, TrackPresentation)> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_source_catalog_type_descriptor(
     List<SourceCatalogTypeDescriptor> self,
     SseSerializer serializer,
@@ -942,6 +1397,18 @@ abstract class StellatuneApiApiImplPlatform
   );
 
   @protected
+  void sse_encode_opt_box_autoadd_queue_provider_track(
+    QueueProviderTrack? self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_opt_box_autoadd_track_cover(
+    TrackCover? self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_opt_box_autoadd_track_decode_info(
     TrackDecodeInfo? self,
     SseSerializer serializer,
@@ -950,6 +1417,12 @@ abstract class StellatuneApiApiImplPlatform
   @protected
   void sse_encode_opt_box_autoadd_track_lite(
     TrackLite? self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_opt_box_autoadd_track_presentation(
+    TrackPresentation? self,
     SseSerializer serializer,
   );
 
@@ -1002,11 +1475,43 @@ abstract class StellatuneApiApiImplPlatform
   );
 
   @protected
+  void sse_encode_provider_queue_metadata(
+    ProviderQueueMetadata self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_queue_entry(QueueEntry self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_queue_metadata_update(
+    QueueMetadataUpdate self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_queue_provider_track(
+    QueueProviderTrack self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_queue_repeat_mode(
     QueueRepeatMode self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void
+  sse_encode_record_auto_owned_rust_opaque_flutter_rust_bridgefor_generated_rust_auto_opaque_inner_track_id_provider_queue_metadata(
+    (TrackId, ProviderQueueMetadata) self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void
+  sse_encode_record_auto_owned_rust_opaque_flutter_rust_bridgefor_generated_rust_auto_opaque_inner_track_id_track_presentation(
+    (TrackId, TrackPresentation) self,
     SseSerializer serializer,
   );
 
@@ -1023,6 +1528,15 @@ abstract class StellatuneApiApiImplPlatform
   );
 
   @protected
+  void sse_encode_track_cover(TrackCover self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_track_cover_kind(
+    TrackCoverKind self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_track_decode_info(
     TrackDecodeInfo self,
     SseSerializer serializer,
@@ -1030,6 +1544,12 @@ abstract class StellatuneApiApiImplPlatform
 
   @protected
   void sse_encode_track_lite(TrackLite self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_track_presentation(
+    TrackPresentation self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_transcode_progress_event(
@@ -1057,12 +1577,79 @@ abstract class StellatuneApiApiImplPlatform
 
   @protected
   void sse_encode_unit(void self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_usize(BigInt self, SseSerializer serializer);
 }
 
 // Section: wire_class
 
 class StellatuneApiWire implements BaseWire {
   StellatuneApiWire.fromExternalLibrary(ExternalLibrary lib);
+
+  void
+  rust_arc_increment_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPlayerCatalog(
+    int ptr,
+  ) => wasmModule
+      .rust_arc_increment_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPlayerCatalog(
+        ptr,
+      );
+
+  void
+  rust_arc_decrement_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPlayerCatalog(
+    int ptr,
+  ) => wasmModule
+      .rust_arc_decrement_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPlayerCatalog(
+        ptr,
+      );
+
+  void
+  rust_arc_increment_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPlayerService(
+    int ptr,
+  ) => wasmModule
+      .rust_arc_increment_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPlayerService(
+        ptr,
+      );
+
+  void
+  rust_arc_decrement_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPlayerService(
+    int ptr,
+  ) => wasmModule
+      .rust_arc_decrement_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPlayerService(
+        ptr,
+      );
+
+  void
+  rust_arc_increment_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPlayerServiceError(
+    int ptr,
+  ) => wasmModule
+      .rust_arc_increment_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPlayerServiceError(
+        ptr,
+      );
+
+  void
+  rust_arc_decrement_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPlayerServiceError(
+    int ptr,
+  ) => wasmModule
+      .rust_arc_decrement_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPlayerServiceError(
+        ptr,
+      );
+
+  void
+  rust_arc_increment_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerTrackId(
+    int ptr,
+  ) => wasmModule
+      .rust_arc_increment_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerTrackId(
+        ptr,
+      );
+
+  void
+  rust_arc_decrement_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerTrackId(
+    int ptr,
+  ) => wasmModule
+      .rust_arc_decrement_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerTrackId(
+        ptr,
+      );
 }
 
 @JS('wasm_bindgen')
@@ -1070,4 +1657,44 @@ external StellatuneApiWasmModule get wasmModule;
 
 @JS()
 @anonymous
-extension type StellatuneApiWasmModule._(JSObject _) implements JSObject {}
+extension type StellatuneApiWasmModule._(JSObject _) implements JSObject {
+  external void
+  rust_arc_increment_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPlayerCatalog(
+    int ptr,
+  );
+
+  external void
+  rust_arc_decrement_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPlayerCatalog(
+    int ptr,
+  );
+
+  external void
+  rust_arc_increment_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPlayerService(
+    int ptr,
+  );
+
+  external void
+  rust_arc_decrement_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPlayerService(
+    int ptr,
+  );
+
+  external void
+  rust_arc_increment_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPlayerServiceError(
+    int ptr,
+  );
+
+  external void
+  rust_arc_decrement_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPlayerServiceError(
+    int ptr,
+  );
+
+  external void
+  rust_arc_increment_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerTrackId(
+    int ptr,
+  );
+
+  external void
+  rust_arc_decrement_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerTrackId(
+    int ptr,
+  );
+}

@@ -125,6 +125,12 @@ impl PlayerService {
         self.queue_events.subscribe()
     }
 
+    pub(super) async fn notify_presentation_changed(&self) {
+        let mut queue = self.queue.lock().await;
+        queue.revision = queue.revision.wrapping_add(1);
+        let _ = self.queue_events.send(queue.revision);
+    }
+
     pub(super) async fn load_queue(&self) -> Result<(), PlayerServiceError> {
         let mut queue = self.queue.lock().await;
         if queue.loaded {

@@ -2,6 +2,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart'
     as frb;
 import 'package:stellatune/platform/directory_access_service.dart';
 import 'package:stellatune/platform/directory_access_store.dart';
+import 'package:stellatune/platform/queue_path_leases.dart';
 
 import 'api.dart' as api;
 import 'api/dlna/types.dart';
@@ -11,7 +12,8 @@ import 'api/player/types.dart';
 import 'third_party/stellatune_backend_api/lyrics_types.dart';
 import 'third_party/stellatune_library.dart';
 
-export 'api/player/queue.dart' show PlaybackQueue, QueueEntry, QueueRepeatMode;
+export 'api/player/queue.dart' show PlaybackQueue, QueueEntry, QueueRepeatMode, QueueProviderTrack, QueueMetadataUpdate;
+export 'third_party/stellatune_backend_api/player_service/metadata.dart' show TrackPresentation, TrackCover, TrackCoverKind;
 export 'frb_generated.dart' show StellatuneApi;
 export 'api/player/types.dart'
     show
@@ -53,25 +55,24 @@ export 'api/dlna/types.dart'
 ///
 /// Keeps UI code clean and hides generated `api.dart` / `third_party/*` details.
 class PlayerBridge {
-  PlayerBridge._();
+  PlayerBridge._({DirectoryAccessService? directoryAccessService})
+    : _directoryAccessService = directoryAccessService ?? DirectoryAccessService.instance;
 
   Stream<Event>? _eventBroadcast;
+  Stream<queue_api.PlaybackQueue>? _queueBroadcast;
   Stream<LyricsEvent>? _lyricsEventBroadcast;
   DirectoryAccessStore? _directoryAccessStore;
-  final Map<String, DirectoryAccessLease?> _queueLeases = {};
+  final DirectoryAccessService _directoryAccessService;
+  late final QueuePathLeases _queueLeases = QueuePathLeases(_acquireLocalPathLease);
 
-  static Future<PlayerBridge> create() async => PlayerBridge._();
+  static Future<PlayerBridge> create({DirectoryAccessService? directoryAccessService}) async =>
+      PlayerBridge._(directoryAccessService: directoryAccessService);
 
   void bindDirectoryAccessStore(DirectoryAccessStore store) {
     _directoryAccessStore = store;
   }
 
-  Future<void> dispose() async {
-    for (final lease in _queueLeases.values) {
-      await lease?.release();
-    }
-    _queueLeases.clear();
-  }
+  Future<void> dispose() => _queueLeases.dispose();
 
   Stream<Event> events() =>
       _eventBroadcast ??= api.events().asBroadcastStream();
@@ -100,23 +101,14 @@ class PlayerBridge {
   );
 
   Future<queue_api.PlaybackQueue> playbackQueue() => queue_api.playbackQueue();
+  Stream<queue_api.PlaybackQueue> queueEvents() =>
+      _queueBroadcast ??= queue_api.queueEvents().asBroadcastStream();
+  Future<void> storeQueueMetadata(List<queue_api.QueueMetadataUpdate> updates) =>
+      queue_api.storeQueueMetadata(updates: updates);
 
-  Future<void> retainQueuePaths(Iterable<String> paths) async {
-    for (final path in paths.where((path) => path.isNotEmpty).toSet()) {
-      if (!_queueLeases.containsKey(path)) {
-        _queueLeases[path] = await _acquireLocalPathLease(path);
-      }
-    }
-  }
+  Future<void> retainQueuePaths(Iterable<String> paths) => _queueLeases.retain(paths);
 
-  Future<void> releaseRemovedQueuePaths(Iterable<String> paths) async {
-    final retained = paths.toSet();
-    for (final path in _queueLeases.keys.toList()) {
-      if (!retained.contains(path)) {
-        await _queueLeases.remove(path)?.release();
-      }
-    }
-  }
+  Future<void> releaseRemovedQueuePaths(Iterable<String> paths) => _queueLeases.releaseExcept(paths);
 
   Future<queue_api.PlaybackQueue> replaceQueue(List<BigInt> ids) =>
       queue_api.replaceQueue(trackIds: frb.Uint64List.fromList(ids));
@@ -298,7 +290,7 @@ class PlayerBridge {
     if (store == null) {
       return Future.value(null);
     }
-    return DirectoryAccessService.instance.acquireLocalPath(
+    return _directoryAccessService.acquireLocalPath(
       path: path,
       store: store,
     );

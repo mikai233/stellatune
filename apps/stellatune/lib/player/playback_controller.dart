@@ -1,15 +1,14 @@
 import 'queue_identity_resolver.dart';
 
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:path/path.dart' as p;
 import 'package:stellatune/app/logging.dart';
 import 'package:stellatune/app/providers.dart';
 import 'package:stellatune/bridge/bridge.dart';
 import 'package:stellatune/dlna/dlna_providers.dart';
 import 'package:stellatune/player/decoder_extension_support.dart';
+import 'package:stellatune/player/dlna_playback_session.dart';
 import 'package:stellatune/player/playback_playability_utils.dart';
 import 'package:stellatune/player/playback_models.dart';
 import 'package:stellatune/player/playability_messages.dart';
@@ -22,10 +21,11 @@ final playbackControllerProvider =
     NotifierProvider<PlaybackController, PlaybackState>(PlaybackController.new);
 
 class PlaybackController extends Notifier<PlaybackState> {
-  static const DlnaBridge _dlna = DlnaBridge();
   static const int _volumeRampMs = 6;
 
   StreamSubscription<Event>? _sub;
+  StreamSubscription<PlaybackQueue>? _queueSub;
+  int _backendEventGeneration = 0;
   Timer? _volumePersistDebounce;
   BigInt? _currentTrackId;
   int _navigationGeneration = 0;
@@ -33,17 +33,9 @@ class PlaybackController extends Notifier<PlaybackState> {
   int _nextVolumeSeq = 1;
   int _latestVolumeCommandSeq = 0;
   int _latestVolumeAckSeq = 0;
-  DirectoryAccessLease? _activeDlnaTrackLease;
-  String? _dlnaLastPath;
-  Timer? _dlnaPollTimer;
-  bool _dlnaPollInFlight = false;
-  String? _dlnaLastTransportState;
-  DateTime? _dlnaSuppressAutoNextUntil;
-  DateTime? _dlnaLastPlayStartedAt;
-  bool _reportedNoDlnaVolume = false;
-  int _dlnaVolumeMismatchCount = 0;
-  int? _dlnaLastReportedDlnaVolume;
-  bool _dlnaVolumeUnsupported = false;
+  DlnaPlaybackSession? _dlnaSession;
+  int _outputGeneration = 0;
+  Future<void> _outputTransitions = Future.value();
   BigInt? _activePositionItemId;
   BigInt? _activePositionSessionId;
 
@@ -51,16 +43,15 @@ class PlaybackController extends Notifier<PlaybackState> {
   PlaybackState build() {
     ++_navigationGeneration;
     unawaited(_sub?.cancel());
+    unawaited(_queueSub?.cancel());
     _volumePersistDebounce?.cancel();
     _volumePersistDebounce = null;
     _currentTrackId = null;
-    unawaited(_releaseDlnaTrackLease());
-    _dlnaPollTimer?.cancel();
-    _dlnaPollTimer = null;
-    _dlnaPollInFlight = false;
-    _dlnaLastTransportState = null;
-    _dlnaSuppressAutoNextUntil = null;
-    _dlnaLastPlayStartedAt = null;
+    ++_outputGeneration;
+    final oldSession = _dlnaSession;
+    oldSession?.invalidate();
+    _dlnaSession = null;
+    _outputTransitions = _outputTransitions.then((_) => oldSession?.close());
     _activePositionItemId = null;
     _activePositionSessionId = null;
     _nextVolumeSeq = 1;
@@ -77,13 +68,23 @@ class PlaybackController extends Notifier<PlaybackState> {
         state = state.copyWith(lastError: err.toString());
       },
     );
+    _queueSub = bridge.queueEvents().listen(
+      _onBackendQueue,
+      onError: (Object error, StackTrace stack) {
+        if (!ref.mounted) return;
+        ref
+            .read(loggerProvider)
+            .w('queue events failed', error: error, stackTrace: stack);
+      },
+    );
 
     ref.onDispose(() {
       ++_navigationGeneration;
       unawaited(_sub?.cancel());
+      unawaited(_queueSub?.cancel());
       _volumePersistDebounce?.cancel();
-      _dlnaPollTimer?.cancel();
-      unawaited(_releaseDlnaTrackLease());
+      ++_outputGeneration;
+      unawaited(_dlnaSession?.close());
     });
 
     final savedVolume = ref.read(settingsStoreProvider).volume.clamp(0.0, 1.0);
@@ -100,7 +101,17 @@ class PlaybackController extends Notifier<PlaybackState> {
       _latestVolumeCommandSeq = seq;
       unawaited(bridge.setVolume(savedVolume, seq: seq, rampMs: 0));
     } else {
-      _ensureDlnaPoller();
+      final renderer = ref.read(dlnaSelectedRendererProvider);
+      final output = _outputGeneration;
+      unawaited(
+        Future<void>.microtask(() async {
+          if (ref.mounted &&
+              output == _outputGeneration &&
+              ref.read(dlnaSelectedRendererProvider) == renderer) {
+            await _onOutputChanged(null, renderer);
+          }
+        }),
+      );
     }
     unawaited(_refreshDecoderExtensionSupport());
 
@@ -116,11 +127,39 @@ class PlaybackController extends Notifier<PlaybackState> {
   bool get _dlnaActive =>
       ref.read(dlnaSelectedRendererProvider)?.avTransportControlUrl != null;
 
+  void _onBackendQueue(PlaybackQueue snapshot) {
+    if (!ref.mounted || _dlnaActive) return;
+    final output = _outputGeneration;
+    ref.read(queueControllerProvider.notifier).applyBackend(snapshot);
+    final paths = ref
+        .read(queueControllerProvider)
+        .items
+        .map((item) => item.path)
+        .toList();
+    final bridge = ref.read(playerBridgeProvider);
+    unawaited(() async {
+      try {
+        await bridge.retainQueuePaths(paths);
+        if (_isLocalOutput(output)) {
+          await bridge.releaseRemovedQueuePaths(
+            ref.read(queueControllerProvider).items.map((item) => item.path),
+          );
+        }
+      } catch (error) {
+        if (ref.mounted) {
+          ref.read(loggerProvider).w('queue directory access failed: $error');
+        }
+      }
+    }());
+  }
+
   Future<void> _refreshBackendQueue({BigInt? currentItemId}) async {
-    if (_dlnaActive) return;
+    if (!ref.mounted || _dlnaActive) return;
+    final output = _outputGeneration;
     try {
       final bridge = ref.read(playerBridgeProvider);
       final snapshot = await bridge.playbackQueue();
+      if (!_isLocalOutput(output)) return;
       ref
           .read(queueControllerProvider.notifier)
           .applyBackend(snapshot, preserveCurrent: true);
@@ -131,18 +170,31 @@ class PlaybackController extends Notifier<PlaybackState> {
       }
       final items = ref.read(queueControllerProvider).items;
       await bridge.retainQueuePaths(items.map((item) => item.path));
-      await bridge.releaseRemovedQueuePaths(items.map((item) => item.path));
+      if (!_isLocalOutput(output)) return;
+      await bridge.releaseRemovedQueuePaths(
+        ref.read(queueControllerProvider).items.map((item) => item.path),
+      );
     } catch (error) {
-      ref.read(loggerProvider).w('queue refresh failed: $error');
+      if (ref.mounted) {
+        ref.read(loggerProvider).w('queue refresh failed: $error');
+      }
     }
   }
 
   Future<void> _restoreBackendSnapshot() async {
     if (_dlnaActive) return;
+    final eventGeneration = _backendEventGeneration;
+    final navigation = _navigationGeneration;
     try {
       final snapshot = await ref.read(playerBridgeProvider).playbackSnapshot();
       final track = snapshot.trackId;
       final queue = await ref.read(playerBridgeProvider).playbackQueue();
+      if (!ref.mounted ||
+          _dlnaActive ||
+          navigation != _navigationGeneration ||
+          eventGeneration != _backendEventGeneration) {
+        return;
+      }
       ref.read(queueControllerProvider.notifier).applyBackend(queue);
       if (snapshot.itemId != null) {
         ref
@@ -152,6 +204,12 @@ class PlaybackController extends Notifier<PlaybackState> {
       await ref
           .read(playerBridgeProvider)
           .retainQueuePaths(queue.items.map((item) => item.localPath ?? ''));
+      if (!ref.mounted ||
+          _dlnaActive ||
+          navigation != _navigationGeneration ||
+          eventGeneration != _backendEventGeneration) {
+        return;
+      }
       if (track == null) return;
       _currentTrackId = track;
       _activePositionItemId = snapshot.itemId;
@@ -162,307 +220,123 @@ class PlaybackController extends Notifier<PlaybackState> {
       );
       unawaited(_refreshBackendQueue());
     } catch (e) {
-      ref.read(loggerProvider).w('backend playback snapshot failed: $e');
+      if (ref.mounted) {
+        ref.read(loggerProvider).w('backend playback snapshot failed: $e');
+      }
     }
   }
+
+  bool _isLocalOutput(int generation) =>
+      ref.mounted && generation == _outputGeneration && !_dlnaActive;
+
+  bool _isCurrentSession(DlnaPlaybackSession session, int generation) =>
+      ref.mounted &&
+      generation == _outputGeneration &&
+      identical(_dlnaSession, session) &&
+      session.active &&
+      ref.read(dlnaSelectedRendererProvider) == session.renderer;
 
   Future<void> seekMs(int positionMs) async {
     final pos = positionMs.clamp(0, 1 << 31);
+    final outputGeneration = _outputGeneration;
+    final navigation = _navigationGeneration;
     if (!_dlnaActive) {
       await ref.read(playerBridgeProvider).seekMs(pos);
-      // Optimistically update the UI; engine events will resync shortly.
+      if (_isLocalOutput(outputGeneration) &&
+          navigation == _navigationGeneration) {
+        state = state.copyWith(positionMs: pos, lastError: null);
+      }
+      return;
+    }
+    final session = _dlnaSession;
+    if (session != null &&
+        await session.seek(pos) &&
+        _isCurrentSession(session, outputGeneration)) {
       state = state.copyWith(positionMs: pos, lastError: null);
-      return;
-    }
-
-    final renderer = ref.read(dlnaSelectedRendererProvider);
-    final controlUrl = renderer?.avTransportControlUrl;
-    if (renderer == null || controlUrl == null) return;
-
-    _dlnaSuppressAutoNext(const Duration(seconds: 2));
-    await _dlna.avTransportSeekMs(
-      controlUrl: controlUrl,
-      serviceType: renderer.avTransportServiceType,
-      positionMs: pos,
-    );
-    state = state.copyWith(positionMs: pos, lastError: null);
-    _ensureDlnaPoller();
-  }
-
-  void _ensureDlnaPoller() {
-    if (!_dlnaActive) {
-      _dlnaPollTimer?.cancel();
-      _dlnaPollTimer = null;
-      return;
-    }
-    _dlnaPollTimer ??= Timer.periodic(const Duration(milliseconds: 600), (_) {
-      unawaited(_pollDlna());
-    });
-  }
-
-  void _dlnaSuppressAutoNext([Duration duration = const Duration(seconds: 2)]) {
-    _dlnaSuppressAutoNextUntil = DateTime.now().add(duration);
-  }
-
-  PlayerState _playerStateFromDlna(String s) {
-    switch (s.trim().toUpperCase()) {
-      case 'PLAYING':
-        return PlayerState.playing;
-      case 'PAUSED_PLAYBACK':
-      case 'PAUSED_RECORDING':
-        return PlayerState.paused;
-      case 'TRANSITIONING':
-        return PlayerState.buffering;
-      case 'STOPPED':
-      case 'NO_MEDIA_PRESENT':
-        return PlayerState.stopped;
-    }
-    return state.playerState;
-  }
-
-  Future<void> _pollDlna() async {
-    if (!_dlnaActive) return;
-    if (_dlnaPollInFlight) return;
-    _dlnaPollInFlight = true;
-    try {
-      final renderer = ref.read(dlnaSelectedRendererProvider);
-      final controlUrl = renderer?.avTransportControlUrl;
-      if (renderer == null || controlUrl == null) return;
-
-      final info = await _dlna.avTransportGetTransportInfo(
-        controlUrl: controlUrl,
-        serviceType: renderer.avTransportServiceType,
-      );
-      final pos = await _dlna.avTransportGetPositionInfo(
-        controlUrl: controlUrl,
-        serviceType: renderer.avTransportServiceType,
-      );
-
-      final transportState = info.currentTransportState.trim().toUpperCase();
-      final prev = _dlnaLastTransportState;
-      _dlnaLastTransportState = transportState;
-
-      final mapped = _playerStateFromDlna(transportState);
-      final relMs = pos.relTimeMs.toInt();
-      _applyDlnaPolledState(mapped: mapped, positionMs: relMs);
-      final currentItem = ref.read(queueControllerProvider).currentItem;
-      final currentPath = currentItem?.path;
-      final durationMs =
-          pos.trackDurationMs?.toInt() ?? currentItem?.durationMs ?? 0;
-      final shouldAutoAdvance = _shouldAutoAdvanceAfterDlnaPoll(
-        now: DateTime.now(),
-        transportState: transportState,
-        previousTransportState: prev,
-        currentPath: currentPath,
-        relMs: relMs,
-        durationMs: durationMs,
-      );
-      if (!shouldAutoAdvance) return;
-
-      _dlnaSuppressAutoNext();
-      unawaited(next(auto: true));
-    } catch (e, st) {
-      // Polling is best-effort; don't surface as UI error.
-      ref.read(loggerProvider).d('dlna poll failed: $e', stackTrace: st);
-    } finally {
-      _dlnaPollInFlight = false;
     }
   }
 
-  void _applyDlnaPolledState({
-    required PlayerState mapped,
-    required int positionMs,
-  }) {
-    if (mapped == state.playerState && positionMs == state.positionMs) {
-      return;
-    }
-    state = state.copyWith(playerState: mapped, positionMs: positionMs);
-  }
-
-  bool _shouldAutoAdvanceAfterDlnaPoll({
-    required DateTime now,
-    required String transportState,
-    required String? previousTransportState,
-    required String? currentPath,
-    required int relMs,
-    required int durationMs,
-  }) {
-    final suppressUntil = _dlnaSuppressAutoNextUntil;
-    if (suppressUntil != null && now.isBefore(suppressUntil)) {
-      return false;
-    }
-
-    final startedAt = _dlnaLastPlayStartedAt;
-    final startedOk =
-        startedAt != null && now.difference(startedAt).inMilliseconds >= 1500;
-    if (!startedOk) {
-      return false;
-    }
-
-    final endedState =
-        transportState == 'STOPPED' || transportState == 'NO_MEDIA_PRESENT';
-    final transitionedFromPlaying =
-        previousTransportState == 'PLAYING' ||
-        previousTransportState == 'TRANSITIONING';
-    if (!endedState || !transitionedFromPlaying) {
-      return false;
-    }
-
-    if (currentPath == null || _dlnaLastPath != currentPath) {
-      return false;
-    }
-
-    final nearEnd = durationMs <= 0 ? true : relMs >= durationMs - 800;
-    return nearEnd;
-  }
-
-  Future<void> _applyDlnaVolume(double v) async {
-    final controlUrl = ref
-        .read(dlnaSelectedRendererProvider)
-        ?.renderingControlUrl;
-    final serviceType = ref
-        .read(dlnaSelectedRendererProvider)
-        ?.renderingControlServiceType;
-    if (_dlnaVolumeUnsupported) return;
-    if (controlUrl == null) {
-      if (!_reportedNoDlnaVolume) {
-        _reportedNoDlnaVolume = true;
-        ref.read(loggerProvider).w('dlna renderer has no RenderingControl URL');
-        state = state.copyWith(
-          lastError: 'DLNA device does not support volume',
-        );
-      }
-      return;
-    }
-
-    final vv = (v.clamp(0.0, 1.0) * 100).round().clamp(0, 100);
-    try {
-      if (vv <= 0) {
-        // Many renderers keep audible output even with volume=0; mute is more reliable.
-        await _dlna.renderingControlSetMute(
-          controlUrl: controlUrl,
-          serviceType: serviceType,
-          mute: true,
-        );
-      } else {
-        // Ensure unmuted before setting audible volume.
-        await _dlna.renderingControlSetMute(
-          controlUrl: controlUrl,
-          serviceType: serviceType,
-          mute: false,
-        );
-      }
-      await _dlna.renderingControlSetVolume(
-        controlUrl: controlUrl,
-        serviceType: serviceType,
-        volume0To100: vv,
-      );
-
-      // Best-effort verification; some devices ignore SetVolume but still return 200.
-      final current = await _dlna.renderingControlGetVolume(
-        controlUrl: controlUrl,
-        serviceType: serviceType,
-      );
-      if ((current - vv).abs() >= 5) {
-        if (_dlnaLastReportedDlnaVolume == current) {
-          _dlnaVolumeMismatchCount++;
-        } else {
-          _dlnaVolumeMismatchCount = 1;
-          _dlnaLastReportedDlnaVolume = current;
-        }
-        ref
-            .read(loggerProvider)
-            .w('dlna volume mismatch: requested=$vv current=$current');
-        if (_dlnaVolumeMismatchCount >= 3) {
-          _dlnaVolumeUnsupported = true;
-          state = state.copyWith(
-            lastError: 'DLNA device ignores volume control',
-          );
-        }
-      }
-    } catch (e, st) {
-      ref
-          .read(loggerProvider)
-          .e('dlna set volume failed: $e', error: e, stackTrace: st);
-      state = state.copyWith(lastError: 'DLNA volume failed: $e');
-    }
-  }
-
-  Future<void> _onOutputChanged(DlnaRenderer? prev, DlnaRenderer? next) async {
-    if (prev?.usn == next?.usn) return;
-
+  Future<void> _onOutputChanged(
+    DlnaRenderer? previousRenderer,
+    DlnaRenderer? renderer,
+  ) async {
+    if (!ref.mounted || previousRenderer == renderer) return;
+    final generation = ++_outputGeneration;
+    final navigation = ++_navigationGeneration;
     final wasPlaying =
         state.playerState == PlayerState.playing ||
         state.playerState == PlayerState.buffering;
-    final currentItem = ref.read(queueControllerProvider).currentItem;
-    _dlnaSuppressAutoNext();
-
-    // Stop whichever output was previously active.
-    if (prev?.avTransportControlUrl != null) {
-      try {
-        await _dlna.avTransportStop(
-          controlUrl: prev!.avTransportControlUrl!,
-          serviceType: prev.avTransportServiceType,
-        );
-      } catch (e, s) {
-        ref
-            .read(loggerProvider)
-            .w(
-              'failed to stop DLNA transport during output change',
-              error: e,
-              stackTrace: s,
-            );
-      }
-      try {
-        await _dlna.httpUnpublishAll();
-      } catch (e, s) {
-        ref
-            .read(loggerProvider)
-            .w(
-              'failed to unpublish DLNA HTTP services during output change',
-              error: e,
-              stackTrace: s,
-            );
-      }
-      _dlnaLastPath = null;
-      await _releaseDlnaTrackLease();
-      state = state.copyWith(playerState: PlayerState.stopped, positionMs: 0);
-    }
-
-    if (next?.avTransportControlUrl != null) {
-      // Switching to DLNA: stop local engine to avoid double playback.
-      await ref.read(playerBridgeProvider).stop();
-      await _releaseDlnaTrackLease();
-      _reportedNoDlnaVolume = false;
-      _dlnaVolumeMismatchCount = 0;
-      _dlnaLastReportedDlnaVolume = null;
-      _dlnaVolumeUnsupported = false;
-      // Clear any local-engine error (e.g. "no track loaded") that is irrelevant to DLNA output.
-      state = state.copyWith(lastError: null);
-      _ensureDlnaPoller();
-    } else {
-      // Switching to local: stop DLNA if we can.
-      final prevUrl = prev?.avTransportControlUrl;
-      if (prevUrl != null) {
-        try {
-          await _dlna.avTransportStop(
-            controlUrl: prevUrl,
-            serviceType: prev?.avTransportServiceType,
+    final previousSession = _dlnaSession;
+    previousSession?.invalidate();
+    _dlnaSession = null;
+    final bridge = ref.read(playerBridgeProvider);
+    final transition = _outputTransitions.then((_) async {
+      await previousSession?.close();
+      if (!ref.mounted || generation != _outputGeneration) return;
+      if (renderer?.avTransportControlUrl != null) await bridge.stop();
+    });
+    _outputTransitions = transition.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    if (renderer?.avTransportControlUrl != null) {
+      final accessStore = ref.read(settingsStoreServiceProvider);
+      late final DlnaPlaybackSession session;
+      session = DlnaPlaybackSession(
+        renderer: renderer!,
+        bridge: ref.read(dlnaBridgeProvider),
+        ready: transition,
+        coverDirectory: ref.read(coverDirProvider),
+        acquirePath: (path) => DirectoryAccessService.instance.acquireLocalPath(
+          path: path,
+          store: accessStore,
+        ),
+        onError: (error) {
+          if (_isCurrentSession(session, generation)) {
+            state = state.copyWith(lastError: error);
+          }
+        },
+        onUpdate: (update) {
+          if (!_isCurrentSession(session, generation)) return;
+          state = state.copyWith(
+            playerState: update.state,
+            positionMs: update.positionMs,
           );
-        } catch (e, s) {
-          ref
-              .read(loggerProvider)
-              .w(
-                'failed to stop DLNA transport during output change',
-                error: e,
-                stackTrace: s,
-              );
-        }
-      }
+          if (update.advance &&
+              ref.read(queueControllerProvider).currentItem?.path ==
+                  update.path) {
+            unawaited(next(auto: true));
+          }
+        },
+      );
+      _dlnaSession = session;
     }
-
-    if (!wasPlaying || currentItem == null) return;
-    await _loadQueueItemOrStop(currentItem);
+    state = state.copyWith(
+      playerState: wasPlaying ? PlayerState.buffering : PlayerState.stopped,
+      positionMs: 0,
+      pendingItem: null,
+      audioStarted: false,
+      trackInfo: null,
+      lastError: null,
+    );
+    try {
+      await transition;
+      if (!ref.mounted || generation != _outputGeneration) return;
+      _dlnaSession?.startPolling();
+      if (navigation != _navigationGeneration) return;
+      final item = ref.read(queueControllerProvider).currentItem;
+      if (wasPlaying && item != null) {
+        await _loadQueueItemOrStop(item, generation: navigation);
+      } else if (!_dlnaActive) {
+        await _refreshBackendQueue();
+      }
+    } catch (error, stack) {
+      if (!ref.mounted || generation != _outputGeneration) return;
+      ref
+          .read(loggerProvider)
+          .w('output change failed', error: error, stackTrace: stack);
+      state = state.copyWith(lastError: error.toString());
+    }
   }
 
   Future<void> setQueueAndPlay(
@@ -495,12 +369,7 @@ class PlaybackController extends Notifier<PlaybackState> {
         if (generation != _navigationGeneration) return;
         ref
             .read(queueControllerProvider.notifier)
-            .applyBackend(
-              snapshot,
-              metadata: items,
-              source: source,
-              replaceSource: true,
-            );
+            .applyBackend(snapshot, source: source, replaceSource: true);
         await ref.read(settingsStoreProvider.notifier).setQueueSource(source);
         if (generation != _navigationGeneration) return;
         final mode = ref.read(settingsStoreProvider).playMode;
@@ -538,26 +407,27 @@ class PlaybackController extends Notifier<PlaybackState> {
 
   Future<void> enqueueItems(List<QueueItem> items) async {
     if (items.isEmpty) return;
+    final output = _outputGeneration;
     final queue = ref.read(queueControllerProvider);
     if (!_dlnaActive) {
       try {
         final bridge = ref.read(playerBridgeProvider);
         await bridge.retainQueuePaths(items.map((item) => item.path));
+        if (!_isLocalOutput(output)) return;
         final ids = await _resolveTrackIds(items);
+        if (!_isLocalOutput(output)) return;
         final snapshot = await bridge.appendQueue(ids);
+        if (!_isLocalOutput(output)) return;
         ref
             .read(queueControllerProvider.notifier)
-            .applyBackend(
-              snapshot,
-              metadata: [...queue.items, ...items],
-              preserveCurrent: true,
-            );
+            .applyBackend(snapshot, preserveCurrent: true);
         if (queue.items.isEmpty) {
           await _loadQueueItemOrStop(
             ref.read(queueControllerProvider).items.first,
           );
         }
       } catch (error) {
+        if (!_isLocalOutput(output)) return;
         ref
             .read(loggerProvider)
             .w('failed to prepare playback queue', error: error);
@@ -581,7 +451,7 @@ class PlaybackController extends Notifier<PlaybackState> {
       enqueueTracks(paths.map((p) => TrackLite(id: -1, path: p)).toList());
 
   Future<void> playIndex(int index) async {
-    _dlnaSuppressAutoNext();
+    _dlnaSession?.suppressAutoNext();
     if (!_dlnaActive) {
       final items = ref.read(queueControllerProvider).items;
       if (index >= 0 && index < items.length) {
@@ -644,31 +514,21 @@ class PlaybackController extends Notifier<PlaybackState> {
       await ref.read(playerBridgeProvider).play();
       return;
     }
-
-    final renderer = ref.read(dlnaSelectedRendererProvider);
-    final controlUrl = renderer?.avTransportControlUrl;
-    if (renderer == null || controlUrl == null) return;
-
-    final currentItem = ref.read(queueControllerProvider).currentItem;
-    final path = currentItem?.path;
-    if (currentItem == null || path == null) return;
-
-    if (_dlnaLastPath == path) {
-      await _dlna.avTransportPlay(
-        controlUrl: controlUrl,
-        serviceType: renderer.avTransportServiceType,
-      );
-      _dlnaLastPlayStartedAt = DateTime.now();
-      _ensureDlnaPoller();
-      state = state.copyWith(
-        playerState: PlayerState.playing,
-        currentPath: path,
-        lastError: null,
-      );
+    final session = _dlnaSession;
+    final generation = _outputGeneration;
+    final item = ref.read(queueControllerProvider).currentItem;
+    if (session == null || item == null) return;
+    if (session.path != item.path) {
+      await _loadQueueItemOrStop(item);
       return;
     }
-
-    await _loadQueueItemOrStop(currentItem);
+    if (await session.play() && _isCurrentSession(session, generation)) {
+      state = state.copyWith(
+        playerState: PlayerState.playing,
+        currentPath: item.path,
+        lastError: null,
+      );
+    }
   }
 
   Future<void> pause() async {
@@ -676,19 +536,13 @@ class PlaybackController extends Notifier<PlaybackState> {
       await ref.read(playerBridgeProvider).pause();
       return;
     }
-
-    final controlUrl = ref
-        .read(dlnaSelectedRendererProvider)
-        ?.avTransportControlUrl;
-    if (controlUrl == null) return;
-    await _dlna.avTransportPause(
-      controlUrl: controlUrl,
-      serviceType: ref
-          .read(dlnaSelectedRendererProvider)
-          ?.avTransportServiceType,
-    );
-    _dlnaSuppressAutoNext();
-    state = state.copyWith(playerState: PlayerState.paused, lastError: null);
+    final session = _dlnaSession;
+    final generation = _outputGeneration;
+    if (session != null &&
+        await session.pause() &&
+        _isCurrentSession(session, generation)) {
+      state = state.copyWith(playerState: PlayerState.paused, lastError: null);
+    }
   }
 
   void setVolume(double volume) {
@@ -702,7 +556,7 @@ class PlaybackController extends Notifier<PlaybackState> {
     // No throttling for audio: keep loudness in sync with the slider.
     if (_dlnaActive) {
       state = state.copyWith(appliedVolume: v);
-      unawaited(_applyDlnaVolume(v));
+      unawaited(_dlnaSession?.setVolume(v));
     } else {
       final seq = _nextVolumeSeq++;
       _latestVolumeCommandSeq = seq;
@@ -732,34 +586,25 @@ class PlaybackController extends Notifier<PlaybackState> {
 
   Future<void> stop() async {
     final generation = _beginNavigation(null);
+    final output = _outputGeneration;
     if (!_dlnaActive) {
       await ref.read(playerBridgeProvider).stop();
-      await _releaseDlnaTrackLease();
-      if (generation != _navigationGeneration) return;
-      state = state.copyWith(positionMs: 0);
+      if (_isLocalOutput(output) && generation == _navigationGeneration) {
+        state = state.copyWith(positionMs: 0);
+      }
       return;
     }
-
-    _dlnaSuppressAutoNext();
-    final controlUrl = ref
-        .read(dlnaSelectedRendererProvider)
-        ?.avTransportControlUrl;
-    if (controlUrl != null) {
-      await _dlna.avTransportStop(
-        controlUrl: controlUrl,
-        serviceType: ref
-            .read(dlnaSelectedRendererProvider)
-            ?.avTransportServiceType,
+    final session = _dlnaSession;
+    if (session != null &&
+        await session.stop() &&
+        _isCurrentSession(session, output) &&
+        generation == _navigationGeneration) {
+      state = state.copyWith(
+        playerState: PlayerState.stopped,
+        positionMs: 0,
+        lastError: null,
       );
     }
-    unawaited(_dlna.httpUnpublishAll());
-    _dlnaLastPath = null;
-    await _releaseDlnaTrackLease();
-    state = state.copyWith(
-      playerState: PlayerState.stopped,
-      positionMs: 0,
-      lastError: null,
-    );
   }
 
   Future<void> next({bool auto = false}) async {
@@ -769,7 +614,7 @@ class PlaybackController extends Notifier<PlaybackState> {
       await ref.read(playerBridgeProvider).nextQueueItem();
       return;
     }
-    _dlnaSuppressAutoNext(const Duration(seconds: 1));
+    _dlnaSession?.suppressAutoNext(const Duration(seconds: 1));
     if (ref.read(queueControllerProvider).items.isEmpty) {
       ref.read(loggerProvider).w('next aborted: empty queue');
       await stop();
@@ -792,7 +637,7 @@ class PlaybackController extends Notifier<PlaybackState> {
       await ref.read(playerBridgeProvider).previousQueueItem();
       return;
     }
-    _dlnaSuppressAutoNext(const Duration(seconds: 1));
+    _dlnaSession?.suppressAutoNext(const Duration(seconds: 1));
     final item = ref.read(queueControllerProvider.notifier).previous();
     if (item == null) return;
     await _loadQueueItemOrStop(item);
@@ -800,20 +645,17 @@ class PlaybackController extends Notifier<PlaybackState> {
 
   Future<void> _updateTrackInfo() async {
     if (_dlnaActive) return;
+    final output = _outputGeneration;
     final itemId = _activePositionItemId;
     try {
       final info = await ref.read(playerBridgeProvider).currentTrackInfo();
-      if (_activePositionItemId != itemId) return;
+      if (!_isLocalOutput(output) || _activePositionItemId != itemId) return;
       state = state.copyWith(trackInfo: info);
     } catch (e) {
-      ref.read(loggerProvider).d('fetch track info failed: $e');
+      if (ref.mounted) {
+        ref.read(loggerProvider).d('fetch track info failed: $e');
+      }
     }
-  }
-
-  Future<void> _releaseDlnaTrackLease() async {
-    final lease = _activeDlnaTrackLease;
-    _activeDlnaTrackLease = null;
-    await lease?.release();
   }
 
   Future<Set<String>> _loadDisabledPluginIdSet() async {
@@ -973,6 +815,7 @@ class PlaybackController extends Notifier<PlaybackState> {
     if (_dlnaActive) {
       return ref.read(queueControllerProvider.notifier).removeIndices(indices);
     }
+    final output = _outputGeneration;
     final items = ref.read(queueControllerProvider).items;
     final ids = [
       for (final index in indices)
@@ -980,13 +823,14 @@ class PlaybackController extends Notifier<PlaybackState> {
           items[index].itemId!,
     ];
     final snapshot = await ref.read(playerBridgeProvider).removeQueueItems(ids);
+    if (!_isLocalOutput(output)) return 0;
     ref.read(queueControllerProvider.notifier).applyBackend(snapshot);
     return ids.length;
   }
 
-  Future<List<BigInt>> _resolveTrackIds(List<QueueItem> items) {
+  Future<List<BigInt>> _resolveTrackIds(List<QueueItem> items) async {
     final bridge = ref.read(playerBridgeProvider);
-    return resolveQueueTrackIds(
+    final ids = await resolveQueueTrackIds(
       items,
       ensureLocalTracks: bridge.ensureLocalTracks,
       ensureProviderTrack: (provider) => bridge.ensureProviderTrack(
@@ -996,6 +840,37 @@ class PlaybackController extends Notifier<PlaybackState> {
         typeId: provider.typeId,
       ),
     );
+    final updates = <QueueMetadataUpdate>[
+      for (var i = 0; i < items.length; i++)
+        if (!items[i].isLocal &&
+            (items[i].title != null ||
+                items[i].cover != null ||
+                items[i].artist != null ||
+                items[i].album != null ||
+                items[i].durationMs != null))
+          QueueMetadataUpdate(
+            trackId: ids[i],
+            metadata: TrackPresentation(
+              title: items[i].title,
+              artist: items[i].artist,
+              album: items[i].album,
+              durationMs: items[i].durationMs == null
+                  ? null
+                  : BigInt.from(items[i].durationMs!),
+              cover: items[i].cover == null
+                  ? null
+                  : TrackCover(
+                      kind: TrackCoverKind.values.byName(
+                        items[i].cover!.kind.name,
+                      ),
+                      value: items[i].cover!.value,
+                      mime: items[i].cover!.mime,
+                    ),
+            ),
+          ),
+    ];
+    if (updates.isNotEmpty) await bridge.storeQueueMetadata(updates);
+    return ids;
   }
 
   // null means superseded, which must never enter failure cleanup.
@@ -1017,50 +892,31 @@ class PlaybackController extends Notifier<PlaybackState> {
         );
         return false;
       }
-      final renderer = ref.read(dlnaSelectedRendererProvider);
-      if (renderer == null) return false;
-      final nextLease = await DirectoryAccessService.instance.acquireLocalPath(
-        path: path,
-        store: ref.read(settingsStoreServiceProvider),
-      );
-      if (generation != _navigationGeneration) {
-        await nextLease?.release();
-        return null;
-      }
-      final previousLease = _activeDlnaTrackLease;
-      final coverPath = item.id == null
-          ? null
-          : p.join(ref.read(coverDirProvider), item.id.toString());
-      final coverExists = coverPath != null && File(coverPath).existsSync();
+      final session = _dlnaSession;
+      final output = _outputGeneration;
+      if (session == null) return null;
       try {
-        await ref.read(playerBridgeProvider).stop();
-        await _dlna.playLocalTrack(
-          renderer: renderer,
-          path: path,
-          title: item.title,
-          artist: item.artist,
-          album: item.album,
-          coverPath: coverExists ? coverPath : null,
-        );
-        _activeDlnaTrackLease = nextLease;
-        if (previousLease != null && !identical(previousLease, nextLease)) {
-          await previousLease.release();
+        final loaded = await session.playItem(item);
+        if (!_isCurrentSession(session, output) ||
+            generation != _navigationGeneration) {
+          return null;
         }
-      } catch (_) {
-        await nextLease?.release();
-        rethrow;
+        if (!loaded) return null;
+        state = state.copyWith(
+          currentPath: path,
+          pendingItem: null,
+          positionMs: 0,
+          playerState: PlayerState.playing,
+        );
+        return true;
+      } catch (error) {
+        if (!_isCurrentSession(session, output) ||
+            generation != _navigationGeneration) {
+          return null;
+        }
+        state = state.copyWith(lastError: error.toString());
+        return false;
       }
-      if (generation != _navigationGeneration) return null;
-      _dlnaLastPath = path;
-      _dlnaLastPlayStartedAt = DateTime.now();
-      _ensureDlnaPoller();
-      state = state.copyWith(
-        currentPath: path,
-        pendingItem: null,
-        positionMs: 0,
-        playerState: PlayerState.playing,
-      );
-      return true;
     }
 
     final bridge = ref.read(playerBridgeProvider);
@@ -1077,9 +933,7 @@ class PlaybackController extends Notifier<PlaybackState> {
         final snapshot = await bridge.replaceQueue(ids);
         if (generation != _navigationGeneration) return null;
         final index = items.indexOf(item);
-        ref
-            .read(queueControllerProvider.notifier)
-            .applyBackend(snapshot, metadata: items);
+        ref.read(queueControllerProvider.notifier).applyBackend(snapshot);
         itemId = snapshot.items[index < 0 ? 0 : index].itemId;
       }
       if (generation != _navigationGeneration) return null;
@@ -1108,9 +962,10 @@ class PlaybackController extends Notifier<PlaybackState> {
   }
 
   void _onEvent(Event event) {
-    if (_dlnaActive) return;
+    if (!ref.mounted || _dlnaActive) return;
     event.when(
       stateChanged: (s) {
+        _backendEventGeneration++;
         state = state.copyWith(playerState: s);
       },
       position: (ms, trackId, itemId, sessionId) {
@@ -1128,9 +983,11 @@ class PlaybackController extends Notifier<PlaybackState> {
             return;
           }
         }
+        _backendEventGeneration++;
         state = state.copyWith(positionMs: ms);
       },
       trackChanged: (trackId, itemId) {
+        _backendEventGeneration++;
         if (state.pendingItem?.itemId == itemId) {
           state = state.copyWith(pendingItem: null);
         }
@@ -1149,6 +1006,7 @@ class PlaybackController extends Notifier<PlaybackState> {
         unawaited(_refreshBackendQueue(currentItemId: itemId));
       },
       playbackEnded: (trackId, itemId) {
+        _backendEventGeneration++;
         ref
             .read(loggerProvider)
             .i('playback ended: track=$trackId item=$itemId');
@@ -1188,6 +1046,7 @@ class PlaybackController extends Notifier<PlaybackState> {
         }
       },
       error: (message) {
+        _backendEventGeneration++;
         ref.read(loggerProvider).e(message);
         state = state.copyWith(lastError: message, pendingItem: null);
       },

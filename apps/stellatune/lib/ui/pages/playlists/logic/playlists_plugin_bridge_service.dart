@@ -103,7 +103,7 @@ class PlaylistsPluginBridgeService {
     );
   }
 
-  Future<SparseTrackPage<QueueItem>> fetchTrackPage({
+  Future<PluginTrackPage> fetchTrackPage({
     required PlayerBridge bridge,
     required PluginPlaylistEntry entry,
     required int pageSize,
@@ -132,7 +132,7 @@ class PlaylistsPluginBridgeService {
     final items = _parsePluginQueueItems(decoded, entry);
     final fetchedCount = decoded is List ? decoded.length : 0;
     final hasMore = fetchedCount >= pageLimit;
-    return SparseTrackPage<QueueItem>(
+    return PluginTrackPage(
       items: items,
       fetchedCount: fetchedCount,
       hasMore: hasMore,

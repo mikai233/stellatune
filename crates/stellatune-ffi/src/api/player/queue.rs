@@ -1,12 +1,27 @@
 //! Queue identities and navigation owned by the backend player service.
 
 use crate::api::library::shared_player_service;
+use crate::frb_generated::StreamSink;
 use anyhow::{Result, anyhow};
 use stellatune_audio::playback::control::SwitchOptions;
 use stellatune_audio_core::playback::PlaybackItemId;
+use stellatune_backend_api::player_service::metadata::TrackPresentation;
 use stellatune_backend_api::player_service::{
     identity::TrackId, queue::QueueSnapshot, state::RepeatMode,
 };
+
+#[derive(Clone)]
+pub struct QueueProviderTrack {
+    pub provider_id: String,
+    pub provider_key: String,
+    pub plugin_id: String,
+    pub capability_id: String,
+}
+
+pub struct QueueMetadataUpdate {
+    pub track_id: u64,
+    pub metadata: TrackPresentation,
+}
 
 #[derive(Clone)]
 pub struct QueueEntry {
@@ -15,6 +30,8 @@ pub struct QueueEntry {
     pub local_library_track_id: Option<i64>,
     pub local_path: Option<String>,
     pub local_metadata: Option<stellatune_library::TrackLite>,
+    pub provider_track: Option<QueueProviderTrack>,
+    pub metadata: Option<TrackPresentation>,
 }
 
 #[derive(Clone, Copy)]
@@ -38,9 +55,14 @@ async fn project(snapshot: QueueSnapshot) -> Result<PlaybackQueue> {
     let service = shared_player_service()?;
     let tracks: Vec<_> = snapshot.items.iter().map(|item| item.track_id).collect();
     let metadata = service.queue_local_metadata(&tracks).await?;
+    let providers = service.queue_provider_metadata(&tracks).await?;
     let mut items = Vec::with_capacity(snapshot.items.len());
     for item in snapshot.items {
         let local = metadata.get(&item.track_id);
+        let provider = providers.get(&item.track_id);
+        let presentation = provider
+            .as_ref()
+            .and_then(|provider| provider.presentation.clone());
         let local_library_track_id = local.map(|(id, _)| *id);
         let local_path = local
             .and_then(|(_, path)| path.as_ref())
@@ -51,6 +73,13 @@ async fn project(snapshot: QueueSnapshot) -> Result<PlaybackQueue> {
             local_library_track_id,
             local_path,
             local_metadata: local.and_then(|(_, track)| track.clone()),
+            provider_track: provider.map(|provider| QueueProviderTrack {
+                provider_id: provider.provider_id.clone(),
+                provider_key: provider.provider_key.clone(),
+                plugin_id: provider.plugin_id.clone(),
+                capability_id: provider.capability_id.clone(),
+            }),
+            metadata: presentation,
         });
     }
     Ok(PlaybackQueue {
@@ -74,6 +103,52 @@ async fn project(snapshot: QueueSnapshot) -> Result<PlaybackQueue> {
 
 pub async fn playback_queue() -> Result<PlaybackQueue> {
     project(shared_player_service()?.queue_snapshot().await?).await
+}
+
+/// Subscribe before projecting the initial snapshot; lag also resynchronizes.
+pub fn queue_events(sink: StreamSink<PlaybackQueue>) -> Result<()> {
+    let service = shared_player_service()?;
+    let mut events = service.subscribe_queue();
+    crate::background_runtime::spawn(async move {
+        loop {
+            let projection = match service.queue_snapshot().await {
+                Ok(snapshot) => project(snapshot).await,
+                Err(error) => Err(error.into()),
+            };
+            match projection {
+                Ok(snapshot) => {
+                    if sink.add(snapshot).is_err() {
+                        break;
+                    }
+                },
+                Err(error) => {
+                    tracing::warn!(%error, "queue event projection failed");
+                    if sink.add_error(error).is_err() {
+                        break;
+                    }
+                    // Keep this subscription alive across transient catalog errors.
+                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                    continue;
+                },
+            }
+            match events.recv().await {
+                Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {},
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    });
+    Ok(())
+}
+
+pub async fn store_queue_metadata(updates: Vec<QueueMetadataUpdate>) -> Result<()> {
+    let updates = updates
+        .into_iter()
+        .map(|update| Ok((TrackId::new(update.track_id)?, update.metadata)))
+        .collect::<Result<Vec<_>>>()?;
+    shared_player_service()?
+        .store_track_presentations(&updates)
+        .await?;
+    Ok(())
 }
 
 pub async fn replace_queue(track_ids: Vec<u64>) -> Result<PlaybackQueue> {

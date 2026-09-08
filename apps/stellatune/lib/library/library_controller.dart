@@ -10,32 +10,67 @@ import 'package:stellatune/platform/directory_access_service.dart';
 final libraryControllerProvider =
     NotifierProvider<LibraryController, LibraryState>(LibraryController.new);
 
+final libraryDirectoryAccessProvider = Provider<DirectoryAccessService>(
+  (ref) => DirectoryAccessService.instance,
+);
+
+enum _LibraryQuery { roots, folders, excluded, playlists, liked, tracks }
+
 class LibraryController extends Notifier<LibraryState> {
   StreamSubscription<LibraryEvent>? _sub;
   Timer? _debounce;
+  Future<void>? _scheduledRefresh;
+  final _queryVersions = <_LibraryQuery, int>{};
+  final _queryErrors = <_LibraryQuery, String>{};
+  String? _eventError;
+  int _lifetime = 0;
+  int _scanGeneration = 0;
+  bool _scanActive = false;
+  DirectoryAccessLease? _scanLease;
+  Future<void>? _scanAdmission;
 
   @override
   LibraryState build() {
+    final lifetime = ++_lifetime;
+    unawaited(_finishScan());
     unawaited(_sub?.cancel());
     _debounce?.cancel();
+    _queryErrors.clear();
+    _eventError = null;
+    _scheduledRefresh = null;
 
     final bridge = ref.read(libraryBridgeProvider);
     _sub = bridge.events().listen(
-      _onEvent,
+      (event) {
+        if (ref.mounted && lifetime == _lifetime) _onEvent(event);
+      },
       onError: (Object err, StackTrace st) {
+        if (!ref.mounted || lifetime != _lifetime) return;
         ref
             .read(loggerProvider)
             .e('library events error: $err', error: err, stackTrace: st);
-        state = state.copyWith(lastError: err.toString());
+        _eventError = err.toString();
+        unawaited(_finishScan());
+        state = state.copyWith(isScanning: false);
+        _publishErrors();
+      },
+      onDone: () {
+        if (!ref.mounted || lifetime != _lifetime) return;
+        unawaited(_finishScan());
+        state = state.copyWith(isScanning: false);
       },
     );
 
     ref.onDispose(() {
+      if (lifetime == _lifetime) _lifetime++;
+      unawaited(_finishScan());
       _debounce?.cancel();
       unawaited(_sub?.cancel());
     });
 
-    Future.microtask(() => unawaited(_hydrateInitialState()));
+    Future.microtask(() {
+      if (ref.mounted && lifetime == _lifetime) unawaited(refresh());
+    });
 
     return const LibraryState.initial();
   }
@@ -43,14 +78,19 @@ class LibraryController extends Notifier<LibraryState> {
   Future<void> addRoot(String path, {bool scanAfter = true}) async {
     if (path.trim().isEmpty) return;
     final store = ref.read(settingsStoreServiceProvider);
-    final grantedPath = await DirectoryAccessService.instance.registerDirectory(
+    final access = ref.read(libraryDirectoryAccessProvider);
+    final bridge = ref.read(libraryBridgeProvider);
+    final grantedPath = await access.registerDirectory(
       path: path,
       store: store,
     );
+    if (!ref.mounted) return;
     final norm = _normalizePath(grantedPath);
     if (state.roots.contains(norm)) return;
     try {
-      await ref.read(libraryBridgeProvider).addRoot(grantedPath);
+      await bridge.addRoot(grantedPath);
+      if (!ref.mounted) return;
+      _invalidateQuery(_LibraryQuery.roots);
       state = state.copyWith(
         roots: [...state.roots, norm],
         lastError: null,
@@ -58,21 +98,19 @@ class LibraryController extends Notifier<LibraryState> {
       );
       if (scanAfter) await scanAll();
     } catch (_) {
-      await DirectoryAccessService.instance.forgetDirectory(
-        path: grantedPath,
-        store: store,
-      );
+      await access.forgetDirectory(path: grantedPath, store: store);
       rethrow;
     }
   }
 
   Future<void> removeRoot(String path) async {
     final norm = _normalizePath(path);
+    final access = ref.read(libraryDirectoryAccessProvider);
+    final store = ref.read(settingsStoreServiceProvider);
     await ref.read(libraryBridgeProvider).removeRoot(path);
-    await DirectoryAccessService.instance.forgetDirectory(
-      path: path,
-      store: ref.read(settingsStoreServiceProvider),
-    );
+    await access.forgetDirectory(path: path, store: store);
+    if (!ref.mounted) return;
+    _invalidateQuery(_LibraryQuery.roots);
     state = state.copyWith(
       roots: state.roots.where((r) => r != norm).toList(),
       lastError: null,
@@ -81,7 +119,13 @@ class LibraryController extends Notifier<LibraryState> {
     unawaited(_refreshFolders());
   }
 
-  Future<void> scanAll({bool force = false}) async {
+  Future<void> scanAll({bool force = false}) {
+    if (_scanActive) return _scanAdmission ?? Future<void>.value();
+    if (state.isScanning) return Future<void>.value();
+    _scanActive = true;
+    final generation = ++_scanGeneration;
+    final lifetime = _lifetime;
+    _eventError = null;
     state = state.copyWith(
       isScanning: true,
       progress: const LibraryScanProgress.zero(),
@@ -90,28 +134,82 @@ class LibraryController extends Notifier<LibraryState> {
       lastLog: '',
     );
     final store = ref.read(settingsStoreServiceProvider);
+    final access = ref.read(libraryDirectoryAccessProvider);
+    final bridge = ref.read(libraryBridgeProvider);
+    final roots = state.roots;
+    return _scanAdmission = _admitScan(
+      generation: generation,
+      lifetime: lifetime,
+      force: force,
+      roots: roots,
+      store: store,
+      access: access,
+      bridge: bridge,
+    );
+  }
+
+  Future<void> _admitScan({
+    required int generation,
+    required int lifetime,
+    required bool force,
+    required List<String> roots,
+    required SettingsStore store,
+    required DirectoryAccessService access,
+    required LibraryBridge bridge,
+  }) async {
+    bool isCurrent() =>
+        ref.mounted &&
+        lifetime == _lifetime &&
+        generation == _scanGeneration &&
+        _scanActive;
     DirectoryAccessLease? lease;
     try {
-      await DirectoryAccessService.instance.ensureRootsAuthorized(
-        roots: state.roots,
-        store: store,
-      );
-      lease = await DirectoryAccessService.instance.acquireRoots(
-        roots: state.roots,
-        store: store,
-      );
+      await access.ensureRootsAuthorized(roots: roots, store: store);
+      if (!isCurrent()) return;
+      lease = await access.acquireRoots(roots: roots, store: store);
+      if (!isCurrent()) return;
+      // scanAll acknowledges admission to the Rust actor, not scan completion.
+      // Transfer ownership before sending, since completion can precede its ACK.
+      _scanLease = lease;
+      lease = null;
       if (force) {
-        await ref.read(libraryBridgeProvider).scanAllForce();
+        await bridge.scanAllForce();
       } else {
-        await ref.read(libraryBridgeProvider).scanAll();
+        await bridge.scanAll();
       }
     } catch (e, s) {
+      if (!isCurrent()) return;
       ref
           .read(loggerProvider)
           .w('library scan failed: $e', error: e, stackTrace: s);
-      state = state.copyWith(isScanning: false, lastError: e.toString());
+      _eventError = e.toString();
+      state = state.copyWith(isScanning: false);
+      await _finishScan();
+      if (!ref.mounted || lifetime != _lifetime) return;
+      _publishErrors();
     } finally {
+      await _releaseScanLease(lease);
+    }
+  }
+
+  Future<void> _finishScan() {
+    _scanGeneration++;
+    _scanActive = false;
+    _scanAdmission = null;
+    final lease = _scanLease;
+    _scanLease = null;
+    return _releaseScanLease(lease);
+  }
+
+  Future<void> _releaseScanLease(DirectoryAccessLease? lease) async {
+    try {
       await lease?.release();
+    } catch (error, stack) {
+      logger.w(
+        'failed to release library scan access',
+        error: error,
+        stackTrace: stack,
+      );
     }
   }
 
@@ -184,6 +282,8 @@ class LibraryController extends Notifier<LibraryState> {
   void setQuery(String query) {
     final q = query.trim();
     state = state.copyWith(query: q, lastError: null);
+    // Invalidate immediately, including A -> B -> A within the debounce delay.
+    _invalidateQuery(_LibraryQuery.tracks);
 
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 250), () {
@@ -191,88 +291,138 @@ class LibraryController extends Notifier<LibraryState> {
     });
   }
 
-  Future<void> _hydrateInitialState() async {
-    await _refreshRoots();
-    await _refreshFolders();
-    await _refreshExcludedFolders();
-    await _refreshPlaylists();
-    await _refreshLikedTrackIds();
-    await _refreshTracks();
+  /// Merge notifications in one event turn. A later refresh may overtake an
+  /// in-flight one; each query has its own version for committing results.
+  Future<void> refresh() {
+    final lifetime = _lifetime;
+    return _scheduledRefresh ??= Future<void>.microtask(() async {
+      if (!ref.mounted || lifetime != _lifetime) return;
+      _scheduledRefresh = null;
+      await Future.wait([
+        _refreshRoots(),
+        _refreshFolders(),
+        _refreshExcludedFolders(),
+        _refreshPlaylists(),
+        _refreshLikedTrackIds(),
+        _refreshTracks(),
+      ]);
+    });
   }
 
-  Future<void> _refreshRoots() async {
-    final roots = await ref.read(libraryBridgeProvider).listRoots();
-    await DirectoryAccessService.instance.syncStoredDirectories(
-      paths: roots,
-      store: ref.read(settingsStoreServiceProvider),
-    );
-    state = state.copyWith(
-      roots: roots.map(_normalizePath).toList(),
-      lastError: null,
-    );
-  }
+  Future<void> _refreshRoots() => _runQuery(
+    _LibraryQuery.roots,
+    // Bookmark synchronization already runs at bootstrap and on acquisition.
+    // Keep query responses free of persistent side effects before version checks.
+    () => ref.read(libraryBridgeProvider).listRoots(),
+    (roots) =>
+        state = state.copyWith(roots: roots.map(_normalizePath).toList()),
+  );
 
-  Future<void> _refreshFolders() async {
-    final folders = await ref.read(libraryBridgeProvider).listFolders();
-    state = state.copyWith(folders: folders.map(_normalizePath).toList());
-  }
+  Future<void> _refreshFolders() => _runQuery(
+    _LibraryQuery.folders,
+    () => ref.read(libraryBridgeProvider).listFolders(),
+    (folders) =>
+        state = state.copyWith(folders: folders.map(_normalizePath).toList()),
+  );
 
-  Future<void> _refreshExcludedFolders() async {
-    final folders = await ref.read(libraryBridgeProvider).listExcludedFolders();
-    state = state.copyWith(
+  Future<void> _refreshExcludedFolders() => _runQuery(
+    _LibraryQuery.excluded,
+    () => ref.read(libraryBridgeProvider).listExcludedFolders(),
+    (folders) => state = state.copyWith(
       excludedFolders: folders.map(_normalizePath).toList(),
-    );
-  }
+    ),
+  );
 
-  Future<void> _refreshPlaylists() async {
-    final playlists = await ref.read(libraryBridgeProvider).listPlaylists();
-    final selected = state.selectedPlaylistId;
-    final selectedExists =
-        selected == null || playlists.any((p) => p.id == selected);
-    state = state.copyWith(
-      playlists: playlists,
-      selectedPlaylistId: selectedExists ? selected : null,
-    );
-  }
+  Future<void> _refreshPlaylists() => _runQuery(
+    _LibraryQuery.playlists,
+    () => ref.read(libraryBridgeProvider).listPlaylists(),
+    (playlists) {
+      final selected = state.selectedPlaylistId;
+      final selectedExists =
+          selected == null || playlists.any((p) => p.id == selected);
+      state = state.copyWith(
+        playlists: playlists,
+        selectedPlaylistId: selectedExists ? selected : null,
+      );
+      if (!selectedExists) unawaited(_refreshTracks());
+    },
+  );
 
-  Future<void> _refreshLikedTrackIds() async {
-    final likedTrackIds = await ref
-        .read(libraryBridgeProvider)
-        .listLikedTrackIds();
-    state = state.copyWith(likedTrackIds: likedTrackIds.toSet());
-  }
+  Future<void> _refreshLikedTrackIds() => _runQuery(
+    _LibraryQuery.liked,
+    () => ref.read(libraryBridgeProvider).listLikedTrackIds(),
+    (ids) => state = state.copyWith(likedTrackIds: ids.toSet()),
+  );
 
-  Future<void> _refreshTracks() async {
+  Future<void> _refreshTracks() {
+    if (!ref.mounted) return Future.value();
     final bridge = ref.read(libraryBridgeProvider);
-    final selectedPlaylistId = state.selectedPlaylistId;
-    final selectedFolder = state.selectedFolder;
-    final includeSubfolders = state.includeSubfolders;
+    final playlist = state.selectedPlaylistId;
+    final folder = state.selectedFolder;
+    final recursive = state.includeSubfolders;
     final query = state.query;
+    return _runQuery(
+      _LibraryQuery.tracks,
+      () => playlist != null
+          ? bridge.listPlaylistTracks(playlistId: playlist, query: query)
+          : bridge.listTracks(
+              folder: folder,
+              recursive: recursive,
+              query: query,
+            ),
+      (items) => state = state.copyWith(results: items),
+      isApplicable: () =>
+          state.selectedPlaylistId == playlist &&
+          state.selectedFolder == folder &&
+          state.includeSubfolders == recursive &&
+          state.query == query,
+    );
+  }
 
-    final items = selectedPlaylistId != null
-        ? await bridge.listPlaylistTracks(
-            playlistId: selectedPlaylistId,
-            query: query,
-          )
-        : await bridge.listTracks(
-            folder: selectedFolder,
-            recursive: includeSubfolders,
-            query: query,
+  Future<void> _runQuery<T>(
+    _LibraryQuery kind,
+    Future<T> Function() load,
+    void Function(T) commit, {
+    bool Function()? isApplicable,
+  }) async {
+    if (!ref.mounted) return;
+    final lifetime = _lifetime;
+    final version = (_queryVersions[kind] ?? 0) + 1;
+    _queryVersions[kind] = version;
+    bool isCurrent() =>
+        ref.mounted &&
+        lifetime == _lifetime &&
+        _queryVersions[kind] == version &&
+        (isApplicable?.call() ?? true);
+    try {
+      final value = await load();
+      if (!isCurrent()) return;
+      _queryErrors.remove(kind);
+      commit(value);
+      _publishErrors();
+    } catch (error, stack) {
+      if (!isCurrent()) return;
+      // Other concurrent queries must not erase this failure on success.
+      _queryErrors.remove(kind);
+      _queryErrors[kind] = error.toString();
+      _publishErrors();
+      ref
+          .read(loggerProvider)
+          .w(
+            'library ${kind.name} query failed',
+            error: error,
+            stackTrace: stack,
           );
-
-    if (selectedPlaylistId != null) {
-      if (state.selectedPlaylistId != selectedPlaylistId ||
-          state.query != query) {
-        return;
-      }
-    } else if (state.selectedPlaylistId != null ||
-        state.selectedFolder != selectedFolder ||
-        state.includeSubfolders != includeSubfolders ||
-        state.query != query) {
-      return;
     }
+  }
 
-    state = state.copyWith(results: items, lastError: null);
+  void _invalidateQuery(_LibraryQuery kind) {
+    _queryVersions.update(kind, (value) => value + 1, ifAbsent: () => 1);
+  }
+
+  void _publishErrors() {
+    final error = _eventError ?? _queryErrors.values.lastOrNull;
+    if (state.lastError != error) state = state.copyWith(lastError: error);
   }
 
   Future<void> createPlaylist(String name) {
@@ -341,14 +491,10 @@ class LibraryController extends Notifier<LibraryState> {
   }
 
   void _onEvent(LibraryEvent event) {
+    if (!ref.mounted) return;
     event.maybeWhen(
       changed: () {
-        unawaited(_refreshRoots());
-        unawaited(_refreshFolders());
-        unawaited(_refreshExcludedFolders());
-        unawaited(_refreshPlaylists());
-        unawaited(_refreshLikedTrackIds());
-        unawaited(_refreshTracks());
+        unawaited(refresh());
       },
       scanProgress: (scanned, updated, skipped, errors) {
         state = state.copyWith(
@@ -362,6 +508,7 @@ class LibraryController extends Notifier<LibraryState> {
         );
       },
       scanFinished: (durationMs, scanned, updated, skipped, errors) {
+        unawaited(_finishScan());
         state = state.copyWith(
           isScanning: false,
           lastFinishedMs: durationMs.toInt(),
@@ -376,8 +523,11 @@ class LibraryController extends Notifier<LibraryState> {
         unawaited(_refreshTracks());
       },
       error: (message) {
+        unawaited(_finishScan());
         ref.read(loggerProvider).e(message);
-        state = state.copyWith(lastError: message, isScanning: false);
+        _eventError = message;
+        state = state.copyWith(isScanning: false);
+        _publishErrors();
       },
       log: (message) {
         ref.read(loggerProvider).d(message);

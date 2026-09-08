@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -6,6 +7,12 @@ import 'package:hive/hive.dart';
 import 'package:stellatune/app/providers.dart';
 import 'package:stellatune/bridge/bridge.dart';
 import 'package:stellatune/ui/theme/desktop_theme.dart';
+
+class DeferredSettingsStore extends SettingsStore {
+  final saved = Completer<void>();
+  @override
+  Future<void> setVolume(double value) => saved.future;
+}
 
 void main() {
   late Directory hiveDir;
@@ -121,5 +128,37 @@ void main() {
     expect(store.readState().desktopTheme, DesktopThemePreset.celadon);
     await Hive.box('settings').put('desktop_theme', 'unknown-future-theme');
     expect(store.desktopTheme, DesktopThemePreset.daylight);
+  });
+
+  test(
+    'pending setting writes do not publish into a disposed provider',
+    () async {
+      final store = DeferredSettingsStore();
+      final container = ProviderContainer(
+        overrides: [settingsStoreServiceProvider.overrideWithValue(store)],
+      );
+      final writing = container
+          .read(settingsStoreProvider.notifier)
+          .setVolume(.5);
+      container.dispose();
+      store.saved.complete();
+      await writing;
+    },
+  );
+
+  test('a pending write cannot replace rebuilt settings state', () async {
+    final store = DeferredSettingsStore();
+    final container = ProviderContainer(
+      overrides: [settingsStoreServiceProvider.overrideWithValue(store)],
+    );
+    addTearDown(container.dispose);
+    final writing = container
+        .read(settingsStoreProvider.notifier)
+        .setVolume(.5);
+    container.invalidate(settingsStoreProvider);
+    final rebuilt = container.read(settingsStoreProvider);
+    store.saved.complete();
+    await writing;
+    expect(container.read(settingsStoreProvider), same(rebuilt));
   });
 }

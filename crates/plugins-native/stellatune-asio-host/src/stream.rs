@@ -249,6 +249,10 @@ impl StreamState {
 
         let hardware_frames = stream.buffer_size().unwrap_or(MIN_QUEUE_FRAMES) as usize;
         queue.ensure_capacity((hardware_frames * 2 * usize::from(channels)).min(MAX_QUEUE_SAMPLES));
+        // CPAL's ASIO pause skips callbacks without stopping the driver or
+        // clearing its double buffers. Keep callbacks active even while our
+        // playback gate is closed so both hardware buffers receive silence.
+        stream.play().map_err(|error| error.to_string())?;
         let metrics_join = Some(start_underrun_reporter(
             Arc::clone(&metrics),
             spec.sample_rate,
@@ -277,7 +281,8 @@ impl StreamState {
         // A single order between admission and in-flight counting prevents a
         // new callback from slipping past the zero-count check during reset.
         self.running.store(false, Ordering::SeqCst);
-        self._stream.pause().map_err(|error| error.to_string())?;
+        // Do not call cpal::Stream::pause(): the driver would repeat old PCM.
+        // Closed-gate callbacks write silence and leave queued music untouched.
         let deadline = std::time::Instant::now() + Duration::from_millis(500);
         while self.metrics.callbacks_in_flight.load(Ordering::SeqCst) != 0 {
             if std::time::Instant::now() >= deadline {
@@ -557,7 +562,7 @@ fn fill_queue_u16(
     tmp: &mut Vec<f32>,
 ) {
     if !running.load(Ordering::SeqCst) {
-        out.fill(0);
+        out.fill(1 << 15);
         return;
     }
     ensure_tmp(tmp, out.len());
@@ -567,7 +572,56 @@ fn fill_queue_u16(
     }
     for (dst, src) in out.iter_mut().zip(tmp.iter()) {
         let v = src.clamp(-1.0, 1.0);
-        let normalized = (v + 1.0) * 0.5;
-        *dst = (normalized * u16::MAX as f32) as u16;
+        *dst = ((v * 32768.0) + 32768.0).clamp(0.0, u16::MAX as f32) as u16;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn paused_callbacks_clear_both_buffers_without_consuming_music() {
+        let queue = Arc::new(LocalSampleQueue::new(16));
+        let running = Arc::new(AtomicBool::new(false));
+        let metrics = Arc::new(UnderrunMetrics::default());
+        let music = [0.25, -0.25, 0.5, -0.5];
+        queue.write_samples(&music);
+        let mut float_buffers = [[0.9; 4]; 2];
+        let mut tmp = Vec::new();
+        for buffer in &mut float_buffers {
+            fill_queue_f32(buffer, &queue, &running, &metrics);
+            assert_eq!(*buffer, [0.0; 4]);
+            let mut i16_buffer = [123; 4];
+            let mut i32_buffer = [123; 4];
+            let mut u16_buffer = [123; 4];
+            fill_queue_i16(&mut i16_buffer, &queue, &running, &metrics, &mut tmp);
+            fill_queue_i32(&mut i32_buffer, &queue, &running, &metrics, &mut tmp);
+            fill_queue_u16(&mut u16_buffer, &queue, &running, &metrics, &mut tmp);
+            assert_eq!(i16_buffer, [0; 4]);
+            assert_eq!(i32_buffer, [0; 4]);
+            assert_eq!(u16_buffer, [32768; 4]);
+        }
+        assert_eq!(queue.queued_samples(), 4);
+        assert_eq!(metrics.delivered_samples.load(Ordering::Acquire), 0);
+        assert_eq!(metrics.underrun_callbacks.load(Ordering::Acquire), 0);
+        running.store(true, Ordering::SeqCst);
+        fill_queue_f32(&mut float_buffers[0], &queue, &running, &metrics);
+        assert_eq!(float_buffers[0], music);
+        assert_eq!(metrics.delivered_samples.load(Ordering::Acquire), 4);
+        // Underrun must also overwrite previously rendered samples with silence.
+        fill_queue_f32(&mut float_buffers[0], &queue, &running, &metrics);
+        assert_eq!(float_buffers[0], [0.0; 4]);
+    }
+
+    #[test]
+    fn unsigned_pcm_silence_is_the_same_when_paused_playing_or_starved() {
+        let queue = Arc::new(LocalSampleQueue::new(16));
+        let running = Arc::new(AtomicBool::new(true));
+        let metrics = Arc::new(UnderrunMetrics::default());
+        queue.write_samples(&[0.0, 0.0]);
+        let mut buffer = [0; 4];
+        fill_queue_u16(&mut buffer, &queue, &running, &metrics, &mut Vec::new());
+        assert_eq!(buffer, [32768; 4]);
     }
 }

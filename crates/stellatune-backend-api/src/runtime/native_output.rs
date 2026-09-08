@@ -260,25 +260,32 @@ impl RuntimeOutputFactory {
             builtin: RuntimeDeviceSinkFactory::new(shared_device_sink_control(), 1),
         }
     }
+    fn native_factory(&self) -> Option<AsioSinkFactory> {
+        let options = *super::engine::runtime_output_options()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        active()
+            .map(|factory| factory.with_match_track_sample_rate(options.match_track_sample_rate))
+    }
 }
 impl SinkFactory for RuntimeOutputFactory {
     fn id(&self) -> &StageId {
         self.builtin.id()
     }
     fn preferred_format(&self, input: PcmFormat) -> Result<PcmFormat, FactoryError> {
-        match active() {
+        match self.native_factory() {
             Some(factory) => factory.preferred_format(input),
             None => self.builtin.preferred_format(input),
         }
     }
     fn compatibility_key(&self, format: PcmFormat) -> Result<OutputCompatibilityKey, FactoryError> {
-        match active() {
+        match self.native_factory() {
             Some(factory) => factory.compatibility_key(format),
             None => self.builtin.compatibility_key(format),
         }
     }
     fn create(&self) -> Result<Box<dyn SinkStage>, FactoryError> {
-        match active() {
+        match self.native_factory() {
             Some(factory) => factory.create(),
             None => self.builtin.create(),
         }

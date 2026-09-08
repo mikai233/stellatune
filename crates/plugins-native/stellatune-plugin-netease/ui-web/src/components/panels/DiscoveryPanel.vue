@@ -162,8 +162,26 @@ function buildProviderIdentity(item: DiscoveryItem): Record<string, unknown> | n
   return {
     provider_id: item.sourceId.trim() || props.sourceTypeId.trim(),
     source_type_id: props.sourceTypeId.trim(),
-    provider_track_key: trackId
+    provider_track_key: trackId,
+    metadata: {
+      title: item.title || null,
+      artist: item.artist || null,
+      album: item.album || null,
+      durationMs: asNumber(item.trackPayload?.duration_ms) ?? null,
+      cover: normalizeTrackCover(item.trackPayload?.cover)
+    }
   };
+}
+
+function normalizeTrackCover(raw: unknown): Record<string, unknown> | null {
+  if (typeof raw === "string") return { kind: "url", value: raw };
+  const cover = asRecord(raw);
+  if (!cover) return null;
+  const value = asText(cover.value ?? cover.url);
+  if (!value) return null;
+  const kind = asText(cover.kind) ?? "url";
+  if (!["url", "file", "data"].includes(kind)) return null;
+  return { kind, value, mime: asText(cover.mime) };
 }
 
 function normalizeItems(rows: Record<string, unknown>[]): DiscoveryItem[] {

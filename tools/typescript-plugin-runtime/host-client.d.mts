@@ -1,4 +1,9 @@
-export interface ProviderTrack { pluginId: string; capabilityId: string; providerId: string; providerKey: string }
+export interface TrackPresentation {
+  title?: string | null; artist?: string | null; album?: string | null;
+  durationMs?: number | null;
+  cover?: { kind: "url" | "file" | "data"; value: string; mime?: string | null } | null;
+}
+export interface ProviderTrack { pluginId: string; capabilityId: string; providerId: string; providerKey: string; metadata?: TrackPresentation }
 export type PlayerCommand =
   | { command: "play" | "pause" | "stop" | "next" | "previous" }
   | { command: "seek"; positionMs: number }
@@ -13,7 +18,7 @@ export interface PlayerState {
   itemId: string | null; trackId: string | null; positionMs: number; durationMs: number | null;
 }
 export interface PlayerQueue {
-  items: { itemId: string; trackId: string }[]; order: string[];
+  items: { itemId: string; trackId: string; providerTrack?: ProviderTrack | null; metadata?: TrackPresentation | null }[]; order: string[];
   currentItemId: string | null; requestedItemId: string | null;
   repeat: "off" | "all" | "one"; shuffle: boolean; revision: string;
 }

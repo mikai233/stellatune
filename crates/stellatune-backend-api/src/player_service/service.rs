@@ -28,6 +28,10 @@ pub struct PlayerService {
 }
 
 impl PlayerService {
+    pub async fn close_catalog(&self) {
+        self.catalog.pool.close().await;
+    }
+
     pub async fn ensure_local_tracks(
         &self,
         library_ids: &[i64],

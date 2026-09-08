@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:stellatune/l10n/app_localizations.dart';
-import 'package:stellatune/ui/pages/settings/models/installed_plugin.dart';
+import 'package:stellatune/plugins/installed_plugin.dart';
 import 'package:stellatune/ui/pages/settings/widgets/plugin_tile.dart';
 import 'package:stellatune/ui/pages/shell/desktop_frame.dart';
 

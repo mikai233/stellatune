@@ -14,8 +14,11 @@ import 'package:stellatune/player/queue_models.dart';
 
 class ControlledBridge implements PlayerBridge {
   final eventStream = StreamController<Event>.broadcast(sync: true);
+  final queueStream = StreamController<PlaybackQueue>.broadcast(sync: true);
   final selections = <BigInt, Completer<bool>>{};
   Completer<void>? retainGate;
+  Completer<PlaybackSnapshot>? snapshotGate;
+  int snapshotCalls = 0;
   int stopCalls = 0;
   int replaceCalls = 0;
   final queue = PlaybackQueue(
@@ -37,6 +40,8 @@ class ControlledBridge implements PlayerBridge {
   @override
   Stream<Event> events() => eventStream.stream;
   @override
+  Stream<PlaybackQueue> queueEvents() => queueStream.stream;
+  @override
   Future<void> setVolume(
     double value, {
     required int seq,
@@ -45,8 +50,12 @@ class ControlledBridge implements PlayerBridge {
   @override
   Future<List<String>> decoderSupportedExtensions() async => ['mp3'];
   @override
-  Future<PlaybackSnapshot> playbackSnapshot() async =>
-      PlaybackSnapshot(state: PlayerState.stopped, positionMs: 0);
+  Future<PlaybackSnapshot> playbackSnapshot() async {
+    snapshotCalls++;
+    return await snapshotGate?.future ??
+        const PlaybackSnapshot(state: PlayerState.stopped, positionMs: 0);
+  }
+
   @override
   Future<PlaybackQueue> playbackQueue() async => queue;
   @override
@@ -117,6 +126,7 @@ void main() {
     await Future<void>.delayed(Duration.zero);
     container.dispose();
     await bridge.eventStream.close();
+    await bridge.queueStream.close();
     await Hive.close();
     await directory.delete(recursive: true);
   });
@@ -253,6 +263,127 @@ void main() {
     notifier.applyBackend(bridge.queue);
     expect(container.read(queueControllerProvider).items.first.title, 'Title');
   });
+
+  test(
+    'backend queue events update metadata and mode without a playback event',
+    () async {
+      final id = BigInt.from(90);
+      bridge.queueStream.add(
+        PlaybackQueue(
+          items: [
+            QueueEntry(
+              itemId: id,
+              trackId: BigInt.from(40),
+              providerTrack: const QueueProviderTrack(
+                providerId: 'netease',
+                providerKey: '42',
+                pluginId: 'netease-plugin',
+                capabilityId: 'source',
+              ),
+              metadata: TrackPresentation(
+                title: 'From HTTP',
+                artist: 'Artist',
+                durationMs: BigInt.from(42000),
+                cover: const TrackCover(
+                  kind: TrackCoverKind.url,
+                  value: 'https://example.test/cover.jpg',
+                ),
+              ),
+            ),
+          ],
+          order: frb.Uint64List.fromList([id]),
+          repeatMode: QueueRepeatMode.all,
+          shuffle: true,
+          revision: BigInt.from(20),
+        ),
+      );
+      final queue = container.read(queueControllerProvider);
+      expect(queue.items.single.title, 'From HTTP');
+      expect(queue.items.single.providerTrack?.providerKey, '42');
+      expect(queue.items.single.cover?.value, 'https://example.test/cover.jpg');
+      expect(queue.repeatMode, RepeatMode.all);
+      expect(queue.shuffle, isTrue);
+      bridge.queueStream.add(
+        bridge.queue,
+      ); // An older initial snapshot arrives late.
+      expect(container.read(queueControllerProvider).items.single.itemId, id);
+      bridge.queueStream.add(
+        PlaybackQueue(
+          items: const [],
+          order: frb.Uint64List.fromList([]),
+          repeatMode: QueueRepeatMode.off,
+          shuffle: false,
+          revision: BigInt.from(21),
+        ),
+      );
+      expect(container.read(queueControllerProvider).items, isEmpty);
+      await Future<void>.delayed(Duration.zero);
+    },
+  );
+
+  test(
+    'startup snapshot cannot overwrite a newer backend track and position',
+    () async {
+      final gate = Completer<PlaybackSnapshot>();
+      bridge.snapshotGate = gate;
+      final previousCalls = bridge.snapshotCalls;
+      container.invalidate(playbackControllerProvider);
+      controller = container.read(playbackControllerProvider.notifier);
+      await until(() => bridge.snapshotCalls > previousCalls);
+      final id = BigInt.from(3);
+      bridge.eventStream.add(Event.trackChanged(trackId: id, itemId: id));
+      bridge.eventStream.add(
+        const Event.stateChanged(state: PlayerState.playing),
+      );
+      bridge.eventStream.add(
+        Event.position(
+          ms: 3000,
+          trackId: id,
+          itemId: id,
+          sessionId: BigInt.one,
+        ),
+      );
+      gate.complete(
+        PlaybackSnapshot(
+          state: PlayerState.paused,
+          positionMs: 500,
+          trackId: BigInt.one,
+          itemId: BigInt.one,
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      final state = container.read(playbackControllerProvider);
+      expect(state.playerState, PlayerState.playing);
+      expect(state.positionMs, 3000);
+      expect(container.read(queueControllerProvider).currentItem?.itemId, id);
+    },
+  );
+
+  test(
+    'startup volume acknowledgements and logs do not cancel position restore',
+    () async {
+      final gate = Completer<PlaybackSnapshot>();
+      bridge.snapshotGate = gate;
+      final previousCalls = bridge.snapshotCalls;
+      container.invalidate(playbackControllerProvider);
+      controller = container.read(playbackControllerProvider.notifier);
+      await until(() => bridge.snapshotCalls > previousCalls);
+      bridge.eventStream.add(Event.volumeChanged(volume: .5, seq: BigInt.one));
+      bridge.eventStream.add(const Event.log(message: 'Output ready'));
+      gate.complete(
+        PlaybackSnapshot(
+          state: PlayerState.paused,
+          positionMs: 15000,
+          trackId: BigInt.one,
+          itemId: BigInt.one,
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      final state = container.read(playbackControllerProvider);
+      expect(state.playerState, PlayerState.paused);
+      expect(state.positionMs, 15000);
+    },
+  );
 
   test(
     'restored queue displays library metadata without a previous UI item',

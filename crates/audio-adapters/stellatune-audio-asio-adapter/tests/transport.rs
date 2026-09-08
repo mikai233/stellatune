@@ -119,3 +119,51 @@ fn native_format_is_explicit_and_rejects_unsupported_rate() {
         .is_err()
     );
 }
+
+#[test]
+fn track_rate_policy_negotiates_and_transports_each_supported_rate() {
+    let route = AsioSinkFactory::discover(
+        PathBuf::from(env!("CARGO_BIN_EXE_fake-asio-host")),
+        "test".into(),
+        AsioConfig::default(),
+        2,
+    )
+    .unwrap();
+    let matched = route.with_match_track_sample_rate(true);
+    for rate in [8000, 48000, 192000] {
+        let input = PcmFormat {
+            sample_rate: rate,
+            channel_layout: ChannelLayout::STEREO,
+        };
+        assert_eq!(route.preferred_format(input).unwrap().sample_rate, 48000);
+        let output = matched.preferred_format(input).unwrap();
+        assert_eq!(output, input);
+        assert_eq!(matched.compatibility_key(output).unwrap().sample_rate, rate);
+        let mut sink = matched.create().unwrap();
+        sink.open(output).unwrap();
+        let audio = block(output, 80);
+        assert_eq!(sink.write(&audio).unwrap().consumed_frames, 80);
+        sink.resume().unwrap();
+        sink.drain().unwrap();
+        assert_eq!(sink.clock_snapshot().consumed_frames, 80);
+        let wrong = PcmFormat {
+            sample_rate: if rate == 48000 { 8000 } else { 48000 },
+            ..output
+        };
+        assert!(sink.write(&block(wrong, 1)).is_err());
+        sink.close();
+    }
+    let unsupported = PcmFormat {
+        sample_rate: 12345,
+        channel_layout: ChannelLayout::MONO,
+    };
+    assert_eq!(
+        matched.preferred_format(unsupported).unwrap(),
+        route.format()
+    );
+    let fixed = factory(192000, "test").with_match_track_sample_rate(true);
+    assert_eq!(
+        fixed.preferred_format(route.format()).unwrap().sample_rate,
+        192000
+    );
+}

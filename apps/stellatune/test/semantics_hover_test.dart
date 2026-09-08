@@ -107,8 +107,6 @@ class _RecordingBuilder extends Fake implements ui.SemanticsUpdateBuilder {
   }
 }
 
-class _PlayerBridge extends Fake implements PlayerBridge {}
-
 void main() {
   final binding = _RecordingBinding();
 
@@ -212,7 +210,6 @@ void main() {
       await hoverAll(
         tester,
         TrackList(
-          bridge: _PlayerBridge(),
           coverDir: 'missing-test-covers',
           items: List.generate(
             5,

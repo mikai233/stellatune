@@ -12,6 +12,19 @@ use super::manifest::{
 
 pub const TYPESCRIPT_INSTALL_RECEIPT_FILE_NAME: &str = ".install-v2.json";
 
+#[derive(Deserialize)]
+struct LegacyInstallReceipt {
+    manifest: LegacyManifestIdentity,
+    manifest_rel_path: String,
+}
+
+#[derive(Deserialize, PartialEq)]
+struct LegacyManifestIdentity {
+    schema_version: u32,
+    id: String,
+    version: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TypeScriptInstallReceipt {
     pub manifest: TypeScriptPluginManifest,
@@ -58,21 +71,26 @@ pub fn install_typescript_artifact(
     let content_sha256 = hash_files(&package_root, false)?;
 
     let install_root = plugins_dir.join(&manifest.id);
-    if install_root.exists()
+    let replacing_legacy = install_root.exists()
         && !install_root
             .join(TYPESCRIPT_INSTALL_RECEIPT_FILE_NAME)
-            .is_file()
-    {
+            .is_file();
+    if replacing_legacy && !is_recognized_legacy_installation(&install_root, &manifest.id) {
         return invalid(format!(
-            "plugin '{}' already exists as a non-v2 installation",
-            manifest.id
+            "plugin '{}' already exists in an unrecognized installation directory '{}'; \
+             move that directory aside before retrying",
+            manifest.id,
+            install_root.display(),
         ));
     }
-    let incoming = unique_sibling(plugins_dir, "incoming", &manifest.id);
-    crate::package::copy_dir_recursive(&package_root, &incoming)
+    let incoming = tempfile::Builder::new()
+        .prefix(&format!(".incoming-{}-", manifest.id))
+        .tempdir_in(plugins_dir)
+        .map_err(|error| io("create incoming plugin directory", error))?;
+    crate::package::copy_dir_recursive(&package_root, incoming.path())
         .map_err(|error| invalid_error(error.to_string()))?;
     write_receipt(
-        &incoming,
+        incoming.path(),
         &TypeScriptInstallReceipt {
             manifest: manifest.clone(),
             content_sha256,
@@ -80,26 +98,61 @@ pub fn install_typescript_artifact(
     )?;
 
     let backup = if install_root.exists() {
-        let backup = unique_sibling(plugins_dir, "backup", &manifest.id);
+        let purpose = if replacing_legacy {
+            "legacy-backup"
+        } else {
+            "backup"
+        };
+        let backup = unique_sibling(plugins_dir, purpose, &manifest.id);
         std::fs::rename(&install_root, &backup)
-            .map_err(|error| io("backup existing v2 plugin", error))?;
+            .map_err(|error| io("backup existing plugin", error))?;
         Some(backup)
     } else {
         None
     };
-    if let Err(error) = std::fs::rename(&incoming, &install_root) {
-        if let Some(backup) = &backup {
-            let _ = std::fs::rename(backup, &install_root);
+    if let Err(error) = std::fs::rename(incoming.path(), &install_root) {
+        if let Some(backup) = &backup
+            && let Err(restore_error) = std::fs::rename(backup, &install_root)
+        {
+            return invalid(format!(
+                "failed to promote plugin: {error}; failed to restore previous installation: \
+                 {restore_error}; previous files remain at '{}'",
+                backup.display(),
+            ));
         }
         return Err(io("promote v2 plugin", error));
     }
     if let Some(backup) = backup {
-        let _ = std::fs::remove_dir_all(backup);
+        if replacing_legacy {
+            tracing::info!(plugin_id = %manifest.id, path = %backup.display(), "preserved legacy plugin backup");
+        } else {
+            let _ = std::fs::remove_dir_all(backup);
+        }
     }
     Ok(InstalledTypeScriptPlugin {
         manifest,
         root_dir: install_root,
     })
+}
+
+fn is_recognized_legacy_installation(root: &Path, plugin_id: &str) -> bool {
+    let read_identity = || -> Option<bool> {
+        let receipt: LegacyInstallReceipt =
+            serde_json::from_slice(&std::fs::read(root.join(".install.json")).ok()?).ok()?;
+        // Schema-v1 packages always installed their manifest at this fixed path.
+        // Inspect identity only: the old receipt serialized default/null fields
+        // that the original plugin.json was allowed to omit.
+        if receipt.manifest_rel_path != "plugin.json"
+            || receipt.manifest.schema_version != 1
+            || receipt.manifest.id != plugin_id
+        {
+            return Some(false);
+        }
+        let manifest: LegacyManifestIdentity =
+            serde_json::from_slice(&std::fs::read(root.join("plugin.json")).ok()?).ok()?;
+        Some(manifest == receipt.manifest)
+    };
+    read_identity().unwrap_or(false)
 }
 
 pub fn discover_typescript_plugins(

@@ -75,7 +75,6 @@ class LibraryVisualPreview extends StatefulWidget {
 class _LibraryVisualPreviewState extends State<LibraryVisualPreview> {
   late LibrarySection section = widget.initialSection;
   final liked = <int>{1, 5};
-  final bridge = _PreviewBridge();
   @override
   Widget build(BuildContext context) => DesktopLibraryView(
     tracks: LibraryVisualPreview.tracks,
@@ -87,7 +86,6 @@ class _LibraryVisualPreviewState extends State<LibraryVisualPreview> {
     onScan: (_) {},
     trackListBuilder: (items) => TrackList(
       tableLayout: true,
-      bridge: bridge,
       coverDir: LibraryVisualPreview.coverDir,
       items: items,
       likedTrackIds: liked,
@@ -109,9 +107,4 @@ class _LibraryVisualPreviewState extends State<LibraryVisualPreview> {
       onRemoveFromPlaylist: (_, _) async {},
     ),
   );
-}
-
-class _PreviewBridge implements PlayerBridge {
-  @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

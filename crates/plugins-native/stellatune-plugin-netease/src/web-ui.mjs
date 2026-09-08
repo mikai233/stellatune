@@ -42,6 +42,7 @@ export async function openWebUi(context, config, business) {
       else if (action === "playback.play_provider_track" || action === "playback.enqueue_provider_track") {
         data = await host.command({ command: action === "playback.play_provider_track" ? "playProviderTrack" : "enqueueProviderTrack", track: {
           pluginId, capabilityId: "netease-source", providerId: String(input.provider_id ?? "netease"), providerKey: String(input.provider_track_key),
+          ...(input.metadata ? { metadata: input.metadata } : {}),
         } });
       } else if (action === "playback.play_track" || action === "playback.enqueue_track") {
         const trackId = String(input.track_id);

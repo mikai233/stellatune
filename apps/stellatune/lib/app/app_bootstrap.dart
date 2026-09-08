@@ -2,16 +2,16 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
+import 'package:stellatune/app/app_bootstrap_services.dart';
 import 'package:stellatune/app/plugin_paths.dart';
 import 'package:stellatune/bridge/api/player.dart' as player_api;
 import 'package:stellatune/app/settings_store.dart';
-import 'package:stellatune/ui/pages/settings/settings_value_utils.dart';
-import 'package:stellatune/bridge/api/runtime.dart' as runtime_api;
+import 'package:stellatune/app/output_settings_runtime.dart';
 import 'package:stellatune/bridge/bridge.dart';
 import 'package:stellatune/library/library_paths.dart';
 import 'package:stellatune/platform/directory_access_service.dart';
-import 'package:stellatune/platform/rust_runtime.dart';
 import 'package:stellatune/platform/tray_service.dart';
+import 'package:stellatune/platform/window_close_handler.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:stellatune/app/logging.dart';
 
@@ -43,186 +43,9 @@ class _BootstrapPaths {
   final String pluginDir;
 }
 
-class _ResolvedPluginRoute {
-  const _ResolvedPluginRoute({required this.route, required this.targets});
-
-  final OutputSinkRoute route;
-  final List<Object?> targets;
-}
-
-class _PersistedOutputSettingsRestorer {
-  _PersistedOutputSettingsRestorer({
-    required this.bridge,
-    required this.settings,
-  }) : persisted = settings.readState(),
-       session = settings.outputSettingsUiSession;
-
-  final PlayerBridge bridge;
-  final SettingsStore settings;
-  final SettingsState persisted;
-  final OutputSettingsUiSession session;
-
-  String? localDeviceId;
-
-  Future<void> restore() async {
-    localDeviceId = persisted.selectedDeviceId;
-    _primeLocalSession();
-    await bridge.setPlaybackLatency(persisted.playbackLatency);
-    await _restoreLocalOutputDevice();
-    await _restoreOutputOptions();
-    await _restoreOutputRoute();
-    await _refreshDevicesBestEffort();
-  }
-
-  Future<void> _restoreLocalOutputDevice() async {
-    final backend = persisted.selectedBackend;
-    try {
-      await bridge.setOutputDevice(backend: backend, deviceId: localDeviceId);
-    } catch (e, s) {
-      logger.w(
-        'failed to set persisted output device, falling back to default',
-        error: e,
-        stackTrace: s,
-      );
-      localDeviceId = null;
-      await settings.setSelectedDeviceId(null);
-      _primeLocalSession();
-      await bridge.setOutputDevice(backend: backend, deviceId: null);
-    }
-  }
-
-  Future<void> _restoreOutputOptions() {
-    return bridge.setOutputOptions(
-      matchTrackSampleRate: persisted.matchTrackSampleRate,
-      gaplessPlayback: persisted.gaplessPlayback,
-      seekTrackFade: persisted.seekTrackFade,
-      resampleQuality: persisted.resampleQuality,
-    );
-  }
-
-  Future<void> _restoreOutputRoute() async {
-    final route = settings.readState().outputSinkRoute;
-    if (route == null) {
-      await bridge.clearOutputSinkRoute();
-      _primeLocalSession();
-      return;
-    }
-
-    if (!await _sinkTypeExists(route)) {
-      await _fallbackToLocal(clearPersistedRoute: true);
-      return;
-    }
-
-    final resolved = await _resolvePluginRoute(route);
-    try {
-      await bridge.setOutputSinkRoute(resolved.route);
-      if (resolved.route != route) {
-        await settings.setOutputSinkRoute(resolved.route);
-      }
-      _primePluginSession(resolved);
-    } catch (e, s) {
-      logger.e(
-        'failed to set output sink route, falling back to local',
-        error: e,
-        stackTrace: s,
-      );
-      await _fallbackToLocal(clearPersistedRoute: true);
-    }
-  }
-
-  Future<bool> _sinkTypeExists(OutputSinkRoute route) async {
-    final sinkTypes = await bridge.outputSinkListTypes();
-    return sinkTypes.any(
-      (t) => t.pluginId == route.pluginId && t.typeId == route.typeId,
-    );
-  }
-
-  Future<_ResolvedPluginRoute> _resolvePluginRoute(
-    OutputSinkRoute route,
-  ) async {
-    try {
-      final rawTargets = await bridge.outputSinkListTargetsJson(
-        pluginId: route.pluginId,
-        typeId: route.typeId,
-        configJson: route.configJson,
-      );
-      final targets = SettingsValueUtils.parseOutputSinkTargetsJson(rawTargets);
-      if (targets.isEmpty) {
-        return _ResolvedPluginRoute(route: route, targets: targets);
-      }
-
-      final persistedTarget = route.targetJson.trim();
-      final targetValues = targets
-          .map(SettingsValueUtils.targetValueOf)
-          .toSet();
-      if (targetValues.contains(persistedTarget)) {
-        return _ResolvedPluginRoute(route: route, targets: targets);
-      }
-
-      return _ResolvedPluginRoute(
-        route: OutputSinkRoute(
-          pluginId: route.pluginId,
-          typeId: route.typeId,
-          configJson: route.configJson,
-          targetJson: SettingsValueUtils.targetValueOf(targets.first),
-        ),
-        targets: targets,
-      );
-    } catch (e, s) {
-      logger.w('failed to probe output sink targets', error: e, stackTrace: s);
-      return _ResolvedPluginRoute(route: route, targets: const []);
-    }
-  }
-
-  Future<void> _fallbackToLocal({required bool clearPersistedRoute}) async {
-    await bridge.clearOutputSinkRoute();
-    if (clearPersistedRoute) {
-      await settings.clearOutputSinkRoute();
-    }
-    _primeLocalSession();
-  }
-
-  Future<void> _refreshDevicesBestEffort() async {
-    try {
-      await bridge.refreshDevices();
-    } catch (e, s) {
-      logger.w('failed to refresh output devices', error: e, stackTrace: s);
-      // Non-fatal. Device probing is best-effort during bootstrap.
-    }
-  }
-
-  void _primeLocalSession() {
-    session.initialized = true;
-    session.selectedOutputBackendKey = SettingsValueUtils.localBackendKey(
-      persisted.selectedBackend,
-    );
-    session.selectedOutputSinkTypeKey = null;
-    session.outputSinkConfigJson = '{}';
-    session.outputSinkTargetJson = '{}';
-    session.outputSinkTargets = const [];
-    session.loadingOutputSinkTargets = false;
-    session.resampleQuality = persisted.resampleQuality;
-  }
-
-  void _primePluginSession(_ResolvedPluginRoute resolved) {
-    final route = resolved.route;
-    final typeKey = '${route.pluginId}::${route.typeId}';
-    session.initialized = true;
-    session.selectedOutputBackendKey = SettingsValueUtils.pluginBackendKey(
-      route.pluginId,
-      route.typeId,
-    );
-    session.selectedOutputSinkTypeKey = typeKey;
-    session.outputSinkConfigJson = route.configJson;
-    session.outputSinkTargetJson = route.targetJson;
-    session.outputSinkTargets = List<Object?>.from(resolved.targets);
-    session.loadingOutputSinkTargets = false;
-    session.outputSinkConfigDrafts[typeKey] = route.configJson;
-    session.resampleQuality = persisted.resampleQuality;
-  }
-}
-
 bool _isExitInProgress = false;
+_AppResources? _activeResources;
+WindowCloseHandler? _windowCloseHandler;
 
 Future<void> initializeDesktopWindowIfNeeded() async {
   if (!(Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
@@ -236,110 +59,132 @@ Future<void> initializeDesktopWindowIfNeeded() async {
     title: 'Stellatune',
     titleBarStyle: TitleBarStyle.hidden,
   );
-  await windowManager.waitUntilReadyToShow(windowOptions, () async {
-    await windowManager.show();
-    await windowManager.focus();
-  });
+  await windowManager.waitUntilReadyToShow(windowOptions);
+  await windowManager.show();
+  await windowManager.focus();
 
-  // Tray and Close behavior
-  await TrayService.instance.init();
-  await windowManager.setPreventClose(true);
+  // Closing while startup is incomplete must remain possible, even if Rust
+  // cannot load. The completed bootstrap installs the user's close preference.
+  final handler = WindowCloseHandler(
+    closeToTray: () => false,
+    trayAvailable: TrayService.instance.checkAvailability,
+    hideWindow: windowManager.hide,
+    exitApp: exitApplication,
+  );
+  _windowCloseHandler = handler;
+  windowManager.addListener(handler);
+  TrayService.instance.onExitRequested = exitApplication;
+  try {
+    await TrayService.instance.init();
+    await windowManager.setPreventClose(true);
+  } catch (_) {
+    // Keep the close listener for the failure screen, but release the icon.
+    await TrayService.instance.dispose();
+    rethrow;
+  }
 }
 
-class WindowCloseHandler extends WindowListener {
-  WindowCloseHandler(this.settings, this.bridge);
-  final SettingsStore settings;
-  final PlayerBridge bridge;
+Future<AppBootstrapResult> bootstrapApp({
+  AppBootstrapServices services = const AppBootstrapServices(),
+}) async {
+  final resources = _AppResources(services);
+  _activeResources = resources;
+  try {
+    await services.initializeRuntime();
+    resources.runtimeReady = true;
+    final bridge = await services.createPlayer();
+    resources.bridge = bridge;
+    resources.settingsStarted = true;
+    final settings = await services.openSettings();
+    bridge.bindDirectoryAccessStore(settings);
+    final paths = await _resolvePaths();
 
-  @override
-  void onWindowClose() async {
-    if (settings.readState().closeToTray) {
-      await windowManager.hide();
-    } else {
-      await _exitApp(bridge);
+    final library = await LibraryBridge.create(dbPath: paths.dbPath);
+    await DirectoryAccessService.instance.syncStoredDirectories(
+      paths: await library.listRoots(),
+      store: settings,
+    );
+    resources.hostApiStarted = true;
+    await player_api.hostApiStart(
+      dataRoot: p.join(p.dirname(paths.pluginDir), 'plugin-data'),
+    );
+    try {
+      await library.pluginApplyState();
+    } catch (e, s) {
+      logger.w(
+        'failed to apply plugin runtime state during bootstrap',
+        error: e,
+        stackTrace: s,
+      );
     }
+
+    await _applyPersistedOutputSettings(bridge: bridge, settings: settings);
+    await _setupLyricsCacheDb(bridge: bridge, lyricsDbPath: paths.lyricsDbPath);
+    try {
+      await player_api.playbackRestoreState();
+    } catch (e, s) {
+      logger.w(
+        'failed to restore playback after plugin initialization',
+        error: e,
+        stackTrace: s,
+      );
+    }
+
+    _windowCloseHandler?.closeToTray = () => settings.readState().closeToTray;
+
+    return AppBootstrapResult(
+      bridge: bridge,
+      library: library,
+      settings: settings,
+      coverDir: paths.coverDir,
+    );
+  } catch (_) {
+    await resources.dispose();
+    rethrow;
   }
 }
 
-Future<AppBootstrapResult> bootstrapApp() async {
-  await initRustRuntime();
-
-  final bridge = await PlayerBridge.create();
-  await SettingsStore.initHive();
-  final settings = SettingsStore();
-  bridge.bindDirectoryAccessStore(settings);
-  final paths = await _resolvePaths();
-
-  final library = await LibraryBridge.create(dbPath: paths.dbPath);
-  await DirectoryAccessService.instance.syncStoredDirectories(
-    paths: await library.listRoots(),
-    store: settings,
-  );
-  await player_api.hostApiStart(
-    dataRoot: p.join(p.dirname(paths.pluginDir), 'plugin-data'),
-  );
-  try {
-    await library.pluginApplyState();
-  } catch (e, s) {
-    logger.w(
-      'failed to apply plugin runtime state during bootstrap',
-      error: e,
-      stackTrace: s,
-    );
-  }
-
-  await _applyPersistedOutputSettings(bridge: bridge, settings: settings);
-  await _setupLyricsCacheDb(bridge: bridge, lyricsDbPath: paths.lyricsDbPath);
-  try {
-    await player_api.playbackRestoreState();
-  } catch (e, s) {
-    logger.w(
-      'failed to restore playback after plugin initialization',
-      error: e,
-      stackTrace: s,
-    );
-  }
-
-  if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
-    TrayService.instance.onExitRequested = () => _exitApp(bridge);
-    windowManager.addListener(WindowCloseHandler(settings, bridge));
-  }
-
-  return AppBootstrapResult(
-    bridge: bridge,
-    library: library,
-    settings: settings,
-    coverDir: paths.coverDir,
-  );
-}
-
-Future<void> _exitApp(PlayerBridge bridge) async {
+Future<void> exitApplication() async {
   if (_isExitInProgress) return;
   _isExitInProgress = true;
   try {
-    await bridge.dispose();
-  } catch (e, s) {
-    logger.w(
-      'failed to dispose player bridge before exit',
-      error: e,
-      stackTrace: s,
-    );
-  }
-  try {
-    await player_api.hostApiStop();
-  } catch (e, s) {
-    logger.w('failed to stop host API before exit', error: e, stackTrace: s);
-  }
-  try {
-    await runtime_api.shutdown();
-  } catch (e, s) {
-    logger.w(
-      'failed to request runtime shutdown before exit',
-      error: e,
-      stackTrace: s,
-    );
+    await _activeResources?.dispose();
+    await TrayService.instance.dispose();
   } finally {
     exit(0);
+  }
+}
+
+class _AppResources {
+  _AppResources(this.services);
+  final AppBootstrapServices services;
+  PlayerBridge? bridge;
+  bool runtimeReady = false;
+  bool settingsStarted = false;
+  bool hostApiStarted = false;
+  Future<void>? _disposal;
+
+  Future<void> dispose() => _disposal ??= _dispose();
+
+  Future<void> _dispose() async {
+    // Attempt every cleanup, retaining the original startup error if one fails.
+    final player = bridge;
+    if (player != null) await _cleanup('player bridge', player.dispose);
+    if (hostApiStarted) await _cleanup('host API', services.stopHostApi);
+    if (runtimeReady) await _cleanup('runtime', services.shutdownRuntime);
+    if (settingsStarted) await _cleanup('settings', services.closeSettings);
+    await TrayService.instance.dispose();
+  }
+
+  Future<void> _cleanup(
+    String resource,
+    Future<void> Function() release,
+  ) async {
+    try {
+      await release();
+    } catch (error, stack) {
+      logger.w('failed to close $resource', error: error, stackTrace: stack);
+    }
   }
 }
 
@@ -363,11 +208,7 @@ Future<void> _applyPersistedOutputSettings({
 }) async {
   // Best-effort: don't block startup on restore failures.
   try {
-    final restorer = _PersistedOutputSettingsRestorer(
-      bridge: bridge,
-      settings: settings,
-    );
-    await restorer.restore();
+    await restorePersistedOutputSettings(bridge: bridge, settings: settings);
   } catch (e, s) {
     logger.e(
       'failed to apply persisted output settings',

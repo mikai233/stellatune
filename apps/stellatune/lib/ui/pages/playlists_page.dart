@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:stellatune/app/logging.dart';
 import 'package:stellatune/app/providers.dart';
 import 'package:stellatune/bridge/bridge.dart';
 import 'package:stellatune/library/library_controller.dart';
@@ -13,8 +12,7 @@ import 'package:stellatune/player/playability_messages.dart';
 import 'package:stellatune/player/queue_controller.dart';
 import 'package:stellatune/player/queue_models.dart';
 import 'package:stellatune/player/track_playability_utils.dart';
-import 'package:stellatune/ui/pages/playlists/logic/playlists_plugin_bridge_service.dart';
-import 'package:stellatune/ui/pages/playlists/models/playlists_data_models.dart';
+import 'package:stellatune/ui/pages/playlists/logic/plugin_playlists_controller.dart';
 import 'package:stellatune/ui/pages/playlists/widgets/playlists_page_header.dart';
 import 'package:stellatune/ui/pages/playlists/widgets/playlist_track_panes.dart';
 import 'package:stellatune/ui/pages/playlists/widgets/playlists_sidebar_widgets.dart';
@@ -29,30 +27,12 @@ class PlaylistsPage extends ConsumerStatefulWidget {
 }
 
 class PlaylistsPageState extends ConsumerState<PlaylistsPage> {
-  static const int _pluginPlaylistPageSize = 500;
-  static const int _pluginPlaylistEagerLoadThreshold = 10000;
-
   final _librarySearchController = TextEditingController();
   final _pluginSearchController = TextEditingController();
   bool _playlistsPanelOpen = false;
   bool _autoSelecting = false;
   final TrackPlayabilityProbe _playabilityProbe = TrackPlayabilityProbe();
   Map<int, String> _blockedReasonByTrackId = const <int, String>{};
-  List<PluginPlaylistEntry> _pluginPlaylists = const <PluginPlaylistEntry>[];
-  String? _selectedPluginPlaylistKey;
-  List<QueueItem> _pluginPlaylistTracks = const <QueueItem>[];
-  bool _loadingPluginPlaylists = false;
-  bool _loadingPluginPlaylistTracks = false;
-  bool _loadingPluginPlaylistMore = false;
-  int _pluginPlaylistNextOffset = 0;
-  bool _pluginPlaylistHasMore = false;
-  int _pluginTrackLoadSeq = 0;
-  String? _pluginPlaylistError;
-  final PlaylistsPluginBridgeService _pluginBridgeService =
-      const PlaylistsPluginBridgeService();
-  final Map<String, SparseTrackCacheEntry<QueueItem>>
-  _pluginPlaylistTracksCache = <String, SparseTrackCacheEntry<QueueItem>>{};
-
   bool get isPlaylistsPanelOpen => _playlistsPanelOpen;
 
   void togglePlaylistsPanel() {
@@ -65,7 +45,12 @@ class PlaylistsPageState extends ConsumerState<PlaylistsPage> {
   void initState() {
     super.initState();
     unawaited(_refreshDecoderExtensionSupport());
-    unawaited(_refreshPluginPlaylists());
+    unawaited(
+      Future<void>.microtask(() async {
+        if (!mounted) return;
+        await ref.read(pluginPlaylistsControllerProvider.notifier).refresh();
+      }),
+    );
   }
 
   @override
@@ -159,19 +144,9 @@ class PlaylistsPageState extends ConsumerState<PlaylistsPage> {
       libraryControllerProvider.select((s) => s.query),
     );
     _syncSearchController(_librarySearchController, libraryQuery);
-    final results = ref.watch(
+    final localTracks = ref.watch(
       libraryControllerProvider.select((s) => s.results),
     );
-    // TODO(local-sparse): Keep local list in-memory for now.
-    // Switch to true sparse range loading after library events/bridge
-    // provide stable offset-based incremental fetch semantics.
-    final localSparseSource = InMemorySparseTrackSource<TrackLite>(
-      cacheKey: 'local::$selectedPlaylistId',
-      items: results,
-      pageSize: _pluginPlaylistPageSize,
-      eagerLoadThreshold: _pluginPlaylistEagerLoadThreshold,
-    );
-    final localTracks = localSparseSource.items;
     unawaited(_refreshTrackPlayability(localTracks));
     final likedTrackIds = ref.watch(
       libraryControllerProvider.select((s) => s.likedTrackIds),
@@ -179,7 +154,12 @@ class PlaylistsPageState extends ConsumerState<PlaylistsPage> {
     final queueSourceSnapshot = ref.watch(
       queueControllerProvider.select((s) => s.sourceLabel),
     );
-    final selectedPluginPlaylist = _selectedPluginPlaylist();
+    final pluginState = ref.watch(pluginPlaylistsControllerProvider);
+    final pluginController = ref.read(
+      pluginPlaylistsControllerProvider.notifier,
+    );
+    final pluginSelection = pluginState.selection;
+    final selectedPluginPlaylist = pluginSelection?.entry;
     if (selectedPluginPlaylist == null) {
       _ensurePlaylistSelected(playlists, selectedPlaylistId);
     }
@@ -203,9 +183,9 @@ class PlaylistsPageState extends ConsumerState<PlaylistsPage> {
         ? l10n.queueSourceUnset
         : queueSourceSnapshot!.trim();
     final pluginFilterActive = _pluginSearchController.text.trim().isNotEmpty;
-    final pluginVisibleTracks = _filteredPluginTracks(
-      _pluginSearchController.text,
-    );
+    final pluginVisibleTracks =
+        pluginSelection?.filter(_pluginSearchController.text) ??
+        const <QueueItem>[];
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -312,19 +292,26 @@ class PlaylistsPageState extends ConsumerState<PlaylistsPage> {
                           onViewportRangeChanged: _onViewportRangeChanged,
                         )
                       : PluginPlaylistTracksPane(
+                          key: ValueKey(selectedPluginPlaylist.key),
                           searchController: _pluginSearchController,
                           queueSourceLabel: queueSourceLabel,
                           selectedLabel:
                               '${selectedPluginPlaylist.sourceLabel} - ${selectedPluginPlaylist.title}',
                           sourceLabel: selectedPluginPlaylist.sourceLabel,
                           tracks: pluginVisibleTracks,
-                          loading: _loadingPluginPlaylistTracks,
-                          loadingMore: _loadingPluginPlaylistMore,
-                          hasMore: _pluginPlaylistHasMore,
+                          loading: pluginSelection!.loading,
+                          loadingMore: pluginSelection.loadingMore,
+                          hasMore: pluginSelection.hasMore,
                           filterActive: pluginFilterActive,
-                          error: _pluginPlaylistError,
+                          error: pluginSelection.error,
                           onSearchChanged: (_) => _updateUi(() {}),
-                          onLoadMore: _loadMorePluginPlaylistTracks,
+                          onLoadMore: pluginController.loadMore,
+                          onRetry: () => pluginSelection.tracks.isEmpty
+                              ? pluginController.select(
+                                  selectedPluginPlaylist,
+                                  reload: true,
+                                )
+                              : pluginController.loadMore(),
                           onActivate: (index, items) async {
                             final source = QueueSource(
                               type: QueueSourceType.all,
@@ -366,23 +353,15 @@ class PlaylistsPageState extends ConsumerState<PlaylistsPage> {
                       child: PlaylistsDrawerPanel(
                         playlists: playlists,
                         selectedPlaylistId: selectedPlaylistId,
-                        pluginPlaylists: _pluginPlaylists,
-                        selectedPluginPlaylistKey: _selectedPluginPlaylistKey,
+                        pluginPlaylists: pluginState.entries,
+                        selectedPluginPlaylistKey: selectedPluginPlaylist?.key,
                         onSelect: (id) {
-                          if (_selectedPluginPlaylistKey != null) {
-                            _updateUi(() {
-                              _selectedPluginPlaylistKey = null;
-                              _pluginPlaylistTracks = const <QueueItem>[];
-                              _pluginPlaylistError = null;
-                            });
-                          }
+                          pluginController.clearSelection();
                           ref
                               .read(libraryControllerProvider.notifier)
                               .selectPlaylist(id);
                         },
-                        onSelectPlugin: (entry) async {
-                          await _selectPluginPlaylist(entry);
-                        },
+                        onSelectPlugin: pluginController.select,
                         onRename: (id, currentName) async {
                           final nextName = await _promptPlaylistName(
                             context,
@@ -405,9 +384,9 @@ class PlaylistsPageState extends ConsumerState<PlaylistsPage> {
                               .deletePlaylist(id);
                         },
                         onCreate: () => _createPlaylist(context),
-                        onRefreshPlugins: _refreshPluginPlaylists,
-                        pluginLoading: _loadingPluginPlaylists,
-                        pluginError: _pluginPlaylistError,
+                        onRefreshPlugins: pluginController.refresh,
+                        pluginLoading: pluginState.refreshing,
+                        pluginError: pluginState.listError,
                         onClose: () =>
                             _updateUi(() => _playlistsPanelOpen = false),
                         coverDir: coverDir,
@@ -445,9 +424,7 @@ class PlaylistsPageState extends ConsumerState<PlaylistsPage> {
       },
     );
   }
-}
 
-extension _PlaylistsDialogLogic on PlaylistsPageState {
   void _ensurePlaylistSelected(List<PlaylistLite> playlists, int? selectedId) {
     if (_autoSelecting || selectedId != null || playlists.isEmpty) return;
     _autoSelecting = true;
@@ -558,434 +535,5 @@ extension _PlaylistsDialogLogic on PlaylistsPageState {
       return l10n.likedPlaylistName;
     }
     return playlist.name;
-  }
-}
-
-extension _PlaylistsPluginLogic on PlaylistsPageState {
-  Future<void> _refreshPluginPlaylists() async {
-    if (_loadingPluginPlaylists) return;
-    _updateUi(() {
-      _loadingPluginPlaylists = true;
-      _pluginPlaylistError = null;
-    });
-    try {
-      final result = await _pluginBridgeService.fetchPlaylists(
-        bridge: ref.read(playerBridgeProvider),
-      );
-      final merged = result.entries;
-      final validKeys = merged.map((entry) => entry.key).toSet();
-      _pluginPlaylistTracksCache.removeWhere(
-        (key, _) => !validKeys.contains(key),
-      );
-
-      if (!mounted) return;
-      _updateUi(() {
-        _pluginPlaylists = merged;
-        _pluginPlaylistError = result.aggregatedError;
-        if (_selectedPluginPlaylistKey != null &&
-            !_pluginPlaylists.any((e) => e.key == _selectedPluginPlaylistKey)) {
-          _selectedPluginPlaylistKey = null;
-          _pluginPlaylistTracks = const <QueueItem>[];
-        }
-      });
-    } catch (e) {
-      if (!mounted) return;
-      _updateUi(() => _pluginPlaylistError = e.toString());
-    } finally {
-      if (mounted) {
-        _updateUi(() => _loadingPluginPlaylists = false);
-      }
-    }
-  }
-
-  PluginPlaylistEntry? _selectedPluginPlaylist() {
-    final key = _selectedPluginPlaylistKey;
-    if (key == null || key.isEmpty) return null;
-    for (final item in _pluginPlaylists) {
-      if (item.key == key) return item;
-    }
-    return null;
-  }
-
-  PluginSparseTrackSource _pluginTrackSourceFor(PluginPlaylistEntry entry) {
-    return PluginSparseTrackSource(
-      entry: entry,
-      pageSize: PlaylistsPageState._pluginPlaylistPageSize,
-      eagerLoadThreshold: PlaylistsPageState._pluginPlaylistEagerLoadThreshold,
-      fetcher: ({required int offset, int? limit}) =>
-          _pluginBridgeService.fetchTrackPage(
-            bridge: ref.read(playerBridgeProvider),
-            entry: entry,
-            pageSize: PlaylistsPageState._pluginPlaylistPageSize,
-            offset: offset,
-            limit: limit,
-          ),
-    );
-  }
-
-  bool _canContinueEagerLoad(
-    SparseTrackSource<QueueItem> source,
-    int fetchedRows,
-  ) {
-    if (!source.eagerPreferred) return false;
-    return fetchedRows < source.eagerLoadThreshold;
-  }
-
-  void _cachePluginPlaylistTracks(
-    SparseTrackSource<QueueItem> source, {
-    required PluginPlaylistEntry entry,
-    required List<QueueItem> items,
-    required int nextOffset,
-    required bool hasMore,
-  }) {
-    _pluginPlaylistTracksCache[source.cacheKey] =
-        SparseTrackCacheEntry<QueueItem>(
-          items: List<QueueItem>.unmodifiable(items),
-          nextOffset: nextOffset,
-          hasMore: hasMore,
-          pageSize: PlaylistsPageState._pluginPlaylistPageSize,
-          knownTotalCount: source.knownTotalCount,
-        );
-  }
-
-  bool _restorePluginPlaylistTracksFromCache(
-    SparseTrackSource<QueueItem> source, {
-    required PluginPlaylistEntry entry,
-  }) {
-    final cached = _pluginPlaylistTracksCache[source.cacheKey];
-    if (cached == null) return false;
-    if (cached.pageSize != source.pageSize) {
-      _pluginPlaylistTracksCache.remove(source.cacheKey);
-      logger.d(
-        'plugin playlist tracks: cache_invalidate page_size plugin=${entry.pluginId} type=${entry.typeId} playlist=${entry.playlistId} cached_page_size=${cached.pageSize} expected=${source.pageSize}',
-      );
-      return false;
-    }
-    if (cached.knownTotalCount != null &&
-        source.knownTotalCount != null &&
-        cached.knownTotalCount != source.knownTotalCount) {
-      _pluginPlaylistTracksCache.remove(source.cacheKey);
-      logger.d(
-        'plugin playlist tracks: cache_invalidate track_count plugin=${entry.pluginId} type=${entry.typeId} playlist=${entry.playlistId} cached_track_count=${cached.knownTotalCount} latest_track_count=${source.knownTotalCount}',
-      );
-      return false;
-    }
-    _updateUi(() {
-      _pluginPlaylistError = null;
-      _loadingPluginPlaylistTracks = false;
-      _loadingPluginPlaylistMore = false;
-      _pluginPlaylistTracks = cached.items;
-      _pluginPlaylistNextOffset = cached.nextOffset;
-      _pluginPlaylistHasMore = cached.hasMore;
-    });
-    logger.d(
-      'plugin playlist tracks: cache_hit plugin=${entry.pluginId} type=${entry.typeId} playlist=${entry.playlistId} tracks=${cached.items.length} offset=${cached.nextOffset} has_more=${cached.hasMore}',
-    );
-    unawaited(
-      _revalidatePluginPlaylistCache(source, entry: entry, cached: cached),
-    );
-    return true;
-  }
-
-  Future<void> _revalidatePluginPlaylistCache(
-    SparseTrackSource<QueueItem> source, {
-    required PluginPlaylistEntry entry,
-    required SparseTrackCacheEntry<QueueItem> cached,
-  }) async {
-    if (cached.hasMore) return;
-    final selectedKeyAtStart = _selectedPluginPlaylistKey;
-    if (selectedKeyAtStart != entry.key) return;
-    final loadSeq = _pluginTrackLoadSeq;
-    try {
-      final head = await source.fetchPage(offset: 0, limit: 1);
-      final tail = await source.fetchPage(offset: cached.nextOffset, limit: 1);
-      if (!mounted ||
-          _selectedPluginPlaylistKey != entry.key ||
-          loadSeq != _pluginTrackLoadSeq) {
-        return;
-      }
-
-      var stale = false;
-      var reason = '';
-      if (cached.items.isEmpty && head.items.isNotEmpty) {
-        stale = true;
-        reason = 'empty_cache_but_remote_has_items';
-      } else if (cached.items.isNotEmpty && head.items.isNotEmpty) {
-        if (cached.items.first.stableTrackKey !=
-            head.items.first.stableTrackKey) {
-          stale = true;
-          reason = 'first_track_changed';
-        }
-      }
-      if (!stale && tail.fetchedCount > 0) {
-        stale = true;
-        reason = 'tail_has_new_items';
-      }
-      if (!stale) return;
-
-      logger.d(
-        'plugin playlist tracks: cache_stale plugin=${entry.pluginId} type=${entry.typeId} playlist=${entry.playlistId} reason=$reason cached_tracks=${cached.items.length} cached_offset=${cached.nextOffset}',
-      );
-      _pluginPlaylistTracksCache.remove(source.cacheKey);
-      if (!mounted ||
-          _selectedPluginPlaylistKey != entry.key ||
-          loadSeq != _pluginTrackLoadSeq) {
-        return;
-      }
-      await _loadPluginPlaylistTracks(entry);
-    } catch (e, s) {
-      logger.d(
-        'plugin playlist tracks: cache_revalidate_skipped plugin=${entry.pluginId} type=${entry.typeId} playlist=${entry.playlistId} reason=$e',
-        error: e,
-        stackTrace: s,
-      );
-    }
-  }
-
-  Future<void> _selectPluginPlaylist(PluginPlaylistEntry entry) async {
-    if (_selectedPluginPlaylistKey == entry.key) return;
-    _updateUi(() {
-      _selectedPluginPlaylistKey = entry.key;
-      _pluginPlaylistTracks = const <QueueItem>[];
-      _pluginPlaylistError = null;
-      _pluginPlaylistNextOffset = 0;
-      _pluginPlaylistHasMore = false;
-      _loadingPluginPlaylistMore = false;
-    });
-    await _loadPluginPlaylistTracks(entry);
-  }
-
-  Future<void> _loadPluginPlaylistTracks(PluginPlaylistEntry entry) async {
-    if (_loadingPluginPlaylistTracks) return;
-    final loadSeq = ++_pluginTrackLoadSeq;
-    final source = _pluginTrackSourceFor(entry);
-    if (_restorePluginPlaylistTracksFromCache(source, entry: entry)) {
-      return;
-    }
-    _updateUi(() {
-      _loadingPluginPlaylistTracks = true;
-      _loadingPluginPlaylistMore = false;
-      _pluginPlaylistError = null;
-      _pluginPlaylistTracks = const <QueueItem>[];
-      _pluginPlaylistNextOffset = 0;
-      _pluginPlaylistHasMore = false;
-    });
-    try {
-      final preferEager = source.eagerPreferred;
-      final merged = <QueueItem>[];
-      final seen = <String>{};
-      var offset = 0;
-      var hasMore = false;
-      logger.d(
-        'plugin playlist tracks: request plugin=${entry.pluginId} type=${entry.typeId} playlist=${entry.playlistId} track_count=${entry.trackCount} eager=$preferEager',
-      );
-
-      final firstPage = await source.fetchPage(offset: offset);
-      if (!mounted) return;
-      if (_selectedPluginPlaylistKey != entry.key ||
-          loadSeq != _pluginTrackLoadSeq) {
-        return;
-      }
-      _appendUniqueQueueItems(merged, firstPage.items, seenKeys: seen);
-      offset += firstPage.fetchedCount;
-      hasMore = firstPage.hasMore;
-      final continueEager =
-          hasMore &&
-          firstPage.fetchedCount > 0 &&
-          _canContinueEagerLoad(source, offset);
-      logger.d(
-        'plugin playlist tracks: first_page_loaded plugin=${entry.pluginId} type=${entry.typeId} playlist=${entry.playlistId} fetched=${firstPage.fetchedCount} merged=${merged.length} next_offset=$offset has_more=$hasMore continue_eager=$continueEager',
-      );
-      _updateUi(() {
-        _pluginPlaylistTracks = merged;
-        _pluginPlaylistNextOffset = offset;
-        _pluginPlaylistHasMore = hasMore;
-        _loadingPluginPlaylistTracks = false;
-        _loadingPluginPlaylistMore = continueEager;
-      });
-      _cachePluginPlaylistTracks(
-        source,
-        entry: entry,
-        items: merged,
-        nextOffset: offset,
-        hasMore: hasMore,
-      );
-
-      if (!continueEager) {
-        if (hasMore) {
-          logger.d(
-            'plugin playlist tracks: switch_to_paged plugin=${entry.pluginId} type=${entry.typeId} playlist=${entry.playlistId} loaded=${merged.length} next_offset=$offset threshold=${PlaylistsPageState._pluginPlaylistEagerLoadThreshold}',
-          );
-        } else {
-          logger.d(
-            'plugin playlist tracks: eager_load_done plugin=${entry.pluginId} type=${entry.typeId} playlist=${entry.playlistId} loaded=${merged.length}',
-          );
-        }
-        return;
-      }
-
-      var page = 1;
-      while (true) {
-        final pageResult = await source.fetchPage(offset: offset);
-        if (!mounted) return;
-        if (_selectedPluginPlaylistKey != entry.key ||
-            loadSeq != _pluginTrackLoadSeq) {
-          return;
-        }
-        _appendUniqueQueueItems(merged, pageResult.items, seenKeys: seen);
-        offset += pageResult.fetchedCount;
-        hasMore = pageResult.hasMore;
-        page += 1;
-
-        logger.d(
-          'plugin playlist tracks: eager_page_loaded plugin=${entry.pluginId} type=${entry.typeId} playlist=${entry.playlistId} page=$page fetched=${pageResult.fetchedCount} merged=${merged.length} next_offset=$offset has_more=$hasMore',
-        );
-
-        final keepEager =
-            hasMore &&
-            pageResult.fetchedCount > 0 &&
-            _canContinueEagerLoad(source, offset);
-        _updateUi(() {
-          _pluginPlaylistTracks = List<QueueItem>.from(merged);
-          _pluginPlaylistNextOffset = offset;
-          _pluginPlaylistHasMore = hasMore;
-          _loadingPluginPlaylistMore = keepEager;
-        });
-        _cachePluginPlaylistTracks(
-          source,
-          entry: entry,
-          items: merged,
-          nextOffset: offset,
-          hasMore: hasMore,
-        );
-        if (!keepEager) break;
-      }
-
-      if (!mounted) return;
-      if (_selectedPluginPlaylistKey != entry.key ||
-          loadSeq != _pluginTrackLoadSeq) {
-        return;
-      }
-      if (hasMore) {
-        logger.d(
-          'plugin playlist tracks: switch_to_paged plugin=${entry.pluginId} type=${entry.typeId} playlist=${entry.playlistId} loaded=${merged.length} next_offset=$offset threshold=${PlaylistsPageState._pluginPlaylistEagerLoadThreshold}',
-        );
-      } else {
-        logger.d(
-          'plugin playlist tracks: eager_load_done plugin=${entry.pluginId} type=${entry.typeId} playlist=${entry.playlistId} loaded=${merged.length}',
-        );
-      }
-    } catch (e, s) {
-      logger.w(
-        'plugin playlist tracks failed plugin=${entry.pluginId} type=${entry.typeId} playlist=${entry.playlistId}',
-        error: e,
-        stackTrace: s,
-      );
-      if (!mounted ||
-          _selectedPluginPlaylistKey != entry.key ||
-          loadSeq != _pluginTrackLoadSeq) {
-        return;
-      }
-      _updateUi(() => _pluginPlaylistError = e.toString());
-    } finally {
-      if (mounted &&
-          _selectedPluginPlaylistKey == entry.key &&
-          loadSeq == _pluginTrackLoadSeq) {
-        _updateUi(() {
-          _loadingPluginPlaylistTracks = false;
-          _loadingPluginPlaylistMore = false;
-        });
-      }
-    }
-  }
-
-  Future<void> _loadMorePluginPlaylistTracks() async {
-    final entry = _selectedPluginPlaylist();
-    if (entry == null) return;
-    if (_loadingPluginPlaylistTracks ||
-        _loadingPluginPlaylistMore ||
-        !_pluginPlaylistHasMore) {
-      return;
-    }
-
-    final loadSeq = _pluginTrackLoadSeq;
-    final offset = _pluginPlaylistNextOffset;
-    final source = _pluginTrackSourceFor(entry);
-    _updateUi(() => _loadingPluginPlaylistMore = true);
-    try {
-      final pageResult = await source.fetchPage(offset: offset);
-      final fetchedCount = pageResult.fetchedCount;
-      final hasMore = pageResult.hasMore;
-      if (!mounted) return;
-      if (_selectedPluginPlaylistKey != entry.key ||
-          loadSeq != _pluginTrackLoadSeq) {
-        return;
-      }
-
-      logger.d(
-        'plugin playlist tracks: load_more plugin=${entry.pluginId} type=${entry.typeId} playlist=${entry.playlistId} offset=$offset merged_add=${pageResult.items.length} fetched=$fetchedCount has_more=$hasMore',
-      );
-      late final List<QueueItem> merged;
-      late final int nextOffset;
-      _updateUi(() {
-        final seen = <String>{
-          for (final t in _pluginPlaylistTracks) t.stableTrackKey,
-        };
-        merged = List<QueueItem>.from(_pluginPlaylistTracks);
-        _appendUniqueQueueItems(merged, pageResult.items, seenKeys: seen);
-        _pluginPlaylistTracks = merged;
-        nextOffset = offset + fetchedCount;
-        _pluginPlaylistNextOffset = nextOffset;
-        _pluginPlaylistHasMore = hasMore;
-      });
-      _cachePluginPlaylistTracks(
-        source,
-        entry: entry,
-        items: merged,
-        nextOffset: nextOffset,
-        hasMore: hasMore,
-      );
-    } catch (e, s) {
-      logger.w(
-        'plugin playlist tracks load more failed plugin=${entry.pluginId} type=${entry.typeId} playlist=${entry.playlistId}',
-        error: e,
-        stackTrace: s,
-      );
-      if (!mounted ||
-          _selectedPluginPlaylistKey != entry.key ||
-          loadSeq != _pluginTrackLoadSeq) {
-        return;
-      }
-      _updateUi(() => _pluginPlaylistError = e.toString());
-    } finally {
-      if (mounted &&
-          _selectedPluginPlaylistKey == entry.key &&
-          loadSeq == _pluginTrackLoadSeq) {
-        _updateUi(() => _loadingPluginPlaylistMore = false);
-      }
-    }
-  }
-
-  List<QueueItem> _filteredPluginTracks(String query) {
-    final q = query.trim().toLowerCase();
-    if (q.isEmpty) return _pluginPlaylistTracks;
-    return _pluginPlaylistTracks.where((item) {
-      final title = (item.title ?? '').toLowerCase();
-      final artist = (item.artist ?? '').toLowerCase();
-      final album = (item.album ?? '').toLowerCase();
-      return title.contains(q) || artist.contains(q) || album.contains(q);
-    }).toList();
-  }
-
-  void _appendUniqueQueueItems(
-    List<QueueItem> target,
-    Iterable<QueueItem> incoming, {
-    required Set<String> seenKeys,
-  }) {
-    for (final item in incoming) {
-      if (seenKeys.add(item.stableTrackKey)) {
-        target.add(item);
-      }
-    }
   }
 }

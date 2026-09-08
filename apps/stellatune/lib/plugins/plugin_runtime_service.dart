@@ -5,10 +5,10 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:stellatune/app/logging.dart';
 import 'package:stellatune/bridge/bridge.dart';
-import 'package:stellatune/ui/pages/settings/models/installed_plugin.dart';
+import 'package:stellatune/plugins/installed_plugin.dart';
 
-class SettingsPluginRuntimeService {
-  const SettingsPluginRuntimeService({
+class PluginRuntimeService {
+  const PluginRuntimeService({
     this.bridgeQueryTimeout = const Duration(seconds: 8),
   });
 

@@ -71,6 +71,8 @@ pub struct AsioSinkFactory {
     device_id: String,
     config: AsioConfig,
     format: PcmFormat,
+    supported_sample_rates: Vec<u32>,
+    match_track_sample_rate: bool,
     revision: u64,
     valid: Arc<AtomicBool>,
     // Opening a replacement releases the previous driver instance first.
@@ -125,6 +127,8 @@ impl AsioSinkFactory {
                 sample_rate,
                 channel_layout,
             },
+            supported_sample_rates: caps.supported_sample_rates,
+            match_track_sample_rate: false,
             revision,
             valid: Arc::new(AtomicBool::new(true)),
             connection: Arc::new(Mutex::new(Weak::new())),
@@ -132,6 +136,17 @@ impl AsioSinkFactory {
     }
     pub fn format(&self) -> PcmFormat {
         self.format
+    }
+    /// Explicit plugin sample_rate takes precedence over the application option.
+    /// Unsupported track rates fall back to the negotiated driver default.
+    pub fn with_match_track_sample_rate(&self, enabled: bool) -> Self {
+        let mut factory = self.clone();
+        factory.match_track_sample_rate = enabled;
+        factory
+    }
+    fn supports_format(&self, format: PcmFormat) -> bool {
+        format.channel_layout == self.format.channel_layout
+            && self.supported_sample_rates.contains(&format.sample_rate)
     }
     /// Called before uninstall/update. Also invalidates any already prepared sink.
     pub fn revoke(&self) {
@@ -169,8 +184,19 @@ impl SinkFactory for AsioSinkFactory {
     fn id(&self) -> &StageId {
         &self.id
     }
-    fn preferred_format(&self, _input: PcmFormat) -> Result<PcmFormat, FactoryError> {
-        Ok(self.format)
+    fn preferred_format(&self, input: PcmFormat) -> Result<PcmFormat, FactoryError> {
+        let sample_rate = if self.match_track_sample_rate
+            && self.config.sample_rate.is_none()
+            && self.supported_sample_rates.contains(&input.sample_rate)
+        {
+            input.sample_rate
+        } else {
+            self.format.sample_rate
+        };
+        Ok(PcmFormat {
+            sample_rate,
+            ..self.format
+        })
     }
     fn compatibility_key(&self, format: PcmFormat) -> Result<OutputCompatibilityKey, FactoryError> {
         Ok(OutputCompatibilityKey {

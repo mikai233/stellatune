@@ -3,6 +3,8 @@ use std::io::Read;
 mod host_api_tests;
 #[path = "local_plugin_tests.rs"]
 mod local_plugin_tests;
+#[path = "metadata_tests.rs"]
+mod metadata_tests;
 #[path = "streaming_playback_tests.rs"]
 mod streaming_playback_tests;
 use std::path::PathBuf;

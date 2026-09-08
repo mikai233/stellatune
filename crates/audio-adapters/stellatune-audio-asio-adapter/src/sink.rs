@@ -23,6 +23,7 @@ pub(crate) struct AsioSink {
     accepted: u64,
     base: u64,
     epoch: u64,
+    format: Option<PcmFormat>,
 }
 impl AsioSink {
     pub fn new(route: Arc<AsioSinkFactory>) -> Self {
@@ -36,6 +37,7 @@ impl AsioSink {
             accepted: 0,
             base: 0,
             epoch: 0,
+            format: None,
         }
     }
     fn connection(&self) -> Result<&Connection, SinkError> {
@@ -53,7 +55,7 @@ impl SinkStage for AsioSink {
     }
     fn open(&mut self, format: PcmFormat) -> Result<(), SinkError> {
         self.close();
-        if format != self.route.format {
+        if !self.route.supports_format(format) {
             return Err(SinkError::Unsupported);
         }
         self.capacity_frames = frames_for_ms(format, self.buffering.device_ms)
@@ -103,11 +105,12 @@ impl SinkStage for AsioSink {
         self.accepted = 0;
         self.base = 0;
         self.epoch = self.epoch.wrapping_add(1);
+        self.format = Some(format);
         Ok(())
     }
     fn write(&mut self, block: &AudioBlock) -> Result<SinkWriteResult, SinkError> {
         self.connection()?.check().map_err(failed)?;
-        if block.format != self.route.format {
+        if Some(block.format) != self.format {
             return Err(SinkError::Unsupported);
         }
         block.validate().map_err(|e| failed(e.to_string()))?;
@@ -172,6 +175,7 @@ impl SinkStage for AsioSink {
         Ok(())
     }
     fn close(&mut self) {
+        self.format = None;
         if let Some(connection) = self.connection.take() {
             connection.close();
         }

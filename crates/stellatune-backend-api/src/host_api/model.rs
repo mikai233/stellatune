@@ -31,6 +31,7 @@ pub struct ProviderTrack {
     pub capability_id: String,
     pub provider_id: String,
     pub provider_key: String,
+    pub metadata: Option<crate::player_service::metadata::TrackPresentation>,
 }
 
 #[derive(Debug, Deserialize)]

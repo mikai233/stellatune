@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-/// Shared visual tokens. Desktop presets supply literal colors; playback details
-/// derive a restrained palette from artwork with [ArtworkPalette.fromSeed].
+/// Desktop theme tokens. Presets supply literal colors; [ArtworkPalette.fromSeed]
+/// provides the neutral fallback. Playback details use DetailArtworkPalette.
 class ArtworkPalette extends ThemeExtension<ArtworkPalette> {
   const ArtworkPalette({
     required this.top,

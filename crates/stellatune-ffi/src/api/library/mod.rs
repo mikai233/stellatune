@@ -45,8 +45,19 @@ pub async fn create_library(db_path: String) -> Result<()> {
     }
 
     let service = Arc::new(LibraryService::new(db_path.clone()).await?);
-    let catalog = PlayerCatalog::open(&db_path).await?;
-    catalog.ensure_local_source().await?;
+    let catalog_result = async {
+        let catalog = PlayerCatalog::open(&db_path).await?;
+        catalog.ensure_local_source().await?;
+        Ok::<_, anyhow::Error>(catalog)
+    }
+    .await;
+    let catalog = match catalog_result {
+        Ok(catalog) => catalog,
+        Err(error) => {
+            let _ = service.handle().shutdown().await;
+            return Err(error);
+        },
+    };
     let player_service = Arc::new(PlayerService::new(
         catalog,
         stellatune_backend_api::runtime::shared_playback_controller(),
@@ -59,6 +70,17 @@ pub async fn create_library(db_path: String) -> Result<()> {
     let _ = PLAYER_SERVICE.set(player_service);
     let _ = LIBRARY_SERVICE.set(service);
     Ok(())
+}
+
+pub(crate) async fn shutdown_library() {
+    if let Some(service) = LIBRARY_SERVICE.get()
+        && let Err(error) = service.handle().shutdown().await
+    {
+        tracing::warn!(%error, "library shutdown failed");
+    }
+    if let Some(service) = PLAYER_SERVICE.get() {
+        service.close_catalog().await;
+    }
 }
 
 pub async fn library_add_root(path: String) -> Result<()> {

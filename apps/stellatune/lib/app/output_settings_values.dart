@@ -3,16 +3,13 @@ import 'dart:convert';
 
 import 'package:stellatune/bridge/bridge.dart';
 
-class SettingsValueUtils {
+class OutputSettingsValues {
   static bool get supportsWasapiExclusive => Platform.isWindows;
 
   static List<AudioBackend> availableLocalBackends() => [
     AudioBackend.shared,
     if (supportsWasapiExclusive) AudioBackend.wasapiExclusive,
   ];
-
-  static String sourceTypeKey(SourceCatalogTypeDescriptor t) =>
-      '${t.pluginId}::${t.typeId}';
 
   static String outputSinkTypeKey(OutputSinkTypeDescriptor t) =>
       '${t.pluginId}::${t.typeId}';
@@ -45,29 +42,16 @@ class SettingsValueUtils {
       target is String ? target : jsonEncode(target);
 
   static List<Object?> parseOutputSinkTargetsJson(String raw) {
-    dynamic decoded;
-    try {
-      decoded = jsonDecode(raw);
-    } catch (_) {
-      return const [];
-    }
+    final decoded = jsonDecode(raw);
     if (decoded is List) {
       return decoded.cast<Object?>();
     }
-    if (decoded is Map) {
-      for (final key in ['targets', 'items', 'list', 'data', 'results']) {
-        final value = decoded[key];
-        if (value is List) {
-          return value.cast<Object?>();
-        }
-      }
-    }
-    return const [];
+    throw const FormatException('Output targets must be a JSON array');
   }
 
   static String targetLabelOf(Object? target) {
-    if (target is Map) {
-      final map = target.cast<Object?, Object?>();
+    final map = _targetAsMap(target);
+    if (map != null) {
       final name = (map['name'] ?? '').toString().trim();
       if (name.isNotEmpty) return name;
       final id = (map['id'] ?? '').toString().trim();
@@ -75,21 +59,6 @@ class SettingsValueUtils {
     }
     final text = targetValueOf(target);
     return text.length <= 96 ? text : '${text.substring(0, 93)}...';
-  }
-
-  static String targetDebugSummary(Object? target) {
-    final map = _targetAsMap(target);
-    if (map != null) {
-      return 'id=${map['id']} session=${map['selection_session_id']} name=${map['name']}';
-    }
-    final raw = (target ?? '')
-        .toString()
-        .replaceAll(RegExp(r'\s+'), ' ')
-        .trim();
-    if (raw.length <= 180) {
-      return raw;
-    }
-    return '${raw.substring(0, 180)}...';
   }
 
   static bool jsonTextsEquivalent(String left, String right) {

@@ -102,7 +102,7 @@ fn runtime_engine_metrics() -> &'static RuntimeEngineMetrics {
     METRICS.get_or_init(RuntimeEngineMetrics::new)
 }
 
-fn runtime_output_options() -> &'static Mutex<RuntimeOutputOptions> {
+pub(super) fn runtime_output_options() -> &'static Mutex<RuntimeOutputOptions> {
     static OPTIONS: OnceLock<Mutex<RuntimeOutputOptions>> = OnceLock::new();
     OPTIONS.get_or_init(|| Mutex::new(RuntimeOutputOptions::default()))
 }
