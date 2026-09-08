@@ -213,6 +213,23 @@ impl TypeScriptRuntime {
                     "{plugin_id}::{capability_id}"
                 )));
             }
+            if entry
+                .registration
+                .manifest
+                .capabilities
+                .iter()
+                .any(|capability| {
+                    capability.id == capability_id
+                        && capability.kind == super::manifest::TypeScriptCapabilityKind::OutputSink
+                })
+            {
+                return Err(TypeScriptRuntimeError::Manifest(
+                    super::manifest::ManifestV2Error::Invalid(
+                        "native output capabilities must be opened by the audio sink adapter"
+                            .into(),
+                    ),
+                ));
+            }
             entry
                 .process
                 .get_or_insert_with(|| {

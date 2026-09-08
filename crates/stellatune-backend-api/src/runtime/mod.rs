@@ -16,6 +16,8 @@ use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::time::LocalTime;
 
 mod engine;
+mod native_output;
+pub use native_output::{NativeOutputDescriptor, native_output_targets, native_output_types};
 pub(crate) mod local_decoder;
 mod local_probe;
 pub(crate) mod local_source;

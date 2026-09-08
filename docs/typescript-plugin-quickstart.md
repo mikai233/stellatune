@@ -4,6 +4,14 @@ StellaTune TypeScript plugins run in the control plane. They can resolve sources
 search, authenticate, provide lyrics, and control network services. They cannot
 decode or process PCM and cannot choose the user's DSP or output device.
 
+An optional native output package may declare an `output-sink` capability with
+`native_output: { "protocol": "asio-v9", "executable": "bin/stellatune-asio-host.exe" }`.
+This is a package declaration: the Rust audio adapter owns device discovery,
+controls, PCM transport and process lifetime. The capability cannot be invoked
+through TypeScript RPC and needs no Node process for playback. See the
+[ASIO package](../crates/plugins-native/stellatune-plugin-asio/README.md) for
+building and installation. It is separate from the default application bundle.
+
 ## Package layout
 
 A package is a ZIP containing pre-bundled files. StellaTune never runs

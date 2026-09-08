@@ -426,6 +426,17 @@ extension _SettingsHelpers on SettingsPageState {
 }
 
 extension _SettingsRuntimeOps on SettingsPageState {
+  Future<void> _resetOutputRouteAfterPluginChange() async {
+    // Native output hosts are released before package mutation. Keep the
+    // persisted selection and settings UI in sync with that system fallback.
+    if (!mounted || ref.read(settingsStoreProvider).outputSinkRoute == null) {
+      return;
+    }
+    await ref.read(playerBridgeProvider).clearOutputSinkRoute();
+    await ref.read(settingsStoreProvider.notifier).clearOutputSinkRoute();
+    if (mounted) _loadFromSettings();
+  }
+
   Future<void> _applyOutputOptions({
     bool? matchTrackSampleRate,
     bool? gaplessPlayback,
@@ -457,6 +468,7 @@ extension _SettingsRuntimeOps on SettingsPageState {
       await library.pluginDisable(pluginId: id);
     }
     await library.pluginApplyState();
+    await _resetOutputRouteAfterPluginChange();
     await _refreshDecoderExtensionSupportCache();
     if (!enabled) {
       await ref
@@ -483,6 +495,7 @@ extension _SettingsRuntimeOps on SettingsPageState {
     }
     await _refreshDecoderExtensionSupportCache();
     logger.i('plugin uninstall completed id=${plugin.id}');
+    await _resetOutputRouteAfterPluginChange();
     if (!mounted) return;
     _updateUi(_refresh);
     ScaffoldMessenger.of(context).showSnackBar(
@@ -498,12 +511,19 @@ extension _SettingsRuntimeOps on SettingsPageState {
     try {
       await _pickAndInstallPluginArtifact();
     } catch (e, s) {
-      logger.e('failed to prepare plugin installation', error: e, stackTrace: s);
+      logger.e(
+        'failed to prepare plugin installation',
+        error: e,
+        stackTrace: s,
+      );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(
-          AppLocalizations.of(context)!.settingsPluginInstallFailed(e.toString()),
-        )),
+        SnackBar(
+          content: Text(
+            AppLocalizations.of(context)!
+                .settingsPluginInstallFailed(e.toString()),
+          ),
+        ),
       );
     } finally {
       if (mounted) _updateUi(() => _installingPlugin = false);
@@ -519,7 +539,9 @@ extension _SettingsRuntimeOps on SettingsPageState {
     try {
       // Resolve the APP window before the picker starts its background isolate.
       // GetForegroundWindow there can instead pick a newly opened Explorer window.
-      final parentWindow = Platform.isWindows ? await windowManager.getId() : null;
+      final parentWindow = Platform.isWindows
+          ? await windowManager.getId()
+          : null;
       if (!mounted) return;
       logger.i('plugin file picker begin parent=$parentWindow');
       picked = await FilePicker.pickFile(
@@ -569,6 +591,7 @@ extension _SettingsRuntimeOps on SettingsPageState {
         dir: pluginDir,
         artifactPath: srcPath,
       );
+      await _resetOutputRouteAfterPluginChange();
       await _refreshDecoderExtensionSupportCache();
       logger.i('plugin install completed');
       if (!mounted) return;
@@ -605,7 +628,9 @@ extension _SettingsRuntimeOps on SettingsPageState {
       logger.i('open plugin directory begin');
       if (Platform.isWindows) {
         // Avoid waiting on an in-process ShellExecute call on Flutter's platform thread.
-        await Process.start('explorer.exe', [dir], mode: ProcessStartMode.detached);
+        await Process.start('explorer.exe', [
+          dir,
+        ], mode: ProcessStartMode.detached);
       } else if (!await launchUrl(Uri.directory(dir))) {
         throw StateError('failed to open plugin directory');
       }
@@ -1373,7 +1398,9 @@ extension _SettingsBuildSections on SettingsPageState {
               return IconButton(
                 visualDensity: VisualDensity.compact,
                 tooltip: l10n.settingsOpenPluginDir,
-                onPressed: _installingPlugin ? null : () => _openPluginDirectory(dir),
+                onPressed: _installingPlugin
+                    ? null
+                    : () => _openPluginDirectory(dir),
                 icon: const Icon(Icons.folder_open_outlined),
               );
             },

@@ -23,6 +23,17 @@ struct LocalSampleQueue {
 }
 
 impl LocalSampleQueue {
+    /// Only used after opening, before playback can enter a callback.
+    fn ensure_capacity(&self, capacity: usize) {
+        let mut producer = self.producer.lock().unwrap();
+        if producer.capacity().get() >= capacity {
+            return;
+        }
+        let mut consumer = self.consumer.lock().unwrap();
+        let (next_producer, next_consumer) = HeapRb::<f32>::new(capacity).split();
+        *producer = next_producer;
+        *consumer = next_consumer;
+    }
     fn new(capacity_samples: usize) -> Self {
         let rb = HeapRb::<f32>::new(capacity_samples.max(1));
         let (producer, consumer) = rb.split();
@@ -86,7 +97,7 @@ impl StreamIngress {
         }
 
         let mut samples = Vec::<f32>::with_capacity(sample_count);
-        for bytes in interleaved_f32le.chunks_exact(4) {
+        for bytes in interleaved_f32le.as_chunks::<4>().0 {
             samples.push(f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]));
         }
 
@@ -122,11 +133,6 @@ impl StreamState {
 
         let running = Arc::new(AtomicBool::new(false));
         let metrics = Arc::new(UnderrunMetrics::default());
-        let metrics_join = Some(start_underrun_reporter(
-            Arc::clone(&metrics),
-            spec.sample_rate,
-            channels,
-        ));
 
         let cfg = cpal::StreamConfig {
             channels,
@@ -146,14 +152,25 @@ impl StreamState {
             cpal::SampleFormat::I32,
             cpal::SampleFormat::U16,
         ] {
-            if supported.clone().any(|c| c.sample_format() == cand) {
+            if supported.clone().any(|c| {
+                c.sample_format() == cand
+                    && c.channels() == channels
+                    && c.min_sample_rate() <= spec.sample_rate
+                    && c.max_sample_rate() >= spec.sample_rate
+            }) {
                 chosen_format = Some(cand);
                 break;
             }
         }
-        let chosen_format = chosen_format.unwrap_or(cpal::SampleFormat::F32);
+        let chosen_format = chosen_format.ok_or_else(|| {
+            "ASIO device does not support the requested rate/channel format".to_string()
+        })?;
 
-        let err_fn = |e| tracing::error!("cpal stream error: {e}");
+        let error_metrics = Arc::clone(&metrics);
+        let err_fn = move |e| {
+            error_metrics.failed.store(true, Ordering::Release);
+            tracing::error!("cpal stream error: {e}");
+        };
 
         let stream = match chosen_format {
             cpal::SampleFormat::F32 => {
@@ -164,6 +181,7 @@ impl StreamState {
                 dev.build_output_stream(
                     cfg,
                     move |out: &mut [f32], _| {
+                        let _callback = metrics_cb.enter();
                         platform_state.on_callback_start("f32");
                         fill_queue_f32(out, &queue_cb, &running_cb, &metrics_cb)
                     },
@@ -181,6 +199,7 @@ impl StreamState {
                 dev.build_output_stream(
                     cfg,
                     move |out: &mut [i16], _| {
+                        let _callback = metrics_cb.enter();
                         platform_state.on_callback_start("i16");
                         fill_queue_i16(out, &queue_cb, &running_cb, &metrics_cb, &mut tmp)
                     },
@@ -198,6 +217,7 @@ impl StreamState {
                 dev.build_output_stream(
                     cfg,
                     move |out: &mut [i32], _| {
+                        let _callback = metrics_cb.enter();
                         platform_state.on_callback_start("i32");
                         fill_queue_i32(out, &queue_cb, &running_cb, &metrics_cb, &mut tmp)
                     },
@@ -215,6 +235,7 @@ impl StreamState {
                 dev.build_output_stream(
                     cfg,
                     move |out: &mut [u16], _| {
+                        let _callback = metrics_cb.enter();
                         platform_state.on_callback_start("u16");
                         fill_queue_u16(out, &queue_cb, &running_cb, &metrics_cb, &mut tmp)
                     },
@@ -226,6 +247,13 @@ impl StreamState {
             other => return Err(format!("unsupported sample format: {other:?}")),
         };
 
+        let hardware_frames = stream.buffer_size().unwrap_or(MIN_QUEUE_FRAMES) as usize;
+        queue.ensure_capacity((hardware_frames * 2 * usize::from(channels)).min(MAX_QUEUE_SAMPLES));
+        let metrics_join = Some(start_underrun_reporter(
+            Arc::clone(&metrics),
+            spec.sample_rate,
+            channels,
+        ));
         Ok(Self {
             running,
             queue,
@@ -237,8 +265,38 @@ impl StreamState {
     }
 
     pub(crate) fn start(&self) -> Result<(), String> {
-        self.running.store(true, Ordering::Release);
-        self._stream.play().map_err(|e| e.to_string())
+        self.running.store(true, Ordering::SeqCst);
+        if let Err(error) = self._stream.play() {
+            self.running.store(false, Ordering::SeqCst);
+            return Err(error.to_string());
+        }
+        Ok(())
+    }
+
+    pub(crate) fn pause(&self) -> Result<(), String> {
+        // A single order between admission and in-flight counting prevents a
+        // new callback from slipping past the zero-count check during reset.
+        self.running.store(false, Ordering::SeqCst);
+        self._stream.pause().map_err(|error| error.to_string())?;
+        let deadline = std::time::Instant::now() + Duration::from_millis(500);
+        while self.metrics.callbacks_in_flight.load(Ordering::SeqCst) != 0 {
+            if std::time::Instant::now() >= deadline {
+                return Err("ASIO callback did not quiesce".into());
+            }
+            thread::sleep(Duration::from_millis(1));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn buffer_size_frames(&self) -> u32 {
+        self._stream.buffer_size().unwrap_or(0)
+    }
+    pub(crate) fn failed(&self) -> bool {
+        self.metrics.failed.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn consumed_frames(&self) -> u64 {
+        self.metrics.delivered_samples.load(Ordering::Acquire) / u64::from(self.channels)
     }
 
     pub(crate) fn reset(&self) {
@@ -250,7 +308,7 @@ impl StreamState {
     }
 
     pub(crate) fn running(&self) -> bool {
-        self.running.load(Ordering::Acquire)
+        self.running.load(Ordering::SeqCst)
     }
 
     pub(crate) fn ingress(&self) -> StreamIngress {
@@ -267,7 +325,7 @@ impl StreamState {
 
 impl Drop for StreamState {
     fn drop(&mut self) {
-        self.running.store(false, Ordering::Release);
+        self.running.store(false, Ordering::SeqCst);
         self.metrics.stop.store(true, Ordering::Release);
         if let Some(join) = self.metrics_join.take() {
             join.thread().unpark();
@@ -301,6 +359,8 @@ fn queue_capacity_samples(
 
 #[derive(Default)]
 struct UnderrunMetrics {
+    callbacks_in_flight: AtomicU64,
+    failed: AtomicBool,
     underrun_callbacks: AtomicU64,
     underrun_samples: AtomicU64,
     delivered_samples: AtomicU64,
@@ -309,6 +369,10 @@ struct UnderrunMetrics {
 }
 
 impl UnderrunMetrics {
+    fn enter(&self) -> CallbackGuard<'_> {
+        self.callbacks_in_flight.fetch_add(1, Ordering::SeqCst);
+        CallbackGuard(self)
+    }
     fn note_underrun_samples(&self, shortfall_samples: usize) {
         if shortfall_samples == 0 {
             return;
@@ -329,6 +393,13 @@ impl UnderrunMetrics {
                 Err(v) => cur = v,
             }
         }
+    }
+}
+
+struct CallbackGuard<'a>(&'a UnderrunMetrics);
+impl Drop for CallbackGuard<'_> {
+    fn drop(&mut self) {
+        self.0.callbacks_in_flight.fetch_sub(1, Ordering::SeqCst);
     }
 }
 
@@ -418,7 +489,7 @@ fn fill_queue_f32(
     running: &Arc<AtomicBool>,
     metrics: &Arc<UnderrunMetrics>,
 ) {
-    if !running.load(Ordering::Acquire) {
+    if !running.load(Ordering::SeqCst) {
         out.fill(0.0);
         return;
     }
@@ -441,7 +512,7 @@ fn fill_queue_i16(
     metrics: &Arc<UnderrunMetrics>,
     tmp: &mut Vec<f32>,
 ) {
-    if !running.load(Ordering::Acquire) {
+    if !running.load(Ordering::SeqCst) {
         out.fill(0);
         return;
     }
@@ -463,7 +534,7 @@ fn fill_queue_i32(
     metrics: &Arc<UnderrunMetrics>,
     tmp: &mut Vec<f32>,
 ) {
-    if !running.load(Ordering::Acquire) {
+    if !running.load(Ordering::SeqCst) {
         out.fill(0);
         return;
     }
@@ -485,7 +556,7 @@ fn fill_queue_u16(
     metrics: &Arc<UnderrunMetrics>,
     tmp: &mut Vec<f32>,
 ) {
-    if !running.load(Ordering::Acquire) {
+    if !running.load(Ordering::SeqCst) {
         out.fill(0);
         return;
     }

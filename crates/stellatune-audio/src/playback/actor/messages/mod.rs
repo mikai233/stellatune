@@ -7,6 +7,7 @@ pub(super) type ControlResult = Result<(), PlaybackControlError>;
 
 pub(in crate::playback) mod advance_to_next;
 pub(in crate::playback) mod get_snapshot;
+pub(in crate::playback) mod output_prepared;
 pub(in crate::playback) mod pause;
 pub(in crate::playback) mod play;
 pub(in crate::playback) mod preparation_completed;

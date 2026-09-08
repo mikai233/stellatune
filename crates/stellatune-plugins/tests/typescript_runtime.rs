@@ -43,6 +43,70 @@ fn manifest_v2_fixture_has_no_permissions_and_validates_bundle() {
 }
 
 #[tokio::test]
+async fn native_output_package_installs_validates_and_never_starts_node() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(root.path().join("bin")).unwrap();
+    std::fs::write(root.path().join("bin/output.exe"), b"test-native-host").unwrap();
+    std::fs::write(root.path().join("plugin.mjs"), "export default {};").unwrap();
+    let mut value = json!({
+        "manifest_version": 2, "id": "test.asio", "name": "Test ASIO", "version": "1.0.0",
+        "runtime": {"kind": "typescript", "entry": "plugin.mjs", "api_version": 2, "protocol": "stellatune-capability-rpc/1"},
+        "capabilities": [{"id": "asio", "kind": "output-sink", "display_name": "ASIO", "execution_class": "control",
+            "native_output": {"protocol": "asio-v9", "executable": "bin/output.exe"}}]
+    });
+    let manifest = serde_json::from_value(value.clone()).unwrap();
+    validate_typescript_manifest(&manifest, root.path()).unwrap();
+    std::fs::write(root.path().join("manifest.json"), value.to_string()).unwrap();
+    let installation = tempfile::tempdir().unwrap();
+    let installed = install_typescript_artifact(installation.path(), root.path()).unwrap();
+    let runtime = TypeScriptRuntime::new(root.path().join("missing-runner.mjs"));
+    runtime
+        .register(installed.manifest.clone(), &installed.root_dir)
+        .await
+        .unwrap();
+    let error = runtime
+        .invoke("test.asio", "asio", None, "write", json!({}), None)
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("audio sink adapter"));
+    runtime.unregister("test.asio").await.unwrap();
+    uninstall_typescript_plugin(installation.path(), "test.asio").unwrap();
+    assert!(!installed.root_dir.exists());
+    value["capabilities"][0]["native_output"]["executable"] = json!("../output.exe");
+    assert!(
+        validate_typescript_manifest(&serde_json::from_value(value.clone()).unwrap(), root.path())
+            .is_err()
+    );
+    value["capabilities"][0]["native_output"]["executable"] = json!("bin/output.exe");
+    value["capabilities"][0]["kind"] = json!("network-control");
+    assert!(
+        validate_typescript_manifest(&serde_json::from_value(value).unwrap(), root.path()).is_err()
+    );
+}
+
+#[test]
+fn packaged_asio_archive_installs_without_source_checkout_dependencies() {
+    let Some(artifact) = std::env::var_os("STELLATUNE_TEST_ASIO_PACKAGE") else {
+        return;
+    };
+    let installation = tempfile::tempdir().unwrap();
+    let installed = install_typescript_artifact(installation.path(), Path::new(&artifact)).unwrap();
+    assert_eq!(installed.manifest.id, "dev.stellatune.output.asio");
+    let output = installed.manifest.capabilities[0]
+        .native_output
+        .as_ref()
+        .unwrap();
+    assert_eq!(output.protocol, "asio-v9");
+    assert!(
+        std::fs::metadata(installed.root_dir.join(&output.executable))
+            .unwrap()
+            .len()
+            > 100_000
+    );
+    uninstall_typescript_plugin(installation.path(), &installed.manifest.id).unwrap();
+}
+
+#[tokio::test]
 async fn local_extensions_require_resolvers_and_reject_ambiguous_ownership() {
     use stellatune_plugins::typescript::manifest::TypeScriptCapabilityKind;
     let (path, _, runner) = fixture_paths();

@@ -41,8 +41,8 @@ mod navigation;
 mod preparation;
 
 use self::messages::{
-    advance_to_next::AdvanceToNext, get_snapshot::GetSnapshot, pause::Pause, play::Play,
-    preparation_completed::PreparationCompleted,
+    advance_to_next::AdvanceToNext, get_snapshot::GetSnapshot, output_prepared::OutputPrepared,
+    pause::Pause, play::Play, preparation_completed::PreparationCompleted,
     preparation_deadline_elapsed::PreparationDeadlineElapsed, pump_audio::PumpAudio,
     rebuild_output::RebuildOutput, recovery_completed::RecoveryCompleted, seek::Seek,
     set_buffering::SetBuffering, set_next::SetNext, set_output_gain::SetOutputGain,
@@ -61,6 +61,7 @@ actor_behavior! {
             SetPolicies,
             SetBuffering,
             RebuildOutput,
+            OutputPrepared,
             GetSnapshot,
             PumpAudio,
             PreparationCompleted,
@@ -102,6 +103,7 @@ impl PlaybackActor {
                 generation: 0,
                 wants_playing: false,
                 next_preparation_id: 0,
+                output_rebuild_id: 0,
                 pending_preparation: None,
                 pending_recovery: None,
                 current: None,

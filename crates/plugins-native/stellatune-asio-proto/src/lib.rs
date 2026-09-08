@@ -1,7 +1,9 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-pub const PROTOCOL_VERSION: u32 = 8;
+pub mod shared_ring;
+
+pub const PROTOCOL_VERSION: u32 = 9;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AudioSpec {
@@ -58,6 +60,7 @@ pub enum Request {
         queue_capacity_ms: Option<u32>,
     },
     Start,
+    Pause,
     Stop,
     /// Reset runtime buffering state while keeping device/session opened.
     Reset,
@@ -85,6 +88,9 @@ pub enum Response {
         prepared_switch_id: u64,
         caps: DeviceCaps,
     },
+    Opened {
+        buffer_size_frames: u32,
+    },
     Ok,
     Err {
         message: String,
@@ -95,6 +101,7 @@ pub enum Response {
     },
     /// Response to `QueryStatus`.
     Status {
+        consumed_frames: u64,
         queued_samples: u32,
         running: bool,
     },

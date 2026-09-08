@@ -1,0 +1,23 @@
+[package]
+name = "stellatune-audio-asio-adapter"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+
+[dependencies]
+stellatune-audio-core.workspace = true
+stellatune-asio-proto.workspace = true
+serde.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+test-host = []
+
+[[bin]]
+name = "fake-asio-host"
+path = "tests/support/host.rs"
+required-features = ["test-host"]
+test = false

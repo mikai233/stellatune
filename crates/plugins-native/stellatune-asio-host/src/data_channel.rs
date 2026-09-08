@@ -1,25 +1,17 @@
-use std::fs::OpenOptions;
-use std::mem;
 use std::path::Path;
-use std::ptr;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread::{self, Builder, JoinHandle};
 use std::time::{Duration, Instant};
 
-use memmap2::{MmapMut, MmapOptions};
+pub(crate) use stellatune_asio_proto::shared_ring::SharedByteRingMapped;
 
 use crate::platform::data_channel::{DataIngressThreadPlatformState, ReaderPlatformState};
 use crate::stream::StreamIngress;
 
 const DATA_FRAME_MAX_BYTES: usize = 16 * 1024 * 1024;
 const DATA_POLL_INTERVAL: Duration = Duration::from_millis(1);
-
-const SHM_MAGIC: u32 = 0x53544D52; // "STMR"
-const SHM_VERSION: u32 = 1;
-const SHM_MIN_CAPACITY: usize = 4 * 1024;
-const SHM_MAX_CAPACITY: usize = 64 * 1024 * 1024;
 
 pub(crate) struct DataIngressPump {
     current_ingress: Arc<Mutex<IngressSlot>>,
@@ -228,6 +220,17 @@ struct SharedMemoryDataReader {
 
 impl SharedMemoryDataReader {
     fn open_from_env() -> Result<Option<Self>, String> {
+        if let Some(path) = std::env::var_os("STELLATUNE_ASIO_PCM_MAPPING") {
+            let config = SharedMemoryEndpoint {
+                host_to_sidecar_path: path.to_string_lossy().into_owned(),
+                host_to_sidecar_data_event: None,
+                host_to_sidecar_space_event: None,
+            };
+            return Ok(Some(Self {
+                ring: SharedByteRingMapped::open(Path::new(&path))?,
+                platform: ReaderPlatformState::open(&config)?,
+            }));
+        }
         let Some(endpoint) = resolve_data_endpoint() else {
             return Ok(None);
         };
@@ -357,128 +360,4 @@ fn parse_shared_memory_endpoint(endpoint: &str) -> Result<SharedMemoryEndpoint, 
         host_to_sidecar_data_event,
         host_to_sidecar_space_event,
     })
-}
-
-#[repr(C)]
-struct SharedByteRingHeader {
-    magic: u32,
-    version: u32,
-    capacity_bytes: u32,
-    _reserved: u32,
-    write_pos: AtomicU64,
-    read_pos: AtomicU64,
-}
-
-pub(crate) struct SharedByteRingMapped {
-    map: MmapMut,
-    capacity_bytes: usize,
-}
-
-impl SharedByteRingMapped {
-    fn header_size() -> usize {
-        mem::size_of::<SharedByteRingHeader>()
-    }
-
-    fn open(path: &Path) -> Result<Self, String> {
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(path)
-            .map_err(|error| format!("open shared-memory ring {}: {error}", path.display()))?;
-        let map = unsafe {
-            MmapOptions::new()
-                .map_mut(&file)
-                .map_err(|error| format!("map shared-memory ring {}: {error}", path.display()))?
-        };
-        if map.len() < Self::header_size() {
-            return Err(format!("shared-memory ring too small: {}", path.display()));
-        }
-
-        let header = unsafe { &*(map.as_ptr() as *const SharedByteRingHeader) };
-        if header.magic != SHM_MAGIC || header.version != SHM_VERSION {
-            return Err(format!(
-                "invalid shared-memory ring header: {}",
-                path.display()
-            ));
-        }
-        let capacity_bytes = header.capacity_bytes as usize;
-        if !(SHM_MIN_CAPACITY..=SHM_MAX_CAPACITY).contains(&capacity_bytes) {
-            return Err(format!(
-                "invalid shared-memory ring capacity {} for {}",
-                capacity_bytes,
-                path.display()
-            ));
-        }
-        let expected = Self::header_size()
-            .checked_add(capacity_bytes)
-            .ok_or_else(|| "shared-memory ring capacity overflow".to_string())?;
-        if expected != map.len() {
-            return Err(format!(
-                "shared-memory ring size mismatch for {}: expect {}, got {}",
-                path.display(),
-                expected,
-                map.len()
-            ));
-        }
-
-        Ok(Self {
-            map,
-            capacity_bytes,
-        })
-    }
-
-    fn header(&self) -> &SharedByteRingHeader {
-        unsafe { &*(self.map.as_ptr() as *const SharedByteRingHeader) }
-    }
-
-    fn read_bytes(&mut self, out: &mut [u8]) -> usize {
-        if out.is_empty() {
-            return 0;
-        }
-
-        let header = self.header();
-        let write_pos = header.write_pos.load(Ordering::Acquire);
-        let read_pos = header.read_pos.load(Ordering::Relaxed);
-        let available = write_pos
-            .saturating_sub(read_pos)
-            .min(self.capacity_bytes as u64) as usize;
-        let count = available.min(out.len());
-        if count == 0 {
-            return 0;
-        }
-
-        let start = (read_pos as usize) % self.capacity_bytes;
-        let first = count.min(self.capacity_bytes - start);
-        unsafe {
-            let base = self.map.as_ptr();
-            let data = base.add(Self::header_size());
-            ptr::copy_nonoverlapping(data.add(start), out.as_mut_ptr(), first);
-            if first < count {
-                ptr::copy_nonoverlapping(data, out.as_mut_ptr().add(first), count - first);
-            }
-        }
-        header
-            .read_pos
-            .store(read_pos + count as u64, Ordering::Release);
-        count
-    }
-
-    fn discard_all(&self) {
-        let header = self.header();
-        let write_pos = header.write_pos.load(Ordering::Acquire);
-        header.read_pos.store(write_pos, Ordering::Release);
-    }
-
-    pub(crate) fn occupied_len(&self) -> usize {
-        let header = self.header();
-        let write_pos = header.write_pos.load(Ordering::Acquire);
-        let read_pos = header.read_pos.load(Ordering::Relaxed);
-        write_pos
-            .saturating_sub(read_pos)
-            .min(self.capacity_bytes as u64) as usize
-    }
-
-    pub(crate) fn free_len(&self) -> usize {
-        self.capacity_bytes.saturating_sub(self.occupied_len())
-    }
 }

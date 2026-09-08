@@ -129,6 +129,7 @@ pub(super) struct PlaybackSession {
     pub(super) generation: u64,
     pub(super) wants_playing: bool,
     pub(super) next_preparation_id: u64,
+    pub(super) output_rebuild_id: u64,
     pub(super) pending_preparation: Option<PendingPreparation>,
     pub(super) pending_recovery: Option<RecoveryPreparation>,
     pub(super) current: Option<ActiveTrack>,

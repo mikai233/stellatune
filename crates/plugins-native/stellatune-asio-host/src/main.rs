@@ -25,13 +25,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     configure_audio_process();
 
-    let data_ingress = match data_channel::DataIngressPump::from_env() {
-        Ok(data_ingress) => data_ingress,
-        Err(error) => {
-            tracing::warn!("asio host data ingress unavailable: {error}");
-            None
-        },
-    };
+    let data_ingress = data_channel::DataIngressPump::from_env().map_err(std::io::Error::other)?;
     let mut state = RuntimeState::new(data_ingress);
 
     loop {

@@ -15,9 +15,7 @@ use stellatune_audio_builtin_adapters::device_sink::{
     OutputBackend as AdapterOutputBackend, OutputDeviceSpec, default_output_spec_for_backend,
     list_output_devices, output_spec_for_route,
 };
-use stellatune_audio_builtin_adapters::factories::{
-    RuntimeDeviceSinkFactory, SymphoniaDecoderFactory,
-};
+use stellatune_audio_builtin_adapters::factories::SymphoniaDecoderFactory;
 
 struct RuntimeEngineMetrics {
     runtime_engine_inits_total: AtomicU64,
@@ -144,6 +142,10 @@ fn estimate_buffered_ms(metrics: DeviceSinkMetricsSnapshot, spec: OutputDeviceSp
 }
 
 fn monitor_output_sink_metrics(state: &mut OutputSinkMonitorState) {
+    if super::native_output::active_format().is_some() {
+        state.reset_watermark();
+        return;
+    }
     let spec = match resolve_device_output_spec() {
         Ok(spec) => spec,
         Err(_) => return,
@@ -284,10 +286,7 @@ fn typed_playback_runtime() -> &'static TypedPlaybackRuntime {
         let registry = StageRegistrySnapshot {
             decoders: vec![Arc::new(SymphoniaDecoderFactory::new())],
             transforms: Vec::new(),
-            sink: Arc::new(RuntimeDeviceSinkFactory::new(
-                shared_device_sink_control(),
-                1,
-            )),
+            sink: Arc::new(super::native_output::RuntimeOutputFactory::new()),
         };
         let runtime = PlaybackRuntime::start(PlaybackRuntimeConfig::new(registry))
             .unwrap_or_else(|error| panic!("failed to start playback runtime: {error}"));
@@ -350,6 +349,7 @@ pub async fn runtime_set_output_device(
     backend: OutputBackend,
     device_id: Option<String>,
 ) -> Result<RuntimeOutputDeviceApplyReport, String> {
+    let _guard = super::native_output::mutation_guard().await;
     let requested_device_id = normalize_device_id(device_id);
     let control = shared_device_sink_control();
     let player = shared_playback_controller();
@@ -364,16 +364,37 @@ pub async fn runtime_set_output_device(
         plugin_prefers_track_rate: None,
     };
 
+    let resume = super::native_output::active_format().is_some()
+        && player
+            .snapshot()
+            .await
+            .map_err(|error| error.to_string())?
+            .state
+            == stellatune_audio::playback::event::PlaybackState::Playing;
+    if resume {
+        let _ = player.pause().await;
+    }
+    let previous_native = super::native_output::suspend_route().await;
+
     control.set_route(applied_backend, applied_device_id.clone());
     if let Err(error) = apply_output_spec_mutations(&player, resolved_output_spec).await {
+        super::native_output::restore_route(previous_native);
         control.set_route(previous_backend, previous_device_id.clone());
         if let Some(spec) = previous_spec {
             let _ = apply_output_spec_mutations(&player, spec).await;
+        }
+        if resume {
+            let _ = player.play().await;
         }
         return Err(format!(
             "failed to apply output route switch to {:?}:{:?}: {error}",
             applied_backend, applied_device_id
         ));
+    }
+
+    super::native_output::retire_route(previous_native);
+    if resume {
+        player.play().await.map_err(|error| error.to_string())?;
     }
 
     Ok(RuntimeOutputDeviceApplyReport {
@@ -391,6 +412,7 @@ pub async fn runtime_set_output_options(
     match_track_sample_rate: bool,
     resample_quality: ResampleQuality,
 ) -> Result<(), String> {
+    let _guard = super::native_output::mutation_guard().await;
     {
         let mut guard = runtime_output_options()
             .lock()
@@ -406,16 +428,16 @@ pub async fn runtime_set_output_options(
 }
 
 pub async fn runtime_set_output_sink_route(
-    _plugin_id: String,
-    _type_id: String,
-    _config_json: String,
-    _target_json: String,
+    plugin_id: String,
+    type_id: String,
+    config_json: String,
+    target_json: String,
 ) -> Result<(), String> {
-    Err("TypeScript plugins cannot implement PCM output stages; install a native external sink instead".to_string())
+    super::native_output::set_route(plugin_id, type_id, config_json, target_json).await
 }
 
 pub async fn runtime_clear_output_sink_route() -> Result<(), String> {
-    Ok(())
+    super::native_output::clear_route().await
 }
 
 pub async fn runtime_shutdown() {
@@ -452,6 +474,12 @@ fn resolve_current_output_spec() -> Result<ResolvedOutputSpec, String> {
 }
 
 fn resolve_device_output_spec() -> Result<OutputDeviceSpec, String> {
+    if let Some(format) = super::native_output::active_format() {
+        return Ok(OutputDeviceSpec {
+            sample_rate: format.sample_rate,
+            channel_layout: format.channel_layout,
+        });
+    }
     let control = shared_device_sink_control();
     let (backend, device_id) = control.desired_route();
     output_spec_for_route(backend, device_id.as_deref())

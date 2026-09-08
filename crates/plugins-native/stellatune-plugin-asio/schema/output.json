@@ -1,0 +1,20 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "buffer_size_frames": {
+      "type": "integer",
+      "title": "ASIO hardware buffer (frames)",
+      "description": "Leave unset to use the driver's preferred buffer size.",
+      "minimum": 1,
+      "maximum": 65536
+    },
+    "sample_rate": {
+      "type": "integer",
+      "title": "Output sample rate (Hz)",
+      "description": "Leave unset to use the driver's default sample rate.",
+      "minimum": 8000,
+      "maximum": 768000
+    }
+  }
+}

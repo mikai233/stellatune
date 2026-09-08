@@ -15,6 +15,8 @@ pub enum TypeScriptCapabilityKind {
     LyricsProvider,
     AuthProvider,
     NetworkControl,
+    /// Native PCM sink declared by a plugin package, never invoked over Node RPC.
+    OutputSink,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
@@ -34,6 +36,15 @@ pub struct TypeScriptCapabilityManifest {
     /// Local containers handled through `resolve-file` and `inspect-file`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub local_extensions: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_output: Option<NativeOutputManifest>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct NativeOutputManifest {
+    pub protocol: String,
+    pub executable: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -130,6 +141,24 @@ pub fn validate_typescript_manifest(
     }
     let mut ids = HashSet::new();
     for capability in &manifest.capabilities {
+        match (&capability.kind, &capability.native_output) {
+            (TypeScriptCapabilityKind::OutputSink, Some(output)) => {
+                if output.protocol != "asio-v9" {
+                    return invalid("native_output.protocol must be 'asio-v9'");
+                }
+                validate_package_path(
+                    "native_output.executable",
+                    &output.executable,
+                    package_root,
+                    "exe",
+                )?;
+            },
+            (TypeScriptCapabilityKind::OutputSink, None) => {
+                return invalid("output-sink requires native_output");
+            },
+            (_, Some(_)) => return invalid("native_output requires an output-sink capability"),
+            (_, None) => {},
+        }
         validate_id("capability.id", &capability.id)?;
         validate_nonempty("capability.display_name", &capability.display_name)?;
         if !ids.insert(capability.id.clone()) {

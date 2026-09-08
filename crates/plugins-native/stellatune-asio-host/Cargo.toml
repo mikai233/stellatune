@@ -8,7 +8,6 @@ license = "GPL-3.0-only"
 stellatune-asio-proto = { path = "../stellatune-asio-proto" }
 stellatune-sidecar-support = { path = "../stellatune-sidecar-support" }
 ringbuf = "0.5.1"
-memmap2 = "0.9.11"
 tracing = "0.1.44"
 
 # Note: enabling cpal's `asio` feature can pull the Steinberg ASIO SDK at build time

@@ -5,6 +5,7 @@ members = [
   "crates/stellatune-icon",
   "crates/stellatune-audio-core",
   "crates/audio-adapters/stellatune-audio-builtin-adapters",
+  "crates/audio-adapters/stellatune-audio-asio-adapter",
   "crates/plugins-native/stellatune-asio-proto",
   "crates/plugins-native/stellatune-sidecar-support",
   "crates/plugins-native/stellatune-plugin-ncm/host",
@@ -31,6 +32,7 @@ wildcard_imports = "deny"
 [workspace.dependencies]
 stellatune-audio-core = { path = "crates/stellatune-audio-core" }
 stellatune-audio-builtin-adapters = { path = "crates/audio-adapters/stellatune-audio-builtin-adapters" }
+stellatune-audio-asio-adapter = { path = "crates/audio-adapters/stellatune-audio-asio-adapter" }
 stellatune-audio = { path = "crates/stellatune-audio" }
 stellatune-asio-proto = { path = "crates/plugins-native/stellatune-asio-proto" }
 stellatune-sidecar-support = { path = "crates/plugins-native/stellatune-sidecar-support" }

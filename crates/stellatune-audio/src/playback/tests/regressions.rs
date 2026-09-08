@@ -53,6 +53,158 @@ fn paused() -> SwitchOptions {
 }
 
 #[tokio::test]
+async fn slow_output_negotiation_does_not_block_stop_or_apply_after_it() {
+    use stellatune_audio_core::sink::{OutputCompatibilityKey, SinkFactory, SinkStage};
+    struct SlowOutput {
+        inner: TestSinkFactory,
+        slow: Arc<AtomicBool>,
+        entered: Arc<Semaphore>,
+        release: Arc<(Mutex<bool>, std::sync::Condvar)>,
+        creates: Arc<AtomicUsize>,
+    }
+    impl SinkFactory for SlowOutput {
+        fn id(&self) -> &StageId {
+            self.inner.id()
+        }
+        fn preferred_format(&self, input: PcmFormat) -> Result<PcmFormat, FactoryError> {
+            if self.slow.load(Ordering::Acquire) {
+                self.entered.add_permits(1);
+                let (lock, wake) = &*self.release;
+                let _ = wake
+                    .wait_timeout_while(lock.lock().unwrap(), Duration::from_secs(2), |released| {
+                        !*released
+                    })
+                    .unwrap();
+            }
+            Ok(input)
+        }
+        fn compatibility_key(
+            &self,
+            format: PcmFormat,
+        ) -> Result<OutputCompatibilityKey, FactoryError> {
+            self.inner.compatibility_key(format)
+        }
+        fn create(&self) -> Result<Box<dyn SinkStage>, FactoryError> {
+            self.creates.fetch_add(1, Ordering::Relaxed);
+            self.inner.create()
+        }
+    }
+    let samples = Arc::new(Mutex::new(Vec::new()));
+    let slow = Arc::new(AtomicBool::new(false));
+    let entered = Arc::new(Semaphore::new(0));
+    let release = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
+    let creates = Arc::new(AtomicUsize::new(0));
+    let mut config = config(Arc::clone(&samples));
+    config.registry.sink = Arc::new(SlowOutput {
+        inner: TestSinkFactory {
+            id: StageId::new("slow-output").unwrap(),
+            samples,
+        },
+        slow: Arc::clone(&slow),
+        entered: Arc::clone(&entered),
+        release: Arc::clone(&release),
+        creates: Arc::clone(&creates),
+    });
+    let runtime = PlaybackRuntime::start(config).unwrap();
+    let controller = runtime.controller();
+    controller
+        .switch_to(item(1, 100, 100), paused())
+        .await
+        .unwrap();
+    slow.store(true, Ordering::Release);
+    let requester = controller.clone();
+    let rebuild = tokio::spawn(async move { requester.rebuild_output().await });
+    timeout(Duration::from_secs(1), entered.acquire())
+        .await
+        .unwrap()
+        .unwrap()
+        .forget();
+    timeout(Duration::from_millis(300), controller.stop())
+        .await
+        .unwrap()
+        .unwrap();
+    *release.0.lock().unwrap() = true;
+    release.1.notify_all();
+    assert!(matches!(
+        rebuild.await.unwrap(),
+        Err(PlaybackControlError::Closed)
+    ));
+    assert_eq!(
+        controller.snapshot().await.unwrap().state,
+        PlaybackState::Idle
+    );
+    assert_eq!(creates.load(Ordering::Relaxed), 1);
+    runtime.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn output_rebuild_renegotiates_rate_and_channels_without_losing_position() {
+    use stellatune_audio_core::sink::{OutputCompatibilityKey, SinkFactory, SinkStage};
+    struct ChangingOutput {
+        target: Arc<Mutex<PcmFormat>>,
+        recording: FormatAdaptingSinkFactory,
+    }
+    impl SinkFactory for ChangingOutput {
+        fn id(&self) -> &StageId {
+            self.recording.id()
+        }
+        fn preferred_format(&self, _input: PcmFormat) -> Result<PcmFormat, FactoryError> {
+            Ok(*self.target.lock().unwrap())
+        }
+        fn compatibility_key(
+            &self,
+            format: PcmFormat,
+        ) -> Result<OutputCompatibilityKey, FactoryError> {
+            self.recording.compatibility_key(format)
+        }
+        fn create(&self) -> Result<Box<dyn SinkStage>, FactoryError> {
+            self.recording.create()
+        }
+    }
+    let source = PcmFormat {
+        sample_rate: 100,
+        channel_layout: ChannelLayout::MONO,
+    };
+    let target = Arc::new(Mutex::new(source));
+    let samples = Arc::new(Mutex::new(Vec::new()));
+    let formats = Arc::new(Mutex::new(Vec::new()));
+    let mut config = config(Arc::clone(&samples));
+    config.registry.sink = Arc::new(ChangingOutput {
+        target: Arc::clone(&target),
+        recording: FormatAdaptingSinkFactory {
+            id: StageId::new("changing-output").unwrap(),
+            target: source,
+            formats: Arc::clone(&formats),
+            samples: Arc::clone(&samples),
+        },
+    });
+    let runtime = PlaybackRuntime::start(config).unwrap();
+    let controller = runtime.controller();
+    let mut events = controller.subscribe_events();
+    controller
+        .switch_to(item(1, 100, 100), paused())
+        .await
+        .unwrap();
+    controller.seek(MediaTime::from_millis(500)).await.unwrap();
+    *target.lock().unwrap() = PcmFormat {
+        sample_rate: 200,
+        channel_layout: ChannelLayout::STEREO,
+    };
+    controller.rebuild_output().await.unwrap();
+    let snapshot = controller.snapshot().await.unwrap();
+    assert_eq!(snapshot.consumed_position, MediaTime::from_millis(500));
+    assert_eq!(snapshot.state, PlaybackState::Paused);
+    controller.play().await.unwrap();
+    wait_for_end(&mut events).await;
+    runtime.shutdown().await.unwrap();
+    assert_eq!(
+        formats.lock().unwrap().last(),
+        Some(&*target.lock().unwrap())
+    );
+    assert_eq!(samples.lock().unwrap().len(), 200); // 500 ms, 200 Hz, stereo
+}
+
+#[tokio::test]
 async fn final_position_includes_the_short_tail_before_idle_and_end() {
     for seek_ms in [0, 500] {
         let samples = Arc::new(Mutex::new(vec![]));

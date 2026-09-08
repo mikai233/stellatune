@@ -347,7 +347,18 @@ pub async fn lyrics_provider_list_types() -> Vec<LyricsProviderTypeDescriptor> {
 }
 
 pub async fn output_sink_list_types() -> Vec<OutputSinkTypeDescriptor> {
-    Vec::new()
+    stellatune_backend_api::runtime::native_output_types()
+        .await
+        .into_iter()
+        .map(|item| OutputSinkTypeDescriptor {
+            plugin_id: item.plugin_id,
+            plugin_name: item.plugin_name,
+            type_id: item.type_id,
+            display_name: item.display_name,
+            config_schema_json: item.config_schema_json,
+            default_config_json: item.default_config_json,
+        })
+        .collect()
 }
 
 pub async fn encoder_list_types() -> Vec<EncoderTypeDescriptor> {
@@ -420,8 +431,9 @@ pub async fn output_sink_list_targets_json(
     type_id: String,
     config_json: String,
 ) -> Result<String> {
-    let _ = (plugin_id, type_id, config_json);
-    Ok("[]".to_string())
+    stellatune_backend_api::runtime::native_output_targets(plugin_id, type_id, config_json)
+        .await
+        .map_err(anyhow::Error::msg)
 }
 
 pub async fn dsp_set_chain(chain: Vec<DspChainItem>) {

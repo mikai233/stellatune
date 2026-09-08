@@ -243,6 +243,25 @@ ASIO remains an optional external sidecar. TypeScript plugins stay on the
 control plane and return declarative source resolution results; they never
 transport encoded media or PCM.
 
+The optional `dev.stellatune.output.asio` package declares an `output-sink`
+capability with `native_output.protocol = "asio-v9"`. The backend discovers
+installed, enabled output packages and selects either the builtin sink or
+`stellatune-audio-asio-adapter`. The adapter starts the packaged Rust host
+directly; output playback does not start Node. The ASIO SDK and `cpal/asio`
+remain confined to the separately built `stellatune-asio-host` executable.
+
+Native output control and cached clock polling use framed binary stdio RPC;
+PCM travels through a bounded SPSC memory mapping allocated once per output
+session. Software buffering uses the selected latency profile at the actual
+output rate, with a minimum of two hardware callback buffers. Pause preserves
+queued PCM; discard quiesces the callback and clears both ingress and the device
+queue before a new clock epoch. Output rebuild negotiates the normalizer and
+post-mix formats off the actor thread, rejects superseded results, and retains
+the consumed media position. Plugin mutations
+serialize with route selection, release the native host before replacing files,
+and fall back to the system output. Driver failures/timeouts are surfaced to
+the playback runtime; subsequent opens create a fresh host.
+
 `stellatune-audio-core` does not flatten its public API at the crate root.
 Consumers use the owning module as the canonical and only path, for example
 `format::PcmFormat`, `playback::PlaybackItem`, `source::SourceFactory`, and

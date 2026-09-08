@@ -25,6 +25,7 @@ tokio-util = { workspace = true, features = ["io"] }
 url.workspace = true
 
 stellatune-audio-builtin-adapters.workspace = true
+stellatune-audio-asio-adapter.workspace = true
 stellatune-audio-core.workspace = true
 stellatune-audio.workspace = true
 stellatune-library.workspace = true

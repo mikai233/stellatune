@@ -180,7 +180,14 @@ impl PluginManagerActor {
         disabled_plugin_ids: HashSet<String>,
     ) -> Result<Vec<InstalledV2PluginSummary>, PluginManagerOperationError> {
         const OPERATION: &str = "reconcile";
+        let _output_guard = super::native_output::mutation_guard().await;
         self.begin_change(OPERATION).await?;
+        if super::native_output::remove_route(None).await {
+            self.player
+                .rebuild_output()
+                .await
+                .map_err(|error| manager_error(OPERATION, error.to_string()))?;
+        }
         if let Err(error) = self.runtime.shutdown().await {
             self.abort_change().await;
             return Err(manager_error(OPERATION, error.to_string()));
@@ -286,7 +293,14 @@ impl PluginManagerActor {
         artifact_path: PathBuf,
     ) -> Result<InstalledV2PluginSummary, PluginManagerOperationError> {
         const OPERATION: &str = "install";
+        let _output_guard = super::native_output::mutation_guard().await;
         self.begin_change(OPERATION).await?;
+        if super::native_output::remove_route(None).await {
+            self.player
+                .rebuild_output()
+                .await
+                .map_err(|error| manager_error(OPERATION, error.to_string()))?;
+        }
         // Package identity can live inside a ZIP, so stop every lazy process
         // before staging. Install/update is infrequent and this guarantees the
         // target package has no open Node module handles before replacement.
@@ -326,7 +340,14 @@ impl PluginManagerActor {
         enabled: bool,
     ) -> Result<(), PluginManagerOperationError> {
         const OPERATION: &str = "set-enabled";
+        let _output_guard = super::native_output::mutation_guard().await;
         self.begin_change(OPERATION).await?;
+        if super::native_output::remove_route(Some(&plugin_id)).await {
+            self.player
+                .rebuild_output()
+                .await
+                .map_err(|error| manager_error(OPERATION, error.to_string()))?;
+        }
         let result = if enabled {
             let plugins_dir = self.plugins_dir.clone();
             let requested = plugin_id.clone();
@@ -356,7 +377,14 @@ impl PluginManagerActor {
 
     async fn uninstall(&self, plugin_id: String) -> Result<(), PluginManagerOperationError> {
         const OPERATION: &str = "uninstall";
+        let _output_guard = super::native_output::mutation_guard().await;
         self.begin_change(OPERATION).await?;
+        if super::native_output::remove_route(Some(&plugin_id)).await {
+            self.player
+                .rebuild_output()
+                .await
+                .map_err(|error| manager_error(OPERATION, error.to_string()))?;
+        }
         if let Err(error) = self.runtime.unregister(&plugin_id).await {
             self.abort_change().await;
             return Err(manager_error(OPERATION, error.to_string()));

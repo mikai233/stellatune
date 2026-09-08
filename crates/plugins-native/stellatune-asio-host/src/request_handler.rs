@@ -57,6 +57,20 @@ pub(crate) fn dispatch_request<W: Write>(
         Request::Start => {
             handle_start(state, writer)?;
         },
+        Request::Pause => {
+            let result = state
+                .stream
+                .as_ref()
+                .ok_or_else(|| "not opened".to_string())
+                .and_then(StreamState::pause);
+            write_frame(
+                writer,
+                &match result {
+                    Ok(()) => Response::Ok,
+                    Err(message) => Response::Err { message },
+                },
+            )?;
+        },
         Request::Stop => {
             handle_stop(state, writer)?;
         },
@@ -287,6 +301,7 @@ fn handle_open<W: Write>(
                     if let Some(data_ingress) = state.data_ingress.as_ref() {
                         data_ingress.set_ingress(Some(next_ingress));
                     }
+                    let buffer_size_frames = next_state.buffer_size_frames();
                     state.stream = Some(next_state);
                     state.active_device_id = Some(device_id.clone());
                     tracing::debug!(
@@ -294,7 +309,7 @@ fn handle_open<W: Write>(
                         device_id,
                         request_started_at.elapsed().as_millis()
                     );
-                    write_frame(writer, &Response::Ok)
+                    write_frame(writer, &Response::Opened { buffer_size_frames })
                 },
                 Err(error) => {
                     tracing::warn!(
@@ -391,9 +406,29 @@ fn handle_stop<W: Write>(state: &mut RuntimeState, writer: &mut W) -> Result<(),
 
 fn handle_reset<W: Write>(state: &mut RuntimeState, writer: &mut W) -> Result<(), ProtoError> {
     if let Some(stream) = state.stream.as_ref() {
-        stream.reset();
-        tracing::debug!("asio host request Reset: queue_cleared=true");
-        write_frame(writer, &Response::Ok)
+        let result = (|| {
+            let running = stream.running();
+            stream.pause()?;
+            if let Some(ingress) = &state.data_ingress {
+                ingress.set_ingress(None);
+                ingress.request_reset_and_wait(std::time::Duration::from_millis(500))?;
+            }
+            stream.reset();
+            if let Some(ingress) = &state.data_ingress {
+                ingress.set_ingress(Some(stream.ingress()));
+            }
+            if running {
+                stream.start()?;
+            }
+            Ok::<_, String>(())
+        })();
+        write_frame(
+            writer,
+            &match result {
+                Ok(()) => Response::Ok,
+                Err(message) => Response::Err { message },
+            },
+        )
     } else {
         write_frame(
             writer,
@@ -431,9 +466,18 @@ fn handle_write_samples<W: Write>(
 
 fn handle_query_status<W: Write>(state: &RuntimeState, writer: &mut W) -> Result<(), ProtoError> {
     if let Some(stream) = state.stream.as_ref() {
+        if stream.failed() {
+            return write_frame(
+                writer,
+                &Response::Err {
+                    message: "ASIO device stream failed".into(),
+                },
+            );
+        }
         write_frame(
             writer,
             &Response::Status {
+                consumed_frames: stream.consumed_frames(),
                 queued_samples: stream.queued_samples(),
                 running: stream.running(),
             },
@@ -442,6 +486,7 @@ fn handle_query_status<W: Write>(state: &RuntimeState, writer: &mut W) -> Result
         write_frame(
             writer,
             &Response::Status {
+                consumed_frames: 0,
                 queued_samples: 0,
                 running: false,
             },

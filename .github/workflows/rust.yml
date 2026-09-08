@@ -54,6 +54,9 @@ jobs:
       - name: Clippy Check
         run: cargo clippy --workspace --all-targets -- -D warnings
 
+      - name: Native output transport tests
+        run: cargo test -p stellatune-audio-asio-adapter --features test-host
+
       - name: Rustdoc Check
         env:
           RUSTDOCFLAGS: -D warnings
