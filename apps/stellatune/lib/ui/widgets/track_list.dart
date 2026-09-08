@@ -88,6 +88,19 @@ class _TrackListState extends State<TrackList> {
   bool get _isDesktopPlatform =>
       Platform.isWindows || Platform.isLinux || Platform.isMacOS;
 
+  bool _viewportActive = true;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final active = TickerMode.valuesOf(context).enabled;
+    if (active != _viewportActive) {
+      _viewportActive = active;
+      _lastViewportStart = -1;
+      _lastViewportEnd = -1;
+    }
+  }
+
   @override
   void didUpdateWidget(covariant TrackList oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -195,6 +208,7 @@ class _TrackListState extends State<TrackList> {
   }
 
   void _emitViewportRange(ScrollMetrics metrics) {
+    if (!_viewportActive) return;
     final onViewportRangeChanged = widget.onViewportRangeChanged;
     if (onViewportRangeChanged == null || widget.items.isEmpty) return;
     final maxIndex = widget.items.length - 1;
@@ -336,7 +350,7 @@ class _TrackListState extends State<TrackList> {
     }
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
+      if (!mounted || !_viewportActive) return;
       if (_controller.hasClients) {
         _emitViewportRange(_controller.position);
         return;

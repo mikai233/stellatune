@@ -32,7 +32,7 @@ class LibraryPageState extends ConsumerState<LibraryPage> {
 
   final _searchController = TextEditingController();
   bool _foldersPaneCollapsed = false;
-  LibrarySection _desktopSection = LibrarySection.songs;
+  final _desktopSection = ValueNotifier(LibrarySection.songs);
   final ValueNotifier<double> _foldersPaneWidth = ValueNotifier(
     _minFoldersPaneWidth,
   );
@@ -89,6 +89,7 @@ class LibraryPageState extends ConsumerState<LibraryPage> {
   @override
   void dispose() {
     _searchController.dispose();
+    _desktopSection.dispose();
     _foldersPaneWidth.dispose();
     _isResizingFoldersPane.dispose();
     super.dispose();
@@ -312,6 +313,7 @@ extension _LibraryLayout on LibraryPageState {
     required int? lastFinishedMs,
     required String? lastError,
   }) {
+    final coverDir = ref.watch(coverDirProvider);
     Widget tracks(List<TrackLite> items) => LibraryTracksContent(
       tableLayout: widget.useGlobalTopBar,
       bridge: ref.read(playerBridgeProvider),
@@ -333,7 +335,7 @@ extension _LibraryLayout on LibraryPageState {
       errors: errors,
       lastFinishedMs: lastFinishedMs,
       lastError: lastError,
-      coverDir: ref.watch(coverDirProvider),
+      coverDir: coverDir,
       results: items,
       likedTrackIds: likedTrackIds,
       playlists: playlists,
@@ -451,14 +453,15 @@ extension _LibraryLayout on LibraryPageState {
                                   const SizedBox(height: 8),
                                   Expanded(
                                     flex: 5,
-                                    child: DecoratedBox(
-                                      decoration: BoxDecoration(
-                                        color: theme
-                                            .colorScheme
-                                            .surfaceContainerLowest
-                                            .withValues(alpha: 0.62),
+                                    child: Material(
+                                      color: theme
+                                          .colorScheme
+                                          .surfaceContainerLowest
+                                          .withValues(alpha: 0.62),
+                                      clipBehavior: Clip.antiAlias,
+                                      shape: RoundedRectangleBorder(
                                         borderRadius: BorderRadius.circular(14),
-                                        border: Border.all(
+                                        side: BorderSide(
                                           color: theme.colorScheme.onSurface
                                               .withValues(alpha: 0.08),
                                         ),
@@ -652,21 +655,25 @@ extension _LibraryLayout on LibraryPageState {
       ],
     );
     if (!widget.useGlobalTopBar) return foldersView;
-    return DesktopLibraryView(
-      tracks: results,
-      coverDir: ref.watch(coverDirProvider),
-      section: _desktopSection,
-      onSectionChanged: (section) {
-        _updateUi(() => _desktopSection = section);
-        if (section != LibrarySection.folders) {
-          ref.read(libraryControllerProvider.notifier).selectAllMusic();
-        }
-      },
-      trackListBuilder: tracks,
-      foldersView: foldersView,
-      onAddFolder: () => _pickAndAddFolder(context),
-      onScan: (force) => scanFromTopBar(force: force),
-      isScanning: isScanning,
+    return ValueListenableBuilder<LibrarySection>(
+      valueListenable: _desktopSection,
+      builder: (context, section, _) => DesktopLibraryView(
+        tracks: results,
+        coverDir: coverDir,
+        section: section,
+        onSectionChanged: (section) {
+          if (_desktopSection.value == section) return;
+          _desktopSection.value = section;
+          if (section != LibrarySection.folders) {
+            ref.read(libraryControllerProvider.notifier).selectAllMusic();
+          }
+        },
+        trackListBuilder: tracks,
+        foldersView: foldersView,
+        onAddFolder: () => _pickAndAddFolder(context),
+        onScan: (force) => scanFromTopBar(force: force),
+        isScanning: isScanning,
+      ),
     );
   }
 }

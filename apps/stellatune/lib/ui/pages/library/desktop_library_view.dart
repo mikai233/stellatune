@@ -62,18 +62,91 @@ class DesktopLibraryView extends StatefulWidget {
   State<DesktopLibraryView> createState() => _DesktopLibraryViewState();
 }
 
-class _DesktopLibraryViewState extends State<DesktopLibraryView> {
+class _DesktopLibraryViewState extends State<DesktopLibraryView>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tabs;
+  final _groupCache = <LibrarySection, List<LibraryCollection>>{};
+  final _sortCache = <List<TrackLite>, List<TrackLite>>{};
+  _LibrarySort? _cachedSort;
   _LibrarySort sort = _LibrarySort.original;
   bool grid = true;
-  (String, String)? opened;
+  final _opened = <LibrarySection, (String, String)>{};
+
+  @override
+  void initState() {
+    super.initState();
+    _tabs = TabController(
+      length: LibrarySection.values.length,
+      initialIndex: widget.section.index,
+      vsync: this,
+    );
+  }
+
+  @override
+  void dispose() {
+    _tabs.dispose();
+    super.dispose();
+  }
+
   @override
   void didUpdateWidget(covariant DesktopLibraryView oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.section != widget.section) opened = null;
+    if (!identical(oldWidget.tracks, widget.tracks)) {
+      _groupCache.clear();
+      _sortCache.clear();
+    }
+    if (oldWidget.section != widget.section) {
+      _tabs.animateTo(
+        widget.section.index,
+        duration: MediaQuery.disableAnimationsOf(context)
+            ? Duration.zero
+            : const Duration(milliseconds: 240),
+        curve: Curves.easeOutCubic,
+      );
+    }
+  }
+
+  void _checkSortCache() {
+    if (_cachedSort == sort) return;
+    _cachedSort = sort;
+    _groupCache.clear();
+    _sortCache.clear();
+  }
+
+  List<LibraryCollection> _groups(LibrarySection section) {
+    if (section != LibrarySection.albums && section != LibrarySection.artists) {
+      return const [];
+    }
+    _checkSortCache();
+    return _groupCache.putIfAbsent(section, () {
+      final result = groupLibraryTracks(
+        widget.tracks,
+        byArtist: section == LibrarySection.artists,
+      );
+      if (sort != _LibrarySort.original) {
+        result.sort(
+          (a, b) => (sort == _LibrarySort.artist ? a.artist : a.title)
+              .compareTo(sort == _LibrarySort.artist ? b.artist : b.title),
+        );
+      }
+      return result;
+    });
+  }
+
+  LibraryCollection? _selected(LibrarySection section) {
+    final opened = _opened[section];
+    if (opened == null) return null;
+    for (final group in _groups(section)) {
+      if ((group.title, group.artist) == opened) return group;
+    }
+    return null;
   }
 
   List<TrackLite> sorted(List<TrackLite> tracks) {
     if (sort == _LibrarySort.original) return tracks;
+    _checkSortCache();
+    final cached = _sortCache[tracks];
+    if (cached != null) return cached;
     String title(TrackLite t) => (t.title ?? t.path).toLowerCase();
     final result = [...tracks];
     result.sort((a, b) {
@@ -84,7 +157,7 @@ class _DesktopLibraryViewState extends State<DesktopLibraryView> {
           : title(a).compareTo(title(b));
       return first == 0 ? a.id.compareTo(b.id) : first;
     });
-    return result;
+    return _sortCache[tracks] = result;
   }
 
   @override
@@ -92,21 +165,8 @@ class _DesktopLibraryViewState extends State<DesktopLibraryView> {
     final section = widget.section;
     final grouped =
         section == LibrarySection.albums || section == LibrarySection.artists;
-    final groups = grouped
-        ? groupLibraryTracks(
-            widget.tracks,
-            byArtist: section == LibrarySection.artists,
-          )
-        : <LibraryCollection>[];
-    if (sort != _LibrarySort.original) {
-      groups.sort(
-        (a, b) => (sort == _LibrarySort.artist ? a.artist : a.title).compareTo(
-          sort == _LibrarySort.artist ? b.artist : b.title,
-        ),
-      );
-    }
-    final matches = groups.where((g) => (g.title, g.artist) == opened);
-    final selected = matches.isEmpty ? null : matches.first;
+    final groups = _groups(section);
+    final selected = _selected(section);
     return Padding(
       padding: const EdgeInsets.only(top: 12),
       child: Column(
@@ -133,8 +193,13 @@ class _DesktopLibraryViewState extends State<DesktopLibraryView> {
                     padding: const EdgeInsets.only(right: 26),
                     child: InkWell(
                       key: ValueKey('library-tab-${tab.name}'),
-                      onTap: () => widget.onSectionChanged(tab),
-                      child: Container(
+                      onTap: section == tab
+                          ? null
+                          : () => widget.onSectionChanged(tab),
+                      child: AnimatedContainer(
+                        duration: MediaQuery.disableAnimationsOf(context)
+                            ? Duration.zero
+                            : const Duration(milliseconds: 180),
                         padding: const EdgeInsets.fromLTRB(5, 5, 5, 12),
                         decoration: BoxDecoration(
                           border: Border(
@@ -182,7 +247,8 @@ class _DesktopLibraryViewState extends State<DesktopLibraryView> {
                             if (selected != null)
                               IconButton(
                                 tooltip: '返回',
-                                onPressed: () => setState(() => opened = null),
+                                onPressed: () =>
+                                    setState(() => _opened.remove(section)),
                                 icon: Icon(Icons.arrow_back, size: 18),
                               ),
                             Expanded(
@@ -278,16 +344,18 @@ class _DesktopLibraryViewState extends State<DesktopLibraryView> {
                       if (widget.isScanning)
                         const LinearProgressIndicator(minHeight: 2),
                       Expanded(
-                        child: section == LibrarySection.folders
-                            ? widget.foldersView
-                            : selected != null
-                            ? widget.trackListBuilder(sorted(selected.tracks))
-                            : grouped
-                            ? _collections(
-                                groups,
-                                section == LibrarySection.artists,
-                              )
-                            : widget.trackListBuilder(sorted(widget.tracks)),
+                        child: TabBarView(
+                          controller: _tabs,
+                          physics: const NeverScrollableScrollPhysics(),
+                          children: [
+                            for (final tab in LibrarySection.values)
+                              _RetainedLibrarySection(
+                                key: ValueKey(tab),
+                                active: tab == section,
+                                builder: (_) => _sectionBody(tab),
+                              ),
+                          ],
+                        ),
                       ),
                     ],
                   ),
@@ -300,7 +368,20 @@ class _DesktopLibraryViewState extends State<DesktopLibraryView> {
     );
   }
 
-  Widget _collections(List<LibraryCollection> groups, bool artists) {
+  Widget _sectionBody(LibrarySection section) {
+    if (section == LibrarySection.folders) return widget.foldersView;
+    final selected = _selected(section);
+    if (selected != null) {
+      return widget.trackListBuilder(sorted(selected.tracks));
+    }
+    if (section == LibrarySection.songs) {
+      return widget.trackListBuilder(sorted(widget.tracks));
+    }
+    return _collections(_groups(section), section);
+  }
+
+  Widget _collections(List<LibraryCollection> groups, LibrarySection section) {
+    final artists = section == LibrarySection.artists;
     if (groups.isEmpty) return Center(child: Text('暂无内容，添加音乐文件夹后开始浏览'));
     Widget cover(LibraryCollection group) {
       final track = group.tracks.first;
@@ -313,10 +394,10 @@ class _DesktopLibraryViewState extends State<DesktopLibraryView> {
     }
 
     void open(LibraryCollection group) =>
-        setState(() => opened = (group.title, group.artist));
+        setState(() => _opened[section] = (group.title, group.artist));
     if (!grid) {
       return ListView.builder(
-        key: PageStorageKey('library-${widget.section.name}-list'),
+        key: PageStorageKey('library-${section.name}-list'),
         itemExtent: 72,
         padding: const EdgeInsets.symmetric(horizontal: 14),
         itemCount: groups.length,
@@ -346,7 +427,7 @@ class _DesktopLibraryViewState extends State<DesktopLibraryView> {
         final width = (size.maxWidth - 36 - (columns - 1) * 22) / columns;
         final textScale = MediaQuery.textScalerOf(context).scale(1);
         return GridView.builder(
-          key: PageStorageKey('library-${widget.section.name}-grid'),
+          key: PageStorageKey('library-${section.name}-grid'),
           padding: const EdgeInsets.fromLTRB(18, 10, 18, 20),
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: columns,
@@ -399,6 +480,37 @@ class _DesktopLibraryViewState extends State<DesktopLibraryView> {
           },
         );
       },
+    );
+  }
+}
+
+/// TabBarView mounts pages on demand; retain their scroll and folder-tree state
+/// when offscreen instead of rebuilding indexes and visible rows on every visit.
+class _RetainedLibrarySection extends StatefulWidget {
+  const _RetainedLibrarySection({
+    super.key,
+    required this.builder,
+    required this.active,
+  });
+  final WidgetBuilder builder;
+  final bool active;
+
+  @override
+  State<_RetainedLibrarySection> createState() =>
+      _RetainedLibrarySectionState();
+}
+
+class _RetainedLibrarySectionState extends State<_RetainedLibrarySection>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    return TickerMode(
+      enabled: widget.active,
+      child: RepaintBoundary(child: Builder(builder: widget.builder)),
     );
   }
 }
