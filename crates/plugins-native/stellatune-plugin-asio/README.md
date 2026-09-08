@@ -6,7 +6,14 @@ SMSL's **USB DAC ASIO**). The driver's default sample rate and hardware buffer
 are used unless explicitly configured. Enable **Match track sample rate** in
 Settings > Audio to use the track's rate when supported; otherwise the core
 resamples to the driver's default. An explicit plugin `sample_rate` overrides
-this toggle. Current output layouts are mono/stereo.
+this toggle. Current output layouts are mono/stereo. Native PCM output supports
+float32 and signed 16/24/32-bit formats, including Realtek's packed I24 output.
+
+Some drivers (including Realtek ASIO) report a current rate of zero before the
+first stream opens. That means unknown, not an audio format. When the reported
+default is unavailable, choose 48 kHz, then 44.1 kHz, then the lowest non-zero
+rate, always restricted to the driver's enumerated supported rates. If none
+are available, report a device-capability error before rebuilding playback.
 
 The package contains `stellatune-asio-host.exe`. The host loads the ASIO driver;
 the Rust audio adapter sends interleaved float PCM over an SPSC memory mapping.
@@ -27,6 +34,11 @@ shutdown release the ASIO host. Package changes fall back to the system output;
 select ASIO again afterwards. A crashed or unresponsive host fails with a bounded
 timeout and can be opened again. Device IDs remain stable across host restarts.
 
+If a selected driver cannot open, output selection restores the previous route
+and retains the current track and position. Settings disables that failed device
+for the current session; hover it for the failure reason. Refresh the device list
+to retry after connecting hardware or changing driver settings.
+
 Build from the repository root (Rust, MSVC tools and clang/bindgen required):
 
 ```powershell
@@ -34,7 +46,9 @@ Build from the repository root (Rust, MSVC tools and clang/bindgen required):
 ```
 
 The ZIP is standalone and needs neither Node modules nor the source checkout.
-Use it with a host supporting manifest `native_output.protocol = "asio-v9"`.
+Use it with an updated app supporting `native_output.protocol = "asio-v10"`.
+Version 10 adds the I24 capability. The app and plugin must be updated together;
+older host protocols are rejected without fallback.
 Old WASM ASIO packages are not compatible.
 
 Installing this package over a schema-v1 ASIO installation replaces it with the

@@ -4,6 +4,7 @@
 // ignore_for_file: invalid_use_of_internal_member, unused_import, unnecessary_import
 
 import '../../frb_generated.dart';
+import '../error.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:freezed_annotation/freezed_annotation.dart' hide protected;
@@ -166,7 +167,7 @@ sealed class Event with _$Event {
   }) = Event_VolumeChanged;
   const factory Event.audioStart() = Event_AudioStart;
   const factory Event.audioEnd() = Event_AudioEnd;
-  const factory Event.error({required String message}) = Event_Error;
+  const factory Event.error({required AppError error}) = Event_Error;
   const factory Event.log({required String message}) = Event_Log;
 }
 
@@ -425,6 +426,7 @@ class TrackDecodeInfo {
 
 class TranscodeProgressEvent {
   final String phase;
+  final AppError? error;
   final String? message;
   final String? sourcePath;
   final String? outputPath;
@@ -437,6 +439,7 @@ class TranscodeProgressEvent {
 
   const TranscodeProgressEvent({
     required this.phase,
+    this.error,
     this.message,
     this.sourcePath,
     this.outputPath,
@@ -451,6 +454,7 @@ class TranscodeProgressEvent {
   @override
   int get hashCode =>
       phase.hashCode ^
+      error.hashCode ^
       message.hashCode ^
       sourcePath.hashCode ^
       outputPath.hashCode ^
@@ -467,6 +471,7 @@ class TranscodeProgressEvent {
       other is TranscodeProgressEvent &&
           runtimeType == other.runtimeType &&
           phase == other.phase &&
+          error == other.error &&
           message == other.message &&
           sourcePath == other.sourcePath &&
           outputPath == other.outputPath &&

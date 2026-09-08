@@ -77,7 +77,7 @@ async fn executable(plugin_id: &str, type_id: &str) -> Result<PathBuf, String> {
         .native_output
         .as_ref()
         .ok_or("native output host is missing")?;
-    if output.protocol != "asio-v9" {
+    if output.protocol != "asio-v10" {
         return Err("unsupported native output protocol".into());
     }
     Ok(plugin.package_root.join(&output.executable))

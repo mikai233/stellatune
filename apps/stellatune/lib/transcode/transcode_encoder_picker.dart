@@ -1,3 +1,5 @@
+import 'package:stellatune/app/diagnostics/diagnostics_service.dart';
+
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -30,11 +32,7 @@ Future<EncoderTypeDescriptor?> pickTranscodeEncoder(
         return type == 0 ? a.pluginId.compareTo(b.pluginId) : type;
       });
   } catch (error) {
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${l10n.transcodeLoadEncodersFailed}: $error')),
-      );
-    }
+    DiagnosticsService.instance.report(error, operation: 'transcode_encoders');
     return null;
   }
   if (!context.mounted) return null;

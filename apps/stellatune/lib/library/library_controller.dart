@@ -1,3 +1,5 @@
+import 'package:stellatune/app/diagnostics/diagnostics_service.dart';
+
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -49,7 +51,10 @@ class LibraryController extends Notifier<LibraryState> {
         ref
             .read(loggerProvider)
             .e('library events error: $err', error: err, stackTrace: st);
-        _eventError = err.toString();
+        _eventError = DiagnosticsService.instance.failureMessage(
+          err,
+          operation: 'library',
+        );
         unawaited(_finishScan());
         state = state.copyWith(isScanning: false);
         _publishErrors();
@@ -182,7 +187,10 @@ class LibraryController extends Notifier<LibraryState> {
       ref
           .read(loggerProvider)
           .w('library scan failed: $e', error: e, stackTrace: s);
-      _eventError = e.toString();
+      _eventError = DiagnosticsService.instance.failureMessage(
+        e,
+        operation: 'library',
+      );
       state = state.copyWith(isScanning: false);
       await _finishScan();
       if (!ref.mounted || lifetime != _lifetime) return;
@@ -404,7 +412,10 @@ class LibraryController extends Notifier<LibraryState> {
       if (!isCurrent()) return;
       // Other concurrent queries must not erase this failure on success.
       _queryErrors.remove(kind);
-      _queryErrors[kind] = error.toString();
+      _queryErrors[kind] = DiagnosticsService.instance.failureMessage(
+        error,
+        operation: 'library',
+      );
       _publishErrors();
       ref
           .read(loggerProvider)
@@ -523,9 +534,13 @@ class LibraryController extends Notifier<LibraryState> {
         unawaited(_refreshTracks());
       },
       error: (message) {
+        DiagnosticsService.instance.report(message, operation: 'library');
         unawaited(_finishScan());
         ref.read(loggerProvider).e(message);
-        _eventError = message;
+        _eventError = DiagnosticsService.instance.messageFor(
+          message,
+          operation: 'library',
+        );
         state = state.copyWith(isScanning: false);
         _publishErrors();
       },

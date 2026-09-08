@@ -4,6 +4,7 @@ import 'package:stellatune/app/providers.dart';
 import 'package:stellatune/l10n/app_localizations.dart';
 import 'package:stellatune/ui/pages/shell_page.dart';
 import 'package:stellatune/ui/theme/desktop_theme.dart';
+import 'package:stellatune/ui/diagnostics/diagnostics_overlay.dart';
 
 class StellatuneApp extends ConsumerWidget {
   const StellatuneApp({super.key});
@@ -75,6 +76,8 @@ class StellatuneApp extends ConsumerWidget {
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
       home: const ShellPage(),
+      builder: (context, child) =>
+          DiagnosticsOverlay(child: child ?? const SizedBox.shrink()),
     );
   }
 }

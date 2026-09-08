@@ -1,3 +1,4 @@
+import 'package:stellatune/app/diagnostics/diagnostics_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:stellatune/bridge/bridge.dart';
@@ -195,15 +196,7 @@ Future<void> showLyricsCandidatePicker({
                                   error: e,
                                   stackTrace: s,
                                 );
-                            if (context.mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text(
-                                    l10n.lyricsCandidateApplyFailed,
-                                  ),
-                                ),
-                              );
-                            }
+                            DiagnosticsService.instance.report(e, stack: s, operation: 'lyrics_apply_candidate');
                           }
                           if (sheetContext.mounted) {
                             Navigator.of(sheetContext).pop();

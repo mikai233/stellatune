@@ -105,10 +105,9 @@ impl AsioSinkFactory {
         revision: u64,
     ) -> Result<Arc<Self>, String> {
         config.validate()?;
-        let sample_rate = config.sample_rate.unwrap_or(caps.default_spec.sample_rate);
-        if !caps.supported_sample_rates.contains(&sample_rate) {
-            return Err(format!("ASIO device does not support {sample_rate} Hz"));
-        }
+        // Also sanitize replies from older installed hosts that included zero
+        // in both default_spec and supported_sample_rates.
+        let sample_rate = caps.resolve_sample_rate(config.sample_rate)?;
         // Device channel counts carry no speaker positions. Music output is
         // explicitly mono/stereo; never guess a multichannel speaker layout.
         let channel_layout = if caps.supported_channels.contains(&2) {
@@ -127,7 +126,11 @@ impl AsioSinkFactory {
                 sample_rate,
                 channel_layout,
             },
-            supported_sample_rates: caps.supported_sample_rates,
+            supported_sample_rates: caps
+                .supported_sample_rates
+                .into_iter()
+                .filter(|&rate| rate != 0)
+                .collect(),
             match_track_sample_rate: false,
             revision,
             valid: Arc::new(AtomicBool::new(true)),

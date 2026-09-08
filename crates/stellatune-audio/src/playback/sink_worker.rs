@@ -268,7 +268,9 @@ impl SinkWorker {
         self.control_sender
             .try_send(command)
             .map_err(|error| match error {
-                TrySendError::Disconnected(_) => PlaybackControlError::Closed,
+                TrySendError::Disconnected(_) => self.try_failure().unwrap_or_else(|| {
+                    PlaybackControlError::failed(FailureStage::Sink, "sink worker closed")
+                }),
                 TrySendError::Full(_) => {
                     PlaybackControlError::failed(FailureStage::Sink, "output control queue is full")
                 },
@@ -434,12 +436,20 @@ impl SinkWorker {
     pub(super) fn try_failure(&self) -> Option<PlaybackControlError> {
         let mut failure = self.failure_receiver.try_recv().ok();
         self.pending_controls.borrow_mut().retain_mut(|pending| {
-            let result = match pending.response.try_recv() {
-                Ok(result) => result,
-                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                    Err(PlaybackControlError::Closed)
-                },
-                Err(std::sync::mpsc::TryRecvError::Empty) => return true,
+            // Commands still queued at worker exit may retain their reply senders.
+            // Once opening/control fails, none of those acknowledgements can arrive.
+            let result = if let Some(error) = &failure {
+                Err(error.clone())
+            } else {
+                match pending.response.try_recv() {
+                    Ok(result) => result,
+                    Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                        Err(failure.clone().unwrap_or_else(|| {
+                            PlaybackControlError::failed(FailureStage::Sink, "sink worker closed")
+                        }))
+                    },
+                    Err(std::sync::mpsc::TryRecvError::Empty) => return true,
+                }
             };
             if let Err(error) = &result {
                 failure.get_or_insert(error.clone());

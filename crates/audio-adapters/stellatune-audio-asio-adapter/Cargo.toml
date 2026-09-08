@@ -5,6 +5,7 @@ edition = "2024"
 license.workspace = true
 
 [dependencies]
+tracing.workspace = true
 stellatune-audio-core.workspace = true
 stellatune-asio-proto.workspace = true
 serde.workspace = true

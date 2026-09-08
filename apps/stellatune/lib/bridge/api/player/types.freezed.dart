@@ -141,7 +141,7 @@ return log(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function( PlayerState state)?  stateChanged,TResult Function( PlatformInt64 ms,  BigInt trackId,  BigInt itemId,  BigInt sessionId)?  position,TResult Function( BigInt trackId,  BigInt itemId)?  trackChanged,TResult Function( BigInt trackId,  BigInt itemId)?  playbackEnded,TResult Function( double volume,  BigInt seq)?  volumeChanged,TResult Function()?  audioStart,TResult Function()?  audioEnd,TResult Function( String message)?  error,TResult Function( String message)?  log,required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function( PlayerState state)?  stateChanged,TResult Function( PlatformInt64 ms,  BigInt trackId,  BigInt itemId,  BigInt sessionId)?  position,TResult Function( BigInt trackId,  BigInt itemId)?  trackChanged,TResult Function( BigInt trackId,  BigInt itemId)?  playbackEnded,TResult Function( double volume,  BigInt seq)?  volumeChanged,TResult Function()?  audioStart,TResult Function()?  audioEnd,TResult Function( AppError error)?  error,TResult Function( String message)?  log,required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case Event_StateChanged() when stateChanged != null:
 return stateChanged(_that.state);case Event_Position() when position != null:
@@ -151,7 +151,7 @@ return playbackEnded(_that.trackId,_that.itemId);case Event_VolumeChanged() when
 return volumeChanged(_that.volume,_that.seq);case Event_AudioStart() when audioStart != null:
 return audioStart();case Event_AudioEnd() when audioEnd != null:
 return audioEnd();case Event_Error() when error != null:
-return error(_that.message);case Event_Log() when log != null:
+return error(_that.error);case Event_Log() when log != null:
 return log(_that.message);case _:
   return orElse();
 
@@ -170,7 +170,7 @@ return log(_that.message);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function( PlayerState state)  stateChanged,required TResult Function( PlatformInt64 ms,  BigInt trackId,  BigInt itemId,  BigInt sessionId)  position,required TResult Function( BigInt trackId,  BigInt itemId)  trackChanged,required TResult Function( BigInt trackId,  BigInt itemId)  playbackEnded,required TResult Function( double volume,  BigInt seq)  volumeChanged,required TResult Function()  audioStart,required TResult Function()  audioEnd,required TResult Function( String message)  error,required TResult Function( String message)  log,}) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function( PlayerState state)  stateChanged,required TResult Function( PlatformInt64 ms,  BigInt trackId,  BigInt itemId,  BigInt sessionId)  position,required TResult Function( BigInt trackId,  BigInt itemId)  trackChanged,required TResult Function( BigInt trackId,  BigInt itemId)  playbackEnded,required TResult Function( double volume,  BigInt seq)  volumeChanged,required TResult Function()  audioStart,required TResult Function()  audioEnd,required TResult Function( AppError error)  error,required TResult Function( String message)  log,}) {final _that = this;
 switch (_that) {
 case Event_StateChanged():
 return stateChanged(_that.state);case Event_Position():
@@ -180,7 +180,7 @@ return playbackEnded(_that.trackId,_that.itemId);case Event_VolumeChanged():
 return volumeChanged(_that.volume,_that.seq);case Event_AudioStart():
 return audioStart();case Event_AudioEnd():
 return audioEnd();case Event_Error():
-return error(_that.message);case Event_Log():
+return error(_that.error);case Event_Log():
 return log(_that.message);}
 }
 /// A variant of `when` that fallback to returning `null`
@@ -195,7 +195,7 @@ return log(_that.message);}
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function( PlayerState state)?  stateChanged,TResult? Function( PlatformInt64 ms,  BigInt trackId,  BigInt itemId,  BigInt sessionId)?  position,TResult? Function( BigInt trackId,  BigInt itemId)?  trackChanged,TResult? Function( BigInt trackId,  BigInt itemId)?  playbackEnded,TResult? Function( double volume,  BigInt seq)?  volumeChanged,TResult? Function()?  audioStart,TResult? Function()?  audioEnd,TResult? Function( String message)?  error,TResult? Function( String message)?  log,}) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function( PlayerState state)?  stateChanged,TResult? Function( PlatformInt64 ms,  BigInt trackId,  BigInt itemId,  BigInt sessionId)?  position,TResult? Function( BigInt trackId,  BigInt itemId)?  trackChanged,TResult? Function( BigInt trackId,  BigInt itemId)?  playbackEnded,TResult? Function( double volume,  BigInt seq)?  volumeChanged,TResult? Function()?  audioStart,TResult? Function()?  audioEnd,TResult? Function( AppError error)?  error,TResult? Function( String message)?  log,}) {final _that = this;
 switch (_that) {
 case Event_StateChanged() when stateChanged != null:
 return stateChanged(_that.state);case Event_Position() when position != null:
@@ -205,7 +205,7 @@ return playbackEnded(_that.trackId,_that.itemId);case Event_VolumeChanged() when
 return volumeChanged(_that.volume,_that.seq);case Event_AudioStart() when audioStart != null:
 return audioStart();case Event_AudioEnd() when audioEnd != null:
 return audioEnd();case Event_Error() when error != null:
-return error(_that.message);case Event_Log() when log != null:
+return error(_that.error);case Event_Log() when log != null:
 return log(_that.message);case _:
   return null;
 
@@ -634,10 +634,10 @@ String toString() {
 
 
 class Event_Error extends Event {
-  const Event_Error({required this.message}): super._();
+  const Event_Error({required this.error}): super._();
   
 
- final  String message;
+ final  AppError error;
 
 /// Create a copy of Event
 /// with the given fields replaced by the non-null parameter values.
@@ -649,18 +649,18 @@ $Event_ErrorCopyWith<Event_Error> get copyWith => _$Event_ErrorCopyWithImpl<Even
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is Event_Error&&(identical(other.message, message) || other.message == message));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is Event_Error&&(identical(other.error, error) || other.error == error));
 }
 
 
 @override
 int get hashCode {
-    return Object.hash(runtimeType,message);
+    return Object.hash(runtimeType,error);
 }
 
 @override
 String toString() {
-    return 'Event.error(message: $message)';
+    return 'Event.error(error: $error)';
 }
 
 
@@ -671,7 +671,7 @@ abstract mixin class $Event_ErrorCopyWith<$Res> implements $EventCopyWith<$Res> 
   factory $Event_ErrorCopyWith(Event_Error value, $Res Function(Event_Error) _then) = _$Event_ErrorCopyWithImpl;
 @useResult
 $Res call({
- String message
+ AppError error
 });
 
 
@@ -688,10 +688,10 @@ class _$Event_ErrorCopyWithImpl<$Res>
 
 /// Create a copy of Event
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') $Res call({Object? message = null,}) {
+@pragma('vm:prefer-inline') $Res call({Object? error = null,}) {
   return _then(Event_Error(
-message: null == message ? _self.message : message // ignore: cast_nullable_to_non_nullable
-as String,
+error: null == error ? _self.error : error // ignore: cast_nullable_to_non_nullable
+as AppError,
   ));
 }
 

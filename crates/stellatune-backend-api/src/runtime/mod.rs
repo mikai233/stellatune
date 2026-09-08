@@ -1,11 +1,7 @@
 use std::collections::BTreeMap;
 use std::path::Path;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
-use std::{
-    fs::OpenOptions,
-    io::{self, Write},
-    path::PathBuf,
-};
 
 use anyhow::{Result, anyhow};
 use std::time::Instant;
@@ -14,6 +10,7 @@ use crate::player_service::service::PlayerService;
 use stellatune_audio::config::engine::ResampleQuality;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::time::LocalTime;
+use tracing_subscriber::prelude::*;
 
 mod engine;
 mod native_output;
@@ -191,59 +188,6 @@ pub async fn runtime_clear_output_sink_route() -> Result<(), String> {
     engine::runtime_clear_output_sink_route().await
 }
 
-#[derive(Clone)]
-struct TeeWriter {
-    file: Option<Arc<Mutex<std::fs::File>>>,
-}
-
-impl TeeWriter {
-    fn new(file: Option<Arc<Mutex<std::fs::File>>>) -> Self {
-        Self { file }
-    }
-}
-
-impl Write for TeeWriter {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        let _ = io::stderr().write_all(buf);
-        if let Some(file) = &self.file
-            && let Ok(mut guard) = file.lock()
-        {
-            let _ = guard.write_all(buf);
-        }
-        Ok(buf.len())
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        let _ = io::stderr().flush();
-        if let Some(file) = &self.file
-            && let Ok(mut guard) = file.lock()
-        {
-            let _ = guard.flush();
-        }
-        Ok(())
-    }
-}
-
-fn tracing_log_file_path() -> PathBuf {
-    std::env::temp_dir().join("stellatune").join("tracing.log")
-}
-
-fn open_tracing_log_file() -> Option<Arc<Mutex<std::fs::File>>> {
-    let path = tracing_log_file_path();
-    if let Some(parent) = path.parent()
-        && std::fs::create_dir_all(parent).is_err()
-    {
-        return None;
-    }
-    let file = OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(true)
-        .open(path)
-        .ok()?;
-    Some(Arc::new(Mutex::new(file)))
-}
-
 fn install_panic_hook() {
     static PANIC_HOOK_INIT: OnceLock<()> = OnceLock::new();
     PANIC_HOOK_INIT.get_or_init(|| {
@@ -275,6 +219,7 @@ fn install_panic_hook() {
 
 pub fn init_tracing() {
     static INIT: OnceLock<()> = OnceLock::new();
+    static CONSOLE_GUARD: OnceLock<tracing_appender::non_blocking::WorkerGuard> = OnceLock::new();
     INIT.get_or_init(|| {
         let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
             if cfg!(debug_assertions) {
@@ -284,15 +229,19 @@ pub fn init_tracing() {
             }
         });
         let filter = add_quiet_http_directives(filter);
-        let file = open_tracing_log_file();
-        let writer = move || TeeWriter::new(file.clone());
-        tracing_subscriber::fmt()
-            .with_env_filter(filter)
-            .with_timer(LocalTime::rfc_3339())
-            .with_target(true)
-            .with_thread_names(true)
-            .with_thread_ids(true)
-            .with_writer(writer)
+        let (console, guard) = tracing_appender::non_blocking(std::io::stderr());
+        let _ = CONSOLE_GUARD.set(guard);
+        tracing_subscriber::registry()
+            .with(filter)
+            .with(
+                tracing_subscriber::fmt::layer()
+                    .with_writer(console)
+                    .with_timer(LocalTime::rfc_3339())
+                    .with_target(true)
+                    .with_thread_names(true)
+                    .with_ansi(false),
+            )
+            .with(crate::diagnostics::DiagnosticsLayer)
             .try_init()
             .ok();
         install_panic_hook();

@@ -1,3 +1,4 @@
+import 'package:stellatune/app/diagnostics/diagnostics_service.dart';
 import 'dart:convert';
 
 import 'package:stellatune/app/logging.dart';
@@ -19,11 +20,7 @@ class PluginPlaylistRefreshResult {
     if (entries.isNotEmpty || sourceErrors.isEmpty) {
       return null;
     }
-    final preview = sourceErrors.take(3).join(' | ');
-    final suffix = sourceErrors.length > 3
-        ? ' | ...(${sourceErrors.length - 3} more)'
-        : '';
-    return '$preview$suffix';
+    return DiagnosticsService.instance.messageFor(null, operation: 'playlists_load');
   }
 }
 

@@ -1,3 +1,5 @@
+import 'package:stellatune/app/diagnostics/diagnostics_service.dart';
+
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -34,7 +36,11 @@ class LyricsController extends Notifier<LyricsState> {
             .e('lyrics events error: $err', error: err, stackTrace: st);
         state = state.copyWith(
           status: LyricsStatus.error,
-          lastError: err.toString(),
+          lastError: DiagnosticsService.instance.failureMessage(
+            err,
+            operation: 'lyrics',
+            notify: false,
+          ),
         );
       },
     );
@@ -83,7 +89,11 @@ class LyricsController extends Notifier<LyricsState> {
           .e('lyrics clear cache failed: $e', error: e, stackTrace: st);
       state = state.copyWith(
         status: LyricsStatus.error,
-        lastError: e.toString(),
+        lastError: DiagnosticsService.instance.failureMessage(
+          e,
+          operation: 'lyrics',
+          notify: false,
+        ),
       );
       rethrow;
     }
@@ -163,7 +173,11 @@ class LyricsController extends Notifier<LyricsState> {
             .e('lyrics prepare failed: $err', error: err, stackTrace: st);
         state = state.copyWith(
           status: LyricsStatus.error,
-          lastError: err.toString(),
+          lastError: DiagnosticsService.instance.failureMessage(
+            err,
+            operation: 'lyrics',
+            notify: false,
+          ),
         );
       }),
     );
@@ -297,7 +311,11 @@ class LyricsController extends Notifier<LyricsState> {
           trackKey: trackKey,
           doc: null,
           currentLineIndex: -1,
-          lastError: message,
+          lastError: DiagnosticsService.instance.failureMessage(
+            message,
+            operation: 'lyrics',
+            notify: false,
+          ),
         );
       },
     );

@@ -1,5 +1,8 @@
 import 'dart:io';
 
+import 'package:stellatune/app/diagnostics/diagnostics_service.dart';
+import 'package:stellatune/bridge/api/error.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:stellatune/app/output_settings_controller.dart';
@@ -55,17 +58,57 @@ class SettingsOutputSection extends ConsumerWidget {
     final deviceValue = local == null
         ? selection.targetJson
         : selection.deviceId;
+    DropdownMenuItem<String?> deviceItem(String value, String label) {
+      final error = state.unavailableTargets[(selection.backendKey, value)];
+      return DropdownMenuItem(
+        value: value,
+        enabled: error == null,
+        child: Tooltip(
+          message: error == null
+              ? label
+              : DiagnosticsService.instance.messageFor(
+                  error,
+                  operation: 'output',
+                ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Flexible(
+                child: Text(
+                  label,
+                  overflow: TextOverflow.ellipsis,
+                  style: error == null
+                      ? null
+                      : TextStyle(color: Theme.of(context).disabledColor),
+                ),
+              ),
+              if (error != null)
+                IconButton(
+                  tooltip: DiagnosticsService.instance.chinese
+                      ? '查看日志'
+                      : 'View logs',
+                  icon: const Icon(Icons.receipt_long_outlined, size: 16),
+                  onPressed: () => DiagnosticsService.instance.open(
+                    error is AppError ? error.diagnosticId : null,
+                  ),
+                ),
+            ],
+          ),
+        ),
+      );
+    }
+
     final devices = <DropdownMenuItem<String?>>[
       if (local != null)
         DropdownMenuItem(value: null, child: Text(l10n.settingsDeviceDefault)),
       if (local != null)
         for (final device in state.devices.where((d) => d.backend == local))
-          DropdownMenuItem(value: device.id, child: Text(device.name)),
+          deviceItem(device.id, device.name),
       if (local == null)
         for (final target in state.targets)
-          DropdownMenuItem(
-            value: OutputSettingsValues.targetValueOf(target),
-            child: Text(OutputSettingsValues.targetLabelOf(target)),
+          deviceItem(
+            OutputSettingsValues.targetValueOf(target),
+            OutputSettingsValues.targetLabelOf(target),
           ),
     ];
     if (deviceValue != null &&
@@ -94,11 +137,6 @@ class SettingsOutputSection extends ConsumerWidget {
       children: [
         if (state.loading || state.loadingTargets)
           const LinearProgressIndicator(),
-        if (state.error != null)
-          Text(
-            state.error.toString(),
-            style: TextStyle(color: Theme.of(context).colorScheme.error),
-          ),
         SettingsSelectField<String>(
           key: ValueKey(('backend', state.revision)),
           decoration: InputDecoration(labelText: l10n.settingsBackend),

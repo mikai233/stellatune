@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:stellatune/app/diagnostics/diagnostics_service.dart';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:stellatune/app/logging.dart';
 import 'package:stellatune/app/output_settings_runtime.dart';
@@ -68,6 +70,7 @@ class OutputSettingsState {
     this.applying = false,
     this.error,
     this.configDrafts = const {},
+    this.unavailableTargets = const {},
     this.revision = 0,
   });
 
@@ -77,6 +80,8 @@ class OutputSettingsState {
   final List<AudioDevice> devices;
   final List<Object?> targets;
   final Map<String, String> configDrafts;
+  // Session-only failures; refreshing devices permits a new attempt.
+  final Map<(String, String), Object> unavailableTargets;
   final bool loading;
   final bool loadingTargets;
   final bool applying;
@@ -90,6 +95,7 @@ class OutputSettingsState {
     List<AudioDevice>? devices,
     List<Object?>? targets,
     Map<String, String>? configDrafts,
+    Map<(String, String), Object>? unavailableTargets,
     bool? loading,
     bool? loadingTargets,
     bool? applying,
@@ -101,6 +107,7 @@ class OutputSettingsState {
     devices: devices ?? this.devices,
     targets: targets ?? this.targets,
     configDrafts: configDrafts ?? this.configDrafts,
+    unavailableTargets: unavailableTargets ?? this.unavailableTargets,
     loading: loading ?? this.loading,
     loadingTargets: loadingTargets ?? this.loadingTargets,
     applying: applying ?? this.applying,
@@ -153,9 +160,11 @@ class OutputSettingsController extends Notifier<OutputSettingsState> {
     final next = _pending.then((_) async {
       if (!_isActive(lifetime)) return;
       state = state.copyWith(applying: true, clearError: true);
+      DiagnosticsService.instance.beginOutputOperation();
       try {
         await action();
       } finally {
+        DiagnosticsService.instance.endOutputOperation();
         if (_isActive(lifetime)) state = state.copyWith(applying: false);
       }
     });
@@ -168,6 +177,7 @@ class OutputSettingsController extends Notifier<OutputSettingsState> {
     StackTrace stack, {
     int? generation,
     int? lifetime,
+    bool preservePluginSelection = false,
   }) {
     logger.w(
       'output settings operation failed',
@@ -181,9 +191,14 @@ class OutputSettingsController extends Notifier<OutputSettingsState> {
     }
     state = state.copyWith(
       error: error,
-      clearDraft: true,
+      clearDraft: !preservePluginSelection,
       loadingTargets: false,
-      targets: const [],
+      targets: preservePluginSelection ? state.targets : const [],
+    );
+    DiagnosticsService.instance.report(
+      error,
+      stack: stack,
+      operation: 'output_settings',
     );
   }
 
@@ -191,7 +206,11 @@ class OutputSettingsController extends Notifier<OutputSettingsState> {
     final lifetime = _lifetime;
     final generation = ++_refreshGeneration;
     final selectionGeneration = _selectionGeneration;
-    state = state.copyWith(loading: true, clearError: true);
+    state = state.copyWith(
+      loading: true,
+      clearError: true,
+      unavailableTargets: const {},
+    );
     try {
       final results = await Future.wait<Object>([
         _bridge.outputSinkListTypes(),
@@ -204,7 +223,7 @@ class OutputSettingsController extends Notifier<OutputSettingsState> {
         loading: false,
       );
       // Enumeration only populates choices; opening/reopening a page never applies a route.
-      if (selectionGeneration == _selectionGeneration && state.draft == null) {
+      if (selectionGeneration == _selectionGeneration) {
         await refreshTargets();
       }
     } catch (error, stack) {
@@ -251,17 +270,31 @@ class OutputSettingsController extends Notifier<OutputSettingsState> {
         final targets = await _loadTargets(draft);
         if (!_isCurrent(generation)) return;
         state = state.copyWith(targets: targets, loadingTargets: false);
+        final available = targets.where(
+          (target) => !state.unavailableTargets.containsKey((
+            key,
+            OutputSettingsValues.targetValueOf(target),
+          )),
+        );
         resolved = draft.withTarget(
-          targets.isEmpty
+          available.isEmpty
               ? null
-              : OutputSettingsValues.targetValueOf(targets.first),
+              : OutputSettingsValues.targetValueOf(available.first),
         );
         state = state.copyWith(draft: resolved);
+        if (available.isEmpty) return;
       }
       if (!_isCurrent(generation)) return;
       await _commitSelection(resolved, generation);
     } catch (error, stack) {
-      _recordError(error, stack, generation: generation);
+      // A failing first driver must not remove the device picker: the user
+      // still needs to select another driver without changing the active route.
+      _recordError(
+        error,
+        stack,
+        generation: generation,
+        preservePluginSelection: type != null,
+      );
     }
   }
 
@@ -292,13 +325,22 @@ class OutputSettingsController extends Notifier<OutputSettingsState> {
   }
 
   Future<void> selectDevice(String? value) async {
+    if (value != null &&
+        state.unavailableTargets.containsKey((selection.backendKey, value))) {
+      return;
+    }
     final generation = ++_selectionGeneration;
     final draft = selection.withTarget(value);
     state = state.copyWith(draft: draft, clearError: true);
     try {
       await _commitSelection(draft, generation);
     } catch (error, stack) {
-      _recordError(error, stack, generation: generation);
+      _recordError(
+        error,
+        stack,
+        generation: generation,
+        preservePluginSelection: draft.localBackend == null,
+      );
     }
   }
 
@@ -313,12 +355,27 @@ class OutputSettingsController extends Notifier<OutputSettingsState> {
         final deviceId = draft.localBackend == null
             ? previous.selectedDeviceId
             : draft.deviceId;
-        await applyOutputSelection(
-          bridge,
-          backend: backend,
-          deviceId: deviceId,
-          route: route,
-        );
+        try {
+          await applyOutputSelection(
+            bridge,
+            backend: backend,
+            deviceId: deviceId,
+            route: route,
+          );
+        } catch (error) {
+          final target = draft.localBackend == null
+              ? draft.targetJson
+              : draft.deviceId;
+          if (_isCurrent(generation) && target != null) {
+            state = state.copyWith(
+              unavailableTargets: {
+                ...state.unavailableTargets,
+                (draft.backendKey, target): error,
+              },
+            );
+          }
+          rethrow;
+        }
         try {
           // Persist even if a newer selection is waiting: this route really was applied.
           await settings.saveOutputSelection(
@@ -391,7 +448,15 @@ class OutputSettingsController extends Notifier<OutputSettingsState> {
 
   void updateConfig(OutputSinkTypeDescriptor type, String json) {
     final key = OutputSettingsValues.outputSinkTypeKey(type);
-    state = state.copyWith(configDrafts: {...state.configDrafts, key: json});
+    state = state.copyWith(
+      configDrafts: {...state.configDrafts, key: json},
+      unavailableTargets: Map.of(state.unavailableTargets)
+        ..removeWhere(
+          (target, _) =>
+              target.$1 ==
+              OutputSettingsValues.pluginBackendKey(type.pluginId, type.typeId),
+        ),
+    );
     _configDebounce?.cancel();
     if (OutputSettingsValues.parsePluginTypeKey(selection.backendKey) != key) {
       return;
@@ -418,7 +483,11 @@ class OutputSettingsController extends Notifier<OutputSettingsState> {
   Future<void> changePlugins(Future<void> Function() change) async {
     ++_selectionGeneration;
     _configDebounce?.cancel();
-    state = state.copyWith(clearDraft: true, loadingTargets: false);
+    state = state.copyWith(
+      clearDraft: true,
+      loadingTargets: false,
+      unavailableTargets: const {},
+    );
     await _serialize(() async {
       final bridge = _bridge;
       final settings = _settings;

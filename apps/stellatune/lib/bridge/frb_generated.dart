@@ -3,8 +3,11 @@
 
 // ignore_for_file: unused_import, unused_element, unnecessary_import, duplicate_ignore, invalid_use_of_internal_member, annotate_overrides, non_constant_identifier_names, curly_braces_in_flow_control_structures, prefer_const_literals_to_create_immutables, unused_field
 
+import 'api/diagnostics.dart';
 import 'api/dlna.dart';
 import 'api/dlna/types.dart';
+import 'api/error.dart';
+import 'api/events.dart';
 import 'api/library.dart';
 import 'api/player.dart';
 import 'api/player/queue.dart';
@@ -21,6 +24,7 @@ import 'frb_generated.io.dart'
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
+import 'third_party/stellatune_backend_api/diagnostics/model.dart';
 import 'third_party/stellatune_backend_api/lyrics_types.dart';
 import 'third_party/stellatune_backend_api/player_service/catalog.dart';
 import 'third_party/stellatune_backend_api/player_service/error.dart';
@@ -90,7 +94,7 @@ class StellatuneApi
   String get codegenVersion => '2.13.0';
 
   @override
-  int get rustContentHash => -528776310;
+  int get rustContentHash => -1089711478;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -137,6 +141,36 @@ abstract class StellatuneApiApi extends BaseApi {
   Future<TrackDecodeInfo?> crateApiPlayerCurrentTrackInfo();
 
   Future<List<String>> crateApiPlayerDecoderSupportedExtensions();
+
+  Future<void> crateApiDiagnosticsDiagnosticsAppend({
+    required List<LogRecord> records,
+  });
+
+  Future<LogRecord> crateApiDiagnosticsDiagnosticsDetail({required String id});
+
+  Stream<LogBatch> crateApiDiagnosticsDiagnosticsEvents();
+
+  Future<void> crateApiDiagnosticsDiagnosticsExport({
+    required String session,
+    required String destination,
+  });
+
+  Future<void> crateApiDiagnosticsDiagnosticsFlush();
+
+  Future<String> crateApiDiagnosticsDiagnosticsInitialize({
+    required String logDir,
+  });
+
+  Future<LogPage> crateApiDiagnosticsDiagnosticsQuery({
+    required String session,
+    required int offset,
+    required int limit,
+    required String level,
+    required String source,
+    required String search,
+  });
+
+  Future<List<String>> crateApiDiagnosticsDiagnosticsSessions();
 
   Future<DlnaPositionInfo> crateApiDlnaDlnaAvTransportGetPositionInfo({
     required String controlUrl,
@@ -350,6 +384,18 @@ abstract class StellatuneApiApi extends BaseApi {
   Future<void> crateApiLibraryLibrarySetTrackLiked({
     required PlatformInt64 trackId,
     required bool liked,
+  });
+
+  Future<BigInt> stellatuneBackendApiDiagnosticsModelLogRecordBytes({
+    required LogRecord that,
+  });
+
+  Future<LogRecord> stellatuneBackendApiDiagnosticsModelLogRecordNew({
+    required String source,
+    required String level,
+    required String target,
+    required String message,
+    required String details,
   });
 
   Future<void> crateApiPlayerLyricsApplyCandidate({
@@ -754,7 +800,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_playback_queue,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiPlayerQueueAppendQueueConstMeta,
         argValues: [trackIds],
@@ -781,7 +827,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiPlayerClearOutputSinkRouteConstMeta,
         argValues: [],
@@ -809,7 +855,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiLibraryCreateLibraryConstMeta,
         argValues: [dbPath],
@@ -879,6 +925,264 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
       );
 
   @override
+  Future<void> crateApiDiagnosticsDiagnosticsAppend({
+    required List<LogRecord> records,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_list_log_record(records, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 10,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiDiagnosticsDiagnosticsAppendConstMeta,
+        argValues: [records],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiDiagnosticsDiagnosticsAppendConstMeta =>
+      const TaskConstMeta(
+        debugName: "diagnostics_append",
+        argNames: ["records"],
+      );
+
+  @override
+  Future<LogRecord> crateApiDiagnosticsDiagnosticsDetail({required String id}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(id, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 11,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_log_record,
+          decodeErrorData: sse_decode_app_error,
+        ),
+        constMeta: kCrateApiDiagnosticsDiagnosticsDetailConstMeta,
+        argValues: [id],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiDiagnosticsDiagnosticsDetailConstMeta =>
+      const TaskConstMeta(debugName: "diagnostics_detail", argNames: ["id"]);
+
+  @override
+  Stream<LogBatch> crateApiDiagnosticsDiagnosticsEvents() {
+    final sink = RustStreamSink<LogBatch>();
+    unawaited(
+      handler.executeNormal(
+        NormalTask(
+          callFfi: (port_) {
+            final serializer = SseSerializer(generalizedFrbRustBinding);
+            sse_encode_StreamSink_log_batch_Sse(sink, serializer);
+            pdeCallFfi(
+              generalizedFrbRustBinding,
+              serializer,
+              funcId: 12,
+              port: port_,
+            );
+          },
+          codec: SseCodec(
+            decodeSuccessData: sse_decode_unit,
+            decodeErrorData: null,
+          ),
+          constMeta: kCrateApiDiagnosticsDiagnosticsEventsConstMeta,
+          argValues: [sink],
+          apiImpl: this,
+        ),
+      ),
+    );
+    return sink.stream;
+  }
+
+  TaskConstMeta get kCrateApiDiagnosticsDiagnosticsEventsConstMeta =>
+      const TaskConstMeta(debugName: "diagnostics_events", argNames: ["sink"]);
+
+  @override
+  Future<void> crateApiDiagnosticsDiagnosticsExport({
+    required String session,
+    required String destination,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(session, serializer);
+          sse_encode_String(destination, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 13,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_app_error,
+        ),
+        constMeta: kCrateApiDiagnosticsDiagnosticsExportConstMeta,
+        argValues: [session, destination],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiDiagnosticsDiagnosticsExportConstMeta =>
+      const TaskConstMeta(
+        debugName: "diagnostics_export",
+        argNames: ["session", "destination"],
+      );
+
+  @override
+  Future<void> crateApiDiagnosticsDiagnosticsFlush() {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 14,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiDiagnosticsDiagnosticsFlushConstMeta,
+        argValues: [],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiDiagnosticsDiagnosticsFlushConstMeta =>
+      const TaskConstMeta(debugName: "diagnostics_flush", argNames: []);
+
+  @override
+  Future<String> crateApiDiagnosticsDiagnosticsInitialize({
+    required String logDir,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(logDir, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 15,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_String,
+          decodeErrorData: sse_decode_app_error,
+        ),
+        constMeta: kCrateApiDiagnosticsDiagnosticsInitializeConstMeta,
+        argValues: [logDir],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiDiagnosticsDiagnosticsInitializeConstMeta =>
+      const TaskConstMeta(
+        debugName: "diagnostics_initialize",
+        argNames: ["logDir"],
+      );
+
+  @override
+  Future<LogPage> crateApiDiagnosticsDiagnosticsQuery({
+    required String session,
+    required int offset,
+    required int limit,
+    required String level,
+    required String source,
+    required String search,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(session, serializer);
+          sse_encode_u_32(offset, serializer);
+          sse_encode_u_32(limit, serializer);
+          sse_encode_String(level, serializer);
+          sse_encode_String(source, serializer);
+          sse_encode_String(search, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 16,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_log_page,
+          decodeErrorData: sse_decode_app_error,
+        ),
+        constMeta: kCrateApiDiagnosticsDiagnosticsQueryConstMeta,
+        argValues: [session, offset, limit, level, source, search],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiDiagnosticsDiagnosticsQueryConstMeta =>
+      const TaskConstMeta(
+        debugName: "diagnostics_query",
+        argNames: ["session", "offset", "limit", "level", "source", "search"],
+      );
+
+  @override
+  Future<List<String>> crateApiDiagnosticsDiagnosticsSessions() {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 17,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_String,
+          decodeErrorData: sse_decode_app_error,
+        ),
+        constMeta: kCrateApiDiagnosticsDiagnosticsSessionsConstMeta,
+        argValues: [],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiDiagnosticsDiagnosticsSessionsConstMeta =>
+      const TaskConstMeta(debugName: "diagnostics_sessions", argNames: []);
+
+  @override
   Future<DlnaPositionInfo> crateApiDlnaDlnaAvTransportGetPositionInfo({
     required String controlUrl,
     String? serviceType,
@@ -892,13 +1196,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 10,
+            funcId: 18,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_dlna_position_info,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiDlnaDlnaAvTransportGetPositionInfoConstMeta,
         argValues: [controlUrl, serviceType],
@@ -927,13 +1231,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 11,
+            funcId: 19,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_dlna_transport_info,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiDlnaDlnaAvTransportGetTransportInfoConstMeta,
         argValues: [controlUrl, serviceType],
@@ -962,13 +1266,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 12,
+            funcId: 20,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiDlnaDlnaAvTransportPauseConstMeta,
         argValues: [controlUrl, serviceType],
@@ -997,13 +1301,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 13,
+            funcId: 21,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiDlnaDlnaAvTransportPlayConstMeta,
         argValues: [controlUrl, serviceType],
@@ -1034,13 +1338,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 14,
+            funcId: 22,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiDlnaDlnaAvTransportSeekMsConstMeta,
         argValues: [controlUrl, serviceType, positionMs],
@@ -1073,13 +1377,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 15,
+            funcId: 23,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiDlnaDlnaAvTransportSetUriConstMeta,
         argValues: [controlUrl, serviceType, uri, metadata],
@@ -1108,13 +1412,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 16,
+            funcId: 24,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiDlnaDlnaAvTransportStopConstMeta,
         argValues: [controlUrl, serviceType],
@@ -1141,13 +1445,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 17,
+            funcId: 25,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_list_dlna_ssdp_device,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiDlnaDlnaDiscoverMediaRenderersConstMeta,
         argValues: [timeoutMs],
@@ -1174,13 +1478,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 18,
+            funcId: 26,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_list_dlna_renderer,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiDlnaDlnaDiscoverRenderersConstMeta,
         argValues: [timeoutMs],
@@ -1205,13 +1509,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 19,
+            funcId: 27,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_String,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiDlnaDlnaHttpPublishTrackConstMeta,
         argValues: [path],
@@ -1240,13 +1544,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 20,
+            funcId: 28,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_dlna_http_server_info,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiDlnaDlnaHttpStartConstMeta,
         argValues: [advertiseIp, port],
@@ -1269,13 +1573,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 21,
+            funcId: 29,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiDlnaDlnaHttpUnpublishAllConstMeta,
         argValues: [],
@@ -1301,13 +1605,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 22,
+            funcId: 30,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_String,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiDlnaDlnaPlayLocalPathConstMeta,
         argValues: [renderer, path],
@@ -1344,13 +1648,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 23,
+            funcId: 31,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_String,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiDlnaDlnaPlayLocalTrackConstMeta,
         argValues: [renderer, path, title, artist, album, coverPath],
@@ -1379,13 +1683,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 24,
+            funcId: 32,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_u_8,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiDlnaDlnaRenderingControlGetVolumeConstMeta,
         argValues: [controlUrl, serviceType],
@@ -1416,13 +1720,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 25,
+            funcId: 33,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiDlnaDlnaRenderingControlSetMuteConstMeta,
         argValues: [controlUrl, serviceType, mute],
@@ -1453,13 +1757,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 26,
+            funcId: 34,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiDlnaDlnaRenderingControlSetVolumeConstMeta,
         argValues: [controlUrl, serviceType, volume0100],
@@ -1483,7 +1787,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 27,
+            funcId: 35,
             port: port_,
           );
         },
@@ -1511,7 +1815,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 28,
+            funcId: 36,
             port: port_,
           );
         },
@@ -1538,7 +1842,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 29,
+            funcId: 37,
             port: port_,
           );
         },
@@ -1568,13 +1872,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 30,
+            funcId: 38,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_u_64,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiPlayerEnsureLocalTrackConstMeta,
         argValues: [libraryTrackId],
@@ -1601,13 +1905,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 31,
+            funcId: 39,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_list_prim_u_64_strict,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiPlayerEnsureLocalTracksConstMeta,
         argValues: [libraryTrackIds],
@@ -1640,13 +1944,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 32,
+            funcId: 40,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_u_64,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiPlayerEnsureProviderTrackConstMeta,
         argValues: [providerId, providerKey, pluginId, typeId],
@@ -1673,13 +1977,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
             pdeCallFfi(
               generalizedFrbRustBinding,
               serializer,
-              funcId: 33,
+              funcId: 41,
               port: port_,
             );
           },
           codec: SseCodec(
             decodeSuccessData: sse_decode_unit,
-            decodeErrorData: sse_decode_AnyhowException,
+            decodeErrorData: sse_decode_app_error,
           ),
           constMeta: kCrateApiPlayerEventsConstMeta,
           argValues: [sink],
@@ -1703,13 +2007,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 34,
+            funcId: 42,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_String,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiPlayerHostApiStartConstMeta,
         argValues: [dataRoot],
@@ -1730,13 +2034,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 35,
+            funcId: 43,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiPlayerHostApiStopConstMeta,
         argValues: [],
@@ -1757,7 +2061,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 36,
+            funcId: 44,
             port: port_,
           );
         },
@@ -1784,7 +2088,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 37,
+            funcId: 45,
             port: port_,
           );
         },
@@ -1812,13 +2116,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 38,
+            funcId: 46,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiLibraryLibraryAddRootConstMeta,
         argValues: [path],
@@ -1844,13 +2148,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 39,
+            funcId: 47,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiLibraryLibraryAddTrackToPlaylistConstMeta,
         argValues: [playlistId, trackId],
@@ -1879,13 +2183,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 40,
+            funcId: 48,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiLibraryLibraryAddTracksToPlaylistConstMeta,
         argValues: [playlistId, trackIds],
@@ -1910,13 +2214,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 41,
+            funcId: 49,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiLibraryLibraryCreatePlaylistConstMeta,
         argValues: [name],
@@ -1941,13 +2245,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 42,
+            funcId: 50,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiLibraryLibraryDeleteFolderConstMeta,
         argValues: [path],
@@ -1974,13 +2278,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 43,
+            funcId: 51,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiLibraryLibraryDeletePlaylistConstMeta,
         argValues: [id],
@@ -2007,13 +2311,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
             pdeCallFfi(
               generalizedFrbRustBinding,
               serializer,
-              funcId: 44,
+              funcId: 52,
               port: port_,
             );
           },
           codec: SseCodec(
             decodeSuccessData: sse_decode_unit,
-            decodeErrorData: sse_decode_AnyhowException,
+            decodeErrorData: sse_decode_app_error,
           ),
           constMeta: kCrateApiLibraryLibraryEventsConstMeta,
           argValues: [sink],
@@ -2036,13 +2340,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 45,
+            funcId: 53,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_list_String,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiLibraryLibraryListDisabledPluginIdsConstMeta,
         argValues: [],
@@ -2066,13 +2370,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 46,
+            funcId: 54,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_list_String,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiLibraryLibraryListExcludedFoldersConstMeta,
         argValues: [],
@@ -2096,13 +2400,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 47,
+            funcId: 55,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_list_String,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiLibraryLibraryListFoldersConstMeta,
         argValues: [],
@@ -2123,13 +2427,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 48,
+            funcId: 56,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_list_prim_i_64_strict,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiLibraryLibraryListLikedTrackIdsConstMeta,
         argValues: [],
@@ -2162,13 +2466,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 49,
+            funcId: 57,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_list_track_lite,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiLibraryLibraryListPlaylistTracksConstMeta,
         argValues: [playlistId, query, limit, offset],
@@ -2192,13 +2496,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 50,
+            funcId: 58,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_list_playlist_lite,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiLibraryLibraryListPlaylistsConstMeta,
         argValues: [],
@@ -2219,13 +2523,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 51,
+            funcId: 59,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_list_String,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiLibraryLibraryListRootsConstMeta,
         argValues: [],
@@ -2257,13 +2561,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 52,
+            funcId: 60,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_list_track_lite,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiLibraryLibraryListTracksConstMeta,
         argValues: [folder, recursive, query, limit, offset],
@@ -2294,13 +2598,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 53,
+            funcId: 61,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiLibraryLibraryMoveTrackInPlaylistConstMeta,
         argValues: [playlistId, trackId, newIndex],
@@ -2324,13 +2628,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 54,
+            funcId: 62,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiLibraryLibraryPluginApplyStateConstMeta,
         argValues: [],
@@ -2354,13 +2658,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 55,
+            funcId: 63,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_String,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiLibraryLibraryPluginApplyStateStatusJsonConstMeta,
         argValues: [],
@@ -2386,13 +2690,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 56,
+            funcId: 64,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiLibraryLibraryPluginDisableConstMeta,
         argValues: [pluginId],
@@ -2417,13 +2721,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 57,
+            funcId: 65,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiLibraryLibraryPluginEnableConstMeta,
         argValues: [pluginId],
@@ -2448,13 +2752,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 58,
+            funcId: 66,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiLibraryLibraryRemoveRootConstMeta,
         argValues: [path],
@@ -2480,13 +2784,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 59,
+            funcId: 67,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiLibraryLibraryRemoveTrackFromPlaylistConstMeta,
         argValues: [playlistId, trackId],
@@ -2515,13 +2819,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 60,
+            funcId: 68,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiLibraryLibraryRemoveTracksFromPlaylistConstMeta,
         argValues: [playlistId, trackIds],
@@ -2550,13 +2854,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 61,
+            funcId: 69,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiLibraryLibraryRenamePlaylistConstMeta,
         argValues: [id, name],
@@ -2581,13 +2885,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 62,
+            funcId: 70,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiLibraryLibraryRestoreFolderConstMeta,
         argValues: [path],
@@ -2611,13 +2915,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 63,
+            funcId: 71,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiLibraryLibraryScanAllConstMeta,
         argValues: [],
@@ -2638,13 +2942,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 64,
+            funcId: 72,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiLibraryLibraryScanAllForceConstMeta,
         argValues: [],
@@ -2672,13 +2976,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 65,
+            funcId: 73,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_list_track_lite,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiLibraryLibrarySearchConstMeta,
         argValues: [query, limit, offset],
@@ -2707,13 +3011,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 66,
+            funcId: 74,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiLibraryLibrarySetTrackLikedConstMeta,
         argValues: [trackId, liked],
@@ -2726,6 +3030,79 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
       const TaskConstMeta(
         debugName: "library_set_track_liked",
         argNames: ["trackId", "liked"],
+      );
+
+  @override
+  Future<BigInt> stellatuneBackendApiDiagnosticsModelLogRecordBytes({
+    required LogRecord that,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_box_autoadd_log_record(that, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 75,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_usize,
+          decodeErrorData: null,
+        ),
+        constMeta: kStellatuneBackendApiDiagnosticsModelLogRecordBytesConstMeta,
+        argValues: [that],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta
+  get kStellatuneBackendApiDiagnosticsModelLogRecordBytesConstMeta =>
+      const TaskConstMeta(debugName: "log_record_bytes", argNames: ["that"]);
+
+  @override
+  Future<LogRecord> stellatuneBackendApiDiagnosticsModelLogRecordNew({
+    required String source,
+    required String level,
+    required String target,
+    required String message,
+    required String details,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(source, serializer);
+          sse_encode_String(level, serializer);
+          sse_encode_String(target, serializer);
+          sse_encode_String(message, serializer);
+          sse_encode_String(details, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 76,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_log_record,
+          decodeErrorData: null,
+        ),
+        constMeta: kStellatuneBackendApiDiagnosticsModelLogRecordNewConstMeta,
+        argValues: [source, level, target, message, details],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta
+  get kStellatuneBackendApiDiagnosticsModelLogRecordNewConstMeta =>
+      const TaskConstMeta(
+        debugName: "log_record_new",
+        argNames: ["source", "level", "target", "message", "details"],
       );
 
   @override
@@ -2742,13 +3119,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 67,
+            funcId: 77,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiPlayerLyricsApplyCandidateConstMeta,
         argValues: [trackKey, doc],
@@ -2772,13 +3149,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 68,
+            funcId: 78,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiPlayerLyricsClearCacheConstMeta,
         argValues: [],
@@ -2802,13 +3179,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
             pdeCallFfi(
               generalizedFrbRustBinding,
               serializer,
-              funcId: 69,
+              funcId: 79,
               port: port_,
             );
           },
           codec: SseCodec(
             decodeSuccessData: sse_decode_unit,
-            decodeErrorData: sse_decode_AnyhowException,
+            decodeErrorData: sse_decode_app_error,
           ),
           constMeta: kCrateApiPlayerLyricsEventsConstMeta,
           argValues: [sink],
@@ -2832,13 +3209,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 70,
+            funcId: 80,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiPlayerLyricsPrefetchConstMeta,
         argValues: [query],
@@ -2860,13 +3237,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 71,
+            funcId: 81,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiPlayerLyricsPrepareConstMeta,
         argValues: [query],
@@ -2894,13 +3271,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 72,
+            funcId: 82,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_String,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiPlayerLyricsProviderFetchJsonConstMeta,
         argValues: [pluginId, typeId, trackJson],
@@ -2925,7 +3302,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 73,
+            funcId: 83,
             port: port_,
           );
         },
@@ -2962,13 +3339,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 74,
+            funcId: 84,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_String,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiPlayerLyricsProviderSearchJsonConstMeta,
         argValues: [pluginId, typeId, queryJson],
@@ -2992,13 +3369,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 75,
+            funcId: 85,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiPlayerLyricsRefreshCurrentConstMeta,
         argValues: [],
@@ -3022,13 +3399,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 76,
+            funcId: 86,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_list_lyrics_search_candidate,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiPlayerLyricsSearchCandidatesConstMeta,
         argValues: [query],
@@ -3053,13 +3430,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 77,
+            funcId: 87,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiPlayerLyricsSetCacheDbPathConstMeta,
         argValues: [dbPath],
@@ -3084,7 +3461,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 78,
+            funcId: 88,
             port: port_,
           );
         },
@@ -3114,13 +3491,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 79,
+            funcId: 89,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_bool,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiPlayerQueueNextQueueItemConstMeta,
         argValues: [],
@@ -3148,13 +3525,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 80,
+            funcId: 90,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_String,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiPlayerOutputSinkListTargetsJsonConstMeta,
         argValues: [pluginId, typeId, configJson],
@@ -3178,7 +3555,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 81,
+            funcId: 91,
             port: port_,
           );
         },
@@ -3205,13 +3582,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 82,
+            funcId: 92,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiPlayerPauseConstMeta,
         argValues: [],
@@ -3232,13 +3609,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 83,
+            funcId: 93,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiPlayerPlayConstMeta,
         argValues: [],
@@ -3259,7 +3636,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 84,
+            funcId: 94,
             port: port_,
           );
         },
@@ -3286,13 +3663,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 85,
+            funcId: 95,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_playback_queue,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiPlayerQueuePlaybackQueueConstMeta,
         argValues: [],
@@ -3313,13 +3690,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 86,
+            funcId: 96,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiPlayerPlaybackRestoreStateConstMeta,
         argValues: [],
@@ -3340,13 +3717,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 87,
+            funcId: 97,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_playback_snapshot,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiPlayerPlaybackSnapshotConstMeta,
         argValues: [],
@@ -3368,13 +3745,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 88,
+            funcId: 98,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_String,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiPlayerPluginOpenUiConstMeta,
         argValues: [pluginId],
@@ -3400,13 +3777,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 89,
+            funcId: 99,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_String,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiPlayerPluginsInstallFromFileConstMeta,
         argValues: [pluginsDir, artifactPath],
@@ -3430,7 +3807,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 90,
+            funcId: 100,
             port: port_,
           );
         },
@@ -3460,13 +3837,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 91,
+            funcId: 101,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_String,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiPlayerPluginsListInstalledJsonConstMeta,
         argValues: [pluginsDir],
@@ -3495,13 +3872,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 92,
+            funcId: 102,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiPlayerPluginsUninstallByIdConstMeta,
         argValues: [pluginsDir, pluginId],
@@ -3525,13 +3902,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 93,
+            funcId: 103,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_bool,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiPlayerQueuePreviousQueueItemConstMeta,
         argValues: [],
@@ -3555,13 +3932,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
             pdeCallFfi(
               generalizedFrbRustBinding,
               serializer,
-              funcId: 94,
+              funcId: 104,
               port: port_,
             );
           },
           codec: SseCodec(
             decodeSuccessData: sse_decode_unit,
-            decodeErrorData: sse_decode_AnyhowException,
+            decodeErrorData: sse_decode_app_error,
           ),
           constMeta: kCrateApiPlayerQueueQueueEventsConstMeta,
           argValues: [sink],
@@ -3584,13 +3961,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 95,
+            funcId: 105,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_list_audio_device,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiPlayerRefreshDevicesConstMeta,
         argValues: [],
@@ -3614,13 +3991,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 96,
+            funcId: 106,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_playback_queue,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiPlayerQueueRemoveQueueItemsConstMeta,
         argValues: [itemIds],
@@ -3647,13 +4024,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 97,
+            funcId: 107,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_playback_queue,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiPlayerQueueReplaceQueueConstMeta,
         argValues: [trackIds],
@@ -3674,7 +4051,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 98,
+            funcId: 108,
             port: port_,
           );
         },
@@ -3702,13 +4079,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 99,
+            funcId: 109,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiPlayerSeekMsConstMeta,
         argValues: [positionMs],
@@ -3734,13 +4111,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 100,
+            funcId: 110,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_bool,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiPlayerQueueSelectQueueItemConstMeta,
         argValues: [itemId, autoplay],
@@ -3765,13 +4142,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 101,
+            funcId: 111,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiPlayerSetLfeModeConstMeta,
         argValues: [mode],
@@ -3797,13 +4174,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 102,
+            funcId: 112,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiPlayerSetOutputDeviceConstMeta,
         argValues: [backend, deviceId],
@@ -3836,13 +4213,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 103,
+            funcId: 113,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiPlayerSetOutputOptionsConstMeta,
         argValues: [
@@ -3879,13 +4256,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 104,
+            funcId: 114,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiPlayerSetOutputSinkRouteConstMeta,
         argValues: [route],
@@ -3912,13 +4289,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 105,
+            funcId: 115,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiPlayerSetPlaybackLatencyConstMeta,
         argValues: [profile],
@@ -3947,13 +4324,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 106,
+            funcId: 116,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_playback_queue,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiPlayerQueueSetQueueModeConstMeta,
         argValues: [repeat, shuffle],
@@ -3984,13 +4361,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 107,
+            funcId: 117,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiPlayerSetVolumeConstMeta,
         argValues: [volume, seq, rampMs],
@@ -4013,7 +4390,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 108,
+            funcId: 118,
             port: port_,
           );
         },
@@ -4047,13 +4424,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 109,
+            funcId: 119,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_String,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiPlayerSourceListItemsJsonConstMeta,
         argValues: [pluginId, typeId, requestJson],
@@ -4077,7 +4454,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 110,
+            funcId: 120,
             port: port_,
           );
         },
@@ -4104,13 +4481,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 111,
+            funcId: 121,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiPlayerStopConstMeta,
         argValues: [],
@@ -4134,13 +4511,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 112,
+            funcId: 122,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiPlayerQueueStoreQueueMetadataConstMeta,
         argValues: [updates],
@@ -4165,7 +4542,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 113,
+            funcId: 123,
             port: port_,
           );
         },
@@ -4200,13 +4577,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 114,
+            funcId: 124,
             port: port_,
           );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_AnyhowException,
+          decodeErrorData: sse_decode_app_error,
         ),
         constMeta: kCrateApiPlayerTranscodeTranscodeCancelConstMeta,
         argValues: [taskId],
@@ -4239,13 +4616,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
             pdeCallFfi(
               generalizedFrbRustBinding,
               serializer,
-              funcId: 115,
+              funcId: 125,
               port: port_,
             );
           },
           codec: SseCodec(
             decodeSuccessData: sse_decode_unit,
-            decodeErrorData: sse_decode_AnyhowException,
+            decodeErrorData: sse_decode_app_error,
           ),
           constMeta: kCrateApiPlayerTranscodeTranscodeTrackLocalConstMeta,
           argValues: [request, sink],
@@ -4418,6 +4795,12 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   }
 
   @protected
+  RustStreamSink<LogBatch> dco_decode_StreamSink_log_batch_Sse(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    throw UnimplementedError();
+  }
+
+  @protected
   RustStreamSink<LyricsEvent> dco_decode_StreamSink_lyrics_event_Sse(
     dynamic raw,
   ) {
@@ -4447,6 +4830,21 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   }
 
   @protected
+  AppError dco_decode_app_error(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 5)
+      throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
+    return AppError(
+      category: dco_decode_error_category(arr[0]),
+      operation: dco_decode_String(arr[1]),
+      diagnosticId: dco_decode_String(arr[2]),
+      fingerprint: dco_decode_String(arr[3]),
+      context: dco_decode_String(arr[4]),
+    );
+  }
+
+  @protected
   AudioBackend dco_decode_audio_backend(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return AudioBackend.values[raw as int];
@@ -4472,6 +4870,12 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   }
 
   @protected
+  AppError dco_decode_box_autoadd_app_error(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_app_error(raw);
+  }
+
+  @protected
   DlnaRenderer dco_decode_box_autoadd_dlna_renderer(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dco_decode_dlna_renderer(raw);
@@ -4481,6 +4885,12 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   PlatformInt64 dco_decode_box_autoadd_i_64(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dco_decode_i_64(raw);
+  }
+
+  @protected
+  LogRecord dco_decode_box_autoadd_log_record(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_log_record(raw);
   }
 
   @protected
@@ -4670,6 +5080,12 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   }
 
   @protected
+  ErrorCategory dco_decode_error_category(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return ErrorCategory.values[raw as int];
+  }
+
+  @protected
   Event dco_decode_event(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     switch (raw[0]) {
@@ -4702,7 +5118,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
       case 6:
         return Event_AudioEnd();
       case 7:
-        return Event_Error(message: dco_decode_String(raw[1]));
+        return Event_Error(error: dco_decode_box_autoadd_app_error(raw[1]));
       case 8:
         return Event_Log(message: dco_decode_String(raw[1]));
       default:
@@ -4712,6 +5128,12 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
 
   @protected
   double dco_decode_f_32(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw as double;
+  }
+
+  @protected
+  double dco_decode_f_64(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as double;
   }
@@ -4756,7 +5178,9 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           errors: dco_decode_i_64(raw[5]),
         );
       case 3:
-        return LibraryEvent_Error(message: dco_decode_String(raw[1]));
+        return LibraryEvent_Error(
+          error: dco_decode_box_autoadd_app_error(raw[1]),
+        );
       case 4:
         return LibraryEvent_Log(message: dco_decode_String(raw[1]));
       default:
@@ -4821,6 +5245,12 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
     return (raw as List<dynamic>)
         .map(dco_decode_encoder_type_descriptor)
         .toList();
+  }
+
+  @protected
+  List<LogRecord> dco_decode_list_log_record(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_log_record).toList();
   }
 
   @protected
@@ -4944,6 +5374,51 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   }
 
   @protected
+  LogBatch dco_decode_log_batch(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return LogBatch(
+      records: dco_decode_list_log_record(arr[0]),
+      resync: dco_decode_bool(arr[1]),
+    );
+  }
+
+  @protected
+  LogPage dco_decode_log_page(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return LogPage(
+      records: dco_decode_list_log_record(arr[0]),
+      nextOffset: dco_decode_opt_box_autoadd_u_32(arr[1]),
+    );
+  }
+
+  @protected
+  LogRecord dco_decode_log_record(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 11)
+      throw Exception('unexpected arr length: expect 11 but see ${arr.length}');
+    return LogRecord(
+      id: dco_decode_String(arr[0]),
+      session: dco_decode_String(arr[1]),
+      timestampMs: dco_decode_f_64(arr[2]),
+      level: dco_decode_String(arr[3]),
+      source: dco_decode_String(arr[4]),
+      target: dco_decode_String(arr[5]),
+      message: dco_decode_String(arr[6]),
+      details: dco_decode_String(arr[7]),
+      pluginId: dco_decode_opt_String(arr[8]),
+      generation: dco_decode_opt_String(arr[9]),
+      fingerprint: dco_decode_opt_String(arr[10]),
+    );
+  }
+
+  @protected
   LyricLine dco_decode_lyric_line(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
@@ -4991,7 +5466,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
       case 4:
         return LyricsEvent_Error(
           trackKey: dco_decode_String(raw[1]),
-          message: dco_decode_String(raw[2]),
+          error: dco_decode_box_autoadd_app_error(raw[2]),
         );
       default:
         throw Exception("unreachable");
@@ -5051,6 +5526,12 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   String? dco_decode_opt_String(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw == null ? null : dco_decode_String(raw);
+  }
+
+  @protected
+  AppError? dco_decode_opt_box_autoadd_app_error(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_box_autoadd_app_error(raw);
   }
 
   @protected
@@ -5406,19 +5887,20 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   TranscodeProgressEvent dco_decode_transcode_progress_event(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 10)
-      throw Exception('unexpected arr length: expect 10 but see ${arr.length}');
+    if (arr.length != 11)
+      throw Exception('unexpected arr length: expect 11 but see ${arr.length}');
     return TranscodeProgressEvent(
       phase: dco_decode_String(arr[0]),
-      message: dco_decode_opt_String(arr[1]),
-      sourcePath: dco_decode_opt_String(arr[2]),
-      outputPath: dco_decode_opt_String(arr[3]),
-      processedFrames: dco_decode_u_64(arr[4]),
-      totalFrames: dco_decode_opt_box_autoadd_u_64(arr[5]),
-      writtenBytes: dco_decode_u_64(arr[6]),
-      sampleRate: dco_decode_opt_box_autoadd_u_32(arr[7]),
-      channels: dco_decode_opt_box_autoadd_u_16(arr[8]),
-      elapsedMs: dco_decode_opt_box_autoadd_u_64(arr[9]),
+      error: dco_decode_opt_box_autoadd_app_error(arr[1]),
+      message: dco_decode_opt_String(arr[2]),
+      sourcePath: dco_decode_opt_String(arr[3]),
+      outputPath: dco_decode_opt_String(arr[4]),
+      processedFrames: dco_decode_u_64(arr[5]),
+      totalFrames: dco_decode_opt_box_autoadd_u_64(arr[6]),
+      writtenBytes: dco_decode_u_64(arr[7]),
+      sampleRate: dco_decode_opt_box_autoadd_u_32(arr[8]),
+      channels: dco_decode_opt_box_autoadd_u_16(arr[9]),
+      elapsedMs: dco_decode_opt_box_autoadd_u_64(arr[10]),
     );
   }
 
@@ -5634,6 +6116,14 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   }
 
   @protected
+  RustStreamSink<LogBatch> sse_decode_StreamSink_log_batch_Sse(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    throw UnimplementedError('Unreachable ()');
+  }
+
+  @protected
   RustStreamSink<LyricsEvent> sse_decode_StreamSink_lyrics_event_Sse(
     SseDeserializer deserializer,
   ) {
@@ -5666,6 +6156,23 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   }
 
   @protected
+  AppError sse_decode_app_error(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_category = sse_decode_error_category(deserializer);
+    var var_operation = sse_decode_String(deserializer);
+    var var_diagnosticId = sse_decode_String(deserializer);
+    var var_fingerprint = sse_decode_String(deserializer);
+    var var_context = sse_decode_String(deserializer);
+    return AppError(
+      category: var_category,
+      operation: var_operation,
+      diagnosticId: var_diagnosticId,
+      fingerprint: var_fingerprint,
+      context: var_context,
+    );
+  }
+
+  @protected
   AudioBackend sse_decode_audio_backend(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var inner = sse_decode_i_32(deserializer);
@@ -5688,6 +6195,12 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   }
 
   @protected
+  AppError sse_decode_box_autoadd_app_error(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_app_error(deserializer));
+  }
+
+  @protected
   DlnaRenderer sse_decode_box_autoadd_dlna_renderer(
     SseDeserializer deserializer,
   ) {
@@ -5699,6 +6212,12 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   PlatformInt64 sse_decode_box_autoadd_i_64(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return (sse_decode_i_64(deserializer));
+  }
+
+  @protected
+  LogRecord sse_decode_box_autoadd_log_record(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_log_record(deserializer));
   }
 
   @protected
@@ -5914,6 +6433,13 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   }
 
   @protected
+  ErrorCategory sse_decode_error_category(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var inner = sse_decode_i_32(deserializer);
+    return ErrorCategory.values[inner];
+  }
+
+  @protected
   Event sse_decode_event(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
 
@@ -5950,8 +6476,8 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
       case 6:
         return Event_AudioEnd();
       case 7:
-        var var_message = sse_decode_String(deserializer);
-        return Event_Error(message: var_message);
+        var var_error = sse_decode_box_autoadd_app_error(deserializer);
+        return Event_Error(error: var_error);
       case 8:
         var var_message = sse_decode_String(deserializer);
         return Event_Log(message: var_message);
@@ -5964,6 +6490,12 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   double sse_decode_f_32(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return deserializer.buffer.getFloat32();
+  }
+
+  @protected
+  double sse_decode_f_64(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return deserializer.buffer.getFloat64();
   }
 
   @protected
@@ -6018,8 +6550,8 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
           errors: var_errors,
         );
       case 3:
-        var var_message = sse_decode_String(deserializer);
-        return LibraryEvent_Error(message: var_message);
+        var var_error = sse_decode_box_autoadd_app_error(deserializer);
+        return LibraryEvent_Error(error: var_error);
       case 4:
         var var_message = sse_decode_String(deserializer);
         return LibraryEvent_Log(message: var_message);
@@ -6137,6 +6669,18 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
     var ans_ = <EncoderTypeDescriptor>[];
     for (var idx_ = 0; idx_ < len_; ++idx_) {
       ans_.add(sse_decode_encoder_type_descriptor(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  List<LogRecord> sse_decode_list_log_record(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <LogRecord>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_log_record(deserializer));
     }
     return ans_;
   }
@@ -6335,6 +6879,51 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   }
 
   @protected
+  LogBatch sse_decode_log_batch(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_records = sse_decode_list_log_record(deserializer);
+    var var_resync = sse_decode_bool(deserializer);
+    return LogBatch(records: var_records, resync: var_resync);
+  }
+
+  @protected
+  LogPage sse_decode_log_page(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_records = sse_decode_list_log_record(deserializer);
+    var var_nextOffset = sse_decode_opt_box_autoadd_u_32(deserializer);
+    return LogPage(records: var_records, nextOffset: var_nextOffset);
+  }
+
+  @protected
+  LogRecord sse_decode_log_record(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_id = sse_decode_String(deserializer);
+    var var_session = sse_decode_String(deserializer);
+    var var_timestampMs = sse_decode_f_64(deserializer);
+    var var_level = sse_decode_String(deserializer);
+    var var_source = sse_decode_String(deserializer);
+    var var_target = sse_decode_String(deserializer);
+    var var_message = sse_decode_String(deserializer);
+    var var_details = sse_decode_String(deserializer);
+    var var_pluginId = sse_decode_opt_String(deserializer);
+    var var_generation = sse_decode_opt_String(deserializer);
+    var var_fingerprint = sse_decode_opt_String(deserializer);
+    return LogRecord(
+      id: var_id,
+      session: var_session,
+      timestampMs: var_timestampMs,
+      level: var_level,
+      source: var_source,
+      target: var_target,
+      message: var_message,
+      details: var_details,
+      pluginId: var_pluginId,
+      generation: var_generation,
+      fingerprint: var_fingerprint,
+    );
+  }
+
+  @protected
   LyricLine sse_decode_lyric_line(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_startMs = sse_decode_opt_box_autoadd_i_64(deserializer);
@@ -6383,8 +6972,8 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
         return LyricsEvent_Empty(trackKey: var_trackKey);
       case 4:
         var var_trackKey = sse_decode_String(deserializer);
-        var var_message = sse_decode_String(deserializer);
-        return LyricsEvent_Error(trackKey: var_trackKey, message: var_message);
+        var var_error = sse_decode_box_autoadd_app_error(deserializer);
+        return LyricsEvent_Error(trackKey: var_trackKey, error: var_error);
       default:
         throw UnimplementedError('');
     }
@@ -6455,6 +7044,17 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
 
     if (sse_decode_bool(deserializer)) {
       return (sse_decode_String(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
+  AppError? sse_decode_opt_box_autoadd_app_error(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_app_error(deserializer));
     } else {
       return null;
     }
@@ -6893,6 +7493,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_phase = sse_decode_String(deserializer);
+    var var_error = sse_decode_opt_box_autoadd_app_error(deserializer);
     var var_message = sse_decode_opt_String(deserializer);
     var var_sourcePath = sse_decode_opt_String(deserializer);
     var var_outputPath = sse_decode_opt_String(deserializer);
@@ -6904,6 +7505,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
     var var_elapsedMs = sse_decode_opt_box_autoadd_u_64(deserializer);
     return TranscodeProgressEvent(
       phase: var_phase,
+      error: var_error,
       message: var_message,
       sourcePath: var_sourcePath,
       outputPath: var_outputPath,
@@ -7161,6 +7763,23 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   }
 
   @protected
+  void sse_encode_StreamSink_log_batch_Sse(
+    RustStreamSink<LogBatch> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(
+      self.setupAndSerialize(
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_log_batch,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+      ),
+      serializer,
+    );
+  }
+
+  @protected
   void sse_encode_StreamSink_lyrics_event_Sse(
     RustStreamSink<LyricsEvent> self,
     SseSerializer serializer,
@@ -7218,6 +7837,16 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   }
 
   @protected
+  void sse_encode_app_error(AppError self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_error_category(self.category, serializer);
+    sse_encode_String(self.operation, serializer);
+    sse_encode_String(self.diagnosticId, serializer);
+    sse_encode_String(self.fingerprint, serializer);
+    sse_encode_String(self.context, serializer);
+  }
+
+  @protected
   void sse_encode_audio_backend(AudioBackend self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_i_32(self.index, serializer);
@@ -7238,6 +7867,15 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   }
 
   @protected
+  void sse_encode_box_autoadd_app_error(
+    AppError self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_app_error(self, serializer);
+  }
+
+  @protected
   void sse_encode_box_autoadd_dlna_renderer(
     DlnaRenderer self,
     SseSerializer serializer,
@@ -7253,6 +7891,15 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_i_64(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_log_record(
+    LogRecord self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_log_record(self, serializer);
   }
 
   @protected
@@ -7446,6 +8093,12 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   }
 
   @protected
+  void sse_encode_error_category(ErrorCategory self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.index, serializer);
+  }
+
+  @protected
   void sse_encode_event(Event self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     switch (self) {
@@ -7479,9 +8132,9 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
         sse_encode_i_32(5, serializer);
       case Event_AudioEnd():
         sse_encode_i_32(6, serializer);
-      case Event_Error(message: final message):
+      case Event_Error(error: final error):
         sse_encode_i_32(7, serializer);
-        sse_encode_String(message, serializer);
+        sse_encode_box_autoadd_app_error(error, serializer);
       case Event_Log(message: final message):
         sse_encode_i_32(8, serializer);
         sse_encode_String(message, serializer);
@@ -7492,6 +8145,12 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   void sse_encode_f_32(double self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     serializer.buffer.putFloat32(self);
+  }
+
+  @protected
+  void sse_encode_f_64(double self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    serializer.buffer.putFloat64(self);
   }
 
   @protected
@@ -7542,9 +8201,9 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
         sse_encode_i_64(updated, serializer);
         sse_encode_i_64(skipped, serializer);
         sse_encode_i_64(errors, serializer);
-      case LibraryEvent_Error(message: final message):
+      case LibraryEvent_Error(error: final error):
         sse_encode_i_32(3, serializer);
-        sse_encode_String(message, serializer);
+        sse_encode_box_autoadd_app_error(error, serializer);
       case LibraryEvent_Log(message: final message):
         sse_encode_i_32(4, serializer);
         sse_encode_String(message, serializer);
@@ -7645,6 +8304,18 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
     sse_encode_i_32(self.length, serializer);
     for (final item in self) {
       sse_encode_encoder_type_descriptor(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_log_record(
+    List<LogRecord> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_log_record(item, serializer);
     }
   }
 
@@ -7831,6 +8502,36 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   }
 
   @protected
+  void sse_encode_log_batch(LogBatch self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_list_log_record(self.records, serializer);
+    sse_encode_bool(self.resync, serializer);
+  }
+
+  @protected
+  void sse_encode_log_page(LogPage self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_list_log_record(self.records, serializer);
+    sse_encode_opt_box_autoadd_u_32(self.nextOffset, serializer);
+  }
+
+  @protected
+  void sse_encode_log_record(LogRecord self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.id, serializer);
+    sse_encode_String(self.session, serializer);
+    sse_encode_f_64(self.timestampMs, serializer);
+    sse_encode_String(self.level, serializer);
+    sse_encode_String(self.source, serializer);
+    sse_encode_String(self.target, serializer);
+    sse_encode_String(self.message, serializer);
+    sse_encode_String(self.details, serializer);
+    sse_encode_opt_String(self.pluginId, serializer);
+    sse_encode_opt_String(self.generation, serializer);
+    sse_encode_opt_String(self.fingerprint, serializer);
+  }
+
+  @protected
   void sse_encode_lyric_line(LyricLine self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_opt_box_autoadd_i_64(self.startMs, serializer);
@@ -7868,10 +8569,10 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
       case LyricsEvent_Empty(trackKey: final trackKey):
         sse_encode_i_32(3, serializer);
         sse_encode_String(trackKey, serializer);
-      case LyricsEvent_Error(trackKey: final trackKey, message: final message):
+      case LyricsEvent_Error(trackKey: final trackKey, error: final error):
         sse_encode_i_32(4, serializer);
         sse_encode_String(trackKey, serializer);
-        sse_encode_String(message, serializer);
+        sse_encode_box_autoadd_app_error(error, serializer);
     }
   }
 
@@ -7920,6 +8621,19 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
     sse_encode_bool(self != null, serializer);
     if (self != null) {
       sse_encode_String(self, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_opt_box_autoadd_app_error(
+    AppError? self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_app_error(self, serializer);
     }
   }
 
@@ -8290,6 +9004,7 @@ class StellatuneApiApiImpl extends StellatuneApiApiImplPlatform
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_String(self.phase, serializer);
+    sse_encode_opt_box_autoadd_app_error(self.error, serializer);
     sse_encode_opt_String(self.message, serializer);
     sse_encode_opt_String(self.sourcePath, serializer);
     sse_encode_opt_String(self.outputPath, serializer);

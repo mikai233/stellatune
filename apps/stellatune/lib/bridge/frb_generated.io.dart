@@ -3,8 +3,11 @@
 
 // ignore_for_file: unused_import, unused_element, unnecessary_import, duplicate_ignore, invalid_use_of_internal_member, annotate_overrides, non_constant_identifier_names, curly_braces_in_flow_control_structures, prefer_const_literals_to_create_immutables, unused_field
 
+import 'api/diagnostics.dart';
 import 'api/dlna.dart';
 import 'api/dlna/types.dart';
+import 'api/error.dart';
+import 'api/events.dart';
 import 'api/library.dart';
 import 'api/player.dart';
 import 'api/player/queue.dart';
@@ -20,6 +23,7 @@ import 'frb_generated.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated_io.dart';
 
+import 'third_party/stellatune_backend_api/diagnostics/model.dart';
 import 'third_party/stellatune_backend_api/lyrics_types.dart';
 import 'third_party/stellatune_backend_api/player_service/catalog.dart';
 import 'third_party/stellatune_backend_api/player_service/error.dart';
@@ -131,6 +135,9 @@ abstract class StellatuneApiApiImplPlatform
   );
 
   @protected
+  RustStreamSink<LogBatch> dco_decode_StreamSink_log_batch_Sse(dynamic raw);
+
+  @protected
   RustStreamSink<LyricsEvent> dco_decode_StreamSink_lyrics_event_Sse(
     dynamic raw,
   );
@@ -148,6 +155,9 @@ abstract class StellatuneApiApiImplPlatform
   String dco_decode_String(dynamic raw);
 
   @protected
+  AppError dco_decode_app_error(dynamic raw);
+
+  @protected
   AudioBackend dco_decode_audio_backend(dynamic raw);
 
   @protected
@@ -157,10 +167,16 @@ abstract class StellatuneApiApiImplPlatform
   bool dco_decode_bool(dynamic raw);
 
   @protected
+  AppError dco_decode_box_autoadd_app_error(dynamic raw);
+
+  @protected
   DlnaRenderer dco_decode_box_autoadd_dlna_renderer(dynamic raw);
 
   @protected
   PlatformInt64 dco_decode_box_autoadd_i_64(dynamic raw);
+
+  @protected
+  LogRecord dco_decode_box_autoadd_log_record(dynamic raw);
 
   @protected
   LyricsDoc dco_decode_box_autoadd_lyrics_doc(dynamic raw);
@@ -224,10 +240,16 @@ abstract class StellatuneApiApiImplPlatform
   EncoderTypeDescriptor dco_decode_encoder_type_descriptor(dynamic raw);
 
   @protected
+  ErrorCategory dco_decode_error_category(dynamic raw);
+
+  @protected
   Event dco_decode_event(dynamic raw);
 
   @protected
   double dco_decode_f_32(dynamic raw);
+
+  @protected
+  double dco_decode_f_64(dynamic raw);
 
   @protected
   int dco_decode_i_32(dynamic raw);
@@ -269,6 +291,9 @@ abstract class StellatuneApiApiImplPlatform
   List<EncoderTypeDescriptor> dco_decode_list_encoder_type_descriptor(
     dynamic raw,
   );
+
+  @protected
+  List<LogRecord> dco_decode_list_log_record(dynamic raw);
 
   @protected
   List<LyricLine> dco_decode_list_lyric_line(dynamic raw);
@@ -328,6 +353,15 @@ abstract class StellatuneApiApiImplPlatform
   List<TrackLite> dco_decode_list_track_lite(dynamic raw);
 
   @protected
+  LogBatch dco_decode_log_batch(dynamic raw);
+
+  @protected
+  LogPage dco_decode_log_page(dynamic raw);
+
+  @protected
+  LogRecord dco_decode_log_record(dynamic raw);
+
+  @protected
   LyricLine dco_decode_lyric_line(dynamic raw);
 
   @protected
@@ -349,6 +383,9 @@ abstract class StellatuneApiApiImplPlatform
 
   @protected
   String? dco_decode_opt_String(dynamic raw);
+
+  @protected
+  AppError? dco_decode_opt_box_autoadd_app_error(dynamic raw);
 
   @protected
   PlatformInt64? dco_decode_opt_box_autoadd_i_64(dynamic raw);
@@ -559,6 +596,11 @@ abstract class StellatuneApiApiImplPlatform
   );
 
   @protected
+  RustStreamSink<LogBatch> sse_decode_StreamSink_log_batch_Sse(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   RustStreamSink<LyricsEvent> sse_decode_StreamSink_lyrics_event_Sse(
     SseDeserializer deserializer,
   );
@@ -578,6 +620,9 @@ abstract class StellatuneApiApiImplPlatform
   String sse_decode_String(SseDeserializer deserializer);
 
   @protected
+  AppError sse_decode_app_error(SseDeserializer deserializer);
+
+  @protected
   AudioBackend sse_decode_audio_backend(SseDeserializer deserializer);
 
   @protected
@@ -587,12 +632,18 @@ abstract class StellatuneApiApiImplPlatform
   bool sse_decode_bool(SseDeserializer deserializer);
 
   @protected
+  AppError sse_decode_box_autoadd_app_error(SseDeserializer deserializer);
+
+  @protected
   DlnaRenderer sse_decode_box_autoadd_dlna_renderer(
     SseDeserializer deserializer,
   );
 
   @protected
   PlatformInt64 sse_decode_box_autoadd_i_64(SseDeserializer deserializer);
+
+  @protected
+  LogRecord sse_decode_box_autoadd_log_record(SseDeserializer deserializer);
 
   @protected
   LyricsDoc sse_decode_box_autoadd_lyrics_doc(SseDeserializer deserializer);
@@ -674,10 +725,16 @@ abstract class StellatuneApiApiImplPlatform
   );
 
   @protected
+  ErrorCategory sse_decode_error_category(SseDeserializer deserializer);
+
+  @protected
   Event sse_decode_event(SseDeserializer deserializer);
 
   @protected
   double sse_decode_f_32(SseDeserializer deserializer);
+
+  @protected
+  double sse_decode_f_64(SseDeserializer deserializer);
 
   @protected
   int sse_decode_i_32(SseDeserializer deserializer);
@@ -727,6 +784,9 @@ abstract class StellatuneApiApiImplPlatform
   List<EncoderTypeDescriptor> sse_decode_list_encoder_type_descriptor(
     SseDeserializer deserializer,
   );
+
+  @protected
+  List<LogRecord> sse_decode_list_log_record(SseDeserializer deserializer);
 
   @protected
   List<LyricLine> sse_decode_list_lyric_line(SseDeserializer deserializer);
@@ -792,6 +852,15 @@ abstract class StellatuneApiApiImplPlatform
   List<TrackLite> sse_decode_list_track_lite(SseDeserializer deserializer);
 
   @protected
+  LogBatch sse_decode_log_batch(SseDeserializer deserializer);
+
+  @protected
+  LogPage sse_decode_log_page(SseDeserializer deserializer);
+
+  @protected
+  LogRecord sse_decode_log_record(SseDeserializer deserializer);
+
+  @protected
   LyricLine sse_decode_lyric_line(SseDeserializer deserializer);
 
   @protected
@@ -815,6 +884,9 @@ abstract class StellatuneApiApiImplPlatform
 
   @protected
   String? sse_decode_opt_String(SseDeserializer deserializer);
+
+  @protected
+  AppError? sse_decode_opt_box_autoadd_app_error(SseDeserializer deserializer);
 
   @protected
   PlatformInt64? sse_decode_opt_box_autoadd_i_64(SseDeserializer deserializer);
@@ -1059,6 +1131,12 @@ abstract class StellatuneApiApiImplPlatform
   );
 
   @protected
+  void sse_encode_StreamSink_log_batch_Sse(
+    RustStreamSink<LogBatch> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_StreamSink_lyrics_event_Sse(
     RustStreamSink<LyricsEvent> self,
     SseSerializer serializer,
@@ -1080,6 +1158,9 @@ abstract class StellatuneApiApiImplPlatform
   void sse_encode_String(String self, SseSerializer serializer);
 
   @protected
+  void sse_encode_app_error(AppError self, SseSerializer serializer);
+
+  @protected
   void sse_encode_audio_backend(AudioBackend self, SseSerializer serializer);
 
   @protected
@@ -1087,6 +1168,12 @@ abstract class StellatuneApiApiImplPlatform
 
   @protected
   void sse_encode_bool(bool self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_box_autoadd_app_error(
+    AppError self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_box_autoadd_dlna_renderer(
@@ -1097,6 +1184,12 @@ abstract class StellatuneApiApiImplPlatform
   @protected
   void sse_encode_box_autoadd_i_64(
     PlatformInt64 self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_log_record(
+    LogRecord self,
     SseSerializer serializer,
   );
 
@@ -1206,10 +1299,16 @@ abstract class StellatuneApiApiImplPlatform
   );
 
   @protected
+  void sse_encode_error_category(ErrorCategory self, SseSerializer serializer);
+
+  @protected
   void sse_encode_event(Event self, SseSerializer serializer);
 
   @protected
   void sse_encode_f_32(double self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_f_64(double self, SseSerializer serializer);
 
   @protected
   void sse_encode_i_32(int self, SseSerializer serializer);
@@ -1266,6 +1365,12 @@ abstract class StellatuneApiApiImplPlatform
   @protected
   void sse_encode_list_encoder_type_descriptor(
     List<EncoderTypeDescriptor> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_log_record(
+    List<LogRecord> self,
     SseSerializer serializer,
   );
 
@@ -1362,6 +1467,15 @@ abstract class StellatuneApiApiImplPlatform
   );
 
   @protected
+  void sse_encode_log_batch(LogBatch self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_log_page(LogPage self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_log_record(LogRecord self, SseSerializer serializer);
+
+  @protected
   void sse_encode_lyric_line(LyricLine self, SseSerializer serializer);
 
   @protected
@@ -1387,6 +1501,12 @@ abstract class StellatuneApiApiImplPlatform
 
   @protected
   void sse_encode_opt_String(String? self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_opt_box_autoadd_app_error(
+    AppError? self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_opt_box_autoadd_i_64(

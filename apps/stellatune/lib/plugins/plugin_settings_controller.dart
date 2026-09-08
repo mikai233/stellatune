@@ -1,3 +1,5 @@
+import 'package:stellatune/app/diagnostics/diagnostics_service.dart';
+
 import 'dart:async';
 import 'dart:io';
 
@@ -137,6 +139,11 @@ class PluginSettingsController extends Notifier<PluginSettingsState> {
       );
       if (!_isActive(lifetime) || generation != _refreshGeneration) return;
       state = state.copyWith(loading: false, error: error);
+      DiagnosticsService.instance.report(
+        error,
+        stack: stack,
+        operation: 'plugin_refresh',
+      );
     }
   }
 
@@ -167,7 +174,14 @@ class PluginSettingsController extends Notifier<PluginSettingsState> {
         error: error,
         stackTrace: stack,
       );
-      if (_isActive(lifetime)) state = state.copyWith(error: error);
+      if (_isActive(lifetime)) {
+        state = state.copyWith(error: error);
+        DiagnosticsService.instance.report(
+          error,
+          stack: stack,
+          operation: 'plugin_change',
+        );
+      }
       rethrow;
     } finally {
       if (_isActive(lifetime)) {

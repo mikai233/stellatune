@@ -86,64 +86,68 @@ class _OpenContainerShaderWarmupState
       if (!mounted || _globalCompleted) break;
       final done = Completer<void>();
       final entry = OverlayEntry(
-        builder: (_) => IgnorePointer(
-          child: widget.useFullScreenPreview
-              ? SizedBox.expand(
-                  child: Navigator(
-                    onGenerateRoute: (_) => PageRouteBuilder<void>(
-                      transitionDuration: Duration.zero,
-                      reverseTransitionDuration: Duration.zero,
-                      pageBuilder: (context, animation, secondaryAnimation) =>
-                          RepaintBoundary(
-                            child: _WarmupProbe(
-                              colors: colors,
-                              fullscreen: true,
-                              closedSize: _closedSize,
-                              openSize: _openSize,
-                              transitionDuration: widget.transitionDuration,
-                              onFinished: () {
-                                if (!done.isCompleted) done.complete();
-                              },
+        // The root Overlay may be above the application's Navigator. Keep this
+        // temporary Navigator from inheriting (and stealing) its HeroController.
+        builder: (_) => HeroControllerScope.none(
+          child: IgnorePointer(
+            child: widget.useFullScreenPreview
+                ? SizedBox.expand(
+                    child: Navigator(
+                      onGenerateRoute: (_) => PageRouteBuilder<void>(
+                        transitionDuration: Duration.zero,
+                        reverseTransitionDuration: Duration.zero,
+                        pageBuilder: (context, animation, secondaryAnimation) =>
+                            RepaintBoundary(
+                              child: _WarmupProbe(
+                                colors: colors,
+                                fullscreen: true,
+                                closedSize: _closedSize,
+                                openSize: _openSize,
+                                transitionDuration: widget.transitionDuration,
+                                onFinished: () {
+                                  if (!done.isCompleted) done.complete();
+                                },
+                              ),
                             ),
-                          ),
+                      ),
                     ),
-                  ),
-                )
-              : Align(
-                  alignment: widget.tinyOverlayAlignment,
-                  child: Padding(
-                    padding: widget.tinyOverlayPadding,
-                    child: SizedBox(
-                      width: _openSize!,
-                      height: _openSize,
-                      child: ClipRect(
-                        child: Navigator(
-                          onGenerateRoute: (_) => PageRouteBuilder<void>(
-                            transitionDuration: Duration.zero,
-                            reverseTransitionDuration: Duration.zero,
-                            pageBuilder:
-                                (context, animation, secondaryAnimation) =>
-                                    RepaintBoundary(
-                                      child: _WarmupProbe(
-                                        colors: colors,
-                                        fullscreen: false,
-                                        closedSize: _closedSize,
-                                        openSize: _openSize,
-                                        transitionDuration:
-                                            widget.transitionDuration,
-                                        onFinished: () {
-                                          if (!done.isCompleted) {
-                                            done.complete();
-                                          }
-                                        },
+                  )
+                : Align(
+                    alignment: widget.tinyOverlayAlignment,
+                    child: Padding(
+                      padding: widget.tinyOverlayPadding,
+                      child: SizedBox(
+                        width: _openSize!,
+                        height: _openSize,
+                        child: ClipRect(
+                          child: Navigator(
+                            onGenerateRoute: (_) => PageRouteBuilder<void>(
+                              transitionDuration: Duration.zero,
+                              reverseTransitionDuration: Duration.zero,
+                              pageBuilder:
+                                  (context, animation, secondaryAnimation) =>
+                                      RepaintBoundary(
+                                        child: _WarmupProbe(
+                                          colors: colors,
+                                          fullscreen: false,
+                                          closedSize: _closedSize,
+                                          openSize: _openSize,
+                                          transitionDuration:
+                                              widget.transitionDuration,
+                                          onFinished: () {
+                                            if (!done.isCompleted) {
+                                              done.complete();
+                                            }
+                                          },
+                                        ),
                                       ),
-                                    ),
+                            ),
                           ),
                         ),
                       ),
                     ),
                   ),
-                ),
+          ),
         ),
       );
 
@@ -242,12 +246,14 @@ class _OpenContainerShaderWarmupState
           .withSaturation((base.saturation + 0.12).clamp(0.0, 1.0))
           .withLightness(0.52)
           .toColor(),
-      HSLColor.fromColor(
-        scheme.secondary,
-      ).withSaturation(0.82).withLightness(0.50).toColor(),
-      HSLColor.fromColor(
-        scheme.tertiary,
-      ).withSaturation(0.88).withLightness(0.54).toColor(),
+      HSLColor.fromColor(scheme.secondary)
+          .withSaturation(0.82)
+          .withLightness(0.50)
+          .toColor(),
+      HSLColor.fromColor(scheme.tertiary)
+          .withSaturation(0.88)
+          .withLightness(0.54)
+          .toColor(),
     ];
   }
 

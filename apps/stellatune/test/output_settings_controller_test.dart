@@ -254,6 +254,46 @@ void main() {
     },
   );
 
+  test('failed first ASIO driver leaves other targets selectable', () async {
+    await controller().refresh();
+    bridge.targetRequests['A'] = Completer<String>()
+      ..complete('[{"id":"realtek"},{"id":"smsl"}]');
+    bridge.failRoute = true;
+    await controller().selectBackend(_key('A'));
+    var state = container.read(outputSettingsControllerProvider);
+    expect(state.error, isNotNull);
+    expect(state.applying, isFalse);
+    expect(state.targets, hasLength(2));
+    expect(controller().selection.backendKey, _key('A'));
+    expect(store.outputSinkRoute, isNull);
+    expect(bridge.currentRoute, isNull);
+    expect(
+      state.unavailableTargets[(_key('A'), '{"id":"realtek"}')],
+      isNotNull,
+    );
+    bridge.failRoute = false;
+    await controller().selectDevice('{"id":"realtek"}');
+    expect(bridge.routes, isEmpty);
+    await controller().selectDevice('{"id":"smsl"}');
+    state = container.read(outputSettingsControllerProvider);
+    expect(state.error, isNull);
+    expect(state.draft, isNull);
+    expect(store.outputSinkRoute?.targetJson, '{"id":"smsl"}');
+    expect(bridge.currentRoute, store.outputSinkRoute);
+    await controller().selectBackend(
+      OutputSettingsValues.localBackendKey(AudioBackend.shared),
+    );
+    await controller().selectBackend(_key('A'));
+    expect(store.outputSinkRoute?.targetJson, '{"id":"smsl"}');
+    await controller().refresh();
+    expect(
+      container.read(outputSettingsControllerProvider).unavailableTargets,
+      isEmpty,
+    );
+    await controller().selectDevice('{"id":"realtek"}');
+    expect(store.outputSinkRoute?.targetJson, '{"id":"realtek"}');
+  });
+
   test(
     'options failure never writes an unconfirmed quality or fade setting',
     () async {
@@ -375,6 +415,58 @@ void main() {
       await Hive.openBox('settings');
       expect(store.selectedBackend, AudioBackend.shared);
       expect(store.outputSinkRoute, isNull);
+    },
+  );
+
+  testWidgets(
+    'unavailable ASIO driver is disabled while other outputs remain enabled',
+    (tester) async {
+      await controller().refresh();
+      bridge.targetRequests['A'] = Completer<String>()
+        ..complete(
+          '[{"id":"realtek","name":"Realtek"},{"id":"smsl","name":"SMSL"}]',
+        );
+      bridge.failRoute = true;
+      await controller().selectBackend(_key('A'));
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: const Scaffold(
+              body: SingleChildScrollView(child: SettingsOutputSection()),
+            ),
+          ),
+        ),
+      );
+      final fields = tester.widgetList<DropdownButtonFormField<String?>>(
+        find.byType(DropdownButtonFormField<String?>),
+      );
+      final device = fields.firstWhere(
+        (field) => (field.initialValue ?? '').contains('realtek'),
+      );
+      // Inspect the rendered dropdown: disabled entries remain visible and explain the failure.
+      final dropdown = tester
+          .widgetList<DropdownButton<String?>>(
+            find.byType(DropdownButton<String?>),
+          )
+          .firstWhere((field) => (field.value ?? '').contains('realtek'));
+      expect(device.onChanged, isNotNull);
+      expect(
+        dropdown.items!
+            .firstWhere((item) => item.value!.contains('realtek'))
+            .enabled,
+        isFalse,
+      );
+      expect(
+        dropdown.items!
+            .firstWhere((item) => item.value!.contains('smsl'))
+            .enabled,
+        isTrue,
+      );
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
     },
   );
 

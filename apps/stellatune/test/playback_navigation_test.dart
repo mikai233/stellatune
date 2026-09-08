@@ -192,7 +192,7 @@ void main() {
       expect(bridge.stopCalls, 1);
       expect(
         container.read(playbackControllerProvider).lastError,
-        contains('current request failed'),
+        equals('播放操作失败'),
       );
       expect(container.read(playbackControllerProvider).pendingItem, isNull);
       final next = controller.playIndex(2);

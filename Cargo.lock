@@ -4082,6 +4082,7 @@ dependencies = [
  "stellatune-asio-proto",
  "stellatune-audio-core",
  "tempfile",
+ "tracing",
 ]
 
 [[package]]
@@ -4144,6 +4145,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
+ "tracing-appender",
  "tracing-subscriber",
  "url",
 ]
@@ -4207,7 +4209,7 @@ dependencies = [
 
 [[package]]
 name = "stellatune-ncm-host"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "anyhow",
  "axum",

@@ -1,3 +1,5 @@
+import 'package:stellatune/bridge/api/error.dart';
+
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -128,7 +130,7 @@ void main() {
       controller = container.read(libraryControllerProvider.notifier);
       await controller.refresh();
       final hydrated = container.read(libraryControllerProvider);
-      expect(hydrated.lastError, contains('initial roots failed'));
+      expect(hydrated.lastError, equals('音乐库操作失败'));
       expect(hydrated.likedTrackIds, {7});
       expect(hydrated.folders, ['/music/album']);
     },
@@ -154,7 +156,7 @@ void main() {
     bridge.eventsController.add(const LibraryEvent.changed());
     await controller.refresh();
     final failed = container.read(libraryControllerProvider);
-    expect(failed.lastError, contains('roots offline'));
+    expect(failed.lastError, equals('音乐库操作失败'));
     expect(failed.folders, ['/music/album']);
     expect(failed.likedTrackIds, {7});
     bridge.rootsError = null;
@@ -200,7 +202,7 @@ void main() {
     await first;
     expect(
       container.read(libraryControllerProvider).lastError,
-      contains('tracks offline'),
+      equals('音乐库操作失败'),
     );
     final second = controller.refresh();
     await _until(() => bridge.tracks.length == 2);
@@ -257,7 +259,15 @@ void main() {
         ),
       );
       bridge.eventsController.add(
-        const LibraryEvent.error(message: 'previous scan failed'),
+        const LibraryEvent.error(
+          error: AppError(
+            category: ErrorCategory.internal,
+            operation: 'library_scan',
+            diagnosticId: 'test',
+            fingerprint: 'scan-failed',
+            context: '',
+          ),
+        ),
       );
       expect(container.read(libraryControllerProvider).lastFinishedMs, 50);
       bridge.scanGate = Completer<void>();

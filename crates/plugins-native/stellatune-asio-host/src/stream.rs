@@ -143,13 +143,14 @@ impl StreamState {
             },
         };
 
-        // Prefer f32; if unavailable, fall back to i16/i32/u16.
+        // Prefer f32; otherwise use a supported native integer format.
         let supported = dev.supported_output_configs().map_err(|e| e.to_string())?;
         let mut chosen_format = None;
         for cand in [
             cpal::SampleFormat::F32,
             cpal::SampleFormat::I16,
             cpal::SampleFormat::I32,
+            cpal::SampleFormat::I24,
             cpal::SampleFormat::U16,
         ] {
             if supported.clone().any(|c| {
@@ -225,6 +226,24 @@ impl StreamState {
                     None,
                 )
                 .map_err(|e| e.to_string())?
+            },
+            cpal::SampleFormat::I24 => {
+                let mut tmp = Vec::new();
+                let queue_cb = Arc::clone(&queue);
+                let running_cb = Arc::clone(&running);
+                let metrics_cb = Arc::clone(&metrics);
+                let mut platform_state = OutputCallbackPlatformState::new();
+                dev.build_output_stream(
+                    cfg,
+                    move |out: &mut [cpal::I24], _| {
+                        let _callback = metrics_cb.enter();
+                        platform_state.on_callback_start("i24");
+                        fill_queue_i24(out, &queue_cb, &running_cb, &metrics_cb, &mut tmp)
+                    },
+                    err_fn,
+                    None,
+                )
+                .map_err(|error| error.to_string())?
             },
             cpal::SampleFormat::U16 => {
                 let mut tmp = vec![0f32; 0];
@@ -554,6 +573,26 @@ fn fill_queue_i32(
     }
 }
 
+fn fill_queue_i24(
+    out: &mut [cpal::I24],
+    queue: &Arc<LocalSampleQueue>,
+    running: &Arc<AtomicBool>,
+    metrics: &Arc<UnderrunMetrics>,
+    tmp: &mut Vec<f32>,
+) {
+    if !running.load(Ordering::SeqCst) {
+        out.fill(cpal::I24::new(0).unwrap());
+        return;
+    }
+    ensure_tmp(tmp, out.len());
+    let n = read_from_queue_with_underrun(queue, &mut tmp[..out.len()], metrics);
+    tmp[n..out.len()].fill(0.0);
+    for (dst, src) in out.iter_mut().zip(tmp.iter()) {
+        let value = (src * 8_388_608.0).clamp(-8_388_608.0, 8_388_607.0) as i32;
+        *dst = cpal::I24::new(value).expect("clamped 24-bit sample");
+    }
+}
+
 fn fill_queue_u16(
     out: &mut [u16],
     queue: &Arc<LocalSampleQueue>,
@@ -594,12 +633,15 @@ mod tests {
             assert_eq!(*buffer, [0.0; 4]);
             let mut i16_buffer = [123; 4];
             let mut i32_buffer = [123; 4];
+            let mut i24_buffer = [cpal::I24::new(123).unwrap(); 4];
             let mut u16_buffer = [123; 4];
             fill_queue_i16(&mut i16_buffer, &queue, &running, &metrics, &mut tmp);
             fill_queue_i32(&mut i32_buffer, &queue, &running, &metrics, &mut tmp);
+            fill_queue_i24(&mut i24_buffer, &queue, &running, &metrics, &mut tmp);
             fill_queue_u16(&mut u16_buffer, &queue, &running, &metrics, &mut tmp);
             assert_eq!(i16_buffer, [0; 4]);
             assert_eq!(i32_buffer, [0; 4]);
+            assert!(i24_buffer.iter().all(|sample| sample.inner() == 0));
             assert_eq!(u16_buffer, [32768; 4]);
         }
         assert_eq!(queue.queued_samples(), 4);
@@ -612,6 +654,23 @@ mod tests {
         // Underrun must also overwrite previously rendered samples with silence.
         fill_queue_f32(&mut float_buffers[0], &queue, &running, &metrics);
         assert_eq!(float_buffers[0], [0.0; 4]);
+    }
+
+    #[test]
+    fn i24_conversion_preserves_polarity_clamps_full_scale_and_silences_underrun() {
+        let queue = Arc::new(LocalSampleQueue::new(16));
+        let running = Arc::new(AtomicBool::new(true));
+        let metrics = Arc::new(UnderrunMetrics::default());
+        queue.write_samples(&[-2.0, -1.0, -0.5, 0.0, 0.5, 1.0, 2.0, f32::NAN]);
+        let mut buffer = [cpal::I24::new(123).unwrap(); 10];
+        fill_queue_i24(&mut buffer, &queue, &running, &metrics, &mut Vec::new());
+        assert_eq!(
+            buffer.map(|sample| sample.inner()),
+            [
+                -8_388_608, -8_388_608, -4_194_304, 0, 4_194_304, 8_388_607, 8_388_607, 0, 0, 0
+            ]
+        );
+        assert_eq!(metrics.delivered_samples.load(Ordering::Acquire), 8);
     }
 
     #[test]

@@ -5,10 +5,12 @@
 
 import '../frb_generated.dart';
 import '../third_party/stellatune_library.dart';
+import 'error.dart';
+import 'events.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `shared_library_if_initialized`, `shared_library`, `shared_player_service`
+// These functions are ignored because they are not marked as `pub`: `shared_library_if_initialized`, `shared_library`, `shared_player_service`, `shutdown_library`
 
 Future<void> createLibrary({required String dbPath}) =>
     StellatuneApi.instance.api.crateApiLibraryCreateLibrary(dbPath: dbPath);

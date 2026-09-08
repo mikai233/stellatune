@@ -26,7 +26,7 @@ export default {
       res.end('bundle ready'); return true;
     }});
   },
-  invoke() { return { executable: process.execPath, version: process.version,
+  invoke() { console.warn('diagnostic first line\\nsecond line'); console.error(new Error('fixture failure')); return { executable: process.execPath, version: process.version,
     url: server.url, client: typeof createHostClient }; },
   shutdown() { return server.close(); },
 };
@@ -71,5 +71,8 @@ export default {
   assert.equal(await (await fetch(result.url)).text(), 'bundle ready');
   await call('plugin.shutdown');
   assert.equal((await closed)[0], 0, stderr);
+  const logs = stderr.trim().split('\n').map(line => JSON.parse(line));
+  assert.ok(logs.some(log => log.stellatuneLog === 1 && log.level === 'WARN' && log.message === 'diagnostic first line\nsecond line'));
+  assert.ok(logs.some(log => log.level === 'ERROR' && log.message.includes('Error: fixture failure\n')));
   await assert.rejects(fetch(result.url));
 });

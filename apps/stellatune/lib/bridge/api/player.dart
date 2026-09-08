@@ -5,6 +5,8 @@
 
 import '../frb_generated.dart';
 import '../third_party/stellatune_backend_api/lyrics_types.dart';
+import 'error.dart';
+import 'events.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 

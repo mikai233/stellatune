@@ -1,3 +1,5 @@
+import 'package:stellatune/app/diagnostics/diagnostics_service.dart';
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -235,7 +237,10 @@ class TranscodeProgressDialogCard extends StatelessWidget {
                           const SizedBox(height: 14),
                           if (controller.cancelError case final error?)
                             Text(
-                              l10n.transcodeCancelFailed(error.toString()),
+                              DiagnosticsService.instance.messageFor(
+                                error,
+                                operation: 'transcode_cancel',
+                              ),
                               style: TextStyle(color: colorScheme.error),
                             ),
                           Align(

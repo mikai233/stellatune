@@ -68,6 +68,14 @@ fn build_device_caps_for_device(dev: &cpal::Device) -> Result<DeviceCaps, String
 
     if let Ok(configs) = dev.supported_output_configs() {
         for cfg in configs {
+            let sample_format = match cfg.sample_format() {
+                cpal::SampleFormat::F32 => SampleFormat::F32,
+                cpal::SampleFormat::I16 => SampleFormat::I16,
+                cpal::SampleFormat::I24 => SampleFormat::I24,
+                cpal::SampleFormat::I32 => SampleFormat::I32,
+                cpal::SampleFormat::U16 => SampleFormat::U16,
+                _ => continue,
+            };
             let min = cfg.min_sample_rate();
             let max = cfg.max_sample_rate();
             // Enumerate common rates within range (small list, but useful for "match track rate").
@@ -80,31 +88,42 @@ fn build_device_caps_for_device(dev: &cpal::Device) -> Result<DeviceCaps, String
             }
             rates.push(min);
             rates.push(max);
-            rates.push(default_spec.sample_rate);
             chans.push(cfg.channels());
-            fmts.push(match cfg.sample_format() {
-                cpal::SampleFormat::F32 => SampleFormat::F32,
-                cpal::SampleFormat::I16 => SampleFormat::I16,
-                cpal::SampleFormat::I32 => SampleFormat::I32,
-                cpal::SampleFormat::U16 => SampleFormat::U16,
-                _ => continue,
-            });
+            fmts.push(sample_format);
         }
     }
 
+    rates.retain(|&rate| rate != 0);
     rates.sort_unstable();
     rates.dedup();
     chans.sort_unstable();
     chans.dedup();
     fmts.sort_unstable_by_key(|f| *f as u8);
     fmts.dedup();
+    if fmts.is_empty() {
+        return Err(format!(
+            "ASIO device exposes no output PCM format supported by this host (driver default: {:?})",
+            default_cfg.sample_format()
+        ));
+    }
 
-    Ok(DeviceCaps {
+    let mut caps = DeviceCaps {
         default_spec,
         supported_sample_rates: rates,
         supported_channels: chans,
         supported_formats: fmts,
-    })
+    };
+    let sample_rate = caps.resolve_sample_rate(None)?;
+    if sample_rate != caps.default_spec.sample_rate {
+        tracing::warn!(
+            device = %device_id_string(dev),
+            reported_rate = caps.default_spec.sample_rate,
+            selected_rate = sample_rate,
+            "ASIO default sample rate unavailable; using an enumerated supported rate"
+        );
+        caps.default_spec.sample_rate = sample_rate;
+    }
+    Ok(caps)
 }
 
 fn compute_selection_session_id(device_id: &str, device_name: &str) -> String {

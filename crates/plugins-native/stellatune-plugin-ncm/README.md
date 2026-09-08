@@ -12,6 +12,9 @@ caches are produced. Each HTTP response uses bounded 64 KiB chunks and a two-slo
 queue. Container probing scans at most 1 MiB for the FLAC header. The host's HTTP
 source retains at most 2 MiB of encoded chunks to let seek retries make progress.
 
+Version 0.2.2 forwards native host failures to the application diagnostics panel
+through structured stderr. Install it together with the updated APP.
+
 Version 0.2.1 adds embedded artwork to `inspect-file` through an optional
 `coverUrl`. The same loopback server returns the original image bytes, excluding
 reserved NCM padding; images up to 12 MiB are supported. The application downloads

@@ -167,3 +167,46 @@ fn track_rate_policy_negotiates_and_transports_each_supported_rate() {
         192000
     );
 }
+
+#[test]
+fn older_host_zero_default_is_sanitized_before_negotiation_and_open() {
+    let route = AsioSinkFactory::discover(
+        PathBuf::from(env!("CARGO_BIN_EXE_fake-asio-host")),
+        "zero-default".into(),
+        AsioConfig::default(),
+        3,
+    )
+    .unwrap();
+    let format = route.format();
+    assert_eq!(format.sample_rate, 48000);
+    format.validate().unwrap();
+    let matched = route.with_match_track_sample_rate(true);
+    assert_eq!(
+        matched
+            .preferred_format(PcmFormat {
+                sample_rate: 0,
+                ..format
+            })
+            .unwrap(),
+        format
+    );
+    let mut sink = route.create().unwrap();
+    sink.open(format).unwrap();
+    assert_eq!(
+        sink.write(&block(format, 100)).unwrap().consumed_frames,
+        100
+    );
+    sink.resume().unwrap();
+    sink.drain().unwrap();
+    assert_eq!(sink.clock_snapshot().consumed_frames, 100);
+    sink.close();
+    let missing = AsioSinkFactory::discover(
+        PathBuf::from(env!("CARGO_BIN_EXE_fake-asio-host")),
+        "no-rates".into(),
+        AsioConfig::default(),
+        4,
+    );
+    assert!(
+        matches!(missing, Err(message) if message.contains("no supported non-zero sample rate"))
+    );
+}

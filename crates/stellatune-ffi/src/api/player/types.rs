@@ -205,7 +205,7 @@ pub enum Event {
     AudioStart,
     AudioEnd,
     Error {
-        message: String,
+        error: crate::api::error::AppError,
     },
     Log {
         message: String,
@@ -227,6 +227,7 @@ pub struct TrackDecodeInfo {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TranscodeProgressEvent {
     pub phase: String,
+    pub error: Option<crate::api::error::AppError>,
     pub message: Option<String>,
     pub source_path: Option<String>,
     pub output_path: Option<String>,

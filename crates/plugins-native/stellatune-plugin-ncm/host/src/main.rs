@@ -35,7 +35,13 @@ async fn main() -> anyhow::Result<()> {
                     .unwrap_or_else(|_| Err(anyhow::anyhow!("malformed NCM container")));
                 let response = match result {
                     Ok(value) => json!({"id": id, "result": value}),
-                    Err(error) => json!({"id": id, "error": error.to_string()}),
+                    Err(error) => {
+                        eprintln!(
+                            "{}",
+                            json!({"stellatuneLog": 1, "level": "ERROR", "message": format!("NCM host: {error:#}")})
+                        );
+                        json!({"id": id, "error": error.to_string()})
+                    },
                 };
                 println!("{response}");
                 if std::io::stdout().flush().is_err() {

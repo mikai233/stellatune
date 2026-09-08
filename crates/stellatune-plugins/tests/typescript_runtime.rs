@@ -52,7 +52,7 @@ async fn native_output_package_installs_validates_and_never_starts_node() {
         "manifest_version": 2, "id": "test.asio", "name": "Test ASIO", "version": "1.0.0",
         "runtime": {"kind": "typescript", "entry": "plugin.mjs", "api_version": 2, "protocol": "stellatune-capability-rpc/1"},
         "capabilities": [{"id": "asio", "kind": "output-sink", "display_name": "ASIO", "execution_class": "control",
-            "native_output": {"protocol": "asio-v9", "executable": "bin/output.exe"}}]
+            "native_output": {"protocol": "asio-v10", "executable": "bin/output.exe"}}]
     });
     let manifest = serde_json::from_value(value.clone()).unwrap();
     validate_typescript_manifest(&manifest, root.path()).unwrap();
@@ -72,6 +72,16 @@ async fn native_output_package_installs_validates_and_never_starts_node() {
     runtime.unregister("test.asio").await.unwrap();
     uninstall_typescript_plugin(installation.path(), "test.asio").unwrap();
     assert!(!installed.root_dir.exists());
+    value["capabilities"][0]["native_output"]["protocol"] = json!("asio-v9");
+    let error =
+        validate_typescript_manifest(&serde_json::from_value(value.clone()).unwrap(), root.path())
+            .unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("native_output.protocol must be 'asio-v10'")
+    );
+    value["capabilities"][0]["native_output"]["protocol"] = json!("asio-v10");
     value["capabilities"][0]["native_output"]["executable"] = json!("../output.exe");
     assert!(
         validate_typescript_manifest(&serde_json::from_value(value.clone()).unwrap(), root.path())
@@ -96,7 +106,7 @@ fn packaged_asio_archive_installs_without_source_checkout_dependencies() {
         .native_output
         .as_ref()
         .unwrap();
-    assert_eq!(output.protocol, "asio-v9");
+    assert_eq!(output.protocol, "asio-v10");
     assert!(
         std::fs::metadata(installed.root_dir.join(&output.executable))
             .unwrap()

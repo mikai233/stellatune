@@ -244,7 +244,8 @@ control plane and return declarative source resolution results; they never
 transport encoded media or PCM.
 
 The optional `dev.stellatune.output.asio` package declares an `output-sink`
-capability with `native_output.protocol = "asio-v9"`. The backend discovers
+capability with `native_output.protocol = "asio-v10"` (I24-capable).
+Only version 10 is supported; the app and plugin must be updated together. The backend discovers
 installed, enabled output packages and selects either the builtin sink or
 `stellatune-audio-asio-adapter`. The adapter starts the packaged Rust host
 directly; output playback does not start Node. The ASIO SDK and `cpal/asio`

@@ -1,5 +1,8 @@
 import 'dart:io';
 
+import 'package:path_provider/path_provider.dart';
+import 'package:stellatune/app/diagnostics/diagnostics_service.dart';
+
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:stellatune/bridge/frb_generated.dart';
 
@@ -27,5 +30,11 @@ ExternalLibrary _openRustLibrary() {
 }
 
 Future<void> initRustRuntime() async {
+  final diagnostics = DiagnosticsService.instance;
+  try {
+    final directory = await getApplicationSupportDirectory();
+    await diagnostics.prepareDirectory('${directory.path}/logs');
+  } catch (_) {}
   await StellatuneApi.init(externalLibrary: _openRustLibrary());
+  await diagnostics.connect();
 }

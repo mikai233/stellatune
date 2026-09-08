@@ -1,3 +1,5 @@
+import 'package:stellatune/app/diagnostics/diagnostics_service.dart';
+
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -72,6 +74,7 @@ class PluginPlaylistsController extends Notifier<PluginPlaylistsState> {
         entries: entries,
         listError: result.aggregatedError,
       );
+      if (result.aggregatedError != null) { DiagnosticsService.instance.report(StateError(result.sourceErrors.join('\n')), operation: 'playlists_load'); }
       final selected = state.selection;
       if (selected != null) {
         final updated = byKey[selected.entry.key];
@@ -85,7 +88,12 @@ class PluginPlaylistsController extends Notifier<PluginPlaylistsState> {
       }
     } catch (error) {
       if (!ref.mounted || generation != _listGeneration) return;
-      state = state.copyWith(listError: error.toString());
+      state = state.copyWith(
+        listError: DiagnosticsService.instance.failureMessage(
+          error,
+          operation: 'playlist',
+        ),
+      );
     } finally {
       if (ref.mounted && generation == _listGeneration) {
         state = state.copyWith(refreshing: false);
@@ -142,7 +150,12 @@ class PluginPlaylistsController extends Notifier<PluginPlaylistsState> {
     } catch (error) {
       if (!_isCurrent(entry.key, generation)) return;
       state = state.copyWith(
-        selection: state.selection!.copyWith(error: error.toString()),
+        selection: state.selection!.copyWith(
+          error: DiagnosticsService.instance.failureMessage(
+            error,
+            operation: 'playlist',
+          ),
+        ),
       );
     } finally {
       if (_isCurrent(entry.key, generation)) {
@@ -181,7 +194,12 @@ class PluginPlaylistsController extends Notifier<PluginPlaylistsState> {
     } catch (error) {
       if (!_isCurrent(selection.entry.key, generation)) return;
       state = state.copyWith(
-        selection: state.selection!.copyWith(error: error.toString()),
+        selection: state.selection!.copyWith(
+          error: DiagnosticsService.instance.failureMessage(
+            error,
+            operation: 'playlist',
+          ),
+        ),
       );
     } finally {
       if (_isCurrent(selection.entry.key, generation)) {

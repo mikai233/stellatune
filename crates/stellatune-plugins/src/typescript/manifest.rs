@@ -143,8 +143,8 @@ pub fn validate_typescript_manifest(
     for capability in &manifest.capabilities {
         match (&capability.kind, &capability.native_output) {
             (TypeScriptCapabilityKind::OutputSink, Some(output)) => {
-                if output.protocol != "asio-v9" {
-                    return invalid("native_output.protocol must be 'asio-v9'");
+                if output.protocol != "asio-v10" {
+                    return invalid("native_output.protocol must be 'asio-v10'");
                 }
                 validate_package_path(
                     "native_output.executable",

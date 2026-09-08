@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'package:stellatune/app/diagnostics/diagnostics_service.dart';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -58,7 +60,11 @@ class _SettingsPluginsSectionState
       _feedback(l10n.settingsPluginInstalled);
     } catch (error, stack) {
       logger.e('failed to install plugin', error: error, stackTrace: stack);
-      _feedback(l10n.settingsPluginInstallFailed(error.toString()));
+      DiagnosticsService.instance.report(
+        error,
+        stack: stack,
+        operation: 'plugin_install',
+      );
     } finally {
       if (mounted) setState(() => _picking = false);
     }
@@ -74,7 +80,7 @@ class _SettingsPluginsSectionState
         throw StateError('failed to open plugin directory');
       }
     } catch (error) {
-      _feedback('Failed to open plugin directory: $error');
+      DiagnosticsService.instance.report(error, operation: 'plugin_directory');
     }
   }
 
@@ -95,7 +101,7 @@ class _SettingsPluginsSectionState
         throw StateError('failed to launch browser');
       }
     } catch (error) {
-      _feedback('Failed to open "$pluginName" Web UI: $error');
+      DiagnosticsService.instance.report(error, operation: 'plugin_ui');
     }
   }
 
@@ -153,11 +159,6 @@ class _SettingsPluginsSectionState
           ),
         const SizedBox(height: 8),
         if (state.loading || state.busy) const LinearProgressIndicator(),
-        if (state.error != null)
-          Text(
-            state.error.toString(),
-            style: TextStyle(color: Theme.of(context).colorScheme.error),
-          ),
         if (!state.loading && state.plugins.isEmpty)
           Text(l10n.settingsNoPlugins),
         AbsorbPointer(

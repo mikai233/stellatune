@@ -1,3 +1,4 @@
+import 'package:stellatune/ui/diagnostics/diagnostics_overlay.dart';
 import 'package:stellatune/ui/theme/artwork_palette.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -104,13 +105,7 @@ class NowPlayingBar extends ConsumerWidget {
       trailing: Row(
         mainAxisAlignment: MainAxisAlignment.end,
         children: [
-          if (playback.lastError != null)
-            action(
-              Icons.error_outline,
-              playback.lastError!,
-              () => ScaffoldMessenger.of(context)
-                  .showSnackBar(SnackBar(content: Text(playback.lastError!))),
-            ),
+          const DiagnosticsButton(),
           VolumePopupButton(
             volume: playback.desiredVolume,
             iconSize: 19,

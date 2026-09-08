@@ -6,8 +6,6 @@
 import '../../frb_generated.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
-import 'package:freezed_annotation/freezed_annotation.dart' hide protected;
-part 'lyrics_types.freezed.dart';
 
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
 
@@ -57,28 +55,6 @@ class LyricsDoc {
           source == other.source &&
           isSynced == other.isSynced &&
           lines == other.lines;
-}
-
-@freezed
-sealed class LyricsEvent with _$LyricsEvent {
-  const LyricsEvent._();
-
-  const factory LyricsEvent.loading({required String trackKey}) =
-      LyricsEvent_Loading;
-  const factory LyricsEvent.ready({
-    required String trackKey,
-    required LyricsDoc doc,
-  }) = LyricsEvent_Ready;
-  const factory LyricsEvent.cursor({
-    required String trackKey,
-    required PlatformInt64 lineIndex,
-  }) = LyricsEvent_Cursor;
-  const factory LyricsEvent.empty({required String trackKey}) =
-      LyricsEvent_Empty;
-  const factory LyricsEvent.error({
-    required String trackKey,
-    required String message,
-  }) = LyricsEvent_Error;
 }
 
 class LyricsQuery {

@@ -15,7 +15,7 @@ use thiserror::Error;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio::sync::Mutex;
-use tracing::{debug, warn};
+use tracing::debug;
 
 use super::protocol::{
     CAPABILITY_RPC_PROTOCOL, DEFAULT_MAX_FRAME_BYTES, PluginError, RpcRequest, RpcResponse,
@@ -545,9 +545,34 @@ impl NodeSession {
             })?;
         let plugin_id = config.plugin_id.clone();
         let stderr_task = tokio::spawn(async move {
-            let mut lines = BufReader::new(stderr).lines();
-            while let Ok(Some(line)) = lines.next_line().await {
-                warn!(plugin_id, line, "TypeScript plugin stderr");
+            let mut reader = BufReader::new(stderr);
+            let mut bytes = Vec::with_capacity(65536);
+            loop {
+                bytes.clear();
+                match (&mut reader)
+                    .take(65536)
+                    .read_until(b'\n', &mut bytes)
+                    .await
+                {
+                    Ok(0) | Err(_) => break,
+                    Ok(_) => {},
+                }
+                let line = String::from_utf8_lossy(&bytes);
+                let value = serde_json::from_str::<serde_json::Value>(&line).ok();
+                let structured = value.as_ref().filter(|v| v["stellatuneLog"] == 1);
+                let message = structured
+                    .and_then(|v| v["message"].as_str())
+                    .unwrap_or(&line);
+                let level = structured
+                    .and_then(|v| v["level"].as_str())
+                    .unwrap_or("INFO");
+                match level {
+                    "ERROR" => tracing::error!(plugin_id, generation, "{message}"),
+                    "WARN" => tracing::warn!(plugin_id, generation, "{message}"),
+                    "DEBUG" => tracing::debug!(plugin_id, generation, "{message}"),
+                    "TRACE" => tracing::trace!(plugin_id, generation, "{message}"),
+                    _ => tracing::info!(plugin_id, generation, "{message}"),
+                }
             }
         });
         Ok(Self {

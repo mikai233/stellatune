@@ -3,7 +3,7 @@ use thiserror::Error;
 
 pub mod shared_ring;
 
-pub const PROTOCOL_VERSION: u32 = 9;
+pub const PROTOCOL_VERSION: u32 = 10;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AudioSpec {
@@ -29,12 +29,39 @@ pub struct DeviceCaps {
     pub supported_formats: Vec<SampleFormat>,
 }
 
+impl DeviceCaps {
+    /// A driver may report zero for its current rate before a stream starts.
+    /// Select only from enumerated supported rates; never treat that sentinel as PCM.
+    pub fn resolve_sample_rate(&self, requested: Option<u32>) -> Result<u32, String> {
+        let supported = |rate: u32| rate != 0 && self.supported_sample_rates.contains(&rate);
+        if let Some(rate) = requested {
+            return if supported(rate) {
+                Ok(rate)
+            } else {
+                Err(format!("ASIO device does not support {rate} Hz"))
+            };
+        }
+        [self.default_spec.sample_rate, 48_000, 44_100]
+            .into_iter()
+            .find(|&rate| supported(rate))
+            .or_else(|| {
+                self.supported_sample_rates
+                    .iter()
+                    .copied()
+                    .filter(|&rate| rate != 0)
+                    .min()
+            })
+            .ok_or_else(|| "ASIO device reported no supported non-zero sample rate".into())
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SampleFormat {
     F32,
     I16,
     I32,
     U16,
+    I24,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -144,4 +171,62 @@ pub fn read_frame<R: std::io::Read, T: for<'de> Deserialize<'de>>(
     let mut payload = vec![0u8; len];
     r.read_exact(&mut payload)?;
     Ok(postcard::from_bytes(&payload)?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AudioSpec, DeviceCaps};
+
+    fn caps(default_rate: u32, rates: &[u32]) -> DeviceCaps {
+        DeviceCaps {
+            default_spec: AudioSpec {
+                sample_rate: default_rate,
+                channels: 2,
+            },
+            supported_sample_rates: rates.to_vec(),
+            supported_channels: vec![2],
+            supported_formats: vec![],
+        }
+    }
+
+    #[test]
+    fn unknown_default_uses_only_reported_supported_rates() {
+        assert_eq!(
+            caps(0, &[0, 44100, 48000])
+                .resolve_sample_rate(None)
+                .unwrap(),
+            48000
+        );
+        assert_eq!(
+            caps(0, &[0, 96000, 44100])
+                .resolve_sample_rate(None)
+                .unwrap(),
+            44100
+        );
+        assert_eq!(
+            caps(0, &[96000, 32000, 0])
+                .resolve_sample_rate(None)
+                .unwrap(),
+            32000
+        );
+    }
+
+    #[test]
+    fn supported_default_and_explicit_rate_take_precedence() {
+        let caps = caps(192000, &[44100, 48000, 192000]);
+        assert_eq!(caps.resolve_sample_rate(None).unwrap(), 192000);
+        assert_eq!(caps.resolve_sample_rate(Some(44100)).unwrap(), 44100);
+        assert!(caps.resolve_sample_rate(Some(96000)).is_err());
+    }
+
+    #[test]
+    fn zero_is_never_a_valid_requested_or_fallback_rate() {
+        assert!(caps(0, &[0]).resolve_sample_rate(None).is_err());
+        assert!(caps(48000, &[]).resolve_sample_rate(None).is_err());
+        assert!(caps(0, &[0, 48000]).resolve_sample_rate(Some(0)).is_err());
+        assert_eq!(
+            caps(12345, &[44100]).resolve_sample_rate(None).unwrap(),
+            44100
+        );
+    }
 }

@@ -100,51 +100,57 @@ struct TranscodeTaskContext {
 pub fn transcode_track_local(
     request: TranscodeTrackLocalRequest,
     sink: StreamSink<TranscodeProgressEvent>,
-) -> Result<()> {
-    let request = TranscodeTrackLocalRequest::new(
-        request.task_id,
-        request.source_path,
-        request.output_path,
-        request.encoder_plugin_id,
-        request.encoder_type_id,
-        request.encoder_config_json,
-        request.encoder_options_json,
-    )?;
-    let cancel_flag = register_transcode_cancel_flag(request.task_id.as_str())?;
+) -> Result<(), crate::api::error::AppError> {
+    let result: anyhow::Result<_> = (|| {
+        let request = TranscodeTrackLocalRequest::new(
+            request.task_id,
+            request.source_path,
+            request.output_path,
+            request.encoder_plugin_id,
+            request.encoder_type_id,
+            request.encoder_config_json,
+            request.encoder_options_json,
+        )?;
+        let cancel_flag = register_transcode_cancel_flag(request.task_id.as_str())?;
 
-    crate::background_runtime::spawn(async move {
-        let task_id_for_worker = request.task_id.clone();
-        let worker = tokio::task::spawn_blocking(move || {
-            run_transcode_track_local_blocking(TranscodeTaskContext {
-                request,
-                cancel_flag,
-                sink,
-            })
+        crate::background_runtime::spawn(async move {
+            let task_id_for_worker = request.task_id.clone();
+            let worker = tokio::task::spawn_blocking(move || {
+                run_transcode_track_local_blocking(TranscodeTaskContext {
+                    request,
+                    cancel_flag,
+                    sink,
+                })
+            });
+            match worker.await {
+                Ok(()) => {},
+                Err(error) => {
+                    warn!(error = %error, "transcode worker join failed");
+                },
+            }
+            clear_transcode_cancel_flag(task_id_for_worker.as_str());
         });
-        match worker.await {
-            Ok(()) => {},
-            Err(error) => {
-                warn!(error = %error, "transcode worker join failed");
-            },
-        }
-        clear_transcode_cancel_flag(task_id_for_worker.as_str());
-    });
 
-    Ok(())
+        Ok(())
+    })();
+    result.map_err(|error| crate::api::error::AppError::capture("transcode_track_local", error))
 }
 
-pub fn transcode_cancel(task_id: String) -> Result<()> {
-    let task_id = task_id.trim();
-    if task_id.is_empty() {
-        return Err(anyhow!("task_id is empty"));
-    }
-    let guard = shared_transcode_cancel_flags()
-        .lock()
-        .map_err(|_| anyhow!("transcode cancel map is poisoned"))?;
-    if let Some(flag) = guard.get(task_id) {
-        flag.store(true, Ordering::Relaxed);
-    }
-    Ok(())
+pub fn transcode_cancel(task_id: String) -> Result<(), crate::api::error::AppError> {
+    let result: anyhow::Result<_> = (|| {
+        let task_id = task_id.trim();
+        if task_id.is_empty() {
+            return Err(anyhow!("task_id is empty"));
+        }
+        let guard = shared_transcode_cancel_flags()
+            .lock()
+            .map_err(|_| anyhow!("transcode cancel map is poisoned"))?;
+        if let Some(flag) = guard.get(task_id) {
+            flag.store(true, Ordering::Relaxed);
+        }
+        Ok(())
+    })();
+    result.map_err(|error| crate::api::error::AppError::capture("transcode_cancel", error))
 }
 
 fn run_transcode_track_local_blocking(context: TranscodeTaskContext) {
@@ -221,6 +227,7 @@ fn run_transcode_track_local_blocking(context: TranscodeTaskContext) {
         emit_transcode_event(
             &sink,
             TranscodeProgressEvent {
+                error: None,
                 phase: "started".to_string(),
                 message: None,
                 source_path: Some(source_path.clone()),
@@ -258,6 +265,7 @@ fn run_transcode_track_local_blocking(context: TranscodeTaskContext) {
             emit_transcode_event(
                 &sink,
                 TranscodeProgressEvent {
+                    error: None,
                     phase: "progress".to_string(),
                     message: None,
                     source_path: Some(source_path.clone()),
@@ -282,6 +290,7 @@ fn run_transcode_track_local_blocking(context: TranscodeTaskContext) {
         written_bytes = encoder.written_bytes();
 
         let _ = sink.add(TranscodeProgressEvent {
+            error: None,
             phase: "completed".to_string(),
             message: None,
             source_path: Some(source_path.clone()),
@@ -313,12 +322,13 @@ fn run_transcode_track_local_blocking(context: TranscodeTaskContext) {
             let _ = fs::remove_file(output_path_for_failed.as_str());
         }
         let _ = sink.add(TranscodeProgressEvent {
-            phase: if canceled { "canceled" } else { "failed" }.to_string(),
-            message: if canceled {
+            error: if canceled {
                 None
             } else {
-                Some(error.to_string())
+                Some(crate::api::error::AppError::capture("transcode", error))
             },
+            phase: if canceled { "canceled" } else { "failed" }.to_string(),
+            message: None,
             source_path: Some(source_path_for_failed),
             output_path: Some(output_path_for_failed),
             processed_frames,

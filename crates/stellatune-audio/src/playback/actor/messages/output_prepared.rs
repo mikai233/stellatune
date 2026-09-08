@@ -95,6 +95,8 @@ impl Handler<OutputPrepared> for PlaybackActor {
         current.post_mix_transforms = transforms;
         std::mem::swap(&mut output, &mut current.output);
         output.shutdown();
+        current.position_base_frame = checkpoint.to_frames(target.sample_rate);
+        current.sink_consumed_base_frame = 0;
         let mut state = *ctx.behavior();
         match start_seek(&mut self.session, checkpoint) {
             Ok((_, DecoderSeekStatus::Complete(result))) => {

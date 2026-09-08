@@ -39,7 +39,7 @@ impl Connection {
         command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::inherit());
+            .stderr(Stdio::piped());
         if let Some(path) = mapping {
             // A dedicated variable accepts paths containing ',' or ';' as well.
             command.env("STELLATUNE_ASIO_PCM_MAPPING", path);
@@ -54,6 +54,48 @@ impl Connection {
             .map_err(|e| format!("start ASIO host {}: {e}", executable.display()))?;
         let mut input = child.stdin.take().expect("piped stdin");
         let mut output = child.stdout.take().expect("piped stdout");
+        let stderr = child.stderr.take().expect("piped stderr");
+        static GENERATION: AtomicU64 = AtomicU64::new(1);
+        let generation = GENERATION.fetch_add(1, Ordering::Relaxed);
+        let stderr_reader = thread::Builder::new()
+            .name("asio-stderr".into())
+            .spawn(move || {
+                use std::io::{BufRead, Read};
+                let mut reader = std::io::BufReader::new(stderr);
+                let mut bytes = Vec::with_capacity(65536);
+                loop {
+                    bytes.clear();
+                    match (&mut reader).take(65536).read_until(b'\n', &mut bytes) {
+                        Ok(0) | Err(_) => break,
+                        Ok(_) => {},
+                    }
+                    let line = String::from_utf8_lossy(&bytes);
+                    if line.contains(" ERROR ") {
+                        tracing::error!(
+                            plugin_id = "dev.stellatune.output.asio",
+                            generation,
+                            "{line}"
+                        );
+                    } else if line.contains(" WARN ") {
+                        tracing::warn!(
+                            plugin_id = "dev.stellatune.output.asio",
+                            generation,
+                            "{line}"
+                        );
+                    } else {
+                        tracing::info!(
+                            plugin_id = "dev.stellatune.output.asio",
+                            generation,
+                            "{line}"
+                        );
+                    }
+                }
+            })
+            .map_err(|e| {
+                let _ = child.kill();
+                let _ = child.wait();
+                e.to_string()
+            })?;
         let child = Arc::new(Mutex::new(child));
         let (responses_tx, responses) = mpsc::channel();
         let reader = thread::Builder::new()
@@ -121,6 +163,7 @@ impl Connection {
                 alive_worker.store(false, Ordering::Release);
                 terminate(&child_worker);
                 let _ = reader.join();
+                let _ = stderr_reader.join();
             })
             .map_err(|e| {
                 terminate(&child);
@@ -133,12 +176,8 @@ impl Connection {
             consumed,
             alive,
         });
-        match connection.request(Request::Hello {
-            version: PROTOCOL_VERSION,
-        })? {
-            Response::HelloOk { version } if version == PROTOCOL_VERSION => Ok(connection),
-            response => Err(format!("incompatible ASIO host: {response:?}")),
-        }
+        handshake(|version| connection.request(Request::Hello { version }))?;
+        Ok(connection)
     }
 
     pub fn request(&self, request: Request) -> Result<Response, String> {
@@ -181,6 +220,14 @@ impl Connection {
         }
     }
 }
+
+fn handshake(hello: impl FnOnce(u32) -> Result<Response, String>) -> Result<(), String> {
+    match hello(PROTOCOL_VERSION)? {
+        Response::HelloOk { version } if version == PROTOCOL_VERSION => Ok(()),
+        response => Err(format!("incompatible ASIO host: {response:?}")),
+    }
+}
+
 impl Drop for Connection {
     fn drop(&mut self) {
         self.close();
@@ -195,4 +242,28 @@ fn terminate(child: &Mutex<Child>) {
     // keep the response reader (or package executable) alive indefinitely.
     let _ = child.kill();
     let _ = child.wait();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{PROTOCOL_VERSION, Response, handshake};
+
+    #[test]
+    fn handshake_requires_current_version_without_retrying() {
+        handshake(|version| Ok(Response::HelloOk { version })).unwrap();
+        let error = handshake(|_| Ok(Response::HelloOk { version: 9 })).unwrap_err();
+        assert!(error.contains("incompatible ASIO host"));
+        for message in [
+            format!("protocol version mismatch: client={PROTOCOL_VERSION}, host=9"),
+            "host timed out".into(),
+        ] {
+            let mut requests = Vec::new();
+            let result = handshake(|version| {
+                requests.push(version);
+                Err(message.clone())
+            });
+            assert_eq!(result.unwrap_err(), message);
+            assert_eq!(requests, [PROTOCOL_VERSION]);
+        }
+    }
 }

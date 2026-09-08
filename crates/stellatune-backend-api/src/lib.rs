@@ -1,4 +1,5 @@
 pub mod app;
+pub mod diagnostics;
 pub mod host_api;
 pub mod library;
 pub mod lyrics_service;

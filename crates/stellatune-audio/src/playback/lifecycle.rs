@@ -199,6 +199,7 @@ pub(super) fn stop_current(actor: &mut PlaybackSession) {
 }
 
 /// Publishes an existing typed failure without discarding its implementation identity.
+/// An output that fails to open retains its source/decoder for output selection rollback.
 pub(super) fn fail_current_error(
     actor: &mut PlaybackSession,
     state: &mut PlaybackState,
@@ -206,7 +207,19 @@ pub(super) fn fail_current_error(
     error: PlaybackControlError,
 ) {
     let item_id = actor.current.as_ref().map(|track| track.item_id);
-    stop_current(actor);
+    if actor
+        .current
+        .as_ref()
+        .is_some_and(|track| !track.output.is_initialized())
+        && matches!(&error, PlaybackControlError::Failed(failure) if failure.stage == FailureStage::Sink)
+    {
+        if let Some(pending) = actor.pending_seek.take() {
+            let _ = pending.response.send(Err(error.clone()));
+        }
+        actor.current.as_mut().unwrap().output.shutdown();
+    } else {
+        stop_current(actor);
+    }
     set_state(state, PlaybackState::Failed, event_tx);
     publish_control_failure(&error.with_context(item_id, actor.generation), event_tx);
 }

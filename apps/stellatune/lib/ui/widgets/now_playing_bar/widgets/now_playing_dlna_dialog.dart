@@ -1,3 +1,4 @@
+import 'package:stellatune/app/diagnostics/diagnostics_service.dart';
 import 'package:flutter/material.dart';
 import 'package:stellatune/bridge/bridge.dart';
 import 'package:stellatune/l10n/app_localizations.dart';
@@ -31,16 +32,17 @@ class _DlnaDialogState extends State<DlnaDialog> {
   void initState() {
     super.initState();
     _selected = widget.selected;
-    _future = const DlnaBridge().discoverRenderers(
-      timeout: const Duration(milliseconds: 1200),
-    );
+    _future = _discover();
+  }
+
+  Future<List<DlnaRenderer>> _discover() async {
+    try { return await const DlnaBridge().discoverRenderers(timeout: const Duration(milliseconds: 1200)); }
+    catch (error, stack) { DiagnosticsService.instance.report(error, stack: stack, operation: 'dlna_discovery'); rethrow; }
   }
 
   void _refresh() {
     setState(() {
-      _future = const DlnaBridge().discoverRenderers(
-        timeout: const Duration(milliseconds: 1200),
-      );
+      _future = _discover();
     });
   }
 
@@ -99,8 +101,8 @@ class _DlnaDialogState extends State<DlnaDialog> {
                     if (snapshot.hasError) {
                       return _DlnaEmptyState(
                         icon: Icons.error_outline,
-                        title: l10n.dlnaSearchFailed(snapshot.error.toString()),
-                        subtitle: '${snapshot.error}',
+                        title: DiagnosticsService.instance.messageFor(snapshot.error, operation: 'dlna_discovery'),
+                        subtitle: l10n.refresh,
                         onRetry: _refresh,
                       );
                     }

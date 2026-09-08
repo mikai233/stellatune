@@ -53,6 +53,78 @@ fn paused() -> SwitchOptions {
 }
 
 #[tokio::test]
+async fn failed_output_rebuild_keeps_track_and_can_restore_a_working_device() {
+    use stellatune_audio_core::sink::{OutputCompatibilityKey, SinkFactory, SinkStage};
+    struct UnavailableOutput {
+        inner: TestSinkFactory,
+        unavailable: Arc<AtomicBool>,
+    }
+    impl SinkFactory for UnavailableOutput {
+        fn id(&self) -> &StageId {
+            self.inner.id()
+        }
+        fn compatibility_key(
+            &self,
+            format: PcmFormat,
+        ) -> Result<OutputCompatibilityKey, FactoryError> {
+            self.inner.compatibility_key(format)
+        }
+        fn create(&self) -> Result<Box<dyn SinkStage>, FactoryError> {
+            if self.unavailable.load(Ordering::Acquire) {
+                return Err(FactoryError::CreateFailed {
+                    message: "hardware unavailable".into(),
+                });
+            }
+            self.inner.create()
+        }
+    }
+    for pending_seek in [false, true] {
+        let samples = Arc::new(Mutex::new(Vec::new()));
+        let unavailable = Arc::new(AtomicBool::new(false));
+        let mut config = config(Arc::clone(&samples));
+        if pending_seek {
+            let factory = pending_factory();
+            factory.gate.store(true, Ordering::Release);
+            config.registry.decoders = vec![Arc::new(factory)];
+        }
+        config.registry.sink = Arc::new(UnavailableOutput {
+            inner: TestSinkFactory {
+                id: StageId::new("test.output").unwrap(),
+                samples,
+            },
+            unavailable: Arc::clone(&unavailable),
+        });
+        let runtime = PlaybackRuntime::start(config).unwrap();
+        let controller = runtime.controller();
+        let track = item(1, 100, 100);
+        let id = track.id;
+        controller.switch_to(track, paused()).await.unwrap();
+        controller.seek(MediaTime::from_millis(500)).await.unwrap();
+        unavailable.store(true, Ordering::Release);
+        let error = controller.rebuild_output().await.unwrap_err();
+        assert!(
+            matches!(&error, PlaybackControlError::Failed(failure)
+            if failure.stage == FailureStage::Sink && failure.message.contains("hardware unavailable")),
+            "{error:?}"
+        );
+        let snapshot = controller.snapshot().await.unwrap();
+        assert_eq!(snapshot.current_item_id, Some(id));
+        assert_eq!(snapshot.consumed_position, MediaTime::from_millis(500));
+        unavailable.store(false, Ordering::Release);
+        controller.rebuild_output().await.unwrap();
+        let snapshot = controller.snapshot().await.unwrap();
+        assert_eq!(snapshot.state, PlaybackState::Paused);
+        assert_eq!(snapshot.current_item_id, Some(id));
+        assert_eq!(snapshot.consumed_position, MediaTime::from_millis(500));
+        let mut events = controller.subscribe_events();
+        controller.play().await.unwrap();
+        wait_for_end(&mut events).await;
+        controller.stop().await.unwrap();
+        runtime.shutdown().await.unwrap();
+    }
+}
+
+#[tokio::test]
 async fn slow_output_negotiation_does_not_block_stop_or_apply_after_it() {
     use stellatune_audio_core::sink::{OutputCompatibilityKey, SinkFactory, SinkStage};
     struct SlowOutput {

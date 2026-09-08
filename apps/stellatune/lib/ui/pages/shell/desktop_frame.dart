@@ -1,5 +1,6 @@
 import 'package:stellatune/ui/theme/artwork_palette.dart';
 import 'package:flutter/material.dart';
+import 'package:stellatune/ui/widgets/desktop_window_controls.dart';
 
 class DesktopTopBarAction {
   const DesktopTopBarAction({
@@ -290,7 +291,7 @@ class _TopBar extends StatelessWidget {
       children: [
         if (!home) ...[
           for (final action in actions)
-            _WindowAction(
+            _TopBarAction(
               icon: action.icon,
               label: action.tooltip,
               onTap: action.onPressed,
@@ -355,30 +356,24 @@ class _TopBar extends StatelessWidget {
             ),
           ),
         if (showSearch) SizedBox(width: compact ? 16 : 48),
-        _WindowAction(icon: Icons.remove, label: '最小化', onTap: onMinimize),
-        _WindowAction(
-          icon: Icons.crop_square_rounded,
-          label: '最大化 / 还原',
-          onTap: onMaximize,
-          size: 16,
+        DesktopWindowControls(
+          foreground: ArtworkPalette.of(context).onBackdrop,
+          onMinimize: onMinimize,
+          onMaximize: onMaximize,
+          onClose: onClose,
         ),
-        _WindowAction(icon: Icons.close_rounded, label: '关闭', onTap: onClose),
       ],
     );
   }
 }
 
-class _WindowAction extends StatelessWidget {
-  const _WindowAction({
-    required this.icon,
-    required this.label,
-    this.onTap,
-    this.size = 19,
-  });
+class _TopBarAction extends StatelessWidget {
+  const _TopBarAction({required this.icon, required this.label, this.onTap});
+
   final IconData icon;
   final String label;
   final VoidCallback? onTap;
-  final double size;
+
   @override
   Widget build(BuildContext context) => SizedBox(
     width: 42,
@@ -386,13 +381,13 @@ class _WindowAction extends StatelessWidget {
     child: IconButton(
       tooltip: label,
       onPressed: onTap,
+      padding: EdgeInsets.zero,
       icon: Icon(
         icon,
+        size: 19,
         color: ArtworkPalette.of(context).onBackdrop
             .withValues(alpha: onTap == null ? .35 : .9),
-        size: size,
       ),
-      padding: EdgeInsets.zero,
     ),
   );
 }

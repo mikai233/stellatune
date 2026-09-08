@@ -6,6 +6,7 @@
 import '../../frb_generated.dart';
 import '../../third_party/stellatune_backend_api/player_service/metadata.dart';
 import '../../third_party/stellatune_library.dart';
+import '../error.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 

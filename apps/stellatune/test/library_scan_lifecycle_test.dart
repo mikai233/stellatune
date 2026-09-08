@@ -1,3 +1,5 @@
+import 'package:stellatune/bridge/api/error.dart';
+
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -58,15 +60,20 @@ void main() {
   test('scan failure releases its lease and permits another scan', () async {
     await h.controller.scanAll();
     h.bridge.eventsController.add(
-      const LibraryEvent.error(message: 'scan failed'),
+      const LibraryEvent.error(
+        error: AppError(
+          category: ErrorCategory.internal,
+          operation: 'library_scan',
+          diagnosticId: 'test',
+          fingerprint: 'scan-failed',
+          context: '',
+        ),
+      ),
     );
     await _flush();
     expect(h.access.leases.single.releases, 1);
     expect(h.scanning, isFalse);
-    expect(
-      h.container.read(libraryControllerProvider).lastError,
-      'scan failed',
-    );
+    expect(h.container.read(libraryControllerProvider).lastError, '音乐库操作失败');
     await h.controller.scanAll();
     expect(h.bridge.scans, 2);
     expect(h.access.leases.last.releases, 0);
@@ -80,7 +87,7 @@ void main() {
     expect(h.access.leases.single.releases, 1);
     expect(
       h.container.read(libraryControllerProvider).lastError,
-      contains('channel closed'),
+      equals('音乐库操作失败'),
     );
   });
 
@@ -92,7 +99,7 @@ void main() {
     expect(h.scanning, isFalse);
     expect(
       h.container.read(libraryControllerProvider).lastError,
-      contains('events failed'),
+      equals('音乐库操作失败'),
     );
   });
 
@@ -112,7 +119,7 @@ void main() {
     expect(h.scanning, isFalse);
     expect(
       h.container.read(libraryControllerProvider).lastError,
-      contains('not authorized'),
+      equals('音乐库操作失败'),
     );
   });
 

@@ -6,31 +6,6 @@
 import '../frb_generated.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
-import 'package:freezed_annotation/freezed_annotation.dart' hide protected;
-part 'stellatune_library.freezed.dart';
-
-@freezed
-sealed class LibraryEvent with _$LibraryEvent {
-  const LibraryEvent._();
-
-  const factory LibraryEvent.changed() = LibraryEvent_Changed;
-  const factory LibraryEvent.scanProgress({
-    required PlatformInt64 scanned,
-    required PlatformInt64 updated,
-    required PlatformInt64 skipped,
-    required PlatformInt64 errors,
-  }) = LibraryEvent_ScanProgress;
-  const factory LibraryEvent.scanFinished({
-    required PlatformInt64 durationMs,
-    required PlatformInt64 scanned,
-    required PlatformInt64 updated,
-    required PlatformInt64 skipped,
-    required PlatformInt64 errors,
-  }) = LibraryEvent_ScanFinished;
-  const factory LibraryEvent.error({required String message}) =
-      LibraryEvent_Error;
-  const factory LibraryEvent.log({required String message}) = LibraryEvent_Log;
-}
 
 class PlaylistLite {
   final PlatformInt64 id;

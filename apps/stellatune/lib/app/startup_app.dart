@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:stellatune/app/logging.dart';
+import 'package:stellatune/app/diagnostics/diagnostics_service.dart';
+import 'package:stellatune/ui/diagnostics/diagnostics_overlay.dart';
 
 /// Paint before loading platform services, with an exit path on startup failure.
 class StartupApp extends StatefulWidget {
@@ -28,6 +30,12 @@ class _StartupAppState extends State<StartupApp> {
       if (mounted) setState(() => _app = app);
     } catch (error, stack) {
       logger.e('application startup failed', error: error, stackTrace: stack);
+      DiagnosticsService.instance.report(
+        error,
+        stack: stack,
+        operation: 'startup',
+        notify: false,
+      );
       if (mounted) setState(() => _error = error);
     }
   }
@@ -39,6 +47,8 @@ class _StartupAppState extends State<StartupApp> {
         WidgetsBinding.instance.platformDispatcher.locale.languageCode == 'zh';
     return MaterialApp(
       debugShowCheckedModeBanner: false,
+      builder: (context, child) =>
+          DiagnosticsOverlay(child: child ?? const SizedBox.shrink()),
       theme: ThemeData(colorSchemeSeed: const Color(0xff596d84)),
       home: Scaffold(
         body: Center(
@@ -69,7 +79,10 @@ class _StartupAppState extends State<StartupApp> {
                     ConstrainedBox(
                       constraints: const BoxConstraints(maxHeight: 200),
                       child: SingleChildScrollView(
-                        child: SelectableText('$_error'),
+                        child: TextButton(
+                          onPressed: DiagnosticsService.instance.open,
+                          child: Text(chinese ? '查看日志' : 'View logs'),
+                        ),
                       ),
                     ),
                   ],

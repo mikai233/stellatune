@@ -5,7 +5,9 @@ search, authenticate, provide lyrics, and control network services. They cannot
 decode or process PCM and cannot choose the user's DSP or output device.
 
 An optional native output package may declare an `output-sink` capability with
-`native_output: { "protocol": "asio-v9", "executable": "bin/stellatune-asio-host.exe" }`.
+`native_output: { "protocol": "asio-v10", "executable": "bin/stellatune-asio-host.exe" }`.
+Version 10 adds the I24 hardware format. Only `asio-v10` is supported; update
+the app and plugin together. Older protocol versions are rejected.
 This is a package declaration: the Rust audio adapter owns device discovery,
 controls, PCM transport and process lifetime. The capability cannot be invoked
 through TypeScript RPC and needs no Node process for playback. See the

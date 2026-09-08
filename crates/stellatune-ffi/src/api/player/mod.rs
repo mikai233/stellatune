@@ -11,6 +11,7 @@ mod host_api;
 pub mod queue;
 pub mod transcode;
 pub mod types;
+use crate::api::events::LyricsEvent;
 use stellatune_audio::config::engine::{
     LfeMode as V2LfeMode, ResampleQuality as V2ResampleQuality,
 };
@@ -32,7 +33,7 @@ use stellatune_backend_api::runtime::{
     runtime_set_output_sink_route, set_runtime_builtin_transform_options,
     shared_playback_controller, shared_typescript_runtime,
 };
-use stellatune_backend_api::{LyricsDoc, LyricsEvent, LyricsQuery, LyricsSearchCandidate};
+use stellatune_backend_api::{LyricsDoc, LyricsQuery, LyricsSearchCandidate};
 use types::{
     AudioBackend, AudioDevice, DspChainItem, DspTypeDescriptor, EncoderTypeDescriptor, Event,
     LfeMode, LyricsProviderTypeDescriptor, OutputSinkRoute, OutputSinkTypeDescriptor,
@@ -92,20 +93,30 @@ fn lyrics() -> Arc<LyricsService> {
 }
 
 /// Registers a local queue in one catalog transaction, preserving input order.
-pub async fn ensure_local_tracks(library_track_ids: Vec<i64>) -> Result<Vec<u64>> {
-    Ok(shared_player_service()?
-        .ensure_local_tracks(&library_track_ids)
-        .await?
-        .into_iter()
-        .map(|id| id.get())
-        .collect())
+pub async fn ensure_local_tracks(
+    library_track_ids: Vec<i64>,
+) -> Result<Vec<u64>, crate::api::error::AppError> {
+    let result: anyhow::Result<_> = (async move {
+        Ok(shared_player_service()?
+            .ensure_local_tracks(&library_track_ids)
+            .await?
+            .into_iter()
+            .map(|id| id.get())
+            .collect())
+    })
+    .await;
+    result.map_err(|error| crate::api::error::AppError::capture("ensure_local_tracks", error))
 }
 
-pub async fn ensure_local_track(library_track_id: i64) -> Result<u64> {
-    Ok(shared_player_service()?
-        .ensure_local_track(library_track_id)
-        .await?
-        .get())
+pub async fn ensure_local_track(library_track_id: i64) -> Result<u64, crate::api::error::AppError> {
+    let result: anyhow::Result<_> = (async move {
+        Ok(shared_player_service()?
+            .ensure_local_track(library_track_id)
+            .await?
+            .get())
+    })
+    .await;
+    result.map_err(|error| crate::api::error::AppError::capture("ensure_local_track", error))
 }
 
 pub async fn ensure_provider_track(
@@ -113,170 +124,224 @@ pub async fn ensure_provider_track(
     provider_key: String,
     plugin_id: String,
     type_id: String,
-) -> Result<u64> {
-    Ok(
-        stellatune_backend_api::player_service::plugin_tracks::ensure_provider_track(
-            shared_player_service()?.as_ref(),
-            shared_typescript_runtime(),
-            &plugin_id,
-            &type_id,
-            &provider_id,
-            &provider_key,
+) -> Result<u64, crate::api::error::AppError> {
+    let result: anyhow::Result<_> = (async move {
+        Ok(
+            stellatune_backend_api::player_service::plugin_tracks::ensure_provider_track(
+                shared_player_service()?.as_ref(),
+                shared_typescript_runtime(),
+                &plugin_id,
+                &type_id,
+                &provider_id,
+                &provider_key,
+            )
+            .await?
+            .get(),
         )
-        .await?
-        .get(),
-    )
-}
-
-pub async fn play() -> Result<()> {
-    shared_player_service()?
-        .play()
-        .await
-        .map_err(anyhow::Error::msg)
-}
-
-pub async fn pause() -> Result<()> {
-    engine().pause().await.map_err(anyhow::Error::msg)
-}
-
-pub async fn seek_ms(position_ms: u64) -> Result<()> {
-    engine()
-        .seek(MediaTime::from_millis(position_ms))
-        .await
-        .map_err(anyhow::Error::msg)
-}
-
-pub async fn set_volume(volume: f32, seq: u64, ramp_ms: u32) -> Result<()> {
-    let _ = seq;
-    engine()
-        .set_output_gain(volume, MediaTime::from_millis(u64::from(ramp_ms)))
-        .await
-        .map_err(anyhow::Error::msg)
-}
-
-pub async fn set_lfe_mode(mode: LfeMode) -> Result<()> {
-    let _ = map_lfe_mode(mode);
-    Ok(())
-}
-
-pub async fn stop() -> Result<()> {
-    let result = shared_player_service()?
-        .stop()
-        .await
-        .map_err(anyhow::Error::msg);
-    if result.is_ok() {
-        clear_cached_track_info();
-    }
-    result
-}
-
-pub async fn playback_snapshot() -> Result<PlaybackSnapshot> {
-    let snapshot = engine().snapshot().await.map_err(anyhow::Error::msg)?;
-    let (track_id, local_library_track_id) = if let Some(item_id) = snapshot.current_item_id {
-        let service = shared_player_service()?;
-        (
-            Some(service.track_id_for_item(item_id).await?.get()),
-            service.local_library_track_id_for_item(item_id).await?,
-        )
-    } else {
-        (None, None)
-    };
-    Ok(PlaybackSnapshot {
-        state: map_player_state(snapshot.state),
-        track_id,
-        item_id: snapshot.current_item_id.map(PlaybackItemId::get),
-        local_library_track_id,
-        position_ms: snapshot.consumed_position.as_millis().min(i64::MAX as u64) as i64,
     })
+    .await;
+    result.map_err(|error| crate::api::error::AppError::capture("ensure_provider_track", error))
 }
 
-pub fn events(sink: StreamSink<Event>) -> Result<()> {
-    let mut rx = engine().subscribe_events();
-    crate::background_runtime::spawn(async move {
-        let mut state = FfiEventMapperState::default();
-        loop {
-            match rx.recv().await {
-                Ok(event) => {
-                    let event_item_id = playback_event_item_id(&event);
-                    let event_track_id = if let Some(item_id) = event_item_id
-                        && let Ok(service) = shared_player_service()
-                    {
-                        service.track_id_for_item(item_id).await.ok()
-                    } else {
-                        None
-                    };
+pub async fn play() -> Result<(), crate::api::error::AppError> {
+    let result: anyhow::Result<_> = (async move {
+        shared_player_service()?
+            .play()
+            .await
+            .map_err(anyhow::Error::msg)
+    })
+    .await;
+    result.map_err(|error| crate::api::error::AppError::capture("play", error))
+}
 
-                    let mapped = map_v2_event_to_ffi(event, event_track_id, &mut state);
-                    for mapped_event in mapped {
-                        if sink.add(mapped_event).is_err() {
-                            debug!("events stream sink closed");
-                            return;
-                        }
-                    }
-                },
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
-                    debug!(skipped, "events lagged");
-                },
-                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
-            }
+pub async fn pause() -> Result<(), crate::api::error::AppError> {
+    let result: anyhow::Result<_> =
+        (async move { engine().pause().await.map_err(anyhow::Error::msg) }).await;
+    result.map_err(|error| crate::api::error::AppError::capture("pause", error))
+}
+
+pub async fn seek_ms(position_ms: u64) -> Result<(), crate::api::error::AppError> {
+    let result: anyhow::Result<_> = (async move {
+        engine()
+            .seek(MediaTime::from_millis(position_ms))
+            .await
+            .map_err(anyhow::Error::msg)
+    })
+    .await;
+    result.map_err(|error| crate::api::error::AppError::capture("seek_ms", error))
+}
+
+pub async fn set_volume(
+    volume: f32,
+    seq: u64,
+    ramp_ms: u32,
+) -> Result<(), crate::api::error::AppError> {
+    let result: anyhow::Result<_> = (async move {
+        let _ = seq;
+        engine()
+            .set_output_gain(volume, MediaTime::from_millis(u64::from(ramp_ms)))
+            .await
+            .map_err(anyhow::Error::msg)
+    })
+    .await;
+    result.map_err(|error| crate::api::error::AppError::capture("set_volume", error))
+}
+
+pub async fn set_lfe_mode(mode: LfeMode) -> Result<(), crate::api::error::AppError> {
+    let result: anyhow::Result<_> = (async move {
+        let _ = map_lfe_mode(mode);
+        Ok(())
+    })
+    .await;
+    result.map_err(|error| crate::api::error::AppError::capture("set_lfe_mode", error))
+}
+
+pub async fn stop() -> Result<(), crate::api::error::AppError> {
+    let result: anyhow::Result<_> = (async move {
+        let result = shared_player_service()?
+            .stop()
+            .await
+            .map_err(anyhow::Error::msg);
+        if result.is_ok() {
+            clear_cached_track_info();
         }
-    });
-
-    Ok(())
+        result
+    })
+    .await;
+    result.map_err(|error| crate::api::error::AppError::capture("stop", error))
 }
 
-pub async fn lyrics_prepare(query: LyricsQuery) -> Result<()> {
-    lyrics().prepare(query).await
+pub async fn playback_snapshot() -> Result<PlaybackSnapshot, crate::api::error::AppError> {
+    let result: anyhow::Result<_> = (async move {
+        let snapshot = engine().snapshot().await.map_err(anyhow::Error::msg)?;
+        let (track_id, local_library_track_id) = if let Some(item_id) = snapshot.current_item_id {
+            let service = shared_player_service()?;
+            (
+                Some(service.track_id_for_item(item_id).await?.get()),
+                service.local_library_track_id_for_item(item_id).await?,
+            )
+        } else {
+            (None, None)
+        };
+        Ok(PlaybackSnapshot {
+            state: map_player_state(snapshot.state),
+            track_id,
+            item_id: snapshot.current_item_id.map(PlaybackItemId::get),
+            local_library_track_id,
+            position_ms: snapshot.consumed_position.as_millis().min(i64::MAX as u64) as i64,
+        })
+    })
+    .await;
+    result.map_err(|error| crate::api::error::AppError::capture("playback_snapshot", error))
 }
 
-pub async fn lyrics_prefetch(query: LyricsQuery) -> Result<()> {
-    lyrics().prefetch(query).await
+pub fn events(sink: StreamSink<Event>) -> Result<(), crate::api::error::AppError> {
+    let result: anyhow::Result<_> = {
+        let mut rx = engine().subscribe_events();
+        crate::background_runtime::spawn(async move {
+            let mut state = FfiEventMapperState::default();
+            loop {
+                match rx.recv().await {
+                    Ok(event) => {
+                        let event_item_id = playback_event_item_id(&event);
+                        let event_track_id = if let Some(item_id) = event_item_id
+                            && let Ok(service) = shared_player_service()
+                        {
+                            service.track_id_for_item(item_id).await.ok()
+                        } else {
+                            None
+                        };
+
+                        let mapped = map_v2_event_to_ffi(event, event_track_id, &mut state);
+                        for mapped_event in mapped {
+                            if sink.add(mapped_event).is_err() {
+                                debug!("events stream sink closed");
+                                return;
+                            }
+                        }
+                    },
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                        debug!(skipped, "events lagged");
+                    },
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                }
+            }
+        });
+
+        Ok(())
+    };
+    result.map_err(|error| crate::api::error::AppError::capture("events", error))
 }
 
-pub async fn lyrics_search_candidates(query: LyricsQuery) -> Result<Vec<LyricsSearchCandidate>> {
-    lyrics().search_candidates(query).await
+pub async fn lyrics_prepare(query: LyricsQuery) -> Result<(), crate::api::error::AppError> {
+    let result: anyhow::Result<_> = (async move { lyrics().prepare(query).await }).await;
+    result.map_err(|error| crate::api::error::AppError::capture("lyrics_prepare", error))
 }
 
-pub async fn lyrics_apply_candidate(track_key: String, doc: LyricsDoc) -> Result<()> {
-    lyrics().apply_candidate(track_key, doc).await
+pub async fn lyrics_prefetch(query: LyricsQuery) -> Result<(), crate::api::error::AppError> {
+    let result: anyhow::Result<_> = (async move { lyrics().prefetch(query).await }).await;
+    result.map_err(|error| crate::api::error::AppError::capture("lyrics_prefetch", error))
 }
 
-pub async fn lyrics_set_cache_db_path(db_path: String) -> Result<()> {
-    lyrics().set_cache_db_path(db_path).await
+pub async fn lyrics_search_candidates(
+    query: LyricsQuery,
+) -> Result<Vec<LyricsSearchCandidate>, crate::api::error::AppError> {
+    let result: anyhow::Result<_> = (async move { lyrics().search_candidates(query).await }).await;
+    result.map_err(|error| crate::api::error::AppError::capture("lyrics_search_candidates", error))
 }
 
-pub async fn lyrics_clear_cache() -> Result<()> {
-    lyrics().clear_cache().await
+pub async fn lyrics_apply_candidate(
+    track_key: String,
+    doc: LyricsDoc,
+) -> Result<(), crate::api::error::AppError> {
+    let result: anyhow::Result<_> =
+        (async move { lyrics().apply_candidate(track_key, doc).await }).await;
+    result.map_err(|error| crate::api::error::AppError::capture("lyrics_apply_candidate", error))
 }
 
-pub async fn lyrics_refresh_current() -> Result<()> {
-    lyrics().refresh_current().await
+pub async fn lyrics_set_cache_db_path(db_path: String) -> Result<(), crate::api::error::AppError> {
+    let result: anyhow::Result<_> =
+        (async move { lyrics().set_cache_db_path(db_path).await }).await;
+    result.map_err(|error| crate::api::error::AppError::capture("lyrics_set_cache_db_path", error))
+}
+
+pub async fn lyrics_clear_cache() -> Result<(), crate::api::error::AppError> {
+    let result: anyhow::Result<_> = (async move { lyrics().clear_cache().await }).await;
+    result.map_err(|error| crate::api::error::AppError::capture("lyrics_clear_cache", error))
+}
+
+pub async fn lyrics_refresh_current() -> Result<(), crate::api::error::AppError> {
+    let result: anyhow::Result<_> = (async move { lyrics().refresh_current().await }).await;
+    result.map_err(|error| crate::api::error::AppError::capture("lyrics_refresh_current", error))
 }
 
 pub fn lyrics_set_position_ms(position_ms: u64) {
     lyrics().set_position_ms(position_ms);
 }
 
-pub fn lyrics_events(sink: StreamSink<LyricsEvent>) -> Result<()> {
-    let mut rx = lyrics().subscribe_events();
-    crate::background_runtime::spawn(async move {
-        loop {
-            match rx.recv().await {
-                Ok(event) => {
-                    if sink.add(event).is_err() {
-                        debug!("lyrics_events stream sink closed");
-                        break;
-                    }
-                },
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
-                    debug!(skipped, "lyrics_events lagged");
-                },
-                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+pub fn lyrics_events(sink: StreamSink<LyricsEvent>) -> Result<(), crate::api::error::AppError> {
+    let result: anyhow::Result<_> = {
+        let mut rx = lyrics().subscribe_events();
+        crate::background_runtime::spawn(async move {
+            loop {
+                match rx.recv().await {
+                    Ok(event) => {
+                        if sink.add(event.into()).is_err() {
+                            debug!("lyrics_events stream sink closed");
+                            break;
+                        }
+                    },
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                        debug!(skipped, "lyrics_events lagged");
+                    },
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                }
             }
-        }
-    });
+        });
 
-    Ok(())
+        Ok(())
+    };
+    result.map_err(|error| crate::api::error::AppError::capture("lyrics_events", error))
 }
 
 pub async fn plugins_list() -> Vec<PluginDescriptor> {
@@ -379,61 +444,83 @@ pub async fn source_list_items_json(
     plugin_id: String,
     type_id: String,
     request_json: String,
-) -> Result<String> {
-    use stellatune_plugins::typescript::manifest::TypeScriptCapabilityKind;
-    let request: Value = serde_json::from_str(&request_json)?;
-    let runtime = shared_typescript_runtime();
-    let registrations = runtime.registered_plugins().await;
-    let capability = registrations
-        .iter()
-        .find(|p| p.manifest.id == plugin_id)
-        .and_then(|p| p.manifest.capabilities.iter().find(|c| c.id == type_id))
-        .ok_or_else(|| anyhow!("plugin capability is not registered: {plugin_id}::{type_id}"))?;
-    if capability.kind != TypeScriptCapabilityKind::NetworkControl {
-        return Err(anyhow!("catalog capability must be network-control"));
-    }
-    let result = runtime
-        .invoke(&plugin_id, &type_id, None, "list-items", request, None)
-        .await?;
-    normalize_json_payload("TypeScript catalog response", result.value)
+) -> Result<String, crate::api::error::AppError> {
+    let result: anyhow::Result<_> = (async move {
+        use stellatune_plugins::typescript::manifest::TypeScriptCapabilityKind;
+        let request: Value = serde_json::from_str(&request_json)?;
+        let runtime = shared_typescript_runtime();
+        let registrations = runtime.registered_plugins().await;
+        let capability = registrations
+            .iter()
+            .find(|p| p.manifest.id == plugin_id)
+            .and_then(|p| p.manifest.capabilities.iter().find(|c| c.id == type_id))
+            .ok_or_else(|| {
+                anyhow!("plugin capability is not registered: {plugin_id}::{type_id}")
+            })?;
+        if capability.kind != TypeScriptCapabilityKind::NetworkControl {
+            return Err(anyhow!("catalog capability must be network-control"));
+        }
+        let result = runtime
+            .invoke(&plugin_id, &type_id, None, "list-items", request, None)
+            .await?;
+        normalize_json_payload("TypeScript catalog response", result.value)
+    })
+    .await;
+    result.map_err(|error| crate::api::error::AppError::capture("source_list_items_json", error))
 }
 
 pub async fn lyrics_provider_search_json(
     plugin_id: String,
     type_id: String,
     query_json: String,
-) -> Result<String> {
-    let query = serde_json::from_str::<serde_json::Value>(&query_json)
-        .map_err(|e| anyhow!("invalid lyrics query_json: {e}"))?;
-    let result = shared_typescript_runtime()
-        .invoke(&plugin_id, &type_id, None, "search", query, None)
-        .await
-        .map_err(|error| anyhow!("lyrics search failed: {error}"))?;
-    normalize_json_payload("lyrics search response", result.value)
+) -> Result<String, crate::api::error::AppError> {
+    let result: anyhow::Result<_> = (async move {
+        let query = serde_json::from_str::<serde_json::Value>(&query_json)
+            .map_err(|e| anyhow!("invalid lyrics query_json: {e}"))?;
+        let result = shared_typescript_runtime()
+            .invoke(&plugin_id, &type_id, None, "search", query, None)
+            .await
+            .map_err(|error| anyhow!("lyrics search failed: {error}"))?;
+        normalize_json_payload("lyrics search response", result.value)
+    })
+    .await;
+    result
+        .map_err(|error| crate::api::error::AppError::capture("lyrics_provider_search_json", error))
 }
 
 pub async fn lyrics_provider_fetch_json(
     plugin_id: String,
     type_id: String,
     track_json: String,
-) -> Result<String> {
-    let track = serde_json::from_str::<serde_json::Value>(&track_json)
-        .map_err(|e| anyhow!("invalid lyrics track_json: {e}"))?;
-    let result = shared_typescript_runtime()
-        .invoke(&plugin_id, &type_id, None, "fetch", track, None)
-        .await
-        .map_err(|error| anyhow!("lyrics fetch failed: {error}"))?;
-    normalize_json_payload("lyrics fetch response", result.value)
+) -> Result<String, crate::api::error::AppError> {
+    let result: anyhow::Result<_> = (async move {
+        let track = serde_json::from_str::<serde_json::Value>(&track_json)
+            .map_err(|e| anyhow!("invalid lyrics track_json: {e}"))?;
+        let result = shared_typescript_runtime()
+            .invoke(&plugin_id, &type_id, None, "fetch", track, None)
+            .await
+            .map_err(|error| anyhow!("lyrics fetch failed: {error}"))?;
+        normalize_json_payload("lyrics fetch response", result.value)
+    })
+    .await;
+    result
+        .map_err(|error| crate::api::error::AppError::capture("lyrics_provider_fetch_json", error))
 }
 
 pub async fn output_sink_list_targets_json(
     plugin_id: String,
     type_id: String,
     config_json: String,
-) -> Result<String> {
-    stellatune_backend_api::runtime::native_output_targets(plugin_id, type_id, config_json)
-        .await
-        .map_err(anyhow::Error::msg)
+) -> Result<String, crate::api::error::AppError> {
+    let result: anyhow::Result<_> = (async move {
+        stellatune_backend_api::runtime::native_output_targets(plugin_id, type_id, config_json)
+            .await
+            .map_err(anyhow::Error::msg)
+    })
+    .await;
+    result.map_err(|error| {
+        crate::api::error::AppError::capture("output_sink_list_targets_json", error)
+    })
 }
 
 pub async fn dsp_set_chain(chain: Vec<DspChainItem>) {
@@ -509,43 +596,73 @@ pub async fn current_track_info() -> Option<TrackDecodeInfo> {
 pub async fn plugins_install_from_file(
     plugins_dir: String,
     artifact_path: String,
-) -> Result<String> {
-    let installed_plugin_id = backend_plugins_install_from_file(plugins_dir, artifact_path).await?;
-    reconcile_plugin_runtime_state_after_package_change("install").await?;
-    Ok(installed_plugin_id)
+) -> Result<String, crate::api::error::AppError> {
+    let result: anyhow::Result<_> = (async move {
+        let installed_plugin_id =
+            backend_plugins_install_from_file(plugins_dir, artifact_path).await?;
+        reconcile_plugin_runtime_state_after_package_change("install").await?;
+        Ok(installed_plugin_id)
+    })
+    .await;
+    result.map_err(|error| crate::api::error::AppError::capture("plugins_install_from_file", error))
 }
 
-pub async fn plugins_list_installed_json(plugins_dir: String) -> Result<String> {
-    tokio::task::spawn_blocking(move || backend_plugins_list_installed_json(plugins_dir))
-        .await
-        .map_err(|e| anyhow!("JoinError: {e}"))?
+pub async fn plugins_list_installed_json(
+    plugins_dir: String,
+) -> Result<String, crate::api::error::AppError> {
+    let result: anyhow::Result<_> = (async move {
+        tokio::task::spawn_blocking(move || backend_plugins_list_installed_json(plugins_dir))
+            .await
+            .map_err(|e| anyhow!("JoinError: {e}"))?
+    })
+    .await;
+    result
+        .map_err(|error| crate::api::error::AppError::capture("plugins_list_installed_json", error))
 }
 
-pub async fn plugins_uninstall_by_id(plugins_dir: String, plugin_id: String) -> Result<()> {
-    backend_plugins_uninstall_by_id(plugins_dir, plugin_id).await?;
-    reconcile_plugin_runtime_state_after_package_change("uninstall").await
+pub async fn plugins_uninstall_by_id(
+    plugins_dir: String,
+    plugin_id: String,
+) -> Result<(), crate::api::error::AppError> {
+    let result: anyhow::Result<_> = (async move {
+        backend_plugins_uninstall_by_id(plugins_dir, plugin_id).await?;
+        reconcile_plugin_runtime_state_after_package_change("uninstall").await
+    })
+    .await;
+    result.map_err(|error| crate::api::error::AppError::capture("plugins_uninstall_by_id", error))
 }
 
-pub async fn host_api_start(data_root: String) -> Result<String> {
-    host_api::start(data_root).await
+pub async fn host_api_start(data_root: String) -> Result<String, crate::api::error::AppError> {
+    let result: anyhow::Result<_> = (async move { host_api::start(data_root).await }).await;
+    result.map_err(|error| crate::api::error::AppError::capture("host_api_start", error))
 }
 
 /// Restore only after host initialization, plugin registration and output settings.
-pub async fn playback_restore_state() -> Result<()> {
-    let service = shared_player_service()?;
-    let restored = service.restore().await;
-    service.start_state_writer();
-    restored?;
-    Ok(())
+pub async fn playback_restore_state() -> Result<(), crate::api::error::AppError> {
+    let result: anyhow::Result<_> = (async move {
+        let service = shared_player_service()?;
+        let restored = service.restore().await;
+        service.start_state_writer();
+        restored?;
+        Ok(())
+    })
+    .await;
+    result.map_err(|error| crate::api::error::AppError::capture("playback_restore_state", error))
 }
 
-pub async fn host_api_stop() -> Result<()> {
-    host_api::stop().await;
-    Ok(())
+pub async fn host_api_stop() -> Result<(), crate::api::error::AppError> {
+    let result: anyhow::Result<_> = (async move {
+        host_api::stop().await;
+        Ok(())
+    })
+    .await;
+    result.map_err(|error| crate::api::error::AppError::capture("host_api_stop", error))
 }
 
-pub async fn plugin_open_ui(plugin_id: String) -> Result<String> {
-    Ok(shared_typescript_runtime().open_ui(&plugin_id).await?)
+pub async fn plugin_open_ui(plugin_id: String) -> Result<String, crate::api::error::AppError> {
+    let result: anyhow::Result<_> =
+        (async move { Ok(shared_typescript_runtime().open_ui(&plugin_id).await?) }).await;
+    result.map_err(|error| crate::api::error::AppError::capture("plugin_open_ui", error))
 }
 
 async fn reconcile_plugin_runtime_state_after_package_change(operation: &str) -> Result<()> {
@@ -558,44 +675,61 @@ async fn reconcile_plugin_runtime_state_after_package_change(operation: &str) ->
         .with_context(|| format!("failed to apply plugin runtime state after {operation}"))
 }
 
-pub async fn refresh_devices() -> Result<Vec<AudioDevice>> {
-    let devices = runtime_list_output_devices().map_err(anyhow::Error::msg)?;
-    Ok(devices
-        .into_iter()
-        .map(|device| AudioDevice {
-            backend: match device.backend {
-                RuntimeOutputBackend::Shared => AudioBackend::Shared,
-                RuntimeOutputBackend::WasapiExclusive => AudioBackend::WasapiExclusive,
-            },
-            id: device.id,
-            name: device.name,
-        })
-        .collect())
+pub async fn refresh_devices() -> Result<Vec<AudioDevice>, crate::api::error::AppError> {
+    let result: anyhow::Result<_> = (async move {
+        let devices = runtime_list_output_devices().map_err(anyhow::Error::msg)?;
+        Ok(devices
+            .into_iter()
+            .map(|device| AudioDevice {
+                backend: match device.backend {
+                    RuntimeOutputBackend::Shared => AudioBackend::Shared,
+                    RuntimeOutputBackend::WasapiExclusive => AudioBackend::WasapiExclusive,
+                },
+                id: device.id,
+                name: device.name,
+            })
+            .collect())
+    })
+    .await;
+    result.map_err(|error| crate::api::error::AppError::capture("refresh_devices", error))
 }
 
-pub async fn set_output_device(backend: AudioBackend, device_id: Option<String>) -> Result<()> {
-    let backend = match backend {
-        AudioBackend::Shared => RuntimeOutputBackend::Shared,
-        AudioBackend::WasapiExclusive => RuntimeOutputBackend::WasapiExclusive,
-    };
-    runtime_set_output_device(backend, device_id)
-        .await
-        .map(|_| ())
-        .map_err(anyhow::Error::msg)
+pub async fn set_output_device(
+    backend: AudioBackend,
+    device_id: Option<String>,
+) -> Result<(), crate::api::error::AppError> {
+    let result: anyhow::Result<_> = (async move {
+        let backend = match backend {
+            AudioBackend::Shared => RuntimeOutputBackend::Shared,
+            AudioBackend::WasapiExclusive => RuntimeOutputBackend::WasapiExclusive,
+        };
+        runtime_set_output_device(backend, device_id)
+            .await
+            .map(|_| ())
+            .map_err(anyhow::Error::msg)
+    })
+    .await;
+    result.map_err(|error| crate::api::error::AppError::capture("set_output_device", error))
 }
 
 /// Stores the buffering preset for the next output session or explicit rebuild.
-pub async fn set_playback_latency(profile: types::PlaybackLatency) -> Result<()> {
-    use stellatune_audio_core::buffering::LatencyProfile;
-    let profile = match profile {
-        types::PlaybackLatency::Low => LatencyProfile::Low,
-        types::PlaybackLatency::Medium => LatencyProfile::Medium,
-        types::PlaybackLatency::High => LatencyProfile::High,
-    };
-    engine()
-        .set_latency_profile(profile)
-        .await
-        .map_err(anyhow::Error::from)
+pub async fn set_playback_latency(
+    profile: types::PlaybackLatency,
+) -> Result<(), crate::api::error::AppError> {
+    let result: anyhow::Result<_> = (async move {
+        use stellatune_audio_core::buffering::LatencyProfile;
+        let profile = match profile {
+            types::PlaybackLatency::Low => LatencyProfile::Low,
+            types::PlaybackLatency::Medium => LatencyProfile::Medium,
+            types::PlaybackLatency::High => LatencyProfile::High,
+        };
+        engine()
+            .set_latency_profile(profile)
+            .await
+            .map_err(anyhow::Error::from)
+    })
+    .await;
+    result.map_err(|error| crate::api::error::AppError::capture("set_playback_latency", error))
 }
 
 pub async fn set_output_options(
@@ -603,39 +737,53 @@ pub async fn set_output_options(
     gapless_playback: bool,
     seek_track_fade: bool,
     resample_quality: ResampleQuality,
-) -> Result<()> {
-    let mapped_quality = map_resample_quality(resample_quality);
-    set_runtime_builtin_transform_options(gapless_playback, seek_track_fade)
-        .await
-        .map_err(anyhow::Error::msg)?;
-    runtime_set_output_options(match_track_sample_rate, mapped_quality)
-        .await
-        .map_err(anyhow::Error::msg)
+) -> Result<(), crate::api::error::AppError> {
+    let result: anyhow::Result<_> = (async move {
+        let mapped_quality = map_resample_quality(resample_quality);
+        set_runtime_builtin_transform_options(gapless_playback, seek_track_fade)
+            .await
+            .map_err(anyhow::Error::msg)?;
+        runtime_set_output_options(match_track_sample_rate, mapped_quality)
+            .await
+            .map_err(anyhow::Error::msg)
+    })
+    .await;
+    result.map_err(|error| crate::api::error::AppError::capture("set_output_options", error))
 }
 
-pub async fn set_output_sink_route(route: OutputSinkRoute) -> Result<()> {
-    let _target = route.target::<Value>().map_err(|e| {
-        anyhow!(
-            "invalid output sink route target_json for {}::{}: {e}",
+pub async fn set_output_sink_route(
+    route: OutputSinkRoute,
+) -> Result<(), crate::api::error::AppError> {
+    let result: anyhow::Result<_> = (async move {
+        let _target = route.target::<Value>().map_err(|e| {
+            anyhow!(
+                "invalid output sink route target_json for {}::{}: {e}",
+                route.plugin_id,
+                route.type_id
+            )
+        })?;
+
+        runtime_set_output_sink_route(
             route.plugin_id,
-            route.type_id
+            route.type_id,
+            route.config_json,
+            route.target_json,
         )
-    })?;
-
-    runtime_set_output_sink_route(
-        route.plugin_id,
-        route.type_id,
-        route.config_json,
-        route.target_json,
-    )
-    .await
-    .map_err(anyhow::Error::msg)
-}
-
-pub async fn clear_output_sink_route() -> Result<()> {
-    runtime_clear_output_sink_route()
         .await
         .map_err(anyhow::Error::msg)
+    })
+    .await;
+    result.map_err(|error| crate::api::error::AppError::capture("set_output_sink_route", error))
+}
+
+pub async fn clear_output_sink_route() -> Result<(), crate::api::error::AppError> {
+    let result: anyhow::Result<_> = (async move {
+        runtime_clear_output_sink_route()
+            .await
+            .map_err(anyhow::Error::msg)
+    })
+    .await;
+    result.map_err(|error| crate::api::error::AppError::capture("clear_output_sink_route", error))
 }
 
 pub async fn decoder_supported_extensions() -> Vec<String> {
@@ -686,7 +834,10 @@ fn map_v2_event_to_ffi(
         V2Event::TrackChanged { item_id } => {
             let Some(track_id) = event_track_id else {
                 return vec![Event::Error {
-                    message: format!("missing TrackId for playback item {}", item_id.get()),
+                    error: crate::api::error::AppError::message(
+                        "playback_event",
+                        format!("missing TrackId for playback item {}", item_id.get()),
+                    ),
                 }];
             };
             state.current_track_id = Some(track_id);
@@ -701,7 +852,10 @@ fn map_v2_event_to_ffi(
             let track_id = event_track_id.or(state.current_track_id);
             let Some(track_id) = track_id else {
                 return vec![Event::Error {
-                    message: format!("missing TrackId for ended playback item {}", item_id.get()),
+                    error: crate::api::error::AppError::message(
+                        "playback_event",
+                        format!("missing TrackId for ended playback item {}", item_id.get()),
+                    ),
                 }];
             };
             vec![Event::PlaybackEnded {
@@ -742,7 +896,10 @@ fn map_v2_event_to_ffi(
         V2Event::Failed(failure) => {
             state.recovering = false;
             vec![Event::Error {
-                message: failure.message,
+                error: crate::api::error::AppError::capture(
+                    "playback_event",
+                    stellatune_audio_core::error::PlaybackControlError::Failed(failure).into(),
+                ),
             }]
         },
     }

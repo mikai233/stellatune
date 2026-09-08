@@ -60,16 +60,33 @@ fn main() {
         let response = match request {
             Request::Hello { version } => Response::HelloOk { version },
             Request::ListDevices => Response::Devices {
-                devices: ["test", "crash", "hang", "fail-open"]
-                    .into_iter()
-                    .map(|id| DeviceInfo {
-                        id: id.into(),
-                        name: id.into(),
-                        selection_session_id: "fresh-session".into(),
-                    })
-                    .collect(),
+                devices: [
+                    "test",
+                    "crash",
+                    "hang",
+                    "fail-open",
+                    "zero-default",
+                    "no-rates",
+                ]
+                .into_iter()
+                .map(|id| DeviceInfo {
+                    id: id.into(),
+                    name: id.into(),
+                    selection_session_id: "fresh-session".into(),
+                })
+                .collect(),
             },
-            Request::GetDeviceCaps { .. } => Response::DeviceCaps { caps: caps() },
+            Request::GetDeviceCaps { device_id, .. } => {
+                let mut caps = caps();
+                if device_id == "zero-default" || device_id == "no-rates" {
+                    caps.default_spec.sample_rate = 0;
+                    caps.supported_sample_rates.insert(0, 0);
+                }
+                if device_id == "no-rates" {
+                    caps.supported_sample_rates = vec![0];
+                }
+                Response::DeviceCaps { caps }
+            },
             Request::PrepareDeviceSwitch {
                 selection_session_id,
                 ..

@@ -1,3 +1,5 @@
+import 'package:stellatune/app/diagnostics/diagnostics_service.dart';
+
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
@@ -72,7 +74,7 @@ class TranscodeTaskController extends ChangeNotifier {
       case 'failed':
         _finish(
           TranscodeResult.failed,
-          error: event.message?.trim() ?? 'Transcoding failed',
+          error: event.error ?? StateError('Transcoding failed'),
         );
       default:
         _notify();
@@ -117,6 +119,7 @@ class TranscodeTaskController extends ChangeNotifier {
       if (_outcome != null) return;
       _canceling = false;
       _cancelError = error;
+      DiagnosticsService.instance.report(error, operation: 'transcode_cancel');
       _notify();
     });
   }

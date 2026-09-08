@@ -1,3 +1,4 @@
+import 'package:stellatune/app/diagnostics/diagnostics_service.dart';
 import 'package:flutter/material.dart';
 import 'package:stellatune/app/logging.dart';
 import 'package:stellatune/bridge/bridge.dart';
@@ -39,39 +40,6 @@ class SettingsPluginTile extends StatefulWidget {
 }
 
 class _SettingsPluginTileState extends State<SettingsPluginTile> {
-  String _uninstallErrorMessage(
-    AppLocalizations l10n,
-    InstalledPlugin plugin,
-    Object error,
-  ) {
-    final raw = error.toString();
-    final lower = raw.toLowerCase();
-    final pluginName = plugin.nameOrDir;
-    final isZh = Localizations.localeOf(context).languageCode == 'zh';
-    final looksBusy =
-        lower.contains('still in use') ||
-        lower.contains('draining generation') ||
-        lower.contains('retired lease') ||
-        lower.contains('busy');
-    if (looksBusy) {
-      if (isZh) {
-        return '插件“$pluginName”当前仍在使用中（可能正在播放当前歌曲）。请先停止播放或切换歌曲后重试卸载。';
-      }
-      return 'Plugin "$pluginName" is still in use (possibly by the current playback). Stop playback or switch tracks, then retry uninstall.';
-    }
-    final accessDenied =
-        lower.contains('拒绝访问') ||
-        lower.contains('access is denied') ||
-        lower.contains('os error 5');
-    if (accessDenied) {
-      if (isZh) {
-        return '无法卸载插件“$pluginName”：文件仍被占用。请先停止播放后重试。';
-      }
-      return 'Cannot uninstall plugin "$pluginName": files are still in use. Stop playback and retry.';
-    }
-    return l10n.settingsUninstallPluginFailed;
-  }
-
   @override
   Widget build(BuildContext context) {
     final p = widget.plugin;
@@ -141,8 +109,10 @@ class _SettingsPluginTileState extends State<SettingsPluginTile> {
                       stackTrace: s,
                     );
                     if (!context.mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Failed to reload: $e')),
+                    DiagnosticsService.instance.report(
+                      e,
+                      stack: s,
+                      operation: 'plugin_toggle',
                     );
                   }
                 },
@@ -180,10 +150,10 @@ class _SettingsPluginTileState extends State<SettingsPluginTile> {
                         stackTrace: s,
                       );
                       if (!context.mounted) return;
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(_uninstallErrorMessage(l10n, p, e)),
-                        ),
+                      DiagnosticsService.instance.report(
+                        e,
+                        stack: s,
+                        operation: 'plugin_uninstall',
                       );
                     }
                   }

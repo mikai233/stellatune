@@ -1,3 +1,5 @@
+import 'package:stellatune/app/diagnostics/diagnostics_service.dart';
+
 import 'queue_identity_resolver.dart';
 
 import 'dart:async';
@@ -65,7 +67,12 @@ class PlaybackController extends Notifier<PlaybackState> {
         ref
             .read(loggerProvider)
             .e('rust events error: $err', error: err, stackTrace: st);
-        state = state.copyWith(lastError: err.toString());
+        state = state.copyWith(
+          lastError: DiagnosticsService.instance.failureMessage(
+            err,
+            operation: 'playback',
+          ),
+        );
       },
     );
     _queueSub = bridge.queueEvents().listen(
@@ -335,7 +342,12 @@ class PlaybackController extends Notifier<PlaybackState> {
       ref
           .read(loggerProvider)
           .w('output change failed', error: error, stackTrace: stack);
-      state = state.copyWith(lastError: error.toString());
+      state = state.copyWith(
+        lastError: DiagnosticsService.instance.failureMessage(
+          error,
+          operation: 'playback',
+        ),
+      );
     }
   }
 
@@ -383,7 +395,13 @@ class PlaybackController extends Notifier<PlaybackState> {
         ref
             .read(loggerProvider)
             .w('failed to prepare playback queue', error: error);
-        state = state.copyWith(lastError: error.toString(), pendingItem: null);
+        state = state.copyWith(
+          lastError: DiagnosticsService.instance.failureMessage(
+            error,
+            operation: 'playback',
+          ),
+          pendingItem: null,
+        );
       }
       return;
     }
@@ -431,7 +449,12 @@ class PlaybackController extends Notifier<PlaybackState> {
         ref
             .read(loggerProvider)
             .w('failed to prepare playback queue', error: error);
-        state = state.copyWith(lastError: error.toString());
+        state = state.copyWith(
+          lastError: DiagnosticsService.instance.failureMessage(
+            error,
+            operation: 'playback',
+          ),
+        );
       }
       return;
     }
@@ -914,7 +937,12 @@ class PlaybackController extends Notifier<PlaybackState> {
             generation != _navigationGeneration) {
           return null;
         }
-        state = state.copyWith(lastError: error.toString());
+        state = state.copyWith(
+          lastError: DiagnosticsService.instance.failureMessage(
+            error,
+            operation: 'playback',
+          ),
+        );
         return false;
       }
     }
@@ -955,7 +983,10 @@ class PlaybackController extends Notifier<PlaybackState> {
       state = state.copyWith(
         playerState: PlayerState.stopped,
         audioStarted: false,
-        lastError: error.toString(),
+        lastError: DiagnosticsService.instance.failureMessage(
+          error,
+          operation: 'playback',
+        ),
       );
       return false;
     }
@@ -1045,7 +1076,11 @@ class PlaybackController extends Notifier<PlaybackState> {
           _lastNonZeroVolume = normalized;
         }
       },
-      error: (message) {
+      error: (error) {
+        final message = DiagnosticsService.instance.failureMessage(
+          error,
+          operation: 'playback',
+        );
         _backendEventGeneration++;
         ref.read(loggerProvider).e(message);
         state = state.copyWith(lastError: message, pendingItem: null);

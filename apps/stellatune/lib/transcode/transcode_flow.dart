@@ -1,3 +1,5 @@
+import 'package:stellatune/app/diagnostics/diagnostics_service.dart';
+
 import 'dart:async';
 
 import 'package:file_selector/file_selector.dart';
@@ -69,6 +71,13 @@ Future<void> showTranscodeFlow(
       sourceName: _trackName(track),
     );
     if (outcome == null || !context.mounted) return;
+    if (outcome.result == TranscodeResult.failed) {
+      DiagnosticsService.instance.report(
+        outcome.error ?? StateError('Transcoding failed'),
+        operation: 'transcode',
+      );
+      return;
+    }
     final message = switch (outcome.result) {
       TranscodeResult.completed => l10n.transcodeSucceededWithPath(
         outcome.outputPath,
@@ -82,11 +91,7 @@ Future<void> showTranscodeFlow(
       SnackBar(behavior: SnackBarBehavior.floating, content: Text(message)),
     );
   } catch (error) {
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l10n.transcodeStartFailed(error.toString()))),
-      );
-    }
+    DiagnosticsService.instance.report(error, operation: 'transcode_start');
   }
 }
 

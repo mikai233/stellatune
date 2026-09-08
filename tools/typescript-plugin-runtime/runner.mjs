@@ -1,8 +1,12 @@
 import { pathToFileURL } from "node:url";
 import { Console } from "node:console";
+import { format } from "node:util";
 
 // stdout is reserved for framed RPC, including while plugins serve HTTP requests.
 globalThis.console = new Console(process.stderr, process.stderr);
+for (const [method, level] of Object.entries({ log: "INFO", info: "INFO", debug: "DEBUG", warn: "WARN", error: "ERROR", trace: "TRACE" })) {
+  console[method] = (...args) => process.stderr.write(JSON.stringify({ stellatuneLog: 1, level, message: format(...args) }) + "\n");
+}
 
 const MAX_FRAME_BYTES = 1024 * 1024;
 const [entryPath, expectedPluginId, expectedProtocol] = process.argv.slice(2);
@@ -68,6 +72,7 @@ async function handleFrame(payload) {
   try {
     response.result = await dispatch(request);
   } catch (error) {
+    console.error("Plugin RPC %s failed:", request.method, error);
     response.error = normalizeError(error);
   }
   writeFrame(response);

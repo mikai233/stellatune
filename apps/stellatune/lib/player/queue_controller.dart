@@ -1,3 +1,4 @@
+import 'package:stellatune/app/diagnostics/diagnostics_service.dart';
 import 'dart:async';
 import 'dart:math';
 
@@ -168,6 +169,7 @@ class QueueController extends Notifier<QueueState> {
       applyBackend(snapshot, preserveCurrent: true);
     } catch (error) {
       ref.read(loggerProvider).w('set queue mode failed: $error');
+      DiagnosticsService.instance.report(error, operation: 'queue_mode');
     }
   }
 

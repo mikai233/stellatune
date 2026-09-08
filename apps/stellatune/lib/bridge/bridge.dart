@@ -10,10 +10,18 @@ import 'api/player/queue.dart' as queue_api;
 import 'api/player/transcode.dart' as transcode_api;
 import 'api/player/types.dart';
 import 'third_party/stellatune_backend_api/lyrics_types.dart';
+import 'api/events.dart';
 import 'third_party/stellatune_library.dart';
 
-export 'api/player/queue.dart' show PlaybackQueue, QueueEntry, QueueRepeatMode, QueueProviderTrack, QueueMetadataUpdate;
-export 'third_party/stellatune_backend_api/player_service/metadata.dart' show TrackPresentation, TrackCover, TrackCoverKind;
+export 'api/player/queue.dart'
+    show
+        PlaybackQueue,
+        QueueEntry,
+        QueueRepeatMode,
+        QueueProviderTrack,
+        QueueMetadataUpdate;
+export 'third_party/stellatune_backend_api/player_service/metadata.dart'
+    show TrackPresentation, TrackCover, TrackCoverKind;
 export 'frb_generated.dart' show StellatuneApi;
 export 'api/player/types.dart'
     show
@@ -33,16 +41,11 @@ export 'api/player/types.dart'
         TranscodeProgressEvent,
         PlaybackLatency,
         ResampleQuality;
-export 'third_party/stellatune_library.dart'
-    show LibraryEvent, LibraryEventPatterns, PlaylistLite, TrackLite;
+export 'third_party/stellatune_library.dart' show PlaylistLite, TrackLite;
+export 'api/events.dart'
+    show LibraryEvent, LibraryEventPatterns, LyricsEvent, LyricsEventPatterns;
 export 'third_party/stellatune_backend_api/lyrics_types.dart'
-    show
-        LyricsQuery,
-        LyricsEvent,
-        LyricsEventPatterns,
-        LyricsDoc,
-        LyricLine,
-        LyricsSearchCandidate;
+    show LyricsQuery, LyricsDoc, LyricLine, LyricsSearchCandidate;
 export 'api/dlna/types.dart'
     show
         DlnaSsdpDevice,
@@ -56,17 +59,21 @@ export 'api/dlna/types.dart'
 /// Keeps UI code clean and hides generated `api.dart` / `third_party/*` details.
 class PlayerBridge {
   PlayerBridge._({DirectoryAccessService? directoryAccessService})
-    : _directoryAccessService = directoryAccessService ?? DirectoryAccessService.instance;
+    : _directoryAccessService =
+          directoryAccessService ?? DirectoryAccessService.instance;
 
   Stream<Event>? _eventBroadcast;
   Stream<queue_api.PlaybackQueue>? _queueBroadcast;
   Stream<LyricsEvent>? _lyricsEventBroadcast;
   DirectoryAccessStore? _directoryAccessStore;
   final DirectoryAccessService _directoryAccessService;
-  late final QueuePathLeases _queueLeases = QueuePathLeases(_acquireLocalPathLease);
+  late final QueuePathLeases _queueLeases = QueuePathLeases(
+    _acquireLocalPathLease,
+  );
 
-  static Future<PlayerBridge> create({DirectoryAccessService? directoryAccessService}) async =>
-      PlayerBridge._(directoryAccessService: directoryAccessService);
+  static Future<PlayerBridge> create({
+    DirectoryAccessService? directoryAccessService,
+  }) async => PlayerBridge._(directoryAccessService: directoryAccessService);
 
   void bindDirectoryAccessStore(DirectoryAccessStore store) {
     _directoryAccessStore = store;
@@ -103,12 +110,15 @@ class PlayerBridge {
   Future<queue_api.PlaybackQueue> playbackQueue() => queue_api.playbackQueue();
   Stream<queue_api.PlaybackQueue> queueEvents() =>
       _queueBroadcast ??= queue_api.queueEvents().asBroadcastStream();
-  Future<void> storeQueueMetadata(List<queue_api.QueueMetadataUpdate> updates) =>
-      queue_api.storeQueueMetadata(updates: updates);
+  Future<void> storeQueueMetadata(
+    List<queue_api.QueueMetadataUpdate> updates,
+  ) => queue_api.storeQueueMetadata(updates: updates);
 
-  Future<void> retainQueuePaths(Iterable<String> paths) => _queueLeases.retain(paths);
+  Future<void> retainQueuePaths(Iterable<String> paths) =>
+      _queueLeases.retain(paths);
 
-  Future<void> releaseRemovedQueuePaths(Iterable<String> paths) => _queueLeases.releaseExcept(paths);
+  Future<void> releaseRemovedQueuePaths(Iterable<String> paths) =>
+      _queueLeases.releaseExcept(paths);
 
   Future<queue_api.PlaybackQueue> replaceQueue(List<BigInt> ids) =>
       queue_api.replaceQueue(trackIds: frb.Uint64List.fromList(ids));
@@ -290,10 +300,7 @@ class PlayerBridge {
     if (store == null) {
       return Future.value(null);
     }
-    return _directoryAccessService.acquireLocalPath(
-      path: path,
-      store: store,
-    );
+    return _directoryAccessService.acquireLocalPath(path: path, store: store);
   }
 }
 

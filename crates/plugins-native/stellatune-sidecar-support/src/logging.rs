@@ -7,6 +7,7 @@ use std::time::{Duration, SystemTime};
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::EnvFilter;
+use tracing_subscriber::fmt::writer::MakeWriterExt;
 
 use crate::env::{SidecarLogConfig, sidecar_log_config_from_env};
 
@@ -14,6 +15,7 @@ const MAX_LOG_FILES: usize = 20;
 const LOG_RETENTION_DAYS: u64 = 7;
 
 static LOG_GUARD: OnceLock<WorkerGuard> = OnceLock::new();
+static STDERR_GUARD: OnceLock<WorkerGuard> = OnceLock::new();
 
 pub fn init_daily_file_tracing_from_env() -> Result<(), Box<dyn Error>> {
     let config = sidecar_log_config_from_env()?;
@@ -29,11 +31,13 @@ pub fn init_daily_file_tracing(config: &SidecarLogConfig) -> Result<(), Box<dyn 
         .build(config.dir.as_path())?;
     let (writer, guard) = tracing_appender::non_blocking(file_appender);
     let _ = LOG_GUARD.set(guard);
+    let (stderr, guard) = tracing_appender::non_blocking(std::io::stderr());
+    let _ = STDERR_GUARD.set(guard);
     let filter = EnvFilter::try_new(config.level.as_str())?;
 
     let _ = tracing_subscriber::fmt()
         .with_env_filter(filter)
-        .with_writer(writer)
+        .with_writer(writer.and(stderr))
         .with_target(false)
         .with_ansi(false)
         .compact()

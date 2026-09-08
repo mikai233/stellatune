@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:stellatune/app/diagnostics/diagnostics_service.dart';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -78,6 +80,20 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
     return DesktopSettingsView(
       panels: [
         SettingsPanel(
+          id: 'diagnostics',
+          keywords: '日志 logs 错误 diagnostics',
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: DiagnosticsService.instance.open,
+              icon: const Icon(Icons.receipt_long_outlined),
+              label: Text(
+                DiagnosticsService.instance.chinese ? '查看日志' : 'View logs',
+              ),
+            ),
+          ),
+        ),
+        SettingsPanel(
           id: 'appearance',
           keywords:
               '外观 appearance 语言 language 主题 theme 托盘 tray ${l10n.settingsAppearanceTitle}',
@@ -141,7 +157,8 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
       await ref.read(lyricsControllerProvider.notifier).clearCache();
     } catch (error, stack) {
       logger.e('failed to clear lyrics cache', error: error, stackTrace: stack);
-      message = l10n.settingsClearLyricsCacheFailed;
+      DiagnosticsService.instance.report(error, stack: stack, operation: 'lyrics_clear_cache');
+      return;
     }
     if (!mounted) return;
     ScaffoldMessenger.of(context)

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:stellatune/l10n/app_localizations.dart';
 
+import 'window_controls_visibility.dart';
+
 class CustomTitleBar extends StatelessWidget {
   const CustomTitleBar({
     super.key,
@@ -208,6 +210,9 @@ class _WindowButtonState extends State<WindowButton> {
 
     final borderWidth = _isHovered ? 1.5 : 0.0;
 
+    if (WindowControlsVisibility.hiddenOf(context)) {
+      return SizedBox(width: 46, height: widget.height);
+    }
     final backgroundColor = _isHovered
         ? (widget.isClose
               ? Colors.red.withValues(alpha: 0.15)

@@ -94,7 +94,7 @@ void main() {
       final first = h.controller.select(_entry('A'));
       h.loader.tracks.single.result.completeError(StateError('offline'));
       await first;
-      expect(h.selection.error, contains('offline'));
+      expect(h.selection.error, equals('播放操作失败'));
       expect(h.selection.loading, isFalse);
       final retry = h.controller.select(_entry('A'));
       expect(h.selection.loading, isTrue);
@@ -242,7 +242,7 @@ void main() {
       h.loader.catalogs.single.completeError(StateError('catalog offline'));
       await failed;
       expect(h.state.refreshing, isFalse);
-      expect(h.state.listError, contains('catalog offline'));
+      expect(h.state.listError, equals('播放操作失败'));
       final selected = h.controller.select(_entry('removed'));
       final refresh = h.controller.refresh();
       expect(h.state.listError, isNull);

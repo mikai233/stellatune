@@ -1,4 +1,5 @@
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:stellatune/app/diagnostics/diagnostics_service.dart';
 import 'package:stellatune/app/settings_store.dart';
 import 'package:stellatune/bridge/api/player.dart' as player_api;
 import 'package:stellatune/bridge/api/runtime.dart' as runtime_api;
@@ -17,6 +18,13 @@ class AppBootstrapServices {
   }
 
   Future<void> stopHostApi() => player_api.hostApiStop();
-  Future<void> shutdownRuntime() => runtime_api.shutdown();
+  Future<void> shutdownRuntime() async {
+    try {
+      await runtime_api.shutdown();
+    } finally {
+      await DiagnosticsService.instance.shutdown();
+    }
+  }
+
   Future<void> closeSettings() => Hive.close();
 }

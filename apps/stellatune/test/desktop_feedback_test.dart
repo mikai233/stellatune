@@ -1,3 +1,4 @@
+import 'package:stellatune/app/diagnostics/diagnostics_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:stellatune/l10n/app_localizations.dart';
@@ -67,7 +68,8 @@ void main() {
       await tester.pumpAndSettle();
       expect(called, isTrue);
       expect(tester.takeException(), isNull);
-      expect(find.byType(SnackBar), findsOneWidget);
+      expect(find.byType(SnackBar), fails ? findsNothing : findsOneWidget);
+      if (fails) expect(DiagnosticsService.instance.notice.value, isNotNull);
       // A subsequent dialog remains usable after reporting the result.
       await tester.tap(find.byIcon(Icons.delete_outline));
       await tester.pumpAndSettle();

@@ -1,3 +1,4 @@
+import 'package:stellatune/app/diagnostics/diagnostics_service.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -97,7 +98,9 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.text('Unable to start Stellatune'), findsOneWidget);
-      expect(find.textContaining('Rust library not found'), findsOneWidget);
+      expect(find.textContaining('Rust library not found'), findsNothing);
+      expect(find.text('View logs'), findsOneWidget);
+      expect(DiagnosticsService.instance.records.any((r) => r.details.contains('Rust library not found')), isTrue);
       expect(services.calls, ['load runtime']);
       await tester.tap(find.text('Exit'));
       expect(exits, 1);
@@ -118,7 +121,8 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      expect(find.textContaining('Cannot open settings store'), findsOneWidget);
+      expect(find.textContaining('Cannot open settings store'), findsNothing);
+      expect(DiagnosticsService.instance.records.any((r) => r.details.contains('Cannot open settings store')), isTrue);
       expect(services.calls, [
         'load runtime',
         'open settings',

@@ -1,6 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logger/logger.dart';
 
+import 'diagnostics/diagnostics_service.dart';
+
 class RustLikePrinter extends LogPrinter {
   RustLikePrinter({this.target = 'stellatune-flutter', this.useUtc = false});
 
@@ -9,6 +11,13 @@ class RustLikePrinter extends LogPrinter {
 
   @override
   List<String> log(LogEvent event) {
+    DiagnosticsService.instance.record(
+      _levelLabel(event.level),
+      target,
+      '${event.message}',
+      error: event.error,
+      stack: event.stackTrace,
+    );
     final ts = (useUtc ? event.time.toUtc() : event.time).toIso8601String();
     final level = _levelLabel(event.level).padLeft(5);
 
@@ -41,7 +50,11 @@ class RustLikePrinter extends LogPrinter {
   }
 }
 
-final logger = Logger(printer: RustLikePrinter());
+final logger = Logger(
+  filter: ProductionFilter(),
+  level: Level.debug,
+  printer: RustLikePrinter(),
+);
 
 final loggerProvider = Provider<Logger>((ref) {
   return logger;
