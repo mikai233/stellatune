@@ -4,7 +4,9 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:path/path.dart' as p;
 import 'package:window_manager/window_manager.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'log_record_view.dart';
 
@@ -22,13 +24,8 @@ class DiagnosticsPage extends StatefulWidget {
 class _DiagnosticsPageState extends State<DiagnosticsPage> {
   final _scroll = ScrollController();
   String _level = '', _source = '', _search = '';
-  String? _session;
-  List<String> _sessions = [];
-  List<LogRecord> _history = [];
   LogRecord? _detail;
-  int? _next = 0;
-  int _request = 0;
-  bool _loading = false, _follow = true;
+  bool _follow = true;
   double _clearBefore = 0;
   Timer? _searchTimer;
   Timer? _detailRetry;
@@ -36,32 +33,16 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
   String? _status;
   bool _selecting = false;
   int _focusRevision = -1;
-  DateTime _lastSearchRefresh = DateTime.fromMillisecondsSinceEpoch(0);
   Object? _recordsKey;
   List<LogRecord> _filteredRecords = [];
   bool _followScheduled = false;
-  bool get _searchingLive =>
-      _session == null && service.connected && _search.isNotEmpty;
-  bool get _usingHistory => _session != null || _searchingLive;
   DiagnosticsService get service => widget.service;
   String text(String zh, String en) => service.chinese ? zh : en;
   @override
   void initState() {
     super.initState();
     service.revision.addListener(_updated);
-    _loadSessions();
     _updated();
-  }
-
-  Future<void> _loadSessions() async {
-    try {
-      final sessions = await service.sessions();
-      if (mounted) setState(() => _sessions = sessions);
-    } catch (_) {
-      if (mounted) {
-        setState(() => _status = text('历史日志暂不可用', 'History unavailable'));
-      }
-    }
   }
 
   void _updated() {
@@ -73,22 +54,16 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
       _focused = service.focusedId;
       unawaited(_selectId(_focused!));
     }
-    if (_searchingLive &&
-        !_loading &&
-        DateTime.now().difference(_lastSearchRefresh) >
-            const Duration(seconds: 1)) {
-      unawaited(_loadHistory());
-    }
     setState(() {});
     _scheduleFollow();
   }
 
   void _scheduleFollow() {
-    if (_follow && _session == null && !_followScheduled) {
+    if (_follow && !_followScheduled) {
       _followScheduled = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _followScheduled = false;
-        if (mounted && _follow && _session == null && _scroll.hasClients) {
+        if (mounted && _follow && _scroll.hasClients) {
           _scroll.jumpTo(_scroll.position.maxScrollExtent);
         }
       });
@@ -117,47 +92,6 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
     }
   }
 
-  Future<void> _loadHistory({bool reset = true}) async {
-    if (!_usingHistory) {
-      _request++;
-      setState(() {
-        _history = [];
-        _loading = false;
-      });
-      return;
-    }
-    final request = ++_request;
-    _lastSearchRefresh = DateTime.now();
-    setState(() {
-      _loading = true;
-      if (reset) {
-        _history = [];
-        _next = 0;
-      }
-    });
-    try {
-      final page = await service.query(
-        _session ?? service.session!,
-        _next ?? 0,
-        _level,
-        _source,
-        _search,
-      );
-      if (mounted && request == _request) {
-        setState(() {
-          _history = [..._history, ...page.records];
-          _next = page.nextOffset;
-        });
-      }
-    } catch (_) {
-      if (mounted) {
-        setState(() => _status = text('无法读取历史日志', 'Unable to read history'));
-      }
-    } finally {
-      if (mounted && request == _request) setState(() => _loading = false);
-    }
-  }
-
   @override
   void dispose() {
     _detailRetry?.cancel();
@@ -174,10 +108,7 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
       );
       try {
         final file = File('${directory.path}/logs.txt');
-        await service.export(
-          _session ?? service.session ?? 'startup',
-          file.path,
-        );
+        await service.export(service.session ?? 'startup', file.path);
         final path = await FilePicker.saveFile(
           dialogTitle: text('导出日志', 'Export logs'),
           fileName: 'stellatune-logs.txt',
@@ -200,12 +131,36 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
     }
   }
 
+  Future<void> _openLogDirectory() async {
+    final path = service.logDirectory;
+    if (path == null) return;
+    try {
+      if (!await Directory(path).exists()) {
+        throw FileSystemException('Log directory is unavailable', path);
+      }
+      if (Platform.isWindows) {
+        // Explorer needs a native path even when Dart accepts mixed separators.
+        final nativePath = p.windows.normalize(Directory(path).absolute.path);
+        await Process.start('explorer.exe', [
+          nativePath,
+        ], mode: ProcessStartMode.detached);
+      } else if (!await launchUrl(Uri.directory(path))) {
+        throw StateError('Unable to open log directory');
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(
+          () => _status = text('无法打开日志文件夹', 'Unable to open log folder'),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final key = (
-      _usingHistory ? _history : service.recordsRevision,
-      _usingHistory,
+      service.recordsRevision,
       _level,
       _source,
       _search,
@@ -214,14 +169,13 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
     if (_recordsKey != key) {
       _recordsKey = key;
       final query = _search.toLowerCase();
-      _filteredRecords = (_usingHistory ? _history : service.records)
+      _filteredRecords = service.records
           .where(
             (r) =>
                 r.timestampMs > _clearBefore &&
                 (_level.isEmpty || r.level == _level) &&
                 (_source.isEmpty || r.source == _source) &&
-                (_usingHistory ||
-                    _search.isEmpty ||
+                (_search.isEmpty ||
                     '${r.message} ${r.details} ${r.target}'
                         .toLowerCase()
                         .contains(query)),
@@ -248,7 +202,6 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
       width: width,
       onChanged: (v) {
         changed(v!);
-        _loadHistory();
       },
     );
     return CallbackShortcuts(
@@ -316,7 +269,6 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
                           () {
                             if (mounted) {
                               setState(() => _search = v);
-                              _loadHistory();
                             }
                           },
                         );
@@ -331,21 +283,6 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
                           runSpacing: 10,
                           crossAxisAlignment: WrapCrossAlignment.center,
                           children: [
-                            select(
-                              'session',
-                              _session ?? '',
-                              {
-                                '': text('当前会话 · 实时', 'Current session · Live'),
-                                for (final s in _sessions) s: s,
-                              },
-                              constraints.maxWidth < 620
-                                  ? constraints.maxWidth
-                                  : 250,
-                              (v) => setState(() {
-                                _session = v.isEmpty ? null : v;
-                                _clearBefore = 0;
-                              }),
-                            ),
                             select(
                               'level',
                               _level,
@@ -398,12 +335,22 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
                               icon: const Icon(Icons.clear_all, size: 20),
                             ),
                             IconButton(
-                              tooltip: text('导出会话', 'Export session'),
+                              tooltip: text('导出当前日志', 'Export current logs'),
                               onPressed: _export,
                               icon: const Icon(
                                 Icons.file_download_outlined,
                                 size: 20,
                               ),
+                            ),
+                            TextButton.icon(
+                              onPressed: service.logDirectory == null
+                                  ? null
+                                  : _openLogDirectory,
+                              icon: const Icon(
+                                Icons.folder_open_outlined,
+                                size: 20,
+                              ),
+                              label: Text(text('打开日志文件夹', 'Open log folder')),
                             ),
                           ],
                         ),
@@ -454,11 +401,10 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
                   ],
                 ),
               ),
-              if (_loading) const LinearProgressIndicator(minHeight: 2),
               Expanded(
                 child: LayoutBuilder(
                   builder: (context, constraints) {
-                    final list = records.isEmpty && !_loading
+                    final list = records.isEmpty
                         ? Center(
                             child: Column(
                               mainAxisSize: MainAxisSize.min,
@@ -481,18 +427,8 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
                         : ListView.builder(
                             controller: _scroll,
                             itemExtent: LogRecordTile.extent(context),
-                            itemCount:
-                                records.length +
-                                (_usingHistory && _next != null ? 1 : 0),
+                            itemCount: records.length,
                             itemBuilder: (context, index) {
-                              if (index == records.length) {
-                                return TextButton(
-                                  onPressed: _loading
-                                      ? null
-                                      : () => _loadHistory(reset: false),
-                                  child: Text(text('加载更多', 'Load more')),
-                                );
-                              }
                               final r = records[index];
                               return LogRecordTile(
                                 record: r,

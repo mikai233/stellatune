@@ -135,11 +135,7 @@ void main() {
       service.open();
       await tester.pumpAndSettle();
       expect(binding.errors, isEmpty, reason: 'Opening diagnostics');
-      for (final label in [
-        'All levels',
-        'All sources',
-        'Current session · Live',
-      ]) {
+      for (final label in ['All levels', 'All sources']) {
         for (var cycle = 0; cycle < 3; cycle++) {
           await tester.tap(find.text(label));
           await tester.pump();

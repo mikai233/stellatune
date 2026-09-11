@@ -37,8 +37,64 @@ class MissingDetailService extends DiagnosticsService {
   }
 }
 
+class CurrentLogsService extends DiagnosticsService {
+  int historyRequests = 0;
+
+  @override
+  bool get connected => true;
+
+  @override
+  Future<List<String>> sessions() async {
+    historyRequests++;
+    return ['previous-session'];
+  }
+
+  @override
+  Future<LogPage> query(
+    String selected,
+    int offset,
+    String level,
+    String source,
+    String search,
+  ) async {
+    historyRequests++;
+    return const LogPage(records: []);
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  testWidgets(
+    'log page searches live records without requesting historical sessions',
+    (tester) async {
+      final service = CurrentLogsService()..session = 'current-session';
+      service.record('INFO', 'test', 'Current matching log');
+      service.record('INFO', 'test', 'Unrelated record');
+      await tester.pumpWidget(
+        MaterialApp(
+          builder: (_, child) =>
+              DiagnosticsOverlay(service: service, child: child!),
+          home: const Scaffold(),
+        ),
+      );
+      service.open();
+      await tester.pumpAndSettle();
+      expect(find.text('Current session · Live'), findsNothing);
+      expect(find.text('Open log folder'), findsOneWidget);
+      expect(find.text('Load more'), findsNothing);
+      await tester.enterText(find.byType(TextField), 'matching');
+      await tester.pumpAndSettle(const Duration(milliseconds: 250));
+      expect(find.text('Current matching log'), findsOneWidget);
+      expect(find.text('Unrelated record'), findsNothing);
+      service.record('INFO', 'test', 'New matching log');
+      await tester.pumpAndSettle(const Duration(milliseconds: 250));
+      expect(find.text('New matching log'), findsOneWidget);
+      expect(service.historyRequests, 0);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+      await service.shutdown();
+    },
+  );
   test('structured failures deduplicate; cancellation and background errors stay silent', () async {
     final service = DiagnosticsService();
     service.report(failure('first'));

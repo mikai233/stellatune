@@ -11,12 +11,13 @@ Controller 先完成回滚和过期请求检查，再上报错误。全局提示
 - 页面过渡使用 `animations` 的 `SharedAxisTransitionType.scaled`（Shared axis Z），进入 300 ms、退出 250 ms。主页面和日志页分别使用 secondary/primary animation，一起完成纵深缩放和淡入淡出；窗口按钮在过渡层外保持固定。退出结束后才卸载日志导航器；退出途中重新打开会反向继续同一动画，不创建第二个日志导航器。遵循系统减少动画设置。
 - 根反馈层位于 `MaterialApp.builder`，使用 `Overlay.wrap` 提供提示所需的 Overlay；日志页使用独立 Navigator 和 `HeroControllerScope.none`，为下拉菜单、Tooltip 提供正确祖先，避免与主导航共享 HeroController。不能把依赖 Overlay 的控件直接挂在主 Navigator 外。
 - 动画预热通过 `rootOverlay` 插入临时 Navigator，同样必须使用 `HeroControllerScope.none`。否则根 Overlay 位于主 Navigator 之上时，预热会继承主 HeroController，导致冲突及后续 `_debugLocked` 断言。`startup_warmup_navigation_test.dart` 验证实际预热循环与主导航仍可正常 push/pop；加 `--dart-define=WARMUP_FULLSCREEN=true` 覆盖全屏预热分支。
-- 可筛选级别、来源、关键词，暂停自动滚动，查看历史会话、完整详情，复制与导出。
+- 页面只浏览本次运行的实时缓存，可筛选级别、来源、关键词，暂停自动滚动，查看完整详情、复制与导出当前日志。搜索直接筛选缓存，不查询历史文件；缓存仍受 5,000 条、8 MiB 上限约束。
+- 不提供历史会话选择或“加载更多”。通过“打开日志文件夹”使用系统文件管理器查看历史 JSONL 文件，目录尚未初始化时入口禁用。
 - “清空当前视图”只隐藏当前已有记录，不删除文件。详情读取已被淘汰且未保存的记录时会显示短状态；通知早于日志批次到达时只延迟重试一次，不随每条新日志重复查询。
 
 ## 数据流与限制
 
-Rust tracing 与 FFI 诊断记录进入独立诊断线程，不使用播放事件流。生产端 `try_send` 有界队列最多 1,024 条、8 MiB，不能等待磁盘；丢弃数量以 WARN 记录。控制台同样使用后台 writer。实时缓存最多 5,000 条、8 MiB。FFI 每 100 ms 发送批次，订阅先注册再取快照，落后或重连后重新同步缓存。完整详情与历史分页按需查询。
+Rust tracing 与 FFI 诊断记录进入独立诊断线程，不使用播放事件流。生产端 `try_send` 有界队列最多 1,024 条、8 MiB，不能等待磁盘；丢弃数量以 WARN 记录。控制台同样使用后台 writer。实时缓存最多 5,000 条、8 MiB。FFI 每 100 ms 发送批次，订阅先注册再取快照，落后或重连后重新同步缓存。完整详情按需查询；底层历史分页接口保留，但日志页不再调用。
 
 Flutter logger 保留原始多行消息和 Dart 堆栈，100 ms 批量送往 Rust。收到的 Rust 日志不会重新写回。启动前和 Rust 加载失败时，Flutter 独立保存、读取相同格式的 JSONL 日志；日志不可写时仍保留内存与控制台，避免日志服务递归报错。
 
