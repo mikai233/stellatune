@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:stellatune/ui/widgets/app_select.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive/hive.dart';
@@ -440,27 +441,18 @@ void main() {
           ),
         ),
       );
-      final fields = tester.widgetList<DropdownButtonFormField<String?>>(
-        find.byType(DropdownButtonFormField<String?>),
-      );
-      final device = fields.firstWhere(
-        (field) => (field.initialValue ?? '').contains('realtek'),
-      );
-      // Inspect the rendered dropdown: disabled entries remain visible and explain the failure.
       final dropdown = tester
-          .widgetList<DropdownButton<String?>>(
-            find.byType(DropdownButton<String?>),
-          )
+          .widgetList<AppSelect<String?>>(find.byType(AppSelect<String?>))
           .firstWhere((field) => (field.value ?? '').contains('realtek'));
-      expect(device.onChanged, isNotNull);
+      expect(dropdown.onChanged, isNotNull);
       expect(
-        dropdown.items!
+        dropdown.items
             .firstWhere((item) => item.value!.contains('realtek'))
             .enabled,
         isFalse,
       );
       expect(
-        dropdown.items!
+        dropdown.items
             .firstWhere((item) => item.value!.contains('smsl'))
             .enabled,
         isTrue,

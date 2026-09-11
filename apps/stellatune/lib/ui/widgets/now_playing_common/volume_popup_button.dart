@@ -306,6 +306,12 @@ class _VolumePopupButtonState extends State<VolumePopupButton>
 
 /// Keep the popup semantics attached even at zero opacity. Otherwise the
 /// follower's first animated frame can emit children before their AX parent.
+// FIXME(flutter-a11y): Revisit after Flutter/animations upgrades. Reproduced on
+// Flutter 3.47.2 with FadeScaleTransition in the hover popup; exact upstream
+// ownership/fix is not confirmed. Restore the package transition only when
+// 'volume hover popup keeps serialized semantics connected during animation'
+// in test/semantics_hover_test.dart passes with that transition, and Windows
+// hover, slider dragging, rapid reversal and dismissal produce no AXTree errors.
 class _VolumePopupTransition extends StatelessWidget {
   const _VolumePopupTransition({required this.animation, required this.child});
   final Animation<double> animation;

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:stellatune/ui/widgets/app_select.dart';
 
 class SettingsFormRow extends StatelessWidget {
   const SettingsFormRow({
@@ -82,34 +83,11 @@ class SettingsSelectField<T> extends StatelessWidget {
     subtitle: decoration.helperText == null
         ? null
         : Text(decoration.helperText!),
-    control: DropdownButtonFormField<T>(
-      key: ValueKey(initialValue),
-      initialValue: initialValue,
-      isExpanded: true,
-      dropdownColor: Theme.of(context).colorScheme.surface,
-      style: TextStyle(
-        fontFamily: 'NotoSansSC',
-        fontSize: 12,
-        color: Theme.of(context).colorScheme.onSurface,
-      ),
-      decoration: const InputDecoration(
-        isDense: true,
-        contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 11),
-      ),
+    control: AppSelect<T>(
+      value: initialValue,
+      semanticLabel: decoration.labelText,
       items: items,
       onChanged: onChanged,
-      selectedItemBuilder: (_) => items
-          .map(
-            (item) => Align(
-              alignment: Alignment.centerLeft,
-              child: DefaultTextStyle.merge(
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                child: item.child,
-              ),
-            ),
-          )
-          .toList(),
     ),
   );
 }

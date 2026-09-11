@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'app_menu_style.dart';
+
 /// Desktop theme tokens. Presets supply literal colors; [ArtworkPalette.fromSeed]
 /// provides the neutral fallback. Playback details use DetailArtworkPalette.
 class ArtworkPalette extends ThemeExtension<ArtworkPalette> {
@@ -58,7 +60,10 @@ class ArtworkPalette extends ThemeExtension<ArtworkPalette> {
           outline: onSurfaceVariant,
           outlineVariant: outline,
         );
+    final menuTheme = base.copyWith(colorScheme: scheme);
     return base.copyWith(
+      popupMenuTheme: AppMenuStyle.popup(menuTheme),
+      menuTheme: MenuThemeData(style: AppMenuStyle.menu(menuTheme)),
       colorScheme: scheme,
       canvasColor: surface,
       cardColor: surface,

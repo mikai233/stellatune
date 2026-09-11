@@ -14,6 +14,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
+import 'package:stellatune/ui/widgets/app_select.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:stellatune/ui/pages/home/home_placeholders.dart';
 import 'package:stellatune/ui/pages/home/home_view_data.dart';
@@ -126,7 +127,7 @@ void main() {
             brightness: brightness,
             desktopTheme: preset,
           );
-          await tester.tap(find.byType(DropdownButtonFormField<Locale?>));
+          await tester.tap(find.byType(AppSelect<Locale?>));
           await tester.pumpAndSettle();
           final english = find.text('英文').last;
           final label = tester.renderObject<RenderParagraph>(english);
@@ -558,7 +559,7 @@ void main() {
         'audio',
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.byType(DropdownButtonFormField<String>).first);
+      await tester.tap(find.byType(AppSelect<String>).first);
       await tester.pumpAndSettle();
       await tester.tap(find.text('WASAPI 独占').last);
       await tester.pumpAndSettle();

@@ -1,5 +1,7 @@
 import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:stellatune/ui/widgets/app_select.dart';
 import 'package:stellatune/app/logging.dart';
 
 enum _SchemaFieldKind { string, number, integer, boolean, json }
@@ -355,21 +357,27 @@ class _SchemaFormState extends State<SchemaForm> {
       final raw = _values[f.key];
       final current = raw?.toString();
       final normalized = f.enumValues.contains(current) ? current : null;
-      return DropdownButtonFormField<String>(
-        initialValue: normalized,
-        decoration: InputDecoration(
-          labelText: label,
-          helperText: f.description,
-          border: const OutlineInputBorder(),
-          isDense: true,
-        ),
-        items: [
-          for (final opt in f.enumValues)
-            DropdownMenuItem(value: opt, child: Text(opt)),
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: Theme.of(context).textTheme.bodyMedium),
+          const SizedBox(height: 6),
+          AppSelect<String>(
+            value: normalized,
+            semanticLabel: label,
+            items: [
+              for (final opt in f.enumValues)
+                DropdownMenuItem(value: opt, child: Text(opt)),
+            ],
+            onChanged: (v) {
+              setState(() => _setFieldValue(f, v));
+            },
+          ),
+          if (f.description?.isNotEmpty == true) ...[
+            const SizedBox(height: 4),
+            Text(f.description!, style: Theme.of(context).textTheme.bodySmall),
+          ],
         ],
-        onChanged: (v) {
-          setState(() => _setFieldValue(f, v));
-        },
       );
     }
 

@@ -3,7 +3,11 @@ import 'dart:ui' as ui;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:stellatune/ui/widgets/app_select.dart';
+import 'package:stellatune/app/diagnostics/diagnostics_service.dart';
+import 'package:stellatune/ui/diagnostics/diagnostics_overlay.dart';
 import 'package:stellatune/bridge/bridge.dart';
 import 'package:stellatune/l10n/app_localizations.dart';
 import 'package:stellatune/ui/widgets/track_list/widgets/track_list_tile.dart';
@@ -110,6 +114,151 @@ class _RecordingBuilder extends Fake implements ui.SemanticsUpdateBuilder {
 
 void main() {
   final binding = _RecordingBinding();
+
+  testWidgets('diagnostics overlay menus keep serialized semantics connected', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+    binding.nodes.clear();
+    binding.errors.clear();
+    final semantics = tester.ensureSemantics();
+    final service = DiagnosticsService();
+    try {
+      await tester.pumpWidget(
+        MaterialApp(
+          builder: (_, child) =>
+              DiagnosticsOverlay(service: service, child: child!),
+          home: const Scaffold(body: Text('Player')),
+        ),
+      );
+      service.record('INFO', 'test', 'Initial log');
+      service.open();
+      await tester.pumpAndSettle();
+      expect(binding.errors, isEmpty, reason: 'Opening diagnostics');
+      for (final label in [
+        'All levels',
+        'All sources',
+        'Current session · Live',
+      ]) {
+        for (var cycle = 0; cycle < 3; cycle++) {
+          await tester.tap(find.text(label));
+          await tester.pump();
+          expect(
+            binding.errors,
+            isEmpty,
+            reason: 'Opening $label cycle $cycle',
+          );
+          for (var frame = 0; frame < 16; frame++) {
+            service.record('INFO', 'test', 'Incoming log $frame');
+            await tester.pump(const Duration(milliseconds: 16));
+            expect(
+              binding.errors,
+              isEmpty,
+              reason: '$label refresh frame $frame',
+            );
+          }
+          await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+          await tester.pumpAndSettle();
+          expect(service.visible.value, isTrue);
+          expect(binding.errors, isEmpty, reason: 'Closing $label');
+        }
+      }
+      service.close();
+      await tester.pumpAndSettle();
+      expect(binding.errors, isEmpty, reason: 'Returning to player');
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpAndSettle();
+    } finally {
+      semantics.dispose();
+      debugDefaultTargetPlatformOverride = null;
+      await service.shutdown();
+    }
+  });
+
+  testWidgets(
+    'select menu keeps serialized semantics connected on every frame',
+    (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+      binding.nodes.clear();
+      binding.errors.clear();
+      final semantics = tester.ensureSemantics();
+      try {
+        String? selected = 'All levels';
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: StatefulBuilder(
+                builder: (context, setState) => Center(
+                  child: AppSelect<String>(
+                    width: 180,
+                    value: selected,
+                    items: [
+                      for (final label in [
+                        'All levels',
+                        'TRACE',
+                        'DEBUG',
+                        'INFO',
+                        'WARN',
+                        'ERROR',
+                      ])
+                        DropdownMenuItem(value: label, child: Text(label)),
+                    ],
+                    onChanged: (value) => setState(() => selected = value),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+        await mouse.addPointer(location: const Offset(1, 1));
+        for (var cycle = 0; cycle < 3; cycle++) {
+          await tester.tap(find.byType(OutlinedButton));
+          await tester.pump();
+          expect(
+            binding.nodes.values.any(
+              (node) => (node[#label] as String).contains('WARN'),
+            ),
+            isTrue,
+            reason: 'Menu choices must be accessible from the first frame',
+          );
+          for (var frame = 0; frame < 36; frame++) {
+            await tester.pump(const Duration(milliseconds: 16));
+            expect(
+              binding.errors,
+              isEmpty,
+              reason: 'Opening $cycle frame $frame',
+            );
+          }
+          await mouse.moveTo(tester.getCenter(find.text('ERROR').last));
+          await tester.pump(const Duration(milliseconds: 100));
+          await tester.tap(find.text('ERROR').last);
+          for (var frame = 0; frame < 20; frame++) {
+            await tester.pump(const Duration(milliseconds: 16));
+            expect(
+              binding.errors,
+              isEmpty,
+              reason: 'Selecting $cycle frame $frame',
+            );
+          }
+          expect(selected, 'ERROR');
+        }
+        await tester.tap(find.byType(OutlinedButton));
+        await tester.pumpAndSettle();
+        await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+        await tester.pumpAndSettle();
+        expect(binding.errors, isEmpty);
+        await mouse.removePointer();
+        await tester.pumpWidget(const SizedBox());
+        await tester.pumpAndSettle();
+        expect(binding.errors, isEmpty);
+      } finally {
+        semantics.dispose();
+        debugDefaultTargetPlatformOverride = null;
+      }
+    },
+  );
 
   testWidgets(
     'volume hover popup keeps serialized semantics connected during animation',
@@ -345,6 +494,10 @@ void main() {
 
   // Opt-in upstream reproducer: currently fails on Flutter 3.47.2. Kept outside
   // normal CI so SDK behavior can be compared without blaming an app widget.
+  // FIXME(flutter-a11y): On SDK upgrades run this file with
+  // --dart-define=RUN_FLUTTER_TOOLTIP_REPRO=true. Once the minimal Tooltip case
+  // passes and Windows hover is clean, enable it in normal CI. Its result alone
+  // does not justify removing the separate menu/volume workarounds above.
   if (const bool.fromEnvironment('RUN_FLUTTER_TOOLTIP_REPRO')) {
     testWidgets('upstream adjacent tooltip reproduction', (tester) async {
       await hoverAll(

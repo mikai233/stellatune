@@ -8,6 +8,8 @@ import 'package:window_manager/window_manager.dart';
 
 import 'log_record_view.dart';
 
+import 'package:stellatune/ui/widgets/app_select.dart';
+
 import 'package:stellatune/app/diagnostics/diagnostics_service.dart';
 
 class DiagnosticsPage extends StatefulWidget {
@@ -236,40 +238,18 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
       Map<String, String> choices,
       double width,
       ValueChanged<String> changed,
-    ) => SizedBox(
+    ) => AppSelect<String>(
+      key: ValueKey(label),
+      value: value,
+      items: [
+        for (final choice in choices.entries)
+          DropdownMenuItem(value: choice.key, child: Text(choice.value)),
+      ],
       width: width,
-      height: 44,
-      child: DropdownButtonFormField<String>(
-        key: ValueKey((label, value)),
-        initialValue: value,
-        isExpanded: true,
-        decoration: InputDecoration(
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 12,
-            vertical: 10,
-          ),
-          isDense: true,
-        ),
-        items: choices.entries
-            .map(
-              (e) => DropdownMenuItem(
-                value: e.key,
-                child: Text(
-                  e.value,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 13),
-                ),
-              ),
-            )
-            .toList(),
-        onChanged: (v) {
-          if (v != null) {
-            changed(v);
-            _loadHistory();
-          }
-        },
-      ),
+      onChanged: (v) {
+        changed(v!);
+        _loadHistory();
+      },
     );
     return CallbackShortcuts(
       bindings: {

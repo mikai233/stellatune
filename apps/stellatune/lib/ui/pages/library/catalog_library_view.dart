@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:stellatune/ui/widgets/app_select.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:stellatune/app/diagnostics/diagnostics_service.dart';
 import 'package:stellatune/app/providers.dart';
@@ -337,43 +338,29 @@ class _CatalogLibraryViewState extends ConsumerState<CatalogLibraryView> {
                   flex: 0,
                   child: ConstrainedBox(
                     constraints: const BoxConstraints(maxWidth: 155),
-                    child: DropdownButtonHideUnderline(
-                      child: DropdownButton<String>(
-                        value: state.sourceId,
-                        isExpanded: true,
-                        isDense: true,
-                        style: TextStyle(
-                          fontFamily: Theme.of(context)
-                              .textTheme
-                              .bodyMedium
-                              ?.fontFamily,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w500,
-                          color: palette.onBackdrop,
-                        ),
-                        icon: Icon(
-                          Icons.expand_more,
-                          size: 18,
-                          color: palette.onBackdrop,
-                        ),
-                        items: [
-                          for (final source in state.sources)
-                            DropdownMenuItem(
-                              value: source.id,
-                              child: Text(
-                                '${source.local ? l.catalogLocalLibrary : source.name}${source.available ? '' : ' · ${l.catalogUnavailable}'}',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
+                    child: AppSelect<String>(
+                      value: state.sourceId,
+                      height: 36,
+                      menuWidth: 260,
+                      filled: false,
+                      foregroundColor: palette.onBackdrop,
+                      items: [
+                        for (final source in state.sources)
+                          DropdownMenuItem(
+                            value: source.id,
+                            child: Text(
+                              '${source.local ? l.catalogLocalLibrary : source.name}${source.available ? '' : ' · ${l.catalogUnavailable}'}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                             ),
-                        ],
-                        onChanged: (id) {
-                          if (id != null) {
-                            _cancel();
-                            controller.selectSource(id);
-                          }
-                        },
-                      ),
+                          ),
+                      ],
+                      onChanged: (id) {
+                        if (id != null) {
+                          _cancel();
+                          controller.selectSource(id);
+                        }
+                      },
                     ),
                   ),
                 ),
@@ -724,16 +711,15 @@ class _CatalogLibraryViewState extends ConsumerState<CatalogLibraryView> {
               ),
               if (state.kind != MediaKind.track &&
                   state.source?.sorts.isNotEmpty == true)
-                PopupMenuButton<CatalogSort>(
-                  tooltip: state.sort == CatalogSort.default_
-                      ? l.catalogDefaultOrder
-                      : l.catalogTitle,
-                  onSelected: controller.setSort,
-                  itemBuilder: (_) => [
+                AppSelect<CatalogSort>(
+                  value: state.sort,
+                  width: 132,
+                  height: 36,
+                  filled: false,
+                  items: [
                     for (final sort in state.source!.sorts)
-                      CheckedPopupMenuItem(
+                      DropdownMenuItem(
                         value: sort,
-                        checked: state.sort == sort,
                         child: Text(
                           sort == CatalogSort.default_
                               ? l.catalogDefaultOrder
@@ -741,22 +727,9 @@ class _CatalogLibraryViewState extends ConsumerState<CatalogLibraryView> {
                         ),
                       ),
                   ],
-                  child: Padding(
-                    padding: const EdgeInsets.all(8),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          state.sort == CatalogSort.default_
-                              ? l.catalogDefaultOrder
-                              : l.catalogTitle,
-                          style: const TextStyle(fontSize: 12),
-                        ),
-                        const SizedBox(width: 4),
-                        const Icon(Icons.expand_more, size: 16),
-                      ],
-                    ),
-                  ),
+                  onChanged: (sort) {
+                    if (sort != null) controller.setSort(sort);
+                  },
                 ),
               if (grouped) ...[
                 IconButton(
