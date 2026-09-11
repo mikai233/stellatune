@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:stellatune/bridge/bridge.dart';
 import 'package:stellatune/ui/pages/home/home_placeholders.dart';
-import 'package:stellatune/ui/pages/library/desktop_library_view.dart';
+import 'package:stellatune/ui/preview/library_sample_view.dart';
 import 'package:stellatune/ui/widgets/track_list.dart';
 
 /// Fixed fixtures used only by visual tests and the separate preview entry.
@@ -76,7 +76,7 @@ class _LibraryVisualPreviewState extends State<LibraryVisualPreview> {
   late LibrarySection section = widget.initialSection;
   final liked = <int>{1, 5};
   @override
-  Widget build(BuildContext context) => DesktopLibraryView(
+  Widget build(BuildContext context) => SampleLibraryView(
     tracks: LibraryVisualPreview.tracks,
     coverDir: LibraryVisualPreview.coverDir,
     section: section,

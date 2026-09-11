@@ -750,4 +750,150 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsPlaybackLatencyHigh => '高';
+
+  @override
+  String get catalogSongs => '歌曲';
+
+  @override
+  String get catalogAlbums => '专辑';
+
+  @override
+  String get catalogArtists => '艺术家';
+
+  @override
+  String get catalogFolders => '目录';
+
+  @override
+  String get catalogPlaylists => '歌单';
+
+  @override
+  String get catalogLocalLibrary => '本地音乐库';
+
+  @override
+  String get catalogUnavailable => '不可用';
+
+  @override
+  String get catalogRefreshSources => '刷新来源';
+
+  @override
+  String get catalogManageLibrary => '管理本地音乐库';
+
+  @override
+  String get catalogManageFolders => '管理文件夹';
+
+  @override
+  String get catalogScan => '扫描';
+
+  @override
+  String get catalogRescan => '重新读取标签';
+
+  @override
+  String get catalogDefaultOrder => '默认顺序';
+
+  @override
+  String get catalogTitle => '标题';
+
+  @override
+  String get catalogDuration => '时长';
+
+  @override
+  String get catalogGrid => '网格视图';
+
+  @override
+  String get catalogList => '列表视图';
+
+  @override
+  String get catalogPlayAll => '播放全部';
+
+  @override
+  String get catalogCancelPreparation => '取消准备播放';
+
+  @override
+  String get catalogAddToQueue => '加入队列';
+
+  @override
+  String get catalogLike => '喜欢';
+
+  @override
+  String get catalogUnlike => '取消喜欢';
+
+  @override
+  String get catalogBack => '返回';
+
+  @override
+  String get catalogRefreshRetry => '刷新重试';
+
+  @override
+  String get catalogRetryPage => '重试加载';
+
+  @override
+  String get catalogLoadMore => '加载更多';
+
+  @override
+  String get catalogNoItems => '暂无内容';
+
+  @override
+  String get catalogMusicFolders => '音乐目录';
+
+  @override
+  String get catalogCollapseTree => '收起目录树';
+
+  @override
+  String get catalogExpandTree => '展开目录树';
+
+  @override
+  String get catalogSelectFolder => '选择左侧目录，浏览其中的歌曲';
+
+  @override
+  String get catalogNoSubfolders => '没有子目录';
+
+  @override
+  String get catalogSearchHint => '搜索当前音乐库';
+
+  @override
+  String get catalogClearSearch => '清除搜索';
+
+  @override
+  String catalogSongCount(int count) {
+    return '$count 首歌曲';
+  }
+
+  @override
+  String catalogAlbumCount(int count) {
+    return '$count 张专辑';
+  }
+
+  @override
+  String catalogArtistCount(int count) {
+    return '$count 位艺术家';
+  }
+
+  @override
+  String catalogFolderCount(int count) {
+    return '$count 个目录';
+  }
+
+  @override
+  String catalogLoadedCount(int count) {
+    return '已加载 $count 项';
+  }
+
+  @override
+  String catalogUnknown(String kind) {
+    return '未知$kind';
+  }
+
+  @override
+  String catalogAddTo(String name) {
+    return '添加到 $name';
+  }
+
+  @override
+  String get catalogSortAscending => '升序';
+
+  @override
+  String get catalogSortDescending => '降序';
+
+  @override
+  String get catalogResizeColumns => '拖动调整列宽，双击恢复默认列宽';
 }

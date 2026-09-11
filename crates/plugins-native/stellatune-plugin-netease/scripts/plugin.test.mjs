@@ -108,7 +108,7 @@ test("installed bundle owns UI, persistent configuration, login and host event f
   assert.equal(selectedLevel, "lossless");
   assert.equal(lastCookie, "fixture-session");
   await call("/api/actions/playback.play_provider_track", { provider_id: "netease", provider_track_key: "42" });
-  assert.deepEqual(commands.at(-1), { command: "playProviderTrack", track: { pluginId: context.pluginId, capabilityId: "netease-source", providerId: "netease", providerKey: "42" } });
+  assert.deepEqual(commands.at(-1), { command: "playProviderTrack", track: { pluginId: context.pluginId, capabilityId: "netease-source", catalogCapabilityId: "netease-library", providerId: "netease", providerKey: "42" } });
   const metadata = { title: "Fixture song", artist: "Fixture artist", cover: { kind: "url", value: "https://example.test/cover.jpg" } };
   await call("/api/actions/playback.enqueue_provider_track", { provider_id: "netease", provider_track_key: "42", metadata });
   assert.deepEqual(commands.at(-1).track.metadata, metadata);

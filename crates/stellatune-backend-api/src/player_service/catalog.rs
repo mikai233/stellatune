@@ -16,7 +16,7 @@ const PLAYER_SCHEMA_VERSION: i64 = 1;
 const PLAYER_SCHEMA_FINGERPRINT: &str = "stellatune-player-v1-typed-catalog-state-20260901";
 #[derive(Clone)]
 pub struct PlayerCatalog {
-    pub(super) pool: SqlitePool,
+    pub(crate) pool: SqlitePool,
 }
 
 impl PlayerCatalog {
@@ -32,6 +32,8 @@ impl PlayerCatalog {
         let catalog = Self { pool };
         catalog.validate_or_bootstrap().await?;
         catalog.ensure_metadata_table().await?;
+        sqlx::query("CREATE TABLE IF NOT EXISTS media_library_sources(source_id INTEGER PRIMARY KEY REFERENCES source_catalog(id), descriptor_json TEXT NOT NULL)")
+            .execute(&catalog.pool).await?;
         Ok(catalog)
     }
 

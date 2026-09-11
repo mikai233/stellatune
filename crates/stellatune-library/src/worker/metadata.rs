@@ -17,6 +17,10 @@ pub(super) struct ExtractedMetadata {
     pub(super) title: Option<String>,
     pub(super) artist: Option<String>,
     pub(super) album: Option<String>,
+    pub album_artist: Option<String>,
+    pub disc_number: Option<i64>,
+    pub track_number: Option<i64>,
+    pub artists: Vec<String>,
     pub(super) duration_ms: Option<i64>,
     pub(super) cover: Option<Vec<u8>>,
 }
@@ -142,6 +146,10 @@ pub(super) fn extract_metadata_with_plugins(
             title: metadata.title,
             artist: metadata.artist,
             album: metadata.album,
+            album_artist: metadata.album_artist,
+            disc_number: metadata.disc_number,
+            track_number: metadata.track_number,
+            artists: metadata.artists,
             duration_ms: metadata.duration_ms,
             cover: metadata.cover.or_else(|| load_sidecar_cover(path)),
         });
@@ -401,12 +409,31 @@ fn apply_revision(rev: &symphonia::core::meta::MetadataRevision, out: &mut Extra
                 out.title = normalize_text_field(value.as_str());
                 continue;
             },
-            Some(StandardTag::Artist(value)) if out.artist.is_none() => {
-                out.artist = normalize_text_field(value.as_str());
+            Some(StandardTag::Artist(value)) => {
+                if let Some(name) = normalize_text_field(value.as_str()) {
+                    if !out.artists.contains(&name) {
+                        out.artists.push(name.clone());
+                    }
+                    if out.artist.is_none() {
+                        out.artist = Some(name);
+                    }
+                }
                 continue;
             },
             Some(StandardTag::Album(value)) if out.album.is_none() => {
                 out.album = normalize_text_field(value.as_str());
+                continue;
+            },
+            Some(StandardTag::AlbumArtist(value)) => {
+                out.album_artist = normalize_text_field(value.as_str());
+                continue;
+            },
+            Some(StandardTag::DiscNumber(value)) => {
+                out.disc_number = i64::try_from(*value).ok().filter(|v| *v > 0);
+                continue;
+            },
+            Some(StandardTag::TrackNumber(value)) => {
+                out.track_number = i64::try_from(*value).ok().filter(|v| *v > 0);
                 continue;
             },
             _ => {},
@@ -424,6 +451,19 @@ fn apply_revision(rev: &symphonia::core::meta::MetadataRevision, out: &mut Extra
                 },
                 "album" if out.album.is_none() => {
                     out.album = raw_value_to_string(&tag.raw.value);
+                },
+                "albumartist" | "album artist" => {
+                    out.album_artist = raw_value_to_string(&tag.raw.value)
+                },
+                "discnumber" | "disc" => {
+                    out.disc_number = raw_value_to_string(&tag.raw.value)
+                        .and_then(|v| v.split('/').next()?.parse().ok())
+                        .filter(|v| *v > 0)
+                },
+                "tracknumber" | "track" => {
+                    out.track_number = raw_value_to_string(&tag.raw.value)
+                        .and_then(|v| v.split('/').next()?.parse().ok())
+                        .filter(|v| *v > 0)
                 },
                 _ => {},
             }
@@ -486,6 +526,19 @@ pub(super) fn write_cover_bytes(cover_dir: &Path, track_id: i64, bytes: &[u8]) -
 #[cfg(test)]
 mod tests {
     use super::trim_duration_ms_i64;
+
+    #[test]
+    fn reads_id3_tags_from_mp3_during_library_scan() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/metadata-id3.mp3");
+        let metadata = super::extract_metadata(&path).unwrap();
+        assert_eq!(metadata.title.as_deref(), Some("Tagged Song"));
+        assert_eq!(metadata.artist.as_deref(), Some("Tagged Artist"));
+        assert_eq!(metadata.album.as_deref(), Some("Tagged Album"));
+        assert_eq!(metadata.album_artist.as_deref(), Some("Album Artist"));
+        assert_eq!(metadata.track_number, Some(2));
+        assert_eq!(metadata.disc_number, Some(1));
+    }
 
     #[test]
     fn trims_gapless_padding_from_i64_duration() {

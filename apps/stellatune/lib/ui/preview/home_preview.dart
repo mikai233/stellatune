@@ -104,6 +104,9 @@ class _HomeVisualPreviewState extends State<HomeVisualPreview> {
               onClose: widget.onClose,
               onDrag: widget.onDrag,
               onSearch: (_) => placeholder(),
+              searchHint: selected == 1
+                  ? AppLocalizations.of(context)!.catalogSearchHint
+                  : null,
               playerBar: DesktopPlayerBar(
                 title: title,
                 subtitle: '孙燕姿 · 我要的幸福',

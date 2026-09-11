@@ -16,7 +16,7 @@ import 'package:stellatune/ui/widgets/folder_tree.dart';
 import 'package:stellatune/player/track_playability_utils.dart';
 import 'package:stellatune/ui/pages/library/widgets/library_tracks_content.dart';
 
-import 'library/desktop_library_view.dart';
+import 'library/catalog_library_view.dart';
 
 class LibraryPage extends ConsumerStatefulWidget {
   const LibraryPage({super.key, this.useGlobalTopBar = false});
@@ -32,7 +32,6 @@ class LibraryPageState extends ConsumerState<LibraryPage> {
 
   final _searchController = TextEditingController();
   bool _foldersPaneCollapsed = false;
-  final _desktopSection = ValueNotifier(LibrarySection.songs);
   final ValueNotifier<double> _foldersPaneWidth = ValueNotifier(
     _minFoldersPaneWidth,
   );
@@ -89,7 +88,6 @@ class LibraryPageState extends ConsumerState<LibraryPage> {
   @override
   void dispose() {
     _searchController.dispose();
-    _desktopSection.dispose();
     _foldersPaneWidth.dispose();
     _isResizingFoldersPane.dispose();
     super.dispose();
@@ -655,25 +653,14 @@ extension _LibraryLayout on LibraryPageState {
       ],
     );
     if (!widget.useGlobalTopBar) return foldersView;
-    return ValueListenableBuilder<LibrarySection>(
-      valueListenable: _desktopSection,
-      builder: (context, section, _) => DesktopLibraryView(
-        tracks: results,
-        coverDir: coverDir,
-        section: section,
-        onSectionChanged: (section) {
-          if (_desktopSection.value == section) return;
-          _desktopSection.value = section;
-          if (section != LibrarySection.folders) {
-            ref.read(libraryControllerProvider.notifier).selectAllMusic();
-          }
-        },
-        trackListBuilder: tracks,
-        foldersView: foldersView,
-        onAddFolder: () => _pickAndAddFolder(context),
-        onScan: (force) => scanFromTopBar(force: force),
-        isScanning: isScanning,
+    return CatalogLibraryView(
+      currentItem: ref.watch(
+        queueControllerProvider.select((s) => s.currentItem),
       ),
+      onAddFolder: () => _pickAndAddFolder(context),
+      onScan: (force) => scanFromTopBar(force: force),
+      folderManager: foldersView,
+      isScanning: isScanning,
     );
   }
 }

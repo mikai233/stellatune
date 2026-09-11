@@ -251,6 +251,10 @@ class ArtworkBackdrop extends StatelessWidget {
                             width: double.infinity,
                             height: double.infinity,
                             cacheWidth: 1536,
+                            // Returning from an opaque route can resolve a new
+                            // stream after cache eviction. Keep the decoded frame
+                            // visible until that stream supplies its replacement.
+                            gaplessPlayback: true,
                             excludeFromSemantics: true,
                             color: palette.backgroundTint,
                             colorBlendMode: BlendMode.srcATop,

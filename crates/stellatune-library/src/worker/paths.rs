@@ -6,7 +6,7 @@ pub(super) fn now_ms() -> i64 {
         .unwrap_or(0)
 }
 
-pub(super) fn normalize_path_str(path: &str) -> String {
+pub(crate) fn normalize_path_str(path: &str) -> String {
     let mut s = path.replace('\\', "/");
     while s.ends_with('/') {
         s.pop();

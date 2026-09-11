@@ -1,3 +1,4 @@
+import 'package:stellatune/library/catalog_bridge.dart';
 import 'package:stellatune/app/diagnostics/diagnostics_service.dart';
 
 import 'queue_identity_resolver.dart';
@@ -402,7 +403,12 @@ class PlaybackController extends Notifier<PlaybackState> {
         if (generation != _navigationGeneration) return;
         ref
             .read(queueControllerProvider.notifier)
-            .applyBackend(snapshot, source: source, replaceSource: true);
+            .applyBackend(
+              snapshot,
+              metadata: items,
+              source: source,
+              replaceSource: true,
+            );
         await ref.read(settingsStoreProvider.notifier).setQueueSource(source);
         if (generation != _navigationGeneration) return;
         final mode = ref.read(settingsStoreProvider).playMode;
@@ -780,6 +786,10 @@ class PlaybackController extends Notifier<PlaybackState> {
     QueueItem item,
     String blockedReason,
   ) async {
+    if (item.catalogItem != null ||
+        item.providerTrack?.catalogCapabilityId != null) {
+      return false;
+    }
     if (!PlaybackPlayabilityUtils.isDisabledPluginPruneReason(blockedReason)) {
       return false;
     }
@@ -835,6 +845,10 @@ class PlaybackController extends Notifier<PlaybackState> {
         continue;
       }
       final item = queue.items[i];
+      if (item.catalogItem != null ||
+          item.providerTrack?.catalogCapabilityId != null) {
+        continue;
+      }
       final pluginIds = PlaybackPlayabilityUtils.trackPluginIds(item);
       if (pluginIds.isEmpty || !pluginIds.any(disabledPluginIds.contains)) {
         continue;
@@ -872,7 +886,20 @@ class PlaybackController extends Notifier<PlaybackState> {
     return ids.length;
   }
 
-  Future<List<BigInt>> _resolveTrackIds(List<QueueItem> items) async {
+  Future<List<BigInt>> _resolveTrackIds(List<QueueItem> input) async {
+    final items = [...input];
+    final positions = [
+      for (var i = 0; i < items.length; i++)
+        if (items[i].trackId == null && items[i].catalogItem != null) i,
+    ];
+    if (positions.isNotEmpty) {
+      final prepared = await ref.read(catalogBridgeProvider).prepare([
+        for (final i in positions) items[i].catalogItem!,
+      ]);
+      for (var i = 0; i < positions.length; i++) {
+        items[positions[i]] = prepared[i];
+      }
+    }
     final bridge = ref.read(playerBridgeProvider);
     final ids = await resolveQueueTrackIds(
       items,

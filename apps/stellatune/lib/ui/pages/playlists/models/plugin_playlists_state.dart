@@ -39,6 +39,7 @@ class PluginPlaylistSelection {
     required this.entry,
     this.tracks = const [],
     this.nextOffset = 0,
+    this.nextCursor,
     this.hasMore = false,
     this.loading = false,
     this.loadingMore = false,
@@ -48,6 +49,7 @@ class PluginPlaylistSelection {
   final PluginPlaylistEntry entry;
   final List<QueueItem> tracks;
   final int nextOffset;
+  final String? nextCursor;
   final bool hasMore;
   final bool loading;
   final bool loadingMore;
@@ -67,6 +69,7 @@ class PluginPlaylistSelection {
     PluginPlaylistEntry? entry,
     List<QueueItem>? tracks,
     int? nextOffset,
+    Object? nextCursor = _unchanged,
     bool? hasMore,
     bool? loading,
     bool? loadingMore,
@@ -75,6 +78,9 @@ class PluginPlaylistSelection {
     entry: entry ?? this.entry,
     tracks: tracks ?? this.tracks,
     nextOffset: nextOffset ?? this.nextOffset,
+    nextCursor: identical(nextCursor, _unchanged)
+        ? this.nextCursor
+        : nextCursor as String?,
     hasMore: hasMore ?? this.hasMore,
     loading: loading ?? this.loading,
     loadingMore: loadingMore ?? this.loadingMore,

@@ -35,9 +35,11 @@ class PluginTrackPage {
     required this.items,
     required this.fetchedCount,
     required this.hasMore,
+    this.nextCursor,
   });
 
   final List<QueueItem> items;
   final int fetchedCount;
   final bool hasMore;
+  final String? nextCursor;
 }

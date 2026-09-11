@@ -17,7 +17,7 @@ use super::resolver::{
 use super::source::{SourceCatalogEntry, SourceResolverSpec, TrackOrigin};
 use super::state::PlaybackStateRecord;
 pub struct PlayerService {
-    pub(super) catalog: PlayerCatalog,
+    pub(crate) catalog: PlayerCatalog,
     pub(super) controller: PlaybackController,
     local_resolver: Arc<dyn LocalTrackResolver>,
     resolver_factory: Arc<dyn SourceResolverFactory>,

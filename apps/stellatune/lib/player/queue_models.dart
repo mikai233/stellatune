@@ -1,3 +1,5 @@
+import 'package:stellatune/bridge/third_party/stellatune_library/catalog.dart';
+
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
@@ -7,6 +9,7 @@ enum QueueCoverKind { url, file, data }
 @immutable
 class ProviderQueueTrack {
   const ProviderQueueTrack({
+    this.catalogCapabilityId,
     required this.providerId,
     required this.pluginId,
     required this.typeId,
@@ -16,6 +19,7 @@ class ProviderQueueTrack {
     this.decoderPluginId,
   });
 
+  final String? catalogCapabilityId;
   final String providerId;
   final String pluginId;
   final String typeId;
@@ -39,6 +43,7 @@ class QueueItem {
   const QueueItem({
     required this.trackId,
     required this.path,
+    this.catalogItem,
     this.itemId,
     this.local,
     this.providerTrack,
@@ -52,6 +57,7 @@ class QueueItem {
 
   /// Stable application TrackId. Provider rows receive it lazily at play/queue time.
   /// Identity of this queue occurrence, allocated once by the backend.
+  final CatalogItem? catalogItem;
   final BigInt? itemId;
 
   /// Native queue projections preserve source kind even without provider UI metadata.
@@ -69,6 +75,9 @@ class QueueItem {
 
   String get stableTrackKey =>
       trackId?.toString() ??
+      (catalogItem == null
+          ? null
+          : '${catalogItem!.reference.sourceInstanceId}:${catalogItem!.reference.kind.name}:${catalogItem!.reference.id}') ??
       '${providerTrack?.providerId ?? "local"}:${providerTrack?.providerKey ?? id ?? path}';
 
   String get displayTitle {
@@ -85,12 +94,15 @@ enum RepeatMode { off, all, one }
 
 enum PlayMode { sequential, shuffle, repeatAll, repeatOne }
 
-enum QueueSourceType { all, folder, playlist }
+enum QueueSourceType { all, folder, playlist, catalog }
 
 @immutable
 class QueueSource {
   const QueueSource({
     required this.type,
+    this.sourceInstanceId,
+    this.mediaKind,
+    this.mediaId,
     this.folderPath,
     this.includeSubfolders = false,
     this.playlistId,
@@ -98,6 +110,9 @@ class QueueSource {
   });
 
   final QueueSourceType type;
+  final String? sourceInstanceId;
+  final String? mediaKind;
+  final String? mediaId;
   final String? folderPath;
   final bool includeSubfolders;
   final int? playlistId;
@@ -105,6 +120,9 @@ class QueueSource {
 
   Map<String, dynamic> toJson() => {
     'type': type.name,
+    'sourceInstanceId': sourceInstanceId,
+    'mediaKind': mediaKind,
+    'mediaId': mediaId,
     'folderPath': folderPath,
     'includeSubfolders': includeSubfolders,
     'playlistId': playlistId,
@@ -117,6 +135,9 @@ class QueueSource {
         (e) => e.name == json['type'],
         orElse: () => QueueSourceType.all,
       ),
+      sourceInstanceId: json['sourceInstanceId'] as String?,
+      mediaKind: json['mediaKind'] as String?,
+      mediaId: json['mediaId'] as String?,
       folderPath: json['folderPath'] as String?,
       includeSubfolders: json['includeSubfolders'] as bool? ?? false,
       playlistId: json['playlistId'] as int?,

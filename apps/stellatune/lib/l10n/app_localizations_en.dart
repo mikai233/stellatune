@@ -769,4 +769,151 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsPlaybackLatencyHigh => 'High';
+
+  @override
+  String get catalogSongs => 'Songs';
+
+  @override
+  String get catalogAlbums => 'Albums';
+
+  @override
+  String get catalogArtists => 'Artists';
+
+  @override
+  String get catalogFolders => 'Folders';
+
+  @override
+  String get catalogPlaylists => 'Playlists';
+
+  @override
+  String get catalogLocalLibrary => 'Local library';
+
+  @override
+  String get catalogUnavailable => 'Unavailable';
+
+  @override
+  String get catalogRefreshSources => 'Refresh sources';
+
+  @override
+  String get catalogManageLibrary => 'Manage local library';
+
+  @override
+  String get catalogManageFolders => 'Manage folders';
+
+  @override
+  String get catalogScan => 'Scan';
+
+  @override
+  String get catalogRescan => 'Rescan metadata';
+
+  @override
+  String get catalogDefaultOrder => 'Default order';
+
+  @override
+  String get catalogTitle => 'Title';
+
+  @override
+  String get catalogDuration => 'Duration';
+
+  @override
+  String get catalogGrid => 'Grid view';
+
+  @override
+  String get catalogList => 'List view';
+
+  @override
+  String get catalogPlayAll => 'Play all';
+
+  @override
+  String get catalogCancelPreparation => 'Cancel preparation';
+
+  @override
+  String get catalogAddToQueue => 'Add to queue';
+
+  @override
+  String get catalogLike => 'Like';
+
+  @override
+  String get catalogUnlike => 'Unlike';
+
+  @override
+  String get catalogBack => 'Back';
+
+  @override
+  String get catalogRefreshRetry => 'Refresh and retry';
+
+  @override
+  String get catalogRetryPage => 'Retry loading';
+
+  @override
+  String get catalogLoadMore => 'Load more';
+
+  @override
+  String get catalogNoItems => 'No items';
+
+  @override
+  String get catalogMusicFolders => 'Music folders';
+
+  @override
+  String get catalogCollapseTree => 'Collapse folder tree';
+
+  @override
+  String get catalogExpandTree => 'Expand folder tree';
+
+  @override
+  String get catalogSelectFolder => 'Select a folder to browse its songs';
+
+  @override
+  String get catalogNoSubfolders => 'No subfolders';
+
+  @override
+  String get catalogSearchHint => 'Search this library';
+
+  @override
+  String get catalogClearSearch => 'Clear search';
+
+  @override
+  String catalogSongCount(int count) {
+    return '$count songs';
+  }
+
+  @override
+  String catalogAlbumCount(int count) {
+    return '$count albums';
+  }
+
+  @override
+  String catalogArtistCount(int count) {
+    return '$count artists';
+  }
+
+  @override
+  String catalogFolderCount(int count) {
+    return '$count folders';
+  }
+
+  @override
+  String catalogLoadedCount(int count) {
+    return '$count loaded';
+  }
+
+  @override
+  String catalogUnknown(String kind) {
+    return 'Unknown $kind';
+  }
+
+  @override
+  String catalogAddTo(String name) {
+    return 'Add to $name';
+  }
+
+  @override
+  String get catalogSortAscending => 'Ascending';
+
+  @override
+  String get catalogSortDescending => 'Descending';
+
+  @override
+  String get catalogResizeColumns =>
+      'Drag to resize columns; double-click to reset widths';
 }

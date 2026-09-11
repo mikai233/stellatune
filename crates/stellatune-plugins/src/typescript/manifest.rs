@@ -15,6 +15,7 @@ pub enum TypeScriptCapabilityKind {
     LyricsProvider,
     AuthProvider,
     NetworkControl,
+    MediaLibrary,
     /// Native PCM sink declared by a plugin package, never invoked over Node RPC.
     OutputSink,
 }

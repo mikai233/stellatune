@@ -74,6 +74,7 @@ async fn queue_value(service: &PlayerService, queue: QueueSnapshot) -> Result<Va
                 "itemId": item.item_id.get().to_string(), "trackId": item.track_id.get().to_string(),
                 "providerTrack": provider.map(|provider| json!({
                     "pluginId": provider.plugin_id, "capabilityId": provider.capability_id,
+                    "catalogCapabilityId": provider.catalog_capability_id,
                     "providerId": provider.provider_id, "providerKey": provider.provider_key,
                 })),
                 "metadata": metadata,
@@ -167,15 +168,29 @@ pub(super) async fn command(
                 unreachable!()
             };
             let metadata = track.metadata.clone();
-            let track = ensure_provider_track(
-                service,
-                state.plugins.clone(),
-                &track.plugin_id,
-                &track.capability_id,
-                &track.provider_id,
-                &track.provider_key,
-            )
-            .await?;
+            let track = if let Some(catalog_capability) = track.catalog_capability_id.as_deref() {
+                crate::media_catalog::ensure_catalog_provider_track(
+                    service,
+                    state.plugins.clone(),
+                    &track.plugin_id,
+                    catalog_capability,
+                    &track.capability_id,
+                    &track.provider_id,
+                    &track.provider_key,
+                )
+                .await
+                .map_err(ApiError::bad)?
+            } else {
+                ensure_provider_track(
+                    service,
+                    state.plugins.clone(),
+                    &track.plugin_id,
+                    &track.capability_id,
+                    &track.provider_id,
+                    &track.provider_key,
+                )
+                .await?
+            };
             if let Some(metadata) = metadata {
                 service
                     .store_track_presentations(&[(track, metadata)])

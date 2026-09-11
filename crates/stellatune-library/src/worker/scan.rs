@@ -135,12 +135,33 @@ pub(super) async fn scan_all(
 
             let meta_scanned_ms = now_ms();
 
-            let (title, artist, album, duration_ms, cover) = match tokio::task::spawn_blocking({
+            let (
+                title,
+                artist,
+                album,
+                duration_ms,
+                cover,
+                album_artist,
+                disc_number,
+                track_number,
+                artists,
+            ) = match tokio::task::spawn_blocking({
                 let metadata_provider = metadata_provider.clone();
                 let path = file.path.clone();
                 move || {
-                    extract_metadata_with_plugins(Path::new(&path), &metadata_provider)
-                        .map(|m| (m.title, m.artist, m.album, m.duration_ms, m.cover))
+                    extract_metadata_with_plugins(Path::new(&path), &metadata_provider).map(|m| {
+                        (
+                            m.title,
+                            m.artist,
+                            m.album,
+                            m.duration_ms,
+                            m.cover,
+                            m.album_artist,
+                            m.disc_number,
+                            m.track_number,
+                            m.artists,
+                        )
+                    })
                 }
             })
             .await
@@ -151,14 +172,14 @@ pub(super) async fn scan_all(
                     events.emit(LibraryEvent::Log {
                         message: format!("metadata error: {}: {e:#}", file.path),
                     });
-                    (None, None, None, None, None)
+                    (None, None, None, None, None, None, None, None, vec![])
                 },
                 Err(join_err) => {
                     errors += 1;
                     events.emit(LibraryEvent::Log {
                         message: format!("metadata task failed: {}: {join_err}", file.path),
                     });
-                    (None, None, None, None, None)
+                    (None, None, None, None, None, None, None, None, vec![])
                 },
             };
 
@@ -172,6 +193,10 @@ pub(super) async fn scan_all(
                     title: title.as_deref(),
                     artist: artist.as_deref(),
                     album: album.as_deref(),
+                    album_artist: album_artist.as_deref(),
+                    disc_number,
+                    track_number,
+                    artists_json: &serde_json::to_string(&artists)?,
                     duration_ms,
                     meta_scanned_ms,
                     path_norm: &file.path_norm,
@@ -341,12 +366,33 @@ pub(super) async fn scan_folder_into_db(
 
         let meta_scanned_ms = now_ms();
 
-        let (title, artist, album, duration_ms, cover) = match tokio::task::spawn_blocking({
+        let (
+            title,
+            artist,
+            album,
+            duration_ms,
+            cover,
+            album_artist,
+            disc_number,
+            track_number,
+            artists,
+        ) = match tokio::task::spawn_blocking({
             let metadata_provider = metadata_provider.clone();
             let p = PathBuf::from(&file.path);
             move || {
-                extract_metadata_with_plugins(&p, &metadata_provider)
-                    .map(|m| (m.title, m.artist, m.album, m.duration_ms, m.cover))
+                extract_metadata_with_plugins(&p, &metadata_provider).map(|m| {
+                    (
+                        m.title,
+                        m.artist,
+                        m.album,
+                        m.duration_ms,
+                        m.cover,
+                        m.album_artist,
+                        m.disc_number,
+                        m.track_number,
+                        m.artists,
+                    )
+                })
             }
         })
         .await
@@ -356,13 +402,13 @@ pub(super) async fn scan_folder_into_db(
                 events.emit(LibraryEvent::Log {
                     message: format!("metadata error: {}: {e:#}", file.path),
                 });
-                (None, None, None, None, None)
+                (None, None, None, None, None, None, None, None, vec![])
             },
             Err(join_err) => {
                 events.emit(LibraryEvent::Log {
                     message: format!("metadata task failed: {}: {join_err}", file.path),
                 });
-                (None, None, None, None, None)
+                (None, None, None, None, None, None, None, None, vec![])
             },
         };
 
@@ -376,6 +422,10 @@ pub(super) async fn scan_folder_into_db(
                 title: title.as_deref(),
                 artist: artist.as_deref(),
                 album: album.as_deref(),
+                album_artist: album_artist.as_deref(),
+                disc_number,
+                track_number,
+                artists_json: &serde_json::to_string(&artists)?,
                 duration_ms,
                 meta_scanned_ms,
                 path_norm: &file.path_norm,

@@ -4202,6 +4202,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "symphonia",
+ "tempfile",
  "tokio",
  "tracing",
  "walkdir",

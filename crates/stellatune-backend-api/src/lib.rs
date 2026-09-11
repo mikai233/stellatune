@@ -4,6 +4,7 @@ pub mod host_api;
 pub mod library;
 pub mod lyrics_service;
 pub mod lyrics_types;
+pub mod media_catalog;
 pub mod player;
 pub mod player_service;
 pub mod runtime;

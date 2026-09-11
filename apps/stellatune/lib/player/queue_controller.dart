@@ -1,4 +1,5 @@
 import 'package:stellatune/app/diagnostics/diagnostics_service.dart';
+
 import 'dart:async';
 import 'dart:math';
 
@@ -56,6 +57,7 @@ class QueueController extends Notifier<QueueState> {
       final provider = entry.providerTrack;
       items.add(
         QueueItem(
+          catalogItem: supplied?.catalogItem ?? old?.catalogItem,
           itemId: entry.itemId,
           trackId: entry.trackId,
           local: entry.localLibraryTrackId != null,
@@ -63,6 +65,7 @@ class QueueController extends Notifier<QueueState> {
           providerTrack: provider == null
               ? supplied?.providerTrack ?? old?.providerTrack
               : ProviderQueueTrack(
+                  catalogCapabilityId: provider.catalogCapabilityId,
                   providerId: provider.providerId,
                   pluginId: provider.pluginId,
                   typeId: provider.capabilityId,

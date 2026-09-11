@@ -15,7 +15,7 @@ class LibraryCollection {
   final List<TrackLite> tracks;
 }
 
-List<LibraryCollection> groupLibraryTracks(
+List<LibraryCollection> groupSampleLibraryTracks(
   List<TrackLite> tracks, {
   required bool byArtist,
 }) {
@@ -33,8 +33,8 @@ List<LibraryCollection> groupLibraryTracks(
 }
 
 /// Desktop presentation only; selection, playback and folder management are injected.
-class DesktopLibraryView extends StatefulWidget {
-  const DesktopLibraryView({
+class SampleLibraryView extends StatefulWidget {
+  const SampleLibraryView({
     super.key,
     required this.tracks,
     required this.coverDir,
@@ -59,10 +59,10 @@ class DesktopLibraryView extends StatefulWidget {
   final Widget Function(TrackLite)? coverBuilder;
 
   @override
-  State<DesktopLibraryView> createState() => _DesktopLibraryViewState();
+  State<SampleLibraryView> createState() => _SampleLibraryViewState();
 }
 
-class _DesktopLibraryViewState extends State<DesktopLibraryView>
+class _SampleLibraryViewState extends State<SampleLibraryView>
     with SingleTickerProviderStateMixin {
   late final TabController _tabs;
   final _groupCache = <LibrarySection, List<LibraryCollection>>{};
@@ -89,7 +89,7 @@ class _DesktopLibraryViewState extends State<DesktopLibraryView>
   }
 
   @override
-  void didUpdateWidget(covariant DesktopLibraryView oldWidget) {
+  void didUpdateWidget(covariant SampleLibraryView oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (!identical(oldWidget.tracks, widget.tracks)) {
       _groupCache.clear();
@@ -119,7 +119,7 @@ class _DesktopLibraryViewState extends State<DesktopLibraryView>
     }
     _checkSortCache();
     return _groupCache.putIfAbsent(section, () {
-      final result = groupLibraryTracks(
+      final result = groupSampleLibraryTracks(
         widget.tracks,
         byArtist: section == LibrarySection.artists,
       );

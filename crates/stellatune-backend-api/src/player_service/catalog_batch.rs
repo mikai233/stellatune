@@ -10,6 +10,56 @@ use super::{catalog::PlayerCatalog, error::PlayerServiceError, identity::TrackId
 pub(super) const BATCH_SIZE: usize = 400;
 
 impl PlayerCatalog {
+    pub(crate) async fn ensure_provider_text_tracks(
+        &self,
+        source: super::identity::SourceInstanceId,
+        keys: &[String],
+    ) -> Result<Vec<TrackId>, PlayerServiceError> {
+        for key in keys {
+            super::identity::ProviderTrackKey::try_from(
+                super::identity::ProviderTrackKeyInput::Text(key.clone()),
+            )?;
+        }
+        let mut tx = self.pool.begin().await?;
+        let mut identities = HashMap::new();
+        for chunk in keys.chunks(BATCH_SIZE / 3) {
+            let mut insert = QueryBuilder::<Sqlite>::new(
+                "INSERT OR IGNORE INTO track_catalog(source_id,origin_kind,provider_text) ",
+            );
+            insert.push_values(chunk, |mut row, key| {
+                row.push_bind(source.as_i64())
+                    .push_bind("provider_text")
+                    .push_bind(key);
+            });
+            insert.build().execute(&mut *tx).await?;
+            let mut select = QueryBuilder::<Sqlite>::new(
+                "SELECT id,provider_text FROM track_catalog WHERE source_id=",
+            );
+            select
+                .push_bind(source.as_i64())
+                .push(" AND origin_kind='provider_text' AND provider_text IN (");
+            let mut values = select.separated(",");
+            for key in chunk {
+                values.push_bind(key);
+            }
+            select.push(")");
+            for row in select.build().fetch_all(&mut *tx).await? {
+                identities.insert(
+                    row.get::<String, _>("provider_text"),
+                    TrackId::new(row.get::<i64, _>("id") as u64)?,
+                );
+            }
+        }
+        tx.commit().await?;
+        keys.iter()
+            .map(|key| {
+                identities
+                    .get(key)
+                    .copied()
+                    .ok_or(PlayerServiceError::PlaybackStateInvariant)
+            })
+            .collect()
+    }
     /// Registers local identities atomically, preserving input order and duplicates.
     pub async fn ensure_local_tracks(
         &self,

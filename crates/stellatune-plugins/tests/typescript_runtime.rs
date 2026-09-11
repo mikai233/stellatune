@@ -281,7 +281,7 @@ async fn first_party_netease_bundle_uses_control_rpc_and_returns_no_media_bytes(
     std::fs::write(package.path().join("ui/index.html"), "<!doctype html>").unwrap();
     let manifest = read_typescript_manifest(&package.path().join("manifest.json")).unwrap();
     assert_eq!(manifest.manifest_version, 2);
-    assert_eq!(manifest.capabilities.len(), 4);
+    assert_eq!(manifest.capabilities.len(), 5);
 
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
@@ -322,19 +322,19 @@ async fn first_party_netease_bundle_uses_control_rpc_and_returns_no_media_bytes(
     let result = runtime
         .invoke(
             "dev.stellatune.source.netease",
-            "netease-search",
-            None,
-            "list-items",
+            "netease-library",
+            Some("netease".into()),
+            "browse",
             json!({
-                "action": "search",
-                "keywords": "fixture",
+                "sourceInstanceId":"1", "kind":"track", "parent":null, "sort":"default", "limit":200, "cursor":null,
+                "search": "fixture",
                 "config": { "sidecarBaseUrl": "http://ignored.invalid" }
             }),
             None,
         )
         .await
         .unwrap();
-    assert_eq!(result.value[0]["track"]["song_id"], 42);
+    assert_eq!(result.value["items"][0]["reference"]["id"], "42");
     assert!(result.value.to_string().find("mediaBytes").is_none());
     runtime.shutdown().await.unwrap();
     server.join().unwrap();

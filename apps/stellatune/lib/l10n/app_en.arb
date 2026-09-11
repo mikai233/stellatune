@@ -354,5 +354,98 @@
   "settingsPlaybackLatencyHint": "Takes effect after stopping and starting playback, or changing the output device. Higher buffering improves stability.",
   "settingsPlaybackLatencyLow": "Low",
   "settingsPlaybackLatencyMedium": "Medium",
-  "settingsPlaybackLatencyHigh": "High"
+  "settingsPlaybackLatencyHigh": "High",
+  "catalogSongs": "Songs",
+  "catalogAlbums": "Albums",
+  "catalogArtists": "Artists",
+  "catalogFolders": "Folders",
+  "catalogPlaylists": "Playlists",
+  "catalogLocalLibrary": "Local library",
+  "catalogUnavailable": "Unavailable",
+  "catalogRefreshSources": "Refresh sources",
+  "catalogManageLibrary": "Manage local library",
+  "catalogManageFolders": "Manage folders",
+  "catalogScan": "Scan",
+  "catalogRescan": "Rescan metadata",
+  "catalogDefaultOrder": "Default order",
+  "catalogTitle": "Title",
+  "catalogDuration": "Duration",
+  "catalogGrid": "Grid view",
+  "catalogList": "List view",
+  "catalogPlayAll": "Play all",
+  "catalogCancelPreparation": "Cancel preparation",
+  "catalogAddToQueue": "Add to queue",
+  "catalogLike": "Like",
+  "catalogUnlike": "Unlike",
+  "catalogBack": "Back",
+  "catalogRefreshRetry": "Refresh and retry",
+  "catalogRetryPage": "Retry loading",
+  "catalogLoadMore": "Load more",
+  "catalogNoItems": "No items",
+  "catalogMusicFolders": "Music folders",
+  "catalogCollapseTree": "Collapse folder tree",
+  "catalogExpandTree": "Expand folder tree",
+  "catalogSelectFolder": "Select a folder to browse its songs",
+  "catalogNoSubfolders": "No subfolders",
+  "catalogSearchHint": "Search this library",
+  "catalogClearSearch": "Clear search",
+  "catalogSongCount": "{count} songs",
+  "@catalogSongCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "catalogAlbumCount": "{count} albums",
+  "@catalogAlbumCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "catalogArtistCount": "{count} artists",
+  "@catalogArtistCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "catalogFolderCount": "{count} folders",
+  "@catalogFolderCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "catalogLoadedCount": "{count} loaded",
+  "@catalogLoadedCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "catalogUnknown": "Unknown {kind}",
+  "@catalogUnknown": {
+    "placeholders": {
+      "kind": {
+        "type": "String"
+      }
+    }
+  },
+  "catalogAddTo": "Add to {name}",
+  "@catalogAddTo": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "catalogSortAscending": "Ascending",
+  "catalogSortDescending": "Descending",
+  "catalogResizeColumns": "Drag to resize columns; double-click to reset widths"
 }

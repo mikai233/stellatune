@@ -250,12 +250,33 @@ async fn apply_fs_changes(
         // Heavy metadata extraction happens only when the fingerprint differs.
         let meta_scanned_ms = now_ms();
 
-        let (title, artist, album, duration_ms, cover) = match tokio::task::spawn_blocking({
+        let (
+            title,
+            artist,
+            album,
+            duration_ms,
+            cover,
+            album_artist,
+            disc_number,
+            track_number,
+            artists,
+        ) = match tokio::task::spawn_blocking({
             let metadata_provider = metadata_provider.clone();
             let p = path.clone();
             move || {
-                extract_metadata_with_plugins(&p, &metadata_provider)
-                    .map(|m| (m.title, m.artist, m.album, m.duration_ms, m.cover))
+                extract_metadata_with_plugins(&p, &metadata_provider).map(|m| {
+                    (
+                        m.title,
+                        m.artist,
+                        m.album,
+                        m.duration_ms,
+                        m.cover,
+                        m.album_artist,
+                        m.disc_number,
+                        m.track_number,
+                        m.artists,
+                    )
+                })
             }
         })
         .await
@@ -265,13 +286,13 @@ async fn apply_fs_changes(
                 events.emit(LibraryEvent::Log {
                     message: format!("metadata error: {}: {e:#}", raw_trimmed),
                 });
-                (None, None, None, None, None)
+                (None, None, None, None, None, None, None, None, vec![])
             },
             Err(join_err) => {
                 events.emit(LibraryEvent::Log {
                     message: format!("metadata task failed: {}: {join_err}", raw_trimmed),
                 });
-                (None, None, None, None, None)
+                (None, None, None, None, None, None, None, None, vec![])
             },
         };
 
@@ -285,6 +306,10 @@ async fn apply_fs_changes(
                 title: title.as_deref(),
                 artist: artist.as_deref(),
                 album: album.as_deref(),
+                album_artist: album_artist.as_deref(),
+                disc_number,
+                track_number,
+                artists_json: &serde_json::to_string(&artists)?,
                 duration_ms,
                 meta_scanned_ms,
                 path_norm: &path_norm,

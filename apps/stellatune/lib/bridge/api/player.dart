@@ -124,16 +124,6 @@ Future<List<OutputSinkTypeDescriptor>> outputSinkListTypes() =>
 Future<List<EncoderTypeDescriptor>> encoderListTypes() =>
     StellatuneApi.instance.api.crateApiPlayerEncoderListTypes();
 
-Future<String> sourceListItemsJson({
-  required String pluginId,
-  required String typeId,
-  required String requestJson,
-}) => StellatuneApi.instance.api.crateApiPlayerSourceListItemsJson(
-  pluginId: pluginId,
-  typeId: typeId,
-  requestJson: requestJson,
-);
-
 Future<String> lyricsProviderSearchJson({
   required String pluginId,
   required String typeId,

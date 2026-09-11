@@ -37,6 +37,7 @@ use std::collections::HashSet;
 
 #[derive(Clone)]
 pub struct LibraryHandle {
+    catalog: crate::catalog::LocalCatalog,
     actor_ref: ActorHandle<LibraryServiceActor>,
     events: Arc<EventHub>,
     plugins_dir: PathBuf,
@@ -44,6 +45,9 @@ pub struct LibraryHandle {
 }
 
 impl LibraryHandle {
+    pub fn catalog(&self) -> &crate::catalog::LocalCatalog {
+        &self.catalog
+    }
     const QUERY_TIMEOUT: Duration = Duration::from_secs(15);
 
     fn cast_command<M>(&self, message: M) -> Result<(), String>
@@ -348,6 +352,7 @@ pub async fn start_library_with_metadata_provider(
 
     ensure_parent_dir(&db_path)?;
     let deps = WorkerDeps::new(&db_path, Arc::clone(&events), metadata_provider).await?;
+    let catalog = crate::catalog::LocalCatalog::new(deps.pool.clone());
     let worker = LibraryWorker::new(deps);
     let actor_ref = spawn_actor(
         LibraryServiceActor::new(worker, Arc::clone(&events)),
@@ -356,6 +361,7 @@ pub async fn start_library_with_metadata_provider(
     info!("library actor started");
 
     Ok(LibraryHandle {
+        catalog,
         actor_ref,
         events,
         plugins_dir,

@@ -23,6 +23,10 @@ class DesktopFrame extends StatelessWidget {
     required this.playerBar,
     this.topBarActions = const [],
     this.onSearch,
+    this.searchController,
+    this.searchHint,
+    this.searchEnabled = true,
+    this.onClearSearch,
     this.onMinimize,
     this.onMaximize,
     this.onClose,
@@ -33,6 +37,10 @@ class DesktopFrame extends StatelessWidget {
   final Widget child, playerBar;
   final List<DesktopTopBarAction> topBarActions;
   final ValueChanged<String>? onSearch;
+  final TextEditingController? searchController;
+  final String? searchHint;
+  final bool searchEnabled;
+  final VoidCallback? onClearSearch;
   final VoidCallback? onMinimize, onMaximize, onClose, onDrag;
 
   @override
@@ -85,6 +93,10 @@ class DesktopFrame extends StatelessWidget {
                                   child: _TopBar(
                                     actions: topBarActions,
                                     onSearch: onSearch,
+                                    searchController: searchController,
+                                    searchHint: searchHint,
+                                    searchEnabled: searchEnabled,
+                                    onClearSearch: onClearSearch,
                                     onMinimize: onMinimize,
                                     onMaximize: onMaximize,
                                     onClose: onClose,
@@ -274,6 +286,10 @@ class _TopBar extends StatelessWidget {
     required this.home,
     this.showSearch = true,
     this.onSearch,
+    this.searchController,
+    this.searchHint,
+    this.searchEnabled = true,
+    this.onClearSearch,
     this.onMinimize,
     this.onMaximize,
     this.onClose,
@@ -281,6 +297,10 @@ class _TopBar extends StatelessWidget {
   final List<DesktopTopBarAction> actions;
   final bool home;
   final bool showSearch;
+  final TextEditingController? searchController;
+  final String? searchHint;
+  final bool searchEnabled;
+  final VoidCallback? onClearSearch;
   final ValueChanged<String>? onSearch;
   final VoidCallback? onMinimize, onMaximize, onClose;
   @override
@@ -304,6 +324,8 @@ class _TopBar extends StatelessWidget {
             height: 39,
             child: TextField(
               key: const ValueKey('desktop-search'),
+              controller: searchController,
+              enabled: searchEnabled,
               onSubmitted: onSearch,
               style: TextStyle(
                 color: ArtworkPalette.of(context).onBackdrop,
@@ -311,7 +333,13 @@ class _TopBar extends StatelessWidget {
               ),
               cursorColor: ArtworkPalette.of(context).onBackdrop,
               decoration: InputDecoration(
-                hintText: '搜索歌曲、专辑、艺术家…',
+                hintText: searchHint ?? '搜索歌曲、专辑、艺术家…',
+                suffixIcon: onClearSearch == null
+                    ? null
+                    : IconButton(
+                        onPressed: onClearSearch,
+                        icon: const Icon(Icons.close, size: 16),
+                      ),
                 hintStyle: TextStyle(
                   color: ArtworkPalette.of(context).onBackdrop
                       .withValues(alpha: .60),

@@ -164,10 +164,13 @@ receives `resync`; the SDK fetches state and queue again. On reconnect a fresh
 snapshot replaces previous state. Subscriptions are not persisted or replayed.
 Plugin pages normally use their own Node service, which forwards host events.
 
-Native catalog browsing invokes an explicitly selected `network-control`
-capability with `list-items`. Returned track rows include
-`source_resolver_capability_id` so playback selects the exact source resolver.
-No capability is guessed from an action name.
+Native catalog browsing uses an explicitly selected `media-library` capability
+with protocol version 1. Each instance declares its supported categories and its
+exact source resolver. Browse/detail/search and playback resolution carry the
+same instance identity. The old `network-control/list-items` native bridge has
+been removed; network-control remains available for plugin-owned business APIs.
+See [the media library contract](media-library.md) for typed requests, cursors,
+instance discovery and a complete multi-instance fixture.
 
 ## Optional local container plugins
 

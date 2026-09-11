@@ -1,10 +1,6 @@
-import 'package:stellatune/app/diagnostics/diagnostics_service.dart';
-import 'dart:convert';
-
-import 'package:stellatune/app/logging.dart';
 import 'package:stellatune/bridge/bridge.dart';
+import 'package:stellatune/library/catalog_bridge.dart';
 import 'package:stellatune/player/queue_models.dart';
-import 'package:stellatune/ui/pages/playlists/logic/playlists_plugin_value_utils.dart';
 import 'package:stellatune/ui/pages/playlists/models/playlists_data_models.dart';
 
 class PluginPlaylistRefreshResult {
@@ -12,92 +8,74 @@ class PluginPlaylistRefreshResult {
     required this.entries,
     required this.sourceErrors,
   });
-
   final List<PluginPlaylistEntry> entries;
   final List<String> sourceErrors;
-
-  String? get aggregatedError {
-    if (entries.isNotEmpty || sourceErrors.isEmpty) {
-      return null;
-    }
-    return DiagnosticsService.instance.messageFor(null, operation: 'playlists_load');
-  }
+  String? get aggregatedError =>
+      sourceErrors.isEmpty ? null : sourceErrors.join('\n');
 }
 
 class PlaylistsPluginBridgeService {
-  const PlaylistsPluginBridgeService();
-
+  PlaylistsPluginBridgeService(this.catalog);
+  final CatalogBridge catalog;
   Future<PluginPlaylistRefreshResult> fetchPlaylists({
     required PlayerBridge bridge,
   }) async {
-    final sourceTypes = await bridge.sourceListTypes();
-    logger.d('plugin playlists refresh: source_types=${sourceTypes.length}');
-    final merged = <PluginPlaylistEntry>[];
-    final seen = <String>{};
-    final sourceErrors = <String>[];
-
-    for (final source in sourceTypes) {
-      final beforeCount = merged.length;
-      String raw;
+    final sources = await catalog.sources();
+    final entries = <PluginPlaylistEntry>[];
+    final errors = <String>[];
+    for (final source in sources.where((s) => !s.local)) {
+      if (!source.available) {
+        errors.add('${source.name}: ${source.error}');
+        continue;
+      }
+      if (!source.browseKinds.contains(MediaKind.playlist)) continue;
       try {
-        logger.d(
-          'plugin playlists refresh: request list_playlists plugin=${source.pluginId} type=${source.typeId}',
-        );
-        raw = await bridge.sourceListItemsJson(
-          pluginId: source.pluginId,
-          typeId: source.typeId,
-          requestJson: jsonEncode(<String, Object?>{
-            'action': 'list_playlists',
-            'limit': 200,
-            'offset': 0,
-          }),
-        );
-      } catch (e, s) {
-        final reason =
-            'list_playlists failed plugin=${source.pluginId} type=${source.typeId}: $e';
-        sourceErrors.add(reason);
-        logger.w(reason, error: e, stackTrace: s);
-        continue;
+        String? cursor;
+        final seen = <String>{};
+        do {
+          final page = await catalog.browse(
+            CatalogQuery(
+              sourceInstanceId: source.id,
+              kind: MediaKind.playlist,
+              search: '',
+              sort: CatalogSort.default_,
+              cursor: cursor,
+              limit: 200,
+            ),
+          );
+          for (final item in page.items) {
+            entries.add(
+              PluginPlaylistEntry(
+                key: '${source.id}::${item.reference.id}',
+                pluginId: source.id,
+                pluginName: source.name,
+                typeId: 'media-library',
+                typeDisplayName: source.name,
+                sourceId: source.id,
+                title: item.title,
+                playlistId: item.reference.id,
+                sourceLabel: source.name,
+                trackCount: item.trackCount?.toInt(),
+                cover: item.artworkUrl == null
+                    ? null
+                    : QueueCover(
+                        kind: QueueCoverKind.url,
+                        value: item.artworkUrl!,
+                      ),
+                playlistRef: item.reference,
+              ),
+            );
+          }
+          cursor = page.nextCursor;
+          if (cursor != null && !seen.add(cursor)) {
+            throw StateError('Catalog cursor cycle');
+          }
+        } while (cursor != null);
+      } catch (e) {
+        errors.add('${source.name}: $e');
       }
-
-      dynamic decoded;
-      try {
-        decoded = jsonDecode(raw);
-      } catch (e, s) {
-        final reason =
-            'list_playlists decode failed plugin=${source.pluginId} type=${source.typeId}';
-        sourceErrors.add(reason);
-        logger.w(reason, error: e, stackTrace: s);
-        continue;
-      }
-      if (decoded is! List) {
-        final reason =
-            'list_playlists unexpected payload plugin=${source.pluginId} type=${source.typeId} payload=${decoded.runtimeType}';
-        sourceErrors.add(reason);
-        logger.w(reason);
-        continue;
-      }
-
-      for (final row in decoded) {
-        final parsed = _parsePlaylistRow(row, source: source, seenKeys: seen);
-        if (parsed != null) {
-          merged.add(parsed);
-        }
-      }
-
-      final added = merged.length - beforeCount;
-      logger.d(
-        'plugin playlists refresh: plugin=${source.pluginId} type=${source.typeId} total_rows=${decoded.length} added=$added',
-      );
     }
-
-    logger.d(
-      'plugin playlists refresh done: playlists=${merged.length} errors=${sourceErrors.length}',
-    );
-    return PluginPlaylistRefreshResult(
-      entries: List<PluginPlaylistEntry>.unmodifiable(merged),
-      sourceErrors: List<String>.unmodifiable(sourceErrors),
-    );
+    return PluginPlaylistRefreshResult(entries: entries, sourceErrors: errors);
   }
 
   Future<PluginTrackPage> fetchTrackPage({
@@ -106,150 +84,46 @@ class PlaylistsPluginBridgeService {
     required int pageSize,
     required int offset,
     int? limit,
+    String? cursor,
   }) async {
-    final pageLimit = (limit ?? pageSize).clamp(1, 1000);
-    final request = <String, Object?>{
-      'action': 'playlist_tracks',
-      'limit': pageLimit,
-      'offset': offset,
-    };
-    if (entry.playlistRef != null) {
-      request['playlist_ref'] = entry.playlistRef;
-    } else {
-      final idNum = int.tryParse(entry.playlistId);
-      request['playlist_id'] = idNum ?? entry.playlistId;
+    if (offset > 0 && cursor == null) {
+      throw StateError('Missing catalog cursor');
     }
-
-    final raw = await bridge.sourceListItemsJson(
-      pluginId: entry.pluginId,
-      typeId: entry.typeId,
-      requestJson: jsonEncode(request),
-    );
-    final decoded = jsonDecode(raw);
-    final items = _parsePluginQueueItems(decoded, entry);
-    final fetchedCount = decoded is List ? decoded.length : 0;
-    final hasMore = fetchedCount >= pageLimit;
-    return PluginTrackPage(
-      items: items,
-      fetchedCount: fetchedCount,
-      hasMore: hasMore,
-    );
-  }
-
-  PluginPlaylistEntry? _parsePlaylistRow(
-    Object? row, {
-    required SourceCatalogTypeDescriptor source,
-    required Set<String> seenKeys,
-  }) {
-    if (row is! Map) return null;
-    final map = row.cast<Object?, Object?>();
-    final kind = PlaylistsPluginValueUtils.asText(map['kind'])?.toLowerCase();
-    if (kind != null && kind != 'playlist') return null;
-
-    final playlistId =
-        PlaylistsPluginValueUtils.asText(map['playlist_id']) ??
-        PlaylistsPluginValueUtils.asText(map['item_id']) ??
-        PlaylistsPluginValueUtils.asText(map['id']);
-    if (playlistId == null || playlistId.isEmpty) return null;
-
-    final title =
-        PlaylistsPluginValueUtils.asText(map['title']) ??
-        PlaylistsPluginValueUtils.asText(map['name']) ??
-        playlistId;
-    final sourceId =
-        PlaylistsPluginValueUtils.asText(map['source_id']) ?? source.typeId;
-    final sourceLabel =
-        PlaylistsPluginValueUtils.asText(map['source_label']) ??
-        '${source.pluginName} / ${source.displayName}';
-    final key = '${source.pluginId}::${source.typeId}::$playlistId';
-    if (!seenKeys.add(key)) return null;
-
-    return PluginPlaylistEntry(
-      key: key,
-      pluginId: source.pluginId,
-      pluginName: source.pluginName,
-      typeId: source.typeId,
-      typeDisplayName: source.displayName,
-      sourceId: sourceId,
-      title: title,
-      playlistId: playlistId,
-      sourceLabel: sourceLabel,
-      trackCount: PlaylistsPluginValueUtils.asInt(map['track_count']),
-      cover: PlaylistsPluginValueUtils.asCover(map['cover']),
-      playlistRef: map['playlist_ref'],
-    );
-  }
-
-  List<QueueItem> _parsePluginQueueItems(
-    dynamic decoded,
-    PluginPlaylistEntry entry,
-  ) {
-    final items = <QueueItem>[];
-    if (decoded is! List) return items;
-    for (final row in decoded) {
-      if (row is! Map) continue;
-      final map = row.cast<Object?, Object?>();
-      final kind = PlaylistsPluginValueUtils.asText(map['kind'])?.toLowerCase();
-      if (kind != null && kind != 'track') continue;
-
-      final trackObj = map['track'];
-      if (trackObj is! Map) continue;
-      final track = trackObj.cast<String, Object?>();
-
-      final sourceId =
-          PlaylistsPluginValueUtils.asText(map['source_id']) ?? entry.sourceId;
-      final trackId =
-          PlaylistsPluginValueUtils.asText(map['track_id']) ??
-          PlaylistsPluginValueUtils.asText(track['song_id']) ??
-          '';
-      final resolverCapability = PlaylistsPluginValueUtils.asText(
-        map['source_resolver_capability_id'],
-      );
-      if (trackId.isEmpty || resolverCapability == null) continue;
-      final extHint = PlaylistsPluginValueUtils.asText(map['ext_hint']) ?? '';
-      final pathHint = PlaylistsPluginValueUtils.asText(map['path_hint']) ?? '';
-      final decoderPluginId = PlaylistsPluginValueUtils.asText(
-        map['decoder_plugin_id'],
-      );
-      final title =
-          PlaylistsPluginValueUtils.asText(map['title']) ??
-          PlaylistsPluginValueUtils.asText(track['title']);
-      final artist =
-          PlaylistsPluginValueUtils.asText(map['artist']) ??
-          PlaylistsPluginValueUtils.asText(track['artist']);
-      final album =
-          PlaylistsPluginValueUtils.asText(map['album']) ??
-          PlaylistsPluginValueUtils.asText(track['album']);
-      final durationMs =
-          PlaylistsPluginValueUtils.asInt(map['duration_ms']) ??
-          PlaylistsPluginValueUtils.asInt(track['duration_ms']);
-      final cover =
-          PlaylistsPluginValueUtils.asCover(map['cover']) ??
-          PlaylistsPluginValueUtils.asCover(track['cover']);
-
-      items.add(
-        QueueItem(
-          trackId: null,
-          path: pathHint,
-          providerTrack: ProviderQueueTrack(
-            providerId: sourceId,
-            pluginId: entry.pluginId,
-            typeId: resolverCapability,
-            providerKey: trackId,
-            pathHint: pathHint.isEmpty
-                ? '$sourceId:$trackId.$extHint'
-                : pathHint,
-            sourcePluginId: entry.pluginId,
-            decoderPluginId: decoderPluginId,
-          ),
-          title: title,
-          artist: artist,
-          album: album,
-          durationMs: durationMs,
-          cover: cover,
+    final page = await catalog.browse(
+      CatalogQuery(
+        sourceInstanceId: entry.sourceId,
+        kind: MediaKind.track,
+        parent: MediaRef(
+          sourceInstanceId: entry.sourceId,
+          kind: MediaKind.playlist,
+          id: entry.playlistId,
         ),
-      );
-    }
-    return items;
+        search: '',
+        sort: CatalogSort.default_,
+        cursor: cursor,
+        limit: (limit ?? pageSize).clamp(1, 200),
+      ),
+    );
+    return PluginTrackPage(
+      items: [
+        for (final item in page.items)
+          QueueItem(
+            trackId: null,
+            path: '',
+            local: false,
+            catalogItem: item,
+            title: item.title,
+            artist: item.artist,
+            album: item.album,
+            durationMs: item.durationMs?.toInt(),
+            cover: item.artworkUrl == null
+                ? null
+                : QueueCover(kind: QueueCoverKind.url, value: item.artworkUrl!),
+          ),
+      ],
+      fetchedCount: page.items.length,
+      hasMore: page.nextCursor != null,
+      nextCursor: page.nextCursor,
+    );
   }
 }

@@ -12,6 +12,7 @@ use stellatune_backend_api::player_service::{
 
 #[derive(Clone)]
 pub struct QueueProviderTrack {
+    pub catalog_capability_id: Option<String>,
     pub provider_id: String,
     pub provider_key: String,
     pub plugin_id: String,
@@ -74,6 +75,7 @@ async fn project(snapshot: QueueSnapshot) -> Result<PlaybackQueue> {
             local_path,
             local_metadata: local.and_then(|(_, track)| track.clone()),
             provider_track: provider.map(|provider| QueueProviderTrack {
+                catalog_capability_id: provider.catalog_capability_id.clone(),
                 provider_id: provider.provider_id.clone(),
                 provider_key: provider.provider_key.clone(),
                 plugin_id: provider.plugin_id.clone(),

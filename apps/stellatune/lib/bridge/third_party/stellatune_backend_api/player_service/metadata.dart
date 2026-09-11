@@ -10,6 +10,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`
 
 class ProviderQueueMetadata {
+  final String? catalogCapabilityId;
   final String providerId;
   final String providerKey;
   final String pluginId;
@@ -17,6 +18,7 @@ class ProviderQueueMetadata {
   final TrackPresentation? presentation;
 
   const ProviderQueueMetadata({
+    this.catalogCapabilityId,
     required this.providerId,
     required this.providerKey,
     required this.pluginId,
@@ -26,6 +28,7 @@ class ProviderQueueMetadata {
 
   @override
   int get hashCode =>
+      catalogCapabilityId.hashCode ^
       providerId.hashCode ^
       providerKey.hashCode ^
       pluginId.hashCode ^
@@ -37,6 +40,7 @@ class ProviderQueueMetadata {
       identical(this, other) ||
       other is ProviderQueueMetadata &&
           runtimeType == other.runtimeType &&
+          catalogCapabilityId == other.catalogCapabilityId &&
           providerId == other.providerId &&
           providerKey == other.providerKey &&
           pluginId == other.pluginId &&

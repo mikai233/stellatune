@@ -187,16 +187,6 @@ class PlayerBridge {
   Future<List<EncoderTypeDescriptor>> encoderListTypes() =>
       api.encoderListTypes();
 
-  Future<String> sourceListItemsJson({
-    required String pluginId,
-    required String typeId,
-    required String requestJson,
-  }) => api.sourceListItemsJson(
-    pluginId: pluginId,
-    typeId: typeId,
-    requestJson: requestJson,
-  );
-
   Future<String> lyricsProviderSearchJson({
     required String pluginId,
     required String typeId,

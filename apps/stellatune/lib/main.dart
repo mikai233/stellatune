@@ -10,6 +10,7 @@ import 'package:stellatune/app/providers.dart';
 import 'package:stellatune/app/semantics_diagnostics.dart';
 import 'package:stellatune/app/startup_app.dart';
 import 'package:stellatune/ui/app.dart';
+import 'package:stellatune/ui/pages/library/catalog_column_layout.dart';
 
 Future<void> main() async {
   final bootstrapFuture = runZonedGuarded<Future<void>>(
@@ -59,6 +60,9 @@ Future<void> main() async {
                 coverDirProvider.overrideWithValue(bootstrap.coverDir),
                 settingsStoreServiceProvider.overrideWithValue(
                   bootstrap.settings,
+                ),
+                catalogColumnWidthsProvider.overrideWith(
+                  () => CatalogColumnWidthsController(bootstrap.settings),
                 ),
               ],
               child: const StellatuneApp(),

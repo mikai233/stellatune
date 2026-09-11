@@ -80,6 +80,32 @@ void main() {
   );
 
   test(
+    'catalog column widths survive reopening and ignore invalid values',
+    () async {
+      final store = SettingsStore();
+      expect(store.catalogColumnWidths, isEmpty);
+      await store.setCatalogColumnWidths({
+        'title': 4.5,
+        'artist': 2.0,
+        'duration': 60,
+      });
+      await Hive.box('settings').close();
+      await Hive.openBox('settings');
+      expect(SettingsStore().catalogColumnWidths, {
+        'title': 4.5,
+        'artist': 2.0,
+        'duration': 60,
+      });
+      await Hive.box('settings').put('catalog_column_widths', {
+        'title': 'bad',
+        'artist': -3,
+        'album': double.nan,
+      });
+      expect(store.catalogColumnWidths, isEmpty);
+    },
+  );
+
+  test(
     'playback latency defaults, persists by name and survives reopening',
     () async {
       final store = SettingsStore();

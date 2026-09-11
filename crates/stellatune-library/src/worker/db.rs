@@ -7,7 +7,7 @@ use tracing::debug;
 
 use super::paths::{normalize_path_str, parent_dir_norm};
 
-pub(super) async fn init_db(db_path: &Path) -> Result<SqlitePool> {
+pub(crate) async fn init_db(db_path: &Path) -> Result<SqlitePool> {
     let pool = connect_pool(db_path).await?;
 
     ensure_fts5(&pool).await?;

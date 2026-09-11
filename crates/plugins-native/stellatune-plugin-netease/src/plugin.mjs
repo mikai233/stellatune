@@ -1,3 +1,4 @@
+import { createMediaLibrary } from "./media-library.mjs";
 import { openConfig } from "./config.mjs";
 import { openWebUi } from "./web-ui.mjs";
 import { spawn } from "node:child_process";
@@ -249,9 +250,12 @@ async function auth(input, operation) {
   throw pluginError("unsupported_operation", `unsupported auth operation ${action}`);
 }
 
+const mediaLibrary = createMediaLibrary(listItems);
+
 async function invoke(request) {
+  if (request.capabilityId === "netease-library") return mediaLibrary(request);
   const input = request.input ?? {};
-  if (request.capabilityId === "netease-source" && request.operation === "resolve") return resolveSource(input);
+  if (request.capabilityId === "netease-source" && request.operation === "resolve") return resolveSource({ ...input, track_id: input.trackId ?? input.track_id });
   if (request.capabilityId === "netease-search") {
     const listed = await listItems(input);
     if (listed !== null) return listed;
@@ -279,7 +283,7 @@ export default {
   descriptor: {
     id: PLUGIN_ID,
     apiVersion: 2,
-    capabilities: ["netease-source", "netease-search", "netease-auth", "netease-lyrics"],
+    capabilities: ["netease-source", "netease-search", "netease-library", "netease-auth", "netease-lyrics"],
   },
   async initialize(value) {
     context = value;

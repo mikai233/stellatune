@@ -1513,6 +1513,270 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'High'**
   String get settingsPlaybackLatencyHigh;
+
+  /// No description provided for @catalogSongs.
+  ///
+  /// In en, this message translates to:
+  /// **'Songs'**
+  String get catalogSongs;
+
+  /// No description provided for @catalogAlbums.
+  ///
+  /// In en, this message translates to:
+  /// **'Albums'**
+  String get catalogAlbums;
+
+  /// No description provided for @catalogArtists.
+  ///
+  /// In en, this message translates to:
+  /// **'Artists'**
+  String get catalogArtists;
+
+  /// No description provided for @catalogFolders.
+  ///
+  /// In en, this message translates to:
+  /// **'Folders'**
+  String get catalogFolders;
+
+  /// No description provided for @catalogPlaylists.
+  ///
+  /// In en, this message translates to:
+  /// **'Playlists'**
+  String get catalogPlaylists;
+
+  /// No description provided for @catalogLocalLibrary.
+  ///
+  /// In en, this message translates to:
+  /// **'Local library'**
+  String get catalogLocalLibrary;
+
+  /// No description provided for @catalogUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Unavailable'**
+  String get catalogUnavailable;
+
+  /// No description provided for @catalogRefreshSources.
+  ///
+  /// In en, this message translates to:
+  /// **'Refresh sources'**
+  String get catalogRefreshSources;
+
+  /// No description provided for @catalogManageLibrary.
+  ///
+  /// In en, this message translates to:
+  /// **'Manage local library'**
+  String get catalogManageLibrary;
+
+  /// No description provided for @catalogManageFolders.
+  ///
+  /// In en, this message translates to:
+  /// **'Manage folders'**
+  String get catalogManageFolders;
+
+  /// No description provided for @catalogScan.
+  ///
+  /// In en, this message translates to:
+  /// **'Scan'**
+  String get catalogScan;
+
+  /// No description provided for @catalogRescan.
+  ///
+  /// In en, this message translates to:
+  /// **'Rescan metadata'**
+  String get catalogRescan;
+
+  /// No description provided for @catalogDefaultOrder.
+  ///
+  /// In en, this message translates to:
+  /// **'Default order'**
+  String get catalogDefaultOrder;
+
+  /// No description provided for @catalogTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Title'**
+  String get catalogTitle;
+
+  /// No description provided for @catalogDuration.
+  ///
+  /// In en, this message translates to:
+  /// **'Duration'**
+  String get catalogDuration;
+
+  /// No description provided for @catalogGrid.
+  ///
+  /// In en, this message translates to:
+  /// **'Grid view'**
+  String get catalogGrid;
+
+  /// No description provided for @catalogList.
+  ///
+  /// In en, this message translates to:
+  /// **'List view'**
+  String get catalogList;
+
+  /// No description provided for @catalogPlayAll.
+  ///
+  /// In en, this message translates to:
+  /// **'Play all'**
+  String get catalogPlayAll;
+
+  /// No description provided for @catalogCancelPreparation.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel preparation'**
+  String get catalogCancelPreparation;
+
+  /// No description provided for @catalogAddToQueue.
+  ///
+  /// In en, this message translates to:
+  /// **'Add to queue'**
+  String get catalogAddToQueue;
+
+  /// No description provided for @catalogLike.
+  ///
+  /// In en, this message translates to:
+  /// **'Like'**
+  String get catalogLike;
+
+  /// No description provided for @catalogUnlike.
+  ///
+  /// In en, this message translates to:
+  /// **'Unlike'**
+  String get catalogUnlike;
+
+  /// No description provided for @catalogBack.
+  ///
+  /// In en, this message translates to:
+  /// **'Back'**
+  String get catalogBack;
+
+  /// No description provided for @catalogRefreshRetry.
+  ///
+  /// In en, this message translates to:
+  /// **'Refresh and retry'**
+  String get catalogRefreshRetry;
+
+  /// No description provided for @catalogRetryPage.
+  ///
+  /// In en, this message translates to:
+  /// **'Retry loading'**
+  String get catalogRetryPage;
+
+  /// No description provided for @catalogLoadMore.
+  ///
+  /// In en, this message translates to:
+  /// **'Load more'**
+  String get catalogLoadMore;
+
+  /// No description provided for @catalogNoItems.
+  ///
+  /// In en, this message translates to:
+  /// **'No items'**
+  String get catalogNoItems;
+
+  /// No description provided for @catalogMusicFolders.
+  ///
+  /// In en, this message translates to:
+  /// **'Music folders'**
+  String get catalogMusicFolders;
+
+  /// No description provided for @catalogCollapseTree.
+  ///
+  /// In en, this message translates to:
+  /// **'Collapse folder tree'**
+  String get catalogCollapseTree;
+
+  /// No description provided for @catalogExpandTree.
+  ///
+  /// In en, this message translates to:
+  /// **'Expand folder tree'**
+  String get catalogExpandTree;
+
+  /// No description provided for @catalogSelectFolder.
+  ///
+  /// In en, this message translates to:
+  /// **'Select a folder to browse its songs'**
+  String get catalogSelectFolder;
+
+  /// No description provided for @catalogNoSubfolders.
+  ///
+  /// In en, this message translates to:
+  /// **'No subfolders'**
+  String get catalogNoSubfolders;
+
+  /// No description provided for @catalogSearchHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Search this library'**
+  String get catalogSearchHint;
+
+  /// No description provided for @catalogClearSearch.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear search'**
+  String get catalogClearSearch;
+
+  /// No description provided for @catalogSongCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} songs'**
+  String catalogSongCount(int count);
+
+  /// No description provided for @catalogAlbumCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} albums'**
+  String catalogAlbumCount(int count);
+
+  /// No description provided for @catalogArtistCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} artists'**
+  String catalogArtistCount(int count);
+
+  /// No description provided for @catalogFolderCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} folders'**
+  String catalogFolderCount(int count);
+
+  /// No description provided for @catalogLoadedCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} loaded'**
+  String catalogLoadedCount(int count);
+
+  /// No description provided for @catalogUnknown.
+  ///
+  /// In en, this message translates to:
+  /// **'Unknown {kind}'**
+  String catalogUnknown(String kind);
+
+  /// No description provided for @catalogAddTo.
+  ///
+  /// In en, this message translates to:
+  /// **'Add to {name}'**
+  String catalogAddTo(String name);
+
+  /// No description provided for @catalogSortAscending.
+  ///
+  /// In en, this message translates to:
+  /// **'Ascending'**
+  String get catalogSortAscending;
+
+  /// No description provided for @catalogSortDescending.
+  ///
+  /// In en, this message translates to:
+  /// **'Descending'**
+  String get catalogSortDescending;
+
+  /// No description provided for @catalogResizeColumns.
+  ///
+  /// In en, this message translates to:
+  /// **'Drag to resize columns; double-click to reset widths'**
+  String get catalogResizeColumns;
 }
 
 class _AppLocalizationsDelegate

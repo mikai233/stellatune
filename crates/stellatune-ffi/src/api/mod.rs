@@ -3,6 +3,7 @@ pub mod dlna;
 pub mod error;
 pub mod events;
 pub mod library;
+pub mod media_catalog;
 pub mod player;
 pub mod runtime;
 

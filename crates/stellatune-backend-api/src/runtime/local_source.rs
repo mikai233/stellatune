@@ -69,6 +69,10 @@ impl stellatune_library::metadata_provider::MetadataProvider for PluginMetadataP
             title: metadata.title,
             artist: metadata.artist,
             album: metadata.album,
+            album_artist: metadata.album_artist,
+            disc_number: metadata.disc_number,
+            track_number: metadata.track_number,
+            artists: metadata.artists,
             duration_ms: metadata.duration_ms,
             cover,
         })
@@ -81,6 +85,11 @@ struct PluginFileMetadata {
     title: Option<String>,
     artist: Option<String>,
     album: Option<String>,
+    album_artist: Option<String>,
+    disc_number: Option<i64>,
+    track_number: Option<i64>,
+    #[serde(default)]
+    artists: Vec<String>,
     duration_ms: Option<i64>,
     cover_url: Option<String>,
 }

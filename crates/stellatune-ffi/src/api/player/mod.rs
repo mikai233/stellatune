@@ -370,9 +370,11 @@ pub async fn source_list_types() -> Vec<SourceCatalogTypeDescriptor> {
         .await;
     let mut out = Vec::new();
     for plugin in plugins {
-        for capability in plugin.manifest.capabilities.iter().filter(|capability| {
-            matches!(capability.kind, TypeScriptCapabilityKind::NetworkControl)
-        }) {
+        for capability in
+            plugin.manifest.capabilities.iter().filter(|capability| {
+                matches!(capability.kind, TypeScriptCapabilityKind::MediaLibrary)
+            })
+        {
             out.push(SourceCatalogTypeDescriptor {
                 plugin_id: plugin.manifest.id.clone(),
                 plugin_name: plugin.manifest.name.clone(),
@@ -438,35 +440,6 @@ pub async fn encoder_list_types() -> Vec<EncoderTypeDescriptor> {
             default_config_json: item.default_config_json,
         })
         .collect()
-}
-
-pub async fn source_list_items_json(
-    plugin_id: String,
-    type_id: String,
-    request_json: String,
-) -> Result<String, crate::api::error::AppError> {
-    let result: anyhow::Result<_> = (async move {
-        use stellatune_plugins::typescript::manifest::TypeScriptCapabilityKind;
-        let request: Value = serde_json::from_str(&request_json)?;
-        let runtime = shared_typescript_runtime();
-        let registrations = runtime.registered_plugins().await;
-        let capability = registrations
-            .iter()
-            .find(|p| p.manifest.id == plugin_id)
-            .and_then(|p| p.manifest.capabilities.iter().find(|c| c.id == type_id))
-            .ok_or_else(|| {
-                anyhow!("plugin capability is not registered: {plugin_id}::{type_id}")
-            })?;
-        if capability.kind != TypeScriptCapabilityKind::NetworkControl {
-            return Err(anyhow!("catalog capability must be network-control"));
-        }
-        let result = runtime
-            .invoke(&plugin_id, &type_id, None, "list-items", request, None)
-            .await?;
-        normalize_json_payload("TypeScript catalog response", result.value)
-    })
-    .await;
-    result.map_err(|error| crate::api::error::AppError::capture("source_list_items_json", error))
 }
 
 pub async fn lyrics_provider_search_json(

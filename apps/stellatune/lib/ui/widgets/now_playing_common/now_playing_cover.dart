@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:stellatune/player/queue_models.dart';
+import 'package:stellatune/ui/widgets/track_cover_provider.dart';
 
 class NowPlayingCover extends StatelessWidget {
   const NowPlayingCover({
@@ -45,13 +46,7 @@ class NowPlayingCover extends StatelessWidget {
       );
     }
 
-    final coverPath = '$coverDir${Platform.pathSeparator}$trackId';
-    final provider = ResizeImage(
-      FileImage(File(coverPath)),
-      width: 96,
-      height: 96,
-      allowUpscaling: false,
-    );
+    final provider = localTrackCoverProvider(coverDir, trackId!);
 
     return MouseRegion(
       cursor: onTap != null
@@ -84,6 +79,7 @@ class NowPlayingCover extends StatelessWidget {
             width: 48,
             height: 48,
             fit: BoxFit.cover,
+            gaplessPlayback: true,
             errorBuilder: (context, error, stackTrace) => placeholder,
           ),
         );
@@ -95,6 +91,7 @@ class NowPlayingCover extends StatelessWidget {
             width: 48,
             height: 48,
             fit: BoxFit.cover,
+            gaplessPlayback: true,
             errorBuilder: (context, error, stackTrace) => placeholder,
           ),
         );

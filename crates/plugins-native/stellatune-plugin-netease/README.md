@@ -4,6 +4,12 @@ This is a Manifest v2 control-plane plugin. Its pre-bundled ESM module provides
 source resolution, search/library, authentication, and lyrics capabilities via
 the shared Node runner.
 
+Native search and playlists use the `netease-library` media-library capability
+(protocol 1), with the stable instance ID `netease`. The Web UI remains responsible
+for login and configuration. Install the rebuilt package together with this host;
+old network-control catalog packages must be upgraded. Album, artist and folder
+browsing are not advertised by this provider.
+
 Media bytes do not pass through Node. The resolver returns an HTTP `SourcePlan`;
 Stellatune opens that URL and decodes it with the native Rust Symphonia stage.
 The optional Netease service remains a separately managed local process and is
@@ -22,7 +28,7 @@ schema, and static Web UI assets. It contains no embedded executable, native add
 
 The packaging script builds both the Vue UI and the Node bundle. Source lives
 in `src/`; SDK helpers are bundled into `plugin.mjs`. Install the resulting
-`dist/dev.stellatune.source.netease-0.3.0.zip` with the updated host.
+`dist/dev.stellatune.source.netease-0.4.0.zip` with the updated host.
 
 The plugin hosts its own UI on a random loopback port. Open it from Settings;
 the plugin process stays alive until disabled, updated, uninstalled or app exit.

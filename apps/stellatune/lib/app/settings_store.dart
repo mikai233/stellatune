@@ -113,6 +113,22 @@ class SettingsStore implements DirectoryAccessStore {
 
   Box get _box => Hive.box(_boxName);
 
+  Map<String, double> get catalogColumnWidths {
+    final raw = _box.get('catalog_column_widths');
+    if (raw is! Map) return const {};
+    return Map.unmodifiable({
+      for (final entry in raw.entries)
+        if (entry.key is String &&
+            entry.value is num &&
+            (entry.value as num).isFinite &&
+            entry.value > 0)
+          entry.key as String: (entry.value as num).toDouble(),
+    });
+  }
+
+  Future<void> setCatalogColumnWidths(Map<String, double> widths) =>
+      _box.put('catalog_column_widths', widths);
+
   SettingsState readState() {
     return SettingsState(
       playbackLatency: playbackLatency,

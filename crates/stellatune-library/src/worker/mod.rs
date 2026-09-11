@@ -1,7 +1,7 @@
 pub(crate) mod db;
 mod fts;
 mod metadata;
-mod paths;
+pub(crate) mod paths;
 mod scan;
 mod tracks;
 mod tracks_by_ids;
@@ -33,7 +33,7 @@ struct PlaylistLiteRow {
 }
 
 pub(crate) struct WorkerDeps {
-    pool: SqlitePool,
+    pub(crate) pool: SqlitePool,
     events: Arc<EventHub>,
     cover_dir: PathBuf,
     metadata_provider: Option<Arc<dyn crate::metadata_provider::MetadataProvider>>,

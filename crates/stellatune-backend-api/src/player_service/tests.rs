@@ -579,3 +579,6 @@ mod queue_tests;
 
 #[path = "queue_batch_tests.rs"]
 mod queue_batch_tests;
+
+#[path = "media_catalog_tests.rs"]
+mod media_catalog_tests;

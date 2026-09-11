@@ -16,6 +16,7 @@ import 'package:stellatune/ui/widgets/now_playing_common.dart';
 
 import 'now_playing_bar/desktop_player_bar.dart';
 import 'now_playing_bar/widgets/now_playing_dlna_dialog.dart';
+import 'now_playing_common/transition_progress.dart';
 
 class NowPlayingBar extends ConsumerWidget {
   const NowPlayingBar({super.key});
@@ -32,19 +33,20 @@ class NowPlayingBar extends ConsumerWidget {
     final isPlaying =
         playback.playerState == PlayerState.playing ||
         playback.playerState == PlayerState.buffering;
-    final duration =
-        playback.trackInfo?.durationMs?.toInt() ??
-        queue.currentItem?.durationMs ??
-        0;
-    final item = queue.currentItem;
-    final subtitle =
-        playback.pendingItem?.displayTitle ??
-        [
-          item?.artist ?? '',
-          item?.album ?? '',
-        ].where((s) => s.isNotEmpty).join(' · ');
+    final pending = playback.pendingItem;
+    final item = pending ?? queue.currentItem;
+    final duration = pending != null
+        ? pending.durationMs ?? 0
+        : playback.trackInfo?.durationMs?.toInt() ?? item?.durationMs ?? 0;
+    final position = pending != null ? 0 : playback.positionMs;
+    final subtitle = [
+      item?.artist ?? '',
+      item?.album ?? '',
+    ].where((s) => s.isNotEmpty).join(' · ');
     final progressEnabled =
-        item != null && (playback.currentPath?.isNotEmpty ?? false);
+        pending == null &&
+        item != null &&
+        (playback.currentPath?.isNotEmpty ?? false);
     void details() => Navigator.of(context)
         .push(MaterialPageRoute<void>(builder: (_) => const MusicDetailPage()));
     Widget action(IconData icon, String label, VoidCallback onTap) => SizedBox(
@@ -69,7 +71,7 @@ class NowPlayingBar extends ConsumerWidget {
         onTap: item == null ? null : details,
       ),
       isPlaying: isPlaying,
-      position: NowPlayingCommon.formatMs(playback.positionMs),
+      position: NowPlayingCommon.formatMs(position),
       duration: NowPlayingCommon.formatMs(duration),
       onPlayPause: () => isPlaying ? player.pause() : player.play(),
       onPrevious: () => player.previous(),
@@ -88,21 +90,19 @@ class NowPlayingBar extends ConsumerWidget {
         PlayMode.repeatOne => PlayMode.sequential,
         _ => PlayMode.repeatAll,
       }),
-      progress: playback.pendingItem != null
-          ? const SizedBox(
-              height: 6,
-              child: Center(child: LinearProgressIndicator(minHeight: 3)),
-            )
-          : NowPlayingProgressBar(
-              minHitHeight: 24,
-              durationMs: duration,
-              positionMs: playback.positionMs,
-              enabled: progressEnabled,
-              audioStarted: playback.audioStarted,
-              playerState: playback.playerState,
-              foregroundColor: ArtworkPalette.of(context).accent,
-              onSeekMs: (ms) => player.seekMs(ms),
-            ),
+      progress: NowPlayingTransitionProgress(
+        busy: pending != null,
+        child: NowPlayingProgressBar(
+          minHitHeight: 24,
+          durationMs: duration,
+          positionMs: position,
+          enabled: progressEnabled,
+          audioStarted: playback.audioStarted,
+          playerState: playback.playerState,
+          foregroundColor: ArtworkPalette.of(context).accent,
+          onSeekMs: (ms) => player.seekMs(ms),
+        ),
+      ),
       trailing: Row(
         mainAxisAlignment: MainAxisAlignment.end,
         children: [

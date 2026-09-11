@@ -168,12 +168,14 @@ class QueueMetadataUpdate {
 }
 
 class QueueProviderTrack {
+  final String? catalogCapabilityId;
   final String providerId;
   final String providerKey;
   final String pluginId;
   final String capabilityId;
 
   const QueueProviderTrack({
+    this.catalogCapabilityId,
     required this.providerId,
     required this.providerKey,
     required this.pluginId,
@@ -182,6 +184,7 @@ class QueueProviderTrack {
 
   @override
   int get hashCode =>
+      catalogCapabilityId.hashCode ^
       providerId.hashCode ^
       providerKey.hashCode ^
       pluginId.hashCode ^
@@ -192,6 +195,7 @@ class QueueProviderTrack {
       identical(this, other) ||
       other is QueueProviderTrack &&
           runtimeType == other.runtimeType &&
+          catalogCapabilityId == other.catalogCapabilityId &&
           providerId == other.providerId &&
           providerKey == other.providerKey &&
           pluginId == other.pluginId &&

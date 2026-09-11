@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:stellatune/bridge/bridge.dart';
-import 'package:stellatune/ui/pages/library/desktop_library_view.dart';
+import 'package:stellatune/ui/preview/library_sample_view.dart';
 import 'package:stellatune/l10n/app_localizations.dart';
 import 'package:stellatune/ui/widgets/folder_tree.dart';
 
@@ -25,7 +25,7 @@ void main() {
           body: StatefulBuilder(
             builder: (_, update) => ValueListenableBuilder<List<TrackLite>>(
               valueListenable: results,
-              builder: (_, tracks, _) => DesktopLibraryView(
+              builder: (_, tracks, _) => SampleLibraryView(
                 tracks: tracks,
                 coverDir: '',
                 section: section,
@@ -88,7 +88,7 @@ void main() {
             ),
             home: Scaffold(
               body: StatefulBuilder(
-                builder: (_, update) => DesktopLibraryView(
+                builder: (_, update) => SampleLibraryView(
                   tracks: tracks,
                   coverDir: '',
                   section: section,
@@ -180,7 +180,7 @@ void main() {
           await tester.pumpWidget(
             MaterialApp(
               home: Scaffold(
-                body: DesktopLibraryView(
+                body: SampleLibraryView(
                   tracks: [
                     for (var i = 0; i < 100; i++)
                       TrackLite(

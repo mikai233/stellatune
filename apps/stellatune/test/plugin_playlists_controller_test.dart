@@ -204,9 +204,6 @@ void main() {
       expect(h.loader.tracks.last.limit, 1);
       h.loader.tracks.last.result.complete(_page(['new']));
       await _flush();
-      expect(h.loader.tracks.last.offset, 1);
-      h.loader.tracks.last.result.complete(_page([]));
-      await _flush();
       expect(h.selection.loading, isTrue);
       expect(h.loader.tracks.last.limit, PluginPlaylistsController.pageSize);
       h.loader.tracks.last.result.complete(_page(['new']));
@@ -318,6 +315,7 @@ PluginTrackPage _page(List<String> titles, {int? fetched, bool more = false}) =>
       ],
       fetchedCount: fetched ?? titles.length,
       hasMore: more,
+      nextCursor: more ? 'next' : null,
     );
 
 class _TrackRequest {
@@ -338,7 +336,7 @@ class _Loader {
       catalogs.add(request);
       return request.future;
     },
-    fetchTracks: (entry, {required offset, required limit}) {
+    fetchTracks: (entry, {required offset, required limit, cursor}) {
       final request = _TrackRequest(entry, offset, limit);
       tracks.add(request);
       return request.result.future;

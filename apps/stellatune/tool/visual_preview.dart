@@ -8,7 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:stellatune/ui/preview/home_preview.dart';
 import 'package:stellatune/ui/preview/library_preview.dart';
-import 'package:stellatune/ui/pages/library/desktop_library_view.dart';
+import 'package:stellatune/ui/preview/library_sample_view.dart';
 import 'package:window_manager/window_manager.dart';
 
 /// flutter run -d windows -t tool/visual_preview.dart

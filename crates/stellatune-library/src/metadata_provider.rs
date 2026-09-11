@@ -6,6 +6,10 @@ pub struct LocalFileMetadata {
     pub title: Option<String>,
     pub artist: Option<String>,
     pub album: Option<String>,
+    pub album_artist: Option<String>,
+    pub disc_number: Option<i64>,
+    pub track_number: Option<i64>,
+    pub artists: Vec<String>,
     pub duration_ms: Option<i64>,
     /// Embedded artwork bytes, ready for the library's normal cover cache.
     pub cover: Option<Vec<u8>>,

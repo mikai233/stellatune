@@ -112,6 +112,8 @@ class PlaylistTracksPane extends StatelessWidget {
 class PluginPlaylistTracksPane extends StatefulWidget {
   const PluginPlaylistTracksPane({
     super.key,
+    this.onPlayAll,
+    this.onCancelPlayAll,
     required this.searchController,
     required this.queueSourceLabel,
     required this.selectedLabel,
@@ -129,6 +131,8 @@ class PluginPlaylistTracksPane extends StatefulWidget {
     required this.onEnqueue,
   });
 
+  final Future<void> Function()? onPlayAll;
+  final VoidCallback? onCancelPlayAll;
   final TextEditingController searchController;
   final String queueSourceLabel;
   final String selectedLabel;
@@ -255,6 +259,20 @@ class _PluginPlaylistTracksPaneState extends State<PluginPlaylistTracksPane> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        if (widget.onPlayAll != null)
+          TextButton.icon(
+            onPressed: widget.onCancelPlayAll ?? widget.onPlayAll,
+            icon: Icon(
+              widget.onCancelPlayAll == null ? Icons.play_arrow : Icons.close,
+            ),
+            label: Text(
+              Localizations.localeOf(context).languageCode == 'zh'
+                  ? (widget.onCancelPlayAll == null ? '播放全部' : '取消准备播放')
+                  : (widget.onCancelPlayAll == null
+                        ? 'Play all'
+                        : 'Cancel preparation'),
+            ),
+          ),
         StellatuneSearchField(
           controller: widget.searchController,
           onChanged: widget.onSearchChanged,

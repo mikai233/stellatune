@@ -38,6 +38,7 @@ pub struct TrackPresentation {
 
 #[derive(Debug, Clone)]
 pub struct ProviderQueueMetadata {
+    pub catalog_capability_id: Option<String>,
     pub provider_id: String,
     pub provider_key: String,
     pub plugin_id: String,
@@ -83,7 +84,7 @@ impl PlayerCatalog {
         for chunk in tracks.chunks(BATCH_SIZE) {
             let mut query = QueryBuilder::<Sqlite>::new(
                 "SELECT t.id,t.provider_numeric,t.provider_text,s.provider_id,s.resolver_plugin_id,\
-                 s.resolver_capability_id,m.presentation_json FROM track_catalog t \
+                 s.resolver_capability_id,s.resolver_config_json,m.presentation_json FROM track_catalog t \
                  JOIN source_catalog s ON s.id=t.source_id LEFT JOIN track_presentation m ON m.track_id=t.id \
                  WHERE s.binding_kind='plugin' AND t.id IN (",
             );
@@ -97,9 +98,14 @@ impl PlayerCatalog {
                 let capability_id: String = row.get("resolver_capability_id");
                 let provider: String = row.get("provider_id");
                 let prefix = format!("{plugin_id}::{capability_id}::");
-                let provider_id = provider
-                    .strip_prefix(&prefix)
-                    .unwrap_or(&provider)
+                let config: serde_json::Value =
+                    serde_json::from_str(&row.get::<String, _>("resolver_config_json"))
+                        .unwrap_or_default();
+                let catalog_capability_id =
+                    config["catalogCapabilityId"].as_str().map(str::to_owned);
+                let provider_id = config["instanceId"]
+                    .as_str()
+                    .unwrap_or_else(|| provider.strip_prefix(&prefix).unwrap_or(&provider))
                     .to_owned();
                 let provider_key = row
                     .get::<Option<i64>, _>("provider_numeric")
@@ -113,6 +119,7 @@ impl PlayerCatalog {
                 result.insert(
                     TrackId::new(row.get::<i64, _>("id") as u64)?,
                     ProviderQueueMetadata {
+                        catalog_capability_id,
                         provider_id,
                         provider_key,
                         plugin_id,

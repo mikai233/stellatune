@@ -27,6 +27,7 @@ pub enum PlayerCommand {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProviderTrack {
+    pub catalog_capability_id: Option<String>,
     pub plugin_id: String,
     pub capability_id: String,
     pub provider_id: String,

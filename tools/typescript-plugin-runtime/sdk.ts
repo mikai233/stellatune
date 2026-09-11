@@ -40,10 +40,37 @@ export interface LocalFileMetadata {
   title?: string | null;
   artist?: string | null;
   album?: string | null;
+  albumArtist?: string | null;
+  discNumber?: number | null;
+  trackNumber?: number | null;
+  artists?: string[];
   durationMs?: number | null;
   /** Optional artwork URL; host downloads up to 12 MiB into its cover cache. */
   coverUrl?: string | null;
 }
+
+export type MediaKind = "track" | "album" | "artist" | "folder" | "playlist";
+export type CatalogSort = "default" | "title";
+export interface MediaRef { sourceInstanceId: string; kind: MediaKind; id: string }
+export interface CatalogItem {
+  reference: MediaRef; title: string; artist?: string | null; album?: string | null;
+  durationMs?: number | null; trackCount?: number | null; artworkUrl?: string | null;
+  albumRef?: MediaRef | null; artistRefs?: MediaRef[];
+}
+export interface CatalogPage { items: CatalogItem[]; nextCursor: string | null; total?: number | null }
+export interface CatalogQuery {
+  sourceInstanceId: string; kind: MediaKind; parent?: MediaRef | null;
+  search: string; sort: CatalogSort; cursor?: string | null; limit: number;
+}
+export interface LibraryInstance {
+  instanceId: string; name: string; resolverCapabilityId: string;
+  browseKinds: MediaKind[]; searchKinds: MediaKind[]; sorts: CatalogSort[]; error?: string | null;
+}
+export interface PluginLibraries { protocolVersion: 1; instances: LibraryInstance[] }
+/** media-library: list-sources -> PluginLibraries; browse -> CatalogPage;
+ * get-detail -> CatalogItem. Browse, detail and resolve receive instanceId.
+ * resolve receives {trackId: string}. Never parse provider IDs as numbers.
+ */
 
 export interface StellatunePlugin {
   descriptor: {

@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hive/hive.dart';
 import 'package:stellatune/app/providers.dart';
 import 'package:stellatune/bridge/bridge.dart';
+import 'package:stellatune/library/catalog_bridge.dart';
 import 'package:stellatune/player/playback_controller.dart';
 import 'package:stellatune/player/queue_controller.dart';
 import 'package:stellatune/player/queue_models.dart';
@@ -21,6 +22,7 @@ class ControlledBridge implements PlayerBridge {
   int snapshotCalls = 0;
   int stopCalls = 0;
   int replaceCalls = 0;
+  int nextCalls = 0, previousCalls = 0;
   TrackDecodeInfo? trackInfo;
   Completer<TrackDecodeInfo?>? trackInfoGate;
   final seeks = <int>[];
@@ -86,6 +88,18 @@ class ControlledBridge implements PlayerBridge {
     final completion = Completer<bool>();
     selections[itemId] = completion;
     return completion.future;
+  }
+
+  @override
+  Future<bool> nextQueueItem() async {
+    nextCalls++;
+    return true;
+  }
+
+  @override
+  Future<bool> previousQueueItem() async {
+    previousCalls++;
+    return true;
   }
 
   @override
@@ -185,6 +199,45 @@ void main() {
       expect(bridge.stopCalls, 0);
     },
   );
+
+  test('complete queue starts at the selected row and forwards next/previous to the backend', () async {
+    final items = [
+      for (var id = 1; id <= 3; id++)
+        QueueItem(
+          trackId: BigInt.from(id),
+          path: '$id.mp3',
+          title: 'Known title $id',
+          catalogItem: CatalogItem(
+            artistRefs: const [],
+            reference: MediaRef(
+              sourceInstanceId: 'local',
+              kind: MediaKind.track,
+              id: '$id',
+            ),
+            title: 'Known title $id',
+          ),
+        ),
+    ];
+    final pending = controller.setQueueAndPlayItems(items, startIndex: 1);
+    await until(() => bridge.selections.containsKey(BigInt.two));
+    bridge.selections[BigInt.two]!.complete(true);
+    await pending;
+    expect(container.read(queueControllerProvider).items, hasLength(3));
+    expect(
+      container.read(queueControllerProvider).items[1].catalogItem,
+      same(items[1].catalogItem),
+    );
+    expect(
+      container.read(playbackControllerProvider).pendingItem?.title,
+      'Known title 2',
+    );
+    expect(bridge.selections.keys, [BigInt.two]);
+    await controller.next();
+    await controller.previous();
+    expect(bridge.nextCalls, 1);
+    expect(bridge.previousCalls, 1);
+    expect(container.read(queueControllerProvider).items, hasLength(3));
+  });
 
   test('backend superseded response is not a playback failure', () async {
     final pending = controller.playIndex(1);

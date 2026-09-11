@@ -3,7 +3,7 @@ export interface TrackPresentation {
   durationMs?: number | null;
   cover?: { kind: "url" | "file" | "data"; value: string; mime?: string | null } | null;
 }
-export interface ProviderTrack { pluginId: string; capabilityId: string; providerId: string; providerKey: string; metadata?: TrackPresentation }
+export interface ProviderTrack { pluginId: string; capabilityId: string; catalogCapabilityId?: string; providerId: string; providerKey: string; metadata?: TrackPresentation }
 export type PlayerCommand =
   | { command: "play" | "pause" | "stop" | "next" | "previous" }
   | { command: "seek"; positionMs: number }

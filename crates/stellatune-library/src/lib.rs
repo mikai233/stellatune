@@ -1,3 +1,4 @@
+pub mod catalog;
 pub mod metadata_provider;
 pub mod service;
 mod types;

@@ -70,10 +70,19 @@ impl TypeScriptSourceResolver {
 impl SourceResolver for TypeScriptSourceResolver {
     async fn resolve(
         &self,
-        _source: &SourceCatalogEntry,
+        source: &SourceCatalogEntry,
         key: &ProviderTrackKey,
     ) -> Result<ResolvedSourceSpec, PlayerServiceError> {
         let mut input = Map::new();
+        let config: Value = serde_json::from_str(
+            source
+                .resolver
+                .as_ref()
+                .map(|s| s.config_json.as_str())
+                .unwrap_or("{}"),
+        )
+        .map_err(|e| PlayerServiceError::InvalidSourceSpec(e.to_string()))?;
+        let instance = config.get("instanceId").and_then(Value::as_str);
         match key {
             ProviderTrackKey::Numeric(value) => {
                 input.insert("song_id".to_owned(), Value::from(*value));
@@ -85,12 +94,20 @@ impl SourceResolver for TypeScriptSourceResolver {
                 input.insert("track".to_owned(), serde_json::json!({ "track_id": value }));
             },
         }
+        if instance.is_some() {
+            // Media-library identities are opaque, even when all characters are digits.
+            let id = match key {
+                ProviderTrackKey::Numeric(v) => v.to_string(),
+                ProviderTrackKey::Text(v) => v.clone(),
+            };
+            input.insert("trackId".into(), Value::String(id));
+        }
         let invocation = self
             .runtime
             .invoke(
                 &self.plugin_id,
                 &self.capability_id,
-                None,
+                instance.map(str::to_owned),
                 "resolve",
                 Value::Object(input),
                 None,

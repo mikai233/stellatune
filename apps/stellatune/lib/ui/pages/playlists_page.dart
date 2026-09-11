@@ -1,3 +1,6 @@
+import 'package:stellatune/library/catalog_bridge.dart';
+import 'package:stellatune/app/diagnostics/diagnostics_service.dart';
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -27,6 +30,78 @@ class PlaylistsPage extends ConsumerStatefulWidget {
 }
 
 class PlaylistsPageState extends ConsumerState<PlaylistsPage> {
+  String? _catalogCollectionId;
+  int _catalogPlayGeneration = 0;
+  CatalogBridge? _catalogBridge;
+
+  void _cancelCatalogPlay() {
+    final id = _catalogCollectionId;
+    _catalogPlayGeneration++;
+    if (mounted) setState(() => _catalogCollectionId = null);
+    if (id != null) unawaited(_catalogBridge?.cancel(id));
+  }
+
+  Future<void> _playAllPluginTracks() async {
+    final entry = ref.read(pluginPlaylistsControllerProvider).selection?.entry;
+    if (entry == null) return;
+    _cancelCatalogPlay();
+    final generation = ++_catalogPlayGeneration;
+    final id = 'playlist-${DateTime.now().microsecondsSinceEpoch}';
+    final bridge = ref.read(catalogBridgeProvider);
+    _catalogBridge = bridge;
+    setState(() => _catalogCollectionId = id);
+    try {
+      final rows = await bridge.collect(
+        CatalogQuery(
+          sourceInstanceId: entry.sourceId,
+          kind: MediaKind.track,
+          parent: MediaRef(
+            sourceInstanceId: entry.sourceId,
+            kind: MediaKind.playlist,
+            id: entry.playlistId,
+          ),
+          search: '',
+          sort: CatalogSort.default_,
+          limit: 200,
+        ),
+        id,
+      );
+      if (!mounted ||
+          generation != _catalogPlayGeneration ||
+          ref.read(pluginPlaylistsControllerProvider).selection?.entry.key !=
+              entry.key) {
+        return;
+      }
+      final items = await bridge.prepare(rows);
+      if (!mounted ||
+          generation != _catalogPlayGeneration ||
+          ref.read(pluginPlaylistsControllerProvider).selection?.entry.key !=
+              entry.key) {
+        return;
+      }
+      await ref
+          .read(playbackControllerProvider.notifier)
+          .setQueueAndPlayItems(
+            items,
+            source: QueueSource(
+              type: QueueSourceType.catalog,
+              sourceInstanceId: entry.sourceId,
+              mediaKind: 'playlist',
+              mediaId: entry.playlistId,
+              label: entry.title,
+            ),
+          );
+    } catch (e) {
+      if (mounted && generation == _catalogPlayGeneration) {
+        DiagnosticsService.instance.report(e, operation: 'playlist');
+      }
+    } finally {
+      if (mounted && generation == _catalogPlayGeneration) {
+        setState(() => _catalogCollectionId = null);
+      }
+    }
+  }
+
   final _librarySearchController = TextEditingController();
   final _pluginSearchController = TextEditingController();
   bool _playlistsPanelOpen = false;
@@ -44,6 +119,12 @@ class PlaylistsPageState extends ConsumerState<PlaylistsPage> {
   @override
   void initState() {
     super.initState();
+    ref.listenManual(pluginPlaylistsControllerProvider, (previous, next) {
+      if (_catalogCollectionId != null &&
+          previous?.selection?.entry.key != next.selection?.entry.key) {
+        _cancelCatalogPlay();
+      }
+    });
     unawaited(_refreshDecoderExtensionSupport());
     unawaited(
       Future<void>.microtask(() async {
@@ -55,6 +136,10 @@ class PlaylistsPageState extends ConsumerState<PlaylistsPage> {
 
   @override
   void dispose() {
+    _catalogPlayGeneration++;
+    if (_catalogCollectionId != null) {
+      unawaited(_catalogBridge?.cancel(_catalogCollectionId!));
+    }
     _librarySearchController.dispose();
     _pluginSearchController.dispose();
     super.dispose();
@@ -292,6 +377,10 @@ class PlaylistsPageState extends ConsumerState<PlaylistsPage> {
                           onViewportRangeChanged: _onViewportRangeChanged,
                         )
                       : PluginPlaylistTracksPane(
+                          onPlayAll: _playAllPluginTracks,
+                          onCancelPlayAll: _catalogCollectionId == null
+                              ? null
+                              : _cancelCatalogPlay,
                           key: ValueKey(selectedPluginPlaylist.key),
                           searchController: _pluginSearchController,
                           queueSourceLabel: queueSourceLabel,
@@ -314,7 +403,10 @@ class PlaylistsPageState extends ConsumerState<PlaylistsPage> {
                               : pluginController.loadMore(),
                           onActivate: (index, items) async {
                             final source = QueueSource(
-                              type: QueueSourceType.all,
+                              type: QueueSourceType.catalog,
+                              sourceInstanceId: selectedPluginPlaylist.sourceId,
+                              mediaKind: 'playlist',
+                              mediaId: selectedPluginPlaylist.playlistId,
                               label: selectionSourceLabel,
                             );
                             await ref
