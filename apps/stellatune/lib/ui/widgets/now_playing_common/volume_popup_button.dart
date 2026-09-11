@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:animations/animations.dart';
 import 'package:flutter/material.dart';
 
 class VolumePopupButton extends StatefulWidget {
@@ -133,7 +132,7 @@ class _VolumePopupButtonState extends State<VolumePopupButton>
                       _scheduleHideIfNeeded();
                     }
                   },
-                  child: FadeScaleTransition(
+                  child: _VolumePopupTransition(
                     animation: _animationController,
                     child: Material(
                       elevation: 6,
@@ -303,4 +302,36 @@ class _VolumePopupButtonState extends State<VolumePopupButton>
       ),
     );
   }
+}
+
+/// Keep the popup semantics attached even at zero opacity. Otherwise the
+/// follower's first animated frame can emit children before their AX parent.
+class _VolumePopupTransition extends StatelessWidget {
+  const _VolumePopupTransition({required this.animation, required this.child});
+  final Animation<double> animation;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => DualTransitionBuilder(
+    animation: animation,
+    forwardBuilder: (context, animation, child) => FadeTransition(
+      opacity: animation.drive(CurveTween(curve: const Interval(0, .3))),
+      alwaysIncludeSemantics: true,
+      child: ScaleTransition(
+        scale: animation.drive(
+          Tween(
+            begin: .8,
+            end: 1.0,
+          ).chain(CurveTween(curve: Easing.legacyDecelerate)),
+        ),
+        child: child,
+      ),
+    ),
+    reverseBuilder: (context, animation, child) => FadeTransition(
+      opacity: animation.drive(Tween(begin: 1.0, end: 0.0)),
+      alwaysIncludeSemantics: true,
+      child: child,
+    ),
+    child: child,
+  );
 }

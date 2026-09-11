@@ -10,6 +10,7 @@ import 'package:stellatune/ui/widgets/track_list/widgets/track_list_tile.dart';
 import 'package:stellatune/ui/widgets/folder_tree.dart';
 import 'package:stellatune/ui/widgets/track_list.dart';
 import 'package:stellatune/ui/widgets/custom_title_bar.dart';
+import 'package:stellatune/ui/widgets/now_playing_common/volume_popup_button.dart';
 
 // Widget tests normally discard semantics updates. Check the serialized child
 // references as well as widget behavior; this is not a complete native AXTree
@@ -109,6 +110,97 @@ class _RecordingBuilder extends Fake implements ui.SemanticsUpdateBuilder {
 
 void main() {
   final binding = _RecordingBinding();
+
+  testWidgets(
+    'volume hover popup keeps serialized semantics connected during animation',
+    (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+      binding.nodes.clear();
+      binding.errors.clear();
+      final semantics = tester.ensureSemantics();
+      final changes = <double>[];
+      try {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: Align(
+                alignment: Alignment.bottomCenter,
+                child: VolumePopupButton(
+                  volume: .6,
+                  enableHover: true,
+                  onChanged: changes.add,
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+        await mouse.addPointer(location: const Offset(1, 1));
+        for (var cycle = 0; cycle < 3; cycle++) {
+          await mouse.moveTo(tester.getCenter(find.byType(VolumePopupButton)));
+          await tester.pump();
+          for (var frame = 0; frame < 16; frame++) {
+            await tester.pump(const Duration(milliseconds: 16));
+            expect(
+              binding.errors,
+              isEmpty,
+              reason: 'Opening cycle $cycle frame $frame',
+            );
+          }
+          expect(find.byType(Slider), findsOneWidget);
+          for (final action in [
+            ui.SemanticsAction.increase,
+            ui.SemanticsAction.decrease,
+          ]) {
+            expect(
+              binding.nodes.values.any(
+                (node) => ((node[#actions] as int? ?? 0) & action.index) != 0,
+              ),
+              isTrue,
+              reason: 'The visible volume slider must expose $action',
+            );
+          }
+          await mouse.moveTo(tester.getCenter(find.byType(Slider)));
+          await tester.pump();
+          await mouse.down(tester.getCenter(find.byType(Slider)));
+          await mouse.moveBy(const Offset(0, -20));
+          await tester.pump(const Duration(milliseconds: 16));
+          await mouse.up();
+          await tester.pump(const Duration(milliseconds: 200));
+          expect(changes, isNotEmpty);
+          expect(binding.errors, isEmpty);
+          await mouse.moveTo(const Offset(1, 1));
+          for (var frame = 0; frame < 24; frame++) {
+            await tester.pump(const Duration(milliseconds: 16));
+            expect(
+              binding.errors,
+              isEmpty,
+              reason: 'Closing cycle $cycle frame $frame',
+            );
+          }
+          expect(find.byType(Slider), findsNothing);
+        }
+        // Reverse a dismissal, then dispose while the popup is still attached.
+        final anchor = tester.getCenter(find.byType(VolumePopupButton));
+        await mouse.moveTo(anchor);
+        await tester.pump(const Duration(milliseconds: 80));
+        await mouse.moveTo(const Offset(1, 1));
+        await tester.pump(const Duration(milliseconds: 150));
+        await mouse.moveTo(anchor);
+        await tester.pumpAndSettle();
+        expect(find.byType(Slider), findsOneWidget);
+        expect(binding.errors, isEmpty);
+        await mouse.removePointer();
+        await tester.pumpWidget(const SizedBox());
+        await tester.pump(const Duration(milliseconds: 400));
+        expect(binding.errors, isEmpty);
+      } finally {
+        semantics.dispose();
+        debugDefaultTargetPlatformOverride = null;
+      }
+    },
+  );
 
   Future<void> hoverAll(WidgetTester tester, Widget child) async {
     debugDefaultTargetPlatformOverride = TargetPlatform.windows;
