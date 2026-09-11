@@ -35,6 +35,9 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
   bool _selecting = false;
   int _focusRevision = -1;
   DateTime _lastSearchRefresh = DateTime.fromMillisecondsSinceEpoch(0);
+  Object? _recordsKey;
+  List<LogRecord> _filteredRecords = [];
+  bool _followScheduled = false;
   bool get _searchingLive =>
       _session == null && service.connected && _search.isNotEmpty;
   bool get _usingHistory => _session != null || _searchingLive;
@@ -75,9 +78,15 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
       unawaited(_loadHistory());
     }
     setState(() {});
-    if (_follow && _session == null) {
+    _scheduleFollow();
+  }
+
+  void _scheduleFollow() {
+    if (_follow && _session == null && !_followScheduled) {
+      _followScheduled = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && _scroll.hasClients) {
+        _followScheduled = false;
+        if (mounted && _follow && _session == null && _scroll.hasClients) {
           _scroll.jumpTo(_scroll.position.maxScrollExtent);
         }
       });
@@ -192,19 +201,32 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final records = (_usingHistory ? _history : service.records)
-        .where(
-          (r) =>
-              r.timestampMs > _clearBefore &&
-              (_level.isEmpty || r.level == _level) &&
-              (_source.isEmpty || r.source == _source) &&
-              (_usingHistory ||
-                  _search.isEmpty ||
-                  '${r.message} ${r.details} ${r.target}'
-                      .toLowerCase()
-                      .contains(_search.toLowerCase())),
-        )
-        .toList();
+    final key = (
+      _usingHistory ? _history : service.recordsRevision,
+      _usingHistory,
+      _level,
+      _source,
+      _search,
+      _clearBefore,
+    );
+    if (_recordsKey != key) {
+      _recordsKey = key;
+      final query = _search.toLowerCase();
+      _filteredRecords = (_usingHistory ? _history : service.records)
+          .where(
+            (r) =>
+                r.timestampMs > _clearBefore &&
+                (_level.isEmpty || r.level == _level) &&
+                (_source.isEmpty || r.source == _source) &&
+                (_usingHistory ||
+                    _search.isEmpty ||
+                    '${r.message} ${r.details} ${r.target}'
+                        .toLowerCase()
+                        .contains(query)),
+          )
+          .toList();
+    }
+    final records = _filteredRecords;
     final detail = _detail;
     final nativeDesktop =
         Platform.isWindows || Platform.isLinux || Platform.isMacOS;
@@ -376,8 +398,10 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
                             IconButton(
                               tooltip: text('跟随最新日志', 'Follow latest'),
                               isSelected: _follow,
-                              onPressed: () =>
-                                  setState(() => _follow = !_follow),
+                              onPressed: () {
+                                setState(() => _follow = !_follow);
+                                _scheduleFollow();
+                              },
                               icon: const Icon(
                                 Icons.vertical_align_bottom,
                                 size: 20,
@@ -476,6 +500,7 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
                           )
                         : ListView.builder(
                             controller: _scroll,
+                            itemExtent: LogRecordTile.extent(context),
                             itemCount:
                                 records.length +
                                 (_usingHistory && _next != null ? 1 : 0),

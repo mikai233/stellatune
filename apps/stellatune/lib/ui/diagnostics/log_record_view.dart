@@ -12,6 +12,25 @@ class LogRecordTile extends StatelessWidget {
   final LogRecord record;
   final bool selected;
   final VoidCallback onTap;
+
+  /// Two message lines, one source line, and padding. Fixed for a given text
+  /// scale so large scroll jumps never measure all intervening log entries.
+  static double extent(BuildContext context) {
+    final scaler = MediaQuery.textScalerOf(context);
+    return 28 +
+        3 +
+        (scaler.scale(13) * 1.6).ceilToDouble() * 2 +
+        (scaler.scale(11) * 1.4).ceilToDouble();
+  }
+
+  static String preview(String message) {
+    if (message.length <= 2048) return message;
+    var end = 2048;
+    final last = message.codeUnitAt(end - 1);
+    if (last >= 0xd800 && last <= 0xdbff) end--;
+    return '${message.substring(0, end)}…';
+  }
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
@@ -71,7 +90,7 @@ class LogRecordTile extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      record.message,
+                      preview(record.message),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(fontSize: 13, height: 1.6),
@@ -83,6 +102,7 @@ class LogRecordTile extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         fontSize: 11,
+                        height: 1.4,
                         color: scheme.onSurfaceVariant,
                       ),
                     ),

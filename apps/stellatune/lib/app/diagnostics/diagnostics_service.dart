@@ -26,6 +26,9 @@ class DiagnosticsService {
   final unread = ValueNotifier(0);
   final notice = ValueNotifier<ErrorNotice?>(null);
   final records = ListQueue<LogRecord>();
+  final _recordIds = <String>{};
+  int _recordsRevision = 0;
+  int get recordsRevision => _recordsRevision;
   final _pending = ListQueue<LogRecord>();
   final _reported = Expando<bool>();
   final _notifications = <String, DateTime>{};
@@ -98,21 +101,21 @@ class DiagnosticsService {
 
   void _subscribe() {
     _subscription = api.diagnosticsEvents().listen(
-      (batch) {
-        final ids = records.map((r) => r.id).toSet();
-        for (final record in batch.records) {
-          if (!ids.add(record.id)) continue;
-          _add(record);
-        }
-        if (batch.resync) {
-          _dirty = true;
-        }
-      },
+      acceptBatch,
       onError: (Object error, StackTrace stack) {
         _scheduleReconnect();
       },
       onDone: _scheduleReconnect,
     );
+  }
+
+  /// Merge native batches without rescanning the entire retained buffer.
+  void acceptBatch(LogBatch batch) {
+    for (final record in batch.records) {
+      if (_recordIds.contains(record.id)) continue;
+      _add(record);
+    }
+    if (batch.resync) _dirty = true;
   }
 
   void _scheduleReconnect() {
@@ -124,13 +127,14 @@ class DiagnosticsService {
     });
   }
 
+  static final _sensitiveField = RegExp(
+    r'authorization|cookie|access_token|refresh_token|password|passwd|token=|token:|"token"|api_key',
+    caseSensitive: false,
+  );
   static String redact(String value) => value
       .split('\n')
       .map((line) {
-        final match = RegExp(
-          r'authorization|cookie|access_token|refresh_token|password|passwd|token=|token:|"token"|api_key',
-          caseSensitive: false,
-        ).firstMatch(line);
+        final match = _sensitiveField.firstMatch(line);
         return match == null
             ? line
             : '${line.substring(0, match.start)}[redacted]';
@@ -196,9 +200,13 @@ class DiagnosticsService {
 
   void _add(LogRecord record) {
     records.add(record);
+    _recordIds.add(record.id);
+    _recordsRevision++;
     _bytes += _size(record);
     while (records.length > 5000 || _bytes > 8 * 1024 * 1024) {
-      _bytes -= _size(records.removeFirst());
+      final removed = records.removeFirst();
+      _bytes -= _size(removed);
+      _recordIds.remove(removed.id);
     }
     if (record.level == 'ERROR' && !visible.value) _unreadPending++;
     _dirty = true;
