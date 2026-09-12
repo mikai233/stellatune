@@ -37,6 +37,20 @@ class AppSelect<T> extends StatefulWidget {
 
 class _AppSelectState<T> extends State<AppSelect<T>> {
   final _focusNode = FocusNode();
+  final _menuController = MenuController();
+
+  void _releasePointerFocus() {
+    if (!_focusNode.hasFocus && !_menuController.isOpen) return;
+    // Menu dismissal restores trigger focus. Wait until that has finished, and
+    // never clear focus that has already moved to another control. Keyboard
+    // dismissal does not take this path, so its focus restoration is retained.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && !_menuController.isOpen && _focusNode.hasFocus) {
+        _focusNode.unfocus();
+      }
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
+  }
 
   @override
   void dispose() {
@@ -64,136 +78,150 @@ class _AppSelectState<T> extends State<AppSelect<T>> {
           widget.menuWidth ?? math.max(180, width),
           MediaQuery.sizeOf(context).width - 24,
         );
-        return Semantics(
-          // FIXME(flutter-a11y): Revisit this boundary after upgrading Flutter.
-          // On 3.47.2, sibling MenuAnchor/OverlayPortal traversal parents merge
-          // in DiagnosticsOverlay; opening a filter emits orphan AXTree nodes.
-          // The exact upstream issue/fix is not confirmed. Remove only when
-          // 'diagnostics overlay menus keep serialized semantics connected' in
-          // test/semantics_hover_test.dart passes WITHOUT this boundary, and
-          // Windows opening/closing all filters during live logging stays clean.
-          container: true,
-          child: MenuAnchor(
-            // Show menu text fully opaque from its first frame. This is a visual
-            // choice, not the AXTree workaround; disabling animation did not fix it.
-            animated: false,
-            childFocusNode: _focusNode,
-            alignmentOffset: const Offset(0, 6),
-            style: AppMenuStyle.menu(theme),
-            menuChildren: [
-              for (final item in widget.items)
-                Semantics(
-                  selected: item.value == widget.value,
-                  child: MenuItemButton(
-                    onPressed: enabled && item.enabled
-                        ? () {
-                            item.onTap?.call();
-                            widget.onChanged!(item.value);
-                          }
-                        : null,
-                    style: ButtonStyle(
-                      minimumSize: const WidgetStatePropertyAll(Size(0, 38)),
-                      padding: const WidgetStatePropertyAll(
-                        EdgeInsets.symmetric(horizontal: 10),
-                      ),
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      shape: WidgetStatePropertyAll(
-                        RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(6),
+        return TapRegion(
+          onTapOutside: (_) => _releasePointerFocus(),
+          child: Listener(
+            onPointerDown: (_) => _releasePointerFocus(),
+            child: Semantics(
+              // FIXME(flutter-a11y): Revisit this boundary after upgrading Flutter.
+              // On 3.47.2, sibling MenuAnchor/OverlayPortal traversal parents merge
+              // in DiagnosticsOverlay; opening a filter emits orphan AXTree nodes.
+              // The exact upstream issue/fix is not confirmed. Remove only when
+              // 'diagnostics overlay menus keep serialized semantics connected' in
+              // test/semantics_hover_test.dart passes WITHOUT this boundary, and
+              // Windows opening/closing all filters during live logging stays clean.
+              container: true,
+              child: MenuAnchor(
+                controller: _menuController,
+                // Show menu text fully opaque from its first frame. This is a visual
+                // choice, not the AXTree workaround; disabling animation did not fix it.
+                animated: false,
+                childFocusNode: _focusNode,
+                alignmentOffset: const Offset(0, 6),
+                style: AppMenuStyle.menu(theme),
+                menuChildren: [
+                  for (final item in widget.items)
+                    Semantics(
+                      selected: item.value == widget.value,
+                      child: MenuItemButton(
+                        onPressed: enabled && item.enabled
+                            ? () {
+                                item.onTap?.call();
+                                widget.onChanged!(item.value);
+                              }
+                            : null,
+                        style: ButtonStyle(
+                          minimumSize: const WidgetStatePropertyAll(
+                            Size(0, 38),
+                          ),
+                          padding: const WidgetStatePropertyAll(
+                            EdgeInsets.symmetric(horizontal: 10),
+                          ),
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          shape: WidgetStatePropertyAll(
+                            RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                          ),
+                          backgroundColor: WidgetStatePropertyAll(
+                            item.value == widget.value
+                                ? scheme.primary.withValues(alpha: 0.09)
+                                : Colors.transparent,
+                          ),
+                          overlayColor: WidgetStatePropertyAll(
+                            scheme.primary.withValues(alpha: 0.06),
+                          ),
+                          foregroundColor: WidgetStateProperty.resolveWith(
+                            (states) => states.contains(WidgetState.disabled)
+                                ? theme.disabledColor
+                                : item.value == widget.value
+                                ? scheme.primary
+                                : scheme.onSurface,
+                          ),
+                          textStyle: WidgetStatePropertyAll(textStyle),
+                        ),
+                        child: SizedBox(
+                          width: math.max(0, menuWidth - 32),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: DefaultTextStyle.merge(
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  child: item.child,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              SizedBox(
+                                width: 16,
+                                child: item.value == widget.value
+                                    ? const Icon(Icons.check_rounded, size: 16)
+                                    : null,
+                              ),
+                            ],
+                          ),
                         ),
                       ),
-                      backgroundColor: WidgetStatePropertyAll(
-                        item.value == widget.value
-                            ? scheme.primary.withValues(alpha: 0.09)
-                            : Colors.transparent,
-                      ),
-                      overlayColor: WidgetStatePropertyAll(
-                        scheme.primary.withValues(alpha: 0.06),
-                      ),
-                      foregroundColor: WidgetStateProperty.resolveWith(
-                        (states) => states.contains(WidgetState.disabled)
-                            ? theme.disabledColor
-                            : item.value == widget.value
-                            ? scheme.primary
-                            : scheme.onSurface,
-                      ),
-                      textStyle: WidgetStatePropertyAll(textStyle),
                     ),
-                    child: SizedBox(
-                      width: math.max(0, menuWidth - 32),
+                ],
+                builder: (context, controller, child) => Semantics(
+                  label: widget.semanticLabel,
+                  child: SizedBox(
+                    width: width,
+                    height: widget.height,
+                    child: OutlinedButton(
+                      focusNode: _focusNode,
+                      onPressed: enabled
+                          ? () => controller.isOpen
+                                ? controller.close()
+                                : controller.open()
+                          : null,
+                      style: OutlinedButton.styleFrom(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: widget.filled ? 14 : 8,
+                        ),
+                        backgroundColor: widget.filled
+                            ? scheme.surfaceContainerLow
+                            : Colors.transparent,
+                        foregroundColor:
+                            widget.foregroundColor ?? scheme.onSurfaceVariant,
+                        overlayColor: scheme.primary.withValues(alpha: 0.06),
+                        side: widget.filled
+                            ? BorderSide(
+                                color: controller.isOpen
+                                    ? scheme.primary.withValues(alpha: 0.5)
+                                    : scheme.outlineVariant.withValues(
+                                        alpha: 0.65,
+                                      ),
+                              )
+                            : BorderSide.none,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        textStyle: textStyle,
+                      ),
                       child: Row(
                         children: [
                           Expanded(
                             child: DefaultTextStyle.merge(
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              child: item.child,
+                              child: selected?.child ?? Text(widget.hint ?? ''),
                             ),
                           ),
                           const SizedBox(width: 8),
-                          SizedBox(
-                            width: 16,
-                            child: item.value == widget.value
-                                ? const Icon(Icons.check_rounded, size: 16)
-                                : null,
+                          AnimatedRotation(
+                            turns: controller.isOpen ? 0.5 : 0,
+                            duration: const Duration(milliseconds: 160),
+                            curve: Curves.easeOutCubic,
+                            child: const Icon(
+                              Icons.expand_more_rounded,
+                              size: 18,
+                            ),
                           ),
                         ],
                       ),
                     ),
-                  ),
-                ),
-            ],
-            builder: (context, controller, child) => Semantics(
-              label: widget.semanticLabel,
-              child: SizedBox(
-                width: width,
-                height: widget.height,
-                child: OutlinedButton(
-                  focusNode: _focusNode,
-                  onPressed: enabled
-                      ? () => controller.isOpen
-                            ? controller.close()
-                            : controller.open()
-                      : null,
-                  style: OutlinedButton.styleFrom(
-                    padding: EdgeInsets.symmetric(
-                      horizontal: widget.filled ? 14 : 8,
-                    ),
-                    backgroundColor: widget.filled
-                        ? scheme.surfaceContainerLow
-                        : Colors.transparent,
-                    foregroundColor:
-                        widget.foregroundColor ?? scheme.onSurfaceVariant,
-                    overlayColor: scheme.primary.withValues(alpha: 0.06),
-                    side: widget.filled
-                        ? BorderSide(
-                            color: controller.isOpen
-                                ? scheme.primary.withValues(alpha: 0.5)
-                                : scheme.outlineVariant.withValues(alpha: 0.65),
-                          )
-                        : BorderSide.none,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    textStyle: textStyle,
-                  ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: DefaultTextStyle.merge(
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          child: selected?.child ?? Text(widget.hint ?? ''),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      AnimatedRotation(
-                        turns: controller.isOpen ? 0.5 : 0,
-                        duration: const Duration(milliseconds: 160),
-                        curve: Curves.easeOutCubic,
-                        child: const Icon(Icons.expand_more_rounded, size: 18),
-                      ),
-                    ],
                   ),
                 ),
               ),

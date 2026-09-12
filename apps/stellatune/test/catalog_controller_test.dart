@@ -6,13 +6,17 @@ import 'package:stellatune/library/catalog_bridge.dart';
 import 'package:stellatune/library/catalog_controller.dart';
 import 'package:stellatune/library/catalog_track_sort.dart';
 
-LibrarySource source(String id, {List<MediaKind>? kinds}) => LibrarySource(
+LibrarySource source(
+  String id, {
+  List<MediaKind>? kinds,
+  List<MediaKind>? searchKinds,
+}) => LibrarySource(
   id: id,
   name: id,
   local: id == '1',
   available: true,
   browseKinds: kinds ?? MediaKind.values,
-  searchKinds: kinds ?? MediaKind.values,
+  searchKinds: searchKinds ?? kinds ?? MediaKind.values,
   sorts: CatalogSort.values,
 );
 CatalogItem item(
@@ -26,9 +30,13 @@ CatalogItem item(
 );
 
 class FakeCatalog extends CatalogBridge {
+  List<MediaKind>? searchKinds;
   final requests = <(CatalogQuery, Completer<CatalogPage>)>[];
   @override
-  Future<List<LibrarySource>> sources() async => [source('1'), source('2')];
+  Future<List<LibrarySource>> sources() async => [
+    source('1', searchKinds: searchKinds),
+    source('2'),
+  ];
   @override
   Future<CatalogPage> browse(CatalogQuery query) {
     final c = Completer<CatalogPage>();
@@ -269,6 +277,102 @@ void main() {
       expect(container.read(catalogControllerProvider).items, hasLength(2));
     },
   );
+
+  test('search retains its album context and back navigation', () async {
+    await start();
+    final open = controller.open(item('1', 'album', kind: MediaKind.album));
+    await completePage('inside');
+    await open;
+    final search = controller.setSearch('song');
+    expect(bridge.requests.last.$1.parent?.id, 'album');
+    expect(bridge.requests.last.$1.kind, MediaKind.track);
+    await completePage('matching');
+    await search;
+    expect(
+      container.read(catalogControllerProvider).parent?.reference.id,
+      'album',
+    );
+    await controller.setSearch('');
+    expect(
+      container.read(catalogControllerProvider).items.single.reference.id,
+      'inside',
+    );
+    await controller.back();
+    expect(container.read(catalogControllerProvider).parents, isEmpty);
+    expect(
+      container.read(catalogControllerProvider).items.single.reference.id,
+      'a',
+    );
+  });
+
+  test(
+    'search entered before visiting the library survives source discovery',
+    () async {
+      await controller.setSearch('startup query');
+      expect(bridge.requests, isEmpty);
+      final pending = controller.refreshSources();
+      await tick();
+      expect(bridge.requests.last.$1.search, 'startup query');
+      await completePage('match');
+      await pending;
+      expect(container.read(catalogControllerProvider).search, 'startup query');
+    },
+  );
+
+  test(
+    'folder search retains the selected path and only queries direct tracks',
+    () async {
+      await start();
+      final folder = item('1', 'Music/Jazz', kind: MediaKind.folder);
+      final selected = controller.selectFolder([folder]);
+      await completePage('inside');
+      await selected;
+      final pending = controller.setSearch('solo');
+      expect(bridge.requests.last.$1.parent, folder.reference);
+      expect(bridge.requests.last.$1.kind, MediaKind.track);
+      await completePage('solo');
+      await pending;
+      expect(container.read(catalogControllerProvider).parents, [folder]);
+      await controller.setSearch('');
+      expect(container.read(catalogControllerProvider).parent, folder);
+      expect(
+        container.read(catalogControllerProvider).items.single.reference.id,
+        'inside',
+      );
+    },
+  );
+
+  test('switching tabs searches the new kind with the same keyword', () async {
+    await start();
+    final search = controller.setSearch('match');
+    await completePage('song');
+    await search;
+    final albums = controller.selectKind(MediaKind.album);
+    expect(bridge.requests.last.$1.kind, MediaKind.album);
+    expect(bridge.requests.last.$1.search, 'match');
+    await completePage('album');
+    await albums;
+    final artists = controller.selectKind(MediaKind.artist);
+    expect(bridge.requests.last.$1.kind, MediaKind.artist);
+    expect(bridge.requests.last.$1.search, 'match');
+    await completePage('artist');
+    await artists;
+  });
+
+  test('unsupported search never switches to a different kind', () async {
+    bridge.searchKinds = [MediaKind.track];
+    await start();
+    final artists = controller.selectKind(MediaKind.artist);
+    await completePage('artist');
+    await artists;
+    final requests = bridge.requests.length;
+    await controller.setSearch('match');
+    final state = container.read(catalogControllerProvider);
+    expect(state.canSearch, isFalse);
+    expect(state.kind, MediaKind.artist);
+    expect(state.search, isEmpty);
+    expect(bridge.requests, hasLength(requests));
+  });
   for (final duplicate in [true, false]) {
     test(
       'invalid continuation stops automatic loading (duplicate: $duplicate)',

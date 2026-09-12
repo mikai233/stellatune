@@ -870,6 +870,39 @@ class AppLocalizationsEn extends AppLocalizations {
   String get catalogSearchHint => 'Search this library';
 
   @override
+  String get catalogSearchTracks => 'Search songs';
+
+  @override
+  String get catalogSearchAlbums => 'Search albums';
+
+  @override
+  String get catalogSearchArtists => 'Search artists';
+
+  @override
+  String get catalogSearchFolders => 'Search folders';
+
+  @override
+  String get catalogSearchFolderContents => 'Search this folder';
+
+  @override
+  String get catalogSearchAlbumTracks => 'Search this album';
+
+  @override
+  String get catalogSearchArtistAlbums => 'Search this artist’s albums';
+
+  @override
+  String get catalogSearchArtistTracks => 'Search this artist’s songs';
+
+  @override
+  String get catalogSearchPlaylistTracks => 'Search this playlist';
+
+  @override
+  String get catalogSearchUnavailable => 'Search unavailable for this view';
+
+  @override
+  String get catalogPlaySearchResults => 'Play all search results';
+
+  @override
   String get catalogClearSearch => 'Clear search';
 
   @override

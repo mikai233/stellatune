@@ -1712,6 +1712,72 @@ abstract class AppLocalizations {
   /// **'Search this library'**
   String get catalogSearchHint;
 
+  /// No description provided for @catalogSearchTracks.
+  ///
+  /// In en, this message translates to:
+  /// **'Search songs'**
+  String get catalogSearchTracks;
+
+  /// No description provided for @catalogSearchAlbums.
+  ///
+  /// In en, this message translates to:
+  /// **'Search albums'**
+  String get catalogSearchAlbums;
+
+  /// No description provided for @catalogSearchArtists.
+  ///
+  /// In en, this message translates to:
+  /// **'Search artists'**
+  String get catalogSearchArtists;
+
+  /// No description provided for @catalogSearchFolders.
+  ///
+  /// In en, this message translates to:
+  /// **'Search folders'**
+  String get catalogSearchFolders;
+
+  /// No description provided for @catalogSearchFolderContents.
+  ///
+  /// In en, this message translates to:
+  /// **'Search this folder'**
+  String get catalogSearchFolderContents;
+
+  /// No description provided for @catalogSearchAlbumTracks.
+  ///
+  /// In en, this message translates to:
+  /// **'Search this album'**
+  String get catalogSearchAlbumTracks;
+
+  /// No description provided for @catalogSearchArtistAlbums.
+  ///
+  /// In en, this message translates to:
+  /// **'Search this artist’s albums'**
+  String get catalogSearchArtistAlbums;
+
+  /// No description provided for @catalogSearchArtistTracks.
+  ///
+  /// In en, this message translates to:
+  /// **'Search this artist’s songs'**
+  String get catalogSearchArtistTracks;
+
+  /// No description provided for @catalogSearchPlaylistTracks.
+  ///
+  /// In en, this message translates to:
+  /// **'Search this playlist'**
+  String get catalogSearchPlaylistTracks;
+
+  /// No description provided for @catalogSearchUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Search unavailable for this view'**
+  String get catalogSearchUnavailable;
+
+  /// No description provided for @catalogPlaySearchResults.
+  ///
+  /// In en, this message translates to:
+  /// **'Play all search results'**
+  String get catalogPlaySearchResults;
+
   /// No description provided for @catalogClearSearch.
   ///
   /// In en, this message translates to:

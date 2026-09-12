@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -435,8 +436,11 @@ class CatalogTrackRow extends StatefulWidget {
     this.numberWidth = 30,
     this.onOpenArtist,
     this.onOpenAlbum,
+    this.localArtists = false,
   });
-  final VoidCallback? onOpenArtist, onOpenAlbum;
+  final void Function(MediaRef reference, String title)? onOpenArtist;
+  final VoidCallback? onOpenAlbum;
+  final bool localArtists;
   final double numberWidth;
   final CatalogItem item;
   final int index;
@@ -498,9 +502,10 @@ class _CatalogTrackRowState extends State<CatalogTrackRow> {
                     ),
                   ],
                 ),
-                artist: _CatalogMetadataLink(
-                  text: item.artist ?? '—',
-                  onTap: widget.onOpenArtist,
+                artist: CatalogArtistLinks(
+                  item: item,
+                  local: widget.localArtists,
+                  onOpen: widget.onOpenArtist,
                 ),
                 album: _CatalogMetadataLink(
                   text: item.album ?? '—',
@@ -523,6 +528,83 @@ class _CatalogTrackRowState extends State<CatalogTrackRow> {
   }
 }
 
+// Share in-flight remote lookups between visible rows. Dispose when no row
+// uses the artist; local catalog names are already encoded in their IDs.
+final _artistDetailProvider = FutureProvider.autoDispose
+    .family<CatalogItem, MediaRef>((ref, artist) {
+      return ref.watch(catalogBridgeProvider).detail(artist);
+    });
+
+class CatalogArtistLinks extends ConsumerWidget {
+  const CatalogArtistLinks({
+    super.key,
+    required this.item,
+    required this.local,
+    this.onOpen,
+  });
+
+  final CatalogItem item;
+  final bool local;
+  final void Function(MediaRef reference, String title)? onOpen;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final artists = item.artistRefs
+        .where(
+          (r) =>
+              r.kind == MediaKind.artist &&
+              r.sourceInstanceId == item.reference.sourceInstanceId,
+        )
+        .toSet()
+        .toList();
+    if (artists.isEmpty) return Text(item.artist ?? '—');
+    if (artists.length == 1) {
+      return _CatalogMetadataLink(
+        text: item.artist ?? '—',
+        onTap: onOpen == null
+            ? null
+            : () => onOpen!(artists.single, item.artist ?? ''),
+      );
+    }
+
+    // Only the local provider defines IDs as JSON-encoded artist names. Never
+    // split display credits to guess which name belongs to a remote opaque ID.
+    final names = <String>[];
+    for (final artist in artists) {
+      String? name;
+      if (local) {
+        try {
+          final decoded = jsonDecode(artist.id);
+          if (decoded is String) name = decoded;
+        } on FormatException {
+          // Older/custom IDs can still resolve through the catalog provider.
+        }
+      }
+      name ??= ref.watch(_artistDetailProvider(artist)).asData?.value.title;
+      names.add(name ?? '');
+    }
+    // Retain the original credit while remote names load, without a spinner
+    // or a guessed navigation target. Local names are available immediately.
+    if (names.any((name) => name.isEmpty)) return Text(item.artist ?? '—');
+    return Row(
+      children: [
+        for (var i = 0; i < artists.length; i++) ...[
+          if (i > 0) const Flexible(child: Text(' / ')),
+          Flexible(
+            flex: 8,
+            child: _CatalogMetadataLink(
+              text: names[i],
+              onTap: onOpen == null
+                  ? null
+                  : () => onOpen!(artists[i], names[i]),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
 class _CatalogMetadataLink extends StatefulWidget {
   const _CatalogMetadataLink({required this.text, this.onTap});
   final String text;
@@ -538,6 +620,7 @@ class _CatalogMetadataLinkState extends State<_CatalogMetadataLink> {
     if (widget.onTap == null) return Text(widget.text);
     return Align(
       alignment: Alignment.centerLeft,
+      widthFactor: 1,
       child: Semantics(
         link: true,
         child: InkWell(

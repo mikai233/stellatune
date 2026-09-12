@@ -110,19 +110,22 @@ pub(super) async fn delete_track_by_path_norm(
 }
 
 pub(super) async fn upsert_track(pool: &SqlitePool, input: UpsertTrackInput<'_>) -> Result<i64> {
+    let artists = crate::artist_names::normalize_artists_json(input.artists_json, input.artist)?;
+    let album_artists = crate::artist_names::normalize_artists_json("[]", input.album_artist)?;
     // An unavailable tag (or failed inspection) must not erase known metadata.
     // Empty artist lists likewise mean no new artist information was obtained.
     let id: i64 = sqlx::query_scalar(
-        "INSERT INTO tracks(path,ext,mtime_ms,size_bytes,title,artist,album,duration_ms,meta_scanned_ms,path_norm,dir_norm,album_artist,disc_number,track_number,artists_json)
-        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(path) DO UPDATE SET
+        "INSERT INTO tracks(path,ext,mtime_ms,size_bytes,title,artist,album,duration_ms,meta_scanned_ms,path_norm,dir_norm,album_artist,disc_number,track_number,artists_json,album_artists_json,artist_names_version)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1) ON CONFLICT(path) DO UPDATE SET
         ext=excluded.ext,mtime_ms=excluded.mtime_ms,size_bytes=excluded.size_bytes,
         title=COALESCE(excluded.title,tracks.title),artist=COALESCE(excluded.artist,tracks.artist),album=COALESCE(excluded.album,tracks.album),duration_ms=COALESCE(excluded.duration_ms,tracks.duration_ms),
         meta_scanned_ms=excluded.meta_scanned_ms,path_norm=excluded.path_norm,dir_norm=excluded.dir_norm,
-        album_artist=COALESCE(excluded.album_artist,tracks.album_artist),disc_number=COALESCE(excluded.disc_number,tracks.disc_number),track_number=COALESCE(excluded.track_number,tracks.track_number),artists_json=CASE WHEN json_array_length(excluded.artists_json)>0 THEN excluded.artists_json WHEN excluded.artist IS NOT NULL THEN json_array(excluded.artist) ELSE tracks.artists_json END RETURNING id")
+        album_artist=COALESCE(excluded.album_artist,tracks.album_artist),disc_number=COALESCE(excluded.disc_number,tracks.disc_number),track_number=COALESCE(excluded.track_number,tracks.track_number),artists_json=CASE WHEN json_array_length(excluded.artists_json)>0 OR excluded.artist IS NOT NULL THEN excluded.artists_json ELSE tracks.artists_json END,
+        album_artists_json=CASE WHEN excluded.album_artist IS NOT NULL THEN excluded.album_artists_json ELSE tracks.album_artists_json END,artist_names_version=1 RETURNING id")
         .bind(input.path).bind(input.ext).bind(input.mtime_ms).bind(input.size_bytes)
         .bind(input.title).bind(input.artist).bind(input.album).bind(input.duration_ms)
         .bind(input.meta_scanned_ms).bind(input.path_norm).bind(input.dir_norm)
-        .bind(input.album_artist).bind(input.disc_number).bind(input.track_number).bind(input.artists_json)
+        .bind(input.album_artist).bind(input.disc_number).bind(input.track_number).bind(artists).bind(album_artists)
         .fetch_one(pool).await?;
     Ok(id)
 }
@@ -137,11 +140,14 @@ pub(super) async fn upsert_track_by_path_norm(
             .fetch_optional(pool)
             .await?;
     if let Some(id) = existing_id {
-        sqlx::query("UPDATE tracks SET path=?1,ext=?2,mtime_ms=?3,size_bytes=?4,title=COALESCE(?5,title),artist=COALESCE(?6,artist),album=COALESCE(?7,album),duration_ms=COALESCE(?8,duration_ms),meta_scanned_ms=?9,path_norm=?10,dir_norm=?11,album_artist=COALESCE(?12,album_artist),disc_number=COALESCE(?13,disc_number),track_number=COALESCE(?14,track_number),artists_json=CASE WHEN json_array_length(?15)>0 THEN ?15 WHEN ?6 IS NOT NULL THEN json_array(?6) ELSE artists_json END WHERE id=?16")
+        let artists =
+            crate::artist_names::normalize_artists_json(input.artists_json, input.artist)?;
+        let album_artists = crate::artist_names::normalize_artists_json("[]", input.album_artist)?;
+        sqlx::query("UPDATE tracks SET path=?1,ext=?2,mtime_ms=?3,size_bytes=?4,title=COALESCE(?5,title),artist=COALESCE(?6,artist),album=COALESCE(?7,album),duration_ms=COALESCE(?8,duration_ms),meta_scanned_ms=?9,path_norm=?10,dir_norm=?11,album_artist=COALESCE(?12,album_artist),disc_number=COALESCE(?13,disc_number),track_number=COALESCE(?14,track_number),artists_json=CASE WHEN json_array_length(?15)>0 OR ?6 IS NOT NULL THEN ?15 ELSE artists_json END,album_artists_json=CASE WHEN ?12 IS NOT NULL THEN ?16 ELSE album_artists_json END,artist_names_version=1 WHERE id=?17")
             .bind(input.path).bind(input.ext).bind(input.mtime_ms).bind(input.size_bytes)
             .bind(input.title).bind(input.artist).bind(input.album).bind(input.duration_ms)
             .bind(input.meta_scanned_ms).bind(input.path_norm).bind(input.dir_norm)
-            .bind(input.album_artist).bind(input.disc_number).bind(input.track_number).bind(input.artists_json).bind(id)
+            .bind(input.album_artist).bind(input.disc_number).bind(input.track_number).bind(artists).bind(album_artists).bind(id)
             .execute(pool).await?;
         return Ok(id);
     }
@@ -169,6 +175,64 @@ mod tests {
             meta_scanned_ms: 1,
             path_norm: "D:/music/song.mp3",
             dir_norm: "D:/music",
+        }
+    }
+
+    #[tokio::test]
+    async fn multiple_artists_are_browsable_after_insert_and_rescan() {
+        use crate::catalog::{CatalogQuery, CatalogSort, LocalCatalog, MediaKind};
+
+        for normalized in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            let pool = crate::worker::db::init_db(&dir.path().join("library.db"))
+                .await
+                .unwrap();
+            let c = LocalCatalog::new(pool.clone());
+            let mut q = CatalogQuery {
+                source_instance_id: "1".into(),
+                kind: MediaKind::Track,
+                parent: None,
+                search: String::new(),
+                sort: CatalogSort::Default,
+                cursor: None,
+                limit: 20,
+            };
+            for (credit, expected) in [
+                ("初音ミク / 鏡音リン", ["初音ミク", "鏡音リン"]),
+                ("初音ミク、巡音ルカ", ["初音ミク", "巡音ルカ"]),
+            ] {
+                let tags = UpsertTrackInput {
+                    artist: Some(credit),
+                    album_artist: Some("初音ミク / Guest"),
+                    album: Some("Album"),
+                    ..input()
+                };
+                if normalized {
+                    upsert_track_by_path_norm(&pool, tags).await.unwrap();
+                } else {
+                    upsert_track(&pool, tags).await.unwrap();
+                }
+                q.kind = MediaKind::Track;
+                q.parent = None;
+                let song = c.browse(&q).await.unwrap().items.remove(0);
+                assert_eq!(song.artist_refs.len(), 2);
+                let mut names = Vec::new();
+                for reference in &song.artist_refs {
+                    names.push(c.detail(reference).await.unwrap().title);
+                    q.parent = Some(reference.clone());
+                    assert_eq!(c.browse(&q).await.unwrap().items.len(), 1);
+                    q.kind = MediaKind::Album;
+                    assert_eq!(c.browse(&q).await.unwrap().items.len(), 1);
+                    q.kind = MediaKind::Track;
+                }
+                assert_eq!(names, expected);
+                q.kind = MediaKind::Artist;
+                q.parent = None;
+                let artists = c.browse(&q).await.unwrap().items;
+                assert_eq!(artists.len(), 3); // Two performers plus Guest, with no duplicate lead.
+                assert!(artists.iter().any(|a| a.title == "Guest"));
+            }
+            pool.close().await;
         }
     }
 

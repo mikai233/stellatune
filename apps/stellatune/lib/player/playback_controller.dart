@@ -515,6 +515,29 @@ class PlaybackController extends Notifier<PlaybackState> {
     await _loadQueueItemOrStop(item);
   }
 
+  /// Search selects one track without adopting the result list as the queue.
+  Future<void> playItemPreservingQueue(QueueItem item) async {
+    final queue = ref.read(queueControllerProvider);
+    bool matches(QueueItem queued) =>
+        queued.stableTrackKey == item.stableTrackKey ||
+        (item.catalogItem != null &&
+            queued.catalogItem?.reference == item.catalogItem!.reference);
+    final current = queue.currentIndex;
+    final existing = current != null && matches(queue.items[current])
+        ? current
+        : queue.items.indexWhere(matches);
+    if (existing >= 0) {
+      await playIndex(existing);
+      return;
+    }
+    final insertion = ((current ?? -1) + 1).clamp(0, queue.items.length);
+    await setQueueAndPlayItems(
+      [...queue.items.take(insertion), item, ...queue.items.skip(insertion)],
+      startIndex: insertion,
+      source: queue.source,
+    );
+  }
+
   int _beginNavigation(QueueItem? item) {
     final generation = ++_navigationGeneration;
     state = state.copyWith(pendingItem: item, lastError: null);

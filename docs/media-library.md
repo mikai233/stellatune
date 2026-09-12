@@ -58,8 +58,12 @@ An instance advertising albums, artists or playlists also supports their tracks.
 
 `browse` supports a parent reference: album → tracks, artist → albums/tracks,
 folder → direct subfolders/tracks, playlist → tracks. Empty search means
-browsing; nonempty search is an actual provider query. The desktop source search
-starts at the source root. Unsupported categories are hidden.
+browsing; nonempty search is an actual provider query. The desktop title-bar
+search stays within the active kind and parent (including album/artist/folder
+details). Its hint names that scope. Switching top-level tabs carries the query
+to the new kind when searchable; unsupported search is disabled without falling
+back to a different kind. Clearing search retains the parent and back stack.
+Unsupported browse categories are hidden. Cross-kind global search is deferred.
 
 Return `nextCursor: null` only at the end, including when the last page happens
 to be full. A cursor is opaque to the host and UI and must be bound to its
@@ -87,8 +91,8 @@ support album identity, artist membership and directory lookup. Existing data is
 scan to populate the new fields. Startup never clears the database on failure.
 
 Albums group by trimmed album title and album artist, falling back to the track
-artist. Untitled albums group by directory. Explicit repeated artist tags remain
-separate artists; a single string is not split on punctuation. Album order is
+artist. Untitled albums group by directory. Repeated artist tags and names
+separated by supported delimiters are indexed as individual artists. Album order is
 disc number, track number, title and ID, with unknown numbers last. Playlist
 order follows its stored sort index. Counts come from the complete index.
 Other local song lists default to file modification time, newest first, with
@@ -144,8 +148,12 @@ does not attach a replacement-page cursor to it. First loads still stream pages.
 
 Artist and album text in song rows opens the referenced native detail page
 without starting playback. Links use source-scoped `artistRefs` / `albumRef`;
-absent references remain plain text. Multi-artist rows resolve names on demand
-and offer a choice rather than parsing display strings or opaque IDs. Related
+absent references remain plain text. Multi-artist rows show independent inline
+links separated by plain slashes; each name opens its artist directly. Local
+names are available immediately from the local provider's JSON name IDs;
+remote names resolve through shared lookups for visible rows, without guessing
+names from opaque IDs or display credits. Each link has its own hover/focus
+feedback and ellipsis within the artist column. Related
 navigation starts a new entity path while retaining the previous view in history,
 so Back returns to the originating collection or folder.
 
@@ -166,14 +174,21 @@ saved column preferences.
 
 Play all collects every track page in the backend before touching the queue,
 then applies the current column ordering before preparing the queue.
-Clicking a song likewise queues the complete current collection in display
+Outside search, clicking a song queues the complete current collection in display
 order and starts at that song's reference-matched index. A fully loaded song
 view is reused directly; an incomplete view collects all pages first. A missing
 selected reference aborts preparation instead of playing a different track.
 The explicit Add to queue action appends only the selected song.
+Searching, clearing a query, sorting and switching tabs never mutate the playing
+queue. Clicking a search result prepares only that song: if it is already queued,
+play its existing occurrence (prefer the current occurrence when duplicated);
+otherwise splice it after the current song and play it, retaining the other
+tracks and source label. An empty queue starts with that one song. Only the
+explicit "Play all search results" action adopts the entire filtered collection.
 When the source and complete ordered track references match the existing
 catalog queue, selecting another song reuses that queue and selects its index.
-Changing the collection or ordering prepares a replacement queue. Catalog
+Outside search, starting playback from a different collection or ordering
+prepares a replacement queue. Catalog
 references and known presentation metadata survive the native queue projection.
 The playback bar displays the pending song's metadata together, keeps its seek
 bar mounted, and shows loading feedback only after a 300 ms wait. Small local
@@ -185,6 +200,16 @@ unchanged. Folder playback includes direct songs only. Source references are
 retained with the queue's presentation label.
 
 ## Validation and next extensions
+
+Local artist tags are split on `/`, `／`, `、`, commas, semicolons, pipes
+(including full-width forms), NUL and line breaks. Names are trimmed and
+deduplicated in credit order, including when a file provides multiple Artist
+tags. `&`, `and` and `feat.` remain literal. This is a text-tag heuristic;
+punctuation inside an actual artist name can be ambiguous. Original display
+credits and album identities are preserved; separate normalized performer and
+album-artist names drive browsing and performer links. Existing libraries are
+backfilled once in batches on database open, without rescanning audio files.
+Remote catalog artist references remain provider-owned and are not rewritten.
 
 Rust tests cover complete SQL paging, compilations, ordering, unknown tags,
 Unicode folders, query/revision-bound cursors, two instances with the same IDs,

@@ -29,6 +29,7 @@ class _Catalog extends CatalogBridge {
   final playback = _Playback();
   Completer<CatalogPage>? refreshPage;
   final calls = <CatalogQuery>[];
+  final detailCalls = <MediaRef>[];
   final collecting = Completer<List<CatalogItem>>();
   final cancelled = <String>[];
   List<CatalogItem>? prepared;
@@ -82,6 +83,11 @@ class _Catalog extends CatalogBridge {
   @override
   Future<CatalogPage> browse(CatalogQuery query) async {
     calls.add(query);
+    if (query.search.isNotEmpty && query.kind == MediaKind.track) {
+      return CatalogPage(
+        items: [item(MediaKind.track, query.search == 'new' ? '999' : '201')],
+      );
+    }
     if (query.cursor == null && refreshPage != null) return refreshPage!.future;
     if (query.cursor != null && secondPage != null) return secondPage!.future;
     return CatalogPage(
@@ -94,8 +100,11 @@ class _Catalog extends CatalogBridge {
   }
 
   @override
-  Future<CatalogItem> detail(MediaRef reference) async =>
-      item(reference.kind, reference.id);
+  Future<CatalogItem> detail(MediaRef reference) async {
+    detailCalls.add(reference);
+    return item(reference.kind, reference.id);
+  }
+
   @override
   Future<List<CatalogItem>> collect(CatalogQuery query, String requestId) {
     collections++;
@@ -169,6 +178,12 @@ class _Playback extends PlaybackController {
   Future<void> playIndex(int index) async {
     selections.add(index);
     start = index;
+    final state = ref.read(queueControllerProvider);
+    (ref.read(queueControllerProvider.notifier) as _Queue).replace(
+      state.items,
+      index,
+      state.source,
+    );
   }
 
   @override
@@ -177,6 +192,62 @@ class _Playback extends PlaybackController {
 }
 
 void main() {
+  testWidgets('local artist links appear immediately and fit narrow columns', (
+    tester,
+  ) async {
+    final bridge = _Catalog();
+    const first = MediaRef(
+      sourceInstanceId: '1',
+      kind: MediaKind.artist,
+      id: '"WOVOP"',
+    );
+    const second = MediaRef(
+      sourceInstanceId: '1',
+      kind: MediaKind.artist,
+      id: '"洛天依"',
+    );
+    const track = CatalogItem(
+      reference: MediaRef(
+        sourceInstanceId: '1',
+        kind: MediaKind.track,
+        id: '42',
+      ),
+      title: 'Song',
+      artist: 'WOVOP / 洛天依',
+      artistRefs: [first, second, first],
+    );
+    final opened = <MediaRef>[];
+    Widget screen(double width) => ProviderScope(
+      overrides: [catalogBridgeProvider.overrideWithValue(bridge)],
+      child: MaterialApp(
+        home: Scaffold(
+          body: Center(
+            child: SizedBox(
+              width: width,
+              child: CatalogArtistLinks(
+                item: track,
+                local: true,
+                onOpen: (reference, _) => opened.add(reference),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpWidget(screen(240));
+    expect(find.text('WOVOP'), findsOneWidget);
+    expect(find.text('洛天依'), findsOneWidget);
+    await tester.tap(find.text('WOVOP'));
+    await tester.tap(find.text('洛天依'));
+    expect(opened, [first, second]);
+    expect(bridge.detailCalls, isEmpty);
+    expect(find.byType(AlertDialog), findsNothing);
+    for (final width in [64.0, 16.0, 1.0]) {
+      await tester.pumpWidget(screen(width));
+      expect(tester.takeException(), isNull);
+    }
+  });
+
   Future<_Catalog> mount(
     WidgetTester tester, {
     bool disableAnimations = false,
@@ -245,6 +316,109 @@ void main() {
       expect(bridge.preparations, 2);
       expect(bridge.playback.replacements, 2);
       expect(bridge.playback.start, 0);
+    },
+  );
+
+  testWidgets(
+    'search and selecting an existing result retain the playing queue',
+    (tester) async {
+      final bridge = await mount(tester, allowPlayback: true);
+      await tester.tap(find.text('track 001'));
+      await tester.pumpAndSettle();
+      final original = bridge.playback.queue;
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(CatalogLibraryView)),
+      );
+      final controller = container.read(catalogControllerProvider.notifier);
+      await controller.setSearch('match');
+      await tester.pumpAndSettle();
+      expect(find.text('track 001'), findsNothing);
+      expect(bridge.playback.queue, same(original));
+      await tester.tap(find.text('track 201'));
+      await tester.pumpAndSettle();
+      expect(bridge.playback.selections, [2]);
+      expect(bridge.playback.replacements, 1);
+      expect(bridge.playback.queue, same(original));
+      expect(bridge.prepared, hasLength(1));
+      await controller.selectKind(MediaKind.album);
+      await tester.pumpAndSettle();
+      await controller.selectKind(MediaKind.track);
+      await tester.pumpAndSettle();
+      await controller.setSearch('');
+      await tester.pumpAndSettle();
+      expect(bridge.playback.queue, same(original));
+      expect(bridge.playback.replacements, 1);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'a new search result plays after the current song and retains all others',
+    (tester) async {
+      final bridge = await mount(tester, allowPlayback: true);
+      await tester.tap(find.text('track 101'));
+      await tester.pumpAndSettle();
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(CatalogLibraryView)),
+      );
+      final source = container.read(queueControllerProvider).source;
+      await container.read(catalogControllerProvider.notifier).setSearch('new');
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('track 999'));
+      await tester.pumpAndSettle();
+      expect(
+        bridge.playback.queue.map((item) => item.catalogItem!.reference.id),
+        ['001', '101', '999', '201'],
+      );
+      expect(bridge.playback.start, 2);
+      expect(container.read(queueControllerProvider).source, same(source));
+      expect(bridge.collections, 0);
+      expect(bridge.prepared, hasLength(1));
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'only explicit play all search results adopts the filtered collection',
+    (tester) async {
+      final bridge = await mount(tester, allowPlayback: true);
+      await tester.tap(find.text('track 001'));
+      await tester.pumpAndSettle();
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(CatalogLibraryView)),
+      );
+      await container
+          .read(catalogControllerProvider.notifier)
+          .setSearch('match');
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Play all search results'));
+      await tester.pump();
+      bridge.collecting.complete([bridge.item(MediaKind.track, '201')]);
+      await tester.pumpAndSettle();
+      expect(bridge.playback.replacements, 2);
+      expect(bridge.playback.queue.single.catalogItem!.reference.id, '201');
+      expect(bridge.playback.start, 0);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'playing a search result in an empty queue starts only that song',
+    (tester) async {
+      final bridge = await mount(tester, allowPlayback: true);
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(CatalogLibraryView)),
+      );
+      await container
+          .read(catalogControllerProvider.notifier)
+          .setSearch('match');
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('track 201'));
+      await tester.pumpAndSettle();
+      expect(bridge.playback.queue.single.catalogItem!.reference.id, '201');
+      expect(bridge.playback.start, 0);
+      expect(bridge.collections, 0);
+      expect(tester.takeException(), isNull);
     },
   );
 
@@ -413,24 +587,33 @@ void main() {
     },
   );
 
-  testWidgets('multi-artist link lets the user choose the referenced artist', (
-    tester,
-  ) async {
-    final bridge = await mount(tester);
-    await tester.tap(find.text('Artist 201'));
-    await tester.pumpAndSettle();
-    expect(find.byType(AlertDialog), findsOneWidget);
-    await tester.tap(find.text('artist another/artist'));
-    await tester.pumpAndSettle();
-    expect(
-      bridge.calls.last.parent,
-      bridge.item(MediaKind.track, '201').artistRefs.last,
-    );
-    expect(bridge.calls.last.kind, MediaKind.album);
-    expect(bridge.prepared, isNull);
-    expect(bridge.collections, 0);
-    expect(tester.takeException(), isNull);
-  });
+  testWidgets(
+    'each artist link navigates directly without a chooser or playback',
+    (tester) async {
+      final bridge = await mount(tester);
+      expect(find.text('artist artist/201'), findsOneWidget);
+      await tester.tap(find.text('artist artist/201'));
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(
+        bridge.calls.last.parent,
+        bridge.item(MediaKind.track, '201').artistRefs.first,
+      );
+      await tester.tap(find.byTooltip('Back'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('artist another/artist'));
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(
+        bridge.calls.last.parent,
+        bridge.item(MediaKind.track, '201').artistRefs.last,
+      );
+      expect(bridge.calls.last.kind, MediaKind.album);
+      expect(bridge.prepared, isNull);
+      expect(bridge.collections, 0);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets(
     'native album, artist and directory navigation loads typed pages',

@@ -851,6 +851,39 @@ class AppLocalizationsZh extends AppLocalizations {
   String get catalogSearchHint => '搜索当前音乐库';
 
   @override
+  String get catalogSearchTracks => '搜索歌曲';
+
+  @override
+  String get catalogSearchAlbums => '搜索专辑';
+
+  @override
+  String get catalogSearchArtists => '搜索艺术家';
+
+  @override
+  String get catalogSearchFolders => '搜索目录';
+
+  @override
+  String get catalogSearchFolderContents => '搜索此目录';
+
+  @override
+  String get catalogSearchAlbumTracks => '搜索此专辑';
+
+  @override
+  String get catalogSearchArtistAlbums => '搜索该艺术家的专辑';
+
+  @override
+  String get catalogSearchArtistTracks => '搜索该艺术家的歌曲';
+
+  @override
+  String get catalogSearchPlaylistTracks => '搜索此歌单';
+
+  @override
+  String get catalogSearchUnavailable => '当前视图不支持搜索';
+
+  @override
+  String get catalogPlaySearchResults => '播放全部搜索结果';
+
+  @override
   String get catalogClearSearch => '清除搜索';
 
   @override

@@ -51,6 +51,8 @@ class CatalogState {
   LibrarySource? get source =>
       sources.where((s) => s.id == sourceId).firstOrNull;
   CatalogItem? get parent => parents.lastOrNull;
+  bool get canSearch =>
+      source?.available == true && source!.searchKinds.contains(kind);
   CatalogQuery get query => CatalogQuery(
     sourceInstanceId: sourceId!,
     kind: kind,
@@ -186,7 +188,9 @@ class CatalogController extends Notifier<CatalogState> {
       state.copyWith(
         kind: kind,
         parents: [],
-        search: '',
+        search: state.source?.searchKinds.contains(kind) == true
+            ? state.search
+            : '',
         sort: CatalogSort.default_,
       ),
     );
@@ -241,7 +245,14 @@ class CatalogController extends Notifier<CatalogState> {
   }
 
   Future<void> childKind(MediaKind kind) async {
-    _navigate(state.copyWith(kind: kind));
+    _navigate(
+      state.copyWith(
+        kind: kind,
+        search: state.source?.searchKinds.contains(kind) == true
+            ? state.search
+            : '',
+      ),
+    );
     await _load();
   }
 
@@ -278,12 +289,11 @@ class CatalogController extends Notifier<CatalogState> {
   }
 
   Future<void> setSearch(String search) async {
-    final kinds = state.source?.searchKinds ?? const <MediaKind>[];
-    final kind = search.trim().isNotEmpty && !kinds.contains(state.kind)
-        ? kinds.firstOrNull ?? state.kind
-        : state.kind;
-    _history.clear();
-    _navigate(state.copyWith(search: search, kind: kind, parents: []));
+    final query = search.trim();
+    if (query.isNotEmpty && state.source != null && !state.canSearch) return;
+    if (query == state.search) return;
+    // Filtering must retain the active collection and its back stack.
+    _navigate(state.copyWith(search: query));
     await _load();
   }
 

@@ -106,6 +106,17 @@ class _CatalogLibraryViewState extends ConsumerState<CatalogLibraryView> {
       _actionError = null;
     });
     try {
+      if (!enqueue && item != null && state.search.isNotEmpty) {
+        final items = await _bridge.prepare([item]);
+        if (!mounted || generation != _actionGeneration) return;
+        if (items.length != 1) {
+          throw StateError('Expected one playable search result');
+        }
+        await ref
+            .read(playbackControllerProvider.notifier)
+            .playItemPreservingQueue(items.single);
+        return;
+      }
       final completeView =
           state.kind == MediaKind.track &&
           !state.loading &&
@@ -231,74 +242,6 @@ class _CatalogLibraryViewState extends ConsumerState<CatalogLibraryView> {
         );
   }
 
-  Future<void> _openArtists(CatalogItem track) async {
-    final artists = track.artistRefs
-        .where(
-          (r) =>
-              r.kind == MediaKind.artist &&
-              r.sourceInstanceId == track.reference.sourceInstanceId,
-        )
-        .toSet()
-        .toList();
-    if (artists.isEmpty) return;
-    if (artists.length == 1) {
-      _openRelated(artists.single, track.artist ?? '');
-      return;
-    }
-    // Resolve names only on demand; provider IDs are opaque and names may contain separators.
-    final details = Future.wait(artists.map(_bridge.detail));
-    final selected = await showDialog<CatalogItem>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(context.catalogL10n.catalogArtists),
-        content: SizedBox(
-          width: 360,
-          child: FutureBuilder<List<CatalogItem>>(
-            future: details,
-            builder: (context, snapshot) {
-              if (snapshot.hasError) {
-                return Text(
-                  DiagnosticsService.instance.failureMessage(
-                    snapshot.error!,
-                    operation: 'catalog',
-                  ),
-                );
-              }
-              if (!snapshot.hasData) {
-                return const SizedBox(
-                  height: 64,
-                  child: Center(child: CircularProgressIndicator()),
-                );
-              }
-              return ConstrainedBox(
-                constraints: const BoxConstraints(maxHeight: 360),
-                child: SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      for (final artist in snapshot.data!)
-                        ListTile(
-                          title: Text(catalogTitle(context, artist)),
-                          onTap: () => Navigator.of(context).pop(artist),
-                        ),
-                    ],
-                  ),
-                ),
-              );
-            },
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: Text(context.catalogL10n.cancel),
-          ),
-        ],
-      ),
-    );
-    if (selected != null) _openRelated(selected.reference, selected.title);
-  }
-
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(catalogControllerProvider);
@@ -315,56 +258,63 @@ class _CatalogLibraryViewState extends ConsumerState<CatalogLibraryView> {
         .where((kind) => kind != MediaKind.playlist)
         .toList();
     final section = state.parents.firstOrNull?.reference.kind ?? state.kind;
-    final folders = section == MediaKind.folder && state.search.isEmpty;
+    final folders = section == MediaKind.folder;
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 12, 24, 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           SizedBox(
-            height: 36,
+            height: 44,
             child: Row(
               children: [
-                Text(
-                  l.libraryTitle,
-                  style: TextStyle(
-                    fontSize: 26,
-                    fontWeight: FontWeight.w600,
-                    color: palette.onBackdrop,
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Flexible(
-                  flex: 0,
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 155),
-                    child: AppSelect<String>(
-                      value: state.sourceId,
-                      height: 36,
-                      menuWidth: 260,
-                      filled: false,
-                      foregroundColor: palette.onBackdrop,
-                      items: [
-                        for (final source in state.sources)
-                          DropdownMenuItem(
-                            value: source.id,
-                            child: Text(
-                              '${source.local ? l.catalogLocalLibrary : source.name}${source.available ? '' : ' · ${l.catalogUnavailable}'}',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
+                Expanded(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.baseline,
+                    textBaseline: TextBaseline.alphabetic,
+                    children: [
+                      Text(
+                        l.libraryTitle,
+                        style: TextStyle(
+                          fontSize: 26,
+                          fontWeight: FontWeight.w600,
+                          color: palette.onBackdrop,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Flexible(
+                        flex: 0,
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 155),
+                          child: AppSelect<String>(
+                            value: state.sourceId,
+                            height: 36,
+                            menuWidth: 260,
+                            filled: false,
+                            foregroundColor: palette.onBackdrop,
+                            items: [
+                              for (final source in state.sources)
+                                DropdownMenuItem(
+                                  value: source.id,
+                                  child: Text(
+                                    '${source.local ? l.catalogLocalLibrary : source.name}${source.available ? '' : ' · ${l.catalogUnavailable}'}',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                            ],
+                            onChanged: (id) {
+                              if (id != null) {
+                                _cancel();
+                                controller.selectSource(id);
+                              }
+                            },
                           ),
-                      ],
-                      onChanged: (id) {
-                        if (id != null) {
-                          _cancel();
-                          controller.selectSource(id);
-                        }
-                      },
-                    ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                const Spacer(),
                 IconButton(
                   tooltip: l.catalogRefreshSources,
                   onPressed: _refresh,
@@ -692,7 +642,9 @@ class _CatalogLibraryViewState extends ConsumerState<CatalogLibraryView> {
                   ),
                   label: Text(
                     _collectionId == null
-                        ? l.catalogPlayAll
+                        ? state.search.isEmpty
+                              ? l.catalogPlayAll
+                              : l.catalogPlaySearchResults
                         : l.catalogCancelPreparation,
                   ),
                 ),
@@ -787,15 +739,9 @@ class _CatalogLibraryViewState extends ConsumerState<CatalogLibraryView> {
                   onPlay: state.source?.available == true
                       ? () => _play(item: item)
                       : null,
-                  onOpenArtist:
-                      state.source?.available == true &&
-                          item.artistRefs.any(
-                            (r) =>
-                                r.kind == MediaKind.artist &&
-                                r.sourceInstanceId ==
-                                    item.reference.sourceInstanceId,
-                          )
-                      ? () => _openArtists(item)
+                  localArtists: state.source?.local == true,
+                  onOpenArtist: state.source?.available == true
+                      ? _openRelated
                       : null,
                   onOpenAlbum:
                       state.source?.available == true &&
