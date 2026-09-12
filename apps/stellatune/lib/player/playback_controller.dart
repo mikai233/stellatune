@@ -72,6 +72,7 @@ class PlaybackController extends Notifier<PlaybackState> {
           lastError: DiagnosticsService.instance.failureMessage(
             err,
             operation: 'playback',
+            notify: false,
           ),
         );
       },
@@ -368,6 +369,7 @@ class PlaybackController extends Notifier<PlaybackState> {
         lastError: DiagnosticsService.instance.failureMessage(
           error,
           operation: 'playback',
+          notify: true,
         ),
       );
     }
@@ -426,6 +428,7 @@ class PlaybackController extends Notifier<PlaybackState> {
           lastError: DiagnosticsService.instance.failureMessage(
             error,
             operation: 'playback',
+            notify: true,
           ),
           pendingItem: null,
         );
@@ -480,6 +483,7 @@ class PlaybackController extends Notifier<PlaybackState> {
           lastError: DiagnosticsService.instance.failureMessage(
             error,
             operation: 'playback',
+            notify: true,
           ),
         );
       }
@@ -1012,6 +1016,7 @@ class PlaybackController extends Notifier<PlaybackState> {
           lastError: DiagnosticsService.instance.failureMessage(
             error,
             operation: 'playback',
+            notify: true,
           ),
         );
         return false;
@@ -1057,6 +1062,7 @@ class PlaybackController extends Notifier<PlaybackState> {
         lastError: DiagnosticsService.instance.failureMessage(
           error,
           operation: 'playback',
+          notify: true,
         ),
       );
       return false;
@@ -1151,6 +1157,7 @@ class PlaybackController extends Notifier<PlaybackState> {
         final message = DiagnosticsService.instance.failureMessage(
           error,
           operation: 'playback',
+          notify: false,
         );
         _backendEventGeneration++;
         ref.read(loggerProvider).e(message);

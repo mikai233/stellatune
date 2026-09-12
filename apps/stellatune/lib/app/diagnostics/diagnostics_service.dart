@@ -23,7 +23,6 @@ class DiagnosticsService {
   static final instance = DiagnosticsService();
   final revision = ValueNotifier(0);
   final visible = ValueNotifier(false);
-  final unread = ValueNotifier(0);
   final notice = ValueNotifier<ErrorNotice?>(null);
   final records = ListQueue<LogRecord>();
   final _recordIds = <String>{};
@@ -41,7 +40,6 @@ class DiagnosticsService {
   bool _dirty = false;
   bool _closing = false;
   bool _deferred = false;
-  int _unreadPending = 0;
   int _lost = 0;
   int _sequence = 0;
   int _bytes = 0;
@@ -208,11 +206,8 @@ class DiagnosticsService {
       _bytes -= _size(removed);
       _recordIds.remove(removed.id);
     }
-    if (record.level == 'ERROR' && !visible.value) _unreadPending++;
     _dirty = true;
     void notify() {
-      unread.value += _unreadPending;
-      _unreadPending = 0;
       if (!_connected) revision.value++;
     }
 
@@ -369,10 +364,12 @@ class DiagnosticsService {
     return chinese ? '操作未能完成，请查看日志' : 'Operation failed. See logs for details';
   }
 
+  /// Loading/stream failures update page state silently by default. Explicit
+  /// user actions opt in to a notice, or call report() after handling rollback.
   String failureMessage(
     Object error, {
     String operation = 'operation',
-    bool notify = true,
+    bool notify = false,
   }) {
     report(error, operation: operation, notify: notify);
     return messageFor(error, operation: operation);
@@ -381,7 +378,6 @@ class DiagnosticsService {
   void open([String? id]) {
     focusedId = id;
     focusRevision++;
-    unread.value = 0;
     visible.value = true;
     revision.value++;
   }

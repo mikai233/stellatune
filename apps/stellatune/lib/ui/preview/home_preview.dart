@@ -119,8 +119,7 @@ class _HomeVisualPreviewState extends State<HomeVisualPreview> {
                 onPlayPause: () => setState(() => playing = !playing),
                 onPrevious: () => choose(HomePlaceholders.listening[1]),
                 onNext: () => choose(HomePlaceholders.listening[2]),
-                onShuffle: placeholder,
-                onRepeat: placeholder,
+                onPlayMode: placeholder,
                 progress: NowPlayingProgressBar(
                   minHitHeight: 24,
                   durationMs: 268000,

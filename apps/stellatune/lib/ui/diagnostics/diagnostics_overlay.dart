@@ -109,23 +109,3 @@ class _DiagnosticsOverlayState extends State<DiagnosticsOverlay> {
     );
   }
 }
-
-class DiagnosticsButton extends StatelessWidget {
-  const DiagnosticsButton({super.key});
-  @override
-  Widget build(BuildContext context) {
-    final service = DiagnosticsService.instance;
-    return ValueListenableBuilder<int>(
-      valueListenable: service.unread,
-      builder: (context, unread, _) => IconButton(
-        tooltip: service.chinese ? '查看日志' : 'View logs',
-        onPressed: service.open,
-        icon: Badge(
-          isLabelVisible: unread > 0,
-          label: Text(unread > 99 ? '99+' : '$unread'),
-          child: const Icon(Icons.receipt_long_outlined, size: 20),
-        ),
-      ),
-    );
-  }
-}

@@ -7,6 +7,8 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart'
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive/hive.dart';
 import 'package:stellatune/app/providers.dart';
+import 'package:stellatune/app/diagnostics/diagnostics_service.dart';
+import 'package:stellatune/bridge/api/error.dart';
 import 'package:stellatune/bridge/bridge.dart';
 import 'package:stellatune/library/catalog_bridge.dart';
 import 'package:stellatune/player/playback_controller.dart';
@@ -162,6 +164,37 @@ void main() {
   });
 
   test(
+    'background playback events and stream errors never show notices',
+    () async {
+      final diagnostics = DiagnosticsService.instance;
+      diagnostics.notice.value = null;
+      bridge.eventStream.add(
+        const Event.error(
+          error: AppError(
+            category: ErrorCategory.unavailable,
+            operation: 'playback_event',
+            diagnosticId: 'background-playback',
+            fingerprint: 'background-playback',
+            context: '',
+          ),
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(container.read(playbackControllerProvider).lastError, isNotNull);
+      expect(diagnostics.notice.value, isNull);
+      bridge.eventStream.addError(StateError('background stream disconnected'));
+      await Future<void>.delayed(Duration.zero);
+      expect(diagnostics.notice.value, isNull);
+      expect(
+        diagnostics.records.any(
+          (r) => r.details.contains('background stream disconnected'),
+        ),
+        isTrue,
+      );
+    },
+  );
+
+  test(
     'stale failure cannot stop a newer selection or erase pending feedback',
     () async {
       final first = controller.playIndex(1);
@@ -252,12 +285,16 @@ void main() {
   test(
     'latest failure still stops playback and a new request clears the error',
     () async {
+      DiagnosticsService.instance.notice.value = null;
       final failed = controller.playIndex(1);
       await until(() => bridge.selections.containsKey(BigInt.two));
       bridge.selections[BigInt.two]!.completeError(
         StateError('current request failed'),
       );
       await failed;
+      await Future<void>.delayed(Duration.zero);
+      expect(DiagnosticsService.instance.notice.value, isNotNull);
+      DiagnosticsService.instance.notice.value = null;
       expect(bridge.stopCalls, 1);
       expect(
         container.read(playbackControllerProvider).lastError,

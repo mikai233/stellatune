@@ -21,15 +21,19 @@ Future<void> main() async {
         return true;
       }());
 
-      ErrorWidget.builder = (_) => const Center(child: Directionality(
-        textDirection: TextDirection.ltr, child: Text('界面暂不可用 / View unavailable'),
-      ));
+      ErrorWidget.builder = (_) => const Center(
+        child: Directionality(
+          textDirection: TextDirection.ltr,
+          child: Text('界面暂不可用 / View unavailable'),
+        ),
+      );
       FlutterError.onError = (details) {
         FlutterError.presentError(details);
         DiagnosticsService.instance.report(
           details.exception,
           stack: details.stack,
           operation: 'flutter',
+          notify: false,
         );
         debugPrint('FlutterError: ${details.exceptionAsString()}');
         if (details.stack != null) {
@@ -42,6 +46,7 @@ Future<void> main() async {
           error,
           stack: stack,
           operation: 'platform',
+          notify: false,
         );
         debugPrint('PlatformDispatcher error: $error');
         debugPrintStack(stackTrace: stack);
@@ -77,6 +82,7 @@ Future<void> main() async {
         error,
         stack: stack,
         operation: 'startup',
+        notify: false,
       );
       debugPrint('runZonedGuarded bootstrap error: $error');
       debugPrintStack(stackTrace: stack);

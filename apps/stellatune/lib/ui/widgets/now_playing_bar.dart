@@ -1,4 +1,3 @@
-import 'package:stellatune/ui/diagnostics/diagnostics_overlay.dart';
 import 'package:stellatune/ui/theme/artwork_palette.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -8,7 +7,6 @@ import 'package:stellatune/dlna/dlna_providers.dart';
 import 'package:stellatune/l10n/app_localizations.dart';
 import 'package:stellatune/player/playback_controller.dart';
 import 'package:stellatune/player/queue_controller.dart';
-import 'package:stellatune/player/queue_models.dart';
 import 'package:stellatune/ui/pages/music_detail_page.dart';
 import 'package:stellatune/ui/pages/queue_page.dart';
 import 'package:stellatune/ui/widgets/audio_format_badge.dart';
@@ -76,20 +74,8 @@ class NowPlayingBar extends ConsumerWidget {
       onPlayPause: () => isPlaying ? player.pause() : player.play(),
       onPrevious: () => player.previous(),
       onNext: () => player.next(),
-      shuffle: queue.playMode == PlayMode.shuffle,
-      repeat:
-          queue.playMode == PlayMode.repeatAll ||
-          queue.playMode == PlayMode.repeatOne,
-      onShuffle: () => queueController.setPlayMode(
-        queue.playMode == PlayMode.shuffle
-            ? PlayMode.sequential
-            : PlayMode.shuffle,
-      ),
-      onRepeat: () => queueController.setPlayMode(switch (queue.playMode) {
-        PlayMode.repeatAll => PlayMode.repeatOne,
-        PlayMode.repeatOne => PlayMode.sequential,
-        _ => PlayMode.repeatAll,
-      }),
+      playMode: queue.playMode,
+      onPlayMode: queueController.cyclePlayMode,
       progress: NowPlayingTransitionProgress(
         busy: pending != null,
         child: NowPlayingProgressBar(
@@ -106,7 +92,6 @@ class NowPlayingBar extends ConsumerWidget {
       trailing: Row(
         mainAxisAlignment: MainAxisAlignment.end,
         children: [
-          const DiagnosticsButton(),
           VolumePopupButton(
             volume: playback.desiredVolume,
             iconSize: 19,

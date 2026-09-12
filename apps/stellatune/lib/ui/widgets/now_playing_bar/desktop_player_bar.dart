@@ -1,5 +1,8 @@
 import 'package:stellatune/ui/theme/artwork_palette.dart';
 import 'package:flutter/material.dart';
+import 'package:stellatune/l10n/app_localizations.dart';
+import 'package:stellatune/l10n/app_localizations_en.dart';
+import 'package:stellatune/player/queue_models.dart' show PlayMode;
 
 /// Stateless layout; playback actions and the progress widget stay connected to
 /// the existing controller in NowPlayingBar.
@@ -17,15 +20,14 @@ class DesktopPlayerBar extends StatelessWidget {
     this.onPlayPause,
     this.onPrevious,
     this.onNext,
-    this.onShuffle,
-    this.onRepeat,
-    this.shuffle = false,
-    this.repeat = false,
+    this.onPlayMode,
+    this.playMode = PlayMode.sequential,
   });
   final String title, subtitle, position, duration;
   final Widget cover, progress, trailing;
-  final bool isPlaying, shuffle, repeat;
-  final VoidCallback? onPlayPause, onPrevious, onNext, onShuffle, onRepeat;
+  final bool isPlaying;
+  final PlayMode playMode;
+  final VoidCallback? onPlayPause, onPrevious, onNext, onPlayMode;
 
   @override
   Widget build(BuildContext context) => Theme(
@@ -101,10 +103,17 @@ class DesktopPlayerBar extends StatelessWidget {
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
                                 _Control(
-                                  icon: Icons.shuffle_rounded,
-                                  label: '随机播放',
-                                  onTap: onShuffle,
-                                  selected: shuffle,
+                                  icon: switch (playMode) {
+                                    PlayMode.sequential =>
+                                      Icons.arrow_forward_rounded,
+                                    PlayMode.shuffle => Icons.shuffle_rounded,
+                                    PlayMode.repeatAll => Icons.repeat_rounded,
+                                    PlayMode.repeatOne =>
+                                      Icons.repeat_one_rounded,
+                                  },
+                                  label: _playModeLabel(context),
+                                  onTap: onPlayMode,
+                                  selected: playMode != PlayMode.sequential,
                                 ),
                                 SizedBox(
                                   width: constraints.maxWidth < 1100 ? 8 : 24,
@@ -148,12 +157,8 @@ class DesktopPlayerBar extends StatelessWidget {
                                 SizedBox(
                                   width: constraints.maxWidth < 1100 ? 8 : 24,
                                 ),
-                                _Control(
-                                  icon: Icons.repeat_rounded,
-                                  label: '循环播放',
-                                  onTap: onRepeat,
-                                  selected: repeat,
-                                ),
+                                // Balance the mode button so the transport stays centered.
+                                const SizedBox(width: 30),
                               ],
                             ),
                           ),
@@ -199,6 +204,16 @@ class DesktopPlayerBar extends StatelessWidget {
       ),
     ),
   );
+
+  String _playModeLabel(BuildContext context) {
+    final l = AppLocalizations.of(context) ?? AppLocalizationsEn();
+    return switch (playMode) {
+      PlayMode.sequential => l.playModeSequential,
+      PlayMode.shuffle => l.playModeShuffle,
+      PlayMode.repeatAll => l.playModeRepeatAll,
+      PlayMode.repeatOne => l.playModeRepeatOne,
+    };
+  }
 }
 
 class _Control extends StatelessWidget {

@@ -12,6 +12,7 @@ import 'package:stellatune/player/queue_controller.dart';
 import 'package:stellatune/player/queue_models.dart';
 import 'package:stellatune/ui/pages/library/catalog_widgets.dart';
 import 'package:stellatune/ui/widgets/now_playing_bar.dart';
+import 'package:stellatune/ui/widgets/now_playing_bar/desktop_player_bar.dart';
 import 'package:stellatune/ui/widgets/now_playing_common/now_playing_cover.dart';
 import 'package:stellatune/ui/widgets/now_playing_common/transition_progress.dart';
 
@@ -45,6 +46,42 @@ class _Queue extends QueueController {
 }
 
 void main() {
+  testWidgets('player bar uses one mode control with distinct states', (
+    tester,
+  ) async {
+    var taps = 0;
+    for (final (mode, icon, label) in [
+      (PlayMode.sequential, Icons.arrow_forward_rounded, 'Sequential'),
+      (PlayMode.shuffle, Icons.shuffle_rounded, 'Shuffle'),
+      (PlayMode.repeatAll, Icons.repeat_rounded, 'Repeat all'),
+      (PlayMode.repeatOne, Icons.repeat_one_rounded, 'Repeat one'),
+    ]) {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: DesktopPlayerBar(
+              title: 'Song',
+              subtitle: 'Artist',
+              cover: const SizedBox(),
+              isPlaying: false,
+              position: '00:00',
+              duration: '03:00',
+              progress: const SizedBox(),
+              trailing: const SizedBox(),
+              playMode: mode,
+              onPlayMode: () => taps++,
+            ),
+          ),
+        ),
+      );
+      expect(find.byIcon(icon), findsOneWidget);
+      expect(find.byType(IconButton), findsNWidgets(4));
+      expect(find.byTooltip(label), findsOneWidget);
+      await tester.tap(find.byIcon(icon));
+      expect(tester.takeException(), isNull);
+    }
+    expect(taps, 4);
+  });
   testWidgets(
     'pending track updates all metadata and reuses decoded library covers immediately',
     (tester) async {
@@ -126,6 +163,7 @@ void main() {
         hasLength(2),
       );
       await show(const NowPlayingBar());
+      expect(find.byIcon(Icons.receipt_long_outlined), findsNothing);
       final cover = find.descendant(
         of: find.byType(NowPlayingCover),
         matching: find.byType(RawImage),

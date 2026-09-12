@@ -1,4 +1,5 @@
 import 'package:stellatune/app/diagnostics/diagnostics_service.dart';
+
 import 'dart:async';
 import 'dart:io';
 
@@ -277,7 +278,15 @@ class DlnaPlaybackSession {
           _volumeMismatches = 0;
         }
       } catch (error) {
-        if (current()) onError(DiagnosticsService.instance.failureMessage(error, operation: 'dlna_volume'));
+        if (current()) {
+          onError(
+            DiagnosticsService.instance.failureMessage(
+              error,
+              operation: 'dlna_volume',
+              notify: true,
+            ),
+          );
+        }
       }
     });
     _volumeCommands = next.then<void>(

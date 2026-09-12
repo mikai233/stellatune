@@ -64,6 +64,31 @@ class CurrentLogsService extends DiagnosticsService {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  test(
+    'background failure messages stay silent; explicit actions still notify',
+    () async {
+      final service = DiagnosticsService();
+      final background = StateError('background refresh failed');
+      final message = service.failureMessage(background, operation: 'catalog');
+      await Future<void>.delayed(Duration.zero);
+      expect(message, isNotEmpty);
+      expect(service.notice.value, isNull);
+      expect(
+        service.records.any(
+          (r) => r.details.contains('background refresh failed'),
+        ),
+        isTrue,
+      );
+      service.failureMessage(background, operation: 'catalog', notify: true);
+      await Future<void>.delayed(Duration.zero);
+      expect(service.notice.value, isNotNull);
+      service.notice.value = null;
+      service.report(StateError('button action failed'), operation: 'scan');
+      await Future<void>.delayed(Duration.zero);
+      expect(service.notice.value, isNotNull);
+      await service.shutdown();
+    },
+  );
   testWidgets(
     'log page searches live records without requesting historical sessions',
     (tester) async {

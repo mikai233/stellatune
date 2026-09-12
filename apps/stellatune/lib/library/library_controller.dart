@@ -54,6 +54,7 @@ class LibraryController extends Notifier<LibraryState> {
         _eventError = DiagnosticsService.instance.failureMessage(
           err,
           operation: 'library',
+          notify: false,
         );
         unawaited(_finishScan());
         state = state.copyWith(isScanning: false);
@@ -190,6 +191,7 @@ class LibraryController extends Notifier<LibraryState> {
       _eventError = DiagnosticsService.instance.failureMessage(
         e,
         operation: 'library',
+        notify: true,
       );
       state = state.copyWith(isScanning: false);
       await _finishScan();
@@ -415,6 +417,7 @@ class LibraryController extends Notifier<LibraryState> {
       _queryErrors[kind] = DiagnosticsService.instance.failureMessage(
         error,
         operation: 'library',
+        notify: false,
       );
       _publishErrors();
       ref
@@ -534,7 +537,11 @@ class LibraryController extends Notifier<LibraryState> {
         unawaited(_refreshTracks());
       },
       error: (message) {
-        DiagnosticsService.instance.report(message, operation: 'library');
+        DiagnosticsService.instance.report(
+          message,
+          operation: 'library',
+          notify: false,
+        );
         unawaited(_finishScan());
         ref.read(loggerProvider).e(message);
         _eventError = DiagnosticsService.instance.messageFor(

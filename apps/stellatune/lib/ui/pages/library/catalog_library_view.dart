@@ -187,6 +187,7 @@ class _CatalogLibraryViewState extends ConsumerState<CatalogLibraryView> {
           () => _actionError = DiagnosticsService.instance.failureMessage(
             e,
             operation: 'catalog',
+            notify: true,
           ),
         );
       }
