@@ -188,7 +188,7 @@ class _OpenContainerShaderWarmupState
 
   Future<List<Color>?> _buildWarmupColorsFromCurrentTrack() async {
     final queue = ref.read(queueControllerProvider);
-    final trackId = queue.currentItem?.id;
+    final trackId = queue.currentItem?.coverId;
     if (trackId == null) return null;
 
     final coverDir = ref.read(coverDirProvider);

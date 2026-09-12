@@ -12,8 +12,8 @@ use super::identity::{
 use super::source::{SourceCatalogEntry, SourceResolverSpec, TrackCatalogEntry, TrackOrigin};
 use super::state::{PlaybackQueueRecord, PlaybackStateRecord, RepeatMode};
 
-const PLAYER_SCHEMA_VERSION: i64 = 1;
-const PLAYER_SCHEMA_FINGERPRINT: &str = "stellatune-player-v1-typed-catalog-state-20260901";
+const PLAYER_SCHEMA_VERSION: i64 = 2;
+const PLAYER_SCHEMA_FINGERPRINT: &str = "stellatune-player-v2-audio-segments-20260912";
 #[derive(Clone)]
 pub struct PlayerCatalog {
     pub(crate) pool: SqlitePool,
@@ -48,7 +48,7 @@ impl PlayerCatalog {
             .iter()
             .map(|row| row.get::<String, _>("name"))
             .collect::<Vec<_>>();
-        if names.is_empty() {
+        if names.is_empty() || names == ["source_catalog"] {
             return self.bootstrap().await;
         }
         if !names.iter().any(|name| name == "player_schema_meta") || names.len() != 5 {
@@ -84,7 +84,7 @@ impl PlayerCatalog {
                 singleton INTEGER PRIMARY KEY CHECK(singleton=1),\
                 schema_version INTEGER NOT NULL,\
                 schema_fingerprint TEXT NOT NULL)",
-            "CREATE TABLE source_catalog(\
+            "CREATE TABLE IF NOT EXISTS source_catalog(\
                 id INTEGER PRIMARY KEY AUTOINCREMENT CHECK(id>0),\
                 binding_kind TEXT NOT NULL CHECK(binding_kind IN ('local','plugin')),\
                 provider_id TEXT, resolver_plugin_id TEXT, resolver_capability_id TEXT,\
@@ -93,9 +93,9 @@ impl PlayerCatalog {
                        AND resolver_capability_id IS NULL AND resolver_config_json IS NULL) OR \
                       (binding_kind='plugin' AND provider_id IS NOT NULL AND resolver_plugin_id IS NOT NULL \
                        AND resolver_capability_id IS NOT NULL AND resolver_config_json IS NOT NULL)))",
-            "CREATE UNIQUE INDEX source_catalog_local_unique ON source_catalog(binding_kind) \
+            "CREATE UNIQUE INDEX IF NOT EXISTS source_catalog_local_unique ON source_catalog(binding_kind) \
                 WHERE binding_kind='local'",
-            "CREATE UNIQUE INDEX source_catalog_provider_unique ON source_catalog(provider_id) \
+            "CREATE UNIQUE INDEX IF NOT EXISTS source_catalog_provider_unique ON source_catalog(provider_id) \
                 WHERE provider_id IS NOT NULL",
             "CREATE TABLE track_catalog(\
                 id INTEGER PRIMARY KEY AUTOINCREMENT CHECK(id>0),\

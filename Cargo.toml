@@ -1,6 +1,7 @@
 [workspace]
 resolver = "3"
 members = [
+  "crates/stellatune-media-probe",
   "apps/stellatune-tui",
   "crates/stellatune-icon",
   "crates/stellatune-audio-core",
@@ -30,6 +31,7 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(frb_expand)'] }
 wildcard_imports = "deny"
 
 [workspace.dependencies]
+stellatune-media-probe = { path = "crates/stellatune-media-probe" }
 stellatune-audio-core = { path = "crates/stellatune-audio-core" }
 stellatune-audio-builtin-adapters = { path = "crates/audio-adapters/stellatune-audio-builtin-adapters" }
 stellatune-audio-asio-adapter = { path = "crates/audio-adapters/stellatune-audio-asio-adapter" }

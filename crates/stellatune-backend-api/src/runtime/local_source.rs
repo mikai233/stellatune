@@ -20,6 +20,53 @@ impl PluginMetadataProvider {
 }
 
 impl stellatune_library::metadata_provider::MetadataProvider for PluginMetadataProvider {
+    fn probe_audio(&self, path: &Path) -> stellatune_media_probe::ProbeResult {
+        use stellatune_media_probe::{ProbeResult, ProbeStatus};
+        let result = (|| -> anyhow::Result<PluginFileMetadata> {
+            let extension = path
+                .extension()
+                .and_then(|v| v.to_str())
+                .unwrap_or_default();
+            let (plugin, capability) = self
+                .runtime
+                .local_file_resolver(extension)?
+                .ok_or_else(|| anyhow::anyhow!("local-source plugin unavailable"))?;
+            let result = self.executor.block_on(self.runtime.invoke(
+                &plugin,
+                &capability,
+                None,
+                "inspect-file",
+                serde_json::json!({ "path": std::fs::canonicalize(path)?, "propertiesOnly": true }),
+                None,
+            ))?;
+            Ok(serde_json::from_value(result.value)?)
+        })();
+        match result {
+            Ok(m) => ProbeResult {
+                status: m.audio_probe_status.unwrap_or(if m.audio.is_some() {
+                    ProbeStatus::Ready
+                } else {
+                    ProbeStatus::Unsupported
+                }),
+                properties: m.audio,
+                bytes_read: 0,
+            },
+            Err(error) => {
+                tracing::debug!(path = %path.display(), %error, "plugin audio properties unavailable");
+                ProbeResult {
+                    status: ProbeStatus::IoError,
+                    properties: None,
+                    bytes_read: 0,
+                }
+            },
+        }
+    }
+    fn inspect_audio(
+        &self,
+        path: &Path,
+    ) -> anyhow::Result<Option<stellatune_media_probe::AudioProperties>> {
+        Ok(self.probe_audio(path).properties)
+    }
     fn supports(&self, path: &Path) -> bool {
         let extension = path
             .extension()
@@ -50,7 +97,8 @@ impl stellatune_library::metadata_provider::MetadataProvider for PluginMetadataP
             &capability,
             None,
             "inspect-file",
-            serde_json::json!({ "path": path }),
+            // The library fills its independent property cache once, after tags.
+            serde_json::json!({ "path": path, "skipAudio": true }),
             None,
         ))?;
         let metadata: PluginFileMetadata = serde_json::from_value(result.value)?;
@@ -66,6 +114,7 @@ impl stellatune_library::metadata_provider::MetadataProvider for PluginMetadataP
             None
         };
         Ok(stellatune_library::metadata_provider::LocalFileMetadata {
+            audio: metadata.audio,
             title: metadata.title,
             artist: metadata.artist,
             album: metadata.album,
@@ -82,6 +131,8 @@ impl stellatune_library::metadata_provider::MetadataProvider for PluginMetadataP
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct PluginFileMetadata {
+    audio: Option<stellatune_media_probe::AudioProperties>,
+    audio_probe_status: Option<stellatune_media_probe::ProbeStatus>,
     title: Option<String>,
     artist: Option<String>,
     album: Option<String>,

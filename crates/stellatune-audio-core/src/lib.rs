@@ -62,6 +62,8 @@ pub mod error;
 pub mod format;
 /// Playback item identities and media-time values.
 pub mod playback;
+/// Sample-exact bounded views of decoded audio streams.
+pub mod segment;
 /// Audio output stage contracts and compatibility metadata.
 pub mod sink;
 /// Encoded source factories, capabilities, and cancellation.

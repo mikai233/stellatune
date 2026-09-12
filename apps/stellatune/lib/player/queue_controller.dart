@@ -28,6 +28,7 @@ class QueueController extends Notifier<QueueState> {
     QueueSource? source,
     bool replaceSource = false,
     bool preserveCurrent = false,
+    BigInt? observedCurrentItemId,
   }) {
     if (snapshot.revision < _backendRevision) return;
     final duplicateRevision =
@@ -80,6 +81,15 @@ class QueueController extends Notifier<QueueState> {
                       '',
                 ),
           id: entry.localLibraryTrackId?.toInt() ?? supplied?.id ?? old?.id,
+          localCoverId:
+              localMetadata?.coverId?.toInt() ??
+              supplied?.coverId ??
+              old?.coverId,
+          isSegment:
+              localMetadata?.isSegment ??
+              supplied?.isSegment ??
+              old?.isSegment ??
+              false,
           title: localMetadata != null
               ? localMetadata.title
               : presentation != null
@@ -114,9 +124,15 @@ class QueueController extends Notifier<QueueState> {
         ),
       );
     }
-    final current = preserveCurrent || duplicateRevision
-        ? state.currentItem?.itemId
-        : snapshot.currentItemId;
+    // Playback and queue snapshots arrive independently. A confirmed audible
+    // item takes precedence over the cursor in a delayed queue snapshot.
+    final current = observedCurrentItemId != null
+        ? (items.any((item) => item.itemId == observedCurrentItemId)
+              ? observedCurrentItemId
+              : state.currentItem?.itemId)
+        : (preserveCurrent || duplicateRevision
+              ? state.currentItem?.itemId
+              : snapshot.currentItemId);
     final index = items.indexWhere((item) => item.itemId == current);
     final indices = {
       for (var i = 0; i < items.length; i++) items[i].itemId!: i,

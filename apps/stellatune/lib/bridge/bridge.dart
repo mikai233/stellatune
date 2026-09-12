@@ -442,9 +442,6 @@ class DlnaBridge {
   Future<DlnaHttpServerInfo> httpStart({String? advertiseIp, int? port}) =>
       api.dlnaHttpStart(advertiseIp: advertiseIp, port: port);
 
-  Future<String> httpPublishTrack({required String path}) =>
-      api.dlnaHttpPublishTrack(path: path);
-
   Future<void> httpUnpublishAll() => api.dlnaHttpUnpublishAll();
 
   Future<void> avTransportSetUri({
@@ -543,17 +540,9 @@ class DlnaBridge {
 
   Future<String> playLocalTrack({
     required DlnaRenderer renderer,
-    required String path,
-    String? title,
-    String? artist,
-    String? album,
-    String? coverPath,
+    required int libraryTrackId,
   }) => api.dlnaPlayLocalTrack(
     renderer: renderer,
-    path: path,
-    title: title,
-    artist: artist,
-    album: album,
-    coverPath: coverPath,
+    libraryTrackId: libraryTrackId,
   );
 }

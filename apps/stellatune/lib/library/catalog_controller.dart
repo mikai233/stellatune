@@ -8,6 +8,24 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'catalog_bridge.dart';
 import 'catalog_track_sort.dart';
+import 'album_sources.dart';
+
+final catalogAlbumSourcesProvider = Provider((ref) {
+  final (localAlbum, items) = ref.watch(
+    catalogControllerProvider.select((s) => (s.isLocalAlbum, s.items)),
+  );
+  return localAlbum ? albumSources(items) : <AlbumSource>[];
+});
+
+final catalogSelectedAlbumSourceProvider = Provider((ref) {
+  final sources = ref.watch(catalogAlbumSourcesProvider);
+  final key = ref.watch(
+    catalogControllerProvider.select((s) => s.albumPreferenceKey),
+  );
+  final preferred = ref.watch(albumSourcePreferencesProvider)[key];
+  return sources.where((s) => s.id == preferred).firstOrNull ??
+      sources.firstOrNull;
+});
 
 final catalogControllerProvider =
     NotifierProvider<CatalogController, CatalogState>(CatalogController.new);
@@ -16,7 +34,23 @@ final catalogVisibleItemsProvider = Provider((ref) {
   final (items, kind, sort) = ref.watch(
     catalogControllerProvider.select((s) => (s.items, s.kind, s.trackSort)),
   );
-  return kind == MediaKind.track ? sort.apply(items) : items;
+  final (localAlbum, search) = ref.watch(
+    catalogControllerProvider.select((s) => (s.isLocalAlbum, s.search)),
+  );
+  var visible = ref.watch(catalogSelectedAlbumSourceProvider)?.items ?? items;
+  if (localAlbum && search.isNotEmpty) {
+    final query = search.toLowerCase();
+    visible = visible
+        .where(
+          (item) => [
+            item.title,
+            item.artist,
+            item.album,
+          ].any((s) => s?.toLowerCase().contains(query) == true),
+        )
+        .toList();
+  }
+  return kind == MediaKind.track ? sort.apply(visible) : visible;
 });
 
 class CatalogState {
@@ -51,13 +85,18 @@ class CatalogState {
   LibrarySource? get source =>
       sources.where((s) => s.id == sourceId).firstOrNull;
   CatalogItem? get parent => parents.lastOrNull;
+  bool get isLocalAlbum =>
+      source?.local == true &&
+      kind == MediaKind.track &&
+      parent?.reference.kind == MediaKind.album;
+  String get albumPreferenceKey => jsonEncode([sourceId, parent?.reference.id]);
   bool get canSearch =>
       source?.available == true && source!.searchKinds.contains(kind);
   CatalogQuery get query => CatalogQuery(
     sourceInstanceId: sourceId!,
     kind: kind,
     parent: parent?.reference,
-    search: search,
+    search: isLocalAlbum ? '' : search,
     sort: sort,
     limit: 200,
   );
@@ -420,7 +459,10 @@ class CatalogController extends Notifier<CatalogState> {
         total = page.total?.toInt() ?? total;
         // Show the first results promptly, then throttle publication of large lists.
         // The view remains virtualized; pagination is only a transport detail.
-        if ((!keepVisible || cursor == null) &&
+        // Album source choices require the complete track set. Publishing a
+        // partial page could otherwise switch the default source mid-load.
+        if ((!state.isLocalAlbum || cursor == null) &&
+            (!keepVisible || cursor == null) &&
             (!published ||
                 cursor == null ||
                 publishTimer.elapsedMilliseconds >= 100)) {

@@ -5,6 +5,7 @@ edition = "2024"
 license.workspace = true
 
 [dependencies]
+stellatune-media-probe.workspace = true
 anyhow.workspace = true
 cpal.workspace = true
 ringbuf.workspace = true

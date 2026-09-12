@@ -83,10 +83,9 @@ impl Handler<OutputPrepared> for PlaybackActor {
         reject_pending(&mut self.session);
         let current = self.session.current.as_mut().unwrap();
         let old_rate = current.pipeline.mix_format.sample_rate;
-        current.pipeline.duration_frames = current
-            .pipeline
-            .duration_frames
-            .map(|frames| MediaTime::from_frames(frames, old_rate).to_frames(target.sample_rate));
+        current.pipeline.duration_frames = current.pipeline.duration_frames.map(|frames| {
+            stellatune_audio_core::playback::rescale_frames(frames, old_rate, target.sample_rate)
+        });
         current.seek_fade_frames = MediaTime::from_frames(current.seek_fade_frames, old_rate)
             .to_frames(target.sample_rate);
         current.pipeline.normalizer = Some(normalizer);

@@ -87,3 +87,7 @@ methods for enable/disable/apply-state behavior.
 - This crate intentionally does not expose Flutter-specific stream adapters.
 - Legacy plugin host-event JSON bridge is no longer part of backend API usage.
 - For non-Flutter frontends, build directly on top of `BackendApp` + `BackendSession`.
+
+## Cached audio properties
+
+Catalog audio properties use optional BitrateInfo (bps, kind, estimated, mode). See [audio-properties.md](audio-properties.md) for probing budgets, plugin inspect-file fields, and cache upgrades. Missing technical properties do not invalidate persisted playback state.

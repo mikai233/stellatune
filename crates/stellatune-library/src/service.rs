@@ -45,6 +45,13 @@ pub struct LibraryHandle {
 }
 
 impl LibraryHandle {
+    pub fn cover_path(&self, key: i64) -> PathBuf {
+        self.db_path
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join("covers")
+            .join(key.to_string())
+    }
     pub fn catalog(&self) -> &crate::catalog::LocalCatalog {
         &self.catalog
     }

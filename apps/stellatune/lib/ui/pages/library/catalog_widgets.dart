@@ -13,6 +13,7 @@ import 'package:stellatune/l10n/app_localizations.dart';
 import 'package:stellatune/l10n/app_localizations_en.dart';
 
 import 'catalog_column_layout.dart';
+import 'catalog_audio_label.dart';
 
 import 'package:stellatune/ui/widgets/track_cover_provider.dart';
 
@@ -76,13 +77,18 @@ class CatalogArtwork extends ConsumerWidget {
         frameBuilder: (_, child, frame, _) => frame == null ? fallback : child,
         errorBuilder: (_, _, _) => fallback,
       );
-    } else if (item.localTrackId != null) {
+    } else if ((item.localCoverId ?? item.localTrackId) != null) {
       final coverDir = ref.watch(coverDirProvider);
       image = Image(
         image: size <= 48
-            ? localTrackCoverProvider(coverDir, item.localTrackId!.toInt())
+            ? localTrackCoverProvider(
+                coverDir,
+                (item.localCoverId ?? item.localTrackId)!.toInt(),
+              )
             : FileImage(
-                File('$coverDir${Platform.pathSeparator}${item.localTrackId}'),
+                File(
+                  '$coverDir${Platform.pathSeparator}${(item.localCoverId ?? item.localTrackId)}',
+                ),
               ),
         fit: BoxFit.cover,
         width: size,
@@ -137,12 +143,15 @@ class CatalogTrackColumns extends ConsumerWidget {
     required this.album,
     required this.duration,
     required this.actions,
+    this.format = const SizedBox.shrink(),
+    this.compactTitle,
     this.numberWidth = 30,
     this.resizable = false,
   });
   final bool resizable;
   final double numberWidth;
-  final Widget number, title, artist, album, duration, actions;
+  final Widget number, title, artist, album, duration, format, actions;
+  final Widget? compactTitle;
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final saved = ref.watch(catalogColumnWidthsProvider);
@@ -155,10 +164,13 @@ class CatalogTrackColumns extends ConsumerWidget {
         );
         final cells = {
           CatalogTrackColumn.original: number,
-          CatalogTrackColumn.title: title,
+          CatalogTrackColumn.title: constraints.maxWidth < 830
+              ? compactTitle ?? title
+              : title,
           CatalogTrackColumn.artist: artist,
           CatalogTrackColumn.album: album,
           CatalogTrackColumn.duration: duration,
+          CatalogTrackColumn.format: format,
         };
         final body = Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -418,6 +430,12 @@ class CatalogTrackHeader extends StatelessWidget {
           artist: heading(l.catalogArtists, CatalogTrackColumn.artist),
           album: heading(l.catalogAlbums, CatalogTrackColumn.album),
           duration: heading(l.catalogDuration, CatalogTrackColumn.duration),
+          format: heading(
+            Localizations.localeOf(context).languageCode == 'zh'
+                ? '格式'
+                : 'Format',
+            CatalogTrackColumn.format,
+          ),
           actions: const SizedBox(),
         ),
       ),
@@ -485,6 +503,25 @@ class _CatalogTrackRowState extends State<CatalogTrackRow> {
               overflow: TextOverflow.ellipsis,
               child: CatalogTrackColumns(
                 numberWidth: widget.numberWidth,
+                compactTitle: Row(
+                  children: [
+                    CatalogArtwork(item: item, size: 34),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            catalogTitle(context, item),
+                            style: TextStyle(color: scheme.onSurface),
+                          ),
+                          CatalogAudioLabel(item: item, compact: true),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
                 number: Center(
                   child: widget.current
                       ? Icon(Icons.equalizer, size: 17, color: scheme.primary)
@@ -512,6 +549,7 @@ class _CatalogTrackRowState extends State<CatalogTrackRow> {
                   onTap: widget.onOpenAlbum,
                 ),
                 duration: Text(duration),
+                format: CatalogAudioLabel(item: item),
                 actions: LayoutBuilder(
                   builder: (context, constraints) => Opacity(
                     // Keep the menu accessible to keyboard and touch, and reveal hover actions.

@@ -4,6 +4,7 @@ import 'dart:ui';
 import 'package:stellatune/app/diagnostics/diagnostics_service.dart';
 
 import 'package:flutter/material.dart';
+import 'package:stellatune/library/album_sources.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:stellatune/app/app_bootstrap.dart';
 import 'package:stellatune/app/providers.dart';
@@ -68,6 +69,9 @@ Future<void> main() async {
                 ),
                 catalogColumnWidthsProvider.overrideWith(
                   () => CatalogColumnWidthsController(bootstrap.settings),
+                ),
+                albumSourcePreferencesProvider.overrideWith(
+                  () => AlbumSourcePreferences(bootstrap.settings),
                 ),
               ],
               child: const StellatuneApp(),

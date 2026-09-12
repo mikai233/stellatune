@@ -125,6 +125,7 @@ void main() {
             for (var id = 1; id <= 2; id++)
               CatalogArtwork(
                 item: CatalogItem(
+                  isSegment: false,
                   reference: MediaRef(
                     sourceInstanceId: 'local',
                     kind: MediaKind.track,

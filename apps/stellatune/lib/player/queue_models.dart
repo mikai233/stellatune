@@ -52,6 +52,8 @@ class QueueItem {
     this.artist,
     this.album,
     this.durationMs,
+    this.localCoverId,
+    this.isSegment = false,
     this.cover,
   });
 
@@ -71,6 +73,9 @@ class QueueItem {
   final String? artist;
   final String? album;
   final int? durationMs;
+  final int? localCoverId;
+  final bool isSegment;
+  int? get coverId => localCoverId ?? catalogItem?.localCoverId?.toInt() ?? id;
   final QueueCover? cover;
 
   String get stableTrackKey =>

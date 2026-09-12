@@ -5,6 +5,7 @@ import 'package:stellatune/library/catalog_track_sort.dart';
 void main() {
   final items = [
     CatalogItem(
+      isSegment: false,
       reference: const MediaRef(
         sourceInstanceId: '1',
         kind: MediaKind.track,
@@ -17,6 +18,7 @@ void main() {
       artistRefs: const [],
     ),
     CatalogItem(
+      isSegment: false,
       reference: const MediaRef(
         sourceInstanceId: '1',
         kind: MediaKind.track,
@@ -29,6 +31,7 @@ void main() {
       artistRefs: const [],
     ),
     CatalogItem(
+      isSegment: false,
       reference: const MediaRef(
         sourceInstanceId: '1',
         kind: MediaKind.track,
@@ -41,6 +44,7 @@ void main() {
       artistRefs: const [],
     ),
     const CatalogItem(
+      isSegment: false,
       reference: MediaRef(
         sourceInstanceId: '1',
         kind: MediaKind.track,

@@ -66,6 +66,7 @@ async fn run(
                 id: PlaybackItemId::new(1).unwrap(),
                 source: Arc::new(FileSourceFactory::new(file, MediaHints::default())?),
                 required_decoder: None,
+                segment: None,
             },
             SwitchOptions {
                 autoplay: false,

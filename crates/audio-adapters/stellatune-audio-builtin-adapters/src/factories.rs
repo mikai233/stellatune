@@ -92,6 +92,9 @@ impl EncodedSource for FileEncodedSource {
 }
 
 impl SourceFactory for FileSourceFactory {
+    fn resource_identity(&self) -> Option<&str> {
+        self.path.to_str()
+    }
     fn descriptor(&self) -> SourceDescriptor {
         self.descriptor.clone()
     }
@@ -674,9 +677,7 @@ impl DecoderStage for SymphoniaDecoderStage {
         let decoder = open_builtin_decoder(source, extension)
             .map_err(|message| DecodeError::Failed { message })?;
         let spec = decoder.spec();
-        let duration_frames = decoder
-            .duration_ms_hint()
-            .map(|duration| duration.saturating_mul(u64::from(spec.sample_rate)) / 1000);
+        let duration_frames = decoder.duration_frames();
         let gapless_trim = decoder.gapless_trim_spec().map(|trim| GaplessTrimSpec {
             head_frames: trim.head_frames,
             tail_frames: trim.tail_frames,
@@ -725,9 +726,7 @@ impl DecoderStage for SymphoniaDecoderStage {
         let decoder = self.decoder.as_mut().ok_or_else(|| DecodeError::Failed {
             message: "decoder is not open".to_owned(),
         })?;
-        let sample_rate = decoder.spec().sample_rate.max(1);
-        let millis = target_frame.saturating_mul(1000) / u64::from(sample_rate);
-        match decoder.seek_ms(millis) {
+        match decoder.seek_frame(target_frame) {
             Ok(()) => {
                 self.pending_seek_frame = None;
                 Ok(DecoderSeekStatus::Complete(SeekResult {

@@ -28,6 +28,13 @@ test('installed Rust NCM plugin streams seekable audio without disk caches', asy
     assert.equal(metadata.title, 'Synthetic tone');
     assert.equal(metadata.durationMs, 2000);
     assert.equal(metadata.coverUrl, null);
+    assert.equal(metadata.audio.format, 'NCM');
+    assert.equal(metadata.audio.codec, fixture === 'tone-mp3.ncm' ? 'mp3' : 'flac');
+    assert.ok(metadata.audio.bitrate.bps > 0);
+    assert.equal(metadata.audio.bitrate.estimated, fixture === 'tone-mp3.ncm');
+    const propertiesOnly = await plugin.invoke({ capabilityId: 'ncm-file', operation: 'inspect-file', input: { path, propertiesOnly: true } });
+    assert.deepEqual(propertiesOnly.audio, metadata.audio);
+    assert.equal(propertiesOnly.coverUrl, undefined);
 
     const [a, b] = await Promise.all([invoke('resolve-file', path), invoke('resolve-file', path)]);
     assert.deepEqual(a, b);
@@ -72,6 +79,13 @@ test('installed Rust NCM plugin streams seekable audio without disk caches', asy
   await writeFile(coveredPath, coveredBytes);
   const covered = await invoke('inspect-file', coveredPath);
   assert.equal(covered.title, 'Synthetic tone');
+  const plainPath = join(root, 'plain-reference.ncm');
+  await writeFile(plainPath, await readFile(new URL('fixtures/tone.ncm', import.meta.url)));
+  const plainInfo = await invoke('inspect-file', plainPath);
+  assert.deepEqual(covered.audio, plainInfo.audio, 'reserved artwork padding does not offset decrypted audio');
+  const coveredSource = await invoke('resolve-file', coveredPath);
+  const plainSource = await invoke('resolve-file', plainPath);
+  assert.deepEqual(Buffer.from(await (await fetch(coveredSource.source.url)).arrayBuffer()), Buffer.from(await (await fetch(plainSource.source.url)).arrayBuffer()));
   assert.equal(new URL(covered.coverUrl).hostname, '127.0.0.1');
   assert.deepEqual(Buffer.from(await (await fetch(covered.coverUrl)).arrayBuffer()), await readFile(new URL('fixtures/cover.png', import.meta.url)));
   await writeFile(coveredPath, coveredBytes.subarray(0, 20));

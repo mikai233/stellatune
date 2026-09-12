@@ -398,6 +398,7 @@ void main() {
             l10n: AppLocalizations.of(context)!,
             index: index,
             track: TrackLite(
+              isSegment: false,
               id: index + 1,
               path: 'test-$index.mp3',
               title: 'Track $index',
@@ -450,7 +451,12 @@ void main() {
           coverDir: 'missing-test-covers',
           items: List.generate(
             5,
-            (i) => TrackLite(id: i + 1, path: 'test-$i.mp3', title: 'Track $i'),
+            (i) => TrackLite(
+              isSegment: false,
+              id: i + 1,
+              path: 'test-$i.mp3',
+              title: 'Track $i',
+            ),
           ),
           likedTrackIds: const {},
           playlists: const [],

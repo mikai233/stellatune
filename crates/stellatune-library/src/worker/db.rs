@@ -9,6 +9,7 @@ use super::paths::{normalize_path_str, parent_dir_norm};
 
 pub(crate) async fn init_db(db_path: &Path) -> Result<SqlitePool> {
     let pool = connect_pool(db_path).await?;
+    check_schema(&pool).await?;
 
     ensure_fts5(&pool).await?;
 
@@ -26,6 +27,7 @@ pub(crate) async fn init_db(db_path: &Path) -> Result<SqlitePool> {
 
 pub(crate) async fn open_state_db_pool(db_path: &Path) -> Result<SqlitePool> {
     let pool = connect_pool(db_path).await?;
+    check_schema(&pool).await?;
 
     ensure_fts5(&pool).await?;
 
@@ -62,6 +64,35 @@ async fn backfill_artist_names(pool: &SqlitePool) -> Result<()> {
         }
         transaction.commit().await?;
     }
+}
+
+async fn check_schema(pool: &SqlitePool) -> Result<()> {
+    let exists: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='tracks'",
+    )
+    .fetch_one(pool)
+    .await?;
+    if exists == 0 {
+        return Ok(());
+    }
+    let marker: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='library_schema'",
+    )
+    .fetch_one(pool)
+    .await?;
+    let version = if marker == 0 {
+        None
+    } else {
+        sqlx::query_scalar::<_, i64>("SELECT version FROM library_schema")
+            .fetch_optional(pool)
+            .await?
+    };
+    if version != Some(2) {
+        anyhow::bail!(
+            "LIBRARY_REBUILD_REQUIRED: music library schema changed; explicitly rebuild the library and playback state"
+        );
+    }
+    Ok(())
 }
 
 async fn connect_pool(db_path: &Path) -> Result<SqlitePool> {

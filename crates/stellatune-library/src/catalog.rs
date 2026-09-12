@@ -5,6 +5,17 @@ use serde::{Deserialize, Serialize};
 mod local;
 pub use local::LocalCatalog;
 
+/// Local source identity and its optional audible sample interval.
+#[derive(Debug, Clone)]
+#[flutter_rust_bridge::frb(ignore)]
+pub struct LocalTrackResource {
+    pub path: String,
+    pub segment: Option<stellatune_audio_core::segment::AudioSegment>,
+    pub cover_key: i64,
+    pub pcm_bits: Option<u32>,
+    pub pcm_float: bool,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum MediaKind {
@@ -49,11 +60,36 @@ pub struct CatalogItem {
     #[serde(default)]
     pub local_track_id: Option<i64>,
     #[serde(default)]
+    pub local_cover_id: Option<i64>,
+    #[serde(default)]
+    pub is_segment: bool,
+    #[serde(default)]
+    pub audio: Option<CatalogAudioInfo>,
+    #[serde(default)]
     pub local_path: Option<String>,
     #[serde(default)]
     pub album_ref: Option<MediaRef>,
     #[serde(default)]
     pub artist_refs: Vec<MediaRef>,
+}
+
+/// Cached source properties; browsing never opens or decodes audio files.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogAudioInfo {
+    pub format: String,
+    pub codec: Option<String>,
+    pub sample_rate: Option<u32>,
+    pub bits_per_sample: Option<u32>,
+    pub floating_point: bool,
+    pub channels: Option<u32>,
+    pub bitrate: Option<stellatune_media_probe::BitrateInfo>,
+    pub cue_path: Option<String>,
+    pub start_frame: Option<i64>,
+    pub end_frame: Option<i64>,
+    pub disc_number: Option<i64>,
+    pub track_number: Option<i64>,
+    pub source_directory: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

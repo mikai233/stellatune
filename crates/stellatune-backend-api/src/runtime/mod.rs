@@ -20,6 +20,7 @@ mod local_probe;
 pub(crate) mod local_source;
 mod pipeline;
 mod plugin_manager;
+pub mod segment_wave;
 mod transcode_decoder;
 mod transcode_encoder;
 mod typescript_source;

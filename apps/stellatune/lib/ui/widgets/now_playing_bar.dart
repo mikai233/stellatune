@@ -35,6 +35,8 @@ class NowPlayingBar extends ConsumerWidget {
     final item = pending ?? queue.currentItem;
     final duration = pending != null
         ? pending.durationMs ?? 0
+        : item?.isSegment == true
+        ? item!.durationMs ?? 0
         : playback.trackInfo?.durationMs?.toInt() ?? item?.durationMs ?? 0;
     final position = pending != null ? 0 : playback.positionMs;
     final subtitle = [
@@ -63,7 +65,7 @@ class NowPlayingBar extends ConsumerWidget {
       subtitle: subtitle.isEmpty ? '让喜欢的音乐，陪伴此刻' : subtitle,
       cover: NowPlayingCover(
         coverDir: coverDir,
-        trackId: item?.id,
+        trackId: item?.coverId,
         cover: item?.cover,
         primaryColor: ArtworkPalette.of(context).accent,
         onTap: item == null ? null : details,
@@ -125,6 +127,7 @@ class NowPlayingBar extends ConsumerWidget {
               playback.currentPath != null) ...[
             const SizedBox(width: 12),
             AudioFormatBadge(
+              item: item?.catalogItem,
               path: playback.currentPath!,
               sampleRate: playback.trackInfo?.sampleRate,
             ),

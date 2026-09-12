@@ -176,10 +176,10 @@ pub(super) fn request_watch_refresh(actor_ref: &ActorHandle<WatchTaskActor>) {
 }
 
 fn is_audio_ext(ext: &str) -> bool {
-    matches!(ext, "mp3" | "flac" | "wav")
+    stellatune_media_probe::formats::auto_scan_extension(ext)
 }
 
-async fn apply_fs_changes(
+pub(super) async fn apply_fs_changes(
     pool: &SqlitePool,
     events: &Arc<EventHub>,
     cover_dir: &Path,
@@ -188,6 +188,48 @@ async fn apply_fs_changes(
     metadata_provider: &Option<Arc<dyn crate::metadata_provider::MetadataProvider>>,
 ) -> Result<bool> {
     let mut changed = false;
+
+    let mut cue_directories = std::collections::BTreeSet::new();
+    for path in &raw_paths {
+        let norm = normalize_path_str(path);
+        if let Some(parent) = parent_dir_norm(&norm) {
+            cue_directories.insert(parent);
+        }
+        // Directory removal events may omit the individual .cue files.
+        let prefix = format!("{norm}/");
+        let nested: Vec<String> =
+            sqlx::query_scalar("SELECT path FROM cue_documents WHERE substr(path,1,length(?))=?")
+                .bind(&prefix)
+                .bind(&prefix)
+                .fetch_all(pool)
+                .await?;
+        for cue in nested {
+            if let Some(parent) = parent_dir_norm(&cue) {
+                cue_directories.insert(parent);
+            }
+        }
+        let related: Vec<String> = sqlx::query_scalar(
+            "SELECT DISTINCT cue_path FROM tracks WHERE path_norm=? AND cue_path IS NOT NULL",
+        )
+        .bind(&norm)
+        .fetch_all(pool)
+        .await?;
+        for cue in related {
+            if let Some(parent) = parent_dir_norm(&cue) {
+                cue_directories.insert(parent);
+            }
+        }
+    }
+    changed |= super::cue_import::reconcile(
+        pool,
+        events,
+        cover_dir,
+        &cue_directories.into_iter().collect::<Vec<_>>(),
+        false,
+        false,
+        false,
+    )
+    .await?;
 
     for raw in raw_paths {
         let raw_trimmed = raw.trim();
@@ -202,6 +244,15 @@ async fn apply_fs_changes(
         }
 
         if fs::metadata(&path).ok().is_some_and(|m| m.is_dir()) {
+            changed |= super::scan::scan_folder_into_db(
+                pool.clone(),
+                events,
+                cover_dir,
+                &path_norm,
+                metadata_provider,
+                false,
+            )
+            .await?;
             continue;
         }
 
@@ -212,9 +263,15 @@ async fn apply_fs_changes(
 
         let meta = match fs::metadata(&path) {
             Ok(m) => m,
-            Err(_) => {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 let deleted = delete_track_by_path_norm(pool, cover_dir, &path_norm).await?;
                 changed |= deleted > 0;
+                continue;
+            },
+            Err(error) => {
+                events.emit(LibraryEvent::Log {
+                    message: format!("file inspection failed: {raw_trimmed}: {error}"),
+                });
                 continue;
             },
         };
@@ -231,6 +288,10 @@ async fn apply_fs_changes(
             continue;
         }
 
+        if super::cue_import::covered(pool, &path_norm).await? {
+            continue;
+        }
+
         let mtime_ms = meta
             .modified()
             .ok()
@@ -244,6 +305,8 @@ async fn apply_fs_changes(
             && old.size_bytes == size_bytes
             && old.meta_scanned_ms > 0
         {
+            changed |=
+                super::properties::refresh(pool, &path, metadata_provider, false, false).await?;
             continue;
         }
 
@@ -260,11 +323,13 @@ async fn apply_fs_changes(
             disc_number,
             track_number,
             artists,
+            file_metadata,
         ) = match tokio::task::spawn_blocking({
             let metadata_provider = metadata_provider.clone();
             let p = path.clone();
             move || {
                 extract_metadata_with_plugins(&p, &metadata_provider).map(|m| {
+                    let file_metadata = serde_json::to_string(&m).ok();
                     (
                         m.title,
                         m.artist,
@@ -275,6 +340,7 @@ async fn apply_fs_changes(
                         m.disc_number,
                         m.track_number,
                         m.artists,
+                        file_metadata,
                     )
                 })
             }
@@ -283,19 +349,26 @@ async fn apply_fs_changes(
         {
             Ok(Ok(m)) => m,
             Ok(Err(e)) => {
+                if e.is::<super::metadata::UnsupportedAudio>() {
+                    tracing::debug!(error = %e, "skipping unsupported audio stream");
+                    continue;
+                }
                 events.emit(LibraryEvent::Log {
                     message: format!("metadata error: {}: {e:#}", raw_trimmed),
                 });
-                (None, None, None, None, None, None, None, None, vec![])
+                (None, None, None, None, None, None, None, None, vec![], None)
             },
             Err(join_err) => {
                 events.emit(LibraryEvent::Log {
                     message: format!("metadata task failed: {}: {join_err}", raw_trimmed),
                 });
-                (None, None, None, None, None, None, None, None, vec![])
+                (None, None, None, None, None, None, None, None, vec![], None)
             },
         };
 
+        if !super::properties::matches(&path, mtime_ms, size_bytes) {
+            continue;
+        }
         let track_id = upsert_track_by_path_norm(
             pool,
             UpsertTrackInput {
@@ -318,8 +391,18 @@ async fn apply_fs_changes(
         )
         .await?;
 
+        super::tracks::cache_file_metadata(&pool, track_id, file_metadata.as_deref()).await?;
+        super::properties::refresh(pool, &path, metadata_provider, false, false).await?;
         if let Some(bytes) = cover
-            && let Err(e) = write_cover_bytes(cover_dir, track_id, &bytes)
+            && let Err(e) = write_cover_bytes(
+                cover_dir,
+                super::tracks::attributes(pool, &[track_id])
+                    .await?
+                    .get(&track_id)
+                    .map(|a| a.0)
+                    .unwrap_or(track_id),
+                &bytes,
+            )
         {
             events.emit(LibraryEvent::Log {
                 message: format!("cover write error: {}: {e}", raw_trimmed),

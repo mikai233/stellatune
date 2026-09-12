@@ -1,5 +1,7 @@
 import 'dart:math';
 
+import 'package:stellatune/library/catalog_bridge.dart';
+
 import 'package:flutter/material.dart';
 import 'package:stellatune/player/queue_models.dart';
 import 'package:stellatune/ui/widgets/audio_format_badge.dart';
@@ -22,6 +24,7 @@ class WideLayout extends StatelessWidget {
     required this.foregroundColor,
     this.currentPath,
     this.sampleRate,
+    this.catalogItem,
     required this.maxWidth,
     required this.maxHeight,
     required this.hasLyrics,
@@ -37,6 +40,7 @@ class WideLayout extends StatelessWidget {
   final Color foregroundColor;
   final String? currentPath;
   final int? sampleRate;
+  final CatalogItem? catalogItem;
   final double maxWidth;
   final double maxHeight;
   final bool hasLyrics;
@@ -154,6 +158,7 @@ class WideLayout extends StatelessWidget {
                                           AudioFormatBadge(
                                             path: currentPath!,
                                             sampleRate: sampleRate,
+                                            item: catalogItem,
                                           ),
                                           const SizedBox(width: 4),
                                         ],
@@ -230,6 +235,7 @@ class NarrowLayout extends StatelessWidget {
     required this.foregroundColor,
     this.currentPath,
     this.sampleRate,
+    this.catalogItem,
     required this.maxHeight,
     required this.hasLyrics,
   });
@@ -244,6 +250,7 @@ class NarrowLayout extends StatelessWidget {
   final Color foregroundColor;
   final String? currentPath;
   final int? sampleRate;
+  final CatalogItem? catalogItem;
   final double maxHeight;
   final bool hasLyrics;
 
@@ -334,6 +341,7 @@ class NarrowLayout extends StatelessWidget {
                               AudioFormatBadge(
                                 path: currentPath!,
                                 sampleRate: sampleRate,
+                                item: catalogItem,
                               ),
                               const SizedBox(width: 4),
                             ],

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:stellatune/ui/widgets/app_select.dart';
@@ -17,6 +18,9 @@ import 'package:stellatune/ui/theme/artwork_palette.dart';
 
 import 'catalog_folder_view.dart';
 import 'catalog_widgets.dart';
+import 'catalog_audio_label.dart';
+
+import 'package:stellatune/library/album_sources.dart';
 
 class CatalogLibraryView extends ConsumerStatefulWidget {
   const CatalogLibraryView({
@@ -125,8 +129,8 @@ class _CatalogLibraryViewState extends ConsumerState<CatalogLibraryView> {
           state.error == null;
       final rows = enqueue && item != null
           ? [item]
-          : item != null && completeView
-          ? state.items
+          : completeView && (item != null || state.isLocalAlbum)
+          ? ref.read(catalogVisibleItemsProvider)
           : await _bridge.collect(
               CatalogQuery(
                 sourceInstanceId: state.sourceId!,
@@ -139,7 +143,19 @@ class _CatalogLibraryViewState extends ConsumerState<CatalogLibraryView> {
               requestId,
             );
       if (!mounted || generation != _actionGeneration) return;
-      final ordered = state.trackSort.apply(rows);
+      // Playback always snapshots the selected source, including when a remote
+      // collection fetch was needed. Changing the selector never mutates it.
+      var playable = rows;
+      if (state.isLocalAlbum &&
+          !(enqueue && item != null) &&
+          ref.read(catalogSelectedAlbumSourceProvider) != null) {
+        final selected = ref.read(catalogSelectedAlbumSourceProvider);
+        final groups = albumSources(rows);
+        playable =
+            groups.where((s) => s.id == selected?.id).firstOrNull?.items ?? [];
+      }
+      final ordered = state.trackSort.apply(playable);
+      if (ordered.isEmpty) return;
       final startIndex = item == null || enqueue
           ? 0
           : ordered.indexWhere((row) => row.reference == item.reference);
@@ -238,9 +254,30 @@ class _CatalogLibraryViewState extends ConsumerState<CatalogLibraryView> {
     ref
         .read(catalogControllerProvider.notifier)
         .open(
-          CatalogItem(reference: reference, title: title, artistRefs: const []),
+          CatalogItem(
+            isSegment: false,
+            reference: reference,
+            title: title,
+            artistRefs: const [],
+          ),
           replacePath: true,
         );
+  }
+
+  void _openTrackAlbum(CatalogItem item) {
+    final album = item.albumRef!;
+    final sources = albumSources([item]);
+    if (sources.isNotEmpty) {
+      unawaited(
+        ref
+            .read(albumSourcePreferencesProvider.notifier)
+            .select(
+              jsonEncode([album.sourceInstanceId, album.id]),
+              sources.single.id,
+            ),
+      );
+    }
+    _openRelated(album, item.album ?? '');
   }
 
   @override
@@ -499,6 +536,9 @@ class _CatalogLibraryViewState extends ConsumerState<CatalogLibraryView> {
 
   Widget _content(CatalogState state, {bool showDetail = true}) {
     final l = context.catalogL10n;
+    final visible = ref.watch(catalogVisibleItemsProvider);
+    final sources = ref.watch(catalogAlbumSourcesProvider);
+    final selectedSource = ref.watch(catalogSelectedAlbumSourceProvider);
     final numberWidth = state.kind == MediaKind.track
         ? catalogTrackNumberWidth(
             context,
@@ -512,8 +552,9 @@ class _CatalogLibraryViewState extends ConsumerState<CatalogLibraryView> {
         state.kind == MediaKind.album || state.kind == MediaKind.artist;
     final grid =
         grouped && (ref.read(_catalogGridPreferences)[state.kind] ?? true);
-    final count =
-        state.total ?? (state.nextCursor == null ? state.items.length : null);
+    final count = state.isLocalAlbum
+        ? visible.length
+        : state.total ?? (state.nextCursor == null ? state.items.length : null);
     final label = count == null
         ? l.catalogLoadedCount(state.items.length)
         : switch (state.kind) {
@@ -552,7 +593,10 @@ class _CatalogLibraryViewState extends ConsumerState<CatalogLibraryView> {
                   icon: const Icon(Icons.arrow_back, size: 19),
                 ),
                 const SizedBox(width: 12),
-                CatalogArtwork(item: state.parent!, size: 64),
+                CatalogArtwork(
+                  item: selectedSource?.items.first ?? state.parent!,
+                  size: 64,
+                ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
@@ -593,6 +637,54 @@ class _CatalogLibraryViewState extends ConsumerState<CatalogLibraryView> {
               ],
             ),
           ),
+        if (selectedSource != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 4),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: sources.length == 1
+                  ? Text(
+                      selectedSource.specification(
+                        chinese:
+                            Localizations.localeOf(context).languageCode ==
+                            'zh',
+                      ),
+                      style: Theme.of(context).textTheme.bodySmall,
+                    )
+                  : AppSelect<String>(
+                      key: const ValueKey('album-source-selector'),
+                      value: selectedSource.id,
+                      width: 480,
+                      menuWidth: 640,
+                      height: 36,
+                      filled: false,
+                      semanticLabel: tr('音源版本', 'Album source'),
+                      items: [
+                        for (final source in sources)
+                          DropdownMenuItem(
+                            value: source.id,
+                            child: Tooltip(
+                              message: source.directory,
+                              child: Text(
+                                '${source.specification(chinese: Localizations.localeOf(context).languageCode == 'zh')} · ${source.items.length} ${tr('首', 'tracks')} · ${source.locationLabel(sources)}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ),
+                      ],
+                      onChanged: state.loading || state.loadingMore
+                          ? null
+                          : (id) {
+                              if (id == null) return;
+                              _cancel();
+                              ref
+                                  .read(albumSourcePreferencesProvider.notifier)
+                                  .select(state.albumPreferenceKey, id);
+                            },
+                    ),
+            ),
+          ),
         if (state.search.isNotEmpty)
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -623,7 +715,8 @@ class _CatalogLibraryViewState extends ConsumerState<CatalogLibraryView> {
                       ? _cancel
                       : state.source?.available == true &&
                             !state.loading &&
-                            state.items.isNotEmpty
+                            !state.loadingMore &&
+                            visible.isNotEmpty
                       ? () => _play()
                       : null,
                   icon: Container(
@@ -718,9 +811,12 @@ class _CatalogLibraryViewState extends ConsumerState<CatalogLibraryView> {
           ),
         Expanded(
           child: CatalogItemsView(
-            key: ValueKey('${state.locationKey}:$grid:${state.trackSort.key}'),
-            locationKey: '${state.locationKey}:$grid:${state.trackSort.key}',
-            items: ref.watch(catalogVisibleItemsProvider),
+            key: ValueKey(
+              '${state.locationKey}:$grid:${state.trackSort.key}:${selectedSource?.id}',
+            ),
+            locationKey:
+                '${state.locationKey}:$grid:${state.trackSort.key}:${selectedSource?.id}',
+            items: visible,
             grid: grid,
             itemExtent: state.kind == MediaKind.track ? 48 : null,
             footer: _footer(state),
@@ -749,7 +845,7 @@ class _CatalogLibraryViewState extends ConsumerState<CatalogLibraryView> {
                           item.albumRef?.kind == MediaKind.album &&
                           item.albumRef?.sourceInstanceId ==
                               item.reference.sourceInstanceId
-                      ? () => _openRelated(item.albumRef!, item.album ?? '')
+                      ? () => _openTrackAlbum(item)
                       : null,
                   actions: _trackActions(
                     item,
@@ -819,6 +915,10 @@ class _CatalogLibraryViewState extends ConsumerState<CatalogLibraryView> {
               padding: EdgeInsets.zero,
               icon: const Icon(Icons.more_vert, size: 18),
               onSelected: (value) {
+                if (value == 'info') {
+                  showCatalogTrackInfo(context, item);
+                  return;
+                }
                 if (value == 'enqueue') {
                   _play(item: item, enqueue: true);
                   return;
@@ -839,6 +939,10 @@ class _CatalogLibraryViewState extends ConsumerState<CatalogLibraryView> {
                 }
               },
               itemBuilder: (_) => [
+                PopupMenuItem(
+                  value: 'info',
+                  child: Text(tr('曲目信息', 'Track information')),
+                ),
                 PopupMenuItem(
                   value: 'enqueue',
                   child: Text(l.catalogAddToQueue),

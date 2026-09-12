@@ -80,6 +80,17 @@ impl Handler<PreparationCompleted> for PlaybackActor {
             },
             PreparationPurpose::Next => match prepared.result {
                 Ok(prepared) => {
+                    if let Some(current) = self.session.current.as_mut() {
+                        current.transition = if current
+                            .recovery_plan
+                            .item
+                            .is_contiguous_with(&prepared.plan.item)
+                        {
+                            crate::planner::TransitionPolicy::Gapless
+                        } else {
+                            current.recovery_plan.policies.transition
+                        };
+                    }
                     self.session.next.clear();
                     self.session.next = NextTrack::Ready(Box::new(prepared));
                     response = self.apply_advance(&mut state);

@@ -157,16 +157,16 @@ impl PlayerService {
         Ok(state)
     }
 
-    pub async fn local_path_for_item(
+    pub async fn local_resource_for_item(
         &self,
         item_id: PlaybackItemId,
-    ) -> Result<Option<PathBuf>, PlayerServiceError> {
+    ) -> Result<Option<stellatune_library::catalog::LocalTrackResource>, PlayerServiceError> {
         let track_id = self.catalog.track_for_item(item_id).await?;
         let track = self.catalog.track(track_id).await?;
         match track.origin {
             TrackOrigin::LocalLibrary { library_track_id } => self
                 .local_resolver
-                .resolve_path(library_track_id)
+                .resolve_resource(library_track_id)
                 .await
                 .map(Some),
             TrackOrigin::Provider(_) => Ok(None),
@@ -205,16 +205,26 @@ impl PlayerService {
         if source.tombstoned {
             return Err(PlayerServiceError::SourceUnavailable(track.source));
         }
-        let (spec, required_decoder) = match track.origin {
+        let (spec, required_decoder, segment) = match track.origin {
             TrackOrigin::LocalLibrary { library_track_id } => {
-                let path = self.local_resolver.resolve_path(library_track_id).await?;
-                (self.resolver_factory.resolve_local(path).await?, None)
+                let resource = self
+                    .local_resolver
+                    .resolve_resource(library_track_id)
+                    .await?;
+                (
+                    self.resolver_factory
+                        .resolve_local(PathBuf::from(resource.path))
+                        .await?,
+                    None,
+                    resource.segment,
+                )
             },
             TrackOrigin::Provider(key) => {
                 let resolver = self.resolver_for_source(&source).await?;
                 (
                     resolver.resolve(&source, &key).await?,
                     resolver.required_decoder(),
+                    None,
                 )
             },
         };
@@ -222,6 +232,7 @@ impl PlayerService {
             id: item_id,
             source: materialize_source(spec)?,
             required_decoder,
+            segment,
         })
     }
 

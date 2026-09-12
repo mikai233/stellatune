@@ -1,9 +1,11 @@
+mod cue_import;
 pub(crate) mod db;
 mod fts;
 mod metadata;
 pub(crate) mod paths;
+mod properties;
 mod scan;
-mod tracks;
+pub(crate) mod tracks;
 mod tracks_by_ids;
 mod watch;
 
@@ -310,7 +312,7 @@ impl LibraryWorker {
             }
         };
 
-        let items = rows
+        let mut items = rows
             .into_iter()
             .map(|row| TrackLite {
                 id: row.id,
@@ -319,9 +321,12 @@ impl LibraryWorker {
                 artist: row.artist,
                 album: row.album,
                 duration_ms: row.duration_ms,
+                cover_id: None,
+                is_segment: false,
             })
             .collect::<Vec<_>>();
 
+        tracks::decorate(&self.pool, &mut items).await?;
         Ok(items)
     }
 
@@ -352,7 +357,7 @@ impl LibraryWorker {
         .fetch_all(&self.pool)
         .await?;
 
-        let items = rows
+        let mut items = rows
             .into_iter()
             .map(|row| PlaylistLite {
                 id: row.id,
@@ -360,9 +365,22 @@ impl LibraryWorker {
                 system_key: row.system_key,
                 track_count: row.track_count,
                 first_track_id: row.first_track_id,
+                first_cover_id: None,
             })
             .collect::<Vec<_>>();
-
+        let covers = tracks::attributes(
+            &self.pool,
+            &items
+                .iter()
+                .filter_map(|p| p.first_track_id)
+                .collect::<Vec<_>>(),
+        )
+        .await?;
+        for playlist in &mut items {
+            playlist.first_cover_id = playlist
+                .first_track_id
+                .and_then(|id| covers.get(&id).map(|v| v.0));
+        }
         Ok(items)
     }
 
@@ -480,7 +498,7 @@ impl LibraryWorker {
             .context("list playlist tracks with fts failed")?
         };
 
-        let items = rows
+        let mut items = rows
             .into_iter()
             .map(|row| TrackLite {
                 id: row.id,
@@ -489,9 +507,12 @@ impl LibraryWorker {
                 artist: row.artist,
                 album: row.album,
                 duration_ms: row.duration_ms,
+                cover_id: None,
+                is_segment: false,
             })
             .collect::<Vec<_>>();
 
+        tracks::decorate(&self.pool, &mut items).await?;
         Ok(items)
     }
 
@@ -914,8 +935,15 @@ impl LibraryWorker {
         let cover_dir = self.cover_dir.clone();
         let metadata_provider = self.metadata_provider.clone();
         tokio::spawn(async move {
-            match scan::scan_folder_into_db(pool, &events, &cover_dir, &folder, &metadata_provider)
-                .await
+            match scan::scan_folder_into_db(
+                pool,
+                &events,
+                &cover_dir,
+                &folder,
+                &metadata_provider,
+                true,
+            )
+            .await
             {
                 Ok(true) => events.emit(LibraryEvent::Changed),
                 Ok(false) => {},
@@ -987,7 +1015,7 @@ impl LibraryWorker {
             .with_context(|| format!("fts query failed: {fts}"))?
         };
 
-        let items = rows
+        let mut items = rows
             .into_iter()
             .map(|row| TrackLite {
                 id: row.id,
@@ -996,9 +1024,12 @@ impl LibraryWorker {
                 artist: row.artist,
                 album: row.album,
                 duration_ms: row.duration_ms,
+                cover_id: None,
+                is_segment: false,
             })
             .collect::<Vec<_>>();
 
+        tracks::decorate(&self.pool, &mut items).await?;
         Ok(items)
     }
 
@@ -1015,13 +1046,19 @@ impl LibraryWorker {
         .fetch_optional(&self.pool)
         .await
         .context("query track by id failed")?;
-        Ok(row.map(|row| TrackLite {
+        let mut track = row.map(|row| TrackLite {
             id: row.id,
             path: row.path,
             title: row.title,
             artist: row.artist,
             album: row.album,
             duration_ms: row.duration_ms,
-        }))
+            cover_id: None,
+            is_segment: false,
+        });
+        if let Some(track) = track.as_mut() {
+            tracks::decorate(&self.pool, std::slice::from_mut(track)).await?;
+        }
+        Ok(track)
     }
 }

@@ -24,6 +24,7 @@ CatalogItem item(
   String id, {
   MediaKind kind = MediaKind.track,
 }) => CatalogItem(
+  isSegment: false,
   reference: MediaRef(sourceInstanceId: source, kind: kind, id: id),
   title: id,
   artistRefs: const [],

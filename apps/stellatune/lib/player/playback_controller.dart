@@ -139,7 +139,9 @@ class PlaybackController extends Notifier<PlaybackState> {
   void _onBackendQueue(PlaybackQueue snapshot) {
     if (!ref.mounted || _dlnaActive) return;
     final output = _outputGeneration;
-    ref.read(queueControllerProvider.notifier).applyBackend(snapshot);
+    ref
+        .read(queueControllerProvider.notifier)
+        .applyBackend(snapshot, observedCurrentItemId: _activePositionItemId);
     _syncCurrentPathFromQueue();
     final paths = ref
         .read(queueControllerProvider)
@@ -163,7 +165,7 @@ class PlaybackController extends Notifier<PlaybackState> {
     }());
   }
 
-  Future<void> _refreshBackendQueue({BigInt? currentItemId}) async {
+  Future<void> _refreshBackendQueue() async {
     if (!ref.mounted || _dlnaActive) return;
     final output = _outputGeneration;
     try {
@@ -172,12 +174,11 @@ class PlaybackController extends Notifier<PlaybackState> {
       if (!_isLocalOutput(output)) return;
       ref
           .read(queueControllerProvider.notifier)
-          .applyBackend(snapshot, preserveCurrent: true);
-      if (currentItemId != null && _activePositionItemId == currentItemId) {
-        ref
-            .read(queueControllerProvider.notifier)
-            .observeCurrent(currentItemId);
-      }
+          .applyBackend(
+            snapshot,
+            preserveCurrent: true,
+            observedCurrentItemId: _activePositionItemId,
+          );
       _syncCurrentPathFromQueue();
       final items = ref.read(queueControllerProvider).items;
       await bridge.retainQueuePaths(items.map((item) => item.path));
@@ -254,8 +255,12 @@ class PlaybackController extends Notifier<PlaybackState> {
         current.trackId != _currentTrackId) {
       return;
     }
-    if (state.currentPath != current.path) {
-      state = state.copyWith(currentPath: current.path);
+    final pendingConfirmed = state.pendingItem?.itemId == current.itemId;
+    if (state.currentPath != current.path || pendingConfirmed) {
+      state = state.copyWith(
+        currentPath: current.path,
+        pendingItem: pendingConfirmed ? null : state.pendingItem,
+      );
     }
   }
 
@@ -333,8 +338,8 @@ class PlaybackController extends Notifier<PlaybackState> {
             positionMs: update.positionMs,
           );
           if (update.advance &&
-              ref.read(queueControllerProvider).currentItem?.path ==
-                  update.path) {
+              ref.read(queueControllerProvider).currentItem?.stableTrackKey ==
+                  update.trackKey) {
             unawaited(next(auto: true));
           }
         },
@@ -380,7 +385,7 @@ class PlaybackController extends Notifier<PlaybackState> {
     int startIndex = 0,
     QueueSource? source,
   }) => setQueueAndPlayTracks(
-    paths.map((p) => TrackLite(id: -1, path: p)).toList(),
+    paths.map((p) => TrackLite(isSegment: false, id: -1, path: p)).toList(),
     startIndex: startIndex,
     source: source,
   );
@@ -501,8 +506,9 @@ class PlaybackController extends Notifier<PlaybackState> {
   Future<void> enqueueTracks(List<TrackLite> tracks) =>
       enqueueItems(PlaybackResumeQueueUtils.buildLocalQueueItems(tracks));
 
-  Future<void> enqueue(List<String> paths) =>
-      enqueueTracks(paths.map((p) => TrackLite(id: -1, path: p)).toList());
+  Future<void> enqueue(List<String> paths) => enqueueTracks(
+    paths.map((p) => TrackLite(isSegment: false, id: -1, path: p)).toList(),
+  );
 
   Future<void> playIndex(int index) async {
     _dlnaSession?.suppressAutoNext();
@@ -595,7 +601,7 @@ class PlaybackController extends Notifier<PlaybackState> {
     final generation = _outputGeneration;
     final item = ref.read(queueControllerProvider).currentItem;
     if (session == null || item == null) return;
-    if (session.path != item.path) {
+    if (session.trackKey != item.stableTrackKey) {
       await _loadQueueItemOrStop(item);
       return;
     }
@@ -1077,7 +1083,8 @@ class PlaybackController extends Notifier<PlaybackState> {
         state = state.copyWith(playerState: s);
       },
       position: (ms, trackId, itemId, sessionId) {
-        if (_currentTrackId != null && trackId != _currentTrackId) {
+        if (_currentTrackId != null &&
+            (trackId != _currentTrackId || itemId != _activePositionItemId)) {
           return;
         }
         if (_activePositionItemId == null || _activePositionItemId != itemId) {
@@ -1096,9 +1103,8 @@ class PlaybackController extends Notifier<PlaybackState> {
       },
       trackChanged: (trackId, itemId) {
         _backendEventGeneration++;
-        if (state.pendingItem?.itemId == itemId) {
-          state = state.copyWith(pendingItem: null);
-        }
+        // Keep pending presentation until the queue contains the confirmed item.
+        // Clearing it before observeCurrent briefly exposes the previous cover.
         ref.read(queueControllerProvider.notifier).observeCurrent(itemId);
         _currentTrackId = trackId;
         _activePositionItemId = itemId;
@@ -1111,7 +1117,7 @@ class PlaybackController extends Notifier<PlaybackState> {
         );
         _syncCurrentPathFromQueue();
         unawaited(_updateTrackInfo());
-        unawaited(_refreshBackendQueue(currentItemId: itemId));
+        unawaited(_refreshBackendQueue());
       },
       playbackEnded: (trackId, itemId) {
         _backendEventGeneration++;

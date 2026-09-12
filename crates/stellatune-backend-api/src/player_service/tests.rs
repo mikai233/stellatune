@@ -50,7 +50,10 @@ struct UnusedLocalResolver;
 
 #[async_trait]
 impl LocalTrackResolver for UnusedLocalResolver {
-    async fn resolve_path(&self, _library_track_id: i64) -> Result<PathBuf, PlayerServiceError> {
+    async fn resolve_resource(
+        &self,
+        _library_track_id: i64,
+    ) -> Result<stellatune_library::catalog::LocalTrackResource, PlayerServiceError> {
         Err(PlayerServiceError::LocalTrackNotFound(0))
     }
 }
@@ -62,9 +65,18 @@ struct FileLocalResolver {
 
 #[async_trait]
 impl LocalTrackResolver for FileLocalResolver {
-    async fn resolve_path(&self, _library_track_id: i64) -> Result<PathBuf, PlayerServiceError> {
+    async fn resolve_resource(
+        &self,
+        _library_track_id: i64,
+    ) -> Result<stellatune_library::catalog::LocalTrackResource, PlayerServiceError> {
         self.resolves.fetch_add(1, Ordering::SeqCst);
-        Ok(self.path.clone())
+        Ok(stellatune_library::catalog::LocalTrackResource {
+            path: self.path.to_string_lossy().into_owned(),
+            segment: None,
+            cover_key: 0,
+            pcm_bits: None,
+            pcm_float: false,
+        })
     }
 }
 

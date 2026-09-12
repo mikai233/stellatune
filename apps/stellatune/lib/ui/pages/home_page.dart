@@ -77,7 +77,7 @@ class HomePage extends ConsumerWidget {
                           .artwork[i % HomePlaceholders.artwork.length],
                       coverPath: continueListening[i].item.id == null
                           ? null
-                          : '$coverDir${Platform.pathSeparator}${continueListening[i].item.id}',
+                          : '$coverDir${Platform.pathSeparator}${continueListening[i].item.coverId}',
                     ),
                 ],
           recentlyAdded: recentlyAdded.isEmpty
@@ -90,7 +90,7 @@ class HomePage extends ConsumerWidget {
                       artwork: HomePlaceholders
                           .artwork[i % HomePlaceholders.artwork.length],
                       coverPath:
-                          '$coverDir${Platform.pathSeparator}${recentlyAdded[i].id}',
+                          '$coverDir${Platform.pathSeparator}${recentlyAdded[i].coverId ?? recentlyAdded[i].id}',
                     ),
                 ],
         ),
@@ -159,7 +159,9 @@ class HomePage extends ConsumerWidget {
     final heroDurationMs =
         (currentItem == null ? null : durationMs) ??
         fallbackTrack?.durationMs?.toInt();
-    final heroTrackId = currentItem?.id ?? fallbackTrack?.id.toInt();
+    final heroTrackId =
+        currentItem?.coverId ??
+        (fallbackTrack?.coverId ?? fallbackTrack?.id)?.toInt();
     final hasAnyMusic = queue.items.isNotEmpty || recentlyAdded.isNotEmpty;
 
     return Stack(
@@ -268,7 +270,7 @@ class HomePage extends ConsumerWidget {
                       ),
                       child: HomeContinueListeningSquareCard(
                         size: 178,
-                        trackId: row.item.id,
+                        trackId: row.item.coverId,
                         coverDir: coverDir,
                         title: row.item.displayTitle,
                         subtitle: _subtitle(
@@ -315,7 +317,7 @@ class HomePage extends ConsumerWidget {
                       childKey: ValueKey<String>('recent-${track.id}-$index'),
                       child: HomeContinueListeningSquareCard(
                         size: 178,
-                        trackId: track.id.toInt(),
+                        trackId: (track.coverId ?? track.id).toInt(),
                         coverDir: coverDir,
                         title: _trackTitle(track, l10n),
                         subtitle: _subtitle(track.artist, track.album, l10n),

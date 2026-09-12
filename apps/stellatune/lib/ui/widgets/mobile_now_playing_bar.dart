@@ -36,7 +36,9 @@ class MobileNowPlayingBar extends ConsumerWidget {
     final isPlaying =
         playback.playerState == PlayerState.playing ||
         playback.playerState == PlayerState.buffering;
-    final totalDurationMs = playback.trackInfo?.durationMs?.toInt();
+    final totalDurationMs = queue.currentItem?.isSegment == true
+        ? queue.currentItem?.durationMs
+        : playback.trackInfo?.durationMs?.toInt();
     final progressEnabled =
         queue.currentItem != null &&
         playback.currentPath != null &&
@@ -139,7 +141,7 @@ class _MobileNowPlayingCover extends StatelessWidget {
       padding: const EdgeInsets.all(4),
       child: NowPlayingCover(
         coverDir: coverDir,
-        trackId: currentItem?.id,
+        trackId: currentItem?.coverId,
         cover: currentItem?.cover,
         primaryColor: theme.colorScheme.primary,
         onTap: currentItem != null ? onOpenDetail : null,

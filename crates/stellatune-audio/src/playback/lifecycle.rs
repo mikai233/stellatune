@@ -110,13 +110,13 @@ pub(super) fn finish_seek(
         return;
     };
     current.pipeline.decoded_frame = result.actual_frame;
-    let audible_frame = MediaTime::from_frames(
+    let audible_frame = stellatune_audio_core::playback::rescale_frames(
         result
             .actual_frame
             .saturating_sub(current.pipeline.trim_head_frames),
         current.pipeline.decoded_format.sample_rate,
-    )
-    .to_frames(current.pipeline.mix_format.sample_rate);
+        current.pipeline.mix_format.sample_rate,
+    );
     current.pipeline.produced_audible_frame = audible_frame;
     current.position_base_frame = audible_frame;
     current.last_reported_position_frame = audible_frame;

@@ -12,6 +12,7 @@ void main() {
     var section = LibrarySection.albums;
     final results = ValueNotifier<List<TrackLite>>([
       TrackLite(
+        isSegment: false,
         id: 1,
         path: 'old.mp3',
         album: 'Old album',
@@ -47,6 +48,7 @@ void main() {
     await tester.pumpAndSettle();
     results.value = [
       TrackLite(
+        isSegment: false,
         id: 2,
         path: 'new.mp3',
         album: 'New album',
@@ -71,6 +73,7 @@ void main() {
         final tracks = [
           for (var i = 0; i < 300; i++)
             TrackLite(
+              isSegment: false,
               id: i,
               path: '$i.mp3',
               title: 'Song $i',
@@ -184,6 +187,7 @@ void main() {
                   tracks: [
                     for (var i = 0; i < 100; i++)
                       TrackLite(
+                        isSegment: false,
                         id: i,
                         path: '$i.flac',
                         title: 'Song $i',

@@ -1,5 +1,8 @@
 # Native media library browsing
 
+Album source selection and cached audio specifications are described in
+[album-sources.md](album-sources.md).
+
 The desktop Library page browses the complete local index or an explicitly
 selected plugin instance. Albums, artists and folders are backend queries;
 loading a page never registers its songs in the playback catalog. Playlists
@@ -200,6 +203,10 @@ unchanged. Folder playback includes direct songs only. Source references are
 retained with the queue's presentation label.
 
 ## Validation and next extensions
+
+External CUE tracks use a file/track identity split and sample-exact playback
+segments for local audio and DLNA virtual WAV publication. See [CUE support](cue.md)
+for the schema reset, import rules, playback boundaries and acceptance status.
 
 Local artist tags are split on `/`, `／`, `、`, commas, semicolons, pipes
 (including full-width forms), NUL and line breaks. Names are trimmed and

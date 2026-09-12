@@ -623,6 +623,72 @@ async fn gapless_reuses_sink_and_reports_consumed_boundary() {
 }
 
 #[tokio::test]
+async fn contiguous_segments_keep_every_sample_without_boundary_fades() {
+    use stellatune_audio_core::segment::AudioSegment;
+    use stellatune_audio_core::source::{
+        SourceDescriptor, SourceFactory, SourceOpenFuture, SourceOpenRequest,
+    };
+    struct Identified(Arc<dyn SourceFactory>);
+    impl SourceFactory for Identified {
+        fn resource_identity(&self) -> Option<&str> {
+            Some("one-audio-file")
+        }
+        fn descriptor(&self) -> SourceDescriptor {
+            self.0.descriptor()
+        }
+        fn open(&self, request: SourceOpenRequest) -> SourceOpenFuture<'_> {
+            self.0.open(request)
+        }
+    }
+    let samples = Arc::new(Mutex::new(Vec::new()));
+    let runtime = runtime(
+        TransitionPolicy::FadeOutIn {
+            fade_out_frames: 10,
+            fade_in_frames: 10,
+            curve: GainCurve::Linear,
+        },
+        Arc::clone(&samples),
+    );
+    let controller = runtime.controller();
+    let mut events = controller.subscribe_events();
+    let mut first = item(1, 80, 100);
+    first.source = Arc::new(Identified(first.source));
+    first.segment = Some(AudioSegment {
+        start_frame: 0,
+        end_frame_exclusive: 41,
+        sample_rate: 100,
+    });
+    let mut second = first.clone();
+    second.id = PlaybackItemId::new(2).unwrap();
+    second.segment = Some(AudioSegment {
+        start_frame: 41,
+        end_frame_exclusive: 80,
+        sample_rate: 100,
+    });
+    controller
+        .switch_to(
+            first,
+            SwitchOptions {
+                autoplay: false,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    controller.set_next(Some(second)).await.unwrap();
+    controller.play().await.unwrap();
+    wait_for_end(&mut events).await;
+    let output = samples.lock().unwrap().clone();
+    assert_eq!(output.len(), 80);
+    assert_eq!(
+        &output[30..52],
+        &[1.0; 22],
+        "adjacent CUE tracks must not fade or overlap"
+    );
+    runtime.shutdown().await.unwrap();
+}
+
+#[tokio::test]
 async fn fade_out_in_is_sequential_and_never_overlaps_track_pipelines() {
     let samples = Arc::new(Mutex::new(Vec::new()));
     let runtime = runtime(

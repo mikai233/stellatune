@@ -47,6 +47,48 @@ pub fn command(state: &Shared, base: &str, request: &Value) -> Result<Value> {
         ),
         "unsupported NCM operation"
     );
+    let metadata = std::fs::metadata(&path)?;
+    let mut audio = None;
+    let mut audio_probe_status = stellatune_media_probe::ProbeStatus::Unsupported;
+    if request["operation"] == "inspect-file" && request["skipAudio"] != true {
+        // Inspect the decrypted payload directly. No HTTP, temporary file or album-sized buffer.
+        let opened = NcmSource::open(&path);
+        if let Ok(mut source) = opened {
+            let hint = source.info.format.clone();
+            if let Ok(reader) = stellatune_media_probe::slice::AudioSlice::new(
+                &mut source.reader,
+                source.start,
+                source.length,
+            ) {
+                let result = stellatune_media_probe::probe(
+                    reader,
+                    Some(&hint),
+                    &std::sync::atomic::AtomicBool::new(false),
+                );
+                audio_probe_status = result.status;
+                audio = result.properties.map(|mut p| {
+                    p.format = Some("NCM".into());
+                    p
+                });
+            } else {
+                audio_probe_status = stellatune_media_probe::ProbeStatus::IoError;
+            }
+        } else if let Err(error) = opened {
+            audio_probe_status = if error.downcast_ref::<std::io::Error>().is_some() {
+                stellatune_media_probe::ProbeStatus::IoError
+            } else {
+                stellatune_media_probe::ProbeStatus::Invalid
+            };
+        }
+        if request["propertiesOnly"] == true {
+            let after = std::fs::metadata(&path)?;
+            ensure!(
+                metadata.len() == after.len() && metadata.modified()? == after.modified()?,
+                "NCM file changed during inspection"
+            );
+            return Ok(json!({ "audio": audio, "audioProbeStatus": audio_probe_status }));
+        }
+    }
     let (info, cover) = if request["operation"] == "inspect-file" {
         let container = NcmContainer::open(&path)?;
         (container.info, container.cover)
@@ -54,7 +96,11 @@ pub fn command(state: &Shared, base: &str, request: &Value) -> Result<Value> {
         let source = NcmSource::open(&path)?;
         (source.info, source.cover)
     };
-    let metadata = std::fs::metadata(&path)?;
+    let after = std::fs::metadata(&path)?;
+    ensure!(
+        metadata.len() == after.len() && metadata.modified()? == after.modified()?,
+        "NCM file changed during inspection"
+    );
     let mut state = state.lock().unwrap();
     let id = if let Some(id) = state.paths.get(&path).copied()
         && let Some(entry) = state.entries.get(&id)
@@ -82,6 +128,8 @@ pub fn command(state: &Shared, base: &str, request: &Value) -> Result<Value> {
 
     match request["operation"].as_str() {
         Some("inspect-file") => Ok(json!({
+            "audio": audio,
+            "audioProbeStatus": audio_probe_status,
             "title": info.name,
             "artist": info.artist.iter().map(|row| row.0.as_str()).collect::<Vec<_>>().join(" / "),
             "album": info.album,
@@ -250,6 +298,67 @@ fn parse_range(value: &str, length: u64) -> Option<(u64, u64)> {
 #[cfg(test)]
 mod tests {
     use super::parse_range;
+    #[test]
+    #[ignore = "Read-only user supplied NCM file"]
+    fn real_ncm_properties() {
+        let path = std::env::var("STELLATUNE_NCM_AUDIT").unwrap();
+        let state = std::sync::Arc::new(std::sync::Mutex::new(super::Sources::default()));
+        let result = super::command(
+            &state,
+            "http://127.0.0.1",
+            &serde_json::json!({"operation":"inspect-file","path":path,"propertiesOnly":true}),
+        )
+        .unwrap();
+        println!("{path}: {result}");
+        assert_eq!(result["audioProbeStatus"], "ready");
+        assert!(result["audio"]["bitrate"]["bps"].as_u64().unwrap() > 0);
+        assert!(state.lock().unwrap().entries.is_empty());
+    }
+    #[test]
+    fn ncm_properties_match_plain_payload_without_creating_files() {
+        use std::io::Read;
+        for name in ["tone.ncm", "tone-mp3.ncm", "tone-cover.ncm"] {
+            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../tests/fixtures")
+                .join(name);
+            let original = std::fs::read(&path).unwrap();
+            let mut source = crate::ncm::NcmSource::open(&path).unwrap();
+            let mut slice = stellatune_media_probe::slice::AudioSlice::new(
+                &mut source.reader,
+                source.start,
+                source.length,
+            )
+            .unwrap();
+            let mut payload = Vec::new();
+            slice.read_to_end(&mut payload).unwrap();
+            let plain = stellatune_media_probe::probe(
+                std::io::Cursor::new(payload),
+                None,
+                &std::sync::atomic::AtomicBool::new(false),
+            )
+            .properties
+            .unwrap();
+            let state = std::sync::Arc::new(std::sync::Mutex::new(super::Sources::default()));
+            let result = super::command(
+                &state,
+                "http://127.0.0.1",
+                &serde_json::json!({"operation":"inspect-file","path":path,"propertiesOnly":true}),
+            )
+            .unwrap();
+            let audio: stellatune_media_probe::AudioProperties =
+                serde_json::from_value(result["audio"].clone()).unwrap();
+            assert_eq!(audio.format.as_deref(), Some("NCM"));
+            assert_eq!(audio.codec, plain.codec);
+            assert_eq!(audio.bitrate, plain.bitrate);
+            assert_eq!(audio.sample_rate, plain.sample_rate);
+            assert_eq!(audio.bits_per_sample, plain.bits_per_sample);
+            assert!(
+                state.lock().unwrap().entries.is_empty(),
+                "property requests must not publish HTTP resources"
+            );
+            assert_eq!(std::fs::read(&path).unwrap(), original);
+        }
+    }
     #[test]
     fn byte_ranges_cover_bounded_open_suffix_and_invalid_requests() {
         assert_eq!(parse_range("bytes=3-7", 10), Some((3, 7)));

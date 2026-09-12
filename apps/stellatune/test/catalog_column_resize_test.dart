@@ -80,6 +80,7 @@ void main() {
                     onPlay: () {},
                     actions: const SizedBox(),
                     item: const CatalogItem(
+                      isSegment: false,
                       reference: MediaRef(
                         sourceInstanceId: '1',
                         kind: MediaKind.track,
@@ -204,6 +205,7 @@ void main() {
                   CatalogTrackRow(
                     numberWidth: 52,
                     item: const CatalogItem(
+                      isSegment: false,
                       reference: MediaRef(
                         sourceInstanceId: '1',
                         kind: MediaKind.track,

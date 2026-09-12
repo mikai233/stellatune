@@ -15,6 +15,7 @@ class TreeBridge extends CatalogBridge {
 }
 
 CatalogItem folder(String id) => CatalogItem(
+  isSegment: false,
   reference: MediaRef(sourceInstanceId: 'a', kind: MediaKind.folder, id: id),
   title: id,
   artistRefs: const [],

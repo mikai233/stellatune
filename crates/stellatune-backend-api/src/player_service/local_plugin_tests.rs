@@ -155,7 +155,11 @@ async fn exercise_local_plugin(path: PathBuf, expected_frames: Option<u64>) {
     drop(plan);
 
     assert_eq!(
-        service.local_path_for_item(item).await.unwrap(),
+        service
+            .local_resource_for_item(item)
+            .await
+            .unwrap()
+            .map(|resource| PathBuf::from(resource.path)),
         Some(path.clone())
     );
     {

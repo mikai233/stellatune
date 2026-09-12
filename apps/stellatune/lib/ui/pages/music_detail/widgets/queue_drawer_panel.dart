@@ -245,7 +245,7 @@ class _QueueListState extends State<_QueueList> {
                   children: [
                     _QueueCover(
                       coverDir: widget.coverDir,
-                      trackId: item.id,
+                      trackId: item.coverId,
                       cover: item.cover,
                       highPriority: selected,
                       deferMs: selected ? 0 : 40 + (i % 7) * 18,

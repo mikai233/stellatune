@@ -225,7 +225,12 @@ impl MediaCatalogService {
                     .iter()
                     .any(|c| c.kind == TypeScriptCapabilityKind::MediaLibrary)
             {
-                if plugin.manifest.capabilities.iter().any(|c|c.kind==TypeScriptCapabilityKind::SourceResolver) {
+                if plugin
+                    .manifest
+                    .capabilities
+                    .iter()
+                    .any(|c| c.kind == TypeScriptCapabilityKind::SourceResolver)
+                {
                     sources.push(LibrarySource {id:format!("upgrade:{}",plugin.manifest.id),name:plugin.manifest.name.clone(),local:false,available:false,error:Some("Update this source plugin to media-library protocol 1 for native browsing".into()),browse_kinds:vec![],search_kinds:vec![],sorts:vec![]});
                 }
             }

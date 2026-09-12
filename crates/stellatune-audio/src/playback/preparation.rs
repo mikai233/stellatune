@@ -134,6 +134,11 @@ async fn prepare_track(
                 cancellation: cancellation.clone(),
                 deadline,
             });
+            if let Some(segment) = plan.item.segment {
+                decoder = Box::new(stellatune_audio_core::segment::SegmentDecoder::new(
+                    decoder, segment,
+                ));
+            }
             let info = decoder.open(source, &hints).map_err(|error| {
                 PlaybackControlError::decoder(error, factory.descriptor().id.clone())
             })?;
@@ -219,8 +224,11 @@ async fn prepare_track(
             let duration_frames = info.duration_frames.map(|duration| {
                 let decoded_frames =
                     duration.saturating_sub(trim_head_frames.saturating_add(trim_tail_frames));
-                MediaTime::from_frames(decoded_frames, decoded_format.sample_rate)
-                    .to_frames(mix_format.sample_rate)
+                stellatune_audio_core::playback::rescale_frames(
+                    decoded_frames,
+                    decoded_format.sample_rate,
+                    mix_format.sample_rate,
+                )
             });
             let (initial_decoded_frame, initial_audible_frame) = if let Some(position) =
                 resume_position
@@ -256,9 +264,11 @@ async fn prepare_track(
                     },
                 };
                 let audible_decoded = actual.saturating_sub(trim_head_frames);
-                let audible_mix =
-                    MediaTime::from_frames(audible_decoded, decoded_format.sample_rate)
-                        .to_frames(mix_format.sample_rate);
+                let audible_mix = stellatune_audio_core::playback::rescale_frames(
+                    audible_decoded,
+                    decoded_format.sample_rate,
+                    mix_format.sample_rate,
+                );
                 (actual, audible_mix)
             } else {
                 (0, 0)

@@ -4,17 +4,86 @@
 // ignore_for_file: invalid_use_of_internal_member, unused_import, unnecessary_import
 
 import '../../frb_generated.dart';
+import '../stellatune_media_probe/types.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `PluginLibraries`, `PluginLibraryInstance`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `hash`, `hash`
+// These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `LocalTrackResource`, `PluginLibraries`, `PluginLibraryInstance`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `hash`, `hash`
 
 // Rust type: RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<LocalCatalog>>
 abstract class LocalCatalog implements RustOpaqueInterface {
   Future<CatalogPage> browse({required CatalogQuery query});
 
   Future<CatalogItem> detail({required MediaRef reference});
+}
+
+/// Cached source properties; browsing never opens or decodes audio files.
+class CatalogAudioInfo {
+  final String format;
+  final String? codec;
+  final int? sampleRate;
+  final int? bitsPerSample;
+  final bool floatingPoint;
+  final int? channels;
+  final BitrateInfo? bitrate;
+  final String? cuePath;
+  final PlatformInt64? startFrame;
+  final PlatformInt64? endFrame;
+  final PlatformInt64? discNumber;
+  final PlatformInt64? trackNumber;
+  final String sourceDirectory;
+
+  const CatalogAudioInfo({
+    required this.format,
+    this.codec,
+    this.sampleRate,
+    this.bitsPerSample,
+    required this.floatingPoint,
+    this.channels,
+    this.bitrate,
+    this.cuePath,
+    this.startFrame,
+    this.endFrame,
+    this.discNumber,
+    this.trackNumber,
+    required this.sourceDirectory,
+  });
+
+  @override
+  int get hashCode =>
+      format.hashCode ^
+      codec.hashCode ^
+      sampleRate.hashCode ^
+      bitsPerSample.hashCode ^
+      floatingPoint.hashCode ^
+      channels.hashCode ^
+      bitrate.hashCode ^
+      cuePath.hashCode ^
+      startFrame.hashCode ^
+      endFrame.hashCode ^
+      discNumber.hashCode ^
+      trackNumber.hashCode ^
+      sourceDirectory.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is CatalogAudioInfo &&
+          runtimeType == other.runtimeType &&
+          format == other.format &&
+          codec == other.codec &&
+          sampleRate == other.sampleRate &&
+          bitsPerSample == other.bitsPerSample &&
+          floatingPoint == other.floatingPoint &&
+          channels == other.channels &&
+          bitrate == other.bitrate &&
+          cuePath == other.cuePath &&
+          startFrame == other.startFrame &&
+          endFrame == other.endFrame &&
+          discNumber == other.discNumber &&
+          trackNumber == other.trackNumber &&
+          sourceDirectory == other.sourceDirectory;
 }
 
 class CatalogItem {
@@ -26,6 +95,9 @@ class CatalogItem {
   final PlatformInt64? trackCount;
   final String? artworkUrl;
   final PlatformInt64? localTrackId;
+  final PlatformInt64? localCoverId;
+  final bool isSegment;
+  final CatalogAudioInfo? audio;
   final String? localPath;
   final MediaRef? albumRef;
   final List<MediaRef> artistRefs;
@@ -39,6 +111,9 @@ class CatalogItem {
     this.trackCount,
     this.artworkUrl,
     this.localTrackId,
+    this.localCoverId,
+    required this.isSegment,
+    this.audio,
     this.localPath,
     this.albumRef,
     required this.artistRefs,
@@ -54,6 +129,9 @@ class CatalogItem {
       trackCount.hashCode ^
       artworkUrl.hashCode ^
       localTrackId.hashCode ^
+      localCoverId.hashCode ^
+      isSegment.hashCode ^
+      audio.hashCode ^
       localPath.hashCode ^
       albumRef.hashCode ^
       artistRefs.hashCode;
@@ -71,6 +149,9 @@ class CatalogItem {
           trackCount == other.trackCount &&
           artworkUrl == other.artworkUrl &&
           localTrackId == other.localTrackId &&
+          localCoverId == other.localCoverId &&
+          isSegment == other.isSegment &&
+          audio == other.audio &&
           localPath == other.localPath &&
           albumRef == other.albumRef &&
           artistRefs == other.artistRefs;

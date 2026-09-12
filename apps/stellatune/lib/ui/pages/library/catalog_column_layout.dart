@@ -85,12 +85,14 @@ class CatalogColumnLayout {
 
     final medium = reveal(410, 490);
     final wide = reveal(630, 730);
+    final format = reveal(730, 830);
     visibility.addAll({
       CatalogTrackColumn.original: medium,
       CatalogTrackColumn.title: 1,
       CatalogTrackColumn.artist: wide,
       CatalogTrackColumn.album: medium,
       CatalogTrackColumn.duration: 1,
+      CatalogTrackColumn.format: format,
     });
     actionsWidth = 36 + 32 * medium;
     columns = [
@@ -99,6 +101,7 @@ class CatalogColumnLayout {
       if (wide > 0) CatalogTrackColumn.artist,
       if (medium > 0) CatalogTrackColumn.album,
       CatalogTrackColumn.duration,
+      if (format > 0) CatalogTrackColumn.format,
     ];
     for (var i = 0; i < columns.length; i++) {
       final c = columns[i];
@@ -107,7 +110,8 @@ class CatalogColumnLayout {
         CatalogTrackColumn.title => 12 + 4 * medium,
         CatalogTrackColumn.artist => 16 * wide,
         CatalogTrackColumn.album => 12 * medium,
-        CatalogTrackColumn.duration => 0,
+        CatalogTrackColumn.duration => 12 * format,
+        CatalogTrackColumn.format => 0,
       };
       minimums[c] =
           (switch (c) {
@@ -115,6 +119,7 @@ class CatalogColumnLayout {
             CatalogTrackColumn.title => 80,
             CatalogTrackColumn.artist || CatalogTrackColumn.album => 64,
             CatalogTrackColumn.duration => 44,
+            CatalogTrackColumn.format => 84,
           }) *
           visibility[c]!;
     }

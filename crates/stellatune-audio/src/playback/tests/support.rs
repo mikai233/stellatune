@@ -823,6 +823,7 @@ pub(super) fn item(id: u64, frames: u8, amplitude: u8) -> PlaybackItem {
             },
         )),
         required_decoder: None,
+        segment: None,
     }
 }
 
@@ -841,6 +842,7 @@ pub(super) fn fixed_format_item(id: u64, factory: Arc<dyn DecoderFactory>) -> Pl
             },
         )),
         required_decoder: Some(factory),
+        segment: None,
     }
 }
 
@@ -868,6 +870,7 @@ pub(in crate::playback) fn delayed_item(
             entered: None,
         }),
         required_decoder: None,
+        segment: None,
     }
 }
 

@@ -1,6 +1,7 @@
 import 'catalog_bridge.dart';
+import 'album_sources.dart';
 
-enum CatalogTrackColumn { original, title, artist, album, duration }
+enum CatalogTrackColumn { original, title, artist, album, duration, format }
 
 /// View sorting works on the complete collection, independently of provider paging.
 class CatalogTrackSort {
@@ -29,6 +30,7 @@ class CatalogTrackSort {
         CatalogTrackColumn.title => item.title,
         CatalogTrackColumn.artist => item.artist,
         CatalogTrackColumn.album => item.album,
+        CatalogTrackColumn.format => trackFormat(item),
         _ => null,
       }?.trim().toLowerCase();
       return value == null || value.isEmpty ? null : value;

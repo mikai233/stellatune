@@ -12,6 +12,7 @@ void main() {
     final items = List.generate(
       20000,
       (i) => CatalogItem(
+        isSegment: false,
         reference: MediaRef(
           sourceInstanceId: 'local',
           kind: MediaKind.track,
@@ -81,6 +82,7 @@ void main() {
               items: List.generate(
                 1000,
                 (i) => CatalogItem(
+                  isSegment: false,
                   reference: MediaRef(
                     sourceInstanceId: 'local',
                     kind: MediaKind.track,

@@ -54,3 +54,5 @@ on Unix) in bin/, preserving executable permissions when packaging.
 
 Tests use synthetic FLAC/MP3 tones. Fixture regeneration uses
 node tests/fixtures/generate.mjs [mp3] and requires ffmpeg only for generation.
+
+Version 0.2.3 adds optional audio properties and audioProbeStatus to inspect-file through the shared bounded Lofty probe. propertiesOnly requests do not publish HTTP resources; skipAudio avoids duplicate scanning when the library updates tags separately. The zero-based decrypted payload reader creates no temporary audio files. See [audio-properties.md](../../../docs/audio-properties.md).

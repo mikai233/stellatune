@@ -5,6 +5,7 @@ edition = "2024"
 license.workspace = true
 
 [dependencies]
+stellatune-media-probe.workspace = true
 anyhow.workspace = true
 crossbeam-channel.workspace = true
 sqlx.workspace = true
@@ -20,6 +21,9 @@ flutter_rust_bridge.workspace = true
 lattice-actor.workspace = true
 serde_json.workspace = true
 base64.workspace = true
+encoding_rs = "0.8"
+chardetng = "0.1"
+stellatune-audio-core = { path = "../stellatune-audio-core" }
 
 [lints]
 workspace = true

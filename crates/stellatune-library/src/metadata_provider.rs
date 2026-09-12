@@ -3,6 +3,7 @@ use std::path::Path;
 /// Metadata supplied by an optional application-owned local-source provider.
 #[derive(Default)]
 pub struct LocalFileMetadata {
+    pub audio: Option<stellatune_media_probe::AudioProperties>,
     pub title: Option<String>,
     pub artist: Option<String>,
     pub album: Option<String>,
@@ -16,6 +17,31 @@ pub struct LocalFileMetadata {
 }
 
 pub trait MetadataProvider: Send + Sync {
+    fn probe_audio(&self, path: &Path) -> stellatune_media_probe::ProbeResult {
+        use stellatune_media_probe::{ProbeResult, ProbeStatus};
+        match self.inspect_audio(path) {
+            Ok(properties) => ProbeResult {
+                status: if properties.is_some() {
+                    ProbeStatus::Ready
+                } else {
+                    ProbeStatus::Unsupported
+                },
+                properties,
+                bytes_read: 0,
+            },
+            Err(_) => ProbeResult {
+                properties: None,
+                status: ProbeStatus::IoError,
+                bytes_read: 0,
+            },
+        }
+    }
+    fn inspect_audio(
+        &self,
+        path: &Path,
+    ) -> anyhow::Result<Option<stellatune_media_probe::AudioProperties>> {
+        self.inspect(path).map(|m| m.audio)
+    }
     /// Cheap lookup; called during directory enumeration and watch events.
     fn supports(&self, path: &Path) -> bool;
     /// Called on a blocking worker, never on an async runtime thread.

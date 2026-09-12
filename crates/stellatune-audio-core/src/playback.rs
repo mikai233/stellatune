@@ -54,6 +54,22 @@ impl From<PlaybackItemId> for u64 {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MediaTime(u64);
 
+/// Rescale an exact sample position without a millisecond round trip.
+pub fn rescale_frames(frames: u64, from_rate: u32, to_rate: u32) -> u64 {
+    if from_rate == 0 {
+        return 0;
+    }
+    (u128::from(frames) * u128::from(to_rate) / u128::from(from_rate)).min(u128::from(u64::MAX))
+        as u64
+}
+
+#[test]
+fn frame_rescaling_retains_sub_millisecond_positions() {
+    assert_eq!(rescale_frames(41, 48000, 48000), 41);
+    assert_eq!(rescale_frames(588, 44100, 48000), 640);
+    assert_eq!(rescale_frames(u64::MAX, 48000, 48000), u64::MAX);
+}
+
 impl MediaTime {
     /// The zero media position.
     pub const ZERO: Self = Self(0);
@@ -111,6 +127,22 @@ pub struct PlaybackItem {
     pub source: Arc<dyn SourceFactory>,
     /// A decoder that must be used instead of registry-based selection.
     pub required_decoder: Option<Arc<dyn DecoderFactory>>,
+    /// Optional sample-exact view of the source's audible timeline.
+    pub segment: Option<crate::segment::AudioSegment>,
+}
+
+impl PlaybackItem {
+    /// Whether the next item is the immediately contiguous segment of this file.
+    pub fn is_contiguous_with(&self, next: &Self) -> bool {
+        let (Some(current), Some(next_segment), Some(resource)) =
+            (self.segment, next.segment, self.source.resource_identity())
+        else {
+            return false;
+        };
+        current.sample_rate == next_segment.sample_rate
+            && current.end_frame_exclusive == next_segment.start_frame
+            && next.source.resource_identity() == Some(resource)
+    }
 }
 
 impl std::fmt::Debug for PlaybackItem {

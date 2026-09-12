@@ -26,9 +26,6 @@ Future<DlnaHttpServerInfo> dlnaHttpStart({String? advertiseIp, int? port}) =>
       port: port,
     );
 
-Future<String> dlnaHttpPublishTrack({required String path}) =>
-    StellatuneApi.instance.api.crateApiDlnaDlnaHttpPublishTrack(path: path);
-
 Future<void> dlnaHttpUnpublishAll() =>
     StellatuneApi.instance.api.crateApiDlnaDlnaHttpUnpublishAll();
 
@@ -132,16 +129,8 @@ Future<String> dlnaPlayLocalPath({
 
 Future<String> dlnaPlayLocalTrack({
   required DlnaRenderer renderer,
-  required String path,
-  String? title,
-  String? artist,
-  String? album,
-  String? coverPath,
+  required PlatformInt64 libraryTrackId,
 }) => StellatuneApi.instance.api.crateApiDlnaDlnaPlayLocalTrack(
   renderer: renderer,
-  path: path,
-  title: title,
-  artist: artist,
-  album: album,
-  coverPath: coverPath,
+  libraryTrackId: libraryTrackId,
 );

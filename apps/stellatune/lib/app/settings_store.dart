@@ -113,6 +113,19 @@ class SettingsStore implements DirectoryAccessStore {
 
   Box get _box => Hive.box(_boxName);
 
+  Map<String, String> get albumSources {
+    final raw = _box.get('album_sources');
+    if (raw is! Map) return const {};
+    return {
+      for (final e in raw.entries)
+        if (e.key is String && e.value is String)
+          e.key as String: e.value as String,
+    };
+  }
+
+  Future<void> setAlbumSources(Map<String, String> sources) =>
+      _box.put('album_sources', sources);
+
   Map<String, double> get catalogColumnWidths {
     final raw = _box.get('catalog_column_widths');
     if (raw is! Map) return const {};

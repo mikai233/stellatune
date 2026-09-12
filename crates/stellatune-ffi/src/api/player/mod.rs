@@ -525,9 +525,9 @@ pub async fn current_track_info() -> Option<TrackDecodeInfo> {
         return entry.info.clone();
     }
 
-    let path = match shared_player_service() {
-        Ok(service) => match service.local_path_for_item(item_id).await {
-            Ok(Some(path)) => path,
+    let resource = match shared_player_service() {
+        Ok(service) => match service.local_resource_for_item(item_id).await {
+            Ok(Some(resource)) => resource,
             Ok(None) => return None,
             Err(error) => {
                 warn!(%error, "current track path resolution failed");
@@ -539,11 +539,17 @@ pub async fn current_track_info() -> Option<TrackDecodeInfo> {
             return None;
         },
     };
-    let info = match probe_local_track(&path).await {
+    let info = match probe_local_track(std::path::Path::new(&resource.path)).await {
         Ok(probed) => Some(TrackDecodeInfo {
             sample_rate: probed.sample_rate,
             channels: probed.channels,
-            duration_ms: probed.duration_ms,
+            duration_ms: resource
+                .segment
+                .map(|s| {
+                    ((u128::from(s.end_frame_exclusive - s.start_frame) * 1000)
+                        / u128::from(s.sample_rate)) as u64
+                })
+                .or(probed.duration_ms),
             metadata_json: probed.metadata_json,
             decoder_plugin_id: probed.decoder_plugin_id,
             decoder_type_id: probed.decoder_type_id,

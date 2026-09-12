@@ -13,9 +13,11 @@ default = []
 frb = []
 
 [dependencies]
+stellatune-media-probe.workspace = true
 anyhow.workspace = true
 flutter_rust_bridge.workspace = true
 tokio.workspace = true
+futures-util.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 axum.workspace = true
@@ -39,3 +41,6 @@ stellatune-plugins.workspace = true
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

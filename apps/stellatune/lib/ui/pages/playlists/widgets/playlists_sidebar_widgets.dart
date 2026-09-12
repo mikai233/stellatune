@@ -107,9 +107,8 @@ class _UnifiedPlaylistsSidebarState extends State<_UnifiedPlaylistsSidebar> {
               padding: const EdgeInsets.fromLTRB(10, 2, 10, 8),
               child: Text(
                 widget.pluginError!,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Theme.of(context).colorScheme.error,
-                ),
+                style: Theme.of(context).textTheme.bodySmall
+                    ?.copyWith(color: Theme.of(context).colorScheme.error),
               ),
             ),
           if (widget.pluginPlaylists.isEmpty)
@@ -428,7 +427,10 @@ class _PlaylistSidebarItemState extends State<_PlaylistSidebarItem> {
                   children: [
                     _PlaylistCover(
                       coverDir: widget.coverDir,
-                      firstTrackId: widget.playlist.firstTrackId?.toInt(),
+                      firstTrackId:
+                          (widget.playlist.firstCoverId ??
+                                  widget.playlist.firstTrackId)
+                              ?.toInt(),
                       likedPlaylist: likedPlaylist,
                     ),
                     const SizedBox(width: 10),
@@ -500,17 +502,15 @@ class _PlaylistSidebarItemState extends State<_PlaylistSidebarItem> {
                             PopupMenuItem(
                               value: 'rename',
                               child: Text(
-                                AppLocalizations.of(
-                                  context,
-                                )!.playlistRenameAction,
+                                AppLocalizations.of(context)!
+                                    .playlistRenameAction,
                               ),
                             ),
                             PopupMenuItem(
                               value: 'delete',
                               child: Text(
-                                AppLocalizations.of(
-                                  context,
-                                )!.playlistDeleteAction,
+                                AppLocalizations.of(context)!
+                                    .playlistDeleteAction,
                               ),
                             ),
                           ],

@@ -5,6 +5,7 @@
 
 import '../frb_generated.dart';
 import '../third_party/stellatune_library/catalog.dart';
+import '../third_party/stellatune_media_probe/types.dart';
 import 'error.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';

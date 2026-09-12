@@ -41,6 +41,8 @@ class PlaybackResumeQueueUtils {
       trackId: null,
       path: track.path,
       id: track.id.toInt() >= 0 ? track.id.toInt() : null,
+      localCoverId: track.coverId?.toInt(),
+      isSegment: track.isSegment,
       title: track.title,
       artist: track.artist,
       album: track.album,

@@ -42,18 +42,17 @@ pub(super) async fn select_track_fingerprint(
     pool: &SqlitePool,
     path: &str,
 ) -> Result<Option<TrackFingerprint>> {
-    let row = sqlx::query!(
-        "SELECT mtime_ms, size_bytes, meta_scanned_ms FROM tracks WHERE path=?1",
-        path
-    )
-    .fetch_optional(pool)
-    .await?;
+    let row =
+        sqlx::query("SELECT mtime_ms,size_bytes,meta_scanned_ms FROM audio_files WHERE path=?1 AND EXISTS(SELECT 1 FROM tracks WHERE file_id=audio_files.id)")
+            .bind(path)
+            .fetch_optional(pool)
+            .await?;
 
     let Some(r) = row else { return Ok(None) };
     Ok(Some(TrackFingerprint {
-        mtime_ms: r.mtime_ms,
-        size_bytes: r.size_bytes,
-        meta_scanned_ms: r.meta_scanned_ms,
+        mtime_ms: r.try_get("mtime_ms")?,
+        size_bytes: r.try_get("size_bytes")?,
+        meta_scanned_ms: r.try_get("meta_scanned_ms")?,
     }))
 }
 
@@ -62,7 +61,7 @@ pub(super) async fn select_track_fingerprint_by_path_norm(
     path_norm: &str,
 ) -> Result<Option<TrackFingerprint>> {
     let row = sqlx::query(
-        "SELECT id, mtime_ms, size_bytes, meta_scanned_ms FROM tracks WHERE path_norm=?1 LIMIT 1",
+        "SELECT id, mtime_ms, size_bytes, meta_scanned_ms FROM audio_files WHERE path_norm=?1 AND EXISTS(SELECT 1 FROM tracks WHERE file_id=audio_files.id)",
     )
     .bind(path_norm)
     .fetch_optional(pool)
@@ -88,18 +87,28 @@ pub(super) async fn delete_track_by_path_norm(
         .fetch_all(pool)
         .await?;
 
+    let cover: Option<i64> =
+        sqlx::query_scalar("SELECT cover_key FROM audio_files WHERE path_norm=?")
+            .bind(path_norm)
+            .fetch_optional(pool)
+            .await?
+            .flatten();
+    sqlx::query("DELETE FROM audio_files WHERE path_norm=?")
+        .bind(path_norm)
+        .execute(pool)
+        .await?;
     if ids.is_empty() {
         return Ok(0);
     }
 
-    let deleted = sqlx::query("DELETE FROM tracks WHERE path_norm=?1")
+    let deleted = ids.len() as u64;
+    sqlx::query("DELETE FROM tracks WHERE path_norm=?1")
         .bind(path_norm)
         .execute(pool)
-        .await?
-        .rows_affected();
+        .await?;
 
     // Best-effort cover cleanup.
-    for id in ids {
+    for id in ids.into_iter().chain(cover) {
         let final_path = cover_dir.join(id.to_string());
         let tmp_path = cover_dir.join(format!("{id}.tmp"));
         let _ = std::fs::remove_file(final_path);
@@ -112,11 +121,14 @@ pub(super) async fn delete_track_by_path_norm(
 pub(super) async fn upsert_track(pool: &SqlitePool, input: UpsertTrackInput<'_>) -> Result<i64> {
     let artists = crate::artist_names::normalize_artists_json(input.artists_json, input.artist)?;
     let album_artists = crate::artist_names::normalize_artists_json("[]", input.album_artist)?;
+    let file_id: i64 = sqlx::query_scalar("INSERT INTO audio_files(path,path_norm,ext,mtime_ms,size_bytes,meta_scanned_ms) VALUES(?,?,?,?,?,?) ON CONFLICT(path_norm) DO UPDATE SET path=excluded.path,ext=excluded.ext,mtime_ms=excluded.mtime_ms,size_bytes=excluded.size_bytes,meta_scanned_ms=excluded.meta_scanned_ms,total_frames=CASE WHEN audio_files.mtime_ms=excluded.mtime_ms AND audio_files.size_bytes=excluded.size_bytes THEN audio_files.total_frames END RETURNING id")
+        .bind(input.path).bind(input.path_norm).bind(input.ext).bind(input.mtime_ms).bind(input.size_bytes).bind(input.meta_scanned_ms).fetch_one(pool).await?;
+    let track_key = format!("file:{}", input.path_norm);
     // An unavailable tag (or failed inspection) must not erase known metadata.
     // Empty artist lists likewise mean no new artist information was obtained.
     let id: i64 = sqlx::query_scalar(
-        "INSERT INTO tracks(path,ext,mtime_ms,size_bytes,title,artist,album,duration_ms,meta_scanned_ms,path_norm,dir_norm,album_artist,disc_number,track_number,artists_json,album_artists_json,artist_names_version)
-        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1) ON CONFLICT(path) DO UPDATE SET
+        "INSERT INTO tracks(path,ext,mtime_ms,size_bytes,title,artist,album,duration_ms,meta_scanned_ms,path_norm,dir_norm,album_artist,disc_number,track_number,artists_json,album_artists_json,artist_names_version,file_id,track_key)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?) ON CONFLICT(track_key) DO UPDATE SET
         ext=excluded.ext,mtime_ms=excluded.mtime_ms,size_bytes=excluded.size_bytes,
         title=COALESCE(excluded.title,tracks.title),artist=COALESCE(excluded.artist,tracks.artist),album=COALESCE(excluded.album,tracks.album),duration_ms=COALESCE(excluded.duration_ms,tracks.duration_ms),
         meta_scanned_ms=excluded.meta_scanned_ms,path_norm=excluded.path_norm,dir_norm=excluded.dir_norm,
@@ -125,32 +137,64 @@ pub(super) async fn upsert_track(pool: &SqlitePool, input: UpsertTrackInput<'_>)
         .bind(input.path).bind(input.ext).bind(input.mtime_ms).bind(input.size_bytes)
         .bind(input.title).bind(input.artist).bind(input.album).bind(input.duration_ms)
         .bind(input.meta_scanned_ms).bind(input.path_norm).bind(input.dir_norm)
-        .bind(input.album_artist).bind(input.disc_number).bind(input.track_number).bind(artists).bind(album_artists)
+        .bind(input.album_artist).bind(input.disc_number).bind(input.track_number).bind(artists).bind(album_artists).bind(file_id).bind(track_key)
         .fetch_one(pool).await?;
+    sqlx::query("UPDATE audio_files SET cover_key=coalesce(cover_key,?) WHERE id=?")
+        .bind(id)
+        .bind(file_id)
+        .execute(pool)
+        .await?;
     Ok(id)
+}
+
+pub(crate) async fn attributes(
+    pool: &SqlitePool,
+    ids: &[i64],
+) -> Result<std::collections::HashMap<i64, (i64, bool)>> {
+    let mut out = std::collections::HashMap::new();
+    for ids in ids.chunks(400) {
+        let mut query = sqlx::QueryBuilder::<sqlx::Sqlite>::new(
+            "SELECT t.id,coalesce(f.cover_key,t.id) AS cover_key,t.start_frame IS NOT NULL AS is_segment FROM tracks t LEFT JOIN audio_files f ON f.id=t.file_id WHERE t.id IN (",
+        );
+        let mut bind = query.separated(",");
+        for id in ids {
+            bind.push_bind(id);
+        }
+        query.push(")");
+        for row in query.build().fetch_all(pool).await? {
+            out.insert(row.get("id"), (row.get("cover_key"), row.get("is_segment")));
+        }
+    }
+    Ok(out)
+}
+
+pub(super) async fn decorate(pool: &SqlitePool, tracks: &mut [crate::TrackLite]) -> Result<()> {
+    let attributes = attributes(pool, &tracks.iter().map(|t| t.id).collect::<Vec<_>>()).await?;
+    for track in tracks {
+        if let Some((cover, segment)) = attributes.get(&track.id) {
+            track.cover_id = Some(*cover);
+            track.is_segment = *segment;
+        }
+    }
+    Ok(())
+}
+
+pub(super) async fn cache_file_metadata(
+    pool: &SqlitePool,
+    track_id: i64,
+    metadata: Option<&str>,
+) -> Result<()> {
+    if let Some(metadata) = metadata {
+        sqlx::query("UPDATE audio_files SET metadata_json=?, sample_rate=json_extract(?,'$.sample_rate'),total_frames=json_extract(?,'$.total_frames'),pcm_bits=json_extract(?,'$.pcm_bits'),pcm_float=coalesce(json_extract(?,'$.pcm_float'),0) WHERE id=(SELECT file_id FROM tracks WHERE id=?)")
+            .bind(metadata).bind(metadata).bind(metadata).bind(metadata).bind(metadata).bind(track_id).execute(pool).await?;
+    }
+    Ok(())
 }
 
 pub(super) async fn upsert_track_by_path_norm(
     pool: &SqlitePool,
     input: UpsertTrackInput<'_>,
 ) -> Result<i64> {
-    let existing_id: Option<i64> =
-        sqlx::query_scalar("SELECT id FROM tracks WHERE path_norm=? LIMIT 1")
-            .bind(input.path_norm)
-            .fetch_optional(pool)
-            .await?;
-    if let Some(id) = existing_id {
-        let artists =
-            crate::artist_names::normalize_artists_json(input.artists_json, input.artist)?;
-        let album_artists = crate::artist_names::normalize_artists_json("[]", input.album_artist)?;
-        sqlx::query("UPDATE tracks SET path=?1,ext=?2,mtime_ms=?3,size_bytes=?4,title=COALESCE(?5,title),artist=COALESCE(?6,artist),album=COALESCE(?7,album),duration_ms=COALESCE(?8,duration_ms),meta_scanned_ms=?9,path_norm=?10,dir_norm=?11,album_artist=COALESCE(?12,album_artist),disc_number=COALESCE(?13,disc_number),track_number=COALESCE(?14,track_number),artists_json=CASE WHEN json_array_length(?15)>0 OR ?6 IS NOT NULL THEN ?15 ELSE artists_json END,album_artists_json=CASE WHEN ?12 IS NOT NULL THEN ?16 ELSE album_artists_json END,artist_names_version=1 WHERE id=?17")
-            .bind(input.path).bind(input.ext).bind(input.mtime_ms).bind(input.size_bytes)
-            .bind(input.title).bind(input.artist).bind(input.album).bind(input.duration_ms)
-            .bind(input.meta_scanned_ms).bind(input.path_norm).bind(input.dir_norm)
-            .bind(input.album_artist).bind(input.disc_number).bind(input.track_number).bind(artists).bind(album_artists).bind(id)
-            .execute(pool).await?;
-        return Ok(id);
-    }
     upsert_track(pool, input).await
 }
 

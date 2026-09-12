@@ -12,7 +12,17 @@ use symphonia::core::units::{Time, TimeBase, Timestamp};
 use symphonia::default::get_probe;
 use tracing::debug;
 
-#[derive(Default)]
+#[derive(Debug)]
+pub(super) struct UnsupportedAudio;
+impl std::fmt::Display for UnsupportedAudio {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("no installed decoder for audio stream")
+    }
+}
+impl std::error::Error for UnsupportedAudio {}
+
+#[derive(Default, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub(super) struct ExtractedMetadata {
     pub(super) title: Option<String>,
     pub(super) artist: Option<String>,
@@ -22,7 +32,14 @@ pub(super) struct ExtractedMetadata {
     pub track_number: Option<i64>,
     pub artists: Vec<String>,
     pub(super) duration_ms: Option<i64>,
+    #[serde(skip)]
     pub(super) cover: Option<Vec<u8>>,
+    pub(super) sample_rate: Option<u32>,
+    pub(super) total_frames: Option<u64>,
+    pub(super) pcm_bits: Option<u32>,
+    pub(super) pcm_float: bool,
+    pub(super) channels: Option<u32>,
+    pub(super) codec: Option<String>,
 }
 
 pub(super) fn extract_metadata(path: &Path) -> Result<ExtractedMetadata> {
@@ -96,6 +113,37 @@ pub(super) fn extract_metadata(path: &Path) -> Result<ExtractedMetadata> {
             .unwrap_or(0);
         let encoder_delay_frames = track.delay.unwrap_or(0);
         let encoder_padding_frames = track.padding.unwrap_or(0);
+        out.sample_rate = (sample_rate > 0).then_some(sample_rate);
+        out.total_frames = time_base
+            .zip(n_frames)
+            .and_then(|(tb, frames)| {
+                let numerator =
+                    u128::from(frames) * u128::from(tb.numer.get()) * u128::from(sample_rate);
+                let denominator = u128::from(tb.denom.get());
+                (sample_rate > 0 && numerator % denominator == 0)
+                    .then(|| u64::try_from(numerator / denominator).ok())
+                    .flatten()
+            })
+            .map(|frames| {
+                frames.saturating_sub(
+                    u64::from(encoder_delay_frames) + u64::from(encoder_padding_frames),
+                )
+            });
+        if let Some(params) = track.codec_params.as_ref().and_then(|p| p.audio()) {
+            out.channels = params.channels.as_ref().map(|c| c.count() as u32);
+            out.codec = symphonia::default::get_codecs()
+                .get_audio_decoder(params.codec)
+                .map(|decoder| decoder.codec.info.short_name.to_string());
+            if out.codec.is_none() {
+                return Err(UnsupportedAudio.into());
+            }
+            out.pcm_bits = params.bits_per_sample;
+            out.pcm_float = matches!(
+                params.codec,
+                symphonia::core::codecs::audio::well_known::CODEC_ID_PCM_F32LE
+                    | symphonia::core::codecs::audio::well_known::CODEC_ID_PCM_F32BE
+            );
+        }
         out.duration_ms = duration_ms_from_track_params(time_base, n_frames);
         if out.duration_ms.is_none() {
             // TODO: Re-evaluate whether this seek-based duration fallback should be removed.
@@ -109,6 +157,9 @@ pub(super) fn extract_metadata(path: &Path) -> Result<ExtractedMetadata> {
         );
     }
 
+    if out.codec.is_none() {
+        return Err(UnsupportedAudio.into());
+    }
     if out.cover.is_none() {
         out.cover = load_sidecar_cover(path);
     }
@@ -152,6 +203,7 @@ pub(super) fn extract_metadata_with_plugins(
             artists: metadata.artists,
             duration_ms: metadata.duration_ms,
             cover: metadata.cover.or_else(|| load_sidecar_cover(path)),
+            ..Default::default()
         });
     }
     extract_metadata(path)

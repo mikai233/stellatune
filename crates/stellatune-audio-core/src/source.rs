@@ -174,6 +174,11 @@ pub struct SourceOpenRequest {
 /// [`Self::descriptor`]. When `reopenable` is true, each successful call to
 /// [`Self::open`] must return a fresh stream positioned at its beginning.
 pub trait SourceFactory: Send + Sync {
+    /// Optional identity of the encoded resource, used to recognize contiguous
+    /// segments. This never substitutes for a track or queue occurrence ID.
+    fn resource_identity(&self) -> Option<&str> {
+        None
+    }
     /// Returns the source's media hints and capabilities.
     fn descriptor(&self) -> SourceDescriptor;
     /// Begins opening an encoded stream for one playback operation.

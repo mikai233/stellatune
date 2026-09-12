@@ -9,6 +9,8 @@ pub struct TrackLite {
     pub artist: Option<String>,
     pub album: Option<String>,
     pub duration_ms: Option<i64>,
+    pub cover_id: Option<i64>,
+    pub is_segment: bool,
 }
 
 #[flutter_rust_bridge::frb(non_opaque)]
@@ -19,6 +21,7 @@ pub struct PlaylistLite {
     pub system_key: Option<String>,
     pub track_count: i64,
     pub first_track_id: Option<i64>,
+    pub first_cover_id: Option<i64>,
 }
 
 #[flutter_rust_bridge::frb(non_opaque)]

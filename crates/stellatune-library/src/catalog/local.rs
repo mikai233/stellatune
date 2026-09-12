@@ -20,6 +20,30 @@ impl LocalCatalog {
         Self { pool }
     }
 
+    #[flutter_rust_bridge::frb(ignore)]
+    pub async fn playback_resource(&self, track_id: i64) -> Result<super::LocalTrackResource> {
+        let row = sqlx::query("SELECT t.path,t.start_frame,t.end_frame,t.segment_sample_rate,f.pcm_bits,f.pcm_float,coalesce(f.cover_key,t.id) AS cover_key FROM tracks t LEFT JOIN audio_files f ON f.id=t.file_id WHERE t.id=?")
+            .bind(track_id).fetch_optional(&self.pool).await?.ok_or_else(|| anyhow!("local track not found: {track_id}"))?;
+        let start: Option<i64> = row.try_get("start_frame")?;
+        Ok(super::LocalTrackResource {
+            path: row.try_get("path")?,
+            segment: start
+                .map(|start| {
+                    Ok::<_, sqlx::Error>(stellatune_audio_core::segment::AudioSegment {
+                        start_frame: start as u64,
+                        end_frame_exclusive: row.try_get::<i64, _>("end_frame")? as u64,
+                        sample_rate: row.try_get::<i64, _>("segment_sample_rate")? as u32,
+                    })
+                })
+                .transpose()?,
+            cover_key: row.try_get("cover_key")?,
+            pcm_bits: row.try_get::<Option<i64>, _>("pcm_bits")?.map(|v| v as u32),
+            pcm_float: row
+                .try_get::<Option<bool>, _>("pcm_float")?
+                .unwrap_or(false),
+        })
+    }
+
     pub async fn browse(&self, query: &CatalogQuery) -> Result<CatalogPage> {
         self.query(query, None).await
     }
@@ -233,6 +257,21 @@ impl LocalCatalog {
                 item.local_path = Some(row.try_get("path")?);
                 item.album = row.try_get("album")?;
                 item.duration_ms = row.try_get("duration_ms")?;
+                item.audio = Some(super::CatalogAudioInfo {
+                    format: row.try_get::<String, _>("ext")?.to_uppercase(),
+                    codec: None,
+                    sample_rate: None,
+                    bits_per_sample: None,
+                    floating_point: false,
+                    channels: None,
+                    bitrate: None,
+                    cue_path: row.try_get("cue_path")?,
+                    start_frame: row.try_get("start_frame")?,
+                    end_frame: row.try_get("end_frame")?,
+                    disc_number: row.try_get("disc_number")?,
+                    track_number: row.try_get("track_number")?,
+                    source_directory: row.try_get("dir_norm")?,
+                });
                 item.album_ref = Some(MediaRef {
                     source_instance_id: q.source_instance_id.clone(),
                     kind: MediaKind::Album,
@@ -255,6 +294,74 @@ impl LocalCatalog {
             items.push(item);
         }
         tx.commit().await?;
+        let attributes = crate::worker::tracks::attributes(
+            &self.pool,
+            &items
+                .iter()
+                .filter_map(|i| i.local_track_id)
+                .collect::<Vec<_>>(),
+        )
+        .await?;
+        for item in &mut items {
+            if let Some((cover, segment)) = item.local_track_id.and_then(|id| attributes.get(&id)) {
+                item.local_cover_id = Some(*cover);
+                item.is_segment = item.reference.kind == MediaKind::Track && *segment;
+            }
+        }
+        // One bounded database query per page, including files shared by CUE tracks.
+        let ids: Vec<_> = items
+            .iter()
+            .filter(|i| i.audio.is_some())
+            .filter_map(|i| i.local_track_id)
+            .collect();
+        if !ids.is_empty() {
+            let mut props = QueryBuilder::<Sqlite>::new(
+                "SELECT t.id,f.sample_rate,f.pcm_bits,f.pcm_float,f.metadata_json,CASE WHEN f.probe_mtime_ms=f.mtime_ms AND f.probe_size_bytes=f.size_bytes THEN f.properties_json END AS properties_json FROM tracks t LEFT JOIN audio_files f ON f.id=t.file_id WHERE t.id IN (",
+            );
+            let mut list = props.separated(",");
+            for id in ids {
+                list.push_bind(id);
+            }
+            list.push_unseparated(")");
+            let rows = props.build().fetch_all(&self.pool).await?;
+            for row in rows {
+                let id: i64 = row.try_get("id")?;
+                let Some(audio) = items
+                    .iter_mut()
+                    .find(|i| i.local_track_id == Some(id))
+                    .and_then(|i| i.audio.as_mut())
+                else {
+                    continue;
+                };
+                audio.sample_rate = row
+                    .try_get::<Option<i64>, _>("sample_rate")?
+                    .map(|v| v as u32);
+                audio.bits_per_sample =
+                    row.try_get::<Option<i64>, _>("pcm_bits")?.map(|v| v as u32);
+                audio.floating_point = row
+                    .try_get::<Option<bool>, _>("pcm_float")?
+                    .unwrap_or(false);
+                let meta: serde_json::Value = row
+                    .try_get::<Option<String>, _>("metadata_json")?
+                    .and_then(|s| serde_json::from_str(&s).ok())
+                    .unwrap_or_default();
+                audio.channels = meta["channels"].as_u64().and_then(|n| n.try_into().ok());
+                audio.codec = meta["codec"].as_str().map(str::to_owned);
+                if let Some(p) = row
+                    .try_get::<Option<String>, _>("properties_json")?
+                    .and_then(|s| {
+                        serde_json::from_str::<stellatune_media_probe::AudioProperties>(&s).ok()
+                    })
+                {
+                    audio.sample_rate = audio.sample_rate.or(p.sample_rate);
+                    audio.bits_per_sample = p.bits_per_sample.or(audio.bits_per_sample);
+                    audio.floating_point |= p.floating_point;
+                    audio.channels = audio.channels.or(p.channels);
+                    audio.codec = audio.codec.take().or(p.codec);
+                    audio.bitrate = p.bitrate;
+                }
+            }
+        }
         Ok(CatalogPage {
             next_cursor: if more {
                 Some(serde_json::to_string(&Cursor {
@@ -281,6 +388,9 @@ fn empty_item(reference: MediaRef, title: String) -> CatalogItem {
         track_count: None,
         artwork_url: None,
         local_track_id: None,
+        local_cover_id: None,
+        is_segment: false,
+        audio: None,
         local_path: None,
         album_ref: None,
         artist_refs: vec![],
@@ -296,6 +406,34 @@ mod tests {
             .await
             .unwrap();
         (dir, LocalCatalog::new(pool))
+    }
+    #[tokio::test]
+    async fn browsing_returns_cached_audio_properties_without_opening_source_files() {
+        let (_dir, c) = catalog().await;
+        track(&c, 1, "Album", "Artist", "/missing").await;
+        let file: i64 = sqlx::query_scalar("INSERT INTO audio_files(path,path_norm,ext,mtime_ms,size_bytes,sample_rate,pcm_bits,pcm_float,metadata_json) VALUES('/missing/1.flac','/missing/1.flac','flac',0,0,96000,24,0,'{\"codec\":\"flac\",\"channels\":2}') RETURNING id")
+            .fetch_one(&c.pool).await.unwrap();
+        sqlx::query("UPDATE tracks SET file_id=?,ext='flac' WHERE id=1")
+            .bind(file)
+            .execute(&c.pool)
+            .await
+            .unwrap();
+        let items = c.browse(&query(MediaKind::Track)).await.unwrap().items;
+        let info = items[0].audio.as_ref().unwrap();
+        assert_eq!(info.format, "FLAC");
+        assert_eq!(info.codec.as_deref(), Some("flac"));
+        assert_eq!(info.sample_rate, Some(96000));
+        assert_eq!(info.bits_per_sample, Some(24));
+        assert_eq!(info.channels, Some(2));
+        assert_eq!(info.source_directory, "/missing");
+        assert!(info.bitrate.is_none());
+        sqlx::query("UPDATE audio_files SET probe_mtime_ms=mtime_ms,probe_size_bytes=size_bytes,properties_json='{\"bitrate\":{\"bps\":128000,\"kind\":\"average\",\"estimated\":true,\"mode\":null}}' WHERE id=?")
+            .bind(file).execute(&c.pool).await.unwrap();
+        let item = c.detail(&items[0].reference).await.unwrap();
+        let bitrate = item.audio.as_ref().unwrap().bitrate.as_ref().unwrap();
+        assert_eq!(bitrate.bps, 128000);
+        assert!(bitrate.estimated);
+        assert!(bitrate.mode.is_none());
     }
     fn query(kind: MediaKind) -> CatalogQuery {
         CatalogQuery {

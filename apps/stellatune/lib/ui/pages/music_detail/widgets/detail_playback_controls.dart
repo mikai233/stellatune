@@ -25,13 +25,18 @@ class DetailPlaybackControls extends ConsumerWidget {
     final playMode = ref.watch(
       queueControllerProvider.select((queue) => queue.playMode),
     );
+    final item = ref.watch(
+      queueControllerProvider.select((queue) => queue.currentItem),
+    );
     final controller = ref.read(playbackControllerProvider.notifier);
     final isPlaying =
         playback.playerState == PlayerState.playing ||
         playback.playerState == PlayerState.buffering;
     return BottomPlaybackBar(
       positionMs: playback.positionMs,
-      durationMs: playback.trackInfo?.durationMs?.toInt() ?? 0,
+      durationMs: item?.isSegment == true
+          ? item!.durationMs ?? 0
+          : playback.trackInfo?.durationMs?.toInt() ?? 0,
       isPlaying: isPlaying,
       playMode: playMode,
       volume: playback.desiredVolume,

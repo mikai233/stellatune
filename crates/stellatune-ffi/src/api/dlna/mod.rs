@@ -48,15 +48,6 @@ pub async fn dlna_http_start(
     result.map_err(|error| crate::api::error::AppError::capture("dlna_http_start", error))
 }
 
-pub async fn dlna_http_publish_track(path: String) -> Result<String, crate::api::error::AppError> {
-    let result: anyhow::Result<_> = (async move {
-        init_tracing();
-        transport::http_publish_track(path).await
-    })
-    .await;
-    result.map_err(|error| crate::api::error::AppError::capture("dlna_http_publish_track", error))
-}
-
 pub async fn dlna_http_unpublish_all() -> Result<(), crate::api::error::AppError> {
     let result: anyhow::Result<_> = (async move {
         init_tracing();
@@ -215,15 +206,11 @@ pub async fn dlna_play_local_path(
 
 pub async fn dlna_play_local_track(
     renderer: DlnaRenderer,
-    path: String,
-    title: Option<String>,
-    artist: Option<String>,
-    album: Option<String>,
-    cover_path: Option<String>,
+    library_track_id: i64,
 ) -> Result<String, crate::api::error::AppError> {
     let result: anyhow::Result<_> = (async move {
         init_tracing();
-        transport::play_local_track(renderer, path, title, artist, album, cover_path).await
+        transport::play_local_track(renderer, library_track_id).await
     })
     .await;
     result.map_err(|error| crate::api::error::AppError::capture("dlna_play_local_track", error))

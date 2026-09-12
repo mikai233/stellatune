@@ -12,6 +12,14 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `shared_library_if_initialized`, `shared_library`, `shared_player_service`, `shutdown_library`
 
+Future<bool> libraryRebuildRequired({required String dbPath}) => StellatuneApi
+    .instance
+    .api
+    .crateApiLibraryLibraryRebuildRequired(dbPath: dbPath);
+
+Future<void> libraryRebuild({required String dbPath}) =>
+    StellatuneApi.instance.api.crateApiLibraryLibraryRebuild(dbPath: dbPath);
+
 Future<void> createLibrary({required String dbPath}) =>
     StellatuneApi.instance.api.crateApiLibraryCreateLibrary(dbPath: dbPath);
 

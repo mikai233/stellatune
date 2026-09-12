@@ -4,6 +4,8 @@ import 'package:stellatune/bridge/third_party/stellatune_library/catalog.dart';
 import 'package:stellatune/player/queue_models.dart';
 
 export 'package:stellatune/bridge/third_party/stellatune_library/catalog.dart';
+export 'package:stellatune/bridge/third_party/stellatune_media_probe/types.dart'
+    show BitrateInfo, BitrateKind, BitrateMode;
 
 final catalogBridgeProvider = Provider<CatalogBridge>((ref) => CatalogBridge());
 
@@ -30,6 +32,8 @@ class CatalogBridge {
           path: items[i].localPath ?? '',
           local: items[i].localPath != null,
           id: items[i].localTrackId?.toInt(),
+          localCoverId: items[i].localCoverId?.toInt(),
+          isSegment: items[i].isSegment,
           title: items[i].title,
           artist: items[i].artist,
           album: items[i].album,

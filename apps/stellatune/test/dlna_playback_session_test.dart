@@ -36,6 +36,16 @@ class _Dlna extends DlnaBridge {
   int volumeCalls = 0;
   final seekUrls = <String>[];
   final playedPaths = <String>[];
+  final playedIds = <int>[];
+  @override
+  Future<String> playLocalTrack({
+    required DlnaRenderer renderer,
+    required int libraryTrackId,
+  }) async {
+    playedIds.add(libraryTrackId);
+    return playLocalPath(renderer: renderer, path: 'track:');
+  }
+
   final transportActions = <String>[];
   final stopped = <String>[];
   int unpublishes = 0;
@@ -95,13 +105,9 @@ class _Dlna extends DlnaBridge {
   }
 
   @override
-  Future<String> playLocalTrack({
+  Future<String> playLocalPath({
     required DlnaRenderer renderer,
     required String path,
-    String? title,
-    String? artist,
-    String? album,
-    String? coverPath,
   }) async {
     playCalls++;
     playedPaths.add(path);
@@ -173,6 +179,33 @@ void main() {
       );
     });
     tearDown(() => session.close());
+
+    test(
+      'CUE songs in the same file are published by distinct track IDs',
+      () async {
+        await session.playItem(
+          QueueItem(
+            trackId: BigInt.from(101),
+            id: 1,
+            path: 'album.wav',
+            isSegment: true,
+            durationMs: 1000,
+          ),
+        );
+        await session.playItem(
+          QueueItem(
+            trackId: BigInt.from(102),
+            id: 2,
+            path: 'album.wav',
+            isSegment: true,
+            durationMs: 1000,
+          ),
+        );
+        await session.poll();
+        expect(bridge.playedIds, [1, 2]);
+        expect(updates.last.trackKey, '102');
+      },
+    );
 
     test('invalidated transport response does not request another resource or update', () async {
       bridge.infoGate = Completer<DlnaTransportInfo>();

@@ -78,7 +78,7 @@ Future<void> _until(bool Function() ready) async {
 }
 
 List<TrackLite> _song(int id) => [
-  TrackLite(id: id, path: '$id.flac', title: 'Song $id'),
+  TrackLite(isSegment: false, id: id, path: '$id.flac', title: 'Song $id'),
 ];
 
 void main() {

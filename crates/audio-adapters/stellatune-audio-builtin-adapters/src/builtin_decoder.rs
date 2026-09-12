@@ -39,106 +39,7 @@ fn gapless_trimmed_duration_ms(
     Some(duration_ms.saturating_sub(trimmed_ms))
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct BuiltinDecoderScoreRule {
-    pub ext: &'static str,
-    pub score: u16,
-}
-
-pub const BUILTIN_DECODER_SCORE_RULES: &[BuiltinDecoderScoreRule] = &[
-    BuiltinDecoderScoreRule {
-        ext: "mp1",
-        score: 90,
-    },
-    BuiltinDecoderScoreRule {
-        ext: "mp2",
-        score: 90,
-    },
-    BuiltinDecoderScoreRule {
-        ext: "mp3",
-        score: 90,
-    },
-    BuiltinDecoderScoreRule {
-        ext: "mpa",
-        score: 90,
-    },
-    BuiltinDecoderScoreRule {
-        ext: "aac",
-        score: 90,
-    },
-    BuiltinDecoderScoreRule {
-        ext: "alac",
-        score: 90,
-    },
-    BuiltinDecoderScoreRule {
-        ext: "m4a",
-        score: 90,
-    },
-    BuiltinDecoderScoreRule {
-        ext: "m4b",
-        score: 90,
-    },
-    BuiltinDecoderScoreRule {
-        ext: "m4r",
-        score: 90,
-    },
-    BuiltinDecoderScoreRule {
-        ext: "m4p",
-        score: 90,
-    },
-    BuiltinDecoderScoreRule {
-        ext: "mp4",
-        score: 90,
-    },
-    BuiltinDecoderScoreRule {
-        ext: "mov",
-        score: 90,
-    },
-    BuiltinDecoderScoreRule {
-        ext: "3gp",
-        score: 90,
-    },
-    BuiltinDecoderScoreRule {
-        ext: "3g2",
-        score: 90,
-    },
-    BuiltinDecoderScoreRule {
-        ext: "caf",
-        score: 90,
-    },
-    BuiltinDecoderScoreRule {
-        ext: "flac",
-        score: 90,
-    },
-    BuiltinDecoderScoreRule {
-        ext: "wav",
-        score: 90,
-    },
-    BuiltinDecoderScoreRule {
-        ext: "wave",
-        score: 90,
-    },
-    BuiltinDecoderScoreRule {
-        ext: "aif",
-        score: 90,
-    },
-    BuiltinDecoderScoreRule {
-        ext: "aiff",
-        score: 90,
-    },
-    BuiltinDecoderScoreRule {
-        ext: "aifc",
-        score: 90,
-    },
-    BuiltinDecoderScoreRule {
-        ext: "ogg",
-        score: 90,
-    },
-    BuiltinDecoderScoreRule {
-        ext: "oga",
-        score: 90,
-    },
-];
+pub use stellatune_media_probe::formats::{BUILTIN_DECODER_SCORE_RULES, BuiltinDecoderScoreRule};
 
 pub fn normalize_extension(raw: &str) -> String {
     raw.trim().trim_start_matches('.').to_ascii_lowercase()
@@ -199,6 +100,7 @@ pub struct BuiltinDecoder {
     seek_skip_frames: u64,
     spec: PcmFormat,
     duration_ms_hint: Option<u64>,
+    duration_frames: Option<u64>,
     encoder_delay_frames: u32,
     encoder_padding_frames: u32,
     pending: Vec<f32>,
@@ -275,6 +177,11 @@ impl BuiltinDecoder {
             .map_err(|e| format!("decoder init failed: {e}"))?;
 
         let mut duration_ms_hint = duration_ms_from_track_params(time_base, num_frames);
+        let duration_frames = time_base.zip(num_frames).and_then(|(tb, frames)| {
+            let n = u128::from(frames) * u128::from(tb.numer.get()) * u128::from(sample_rate);
+            let d = u128::from(tb.denom.get());
+            (n % d == 0).then(|| u64::try_from(n / d).ok()).flatten()
+        });
         if duration_ms_hint.is_none() {
             // TODO: Re-evaluate whether this seek-based duration fallback should be removed.
             duration_ms_hint = estimate_duration_ms_by_seek(format.as_mut(), track_id, time_base);
@@ -362,6 +269,7 @@ impl BuiltinDecoder {
                 channel_layout,
             },
             duration_ms_hint,
+            duration_frames,
             encoder_delay_frames,
             encoder_padding_frames,
             pending,
@@ -374,6 +282,10 @@ impl BuiltinDecoder {
 
     pub fn duration_ms_hint(&self) -> Option<u64> {
         self.duration_ms_hint
+    }
+
+    pub fn duration_frames(&self) -> Option<u64> {
+        self.duration_frames
     }
 
     pub fn effective_duration_ms_hint(&self) -> Option<u64> {
@@ -393,13 +305,24 @@ impl BuiltinDecoder {
     }
 
     pub fn seek_ms(&mut self, position_ms: u64) -> Result<(), String> {
+        self.seek_frame(position_ms.saturating_mul(u64::from(self.spec.sample_rate)) / 1000)
+    }
+
+    pub fn seek_frame(&mut self, target_frame: u64) -> Result<(), String> {
+        let tb = self
+            .time_base
+            .ok_or("sample seeking requires a time base")?;
+        let target_ticks = u128::from(target_frame) * u128::from(tb.denom.get())
+            / (u128::from(tb.numer.get()) * u128::from(self.spec.sample_rate));
         let seeked = self
             .format
             .seek(
                 SeekMode::Accurate,
-                SeekTo::Time {
-                    time: Time::from_millis_u64(position_ms),
-                    track_id: Some(self.track_id),
+                SeekTo::Timestamp {
+                    ts: Timestamp::new(
+                        i64::try_from(target_ticks).map_err(|_| "seek timestamp overflow")?,
+                    ),
+                    track_id: self.track_id,
                 },
             )
             .map_err(|error| match error {
@@ -415,12 +338,15 @@ impl BuiltinDecoder {
         self.pending.clear();
         // Accurate container seeking lands at the start of an earlier packet.
         // Discard its preroll before exposing PCM at the requested position.
-        self.seek_skip_frames = self.time_base.map_or(0, |time_base| {
-            let ticks = i128::from(seeked.required_ts.get()) - i128::from(seeked.actual_ts.get());
-            (ticks.max(0) * i128::from(time_base.numer.get()) * i128::from(self.spec.sample_rate)
-                / i128::from(time_base.denom.get()))
-            .min(i128::from(u64::MAX)) as u64
-        });
+        let actual = i128::from(seeked.actual_ts.get())
+            * i128::from(tb.numer.get())
+            * i128::from(self.spec.sample_rate)
+            / i128::from(tb.denom.get());
+        if actual > i128::from(target_frame) {
+            return Err("decoder seek overshot target".into());
+        }
+        self.seek_skip_frames = u64::try_from(i128::from(target_frame) - actual)
+            .map_err(|_| "seek preroll overflow")?;
         Ok(())
     }
 

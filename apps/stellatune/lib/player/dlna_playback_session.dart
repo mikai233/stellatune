@@ -1,10 +1,9 @@
 import 'package:stellatune/app/diagnostics/diagnostics_service.dart';
 
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:path/path.dart' as p;
+
 import 'package:stellatune/app/logging.dart';
 import 'package:stellatune/bridge/bridge.dart';
 import 'package:stellatune/platform/directory_access_service.dart';
@@ -17,11 +16,13 @@ class DlnaPlaybackUpdate {
     required this.state,
     required this.positionMs,
     required this.path,
+    this.trackKey,
     this.advance = false,
   });
   final PlayerState state;
   final int positionMs;
   final String? path;
+  final String? trackKey;
   final bool advance;
 }
 
@@ -58,6 +59,7 @@ class DlnaPlaybackSession {
   Future<void>? _closing;
   DirectoryAccessLease? _lease;
   String? _path;
+  String? _trackKey;
   int _durationMs = 0;
   String? _lastTransportState;
   PlayerState _state = PlayerState.stopped;
@@ -69,6 +71,7 @@ class DlnaPlaybackSession {
 
   bool get active => _active;
   String? get path => _path;
+  String? get trackKey => _trackKey;
   bool _current(int generation) =>
       _active && generation == _transportGeneration;
 
@@ -111,19 +114,15 @@ class DlnaPlaybackSession {
     }
     var transferred = false;
     try {
-      final coverPath = item.id == null
-          ? null
-          : p.join(coverDirectory, item.id.toString());
-      final hasCover = coverPath != null && await File(coverPath).exists();
       if (!_active) return;
-      await bridge.playLocalTrack(
-        renderer: renderer,
-        path: item.path,
-        title: item.title,
-        artist: item.artist,
-        album: item.album,
-        coverPath: hasCover ? coverPath : null,
-      );
+      if (item.id != null) {
+        await bridge.playLocalTrack(
+          renderer: renderer,
+          libraryTrackId: item.id!,
+        );
+      } else {
+        await bridge.playLocalPath(renderer: renderer, path: item.path);
+      }
       if (!_active) return;
       final previous = _lease;
       _lease = lease;
@@ -131,6 +130,7 @@ class DlnaPlaybackSession {
       await previous?.release();
       if (!_active) return;
       _path = item.path;
+      _trackKey = item.stableTrackKey;
       _durationMs = item.durationMs ?? 0;
       _state = PlayerState.playing;
       _startedAt = DateTime.now();
@@ -177,6 +177,7 @@ class DlnaPlaybackSession {
     await _releaseLease();
     if (!_active) return;
     _path = null;
+    _trackKey = null;
     _state = PlayerState.stopped;
   });
 
@@ -224,6 +225,7 @@ class DlnaPlaybackSession {
           state: _state,
           positionMs: elapsed,
           path: _path,
+          trackKey: _trackKey,
           advance: advance,
         ),
       );

@@ -1,4 +1,5 @@
 import 'package:stellatune/app/diagnostics/diagnostics_service.dart';
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -55,6 +56,26 @@ class _Services extends AppBootstrapServices {
 }
 
 void main() {
+  testWidgets('schema mismatch requires an explicit rebuild action', (
+    tester,
+  ) async {
+    final rebuilt = <String>[];
+    await tester.pumpWidget(
+      StartupApp(
+        loadApp: () async =>
+            throw const LibraryRebuildRequired('library.sqlite'),
+        onExit: () async {},
+        rebuildLibrary: (path) async => rebuilt.add(path),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(rebuilt, isEmpty);
+    expect(find.text('Rebuild library'), findsOneWidget);
+    await tester.tap(find.text('Rebuild library'));
+    await tester.pumpAndSettle();
+    expect(rebuilt, ['library.sqlite']);
+    expect(find.text('Library rebuilt'), findsOneWidget);
+  });
   testWidgets(
     'startup paints loading before work completes, then shows the app',
     (tester) async {
@@ -100,7 +121,12 @@ void main() {
       expect(find.text('Unable to start Stellatune'), findsOneWidget);
       expect(find.textContaining('Rust library not found'), findsNothing);
       expect(find.text('View logs'), findsOneWidget);
-      expect(DiagnosticsService.instance.records.any((r) => r.details.contains('Rust library not found')), isTrue);
+      expect(
+        DiagnosticsService.instance.records.any(
+          (r) => r.details.contains('Rust library not found'),
+        ),
+        isTrue,
+      );
       expect(services.calls, ['load runtime']);
       await tester.tap(find.text('Exit'));
       expect(exits, 1);
@@ -122,7 +148,12 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.textContaining('Cannot open settings store'), findsNothing);
-      expect(DiagnosticsService.instance.records.any((r) => r.details.contains('Cannot open settings store')), isTrue);
+      expect(
+        DiagnosticsService.instance.records.any(
+          (r) => r.details.contains('Cannot open settings store'),
+        ),
+        isTrue,
+      );
       expect(services.calls, [
         'load runtime',
         'open settings',

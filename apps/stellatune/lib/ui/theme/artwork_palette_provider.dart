@@ -13,7 +13,7 @@ final currentArtworkRequestProvider = Provider<ArtworkRequest?>((ref) {
           ? null
           : (
               key: item.stableTrackKey,
-              id: item.id,
+              id: item.coverId,
               kind: item.cover?.kind,
               value: item.cover?.value,
             );

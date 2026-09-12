@@ -11,7 +11,10 @@ use super::source::{ResolvedSourceSpec, SourceCatalogEntry, SourceResolverSpec};
 
 #[async_trait]
 pub trait LocalTrackResolver: Send + Sync {
-    async fn resolve_path(&self, library_track_id: i64) -> Result<PathBuf, PlayerServiceError>;
+    async fn resolve_resource(
+        &self,
+        library_track_id: i64,
+    ) -> Result<stellatune_library::catalog::LocalTrackResource, PlayerServiceError>;
 
     /// Projects metadata without opening audio sources; missing tracks are omitted.
     async fn resolve_metadata(
@@ -21,17 +24,19 @@ pub trait LocalTrackResolver: Send + Sync {
     {
         let mut tracks = std::collections::HashMap::new();
         for id in library_track_ids {
-            match self.resolve_path(*id).await {
-                Ok(path) => {
+            match self.resolve_resource(*id).await {
+                Ok(resource) => {
                     tracks.insert(
                         *id,
                         stellatune_library::TrackLite {
                             id: *id,
-                            path: path.to_string_lossy().into_owned(),
+                            path: resource.path,
                             title: None,
                             artist: None,
                             album: None,
                             duration_ms: None,
+                            cover_id: None,
+                            is_segment: false,
                         },
                     );
                 },
@@ -55,12 +60,14 @@ impl LocalTrackResolver for stellatune_library::LibraryHandle {
             .map_err(|error| PlayerServiceError::LocalLibrary(error.to_string()))
     }
 
-    async fn resolve_path(&self, library_track_id: i64) -> Result<PathBuf, PlayerServiceError> {
-        self.get_track(library_track_id)
+    async fn resolve_resource(
+        &self,
+        library_track_id: i64,
+    ) -> Result<stellatune_library::catalog::LocalTrackResource, PlayerServiceError> {
+        self.catalog()
+            .playback_resource(library_track_id)
             .await
-            .map_err(|error| PlayerServiceError::LocalLibrary(error.to_string()))?
-            .map(|track| PathBuf::from(track.path))
-            .ok_or(PlayerServiceError::LocalTrackNotFound(library_track_id))
+            .map_err(|error| PlayerServiceError::LocalLibrary(error.to_string()))
     }
 }
 

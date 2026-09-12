@@ -13,12 +13,21 @@ struct GatedLocalResolver {
 
 #[async_trait]
 impl LocalTrackResolver for GatedLocalResolver {
-    async fn resolve_path(&self, id: i64) -> Result<PathBuf, PlayerServiceError> {
+    async fn resolve_resource(
+        &self,
+        id: i64,
+    ) -> Result<stellatune_library::catalog::LocalTrackResource, PlayerServiceError> {
         if id == 2 {
             self.entered.add_permits(1);
             self.release.acquire().await.unwrap().forget();
         }
-        Ok(self.path.clone())
+        Ok(stellatune_library::catalog::LocalTrackResource {
+            path: self.path.to_string_lossy().into_owned(),
+            segment: None,
+            cover_key: 0,
+            pcm_bits: None,
+            pcm_float: false,
+        })
     }
 }
 
@@ -38,6 +47,103 @@ fn service(
     ));
     service.start_state_writer();
     service
+}
+
+#[tokio::test]
+async fn cue_tracks_share_a_file_but_keep_queue_favorites_and_relative_seek_independent() {
+    use stellatune_audio::playback::control::SwitchTransition;
+    use stellatune_audio_builtin_adapters::factories::SymphoniaDecoderFactory;
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("album.wav");
+    let mut wav = b"RIFF".to_vec();
+    wav.extend(192036_u32.to_le_bytes());
+    wav.extend(b"WAVEfmt ");
+    wav.extend(16_u32.to_le_bytes());
+    wav.extend(1_u16.to_le_bytes());
+    wav.extend(1_u16.to_le_bytes());
+    wav.extend(48000_u32.to_le_bytes());
+    wav.extend(96000_u32.to_le_bytes());
+    wav.extend(2_u16.to_le_bytes());
+    wav.extend(16_u16.to_le_bytes());
+    wav.extend(b"data");
+    wav.extend(192000_u32.to_le_bytes());
+    wav.resize(192044, 0);
+    std::fs::write(&path, wav).unwrap();
+    std::fs::write(directory.path().join("album.cue"),"TITLE \"Album\"\nFILE \"album.wav\" WAVE\nTRACK 01 AUDIO\nTITLE \"One\"\nINDEX 01 00:00:00\nTRACK 02 AUDIO\nTITLE \"Two\"\nINDEX 01 00:01:00").unwrap();
+    let db_path = directory.path().join("library.sqlite");
+    let library = stellatune_library::start_library(db_path.to_string_lossy().into_owned())
+        .await
+        .unwrap();
+    let root = directory.path().to_string_lossy().into_owned();
+    library.add_root(root.clone()).await.unwrap();
+    library.scan_all().await.unwrap();
+    let mut tracks = library
+        .list_tracks(root, true, String::new(), 10, 0)
+        .await
+        .unwrap();
+    tracks.sort_by_key(|t| t.title.clone());
+    assert_eq!(tracks.len(), 2);
+    assert_eq!(tracks[0].path, tracks[1].path);
+    assert_ne!(tracks[0].id, tracks[1].id);
+    assert_eq!(tracks[0].cover_id, tracks[1].cover_id);
+    assert_eq!(tracks[1].duration_ms, Some(1000));
+    library.set_track_liked(tracks[1].id, true).await.unwrap();
+    assert_eq!(
+        library.list_liked_track_ids().await.unwrap(),
+        vec![tracks[1].id]
+    );
+    let catalog = PlayerCatalog::open(&db_path).await.unwrap();
+    let runtime = PlaybackRuntime::start(PlaybackRuntimeConfig::new(StageRegistrySnapshot {
+        decoders: vec![Arc::new(SymphoniaDecoderFactory::new())],
+        transforms: vec![],
+        sink: Arc::new(PacedSinkFactory(UnusedSinkFactory {
+            id: StageId::new("cue.test.sink").unwrap(),
+        })),
+    }))
+    .unwrap();
+    let player = service(catalog, &runtime, Arc::new(library.clone()));
+    let first = player.ensure_local_track(tracks[0].id).await.unwrap();
+    let second = player.ensure_local_track(tracks[1].id).await.unwrap();
+    assert_ne!(first, second);
+    let queue = player
+        .replace_queue(vec![first, second, first])
+        .await
+        .unwrap();
+    assert_ne!(queue.items[0].item_id, queue.items[2].item_id);
+    player
+        .select_item(
+            queue.items[1].item_id,
+            SwitchOptions {
+                autoplay: false,
+                transition: SwitchTransition::ImmediateWithDeClick,
+            },
+        )
+        .await
+        .unwrap();
+    runtime
+        .controller()
+        .seek(MediaTime::from_millis(375))
+        .await
+        .unwrap();
+    assert_eq!(
+        runtime
+            .controller()
+            .snapshot()
+            .await
+            .unwrap()
+            .consumed_position
+            .as_millis(),
+        375
+    );
+    let resource = player
+        .local_resource_for_item(queue.items[1].item_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(resource.segment.unwrap().start_frame, 48000);
+    player.close_catalog().await;
+    runtime.shutdown().await.unwrap();
+    library.shutdown().await.unwrap();
 }
 
 #[tokio::test]

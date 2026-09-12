@@ -73,7 +73,8 @@ class TrackListTile extends StatelessWidget {
     final album = (track.album ?? '').trim();
     final line1 = title.isNotEmpty ? title : _basename(track.path);
     final line2 = [artist, album].where((s) => s.isNotEmpty).join(' • ');
-    final coverPath = '$coverDir${Platform.pathSeparator}${track.id}';
+    final coverPath =
+        '$coverDir${Platform.pathSeparator}${track.coverId ?? track.id}';
 
     final theme = Theme.of(context);
     if (tableLayout) {

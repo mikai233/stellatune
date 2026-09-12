@@ -291,10 +291,98 @@ pub(crate) async fn rendering_control_get_volume(
 }
 
 pub(crate) async fn play_local_path(renderer: DlnaRenderer, path: String) -> Result<String> {
-    play_local_track(renderer, path, None, None, None, None).await
+    play_file(renderer, path, None, None, None, None).await
 }
 
 pub(crate) async fn play_local_track(
+    renderer: DlnaRenderer,
+    library_track_id: i64,
+) -> Result<String> {
+    let library = crate::api::library::shared_library_if_initialized()
+        .ok_or_else(|| anyhow::anyhow!("library is not initialized"))?;
+    let track = library
+        .handle()
+        .get_track(library_track_id)
+        .await
+        .map_err(anyhow::Error::msg)?
+        .ok_or_else(|| anyhow::anyhow!("local track is missing"))?;
+    let resource = library
+        .handle()
+        .catalog()
+        .playback_resource(library_track_id)
+        .await?;
+    let cover = library
+        .handle()
+        .cover_path(resource.cover_key)
+        .to_string_lossy()
+        .into_owned();
+    if resource.segment.is_none() {
+        return play_file(
+            renderer,
+            resource.path,
+            track.title,
+            track.artist,
+            track.album,
+            Some(cover),
+        )
+        .await;
+    }
+    let wave =
+        stellatune_backend_api::runtime::segment_wave::SegmentWave::prepare(resource).await?;
+    check_wave_support(&renderer).await?;
+    let control = renderer
+        .av_transport_control_url
+        .clone()
+        .ok_or_else(|| anyhow::anyhow!("renderer has no AVTransport control URL"))?;
+    let info = http_server::ensure_http_server(None, None).await?;
+    let address: SocketAddr = info.listen_addr.parse()?;
+    let host = http_server::default_advertise_host()?;
+    let resource_info = metadata::ResourceInfo {
+        duration_ms: track.duration_ms.map(|v| v as u64),
+        size: Some(wave.length),
+        sample_rate: Some(wave.format.sample_rate),
+        channels: Some(wave.format.channel_layout.channel_count()),
+    };
+    let token = http_server::register_segment(wave).await;
+    let url = format!("http://{}:{}/track/{}", host, address.port(), token);
+    let cover_url = if std::path::Path::new(&cover).is_file() {
+        Some(http_publish_track(cover).await?)
+    } else {
+        None
+    };
+    let didl = metadata::build_didl_metadata(
+        &url,
+        "segment.wav",
+        track.title,
+        track.artist,
+        track.album,
+        cover_url.as_deref(),
+        resource_info,
+    );
+    let result = async {
+        av_transport_set_uri(
+            control.clone(),
+            renderer.av_transport_service_type.clone(),
+            url.clone(),
+            Some(didl),
+        )
+        .await?;
+        av_transport_play(control, renderer.av_transport_service_type).await
+    }
+    .await;
+    match result {
+        Ok(()) => {
+            http_server::retain_urls(&[Some(url.as_str()), cover_url.as_deref()]).await;
+            Ok(url)
+        },
+        Err(error) => {
+            http_server::remove_urls(&[Some(url.as_str()), cover_url.as_deref()]).await;
+            Err(error)
+        },
+    }
+}
+
+async fn play_file(
     renderer: DlnaRenderer,
     path: String,
     title: Option<String>,
@@ -318,21 +406,146 @@ pub(crate) async fn play_local_track(
         None
     };
 
-    let meta =
-        metadata::build_didl_metadata(&url, &path, title, artist, album, cover_url.as_deref());
+    let meta = metadata::build_didl_metadata(
+        &url,
+        &path,
+        title,
+        artist,
+        album,
+        cover_url.as_deref(),
+        Default::default(),
+    );
 
-    av_transport_set_uri(
-        control_url.clone(),
-        service_type.clone(),
-        url.clone(),
-        Some(meta),
-    )
-    .await?;
-    av_transport_play(control_url, service_type).await?;
-    Ok(url)
+    let result = async {
+        av_transport_set_uri(
+            control_url.clone(),
+            service_type.clone(),
+            url.clone(),
+            Some(meta),
+        )
+        .await?;
+        av_transport_play(control_url, service_type).await
+    }
+    .await;
+    match result {
+        Ok(()) => {
+            http_server::retain_urls(&[Some(url.as_str()), cover_url.as_deref()]).await;
+            Ok(url)
+        },
+        Err(error) => {
+            http_server::remove_urls(&[Some(url.as_str()), cover_url.as_deref()]).await;
+            Err(error)
+        },
+    }
+}
+// --- SOAP helpers ---
+
+/// A missing ConnectionManager capability is unknown, not an explicit rejection.
+/// A device advertising a sink list without WAV must not trigger a lossy fallback.
+async fn check_wave_support(renderer: &DlnaRenderer) -> Result<()> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(5))
+        .build()?;
+    let capability: Result<Option<String>> = async {
+        let description = client
+            .get(&renderer.location)
+            .send()
+            .await?
+            .error_for_status()?
+            .text()
+            .await?;
+        let endpoint = {
+            let doc = Document::parse(&description)?;
+            let location = url::Url::parse(&renderer.location)?;
+            let base = doc
+                .descendants()
+                .find(|n| n.has_tag_name("URLBase"))
+                .and_then(|n| n.text())
+                .and_then(|v| url::Url::parse(v).ok())
+                .unwrap_or(location);
+            doc.descendants()
+                .filter(|n| n.has_tag_name("service"))
+                .find_map(|node| {
+                    let service = node
+                        .children()
+                        .find(|n| n.has_tag_name("serviceType"))?
+                        .text()?;
+                    if !service.starts_with("urn:schemas-upnp-org:service:ConnectionManager:") {
+                        return None;
+                    }
+                    let control = node
+                        .children()
+                        .find(|n| n.has_tag_name("controlURL"))?
+                        .text()?;
+                    Some((base.join(control).ok()?.to_string(), service.to_owned()))
+                })
+        };
+        let Some((control, service)) = endpoint else {
+            return Ok(None);
+        };
+        let response = soap_call(&client, &control, &service, "GetProtocolInfo", "").await?;
+        let doc = Document::parse(&response)?;
+        Ok(doc
+            .descendants()
+            .find(|n| n.has_tag_name("Sink"))
+            .and_then(|n| n.text())
+            .map(str::to_owned))
+    }
+    .await;
+    match capability {
+        Ok(Some(sink)) if !sink.trim().is_empty() && !sink_accepts_wave(&sink) => anyhow::bail!(
+            "renderer explicitly does not support WAV resources; source quality will not be reduced"
+        ),
+        Err(error) => tracing::debug!(%error, "DLNA format capabilities unavailable"),
+        _ => {},
+    }
+    Ok(())
 }
 
-// --- SOAP helpers ---
+fn sink_accepts_wave(sink: &str) -> bool {
+    sink.split(',').any(|entry| {
+        let fields = entry.trim().split(':').collect::<Vec<_>>();
+        fields.len() == 4
+            && matches!(fields[0], "http-get" | "*")
+            && matches!(
+                fields[2]
+                    .split(';')
+                    .next()
+                    .unwrap_or("")
+                    .to_ascii_lowercase()
+                    .as_str(),
+                "*" | "audio/*" | "audio/wav" | "audio/wave" | "audio/x-wav" | "audio/vnd.wave"
+            )
+    })
+}
+
+#[cfg(test)]
+mod cue_capability_tests {
+    use super::*;
+    #[test]
+    fn explicit_device_formats_are_respected() {
+        assert!(sink_accepts_wave(
+            "http-get:*:audio/wav:*,http-get:*:audio/mpeg:*"
+        ));
+        assert!(sink_accepts_wave("http-get:*:*:*"));
+        assert!(!sink_accepts_wave(
+            "http-get:*:audio/L16:*,http-get:*:audio/mpeg:*"
+        ));
+    }
+    #[tokio::test]
+    #[ignore = "Requires the user's local DLNA network"]
+    async fn discover_real_cue_renderers() {
+        let renderers = discover_renderers(3000).await.unwrap();
+        eprintln!("Discovered {} DLNA renderers", renderers.len());
+        for renderer in renderers {
+            eprintln!(
+                "{}: {:?}",
+                renderer.friendly_name,
+                check_wave_support(&renderer).await
+            );
+        }
+    }
+}
 
 async fn soap_call(
     client: &reqwest::Client,

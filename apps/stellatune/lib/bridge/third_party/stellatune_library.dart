@@ -13,6 +13,7 @@ class PlaylistLite {
   final String? systemKey;
   final PlatformInt64 trackCount;
   final PlatformInt64? firstTrackId;
+  final PlatformInt64? firstCoverId;
 
   const PlaylistLite({
     required this.id,
@@ -20,6 +21,7 @@ class PlaylistLite {
     this.systemKey,
     required this.trackCount,
     this.firstTrackId,
+    this.firstCoverId,
   });
 
   @override
@@ -28,7 +30,8 @@ class PlaylistLite {
       name.hashCode ^
       systemKey.hashCode ^
       trackCount.hashCode ^
-      firstTrackId.hashCode;
+      firstTrackId.hashCode ^
+      firstCoverId.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -39,7 +42,8 @@ class PlaylistLite {
           name == other.name &&
           systemKey == other.systemKey &&
           trackCount == other.trackCount &&
-          firstTrackId == other.firstTrackId;
+          firstTrackId == other.firstTrackId &&
+          firstCoverId == other.firstCoverId;
 }
 
 class TrackLite {
@@ -49,6 +53,8 @@ class TrackLite {
   final String? artist;
   final String? album;
   final PlatformInt64? durationMs;
+  final PlatformInt64? coverId;
+  final bool isSegment;
 
   const TrackLite({
     required this.id,
@@ -57,6 +63,8 @@ class TrackLite {
     this.artist,
     this.album,
     this.durationMs,
+    this.coverId,
+    required this.isSegment,
   });
 
   @override
@@ -66,7 +74,9 @@ class TrackLite {
       title.hashCode ^
       artist.hashCode ^
       album.hashCode ^
-      durationMs.hashCode;
+      durationMs.hashCode ^
+      coverId.hashCode ^
+      isSegment.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -78,5 +88,7 @@ class TrackLite {
           title == other.title &&
           artist == other.artist &&
           album == other.album &&
-          durationMs == other.durationMs;
+          durationMs == other.durationMs &&
+          coverId == other.coverId &&
+          isSegment == other.isSegment;
 }

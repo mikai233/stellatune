@@ -7,6 +7,7 @@ import 'package:stellatune/app/providers.dart';
 import 'package:stellatune/bridge/bridge.dart';
 import 'package:stellatune/library/catalog_bridge.dart';
 import 'package:stellatune/library/catalog_controller.dart';
+import 'package:stellatune/library/album_sources.dart';
 import 'package:stellatune/player/queue_models.dart';
 import 'package:stellatune/player/queue_controller.dart';
 import 'package:stellatune/player/playback_controller.dart';
@@ -23,7 +24,12 @@ class _Library implements LibraryBridge {
 }
 
 class _Catalog extends CatalogBridge {
-  _Catalog({this.allowPlayback = false, this.secondPage});
+  _Catalog({
+    this.allowPlayback = false,
+    this.secondPage,
+    this.localAlbum = false,
+  });
+  final bool localAlbum;
   final bool allowPlayback;
   final Completer<CatalogPage>? secondPage;
   final playback = _Playback();
@@ -36,6 +42,7 @@ class _Catalog extends CatalogBridge {
   int collections = 0;
   int preparations = 0;
   CatalogItem item(MediaKind kind, String id) => CatalogItem(
+    isSegment: false,
     reference: MediaRef(sourceInstanceId: '7', kind: kind, id: id),
     title: '${kind.name} $id',
     artist: kind == MediaKind.track ? 'Artist $id' : null,
@@ -65,10 +72,10 @@ class _Catalog extends CatalogBridge {
   );
   @override
   Future<List<LibrarySource>> sources() async => [
-    const LibrarySource(
+    LibrarySource(
       id: '7',
       name: 'Remote server',
-      local: false,
+      local: localAlbum,
       available: true,
       browseKinds: [
         MediaKind.track,
@@ -83,6 +90,30 @@ class _Catalog extends CatalogBridge {
   @override
   Future<CatalogPage> browse(CatalogQuery query) async {
     calls.add(query);
+    if (localAlbum) {
+      return CatalogPage(
+        items: [
+          for (var n = 1; n <= 4; n++)
+            CatalogItem(
+              reference: MediaRef(
+                sourceInstanceId: '7',
+                kind: MediaKind.track,
+                id: '$n',
+              ),
+              title: 'Song ${(n - 1) % 2 + 1}',
+              artistRefs: const [],
+              isSegment: n > 2,
+              localPath: n > 2 ? '/album/disc.wav' : '/album/$n.mp3',
+              audio: CatalogAudioInfo(
+                format: n > 2 ? 'WAV' : 'MP3',
+                floatingPoint: false,
+                sourceDirectory: '/album',
+                cuePath: n > 2 ? '/album/disc.cue' : null,
+              ),
+            ),
+        ],
+      );
+    }
     if (query.search.isNotEmpty && query.kind == MediaKind.track) {
       return CatalogPage(
         items: [item(MediaKind.track, query.search == 'new' ? '999' : '201')],
@@ -207,6 +238,7 @@ void main() {
       id: '"洛天依"',
     );
     const track = CatalogItem(
+      isSegment: false,
       reference: MediaRef(
         sourceInstanceId: '1',
         kind: MediaKind.track,
@@ -252,6 +284,7 @@ void main() {
     WidgetTester tester, {
     bool disableAnimations = false,
     bool allowPlayback = false,
+    bool localAlbum = false,
     Completer<CatalogPage>? secondPage,
   }) async {
     tester.view.physicalSize = const Size(1200, 900);
@@ -260,6 +293,7 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     final bridge = _Catalog(
       allowPlayback: allowPlayback,
+      localAlbum: localAlbum,
       secondPage: secondPage,
     );
     await tester.pumpWidget(
@@ -316,6 +350,55 @@ void main() {
       expect(bridge.preparations, 2);
       expect(bridge.playback.replacements, 2);
       expect(bridge.playback.start, 0);
+    },
+  );
+
+  testWidgets(
+    'album source selection only changes the queue on explicit playback',
+    (tester) async {
+      final bridge = await mount(tester, allowPlayback: true, localAlbum: true);
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(CatalogLibraryView)),
+      );
+      final controller = container.read(catalogControllerProvider.notifier);
+      await controller.open(bridge.item(MediaKind.album, 'album'));
+      await tester.pumpAndSettle();
+      expect(find.byType(CatalogTrackRow), findsNWidgets(2));
+      final initial = container.read(catalogSelectedAlbumSourceProvider)!;
+      await tester.tap(find.text('Play all'));
+      await tester.pumpAndSettle();
+      expect(
+        bridge.prepared!.map((i) => i.reference),
+        initial.items.map((i) => i.reference),
+      );
+      expect(bridge.playback.queue.length, 2);
+      final other = container
+          .read(catalogAlbumSourcesProvider)
+          .firstWhere((s) => s.id != initial.id);
+      await container
+          .read(albumSourcePreferencesProvider.notifier)
+          .select(
+            container.read(catalogControllerProvider).albumPreferenceKey,
+            other.id,
+          );
+      await tester.pumpAndSettle();
+      expect(bridge.playback.replacements, 1);
+      expect(
+        bridge.playback.queue.map((i) => i.catalogItem!.reference),
+        initial.items.map((i) => i.reference),
+      );
+      await tester.tap(find.text('Play all'));
+      await tester.pumpAndSettle();
+      expect(
+        bridge.prepared!.map((i) => i.reference),
+        other.items.map((i) => i.reference),
+      );
+      expect(bridge.playback.replacements, 2);
+      await controller.setSearch('Song 2');
+      await tester.pumpAndSettle();
+      expect(find.byType(CatalogTrackRow), findsOneWidget);
+      expect(bridge.playback.replacements, 2);
+      expect(bridge.playback.queue.length, 2);
     },
   );
 

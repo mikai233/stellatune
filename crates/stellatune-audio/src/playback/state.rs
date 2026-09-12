@@ -99,8 +99,11 @@ pub(super) struct ActiveTrack {
 
 impl ActiveTrack {
     pub(super) fn output_frames_to_mix(&self, frames: u64) -> u64 {
-        MediaTime::from_frames(frames, self.output_format.sample_rate)
-            .to_frames(self.pipeline.mix_format.sample_rate)
+        stellatune_audio_core::playback::rescale_frames(
+            frames,
+            self.output_format.sample_rate,
+            self.pipeline.mix_format.sample_rate,
+        )
     }
 
     pub(super) fn consumed_position_frame(&self) -> u64 {

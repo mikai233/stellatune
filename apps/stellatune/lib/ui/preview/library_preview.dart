@@ -18,6 +18,7 @@ class LibraryVisualPreview extends StatefulWidget {
   static final tracks = [
     for (var i = 0; i < 18; i++)
       TrackLite(
+        isSegment: false,
         id: i + 1,
         path: 'preview-$i.flac',
         title: [

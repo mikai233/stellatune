@@ -17,7 +17,7 @@ use super::paths::{is_drive_root, is_under_excluded, normalize_path_str, now_ms,
 use super::tracks::{UpsertTrackInput, select_track_fingerprint, upsert_track};
 
 fn is_audio_ext(ext: &str) -> bool {
-    matches!(ext, "mp3" | "flac" | "wav")
+    stellatune_media_probe::formats::auto_scan_extension(ext)
 }
 
 struct FileCandidate {
@@ -54,6 +54,8 @@ pub(super) async fn scan_all(
     let mut upserted: u64 = 0;
     let mut skipped: u64 = 0;
     let mut errors: u64 = 0;
+
+    super::cue_import::reconcile(pool, events, cover_dir, &roots, true, force, true).await?;
 
     for root in roots {
         events.emit(LibraryEvent::Log {
@@ -120,6 +122,10 @@ pub(super) async fn scan_all(
 
         while let Some(file) = rx.recv().await {
             scanned += 1;
+            if super::cue_import::covered(pool, &file.path_norm).await? {
+                skipped += 1;
+                continue;
+            }
 
             if !force {
                 // Skip unchanged.
@@ -128,6 +134,17 @@ pub(super) async fn scan_all(
                     && old.size_bytes == file.size_bytes
                     && old.meta_scanned_ms > 0
                 {
+                    if super::properties::refresh(
+                        pool,
+                        Path::new(&file.path),
+                        metadata_provider,
+                        false,
+                        true,
+                    )
+                    .await?
+                    {
+                        upserted += 1;
+                    }
                     skipped += 1;
                     continue;
                 }
@@ -145,11 +162,13 @@ pub(super) async fn scan_all(
                 disc_number,
                 track_number,
                 artists,
+                file_metadata,
             ) = match tokio::task::spawn_blocking({
                 let metadata_provider = metadata_provider.clone();
                 let path = file.path.clone();
                 move || {
                     extract_metadata_with_plugins(Path::new(&path), &metadata_provider).map(|m| {
+                        let file_metadata = serde_json::to_string(&m).ok();
                         (
                             m.title,
                             m.artist,
@@ -160,6 +179,7 @@ pub(super) async fn scan_all(
                             m.disc_number,
                             m.track_number,
                             m.artists,
+                            file_metadata,
                         )
                     })
                 }
@@ -168,21 +188,28 @@ pub(super) async fn scan_all(
             {
                 Ok(Ok(m)) => m,
                 Ok(Err(e)) => {
+                    if e.is::<super::metadata::UnsupportedAudio>() {
+                        tracing::debug!(error = %e, "skipping unsupported audio stream");
+                        continue;
+                    }
                     errors += 1;
                     events.emit(LibraryEvent::Log {
                         message: format!("metadata error: {}: {e:#}", file.path),
                     });
-                    (None, None, None, None, None, None, None, None, vec![])
+                    (None, None, None, None, None, None, None, None, vec![], None)
                 },
                 Err(join_err) => {
                     errors += 1;
                     events.emit(LibraryEvent::Log {
                         message: format!("metadata task failed: {}: {join_err}", file.path),
                     });
-                    (None, None, None, None, None, None, None, None, vec![])
+                    (None, None, None, None, None, None, None, None, vec![], None)
                 },
             };
 
+            if !super::properties::matches(Path::new(&file.path), file.mtime_ms, file.size_bytes) {
+                continue;
+            }
             let track_id = match upsert_track(
                 pool,
                 UpsertTrackInput {
@@ -215,8 +242,19 @@ pub(super) async fn scan_all(
                 },
             };
 
+            super::tracks::cache_file_metadata(&pool, track_id, file_metadata.as_deref()).await?;
+            super::properties::refresh(pool, Path::new(&file.path), metadata_provider, force, true)
+                .await?;
             if let Some(bytes) = cover
-                && let Err(e) = write_cover_bytes(cover_dir, track_id, &bytes)
+                && let Err(e) = write_cover_bytes(
+                    cover_dir,
+                    super::tracks::attributes(&pool, &[track_id])
+                        .await?
+                        .get(&track_id)
+                        .map(|a| a.0)
+                        .unwrap_or(track_id),
+                    &bytes,
+                )
             {
                 errors += 1;
                 events.emit(LibraryEvent::Log {
@@ -275,6 +313,7 @@ pub(super) async fn scan_folder_into_db(
     cover_dir: &Path,
     folder_norm: &str,
     metadata_provider: &Option<Arc<dyn crate::metadata_provider::MetadataProvider>>,
+    retry_io: bool,
 ) -> Result<bool> {
     let folder_norm = normalize_path_str(folder_norm);
     if folder_norm.is_empty() || is_drive_root(&folder_norm) {
@@ -294,6 +333,16 @@ pub(super) async fn scan_folder_into_db(
         .collect();
 
     let mut changed = false;
+    changed |= super::cue_import::reconcile(
+        &pool,
+        events,
+        cover_dir,
+        std::slice::from_ref(&folder_norm),
+        true,
+        false,
+        retry_io,
+    )
+    .await?;
     let (tx, mut rx) = tokio::sync::mpsc::channel::<FileCandidate>(512);
     let root_clone = root.clone();
     let excluded_clone = excluded.clone();
@@ -356,11 +405,22 @@ pub(super) async fn scan_folder_into_db(
     });
 
     while let Some(file) = rx.recv().await {
+        if super::cue_import::covered(&pool, &file.path_norm).await? {
+            continue;
+        }
         if let Some(old) = select_track_fingerprint(&pool, &file.path).await?
             && old.mtime_ms == file.mtime_ms
             && old.size_bytes == file.size_bytes
             && old.meta_scanned_ms > 0
         {
+            changed |= super::properties::refresh(
+                &pool,
+                Path::new(&file.path),
+                metadata_provider,
+                false,
+                retry_io,
+            )
+            .await?;
             continue;
         }
 
@@ -376,11 +436,13 @@ pub(super) async fn scan_folder_into_db(
             disc_number,
             track_number,
             artists,
+            file_metadata,
         ) = match tokio::task::spawn_blocking({
             let metadata_provider = metadata_provider.clone();
             let p = PathBuf::from(&file.path);
             move || {
                 extract_metadata_with_plugins(&p, &metadata_provider).map(|m| {
+                    let file_metadata = serde_json::to_string(&m).ok();
                     (
                         m.title,
                         m.artist,
@@ -391,6 +453,7 @@ pub(super) async fn scan_folder_into_db(
                         m.disc_number,
                         m.track_number,
                         m.artists,
+                        file_metadata,
                     )
                 })
             }
@@ -399,19 +462,26 @@ pub(super) async fn scan_folder_into_db(
         {
             Ok(Ok(m)) => m,
             Ok(Err(e)) => {
+                if e.is::<super::metadata::UnsupportedAudio>() {
+                    tracing::debug!(error = %e, "skipping unsupported audio stream");
+                    continue;
+                }
                 events.emit(LibraryEvent::Log {
                     message: format!("metadata error: {}: {e:#}", file.path),
                 });
-                (None, None, None, None, None, None, None, None, vec![])
+                (None, None, None, None, None, None, None, None, vec![], None)
             },
             Err(join_err) => {
                 events.emit(LibraryEvent::Log {
                     message: format!("metadata task failed: {}: {join_err}", file.path),
                 });
-                (None, None, None, None, None, None, None, None, vec![])
+                (None, None, None, None, None, None, None, None, vec![], None)
             },
         };
 
+        if !super::properties::matches(Path::new(&file.path), file.mtime_ms, file.size_bytes) {
+            continue;
+        }
         let track_id = upsert_track(
             &pool,
             UpsertTrackInput {
@@ -434,8 +504,25 @@ pub(super) async fn scan_folder_into_db(
         )
         .await?;
 
+        super::tracks::cache_file_metadata(&pool, track_id, file_metadata.as_deref()).await?;
+        super::properties::refresh(
+            &pool,
+            Path::new(&file.path),
+            metadata_provider,
+            false,
+            retry_io,
+        )
+        .await?;
         if let Some(bytes) = cover
-            && let Err(e) = write_cover_bytes(cover_dir, track_id, &bytes)
+            && let Err(e) = write_cover_bytes(
+                cover_dir,
+                super::tracks::attributes(&pool, &[track_id])
+                    .await?
+                    .get(&track_id)
+                    .map(|a| a.0)
+                    .unwrap_or(track_id),
+                &bytes,
+            )
         {
             events.emit(LibraryEvent::Log {
                 message: format!("cover write error: {}: {e}", file.path),

@@ -15,6 +15,29 @@ static LIBRARY_SERVICE: OnceLock<Arc<LibraryService>> = OnceLock::new();
 static PLAYER_SERVICE: OnceLock<Arc<PlayerService>> = OnceLock::new();
 static LIBRARY_INIT_LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
 
+pub async fn library_rebuild_required(
+    db_path: String,
+) -> Result<bool, crate::api::error::AppError> {
+    stellatune_library::rebuild::required(std::path::Path::new(&db_path))
+        .await
+        .map_err(|error| crate::api::error::AppError::capture("library_rebuild_required", error))
+}
+
+pub async fn library_rebuild(db_path: String) -> Result<(), crate::api::error::AppError> {
+    let result: anyhow::Result<()> = async {
+        let _guard = LIBRARY_INIT_LOCK
+            .get_or_init(|| tokio::sync::Mutex::new(()))
+            .lock()
+            .await;
+        if LIBRARY_SERVICE.get().is_some() || PLAYER_SERVICE.get().is_some() {
+            anyhow::bail!("Close the library before rebuilding it");
+        }
+        stellatune_library::rebuild::rebuild(std::path::Path::new(&db_path)).await
+    }
+    .await;
+    result.map_err(|error| crate::api::error::AppError::capture("library_rebuild", error))
+}
+
 pub(crate) fn shared_library_if_initialized() -> Option<Arc<LibraryService>> {
     LIBRARY_SERVICE.get().map(Arc::clone)
 }

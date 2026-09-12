@@ -15,7 +15,6 @@ use stellatune_audio_core::error::FailureCode;
 use stellatune_audio_core::{
     error::{FailureStage, PlaybackControlError, PlaybackFailure},
     format::{AudioBlock, PcmFormat},
-    playback::MediaTime,
     transform::TransformPlacement,
 };
 use tokio::sync::broadcast;
@@ -145,7 +144,11 @@ pub(super) fn normalize_prepared_for_mix(
         ));
     }
     prepared.pipeline.duration_frames = prepared.pipeline.duration_frames.map(|frames| {
-        MediaTime::from_frames(frames, source.sample_rate).to_frames(target.sample_rate)
+        stellatune_audio_core::playback::rescale_frames(
+            frames,
+            source.sample_rate,
+            target.sample_rate,
+        )
     });
     prepared.pipeline.normalizer = Some(normalizer);
     prepared.pipeline.mix_format = target;

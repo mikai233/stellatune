@@ -36,11 +36,15 @@ impl LibraryWorker {
                                 artist: row.artist,
                                 album: row.album,
                                 duration_ms: row.duration_ms,
+                                cover_id: None,
+                                is_segment: false,
                             },
                         )
                     }),
             );
         }
-        Ok(tracks)
+        let mut values = tracks.into_values().collect::<Vec<_>>();
+        super::tracks::decorate(&self.pool, &mut values).await?;
+        Ok(values.into_iter().map(|track| (track.id, track)).collect())
     }
 }

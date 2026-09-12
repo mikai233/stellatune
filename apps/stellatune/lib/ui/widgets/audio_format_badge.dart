@@ -1,21 +1,30 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:stellatune/library/catalog_bridge.dart';
 
 class AudioFormatBadge extends StatelessWidget {
-  const AudioFormatBadge({super.key, required this.path, this.sampleRate});
+  const AudioFormatBadge({
+    super.key,
+    required this.path,
+    this.sampleRate,
+    this.item,
+  });
 
   final String path;
   final int? sampleRate;
+  final CatalogItem? item;
 
   @override
   Widget build(BuildContext context) {
     final extension = _resolveExtension(path);
-    if (extension.isEmpty) return const SizedBox.shrink();
+    final format = item?.audio?.format.trim().toUpperCase();
+    final label = format?.isNotEmpty == true ? format! : extension;
+    if (label.isEmpty) return const SizedBox.shrink();
 
     final theme = Theme.of(context);
-    final isHiRes =
-        _isHiRes(extension) || (sampleRate != null && sampleRate! > 48000);
+    final rate = item?.audio?.sampleRate ?? sampleRate;
+    final isHiRes = rate != null && rate > 48000;
 
     // Color logic based on quality/format
     final Color badgeColor;
@@ -26,8 +35,6 @@ class AudioFormatBadge extends StatelessWidget {
     } else {
       badgeColor = theme.colorScheme.secondary;
     }
-
-    final label = _getLabel(extension, isHiRes, sampleRate);
 
     return Container(
       margin: const EdgeInsets.only(right: 6),
@@ -45,25 +52,10 @@ class AudioFormatBadge extends StatelessWidget {
         style: TextStyle(
           color: badgeColor,
           fontSize: 9,
-          fontWeight: FontWeight.w800,
-          letterSpacing: 0.4,
-          fontFamily: 'monospace',
+          fontWeight: FontWeight.w500,
         ),
       ),
     );
-  }
-
-  String _getLabel(String ext, bool isHiRes, int? sampleRate) {
-    if (sampleRate != null && sampleRate > 0) {
-      final khz = (sampleRate / 1000)
-          .toStringAsFixed(1)
-          .replaceAll(RegExp(r'\.0$'), '');
-      if (isHiRes) {
-        return 'HI-RES $khz\u{1D458}Hz';
-      }
-      return '$ext $khz\u{1D458}Hz';
-    }
-    return isHiRes && ext == 'FLAC' ? 'HI-RES' : ext;
   }
 
   String _resolveExtension(String rawPath) {
@@ -124,10 +116,5 @@ class AudioFormatBadge extends StatelessWidget {
     final ext = text.substring(dot + 1).toUpperCase();
     if (!RegExp(r'^[A-Z0-9]{1,10}$').hasMatch(ext)) return '';
     return ext;
-  }
-
-  bool _isHiRes(String ext) {
-    final e = ext.toLowerCase();
-    return const ['flac', 'wav', 'dsd', 'dsf', 'dff', 'ape'].contains(e);
   }
 }

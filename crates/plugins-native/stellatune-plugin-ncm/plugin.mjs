@@ -69,7 +69,7 @@ export default {
         resolve(value) { clearTimeout(timer); resolve(value); },
         reject(error) { clearTimeout(timer); reject(error); },
       });
-      current.child.stdin.write(JSON.stringify({ id, operation, path: input.path }) + '\n');
+      current.child.stdin.write(JSON.stringify({ id, operation, path: input.path, propertiesOnly: input.propertiesOnly === true, skipAudio: input.skipAudio === true }) + '\n');
     });
   },
   async shutdown() {

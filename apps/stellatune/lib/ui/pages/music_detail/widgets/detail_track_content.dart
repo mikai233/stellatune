@@ -28,13 +28,14 @@ class DetailTrackContent extends ConsumerWidget {
         final item = queue.currentItem;
         return (
           key: item?.stableTrackKey ?? '',
-          id: item?.id,
+          id: item?.coverId,
           title: item?.displayTitle,
           artist: item?.artist?.trim() ?? '',
           album: item?.album?.trim() ?? '',
           coverKind: item?.cover?.kind,
           coverValue: item?.cover?.value,
           coverMime: item?.cover?.mime,
+          catalogItem: item?.catalogItem,
         );
       }),
     );
@@ -74,6 +75,7 @@ class DetailTrackContent extends ConsumerWidget {
             foregroundColor: foregroundColor,
             currentPath: format.path,
             sampleRate: format.sampleRate,
+            catalogItem: track.catalogItem,
             maxWidth: constraints.maxWidth,
             maxHeight: constraints.maxHeight,
             hasLyrics: layout.hasLyrics,
@@ -90,6 +92,7 @@ class DetailTrackContent extends ConsumerWidget {
           foregroundColor: foregroundColor,
           currentPath: format.path,
           sampleRate: format.sampleRate,
+          catalogItem: track.catalogItem,
           maxHeight: constraints.maxHeight,
           hasLyrics: layout.hasLyrics,
         );

@@ -24,6 +24,7 @@ void main() {
                 items: [
                   for (var i = 0; i < 100; i++)
                     CatalogItem(
+                      isSegment: false,
                       reference: MediaRef(
                         sourceInstanceId: '1',
                         kind: MediaKind.album,
@@ -75,6 +76,7 @@ void main() {
                     height: 215,
                     child: CatalogCollectionCard(
                       item: CatalogItem(
+                        isSegment: false,
                         reference: MediaRef(
                           sourceInstanceId: '1',
                           kind: kind,

@@ -42,6 +42,7 @@ async fn assert_realtime_supply(source: Arc<dyn SourceFactory>) {
                 id: PlaybackItemId::new(1).unwrap(),
                 source,
                 required_decoder: None,
+                segment: None,
             },
             SwitchOptions::default(),
         )
@@ -232,6 +233,7 @@ async fn decoder_and_resampler_fill_shared_output_duration_for_all_latency_prese
                             FileSourceFactory::new(path.clone(), Default::default()).unwrap(),
                         ),
                         required_decoder: None,
+                        segment: None,
                     },
                     SwitchOptions::default(),
                 )

@@ -28,6 +28,7 @@ class VisualLibrary implements LibraryBridge {
 class VisualCatalog extends CatalogBridge {
   final calls = <CatalogQuery>[];
   CatalogItem folder(String id, String title) => CatalogItem(
+    isSegment: false,
     reference: MediaRef(sourceInstanceId: '1', kind: MediaKind.folder, id: id),
     title: title,
     artistRefs: const [],
@@ -87,6 +88,7 @@ class VisualCatalog extends CatalogBridge {
       items: [
         for (var i = 0; i < count; i++)
           CatalogItem(
+            isSegment: false,
             reference: MediaRef(
               sourceInstanceId: '1',
               kind: query.kind,

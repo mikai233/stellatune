@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 import 'package:stellatune/app/app_bootstrap_services.dart';
 import 'package:stellatune/app/plugin_paths.dart';
 import 'package:stellatune/bridge/api/player.dart' as player_api;
+import 'package:stellatune/bridge/api/library.dart' as library_api;
 import 'package:stellatune/app/settings_store.dart';
 import 'package:stellatune/app/output_settings_runtime.dart';
 import 'package:stellatune/bridge/bridge.dart';
@@ -27,6 +28,11 @@ class AppBootstrapResult {
   final LibraryBridge library;
   final SettingsStore settings;
   final String coverDir;
+}
+
+class LibraryRebuildRequired implements Exception {
+  const LibraryRebuildRequired(this.dbPath);
+  final String dbPath;
 }
 
 class _BootstrapPaths {
@@ -98,6 +104,10 @@ Future<AppBootstrapResult> bootstrapApp({
     final settings = await services.openSettings();
     bridge.bindDirectoryAccessStore(settings);
     final paths = await _resolvePaths();
+
+    if (await library_api.libraryRebuildRequired(dbPath: paths.dbPath)) {
+      throw LibraryRebuildRequired(paths.dbPath);
+    }
 
     final library = await LibraryBridge.create(dbPath: paths.dbPath);
     await DirectoryAccessService.instance.syncStoredDirectories(

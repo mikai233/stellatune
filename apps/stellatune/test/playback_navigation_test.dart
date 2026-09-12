@@ -21,6 +21,7 @@ class ControlledBridge implements PlayerBridge {
   final selections = <BigInt, Completer<bool>>{};
   Completer<void>? retainGate;
   Completer<PlaybackSnapshot>? snapshotGate;
+  Completer<PlaybackQueue>? queueGate;
   int snapshotCalls = 0;
   int stopCalls = 0;
   int replaceCalls = 0;
@@ -64,7 +65,12 @@ class ControlledBridge implements PlayerBridge {
   }
 
   @override
-  Future<PlaybackQueue> playbackQueue() async => queue;
+  Future<PlaybackQueue> playbackQueue() async {
+    final gate = queueGate;
+    queueGate = null;
+    return gate == null ? queue : await gate.future;
+  }
+
   @override
   Future<void> retainQueuePaths(Iterable<String> paths) async {
     final gate = retainGate;
@@ -194,6 +200,104 @@ void main() {
     },
   );
 
+  test('late queue snapshots cannot roll confirmed playback back to the previous cover', () async {
+    bridge.eventStream.add(
+      Event.trackChanged(trackId: BigInt.one, itemId: BigInt.one),
+    );
+    await Future<void>.delayed(Duration.zero);
+    bridge.eventStream.add(
+      Event.trackChanged(trackId: BigInt.two, itemId: BigInt.two),
+    );
+    expect(
+      container.read(queueControllerProvider).currentItem?.itemId,
+      BigInt.two,
+    );
+    // Selection/metadata snapshots and audible events travel over different streams.
+    bridge.queueStream.add(
+      PlaybackQueue(
+        items: bridge.queue.items,
+        order: bridge.queue.order,
+        currentItemId: BigInt.one,
+        requestedItemId: BigInt.two,
+        repeatMode: QueueRepeatMode.all,
+        shuffle: false,
+        revision: BigInt.two,
+      ),
+    );
+    expect(
+      container.read(queueControllerProvider).currentItem?.itemId,
+      BigInt.two,
+    );
+    expect(container.read(queueControllerProvider).repeatMode, RepeatMode.all);
+    await Future<void>.delayed(Duration.zero);
+    expect(
+      container.read(queueControllerProvider).currentItem?.itemId,
+      BigInt.two,
+    );
+    // A subsequent genuine transition, including back to A, remains authoritative.
+    bridge.eventStream.add(
+      Event.trackChanged(trackId: BigInt.one, itemId: BigInt.one),
+    );
+    expect(
+      container.read(queueControllerProvider).currentItem?.itemId,
+      BigInt.one,
+    );
+  });
+
+  test('pending cover is handed off to the confirmed queue item without exposing the old item', () async {
+    final selection = controller.playIndex(1);
+    await until(() => bridge.selections.containsKey(BigInt.two));
+    final displayed = <BigInt?>[];
+    void record() => displayed.add(
+      container.read(playbackControllerProvider).pendingItem?.itemId ??
+          container.read(queueControllerProvider).currentItem?.itemId,
+    );
+    final playbackSubscription = container.listen(
+      playbackControllerProvider,
+      (_, _) => record(),
+    );
+    final queueSubscription = container.listen(
+      queueControllerProvider,
+      (_, _) => record(),
+    );
+    bridge.eventStream.add(
+      Event.trackChanged(trackId: BigInt.two, itemId: BigInt.two),
+    );
+    expect(displayed, isNotEmpty);
+    expect(displayed, everyElement(BigInt.two));
+    playbackSubscription.close();
+    queueSubscription.close();
+    bridge.selections[BigInt.two]!.complete(true);
+    await selection;
+  });
+
+  test('an old queue refresh cannot undo a newer confirmed track', () async {
+    final refresh = Completer<PlaybackQueue>();
+    bridge.queueGate = refresh;
+    bridge.eventStream.add(
+      Event.trackChanged(trackId: BigInt.one, itemId: BigInt.one),
+    );
+    bridge.eventStream.add(
+      Event.trackChanged(trackId: BigInt.two, itemId: BigInt.two),
+    );
+    refresh.complete(
+      PlaybackQueue(
+        items: bridge.queue.items,
+        order: bridge.queue.order,
+        currentItemId: BigInt.one,
+        repeatMode: QueueRepeatMode.off,
+        shuffle: false,
+        revision: BigInt.two,
+      ),
+    );
+    await Future<void>.delayed(Duration.zero);
+    expect(
+      container.read(queueControllerProvider).currentItem?.itemId,
+      BigInt.two,
+    );
+    expect(container.read(playbackControllerProvider).currentPath, '2.mp3');
+  });
+
   test(
     'stale failure cannot stop a newer selection or erase pending feedback',
     () async {
@@ -241,6 +345,7 @@ void main() {
           path: '$id.mp3',
           title: 'Known title $id',
           catalogItem: CatalogItem(
+            isSegment: false,
             artistRefs: const [],
             reference: MediaRef(
               sourceInstanceId: 'local',
@@ -544,6 +649,11 @@ void main() {
       bridge.eventStream.add(Event.trackChanged(trackId: id, itemId: id));
       await Future<void>.delayed(Duration.zero);
       expect(container.read(playbackControllerProvider).currentPath, isEmpty);
+      expect(
+        container.read(queueControllerProvider).currentItem?.itemId,
+        BigInt.one,
+        reason: 'Keep the last available presentation until new item metadata arrives',
+      );
       bridge.queueStream.add(
         PlaybackQueue(
           items: [
@@ -564,6 +674,64 @@ void main() {
       expect(container.read(playbackControllerProvider).currentPath, '99.mp3');
     },
   );
+
+  test('stale positions from another occurrence cannot change confirmed queue identity', () async {
+    final repeatedItems = [
+      for (final id in [BigInt.one, BigInt.two])
+        QueueEntry(
+          itemId: id,
+          trackId: BigInt.one,
+          localLibraryTrackId: 1,
+          localPath: '1.mp3',
+        ),
+    ];
+    bridge.queueStream.add(
+      PlaybackQueue(
+        items: repeatedItems,
+        order: frb.Uint64List.fromList([1, 2]),
+        currentItemId: BigInt.one,
+        repeatMode: QueueRepeatMode.off,
+        shuffle: false,
+        revision: BigInt.two,
+      ),
+    );
+    bridge.eventStream.add(
+      Event.trackChanged(trackId: BigInt.one, itemId: BigInt.two),
+    );
+    bridge.eventStream.add(
+      Event.position(
+        ms: 7000,
+        trackId: BigInt.one,
+        itemId: BigInt.two,
+        sessionId: BigInt.two,
+      ),
+    );
+    bridge.eventStream.add(
+      Event.position(
+        ms: 90000,
+        trackId: BigInt.one,
+        itemId: BigInt.one,
+        sessionId: BigInt.one,
+      ),
+    );
+    bridge.queueStream.add(
+      PlaybackQueue(
+        items: repeatedItems,
+        order: frb.Uint64List.fromList([1, 2]),
+        currentItemId: BigInt.one,
+        repeatMode: QueueRepeatMode.off,
+        shuffle: false,
+        revision: BigInt.from(3),
+      ),
+    );
+    expect(container.read(playbackControllerProvider).positionMs, 7000);
+    expect(container.read(playbackControllerProvider).currentPath, '1.mp3');
+    expect(
+      container.read(queueControllerProvider).currentItem?.itemId,
+      BigInt.two,
+    );
+    await Future<void>.delayed(Duration.zero);
+  });
 
   test(
     'late restored decode info cannot replace a newly selected track',
@@ -607,6 +775,7 @@ void main() {
             localLibraryTrackId: 42,
             localPath: 'old-name.ncm',
             localMetadata: TrackLite(
+              isSegment: false,
               id: 42,
               path: 'old-name.ncm',
               title: '知夏',

@@ -31,6 +31,7 @@ impl Responder<SetNext> for PlaybackActor {
             self.session.force_transition = false;
             if let Some(current) = self.session.current.as_mut() {
                 current.forced_end_frame = None;
+                current.transition = current.recovery_plan.policies.transition;
             }
             let _ = reply_to.send(Ok(()));
             return Ok(());
@@ -64,6 +65,11 @@ impl Responder<SetNext> for PlaybackActor {
         self.session.force_transition = false;
         if let Some(current) = self.session.current.as_mut() {
             current.forced_end_frame = None;
+            current.transition = if current.recovery_plan.item.is_contiguous_with(&plan.item) {
+                crate::planner::TransitionPolicy::Gapless
+            } else {
+                current.recovery_plan.policies.transition
+            };
         }
         self.defer_preparation(
             ctx,

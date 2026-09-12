@@ -9,7 +9,10 @@ use axum::extract::{Path, State};
 use axum::http::{HeaderMap, HeaderValue, Method, StatusCode};
 use axum::response::IntoResponse;
 use axum::routing::get;
+use futures_util::StreamExt;
 use mime_guess::{MimeGuess, mime};
+use stellatune_audio_core::source::SourceCancellation;
+use stellatune_backend_api::runtime::segment_wave::SegmentWave;
 use tokio::net::TcpListener;
 use tokio::sync::{Mutex, RwLock};
 use tokio_util::io::ReaderStream;
@@ -19,7 +22,19 @@ use super::types::DlnaHttpServerInfo;
 
 #[derive(Clone)]
 struct HttpState {
-    tracks: Arc<RwLock<HashMap<String, PathBuf>>>,
+    tracks: Arc<RwLock<HashMap<String, Publication>>>,
+}
+
+#[derive(Clone)]
+enum Resource {
+    File(PathBuf),
+    Segment(SegmentWave),
+}
+#[derive(Clone)]
+struct Publication {
+    resource: Resource,
+    cancellation: SourceCancellation,
+    created: std::time::Instant,
 }
 
 static HTTP_SERVER: OnceLock<Arc<HttpServer>> = OnceLock::new();
@@ -123,14 +138,35 @@ fn normalize_ipaddr(ip: IpAddr) -> String {
 }
 
 pub(super) async fn register_track(path: String) -> String {
+    register(Resource::File(PathBuf::from(path))).await
+}
+
+pub(super) async fn register_segment(wave: SegmentWave) -> String {
+    register(Resource::Segment(wave)).await
+}
+
+async fn register(resource: Resource) -> String {
     let token = new_token();
     if let Some(server) = HTTP_SERVER.get() {
-        server
-            .state
-            .tracks
-            .write()
-            .await
-            .insert(token.clone(), PathBuf::from(path));
+        let mut tracks = server.state.tracks.write().await;
+        while tracks.len() >= 16 {
+            let oldest = tracks
+                .iter()
+                .min_by_key(|(_, p)| p.created)
+                .map(|(key, _)| key.clone())
+                .unwrap();
+            if let Some(old) = tracks.remove(&oldest) {
+                old.cancellation.cancel();
+            }
+        }
+        tracks.insert(
+            token.clone(),
+            Publication {
+                resource,
+                cancellation: SourceCancellation::default(),
+                created: std::time::Instant::now(),
+            },
+        );
     }
     token
 }
@@ -153,7 +189,8 @@ async fn http_track(
 ) -> impl IntoResponse {
     let range_header = headers
         .get(axum::http::header::RANGE)
-        .and_then(|v| v.to_str().ok());
+        .and_then(|v| v.to_str().ok())
+        .filter(|_| method == Method::GET);
     tracing::debug!(
         "dlna http track request method={} token={} range={:?}",
         method,
@@ -161,12 +198,19 @@ async fn http_track(
         range_header
     );
 
-    let path = {
+    let publication = {
         let map = state.tracks.read().await;
         map.get(&token).cloned()
     };
-    let Some(path) = path else {
+    let Some(publication) = publication else {
         return (StatusCode::NOT_FOUND, "track not found").into_response();
+    };
+
+    if let Resource::Segment(wave) = publication.resource {
+        return http_segment(wave, publication.cancellation, range_header, method).await;
+    }
+    let Resource::File(path) = publication.resource else {
+        unreachable!()
     };
 
     let meta = match tokio::fs::metadata(&path).await {
@@ -245,9 +289,70 @@ async fn http_track(
 
     use tokio::io::AsyncReadExt;
     let limited = file.take(to_send);
-    let stream = ReaderStream::new(limited);
+    let cancellation = publication.cancellation;
+    let stream =
+        ReaderStream::new(limited).take_until(async move { cancellation.cancelled().await });
 
     (status, out_headers, axum::body::Body::from_stream(stream)).into_response()
+}
+
+async fn http_segment(
+    wave: SegmentWave,
+    cancellation: SourceCancellation,
+    range: Option<&str>,
+    method: Method,
+) -> axum::response::Response {
+    let length = wave.length;
+    // RFC 9110: Range modifies GET only. Unknown units and unsupported multipart
+    // requests are ignored; an unsatisfiable single byte range receives 416.
+    let range = range.filter(|value| {
+        method == Method::GET
+            && value.to_ascii_lowercase().starts_with("bytes=")
+            && !value.contains(',')
+    });
+    let (status, start, end) = if let Some(range) = range {
+        let Some((start, end)) = parse_single_range(range, length) else {
+            return (
+                StatusCode::RANGE_NOT_SATISFIABLE,
+                [("content-range", format!("bytes */{length}"))],
+                "",
+            )
+                .into_response();
+        };
+        (StatusCode::PARTIAL_CONTENT, start, end)
+    } else {
+        (StatusCode::OK, 0, length - 1)
+    };
+    let mut headers = HeaderMap::new();
+    headers.insert("content-type", HeaderValue::from_static("audio/wav"));
+    headers.insert("accept-ranges", HeaderValue::from_static("bytes"));
+    headers.insert(
+        "content-length",
+        HeaderValue::from_str(&(end - start + 1).to_string()).unwrap(),
+    );
+    if status == StatusCode::PARTIAL_CONTENT {
+        headers.insert(
+            "content-range",
+            HeaderValue::from_str(&format!("bytes {start}-{end}/{length}")).unwrap(),
+        );
+    }
+    if method == Method::HEAD {
+        return (status, headers, "").into_response();
+    }
+    let receiver = match wave.stream(start, end, cancellation.clone()).await {
+        Ok(receiver) => receiver,
+        Err(error) => return (StatusCode::SERVICE_UNAVAILABLE, error.to_string()).into_response(),
+    };
+    let stream = futures_util::stream::unfold(
+        (receiver, cancellation),
+        |(mut receiver, cancellation)| async move {
+            tokio::select! { biased;
+                _ = cancellation.cancelled() => None,
+                value = receiver.recv() => value.map(|value| (value, (receiver, cancellation))),
+            }
+        },
+    );
+    (status, headers, axum::body::Body::from_stream(stream)).into_response()
 }
 
 fn parse_single_range(header: &str, len: u64) -> Option<(u64, u64)> {
@@ -331,6 +436,158 @@ async fn sniff_mime_from_magic(path: &PathBuf) -> Result<Option<mime::Mime>> {
 
 pub(super) async fn unpublish_all() {
     if let Some(server) = HTTP_SERVER.get() {
-        server.state.tracks.write().await.clear();
+        for (_, publication) in server.state.tracks.write().await.drain() {
+            publication.cancellation.cancel();
+        }
+    }
+}
+
+pub(super) async fn retain_urls(urls: &[Option<&str>]) {
+    if let Some(server) = HTTP_SERVER.get() {
+        let tokens = urls
+            .iter()
+            .flatten()
+            .filter_map(|url| url.rsplit('/').next())
+            .collect::<Vec<_>>();
+        server
+            .state
+            .tracks
+            .write()
+            .await
+            .retain(|token, publication| {
+                if tokens.contains(&token.as_str()) {
+                    true
+                } else {
+                    publication.cancellation.cancel();
+                    false
+                }
+            });
+    }
+}
+
+pub(super) async fn remove_urls(urls: &[Option<&str>]) {
+    if let Some(server) = HTTP_SERVER.get() {
+        let mut tracks = server.state.tracks.write().await;
+        for token in urls
+            .iter()
+            .flatten()
+            .filter_map(|url| url.rsplit('/').next())
+        {
+            if let Some(publication) = tracks.remove(token) {
+                publication.cancellation.cancel();
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use stellatune_audio_core::segment::AudioSegment;
+    use stellatune_library::catalog::LocalTrackResource;
+
+    #[tokio::test]
+    async fn segment_http_head_ranges_and_publication_cleanup() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("audio.wav");
+        let mut wav = b"RIFF".to_vec();
+        wav.extend(2036_u32.to_le_bytes());
+        wav.extend(b"WAVEfmt ");
+        wav.extend(16_u32.to_le_bytes());
+        wav.extend(1_u16.to_le_bytes());
+        wav.extend(1_u16.to_le_bytes());
+        wav.extend(48000_u32.to_le_bytes());
+        wav.extend(96000_u32.to_le_bytes());
+        wav.extend(2_u16.to_le_bytes());
+        wav.extend(16_u16.to_le_bytes());
+        wav.extend(b"data");
+        wav.extend(2000_u32.to_le_bytes());
+        for i in 0..1000_i16 {
+            wav.extend(i.to_le_bytes());
+        }
+        std::fs::write(&path, wav).unwrap();
+        let wave = SegmentWave::prepare(LocalTrackResource {
+            path: path.to_string_lossy().into_owned(),
+            segment: Some(AudioSegment {
+                start_frame: 37,
+                end_frame_exclusive: 891,
+                sample_rate: 48000,
+            }),
+            cover_key: 1,
+            pcm_bits: Some(16),
+            pcm_float: false,
+        })
+        .await
+        .unwrap();
+        let length = wave.length;
+        let info = ensure_http_server(Some("127.0.0.1".into()), Some(0))
+            .await
+            .unwrap();
+        let address: std::net::SocketAddr = info.listen_addr.parse().unwrap();
+        let token = register_segment(wave).await;
+        let url = format!("http://127.0.0.1:{}/track/{token}", address.port());
+        let client = reqwest::Client::new();
+        let head = client
+            .head(&url)
+            .header("Range", "bytes=1-2")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(head.status(), StatusCode::OK);
+        assert_eq!(head.headers()["content-length"], length.to_string());
+        assert!(head.bytes().await.unwrap().is_empty());
+        let full = client
+            .get(&url)
+            .send()
+            .await
+            .unwrap()
+            .bytes()
+            .await
+            .unwrap();
+        assert_eq!(full.len() as u64, length);
+        for range in ["bytes=3-49", "bytes=-7", "bytes=77-"] {
+            let (start, end) = parse_single_range(range, length).unwrap();
+            let response = client
+                .get(&url)
+                .header("Range", range)
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::PARTIAL_CONTENT);
+            assert_eq!(
+                response.headers()["content-range"],
+                format!("bytes {start}-{end}/{length}")
+            );
+            assert_eq!(
+                response.bytes().await.unwrap(),
+                &full[start as usize..=end as usize]
+            );
+        }
+        let invalid = client
+            .get(&url)
+            .header("Range", format!("bytes={length}-"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(invalid.status(), StatusCode::RANGE_NOT_SATISFIABLE);
+        assert_eq!(
+            invalid.headers()["content-range"],
+            format!("bytes */{length}")
+        );
+        let server = HTTP_SERVER.get().unwrap();
+        let cancellation = server.state.tracks.read().await[&token]
+            .cancellation
+            .clone();
+        for _ in 0..20 {
+            register_track(path.to_string_lossy().into_owned()).await;
+        }
+        assert_eq!(server.state.tracks.read().await.len(), 16);
+        assert!(cancellation.is_cancelled());
+        unpublish_all().await;
+        assert!(server.state.tracks.read().await.is_empty());
+        assert_eq!(
+            client.get(&url).send().await.unwrap().status(),
+            StatusCode::NOT_FOUND
+        );
     }
 }

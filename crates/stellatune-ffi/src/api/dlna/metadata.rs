@@ -9,6 +9,15 @@ use super::types::{DlnaRenderer, DlnaSsdpDevice};
 const ST_AV_TRANSPORT: &str = "urn:schemas-upnp-org:service:AVTransport:";
 const ST_RENDERING_CONTROL: &str = "urn:schemas-upnp-org:service:RenderingControl:";
 
+#[derive(Default)]
+#[flutter_rust_bridge::frb(ignore)]
+pub(super) struct ResourceInfo {
+    pub duration_ms: Option<u64>,
+    pub size: Option<u64>,
+    pub sample_rate: Option<u32>,
+    pub channels: Option<u16>,
+}
+
 pub(super) fn build_didl_metadata(
     track_url: &str,
     track_path: &str,
@@ -16,6 +25,7 @@ pub(super) fn build_didl_metadata(
     artist: Option<String>,
     album: Option<String>,
     cover_url: Option<&str>,
+    resource: ResourceInfo,
 ) -> String {
     let fallback_title = track_path.rsplit(['/', '\\']).next().unwrap_or(track_path);
     let title = title
@@ -25,7 +35,14 @@ pub(super) fn build_didl_metadata(
         .unwrap_or(fallback_title);
 
     let mime = MimeGuess::from_path(track_path).first_or_octet_stream();
-    let protocol_info = format!("http-get:*:{}:*", mime.as_ref());
+    let protocol_info = format!(
+        "http-get:*:{}:*",
+        if resource.sample_rate.is_some() {
+            "audio/wav"
+        } else {
+            mime.as_ref()
+        }
+    );
 
     let mut didl = String::new();
     didl.push_str(
@@ -47,9 +64,29 @@ pub(super) fn build_didl_metadata(
             escape_xml(c)
         ));
     }
+    let mut attributes = String::new();
+    if let Some(ms) = resource.duration_ms {
+        attributes.push_str(&format!(
+            " duration=\"{}:{:02}:{:02}.{:03}\"",
+            ms / 3600000,
+            ms / 60000 % 60,
+            ms / 1000 % 60,
+            ms % 1000
+        ));
+    }
+    if let Some(size) = resource.size {
+        attributes.push_str(&format!(" size=\"{size}\""));
+    }
+    if let Some(rate) = resource.sample_rate {
+        attributes.push_str(&format!(" sampleFrequency=\"{rate}\""));
+    }
+    if let Some(channels) = resource.channels {
+        attributes.push_str(&format!(" nrAudioChannels=\"{channels}\""));
+    }
     didl.push_str(&format!(
-        "<res protocolInfo=\"{}\">{}</res>",
+        "<res protocolInfo=\"{}\"{}>{}</res>",
         escape_xml(&protocol_info),
+        attributes,
         escape_xml(track_url)
     ));
     didl.push_str("</item></DIDL-Lite>");

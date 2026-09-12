@@ -35,6 +35,7 @@ import 'third_party/stellatune_backend_api/player_service/metadata.dart';
 import 'third_party/stellatune_backend_api/player_service/service.dart';
 import 'third_party/stellatune_library.dart';
 import 'third_party/stellatune_library/catalog.dart';
+import 'third_party/stellatune_media_probe/types.dart';
 
 abstract class StellatuneApiApiImplPlatform
     extends BaseApiImpl<StellatuneApiWire> {
@@ -190,10 +191,31 @@ abstract class StellatuneApiApiImplPlatform
   AudioDevice dco_decode_audio_device(dynamic raw);
 
   @protected
+  AudioProperties dco_decode_audio_properties(dynamic raw);
+
+  @protected
+  BitrateInfo dco_decode_bitrate_info(dynamic raw);
+
+  @protected
+  BitrateKind dco_decode_bitrate_kind(dynamic raw);
+
+  @protected
+  BitrateMode dco_decode_bitrate_mode(dynamic raw);
+
+  @protected
   bool dco_decode_bool(dynamic raw);
 
   @protected
   AppError dco_decode_box_autoadd_app_error(dynamic raw);
+
+  @protected
+  BitrateInfo dco_decode_box_autoadd_bitrate_info(dynamic raw);
+
+  @protected
+  BitrateMode dco_decode_box_autoadd_bitrate_mode(dynamic raw);
+
+  @protected
+  CatalogAudioInfo dco_decode_box_autoadd_catalog_audio_info(dynamic raw);
 
   @protected
   CatalogQuery dco_decode_box_autoadd_catalog_query(dynamic raw);
@@ -246,6 +268,9 @@ abstract class StellatuneApiApiImplPlatform
 
   @protected
   BigInt dco_decode_box_autoadd_u_64(dynamic raw);
+
+  @protected
+  CatalogAudioInfo dco_decode_catalog_audio_info(dynamic raw);
 
   @protected
   CatalogItem dco_decode_catalog_item(dynamic raw);
@@ -454,6 +479,15 @@ abstract class StellatuneApiApiImplPlatform
 
   @protected
   AppError? dco_decode_opt_box_autoadd_app_error(dynamic raw);
+
+  @protected
+  BitrateInfo? dco_decode_opt_box_autoadd_bitrate_info(dynamic raw);
+
+  @protected
+  BitrateMode? dco_decode_opt_box_autoadd_bitrate_mode(dynamic raw);
+
+  @protected
+  CatalogAudioInfo? dco_decode_opt_box_autoadd_catalog_audio_info(dynamic raw);
 
   @protected
   PlatformInt64? dco_decode_opt_box_autoadd_i_64(dynamic raw);
@@ -718,10 +752,33 @@ abstract class StellatuneApiApiImplPlatform
   AudioDevice sse_decode_audio_device(SseDeserializer deserializer);
 
   @protected
+  AudioProperties sse_decode_audio_properties(SseDeserializer deserializer);
+
+  @protected
+  BitrateInfo sse_decode_bitrate_info(SseDeserializer deserializer);
+
+  @protected
+  BitrateKind sse_decode_bitrate_kind(SseDeserializer deserializer);
+
+  @protected
+  BitrateMode sse_decode_bitrate_mode(SseDeserializer deserializer);
+
+  @protected
   bool sse_decode_bool(SseDeserializer deserializer);
 
   @protected
   AppError sse_decode_box_autoadd_app_error(SseDeserializer deserializer);
+
+  @protected
+  BitrateInfo sse_decode_box_autoadd_bitrate_info(SseDeserializer deserializer);
+
+  @protected
+  BitrateMode sse_decode_box_autoadd_bitrate_mode(SseDeserializer deserializer);
+
+  @protected
+  CatalogAudioInfo sse_decode_box_autoadd_catalog_audio_info(
+    SseDeserializer deserializer,
+  );
 
   @protected
   CatalogQuery sse_decode_box_autoadd_catalog_query(
@@ -788,6 +845,9 @@ abstract class StellatuneApiApiImplPlatform
 
   @protected
   BigInt sse_decode_box_autoadd_u_64(SseDeserializer deserializer);
+
+  @protected
+  CatalogAudioInfo sse_decode_catalog_audio_info(SseDeserializer deserializer);
 
   @protected
   CatalogItem sse_decode_catalog_item(SseDeserializer deserializer);
@@ -1022,6 +1082,21 @@ abstract class StellatuneApiApiImplPlatform
 
   @protected
   AppError? sse_decode_opt_box_autoadd_app_error(SseDeserializer deserializer);
+
+  @protected
+  BitrateInfo? sse_decode_opt_box_autoadd_bitrate_info(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  BitrateMode? sse_decode_opt_box_autoadd_bitrate_mode(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  CatalogAudioInfo? sse_decode_opt_box_autoadd_catalog_audio_info(
+    SseDeserializer deserializer,
+  );
 
   @protected
   PlatformInt64? sse_decode_opt_box_autoadd_i_64(SseDeserializer deserializer);
@@ -1326,11 +1401,44 @@ abstract class StellatuneApiApiImplPlatform
   void sse_encode_audio_device(AudioDevice self, SseSerializer serializer);
 
   @protected
+  void sse_encode_audio_properties(
+    AudioProperties self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_bitrate_info(BitrateInfo self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_bitrate_kind(BitrateKind self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_bitrate_mode(BitrateMode self, SseSerializer serializer);
+
+  @protected
   void sse_encode_bool(bool self, SseSerializer serializer);
 
   @protected
   void sse_encode_box_autoadd_app_error(
     AppError self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_bitrate_info(
+    BitrateInfo self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_bitrate_mode(
+    BitrateMode self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_catalog_audio_info(
+    CatalogAudioInfo self,
     SseSerializer serializer,
   );
 
@@ -1426,6 +1534,12 @@ abstract class StellatuneApiApiImplPlatform
 
   @protected
   void sse_encode_box_autoadd_u_64(BigInt self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_catalog_audio_info(
+    CatalogAudioInfo self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_catalog_item(CatalogItem self, SseSerializer serializer);
@@ -1724,6 +1838,24 @@ abstract class StellatuneApiApiImplPlatform
   @protected
   void sse_encode_opt_box_autoadd_app_error(
     AppError? self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_opt_box_autoadd_bitrate_info(
+    BitrateInfo? self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_opt_box_autoadd_bitrate_mode(
+    BitrateMode? self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_opt_box_autoadd_catalog_audio_info(
+    CatalogAudioInfo? self,
     SseSerializer serializer,
   );
 
